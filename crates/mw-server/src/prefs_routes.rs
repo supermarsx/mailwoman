@@ -269,8 +269,14 @@ async fn saved_searches_put(
         Ok(a) => a,
         Err(r) => return r,
     };
-    if body.name.trim().is_empty() {
-        return bad_request("a saved search needs a name");
+    if body.name.trim().is_empty()
+        || body.name.chars().count() > 256
+        || body.name.chars().any(char::is_control)
+    {
+        return bad_request("a saved search needs a name of at most 256 characters");
+    }
+    if let Err(error) = mw_engine::EmailFilter::parse_saved_json(&body.query_json) {
+        return bad_request(error);
     }
     match do_upsert_saved_search(&state.store, &account, &body).await {
         Ok(Some(id)) => Json(json!({ "ok": true, "id": id })).into_response(),

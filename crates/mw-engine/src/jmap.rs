@@ -136,21 +136,41 @@ impl Engine {
             let call_id = arr[2].as_str().unwrap_or("c0");
             let mut args = arr[1].clone();
             resolve_references(&mut args, &responses);
-            if crate::sieve_jmap::is_managed_method(name) && let Some(ctx) = sieve.as_deref_mut() {
-                let response = Box::pin(self.handle_managed_sieve(account_id, name, &args, ctx)).await;
-                let response_name = if response.get("type").is_some() { "error" } else { name };
+            if crate::sieve_jmap::is_managed_method(name)
+                && let Some(ctx) = sieve.as_deref_mut()
+            {
+                let response =
+                    Box::pin(self.handle_managed_sieve(account_id, name, &args, ctx)).await;
+                let response_name = if response.get("type").is_some() {
+                    "error"
+                } else {
+                    name
+                };
                 responses.push(json!([response_name, response, call_id]));
                 continue;
             }
             if crate::sieve_jmap::is_sieve_method(name) {
-                if !request.get("using").and_then(Value::as_array).is_some_and(|caps| {
-                    caps.iter().any(|cap| cap == crate::sieve_jmap::CAPABILITY)
-                }) {
+                if !request
+                    .get("using")
+                    .and_then(Value::as_array)
+                    .is_some_and(|caps| caps.iter().any(|cap| cap == crate::sieve_jmap::CAPABILITY))
+                {
                     responses.push(json!(["error", {"type":"unknownMethod"}, call_id]));
                     continue;
                 }
-                let response = Box::pin(self.handle_sieve_jmap(account_id, name, &args, sieve.as_deref_mut(), &mut created_ids)).await;
-                let response_name = if response.get("type").is_some() { "error" } else { name };
+                let response = Box::pin(self.handle_sieve_jmap(
+                    account_id,
+                    name,
+                    &args,
+                    sieve.as_deref_mut(),
+                    &mut created_ids,
+                ))
+                .await;
+                let response_name = if response.get("type").is_some() {
+                    "error"
+                } else {
+                    name
+                };
                 responses.push(json!([response_name, response, call_id]));
                 continue;
             }
@@ -411,6 +431,9 @@ impl Engine {
         let page = match self.query_page(account_id, args).await {
             Ok(p) => p,
             Err(QueryFail::AnchorNotFound) => return anchor_not_found(),
+            Err(QueryFail::InvalidFilter(message)) => {
+                return json!({"type":"invalidArguments","description":message});
+            }
             Err(QueryFail::Engine(e)) => return server_fail(&e),
         };
 
@@ -450,16 +473,9 @@ impl Engine {
     /// introduced to avoid. An anchor that is not in the result is
     /// `anchorNotFound`, per the spec, rather than a silent page 1.
     ///
-    /// **No unconditional `get_saved_search` (V7).** That lookup ran on *every*
-    /// `Email/query`, including the pure `inMailbox` fast path where it can only
-    /// ever miss. It is now deferred, and the deferral rests on a real
-    /// invariant: **a saved-search folder id is never a `messages.mailbox_id`**,
-    /// so any id that yields rows is a real mailbox and needs no lookup at all.
-    /// The probe happens only when the fast path comes back empty — an empty
-    /// mailbox, or a page past the end, pays one extra statement it did not pay
-    /// before, and the overwhelmingly common case pays one fewer. Filters that
-    /// do *not* take the fast path keep the eager expansion unchanged, including
-    /// its existing behaviour of replacing the whole filter.
+    /// Resolve mailbox ownership before reading rows. Real folders do not probe
+    /// saved searches; virtual folders must belong to this account and be enabled
+    /// as folders. Their stored filter is intersected with caller constraints.
     async fn query_page(
         &self,
         account_id: &str,
@@ -483,7 +499,12 @@ impl Engine {
             .unwrap_or(i64::MAX);
 
         let raw_filter = args.get("filter").cloned().unwrap_or(Value::Null);
-        let mut filter: EmailFilter = serde_json::from_value(raw_filter).unwrap_or_default();
+        let mut filter = if raw_filter.is_null() {
+            EmailFilter::default()
+        } else {
+            EmailFilter::parse_saved_json(&raw_filter.to_string())
+                .map_err(QueryFail::InvalidFilter)?
+        };
         // A8: captured before the saved-search expansion below can replace
         // `filter` wholesale, so opting a saved-search folder into semantic
         // re-ranking works too. The stored filter's own flag wins if it sets one.
@@ -492,7 +513,42 @@ impl Engine {
         let sort = search_index::sort_from_comparator(comparator.as_ref());
         let custom_sort = sort != mw_search::Sort::received_desc();
 
-        let route = query_route(&filter, custom_sort);
+        let mut additional_filter = None;
+        if let Some(mailbox) = filter.in_mailbox.clone() {
+            match self.store().get_mailbox(&mailbox).await {
+                Ok(real) if real.account_id == account_id => {}
+                Ok(_) => {
+                    return Ok(QueryPage {
+                        total: want_total.then_some(0),
+                        ..QueryPage::default()
+                    });
+                }
+                Err(mw_store::StoreError::NotFound) => {
+                    match self.store().get_saved_search(&mailbox).await? {
+                        Some(saved) if saved.user == account_id && saved.as_folder => {
+                            let stored = EmailFilter::parse_saved_json(&saved.query_json)
+                                .map_err(QueryFail::InvalidFilter)?;
+                            filter.in_mailbox = None;
+                            additional_filter = Some(filter);
+                            filter = stored;
+                        }
+                        _ if anchor.is_some() => return Err(QueryFail::AnchorNotFound),
+                        _ => {
+                            return Ok(QueryPage {
+                                total: want_total.then_some(0),
+                                ..QueryPage::default()
+                            });
+                        }
+                    }
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        let route = if additional_filter.is_some() {
+            QueryRoute::Search
+        } else {
+            query_route(&filter, custom_sort)
+        };
         if matches!(route, QueryRoute::Empty) {
             // No `inMailbox`, nothing for the search index to do: empty, as it
             // has always been. `total` is a real zero when asked for.
@@ -531,30 +587,30 @@ impl Engine {
                 }
             }
 
-            match self.store().get_saved_search(&mb).await? {
-                // It was a saved-search folder after all: run its stored filter
-                // through the search path below.
-                Some(ss) => filter = serde_json::from_str(&ss.query_json).unwrap_or_default(),
-                None if anchor.is_some() => return Err(QueryFail::AnchorNotFound),
-                // A real mailbox with nothing at this offset.
-                None => {
-                    return Ok(QueryPage {
-                        ids: Vec::new(),
-                        position: start.unwrap_or(0),
-                        total: self.exact_mailbox_total(&mb, want_total).await?,
-                        total_truncated: false,
-                    });
-                }
+            if anchor.is_some() {
+                return Err(QueryFail::AnchorNotFound);
             }
-        } else if let Some(mb) = filter.in_mailbox.clone()
-            && let Some(ss) = self.store().get_saved_search(&mb).await?
-        {
-            // Unchanged from 26.19 for the non-fast-path filters: a saved-search
-            // folder id in `inMailbox` replaces the filter wholesale.
-            filter = serde_json::from_str(&ss.query_json).unwrap_or_default();
+            return Ok(QueryPage {
+                ids: Vec::new(),
+                position: start.unwrap_or(0),
+                total: self.exact_mailbox_total(&mb, want_total).await?,
+                total_truncated: false,
+            });
         }
 
-        let hits = self.search_ids(account_id, &filter, sort, semantic).await?;
+        let mut hits = self.search_ids(account_id, &filter, sort, semantic).await?;
+        if let Some(additional) = additional_filter
+            && (additional.needs_search() || additional.in_mailbox_other_than.is_some())
+        {
+            // Intersection preserves AND even when both filters constrain the same
+            // field. Do this before anchors/pagination; never replace caller filters.
+            let extra = self
+                .search_ids(account_id, &additional, sort, Some(false))
+                .await?;
+            let allowed: std::collections::HashSet<_> = extra.ids.into_iter().collect();
+            hits.ids.retain(|id| allowed.contains(id));
+            hits.truncated |= extra.truncated;
+        }
         let start = match anchor {
             Some(a) => match hits.ids.iter().position(|id| id == a) {
                 Some(p) => (p as u64).saturating_add_signed(anchor_offset),
@@ -612,6 +668,7 @@ impl Engine {
         match self.query_page(account_id, &unpaged).await {
             Ok(p) => Ok(p.ids),
             Err(QueryFail::Engine(e)) => Err(e),
+            Err(QueryFail::InvalidFilter(message)) => Err(EngineError::Protocol(message.into())),
             // Unreachable: `anchor` was just removed.
             Err(QueryFail::AnchorNotFound) => Err(EngineError::Protocol(
                 "anchorNotFound from an unpaged query".into(),
@@ -637,10 +694,7 @@ impl Engine {
             .map(|m| m.id)
             .collect();
         // Scope to a single mailbox only when the filter pins a real one.
-        let scope = filter
-            .in_mailbox
-            .as_deref()
-            .filter(|mb| mailbox_ids.iter().any(|m| m == mb));
+        let scope = filter.in_mailbox.as_deref();
         let sq = search_index::build_search_query(filter, sort, &mailbox_ids, scope);
         // `search_hits`, not `search`: the latter cannot say whether `MAX_HITS`
         // cut the result, and a `total` derived from a cut result is a wrong
@@ -3619,6 +3673,7 @@ impl QueryPage {
 enum QueryFail {
     /// RFC 8620 §5.5: the `anchor` id is not in the query result.
     AnchorNotFound,
+    InvalidFilter(&'static str),
     Engine(EngineError),
 }
 
@@ -3659,7 +3714,7 @@ enum QueryRoute {
 /// takes. A disagreement would surface as a `total` counted over one order
 /// beside a page read from another.
 fn query_route(filter: &EmailFilter, custom_sort: bool) -> QueryRoute {
-    if custom_sort || filter.needs_search() {
+    if custom_sort || filter.needs_search() || filter.in_mailbox_other_than.is_some() {
         return QueryRoute::Search;
     }
     match filter.in_mailbox.clone() {

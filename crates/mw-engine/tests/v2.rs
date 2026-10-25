@@ -797,4 +797,148 @@ async fn saved_search_folder_runs_its_filter() {
         subject_of(&h, ids[0].as_str().unwrap()).await,
         "Invoice 2026"
     );
+    for (subject, expected) in [("Lunch", 0), ("Invoice", 1)] {
+        let response = jmap(&h, json!([["Email/query",{"filter":{"inMailbox":"ss-att","subject":subject},"calculateTotal":true},"q"]])).await;
+        assert_eq!(
+            result(&response, "q")["ids"].as_array().unwrap().len(),
+            expected
+        );
+        assert_eq!(result(&response, "q")["total"], expected);
+    }
+    for (user, as_folder, query) in [
+        (
+            "another-account".to_string(),
+            true,
+            json!({"subject":"Invoice"}).to_string(),
+        ),
+        (
+            h.account_id.clone(),
+            false,
+            json!({"subject":"Invoice"}).to_string(),
+        ),
+    ] {
+        h.engine
+            .store()
+            .upsert_saved_search(&mw_store::SavedSearchRow {
+                id: "ss-private".into(),
+                user,
+                name: "Private".into(),
+                query_json: query,
+                as_folder,
+            })
+            .await
+            .unwrap();
+        for filter in [
+            json!({"inMailbox":"ss-private"}),
+            json!({"inMailbox":"ss-private","subject":"Invoice"}),
+        ] {
+            let response = jmap(&h, json!([["Email/query",{"filter":filter},"q"]])).await;
+            assert!(result(&response, "q")["ids"].as_array().unwrap().is_empty());
+        }
+        h.engine
+            .store()
+            .delete_saved_search("ss-private")
+            .await
+            .unwrap();
+    }
+    h.engine
+        .store()
+        .upsert_saved_search(&mw_store::SavedSearchRow {
+            id: "ss-invalid".into(),
+            user: h.account_id.clone(),
+            name: "Corrupt".into(),
+            query_json: "broken".into(),
+            as_folder: true,
+        })
+        .await
+        .unwrap();
+    let response = jmap(
+        &h,
+        json!([["Email/query",{"filter":{"inMailbox":"ss-invalid"}},"q"]]),
+    )
+    .await;
+    assert_eq!(result(&response, "q")["type"], "invalidArguments");
+    h.engine
+        .store()
+        .upsert_saved_search(&mw_store::SavedSearchRow {
+            id: "ss-subject".into(),
+            user: h.account_id.clone(),
+            name: "Subject".into(),
+            query_json: json!({"subject":"Invoice"}).to_string(),
+            as_folder: true,
+        })
+        .await
+        .unwrap();
+    let response = jmap(
+        &h,
+        json!([["Email/query",{"filter":{"inMailbox":"ss-subject","subject":"Lunch"}},"q"]]),
+    )
+    .await;
+    assert!(
+        result(&response, "q")["ids"].as_array().unwrap().is_empty(),
+        "same-field constraints remain AND"
+    );
+}
+
+#[tokio::test]
+async fn real_mailbox_queries_never_cross_account_boundaries() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let foreign = h
+        .engine
+        .store()
+        .create_account(
+            &NewAccount {
+                kind: AccountKind::Imap,
+                host: "other.example.org",
+                port: 993,
+                tls: "implicit",
+                username: "other@example.org",
+                sync_policy_json: "{}",
+            },
+            &Credentials {
+                username: "other@example.org".into(),
+                password: "pw".into(),
+            },
+        )
+        .await
+        .unwrap();
+    h.engine.register_backend(
+        foreign.clone(),
+        AccountRuntime::new(
+            Arc::new(FakeBackend::new()),
+            h.submitter.clone(),
+            "other@example.org",
+        ),
+    );
+    h.engine.resync(&foreign).await.unwrap();
+    let mailbox = h
+        .engine
+        .store()
+        .list_mailboxes(&foreign)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|m| m.name == "INBOX")
+        .unwrap()
+        .id;
+    for filter in [
+        json!({"inMailbox":mailbox}),
+        json!({"inMailbox":mailbox,"subject":"Invoice"}),
+    ] {
+        let response = jmap(
+            &h,
+            json!([["Email/query",{"filter":filter,"calculateTotal":true},"q"]]),
+        )
+        .await;
+        assert_eq!(result(&response, "q")["ids"], json!([]));
+        assert_eq!(result(&response, "q")["total"], 0);
+    }
+    let own = inbox(&h).await;
+    let response = jmap(
+        &h,
+        json!([["Email/query",{"filter":{"inMailbox":own,"inMailboxOtherThan":[own]}},"q"]]),
+    )
+    .await;
+    assert_eq!(result(&response, "q")["ids"], json!([]));
 }

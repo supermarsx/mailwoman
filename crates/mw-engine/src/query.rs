@@ -42,15 +42,90 @@ pub struct EmailFilter {
 }
 
 impl EmailFilter {
+    /// Validate the supported flat filter before persistence or execution. Unknown
+    /// fields and malformed bounds must never silently become an unrestricted query.
+    pub fn parse_saved_json(raw: &str) -> Result<Self, &'static str> {
+        if raw.len() > 32 * 1024 {
+            return Err("search filter exceeds 32 KiB");
+        }
+        let value: serde_json::Value =
+            serde_json::from_str(raw).map_err(|_| "search filter must be valid JSON")?;
+        let object = value.as_object().ok_or("search filter must be an object")?;
+        let known = serde_json::to_value(Self::default()).expect("filter serializes");
+        for (key, value) in object {
+            if known.get(key).is_none() {
+                return Err("unsupported search filter field");
+            }
+            if value
+                .as_str()
+                .is_some_and(|text| text.len() > 4096 || text.chars().any(|c| c.is_control()))
+            {
+                return Err("search filter text is too long or contains control characters");
+            }
+        }
+        let filter: Self =
+            serde_json::from_value(value).map_err(|_| "search filter field has an invalid type")?;
+        if let Some(ids) = &filter.in_mailbox_other_than
+            && (ids.len() > 256
+                || ids
+                    .iter()
+                    .any(|id| id.is_empty() || id.len() > 256 || id.chars().any(char::is_control)))
+        {
+            return Err("invalid excluded mailbox list");
+        }
+        if filter
+            .in_mailbox
+            .as_ref()
+            .is_some_and(|id| id.is_empty() || id.len() > 256)
+        {
+            return Err("invalid mailbox ID");
+        }
+        let date = |value: &str| {
+            chrono::DateTime::parse_from_rfc3339(value)
+                .map(|d| d.timestamp())
+                .ok()
+                .or_else(|| {
+                    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+                        .ok()
+                        .and_then(|d| d.and_hms_opt(0, 0, 0))
+                        .map(|d| d.and_utc().timestamp())
+                })
+                .or_else(|| value.parse::<i64>().ok())
+        };
+        for value in [&filter.before, &filter.after].into_iter().flatten() {
+            if date(value).is_none() {
+                return Err("invalid search date bound");
+            }
+        }
+        if filter
+            .before
+            .as_deref()
+            .and_then(date)
+            .zip(filter.after.as_deref().and_then(date))
+            .is_some_and(|(before, after)| after > before)
+        {
+            return Err("search date bounds are reversed");
+        }
+        if filter
+            .min_size
+            .zip(filter.max_size)
+            .is_some_and(|(min, max)| min > max)
+            || [filter.min_size, filter.max_size]
+                .into_iter()
+                .flatten()
+                .any(|size| size > i64::MAX as u64)
+        {
+            return Err("invalid search size bounds");
+        }
+        Ok(filter)
+    }
     /// Whether this filter must route to the full-text index (`mw-search`)
     /// rather than the SQL fast path: every condition except `inMailbox`,
     /// which is the only one the fast path evaluates. A condition left out of
     /// this list is dropped on that path and the whole mailbox comes back, as
     /// the keyword, date and size conditions did before 26.20 (t28-e1).
     ///
-    /// `inMailboxOtherThan` is not listed: on its own it selects no route (see
-    /// `query_route` in `jmap.rs`), and the index applies it whenever another
-    /// condition routes there.
+    /// `inMailboxOtherThan` is routed separately by `query_route` in `jmap.rs`.
     pub fn needs_search(&self) -> bool {
         self.text.is_some()
             || self.from.is_some()
@@ -104,6 +179,31 @@ pub struct SavedSearch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_filters_are_typed_bounded_and_fail_closed() {
+        for raw in [
+            "null",
+            "[]",
+            "broken",
+            r#"{"unread":true}"#,
+            r#"{"subject":17}"#,
+            r#"{"before":"yesterday"}"#,
+            r#"{"minSize":20,"maxSize":10}"#,
+            r#"{"after":"2026-02-01","before":"2026-01-01"}"#,
+            r#"{"operator":"OR","conditions":[]}"#,
+        ] {
+            assert!(EmailFilter::parse_saved_json(raw).is_err(), "{raw}");
+        }
+        assert!(
+            EmailFilter::parse_saved_json(
+                &serde_json::json!({"text":"x".repeat(4097)}).to_string()
+            )
+            .is_err()
+        );
+        assert!(EmailFilter::parse_saved_json(r#"{"text":"invoice","after":"2026-01-01T00:00:00Z","hasAttachment":true,"notKeyword":"$seen"}"#).is_ok());
+        assert!(EmailFilter::parse_saved_json("{}").is_ok());
+    }
 
     #[test]
     fn pure_in_mailbox_stays_sql_fast_path() {
