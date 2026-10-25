@@ -379,6 +379,8 @@ admin-settings-help-logs-auth-max-entries = Maximum retained entries. Matching r
 
 admin-settings-key-reader-color-mode = Message colors
 admin-settings-cat-reader = Message display
+admin-settings-key-mail-request-read-receipt = Request read receipts by default
+admin-settings-help-mail-request-read-receipt = Start supported outgoing messages with a receipt request selected. This is a composing default, not a guarantee that the recipient will send a receipt.
 admin-settings-help-reader-color-mode = Automatic follows dark themes. Choose original, adaptive or inverted rendering inside the isolated message frame.
 admin-settings-key-reader-font-size = Message font size
 admin-settings-help-reader-font-size = Default reading size in pixels, from 12 to 24.

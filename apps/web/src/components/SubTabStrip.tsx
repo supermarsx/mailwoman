@@ -19,17 +19,17 @@ function tabDomId(id: string): string {
   return `subtab-tab-${id}`;
 }
 
-export function SubTabStrip(): JSX.Element {
+export function SubTabStrip(props: { onClose?: (id:string)=>void; allowTearOff?: boolean; canClose?: (id:string)=>boolean } = {}): JSX.Element {
   const { subTabs } = useRealtime();
 
   function onKeyDown(e: KeyboardEvent): void {
     const next = e.key === 'ArrowRight' || (e.ctrlKey && e.key === 'Tab' && !e.shiftKey);
     const prev = e.key === 'ArrowLeft' || (e.ctrlKey && e.key === 'Tab' && e.shiftKey);
     if (next) {
-      subTabs.cycle(1);
+      const id=subTabs.cycle(1); if(id) document.getElementById(tabDomId(id))?.focus();
       e.preventDefault();
     } else if (prev) {
-      subTabs.cycle(-1);
+      const id=subTabs.cycle(-1); if(id) document.getElementById(tabDomId(id))?.focus();
       e.preventDefault();
     }
   }
@@ -51,16 +51,17 @@ export function SubTabStrip(): JSX.Element {
           aria-owns={subTabs.tabs().map((tab) => tabDomId(tab.id)).join(' ')}
         />
         <For each={subTabs.tabs()}>
-          {(tab) => <SubTabButton tab={tab} active={subTabs.activeId() === tab.id} />}
+          {(tab) => <SubTabButton tab={tab} active={subTabs.activeId() === tab.id} {...props} />}
         </For>
       </div>
     </Show>
   );
 }
 
-function SubTabButton(props: { tab: SubTab; active: boolean }): JSX.Element {
+function SubTabButton(props: { tab: SubTab; active: boolean; onClose?: (id:string)=>void; allowTearOff?: boolean; canClose?: (id:string)=>boolean }): JSX.Element {
   const { subTabs } = useRealtime();
   const id = (): string => props.tab.id;
+  const close=():void=>{if(props.canClose?.(id())===false) return;if(props.onClose) props.onClose(id());else subTabs.close(id());};
   return (
     <div
       class="subtab"
@@ -77,7 +78,7 @@ function SubTabButton(props: { tab: SubTab; active: boolean }): JSX.Element {
         onClick={() => subTabs.activate(id())}
         onAuxClick={(e) => {
           // Middle-click closes, matching browser tab convention.
-          if (e.button === 1) subTabs.close(id());
+          if (e.button === 1) close();
         }}
       >
         {props.tab.title}
@@ -96,22 +97,22 @@ function SubTabButton(props: { tab: SubTab; active: boolean }): JSX.Element {
       >
         <Icon name={props.tab.pinned ? 'star' : 'starOutline'} />
       </button>
-      <button
+      <Show when={props.allowTearOff !== false}><button
         type="button"
         class={`subtab__tearoff ${a11y.iconButton}`}
         aria-label={t('mail-subtab-tearoff', { title: props.tab.title })}
         onClick={() => subTabs.tearOff(id())}
       >
         <Icon name="clone" />
-      </button>
-      <button
+      </button></Show>
+      <Show when={props.canClose?.(id()) !== false}><button
         type="button"
         class={`subtab__close ${a11y.iconButton}`}
         aria-label={t('mail-subtab-close', { title: props.tab.title })}
-        onClick={() => subTabs.close(id())}
+        onClick={close}
       >
         <Icon name="close" />
-      </button>
+      </button></Show>
     </div>
   );
 }

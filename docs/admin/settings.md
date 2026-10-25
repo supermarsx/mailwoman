@@ -588,6 +588,12 @@ Global, hot. Default 50,000; range 1,000–100,000. Oldest entries are removed o
 
 ### Message display
 
+<a id="mail.requestReadReceipt"></a>
+`mail.requestReadReceipt` defaults to `false` and sets the composing default for
+requesting a receipt on supported outgoing mail. It does not compel a recipient
+to return a receipt. Incoming receipt responses remain governed separately by
+`mail.readReceipts` (`ask`, `never`, `always`).
+
 These keys support global and domain defaults, administrator locks and user overrides. The settings apply inside the isolated message renderer, without changing its content security policy or remote-image permissions.
 
 | Key | Values | Default |

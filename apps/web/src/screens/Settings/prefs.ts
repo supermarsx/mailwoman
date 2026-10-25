@@ -1,10 +1,8 @@
-// Client-local Settings preferences (t16 e15 — W14 keyboard presets, W16 offline
-// eviction policy, W20 interface direction preview).
-//
-// These are per-device UI preferences, not account state: they persist to
-// localStorage under a namespaced key and are read by the shell (keymap dispatch),
-// the OPFS offline cache (eviction), and the Settings panel (direction preview).
-// Everything is guarded for the no-`localStorage` case (SSR) and never throws.
+import { accountUiPreferences, setAccountUiPreferences } from '../../api/accountPreferences.ts';
+import { preferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
+// Authenticated choices use the versioned account preferences document. The
+// local fallback is only for signed-out/test contexts; it is never seeded into
+// a newly authenticated account. Cache policy numbers sync, cache bytes do not.
 
 const STORAGE_KEY = 'mw.settings.prefs.v1';
 
@@ -72,9 +70,9 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback
 
 /** Read the persisted prefs, falling back per-field to defaults on any junk. */
 export function loadPrefs(): SettingsPrefs {
+  const synced = accountUiPreferences();
   const s = store();
-  if (s === null) return { ...DEFAULT_PREFS };
-  const raw = s.getItem(STORAGE_KEY);
+  const raw = preferenceAccount() ? JSON.stringify(synced) : s?.getItem(STORAGE_KEY) ?? null;
   if (raw === null) return { ...DEFAULT_PREFS };
   try {
     const parsed = JSON.parse(raw) as Partial<SettingsPrefs>;
@@ -97,6 +95,12 @@ export function loadPrefs(): SettingsPrefs {
 
 /** Persist prefs (best-effort; a blocked/full store is swallowed, never throws). */
 export function savePrefs(prefs: SettingsPrefs): void {
+  if (preferenceAccount()) {
+    const previous = loadPrefs();
+    const patch = Object.fromEntries(Object.entries(prefs).filter(([key, value]) => previous[key as keyof SettingsPrefs] !== value));
+    setAccountUiPreferences(patch);
+    return;
+  }
   const s = store();
   if (s === null) return;
   try {

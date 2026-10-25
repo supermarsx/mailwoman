@@ -1,0 +1,47 @@
+import { describe, expect, it, vi } from 'vitest';
+import { render, fireEvent, screen, within, waitFor } from '@solidjs/testing-library';
+import { AppContext } from '../state/context.ts';
+import { createAppState } from '../state/store.ts';
+import { makeClient, mkEmail } from '../components/appHarness.tsx';
+import { MailboxScreen } from './Mailbox.tsx';
+import { RealtimeContext } from '../realtime/context.ts';
+import { createRealtimeController } from '../realtime/controller.ts';
+import type { EmailGetResponse, JmapRequest } from '../api/jmap-types.ts';
+
+function mount() {
+  const emails=[mkEmail('a'),mkEmail('b')];const client=makeClient({emails});
+  const original=client.jmap;
+  client.jmap=vi.fn(async (request:JmapRequest)=>{const response=await original(request);const ids=request.methodCalls.find(call=>call[0]==='Email/get')?.[1]['ids'];if(Array.isArray(ids)){for(const call of response.methodResponses)if(call[0]==='Email/get')(call[1] as unknown as EmailGetResponse).list=emails.filter(email=>ids.includes(email.id));}return response;});
+  const app=createAppState(client);const realtime=createRealtimeController();
+  const result=render(()=><AppContext.Provider value={app}><RealtimeContext.Provider value={realtime}><MailboxScreen/></RealtimeContext.Provider></AppContext.Provider>);
+  return {app,realtime,...result};
+}
+describe('retained mailbox workspace',()=>{
+  it('opens independent message tabs and restores each reader without another load',async()=>{
+    const {app,realtime,container}=mount();await app.login({username:'me@example.org',password:'p'});
+    fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}));
+    await waitFor(()=>expect(app.openEmail()?.id).toBe('a'));
+    fireEvent.click(screen.getByText('Subject b',{selector:'.list__subject'}));
+    await waitFor(()=>expect(app.openEmail()?.id).toBe('b'));
+    expect(container.querySelectorAll('.workspace-pane .reader__subject')).toHaveLength(2);
+    const first=realtime.subTabs.tabs().find(tab=>tab.title==='Subject a')!;
+    fireEvent.click(document.getElementById(`subtab-tab-${first.id}`)!);
+    expect(app.openEmail()?.id).toBe('a');
+    expect(screen.getByRole('tab',{name:'Subject a'})).toHaveAttribute('aria-selected','true');
+  });
+  it('keeps each composer mounted and opens sectioned Settings without a modal',async()=>{
+    const {app,realtime}=mount();await app.login({username:'me@example.org',password:'p'});
+    fireEvent.click(screen.getByRole('button',{name:/^Compose$/}));
+    const first=realtime.subTabs.activeId()!;fireEvent.input(within(screen.getByRole('tabpanel',{name:'Compose'})).getByLabelText('Subject'),{target:{value:'Draft alpha'}});
+    fireEvent.click(screen.getByRole('button',{name:/^Compose$/}));
+    fireEvent.input(within(screen.getByRole('tabpanel',{name:'Compose'})).getByLabelText('Subject'),{target:{value:'Draft beta'}});
+    fireEvent.click(document.getElementById(`subtab-tab-${first}`)!);
+    expect(within(screen.getByRole('tabpanel',{name:'Compose'})).getByLabelText('Subject')).toHaveValue('Draft alpha');
+    fireEvent.click(screen.getByRole('button',{name:/^Settings$/}));
+    const settings=await screen.findByRole('region',{name:'Settings'});
+    expect(within(settings).getByRole('navigation',{name:'Settings sections'})).toBeInTheDocument();
+    expect(screen.queryByRole('dialog',{name:'Settings'})).not.toBeInTheDocument();
+    fireEvent.click(document.getElementById(`subtab-tab-${first}`)!);
+    expect(within(screen.getByRole('tabpanel',{name:'Compose'})).getByLabelText('Subject')).toHaveValue('Draft alpha');
+  });
+});

@@ -7,6 +7,8 @@ import { DEFAULT_PREFS, savePrefs } from '../../screens/Settings/prefs.ts';
 import type { Client, Me } from '../../api/client.ts';
 import { CAP_MAIL, type Email, type JmapRequest, type JmapResponse, type JmapSession, type Mailbox } from '../../api/jmap-types.ts';
 
+vi.mock('../../api/accountPreferences.ts', () => { let value: Record<string, unknown> = {}; return { accountUiPreferences: () => value, setAccountUiPreferences: (patch: Record<string, unknown>) => { value = {...value, ...patch}; } }; });
+
 // Read state, flags, selection and bulk actions (t28-e16).
 //
 // The fake server below keeps its own copy of every message and computes the
@@ -148,6 +150,7 @@ const inboxUnread = (mail: MailSlice): number => mail.mailboxes().find((b) => b.
 
 beforeEach(() => {
   localStorage.clear();
+  savePrefs(DEFAULT_PREFS);
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -191,14 +194,14 @@ describe('mark read on open', () => {
 
   it('marks nothing when the policy is "never", and honours a configured delay', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    savePrefs({ ...DEFAULT_PREFS, markRead: 'never' });
     await withSlice([msg('a')], async (mail, server) => {
+      savePrefs({ ...DEFAULT_PREFS, markRead: 'never' });
       await mail.openMessage('a');
       await vi.advanceTimersByTimeAsync(60_000);
       expect(server.sets()).toEqual([]);
     });
-    savePrefs({ ...DEFAULT_PREFS, markReadDelayMs: 5000 });
     await withSlice([msg('a')], async (mail, server) => {
+      savePrefs({ ...DEFAULT_PREFS, markReadDelayMs: 5000 });
       await mail.openMessage('a');
       await vi.advanceTimersByTimeAsync(4999);
       expect(server.sets()).toEqual([]);

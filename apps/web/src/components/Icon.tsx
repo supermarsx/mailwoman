@@ -53,6 +53,8 @@ export type IconName =
   | 'clone'
   | 'enable'
   | 'disable'
+  | 'inbox'
+  | 'sent'
   | 'mail'
   | 'flag'
   | 'pin'
@@ -123,6 +125,8 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   clone: () => <path d="M5 5 H14 V14 H5 Z M2 11 V2 H11" {...S} />,
   enable: () => <path d="M3 8 L6 11 L13 4" {...S} />,
   disable: () => <path d="M3 3 L13 13 M13 3 L3 13" {...S} />,
+  inbox: () => <path d="M3 2 H13 L15 9 V14 H1 V9 Z M1 9 H5 L6 11 H10 L11 9 H15" {...S} />,
+  sent: () => <path d="M1 2 L15 8 L1 14 L4 8 Z M4 8 H15" {...S} />,
   mail: () => <path d="M1 3 H15 V13 H1 Z M1 3 L8 9 L15 3" {...S} />,
   flag: () => <path d="M3 15 V1 H13 L10 4 L13 7 H3" {...S} />,
   pin: () => <path d="M5 1 H11 L10 6 L13 9 H9 V15 H7 V9 H3 L6 6 Z" {...S} />,

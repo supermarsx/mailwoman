@@ -386,7 +386,7 @@ export function rowRefCount(): number {
   return liveRowEls?.deref()?.size ?? -1;
 }
 
-export function MessageList(): JSX.Element {
+export function MessageList(props: { onOpenMessage?: (id: string) => void } = {}): JSX.Element {
   const app = useApp();
   const [scrollTop, setScrollTop] = createSignal(0);
   // jsdom reports 0 for clientHeight; fall back to a sane viewport so tests
@@ -461,7 +461,7 @@ export function MessageList(): JSX.Element {
       return;
     }
     app.clearSelection();
-    void app.openMessage(row.email.id);
+    void (props.onOpenMessage ? props.onOpenMessage(row.email.id) : app.openMessage(row.email.id));
   }
 
   let scroller: HTMLDivElement | undefined;
@@ -584,7 +584,7 @@ export function MessageList(): JSX.Element {
     const to = Math.max(0, Math.min(all.length - 1, from + delta));
     moveCursor(to);
     const row = all[to];
-    if (row !== undefined && row.email.id !== openId) void app.openMessage(row.email.id);
+    if (row !== undefined && row.email.id !== openId) void (props.onOpenMessage ? props.onOpenMessage(row.email.id) : app.openMessage(row.email.id));
     return true;
   }
   useActions({ next: () => step(1), previous: () => step(-1) });

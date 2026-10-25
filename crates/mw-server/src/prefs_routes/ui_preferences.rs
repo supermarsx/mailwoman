@@ -1,0 +1,246 @@
+//! Versioned, account-bound UI preferences. Appearance retains its existing
+//! policy-aware authority in the parent module; this document cannot override it.
+use super::*;
+use std::collections::{BTreeMap, HashSet};
+
+const MAX_BYTES: usize = 65_536;
+
+#[derive(Default, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct Preferences {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    keyboard_preset: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_layout: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_sidebar_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_sidebar_width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message_list_width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message_list_height: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reading_pane: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message_list_collapsed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reader_collapsed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_split_ratio: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    direction: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mark_read: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mark_read_delay_ms: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    offline_budget_mb: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    offline_retention_days: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    eviction: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_pinned: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_order: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_icons: Option<BTreeMap<String, String>>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Document {
+    version: u8,
+    preferences: Preferences,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Stored {
+    revision: String,
+    document: Document,
+}
+
+fn key(account: &str) -> String {
+    format!("ui-preferences:{account}")
+}
+fn valid_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control)
+}
+fn choices(value: &Option<String>, allowed: &[&str]) -> bool {
+    value.as_ref().is_none_or(|v| allowed.contains(&v.as_str()))
+}
+fn valid_ids(value: &Option<Vec<String>>) -> bool {
+    value.as_ref().is_none_or(|ids| {
+        ids.len() <= 500
+            && ids.iter().all(|id| valid_id(id))
+            && ids.iter().collect::<HashSet<_>>().len() == ids.len()
+    })
+}
+fn valid(document: &Document) -> bool {
+    let p = &document.preferences;
+    document.version == 1
+        && choices(
+            &p.keyboard_preset,
+            &["default", "gmail", "outlook", "vim", "off"],
+        )
+        && choices(&p.workspace_layout, &["tabs", "side-by-side", "stack"])
+        && choices(&p.folder_sidebar_mode, &["expanded", "compact", "hidden"])
+        && p.folder_sidebar_width
+            .is_none_or(|v| (160..=600).contains(&v))
+        && choices(&p.reading_pane, &["right", "bottom", "off"])
+        && p.message_list_height
+            .is_none_or(|v| (160..=1200).contains(&v))
+        && p.message_list_width
+            .is_none_or(|v| (240..=1200).contains(&v))
+        && p.workspace_split_ratio
+            .is_none_or(|v| v.is_finite() && (0.2..=0.8).contains(&v))
+        && choices(&p.direction, &["auto", "ltr", "rtl"])
+        && choices(&p.mark_read, &["on-open", "never"])
+        && choices(&p.eviction, &["lru", "oldest", "manual"])
+        && p.mark_read_delay_ms.is_none_or(|v| v <= 60_000)
+        && p.offline_budget_mb.is_none_or(|v| v <= 100_000)
+        && p.offline_retention_days.is_none_or(|v| v <= 36_500)
+        && valid_ids(&p.folder_pinned)
+        && valid_ids(&p.folder_order)
+        && p.folder_icons.as_ref().is_none_or(|icons| {
+            icons.len() <= 500
+                && icons.iter().all(|(id, icon)| {
+                    valid_id(id)
+                        && [
+                            "folder",
+                            "star",
+                            "flag",
+                            "tag",
+                            "clock",
+                            "calendar",
+                            "file",
+                            "image",
+                            "lock",
+                            "users",
+                            "archive",
+                            "mail",
+                            "attachment",
+                            "check",
+                            "alert",
+                        ]
+                        .contains(&icon.as_str())
+                })
+        })
+}
+
+fn response(document: Document, revision: &str) -> Response {
+    let mut response = Json(document).into_response();
+    response
+        .headers_mut()
+        .insert("cache-control", "private, no-store".parse().unwrap());
+    response
+        .headers_mut()
+        .insert("etag", format!("\"{revision}\"").parse().unwrap());
+    response
+}
+
+pub(super) async fn load(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let account = match account_id(&state, &headers).await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match state.store.get_setting(&key(&account)).await {
+        Ok(Some(raw)) => match serde_json::from_str::<Stored>(&raw) {
+            Ok(stored) => response(stored.document, &stored.revision),
+            Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        },
+        Ok(None) => response(
+            Document {
+                version: 1,
+                preferences: Preferences::default(),
+            },
+            "0",
+        ),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+pub(super) async fn save(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(document): Json<Document>,
+) -> Response {
+    let account = match account_id(&state, &headers).await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    if !valid(&document) {
+        return bad_request("invalid UI preferences");
+    }
+    if serde_json::to_vec(&document).map_or(true, |v| v.len() > MAX_BYTES) {
+        return payload_too_large("UI preferences are too large");
+    }
+    let Some(expected) = headers.get("if-match").and_then(|v| v.to_str().ok()) else {
+        return StatusCode::PRECONDITION_REQUIRED.into_response();
+    };
+    let raw = match state.store.get_setting(&key(&account)).await {
+        Ok(v) => v,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+    let revision = match raw
+        .as_ref()
+        .map(|v| serde_json::from_str::<Stored>(v))
+        .transpose()
+    {
+        Ok(Some(v)) => v.revision,
+        Ok(None) => "0".into(),
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+    if expected != format!("\"{revision}\"") {
+        return StatusCode::PRECONDITION_FAILED.into_response();
+    }
+    let stored = Stored {
+        revision: format!("{:032x}", rand::random::<u128>()),
+        document,
+    };
+    let serialized = serde_json::to_string(&stored).expect("preference document serializes");
+    match state
+        .store
+        .compare_and_set_setting(&key(&account), raw.as_deref(), &serialized)
+        .await
+    {
+        Ok(true) => response(stored.document, &stored.revision),
+        Ok(false) => StatusCode::PRECONDITION_FAILED.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn refuses_unknown_authority_secret_and_invalid_fields() {
+        for value in [
+            json!({"accountId":"other"}),
+            json!({"password":"secret"}),
+            json!({"appearance":{}}),
+        ] {
+            assert!(
+                serde_json::from_value::<Document>(json!({"version":1,"preferences":value}))
+                    .is_err()
+            );
+        }
+        for prefs in [
+            json!({"markReadDelayMs":60001}),
+            json!({"folderOrder":["a","a"]}),
+            json!({"folderIcons":{"a":"https://avatar.invalid"}}),
+            json!({"keyboardPreset":"arbitrary"}),
+        ] {
+            assert!(!valid(
+                &serde_json::from_value(json!({"version":1,"preferences":prefs})).unwrap()
+            ));
+        }
+        assert!(valid(
+            &serde_json::from_value(
+                json!({"version":1,"preferences":{"folderIcons":{"a":"star"},"markRead":"never"}})
+            )
+            .unwrap()
+        ));
+    }
+}

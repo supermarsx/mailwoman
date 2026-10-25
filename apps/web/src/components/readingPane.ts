@@ -1,13 +1,10 @@
-// Reading-pane position preference (W3): right | bottom | off.
-//
-// A module-level singleton (same shape as the reader's max-security store): the
-// signal drives the toolbar control's pressed state, and the value is reflected
-// onto `:root[data-reading-pane]` so the layout switch is pure CSS (see
-// readerPane.css.ts). Persisted to localStorage — there is no per-user settings
-// endpoint yet (mirrors the theme slice's localStorage note); swapping the
-// load/save pair moves the backend without touching callers.
+// Reading-pane position is account-synchronized; signed-out contexts retain a
+// device fallback. The root attribute follows remote hydration as well as clicks.
 
-import { createSignal, type Accessor } from 'solid-js';
+import { createEffect, createRoot, createSignal, type Accessor } from 'solid-js';
+
+import { accountUiPreferences, setAccountUiPreferences } from '../api/accountPreferences.ts';
+import { preferenceAccount } from '../api/accountPreferenceLifecycle.ts';
 
 export type ReadingPane = 'right' | 'bottom' | 'off';
 
@@ -34,10 +31,15 @@ const [pane, setPaneSig] = createSignal<ReadingPane>(load());
 apply(pane());
 
 /** Current reading-pane position (reactive). */
-export const readingPane: Accessor<ReadingPane> = pane;
+export const readingPane: Accessor<ReadingPane> = () => {
+  const preferences = accountUiPreferences();
+  return preferenceAccount() ? preferences.readingPane ?? 'right' : pane();
+};
+createRoot(() => createEffect(() => apply(readingPane())));
 
 /** Set + persist + reflect the reading-pane position. */
 export function setReadingPane(mode: ReadingPane): void {
+  if (preferenceAccount()) { setAccountUiPreferences({readingPane: mode}); apply(mode); return; }
   setPaneSig(mode);
   apply(mode);
   try {

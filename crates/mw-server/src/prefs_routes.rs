@@ -58,6 +58,8 @@ use mw_store::{
 
 use crate::AppState;
 
+mod ui_preferences;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Wire shapes (mirror apps/web/src/screens/Settings/types.ts exactly)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -883,6 +885,10 @@ fn identity_to_dto(row: &IdentityRow) -> IdentityDto {
 /// the `/api/account/*` surface.
 pub(crate) fn prefs_router() -> Router<AppState> {
     Router::new()
+        .route(
+            "/api/account/preferences",
+            get(ui_preferences::load).put(ui_preferences::save),
+        )
         .route(
             "/api/account/signatures",
             get(signatures_list).post(signatures_upsert),

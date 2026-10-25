@@ -1,8 +1,10 @@
+import { settings } from '../api/settings.ts';
 import { Icon } from './Icon.tsx';
 import {
   createEffect,
   createMemo,
   createSignal,
+  createUniqueId,
   lazy,
   For,
   Show,
@@ -115,11 +117,14 @@ const TITLE_KEY = {
 
 export function Compose(props: {
   onClose: () => void;
+  embedded?: boolean;
+  active?: boolean;
   /** Reply / Reply all / Forward: what the composer starts with. Read once,
    *  when the composer mounts. */
   initial?: ComposeInitial;
 }): JSX.Element {
   const app = useApp();
+  const composeId=createUniqueId();
   const initial = props.initial;
   const [to, setTo] = createSignal(initial?.to ?? '');
   const [cc, setCc] = createSignal(initial?.cc ?? '');
@@ -207,7 +212,10 @@ export function Compose(props: {
   // Send options (t29-e12). Off for every new message; never remembered for the
   // next one. The receipt option needs the engine (see ENGINE_CAP).
   const [receiptAvailable, setReceiptAvailable] = createSignal(false);
-  const [requestReceipt, setRequestReceipt] = createSignal(false);
+  const [requestReceipt, setRequestReceiptValue] = createSignal(settings()['mail.requestReadReceipt']?.value===true);
+  let receiptInitialized=settings()['mail.requestReadReceipt']!==undefined;
+  const setRequestReceipt=(value:boolean):void=>{receiptInitialized=true;setRequestReceiptValue(value);};
+  createEffect(()=>{const entry=settings()['mail.requestReadReceipt'];if(!receiptInitialized && entry){receiptInitialized=true;setRequestReceiptValue(entry.value===true);}});
   const [trackOpens, setTrackOpens] = createSignal(false);
   // Crypto/DLP state reported up by <ComposeCrypto> (encrypt/sign toggles, the
   // E2EE/TLS/mixed capability, the DLP `canSend` gate, and the WASM-encrypted
@@ -278,6 +286,7 @@ export function Compose(props: {
   }
 
   function onDialogKeyDown(e: KeyboardEvent): void {
+    if (props.embedded) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       props.onClose();
@@ -301,7 +310,7 @@ export function Compose(props: {
   onMount(() => {
     void loadCatalog('mail');
     previouslyFocused = document.activeElement as HTMLElement | null;
-    toInputEl?.focus();
+    if (props.active !== false) toInputEl?.focus();
     void app.loadIdentities();
     void app.loadContacts().catch(() => undefined);
     // Probe the optional V7 backends ONCE (idempotent, silent on failure): a
@@ -343,7 +352,7 @@ export function Compose(props: {
   }
 
   onCleanup(() => {
-    previouslyFocused?.focus();
+    if (!props.embedded) previouslyFocused?.focus();
     for (const img of inlineImages()) if (img.previewUrl !== null) URL.revokeObjectURL(img.previewUrl);
     // Drop the cached signing key from the worker session when the composer closes
     // (the worker zeroizes the unlocked private key for this ref).
@@ -587,6 +596,9 @@ export function Compose(props: {
   // saved: local storage is plaintext, and the original was not.
   onMount(() => setDrafts(listDrafts()));
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let pendingDraft:StoredDraft | undefined;
+  let sent=false;
+  const draftAccount=app.accountId();
   createEffect(() => {
     if (quotesDecrypted) return;
     const snapshot: StoredDraft = {
@@ -605,9 +617,10 @@ export function Compose(props: {
       ...(inlineImages().length > 0 ? { inline: inlineImages().map(storedImage) } : {}),
     };
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => saveDraft(snapshot), 800);
+    pendingDraft=snapshot;
+    saveTimer = setTimeout(() => {if(!sent) saveDraft(snapshot);}, 800);
   });
-  onCleanup(() => clearTimeout(saveTimer));
+  onCleanup(() => {clearTimeout(saveTimer);if(!sent && pendingDraft && app.accountId()===draftAccount && app.me()!==null) saveDraft(pendingDraft);});
 
   const recipientFields = {
     to: [to, setTo],
@@ -835,6 +848,7 @@ export function Compose(props: {
         ...(trackingAvailable() && trackOpens() ? { openTracking: true } : {}),
       });
       // W9: the composition was sent — drop its auto-saved draft.
+      sent=true;clearTimeout(saveTimer);pendingDraft=undefined;
       deleteDraft(draftId);
       props.onClose();
     } catch (err) {
@@ -846,9 +860,9 @@ export function Compose(props: {
 
   return (
     <div
-      class="compose__backdrop"
-      role="dialog"
-      aria-modal="true"
+      class={props.embedded ? "workspace-compose" : "compose__backdrop"}
+      role={props.embedded ? "region" : "dialog"}
+      aria-modal={props.embedded ? undefined : "true"}
       aria-label={t('mail-compose-label')}
       ref={backdropEl}
       onKeyDown={onDialogKeyDown}
@@ -1271,14 +1285,14 @@ export function Compose(props: {
           <section
             class="compose__sign-unlock"
             role="alertdialog"
-            aria-labelledby="compose-plaintext-confirm-title"
-            aria-describedby="compose-plaintext-confirm-body"
+            aria-labelledby={`${composeId}-plaintext-title`}
+            aria-describedby={`${composeId}-plaintext-body`}
             data-testid="compose-plaintext-confirm"
           >
-            <p id="compose-plaintext-confirm-title" class="compose__sign-unlock-note">
+            <p id={`${composeId}-plaintext-title`} class="compose__sign-unlock-note">
               <strong>{t('mail-compose-plaintext-confirm-title')}</strong>
             </p>
-            <p id="compose-plaintext-confirm-body" class="compose__sign-unlock-note">
+            <p id={`${composeId}-plaintext-body`} class="compose__sign-unlock-note">
               {t('mail-compose-plaintext-confirm-body')}
             </p>
             <div class="compose__sign-unlock-row">

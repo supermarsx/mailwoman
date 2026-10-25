@@ -11,7 +11,8 @@ import {
   type JSX,
   type Resource,
 } from 'solid-js';
-import { useApp } from '../state/context.ts';
+import { AppContext, useApp } from '../state/context.ts';
+import type { MessageView } from '../state/slices/messageView.ts';
 import { createEntryMotion } from '../shell/createEntryMotion.ts';
 import * as motion from '../styles/motion.css.ts';
 import { t, isolate, loadCatalog } from '../i18n/index.ts';
@@ -591,11 +592,25 @@ function RemoteFileDownloads(props: { emailId: string; scope: string; urls: stri
   return <section aria-label={t('privacy-linked-files')}><details><summary>{t('privacy-linked-files')}</summary><For each={props.urls}>{url => <p><span dir="auto">{new URL(url).hostname}{new URL(url).pathname}</span> <button type="button" class="btn" disabled={pending()} onClick={() => void download(url)}>{t('privacy-download-file')}</button></p>}</For><Show when={props.links.some(url => !props.urls.includes(url))}><label>{t('privacy-other-link')}<select value={selected()} onChange={e => setSelected(e.currentTarget.value)}><option value="">{t('privacy-select-link')}</option><For each={props.links.filter(url => !props.urls.includes(url))}>{url => <option value={url}>{url}</option>}</For></select></label><button type="button" class="btn" disabled={pending() || !selected()} onClick={() => { const url = selected(); if (props.links.includes(url)) void download(url); }}>{t('privacy-download-file')}</button></Show></details><Show when={failed()}><p role="alert">{t('privacy-file-failed')}</p></Show></section>;
 }
 
-export function Reader(props: {
-  /** Open a composer seeded for a reply or a forward (the mailbox screen owns
-   *  the composer). Without it the three toolbar buttons do nothing. */
+interface ReaderProps {
   onCompose?: (initial: ComposeInitial) => void;
-}): JSX.Element {
+  view?: MessageView;
+  onClose?: () => void;
+  active?: boolean;
+}
+export function Reader(props: ReaderProps): JSX.Element {
+  const app=useApp();
+  const scoped={...app,
+    openEmail:()=>props.view ? props.view.openEmail() : app.openEmail(),
+    sanitizedHtml:()=>props.view ? props.view.sanitizedHtml() : app.sanitizedHtml(),
+    readLoading:()=>props.view ? props.view.readLoading() : app.readLoading(),
+    openMessage:(id:string)=>props.view ? props.view.openMessage(id) : app.openMessage(id),
+    closeMessage:()=>props.onClose ? props.onClose() : props.view ? props.view.closeMessage() : app.closeMessage(),
+    exportMessage:(id?:string)=>{const selected=id ?? (props.view ? props.view.openEmail()?.id : app.openEmail()?.id);return selected ? app.exportMessage(selected) : Promise.resolve();},
+  };
+  return <AppContext.Provider value={scoped}><ReaderBody {...props} /></AppContext.Provider>;
+}
+function ReaderBody(props: ReaderProps): JSX.Element {
   const app = useApp();
   onMount(() => { void loadCatalog('remote-images'); void loadCatalog('privacy'); });
 
@@ -611,7 +626,7 @@ export function Reader(props: {
   let backButton: HTMLButtonElement | undefined;
   createEffect(
     on(emailId, (id) => {
-      if (id !== null && narrow()) queueMicrotask(() => backButton?.focus());
+      if (id !== null && narrow() && props.active !== false) queueMicrotask(() => backButton?.focus());
     }),
   );
 
@@ -890,7 +905,7 @@ export function Reader(props: {
   // The `reply` shortcut (src/keymap/): the same as the toolbar's Reply button.
   useActions({
     reply: () => {
-      if (app.openEmail() === null || props.onCompose === undefined) return false;
+      if (props.active === false || app.openEmail() === null || props.onCompose === undefined) return false;
       void startReply('reply');
       return true;
     },

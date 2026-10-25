@@ -552,6 +552,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "Sieve forwarding outside the account domain"
     ),
     // ── Interface (user-facing) ──────────────────────────────────────────────
+    def!("mail.requestReadReceipt", Kind::Bool, "false", GDU, "mail", "request a read receipt by default when composing supported mail"),
     def!("reader.colorMode", Kind::Enum(&["auto", "original", "adaptive", "invert"]), "\"auto\"", GDU, "reader", "message color adaptation inside the isolated reader"),
     def!("reader.fontSize", int(12, 24), "14", GDU, "reader", "message reading font size in pixels"),
     def!("reader.lineHeight", Kind::Float { min: 1.2, max: 2.2 }, "1.6", GDU, "reader", "message reading line height"),

@@ -1,0 +1,19 @@
+import {expect,it} from 'vitest';
+import {FOLDER_ICONS} from '../../api/accountPreferences.ts';
+import {folderIcon,moveFolder,orderedFolders} from './folderPreferenceModel.ts';
+it('offers fifteen native custom icons and role-specific defaults',()=>{
+ expect(new Set(FOLDER_ICONS).size).toBe(15);
+ expect(folderIcon({id:'a',name:'Inbox',role:'inbox'},{})).toBe('inbox');
+ expect(folderIcon({id:'b',name:'Sent',role:'sent'},{})).toBe('sent');
+ expect(folderIcon({id:'b',name:'Sent',role:'sent'},{folderIcons:{b:'star'}})).toBe('star');
+});
+it('pins before explicit order without changing source folders or losing new ones',()=>{
+ const folders=[{id:'a',name:'A'},{id:'b',name:'B'},{id:'c',name:'C'},{id:'new',name:'New'}];
+ expect(orderedFolders(folders,{folderPinned:['c'],folderOrder:['b','a']}).map(v=>v.id)).toEqual(['c','b','a','new']);
+ expect(folders.map(v=>v.id)).toEqual(['a','b','c','new']);
+});
+it('moves in either direction and ignores unknown drag targets',()=>{
+ expect(moveFolder(['a','b','c'],'a','b')).toEqual(['b','a','c']);
+ expect(moveFolder(['a','b','c'],'c','b')).toEqual(['a','c','b']);
+ expect(moveFolder(['a','b','c'],'unknown','b')).toEqual(['a','b','c']);
+});

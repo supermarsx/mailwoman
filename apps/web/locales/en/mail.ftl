@@ -432,3 +432,22 @@ mail-maxsec-plain-text-hint = No HTML rendered — message shown as plain text o
 
 mail-toast-tab-pinned = Pinned tab “{ $target }”
 mail-toast-tab-unpinned = Unpinned tab “{ $target }”
+
+mail-workspace-message = Message
+mail-workspace-layout = Workspace layout
+mail-workspace-tabs = Tabs
+mail-workspace-side-by-side = Side by side
+mail-workspace-stack = Stacked
+mail-workspace-refresh = Refresh folder
+mail-workspace-load-error = This message could not be loaded. Close the tab and try again.
+
+mail-resize-folders = Resize folders sidebar
+mail-resize-list = Resize message list
+mail-resize-tiles = Resize workspace panes
+mail-show-folders = Show folders sidebar
+mail-hide-folders = Hide folders sidebar
+mail-compact-folders = Compact folder icons
+mail-toggle-list = Show or hide message list
+mail-toggle-reader = Show or hide reading pane
+
+mail-folder-counts = { $unread } unread, { $total } messages

@@ -301,7 +301,7 @@ describe('appearance sync — pushing changes', () => {
     expect(f.saved[0]?.density).toBe('relaxed');
   });
 
-  it('stop() does not drop a change the user already made', async () => {
+  it('stop() discards queued writes before authentication can change', async () => {
     const s = slice();
     const f = fakeApi(stored(null, null));
     const sync = createAppearanceSync(s, { api: f.api, debounceMs: 10_000 });
@@ -312,7 +312,7 @@ describe('appearance sync — pushing changes', () => {
     sync.stop();
     await sync.flush();
 
-    expect(f.saved.at(-1)?.accentId).toBe('green');
+    expect(f.saved.some(value => value.accentId === 'green')).toBe(false);
   });
 
   it('a signed-out session is local-only, not an error, and changes nothing', async () => {
@@ -486,4 +486,15 @@ describe('cross-test appearance leak on a shared account (t24-e13)', () => {
     expect(afterReload.theme()).toBe('amoled');
     expect(f.saved.at(-1)?.theme).toBe('amoled');
   });
+});
+describe('authenticated appearance generation boundaries', () => {
+ beforeEach(()=>localStorage.clear());
+ it('adopts saved account state after local defaults were reset despite an existing sync mark', async()=>{
+  const s=slice();s.setTheme('amoled');const account=s.appearancePrefs();seedMark(account,100);s.setTheme('grove-light');
+  const api=fakeApi(stored(account,100));const sync=createAppearanceSync(s,{api:api.api,serverWins:true});await sync.start();expect(s.theme()).toBe('amoled');expect(api.saved).toHaveLength(0);sync.stop();
+ });
+ it('ignores a delayed load after suspension and never seeds it back',async()=>{
+  const s=slice();let resolve!:(value:StoredAppearance)=>void;const save=vi.fn(async()=>1);const sync=createAppearanceSync(s,{api:{load:()=>new Promise(r=>{resolve=r;}),save,reset:async()=>{}}});
+  const pending=sync.start();sync.stop();s.setTheme('grove-light');resolve(stored({mode:'fixed',theme:'amoled'},1));await pending;expect(s.theme()).toBe('grove-light');expect(save).not.toHaveBeenCalled();
+ });
 });

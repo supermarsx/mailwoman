@@ -51,7 +51,8 @@
 
 import { withBase } from './basePath.ts';
 import { apiFetch } from './http.ts';
-import type { AppearancePrefs } from '../theme/appearance.ts';
+import { defaultAppearance, type AppearancePrefs } from '../theme/appearance.ts';
+import { observePreferenceAccount, preferenceAccount } from './accountPreferenceLifecycle.ts';
 
 /** The subset of the theme slice this module drives (t19-e6's sync seam). */
 export interface AppearancePrefsSeam {
@@ -181,10 +182,10 @@ interface SyncMark {
 
 const MARK_KEY = 'mw.theme.sync';
 
-function readMark(): SyncMark | null {
+function readMark(key = MARK_KEY): SyncMark | null {
   if (typeof localStorage === 'undefined') return null;
   try {
-    const raw = localStorage.getItem(MARK_KEY);
+    const raw = localStorage.getItem(key);
     if (raw === null) return null;
     const m = JSON.parse(raw) as Partial<SyncMark>;
     if (typeof m.prefs !== 'string') return null;
@@ -194,20 +195,20 @@ function readMark(): SyncMark | null {
   }
 }
 
-function writeMark(mark: SyncMark): void {
+function writeMark(mark: SyncMark, key = MARK_KEY): void {
   if (typeof localStorage === 'undefined') return;
   try {
-    localStorage.setItem(MARK_KEY, JSON.stringify(mark));
+    localStorage.setItem(key, JSON.stringify(mark));
   } catch {
     /* private mode / quota — the mark is an optimization, not correctness */
   }
 }
 
 /** Drop the mark, so the next `start()` reconciles as a device that never synced. */
-export function clearSyncMark(): void {
+export function clearSyncMark(key = MARK_KEY): void {
   if (typeof localStorage === 'undefined') return;
   try {
-    localStorage.removeItem(MARK_KEY);
+    localStorage.removeItem(key);
   } catch {
     /* ignore */
   }
@@ -215,6 +216,11 @@ export function clearSyncMark(): void {
 
 export interface AppearanceSyncOptions {
   api?: AppearancePrefsApi;
+  /** Production uses one mark per verified account, never the previous account mark. */
+  markKey?: () => string;
+  allowed?: () => boolean;
+  /** Account binding resets local state; an old mark must not seed those defaults. */
+  serverWins?: boolean;
   /** Coalescing window for pushes, ms. A theme gallery produces bursts of
    *  changes as the user browses; only the settled value needs to travel. */
   debounceMs?: number;
@@ -223,7 +229,7 @@ export interface AppearanceSyncOptions {
 export interface AppearanceSync {
   /** Reconcile with the server, then keep pushing changes. Safe to await. */
   start(): Promise<void>;
-  /** Unsubscribe and send any pending push (fire-and-forget). */
+  /** Unsubscribe and discard queued writes before an authentication transition. */
   stop(): void;
   status(): SyncStatus;
   /** Server-clock ms of the last value we know the server has, or `null`. */
@@ -250,8 +256,13 @@ export function createAppearanceSync(
   const api = options.api ?? createAppearancePrefsApi();
   const debounceMs = options.debounceMs ?? 600;
 
+  const markKey = options.markKey ?? (() => MARK_KEY);
+  const allowed = options.allowed ?? (() => true);
+  let generation = 0;
+  let active = false;
+  let loaded = false;
   let status: SyncStatus = 'idle';
-  let mark: SyncMark | null = readMark();
+  let mark: SyncMark | null = readMark(markKey());
   let deployment: DeploymentAppearance | null = null;
   let unsubscribe: (() => void) | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -274,10 +285,12 @@ export function createAppearanceSync(
    *  for an unsynced local edit at the next start. */
   function markSynced(p: AppearancePrefs, updatedAt: number | null): void {
     mark = { updatedAt, prefs: serialize(p) };
-    writeMark(mark);
+    writeMark(mark, markKey());
   }
 
   async function push(): Promise<void> {
+    if (!active || !loaded || !allowed()) return;
+    const epoch = generation;
     const current = prefs.appearancePrefs();
     const payload = serialize(current);
     // Already up there (including the value we just adopted FROM the server —
@@ -288,9 +301,11 @@ export function createAppearanceSync(
     }
     try {
       const updatedAt = await api.save(current);
+      if (epoch !== generation || !active || !allowed()) return;
       markSynced(current, updatedAt);
       setStatus('synced');
     } catch (e) {
+      if (epoch !== generation || !active || !allowed()) return;
       // The mark is deliberately NOT advanced: the next change retries, and the
       // user's on-screen preferences are never rolled back by a failed write.
       setStatus(isSignedOut(e) ? 'local-only' : 'error');
@@ -306,7 +321,12 @@ export function createAppearanceSync(
   }
 
   async function start(): Promise<void> {
-    if (unsubscribe !== null) return; // idempotent
+    if (unsubscribe !== null || !allowed()) return; // idempotent
+    active = true;
+    loaded = false;
+    const initial = prefs.appearancePrefs();
+    const epoch = ++generation;
+    mark = readMark(markKey());
     setStatus('loading');
     localEdits = 0;
     unsubscribe = prefs.subscribePrefs(() => {
@@ -317,15 +337,18 @@ export function createAppearanceSync(
     let stored: StoredAppearance;
     try {
       stored = await api.load();
+      if (epoch !== generation || !active || !allowed()) return;
     } catch (e) {
+      if (epoch !== generation || !active || !allowed()) return;
       setStatus(isSignedOut(e) ? 'local-only' : 'error');
       return;
     }
+    loaded = true;
     deployment = stored.deploymentDefault;
 
     const local = prefs.appearancePrefs();
     const editedDuringLoad = localEdits > 0;
-    const neverSynced = mark === null;
+    const neverSynced = mark === null || options.serverWins === true;
     const localDiffersFromMark = mark !== null && mark.prefs !== serialize(local);
     const serverMovedSinceMark =
       mark !== null &&
@@ -337,6 +360,13 @@ export function createAppearanceSync(
       !editedDuringLoad &&
       (neverSynced || !localDiffersFromMark || serverMovedSinceMark);
 
+    if (editedDuringLoad && stored.appearance !== null) {
+      const changed = Object.fromEntries(Object.entries(local).filter(([key, value]) => JSON.stringify(initial[key as keyof AppearancePrefs]) !== JSON.stringify(value)));
+      prefs.setAppearancePrefs({...stored.appearance as Partial<AppearancePrefs>, ...changed});
+      pending = push();
+      await pending;
+      return;
+    }
     if (adopt) {
       // Re-validated by the slice, so a field the server holds but this build no
       // longer understands falls back rather than corrupting the set.
@@ -354,14 +384,18 @@ export function createAppearanceSync(
   return {
     start,
     stop() {
+      generation += 1;
+      active = false;
+      loaded = false;
       unsubscribe?.();
       unsubscribe = null;
       if (timer !== undefined) {
         clearTimeout(timer);
         timer = undefined;
-        // Do not drop a change the user already made — send it on the way out.
-        pending = push();
+        // The next request may carry a different cookie. Never flush here.
       }
+      deployment = null;
+      setStatus('idle');
     },
     status: () => status,
     lastSyncedAt: () => mark?.updatedAt ?? null,
@@ -375,13 +409,16 @@ export function createAppearanceSync(
       await pending;
     },
     async reset() {
+      if (!active || !allowed()) return;
+      const epoch = generation;
       try {
         await api.reset();
-        clearSyncMark();
+        if (epoch !== generation || !active || !allowed()) return;
+        clearSyncMark(markKey());
         mark = null;
         setStatus('synced');
       } catch (e) {
-        setStatus(isSignedOut(e) ? 'local-only' : 'error');
+        if (epoch === generation && active && allowed()) setStatus(isSignedOut(e) ? 'local-only' : 'error');
       }
     },
     subscribeStatus(fn) {
@@ -425,4 +462,25 @@ export function appearanceSync(): AppearanceSync | null {
 export function stopAppearanceSync(): void {
   singleton?.stop();
   singleton = null;
+}
+
+/** Bind once at app creation; authentication requests suspend before cookie changes. */
+let accountBindingDispose: (() => void) | undefined;
+export function bindAppearanceToAccount(prefs: AppearancePrefsSeam): () => void {
+  accountBindingDispose?.();
+  stopAppearanceSync();
+  const sync = createAppearanceSync(prefs, {
+    markKey: () => `${MARK_KEY}:${encodeURIComponent(preferenceAccount()?.id ?? '')}`,
+    allowed: () => preferenceAccount() !== null,
+    serverWins: true,
+  });
+  singleton = sync;
+  const unsubscribe = observePreferenceAccount(account => {
+    sync.stop();
+    // A missing preference on another account must not inherit the old account's look.
+    prefs.setAppearancePrefs(defaultAppearance());
+    if (account) void sync.start();
+  });
+  accountBindingDispose = () => { unsubscribe(); sync.stop(); if (singleton === sync) singleton = null; };
+  return accountBindingDispose;
 }

@@ -1,5 +1,12 @@
+import { ResizeHandle } from '../components/ResizeHandle.tsx';
+import { accountUiPreferences, setAccountUiPreferences } from '../api/accountPreferences.ts';
+import { readingPane } from '../components/readingPane.ts';
+import { orderedFolders, folderIcon } from './Settings/folderPreferenceModel.ts';
+import type { MessageView } from '../state/slices/messageView.ts';
+import { createSettingsNavigation, type SettingsNavigation } from './Settings/navigation.tsx';
+import '../styles/workspace.css.ts';
 import { Icon } from '../components/Icon.tsx';
-import { createEffect, createMemo, createSignal, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
+import { createEffect, createMemo, createSignal, untrack, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { useApp } from '../state/context.ts';
 import { createEntryMotion } from '../shell/createEntryMotion.ts';
@@ -91,25 +98,69 @@ function refetchPim(app: ReturnType<typeof useApp>, surface: ShellSurface): void
 export function MailboxScreen(): JSX.Element {
   const app = useApp();
   const { subTabs } = useRealtime();
-  const [composing, setComposing] = createSignal(false);
-  // What the open composer was started from: a reply or forward built by the
-  // reader, or `null` for a new message. Compose reads it once, when it mounts.
-  const [composeInitial, setComposeInitial] = createSignal<ComposeInitial | null>(null);
-  function openNewMessage(): void {
-    setComposeInitial(null);
-    setComposing(true);
+  interface Pane { id:string; kind:'messages'|'composer'|'settings'; title:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation }
+  const [panes,setPanes]=createSignal<Pane[]>([]);
+  const workspaceLayout=()=>accountUiPreferences().workspaceLayout ?? 'tabs';
+  const setWorkspaceLayout=(value:'tabs'|'side-by-side'|'stack'):void=>setAccountUiPreferences({workspaceLayout:value});
+  const folderMode=()=>accountUiPreferences().folderSidebarMode ?? 'expanded';
+  const [folderDrag,setFolderDrag]=createSignal<number|null>(null);
+  const [listDrag,setListDrag]=createSignal<number|null>(null);
+  const [tileDrag,setTileDrag]=createSignal<number|null>(null);
+  const [viewport,setViewport]=createSignal({width:window.innerWidth,height:window.innerHeight});
+  const [bodySize,setBodySize]=createSignal({width:window.innerWidth-220,height:window.innerHeight-100});
+  const [tileSize,setTileSize]=createSignal({width:window.innerWidth-520,height:window.innerHeight-100});
+  let shellElement:HTMLDivElement|undefined;let bodyElement:HTMLDivElement|undefined;let tilesElement:HTMLDivElement|undefined;
+  const folderMax=()=>Math.max(160,Math.min(600,viewport().width-560));
+  const folderWidth=()=>folderMode()==='hidden' ? 0 : folderMode()==='compact' ? 64 : Math.max(160,Math.min(folderMax(),folderDrag() ?? accountUiPreferences().folderSidebarWidth ?? 220));
+  const listMax=()=>Math.max(readingPane()==='bottom'?160:240,Math.min(1200,(readingPane()==='bottom'?bodySize().height:bodySize().width)-280));
+  const listSize=()=>Math.max(readingPane()==='bottom'?160:240,Math.min(listMax(),listDrag() ?? (readingPane()==='bottom' ? accountUiPreferences().messageListHeight ?? 320 : accountUiPreferences().messageListWidth ?? 340)));
+  const tileExtent=()=>Math.max(1,workspaceLayout()==='stack' ? tileSize().height : tileSize().width);
+  const tileFirst=()=>tileDrag() ?? tileExtent()*(accountUiPreferences().workspaceSplitRatio ?? 0.5);
+  onMount(()=>{const update=():void=>{setViewport({width:window.innerWidth,height:window.innerHeight});if(bodyElement?.clientWidth)setBodySize({width:bodyElement.clientWidth,height:bodyElement.clientHeight});if(tilesElement?.clientWidth)setTileSize({width:tilesElement.clientWidth,height:tilesElement.clientHeight});};update();window.addEventListener('resize',update);const observer=typeof ResizeObserver==='undefined'?null:new ResizeObserver(update);if(bodyElement)observer?.observe(bodyElement);if(tilesElement)observer?.observe(tilesElement);onCleanup(()=>{window.removeEventListener('resize',update);observer?.disconnect();});});
+  createEffect(()=>{shellElement?.style.setProperty('--folder-width',`${folderWidth()}px`);shellElement?.style.setProperty('--folder-handle',folderMode()==='expanded'?'6px':'0px');bodyElement?.style.setProperty('--list-size',`${listSize()}px`);tilesElement?.style.setProperty('--tile-first',`${tileFirst()}px`);});
+  const activePane=createMemo(()=>panes().find(pane=>pane.id===subTabs.activeId()));
+  const composing=()=>activePane()?.kind==='composer';
+  const listVisible=()=>!activePane() || (activePane()?.kind==='messages' && (accountUiPreferences().readerCollapsed || (!narrow() && readingPane()!=='off' && !accountUiPreferences().messageListCollapsed)));
+  const readersVisible=()=>!!activePane() && !(activePane()?.kind==='messages' && accountUiPreferences().readerCollapsed);
+  const splitVisible=()=>listVisible() && readersVisible();
+  function openComposer(initial?:ComposeInitial):void {
+    router.navigate('mail');
+    const title=initial?.subject || t('mail-compose');
+    const id=subTabs.open({kind:'composer',title});
+    setPanes(old=>[...old,{id,kind:'composer',title,...(initial ? {initial} : {})}]);
   }
-  function openReply(initial: ComposeInitial): void {
-    // One composer at a time: a reply does not replace one that is open.
-    if (composing()) return;
-    setComposeInitial(initial);
-    setComposing(true);
+  function openNewMessage():void {openComposer();}
+  function openReply(initial:ComposeInitial):void {openComposer(initial);}
+  function openSettings():void {
+    router.navigate('mail');
+    const id=`settings:${app.accountId() ?? ''}`;
+    if(!panes().some(pane=>pane.id===id)) setPanes(old=>[...old,{id,kind:'settings',title:t('mail-nav-settings'),navigation:createSettingsNavigation()}]);
+    subTabs.open({id,kind:'settings',title:t('mail-nav-settings')});
   }
-  function closeCompose(): void {
-    setComposing(false);
-    setComposeInitial(null);
+  function openMessageTab(messageId:string):void {
+    router.navigate('mail');
+    const id=`message:${app.accountId() ?? ''}:${messageId}`;
+    const existing=panes().find(pane=>pane.id===id);
+    if(existing) {subTabs.activate(id);return;}
+    const title=app.messages().find(message=>message.id===messageId)?.subject || t('mail-workspace-message');
+    const view=app.createReaderView();
+    setPanes(old=>[...old,{id,kind:'messages',title,view}]);
+    subTabs.open({id,kind:'messages',title});
+    void view.openMessage(messageId);
   }
-  const [settingsOpen, setSettingsOpen] = createSignal(false);
+  async function closePane(id:string):Promise<void> {
+    if(id==='mail') return;
+    const pane=panes().find(item=>item.id===id);
+    if(pane?.navigation && !await pane.navigation.canLeave()) return;
+    const wasActive=subTabs.activeId()===id;
+    pane?.view?.dispose();setPanes(old=>old.filter(item=>item.id!==id));subTabs.close(id);
+    if(wasActive) queueMicrotask(()=>document.getElementById(`subtab-tab-${subTabs.activeId()}`)?.focus());
+  }
+  createEffect(()=>{app.setActiveReader(surface()==='mail' && readersVisible() ? activePane()?.view ?? null : null);});
+  let workspaceAccount=app.accountId();
+  createEffect(()=>{const account=app.accountId();if(account!==workspaceAccount){for(const pane of untrack(panes)){pane.view?.dispose();subTabs.close(pane.id);}setPanes([]);workspaceAccount=account;subTabs.activate('mail');}});
+
+  onCleanup(()=>{for(const pane of panes()) {pane.view?.dispose();subTabs.close(pane.id);}app.setActiveReader(null);});
   // t13 26.13 (E9 mount): the mailbox ACL editor, reachable from the mailbox
   // context. Open for the currently-selected mailbox; only meaningful once a
   // mailbox + account are resolved.
@@ -268,10 +319,8 @@ export function MailboxScreen(): JSX.Element {
   });
 
   return (
-    <div class="shell">
-      <Show when={app.layout() === 'ribbon'}>
-        <Ribbon onCompose={openNewMessage} onOpenSettings={() => setSettingsOpen(true)} />
-      </Show>
+    <div class="shell workspace-shell" ref={shellElement} data-folder-mode={folderMode()}>
+
       <Show when={narrow()}>
         <header class="shell__bar">
           <button
@@ -289,7 +338,7 @@ export function MailboxScreen(): JSX.Element {
           <button
             type="button"
             class={`btn btn--primary shell__bar-compose ${a11y.focusable}`}
-            onClick={() => setComposing(true)}
+            onClick={openNewMessage}
           >
             {t('mail-compose')}
           </button>
@@ -308,6 +357,7 @@ export function MailboxScreen(): JSX.Element {
           button activated inside it also closes the narrow drawer. */}
       <aside
         class="sidebar"
+        hidden={!narrow() && folderMode()==='hidden'}
         id="shell-nav"
         classList={{ 'sidebar--open': navOpen() }}
         ref={sidebarEl}
@@ -323,51 +373,51 @@ export function MailboxScreen(): JSX.Element {
             type="button"
             class={`btn btn--ghost sidebar__settings ${a11y.iconButton}`}
             aria-label={t('mail-nav-settings')}
-            onClick={() => setSettingsOpen(true)}
+            onClick={openSettings}
           >
             <Icon name="settings" />
           </button>
         </div>
-        <button type="button" class={`btn btn--primary sidebar__compose ${a11y.focusable}`} onClick={() => setComposing(true)}>
-          {t('mail-compose')}
+        <button type="button" class={`btn btn--primary sidebar__compose ${a11y.focusable}`} aria-label={t('mail-compose')} title={t('mail-compose')} onClick={openNewMessage}>
+          <Icon name="edit"/><span class="sidebar__box-name">{t('mail-compose')}</span>
         </button>
         <nav class="sidebar__nav" aria-label={t('mail-nav-mailboxes')}>
-          <For each={app.mailboxes()}>
+          <For each={orderedFolders(app.mailboxes(),accountUiPreferences())}>
             {(box) => (
               <button
                 type="button"
                 class={`sidebar__box ${a11y.focusable}`}
                 classList={{ 'sidebar__box--active': surface() === 'mail' && app.selectedMailboxId() === box.id }}
+                aria-label={box.name} title={box.name}
                 onClick={() => {
                   router.navigate('mail');
+                  subTabs.activate('mail');
                   void app.selectMailbox(box.id);
                 }}
               >
-                <span class="sidebar__box-name">{box.name}</span>
-                <Show when={box.unreadEmails > 0}>
-                  <span class="sidebar__badge">{box.unreadEmails}</span>
-                </Show>
+                <Icon name={folderIcon(box,accountUiPreferences())}/><span class="sidebar__box-name">{box.name}</span>
+                <Show when={Number.isFinite(box.totalEmails)}><span class="sidebar__badge" title={t('mail-folder-counts',{unread:box.unreadEmails,total:box.totalEmails})} aria-label={t('mail-folder-counts',{unread:box.unreadEmails,total:box.totalEmails})}>{box.unreadEmails}<span class="sidebar__total"> / {box.totalEmails}</span></span></Show>
               </button>
             )}
           </For>
           <button
             type="button"
             class={`sidebar__box ${a11y.focusable}`}
-            classList={{ 'sidebar__box--active': surface() === 'attachments' }}
+            classList={{ 'sidebar__box--active': surface() === 'attachments' }} aria-label={t('mail-nav-attachments')} title={t('mail-nav-attachments')}
             onClick={() => router.navigate('attachments')}
           >
-            <span class="sidebar__box-name">{t('mail-nav-attachments')}</span>
+            <Icon name="attachment"/><span class="sidebar__box-name">{t('mail-nav-attachments')}</span>
           </button>
           <button
             type="button"
             class={`sidebar__box ${a11y.focusable}`}
-            classList={{ 'sidebar__box--active': surface() === 'outbox' }}
+            classList={{ 'sidebar__box--active': surface() === 'outbox' }} aria-label={t('mail-nav-outbox')} title={t('mail-nav-outbox')}
             onClick={() => {
               router.navigate('outbox');
               void app.refreshOutbox();
             }}
           >
-            <span class="sidebar__box-name">{t('mail-nav-outbox')}</span>
+            <Icon name="clock"/><span class="sidebar__box-name">{t('mail-nav-outbox')}</span>
             <Show when={app.cancelableOutbox().length > 0}>
               <span class="sidebar__badge">{app.cancelableOutbox().length}</span>
             </Show>
@@ -379,10 +429,10 @@ export function MailboxScreen(): JSX.Element {
             <button
               type="button"
               class={`sidebar__box ${a11y.focusable}`}
-              data-testid="nav-sharing"
+              data-testid="nav-sharing" aria-label={t('mail-nav-sharing')} title={t('mail-nav-sharing')}
               onClick={() => setSharingOpen(true)}
             >
-              <span class="sidebar__box-name">{t('mail-nav-sharing')}</span>
+              <Icon name="users"/><span class="sidebar__box-name">{t('mail-nav-sharing')}</span>
             </button>
           </Show>
         </nav>
@@ -396,6 +446,7 @@ export function MailboxScreen(): JSX.Element {
                 type="button"
                 class={`sidebar__box ${a11y.focusable}`}
                 classList={{ 'sidebar__box--active': surface() === m.id }}
+                aria-label={m.label} title={m.label}
                 data-testid={`nav-${m.id}`}
                 onClick={() => router.navigate(m.id as ShellSurface)}
               >
@@ -405,8 +456,8 @@ export function MailboxScreen(): JSX.Element {
             )}
           </For>
         </nav>
-        <button type="button" class={`btn btn--ghost sidebar__logout ${a11y.focusable}`} onClick={() => void app.logout()}>
-          {t('mail-logout')}
+        <button type="button" class={`btn btn--ghost sidebar__logout ${a11y.focusable}`} aria-label={t('mail-logout')} title={t('mail-logout')} onClick={() => void app.logout()}>
+          <Icon name="signOut"/><span class="sidebar__box-name">{t('mail-logout')}</span>
         </button>
         <Show when={!app.online()}>
           <span class="sidebar__offline" aria-live="polite">
@@ -415,26 +466,38 @@ export function MailboxScreen(): JSX.Element {
         </Show>
       </aside>
 
-      <Show when={surface() === 'mail'}>
-        {/* At phone width the open reader covers the list; `inert` keeps the
-            covered list out of the tab order and the accessibility tree. */}
-        <div class={`mail-pane ${motion.surface}`} data-mw-entering={mailEntering()} inert={narrow() && app.openEmail() !== null}>
-          <SubTabStrip />
-          <SearchBox />
-          <InboxTabs />
-          <MessageList />
+      <Show when={!narrow() && folderMode()==='expanded'}><ResizeHandle label={t('mail-resize-folders')} controls="shell-nav" value={folderWidth()} min={160} max={folderMax()} onChange={setFolderDrag} onCommit={value=>{setAccountUiPreferences({folderSidebarWidth:value});setFolderDrag(null);}} /></Show>
+      <Show when={!narrow() && folderMode()==='hidden' && surface()!=='mail'}><button type="button" class={`btn workspace-show-folders ${a11y.iconButton}`} aria-label={t('mail-show-folders')} title={t('mail-show-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:'expanded'})}><Icon name="folder"/></button></Show>
+      <div class="mail-workspace" hidden={surface()!=='mail'}>
+        <SubTabStrip onClose={id=>void closePane(id)} canClose={id=>id!=='mail'} allowTearOff={false} />
+        <div class="workspace-bar" role="toolbar" aria-label={t('mail-workspace-layout')}>
+          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t(folderMode()==='hidden'?'mail-show-folders':'mail-hide-folders')} title={t(folderMode()==='hidden'?'mail-show-folders':'mail-hide-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='hidden'?'expanded':'hidden'})}><Icon name="folder"/></button>
+          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-pressed={folderMode()==='compact'} aria-label={t('mail-compact-folders')} title={t('mail-compact-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='compact'?'expanded':'compact'})}><Icon name="menu"/></button>
+          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-pressed={!accountUiPreferences().messageListCollapsed} aria-label={t('mail-toggle-list')} title={t('mail-toggle-list')} onClick={()=>setAccountUiPreferences({messageListCollapsed:!accountUiPreferences().messageListCollapsed,readerCollapsed:false})}><Icon name="mail"/></button>
+          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-pressed={!accountUiPreferences().readerCollapsed} aria-label={t('mail-toggle-reader')} title={t('mail-toggle-reader')} onClick={()=>setAccountUiPreferences({readerCollapsed:!accountUiPreferences().readerCollapsed,messageListCollapsed:false})}><Icon name="eye"/></button>
+
+          <For each={['tabs','side-by-side','stack'] as const}>{layout=><button type="button" class="btn btn--ghost" aria-pressed={workspaceLayout()===layout} onClick={()=>setWorkspaceLayout(layout)}>{t(`mail-workspace-${layout}`)}</button>}</For>
+          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} title={t('mail-workspace-refresh')} aria-label={t('mail-workspace-refresh')} onClick={()=>void app.refreshCurrentMailbox()}><Icon name="refresh" /></button>
         </div>
-        <Reader onCompose={openReply} />
-        {/* V7 Assist chat panel (§14.3): reasons over the open thread; proposed
-            actions route to review (composer), never auto-sent. Renders NOTHING when
-            the assistant capability is absent / the gateway is disabled. */}
-        <AssistPanel
-          config={app.assist.config()}
-          service={app.assist.service}
-          context={assistContext()}
-          onReviewAction={() => setComposing(true)}
-        />
-      </Show>
+        <Show when={app.layout()==='ribbon'}><Ribbon onCompose={openNewMessage} onOpenSettings={openSettings}/></Show>
+        <div class="workspace-body" ref={bodyElement} data-reading-pane={readingPane()} classList={{'workspace-body--split':splitVisible()}}>
+          <div class={`mail-pane ${motion.surface}`} hidden={!listVisible()} data-mw-entering={mailEntering()}>
+            <SearchBox /><InboxTabs /><MessageList onOpenMessage={openMessageTab}/>
+          </div>
+          <Show when={splitVisible()}><ResizeHandle label={t('mail-resize-list')} orientation={readingPane()==='bottom'?'horizontal':'vertical'} value={listSize()} min={readingPane()==='bottom'?160:240} max={listMax()} onChange={setListDrag} onCommit={value=>{setAccountUiPreferences(readingPane()==='bottom'?{messageListHeight:value}:{messageListWidth:value});setListDrag(null);}}/></Show>
+          <div class="workspace-panes" ref={tilesElement} data-layout={narrow() ? 'tabs' : workspaceLayout()} data-pair={panes().length===2} hidden={!readersVisible()}>
+            <For each={panes()}>{(pane,index)=><><section class="workspace-pane" role="tabpanel" aria-label={pane.title}
+              hidden={subTabs.activeId()==='mail' || ((narrow() || workspaceLayout()==='tabs') && subTabs.activeId()!==pane.id)}
+              inert={subTabs.activeId()==='mail' || ((narrow() || workspaceLayout()==='tabs') && subTabs.activeId()!==pane.id)}
+              onFocusIn={()=>subTabs.activate(pane.id)} onPointerDown={()=>subTabs.activate(pane.id)}>
+              <Show when={pane.kind==='messages' && pane.view}>{view=><><Show when={view().error()}><p role="alert">{t('mail-workspace-load-error')}</p></Show><Reader view={view()} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} onCompose={openReply}/></>}</Show>
+              <Show when={pane.kind==='composer'}><Compose embedded active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
+              <Show when={pane.kind==='settings' && pane.navigation}>{navigation=><Settings embedded navigation={navigation()} onClose={()=>void closePane(pane.id)}/>}</Show>
+            </section><Show when={index()===0 && panes().length===2 && !narrow() && workspaceLayout()!=='tabs'}><ResizeHandle label={t('mail-resize-tiles')} orientation={workspaceLayout()==='stack'?'horizontal':'vertical'} value={tileFirst()} min={tileExtent()*0.2} max={tileExtent()*0.8} onChange={setTileDrag} onCommit={value=>{setAccountUiPreferences({workspaceSplitRatio:Math.max(0.2,Math.min(0.8,value/tileExtent()))});setTileDrag(null);}}/></Show></>}</For>
+          </div>
+        </div>
+        <AssistPanel config={app.assist.config()} service={app.assist.service} context={assistContext()} onReviewAction={openNewMessage}/>
+      </div>
       <Show when={surface() === 'outbox'}>
         <Outbox />
       </Show>
@@ -443,7 +506,7 @@ export function MailboxScreen(): JSX.Element {
           load={() => app.listAttachments()}
           onOpen={(item) => {
             router.navigate('mail');
-            void app.openMessage(item.emailId);
+            openMessageTab(item.emailId);
           }}
         />
       </Show>
@@ -476,12 +539,6 @@ export function MailboxScreen(): JSX.Element {
         )}
       </For>
 
-      <Show when={composing()}>
-        <Compose onClose={closeCompose} {...(composeInitial() !== null ? { initial: composeInitial()! } : {})} />
-      </Show>
-      <Show when={settingsOpen()}>
-        <Settings onClose={() => setSettingsOpen(false)} />
-      </Show>
       <Show when={sharingOpen() && shareMailbox() !== null && app.accountId() !== null}>
         <SharingDialog
           mailboxId={shareMailbox()!.id}

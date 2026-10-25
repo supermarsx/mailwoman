@@ -1,3 +1,6 @@
+import { FolderPreferences } from './Settings/FolderPreferences.tsx';
+import { createSettingsNavigation, SettingsNavigationContext, type SettingsNavigation } from './Settings/navigation.tsx';
+import * as workspace from './Settings/workspace.css.ts';
 import { Icon } from '../components/Icon.tsx';
 // Settings panel (plan §3 e4): the user-facing theme / density / accent / font /
 // layout controls that drive the theme slice. Rendered as a dismissible dialog;
@@ -109,15 +112,22 @@ const LAYOUT_OPTIONS: ReadonlyArray<{ value: LayoutMode; label: string }> = [
 
 export interface SettingsProps {
   onClose: () => void;
+  embedded?: boolean;
+  navigation?: SettingsNavigation;
 }
 
 export function Settings(props: SettingsProps): JSX.Element {
   const app = useApp();
+  const navigation=props.navigation ?? createSettingsNavigation();
+  const visible=(section:string):boolean=>!props.embedded || navigation.route().section===section;
+  const sections=[['appearance','settings-appearance'],['reader','reader-settings-title'],['security','security-center-title'],['privacy','privacy-title'],['signatures','settings-sig-title'],['identities','settings-ident-title'],['notifications','settings-notif-title'],['searches','settings-search-title'],['folders','settings-folders-title'],['preferences','settings-nav-preferences'],['rules','settings-nav-rules'],['access','settings-nav-access'],['metadata','settings-nav-metadata']] as const;
+
   let panel!: HTMLElement;
   onMount(() => {
     void loadCatalog('settings');
     void loadCatalog('appearance');
     void loadCatalog('settings-policy');
+    void loadCatalog('reader'); void loadCatalog('privacy'); void loadCatalog('security');
   });
   const themeHold = useSetting('appearance.theme', '');
   const accentHold = useSetting('appearance.accent', '');
@@ -143,26 +153,30 @@ export function Settings(props: SettingsProps): JSX.Element {
   });
   // Modal focus management: trap Tab inside the panel, restore focus to the
   // opener on close, and close on Esc (WCAG 2.2 — dialog pattern).
-  createFocusTrap(() => panel, { onEscape: () => props.onClose() });
+  createFocusTrap(() => panel, { active:()=>!props.embedded, onEscape: () => props.onClose() });
 
   return (
-    <div
-      class="compose__backdrop"
-      role="dialog"
-      aria-modal="true"
+    <SettingsNavigationContext.Provider value={navigation}><div
+      class={props.embedded ? workspace.root : "compose__backdrop"}
+      role={props.embedded ? "region" : "dialog"}
+      aria-modal={props.embedded ? undefined : "true"}
       aria-label={t('settings-title')}
       onClick={(e) => {
-        if (e.target === e.currentTarget) props.onClose();
+        if (!props.embedded && e.target === e.currentTarget) props.onClose();
       }}
     >
-      <section ref={panel} class={css.panel} tabindex="-1">
+      <section ref={panel} class={`${css.panel} ${props.embedded ? workspace.panel : ""}`} tabindex="-1">
         <header class={css.header}>
-          <h2>{t('settings-appearance')}</h2>
+          <h2>{t(props.embedded ? 'settings-title' : 'settings-appearance')}</h2>
           <button type="button" class="btn btn--ghost" aria-label={t('settings-close')} onClick={() => props.onClose()}>
             <Icon name="close" />
           </button>
         </header>
 
+        <div class={props.embedded ? workspace.body : workspace.legacy}>
+          <Show when={props.embedded}><nav class={workspace.nav} aria-label={t('settings-sections')}><For each={sections}>{([id,label])=><button type="button" aria-current={navigation.route().section===id ? "page" : undefined} onClick={()=>void navigation.navigate({section:id})}>{t(label)}</button>}</For></nav></Show>
+          <div class={workspace.content}>
+          <div hidden={!visible('appearance')} class={workspace.appearance}>
         <ThemeMode locked={themeHold.locked()} />
         <ThemeGallery locked={themeHold.locked()} />
         <AppearanceSyncStatus />
@@ -237,6 +251,7 @@ export function Settings(props: SettingsProps): JSX.Element {
         </div>
 
         <Language />
+        </div>
 
         {/* V6 security & integrations — only for an authenticated account. The
             `app.me` optional call keeps this inert in the theme-only unit test.
@@ -246,37 +261,35 @@ export function Settings(props: SettingsProps): JSX.Element {
         <Show when={app.me?.()?.accountId ?? null}>
           {(accountId) => (
             <>
+              <Show when={visible('security')}><AsyncBoundary><PasswordChange accountId={accountId()} /></AsyncBoundary></Show>
               <AsyncBoundary>
-                <PasswordChange accountId={accountId()} />
+                <AccountSettings hideSecurity {...(props.embedded ? {section:()=>navigation.route().section} : {})} />
               </AsyncBoundary>
-              <AsyncBoundary>
-                <AccountSettings hideSecurity />
-              </AsyncBoundary>
-              <AsyncBoundary>
-                <SecurityCenter />
-                <Privacy />
-                <ReaderAppearanceSettings />
-              </AsyncBoundary>
-              <AsyncBoundary>
+              <Show when={visible('security')}><AsyncBoundary><SecurityCenter /></AsyncBoundary></Show>
+              <Show when={visible('privacy')}><AsyncBoundary><Privacy /></AsyncBoundary></Show>
+              <Show when={visible('folders')}><AsyncBoundary><FolderPreferences folders={app.mailboxes}/></AsyncBoundary></Show>
+              <Show when={visible('reader')}><AsyncBoundary><ReaderAppearanceSettings /></AsyncBoundary></Show>
+              <Show when={visible('rules')}>              <AsyncBoundary>
                 <RulesSettings accountId={accountId()} />
-              </AsyncBoundary>
-              <AsyncBoundary>
+              </AsyncBoundary></Show>
+              <Show when={visible('security')}>              <AsyncBoundary>
                 <ZeroAccessBlock />
-              </AsyncBoundary>
-              <AsyncBoundary>
+              </AsyncBoundary></Show>
+              <Show when={visible('access')}>              <AsyncBoundary>
                 <ApiKeys accountId={accountId()} />
-              </AsyncBoundary>
-              <AsyncBoundary>
+              </AsyncBoundary></Show>
+              <Show when={visible('access')}>              <AsyncBoundary>
                 <McpKeys accountId={accountId()} />
-              </AsyncBoundary>
-              <AsyncBoundary>
+              </AsyncBoundary></Show>
+              <Show when={visible('metadata')}>              <AsyncBoundary>
                 <ServerMetadataSection accountId={accountId()} />
-              </AsyncBoundary>
+              </AsyncBoundary></Show>
             </>
           )}
         </Show>
+        </div></div>
       </section>
-    </div>
+    </div></SettingsNavigationContext.Provider>
   );
 }
 

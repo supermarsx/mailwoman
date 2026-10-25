@@ -1,3 +1,5 @@
+import { activateAccountPreferences, suspendAccountPreferences } from '../../api/accountPreferenceLifecycle.ts';
+import { createMessageView, type MessageView } from './messageView.ts';
 import { toastTarget } from '../../components/toast/context.ts';
 // Mail slice: session/auth, mailbox list, message list + reader, compose+send,
 // and — new in V2 (plan §3 e7, §1.5) — the modern-mail UX that mutates the
@@ -215,7 +217,7 @@ export interface MailSlice {
   /** Load every attachment across the account for the Attachments module. */
   listAttachments(): Promise<AttachmentItem[]>;
   /** Export the open message as an `.eml` and trigger a browser download. */
-  exportMessage(): Promise<void>;
+  exportMessage(id?: Id): Promise<void>;
 
   // ── V2 derived views ──
   /** List rows to show: snoozed hidden, pinned floated to the top. */
@@ -282,6 +284,8 @@ export interface MailSlice {
   login(input: LoginInput): Promise<void>;
   logout(): Promise<void>;
   selectMailbox(id: Id): Promise<void>;
+  createReaderView(): MessageView;
+  setActiveReader(view: MessageView | null): void;
   openMessage(id: Id): Promise<void>;
   closeMessage(): void;
   sendMessage(input: SendInput): Promise<void>;
@@ -339,9 +343,42 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const [selectedMailboxId, setSelectedMailboxId] = createSignal<Id | null>(null);
   const [messages, setMessages] = createSignal<Email[]>([]);
   const [listLoading, setListLoading] = createSignal(false);
-  const [openEmail, setOpenEmail] = createSignal<Email | null>(null);
-  const [sanitizedHtml, setSanitizedHtml] = createSignal<string | null>(null);
-  const [readLoading, setReadLoading] = createSignal(false);
+  const [legacyOpenEmail, setOpenEmail] = createSignal<Email | null>(null);
+  const [legacySanitizedHtml, setSanitizedHtml] = createSignal<string | null>(null);
+  const [legacyReadLoading, setReadLoading] = createSignal(false);
+  const readerViews = new Set<MessageView>();
+  const [activeReader, setActiveReaderSignal] = createSignal<MessageView | null>(null);
+  const openEmail = (): Email | null => activeReader() ? activeReader()!.openEmail() : legacyOpenEmail();
+  const sanitizedHtml = (): string | null => activeReader() ? activeReader()!.sanitizedHtml() : legacySanitizedHtml();
+  const readLoading = (): boolean => activeReader()?.readLoading() ?? legacyReadLoading();
+  function setActiveReader(view: MessageView | null): void {
+    activeReader()?.setActive(false);cancelMarkRead();setActiveReaderSignal(view);view?.setActive(true);
+  }
+  function createReaderView(): MessageView {
+    const view = createMessageView({
+      account: accountId,
+      async load(account, id) {
+        try {
+          if (isOffline()) throw new NetworkError('offline');
+          const response=await client.jmap(emailGetFull(account,id));
+          const email=responseFor<EmailGetResponse>(response,'g').list[0] ?? null;
+          return {email,html:email ? await client.sanitize(extractHtmlBody(email)) : null};
+        } catch (error) {
+          if (!(error instanceof NetworkError)) throw error;
+          const email=messages().find(message=>message.id===id) ?? null;
+          return {email,html:email ? extractHtmlBody(email) : null};
+        }
+      },
+      readDelay(email) {
+        const decision=decideMarkRead(currentMarkReadPolicy(),{kind:'open',email,mailboxId:searchActive() ? null : selectedMailboxId()});
+        return decision.mark ? decision.delayMs : null;
+      },
+      markRead(id) {void writeKeyword('$seen',new Map([[id,true]]),{quiet:true});},
+    });
+    const dispose=view.dispose;
+    view.dispose=()=>{readerViews.delete(view);if(activeReader()===view) setActiveReader(null);dispose();};
+    readerViews.add(view);return view;
+  }
   const [downloadUrl, setDownloadUrl] = createSignal<string | null>(null);
   const [search, setSearch] = createSignal('');
   const [searchActive, setSearchActive] = createSignal(false);
@@ -470,14 +507,16 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   // ── message-list helpers ─────────────────────────────────────────────────
   function patchMessage(id: Id, patch: Partial<Email>): void {
     setMessages((msgs) => msgs.map((m) => (m.id === id ? { ...m, ...patch } : m)));
-    const open = openEmail();
+    const open = legacyOpenEmail();
     if (open !== null && open.id === id) setOpenEmail({ ...open, ...patch });
+    for(const view of readerViews) view.patch(id,patch);
   }
 
   /** The message with `id` as the list (or, failing that, the reader) holds it. */
   function findEmail(id: Id): Email | null {
     const listed = messages().find((m) => m.id === id);
     if (listed !== undefined) return listed;
+    for(const view of readerViews) {const email=view.openEmail();if(email?.id===id) return email;}
     const open = openEmail();
     return open !== null && open.id === id ? open : null;
   }
@@ -756,7 +795,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   async function rawKeyword(id: Id, keyword: string, on: boolean): Promise<void> {
     const acct = accountId();
     if (acct === null) return;
-    const current = messages().find((m) => m.id === id) ?? openEmail();
+    const current = findEmail(id);
     const keywords = { ...(current?.keywords ?? {}) };
     if (on) keywords[keyword] = true;
     else delete keywords[keyword];
@@ -1336,8 +1375,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
   }
 
-  async function exportMessage(): Promise<void> {
-    const email = openEmail();
+  async function exportMessage(id?: Id): Promise<void> {
+    const email = id ? findEmail(id) : openEmail();
     const url = downloadUrl();
     const acct = accountId();
     if (email === null || acct === null || url === null) return;
@@ -1525,10 +1564,13 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   async function init(): Promise<void> {
+    suspendAccountPreferences();
+    for (const view of readerViews) view.closeMessage();
     try {
       const user = await client.me();
       setMe(user);
       setAccountId(user.accountId);
+      activateAccountPreferences(user.accountId);
       await loadMailFor(user);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
@@ -1542,13 +1584,18 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   async function login(input: LoginInput): Promise<void> {
+    suspendAccountPreferences();
+    for (const view of readerViews) view.closeMessage();
     const user = await client.login(input);
     setMe(user);
     setAccountId(user.accountId);
+    activateAccountPreferences(user.accountId);
     await loadMailFor(user);
   }
 
   async function logout(): Promise<void> {
+    suspendAccountPreferences();
+    for (const view of readerViews) view.closeMessage();
     try {
       await client.logout();
     } finally {
@@ -1655,6 +1702,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     login,
     logout,
     selectMailbox,
+    createReaderView,
+    setActiveReader,
     openMessage,
     closeMessage,
     sendMessage,

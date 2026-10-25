@@ -1,0 +1,34 @@
+import { describe, expect, it, vi } from 'vitest';
+import { createRoot, createSignal } from 'solid-js';
+import type { Email } from '../../api/jmap-types.ts';
+import { createMessageView } from './messageView.ts';
+const email=(id:string):Email => ({id,keywords:{},mailboxIds:{}} as Email);
+describe('independent retained message views', () => {
+  it('keeps separate bodies and refuses an older request overwriting a newer message', async () => {
+    let finish!:(value:{email:Email;html:string})=>void;
+    const load=vi.fn(async (_account:string,id:string) => id==='slow' ? await new Promise<{email:Email;html:string}>(resolve => {finish=resolve;}) : {email:email(id),html:id});
+    const options={account:()=>'a',load,readDelay:()=>null,markRead:vi.fn()};
+    const left=createMessageView(options);const right=createMessageView(options);
+    const stale=left.openMessage('slow');await left.openMessage('new');await right.openMessage('right');
+    finish({email:email('slow'),html:'stale'});await stale;
+    expect(left.sanitizedHtml()).toBe('new');expect(right.sanitizedHtml()).toBe('right');
+    left.dispose();right.dispose();
+  });
+  it('cancels hidden readers read timers and fences responses after account changes', async () => {
+    vi.useFakeTimers();let dispose!:()=>void;
+    let change!:(id:string)=>void;let account!:()=>string;
+    createRoot(clean => {dispose=clean;const pair=createSignal('a');account=pair[0];change=pair[1];});
+    const markRead=vi.fn();const view=createMessageView({account,load:async (_a,id)=>({email:email(id),html:id}),readDelay:()=>100,markRead});
+    view.setActive(true);await view.openMessage('one');view.setActive(false);vi.advanceTimersByTime(100);expect(markRead).not.toHaveBeenCalled();
+    view.setActive(true);vi.advanceTimersByTime(100);expect(markRead).toHaveBeenCalledWith('one');
+    change('b');expect(view.openEmail()).toBeNull();view.dispose();dispose();vi.useRealTimers();
+  });
+  it('never publishes a response captured under an earlier account', async () => {
+    let finish!:(value:{email:Email;html:string})=>void;
+    const [account,change]=createSignal('old');
+    const view=createMessageView({account,load:async ()=>await new Promise(resolve=>{finish=resolve;}),readDelay:()=>null,markRead:vi.fn()});
+    const pending=view.openMessage('private');change('new');finish({email:email('private'),html:'old private body'});await pending;
+    expect(view.openEmail()).toBeNull();expect(view.sanitizedHtml()).toBeNull();expect(view.readLoading()).toBe(false);view.dispose();
+  });
+
+});
