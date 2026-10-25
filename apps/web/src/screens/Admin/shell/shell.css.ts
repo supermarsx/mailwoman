@@ -8,7 +8,7 @@
 // Phone width is below 761 px, the webmail breakpoint: the sidebar becomes a top
 // bar with a menu button that opens the navigation as a drawer.
 
-import { style, globalStyle, keyframes } from '@vanilla-extract/css';
+import { style, styleVariants, globalStyle, keyframes } from '@vanilla-extract/css';
 import { vars } from '../../../theme/contract.css.ts';
 
 const PHONE = 'screen and (max-width: 760px)';
@@ -20,6 +20,11 @@ const smallLabel = {
 } as const;
 const noTrackingScripts = ':lang(ar) &, :lang(ja) &, :lang(zh) &';
 const plainLabel = { textTransform: 'none', letterSpacing: vars.tracking.none } as const;
+/** The focus ring as an outline (kept under forced colours, takes no layout space).
+ *  Each interactive class names its own, so the UX1 gate can check it is there. */
+const ringOutline = { outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`, outlineOffset: '2px' } as const;
+/** The same ring drawn inside the box, for items in a scrolling or clipped list. */
+const ringInset = { ...ringOutline, outlineOffset: `calc(-1 * ${vars.a11y.focusRingWidth})` } as const;
 
 export const srOnly = style({
   position: 'absolute',
@@ -115,6 +120,7 @@ export const navItem = style({
   transition: `background ${vars.a11y.motionDuration} ease`,
   selectors: {
     '&:hover': { background: vars.color.bg },
+    '&:focus-visible': ringInset,
     // Selected: an accent inset bar on the start edge plus bold (P6), no layout change.
     '&[aria-current="page"]': {
       boxShadow: `inset 4px 0 0 ${vars.color.accent}`,
@@ -274,6 +280,8 @@ export const paletteOption = style({
   minHeight: vars.a11y.touchTarget,
   cursor: 'pointer',
   selectors: {
+    // The input keeps focus (aria-activedescendant); this applies if an option ever takes it.
+    '&:focus-visible': ringInset,
     '&[aria-selected="true"]': {
       background: vars.color.bgAlt,
       boxShadow: `inset 4px 0 0 ${vars.color.accent}`,
@@ -355,6 +363,7 @@ export const chip = style({
   color: vars.color.text,
   cursor: 'pointer',
   selectors: {
+    '&:focus-visible': ringOutline,
     '&[aria-pressed="true"]': {
       background: vars.color.accent,
       color: vars.color.accentText,
@@ -377,6 +386,7 @@ export const sortButton = style({
   display: 'inline-flex',
   gap: vars.space[1],
   alignItems: 'center',
+  selectors: { '&:focus-visible': ringOutline },
 });
 export const rowFocus = style({
   selectors: { '&:focus-visible': { outlineOffset: '-3px' } },
@@ -444,6 +454,10 @@ export const barRow = style({
 export const barLabel = style({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
 export const barTrack = style({ height: '10px', background: vars.color.bgAlt, border: `${vars.border.hair} solid ${vars.color.border}` });
 export const barFill = style({ height: '100%', background: vars.color.accent });
+/** Bar lengths as classes, 0-100 % in whole percent: no style attribute (CSP `style-src 'self'`). */
+export const barWidth = styleVariants(
+  Object.fromEntries(Array.from({ length: 101 }, (_, i) => [i, { width: `${i}%` }])) as Record<number, { width: string }>,
+);
 export const barValue = style({ fontVariantNumeric: 'tabular-nums', fontWeight: vars.weight.bold });
 
 // ── Pinned badge, lock switch, help note ───────────────────────────────────────
@@ -474,6 +488,7 @@ export const lock = style({
   borderRadius: vars.radius.sm,
   cursor: 'pointer',
   selectors: {
+    '&:focus-visible': ringOutline,
     '&:disabled': { opacity: 0.6, borderStyle: 'dashed', cursor: 'not-allowed' },
   },
 });

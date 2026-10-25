@@ -25,7 +25,8 @@ export function BarChart(props: BarChartProps): JSX.Element {
   const id = createUniqueId();
   const fmt = (n: number): string => (props.format ? props.format(n) : formatNumber(n));
   const max = (): number => Math.max(0, ...props.bars.map((b) => b.value));
-  const pct = (v: number): string => (max() > 0 ? `${(v / max()) * 100}%` : '0%');
+  /** The bar's share of the largest value, in whole percent (a class per step, no style attribute). */
+  const share = (v: number): number => (max() > 0 ? Math.min(100, Math.max(0, Math.round((v / max()) * 100))) : 0);
   return (
     <section class={css.chart} aria-labelledby={`${id}-title`} data-testid={props.testId}>
       <h3 id={`${id}-title`} class={css.chartTitle}>
@@ -38,7 +39,7 @@ export function BarChart(props: BarChartProps): JSX.Element {
               <li class={css.barRow} title={`${b.label}: ${fmt(b.value)}`}>
                 <span class={css.barLabel}>{b.label}</span>
                 <span class={css.barTrack}>
-                  <span class={css.barFill} style={{ width: pct(b.value) }} />
+                  <span class={`${css.barFill} ${css.barWidth[share(b.value)]}`} data-share={share(b.value)} />
                 </span>
                 <span class={css.barValue}>{fmt(b.value)}</span>
               </li>

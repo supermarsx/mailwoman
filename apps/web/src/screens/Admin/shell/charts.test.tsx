@@ -66,7 +66,8 @@ describe('BarChart', () => {
   it('bar lengths are proportional to the largest value', () => {
     render(() => <BarChart testId="b" title="T" bars={[{ label: 'x', value: 4 }, { label: 'y', value: 1 }]} />);
     const fills = [...screen.getByTestId('b').querySelectorAll('li span span')] as HTMLElement[];
-    expect(fills.map((f) => f.style.width)).toEqual(['100%', '25%']);
+    expect(fills.map((f) => f.dataset['share'])).toEqual(['100', '25']);
+    expect(fills.every((f) => !f.hasAttribute('style'))).toBe(true);
   });
 
   it('no bars: says so', () => {

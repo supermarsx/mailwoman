@@ -20,8 +20,8 @@
 //             - colour   a colour literal in the markup (`fill="#…"`, `rgb(…)`).
 //
 // Existing files that break a rule are listed in ALLOWLIST with the lane that owns the fix
-// (t32-cfg §3.3: e77 for the screens it rebuilds, e76 for what its walk assigns); an entry
-// that no longer matches fails, so the list only shrinks. The self-test block shows each
+// (f33 for the screens e77 was to rebuild); an entry that no longer matches fails, so the
+// list only shrinks. The self-test block shows each
 // check finding a seeded defect. `MW_ADMIN_STYLE_SRC` points the scan at another
 // `screens/Admin` tree (used to show the gate failing on a seeded copy).
 
@@ -43,12 +43,9 @@ interface Allowed {
   rule: AdminRule;
   text: string;
   /** The lane that owns the fix. */
-  owner: 'e77' | 'e76';
+  owner: 'f33';
   reason: string;
 }
-
-const SHELL_REASON =
-  'shell control at HEAD before the UX1 gate; it relies on the global :focus-visible ring in theme/themes.css.ts and needs its own rule (shell.css.ts is outside the e71a file set; REQUEST in state.md)';
 
 // Each entry: the finding as reported, the owner, and why it is here. A stale entry fails.
 const ALLOWLIST: Allowed[] = [
@@ -56,31 +53,15 @@ const ALLOWLIST: Allowed[] = [
     file: 'Plugins/styles.css.ts',
     rule: 'focus',
     text: 'ghost: interactive without :focus-visible',
-    owner: 'e77',
-    reason: 'Plugins screen button at HEAD; e77 rebuilds Plugins/** on the templates (t32-cfg §4.12) and drops this class',
+    owner: 'f33',
+    reason: 'Plugins screen button at HEAD; f33 (which absorbs e77) rebuilds Plugins/** on the templates (t32-cfg §4.12) and drops this class',
   },
   {
     file: 'Plugins/styles.css.ts',
     rule: 'focus',
     text: 'check: interactive without :focus-visible',
-    owner: 'e77',
-    reason: 'Plugins checkbox label at HEAD; e77 rebuilds Plugins/** on the templates (t32-cfg §4.12) and drops this class',
-  },
-  ...(['navItem', 'paletteOption', 'chip', 'sortButton', 'lock'] as const).map(
-    (name): Allowed => ({
-      file: 'shell/shell.css.ts',
-      rule: 'focus',
-      text: `${name}: interactive without :focus-visible`,
-      owner: 'e76',
-      reason: SHELL_REASON,
-    }),
-  ),
-  {
-    file: 'shell/BarChart.tsx',
-    rule: 'inline-style',
-    text: 'style= attribute',
-    owner: 'e76',
-    reason: 'bar width set through the CSSOM (dynamic, so CSP and check-size gate 3 allow it); replace with a <meter> or a class scale when e76 walks the charts',
+    owner: 'f33',
+    reason: 'Plugins checkbox label at HEAD; f33 (which absorbs e77) rebuilds Plugins/** on the templates (t32-cfg §4.12) and drops this class',
   },
 ];
 
