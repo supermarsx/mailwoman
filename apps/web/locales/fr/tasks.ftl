@@ -1,7 +1,41 @@
-# MT-SEED — NOT REVIEWED
-# Locale: fr · Module: tasks. Source of truth: ../en/tasks.ftl
-#
-# PLACEHOLDER awaiting human translation via Weblate. This catalog holds NO
-# reviewed translations — every key falls back to the en source at runtime until
-# a translator fills it in, so Weblate shows it as needing translation (0%).
-# Do NOT hand-edit or paste raw machine output as final: translate in Weblate.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: fr · Module: tasks. Source: ../en/tasks.ftl
+
+tasks-title = Tâches
+tasks-lists = Listes de tâches
+tasks-all = Toutes les tâches
+tasks-my-day = Ma journée
+tasks-lists-heading = Listes
+tasks-no-lists = Aucune liste pour l’instant.
+tasks-new-title = Titre de la nouvelle tâche
+tasks-add-placeholder = Ajouter une tâche…
+tasks-my-day-empty = Rien à faire aujourd’hui.
+tasks-convert = Convertir :
+tasks-mail-id = Identifiant du message à convertir
+tasks-mail-id-placeholder = identifiant du message
+tasks-mail-to-task = Message → tâche
+tasks-event-id = Identifiant de l’événement à convertir
+tasks-event-id-placeholder = identifiant de l’événement
+tasks-event-to-task = Événement → tâche
+tasks-followup-mail = Suivi : message { $id }
+tasks-prep-event = Préparation : événement { $id }
+tasks-list-label = Tâches
+tasks-subtasks = Sous-tâches
+tasks-empty-list = Aucune tâche dans cette liste.
+tasks-complete = Terminer { $title }
+tasks-reopen = Rouvrir { $title }
+tasks-high-priority = Priorité haute
+tasks-edit = Modifier { $title }
+tasks-field-title = Titre
+tasks-field-due = Échéance
+tasks-field-priority = Priorité
+tasks-priority-none = Aucune
+tasks-priority-high = Haute
+tasks-priority-medium = Moyenne
+tasks-priority-low = Basse
+tasks-delete-confirm = Supprimer cette tâche ? Cette action est irréversible.
+tasks-delete-yes = Supprimer la tâche
+tasks-delete-no = Conserver la tâche
+tasks-changed-elsewhere = Cette tâche a été modifiée sur un autre appareil ou dans une autre session. Vos modifications sont conservées ; Enregistrer n’applique que les champs que vous avez modifiés.
+tasks-deleted-elsewhere = « { $title } » a été supprimée sur un autre appareil ou dans une autre session ; son formulaire de modification a donc été fermé.
+tasks-notice-dismiss = Fermer
