@@ -47,7 +47,7 @@ use std::time::Instant;
 use crate::proxy::{self, ProxyRoute};
 use crate::{
     Hop, InternalAllowList, MAX_REDIRECTS, OutBody, Outgoing, Refusal, RoutedFetch, Target,
-    TrafficClass, ip_allowed, resolve_gated, send_hop,
+    TrafficClass, ip_allowed, resolve_gated, send_hop_typed,
 };
 
 // ── scope ──────────────────────────────────────────────────────────────────────
@@ -332,6 +332,7 @@ pub async fn send(url: reqwest::Url, req: &Request<'_>) -> RoutedFetch {
             record(req.class, &outcome, Instant::now());
             RoutedFetch {
                 traversed_proxy: false,
+                content_type: None,
                 outcome,
             }
         }
@@ -364,15 +365,24 @@ pub async fn send_with(plan: &EgressPlan, url: reqwest::Url, req: &Request<'_>) 
             let via = proxy::send_via_proxy(url, route, &out).await;
             RoutedFetch {
                 traversed_proxy: via.traversed_proxy,
+                content_type: via.content_type,
                 outcome: via.outcome.map_err(Refusal::from),
             }
         }
         None => {
             let class = req.class;
             let gate = |host: &str, port: u16, ip: &IpAddr| plan.admits(class, host, port, ip);
-            RoutedFetch {
-                traversed_proxy: false,
-                outcome: send_direct(url, &out, &gate).await,
+            match send_direct(url, &out, &gate).await {
+                Ok((bytes, content_type)) => RoutedFetch {
+                    traversed_proxy: false,
+                    content_type,
+                    outcome: Ok(bytes),
+                },
+                Err(r) => RoutedFetch {
+                    traversed_proxy: false,
+                    content_type: None,
+                    outcome: Err(r),
+                },
             }
         }
     };
@@ -386,14 +396,14 @@ async fn send_direct(
     start: reqwest::Url,
     out: &Outgoing<'_>,
     gate: &crate::AddressGate<'_>,
-) -> Result<Vec<u8>, Refusal> {
+) -> Result<(Vec<u8>, Option<String>), Refusal> {
     let mut url = start;
     for _ in 0..=MAX_REDIRECTS {
         let target = resolve_gated(url.clone(), gate).await?;
-        match send_hop(&target, out).await? {
-            Hop::Body(bytes) => return Ok(bytes),
-            Hop::Redirect(_) if out.body.is_some() => return Err(Refusal::Upstream),
-            Hop::Redirect(loc) => url = url.join(&loc).map_err(|_| Refusal::Upstream)?,
+        match send_hop_typed(&target, out).await? {
+            (Hop::Body(bytes), content_type) => return Ok((bytes, content_type)),
+            (Hop::Redirect(_), _) if out.body.is_some() => return Err(Refusal::Upstream),
+            (Hop::Redirect(loc), _) => url = url.join(&loc).map_err(|_| Refusal::Upstream)?,
         }
     }
     Err(Refusal::Upstream)

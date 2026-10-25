@@ -489,3 +489,81 @@ async fn a_route_for_other_classes_leaves_an_unlisted_class_direct() {
         "the route carried an unlisted class"
     );
 }
+
+// ── the declared media type ──────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn a_body_reports_the_media_type_its_origin_declared() {
+    let (typed, _) = standin_proxy(
+        "HTTP/1.1 200 OK\r\nContent-Type: Image/PNG; charset=binary\r\nContent-Length: 7\r\n\r\nproxied",
+    )
+    .await;
+    let plan = plan_with(
+        vec![global(
+            route_via("t", typed),
+            &[TrafficClass::RemoteContent],
+        )],
+        InternalAllowList::empty(),
+    );
+    let got = plan::send_with(
+        &plan,
+        url("http://1.2.3.4/a.png"),
+        &Request::get(TrafficClass::RemoteContent),
+    )
+    .await;
+    assert_eq!(got.content_type.as_deref(), Some("image/png"), "{got:?}");
+
+    let (untyped, _) = standin_proxy(OK_BODY).await;
+    let plan = plan_with(
+        vec![global(
+            route_via("u", untyped),
+            &[TrafficClass::RemoteContent],
+        )],
+        InternalAllowList::empty(),
+    );
+    let got = plan::send_with(
+        &plan,
+        url("http://1.2.3.4/a.png"),
+        &Request::get(TrafficClass::RemoteContent),
+    )
+    .await;
+    assert!(got.outcome.is_ok());
+    assert_eq!(got.content_type, None, "no header, no type");
+
+    // A refusal carries no type.
+    let got = plan::send_with(
+        &plan,
+        url("http://127.0.0.1:9/a.png"),
+        &Request::get(TrafficClass::Pki),
+    )
+    .await;
+    assert_eq!(got.content_type, None);
+}
+
+#[tokio::test]
+async fn the_direct_arm_reports_the_media_type_too() {
+    let Some(lan) = lan_address() else {
+        eprintln!("SKIPPED: this machine has no RFC1918 address to host a reachable origin on");
+        return;
+    };
+    let listener = TcpListener::bind(SocketAddr::new(lan, 0)).await.unwrap();
+    let origin = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let _ = read_request(&mut s).await;
+                let _ = s
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: image/gif\r\nContent-Length: 2\r\n\r\nok")
+                    .await;
+            });
+        }
+    });
+    let got = plan::send_with(
+        &plan_with(Vec::new(), siem_allow(lan)),
+        url(&format!("http://{origin}/x")),
+        &Request::get(TrafficClass::Siem),
+    )
+    .await;
+    assert_eq!(got.outcome.as_deref(), Ok(&b"ok"[..]), "{got:?}");
+    assert_eq!(got.content_type.as_deref(), Some("image/gif"));
+}

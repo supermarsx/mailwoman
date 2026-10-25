@@ -96,6 +96,9 @@ use crate::{
     validate_and_resolve,
 };
 
+/// A hop's outcome together with the media type its body declared.
+type TypedHop = Result<(Hop, Option<String>), ProxyRefusal>;
+
 // ── route configuration (deployment-wide, operator-supplied) ───────────────────
 
 /// Which tunnelling protocol a route speaks.
@@ -303,6 +306,9 @@ impl fmt::Display for ProxyRefusal {
 pub struct ProxyHop {
     /// Whether the proxy accepted the tunnel and bytes flowed through it.
     pub traversed_proxy: bool,
+    /// The media type a body declared (`crate::declared_media_type`); `None` for a
+    /// redirect, a refusal or a body without one.
+    pub content_type: Option<String>,
     /// The hop's body or redirect, or why it was refused.
     pub outcome: Result<Hop, ProxyRefusal>,
 }
@@ -313,6 +319,8 @@ pub struct ProxyHop {
 pub struct ProxyFetch {
     /// Whether any hop's connection actually went through the proxy.
     pub traversed_proxy: bool,
+    /// The media type the final body declared; `None` on a refusal or when absent.
+    pub content_type: Option<String>,
     /// The fetched, size-capped body, or why the fetch was refused.
     pub outcome: Result<Vec<u8>, ProxyRefusal>,
 }
@@ -423,6 +431,7 @@ async fn hop_over_tunnel(
         traversed,
     )
     .await
+    .map(|(hop, _)| hop)
 }
 
 /// The hop body shared by every kind: the plaintext rule, the tunnel, origin TLS
@@ -436,7 +445,7 @@ async fn hop_with(
     origin_host: &str,
     out: &Outgoing<'_>,
     traversed: &Arc<AtomicBool>,
-) -> Result<Hop, ProxyRefusal> {
+) -> TypedHop {
     let is_https = url.scheme() == "https";
     if !is_https && !route.allow_plaintext {
         return Err(ProxyRefusal::PlaintextRefused);
@@ -452,7 +461,23 @@ async fn hop_with(
     } else {
         stream::TunnelStream::Plain(conn)
     };
-    http::exchange_with(pipe, url, out).await
+    http::exchange_typed(pipe, url, out).await
+}
+
+/// A [`ProxyHop`] from a typed outcome.
+fn proxy_hop(traversed: &Arc<AtomicBool>, outcome: TypedHop) -> ProxyHop {
+    match outcome {
+        Ok((hop, content_type)) => ProxyHop {
+            traversed_proxy: traversed.load(Ordering::SeqCst),
+            content_type,
+            outcome: Ok(hop),
+        },
+        Err(e) => ProxyHop {
+            traversed_proxy: traversed.load(Ordering::SeqCst),
+            content_type: None,
+            outcome: Err(e),
+        },
+    }
 }
 
 /// One hop on a `socks5h` route: the destination is checked by
@@ -469,6 +494,7 @@ async fn remote_dns_hop(
         Err(r) => {
             return ProxyHop {
                 traversed_proxy: false,
+                content_type: None,
                 outcome: Err(ProxyRefusal::Origin(r)),
             };
         }
@@ -491,10 +517,7 @@ async fn remote_dns_hop(
         Ok(result) => result,
         Err(_) => Err(ProxyRefusal::Origin(Refusal::Timeout)),
     };
-    ProxyHop {
-        traversed_proxy: traversed.load(Ordering::SeqCst),
-        outcome,
-    }
+    proxy_hop(&traversed, outcome)
 }
 
 /// Fetch **one hop** through the route's proxy, refusing unless the target's
@@ -543,6 +566,7 @@ async fn tunnel_send_hop_with(
     if !ip_allowed(&target.addr.ip()) {
         return ProxyHop {
             traversed_proxy: false,
+            content_type: None,
             outcome: Err(ProxyRefusal::Origin(Refusal::Blocked)),
         };
     }
@@ -552,6 +576,7 @@ async fn tunnel_send_hop_with(
     if !matches!(target.url.scheme(), "http" | "https") {
         return ProxyHop {
             traversed_proxy: false,
+            content_type: None,
             outcome: Err(ProxyRefusal::Origin(Refusal::BadRequest(
                 "only http/https URLs are proxied",
             ))),
@@ -563,6 +588,7 @@ async fn tunnel_send_hop_with(
         // locally resolved target would be a third behaviour nobody configured.
         return ProxyHop {
             traversed_proxy: false,
+            content_type: None,
             outcome: Err(ProxyRefusal::RouteInvalid(
                 "a remote-DNS route is used by name, not with a resolved target",
             )),
@@ -587,10 +613,7 @@ async fn tunnel_send_hop_with(
         Ok(result) => result,
         Err(_) => Err(ProxyRefusal::Origin(Refusal::Timeout)),
     };
-    ProxyHop {
-        traversed_proxy: traversed.load(Ordering::SeqCst),
-        outcome,
-    }
+    proxy_hop(&traversed, outcome)
 }
 
 /// Fetch `start` through the route's proxy, re-validating every redirect.
@@ -647,6 +670,7 @@ async fn send_via_proxy_with(
                 Err(r) => {
                     return ProxyFetch {
                         traversed_proxy,
+                        content_type: None,
                         outcome: Err(ProxyRefusal::Origin(r)),
                     };
                 }
@@ -658,12 +682,14 @@ async fn send_via_proxy_with(
             Ok(Hop::Body(bytes)) => {
                 return ProxyFetch {
                     traversed_proxy,
+                    content_type: hop.content_type,
                     outcome: Ok(bytes),
                 };
             }
             Ok(Hop::Redirect(_)) if out.body.is_some() => {
                 return ProxyFetch {
                     traversed_proxy,
+                    content_type: None,
                     outcome: Err(ProxyRefusal::Origin(Refusal::Upstream)),
                 };
             }
@@ -672,6 +698,7 @@ async fn send_via_proxy_with(
                 Err(_) => {
                     return ProxyFetch {
                         traversed_proxy,
+                        content_type: None,
                         outcome: Err(ProxyRefusal::Origin(Refusal::Upstream)),
                     };
                 }
@@ -679,6 +706,7 @@ async fn send_via_proxy_with(
             Err(e) => {
                 return ProxyFetch {
                     traversed_proxy,
+                    content_type: None,
                     outcome: Err(e),
                 };
             }
@@ -686,6 +714,7 @@ async fn send_via_proxy_with(
     }
     ProxyFetch {
         traversed_proxy,
+        content_type: None,
         outcome: Err(ProxyRefusal::Origin(Refusal::Upstream)),
     }
 }

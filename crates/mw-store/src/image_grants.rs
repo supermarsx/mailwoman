@@ -27,6 +27,13 @@ pub struct RemoteImageGrantRow {
 }
 
 impl Store {
+    /// A purpose-bound key derived from the server key (`ServerKey::derive`): the
+    /// remote-content URL signing key is `derive_key("mw-remote-content-v1")`
+    /// (t32 e31a). `label` is a constant chosen in code.
+    pub fn derive_key(&self, label: &str) -> [u8; 32] {
+        self.key.derive(label)
+    }
+
     /// Grant remote-image loading for a scope (idempotent upsert; un-revokes and
     /// refreshes `granted_at` if the row already existed).
     pub async fn grant_remote_image(

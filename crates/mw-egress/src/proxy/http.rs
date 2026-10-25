@@ -19,7 +19,7 @@ use hyper_util::rt::TokioIo;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::ProxyRefusal;
-use crate::{Hop, MAX_IMAGE_BYTES, Outgoing, PROXY_UA, Refusal};
+use crate::{Hop, MAX_IMAGE_BYTES, Outgoing, PROXY_UA, Refusal, declared_media_type};
 
 /// A `GET` sends no body at all (no `Content-Length: 0` on the wire, exactly as
 /// before bodies existed); a `POST` sends its bytes with a known length.
@@ -78,6 +78,19 @@ pub async fn exchange_with<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    exchange_typed(stream, url, out).await.map(|(hop, _)| hop)
+}
+
+/// [`exchange_with`], also returning the body's declared media type
+/// ([`declared_media_type`]); `None` for a redirect.
+pub(crate) async fn exchange_typed<S>(
+    stream: S,
+    url: &reqwest::Url,
+    out: &Outgoing<'_>,
+) -> Result<(Hop, Option<String>), ProxyRefusal>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
         .await
         .map_err(|e| ProxyRefusal::OriginHttp(format!("HTTP/1.1 handshake failed: {e}")))?;
@@ -96,7 +109,7 @@ async fn exchange_inner(
     sender: &mut hyper::client::conn::http1::SendRequest<ReqBody>,
     url: &reqwest::Url,
     out: &Outgoing<'_>,
-) -> Result<Hop, ProxyRefusal> {
+) -> Result<(Hop, Option<String>), ProxyRefusal> {
     let builder = hyper::Request::builder()
         .uri(request_target(url))
         .header(header::HOST, host_header(url)?)
@@ -128,7 +141,7 @@ async fn exchange_inner(
             .and_then(|v| v.to_str().ok())
             .ok_or(ProxyRefusal::Origin(Refusal::Upstream))?
             .to_string();
-        return Ok(Hop::Redirect(location));
+        return Ok((Hop::Redirect(location), None));
     }
     if !status.is_success() {
         // The same discriminant the direct path returns, so a caller reads one
@@ -148,6 +161,12 @@ async fn exchange_inner(
         return Err(ProxyRefusal::Origin(Refusal::TooLarge));
     }
 
+    let media_type = declared_media_type(
+        response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+    );
     let mut body = response.into_body();
     let mut buf: Vec<u8> = Vec::new();
     while let Some(frame) = body.frame().await {
@@ -159,7 +178,7 @@ async fn exchange_inner(
             buf.extend_from_slice(chunk);
         }
     }
-    Ok(Hop::Body(buf))
+    Ok((Hop::Body(buf), media_type))
 }
 
 #[cfg(test)]

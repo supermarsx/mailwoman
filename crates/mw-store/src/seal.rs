@@ -81,6 +81,50 @@ impl ServerKey {
     }
 }
 
+impl ServerKey {
+    /// A 32-byte key for one purpose, derived from this key:
+    /// `HMAC-SHA256(server key, "mailwoman-subkey:" ‖ label)` (t32 e31a).
+    ///
+    /// For keys the server needs besides the sealing key — the remote-content URL
+    /// signing key is `derive("mw-remote-content-v1")`. Different labels give
+    /// independent keys, and none reveals the server key or another label's key.
+    /// The label is a constant chosen in code, never request data.
+    pub fn derive(&self, label: &str) -> [u8; 32] {
+        let mut msg = b"mailwoman-subkey:".to_vec();
+        msg.extend_from_slice(label.as_bytes());
+        hmac_sha256(&self.0, &msg)
+    }
+}
+
+/// HMAC-SHA256 (RFC 2104) over `sha2`, which this crate already links; `mw-store`
+/// has no `hmac` dependency and this is the only MAC it needs. Checked against the
+/// RFC 4231 vectors below.
+fn hmac_sha256(key: &[u8], msg: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    const BLOCK: usize = 64;
+    let mut k = [0u8; BLOCK];
+    if key.len() > BLOCK {
+        k[..32].copy_from_slice(&Sha256::digest(key));
+    } else {
+        k[..key.len()].copy_from_slice(key);
+    }
+    let mut ipad = [0x36u8; BLOCK];
+    let mut opad = [0x5cu8; BLOCK];
+    for i in 0..BLOCK {
+        ipad[i] ^= k[i];
+        opad[i] ^= k[i];
+    }
+    let inner = Sha256::new()
+        .chain_update(ipad)
+        .chain_update(msg)
+        .finalize();
+    Sha256::new()
+        .chain_update(opad)
+        .chain_update(inner)
+        .finalize()
+        .into()
+}
+
 pub fn random_token() -> String {
     let mut b = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut b);
@@ -108,6 +152,33 @@ fn hex_decode(s: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hmac_matches_rfc_4231() {
+        // Test case 2: key "Jefe", data "what do ya want for nothing?".
+        assert_eq!(
+            hex_encode(&hmac_sha256(b"Jefe", b"what do ya want for nothing?")),
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
+        // Test case 6: a 131-byte key, longer than the block, is hashed first.
+        assert_eq!(
+            hex_encode(&hmac_sha256(
+                &[0xaa; 131],
+                b"Test Using Larger Than Block-Size Key - Hash Key First"
+            )),
+            "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54"
+        );
+    }
+
+    #[test]
+    fn derived_keys_are_stable_per_label_and_independent_across_labels_and_keys() {
+        let key = ServerKey::from_hex(&"11".repeat(32)).unwrap();
+        let a = key.derive("mw-remote-content-v1");
+        assert_eq!(a, key.derive("mw-remote-content-v1"));
+        assert_ne!(a, key.derive("mw-remote-content-v2"));
+        assert_ne!(a, ServerKey::generate().derive("mw-remote-content-v1"));
+        assert_ne!(&a[..], &key.0[..], "a derived key is not the server key");
+    }
 
     #[test]
     fn seal_open_round_trip() {

@@ -600,6 +600,25 @@ impl fmt::Debug for OutBody<'_> {
 /// single hop, as a `GET` or a `POST`. A `POST` answered with a redirect returns
 /// [`Hop::Redirect`] like a `GET`; the loop in [`plan`] refuses to follow it.
 pub async fn send_hop(target: &Target, out: &Outgoing<'_>) -> Result<Hop, Refusal> {
+    send_hop_typed(target, out).await.map(|(hop, _)| hop)
+}
+
+/// The `Content-Type` an origin declared, as its lower-cased media type without
+/// parameters (`image/png` for `Image/PNG; charset=x`), or `None` when absent or
+/// unreadable. Reported to callers that check it (the remote-content proxy refuses
+/// a body whose declared type is not an allowed image type); never trusted for
+/// anything else.
+pub fn declared_media_type(value: Option<&str>) -> Option<String> {
+    let essence = value?.split(';').next()?.trim().to_ascii_lowercase();
+    (!essence.is_empty()).then_some(essence)
+}
+
+/// [`send_hop`], also returning the declared media type of a body
+/// ([`declared_media_type`]); `None` for a redirect.
+pub(crate) async fn send_hop_typed(
+    target: &Target,
+    out: &Outgoing<'_>,
+) -> Result<(Hop, Option<String>), Refusal> {
     let client = harden_client(reqwest::Client::builder(), &target.host, target.addr)
         .build()
         .map_err(|_| Refusal::Upstream)?;
@@ -634,7 +653,7 @@ pub async fn send_hop(target: &Target, out: &Outgoing<'_>) -> Result<Hop, Refusa
             .and_then(|v| v.to_str().ok())
             .ok_or(Refusal::Upstream)?
             .to_string();
-        return Ok(Hop::Redirect(loc));
+        return Ok((Hop::Redirect(loc), None));
     }
     if !status.is_success() {
         // The CODE is carried, not collapsed — see `Refusal::Status`. A caller that
@@ -647,7 +666,12 @@ pub async fn send_hop(target: &Target, out: &Outgoing<'_>) -> Result<Hop, Refusa
     {
         return Err(Refusal::TooLarge);
     }
-    Ok(Hop::Body(read_capped(resp).await?))
+    let media_type = declared_media_type(
+        resp.headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+    );
+    Ok((Hop::Body(read_capped(resp).await?), media_type))
 }
 
 /// Stream a response body, refusing once it exceeds [`MAX_IMAGE_BYTES`]. Uses
@@ -761,6 +785,11 @@ pub async fn fetch_url_hardened_with(
 pub struct RoutedFetch {
     /// Whether any hop's connection actually went through the proxy.
     pub traversed_proxy: bool,
+    /// The media type the final response declared ([`declared_media_type`]), when
+    /// the fetch returned a body through [`plan::send_with`] or the routed arm of
+    /// [`fetch_remote_routed`]. `None` on a refusal, when the origin sent none, and
+    /// on the direct arm of [`fetch_remote_routed`], which predates it.
+    pub content_type: Option<String>,
     /// The fetched, size-capped body, or why the fetch was refused.
     pub outcome: Result<Vec<u8>, Refusal>,
 }
@@ -845,6 +874,7 @@ pub async fn fetch_remote_routed(
         // what makes an audit row saying "direct" trustworthy.
         return RoutedFetch {
             traversed_proxy: false,
+            content_type: None,
             outcome: fetch_remote_with(start, accept, PROXY_UA, policy).await,
         };
     };
@@ -854,6 +884,7 @@ pub async fn fetch_remote_routed(
     let fetched = proxy::fetch_via_proxy(start, route, accept).await;
     RoutedFetch {
         traversed_proxy: fetched.traversed_proxy,
+        content_type: fetched.content_type,
         outcome: fetched.outcome.map_err(Refusal::from),
     }
 }
@@ -865,6 +896,21 @@ mod tests {
     use axum::http::StatusCode;
     use axum::response::Response;
     use std::net::SocketAddr;
+
+    #[test]
+    fn the_declared_media_type_is_the_lower_cased_essence() {
+        assert_eq!(
+            declared_media_type(Some("Image/PNG; charset=x")).as_deref(),
+            Some("image/png")
+        );
+        assert_eq!(
+            declared_media_type(Some("image/svg+xml")).as_deref(),
+            Some("image/svg+xml")
+        );
+        assert_eq!(declared_media_type(Some("  ")), None);
+        assert_eq!(declared_media_type(Some(";a=b")), None);
+        assert_eq!(declared_media_type(None), None);
+    }
 
     // ── SSRF IP policy (the security core; pure, no network) ──────────────────
 
