@@ -8,6 +8,7 @@
 mod security_center;
 pub mod groups;
 pub mod feature_profiles;
+pub mod diagnostics;
 pub mod jobs;
 pub use security_center::{SessionDevice, SecuritySession, SigninEvent, RememberedDevice};
 mod admin_accounts;

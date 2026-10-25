@@ -109,6 +109,7 @@ pub mod settings_registry;
 pub mod settings_routes;
 mod features;
 mod feature_jmap;
+mod diagnostics;
 mod user_router;
 // t16 (26.16, e10) A9: a runtime ManageSieve caller — compile the account's rules to
 // a Sieve script and upload+activate it on the user's ManageSieve server.
