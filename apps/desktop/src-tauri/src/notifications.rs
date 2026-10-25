@@ -11,15 +11,20 @@
 //! Commands registered by e7 (`tauri::generate_handler!`):
 //!   * `mw_notify(app, input: NotifyPayload)` -> Result<(), String>
 //!
-//! Action delivery: desktop OS notification-action support varies by platform and
-//! is owned by the plugin's own activation callback. e7 wires that callback (in the
-//! Tauri `setup`) to call [`emit_notification_action`], the single choke point that
-//! serializes the frozen event shape. Tests here pin that shape + the payload
-//! parsing so the JS<->shell contract cannot drift.
+//! Action delivery (t32 f25, D-23): `tauri-plugin-notification`'s desktop builder
+//! shows a toast and drops the result, so a click did nothing. [`mw_notify`] shows
+//! the toast through `notify-rust` (the crate the plugin itself uses) and keeps its
+//! handle: a thread waits for the OS response (Windows toast activation, macOS
+//! click, the XDG `ActionInvoked` signal), brings the main window to the front and
+//! calls [`emit_notification_action`], the single choke point that serializes the
+//! frozen event shape. The wait ends when the toast is dismissed or expires; a
+//! click on an expired entry in the OS notification centre only brings the app up
+//! (Windows starts or focuses it through the app id). Tests here pin the event
+//! shape, the payload parsing and the response mapping.
 
+use notify_rust::NotificationResponse;
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, Runtime};
-use tauri_plugin_notification::NotificationExt;
+use tauri::{Emitter, Manager, Runtime};
 
 /// Frontend event name the capability layer listens on for notification activations.
 pub const NOTIFICATION_ACTION_EVENT: &str = "mw://notification-action";
@@ -86,9 +91,78 @@ pub fn emit_notification_action<R: Runtime>(
     .map_err(|e| format!("emit {NOTIFICATION_ACTION_EVENT}: {e}"))
 }
 
+/// The `actionId` the SPA receives for an OS response, or `None` when the toast was
+/// closed without being used. A body click is [`ACTION_DEFAULT`]; a button is its
+/// id; a macOS inline reply opens the composer (`reply`). The XDG body click
+/// arrives as the action key `default`, and notify-rust's Windows backend can
+/// report a dismissal as `__closed`; both are mapped so every platform agrees.
+pub fn activation_action(response: &NotificationResponse) -> Option<&str> {
+    match response {
+        NotificationResponse::Default => Some(ACTION_DEFAULT),
+        NotificationResponse::Action(key) if key == "__closed" || key.is_empty() => None,
+        NotificationResponse::Action(key) => Some(key.as_str()),
+        NotificationResponse::Reply(_) => Some("reply"),
+        NotificationResponse::Closed(_) => None,
+    }
+}
+
+/// Bring the main window to the front after a notification was used.
+fn focus_main<R: Runtime>(app: &tauri::AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// The OS notification for `input`, set up the way `tauri-plugin-notification`
+/// sets up its own: on Windows the app id only for the installed app (a dev build
+/// under `target/` has no registered app id and keeps the default), on macOS the
+/// bundle id except in dev.
+fn os_notification<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    input: &NotifyPayload,
+) -> notify_rust::Notification {
+    let mut n = notify_rust::Notification::new();
+    n.summary(&input.title).body(&input.body).auto_icon();
+    // XDG reports a body click only when a `default` action is offered.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    n.action(ACTION_DEFAULT, &input.title);
+    for action in &input.actions {
+        n.action(&action.id, &action.label);
+    }
+    let identifier = app.config().identifier.clone();
+    #[cfg(windows)]
+    {
+        let sep = std::path::MAIN_SEPARATOR;
+        let installed = tauri::utils::platform::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|dir| dir.display().to_string()))
+            .is_some_and(|dir| {
+                !(dir.ends_with(&format!("{sep}target{sep}debug"))
+                    || dir.ends_with(&format!("{sep}target{sep}release")))
+            });
+        if installed {
+            n.app_id(&identifier);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = notify_rust::set_application(if tauri::is_dev() {
+            "com.apple.Terminal"
+        } else {
+            &identifier
+        });
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let _ = identifier;
+    n
+}
+
 /// Show a native notification for `input`. Title + body are always shown; action
-/// buttons are attached where the OS/plugin supports them (their activation returns
-/// via e7's callback -> [`emit_notification_action`]). Content is the SPA's own
+/// buttons are attached where the OS supports them. A click on the toast or one of
+/// its buttons focuses the app and reaches the SPA as `mw://notification-action`
+/// (`{ notificationId: input.id, actionId }`). Content is the SPA's own
 /// (already-fetched) data — push never carries content (plan §2.3), so this is
 /// local rendering only.
 #[tauri::command]
@@ -96,12 +170,28 @@ pub async fn mw_notify<R: Runtime>(
     app: tauri::AppHandle<R>,
     input: NotifyPayload,
 ) -> Result<(), String> {
-    app.notification()
-        .builder()
-        .title(&input.title)
-        .body(&input.body)
-        .show()
-        .map_err(|e| format!("notify {}: {e}", input.id))
+    let notification = os_notification(&app, &input);
+    let (shown_tx, shown_rx) = std::sync::mpsc::channel::<Result<(), String>>();
+    // `show` blocks on D-Bus/WinRT and the response wait blocks until the toast is
+    // used or closed, so both run on a thread of their own.
+    std::thread::spawn(move || match notification.show() {
+        Ok(handle) => {
+            let _ = shown_tx.send(Ok(()));
+            let _ = handle.wait_for_response(|response: &NotificationResponse| {
+                if let Some(action) = activation_action(response) {
+                    focus_main(&app);
+                    let _ = emit_notification_action(&app, input.id.clone(), action);
+                }
+            });
+        }
+        Err(e) => {
+            let _ = shown_tx.send(Err(format!("notify {}: {e}", input.id)));
+        }
+    });
+    tauri::async_runtime::spawn_blocking(move || shown_rx.recv())
+        .await
+        .map_err(|e| format!("notify: {e}"))?
+        .unwrap_or_else(|_| Err("notify: the notification thread stopped".to_string()))
 }
 
 #[cfg(test)]
@@ -148,6 +238,34 @@ mod tests {
                 label: "Reply".into()
             }
         );
+    }
+
+    #[test]
+    fn a_body_click_and_a_button_reach_the_spa_and_a_dismissal_does_not() {
+        use notify_rust::CloseReason;
+        let cases = [
+            (NotificationResponse::Default, Some(ACTION_DEFAULT)),
+            (
+                NotificationResponse::Action("archive".into()),
+                Some("archive"),
+            ),
+            // The XDG body click arrives as the `default` action key.
+            (
+                NotificationResponse::Action("default".into()),
+                Some(ACTION_DEFAULT),
+            ),
+            (
+                NotificationResponse::Reply("on my way".into()),
+                Some("reply"),
+            ),
+            (NotificationResponse::Action("__closed".into()), None),
+            (NotificationResponse::Action(String::new()), None),
+            (NotificationResponse::Closed(CloseReason::Dismissed), None),
+            (NotificationResponse::Closed(CloseReason::Expired), None),
+        ];
+        for (response, expected) in cases {
+            assert_eq!(activation_action(&response), expected, "{response:?}");
+        }
     }
 
     #[test]

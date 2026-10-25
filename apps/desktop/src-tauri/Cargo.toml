@@ -42,6 +42,14 @@ getrandom = { workspace = true }
 # and compare against the build-emitted `bundle-hash.json`. RustCrypto, Apache/MIT.
 sha2 = { workspace = true }
 
+# Native notifications with click delivery (t32 f25, D-23): the plugin's desktop
+# builder drops the toast handle, so `notifications.rs` shows the toast through
+# `notify-rust` itself and waits for the click. Same crate, version range and
+# targets as `tauri-plugin-notification`'s own dependency (4.18.0 in the lock), so
+# nothing new is resolved.
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))'.dependencies]
+notify-rust = "4.11"
+
 # OS credential store (§16 keychain) — the native backend per platform: DPAPI /
 # Windows Credential Manager on Windows, Keychain on macOS, Secret Service on
 # Linux. Selected per-target so a Windows build never pulls the Linux D-Bus stack.
