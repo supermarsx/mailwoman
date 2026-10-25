@@ -31,9 +31,12 @@ afterEach(() => {
 describe('parseClientPolicy', () => {
   it('reads the wire shape and degrades unknown values to the defaults', () => {
     expect(parseClientPolicy({ maxSecurityFloor: 'plain-text', capturePolicy: 'protect' })).toEqual(
-      { maxSecurityFloor: 'plain-text', capturePolicy: 'protect' },
+      { maxSecurityFloor: 'plain-text', capturePolicy: 'protect', openTracking: false },
     );
-    expect(parseClientPolicy({ maxSecurityFloor: true, capturePolicy: 'block' })).toEqual(
+    expect(
+      parseClientPolicy({ maxSecurityFloor: null, capturePolicy: 'off', openTracking: true }),
+    ).toEqual({ maxSecurityFloor: null, capturePolicy: 'off', openTracking: true });
+    expect(parseClientPolicy({ maxSecurityFloor: true, capturePolicy: 'block', openTracking: 'yes' })).toEqual(
       DEFAULT_CLIENT_POLICY,
     );
     expect(parseClientPolicy(null)).toEqual(DEFAULT_CLIENT_POLICY);
@@ -48,7 +51,11 @@ describe('loadClientPolicy', () => {
 
     await loadClientPolicy(fetcher);
     expect(fetcher).toHaveBeenCalledWith('/api/policy');
-    expect(clientPolicy()).toEqual({ maxSecurityFloor: 'sanitized-no-media', capturePolicy: 'protect' });
+    expect(clientPolicy()).toEqual({
+      maxSecurityFloor: 'sanitized-no-media',
+      capturePolicy: 'protect',
+      openTracking: false,
+    });
     expect(capture).toHaveBeenCalledWith(true);
 
     // Kept for the session: no second request.

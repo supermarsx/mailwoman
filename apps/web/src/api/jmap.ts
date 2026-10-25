@@ -221,6 +221,13 @@ export interface DraftInput {
   /** V7 (§18.4): blob attachments materialised server-side (e.g. from Nextcloud),
    *  referenced by blob id on the draft. Omitted for an ordinary send. */
   attachments?: { blobId: Id; name: string; type: string; size?: number }[];
+  /** Images the HTML body shows by `cid:` (t29-e12): each becomes an inline
+   *  part of a `multipart/related` message. Omitted when there are none. */
+  inline?: { blobId: Id; cid: string; disposition: 'inline'; type: string; name: string }[];
+  /** Ask the recipient's mail program for a read receipt (t29-e12). The engine
+   *  writes `Disposition-Notification-To` with the validated From mailbox; no
+   *  other address can be named. */
+  requestReadReceipt?: boolean;
   /**
    * V2 undo-send: engine-held delay before SMTP dispatch, in seconds. The
    * client shows a Cancel toast for this window; the engine only dials SMTP
@@ -266,6 +273,7 @@ export function draftCreateSpec(input: DraftInput): Record<string, unknown> {
   spec['subject'] = input.subject;
   spec['htmlBody'] = [{ partId: 'body', type: 'text/html' }];
   spec['bodyValues'] = { body: { value: input.htmlBody } };
+  if (input.requestReadReceipt === true) spec['mailwomanRequestReadReceipt'] = true;
   return spec;
 }
 
@@ -278,16 +286,19 @@ export function sendEnvelope(accountId: Id, input: DraftInput): JmapRequest {
   const draftCreate = draftCreateSpec(input);
   // V7 (§18.4): server-materialised blob attachments (e.g. from Nextcloud) ride the
   // draft create as standard RFC 8621 `attachments` blob references. Added only when
-  // present, so an ordinary send is byte-identical to before.
-  if (input.attachments !== undefined && input.attachments.length > 0) {
-    draftCreate['attachments'] = input.attachments.map((a) => ({
-      blobId: a.blobId,
-      name: a.name,
-      type: a.type,
-      ...(a.size !== undefined ? { size: a.size } : {}),
-      disposition: 'attachment',
-    }));
+  // present, so an ordinary send is byte-identical to before. Images shown in the
+  // body (t29-e12) ride the same array with `disposition: 'inline'` and a `cid`.
+  const attached: Record<string, unknown>[] = (input.attachments ?? []).map((a) => ({
+    blobId: a.blobId,
+    name: a.name,
+    type: a.type,
+    ...(a.size !== undefined ? { size: a.size } : {}),
+    disposition: 'attachment',
+  }));
+  for (const i of input.inline ?? []) {
+    attached.push({ blobId: i.blobId, cid: i.cid, disposition: 'inline', type: i.type, name: i.name });
   }
+  if (attached.length > 0) draftCreate['attachments'] = attached;
   const emailSet: Invocation = ['Email/set', { accountId, create: { draft: draftCreate } }, 'set'];
 
   const onSuccessUpdate: Record<string, Record<string, unknown>> = {};

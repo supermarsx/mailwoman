@@ -93,3 +93,36 @@
   font-size: 0.75rem;
   color: var(--text-dim);
 }
+
+/* t29-e12: per-message send options. The 24px box (checks.css.ts) and its
+   text on one line; the hint under the text, not under the box. */
+.compose-options {
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  border: var(--border-hair) solid var(--border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.compose-options__legend {
+  padding: 0 0.3rem;
+  font-size: 0.78rem;
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.compose-options__toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.compose-options__hint {
+  margin-block: 0 0.2rem;
+  margin-inline: calc(1.5rem + 0.45rem) 0;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}

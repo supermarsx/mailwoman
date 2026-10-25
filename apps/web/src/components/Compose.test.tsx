@@ -8,6 +8,7 @@ import { AppContext } from '../state/context.ts';
 import { AssistService } from '../modules/assist/index.ts';
 import { isolate } from '../i18n/index.ts';
 import type { Identity, JmapRequest } from '../api/jmap-types.ts';
+import { resetClientPolicy } from '../api/policy.ts';
 
 // ── V7 (e14b) integration doubles ────────────────────────────────────────────
 function json(body: unknown, status = 200): Response {
@@ -378,7 +379,9 @@ describe('Compose', () => {
     return sends[0]!;
   }
 
-  it('offers no tracking-pixel or read-receipt control, and sends exactly the typed body', async () => {
+  // Precondition for the t29-e12 cases below: a server that is neither this
+  // server's engine nor has open tracking on gets no send options at all.
+  it('offers no receipt or tracking control where the server can do neither, and sends exactly the typed body', async () => {
     const { client, app } = await composeWithClient({ identities: IDENTITIES });
     expect(screen.queryByTestId('compose-send-options')).toBeNull();
     expect(screen.queryByTestId('opt-tracking')).toBeNull();
@@ -625,5 +628,149 @@ describe('Compose', () => {
     const picker = await screen.findByTestId('compose-signature');
     fireEvent.change(within(picker).getByRole('combobox'), { target: { value: 'id1' } });
     expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toContain('Sent from Mailwoman');
+  });
+
+  // ── t29-e12: read receipt, open tracking, inline images ──────────────────────
+
+  describe('send options and inline images (t29-e12)', () => {
+    /** The composer's own fetches: the session probe (engine capability when
+     *  asked), `/api/policy`, the upload endpoint and the open-tracking routes. */
+    function serverFetch(opts: { engine: boolean; openTracking: boolean }): ReturnType<typeof vi.fn> {
+      return vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.includes('/jmap/session')) {
+          return json({
+            capabilities: {
+              'urn:ietf:params:jmap:core': { maxSizeUpload: 1_000_000 },
+              ...(opts.engine ? { 'urn:mailwoman:security': {} } : {}),
+            },
+            accounts: {},
+            primaryAccounts: {},
+            username: 'me@example.org',
+            apiUrl: '/jmap/api',
+            downloadUrl: '/jmap/download/{accountId}/{blobId}/{name}?type={type}',
+            uploadUrl: '/jmap/upload/{accountId}',
+            eventSourceUrl: '/e',
+            state: 's0',
+          });
+        }
+        if (url.endsWith('/api/policy')) {
+          return json({ maxSecurityFloor: null, capturePolicy: 'off', openTracking: opts.openTracking });
+        }
+        if (url.includes('/jmap/upload/')) {
+          return json({ accountId: 'acct1', blobId: 'Gimg1', type: 'image/png', size: 4 });
+        }
+        if (url.endsWith('/api/track/open') && init?.method === 'POST') {
+          return json({ token: 'tok', url: 'https://mail.example/t/tok.gif' });
+        }
+        if (url.includes('/api/track/open/') && init?.method === 'PUT') return new Response(null, { status: 204 });
+        return json({}, 404);
+      });
+    }
+
+    beforeEach(() => resetClientPolicy());
+    afterEach(() => {
+      resetClientPolicy();
+      vi.unstubAllGlobals();
+    });
+
+    function draftOf(client: ReturnType<typeof makeClient>): Record<string, unknown> {
+      const req = sentRequest(client);
+      return (req.methodCalls[0]![1]['create'] as Record<string, Record<string, unknown>>)['draft']!;
+    }
+
+    function fillAndSend(): void {
+      fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
+      fireEvent.input(screen.getByLabelText('Subject'), { target: { value: 'Hi' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    }
+
+    it("on this server's engine the receipt request is offered, off, and sent only when ticked", async () => {
+      vi.stubGlobal('fetch', serverFetch({ engine: true, openTracking: false }));
+      const { client, app } = await composeWithClient();
+      const receipt = (await screen.findByTestId('compose-request-receipt')) as HTMLInputElement;
+      expect(receipt.checked).toBe(false);
+      expect(screen.getByText(/may ask them, send one without asking, or ignore the request/)).toBeInTheDocument();
+      expect(screen.queryByTestId('compose-track-opens')).toBeNull();
+
+      fireEvent.click(receipt);
+      fillAndSend();
+      await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
+      expect(draftOf(client)['mailwomanRequestReadReceipt']).toBe(true);
+    });
+
+    it('open tracking is offered only when the server records opens, and not for a signed message', async () => {
+      vi.stubGlobal('fetch', serverFetch({ engine: false, openTracking: true }));
+      await composeWithClient();
+      const track = (await screen.findByTestId('compose-track-opens')) as HTMLInputElement;
+      expect(track.checked).toBe(false);
+      expect(screen.getByText(/does not prove the message was read/)).toBeInTheDocument();
+      // No engine: no receipt option.
+      expect(screen.queryByTestId('compose-request-receipt')).toBeNull();
+
+      fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
+      fireEvent.click(await screen.findByTestId('sign-toggle'));
+      await waitFor(() => expect(screen.queryByTestId('compose-track-opens')).toBeNull());
+    });
+
+    it('a tracked send carries the image from the minted URL after the body', async () => {
+      const fetchSpy = serverFetch({ engine: false, openTracking: true });
+      vi.stubGlobal('fetch', fetchSpy);
+      const { client, app } = await composeWithClient();
+      fireEvent.click(await screen.findByTestId('compose-track-opens'));
+      fireEvent.click(screen.getByTestId('format-toggle')); // plain text
+      fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'tracked' } });
+      fillAndSend();
+      await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
+      expect(draftOf(client)['bodyValues']).toEqual({
+        body: { value: '<p>tracked</p><img src="https://mail.example/t/tok.gif" width="1" height="1" alt="">' },
+      });
+      await waitFor(() =>
+        expect(fetchSpy.mock.calls.some((c) => String(c[0]).endsWith('/api/track/open/tok'))).toBe(true),
+      );
+    });
+
+    it('an image placed in the body is uploaded, shown from a local preview, and sent as an inline part', async () => {
+      vi.stubGlobal('fetch', serverFetch({ engine: true, openTracking: false }));
+      const createObjectURL = vi.fn(() => 'blob:preview-1');
+      const revokeObjectURL = vi.fn();
+      Object.assign(URL, { createObjectURL, revokeObjectURL });
+      const { client, app } = await composeWithClient();
+      await screen.findByTestId('compose-richtext');
+      await waitFor(() => expect(screen.queryByTestId('compose-request-receipt')).not.toBeNull());
+      const input = (await screen.findByLabelText('Insert an image')) as HTMLInputElement;
+
+      fireEvent.change(input, { target: { files: [new File(['PNG'], 'chart.png', { type: 'image/png' })] } });
+      const shown = await waitFor(() => {
+        const img = screen.getByTestId('compose-richtext').querySelector('img.compose-rt__img');
+        expect(img).not.toBeNull();
+        return img!;
+      });
+      expect(shown.getAttribute('src')).toBe('blob:preview-1');
+
+      fillAndSend();
+      await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
+      const draft = draftOf(client);
+      const attachments = draft['attachments'] as { cid: string }[];
+      expect(attachments).toEqual([
+        { blobId: 'Gimg1', cid: attachments[0]!.cid, disposition: 'inline', type: 'image/png', name: 'chart.png' },
+      ]);
+      expect(attachments[0]!.cid).toMatch(/@mailwoman$/);
+      const body = (draft['bodyValues'] as { body: { value: string } }).body.value;
+      expect(body).toContain(`<img src="cid:${attachments[0]!.cid}" alt="chart.png">`);
+      expect(body).not.toContain('blob:');
+    });
+
+    it('refuses an SVG for the body and uploads nothing', async () => {
+      const fetchSpy = serverFetch({ engine: true, openTracking: false });
+      vi.stubGlobal('fetch', fetchSpy);
+      await composeWithClient();
+      await screen.findByTestId('compose-richtext');
+      await waitFor(() => expect(screen.queryByTestId('compose-request-receipt')).not.toBeNull());
+      const input = (await screen.findByLabelText('Insert an image')) as HTMLInputElement;
+      fireEvent.change(input, { target: { files: [new File(['<svg/>'], 'x.svg', { type: 'image/svg+xml' })] } });
+      expect(await screen.findByText(/cannot be placed in the text/)).toBeInTheDocument();
+      expect(fetchSpy.mock.calls.filter((c) => String(c[0]).includes('/jmap/upload/'))).toHaveLength(0);
+    });
   });
 });

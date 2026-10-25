@@ -4,10 +4,11 @@
 // (server-sanitised cleartext, or an encrypted message's plaintext sanitised in
 // the crypto worker), or its plain text. It is parsed into a document that has
 // no browsing context, stripped of everything that embeds or loads, and then
-// reduced to the composer's schema (`richtext.ts`) — paragraphs, headings,
-// lists, blockquotes, code, and http/https/mailto links. The schema has no
-// image node and keeps no `style`, `class` or event attribute, so no remote
-// reference of the original is carried into the outgoing body.
+// reduced to the composer's quote schema (`quoteSchema` in `richtext.ts`) —
+// paragraphs, headings, lists, blockquotes, code, and http/https/mailto links.
+// That schema has no image node and keeps no `style`, `class` or event
+// attribute, so no remote reference of the original is carried into the
+// outgoing body.
 //
 // ProseMirror is imported on demand: this module is reached from the reader,
 // which is on the entry chunk, and the schema's libraries are not.
@@ -47,7 +48,7 @@ async function reduce(source: QuoteSource): Promise<Quote> {
   if (source.html !== undefined) {
     const body = rt.inertBody(source.html);
     for (const el of Array.from(body.querySelectorAll(DROPPED))) el.remove();
-    const doc = rt.docFromElement(body);
+    const doc = rt.quoteDocFromElement(body);
     const text = rt.textFromDoc(doc);
     return text.trim() === '' ? { html: '', text: '' } : { html: rt.htmlFromDoc(doc), text };
   }

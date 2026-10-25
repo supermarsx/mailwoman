@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { NetworkError, type Client } from '../api/client.ts';
 import type { Invocation, JmapResponse } from '../api/jmap-types.ts';
 import type { OutboundItem } from '../contracts/offline.ts';
+import { TrackingUnavailable } from '../api/tracking.ts';
 import {
   MAX_ATTEMPTS,
   discardOutbound,
@@ -412,5 +413,72 @@ describe('queue management', () => {
     const store = memoryOutboxStore([failed('f1', 1), failed('f2', 2)]);
     await discardOutbound(store, 'f1');
     expect((await store.all()).map((i) => i.id)).toEqual(['f2']);
+  });
+});
+
+describe('drainOutbox — a tracked send (t29-e12)', () => {
+  const tracked: SendPayload = { accountId: 'acct1', draft: draftInput, track: true };
+  const sentOk = (): JmapResponse =>
+    jmapResponse(
+      ['Email/set', { created: { draft: { id: 'e9' } }, notCreated: null }, 'set'],
+      ['EmailSubmission/set', { created: { send: { id: 's1' } }, notCreated: null }, 'submit'],
+    );
+
+  it('mints the token at replay, sends the image after the body, and binds the created Email', async () => {
+    const store = memoryOutboxStore([item('send', tracked, 1)]);
+    const jmap = vi.fn(async (_body: unknown) => sentOk());
+    const tracking = {
+      mint: vi.fn(async () => ({ token: 'tok', url: 'https://mail.example/t/tok.gif' })),
+      bind: vi.fn(async () => true),
+    };
+    expect(await drainOutbox(store, fakeClient(jmap), tracking)).toEqual({ sent: 1, failed: 0 });
+    expect(tracking.mint).toHaveBeenCalledWith('Hi', ['you@y.org']);
+    const create = (jmap.mock.calls[0]![0] as unknown as { methodCalls: Invocation[] }).methodCalls[0]![1]['create'] as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(create['draft']!['bodyValues']).toEqual({
+      body: { value: '<p>hi</p><img src="https://mail.example/t/tok.gif" width="1" height="1" alt="">' },
+    });
+    expect(tracking.bind).toHaveBeenCalledWith('tok', 'e9');
+  });
+
+  it('a refused mint fails the item without sending it', async () => {
+    const queued = item('send', tracked, 1);
+    const store = memoryOutboxStore([queued]);
+    const jmap = vi.fn(async () => sentOk());
+    const tracking = {
+      mint: vi.fn(async () => {
+        throw new TrackingUnavailable('publicUrlRequired');
+      }),
+      bind: vi.fn(async () => true),
+    };
+    expect(await drainOutbox(store, fakeClient(jmap), tracking)).toEqual({ sent: 0, failed: 1 });
+    expect(jmap).not.toHaveBeenCalled();
+    expect(await store.all()).toEqual([
+      { ...queued, state: 'failed', attempts: 1, lastError: 'open tracking unavailable: publicUrlRequired' },
+    ]);
+  });
+
+  it('no network for the mint stops the drain and records nothing', async () => {
+    const queued = item('send', tracked, 1);
+    const store = memoryOutboxStore([queued, item('flag', flag, 2)]);
+    const jmap = vi.fn(async () => setResponse({ updated: { m1: null } }));
+    const tracking = {
+      mint: vi.fn(async () => {
+        throw new TrackingUnavailable('network');
+      }),
+      bind: vi.fn(async () => true),
+    };
+    expect(await drainOutbox(store, fakeClient(jmap), tracking)).toEqual({ sent: 0, failed: 0 });
+    expect(jmap).not.toHaveBeenCalled();
+    expect(await store.all()).toEqual([queued, item('flag', flag, 2)]);
+  });
+
+  it('an untracked queued send mints nothing', async () => {
+    const store = memoryOutboxStore([item('send', send, 1)]);
+    const tracking = { mint: vi.fn(), bind: vi.fn() };
+    expect(await drainOutbox(store, fakeClient(vi.fn(async () => sentOk())), tracking)).toEqual({ sent: 1, failed: 0 });
+    expect(tracking.mint).not.toHaveBeenCalled();
   });
 });

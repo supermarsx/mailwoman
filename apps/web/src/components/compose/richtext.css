@@ -95,3 +95,25 @@
   color: var(--link);
   text-decoration: underline;
 }
+
+/* The image button is a label over a hidden file input (t29-e12): it shows the
+   focus ring while that input has keyboard focus. */
+label.compose-rt__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+label.compose-rt__btn:focus-within:has(:focus-visible) {
+  outline: var(--focus-ring-width) solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* An image placed in the body, shown from its local preview. */
+.ProseMirror img.compose-rt__img {
+  max-inline-size: 100%;
+  block-size: auto;
+  vertical-align: bottom;
+}
+.ProseMirror img.compose-rt__img.ProseMirror-selectednode {
+  outline: var(--focus-ring-width) solid var(--focus);
+}

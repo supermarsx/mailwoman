@@ -4,6 +4,7 @@
 
 import { For, Show, type JSX } from 'solid-js';
 import { t, isolate } from '../../i18n/index.ts';
+import { formatDateTime } from '../../i18n/format.ts';
 import * as a11y from '../mailA11y.css.ts';
 import type { EmailSubmission } from '../../api/jmap-types.ts';
 import type { StoredDraft } from './drafts-store.ts';
@@ -84,8 +85,7 @@ export function RecallPanel(props: {
 }
 
 function formatWhen(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  return Number.isNaN(new Date(iso).getTime()) ? iso : formatDateTime(iso);
 }
 
 // ── W9: universal Drafts drawer ──────────────────────────────────────────────

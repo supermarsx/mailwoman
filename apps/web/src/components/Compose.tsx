@@ -28,6 +28,17 @@ import {
   newDraftId,
   type StoredDraft,
 } from './compose/drafts-store.ts';
+import { SendOptions } from './compose/SendOptions.tsx';
+import {
+  inlineAttachments,
+  inlineRefusal,
+  newCid,
+  referencedCids,
+  storedImage,
+  type InlineImage,
+} from './compose/inlineImages.ts';
+import { clientPolicy, loadClientPolicy } from '../api/policy.ts';
+import { buildDownloadUrl, fetchObjectUrl } from '../viewers/attachments.ts';
 
 // The rich-text editor pulls in ProseMirror (MIT, self-hosted). Loaded lazily so
 // those libraries land in their own chunk and never inflate the login→inbox
@@ -60,6 +71,12 @@ import { CAP_CORE } from '../api/jmap-types.ts';
 import { DirectorySearch, GroupExpand, type GalEntry } from '../modules/directory/index.ts';
 import { ComposerTools, Dictation } from '../modules/assist/index.ts';
 import { NextcloudAttach, type AttachedFile } from '../modules/nextcloud/index.ts';
+
+// Advertised in the session only by this server's own engine (mw-engine
+// `session_json`), which is what turns `mailwomanRequestReadReceipt` into a
+// `Disposition-Notification-To` header. A proxied JMAP server does not know the
+// property, so the receipt option is not offered there.
+const ENGINE_CAP = 'urn:mailwoman:security';
 
 // The crypto/DLP JMAP surface (`CryptoKey/lookup`, `Dlp/scan`) is not on
 // `AppState`; drive it over a dedicated client that hits the same session as the
@@ -180,6 +197,17 @@ export function Compose(props: {
   const [maxUploadSize, setMaxUploadSize] = createSignal<number>(50_000_000);
   const [uploading, setUploading] = createSignal(false);
   const [attachError, setAttachError] = createSignal<string | null>(null);
+  // Images placed in the body (t29-e12): uploaded blobs with a Content-ID each.
+  // The body refers to them by `cid:`; the editor shows `previewUrl`.
+  const [inlineImages, setInlineImages] = createSignal<InlineImage[]>([]);
+  const [inlineError, setInlineError] = createSignal<string | null>(null);
+  const ownedCids = createMemo<ReadonlySet<string>>(() => new Set(inlineImages().map((i) => i.cid)));
+  const [downloadUrl, setDownloadUrl] = createSignal<string | null>(null);
+  // Send options (t29-e12). Off for every new message; never remembered for the
+  // next one. The receipt option needs the engine (see ENGINE_CAP).
+  const [receiptAvailable, setReceiptAvailable] = createSignal(false);
+  const [requestReceipt, setRequestReceipt] = createSignal(false);
+  const [trackOpens, setTrackOpens] = createSignal(false);
   // Crypto/DLP state reported up by <ComposeCrypto> (encrypt/sign toggles, the
   // E2EE/TLS/mixed capability, the DLP `canSend` gate, and the WASM-encrypted
   // draft) — plan §2.5.
@@ -288,12 +316,16 @@ export function Compose(props: {
       .session()
       .then((s) => {
         setUploadUrl(s.uploadUrl);
+        setDownloadUrl(s.downloadUrl);
+        setReceiptAvailable(s.capabilities[ENGINE_CAP] !== undefined);
         const core = s.capabilities[CAP_CORE] as { maxSizeUpload?: number } | undefined;
         if (core?.maxSizeUpload !== undefined && core.maxSizeUpload > 0) {
           setMaxUploadSize(core.maxSizeUpload);
         }
       })
       .catch(() => undefined);
+    // Whether this server records opens (`openTracking`); read once per session.
+    void loadClientPolicy();
   });
 
   // A reply is answered above the quote: once the editor is there, the caret
@@ -311,6 +343,7 @@ export function Compose(props: {
 
   onCleanup(() => {
     previouslyFocused?.focus();
+    for (const img of inlineImages()) if (img.previewUrl !== null) URL.revokeObjectURL(img.previewUrl);
     // Drop the cached signing key from the worker session when the composer closes
     // (the worker zeroizes the unlocked private key for this ref).
     const s = signingSession();
@@ -401,6 +434,15 @@ export function Compose(props: {
     return sig;
   });
 
+  /** "Record when this message is opened" is offered only when the server has
+   *  open tracking on and the message is neither encrypted nor signed (the
+   *  image would sit outside the encryption or break the signature). */
+  const trackingAvailable = createMemo(() => {
+    if (!clientPolicy().openTracking) return false;
+    const cs = cryptoState();
+    return !(cs !== null && (cs.encrypt || cs.sign));
+  });
+
   /** A signature as HTML for the outgoing body. `signatureHtml` is whatever the
    *  server holds for the identity, so it is parsed into the composer's schema
    *  and re-serialised — the same reduction typed and pasted content gets — and
@@ -439,11 +481,80 @@ export function Compose(props: {
     setCcBccOpen((d.cc ?? '') !== '' || (d.bcc ?? '') !== '');
     setThreading({ inReplyTo: d.inReplyTo ?? [], references: d.references ?? [] });
     setSubject(d.subject);
+    setRequestReceipt(d.requestReceipt === true);
+    setTrackOpens(d.openTracking === true);
+    const images = (d.inline ?? []).map((i) => ({ ...i, previewUrl: null }));
+    setInlineImages(images);
     setBody(d.bodyText);
     setBodyHtml(d.bodyHtml);
     const api = editorApi();
     if (richMode() && api !== null) api.setHtml(d.bodyHtml);
     setDraftsOpen(false);
+    void loadPreviews(images);
+  }
+
+  /** Fetch a local preview for each image of a resumed draft (its uploaded
+   *  blob, through the authenticated download route). An image whose blob is
+   *  gone shows its name as alt text. */
+  async function loadPreviews(images: InlineImage[]): Promise<void> {
+    const template = downloadUrl();
+    const acct = app.accountId();
+    if (template === null || acct === null) return;
+    for (const img of images) {
+      try {
+        const url = await fetchObjectUrl(
+          buildDownloadUrl(template, { accountId: acct, blobId: img.blobId, name: img.name, mime: img.type }),
+        );
+        setInlineImages((cur) => cur.map((i) => (i.cid === img.cid ? { ...i, previewUrl: url } : i)));
+      } catch {
+        // The blob is no longer there; the image keeps its alt text.
+      }
+    }
+    editorApi()?.refreshImages();
+  }
+
+  /** Upload image files for the body (button, paste or drop). Each refused or
+   *  failed file is named; the others are placed. */
+  async function uploadInline(files: File[]): Promise<{ cid: string; alt: string }[]> {
+    const url = uploadUrl();
+    const acct = app.accountId();
+    if (url === null || acct === null) {
+      setInlineError(t('mail-compose-upload-unavailable'));
+      return [];
+    }
+    setInlineError(null);
+    const max = maxUploadSize();
+    const placed: { cid: string; alt: string }[] = [];
+    for (const file of files) {
+      const refusal = inlineRefusal(file, max);
+      if (refusal === 'type') {
+        setInlineError(t('mail-compose-image-type', { name: isolate(file.name) }));
+        continue;
+      }
+      if (refusal === 'size') {
+        setInlineError(
+          t('mail-compose-upload-too-large', {
+            name: isolate(file.name),
+            size: megabytes(file.size),
+            max: megabytes(max),
+          }),
+        );
+        continue;
+      }
+      try {
+        const up = await uploadBlob(url, acct, file);
+        const cid = newCid();
+        const previewUrl = URL.createObjectURL(file);
+        setInlineImages((cur) => [
+          ...cur,
+          { cid, blobId: up.blobId, type: file.type, name: file.name, size: up.size, previewUrl },
+        ]);
+        placed.push({ cid, alt: file.name });
+      } catch {
+        setInlineError(t('mail-compose-upload-failed', { name: isolate(file.name) }));
+      }
+    }
+    return placed;
   }
 
   /** Discard a stored draft and refresh the list (W9). */
@@ -488,6 +599,9 @@ export function Compose(props: {
       bodyHtml: richMode() && editorApi() !== null ? bodyHtml() : plainToHtml(body()),
       bodyText: body(),
       savedAt: Date.now(),
+      ...(requestReceipt() ? { requestReceipt: true } : {}),
+      ...(trackOpens() ? { openTracking: true } : {}),
+      ...(inlineImages().length > 0 ? { inline: inlineImages().map(storedImage) } : {}),
     };
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => saveDraft(snapshot), 800);
@@ -690,6 +804,9 @@ export function Compose(props: {
           ? t('mail-compose-encrypted-subject')
           : subject();
       const attached = attachments();
+      // Only the images the body still shows go out (none for ciphertext or a
+      // clear-signed body, which carry no `cid:` reference).
+      const inline = inlineAttachments(inlineImages(), referencedCids(htmlBody));
       await app.sendMessage({
         to: to(),
         cc: cc(),
@@ -712,6 +829,9 @@ export function Compose(props: {
               })),
             }
           : {}),
+        ...(inline.length > 0 ? { inline } : {}),
+        ...(receiptAvailable() && requestReceipt() ? { requestReadReceipt: true } : {}),
+        ...(trackingAvailable() && trackOpens() ? { openTracking: true } : {}),
       });
       // W9: the composition was sent — drop its auto-saved draft.
       deleteDraft(draftId);
@@ -918,9 +1038,19 @@ export function Compose(props: {
                   ariaLabel={t('mail-compose-body')}
                   onChange={onEditorChange}
                   onReady={setEditorApi}
+                  inline={{
+                    owned: ownedCids,
+                    preview: (cid) => inlineImages().find((i) => i.cid === cid)?.previewUrl ?? null,
+                    upload: uploadInline,
+                  }}
                 />
               </Suspense>
             </AsyncBoundary>
+          </Show>
+          <Show when={inlineError()}>
+            <p class="login__error" role="alert">
+              {inlineError()}
+            </p>
           </Show>
         </div>
 
@@ -1110,6 +1240,15 @@ export function Compose(props: {
             </p>
           )}
         </Show>
+
+        <SendOptions
+          receiptAvailable={receiptAvailable()}
+          requestReceipt={requestReceipt()}
+          onRequestReceipt={setRequestReceipt}
+          trackingAvailable={trackingAvailable()}
+          tracking={trackOpens()}
+          onTracking={setTrackOpens}
+        />
 
         <label class="field">
           <span>{t('mail-compose-send-later')}</span>

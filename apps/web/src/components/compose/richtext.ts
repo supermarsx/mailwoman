@@ -7,22 +7,50 @@
 //
 // The schema is deliberately email-safe and small: paragraphs, headings,
 // blockquote, code blocks, horizontal rules, ordered/bulleted lists, hard
-// breaks, and the inline marks bold / italic / code / underline /
-// strikethrough / link (http, https and mailto targets only). There is no
-// image node, no table, and no attribute other than a link's `href`/`title`,
-// so `htmlFromDoc(docFromHtml(x))` reduces any HTML to that subset: an `<img>`
-// is dropped, a `javascript:` link keeps its text and loses the link, and
+// breaks, inline images of this draft, and the inline marks bold / italic /
+// code / underline / strikethrough / link (http, https and mailto targets
+// only). There is no table and no attribute other than a link's `href`/`title`
+// and an image's `cid`/`alt`, so `htmlFromDoc(docFromHtml(x))` reduces any HTML
+// to that subset: a `javascript:` link keeps its text and loses the link, and
 // `style`/`on*` attributes do not survive. The composer relies on this for
 // HTML it did not author (an identity's stored signature).
+//
+// Images (t29-e12): the `image` node has no parse rule of its own. Only a parse
+// given the set of Content-IDs this draft uploaded (`docFromHtml(html, owned)`)
+// keeps an `<img src="cid:<id>">` whose id is in that set. Every other `<img>` —
+// a remote URL, `data:`, a `cid:` the draft does not own, or any image at all
+// when no set is given — is dropped at parse. Quoted originals are parsed under
+// `quoteSchema`, which has no image node at all.
 
-import { Schema, DOMParser, DOMSerializer, type MarkSpec, type Node as PMNode } from 'prosemirror-model';
+import {
+  Schema,
+  DOMParser,
+  DOMSerializer,
+  type MarkSpec,
+  type NodeSpec,
+  type Node as PMNode,
+  type TagParseRule,
+} from 'prosemirror-model';
 import { schema as basicSchema } from 'prosemirror-schema-basic';
 import { addListNodes } from 'prosemirror-schema-list';
 
 // paragraph + heading + blockquote + code_block + horizontal_rule + lists: the
-// basic nodes without `image`, which would let parsed HTML carry a remote
-// `<img src>` into the outgoing body.
+// basic nodes without the basic `image`, whose parse rule would let parsed HTML
+// carry a remote `<img src>` into the outgoing body.
 const nodes = addListNodes(basicSchema.spec.nodes.remove('image'), 'paragraph block*', 'block');
+
+/** An image this draft uploaded, referenced by its Content-ID. Serialises as
+ *  `<img src="cid:<id>">`; the editor shows a local preview instead (a node view
+ *  in `RichTextEditor.tsx`). No `parseDOM`: see `docFromElement`. */
+const image: NodeSpec = {
+  inline: true,
+  group: 'inline',
+  draggable: true,
+  attrs: { cid: {}, alt: { default: '' } },
+  toDOM(node) {
+    return ['img', { src: `cid:${node.attrs['cid'] as string}`, alt: node.attrs['alt'] as string }];
+  },
+};
 
 /** Link targets a parsed `<a href>` may keep. Anything else (`javascript:`,
  *  `data:`, a relative path) is not a link the recipient can use. */
@@ -44,10 +72,7 @@ const link: MarkSpec = {
   ],
 };
 
-/** The composer's rich-text schema (basic block/inline set + underline + strike). */
-export const richSchema = new Schema({
-  nodes,
-  marks: basicSchema.spec.marks.update('link', link).append({
+const marks = basicSchema.spec.marks.update('link', link).append({
     underline: {
       parseDOM: [{ tag: 'u' }, { style: 'text-decoration=underline' }],
       toDOM(): ['u', 0] {
@@ -60,8 +85,31 @@ export const richSchema = new Schema({
         return ['s', 0];
       },
     },
-  }),
-});
+  });
+
+/** The composer's rich-text schema (basic block/inline set + underline + strike
+ *  + the draft's own inline images). */
+export const richSchema = new Schema({ nodes: nodes.append({ image }), marks });
+
+/** The schema a quoted original is reduced to: the composer's, without images. */
+export const quoteSchema = new Schema({ nodes, marks });
+
+/** A Content-ID the composer generates and the engine accepts (atext, `.`, `@`). */
+const CID = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.@-]{1,255}$/;
+
+/** The parse rule that keeps an `<img src="cid:<id>">` naming an id in `owned`. */
+function ownedImageRule(owned: ReadonlySet<string>): TagParseRule {
+  return {
+    tag: 'img[src]',
+    node: 'image',
+    getAttrs(dom: HTMLElement) {
+      const m = /^cid:(.+)$/i.exec((dom.getAttribute('src') ?? '').trim());
+      const cid = m?.[1];
+      if (cid === undefined || !CID.test(cid) || !owned.has(cid)) return false;
+      return { cid, alt: dom.getAttribute('alt') ?? '' };
+    },
+  };
+}
 
 /** True only where a real DOM (browser or jsdom) is available for (de)serialization. */
 function hasDom(): boolean {
@@ -71,7 +119,7 @@ function hasDom(): boolean {
 /** Serialize a ProseMirror document to an HTML string for the send payload. */
 export function htmlFromDoc(doc: PMNode): string {
   if (!hasDom()) return '';
-  const serializer = DOMSerializer.fromSchema(richSchema);
+  const serializer = DOMSerializer.fromSchema(doc.type.schema);
   const fragment = serializer.serializeFragment(doc.content);
   const container = document.createElement('div');
   container.appendChild(fragment);
@@ -88,14 +136,23 @@ export function inertBody(html: string): HTMLElement {
   return new window.DOMParser().parseFromString(html, 'text/html').body;
 }
 
-/** Parse an element's content into a ProseMirror document under the composer schema. */
-export function docFromElement(root: HTMLElement): PMNode {
-  return DOMParser.fromSchema(richSchema).parse(root);
+/** Parse an element's content into a ProseMirror document under the composer
+ *  schema. `owned` is the set of Content-IDs this draft uploaded; an image is
+ *  kept only when its `cid:` names one of them. */
+export function docFromElement(root: HTMLElement, owned?: ReadonlySet<string>): PMNode {
+  if (owned === undefined || owned.size === 0) return DOMParser.fromSchema(richSchema).parse(root);
+  return new DOMParser(richSchema, [ownedImageRule(owned), ...DOMParser.fromSchema(richSchema).rules]).parse(root);
 }
 
-/** Parse an HTML string into a ProseMirror document under the composer schema. */
-export function docFromHtml(html: string): PMNode {
-  return docFromElement(inertBody(html));
+/** Parse an HTML string into a ProseMirror document under the composer schema
+ *  (`owned` as in `docFromElement`). */
+export function docFromHtml(html: string, owned?: ReadonlySet<string>): PMNode {
+  return docFromElement(inertBody(html), owned);
+}
+
+/** Parse a quoted original's content under `quoteSchema` (no images). */
+export function quoteDocFromElement(root: HTMLElement): PMNode {
+  return DOMParser.fromSchema(quoteSchema).parse(root);
 }
 
 /** Plain-text projection of a document: blocks joined by blank lines, hard breaks

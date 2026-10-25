@@ -24,6 +24,7 @@ import {
   COUNTS_CALL_ID,
   type DraftInput,
 } from '../../api/jmap.ts';
+import { bindTrackingToken, withTrackingPixel } from '../../api/tracking.ts';
 import {
   buildDownloadUrl,
   fetchObjectUrl,
@@ -120,6 +121,17 @@ export interface SendInput {
   holdSeconds?: number;
   /** V7 (§18.4): server-materialised blob attachments (e.g. from Nextcloud). */
   attachments?: { blobId: Id; name: string; type: string; size?: number }[];
+  /** Images the body shows by `cid:` (t29-e12), already limited to the ones it
+   *  refers to. */
+  inline?: { blobId: Id; cid: string; disposition: 'inline'; type: string; name: string }[];
+  /** Ask the recipient's mail program for a read receipt (t29-e12). */
+  requestReadReceipt?: boolean;
+  /** Record when the message is opened (t29-e12): a token is minted and its
+   *  image appended to the body just before the send — at replay time for a
+   *  send queued offline. If no token can be minted the send is refused, never
+   *  sent untracked. The composer offers this only when `/api/policy` says
+   *  `openTracking` and the message is neither encrypted nor signed. */
+  openTracking?: boolean;
   /** The message this send answers or forwards. Once the server has accepted
    *  the submission it is given `keyword`; cancelling the send within the undo
    *  window takes the keyword off again. */
@@ -1378,16 +1390,32 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       ...(input.attachments !== undefined && input.attachments.length > 0
         ? { attachments: input.attachments }
         : {}),
+      ...(input.inline !== undefined && input.inline.length > 0 ? { inline: input.inline } : {}),
+      ...(input.requestReadReceipt === true ? { requestReadReceipt: true } : {}),
     };
+    const track = input.openTracking === true;
 
     // Offline: queue the send for replay on reconnect (drainOutbox → sendEnvelope).
+    // A tracked send is queued without its image; the replay mints the token.
     if (isOffline() && ctx.enqueueOffline) {
-      await ctx.enqueueOffline('send', { accountId: acct, draft });
+      await ctx.enqueueOffline('send', { accountId: acct, draft, ...(track ? { track: true } : {}) });
       showToast('info', t('mail-toast-send-queued'));
       return;
     }
 
-    const res = await client.jmap(sendEnvelope(acct, draft));
+    let outgoing = draft;
+    let trackingToken: string | null = null;
+    if (track) {
+      try {
+        const tracked = await withTrackingPixel(draft);
+        outgoing = tracked.draft;
+        trackingToken = tracked.token;
+      } catch {
+        throw new Error(t('mail-send-tracking-failed'));
+      }
+    }
+
+    const res = await client.jmap(sendEnvelope(acct, outgoing));
     ctx.broadcastChange?.();
     const setRes = responseFor<EmailSetResponse>(res, 'set');
     // A refused create throws, so the composer stays open and shows why.
@@ -1401,6 +1429,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       throw new Error(t('mail-send-submission-refused', { reason: isolate(refusalReason(sendRefused)) }));
     }
     const submissionId = subRes.created?.['send']?.id ?? null;
+
+    // Bind the tracking token to the Email the send created. The Email keeps
+    // its id when it is filed into Sent, which is where the count is read.
+    if (trackingToken !== null) {
+      const emailId = setRes.created?.['draft']?.id;
+      const bound = emailId !== undefined && (await bindTrackingToken(trackingToken, emailId));
+      if (!bound) showToast('error', t('mail-toast-tracking-not-bound'));
+    }
 
     // Mark the original answered / forwarded. This is done when the submission
     // is accepted, not when SMTP has taken the message: the engine holds every

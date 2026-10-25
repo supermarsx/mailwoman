@@ -195,6 +195,12 @@ mail-compose-encrypted-subject = Encrypted message
 mail-compose-dlp-blocked = Sending is blocked by a data-loss-prevention rule (see the warning above).
 mail-compose-send-failed = Send failed
 mail-compose-send-later-past = Choose a send time in the future, or clear the field to send now.
+mail-compose-options = Send options
+mail-compose-request-receipt = Request a read receipt
+mail-compose-request-receipt-hint = The recipient's mail program may ask them, send one without asking, or ignore the request.
+mail-compose-track-opens = Record when this message is opened
+mail-compose-track-opens-hint = A 1×1 image that loads from this server is added to the message. Many mail programs block images or load them in advance, so a recorded open does not prove the message was read, and no record does not prove it was not. The recipient is not told.
+mail-compose-image-type = { $name } cannot be placed in the text. Use a PNG, JPEG, GIF or WebP image.
 # Refusals raised by the send itself. The composer stays open and shows them.
 mail-send-not-signed-in = You are not signed in.
 mail-send-no-draft-folder = This account has no folder to hold the draft.
@@ -204,6 +210,7 @@ mail-send-bad-recipient = { $count ->
    *[other] These are not email addresses: { $addresses }
 }
 mail-send-later-past = The send time is not in the future. Nothing was sent.
+mail-send-tracking-failed = Opens cannot be recorded right now, so nothing was sent. Clear "Record when this message is opened" to send without it.
 mail-send-draft-refused = The server refused this message: { $reason }. Nothing was sent.
 mail-send-submission-refused = The server refused to send this message: { $reason }. Nothing was sent.
 # Signing-key unlock (sign-on-send)
@@ -229,6 +236,7 @@ mail-compose-rt-quote = Quote
 mail-compose-rt-link = Link
 mail-compose-rt-link-placeholder = https://example.org
 mail-compose-rt-link-apply = Apply
+mail-compose-rt-image = Insert an image
 
 # Signature picker (W12)
 mail-compose-signature = Signature
@@ -387,6 +395,7 @@ mail-toast-export-nothing = Nothing to export
 mail-toast-exported = Exported .eml
 mail-toast-export-failed = Export failed
 mail-toast-send-queued = Queued — will send when back online
+mail-toast-tracking-not-bound = The message was sent, but its opens will not be recorded.
 mail-toast-send-scheduled = Scheduled to send
 mail-toast-sent = Message sent
 mail-toast-send-canceled = Send canceled

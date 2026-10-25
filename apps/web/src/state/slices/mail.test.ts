@@ -1386,3 +1386,122 @@ describe('extractHtmlBody', () => {
     ).toBe('<pre>fallback</pre>');
   });
 });
+
+describe('mail slice — receipt, inline images and open tracking (t29-e12)', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** `fetch` for the open-tracking routes: mint answers `mint`, bind answers `bind`. */
+  function trackingFetch(mint: Response | Error, bind = 204): ReturnType<typeof vi.fn> {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = String(input);
+      if (url === '/api/track/open' && init?.method === 'POST') {
+        if (mint instanceof Error) throw mint;
+        return mint;
+      }
+      if (url.startsWith('/api/track/open/') && init?.method === 'PUT') return new Response(null, { status: bind });
+      return new Response('{}', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+  const minted = (): Response =>
+    new Response(JSON.stringify({ token: 'tok123', url: 'https://mail.example/t/tok123.gif' }), { status: 200 });
+
+  it('carries the receipt request and the inline images on the draft create', async () => {
+    await withInbox([email('a')], async (mail, { jmap }) => {
+      jmap.mockClear();
+      await mail.sendMessage({
+        to: 'you@example.org',
+        subject: 'Hi',
+        htmlBody: '<p>x<img src="cid:c1@mailwoman" alt="a.png"></p>',
+        requestReadReceipt: true,
+        inline: [{ blobId: 'b1', cid: 'c1@mailwoman', disposition: 'inline', type: 'image/png', name: 'a.png' }],
+      });
+      const [req] = sendRequests(jmap);
+      expect(req!.methodCalls[0]![1]['create']).toEqual({
+        draft: {
+          mailboxIds: { inbox: true },
+          keywords: { $draft: true, $seen: true },
+          from: [{ name: null, email: 'me@example.org' }],
+          to: [{ name: null, email: 'you@example.org' }],
+          subject: 'Hi',
+          htmlBody: [{ partId: 'body', type: 'text/html' }],
+          bodyValues: { body: { value: '<p>x<img src="cid:c1@mailwoman" alt="a.png"></p>' } },
+          mailwomanRequestReadReceipt: true,
+          attachments: [{ blobId: 'b1', cid: 'c1@mailwoman', disposition: 'inline', type: 'image/png', name: 'a.png' }],
+        },
+      });
+    });
+  });
+
+  it('without the options the create is the same object as before', async () => {
+    await withInbox([email('a')], async (mail, { jmap }) => {
+      jmap.mockClear();
+      await mail.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>', requestReadReceipt: false });
+      expect(sendRequests(jmap)[0]!.methodCalls).toEqual(
+        expectedSend({ to: [{ name: null, email: 'you@example.org' }], rcptTo: [{ email: 'you@example.org' }] }),
+      );
+    });
+  });
+
+  it('a tracked send mints a token, appends its image after the body, and binds the created Email', async () => {
+    const fetchMock = trackingFetch(minted());
+    await withInbox([email('a')], async (mail, { jmap, toast }) => {
+      jmap.mockClear();
+      await mail.sendMessage({ to: 'you@example.org', bcc: 'b@example.org', subject: 'Hi', htmlBody: '<p>x</p>', openTracking: true });
+      const mint = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')!;
+      expect(JSON.parse(String((mint[1] as RequestInit).body))).toEqual({ subject: 'Hi', to: ['you@example.org', 'b@example.org'] });
+      const draft = (sendRequests(jmap)[0]!.methodCalls[0]![1]['create'] as Record<string, Record<string, unknown>>)['draft']!;
+      expect(draft['bodyValues']).toEqual({
+        body: { value: '<p>x</p><img src="https://mail.example/t/tok123.gif" width="1" height="1" alt="">' },
+      });
+      const bind = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'PUT')!;
+      expect(String(bind[0])).toBe('/api/track/open/tok123');
+      expect(JSON.parse(String((bind[1] as RequestInit).body))).toEqual({ emailId: 'draft1' });
+      expect(toast).not.toHaveBeenCalledWith('error', expect.anything());
+    });
+  });
+
+  it('when no token can be minted nothing is sent', async () => {
+    trackingFetch(new Response(JSON.stringify({ error: 'publicUrlRequired' }), { status: 409 }));
+    await withInbox([email('a')], async (mail, { jmap }) => {
+      jmap.mockClear();
+      await expect(
+        mail.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>', openTracking: true }),
+      ).rejects.toThrow('Opens cannot be recorded right now');
+      expect(sendRequests(jmap)).toEqual([]);
+    });
+  });
+
+  it('a bind the server refuses is reported; the send itself stands', async () => {
+    trackingFetch(minted(), 404);
+    await withInbox([email('a')], async (mail, { jmap, toast }) => {
+      jmap.mockClear();
+      await mail.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>', openTracking: true });
+      expect(sendRequests(jmap)).toHaveLength(1);
+      expect(toast).toHaveBeenCalledWith('error', 'The message was sent, but its opens will not be recorded.');
+    });
+  });
+
+  it('an offline tracked send is queued without an image and mints nothing yet', async () => {
+    const fetchMock = trackingFetch(minted());
+    const enqueueOffline = vi.fn(async () => undefined);
+    await withDeps([email('a')], { online: () => false, enqueueOffline }, async (mail) => {
+      await mail.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>', openTracking: true });
+      expect(enqueueOffline).toHaveBeenCalledWith('send', {
+        accountId: 'acct1',
+        draft: {
+          from: { name: null, email: 'me@example.org' },
+          draftMailboxId: 'inbox',
+          to: 'you@example.org',
+          subject: 'Hi',
+          htmlBody: '<p>x</p>',
+          holdSeconds: 10,
+        },
+        track: true,
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+});

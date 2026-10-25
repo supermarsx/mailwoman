@@ -11,6 +11,16 @@
 const KEY = 'mw.compose.drafts.v1';
 const MAX_DRAFTS = 25;
 
+/** An image placed in the body, as a draft keeps it: the uploaded blob and the
+ *  Content-ID the body refers to it by (`inlineImages.ts`). */
+export interface StoredInlineImage {
+  cid: string;
+  blobId: string;
+  type: string;
+  name: string;
+  size: number;
+}
+
 export interface StoredDraft {
   id: string;
   to: string;
@@ -23,6 +33,11 @@ export interface StoredDraft {
   bodyHtml: string;
   bodyText: string;
   savedAt: number;
+  /** This message's send options (t29-e12); absent = off. */
+  requestReceipt?: boolean;
+  openTracking?: boolean;
+  /** Images placed in the body; absent = none. */
+  inline?: StoredInlineImage[];
 }
 
 function read(): StoredDraft[] {
@@ -40,6 +55,14 @@ function read(): StoredDraft[] {
 const isString = (v: unknown): boolean => typeof v === 'string';
 const isStringList = (v: unknown): boolean => Array.isArray(v) && v.every(isString);
 const optional = (v: unknown, ok: (v: unknown) => boolean): boolean => v === undefined || ok(v);
+const isBool = (v: unknown): boolean => typeof v === 'boolean';
+const isInlineList = (v: unknown): boolean =>
+  Array.isArray(v) &&
+  v.every((i: unknown) => {
+    if (typeof i !== 'object' || i === null) return false;
+    const r = i as Record<string, unknown>;
+    return isString(r.cid) && isString(r.blobId) && isString(r.type) && isString(r.name) && typeof r.size === 'number';
+  });
 
 function isDraft(d: unknown): d is StoredDraft {
   if (typeof d !== 'object' || d === null) return false;
@@ -54,7 +77,10 @@ function isDraft(d: unknown): d is StoredDraft {
     optional(r.cc, isString) &&
     optional(r.bcc, isString) &&
     optional(r.inReplyTo, isStringList) &&
-    optional(r.references, isStringList)
+    optional(r.references, isStringList) &&
+    optional(r.requestReceipt, isBool) &&
+    optional(r.openTracking, isBool) &&
+    optional(r.inline, isInlineList)
   );
 }
 

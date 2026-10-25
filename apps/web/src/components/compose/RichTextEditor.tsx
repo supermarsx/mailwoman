@@ -8,16 +8,17 @@
 // plain `body()` signal, keep working). It also reconciles external plain-text
 // mutations (Assist rewrite, dictation) back into the document.
 
-import { createEffect, createSignal, onCleanup, onMount, For, type JSX } from 'solid-js';
+import { createEffect, createSignal, onCleanup, onMount, For, Show, type JSX } from 'solid-js';
 import { EditorState, type Command } from 'prosemirror-state';
-import { EditorView } from 'prosemirror-view';
-import type { MarkType } from 'prosemirror-model';
+import { EditorView, type NodeView } from 'prosemirror-view';
+import type { MarkType, Node as PMNode } from 'prosemirror-model';
 import { baseKeymap, toggleMark, wrapIn } from 'prosemirror-commands';
 import { keymap } from 'prosemirror-keymap';
 import { history, undo, redo } from 'prosemirror-history';
 import { wrapInList, splitListItem } from 'prosemirror-schema-list';
 import type { NodeType } from 'prosemirror-model';
 import { richSchema, docFromHtml, docFromText, htmlFromDoc, textFromDoc } from './richtext.ts';
+import { imageFiles } from './inlineImages.ts';
 import { t } from '../../i18n/index.ts';
 import * as a11y from '../mailA11y.css.ts';
 import './richtext.css';
@@ -37,6 +38,7 @@ const nBullet: NodeType = need(richSchema.nodes.bullet_list, 'bullet_list');
 const nOrdered: NodeType = need(richSchema.nodes.ordered_list, 'ordered_list');
 const nQuote: NodeType = need(richSchema.nodes.blockquote, 'blockquote');
 const nListItem: NodeType = need(richSchema.nodes.list_item, 'list_item');
+const nImage: NodeType = need(richSchema.nodes.image, 'image');
 
 /** Is `type` active in the current selection (so the toolbar button reads pressed)? */
 function markActive(state: EditorState, type: MarkType): boolean {
@@ -72,6 +74,19 @@ export interface RichTextApi {
   /** Replace the whole document with parsed HTML. */
   setHtml: (html: string) => void;
   focus: () => void;
+  /** Re-read every image's preview (the composer made new ones). */
+  refreshImages: () => void;
+}
+
+/** Images in the body (t29-e12). The composer uploads them and owns the list;
+ *  the editor inserts, shows and serialises them. */
+export interface InlineImageSupport {
+  /** Content-IDs this draft uploaded: the only `cid:` sources a parse keeps. */
+  owned: () => ReadonlySet<string>;
+  /** The local preview of an image, or `null` when there is none (yet). */
+  preview: (cid: string) => string | null;
+  /** Upload `files`; resolves to the images that can be placed, in order. */
+  upload: (files: File[]) => Promise<{ cid: string; alt: string }[]>;
 }
 
 export interface RichTextEditorProps {
@@ -85,6 +100,8 @@ export interface RichTextEditorProps {
   ariaLabel: string;
   /** Receives the imperative handle once the view is live. */
   onReady?: (api: RichTextApi) => void;
+  /** Inline images; absent = the editor offers none and keeps none. */
+  inline?: InlineImageSupport;
 }
 
 export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
@@ -97,6 +114,34 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   const [linkOpen, setLinkOpen] = createSignal(false);
   const [linkUrl, setLinkUrl] = createSignal('');
 
+  const owned = (): ReadonlySet<string> | undefined => props.inline?.owned();
+
+  /** The editor shows an image from its local preview, not its `cid:`. */
+  function imageView(node: PMNode): NodeView {
+    const dom = document.createElement('img');
+    dom.className = 'compose-rt__img';
+    dom.alt = node.attrs['alt'] as string;
+    dom.src = props.inline?.preview(node.attrs['cid'] as string) ?? '';
+    dom.dataset['cid'] = node.attrs['cid'] as string;
+    return { dom };
+  }
+
+  /** Upload image files and place them at `pos` (default: the selection). */
+  async function placeImages(files: File[], pos?: number): Promise<void> {
+    const support = props.inline;
+    if (support === undefined || files.length === 0) return;
+    const placed = await support.upload(files);
+    if (view === undefined || placed.length === 0) return;
+    let tr = view.state.tr;
+    for (const p of placed) {
+      const node = nImage.create({ cid: p.cid, alt: p.alt });
+      tr = pos !== undefined ? tr.insert(Math.min(pos, tr.doc.content.size), node) : tr.replaceSelectionWith(node);
+      if (pos !== undefined) pos += node.nodeSize;
+    }
+    view.dispatch(tr);
+    view.focus();
+  }
+
   function emit(state: EditorState): void {
     const html = htmlFromDoc(state.doc);
     const text = textFromDoc(state.doc);
@@ -107,7 +152,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
 
   onMount(() => {
     const state = EditorState.create({
-      doc: docFromHtml(props.initialHtml),
+      doc: docFromHtml(props.initialHtml, owned()),
       plugins: [
         history(),
         keymap({
@@ -137,6 +182,24 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
         role: 'textbox',
         'data-testid': 'compose-richtext',
       },
+      nodeViews: { image: (node) => imageView(node) },
+      // A pasted or dropped image file is uploaded and placed; pasted HTML is
+      // parsed under the schema, which keeps no image it does not own.
+      handlePaste(_view, event) {
+        const files = props.inline !== undefined ? imageFiles(event.clipboardData) : [];
+        if (files.length === 0) return false;
+        event.preventDefault();
+        void placeImages(files);
+        return true;
+      },
+      handleDrop(v, event) {
+        const files = props.inline !== undefined ? imageFiles(event.dataTransfer) : [];
+        if (files.length === 0) return false;
+        event.preventDefault();
+        const at = v.posAtCoords({ left: event.clientX, top: event.clientY });
+        void placeImages(files, at?.pos);
+        return true;
+      },
     });
     emit(view.state);
 
@@ -151,12 +214,18 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
       },
       setHtml(html: string): void {
         if (view === undefined) return;
-        const next = EditorState.create({ doc: docFromHtml(html), plugins: view.state.plugins });
+        const next = EditorState.create({ doc: docFromHtml(html, owned()), plugins: view.state.plugins });
         view.updateState(next);
         emit(next);
       },
       focus(): void {
         view?.focus();
+      },
+      refreshImages(): void {
+        for (const img of Array.from(host.querySelectorAll<HTMLImageElement>('img.compose-rt__img'))) {
+          const url = props.inline?.preview(img.dataset['cid'] ?? '') ?? null;
+          if (url !== null && img.src !== url) img.src = url;
+        }
       },
     });
   });
@@ -240,6 +309,30 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
         >
           🔗
         </button>
+        <Show when={props.inline !== undefined}>
+          <label
+            class={`compose-rt__btn ${a11y.focusable}`}
+            title={t('mail-compose-rt-image')}
+            data-testid="rt-image"
+          >
+            <span aria-hidden="true">🖼</span>
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              class={a11y.srOnly}
+              aria-label={t('mail-compose-rt-image')}
+              onChange={(e) => {
+                const input = e.currentTarget;
+                const files = Array.from(input.files ?? []);
+                void placeImages(files).finally(() => {
+                  // Reset so choosing the same file again fires another change.
+                  input.value = '';
+                });
+              }}
+            />
+          </label>
+        </Show>
       </div>
 
       {linkOpen() && (

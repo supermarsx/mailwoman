@@ -3,7 +3,8 @@
 // Server contract — `crates/mw-server/src/client_policy.rs`, session-authed,
 // `Cache-Control: no-store`:
 //
-//   GET /api/policy → { maxSecurityFloor: null | SecurityMode, capturePolicy: 'off' | 'protect' }
+//   GET /api/policy → { maxSecurityFloor: null | SecurityMode, capturePolicy: 'off' | 'protect',
+//                       openTracking: boolean }
 //
 // * `maxSecurityFloor` — the least restrictive rendering mode the reader may use
 //   (`viewers/max-security.ts` clamps every mode up to it).
@@ -11,6 +12,8 @@
 //   screenshots and screen recordings (`platform.setCaptureProtection(true)`).
 //   The desktop and Android shells can; a browser cannot, and its implementation
 //   answers `{ supported: false }`.
+// * `openTracking` — the server can record opens (t29-e8: `MW_PUBLIC_URL` is set),
+//   so the composer offers "Record when this message is opened" (`api/tracking.ts`).
 //
 // The policy is fetched once per session: the first successful load is kept until
 // `resetClientPolicy()`. Before sign-in the route answers 401, which is not an
@@ -31,10 +34,16 @@ export type CapturePolicy = 'off' | 'protect';
 export interface ClientPolicy {
   maxSecurityFloor: SecurityMode | null;
   capturePolicy: CapturePolicy;
+  openTracking: boolean;
 }
 
-/** What applies when no policy has been read: no floor, no capture protection. */
-export const DEFAULT_CLIENT_POLICY: ClientPolicy = { maxSecurityFloor: null, capturePolicy: 'off' };
+/** What applies when no policy has been read: no floor, no capture protection,
+ *  no open tracking. */
+export const DEFAULT_CLIENT_POLICY: ClientPolicy = {
+  maxSecurityFloor: null,
+  capturePolicy: 'off',
+  openTracking: false,
+};
 
 const ENDPOINT = '/api/policy';
 const RETRY_MS = 30_000;
@@ -55,10 +64,11 @@ function isFloor(v: unknown): v is SecurityMode {
 
 /** Read the wire shape; an unknown value degrades to the default for that field. */
 export function parseClientPolicy(raw: unknown): ClientPolicy {
-  const o = (raw ?? {}) as { maxSecurityFloor?: unknown; capturePolicy?: unknown };
+  const o = (raw ?? {}) as { maxSecurityFloor?: unknown; capturePolicy?: unknown; openTracking?: unknown };
   return {
     maxSecurityFloor: isFloor(o.maxSecurityFloor) ? o.maxSecurityFloor : null,
     capturePolicy: o.capturePolicy === 'protect' ? 'protect' : 'off',
+    openTracking: o.openTracking === true,
   };
 }
 

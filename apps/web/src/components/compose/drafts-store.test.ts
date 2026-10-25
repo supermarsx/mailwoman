@@ -6,6 +6,7 @@ import {
   newDraftId,
   saveDraft,
   type StoredDraft,
+  type StoredInlineImage,
 } from './drafts-store.ts';
 
 function draft(id: string, over: Partial<StoredDraft> = {}): StoredDraft {
@@ -27,6 +28,25 @@ describe('drafts-store (W9)', () => {
     const list = listDrafts();
     expect(list.map((d) => d.id)).toEqual(['d1', 'd2']);
     expect(list[0]?.subject).toBe('updated');
+  });
+
+  // t29-e12: a draft keeps its send options and inline images for itself.
+  it('keeps the send options and inline images of a draft', () => {
+    const inline = [{ cid: 'c1@mailwoman', blobId: 'b1', type: 'image/png', name: 'a.png', size: 3 }];
+    saveDraft(draft('d1', { requestReceipt: true, openTracking: true, inline }));
+    expect(listDrafts()).toEqual([draft('d1', { requestReceipt: true, openTracking: true, inline })]);
+  });
+
+  it('ignores a stored draft whose options or images are malformed', () => {
+    localStorage.setItem(
+      'mw.compose.drafts.v1',
+      JSON.stringify([
+        draft('bad-flag', { requestReceipt: 'yes' as unknown as boolean }),
+        draft('bad-inline', { inline: [{ cid: 'c', blobId: 'b' }] as unknown as StoredInlineImage[] }),
+        draft('ok'),
+      ]),
+    );
+    expect(listDrafts().map((d) => d.id)).toEqual(['ok']);
   });
 
   it('deletes a draft by id', () => {

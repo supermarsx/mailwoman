@@ -27,6 +27,13 @@ import { NetworkError, type Client } from '../api/client.ts';
 import { draftCreateSpec, request, responseFor, type DraftInput } from '../api/jmap.ts';
 import { sendEnvelope } from '../api/jmap.ts';
 import {
+  bindTrackingToken,
+  mintTrackingToken,
+  TrackingUnavailable,
+  withTrackingPixel,
+  type TrackingToken,
+} from '../api/tracking.ts';
+import {
   CAP_CORE,
   CAP_MAIL,
   type EmailSetResponse,
@@ -73,6 +80,9 @@ export interface MovePayload {
 export interface SendPayload {
   accountId: Id;
   draft: DraftInput;
+  /** Record opens (t29-e12): the token is minted and its image appended when
+   *  the item is replayed, not when it is queued. */
+  track?: boolean;
 }
 export interface DraftPayload {
   accountId: Id;
@@ -287,10 +297,14 @@ export interface DrainResult {
  * finds the lock taken skips its drain, since the holder is draining the same
  * rows.
  */
-export function drainOutbox(store: OutboxStore, client: Client): Promise<DrainResult> {
+export function drainOutbox(
+  store: OutboxStore,
+  client: Client,
+  tracking: DrainTracking = defaultTracking,
+): Promise<DrainResult> {
   const running = draining.get(store);
   if (running !== undefined) return running;
-  const run = withQueueLock(() => drainOnce(store, client)).finally(() => draining.delete(store));
+  const run = withQueueLock(() => drainOnce(store, client, tracking)).finally(() => draining.delete(store));
   draining.set(store, run);
   return run;
 }
@@ -315,16 +329,43 @@ async function withQueueLock(drain: () => Promise<DrainResult>): Promise<DrainRe
   );
 }
 
-async function drainOnce(store: OutboxStore, client: Client): Promise<DrainResult> {
+/** The open-tracking calls a replayed tracked send makes (a test seam). */
+export interface DrainTracking {
+  mint(subject: string, to: string[]): Promise<TrackingToken>;
+  bind(token: string, emailId: string): Promise<boolean>;
+}
+
+const defaultTracking: DrainTracking = {
+  mint: (subject, to) => mintTrackingToken(subject, to),
+  bind: (token, emailId) => bindTrackingToken(token, emailId),
+};
+
+async function drainOnce(store: OutboxStore, client: Client, tracking: DrainTracking): Promise<DrainResult> {
   const pending = ((await store.all()) as QueuedItem[]).filter((i) => i.state === 'queued');
   let sent = 0;
   let failed = 0;
   for (const item of pending) {
     try {
-      const res = await client.jmap(outboundToRequest(item));
+      // A tracked send mints its token now. If none can be minted the item is
+      // refused (below), never sent untracked; no network stops the drain.
+      let request: JmapRequest;
+      let token: string | null = null;
+      const send = item.type === 'send' ? (item.payload as SendPayload) : null;
+      if (send !== null && send.track === true) {
+        const tracked = await withTrackingPixel(send.draft, (subject, to) => tracking.mint(subject, to));
+        request = sendEnvelope(send.accountId, tracked.draft);
+        token = tracked.token;
+      } else {
+        request = outboundToRequest(item);
+      }
+      const res = await client.jmap(request);
       if (outboundApplied(item, res)) {
         await store.delete(item.id);
         sent += 1;
+        if (token !== null) {
+          const emailId = responseFor<EmailSetResponse>(res, 'set').created?.['draft']?.id;
+          if (emailId !== undefined) await tracking.bind(token, emailId);
+        }
       } else {
         const lastError = outboundRejection(item, res);
         const refused: QueuedItem = {
@@ -338,6 +379,18 @@ async function drainOnce(store: OutboxStore, client: Client): Promise<DrainResul
       }
     } catch (err) {
       if (err instanceof NetworkError) break;
+      if (err instanceof TrackingUnavailable) {
+        if (err.reason === 'network') break;
+        const refused: QueuedItem = {
+          ...item,
+          state: 'failed',
+          attempts: (item.attempts ?? 0) + 1,
+          lastError: err.message,
+        };
+        await store.put(refused);
+        failed += 1;
+        continue;
+      }
       const attempts = (item.attempts ?? 0) + 1;
       const gaveUp = attempts >= MAX_ATTEMPTS;
       const errored: QueuedItem = {
