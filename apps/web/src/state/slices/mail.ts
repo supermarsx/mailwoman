@@ -1,3 +1,4 @@
+import { toastTarget } from '../../components/toast/context.ts';
 // Mail slice: session/auth, mailbox list, message list + reader, compose+send,
 // and — new in V2 (plan §3 e7, §1.5) — the modern-mail UX that mutates the
 // message list: tags (keywords), pins, snooze, follow-up, archive/trash/move/
@@ -790,9 +791,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
 
   // ── pin / snooze / follow-up ──────────────────────────────────────────────
   async function pinMessage(id: Id, pinned: boolean): Promise<void> {
+    const target = toastTarget(findEmail(id)?.subject, t('mail-no-subject'));
     const prev = messages().find((m) => m.id === id)?.pinned ?? false;
     await rawMeta(id, { pinned });
-    showUndo(pinned ? t('mail-toast-pinned') : t('mail-toast-unpinned'), () => rawMeta(id, { pinned: prev }));
+    showUndo(pinned ? t('mail-toast-pinned', { target }) : t('mail-toast-unpinned', { target }), () => rawMeta(id, { pinned: prev }));
   }
   async function snoozeMessage(id: Id, untilIso: string): Promise<void> {
     const prev = messages().find((m) => m.id === id)?.snoozedUntil ?? null;

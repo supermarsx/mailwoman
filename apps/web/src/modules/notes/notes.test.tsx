@@ -40,7 +40,7 @@ function mkNote(id: string, over: Partial<Note> = {}): Note {
 
 type Row = JmapResponse['methodResponses'][number];
 
-function makeClient(seed: Note[]): Client {
+function makeClient(seed: Note[], refusePin = false): Client {
   let store = [...seed];
   let counter = 0;
   const jmap = vi.fn(async (body: JmapRequest): Promise<JmapResponse> => {
@@ -61,6 +61,7 @@ function makeClient(seed: Note[]): Client {
         update?: Record<string, Record<string, unknown>>;
         destroy?: string[];
       };
+      if (refusePin && args.update !== undefined) return { methodResponses: [['Note/set', { accountId: 'acct1', notUpdated: { a: { type: 'forbidden' } } }, 's'] as Row], sessionState: 's' };
       const created: Record<string, { id: string }> = {};
       for (const [k, v] of Object.entries(args.create ?? {})) {
         const id = `srv-${++counter}`;
@@ -72,7 +73,7 @@ function makeClient(seed: Note[]): Client {
       }
       if (args.destroy !== undefined) store = store.filter((n) => !args.destroy!.includes(n.id));
       return {
-        methodResponses: [['Note/set', { accountId: 'acct1', created, updated: {}, destroyed: [] }, 's'] as Row],
+        methodResponses: [['Note/set', { accountId: 'acct1', created, updated: Object.fromEntries(Object.keys(args.update ?? {}).map(id => [id, null])), destroyed: [] }, 's'] as Row],
         sessionState: 's',
       };
     }
@@ -205,5 +206,20 @@ describe('NotesModule', () => {
       expect(stored).toContain('<p>safe</p>');
       expect(stored.toLowerCase()).not.toContain('<script');
     });
+  });
+});
+
+
+describe('note pin feedback', () => {
+  it.each([false, true])('only reports success after an accepted pin (refused=%s)', async (refused) => {
+    const showToast = vi.fn();
+    let slice!: NotesSlice;
+    const dispose = createRoot(dispose => { slice = createNotesSlice({ client: makeClient([mkNote('a', { title: 'Alpha' })], refused), showToast }); return dispose; });
+    try {
+      await slice.loadNotes(); await slice.toggleNotePin('a');
+      expect(slice.notes()[0]!.pinned).toBe(!refused);
+      expect(showToast).toHaveBeenCalledWith(refused ? 'error' : 'success', expect.stringContaining('Alpha'));
+      expect(showToast.mock.calls[0]![1]).toContain(refused ? 'Could not change the pin' : 'Pinned note');
+    } finally { dispose(); }
   });
 });

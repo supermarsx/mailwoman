@@ -62,3 +62,7 @@ notes-link-button = Link
 notes-changed-elsewhere = This note was changed on another device or session. Text you typed here is kept, and your next edit saves it.
 notes-deleted-elsewhere = The note you had open was deleted on another device or session.
 notes-create-failed = The note could not be created.
+
+notes-toast-pinned = Pinned note “{ $target }”
+notes-toast-unpinned = Unpinned note “{ $target }”
+notes-toast-pin-failed = Could not change the pin for note “{ $target }”

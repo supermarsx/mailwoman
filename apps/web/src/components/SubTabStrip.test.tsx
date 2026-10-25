@@ -1,3 +1,4 @@
+import { toasts, resetToasts } from './toast/index.ts';
 import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent, screen } from '@solidjs/testing-library';
 import { SubTabStrip } from './SubTabStrip.tsx';
@@ -48,7 +49,8 @@ describe('SubTabStrip', () => {
     expect(screen.queryByRole('tab')).toBeNull();
   });
 
-  it('the pin button toggles pinned state', () => {
+  it('the pin button toggles pinned state and names the tab in feedback', () => {
+    resetToasts();
     const controller = createRealtimeController({ subTabs: { openWindow: vi.fn() } });
     controller.subTabs.open({ kind: 'messages', title: 'Inbox' });
     renderStrip(controller);
@@ -56,6 +58,8 @@ describe('SubTabStrip', () => {
     expect(controller.subTabs.tabs()[0]!.pinned).toBe(true);
     // The label flips to the unpin affordance.
     expect(screen.getByRole('button', { name: 'Unpin Inbox' })).toBeInTheDocument();
+    expect(toasts()[0]?.message).toContain('Pinned tab');
+    expect(toasts()[0]?.message).toContain('Inbox');
   });
 
   it('the tear-off button opens a window and closes the tab locally', () => {

@@ -1,3 +1,5 @@
+import { toast } from './toast/index.ts';
+import { toastTarget } from './toast/context.ts';
 import { Icon } from './Icon.tsx';
 // In-app sub-tab strip (plan §3 e6). A thin view over the realtime controller's
 // sub-tab model (realtime/subTabs.ts): a horizontal tablist of open surfaces
@@ -85,7 +87,12 @@ function SubTabButton(props: { tab: SubTab; active: boolean }): JSX.Element {
         class={`subtab__pin ${a11y.iconButton}`}
         aria-label={props.tab.pinned ? t('mail-subtab-unpin', { title: props.tab.title }) : t('mail-subtab-pin', { title: props.tab.title })}
         aria-pressed={props.tab.pinned}
-        onClick={() => subTabs.togglePin(id())}
+        onClick={() => {
+          const pinned = !props.tab.pinned;
+          const target = toastTarget(props.tab.title, t('mail-subtabs-label'));
+          subTabs.togglePin(id());
+          toast.success(t(pinned ? 'mail-toast-tab-pinned' : 'mail-toast-tab-unpinned', { target }));
+        }}
       >
         <Icon name={props.tab.pinned ? 'star' : 'starOutline'} />
       </button>

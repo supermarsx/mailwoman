@@ -1,3 +1,4 @@
+import { toastTarget } from '../../components/toast/context.ts';
 // Notes store slice (plan §2.5, §3 e6 — Web Notes module). Owns the `Note/*`
 // surface for the web client: load, create, edit, pin, color, tag, delete, plus
 // the title/tag + body-substring search and the tag filter. Disjoint file — no
@@ -342,7 +343,23 @@ export function createNotesSlice(ctx: SliceContext): NotesSlice {
   async function toggleNotePin(id: Id): Promise<void> {
     const cur = notes().find((n) => n.id === id);
     if (cur === undefined) return;
-    await updateNote(id, { pinned: !cur.pinned });
+    const acct = await resolveAccount();
+    if (acct === null) return;
+    const pinned = !cur.pinned;
+    const updatedAt = new Date().toISOString();
+    const answered = writes.begin(id, 'update', { pinned, updatedAt });
+    try {
+      const response = await client.jmap(noteSet(acct, { update: { [id]: { pinned, updatedAt } } }), SAVE);
+      const result = responseFor<NoteSetResponse>(response, 's');
+      if (!Object.prototype.hasOwnProperty.call(result.updated ?? {}, id)) throw new Error('note pin was refused');
+      setNotes(notes().map((note) => note.id === id ? { ...note, pinned, updatedAt } : note));
+      ctx.broadcastChange?.();
+      ctx.showToast('success', t(pinned ? 'notes-toast-pinned' : 'notes-toast-unpinned', { target: toastTarget(cur.title, t('notes-untitled')) }));
+    } catch {
+      ctx.showToast('error', t('notes-toast-pin-failed', { target: toastTarget(cur.title, t('notes-untitled')) }));
+    } finally {
+      answered();
+    }
   }
 
   async function addNoteLink(id: Id, link: NoteLink): Promise<void> {

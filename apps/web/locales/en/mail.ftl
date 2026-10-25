@@ -345,8 +345,8 @@ mail-undo-failed = Could not undo
 # -- Toasts raised by mail actions (state/slices/mail.ts) ----------------------
 mail-toast-label-added = Label added
 mail-toast-label-removed = Label removed
-mail-toast-pinned = Pinned
-mail-toast-unpinned = Unpinned
+mail-toast-pinned = Pinned message “{ $target }”
+mail-toast-unpinned = Unpinned message “{ $target }”
 mail-toast-snoozed = Snoozed
 mail-toast-follow-up-set = Follow-up set
 mail-toast-follow-up-cleared = Follow-up cleared
@@ -429,3 +429,6 @@ mail-maxsec-no-media = No media
 mail-maxsec-no-media-hint = Sanitized HTML with all images and media removed.
 mail-maxsec-plain-text = Plain text
 mail-maxsec-plain-text-hint = No HTML rendered — message shown as plain text only.
+
+mail-toast-tab-pinned = Pinned tab “{ $target }”
+mail-toast-tab-unpinned = Unpinned tab “{ $target }”

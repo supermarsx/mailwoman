@@ -187,7 +187,8 @@ describe('mail slice — list + pins', () => {
     await withInbox([email('a'), email('b')], async (mail) => {
       await mail.pinMessage('b', true);
       expect(mail.visibleMessages()[0]!.id).toBe('b');
-      expect(mail.pendingUndo()?.label).toBe('Pinned');
+      expect(mail.pendingUndo()?.label).toContain('Pinned message');
+      expect(mail.pendingUndo()?.label).toContain('Subject b');
       await mail.undoNow();
       expect(mail.visibleMessages().map((m) => m.id)).toEqual(['a', 'b']);
     });
