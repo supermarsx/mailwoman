@@ -95,6 +95,9 @@ mod egress_config;
 // 0032 (26.20 t29-e8): opt-in open tracking. Tokens kept as SHA-256 only, subject
 // and recipients sealed, a recorded load is a timestamp and nothing else.
 mod open_tracking;
+// 0033 (26.20 t32-e10b, f01): the settings model C — global policy, scoped
+// values, and the resolution chain that turns them into one effective value.
+pub mod settings_policy;
 
 pub(crate) use backend::{Backend, Row, q};
 
