@@ -136,6 +136,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'metrics.drilldownTopN',
   'metrics.rollupDays',
   'diagnostics.retentionDays',
+  'logs.auth.retentionDays',
+  'logs.auth.maxEntries',
   'dataExport.linkHours',
   'serverText.*',
 ];

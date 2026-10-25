@@ -372,6 +372,10 @@ admin-settings-key-privacy-allow-direct = Allow direct images
 admin-settings-key-cap-remote-content-direct = Direct image permission
 admin-settings-help-cap-remote-content-direct = Allow this account to select direct images when the server permits it.
 admin-settings-help-privacy-allow-direct = Permit direct image loading for accounts with the required capability.
+admin-settings-key-logs-auth-retention-days = Authentication history retention
+admin-settings-help-logs-auth-retention-days = Days of authentication metadata retained, independently of durable account identity.
+admin-settings-key-logs-auth-max-entries = Authentication history entry limit
+admin-settings-help-logs-auth-max-entries = Maximum retained entries. Matching repeated failures within one minute share an entry.
 
 admin-settings-key-reader-color-mode = Message colors
 admin-settings-cat-reader = Message display

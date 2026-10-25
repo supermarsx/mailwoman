@@ -578,6 +578,14 @@ spam classification applies the recipient account's domain and profile policy.
 <a id="limit.recipients_per_message"></a>
 `limit.recipients_per_message` — Recipient-count policy; zero means unlimited. Runtime enforcement remains pending.
 
+<a id="logs.auth.retentionDays"></a>
+### Authentication history (`logs.auth.retentionDays`)
+Global, hot. Default 7 days; range 1–90. Authentication history is pruned on writes. Durable successful webmail identity is stored separately, so pruning does not change policy identity.
+
+<a id="logs.auth.maxEntries"></a>
+### Authentication entry limit (`logs.auth.maxEntries`)
+Global, hot. Default 50,000; range 1,000–100,000. Oldest entries are removed on writes. Matching failed attempts in the same minute share one bounded counter; successful authentications remain separate. The privileged authentication log requires unscoped `logs.read` and distinguishes administration from webmail. Unknown transport details remain unavailable; no raw upstream error or credential is stored.
+
 ### Message display
 
 These keys support global and domain defaults, administrator locks and user overrides. The settings apply inside the isolated message renderer, without changing its content security policy or remote-image permissions.

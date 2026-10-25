@@ -30,7 +30,7 @@ describe('AdminScreen (gate + shell)', () => {
       ['People', ['Users', 'Domains', 'Security centre']],
       ['Security', ['Single sign-on', 'Sessions', 'Privacy']],
       ['Configuration', ['Settings', 'Effective configuration', 'AI assistant', 'Integrations', 'Plugins', 'UI plugins', 'Outbound connections']],
-      ['Operations', ['Diagnostics', 'Observability', 'Maintenance', 'Server metadata']],
+      ['Operations', ['Logs', 'Diagnostics', 'Observability', 'Maintenance', 'Server metadata']],
     ] as const) {
       const g = within(nav()).getByRole('group', { name: group });
       for (const label of labels) expect(within(g).getByRole('link', { name: label })).toBeInTheDocument();
@@ -42,7 +42,7 @@ describe('AdminScreen (gate + shell)', () => {
     render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} />);
     await findRegion('Dashboard');
     const links = within(nav()).getAllByRole('link');
-    expect(links.length).toBe(23);
+    expect(links.length).toBe(24);
     const icons = new Set<string>();
     for (const a of links) {
       const svgs = a.querySelectorAll('svg');
@@ -148,7 +148,7 @@ describe('capability-aware navigation (GET /admin/me)', () => {
   it('a 404 from /admin/me (no RBAC yet) shows every section', async () => {
     render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} />);
     await findRegion('Dashboard');
-    expect(within(nav()).getAllByRole('link')).toHaveLength(23);
+    expect(within(nav()).getAllByRole('link')).toHaveLength(24);
   });
 
   it('hides the sections the admin lacks and refuses their URL', async () => {
