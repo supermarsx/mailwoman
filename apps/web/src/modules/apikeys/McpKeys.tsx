@@ -11,6 +11,7 @@ import { createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
 import { ApiKeyService, type Fetcher } from './service.ts';
 import { MCP_TOOLS, readOnlyScope, type ApiKeyScope, type MintedKey } from './types.ts';
+import { toast } from '../../components/toast/index.ts';
 import * as css from './styles.css.ts';
 
 /** Fluent message id for an MCP tool's `field` (`label`/`desc`); ids use `-`. */
@@ -37,14 +38,14 @@ export function McpKeys(props: McpKeysProps): JSX.Element {
   onMount(() => void loadCatalog('apikeys'));
   const service = new ApiKeyService(props.fetcher);
   const [label, setLabel] = createSignal('');
-  const [copied, setCopied] = createSignal(false);
 
   async function copySecret(secret: string): Promise<void> {
+    if (!navigator.clipboard) return;
     try {
-      await navigator.clipboard?.writeText(secret);
-      setCopied(true);
+      await navigator.clipboard.writeText(secret);
+      toast.success(t('apikeys-copied'));
     } catch {
-      setCopied(false);
+      // Nothing was copied; the token stays on screen to copy by hand.
     }
   }
 
@@ -58,7 +59,6 @@ export function McpKeys(props: McpKeysProps): JSX.Element {
   async function onCreate(): Promise<void> {
     setError('');
     setMinted(null);
-    setCopied(false);
     if (label().trim() === '') {
       setError(t('apikeys-mcp-error-need-label'));
       return;
@@ -73,7 +73,7 @@ export function McpKeys(props: McpKeysProps): JSX.Element {
       setLabel('');
       setScope({ ...readOnlyScope(props.accountId), mcpTools: [] });
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('apikeys-mcp-error-create'));
+      toast.error(e instanceof Error ? e.message : t('apikeys-mcp-error-create'));
     } finally {
       setBusy(false);
     }
@@ -159,13 +159,11 @@ export function McpKeys(props: McpKeysProps): JSX.Element {
                   {t('apikeys-saved')}
                 </button>
               </div>
-              <p class={css.copiedNote} role="status" aria-live="polite">
-                {copied() ? t('apikeys-copied') : ''}
-              </p>
             </div>
           )}
         </Show>
 
+        {/* The field check stays here; a failed request is a toast (t32 f39). */}
         <Show when={error() !== ''}>
           <p class={css.error} role="alert">
             {error()}

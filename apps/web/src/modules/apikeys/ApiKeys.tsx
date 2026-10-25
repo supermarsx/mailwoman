@@ -9,6 +9,7 @@ import { t, isolate, loadCatalog } from '../../i18n';
 import { ApiKeyService, type Fetcher } from './service.ts';
 import { ScopeBuilder, summarizeScope } from './ScopeBuilder.tsx';
 import { readOnlyScope, type ApiKeyRecord, type ApiKeyScope, type MintedKey } from './types.ts';
+import { toast } from '../../components/toast/index.ts';
 import * as css from './styles.css.ts';
 
 export interface ApiKeysProps {
@@ -28,21 +29,20 @@ export function ApiKeys(props: ApiKeysProps): JSX.Element {
   const [minted, setMinted] = createSignal<MintedKey | null>(null);
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal('');
-  const [copied, setCopied] = createSignal(false);
 
   async function copySecret(secret: string): Promise<void> {
+    if (!navigator.clipboard) return;
     try {
-      await navigator.clipboard?.writeText(secret);
-      setCopied(true);
+      await navigator.clipboard.writeText(secret);
+      toast.success(t('apikeys-copied'));
     } catch {
-      setCopied(false);
+      // Nothing was copied; the token stays on screen to copy by hand.
     }
   }
 
   async function onCreate(): Promise<void> {
     setError('');
     setMinted(null);
-    setCopied(false);
     if (label().trim() === '') {
       setError(t('apikeys-error-need-label'));
       return;
@@ -55,19 +55,18 @@ export function ApiKeys(props: ApiKeysProps): JSX.Element {
       setScope(readOnlyScope(props.accountId));
       await refetch();
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('apikeys-error-create'));
+      toast.error(e instanceof Error ? e.message : t('apikeys-error-create'));
     } finally {
       setBusy(false);
     }
   }
 
   async function onRevoke(prefix: string): Promise<void> {
-    setError('');
     try {
       await service.revoke(prefix);
       await refetch();
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('apikeys-error-revoke'));
+      toast.error(e instanceof Error ? e.message : t('apikeys-error-revoke'));
     }
   }
 
@@ -114,13 +113,11 @@ export function ApiKeys(props: ApiKeysProps): JSX.Element {
                   {t('apikeys-saved')}
                 </button>
               </div>
-              <p class={css.copiedNote} role="status" aria-live="polite">
-                {copied() ? t('apikeys-copied') : ''}
-              </p>
             </div>
           )}
         </Show>
 
+        {/* The field check stays here; a failed request is a toast (t32 f39). */}
         <Show when={error() !== ''}>
           <p class={css.error} role="alert">
             {error()}

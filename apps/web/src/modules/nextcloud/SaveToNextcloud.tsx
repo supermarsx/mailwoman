@@ -2,10 +2,11 @@
 // folder and save a message attachment (by blob id) there. EXPORTED for e14 to wire
 // into the attachment context menu.
 
-import { createSignal, onMount, Show, type JSX } from 'solid-js';
+import { createSignal, onMount, type JSX } from 'solid-js';
 import { NextcloudService, type Fetcher, type WebDavEntry } from './service.ts';
 import { FilePicker } from './FilePicker.tsx';
 import { t, loadCatalog, isolate } from '../../i18n';
+import { toast } from '../../components/toast/index.ts';
 import * as css from './styles.css.ts';
 
 export interface SaveToNextcloudProps {
@@ -21,18 +22,16 @@ export function SaveToNextcloud(props: SaveToNextcloudProps): JSX.Element {
   const service = props.service ?? new NextcloudService(props.fetcher);
   const [dir, setDir] = createSignal('/');
   const [busy, setBusy] = createSignal(false);
-  const [error, setError] = createSignal('');
-  const [saved, setSaved] = createSignal<WebDavEntry | null>(null);
 
+  // The result is a toast (t32 f39): "Saved to …" or why it failed.
   async function save(): Promise<void> {
-    setError('');
     setBusy(true);
     try {
-      const entry = await service.saveTo(props.attachment.blobId, dir(), props.attachment.name);
-      setSaved(entry);
+      const entry: WebDavEntry = await service.saveTo(props.attachment.blobId, dir(), props.attachment.name);
+      toast.success(t('nextcloud-saved', { path: isolate(entry.path) }), { testId: 'nc-saved' });
       props.onSaved?.(entry);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('nextcloud-error-save-failed'));
+      toast.error(e instanceof Error ? e.message : t('nextcloud-error-save-failed'));
     } finally {
       setBusy(false);
     }
@@ -45,18 +44,6 @@ export function SaveToNextcloud(props: SaveToNextcloudProps): JSX.Element {
       <button type="button" class={css.button} disabled={busy()} onClick={() => void save()}>
         {t('nextcloud-save-action', { dir: isolate(dir()) })}
       </button>
-      <Show when={saved()}>
-        {(entry) => (
-          <p class={css.meta} data-testid="nc-saved">
-            {t('nextcloud-saved', { path: isolate(entry().path) })}
-          </p>
-        )}
-      </Show>
-      <Show when={error() !== ''}>
-        <p class={css.error} role="alert">
-          {error()}
-        </p>
-      </Show>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { createResource, createSignal, For, Show, onMount, type JSX } from 'soli
 import { t, loadCatalog } from '../../i18n';
 import { SettingsService } from './service.ts';
 import type { Signature } from './types.ts';
+import { toast } from '../../components/toast/index.ts';
 import * as css from './styles.css.ts';
 
 export interface SignaturesProps {
@@ -22,48 +23,50 @@ export function Signatures(props: SignaturesProps): JSX.Element {
   const [draft, setDraft] = createSignal<Signature>({ ...EMPTY });
   const [editing, setEditing] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
-  const [error, setError] = createSignal('');
+  // The form's own check stays on the page; a save or delete result is a toast (t32 f39).
+  const [fieldError, setFieldError] = createSignal('');
 
   function edit(sig: Signature): void {
     setDraft({ ...sig });
     setEditing(true);
-    setError('');
+    setFieldError('');
   }
 
   function startNew(): void {
     setDraft({ ...EMPTY });
     setEditing(true);
-    setError('');
+    setFieldError('');
   }
 
   async function save(): Promise<void> {
     const sig = draft();
     if (sig.name.trim() === '') {
-      setError(t('settings-sig-error-name'));
+      setFieldError(t('settings-sig-error-name'));
       return;
     }
-    setError('');
+    setFieldError('');
     setBusy(true);
     try {
       await service.upsertSignature({ ...sig, name: sig.name.trim() });
       setEditing(false);
       setDraft({ ...EMPTY });
       await refetch();
+      toast.success(t('settings-saved'));
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('settings-sig-error-generic'));
+      toast.error(e instanceof Error ? e.message : t('settings-sig-error-generic'));
     } finally {
       setBusy(false);
     }
   }
 
   async function remove(name: string): Promise<void> {
-    setError('');
+    setFieldError('');
     setBusy(true);
     try {
       await service.deleteSignature(name);
       await refetch();
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('settings-sig-error-generic'));
+      toast.error(e instanceof Error ? e.message : t('settings-sig-error-generic'));
     } finally {
       setBusy(false);
     }
@@ -151,9 +154,9 @@ export function Signatures(props: SignaturesProps): JSX.Element {
         </div>
       </Show>
 
-      <Show when={error() !== ''}>
+      <Show when={fieldError() !== ''}>
         <p class={css.error} role="alert">
-          {error()}
+          {fieldError()}
         </p>
       </Show>
     </section>

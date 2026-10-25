@@ -8,6 +8,7 @@ import { createResource, createSignal, For, Show, onMount, type JSX } from 'soli
 import { t, loadCatalog } from '../../i18n';
 import { SettingsService } from './service.ts';
 import type { SavedSearch } from './types.ts';
+import { toast } from '../../components/toast/index.ts';
 import * as css from './styles.css.ts';
 
 export interface SavedSearchesProps {
@@ -20,14 +21,13 @@ export function SavedSearches(props: SavedSearchesProps): JSX.Element {
 
   const [searches, { refetch }] = createResource<SavedSearch[]>(() => service.listSavedSearches());
   const [busy, setBusy] = createSignal(false);
-  const [error, setError] = createSignal('');
 
+  // A failed action is a toast (t32 f39).
   function fail(e: unknown): void {
-    setError(e instanceof Error ? e.message : t('settings-search-error'));
+    toast.error(e instanceof Error ? e.message : t('settings-search-error'));
   }
 
   async function toggleFolder(search: SavedSearch, asFolder: boolean): Promise<void> {
-    setError('');
     setBusy(true);
     try {
       await service.upsertSavedSearch({ ...search, asFolder });
@@ -40,7 +40,6 @@ export function SavedSearches(props: SavedSearchesProps): JSX.Element {
   }
 
   async function remove(id: string): Promise<void> {
-    setError('');
     setBusy(true);
     try {
       await service.deleteSavedSearch(id);
@@ -88,12 +87,6 @@ export function SavedSearches(props: SavedSearchesProps): JSX.Element {
             )}
           </For>
         </ul>
-      </Show>
-
-      <Show when={error() !== ''}>
-        <p class={css.error} role="alert">
-          {error()}
-        </p>
       </Show>
     </section>
   );

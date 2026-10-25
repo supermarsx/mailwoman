@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { NextcloudAttach } from './NextcloudAttach.tsx';
 import { ShareLinkComposer } from './ShareLinkComposer.tsx';
+import { SaveToNextcloud } from './SaveToNextcloud.tsx';
+import { ToastRegion, toasts } from '../../components/toast/index.ts';
 import type { AttachedFile, WebDavEntry } from './service.ts';
 
 function okJson(body: unknown): Response {
@@ -97,5 +99,60 @@ describe('share-link composer — password + expiry controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create link' }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/password/));
     expect(fetcher).not.toHaveBeenCalled();
+    // A missing field stays on the form, not in a toast.
+    expect(toasts()).toEqual([]);
+  });
+
+  it('reports a refused share link as an error toast', async () => {
+    const fetcher = vi.fn(async () => new Response('', { status: 502 }));
+    render(() => (
+      <>
+        <ShareLinkComposer path="/a" fetcher={fetcher} onCreated={() => {}} />
+        <ToastRegion />
+      </>
+    ));
+    fireEvent.click(screen.getByRole('button', { name: 'Create link' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('nextcloud request failed: 502'));
+    expect(toasts().map((i) => i.tone)).toEqual(['error']);
+  });
+});
+
+describe('results as toasts (t32 f39)', () => {
+  it('a save to Nextcloud says where it went in a success toast', async () => {
+    const saved: WebDavEntry = { name: 'a.pdf', path: '/Docs/a.pdf', isDir: false, size: 1, modified: null, contentType: null };
+    const fetcher = vi.fn(async (input: string) => {
+      if (input.startsWith('/api/nextcloud/list')) return okJson({ entries: rootEntries });
+      if (input === '/api/nextcloud/save') return okJson({ entry: saved });
+      return okJson({});
+    });
+    render(() => (
+      <>
+        <SaveToNextcloud attachment={{ blobId: 'b1', name: 'a.pdf' }} fetcher={fetcher} />
+        <ToastRegion />
+      </>
+    ));
+    fireEvent.click(await screen.findByRole('button', { name: /Save here/ }));
+    await waitFor(() => expect(screen.getByTestId('nc-saved')).toHaveAttribute('role', 'status'));
+    expect(screen.getByTestId('nc-saved')).toHaveTextContent('/Docs/a.pdf');
+  });
+
+  it('a failed attach is an error toast; "select a file" stays on the panel', async () => {
+    const fetcher = vi.fn(async (input: string) => {
+      if (input.startsWith('/api/nextcloud/list')) return okJson({ entries: rootEntries });
+      return new Response('', { status: 500 });
+    });
+    render(() => (
+      <>
+        <NextcloudAttach fetcher={fetcher} onAttached={() => {}} />
+        <ToastRegion />
+      </>
+    ));
+    await waitFor(() => expect(screen.getByText('report.pdf')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Attach' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(toasts()).toEqual([]);
+    fireEvent.click(screen.getByText('report.pdf'));
+    fireEvent.click(screen.getByRole('button', { name: /Attach 1 file/ }));
+    await waitFor(() => expect(toasts().map((i) => [i.tone, i.message])).toEqual([['error', 'nextcloud request failed: 500']]));
   });
 });

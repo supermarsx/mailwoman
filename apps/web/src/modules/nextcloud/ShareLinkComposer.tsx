@@ -6,6 +6,7 @@
 import { createSignal, onMount, Show, type JSX } from 'solid-js';
 import { NextcloudService, type Fetcher, type ShareLink } from './service.ts';
 import { t, loadCatalog, isolate } from '../../i18n';
+import { toast } from '../../components/toast/index.ts';
 import * as css from './styles.css.ts';
 import { PasswordInput } from '../../components/PasswordInput.tsx';
 
@@ -27,6 +28,7 @@ export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
   const [expiresAt, setExpiresAt] = createSignal('');
   const [link, setLink] = createSignal<ShareLink | null>(null);
   const [busy, setBusy] = createSignal(false);
+  // A missing password or date stays on the form; a refused request is a toast (t32 f39).
   const [error, setError] = createSignal('');
 
   async function create(): Promise<void> {
@@ -49,7 +51,7 @@ export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
       setLink(created);
       props.onCreated(created);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('nextcloud-error-share-failed'));
+      toast.error(e instanceof Error ? e.message : t('nextcloud-error-share-failed'));
     } finally {
       setBusy(false);
     }

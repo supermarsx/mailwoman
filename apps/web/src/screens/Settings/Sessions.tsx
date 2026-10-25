@@ -8,6 +8,7 @@ import { createResource, createSignal, For, Show, onMount, type JSX } from 'soli
 import { t, loadCatalog, isolate } from '../../i18n';
 import { SettingsService } from './service.ts';
 import type { SessionMeta } from './types.ts';
+import { toast } from '../../components/toast/index.ts';
 import * as css from './styles.css.ts';
 
 export interface SessionsProps {
@@ -20,14 +21,13 @@ export function Sessions(props: SessionsProps): JSX.Element {
 
   const [sessions, { refetch }] = createResource<SessionMeta[]>(() => service.sessions());
   const [busy, setBusy] = createSignal(false);
-  const [error, setError] = createSignal('');
 
+  // A failed action is a toast (t32 f39).
   function fail(e: unknown): void {
-    setError(e instanceof Error ? e.message : t('settings-sessions-error'));
+    toast.error(e instanceof Error ? e.message : t('settings-sessions-error'));
   }
 
   async function revoke(handle: string): Promise<void> {
-    setError('');
     setBusy(true);
     try {
       await service.revokeSession(handle);
@@ -40,7 +40,6 @@ export function Sessions(props: SessionsProps): JSX.Element {
   }
 
   async function revokeOthers(): Promise<void> {
-    setError('');
     setBusy(true);
     try {
       await service.revokeOtherSessions();
@@ -88,12 +87,6 @@ export function Sessions(props: SessionsProps): JSX.Element {
             {t('settings-sessions-revoke-others', { count: others() })}
           </button>
         </div>
-      </Show>
-
-      <Show when={error() !== ''}>
-        <p class={css.error} role="alert">
-          {error()}
-        </p>
       </Show>
     </section>
   );

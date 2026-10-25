@@ -6,6 +6,7 @@ import { createSignal, onMount, Show, type JSX } from 'solid-js';
 import { NextcloudService, type Fetcher, type WebDavEntry, type AttachedFile } from './service.ts';
 import { FilePicker } from './FilePicker.tsx';
 import { t, loadCatalog } from '../../i18n';
+import { toast } from '../../components/toast/index.ts';
 import * as css from './styles.css.ts';
 
 export interface NextcloudAttachProps {
@@ -21,6 +22,7 @@ export function NextcloudAttach(props: NextcloudAttachProps): JSX.Element {
   const service = props.service ?? new NextcloudService(props.fetcher);
   const [selected, setSelected] = createSignal<Set<string>>(new Set());
   const [busy, setBusy] = createSignal(false);
+  // "Select a file" stays on the panel; a failed attach is a toast (t32 f39).
   const [error, setError] = createSignal('');
 
   function toggle(entry: WebDavEntry): void {
@@ -45,7 +47,7 @@ export function NextcloudAttach(props: NextcloudAttachProps): JSX.Element {
       props.onAttached(files);
       setSelected(new Set<string>());
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('nextcloud-error-attach-failed'));
+      toast.error(e instanceof Error ? e.message : t('nextcloud-error-attach-failed'));
     } finally {
       setBusy(false);
     }

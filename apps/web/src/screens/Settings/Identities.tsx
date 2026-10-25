@@ -6,6 +6,7 @@ import { createResource, createSignal, For, Show, onMount, type JSX } from 'soli
 import { t, loadCatalog, isolate } from '../../i18n';
 import { SettingsService } from './service.ts';
 import type { Identity, Signature } from './types.ts';
+import { toast } from '../../components/toast/index.ts';
 import * as css from './styles.css.ts';
 
 export interface IdentitiesProps {
@@ -26,18 +27,19 @@ export function Identities(props: IdentitiesProps): JSX.Element {
   const [draft, setDraft] = createSignal<Identity>(emptyIdentity());
   const [editing, setEditing] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
-  const [error, setError] = createSignal('');
+  // The form's own check stays on the page; a save or delete result is a toast (t32 f39).
+  const [fieldError, setFieldError] = createSignal('');
 
   function edit(identity: Identity): void {
     setDraft({ ...identity });
     setEditing(true);
-    setError('');
+    setFieldError('');
   }
 
   function startNew(): void {
     setDraft(emptyIdentity());
     setEditing(true);
-    setError('');
+    setFieldError('');
   }
 
   function validEmail(email: string): boolean {
@@ -47,10 +49,10 @@ export function Identities(props: IdentitiesProps): JSX.Element {
   async function save(): Promise<void> {
     const identity = draft();
     if (identity.name.trim() === '' || !validEmail(identity.email.trim())) {
-      setError(t('settings-ident-error-fields'));
+      setFieldError(t('settings-ident-error-fields'));
       return;
     }
-    setError('');
+    setFieldError('');
     setBusy(true);
     try {
       await service.upsertIdentity({
@@ -61,21 +63,22 @@ export function Identities(props: IdentitiesProps): JSX.Element {
       setEditing(false);
       setDraft(emptyIdentity());
       await refetch();
+      toast.success(t('settings-saved'));
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('settings-ident-error-generic'));
+      toast.error(e instanceof Error ? e.message : t('settings-ident-error-generic'));
     } finally {
       setBusy(false);
     }
   }
 
   async function remove(id: string): Promise<void> {
-    setError('');
+    setFieldError('');
     setBusy(true);
     try {
       await service.deleteIdentity(id);
       await refetch();
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('settings-ident-error-generic'));
+      toast.error(e instanceof Error ? e.message : t('settings-ident-error-generic'));
     } finally {
       setBusy(false);
     }
@@ -175,9 +178,9 @@ export function Identities(props: IdentitiesProps): JSX.Element {
         </div>
       </Show>
 
-      <Show when={error() !== ''}>
+      <Show when={fieldError() !== ''}>
         <p class={css.error} role="alert">
-          {error()}
+          {fieldError()}
         </p>
       </Show>
     </section>

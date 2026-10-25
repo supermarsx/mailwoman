@@ -4,6 +4,7 @@ import { ApiKeys } from './ApiKeys.tsx';
 import { McpKeys, withTool } from './McpKeys.tsx';
 import { scopeToWire, scopeFromWire, readOnlyScope, UNATTENDED_SEND_DISCLOSURE } from './types.ts';
 import { t } from '../../test/i18n.ts';
+import { ToastRegion } from '../../components/toast/index.ts';
 
 function okJson(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -81,7 +82,14 @@ describe('API keys — accessibility (WCAG 2.2 AA)', () => {
       if (input === '/api/keys' && init?.method === 'POST') return okJson(created);
       return okJson([]);
     });
-    render(() => <ApiKeys accountId="acct-1" fetcher={fetcher} initialKeys={[]} />);
+    render(() => (
+      <>
+        <ApiKeys accountId="acct-1" fetcher={fetcher} initialKeys={[]} />
+        <ToastRegion />
+      </>
+    ));
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
 
     // The scope builder is a keyboard-navigable, named grouping.
     expect(screen.getByRole('group', { name: t('apikeys-scope-label') })).toBeInTheDocument();
@@ -89,11 +97,31 @@ describe('API keys — accessibility (WCAG 2.2 AA)', () => {
     fireEvent.input(screen.getByLabelText(t('apikeys-label-aria')), { target: { value: 'k' } });
     fireEvent.click(screen.getByRole('button', { name: t('apikeys-create') }));
 
-    // The one-time reveal offers an aria-labelled copy button and a live region
-    // that announces the copy (not colour-only).
+    // The one-time reveal offers an aria-labelled copy button; a copy is
+    // confirmed by a success toast (announced, not colour-only).
     await waitFor(() => expect(screen.getByTestId('minted-token')).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: t('apikeys-copy-aria') })).toBeInTheDocument();
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: t('apikeys-copy-aria') }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(t('apikeys-copied')));
+    expect(writeText).toHaveBeenCalledWith('mwk_abcd.SECRETSECRETSECRET');
+  });
+
+  it('a failed create is an error toast; the label check stays at the form', async () => {
+    const fetcher = vi.fn(async (input: string, init?: RequestInit) => {
+      if (input === '/api/keys' && init?.method === 'POST') throw new Error('nope');
+      return okJson([]);
+    });
+    render(() => (
+      <>
+        <ApiKeys accountId="acct-1" fetcher={fetcher} initialKeys={[]} />
+        <ToastRegion />
+      </>
+    ));
+    fireEvent.input(screen.getByLabelText(t('apikeys-label-aria')), { target: { value: 'k' } });
+    fireEvent.click(screen.getByRole('button', { name: t('apikeys-create') }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveAttribute('data-testid', 'toast');
+    expect(alert).toHaveAttribute('data-tone', 'error');
   });
 });
 
