@@ -1915,9 +1915,11 @@ fn add_cors_headers(h: &mut HeaderMap, origin: HeaderValue) {
         header::ACCESS_CONTROL_ALLOW_METHODS,
         HeaderValue::from_static("GET, POST, PUT, PATCH, DELETE, OPTIONS"),
     );
+    // `x-mailwoman-client`: the shells send their kind, version and updater state
+    // on every request (t32-cfg §4.18); a preflight listing it must be allowed.
     h.insert(
         header::ACCESS_CONTROL_ALLOW_HEADERS,
-        HeaderValue::from_static("authorization, content-type, x-csrf-token"),
+        HeaderValue::from_static("authorization, content-type, x-csrf-token, x-mailwoman-client"),
     );
     h.insert(
         header::ACCESS_CONTROL_MAX_AGE,
