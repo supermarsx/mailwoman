@@ -52,7 +52,7 @@ export function Configuration(props: ConfigurationProps): JSX.Element {
     </div>
     <Feedback kind="error" message={error()} />
     <Show when={unavailable()}><p role="status">{t('admin-config-unavailable')}</p></Show>
-    <div class={ux.pageActions}>
+    <div class={css.grid}>
       <label class="field"><span>{t('admin-config-search')}</span><input type="search" value={query()} onInput={(e) => { setQuery(e.currentTarget.value); setLimit(50); }} /></label>
       <label class="field"><span>{t('admin-config-group')}</span><select value={group()} onChange={(e) => { setGroup(e.currentTarget.value); setLimit(50); }}><option value="">{t('admin-config-all')}</option><For each={groups()}>{(g) => <option value={g}>{g}</option>}</For></select></label>
     </div>
