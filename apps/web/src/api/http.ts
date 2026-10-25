@@ -27,6 +27,11 @@
 // keep. An absolute URL is left alone: `client.ts` builds those and attaches the
 // token itself.
 //
+// Every request through here can name its client in `X-Mailwoman-Client`
+// (t32-cfg §4.18): `transport.ts` registers what to send with `setClientHeader`.
+// A browser sends it on the sign-in routes only, so every other request goes out
+// exactly as the caller built it; a native shell sends it on every request.
+//
 // Imports: `basePath.ts` only, which has none of its own, so `platform/browser.ts`
 // can import this module without closing the `transport.ts` cycle it avoids.
 
@@ -58,6 +63,24 @@ export interface NativeTransport {
 
 let native: NativeTransport | null = null;
 
+/** The header a client names itself in (`X-Mailwoman-Client`, t32-cfg §4.18). */
+const CLIENT_HEADER = 'X-Mailwoman-Client';
+
+/** What a request names its client as (registered by `transport.ts`). */
+export interface ClientHeader {
+  /** The `X-Mailwoman-Client` value, such as `browser/26.20.0`. */
+  value: string;
+  /** Send it on every request (a native shell), not only on sign-in. */
+  everyRequest: boolean;
+}
+
+let clientHeader: (() => ClientHeader) | null = null;
+
+/** Install (or, with `null`, remove) what requests name their client as. */
+export function setClientHeader(source: (() => ClientHeader) | null): void {
+  clientHeader = source;
+}
+
 /** Install (or, with `null`, remove) the native transport. */
 export function setNativeTransport(transport: NativeTransport | null): void {
   native = transport;
@@ -66,6 +89,29 @@ export function setNativeTransport(transport: NativeTransport | null): void {
 /** The sign-in routes whose answer carries a native client's token. */
 function isSignInPath(path: string): boolean {
   return path === '/api/login' || path.startsWith('/api/login/2fa');
+}
+
+/** The path of `input` without the deploy prefix, for the route checks above. */
+function requestPath(input: string): string {
+  const url = new URL(input, globalThis.location?.href ?? 'http://localhost');
+  return stripBase(url.pathname, basePath());
+}
+
+/**
+ * `init` with `X-Mailwoman-Client` added where it is sent (see `setClientHeader`),
+ * else `init` unchanged. A plain header object stays a plain object.
+ */
+function withClientHeader(input: string, init: RequestInit | undefined): RequestInit | undefined {
+  if (clientHeader === null) return init;
+  const { value, everyRequest } = clientHeader();
+  if (!everyRequest && !isSignInPath(requestPath(input))) return init;
+  const given = init?.headers;
+  if (given instanceof Headers || Array.isArray(given)) {
+    const headers = new Headers(given);
+    headers.set(CLIENT_HEADER, value);
+    return { ...init, headers };
+  }
+  return { ...init, headers: { ...given, [CLIENT_HEADER]: value } };
 }
 
 /** `/api/...` but not `//host/...` (a scheme-relative URL names another host). */
@@ -183,8 +229,11 @@ function refreshToken(source: string): Promise<string | null> {
  *
  * In a native shell a root-relative `input` goes to the configured server with
  * the bearer token instead (see `setNativeTransport`).
+ *
+ * `X-Mailwoman-Client` is added where `setClientHeader` says so.
  */
-export async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+export async function apiFetch(input: string, given?: RequestInit): Promise<Response> {
+  const init = withClientHeader(input, given);
   if (native !== null && isRootRelative(input)) return sendNative(native, input, init);
   const method = (init?.method ?? 'GET').toUpperCase();
   if (SAFE_METHODS.has(method)) return send(input, init);

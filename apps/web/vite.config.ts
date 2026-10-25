@@ -3,9 +3,12 @@ import solid from 'vite-plugin-solid';
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin';
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
+import { readFileSync } from 'node:fs';
 import { bundledPackages } from './scripts/about-bundled-packages.mjs';
 
 const UPSTREAM = 'http://localhost:8080';
+// The web client's version, sent as `browser/<version>` in `X-Mailwoman-Client`.
+const VERSION = (JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }).version;
 
 export default defineConfig({
   // Sub-path hosting (t20 B4): a RELATIVE base so every emitted asset URL in
@@ -19,7 +22,10 @@ export default defineConfig({
   // `basePath()` (`src/api/basePath.ts`), which reads the server-injected
   // `__MW_BASE__`.
   base: './',
-  define: { __MW_I18N_PSEUDO__: JSON.stringify(process.env['MW_I18N_PSEUDO'] === '1') },
+  define: {
+    __MW_I18N_PSEUDO__: JSON.stringify(process.env['MW_I18N_PSEUDO'] === '1'),
+    __MW_VERSION__: JSON.stringify(VERSION),
+  },
   // vanilla-extract compiles `*.css.ts` token/theme files to static CSS at build
   // (plan §2.3, e4). The hand-rolled Service Worker (e5) ships as `public/sw.js`,
   // copied verbatim into `dist/` — no bundling step needed for it.

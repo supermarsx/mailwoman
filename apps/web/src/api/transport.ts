@@ -20,10 +20,16 @@
 // or `serverUrl: null` when they have none; nothing in the SPA changes it. Every
 // request waits for the platform first (`platformReady`), so the first one at boot
 // already sees the stored token.
+//
+// Every client names itself in `X-Mailwoman-Client` (t32-cfg §4.18): a browser
+// sends `browser/<version>` on sign-in; a shell sends `desktop/<version>;
+// updater=on|off` or `mobile/<version>; updater=off` on sign-in and on every
+// request to its server, from the `platform` it injects. The server keeps it with
+// the session (`sessions.client_version`); the console lists the versions in use.
 
 import { createClient, type ClientAuth, type Client } from './client.ts';
 import { basePath } from './basePath.ts';
-import { setNativeTransport } from './http.ts';
+import { setClientHeader, setNativeTransport, type ClientHeader } from './http.ts';
 import { isNativeAuth, nativeServerBase } from './serverAddress.ts';
 import { platformReady } from '../platform/index.ts';
 
@@ -31,6 +37,7 @@ export { isNativeAuth, nativeServerBase } from './serverAddress.ts';
 
 interface MwConfig {
   serverUrl?: unknown;
+  platform?: { kind?: unknown; version?: unknown; updater?: unknown };
 }
 
 function mwConfig(): MwConfig {
@@ -51,6 +58,31 @@ export function transportBase(): string {
   if (typeof url !== 'string' || url.length === 0) return basePath();
   return url.endsWith('/') ? url.slice(0, -1) : url;
 }
+
+/** A version as the header carries it: release characters only, else `unknown`. */
+function headerVersion(v: unknown): string {
+  return typeof v === 'string' && /^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$/.test(v) ? v : 'unknown';
+}
+
+/**
+ * What this client sends in `X-Mailwoman-Client`, and whether on every request.
+ * A shell is told apart by the native flag, then by the `platform.kind` it
+ * injects: `desktop`, or `android`/`ios` for the mobile shell. The web client's
+ * version is the one it was built as (`apps/web/package.json`).
+ */
+export function clientHeader(): ClientHeader {
+  if (isNativeAuth()) {
+    const platform = mwConfig().platform ?? {};
+    const kind = platform.kind === 'desktop' ? 'desktop' : platform.kind === 'android' || platform.kind === 'ios' ? 'mobile' : null;
+    if (kind !== null) {
+      const updater = kind === 'desktop' && platform.updater === true ? 'on' : 'off';
+      return { value: `${kind}/${headerVersion(platform.version)}; updater=${updater}`, everyRequest: true };
+    }
+  }
+  return { value: `browser/${headerVersion(__MW_VERSION__)}`, everyRequest: false };
+}
+
+setClientHeader(clientHeader);
 
 /**
  * The bearer-auth provider backed by the platform's OS-keychain token store. It
