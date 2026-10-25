@@ -40,6 +40,8 @@ export const section = style({
   minInlineSize: 0,
   maxInlineSize: '760px',
 });
+// Data tables need the available pane width; text-only forms retain a readable measure.
+globalStyle(`${section}:has(table)`, { maxInlineSize: 'none' });
 
 export const heading = style({
   fontSize: '1.25rem',

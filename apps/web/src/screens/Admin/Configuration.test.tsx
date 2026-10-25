@@ -19,7 +19,7 @@ describe('effective configuration', () => {
     expect(await screen.findByText('Secret configured (hidden)')).toBeInTheDocument();
     expect(screen.getByText('Runtime value unavailable')).toBeInTheDocument();
     expect(screen.getByText('declared-only')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open settings editor' })).toHaveAttribute('href', '#/settings?field=cap.import');
+    expect(screen.getByRole('link', { name: 'Open settings editor' })).toHaveAttribute('href', '/admin#/settings/cap.import');
     expect(screen.getByText('Policy locked')).toBeInTheDocument();
     await expectNoAxeViolations(container);
   });
