@@ -12,10 +12,14 @@ the commented `android-apk` job in `.github/workflows/ci.yml`).
 
 Contents:
 - `MailwomanMobilePlugin.kt` — **e2** the mobile-capability Tauri plugin:
-  UnifiedPush registration, share targets/file handlers, badge counts. Called from
-  the Rust `commands` plugin (`src/commands/`) via `run_mobile_plugin(...)`.
+  UnifiedPush registration, share targets/file handlers, badge counts, new-mail
+  notifications (a tap returns over the Tauri `Channel` that `commands::init` hands
+  it, as `mw://notification-action`). Called from the Rust `commands` plugin
+  (`src/commands/`) via `run_mobile_plugin(...)`.
 - `UnifiedPushReceiver.kt` — **e2** the UnifiedPush `MessagingReceiver` +
-  `PushBridge` (endpoint cache + live-plugin forwarding). Opaque wakes only (§2.3).
+  `PushBridge` (endpoint cache + live-plugin forwarding). A message
+  `{"mw":1,"notify":{"id","title","body"}}` also posts that notification; anything
+  else is an opaque wake (§2.3).
 - `FlagSecurePlugin.kt` — **e4** the custom screen-capture-protection plugin (§7.6).
   Sets `WindowManager.LayoutParams.FLAG_SECURE` on the activity window.
 - `manifest-intents.xml` — `<intent-filter>` snippets (share targets + `.eml/.ics/
