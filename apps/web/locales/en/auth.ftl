@@ -18,6 +18,12 @@ auth-refused-note = If the email address and password are correct, the account m
 auth-unreachable = Could not reach the server
 # The server has no mail server configured for the address's domain.
 auth-address-not-configured = This address is not set up on this server. Contact your administrator.
+# The server says why it refused (an administrator chose to explain refusals):
+# the account is disabled, or this address may not sign in on this server.
+auth-account-disabled = This account has been disabled by an administrator. It cannot sign in until an administrator enables it again.
+auth-signin-not-allowed = This address may not sign in on this server. Contact your administrator.
+# The id of the server's answer, for a support request.
+auth-reference = Reference: { $id }
 
 # -- Single sign-on (t9) -----------------------------------------------------
 # The "or continue with" divider + one button per configured IdP. Only shown

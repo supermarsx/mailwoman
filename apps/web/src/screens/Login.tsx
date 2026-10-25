@@ -39,6 +39,9 @@ export function Login(): JSX.Element {
   // does not reveal account state — so the form cannot say WHICH it was; it adds
   // a note naming the other possibility.
   const [refused, setRefused] = createSignal(false);
+  // The id of the server's answer to a failed sign-in, when it sent one
+  // (`X-Request-Id`), so a support request can name it.
+  const [reference, setReference] = createSignal<string | null>(null);
 
   // When the password is accepted but a second factor is required, the login is
   // NOT complete: `app.login` threw `TwoFactorRequired` before any session was
@@ -66,16 +69,23 @@ export function Login(): JSX.Element {
     e.preventDefault();
     setError(null);
     setRefused(false);
+    setReference(null);
     setBusy(true);
     try {
       await app.login({ username: email().trim(), password: password() });
     } catch (err) {
+      if (err instanceof ApiError) setReference(err.requestId ?? null);
       if (err instanceof TwoFactorRequired) {
         // Not an error: swap the credential form for the second-factor challenge.
         setChallenge(err.challenge);
       } else if (err instanceof ApiError && err.status === 401) {
         setError(t('auth-invalid-credentials'));
         setRefused(true);
+      } else if (err instanceof ApiError && err.status === 403 && err.code === 'accountDisabled') {
+        // The administrator chose to explain refusals (`signin.refusalDetail`).
+        setError(t('auth-account-disabled'));
+      } else if (err instanceof ApiError && err.status === 403 && err.code === 'signinNotAllowed') {
+        setError(t('auth-signin-not-allowed'));
       } else if (err instanceof ApiError && err.status === 404) {
         // No upstream the operator configured places this address.
         setError(t('auth-address-not-configured'));
@@ -151,6 +161,13 @@ export function Login(): JSX.Element {
           <p class="login__hint" data-testid="login-refused-note">
             {t('auth-refused-note')}
           </p>
+        </Show>
+        <Show when={error() !== null ? reference() : null}>
+          {(id) => (
+            <p class="login__hint" data-testid="login-reference">
+              {t('auth-reference', { id: id() })}
+            </p>
+          )}
         </Show>
         <button type="submit" class="btn btn--primary" disabled={busy()}>
           {busy() ? t('auth-signing-in') : t('auth-sign-in')}

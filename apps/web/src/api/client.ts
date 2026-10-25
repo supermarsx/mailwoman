@@ -16,13 +16,42 @@ import type { JmapRequest, JmapResponse, JmapSession } from './jmap-types.ts';
 import { basePath } from './basePath.ts';
 import { apiFetch } from './http.ts';
 
+/** What a refused answer says about itself, besides its status. */
+export interface ApiErrorDetails {
+  /** The server's machine code (`accountDisabled`, `signinNotAllowed`, …). */
+  code?: string;
+  /** The answer's `X-Request-Id`, shown as "Reference: …" for a support request. */
+  requestId?: string;
+}
+
 export class ApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  readonly code: string | undefined;
+  readonly requestId: string | undefined;
+  constructor(status: number, message: string, details: ApiErrorDetails = {}) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = details.code;
+    this.requestId = details.requestId;
   }
+}
+
+/**
+ * The machine code and request id of a refused answer. Reads a clone, so the
+ * body stays readable; never throws (a body that is not JSON has no code).
+ */
+export async function errorDetails(res: Response): Promise<ApiErrorDetails> {
+  const out: ApiErrorDetails = {};
+  const requestId = res.headers.get('x-request-id');
+  if (requestId !== null && requestId !== '') out.requestId = requestId;
+  try {
+    const body = (await res.clone().json()) as { code?: unknown };
+    if (typeof body.code === 'string' && body.code !== '') out.code = body.code;
+  } catch {
+    /* not JSON */
+  }
+  return out;
 }
 
 /** Raised when the request never reached the server (offline / dropped). */
@@ -165,7 +194,7 @@ export type ClientBase = string | (() => string | null);
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    throw new ApiError(res.status, `request failed with ${res.status}`);
+    throw new ApiError(res.status, `request failed with ${res.status}`, await errorDetails(res));
   }
   return (await res.json()) as T;
 }
@@ -316,7 +345,7 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
           body: JSON.stringify(body),
         });
         if (res.status === 401) {
-          throw new ApiError(401, 'invalid credentials');
+          throw new ApiError(401, 'invalid credentials', await errorDetails(res));
         }
         const answer = await jsonOrThrow<LoginResponse>(res);
         // A 2FA-gated response is a SUCCESSFUL request that is not yet an
