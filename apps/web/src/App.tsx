@@ -8,7 +8,7 @@ import { isConsolePage } from './api/adminPath.ts';
 import { getPlatform, initPlatform } from './platform/index.ts';
 import { capabilityEnabled } from './platform/capabilities.ts';
 import { Login } from './screens/Login.tsx';
-import { Toast } from './components/Toast.tsx';
+import { ToastRegion } from './components/toast/index.ts';
 import { ConnectionToast } from './realtime/ConnectionToast.tsx';
 import { AsyncBoundary, LazyRoute } from './components/ErrorBoundary.tsx';
 import { AsyncError, AsyncPending } from './components/AsyncState.tsx';
@@ -215,7 +215,7 @@ export function App(): JSX.Element {
           <Match when={inMail()}>
             <>
               {/* The mailbox is the app; if it throws, a blank shell with a
-                  working Toast is not a usable fallback. */}
+                  working toast region is not a usable fallback. */}
               <AsyncBoundary>
                 <LazyRoute load={loadMailboxScreen} />
               </AsyncBoundary>
@@ -227,7 +227,7 @@ export function App(): JSX.Element {
           </Match>
         </Switch>
       </Show>
-      <Toast />
+      <ToastRegion />
       <ConnectionToast />
     </AppContext.Provider>
   );

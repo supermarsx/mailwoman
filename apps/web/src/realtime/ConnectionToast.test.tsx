@@ -9,6 +9,11 @@ import { createSubTabs } from './subTabs.ts';
 import { createChangeReconciler } from './changes.ts';
 import { createRealtimeController, type RealtimeController } from './controller.ts';
 import type { WebSocketLike } from './pushClient.ts';
+import { resetToasts, toasts, TOAST_DURATIONS } from '../components/toast/index.ts';
+
+/** The shared toast store's messages ("Reconnected" is a toast, not the banner). */
+const toastMessages = (): string[] => toasts().map((i) => i.message);
+afterEach(() => resetToasts());
 
 function makeController(overrides: Partial<RealtimeController> = {}): RealtimeController {
   return {
@@ -49,13 +54,26 @@ describe('ConnectionToast', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 
-  it('announces a transient "Reconnected" when the socket recovers', () => {
+  it('raises a "Reconnected" success toast when the socket recovers, and drops the banner', () => {
     const controller = makeController();
     controller.connection.report('open', 'ws');
     controller.connection.setOffline();
     renderToast(controller);
     controller.connection.report('open', 'ws');
-    expect(screen.getByRole('status')).toHaveTextContent('Reconnected');
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(toasts().map((i) => [i.tone, i.message])).toEqual([['success', 'Reconnected']]);
+  });
+
+  it('withdraws "Reconnected" when the connection drops again', () => {
+    const controller = makeController();
+    controller.connection.report('open', 'ws');
+    controller.connection.setOffline();
+    renderToast(controller);
+    controller.connection.report('open', 'ws');
+    expect(toastMessages()).toEqual(['Reconnected']);
+    controller.connection.setOffline();
+    expect(toastMessages()).toEqual([]);
+    expect(screen.getByRole('status')).toHaveAttribute('data-state', 'offline');
   });
 
   it('offers a Reconnect action while degraded and invokes the controller', () => {
@@ -157,6 +175,7 @@ describe('ConnectionToast across sign-in and sign-out', () => {
     FakeWs.last?.onopen?.({});
     // The first connect of a session is not a recovery.
     expect(screen.queryByRole('status')).toBeNull();
+    expect(toastMessages()).toEqual([]);
 
     controller.connection.setOffline();
     expect(screen.getByRole('status')).toHaveAttribute('data-state', 'offline');
@@ -167,9 +186,10 @@ describe('ConnectionToast across sign-in and sign-out', () => {
     vi.advanceTimersByTime(50);
     expect(FakeWs.last).not.toBe(dropped);
     FakeWs.last?.onopen?.({});
-    expect(screen.getByRole('status')).toHaveTextContent('Reconnected');
-    vi.advanceTimersByTime(2500);
     expect(screen.queryByRole('status')).toBeNull();
+    expect(toastMessages()).toEqual(['Reconnected']);
+    vi.advanceTimersByTime(TOAST_DURATIONS.success);
+    expect(toastMessages()).toEqual([]);
     controller.stop();
   });
 

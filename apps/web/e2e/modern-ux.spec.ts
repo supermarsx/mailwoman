@@ -60,12 +60,12 @@ test.describe('V2 modern mail UX (engine mode)', () => {
     await expect(workItem).toBeVisible();
     await workItem.dispatchEvent('click');
     await expect(olderSlot.locator('.tag-chip[data-keyword="work"]')).toBeVisible();
-    // The shared undo toast confirms the reversible action.
-    await expect(page.locator('.undo-toast')).toContainText('Label added');
+    // The undo toast (components/toast) confirms the reversible action.
+    await expect(page.locator('.toast', { hasText: 'Label added' })).toBeVisible();
 
     // ── Pin: pinning the OLDER message floats it above the newer one (ordering).
     await olderSlot.getByRole('button', { name: 'Pin', exact: true }).dispatchEvent('click');
-    await expect(page.locator('.undo-toast')).toContainText('Pinned');
+    await expect(page.locator('.toast', { hasText: 'Pinned' })).toBeVisible();
     // Its row is now marked pinned and carries the pin indicator.
     await expect(messageRow(page, older)).toHaveClass(/list__row--pinned/);
     await expect(olderSlot.getByLabel('Pinned')).toBeVisible();
@@ -95,10 +95,9 @@ test.describe('V2 modern mail UX (engine mode)', () => {
 
     // Sending shows the undo toast with a "Cancel" action (the engine holds the
     // submission for the undo window before dialing SMTP).
-    const undo = page.locator('.undo-toast');
-    await expect(undo).toContainText('Message sent');
-    // Unstyled toast (no `.undo-toast` CSS) — fire the handler directly.
-    await undo.getByRole('button', { name: 'Cancel' }).dispatchEvent('click');
+    const undo = page.locator('.toast', { hasText: 'Message sent' });
+    await expect(undo).toBeVisible();
+    await undo.getByRole('button', { name: 'Cancel' }).click();
 
     // The cancel flips the submission to `canceled` before dispatch.
     await expect(page.getByText('Send canceled')).toBeVisible();

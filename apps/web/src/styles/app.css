@@ -531,38 +531,6 @@ body {
   outline-offset: 2px;
 }
 
-/* ── Toast ────────────────────────────────────────────────────── */
-/* An inverted field: page-text colour as the fill, page colour as the ink.
-   Success and error toasts are filled with their colour instead, with the
-   ink used on accent fills; the message text says what happened, so the
-   colour is never the only sign. Centred with auto margins rather than
-   left/transform, so it needs no RTL variant; `max-width: 50%` keeps the
-   width the old `left: 50%` placement allowed. */
-.toast {
-  position: fixed;
-  inset-block-end: 1.2rem;
-  inset-inline: 0;
-  width: fit-content;
-  max-width: 50%;
-  margin-inline: auto;
-  padding: calc(0.6rem - 2px) calc(1rem - 2px);
-  border: var(--border-rule) solid var(--border-strong);
-  border-radius: var(--radius-md);
-  background: var(--text);
-  color: var(--bg);
-  box-shadow: var(--elevation-2);
-  z-index: 10;
-}
-.toast--success {
-  background: var(--success);
-  color: var(--accent-text);
-}
-.toast--error {
-  background: var(--danger);
-  color: var(--accent-text);
-  font-weight: var(--weight-medium);
-}
-
 /* ── V2 integration UI (t4-e13) ───────────────────────────────── */
 .sidebar__settings {
   margin-inline-start: auto;
@@ -588,7 +556,8 @@ body {
   background: var(--surface);
 }
 
-/* Connection-status banner (realtime push). Same treatment as the toast. */
+/* Connection-status banner (realtime push): a persistent state, not a toast
+   (toasts are components/toast). */
 .connection-toast {
   position: fixed;
   inset-block-start: 0.8rem;
@@ -614,10 +583,6 @@ body {
 }
 .connection-toast--degraded {
   background: var(--warning);
-  color: var(--accent-text);
-}
-.connection-toast--reconnected {
-  background: var(--success);
   color: var(--accent-text);
 }
 .connection-toast__action {

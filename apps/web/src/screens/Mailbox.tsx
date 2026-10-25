@@ -11,7 +11,6 @@ import { Compose } from '../components/Compose.tsx';
 import type { ComposeInitial } from '../components/compose/reply.ts';
 import { Outbox } from '../components/Outbox.tsx';
 import { InboxTabs } from '../components/InboxTabs.tsx';
-import { UndoToast } from '../components/UndoToast.tsx';
 import { SubTabStrip } from '../components/SubTabStrip.tsx';
 import { Ribbon } from '../components/Ribbon.tsx';
 import { Settings } from './Settings.tsx';
@@ -487,7 +486,6 @@ export function MailboxScreen(): JSX.Element {
           onClose={() => setSharingOpen(false)}
         />
       </Show>
-      <UndoToast />
     </div>
   );
 }

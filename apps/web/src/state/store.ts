@@ -18,6 +18,7 @@ import { createRealtimeSlice, type RealtimeSlice } from './slices/realtime.ts';
 import { createOfflineSlice, type OfflineSlice } from './slices/offline.ts';
 import { createThemeSlice, type ThemeSlice } from './slices/theme.ts';
 import { startAppearanceSync } from '../api/prefs.ts';
+import { toast as toasts, toasts as shownToasts } from '../components/toast/index.ts';
 import { createCalendarSlice, type CalendarSlice } from './slices/calendar.ts';
 import { createTasksSlice, type TasksSlice } from './slices/tasks.ts';
 import { createNotesSlice, type NotesSlice } from './slices/notes.ts';
@@ -33,7 +34,7 @@ import { broadcastChannelAvailable, openStoreChannel } from '../worker/broadcast
 import { broadcastEnvelope } from '../worker/protocol.ts';
 import type { WorkerEnvelope } from '../contracts/worker.ts';
 
-export type ToastKind = 'info' | 'success' | 'error';
+export type ToastKind = 'info' | 'success' | 'warning' | 'error';
 export interface Toast {
   kind: ToastKind;
   message: string;
@@ -42,7 +43,9 @@ export interface Toast {
 /** The cross-cutting store-core API (connection status + transient toast). */
 export interface StoreCoreApi {
   online: Accessor<boolean>;
+  /** The newest toast on screen (components/toast), or null. */
   toast: Accessor<Toast | null>;
+  /** Raise a toast through the shared toast store; `ttlMs` overrides the tone's time. */
   showToast(kind: ToastKind, message: string, ttlMs?: number): void;
 }
 
@@ -89,24 +92,28 @@ function createStoreCore(client: Client): StoreCoreApi {
   // so the catalog is requested here rather than left to the first screen.
   void loadCatalog('mail');
   const [online, setOnline] = createSignal(true);
-  const [toast, setToast] = createSignal<Toast | null>(null);
 
-  let toastTimer: ReturnType<typeof setTimeout> | undefined;
-  function showToast(kind: ToastKind, message: string, ttlMs = 3500): void {
-    if (toastTimer !== undefined) clearTimeout(toastTimer);
-    setToast({ kind, message });
-    toastTimer = setTimeout(() => setToast(null), ttlMs);
+  // The toasts live in the shared toast store (components/toast), which the
+  // admin console uses too; this keeps the slices' `showToast` seam.
+  function showToast(kind: ToastKind, message: string, ttlMs?: number): void {
+    toasts.show(kind, message, ttlMs === undefined ? {} : { duration: ttlMs });
   }
+  const toast = (): Toast | null => {
+    const newest = shownToasts().at(-1);
+    return newest === undefined ? null : { kind: newest.tone, message: newest.message };
+  };
 
+  // One toast for the network state: "lost" stays until the network is back
+  // (or the user closes it), and "back" replaces it by the same id.
   let wasOffline = false;
   client.onNetwork((up) => {
     setOnline(up);
     if (!up) {
       wasOffline = true;
-      setToast({ kind: 'error', message: t('mail-net-lost') });
+      toasts.error(t('mail-net-lost'), { id: 'network', duration: Infinity });
     } else if (wasOffline) {
       wasOffline = false;
-      showToast('success', t('mail-net-back'), 2500);
+      toasts.success(t('mail-net-back'), { id: 'network' });
     }
   });
 

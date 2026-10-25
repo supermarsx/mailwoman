@@ -60,6 +60,11 @@ common-conn-reconnect = Reconnect
 common-conn-sign-in-again = Sign in again
 common-conn-reconnected = Reconnected
 
+# -- Toasts (components/toast/ToastRegion.tsx), in the webmail and the admin
+#    console. The seconds are the time left on an undo window. -----------------
+common-toast-close = Close notification
+common-toast-seconds = { $seconds } s
+
 # -- New-mail notification (App.tsx). The native desktop or mobile notification
 #    shown while the app is in the background; the body is the message subject. --
 common-notify-new-message = New message

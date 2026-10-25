@@ -32,6 +32,7 @@ import type { Crumb } from './shell/Breadcrumbs.tsx';
 import { LanguagePicker, useStoredAdminLocale } from './shell/LanguagePicker.tsx';
 import { createDashboardLoader, type DashboardLoader } from '../../api/admin/dashboard.ts';
 import { Feedback } from './shell/Feedback.tsx';
+import { ToastRegion } from '../../components/toast/index.ts';
 import { createAdminAppearance } from './shell/appearanceStore.ts';
 import { AdminAppearanceContext } from './shell/AdminAppearance.tsx';
 import * as css from './admin.css.ts';
@@ -74,6 +75,8 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
             {(session) => <Console {...props} username={session().username} />}
           </Show>
         </Show>
+        {/* The console's toasts (the same store as the webmail's), on the sign-in page too. */}
+        <ToastRegion />
       </AdminContext.Provider>
     </AdminAppearanceContext.Provider>
   );

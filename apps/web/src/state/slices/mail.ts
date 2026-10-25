@@ -50,6 +50,7 @@ import {
 import { t, isolate } from '../../i18n/index.ts';
 import { clearDrafts } from '../../components/compose/drafts-store.ts';
 import { purgeShellCaches } from '../../sw/purge.ts';
+import { toast } from '../../components/toast/index.ts';
 import type { SliceContext } from './context.ts';
 import { currentMarkReadPolicy, decideMarkRead } from './readPolicy.ts';
 
@@ -79,6 +80,9 @@ type PageSource =
   | { readonly kind: 'mailbox'; readonly mailboxId: Id }
   | { readonly kind: 'search'; readonly filter: FilterCondition };
 
+/** The toast id of the pending undo; a new undo replaces the one on screen. */
+const UNDO_TOAST_ID = 'mail-undo';
+
 /** A dismissable, time-boxed reversible action (the 10-second undo, §1.5). */
 export interface PendingUndo {
   label: string;
@@ -86,7 +90,7 @@ export interface PendingUndo {
   actionLabel: string;
   /** Reverses the action; resolves once reversed. */
   run: () => Promise<void>;
-  /** Epoch ms after which the toast auto-commits and disappears. */
+  /** Epoch ms when the window would end if the toast is never paused. */
   expiresAt: number;
 }
 
@@ -419,32 +423,47 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const [training, setTraining] = createSignal<Record<string, InboxTab>>(loadMap(FOCUS_KEY));
   const [blocked, setBlocked] = createSignal<string[]>(loadList(BLOCK_KEY));
 
-  let undoTimer: ReturnType<typeof setTimeout> | undefined;
-
   // ── undo primitive ──────────────────────────────────────────────────────
-  function showUndo(
-    label: string,
-    run: () => Promise<void>,
-    ttlMs = 10_000,
-    actionLabel = t('mail-undo-action'),
-  ): void {
-    if (undoTimer !== undefined) clearTimeout(undoTimer);
-    setPendingUndo({ label, actionLabel, run, expiresAt: Date.now() + ttlMs });
-    undoTimer = setTimeout(() => setPendingUndo(null), ttlMs);
-  }
-  function dismissUndo(): void {
-    if (undoTimer !== undefined) clearTimeout(undoTimer);
-    setPendingUndo(null);
-  }
-  async function undoNow(): Promise<void> {
-    const p = pendingUndo();
-    dismissUndo();
-    if (p === undefined || p === null) return;
+  // The pending action is shown as a toast with the action button and the
+  // seconds left (components/toast). The toast's clock is the undo window:
+  // it stops while the toast is hovered or focused, except for undo-send,
+  // whose window is the engine's hold and ends regardless (`hardDeadline`).
+  async function runUndo(p: PendingUndo): Promise<void> {
     try {
       await p.run();
     } catch {
       showToast('error', t('mail-undo-failed'));
     }
+  }
+  function showUndo(
+    label: string,
+    run: () => Promise<void>,
+    ttlMs = 10_000,
+    actionLabel = t('mail-undo-action'),
+    hardDeadline = false,
+  ): void {
+    const entry: PendingUndo = { label, actionLabel, run, expiresAt: Date.now() + ttlMs };
+    setPendingUndo(entry);
+    toast.info(label, {
+      id: UNDO_TOAST_ID,
+      duration: ttlMs,
+      countdown: true,
+      pausable: !hardDeadline,
+      action: { label: actionLabel, run: () => runUndo(entry) },
+      onClose: () => {
+        if (pendingUndo() === entry) setPendingUndo(null);
+      },
+    });
+  }
+  function dismissUndo(): void {
+    setPendingUndo(null);
+    toast.dismiss(UNDO_TOAST_ID);
+  }
+  async function undoNow(): Promise<void> {
+    const p = pendingUndo();
+    dismissUndo();
+    if (p === undefined || p === null) return;
+    await runUndo(p);
   }
 
   // ── message-list helpers ─────────────────────────────────────────────────
@@ -1467,6 +1486,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         },
         holdSeconds * 1000,
         t('mail-undo-send-cancel'),
+        true,
       );
     } else {
       showToast('success', t('mail-toast-sent'));
