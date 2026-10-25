@@ -2,6 +2,7 @@ import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } fro
 import { t } from '../../i18n';
 import { loadEffectiveConfig, type AdminReadResult, type EffectiveEntry } from './shell/adminApi.ts';
 import { Feedback, describeAdminError } from './shell/Feedback.tsx';
+import { AdminSubsection } from './AdminSubsection.tsx';
 import * as css from './admin.css.ts';
 import * as ux from './shell/ux.css.ts';
 
@@ -52,12 +53,12 @@ export function Configuration(props: ConfigurationProps): JSX.Element {
     </div>
     <Feedback kind="error" message={error()} />
     <Show when={unavailable()}><p role="status">{t('admin-config-unavailable')}</p></Show>
-    <div class={css.grid}>
+    <AdminSubsection title={t('admin-config-filters')}><div class={css.grid}>
       <label class="field"><span>{t('admin-config-search')}</span><input type="search" value={query()} onInput={(e) => { setQuery(e.currentTarget.value); setLimit(50); }} /></label>
       <label class="field"><span>{t('admin-config-group')}</span><select value={group()} onChange={(e) => { setGroup(e.currentTarget.value); setLimit(50); }}><option value="">{t('admin-config-all')}</option><For each={groups()}>{(g) => <option value={g}>{g}</option>}</For></select></label>
-    </div>
+    </div></AdminSubsection>
     <p role="status">{busy() ? t('common-loading') : t('admin-config-count', { count: filtered().length })}</p>
-    <Show when={!busy() && filtered().length > 0}>
+    <Show when={!busy() && filtered().length > 0}><AdminSubsection title={t('admin-config-entries')}>
       <div class={css.tableWrap}><table class={css.table}>
         <caption>{t('admin-config-table')}</caption>
         <thead><tr><th scope="col">{t('admin-config-key')}</th><th scope="col">{t('admin-config-value')}</th><th scope="col">{t('admin-config-source')}</th><th scope="col">{t('admin-config-change')}</th></tr></thead>
@@ -73,6 +74,6 @@ export function Configuration(props: ConfigurationProps): JSX.Element {
         </tr>}</For></tbody>
       </table></div>
       <Show when={filtered().length > limit()}><button type="button" class="btn" onClick={() => setLimit((n) => n + 50)}>{t('admin-config-more')}</button></Show>
-    </Show>
+    </AdminSubsection></Show>
   </section>;
 }

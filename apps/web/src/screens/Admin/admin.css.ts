@@ -13,6 +13,7 @@
 
 import { style, globalStyle } from '@vanilla-extract/css';
 import { registerFieldLayout, registerFieldGrid } from '../../styles/formLayout.css.ts';
+import { subsectionSurface } from './subsectionLayout.css.ts';
 import { vars } from '../../theme/contract.css.ts';
 
 /** Small-label treatment (P5): tracked capitals, off for scripts it breaks. */
@@ -35,8 +36,9 @@ export const gate = style({
 export const section = style({
   display: 'flex',
   flexDirection: 'column',
-  gap: vars.space[4],
-  maxWidth: '760px',
+  gap: vars.space[6],
+  minInlineSize: 0,
+  maxInlineSize: '760px',
 });
 
 export const heading = style({
@@ -49,11 +51,8 @@ export const heading = style({
 export const card = style({
   display: 'flex',
   flexDirection: 'column',
-  gap: vars.space[3],
-  padding: `calc(${vars.space[4]} - 1px)`,
-  borderRadius: vars.radius.lg,
-  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
-  background: vars.color.surface,
+  ...subsectionSurface,
+  gap: vars.space[5],
 });
 
 export const listRow = style({
@@ -71,7 +70,7 @@ export const grid = style({
   display: 'grid',
   alignItems: 'start',
   gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))',
-  gap: vars.space[3],
+  gap: vars.space[5],
 });
 
 /** A status badge: always carries its text (P6), square (P4), tracked (P5). */
@@ -103,23 +102,23 @@ export const table = style({
 
 globalStyle(`${table} th, ${table} td`, {
   textAlign: 'start',
-  padding: `${vars.space[2]} ${vars.space[3]}`,
+  padding: `${vars.space[3]} ${vars.space[4]}`,
   borderBottom: `${vars.border.hair} solid ${vars.color.border}`,
   verticalAlign: 'top',
 });
 
 // Header row: a 2px rule under it (the 1px it adds comes out of the padding, P1),
 // header cells in tracked capitals at a smaller size (P5).
-globalStyle(`${table} th`, {
+globalStyle(`${table} thead th`, {
   ...smallLabel,
   color: vars.color.textDim,
   fontSize: '0.75rem',
   whiteSpace: 'nowrap',
   borderBottom: `${vars.border.rule} solid ${vars.color.borderStrong}`,
-  paddingBottom: `calc(${vars.space[2]} - 1px)`,
+  paddingBottom: `calc(${vars.space[3]} - 1px)`,
 });
 
-globalStyle(`:lang(ar) ${table} th, :lang(ja) ${table} th, :lang(zh) ${table} th`, {
+globalStyle(`:lang(ar) ${table} thead th, :lang(ja) ${table} thead th, :lang(zh) ${table} thead th`, {
   textTransform: 'none',
   letterSpacing: vars.tracking.none,
 });
@@ -249,3 +248,23 @@ registerFieldGrid(`${card}:has(> [data-form-field])`);
 globalStyle(`${card} > button, ${section} > button`, { alignSelf: 'flex-start', maxInlineSize: '100%' });
 
 globalStyle(`${grid} > button`, { justifySelf: 'start', alignSelf: 'start', maxInlineSize: '100%' });
+
+/** Semantic native form groups get the same surface as component subsections.
+ * :where keeps typed layout classes in control; disabled-only fieldsets without
+ * a legend (for example Egress's outer permission wrapper) stay unboxed. */
+globalStyle(':where([data-screen="admin"] fieldset:has(> legend))', {
+  ...subsectionSurface, display: 'flex', flexDirection: 'column', gap: vars.space[5],
+});
+globalStyle(':where([data-screen="admin"] fieldset > legend)', {
+  paddingInline: vars.space[3], fontWeight: vars.weight.bold, lineHeight: 1.4,
+});
+globalStyle(':where([data-screen="admin"] form:has(> fieldset > legend))', {
+  display: 'flex', flexDirection: 'column', gap: vars.space[6], minInlineSize: 0,
+});
+globalStyle(`${card} > h2, ${card} > h3, ${card} > h4, ${card} > p`, { margin: 0 });
+
+export const subsectionBody = style({ display: 'flex', flexDirection: 'column', gap: vars.space[5], minInlineSize: 0 });
+globalStyle(`${subsectionBody} > p, ${subsectionBody} > dl`, { margin: 0, lineHeight: 1.5 });
+
+globalStyle(`${table} tbody th`, { fontWeight: vars.weight.medium, whiteSpace: 'normal', overflowWrap: 'anywhere', minInlineSize: '10rem' });
+globalStyle(`${table} p`, { marginBlock: vars.space[3], lineHeight: 1.5 });

@@ -3,18 +3,19 @@ import { vars } from '../theme/contract.css.ts';
 
 /** Shared form geometry only; control appearance belongs to the theme. */
 export const fieldLayout = {
-  display: 'flex', flexDirection: 'column', gap: vars.space[2],
+  display: 'flex', flexDirection: 'column', gap: vars.space[3],
   minInlineSize: 0, maxInlineSize: '32rem',
 } as const;
 export const fieldsLayout = {
   display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 16rem), 1fr))',
-  gap: vars.space[3], alignItems: 'start', minInlineSize: 0,
+  gap: vars.space[5], alignItems: 'start', minInlineSize: 0,
   '@media': { 'screen and (max-width: 760px)': { gridTemplateColumns: 'minmax(0, 1fr)' } },
 } as const;
 
 /** Apply to labelled field wrappers, never to unrelated login/compose controls. */
 export function registerFieldLayout(selector: string): void {
   globalStyle(selector, fieldLayout);
+  globalStyle(`${selector} > label, ${selector} > span, ${selector} > p`, { margin: 0, lineHeight: 1.5 });
   globalStyle(`${selector} > input:not([type='checkbox'], [type='radio'], [type='range'], [type='color']), ${selector} > select`, {
     boxSizing: 'border-box', inlineSize: '100%', minInlineSize: 0, maxInlineSize: '100%',
   });

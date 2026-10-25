@@ -42,3 +42,5 @@ privacy-other-link = Download another message link as a file
 privacy-select-link = Select a link from this message
 privacy-decoded-trackers = { $count } recently decoded tracking images blocked (up to { $minutes } minutes; resets when the server cache clears)
 privacy-decoded-trackers-limited = At least { $count } recently decoded tracking images blocked (up to { $minutes } minutes; resets when the server cache clears)
+
+privacy-policy-values = Remote-content policy

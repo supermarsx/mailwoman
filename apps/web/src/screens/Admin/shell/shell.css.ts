@@ -218,18 +218,18 @@ export const main = style({
   padding: vars.space[6],
   display: 'flex',
   flexDirection: 'column',
-  gap: vars.space[5],
+  gap: vars.space[6],
   overflowY: 'auto',
   maxHeight: '100vh',
   minWidth: 0,
-  '@media': { [PHONE]: { padding: vars.space[4], maxHeight: 'none' } },
+  '@media': { [PHONE]: { padding: vars.space[5], maxHeight: 'none' } },
 });
 
 export const mainHead = style({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  gap: vars.space[3],
+  gap: vars.space[5],
   flexWrap: 'wrap',
 });
 
@@ -300,14 +300,14 @@ export const paletteKind = style({
 });
 
 // ── Form field, help, feedback ─────────────────────────────────────────────────
-export const field = style({ display: 'flex', flexDirection: 'column', gap: vars.space[1] });
+export const field = style({ display: 'flex', flexDirection: 'column', gap: vars.space[3], minInlineSize: 0 });
 export const fieldLabel = style({
   ...smallLabel,
   fontSize: '0.75rem',
   selectors: { [noTrackingScripts]: plainLabel },
 });
 export const fieldTech = style({ fontWeight: vars.weight.regular, color: vars.color.textDim, textTransform: 'none', letterSpacing: vars.tracking.none });
-export const help = style({ margin: 0, fontSize: '0.8rem', color: vars.color.textDim });
+export const help = style({ margin: 0, fontSize: '0.85rem', lineHeight: 1.5, maxInlineSize: '72ch', color: vars.color.textDim });
 export const fieldError = style({
   margin: 0,
   fontSize: '0.8rem',

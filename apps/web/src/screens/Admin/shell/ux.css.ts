@@ -11,6 +11,7 @@
 
 import { globalStyle, style, styleVariants } from '@vanilla-extract/css';
 import { registerFieldLayout, registerFieldGrid } from '../../../styles/formLayout.css.ts';
+import { subsectionSurface } from '../subsectionLayout.css.ts';
 import { vars } from '../../../theme/contract.css.ts';
 import { ACCENT_LIST, THEME_LIST, accentShade } from '../../../theme/registry.ts';
 import type { ThemeName } from '../../../theme/contract.css.ts';
@@ -32,18 +33,18 @@ const plainLabel = { textTransform: 'none', letterSpacing: vars.tracking.none } 
 const focusRing = { outline: 'none', boxShadow: vars.a11y.focusRing } as const;
 
 // ── Page frame (every template) ───────────────────────────────────────────────
-export const page = style({ display: 'flex', flexDirection: 'column', gap: vars.space[4], minWidth: 0 });
+export const page = style({ display: 'flex', flexDirection: 'column', gap: vars.space[6], minInlineSize: 0 });
 export const pageHead = style({
   display: 'flex',
   flexWrap: 'wrap',
   alignItems: 'flex-start',
   justifyContent: 'space-between',
-  gap: vars.space[3],
+  gap: vars.space[5],
 });
-export const pageTitleBlock = style({ display: 'flex', flexDirection: 'column', gap: vars.space[1], minWidth: 0 });
+export const pageTitleBlock = style({ display: 'flex', flexDirection: 'column', gap: vars.space[3], minInlineSize: 0 });
 export const pageTitle = style({ margin: 0, fontSize: '1.25rem', fontWeight: vars.weight.heavy });
-export const pageDescription = style({ margin: 0, color: vars.color.textDim, maxWidth: '72ch' });
-export const pageActions = style({ display: 'flex', flexWrap: 'wrap', gap: vars.space[2] });
+export const pageDescription = style({ margin: 0, color: vars.color.textDim, maxInlineSize: '72ch', lineHeight: 1.5 });
+export const pageActions = style({ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: vars.space[4], minInlineSize: 0 });
 export const iconAction = style({
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
   inlineSize: vars.a11y.touchTarget, blockSize: vars.a11y.touchTarget,
@@ -117,21 +118,14 @@ export const backLink = style({
 export const backIcon = style({ rotate: '180deg' });
 
 // ── Settings form ─────────────────────────────────────────────────────────────
-export const form = style({ display: 'flex', flexDirection: 'column', gap: vars.space[4], minWidth: 0 });
+export const form = style({ display: 'flex', flexDirection: 'column', gap: vars.space[6], minInlineSize: 0 });
 export const fieldset = style({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: vars.space[4],
-  margin: 0,
-  padding: `calc(${vars.space[4]} - 1px)`,
-  border: `${vars.border.hair} solid ${vars.color.border}`,
-  borderRadius: vars.radius.md,
-  background: vars.color.surface,
-  minWidth: 0,
+  ...subsectionSurface,
+  display: 'flex', flexDirection: 'column', gap: vars.space[5],
 });
 export const legend = style({ padding: 0, fontSize: '1rem', fontWeight: vars.weight.heavy, float: 'none' });
-export const fieldsetHelp = style({ margin: 0, fontSize: '0.85rem', color: vars.color.textDim });
-export const fieldBlock = style({ display: 'flex', flexDirection: 'column', gap: vars.space[2], minWidth: 0 });
+export const fieldsetHelp = style({ margin: 0, fontSize: '0.85rem', lineHeight: 1.5, color: vars.color.textDim, maxInlineSize: '72ch' });
+export const fieldBlock = style({ display: 'flex', flexDirection: 'column', gap: vars.space[3], minInlineSize: 0 });
 /** Source badge, propagation note, history and revert under a field. */
 export const fieldMeta = style({
   display: 'flex',

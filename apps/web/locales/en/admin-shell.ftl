@@ -152,3 +152,6 @@ admin-shell-totp-start-over = Start again
 admin-shell-totp-invalid = That code is not valid. Enter the current code from your authenticator app.
 admin-shell-totp-expired = The sign-in took too long. Start again and enter your password.
 admin-diag-retention-failed = Results were saved, but expired diagnostic history could not be removed.
+
+admin-config-filters = Find configuration
+admin-config-entries = Configuration entries
