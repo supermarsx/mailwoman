@@ -19,3 +19,6 @@ scripts/dovecot-t32/mailwoman-users text eol=lf
 # container; CRLF would corrupt the ini parse / the testpass credential.
 scripts/radicale/config           text eol=lf
 scripts/radicale/users            text eol=lf
+# Crypto fixtures are signed, hashed and compared byte for byte (detached
+# signatures over the .txt files): no line-ending conversion on checkout.
+fixtures/crypto/** -text
