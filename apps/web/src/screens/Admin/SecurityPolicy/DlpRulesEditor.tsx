@@ -22,7 +22,7 @@ import * as ux from '../shell/ux.css.ts';
 import * as css from '../shell/extras.css.ts';
 import * as own from './securityPolicy.css.ts';
 
-export const DLP_DETECTORS: readonly DlpDetector[] = ['pan', 'iban', 'national-id', 'ssn', 'custom-regex'];
+export const DLP_DETECTORS: readonly DlpDetector[] = ['pan', 'iban', 'national-id', 'ssn', 'pt-nif', 'pt-niss', 'pt-citizen-card', 'credentials', 'custom-regex'];
 export const DLP_ACTIONS: readonly DlpAction[] = ['warn', 'block', 'require-encryption', 'notify-admin'];
 
 /** A new rule with an id no listed rule uses. */
@@ -288,6 +288,20 @@ function RuleEditor(props: RuleEditorProps): JSX.Element {
           )}
         </For>
       </fieldset>
+      <div class={shell.field}>
+        <label class={shell.fieldLabel} for={`${id}-keywords`}>{t('admin-policy-dlp-keywords')}</label>
+        <ListEditor
+          id={`${id}-keywords`}
+          label={t('admin-policy-dlp-keywords')}
+          items={c().dictionaries}
+          split="none"
+          disabled={props.disabled}
+          placeholder={t('admin-policy-dlp-keywords-placeholder')}
+          emptyText={t('admin-policy-dlp-keywords-none')}
+          onChange={(list) => props.onConditions({ dictionaries: list })}
+        />
+        <p class={shell.help}>{t('admin-policy-dlp-keywords-help')}</p>
+      </div>
       <Show when={c().detectors.includes('custom-regex')}>
         <div class={shell.field}>
           <label class={shell.fieldLabel} for={`${id}-regex`}>

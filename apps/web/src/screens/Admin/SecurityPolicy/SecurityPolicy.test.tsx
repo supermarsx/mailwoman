@@ -151,6 +151,23 @@ describe('Security policy screen', () => {
     expect(screen.getByText(/A rule from MW_DLP_RULES uses the id/)).toBeInTheDocument();
   });
 
+  it('saves Portuguese detectors and a custom keyword phrase without splitting it', async () => {
+    const { api } = setup();
+    const editor = await screen.findByTestId('dlp-editor');
+    const rule = within(editor).getByTestId('dlp-rule');
+    for (const name of [/Portuguese tax number/, /Portuguese Social Security/, /Portuguese Citizen Card/, /Password and credential/]) {
+      fireEvent.click(within(rule).getByRole('checkbox', { name }));
+    }
+    const keywords = within(rule).getByRole('textbox', { name: 'Custom keywords and phrases' });
+    fireEvent.input(keywords, { target: { value: 'internal secret' } });
+    fireEvent.keyDown(keywords, { key: 'Enter' });
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
+    const sent = JSON.parse((api.save as ReturnType<typeof vi.fn>).mock.calls[0]![0].dlpRulesJson) as { conditions: { detectors: string[]; dictionaries: string[] } }[];
+    expect(sent[0]!.conditions.detectors).toEqual(expect.arrayContaining(['pt-nif', 'pt-niss', 'pt-citizen-card', 'credentials']));
+    expect(sent[0]!.conditions.dictionaries).toContain('internal secret');
+  });
+
   it('stored rules that are not a rule list are shown as text, not dropped', async () => {
     setup(policy({ dlpRulesJson: '{"legacy": true}' }));
     const text = await screen.findByRole('textbox', { name: /Stored rules \(text\)/ });

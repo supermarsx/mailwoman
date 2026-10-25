@@ -20,6 +20,9 @@ use crate::security::types::{DlpRule, DlpVerdict};
 
 use super::{gen_id, server_fail};
 
+#[path = "dlp_portugal.rs"]
+mod portugal;
+
 /// The compose/submit content a rule set is evaluated against.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct DlpInput {
@@ -421,6 +424,43 @@ fn detector_hits(detector: &str, text: &str, rule: &DlpRule) -> bool {
         "iban" => detect_iban(text),
         "ssn" => detect_ssn(text),
         "national-id" => detect_national_id(text),
+        "pt-nif" => portugal::nif(text),
+        "pt-niss" => portugal::niss(text),
+        "pt-citizen-card" => portugal::citizen_card(text),
+        "credentials" => {
+            let lower = text.to_lowercase();
+            [
+                "password",
+                "passwords",
+                "passwd",
+                "pwd",
+                "senha",
+                "senhas",
+                "palavra-passe",
+                "palavras-passe",
+                "palavra passe",
+                "palavras passe",
+                "passphrase",
+                "secret",
+                "segredo",
+                "api key",
+                "api_key",
+                "apikey",
+                "access token",
+                "access_token",
+                "private key",
+                "chave privada",
+                "client_secret",
+                "recovery code",
+                "código de recuperação",
+                "chave de api",
+                "token de acesso",
+                "chave secreta",
+                "credenciais",
+            ]
+            .iter()
+            .any(|term| contains_word(&lower, term))
+        }
         "custom-regex" => rule
             .conditions
             .custom_regex
@@ -741,6 +781,44 @@ mod tests {
         assert!(v.matched_detectors.contains(&"pan".to_string()));
         // The redacted excerpt must NOT leak the matched content.
         assert!(!v.excerpt_redacted.contains("4111"));
+    }
+
+    #[test]
+    fn portuguese_and_credential_rules_block_without_disclosing_content() {
+        for (detector, secret) in [
+            ("pt-nif", "123456789"),
+            ("pt-niss", "10000000000"),
+            ("pt-citizen-card", "00000000 0 ZZ4"),
+            ("credentials", "PALAVRA-PASSE: hidden"),
+        ] {
+            let mut rule = pan_rule();
+            rule.conditions.detectors = vec![detector.into()];
+            let input = DlpInput {
+                body: secret.into(),
+                ..Default::default()
+            };
+            let result = scan(&[rule.clone()], &input);
+            assert_eq!(result.len(), 1, "{detector}");
+            assert!(result[0].blocked);
+            assert_eq!(result[0].matched_detectors, vec![detector]);
+            assert!(!result[0].excerpt_redacted.contains(secret));
+            rule.enabled = false;
+            assert!(scan(&[rule], &input).is_empty());
+        }
+        let mut rule = pan_rule();
+        rule.conditions.detectors = vec!["credentials".into()];
+        for ordinary in ["passwordless", "secretary", "senhasnovas", "api_keyring"] {
+            assert!(
+                scan(
+                    &[rule.clone()],
+                    &DlpInput {
+                        body: ordinary.into(),
+                        ..Default::default()
+                    }
+                )
+                .is_empty()
+            );
+        }
     }
 
     #[test]

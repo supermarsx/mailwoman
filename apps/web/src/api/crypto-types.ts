@@ -69,7 +69,7 @@ export interface CryptoKey {
 // ── DLP (§2.1) ───────────────────────────────────────────────────────────────
 
 /** A built-in DLP detector (frozen §2.1). */
-export type DlpDetector = 'pan' | 'iban' | 'national-id' | 'ssn' | 'custom-regex';
+export type DlpDetector = 'pan' | 'iban' | 'national-id' | 'ssn' | 'pt-nif' | 'pt-niss' | 'pt-citizen-card' | 'credentials' | 'custom-regex';
 
 /** A DLP rule action (frozen §2.1). */
 export type DlpAction = 'warn' | 'block' | 'require-encryption' | 'notify-admin';

@@ -56,7 +56,28 @@ Rules checked on outgoing mail sent through the server in engine mode, beside th
 `MW_DLP_RULES`. Each rule has a name, an on/off switch, a priority (higher first), an action (warn,
 block, require encryption, or send and notify an administrator), an optional message for the sender,
 and at least one condition: built-in detectors (payment card numbers, IBAN, national identity numbers,
-US social security numbers), a custom regular expression, recipient domains (inside or outside the
-list), attachment types and a largest attachment size in bytes. Dictionaries and a classification set
-outside the console are kept as stored. A rule from `MW_DLP_RULES` with the same id wins over a stored
+US social security numbers, Portuguese NIF, NISS and Citizen Card/civil ID, and English/Portuguese
+credential keywords), custom words or phrases, a custom regular expression, recipient domains (inside or outside the
+list), attachment types and a largest attachment size in bytes. A classification set
+outside the console is kept as stored. A rule from `MW_DLP_RULES` with the same id wins over a stored
 rule; the page lists those rules read-only.
+
+Portuguese detectors (`pt-nif`, `pt-niss`, `pt-citizen-card`) check local format and check digits;
+they do not establish whether an identifier was issued. NIF and NISS accept common digit separators.
+Citizen Card accepts the full document number, including its alphanumeric version, or the civil
+number with its check digit. Full-document validation follows the
+[AMA algorithm](https://www.autenticacao.gov.pt/documents/20126/0/Valida%C3%A7%C3%A3o%2Bde%2BN%C3%BAmero%2Bde%2BDocumento%2Bdo%2BCart%C3%A3o%2Bde%2BCidad%C3%A3o%2B%281%29.pdf/7d5745ba-2bcc-e861-3954-bafe9f7591a0).
+Checks validate structure, not a government registry; identifiers must be delimited rather than
+embedded in a longer word or number. The generic `national-id` detector remains broader.
+
+The `credentials` detector matches whole words and phrases without case sensitivity, including
+password/passwords, senha/senhas, palavra-passe, passphrase, API keys, access tokens and private keys.
+It detects mentions, not proof that a secret is present. Start with a warning rule if ordinary
+discussion of credentials should remain possible. Custom keyword entries are literal phrases;
+spaces inside an entry are preserved, and matches use word boundaries. These detectors are opt-in
+per rule, using the same action, priority and enabled controls as other DLP conditions.
+
+Coverage is message subject/body and attachment metadata, not OCR or extraction of attachment
+contents. Verdicts and audit records contain detector names rather than matched identity/secret
+values. Enforcement applies to the engine submission path; this is not a claim that external
+mail clients or independently sending third-party services are covered.

@@ -130,3 +130,12 @@ admin-oauth-scope-rate = Requests per minute
 admin-oauth-scope-rate-help = Leave empty for no limit.
 admin-oauth-scope-needs-surface = Choose mail or calendar and contacts too: a permission without a part of the account grants nothing.
 admin-oauth-scope-rate-invalid = The limit must be a whole number of 1 or more.
+
+admin-policy-dlp-detector-pt-nif = Portuguese tax number (NIF, checksum)
+admin-policy-dlp-detector-pt-niss = Portuguese Social Security number (NISS, checksum)
+admin-policy-dlp-detector-pt-citizen-card = Portuguese Citizen Card / civil ID (checksum)
+admin-policy-dlp-detector-credentials = Password and credential keywords (English / Portuguese)
+admin-policy-dlp-keywords = Custom keywords and phrases
+admin-policy-dlp-keywords-placeholder = e.g. internal secret
+admin-policy-dlp-keywords-none = No custom keywords.
+admin-policy-dlp-keywords-help = Literal, case-insensitive words or phrases. Matches whole words; no regular expressions. The credential detector includes password, senha, palavra-passe, API key and private-key terms. Identifier checks validate format, not whether a number was issued.
