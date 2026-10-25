@@ -36,8 +36,13 @@ async fn hop(
     route: &ProxyRoute,
     accept: &str,
 ) -> (bool, Result<Hop, ProxyRefusal>) {
+    let out = Outgoing {
+        accept,
+        user_agent: PROXY_UA,
+        body: None,
+    };
     let traversed = Arc::new(AtomicBool::new(false));
-    let outcome = super::hop_over_tunnel(target, route, accept, &traversed).await;
+    let outcome = super::hop_over_tunnel(target, route, &out, &traversed).await;
     (traversed.load(Ordering::SeqCst), outcome)
 }
 

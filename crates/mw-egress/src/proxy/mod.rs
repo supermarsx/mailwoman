@@ -50,9 +50,11 @@
 //! "run a Squid or a Tor SOCKS5 on localhost" is the normal operator deployment, so
 //! a loopback or RFC1918 proxy endpoint is permitted. That is safe **only** because
 //! the endpoint comes from deployment-wide operator configuration and can never be
-//! influenced by request data: there is no per-account and no per-request route
-//! selection, no proxy field in any user-facing DTO, and no request header that can
-//! select a route (plan §4.3, OQ-1).
+//! influenced by request data: there is no per-request route selection, no proxy
+//! field in any user-facing DTO, and no request header that can select a route
+//! (plan §4.3, OQ-1). The only per-account input is the signed-in account's mail
+//! domain, which picks among the operator's routes and cannot name a host
+//! ([`crate::plan`], t32 e31b).
 //!
 //! # Fail-closed
 //! If a route is configured and the tunnel cannot be established, the fetch
@@ -81,7 +83,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::net::TcpStream;
 
-use crate::{FETCH_TIMEOUT, Hop, MAX_REDIRECTS, Refusal, Target, ip_allowed, validate_and_resolve};
+use crate::{
+    FETCH_TIMEOUT, Hop, MAX_REDIRECTS, Outgoing, PROXY_UA, Refusal, Target, ip_allowed,
+    validate_and_resolve,
+};
 
 // ── route configuration (deployment-wide, operator-supplied) ───────────────────
 
@@ -329,7 +334,7 @@ async fn open_tunnel(route: &ProxyRoute, dst: SocketAddr) -> Result<TcpStream, P
 async fn hop_over_tunnel(
     target: &Target,
     route: &ProxyRoute,
-    accept: &str,
+    out: &Outgoing<'_>,
     traversed: &Arc<AtomicBool>,
 ) -> Result<Hop, ProxyRefusal> {
     let is_https = target.url.scheme() == "https";
@@ -347,7 +352,7 @@ async fn hop_over_tunnel(
     } else {
         stream::TunnelStream::Plain(tcp)
     };
-    http::exchange(pipe, &target.url, accept).await
+    http::exchange_with(pipe, &target.url, out).await
 }
 
 /// Fetch **one hop** through the route's proxy, refusing unless the target's
@@ -366,6 +371,22 @@ async fn hop_over_tunnel(
 /// [`validate_and_resolve`] has already run costs one match on an enum and closes
 /// the case where a future caller assembles a `Target` some other way.
 pub async fn tunnel_fetch_hop(target: &Target, route: &ProxyRoute, accept: &str) -> ProxyHop {
+    tunnel_send_hop(
+        target,
+        route,
+        &Outgoing {
+            accept,
+            user_agent: PROXY_UA,
+            body: None,
+        },
+    )
+    .await
+}
+
+/// [`tunnel_fetch_hop`] for any [`Outgoing`] (the caller's `User-Agent`, and a
+/// `POST` body when there is one). The address and scheme checks below are the
+/// same, unconditional, and still run before the proxy is dialled.
+pub async fn tunnel_send_hop(target: &Target, route: &ProxyRoute, out: &Outgoing<'_>) -> ProxyHop {
     // ── the ip_allowed check on a possibly hand-built Target ──────────────────
     if !ip_allowed(&target.addr.ip()) {
         return ProxyHop {
@@ -388,7 +409,7 @@ pub async fn tunnel_fetch_hop(target: &Target, route: &ProxyRoute, accept: &str)
     let traversed = Arc::new(AtomicBool::new(false));
     let outcome = match tokio::time::timeout(
         FETCH_TIMEOUT,
-        hop_over_tunnel(target, route, accept, &traversed),
+        hop_over_tunnel(target, route, out, &traversed),
     )
     .await
     {
@@ -409,6 +430,29 @@ pub async fn tunnel_fetch_hop(target: &Target, route: &ProxyRoute, accept: &str)
 /// a redirect to a different host tears the tunnel down and rebuilds it (which is
 /// also why a proxy credential can never travel with a redirected request).
 pub async fn fetch_via_proxy(start: reqwest::Url, route: &ProxyRoute, accept: &str) -> ProxyFetch {
+    send_via_proxy(
+        start,
+        route,
+        &Outgoing {
+            accept,
+            user_agent: PROXY_UA,
+            body: None,
+        },
+    )
+    .await
+}
+
+/// [`fetch_via_proxy`] for any [`Outgoing`].
+///
+/// A `GET` follows redirects exactly as [`fetch_via_proxy`] does. A `POST` follows
+/// **none**: a redirect answer is [`Refusal::Upstream`], because re-sending a body
+/// to a `Location` the origin chose is a decision this transport does not make for
+/// its caller (and a `303` would silently turn the request into a `GET`).
+pub async fn send_via_proxy(
+    start: reqwest::Url,
+    route: &ProxyRoute,
+    out: &Outgoing<'_>,
+) -> ProxyFetch {
     let mut url = start;
     let mut traversed_proxy = false;
     for _ in 0..=MAX_REDIRECTS {
@@ -421,13 +465,19 @@ pub async fn fetch_via_proxy(start: reqwest::Url, route: &ProxyRoute, accept: &s
                 };
             }
         };
-        let hop = tunnel_fetch_hop(&target, route, accept).await;
+        let hop = tunnel_send_hop(&target, route, out).await;
         traversed_proxy |= hop.traversed_proxy;
         match hop.outcome {
             Ok(Hop::Body(bytes)) => {
                 return ProxyFetch {
                     traversed_proxy,
                     outcome: Ok(bytes),
+                };
+            }
+            Ok(Hop::Redirect(_)) if out.body.is_some() => {
+                return ProxyFetch {
+                    traversed_proxy,
+                    outcome: Err(ProxyRefusal::Origin(Refusal::Upstream)),
                 };
             }
             Ok(Hop::Redirect(location)) => match url.join(&location) {

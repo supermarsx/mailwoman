@@ -53,6 +53,24 @@
 /// model, the residual it cannot close, and the deliberate origin/proxy asymmetry.
 pub mod proxy;
 
+/// Traffic classes (t32 e31b): what an outbound request is for, which decides the
+/// route that carries it and whether the internal allowlist applies.
+pub mod class;
+
+/// The audited internal-destination allowlist for the `webhooks` and `siem`
+/// classes (t32 e31b, M11).
+pub mod allow;
+
+/// The egress plan: the operator's routes by scope and class plus the internal
+/// allowlist, installed process-wide, and the class-aware send that consumes it
+/// (t32 e31b).
+pub mod plan;
+
+pub use allow::{AllowDestination, AllowEntry, InternalAllowList};
+pub use class::TrafficClass;
+pub use plan::{EgressPlan, PlanRoute, Request, RouteScope};
+
+use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 
@@ -396,6 +414,21 @@ pub async fn validate_and_resolve_with(
     url: reqwest::Url,
     policy: fn(&IpAddr) -> bool,
 ) -> Result<Target, Refusal> {
+    resolve_gated(url, &|_host: &str, _port: u16, ip: &IpAddr| policy(ip)).await
+}
+
+/// The address decision of the gate, given the URL's host and port as well as the
+/// resolved address. [`validate_and_resolve_with`] passes a predicate over the
+/// address alone; the class-aware path ([`plan`]) also needs the host and port to
+/// match an internal-allowlist entry.
+pub(crate) type AddressGate<'a> = dyn Fn(&str, u16, &IpAddr) -> bool + Send + Sync + 'a;
+
+/// The body of [`validate_and_resolve_with`], with the address decision taken by
+/// `gate`. Everything but that decision is identical for every caller.
+pub(crate) async fn resolve_gated(
+    url: reqwest::Url,
+    gate: &AddressGate<'_>,
+) -> Result<Target, Refusal> {
     match url.scheme() {
         "http" | "https" => {}
         _ => return Err(Refusal::BadRequest("only http/https URLs are proxied")),
@@ -433,7 +466,7 @@ pub async fn validate_and_resolve_with(
     };
     let addr = resolved
         .into_iter()
-        .find(|a| policy(&a.ip()))
+        .find(|a| gate(&host, port, &a.ip()))
         .ok_or(Refusal::Blocked)?;
 
     Ok(Target { url, host, addr })
@@ -507,14 +540,80 @@ pub async fn fetch_hop(target: &Target, accept: &str) -> Result<Hop, Refusal> {
 /// (t22-e9). It is still a **normalized, caller-declared constant** — the reader's
 /// real UA is never forwarded, and no request data reaches this value.
 pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Result<Hop, Refusal> {
+    send_hop(
+        target,
+        &Outgoing {
+            accept,
+            user_agent,
+            body: None,
+        },
+    )
+    .await
+}
+
+/// What one request sends, apart from its URL: the same fields on the direct path
+/// ([`send_hop`]) and inside a proxy tunnel ([`proxy::http::exchange_with`]), so the
+/// two cannot drift.
+///
+/// `body: None` is a `GET`; `Some` is a `POST` with that content type. Every value
+/// is a caller-declared constant or caller-built payload; nothing is forwarded from
+/// a reader's request (no cookie, referrer, authorization or browser UA).
+#[derive(Clone, Copy)]
+pub struct Outgoing<'a> {
+    /// The `Accept` header.
+    pub accept: &'a str,
+    /// The `User-Agent` header.
+    pub user_agent: &'a str,
+    /// The request body; `None` for `GET`.
+    pub body: Option<OutBody<'a>>,
+}
+
+/// A `POST` body.
+#[derive(Clone, Copy)]
+pub struct OutBody<'a> {
+    /// The `Content-Type` header.
+    pub content_type: &'a str,
+    /// The bytes sent.
+    pub bytes: &'a [u8],
+}
+
+/// Hand-written so a body (a signed webhook payload, an unsubscribe token) never
+/// reaches a log line through `{:?}`; only its type and length are shown.
+impl fmt::Debug for Outgoing<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Outgoing")
+            .field("accept", &self.accept)
+            .field("user_agent", &self.user_agent)
+            .field("body", &self.body)
+            .finish()
+    }
+}
+
+/// Only the content type and the length; see [`Outgoing`]'s `Debug`.
+impl fmt::Debug for OutBody<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} ({} bytes)", self.content_type, self.bytes.len())
+    }
+}
+
+/// [`fetch_hop_as`] for any [`Outgoing`]: the pinned, unredirected, size-capped
+/// single hop, as a `GET` or a `POST`. A `POST` answered with a redirect returns
+/// [`Hop::Redirect`] like a `GET`; the loop in [`plan`] refuses to follow it.
+pub async fn send_hop(target: &Target, out: &Outgoing<'_>) -> Result<Hop, Refusal> {
     let client = harden_client(reqwest::Client::builder(), &target.host, target.addr)
         .build()
         .map_err(|_| Refusal::Upstream)?;
 
-    let resp = client
-        .get(target.url.clone())
-        .header(header::USER_AGENT, user_agent)
-        .header(header::ACCEPT, accept)
+    let request = match out.body {
+        None => client.get(target.url.clone()),
+        Some(b) => client
+            .post(target.url.clone())
+            .header(header::CONTENT_TYPE, b.content_type)
+            .body(b.bytes.to_vec()),
+    };
+    let resp = request
+        .header(header::USER_AGENT, out.user_agent)
+        .header(header::ACCEPT, out.accept)
         // Ask for no transfer compression — one less decompression-bomb surface.
         .header(header::ACCEPT_ENCODING, "identity")
         .send()
@@ -667,8 +766,9 @@ pub struct RoutedFetch {
 }
 
 /// Fetch `start` over the deployment's egress route, or directly when there is
-/// none. **This is the only function in the workspace that consumes a configured
-/// route.**
+/// none. **This and [`plan::send_with`] (the class-aware path, t32 e31b) are the
+/// only functions in the workspace that consume a configured route**, and both
+/// have the single-exit routed arm described below.
 ///
 /// # Fail-closed, and why there is no fallback arm
 /// When `route` is `Some`, this function **never** reaches the direct path. Not on
@@ -710,19 +810,14 @@ pub struct RoutedFetch {
 /// transport change, not a wiring one. `the_routed_path_is_stricter_than_the_policy_asks`
 /// pins the current answer so it cannot drift without a test going red.
 ///
-/// # There is no `user_agent` parameter, and that is deliberate
-/// [`fetch_remote_with`] takes one; this does not. The tunnelled exchange
-/// (`proxy::http::exchange`) hardcodes [`PROXY_UA`], so a `user_agent` argument here
-/// would be honoured on one arm and **silently ignored** on the other — a parameter
-/// that does nothing is worse than an absent one, because a caller reads it as a
-/// guarantee. Both live callers want [`PROXY_UA`] today. A caller that genuinely
-/// needs a chosen UA through a route needs it threaded into the tunnelled request
-/// builder first; until then this signature does not pretend to offer it.
-///
-/// Contrast the `policy` decision above: an ignored policy makes the routed path
-/// **narrower** and it refuses loudly, while an ignored `User-Agent` would send the
-/// wrong bytes and report success. Narrowing is safe to document; substitution is
-/// not, so one is a documented asymmetry and the other is a missing parameter.
+/// # There is no `user_agent` parameter here
+/// This function sends [`PROXY_UA`] on both arms. When it was written the tunnelled
+/// exchange could only send [`PROXY_UA`], so a `user_agent` argument would have been
+/// honoured on one arm and silently ignored on the other. Since t32 e31b the
+/// tunnelled exchange takes the same [`Outgoing`] as the direct hop
+/// (`proxy::http::exchange_with`); a caller that needs another `User-Agent`
+/// through a route uses [`plan::send`] with [`plan::Request::user_agent`], which
+/// sends it on both arms.
 ///
 /// # Route selection is NOT a parameter of this function
 /// `route` is chosen by the caller from deployment-wide operator configuration
@@ -730,9 +825,14 @@ pub struct RoutedFetch {
 /// Nothing request-derived may reach it: [`proxy::ProxyRoute`]'s host is exempt from
 /// [`ip_allowed`] because an egress proxy on loopback or RFC1918 is the normal
 /// deployment, and that carve-out is safe **only** while a route cannot be selected
-/// by a destination, an account or a header. If a caller ever needs to choose a
-/// route by something about the request, that is the moment to escalate rather than
-/// to add an argument.
+/// by a destination or a header. If a caller ever needs to choose a route by
+/// something about the request, that is the moment to escalate rather than to add
+/// an argument.
+///
+/// The one selection that went through that escalation is [`plan`]'s (t32-ext R2,
+/// reviewed in §15 e31b): a route is chosen by the traffic class — a constant at the
+/// call site — and by the mail domain of the signed-in account, among routes an
+/// operator saved. Neither input can name a host.
 pub async fn fetch_remote_routed(
     start: reqwest::Url,
     accept: &str,

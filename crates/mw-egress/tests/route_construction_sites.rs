@@ -533,25 +533,36 @@ fn store_only(line: &str) -> bool {
 /// **A named exception rather than a loosened rule**: relaxing the rule
 /// generally would let the next factory through silently; an entry here makes
 /// the next one an explicit decision with a name attached.
-const SHARED_FACTORY_EXCEPTIONS: &[(&str, &str)] = &[(
-    "fn route_by_id",
-    // t22-e12's admin "test this route" button tests a SPECIFIC route by id —
-    // usually NOT the active one, because staging a replacement and testing it
-    // before switching is the whole workflow, and `active_route` returns only
-    // the active row.
-    //
-    // The `id` is request-shaped, and that is permitted here because it only
-    // SELECTS AMONG ROWS THE OPERATOR CREATED. It cannot introduce a host: every
-    // candidate `host` already came from operator configuration through the
-    // admin API, so the value that ends up in `ProxyRoute::host` is operator's
-    // either way. A selector over operator-supplied rows preserves the
-    // invariant; a constructor over caller-supplied rows does not.
-    //
-    // This is the distinction the rule above cannot see from a signature — `id:
-    // &str` and `host: &str` are the same shape — which is why it is written
-    // down here instead of inferred.
-    "selects among operator-created rows; cannot introduce a host",
-)];
+const SHARED_FACTORY_EXCEPTIONS: &[(&str, &str)] = &[
+    (
+        "fn route_by_id",
+        // t22-e12's admin "test this route" button tests a SPECIFIC route by id —
+        // usually NOT the active one, because staging a replacement and testing it
+        // before switching is the whole workflow, and `active_route` returns only
+        // the active row.
+        //
+        // The `id` is request-shaped, and that is permitted here because it only
+        // SELECTS AMONG ROWS THE OPERATOR CREATED. It cannot introduce a host: every
+        // candidate `host` already came from operator configuration through the
+        // admin API, so the value that ends up in `ProxyRoute::host` is operator's
+        // either way. A selector over operator-supplied rows preserves the
+        // invariant; a constructor over caller-supplied rows does not.
+        //
+        // This is the distinction the rule above cannot see from a signature — `id:
+        // &str` and `host: &str` are the same shape — which is why it is written
+        // down here instead of inferred.
+        "selects among operator-created rows; cannot introduce a host",
+    ),
+    (
+        "fn selected_route",
+        // t32 e31b: `EgressPlan::selected_route(&self, class, domain)` returns a
+        // REFERENCE to a route already in the plan. The plan's routes were built by
+        // the one production construction site from operator rows; the class is a
+        // constant at the call site and the domain is the signed-in account's. Like
+        // `route_by_id`, it selects among operator routes and cannot introduce a host.
+        "selects among the plan's operator routes by class and account domain; cannot introduce a host",
+    ),
+];
 
 /// The rule above, **both ways round**, so it is not merely satisfied by
 /// today's visibility.

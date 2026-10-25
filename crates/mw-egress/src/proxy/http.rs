@@ -13,13 +13,17 @@
 //! `CONNECT` head and never appears in this builder.
 
 use bytes::Bytes;
-use http_body_util::{BodyExt, Empty};
+use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::header;
 use hyper_util::rt::TokioIo;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::ProxyRefusal;
-use crate::{Hop, MAX_IMAGE_BYTES, PROXY_UA, Refusal};
+use crate::{Hop, MAX_IMAGE_BYTES, Outgoing, PROXY_UA, Refusal};
+
+/// A `GET` sends no body at all (no `Content-Length: 0` on the wire, exactly as
+/// before bodies existed); a `POST` sends its bytes with a known length.
+type ReqBody = Either<Empty<Bytes>, Full<Bytes>>;
 
 /// The `Host` header value for an origin URL: the hostname, plus the port when it
 /// is not the scheme default. `reqwest::Url::port` is already `None` for a default
@@ -52,6 +56,28 @@ pub async fn exchange<S>(stream: S, url: &reqwest::Url, accept: &str) -> Result<
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    exchange_with(
+        stream,
+        url,
+        &Outgoing {
+            accept,
+            user_agent: PROXY_UA,
+            body: None,
+        },
+    )
+    .await
+}
+
+/// [`exchange`] for any [`Outgoing`]: the caller's `User-Agent`, and a `POST` body
+/// when there is one. The same fields the direct path ([`crate::send_hop`]) sends.
+pub async fn exchange_with<S>(
+    stream: S,
+    url: &reqwest::Url,
+    out: &Outgoing<'_>,
+) -> Result<Hop, ProxyRefusal>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
         .await
         .map_err(|e| ProxyRefusal::OriginHttp(format!("HTTP/1.1 handshake failed: {e}")))?;
@@ -61,26 +87,33 @@ where
     let pump = tokio::spawn(async move {
         let _ = conn.await;
     });
-    let result = exchange_inner(&mut sender, url, accept).await;
+    let result = exchange_inner(&mut sender, url, out).await;
     pump.abort();
     result
 }
 
 async fn exchange_inner(
-    sender: &mut hyper::client::conn::http1::SendRequest<Empty<Bytes>>,
+    sender: &mut hyper::client::conn::http1::SendRequest<ReqBody>,
     url: &reqwest::Url,
-    accept: &str,
+    out: &Outgoing<'_>,
 ) -> Result<Hop, ProxyRefusal> {
-    let request = hyper::Request::builder()
-        .method(hyper::Method::GET)
+    let builder = hyper::Request::builder()
         .uri(request_target(url))
         .header(header::HOST, host_header(url)?)
-        .header(header::USER_AGENT, PROXY_UA)
-        .header(header::ACCEPT, accept)
+        .header(header::USER_AGENT, out.user_agent)
+        .header(header::ACCEPT, out.accept)
         // One less decompression-bomb surface, identical to the direct path.
-        .header(header::ACCEPT_ENCODING, "identity")
-        .body(Empty::<Bytes>::new())
-        .map_err(|e| ProxyRefusal::OriginHttp(format!("request could not be built: {e}")))?;
+        .header(header::ACCEPT_ENCODING, "identity");
+    let request = match out.body {
+        None => builder
+            .method(hyper::Method::GET)
+            .body(Either::Left(Empty::<Bytes>::new())),
+        Some(b) => builder
+            .method(hyper::Method::POST)
+            .header(header::CONTENT_TYPE, b.content_type)
+            .body(Either::Right(Full::new(Bytes::copy_from_slice(b.bytes)))),
+    }
+    .map_err(|e| ProxyRefusal::OriginHttp(format!("request could not be built: {e}")))?;
 
     let response = sender
         .send_request(request)
