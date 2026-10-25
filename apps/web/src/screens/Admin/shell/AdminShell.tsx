@@ -25,6 +25,8 @@ import { Breadcrumbs, type Crumb } from './Breadcrumbs.tsx';
 import { CommandPalette, type AdminSearch, type PaletteField } from './CommandPalette.tsx';
 import { fieldAnchors, focusFieldWhenReady } from './fieldAnchors.ts';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
+import { ResizeHandle } from '../../../components/ResizeHandle.tsx';
+import { useOptionalPersonalPreferences } from './personalPreferences.tsx';
 import * as css from './shell.css.ts';
 
 export interface AdminShellProps {
@@ -51,6 +53,17 @@ function inPlace(e: MouseEvent, go: () => void): void {
 }
 
 export function AdminShell(props: AdminShellProps): JSX.Element {
+  const preferences = useOptionalPersonalPreferences();
+  const [sidebarWidth, setSidebarWidth] = createSignal(220);
+  const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
+  createEffect(() => {
+    const raw = preferences?.data()['shellLayout'];
+    const layout = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    const width = layout['sidebarWidth'];
+    setSidebarWidth(typeof width === 'number' && Number.isFinite(width) ? Math.max(180, Math.min(480, width)) : 220);
+    setSidebarCollapsed(layout['sidebarCollapsed'] === true);
+  });
+  const saveLayout = () => preferences?.patch({ shellLayout: { sidebarWidth: sidebarWidth(), sidebarCollapsed: sidebarCollapsed() } });
   const [drawerOpen, setDrawerOpen] = createSignal(false);
   const [paletteOpen, setPaletteOpen] = createSignal(false);
   const [navEl, setNavEl] = createSignal<HTMLElement>();
@@ -172,12 +185,16 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
   );
 
   return (
-    <div class={css.frame} data-screen="admin">
-      <aside class={css.sidebar}>
+    <div class={css.frame} data-screen="admin" data-sidebar-collapsed={sidebarCollapsed() ? '' : undefined} style={{ '--admin-sidebar-width': `${sidebarWidth()}px` }}>
+      <aside id="admin-sidebar" class={css.sidebar}>
         <Brand />
         <Nav roving />
         <Footer />
       </aside>
+      <div class={css.sidebarResize}>
+        <ResizeHandle label={t('admin-shell-sidebar-resize')} controls="admin-sidebar" value={sidebarWidth()} min={180} max={480}
+          direction={document.documentElement.dir === 'rtl' ? -1 : 1} onChange={setSidebarWidth} onCommit={saveLayout} />
+      </div>
 
       <header class={css.topbar}>
         <button
@@ -230,6 +247,10 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
 
       <main class={css.main} id="admin-main" tabindex="-1">
         <div class={css.mainHead}>
+          <button type="button" class={`btn btn--ghost ${css.sidebarToggle}`} aria-expanded={!sidebarCollapsed()} aria-controls="admin-sidebar"
+            aria-label={t(sidebarCollapsed() ? 'admin-shell-sidebar-show' : 'admin-shell-sidebar-hide')}
+            title={t(sidebarCollapsed() ? 'admin-shell-sidebar-show' : 'admin-shell-sidebar-hide')}
+            onClick={() => { setSidebarCollapsed(!sidebarCollapsed()); saveLayout(); }}><Icon name="menu" /></button>
           <Breadcrumbs items={props.breadcrumbs ?? []} />
           <button
             type="button"

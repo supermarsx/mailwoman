@@ -44,7 +44,7 @@ globalStyle('[dir="rtl"] .icon--directional', { transform: 'scaleX(-1)' });
 // ── Frame ──────────────────────────────────────────────────────────────────────
 export const frame = style({
   display: 'grid',
-  gridTemplateColumns: '220px minmax(0, 1fr)',
+  gridTemplateColumns: 'minmax(180px, min(var(--admin-sidebar-width, 220px), 40vw)) 6px minmax(0, 1fr)',
   minHeight: '100vh',
   background: vars.color.bg,
   color: vars.color.text,
@@ -52,6 +52,17 @@ export const frame = style({
   '@media': {
     [PHONE]: { gridTemplateColumns: 'minmax(0, 1fr)', gridTemplateRows: 'auto 1fr' },
   },
+  selectors: { '&[data-sidebar-collapsed]': { gridTemplateColumns: 'minmax(0, 1fr)' } },
+});
+
+export const sidebarResize = style({
+  position: 'sticky', top: 0, height: '100vh',
+  selectors: { [`${frame}[data-sidebar-collapsed] &`]: { display: 'none' } },
+  '@media': { [PHONE]: { display: 'none' } },
+});
+export const sidebarToggle = style({
+  flexShrink: 0,
+  '@media': { [PHONE]: { display: 'none' } },
 });
 
 /** The desktop sidebar. Its 3px rule takes 2px from the inline-end padding (P1). */
@@ -67,6 +78,7 @@ export const sidebar = style({
   overflowY: 'auto',
   position: 'sticky',
   top: 0,
+  selectors: { [`${frame}[data-sidebar-collapsed] &`]: { display: 'none' } },
   '@media': { [PHONE]: { display: 'none' } },
 });
 

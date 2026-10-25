@@ -158,3 +158,7 @@ admin-diag-retention-failed = Results were saved, but expired diagnostic history
 
 admin-config-filters = Find configuration
 admin-config-entries = Configuration entries
+
+admin-shell-sidebar-resize = Resize navigation sidebar
+admin-shell-sidebar-show = Show navigation sidebar
+admin-shell-sidebar-hide = Hide navigation sidebar
