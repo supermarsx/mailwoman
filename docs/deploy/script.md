@@ -81,7 +81,8 @@ and the state directory uses `0700` on filesystems supporting Unix permissions.
 
 - `deploy.env`: project, mode, URL, port, exposure, proxy network, Caddy
   image/network/ACME settings, the app's memory and CPU limits, the mail server
-  (`UPSTREAM_DEFAULT`), and the backup and alert settings (`BACKUP_KEEP`,
+  (`UPSTREAM_DEFAULT`), the image repository `--image-tag` uses
+  (`IMAGE_REPOSITORY`), and the backup and alert settings (`BACKUP_KEEP`,
   `BACKUP_KEEP_DAYS`, `BACKUP_RECIPIENT`, `BACKUP_HOOK`, `ALERT_HOOK`; see
   [backups.md](backups.md) and [monitoring.md](monitoring.md)).
 - `app.env`: persistent random `MW_SERVER_KEY`, random admin password, and optional
@@ -194,7 +195,33 @@ bash deploy.sh deploy --no-build     # apply configuration, reuse the app image
 bash deploy.sh deploy --image registry.example.org/mailwoman:VERSION --pull
 # The published image, refused unless its signature verifies:
 bash deploy.sh deploy --image ghcr.io/supermarsx/mailwoman:master --pull --require-signature
+# With IMAGE_REPOSITORY=ghcr.io/supermarsx/mailwoman in deploy.env, the same as
+# --image ghcr.io/supermarsx/mailwoman:master --pull:
+bash deploy.sh deploy --image-tag master --require-signature
 ```
+
+`--image-tag TAG` takes the repository from `IMAGE_REPOSITORY` in `deploy.env`
+(a repository without tag or digest), so an update script or a host update agent
+passes only the tag and never a registry address. It always fetches from the
+registry, so the signature check below applies. None of the commands asks
+questions; all of them can run unattended.
+
+Each deployment sets `MW_IMAGE_DIGEST` in the app's environment to the image it
+runs: `<repository>@sha256:...` when the `--image` (or
+`--image-tag`) has a registry digest for its repository, otherwise the local
+image ID `sha256:...` (always so for an image built from source). It is set by
+the script; `app.env` may not set it. After every snapshot (`backup`, the one a
+`deploy` takes, the one `restore` takes of the installation it replaces) the
+script writes `/data/last-snapshot.json` into the app's data volume, so the app
+can tell when the last snapshot was taken:
+
+```json
+{"schema":"mailwoman-deploy-snapshot/1","kind":"backup","takenAt":"2026-10-25T03:30:00Z","path":"/srv/mailwoman/.deploy.local/backups/20261025T033000Z-4242-17","encrypted":false}
+```
+
+`kind` is `backup`, `pre-deploy` or `pre-restore`; `path` is the snapshot
+directory or encrypted archive on the host. The file holds no secret and is not
+needed for a restore.
 
 The build selects the Dockerfile target `runtime-static`, not the Dockerfile's
 final stage: a `scratch` image with statically linked binaries, the target CI
@@ -331,7 +358,15 @@ local store refused), and the `ACME_CA` / `ACME_CA_ROOT`
 lines in a Caddy installation's generated Compose file (read with `doctor`;
 invalid values refused), and the memory and CPU limits Docker applies (defaults,
 edited values, a CPU limit above the host's lowered, none for a `deploy.env`
-without the keys). The external step stands in a
+without the keys), `UPSTREAM_DEFAULT`, `MW_IMAGE_DIGEST` and `--image-tag`,
+`last-snapshot.json`, the generated metrics token (`/metrics` 200 with it, 401
+without), `check` and `ALERT_HOOK` with the app stopped, `prune` (the rollback
+snapshot kept; a replaced volume and an old image deleted only with
+`--replaced --yes`), encrypted backups with each of gpg and age that is
+installed (restored with the key, refused without it; with neither installed
+the case is skipped, a failure under `DEPLOY_TEST_REQUIRE=all`), `BACKUP_HOOK`,
+and the `timers` units under `systemd-analyze verify` in a container (which
+needs network access to install systemd there). The external step stands in a
 curl wrapper for the host's reverse proxy; nothing in the test reaches the
 Internet or uses ports 80/443. It removes its test containers, volumes and network
 afterward; failed runs retain local diagnostics.

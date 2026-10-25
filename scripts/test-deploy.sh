@@ -91,6 +91,11 @@ set_in() {
 }
 set_config() { set_in "$STATE/deploy.env" "$@"; }
 app_env() { docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$1"; }
+# last_snapshot KIND PATH ENCRYPTED: the app's /data/last-snapshot.json names that snapshot.
+last_snapshot() {
+    docker cp "$(dc ps -a -q mailwoman):/data/last-snapshot.json" "$STATE/last-snapshot.json" 2>/dev/null || fail "no last-snapshot.json in the data volume after a $1 snapshot"
+    grep -F "\"kind\":\"$1\"" "$STATE/last-snapshot.json" | grep -F "\"path\":\"$2\"" | grep -F "\"encrypted\":$3" >/dev/null || fail "last-snapshot.json does not name the $1 snapshot $2: $(cat "$STATE/last-snapshot.json")"
+}
 state_listing() { (cd "$STATE" && find . -print | sort && find . -type f -exec sha256sum {} + | sort); }
 cleanup() {
     local result=$? volume container reference
@@ -301,6 +306,7 @@ limits() {
     [[ $got == "$2 $3" ]] || fail "$4: memory and CPU limits are '$got', expected '$2 $3'"
 }
 limits "$CID" 1073741824 2.00 'a new installation'
+app_env "$CID" | grep -E '^MW_IMAGE_DIGEST=([^@]+@)?sha256:[0-9a-f]{64}$' >/dev/null || fail "MW_IMAGE_DIGEST is not in the app's environment: $(app_env "$CID" | grep IMAGE_DIGEST)"
 [[ $(docker inspect --format '{{.State.Health.Status}}' "$CID") == healthy ]] || fail 'not healthy'
 [[ $(docker inspect --format '{{.Config.User}}' "$CID") == 65532:65532 ]] || fail 'not nonroot'
 [[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$CID") == true ]] || fail 'root writable'
@@ -391,6 +397,7 @@ SNAPSHOT=$(find "$STATE/backups" -mindepth 1 -maxdepth 1 -type d | head -n 1)
 [[ -f $SNAPSHOT/COMPLETE ]] || fail 'missing complete snapshot'
 tar --numeric-owner -tvf "$SNAPSHOT/data.tar" > "$STATE/tar-listing"
 grep -E '65532/65532.*\./mailwoman.db$' "$STATE/tar-listing" >/dev/null || fail 'backup lost database ownership'
+last_snapshot backup "$SNAPSHOT" false
 
 # UPSTREAM_DEFAULT in deploy.env becomes MW_UPSTREAM_DEFAULT; a URL for the other
 # mode, or the same setting in app.env as well, is refused.
@@ -411,6 +418,8 @@ HOST_CPUS=$(docker info --format '{{.NCPU}}')
 set_config MEMORY_LIMIT=768m CPU_LIMIT=999
 run deploy --no-build 2> "$STATE/limits.log" || { cat "$STATE/limits.log" >&2; fail 'config deploy failed'; }
 app_env "$(dc ps -q mailwoman)" | grep -Fx "MW_UPSTREAM_DEFAULT=$JMAP_UPSTREAM" >/dev/null || fail 'UPSTREAM_DEFAULT did not reach the app as MW_UPSTREAM_DEFAULT'
+last_snapshot pre-deploy "$(cat "$STATE/rollback.path")" false
+printf 'last snapshot: %s\n' "$(cat "$STATE/last-snapshot.json")"
 [[ $(awk -F= '$1 == "MW_SERVER_KEY" {print $2}' "$STATE/app.env") == "$SERVER_KEY" ]] || fail 'deploy rotated key'
 CID=$(dc ps -q mailwoman)
 limits "$CID" 805306368 "$HOST_CPUS.00" 'after editing MEMORY_LIMIT=768m CPU_LIMIT=999'
@@ -540,6 +549,7 @@ encrypted_case() {
     [[ -s $archive && $archive == "$STATE/backups/"*".tar.$tool" ]] || fail "no $tool archive: $(cat "$STATE/backup.log")"
     [[ ! -e $STATE/backups/$name ]] || fail "the clear-text snapshot $name is still there beside the $tool archive"
     if grep -aF -e "$SERVER_KEY" -e "encrypted-$tool" "$archive" >/dev/null; then fail "the $tool archive contains clear text"; fi
+    last_snapshot backup "$archive" true
     printf 'after-encrypted-backup\n' > "$STATE/uploads/deploy-test-object"
     CID=$(dc ps -q mailwoman)
     docker cp "$STATE/uploads" "$CID:/data/"
@@ -712,7 +722,21 @@ grep -F "Signature verified: ${SIGNED%:signed}@$SIGNED_DIGEST" "$STATE/signed.lo
 [[ $(tr '\n' ' ' < "$DEPLOY_TEST_COSIGN_ARGS") == "verify --certificate-identity https://github.com/supermarsx/mailwoman/.github/workflows/supply-chain.yml@refs/heads/master --certificate-oidc-issuer https://token.actions.githubusercontent.com $SIGNED " ]] || fail "cosign was called with: $(tr '\n' ' ' < "$DEPLOY_TEST_COSIGN_ARGS")"
 CID=$(dc ps -q mailwoman)
 [[ $(docker inspect --format '{{.Image}}' "$CID") == "$(docker image inspect --format '{{.Id}}' "$IMAGE")" ]] || fail 'the verified image is not the one running'
+app_env "$CID" | grep -Fx "MW_IMAGE_DIGEST=${SIGNED%:signed}@$SIGNED_DIGEST" >/dev/null || fail "MW_IMAGE_DIGEST is not the verified digest: $(app_env "$CID" | grep IMAGE_DIGEST)"
 printf 'signature verified: %s\n' "$(grep -F 'Signature verified' "$STATE/signed.log")"
+# --image-tag TAG deploys IMAGE_REPOSITORY:TAG from deploy.env, fetched and
+# checked like --image ... --pull; without IMAGE_REPOSITORY it is refused.
+reject deploy --image-tag signed
+grep -F -- '--image-tag needs IMAGE_REPOSITORY in deploy.env' "$STATE/rejected.log" >/dev/null || fail "--image-tag without IMAGE_REPOSITORY was refused for another reason: $(cat "$STATE/rejected.log")"
+reject deploy --image-tag 'bad tag'
+set_config "IMAGE_REPOSITORY=${SIGNED%:signed}"
+DEPLOY_TEST_COSIGN=pass PATH="$STATE/cosignbin:$PATH" run deploy --image-tag signed 2> "$STATE/signed.log" || { cat "$STATE/signed.log" >&2; fail 'a deploy with --image-tag failed'; }
+grep -F "Signature verified: ${SIGNED%:signed}@$SIGNED_DIGEST" "$STATE/signed.log" >/dev/null || fail "--image-tag did not deploy the verified digest: $(cat "$STATE/signed.log")"
+[[ $(tail -n 1 "$DEPLOY_TEST_COSIGN_ARGS") == "$SIGNED" ]] || fail "--image-tag checked $(tail -n 1 "$DEPLOY_TEST_COSIGN_ARGS"), not $SIGNED"
+CID=$(dc ps -q mailwoman)
+app_env "$CID" | grep -Fx "MW_IMAGE_DIGEST=${SIGNED%:signed}@$SIGNED_DIGEST" >/dev/null || fail "after --image-tag MW_IMAGE_DIGEST is not the verified digest: $(app_env "$CID" | grep IMAGE_DIGEST)"
+printf 'image tag: %s\n' "$(grep -F 'Signature verified' "$STATE/signed.log")"
+set_config IMAGE_REPOSITORY=
 # Without cosign the signature cannot be checked: --require-signature refuses.
 NO_COSIGN_PATH=
 IFS=: read -r -a PATH_DIRS <<< "$PATH"
@@ -868,4 +892,4 @@ grep -F 'No memory or CPU limit for the app' "$NET_STATE/limits.log" >/dev/null 
 [[ $(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$NET_STATE/active/release.env") == "$NET_VOLUME" ]] || fail 'update replaced the data volume'
 docker network inspect "$NETWORK" >/dev/null || fail 'update removed the proxy network'
 PASSED=true
-printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, exposure moves local -> external -> network -> local with the data volume kept, refusal of a move to caddy, a proxy-network installation, the ACME directory settings for Caddy (rendered, accepted by Caddy in the rendered read-only service, and refused when invalid), Caddy pinned by version and digest for a new installation, memory/CPU limits (defaults for a new installation, edited, lowered to the CPUs Docker has, rolled back, none for an older deploy.env, invalid values refused), and the automatic rollback of an update that never becomes healthy (previous image, exposure network with its trust lines, data saved before the update; failed release kept), rollback after --no-auto-rollback, the Dockerfile target a deploy without --image builds (runtime-static), and the --image signature check with a stand-in cosign (verified digest deployed, failed verification refused before any change, --require-signature without cosign or for an image from the local store refused, unchecked local image reported)\n' "$BROWSER"
+printf 'PASS: dry-run writes nothing (empty and applied state), port auto-pick when 8080 is taken, deployment, literal secrets, health, persistent data, admin login and writes under strict CSRF (curl), %s, refusal of a held port before any change, backup, rollback, corruption refusal, copy-failure recovery, repeated setup options, exposure moves local -> external -> network -> local with the data volume kept, refusal of a move to caddy, a proxy-network installation, the ACME directory settings for Caddy (rendered, accepted by Caddy in the rendered read-only service, and refused when invalid), Caddy pinned by version and digest for a new installation, memory/CPU limits (defaults for a new installation, edited, lowered to the CPUs Docker has, rolled back, none for an older deploy.env, invalid values refused), and the automatic rollback of an update that never becomes healthy (previous image, exposure network with its trust lines, data saved before the update; failed release kept), rollback after --no-auto-rollback, the Dockerfile target a deploy without --image builds (runtime-static), the --image signature check with a stand-in cosign (verified digest deployed, failed verification refused before any change, --require-signature without cosign or for an image from the local store refused, unchecked local image reported), --image-tag with IMAGE_REPOSITORY, MW_IMAGE_DIGEST, last-snapshot.json after backup and deploy, UPSTREAM_DEFAULT, the metrics token (200 with it, 401 without), check with ALERT_HOOK, prune (retention keeps the rollback snapshot, replaced volume and old image deleted only with --replaced --yes), %s, BACKUP_HOOK (a failure fails the backup and keeps it), and %s\n' "$BROWSER" "$ENCRYPTION" "$TIMERS"

@@ -32,6 +32,9 @@ CPU_LIMIT=
 SIGNATURE_IDENTITY=
 SIGNATURE_ISSUER=
 UPSTREAM_DEFAULT=
+IMAGE_REPOSITORY=
+IMAGE_DIGEST=
+IMAGE_TAG=
 # The identity that signs the published image: .github/workflows/supply-chain.yml
 # on a push to master, through GitHub's OIDC issuer. deploy.env may name another
 # (SIGNATURE_IDENTITY / SIGNATURE_ISSUER) for a fork's images.
@@ -105,6 +108,8 @@ Options:
                     (init only; default 172.30.70; choose an unused subnet)
   --image REF       Use a ready-built Mailwoman image instead of building source
   --pull            Refresh --image from its registry before deploying
+  --image-tag TAG   Deploy IMAGE_REPOSITORY:TAG from deploy.env, fetched from its
+                    registry (as --image IMAGE_REPOSITORY:TAG --pull)
   --require-signature
                     Refuse an --image whose signature cannot be checked (no
                     cosign, or used from the local image store without --pull)
@@ -166,6 +171,7 @@ while (($#)); do
         --mode) need_value "$@"; MODE=$2; REQUESTED[MODE]=$2; INIT_OPTIONS=true; shift ;;
         --proxy-prefix) need_value "$@"; PROXY_PREFIX=$2; REQUESTED[PROXY_PREFIX]=$2; INIT_OPTIONS=true; shift ;;
         --image) need_value "$@"; IMAGE=$2; shift ;;
+        --image-tag) need_value "$@"; IMAGE_TAG=$2; shift ;;
         --timeout) need_value "$@"; TIMEOUT=$2; shift ;;
         --pull) PULL=true ;;
         --require-signature) REQUIRE_SIGNATURE=true ;;
@@ -184,10 +190,12 @@ done
 if [[ ! $TIMEOUT =~ ^[0-9]{2,4}$ ]] || ((10#$TIMEOUT < 10 || 10#$TIMEOUT > 3600)); then die "Invalid timeout"; fi
 TIMEOUT=$((10#$TIMEOUT))
 [[ -z $IMAGE || $IMAGE != -* && $IMAGE != *[[:space:]]* ]] || die "Invalid image reference"
-if $NO_BUILD && { [[ -n $IMAGE ]] || $PULL; }; then die "--no-build cannot be combined with --image/--pull"; fi
-if $PULL && [[ -z $IMAGE ]]; then die "--pull requires --image"; fi
-if $REQUIRE_SIGNATURE && [[ -z $IMAGE ]]; then die "--require-signature requires --image"; fi
-if [[ $ACTION != deploy ]] && { [[ -n $IMAGE ]] || $NO_BUILD || $PULL || ! $AUTO_ROLLBACK; }; then
+[[ -z $IMAGE_TAG || $IMAGE_TAG =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$ ]] || die "Invalid image tag: $IMAGE_TAG"
+if [[ -n $IMAGE && -n $IMAGE_TAG ]]; then die "Give --image or --image-tag, not both"; fi
+if $NO_BUILD && { [[ -n $IMAGE$IMAGE_TAG ]] || $PULL; }; then die "--no-build cannot be combined with --image/--image-tag/--pull"; fi
+if $PULL && [[ -z $IMAGE$IMAGE_TAG ]]; then die "--pull requires --image"; fi
+if $REQUIRE_SIGNATURE && [[ -z $IMAGE$IMAGE_TAG ]]; then die "--require-signature requires --image or --image-tag"; fi
+if [[ $ACTION != deploy ]] && { [[ -n $IMAGE$IMAGE_TAG ]] || $NO_BUILD || $PULL || ! $AUTO_ROLLBACK; }; then
     die "Image and rollback options apply only to deploy"
 fi
 if $INIT_OPTIONS && [[ $ACTION != init && $ACTION != deploy ]]; then die "Setup options apply only to init/first deploy"; fi
@@ -201,7 +209,10 @@ read_config() {
     # Settings a deploy.env may leave out (older files, or ones edited by hand) are
     # empty unless this file sets them, never left over from a file read earlier.
     if [[ ${file##*/} == deploy.env ]]; then
-        PROXY_NETWORK=; ACME_CA=; ACME_CA_ROOT=; MEMORY_LIMIT=; CPU_LIMIT=; SIGNATURE_IDENTITY=; SIGNATURE_ISSUER=; UPSTREAM_DEFAULT=
+        PROXY_NETWORK=; ACME_CA=; ACME_CA_ROOT=; MEMORY_LIMIT=; CPU_LIMIT=; SIGNATURE_IDENTITY=; SIGNATURE_ISSUER=; UPSTREAM_DEFAULT=; IMAGE_REPOSITORY=
+    elif [[ ${file##*/} == release.env ]]; then
+        # Written before the image digest was recorded: render falls back to IMAGE_ID.
+        IMAGE_DIGEST=
         BACKUP_KEEP=; BACKUP_KEEP_DAYS=; BACKUP_RECIPIENT=; BACKUP_HOOK=; ALERT_HOOK=
     fi
     while IFS= read -r line || [[ -n $line ]]; do
@@ -211,7 +222,7 @@ read_config() {
         [[ $seen != *"|$key|"* ]] || die "Duplicate $key in $file"
         seen+="$key|"
         case "$key" in
-            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|UPSTREAM_DEFAULT|BACKUP_KEEP|BACKUP_KEEP_DAYS|BACKUP_RECIPIENT|BACKUP_HOOK|ALERT_HOOK|IMAGE_ID|DATA_VOLUME|CADDY_ID)
+            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|UPSTREAM_DEFAULT|IMAGE_REPOSITORY|BACKUP_KEEP|BACKUP_KEEP_DAYS|BACKUP_RECIPIENT|BACKUP_HOOK|ALERT_HOOK|IMAGE_ID|IMAGE_DIGEST|DATA_VOLUME|CADDY_ID)
                 printf -v "$key" '%s' "$value" ;;
             *) die "Unknown setting $key in $file" ;;
         esac
@@ -261,6 +272,9 @@ validate_config() {
             [[ $UPSTREAM_DEFAULT =~ ^(imaps?|pop3s?)://[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]{1,5})?/?$ ]] || die "UPSTREAM_DEFAULT must be an imaps://, imap://, pop3s:// or pop3:// server URL in engine mode"
         fi
     fi
+    if [[ -n $IMAGE_REPOSITORY ]]; then
+        [[ $IMAGE_REPOSITORY =~ ^[a-zA-Z0-9][a-zA-Z0-9._/:-]*$ && ${IMAGE_REPOSITORY##*/} != *:* && $IMAGE_REPOSITORY != */ ]] || die "IMAGE_REPOSITORY must be an image repository without a tag or digest, such as ghcr.io/supermarsx/mailwoman"
+    fi
     [[ -z $BACKUP_KEEP || $BACKUP_KEEP =~ ^[1-9][0-9]{0,3}$ ]] || die "BACKUP_KEEP must be a number of snapshots from 1 to 9999, or empty"
     [[ -z $BACKUP_KEEP_DAYS || $BACKUP_KEEP_DAYS =~ ^[1-9][0-9]{0,4}$ ]] || die "BACKUP_KEEP_DAYS must be a number of days from 1 to 99999, or empty"
     # age: an age1 recipient or an SSH public key. gpg: a full key fingerprint, so
@@ -289,6 +303,7 @@ CPU_LIMIT=$CPU_LIMIT
 SIGNATURE_IDENTITY=$SIGNATURE_IDENTITY
 SIGNATURE_ISSUER=$SIGNATURE_ISSUER
 UPSTREAM_DEFAULT=$UPSTREAM_DEFAULT
+IMAGE_REPOSITORY=$IMAGE_REPOSITORY
 BACKUP_KEEP=$BACKUP_KEEP
 BACKUP_KEEP_DAYS=$BACKUP_KEEP_DAYS
 BACKUP_RECIPIENT=$BACKUP_RECIPIENT
@@ -308,7 +323,7 @@ validate_app_env() {
         seen+="$key|"
         case "$key" in
             MW_SERVER_KEY) [[ $value =~ ^[0-9a-fA-F]{64}$ ]] || die "MW_SERVER_KEY must contain 64 hex digits"; found=true ;;
-            MW_BIND|MW_DB_PATH|MW_UPLOAD_DIR|MW_MODE|MW_PUBLIC_URL|MW_COOKIE_SECURE|MW_RENDER_BIN|MW_PLUGIN_DIR|MW_WEB_DIR|MW_BASE_PATH|MW_ACME*|MW_TLS_*|MW_PROXY_PROTOCOL)
+            MW_BIND|MW_DB_PATH|MW_UPLOAD_DIR|MW_MODE|MW_PUBLIC_URL|MW_COOKIE_SECURE|MW_RENDER_BIN|MW_PLUGIN_DIR|MW_WEB_DIR|MW_BASE_PATH|MW_ACME*|MW_TLS_*|MW_PROXY_PROTOCOL|MW_IMAGE_DIGEST)
                 die "$key is managed by deploy.sh; see docs/deploy/script.md" ;;
             MW_TRUSTED_PROXIES|MW_FORWARDED_MODE)
                 [[ $EXPOSURE != caddy ]] || die "$key is managed for Caddy; remove it from app.env" ;;
@@ -369,6 +384,11 @@ else
     fi
 fi
 validate_config
+if [[ -n $IMAGE_TAG ]]; then
+    [[ -n $IMAGE_REPOSITORY ]] || die "--image-tag needs IMAGE_REPOSITORY in deploy.env, such as ghcr.io/supermarsx/mailwoman"
+    IMAGE="$IMAGE_REPOSITORY:$IMAGE_TAG"
+    PULL=true
+fi
 if $DRY_RUN; then
     log "Dry run: $ACTION; project=$PROJECT; mode=$MODE; exposure=$EXPOSURE"
     log "State: $STATE; URL: $PUBLIC_URL"
@@ -542,6 +562,14 @@ check_signature() {
 # effect as soon as deploy.env is saved, so they are not taken from the applied copy.
 OPERATION_KEYS=(BACKUP_KEEP BACKUP_KEEP_DAYS BACKUP_RECIPIENT BACKUP_HOOK ALERT_HOOK)
 
+# image_digest: set IMAGE_DIGEST to repository@sha256:... when the local image
+# IMAGE has a registry digest for the repository it is named by.
+image_digest() {
+    local repository
+    repository=$(image_repository "$IMAGE")
+    IMAGE_DIGEST=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$IMAGE" | awk -F@ -v repository="$repository" '$1 == repository && $2 ~ /^sha256:[0-9a-f]+$/ {print; exit}')
+}
+
 load_active() {
     local key
     local -A operation=()
@@ -587,9 +615,10 @@ render() {
         limits+=$'\n'"    cpus: $cpus"
     fi
     [[ $IMAGE_ID =~ ^sha256:[0-9a-f]{64}$ ]] || die "Invalid image ID"
+    [[ -z $IMAGE_DIGEST || $IMAGE_DIGEST =~ ^([a-zA-Z0-9][a-zA-Z0-9._/:-]*@)?sha256:[0-9a-f]{64}$ ]] || die "Invalid image digest"
     [[ $DATA_VOLUME =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]+$ ]] || die "Invalid volume name"
     write_config > "$directory/deploy.env"
-    printf 'IMAGE_ID=%s\nDATA_VOLUME=%s\nCADDY_ID=%s\n' "$IMAGE_ID" "$DATA_VOLUME" "$CADDY_ID" > "$directory/release.env"
+    printf 'IMAGE_ID=%s\nIMAGE_DIGEST=%s\nDATA_VOLUME=%s\nCADDY_ID=%s\n' "$IMAGE_ID" "$IMAGE_DIGEST" "$DATA_VOLUME" "$CADDY_ID" > "$directory/release.env"
     cat > "$directory/compose.yaml" <<EOF
 # Generated by deploy.sh. Edit the parent deploy.env / app.env, then deploy.
 services:
@@ -619,6 +648,7 @@ services:
       MW_MODE: '$MODE'
       MW_PUBLIC_URL: '$PUBLIC_URL'
       MW_COOKIE_SECURE: '$secure'$trust$upstream
+      MW_IMAGE_DIGEST: '${IMAGE_DIGEST:-$IMAGE_ID}'
     volumes: ['app_data:/data']
     healthcheck:
       test: [CMD, /usr/local/bin/mailwoman, healthcheck, --url, 'http://127.0.0.1:8080/healthz']
@@ -737,6 +767,27 @@ verify() {
 
 # The files of a snapshot directory, which is also the order in an encrypted archive.
 SNAPSHOT_FILES=(COMPLETE SHA256SUMS data.tar compose.yaml app.env deploy.env release.env)
+
+# record_snapshot KIND PATH: write last-snapshot.json into the app's data volume,
+# for the admin console: which snapshot was taken last, when, and whether it is
+# encrypted. KIND is backup, pre-deploy or pre-restore. A failure to write it is
+# reported and does not fail the command.
+record_snapshot() {
+    local kind=$1 path=$2 cid name stamp encrypted=false escaped
+    cid=$(compose "$ACTIVE" ps -a -q mailwoman 2>/dev/null) || cid=
+    [[ -n $cid ]] || { log "No app container; last-snapshot.json not written"; return 0; }
+    name=${path##*/}
+    if [[ $name == *.tar.age || $name == *.tar.gpg ]]; then encrypted=true; name=${name%.tar.*}; fi
+    stamp=${name:0:16}
+    [[ -n $WORK && -d $WORK ]] || WORK=$(mktemp -d "$STATE/.work.XXXXXX")
+    escaped=${path//\\/\\\\}
+    escaped=${escaped//\"/\\\"}
+    printf '{"schema":"mailwoman-deploy-snapshot/1","kind":"%s","takenAt":"%s-%s-%sT%s:%s:%sZ","path":"%s","encrypted":%s}\n' \
+        "$kind" "${stamp:0:4}" "${stamp:4:2}" "${stamp:6:2}" "${stamp:9:2}" "${stamp:11:2}" "${stamp:13:2}" "$escaped" "$encrypted" > "$WORK/last-snapshot.json"
+    # Readable by the app user; the record holds no secret.
+    chmod 644 "$WORK/last-snapshot.json"
+    docker cp "$WORK/last-snapshot.json" "$cid:/data/last-snapshot.json" >/dev/null 2>&1 || log "Could not write last-snapshot.json into the app's data volume"
+}
 
 # encryption_tool: age for an age or SSH recipient, gpg for a key fingerprint.
 encryption_tool() { case "$BACKUP_RECIPIENT" in age1*|ssh-*) printf age ;; *) printf gpg ;; esac; }
@@ -921,6 +972,7 @@ auto_rollback() {
     rm -rf -- "$WORK"
     WORK=
     restore_snapshot "$saved" replace-failed
+    record_snapshot pre-deploy "$saved"
     die "The update was rolled back. The previous release (exposure $EXPOSURE, image $IMAGE_ID) runs on a copy of the data saved in $saved, in volume $DATA_VOLUME. The failed release's files and logs are in $failed and its data volume $failed_volume is kept; deploy.env and app.env still hold the settings that failed"
 }
 
@@ -1194,6 +1246,7 @@ case "$ACTION" in
         load_active
         snapshot
         if [[ -n $BACKUP_RECIPIENT ]]; then encrypt_snapshot "$LAST_BACKUP"; fi
+        record_snapshot backup "$LAST_BACKUP"
         if [[ -n $BACKUP_HOOK ]]; then run_backup_hook; fi
         # Retention runs after a backup only when deploy.env asks for it.
         if [[ -n $BACKUP_KEEP$BACKUP_KEEP_DAYS ]]; then prune_snapshots; fi
@@ -1239,6 +1292,7 @@ case "$ACTION" in
         [[ -n $CPU_LIMIT ]] || unlimited+="${unlimited:+ or }CPU"
         [[ -z $unlimited ]] || log "No $unlimited limit for the app: MEMORY_LIMIT and CPU_LIMIT in $STATE/deploy.env set them (new installations get 1g and 2)"
         require_free_ports
+        built=false
         if ! $NO_BUILD; then
             if [[ -n $IMAGE ]]; then
                 from_registry=false
@@ -1252,8 +1306,14 @@ case "$ACTION" in
                 # (.github/workflows/supply-chain.yml), so a built installation runs
                 # the same shape as the published image.
                 docker build --target runtime-static --tag "$IMAGE" "$ROOT"
+                built=true
             fi
             IMAGE_ID=$(docker image inspect --format '{{.Id}}' "$IMAGE")
+            # MW_IMAGE_DIGEST: the registry digest an --image has for its own
+            # repository, else the local image ID (a built image has no registry).
+            IMAGE_DIGEST=
+            if ! $built; then image_digest; fi
+            IMAGE_DIGEST=${IMAGE_DIGEST:-$IMAGE_ID}
         fi
         if [[ $EXPOSURE == caddy ]]; then
             if ! docker image inspect "$CADDY_IMAGE" >/dev/null 2>&1; then docker pull "$CADDY_IMAGE"; fi
@@ -1283,6 +1343,7 @@ case "$ACTION" in
         else
             activate "$WORK"
         fi
+        if [[ -n $LAST_BACKUP ]]; then record_snapshot pre-deploy "$LAST_BACKUP"; fi
         # With encrypted backups, only one clear-text snapshot stays on the host: the
         # one this deploy took for rollback. The one the previous deploy took goes.
         if [[ -n $BACKUP_RECIPIENT && -n $previous_rollback && $previous_rollback != "$LAST_BACKUP" &&
@@ -1300,6 +1361,7 @@ case "$ACTION" in
         restored=$SNAPSHOT
         if [[ $ACTION == restore && ($SNAPSHOT == *.tar.age || $SNAPSHOT == *.tar.gpg) ]]; then decrypt_snapshot "$SNAPSHOT"; fi
         restore_snapshot "$SNAPSHOT" save
+        if [[ -n $LAST_BACKUP ]]; then record_snapshot pre-restore "$LAST_BACKUP"; fi
         log "Restored snapshot $restored; replaced volumes and backups remain available"
         ;;
 esac
