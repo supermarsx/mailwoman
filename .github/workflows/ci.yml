@@ -1169,7 +1169,7 @@ jobs:
         run: |
           pnpm -C apps/web exec vitest run \
             src/crypto/sanitize.test.ts src/crypto/wasm-crypto.test.ts \
-            src/crypto/wasm-smime.test.ts
+            src/crypto/wasm-smime.test.ts src/crypto/wasm-pgp.test.ts
 
   # crypto-interop — decrypt/verify GnuPG- and openssl(Outlook-style)-GENERATED
   # recorded fixtures (fixtures/crypto/**, no live keyserver/DNS — §6#6 / §25). The
@@ -1203,6 +1203,17 @@ jobs:
           MW_CRYPTO_OPENSSL: openssl
           MW_REQUIRE_LIVE: "MW_CRYPTO_OPENSSL"
         run: cargo test -p mw-crypto --test smime_generate
+      # Live GnuPG interop (R-X1): keys and messages made by gpg are read by
+      # mw-crypto and the other way round. With MW_GPG_INTEROP=1 a missing gpg
+      # fails the test instead of skipping it; the step before checks the tool.
+      - name: gpg is on this runner (2.2+)
+        run: |
+          gpg --version | sed -n 1p
+          gpg --version | sed -n 1p | grep -Eq ' 2\.([2-9]|[1-9][0-9])\.'
+      - name: live GnuPG interop (MW_GPG_INTEROP=1)
+        env:
+          MW_GPG_INTEROP: "1"
+        run: cargo test -p mw-crypto --locked --test pgp_gnupg_live -- --test-threads=1
 
   # mail-auth-verdicts — DKIM verdicts against a seeded OFFLINE resolver (e6's
   # SeededTxtCache, RFC 8463 ed25519 vector — deterministic PASS and FAIL, never
@@ -2858,7 +2869,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends age
           age --version
-          gpg --version | head -n 1
+          gpg --version | sed -n 1p
       # DEPLOY_TEST_REQUIRE=all: a skipped browser step or timer-unit check, or
       # neither gpg nor age installed, fails the job.
       - name: deploy.sh lifecycle test
