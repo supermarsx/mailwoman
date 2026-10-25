@@ -35,8 +35,9 @@ jobs:
   # tauri.conf.json, the three winget manifests, the Flatpak AppStream release, the
   # F-Droid metadata, and both native-shell package.json) matches the SINGLE source
   # of truth — `[workspace.package] version` in the root Cargo.toml. Run
-  # `scripts/stamp-version.sh` to (re)unify them. The desktop has an active updater
-  # with a HUMAN pubkey placeholder; mobile has NO self-updater (store-driven).
+  # `scripts/stamp-version.sh` to (re)unify them. The desktop updater is configured
+  # per build (MW_SHELL_UPDATER_URL + MW_SHELL_UPDATER_PUBKEY) or absent; mobile has
+  # NO self-updater (store-driven).
   # ---------------------------------------------------------------------------
   manifests:
     name: lint recipes + Tauri configs
@@ -130,13 +131,12 @@ jobs:
           check("fdroid Builds[-1].versionName", str(builds[-1].get("versionName")) if builds else None)
           check("fdroid CurrentVersion", str(fd.get("CurrentVersion")))
 
-          upd = desk.get("plugins", {}).get("updater", {})
-          if not upd.get("active"):
-              errs.append("desktop updater not active")
-          if "HUMAN" not in upd.get("pubkey", ""):
-              errs.append("desktop updater pubkey should be a HUMAN placeholder (unsigned build)")
-          if not desk.get("bundle", {}).get("createUpdaterArtifacts"):
-              errs.append("desktop bundle.createUpdaterArtifacts not set")
+          if "updater" in desk.get("plugins", {}):
+              errs.append("desktop tauri.conf.json must not carry plugins.updater (per-build overlay only, scripts/shells/config-overlay.mjs)")
+          else:
+              ok("desktop has no committed updater feed or key")
+          if desk.get("bundle", {}).get("createUpdaterArtifacts") is not False:
+              errs.append("desktop bundle.createUpdaterArtifacts must be false in the committed config")
           if "updater" in mob.get("plugins", {}):
               errs.append("mobile must NOT ship a self-updater (store-driven)")
           else:
