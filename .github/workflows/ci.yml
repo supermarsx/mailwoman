@@ -494,6 +494,10 @@ jobs:
         run: pnpm -C apps/web lint
       - name: test
         run: pnpm -C apps/web test
+      # The per-build Tauri config overlay (desktop updater only with both a feed
+      # URL and a public key); plain node, no dependencies.
+      - name: shell config overlay tests (scripts/shells)
+        run: node --test scripts/shells/*.test.mjs
       - name: build
         run: pnpm -C apps/web build
 
@@ -575,6 +579,58 @@ jobs:
           pnpm -C apps/web dlx license-checker-rseidelsohn
           --production --summary
           --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Zlib;MPL-2.0;CC0-1.0;Unlicense;Python-2.0"
+
+  # -------------------------------------------------------------------------
+  # third-party-list (t32-e75): the committed list behind the About screens
+  # (apps/web/src/about/third-party.json + texts/) must match what ships. Blocking,
+  # unlike js-licenses. `--check` fails when a lockfile changed since generation,
+  # a crate, bundled npm package or asset was added, removed or changed, an entry
+  # has no licence text, a licence is outside deny.toml's allow list, or the
+  # Dockerfile names another runtime image than the one recorded. No Docker here:
+  # the runtime-image entries are refreshed locally with `--image <tag>`, and
+  # `--check` only compares the Dockerfile's FROM digests with the recorded ones.
+  # -------------------------------------------------------------------------
+  third-party-list:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.1
+      # The script runs `cargo metadata --locked --offline` per target and reads
+      # licence files from the unpacked registry sources, so both lockfiles are
+      # fetched first (all platforms; the media wasm crate has its own lock).
+      - name: fetch crates (workspace + crates/mw-media-wasm)
+        run: |
+          cargo fetch --locked
+          cargo fetch --locked --manifest-path crates/mw-media-wasm/Cargo.toml
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install web deps
+        run: pnpm -C apps/web install --frozen-lockfile
+      # The build writes the record of what rollup bundled
+      # (apps/web/node_modules/.cache/mailwoman-about/bundled-packages.json, outside
+      # dist/ so it is not served); `--check` reads it, so the build comes first.
+      - name: build the web bundle (writes the bundled-packages record)
+        run: pnpm -C apps/web build
+      - name: third-party list is current (gen-third-party.mjs --check)
+        run: node scripts/about/gen-third-party.mjs --check
+      - name: generator tests
+        run: node --test scripts/about/*.test.mjs
+      # Seeded control: with one shipped crate taken out of the committed list,
+      # `--check` must fail. A checker that stopped comparing fails here.
+      - name: seeded control (a list missing a crate must fail --check)
+        run: |
+          node -e "const fs=require('fs');const f='apps/web/src/about/third-party.json';const j=JSON.parse(fs.readFileSync(f,'utf8'));j.rust.pop();fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')"
+          if node scripts/about/gen-third-party.mjs --check; then
+            echo "::error::gen-third-party.mjs --check accepted a list with a crate removed"
+            exit 1
+          fi
+          git checkout -- apps/web/src/about/third-party.json
 
   # -------------------------------------------------------------------------
   # E2E: build the compose stack (mock backend), wait healthy, run Playwright.
@@ -717,12 +773,46 @@ jobs:
         run: docker compose -f docker-compose.dev.yml up -d --wait dovecot-pigeonhole
       - name: ManageSieve conformance (PUTSCRIPT compiles generated Sieve)
         run: bash ./scripts/managesieve/conformance.sh 127.0.0.1 4190 60
+      # A second Pigeonhole with zz-variant.conf on top of the same configuration:
+      # a small script quota and size limit, SCRAM-SHA-256 offered, `vacation` off.
+      - name: boot a second dovecot-pigeonhole with the variant configuration (:4191)
+        run: |
+          docker run -d --name pigeonhole-variant -p 127.0.0.1:4191:4190 \
+            -v "$PWD/scripts/dovecot-pigeonhole/zz-pigeonhole.conf:/etc/dovecot/conf.d/zz-mailwoman.conf:ro" \
+            -v "$PWD/scripts/dovecot-pigeonhole/zz-variant.conf:/etc/dovecot/conf.d/zz-variant.conf:ro" \
+            -v "$PWD/scripts/dovecot/mailwoman-users:/etc/dovecot/mailwoman-users:ro" \
+            -v "$PWD/scripts/dovecot-pigeonhole/serve.sh:/serve.sh:ro" \
+            dovecot/dovecot:2.4.1 /bin/sh /serve.sh
+          for _ in $(seq 1 60); do
+            if (exec 3<>/dev/tcp/127.0.0.1/4191) 2>/dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "::error::the variant Pigeonhole did not open 4191"
+          exit 1
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: Swatinem/rust-cache@v2
+      # The tests skip themselves when their variable is unset, so the step also
+      # fails if any of them printed that it skipped.
+      - name: mw-sieve ManageSieve client vs both Pigeonhole configurations
+        env:
+          MW_SIEVE_LIVE: 127.0.0.1:4190
+          MW_SIEVE_LIVE_VARIANT: 127.0.0.1:4191
+        run: |
+          cargo test -p mw-sieve --locked --test pigeonhole_live -- --test-threads=1 --nocapture 2>&1 | tee pigeonhole-live.log
+          if grep -F 'not set; skipping' pigeonhole-live.log; then
+            echo "::error::a pigeonhole_live test skipped although both servers are set"
+            exit 1
+          fi
       - name: server logs on failure
         if: failure()
-        run: docker compose -f docker-compose.dev.yml logs --no-color dovecot-pigeonhole
+        run: |
+          docker compose -f docker-compose.dev.yml logs --no-color dovecot-pigeonhole
+          docker logs pigeonhole-variant || true
       - name: tear down
         if: always()
-        run: docker compose -f docker-compose.dev.yml down -v
+        run: |
+          docker rm -f pigeonhole-variant || true
+          docker compose -f docker-compose.dev.yml down -v
 
   # -------------------------------------------------------------------------
   # V3 (PIM) CalDAV/CardDAV conformance vs Radicale (plan §3 e11). The env-gated
@@ -1785,6 +1875,9 @@ jobs:
           # upstream is the in-repo mock published on loopback, which the policy
           # floor refuses unless it is named here.
           MW_JMAP_UPSTREAMS: "http://127.0.0.1:8181"
+          # The server, not the sign-in form, picks the mail server (t32-h9):
+          # every address signs in to this JMAP session.
+          MW_UPSTREAM_DEFAULT: "http://127.0.0.1:8181/.well-known/jmap"
           MW_DB_PATH: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
           MW_REDIS_URL: "redis://127.0.0.1:6379"
           MW_ADMIN_ENABLED: "true"
@@ -1818,9 +1911,53 @@ jobs:
           MW_ADMIN_USER: "root"
           MW_ADMIN_PASSWORD: "hunter2"
         run: pnpm -C apps/web exec playwright test --project=v6
+      # ---- Leg 3 (t32-h15): the console moved with MW_ADMIN_PATH. A second
+      # standing server from the same binary, on :8091 with its own database, serves
+      # the console at /ops-e2e; the specs read that path from MW_E2E_ADMIN_PATH.
+      # admin.spec, csrf-strict and t32-h15-admin-path run in the `v6` project
+      # (t32-h15-admin-path also checks that /admin is then a plain 404), and
+      # t32-h8-sw-admin's live-stack group runs in the `engine` project pointed at
+      # this server. No Valkey: these specs do not look at the cache.
+      - name: start mw-server with the console at /ops-e2e (MW_ADMIN_PATH)
+        env:
+          MW_BIND: "127.0.0.1:8091"
+          MW_MODE: "proxy"
+          MW_JMAP_UPSTREAMS: "http://127.0.0.1:8181"
+          MW_UPSTREAM_DEFAULT: "http://127.0.0.1:8181/.well-known/jmap"
+          MW_DB_PATH: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman_ops"
+          MW_ADMIN_ENABLED: "true"
+          MW_ADMIN_USER: "root"
+          MW_ADMIN_PASSWORD: "hunter2"
+          MW_ADMIN_PATH: "/ops-e2e"
+          MW_COOKIE_SECURE: "false"
+          MW_CSRF_STRICT: "true"
+          MW_WEB_DIR: "apps/web/dist"
+          RUST_LOG: "info"
+        run: |
+          docker compose -f docker-compose.ci.yml exec -T postgres             psql -U mailwoman -d mailwoman -c "CREATE DATABASE mailwoman_ops"
+          ./target/release/mailwoman serve > mw-server-v6-ops.log 2>&1 &
+          echo "MW_OPS_SERVER_PID=$!" >> "$GITHUB_ENV"
+      - name: wait for the /ops-e2e server's health
+        run: ./scripts/wait-for-health.sh http://127.0.0.1:8091/healthz 120
+      - name: run Playwright E2E with the console at /ops-e2e
+        env:
+          MW_E2E_BASE_URL: "http://127.0.0.1:8091"
+          PLAYWRIGHT_ENGINE_BASE_URL: "http://127.0.0.1:8091"
+          MW_E2E_ADMIN_PATH: "/ops-e2e"
+          MW_E2E_JMAP_URL: "http://127.0.0.1:8181/.well-known/jmap"
+          MW_E2E_USERNAME: "testuser@example.org"
+          MW_E2E_PASSWORD: "testpass"
+          MW_ADMIN_USER: "root"
+          MW_ADMIN_PASSWORD: "hunter2"
+        run: |
+          pnpm -C apps/web exec playwright test --project=v6             admin.spec.ts csrf-strict.spec.ts t32-h15-admin-path.spec.ts
+          pnpm -C apps/web exec playwright test --project=engine t32-h8-sw-admin.spec.ts
       - name: server log on failure
         if: failure()
-        run: cat mw-server-v6.log || true
+        run: |
+          cat mw-server-v6.log || true
+          echo "---- /ops-e2e server"
+          cat mw-server-v6-ops.log || true
       - name: compose logs on failure
         if: failure()
         run: |
@@ -1836,7 +1973,9 @@ jobs:
           retention-days: 7
       - name: stop mw-server
         if: always()
-        run: kill "${MW_SERVER_PID}" 2>/dev/null || true
+        run: |
+          kill "${MW_SERVER_PID}" 2>/dev/null || true
+          kill "${MW_OPS_SERVER_PID:-}" 2>/dev/null || true
       - name: tear down
         if: always()
         run: |
@@ -2405,6 +2544,9 @@ jobs:
           # upstream is the in-repo mock published on loopback, which the policy
           # floor refuses unless it is named here.
           MW_JMAP_UPSTREAMS: "http://127.0.0.1:8181"
+          # The server, not the sign-in form, picks the mail server (t32-h9):
+          # every address signs in to this JMAP session.
+          MW_UPSTREAM_DEFAULT: "http://127.0.0.1:8181/.well-known/jmap"
           MW_DB_PATH: "postgres://mailwoman:mailwoman@127.0.0.1:5432/mailwoman"
           MW_REDIS_URL: "redis://127.0.0.1:6379"
           MW_ADMIN_ENABLED: "true"
@@ -2644,7 +2786,15 @@ jobs:
           rm deploy-images.tar.gz
           docker image inspect --format '{{.Id}} {{.RepoTags}}' mailwoman:deploy-test-static
           docker compose version
-      # DEPLOY_TEST_REQUIRE=all: a skipped browser step fails the job.
+      # Encrypted backups run once per tool found: gpg is on the runner, age is not.
+      - name: install age (encrypted backup case)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends age
+          age --version
+          gpg --version | head -n 1
+      # DEPLOY_TEST_REQUIRE=all: a skipped browser step or timer-unit check, or
+      # neither gpg nor age installed, fails the job.
       - name: deploy.sh lifecycle test
         env:
           DEPLOY_TEST_REQUIRE: all
