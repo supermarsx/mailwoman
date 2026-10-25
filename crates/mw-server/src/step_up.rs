@@ -545,6 +545,7 @@ struct AdminFactors {
     totp: Option<Vec<u8>>,
     account_id: Option<String>,
     fingerprint: Vec<u8>,
+    passkeys: bool,
 }
 async fn admin_factors(
     state: &AppState,
@@ -582,23 +583,51 @@ async fn admin_factors(
         env_password.as_deref().unwrap_or_default().as_bytes(),
     ));
     digest.update(Sha256::digest(totp.as_deref().unwrap_or_default()));
+    let passkeys = match account_id.as_deref() {
+        Some(id) => state.store.list_admin_passkeys(id).await?,
+        None => Vec::new(),
+    };
+    for key in &passkeys {
+        digest.update(Sha256::digest(key.credential.credential_id.as_bytes()));
+        digest.update(Sha256::digest(&key.credential.cose_public_key));
+    }
     Ok(Some(AdminFactors {
         hash,
         env_password,
         totp,
         account_id,
         fingerprint: digest.finalize().to_vec(),
+        passkeys: !passkeys.is_empty(),
     }))
 }
 async fn admin_methods(
     state: &AppState,
     ctx: &AdminCtx,
 ) -> Result<Vec<&'static str>, mw_store::StoreError> {
-    Ok(match admin_factors(state, ctx).await? {
-        Some(factors) if factors.totp.is_some() => vec!["password", "totp"],
-        Some(_) => vec!["password"],
-        None => Vec::new(),
-    })
+    let Some(factors) = admin_factors(state, ctx).await? else {
+        return Ok(Vec::new());
+    };
+    let recovery_available = if (factors.passkeys || factors.totp.is_some())
+        && let Some(id) = factors.account_id.as_deref()
+    {
+        !state.store.admin_recovery_hashes(id).await?.is_empty()
+    } else {
+        false
+    };
+    let mut methods = Vec::new();
+    if !factors.passkeys || factors.totp.is_some() || recovery_available {
+        methods.push("password");
+    }
+    if factors.totp.is_some() {
+        methods.push("totp");
+    }
+    if factors.passkeys {
+        methods.push("passkey");
+    }
+    if recovery_available {
+        methods.push("recovery");
+    }
+    Ok(methods)
 }
 async fn admin_remaining(
     state: &AppState,
@@ -1048,9 +1077,14 @@ async fn admin_status(State(state): State<AppState>, ctx: AdminCtx) -> Response 
 
 #[derive(Deserialize)]
 struct AdminMintReq {
+    #[serde(default)]
     password: String,
     #[serde(default)]
     code: Option<String>,
+    #[serde(default)]
+    passkey: Option<crate::admin_passkeys::Assertion>,
+    #[serde(default, rename = "recoveryCode")]
+    recovery_code: Option<String>,
 }
 
 /// `POST {admin}/step-up` — the admin confirms with their password.
@@ -1087,14 +1121,20 @@ async fn admin_mint(
             "This administrator has no available confirmation method.",
         ));
     };
-    if factors.totp.is_some() && body.code.as_deref().is_none_or(|v| v.trim().is_empty()) {
+    if body.passkey.is_none()
+        && body.recovery_code.is_none()
+        && (factors.passkeys && factors.totp.is_none()
+            || factors.totp.is_some() && body.code.as_deref().is_none_or(|v| v.trim().is_empty()))
+    {
         return Err(AdminApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "stepUpIncomplete",
-            "Send your password and authenticator code.",
+            "Use your passkey, or your password with an authenticator or recovery code.",
         ));
     }
-    let mut valid = if let Some(hash) = factors.hash.clone() {
+    let mut valid = if let Some(proof) = &body.passkey {
+        crate::admin_passkeys::verify_stepup(&state, &ctx, proof).await?
+    } else if let Some(hash) = factors.hash.clone() {
         let password = body.password.clone();
         tokio::task::spawn_blocking(move || {
             mw_admin::password::verify_password(&password, &hash).unwrap_or(false)
@@ -1107,7 +1147,25 @@ async fn admin_mint(
             .as_ref()
             .is_some_and(|p| !p.is_empty() && ct_eq(&body.password, p))
     };
-    if valid && let Some(secret) = &factors.totp {
+    if valid
+        && body.passkey.is_none()
+        && let Some(code) = &body.recovery_code
+    {
+        valid = false;
+        if let Some(id) = factors.account_id.as_deref() {
+            for hash in state.store.admin_recovery_hashes(id).await? {
+                if mw_mfa::recovery::verify_code(code, &hash)
+                    && state.store.consume_admin_recovery(id, &hash).await?
+                {
+                    valid = true;
+                    break;
+                }
+            }
+        }
+    } else if valid
+        && body.passkey.is_none()
+        && let Some(secret) = &factors.totp
+    {
         valid = match totp::totp_verify(
             secret,
             body.code.as_deref().unwrap_or_default().trim(),
@@ -1145,7 +1203,7 @@ async fn admin_mint(
             .insert(h.clone(), factors.fingerprint);
         security_event(
             &state,
-            event("step-up-granted").detail(json!({ "method": if factors.totp.is_some() { "password+totp" } else { "password" } })),
+            event("step-up-granted").detail(json!({ "method": if body.passkey.is_some(){"passkey"}else if body.recovery_code.is_some(){"password+recovery"}else if factors.totp.is_some() { "password+totp" } else { "password" } })),
         )
         .await;
         return Ok(Json(json!({ "ok": true, "expiresIn": PROOF_TTL.as_secs() })).into_response());

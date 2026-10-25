@@ -1217,6 +1217,8 @@ pub static REGISTRY: &[SettingDef] = &[
         "users",
         "data export download window"
     ),
+    def!("logs.auth.retentionDays", int(1,90), "7", G, "observability", "authentication history days kept"),
+    def!("logs.auth.maxEntries", int(1000,100000), "50000", G, "observability", "maximum authentication history entries"),
     // ── Server text (e70c seam) ──────────────────────────────────────────────
     def!(
         "serverText.*",

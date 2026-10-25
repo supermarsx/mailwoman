@@ -12,6 +12,9 @@
 //! factors:["totp"]}` with no cookie, and `POST /admin/login/totp {pendingToken,
 //! code}` finishes it: `200 {username}` + cookie, `401` wrong code, `410` unknown or
 //! expired token (wire contract, schedule §10).
+//! Enrolled passkeys also require a factor after password verification; the
+//! separate `admin_passkeys` module handles UV-required passwordless ceremonies
+//! and password-backed recovery, without sharing mailbox credentials.
 //!
 //! **Own profile**: `GET /admin/me`, `GET/PUT /admin/me/preferences` (the console's
 //! appearance, at most 4 KiB, stored as setting `admin_pref:<account>`),
@@ -116,6 +119,12 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
         "/admins/{id}/totp",
         Capability::AdminsManage,
         admin_totp_delete,
+    );
+    r.admin_endpoint(
+        Method::DELETE,
+        "/admins/{id}/passkeys",
+        Capability::AdminsManage,
+        admin_passkeys_delete,
     );
     r.admin_endpoint(
         Method::PUT,
@@ -311,7 +320,15 @@ pub(crate) async fn session_timeouts(state: &AppState) -> Result<(i64, i64), Adm
 }
 
 /// Start an admin session for `username` and answer with it.
-async fn start_session(state: &AppState, username: &str) -> Response {
+pub(crate) async fn start_session(state: &AppState, username: &str) -> Response {
+    start_session_for_factor(state, username, None).await
+}
+
+pub(crate) async fn start_session_for_factor(
+    state: &AppState,
+    username: &str,
+    factor: Option<mw_store::AdminSessionFactor<'_>>,
+) -> Response {
     let token = crate::push_relay::hash_token(&format!(
         "{}:{}",
         mw_store::ServerKey::generate().to_hex(),
@@ -322,12 +339,23 @@ async fn start_session(state: &AppState, username: &str) -> Response {
         Ok(limits) => limits,
         Err(e) => return e.into_response(),
     };
-    if let Err(e) = state
-        .store
-        .put_admin_session_with_timeouts(&hash, username, now(), idle, absolute)
-        .await
-    {
-        return AdminApiError::internal(e).into_response();
+    let inserted = match factor {
+        Some(factor) => {
+            state
+                .store
+                .put_admin_session_for_factor(&hash, username, now(), (idle, absolute), factor)
+                .await
+        }
+        None => state
+            .store
+            .put_admin_session_with_timeouts(&hash, username, now(), idle, absolute)
+            .await
+            .map(|()| true),
+    };
+    match inserted {
+        Ok(true) => {}
+        Ok(false) => return AdminApiError::unauthenticated().into_response(),
+        Err(e) => return AdminApiError::internal(e).into_response(),
     }
     if let Ok(Some(acc)) = state.store.get_admin_account_by_username(username).await {
         let _ = state.store.touch_admin_login(&acc.id, now()).await;
@@ -365,8 +393,14 @@ struct Pending {
 
 static PENDING: LazyLock<Mutex<HashMap<String, Pending>>> = LazyLock::new(Default::default);
 
-/// Enrolment secrets waiting for their first code, by account id.
-type PendingEnrollments = HashMap<String, (Vec<u8>, Instant)>;
+/// Enrolment secrets are bound to the initiating administrator session.
+struct PendingEnrollment {
+    secret: zeroize::Zeroizing<Vec<u8>>,
+    session_hash: String,
+    expires: Instant,
+    attempts: u32,
+}
+type PendingEnrollments = HashMap<String, PendingEnrollment>;
 static ENROLLING: LazyLock<Mutex<PendingEnrollments>> = LazyLock::new(Default::default);
 
 fn lock<T>(m: &'static Mutex<T>) -> std::sync::MutexGuard<'static, T> {
@@ -430,7 +464,9 @@ async fn check_credentials(
 }
 
 async fn totp_step(state: &AppState, acc: &AdminAccountRow) -> Result<Checked, AdminApiError> {
-    if state.store.get_admin_totp(&acc.id).await?.is_some() {
+    if state.store.get_admin_totp(&acc.id).await?.is_some()
+        || !state.store.list_admin_passkeys(&acc.id).await?.is_empty()
+    {
         Ok(Checked::NeedsTotp {
             username: acc.username.clone(),
             account_id: acc.id.clone(),
@@ -457,11 +493,21 @@ async fn login(
     // by a forwarded header only from a configured proxy.
     let source = crate::scope_mw::proxy::client_ip(&headers, &ext);
     if let Err(error) = check_login_source(&state, source).await {
+        crate::auth_logs::record_admin_reason(
+            &state,
+            &body.username,
+            source,
+            "password",
+            false,
+            "source-blocked",
+        )
+        .await;
         return error.into_response();
     }
     match check_credentials(&state, &body.username, &body.password).await {
         Ok(Checked::Ok(username)) => {
             record_login_success(&state, &username, source).await;
+            crate::auth_logs::record_admin(&state, &username, source, "password", true).await;
             start_session(&state, &username).await
         }
         Ok(Checked::NeedsTotp {
@@ -469,6 +515,26 @@ async fn login(
             account_id,
             password_hash,
         }) => {
+            let mut factors = Vec::new();
+            if matches!(state.store.get_admin_totp(&account_id).await, Ok(Some(_))) {
+                factors.push("totp");
+            }
+            if state
+                .store
+                .list_admin_passkeys(&account_id)
+                .await
+                .is_ok_and(|v| !v.is_empty())
+            {
+                factors.push("webauthn");
+            }
+            if state
+                .store
+                .admin_recovery_hashes(&account_id)
+                .await
+                .is_ok_and(|v| !v.is_empty())
+            {
+                factors.push("recovery");
+            }
             let token = new_token();
             let mut pending = lock(&PENDING);
             pending.retain(|_, p| p.expires > Instant::now());
@@ -485,12 +551,13 @@ async fn login(
             Json(json!({
                 "twofaRequired": true,
                 "pendingToken": token,
-                "factors": ["totp"],
+                "factors": factors,
             }))
             .into_response()
         }
         Ok(Checked::Refused) => {
             record_admin_login_failure(&state, &body.username, source).await;
+            crate::auth_logs::record_admin(&state, &body.username, source, "password", false).await;
             AdminApiError::unauthenticated().into_response()
         }
         Err(e) => e.into_response(),
@@ -502,6 +569,30 @@ async fn login(
 struct TotpLoginReq {
     pending_token: String,
     code: String,
+}
+
+/// Consume a password-verified challenge for recovery without sharing mailbox tokens.
+pub(crate) async fn take_password_pending(
+    state: &AppState,
+    token: &str,
+) -> Result<AdminAccountRow, AdminApiError> {
+    if !state.v6.admin_enabled {
+        return Err(AdminApiError::unauthenticated());
+    }
+    let pending = lock(&PENDING)
+        .remove(token)
+        .filter(|p| p.expires > Instant::now())
+        .ok_or_else(AdminApiError::unauthenticated)?;
+    state
+        .store
+        .get_admin_account(&pending.account_id)
+        .await?
+        .filter(|a| {
+            !a.disabled
+                && a.password_hash == pending.password_hash
+                && (a.source != "env-bootstrap" || env_login_enabled())
+        })
+        .ok_or_else(AdminApiError::unauthenticated)
 }
 
 /// `POST /admin/login/totp {pendingToken, code}`.
@@ -542,6 +633,7 @@ async fn login_totp(
             }
             lock(&PENDING).remove(&body.pending_token);
             record_login_success(&state, &username, source).await;
+            crate::auth_logs::record_admin(&state, &username, source, "password+totp", true).await;
             start_session(&state, &username).await
         }
         Ok(false) => {
@@ -550,6 +642,7 @@ async fn login_totp(
                 lock(&PENDING).insert(body.pending_token, challenge);
             }
             record_admin_login_failure(&state, &username, source).await;
+            crate::auth_logs::record_admin(&state, &username, source, "password+totp", false).await;
             AdminApiError::new(
                 StatusCode::UNAUTHORIZED,
                 "wrongCode",
@@ -581,7 +674,7 @@ async fn verify_totp(
         .await?)
 }
 
-async fn check_login_source(
+pub(crate) async fn check_login_source(
     state: &AppState,
     source: Option<std::net::IpAddr>,
 ) -> Result<(), AdminApiError> {
@@ -595,7 +688,11 @@ async fn check_login_source(
     Ok(())
 }
 
-async fn record_login_success(state: &AppState, username: &str, source: Option<std::net::IpAddr>) {
+pub(crate) async fn record_login_success(
+    state: &AppState,
+    username: &str,
+    source: Option<std::net::IpAddr>,
+) {
     if let Err(e) = state.v6.admin.record_login_success(username, source).await {
         tracing::warn!("admin login-success not recorded: {e}");
     }
@@ -606,7 +703,7 @@ async fn record_login_success(state: &AppState, username: &str, source: Option<s
 /// match, and the jail is the enforcement. The line carries its own RFC 3339
 /// timestamp; [`mw_admin::FAIL2BAN_FAILREGEX`] anchors on the `mailwoman[auth]:`
 /// token, not on position.
-async fn record_admin_login_failure(
+pub(crate) async fn record_admin_login_failure(
     state: &AppState,
     username: &str,
     source: Option<std::net::IpAddr>,
@@ -813,6 +910,8 @@ async fn me_totp_start(
     State(state): State<AppState>,
     ctx: AdminCtx,
 ) -> Result<Response, AdminApiError> {
+    crate::step_up::require_admin(&state, &ctx, crate::step_up::StepUpAction::TwoFactorDisable)
+        .await?;
     let id = require_account(&ctx)?;
     if state.store.get_admin_totp(id).await?.is_some() {
         return Err(AdminApiError::conflict(
@@ -824,9 +923,28 @@ async fn me_totp_start(
     let uri = totp::provisioning_uri(&secret, TOTP_ISSUER, &ctx.username, &TotpParams::default());
     let encoded = totp::base32_encode(&secret);
     let mut map = lock(&ENROLLING);
-    map.retain(|_, (_, exp)| *exp > Instant::now());
-    map.insert(id.to_string(), (secret, Instant::now() + ENROL_TTL));
-    Ok(Json(json!({ "secret": encoded, "otpauthUri": uri })).into_response())
+    map.retain(|_, pending| pending.expires > Instant::now());
+    if map.len() >= 1024 && !map.contains_key(id) {
+        return Err(AdminApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "enrollmentBusy",
+            "Try again shortly.",
+        ));
+    }
+    map.insert(
+        id.to_string(),
+        PendingEnrollment {
+            secret: zeroize::Zeroizing::new(secret),
+            session_hash: ctx.session_hash.clone(),
+            expires: Instant::now() + ENROL_TTL,
+            attempts: 0,
+        },
+    );
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(json!({ "secret": encoded, "otpauthUri": uri })),
+    )
+        .into_response())
 }
 
 #[derive(Deserialize)]
@@ -840,36 +958,66 @@ async fn me_totp_confirm(
     ctx: AdminCtx,
     AdminJson(body): AdminJson<CodeReq>,
 ) -> Result<Response, AdminApiError> {
+    crate::step_up::require_admin(&state, &ctx, crate::step_up::StepUpAction::TwoFactorDisable)
+        .await?;
     let id = require_account(&ctx)?.to_string();
-    let secret = lock(&ENROLLING)
-        .get(&id)
-        .filter(|(_, exp)| *exp > Instant::now())
-        .map(|(s, _)| s.clone());
-    let Some(secret) = secret else {
-        return Err(AdminApiError::conflict(
-            "noEnrolment",
-            "Start the set-up again: the secret expired.",
-        ));
-    };
     let unix = u64::try_from(now()).unwrap_or_default();
-    let Some(step) = totp::totp_verify(&secret, body.code.trim(), unix, &TotpParams::default())
+    let (secret, step) = {
+        let mut map = lock(&ENROLLING);
+        map.retain(|_, pending| pending.expires > Instant::now());
+        let pending = map
+            .get_mut(&id)
+            .filter(|p| p.session_hash == ctx.session_hash)
+            .ok_or_else(|| {
+                AdminApiError::conflict(
+                    "noEnrolment",
+                    "Start authenticator setup again in this session.",
+                )
+            })?;
+        let step = totp::totp_verify(
+            &pending.secret,
+            body.code.trim(),
+            unix,
+            &TotpParams::default(),
+        );
+        if let Some(step) = step {
+            let secret = zeroize::Zeroizing::new(pending.secret.to_vec());
+            map.remove(&id);
+            (secret, step)
+        } else {
+            pending.attempts += 1;
+            if pending.attempts >= MAX_ATTEMPTS {
+                map.remove(&id);
+            }
+            return Err(AdminApiError::invalid(
+                "wrongCode",
+                "That code is not right. After five attempts, start setup again.",
+                "/code",
+            ));
+        }
+    };
+    let codes = mw_mfa::recovery::generate_codes(mw_mfa::recovery::DEFAULT_RECOVERY_CODES);
+    let hashes = codes
+        .iter()
+        .map(|code| mw_mfa::recovery::hash_code(code))
+        .collect::<Vec<_>>();
+    let Some(seeded) = state
+        .store
+        .enroll_admin_totp_with_recovery(
+            &id,
+            &ctx.session_hash,
+            &secret,
+            i64::try_from(step).unwrap_or(i64::MAX),
+            now(),
+            &hashes,
+        )
+        .await?
     else {
-        return Err(AdminApiError::invalid(
-            "wrongCode",
-            "That code is not right.",
-            "/code",
+        return Err(AdminApiError::conflict(
+            "enrollmentChanged",
+            "The administrator account, session, or factor changed. Sign in and start setup again.",
         ));
     };
-    if !state
-        .store
-        .enroll_admin_totp(&id, &secret, i64::try_from(step).unwrap_or(i64::MAX), now())
-        .await?
-    {
-        return Err(AdminApiError::conflict(
-            "alreadyEnrolled",
-            "An authenticator is already enrolled.",
-        ));
-    }
     invalidate_pending(&id);
     lock(&ENROLLING).remove(&id);
     audit(
@@ -881,26 +1029,22 @@ async fn me_totp_confirm(
         None,
     )
     .await;
-    Ok(StatusCode::NO_CONTENT.into_response())
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(json!({"ok":true,"recoveryCodes":if seeded {codes} else {vec![]}})),
+    )
+        .into_response())
 }
 
-/// `DELETE /admin/me/totp {code}` — remove the admin's own factor, with a current
-/// code.
+/// `DELETE /admin/me/totp` — fresh central proof already consumed the required
+/// factor (TOTP, passkey, or recovery); asking for the same code again rejects it.
 async fn me_totp_delete(
     State(state): State<AppState>,
     ctx: AdminCtx,
-    AdminJson(body): AdminJson<CodeReq>,
 ) -> Result<Response, AdminApiError> {
     crate::step_up::require_admin(&state, &ctx, crate::step_up::StepUpAction::TwoFactorDisable)
         .await?;
     let id = require_account(&ctx)?.to_string();
-    if !verify_totp(&state, &id, &body.code).await? {
-        return Err(AdminApiError::invalid(
-            "wrongCode",
-            "That code is not right.",
-            "/code",
-        ));
-    }
     invalidate_pending(&id);
     state.store.delete_admin_totp(&id).await?;
     audit(
@@ -992,6 +1136,7 @@ async fn account_view(state: &AppState, acc: &AdminAccountRow) -> Result<Value, 
         "roles": roles,
         "overrides": overrides,
         "totpEnrolled": totp,
+        "passkeyCount": state.store.list_admin_passkeys(&acc.id).await?.len(),
     }))
 }
 
@@ -1407,6 +1552,29 @@ async fn admin_totp_delete(
         &state,
         &ctx,
         "admin-totp-removed",
+        &format!("admin:{id}"),
+        None,
+        None,
+    )
+    .await;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+async fn admin_passkeys_delete(
+    State(state): State<AppState>,
+    ctx: AdminCtx,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Response, AdminApiError> {
+    crate::step_up::require_admin(&state, &ctx, crate::step_up::StepUpAction::TwoFactorDisable)
+        .await?;
+    let acc = find(&state, &id).await?;
+    require_can_manage(&state, &ctx, &acc).await?;
+    state.store.revoke_admin_passkeys(&id).await?;
+    invalidate_pending(&id);
+    audit(
+        &state,
+        &ctx,
+        "admin-passkeys-revoked",
         &format!("admin:{id}"),
         None,
         None,

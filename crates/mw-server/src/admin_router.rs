@@ -84,9 +84,11 @@ fn endpoints(r: &mut impl AdminRegistrar) {
     crate::features::register(r);
     crate::config_routes::register(r);
     crate::diagnostics::register(r);
+    crate::auth_logs::register(r);
     crate::application_logs::register(r);
     // f02 (e24c): sign-in, the admin's own profile, admin accounts and roles.
     crate::admin_accounts::register(r);
+    crate::admin_passkeys::register(r);
     crate::step_up::register(r);
     crate::security_center::register_admin(r);
     crate::admin_roles::register(r);

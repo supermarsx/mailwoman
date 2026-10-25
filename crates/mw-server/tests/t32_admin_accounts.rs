@@ -566,3 +566,65 @@ async fn domain_roles_filter_lists_and_refuse_cross_domain_writes() {
         403
     );
 }
+
+#[tokio::test]
+async fn managed_passkey_reset_requires_authority_and_revokes_target_sessions() {
+    let base = server().await;
+    let manager = root(&base).await;
+    let created = manager
+        .post(format!("{base}/admin/admins"))
+        .json(&json!({"username":"reset-target","password":"target long password","roles":[]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(created.status(), 201);
+    let account: Value = created.json().await.unwrap();
+    assert_eq!(account["passkeyCount"], 0);
+    let target = client();
+    assert_eq!(
+        login(&target, &base, "reset-target", "target long password")
+            .await
+            .status(),
+        200
+    );
+    let url = format!(
+        "{base}/admin/admins/{}/passkeys",
+        account["id"].as_str().unwrap()
+    );
+    assert_eq!(target.delete(&url).send().await.unwrap().status(), 403);
+    let unconfirmed_manager = client();
+    assert_eq!(
+        login(&unconfirmed_manager, &base, "root", "hunter2")
+            .await
+            .status(),
+        200
+    );
+    assert_eq!(
+        unconfirmed_manager
+            .delete(&url)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(manager.delete(&url).send().await.unwrap().status(), 204);
+    assert_eq!(
+        target
+            .get(format!("{base}/admin/session"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    assert_eq!(
+        manager
+            .get(format!("{base}/admin/session"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+}

@@ -110,6 +110,7 @@ pub mod settings_routes;
 mod features;
 mod feature_jmap;
 mod diagnostics;
+mod auth_logs;
 mod hosting_connections;
 mod ssh_tunnels;
 mod hosting_operations;
@@ -156,6 +157,7 @@ mod error_pages;
 // (`AdminCtx`, `AdminApiError`, `If-Match`), and the registry every admin route is
 // mounted through (`admin_router::admin_endpoint`).
 mod admin_accounts;
+mod admin_passkeys;
 pub mod admin_ctx;
 mod admin_roles;
 pub mod admin_router;
@@ -2093,16 +2095,23 @@ async fn login(
     let host = state.external.host(&headers, &ext);
     match domain_config::canonical(&state.store, &body.username, host.as_deref()).await {
         Ok(identity) => body.username = identity.login_name,
-        Err(_) => return address_not_configured(),
+        Err(_) => {
+            security_center::record_failure(&state,None,&body.username,&security_center::device(&headers,&ext,body.client_type.as_deref()),"password","not-configured").await;
+            return address_not_configured();
+        },
     }
     // A1 (LDAP-bind login backend, §18.3): an env-gated pre-check against the
     // directory. Off by default → the mail backend remains the sole authority.
     if let Err(resp) = directory_bind_gate(&state, &body.username, &body.password).await {
+        security_center::record_failure_backend(&state,None,&body.username,&security_center::device(&headers,&ext,body.client_type.as_deref()),"password","directory-rejected",Some("ldap")).await;
         return resp;
     }
     let upstream = match upstream_resolve::resolve_upstream(&state, &body.username).await {
         Ok(u) => u,
-        Err(upstream_resolve::ResolveError::NotConfigured) => return address_not_configured(),
+        Err(upstream_resolve::ResolveError::NotConfigured) => {
+            security_center::record_failure(&state,None,&body.username,&security_center::device(&headers,&ext,body.client_type.as_deref()),"password","not-configured").await;
+            return address_not_configured();
+        },
     };
     if let Some(engine) = &state.engine {
         return engine_login(&state, &headers, &ext, engine, body, upstream.url()).await;
@@ -2119,16 +2128,25 @@ async fn login(
         Ok(s) => s,
         Err(e) => {
             if let UpstreamSessionError::Refused(r) = &e {
-                tracing::warn!("proxy login refused: {r}");
+                let _ = r;
+                tracing::warn!("proxy login refused by upstream policy");
             }
-            security_center::record_failure(&state,None,&body.username,
-                &security_center::device(&headers,&ext,body.client_type.as_deref()),"password","upstream-auth").await;
+            let reason = match &e {
+                UpstreamSessionError::Refused(_) => "upstream-policy",
+                UpstreamSessionError::Jmap(mw_jmap::JmapError::Status(status)) if status.as_u16()==401 => "auth-rejected",
+                UpstreamSessionError::Jmap(mw_jmap::JmapError::Status(status)) if status.as_u16()==403 => "upstream-policy",
+                UpstreamSessionError::Jmap(mw_jmap::JmapError::Http(error)) if error.is_timeout() => "timeout",
+                _ => "backend-failure",
+            };
+            security_center::record_failure_backend(&state,None,&body.username,
+                &security_center::device(&headers,&ext,body.client_type.as_deref()),"password",reason,Some("jmap")).await;
             return unauthorized();
         }
     };
     // An upstream may only name URLs on itself.
-    if let Err(r) = session_urls_on_origin(&jmap_url, &session) {
-        tracing::warn!("proxy login refused: the upstream session's URLs: {r}");
+    if session_urls_on_origin(&jmap_url, &session).is_err() {
+        tracing::warn!("proxy login refused by upstream origin policy");
+        security_center::record_failure_backend(&state,None,&body.username,&security_center::device(&headers,&ext,body.client_type.as_deref()),"password","upstream-policy",Some("jmap")).await;
         return unauthorized();
     }
     let account_id = session

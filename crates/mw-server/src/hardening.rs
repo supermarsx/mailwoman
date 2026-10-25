@@ -188,6 +188,8 @@ pub fn csrf_request_ok(headers: &HeaderMap, store: &mw_store::Store, admin_route
 pub fn csrf_token_exempt(path: &str) -> bool {
     // Mailbox sign-in. No session exists yet.
     path == "/api/login"
+        || path == "/api/login/passkey/begin"
+        || path == "/api/login/passkey/finish"
         // Second-factor step and forced enrolment of a sign-in: authority is the
         // one-shot pending token in the body; still no session.
         || path.starts_with("/api/login/2fa")
@@ -196,6 +198,10 @@ pub fn csrf_token_exempt(path: &str) -> bool {
         // Admin panel sign-in, wherever `MW_ADMIN_PATH` puts it. No admin session
         // exists yet.
         || path == mw_admin::config::admin_route("/login")
+        || path == mw_admin::config::admin_route("/login/totp")
+        || path == mw_admin::config::admin_route("/login/passkey/begin")
+        || path == mw_admin::config::admin_route("/login/passkey/finish")
+        || path == mw_admin::config::admin_route("/login/recovery")
         // OAuth token endpoint: authorisation code with its PKCE verifier, or a
         // refresh token, in the body.
         || path == "/oauth/token"
@@ -560,10 +566,16 @@ mod tests {
     fn csrf_token_exempt_is_an_exact_list() {
         for path in [
             "/api/login",
+            "/api/login/passkey/begin",
+            "/api/login/passkey/finish",
             "/api/login/2fa",
             "/api/login/2fa/enroll/totp/begin",
             "/api/discover",
             "/admin/login",
+            "/admin/login/totp",
+            "/admin/login/passkey/begin",
+            "/admin/login/passkey/finish",
+            "/admin/login/recovery",
             "/oauth/token",
             "/oauth/introspect",
             "/oauth/revoke",
@@ -584,6 +596,11 @@ mod tests {
             "/api/me",
             "/admin/logout",
             "/admin/login/",
+            "/admin/login/passkey/finish/extra",
+            "/api/login/passkey/finish/extra",
+            "/admin/me/passkeys/begin",
+            "/admin/me/passkeys/finish",
+            "/admin/step-up/passkey",
             "/admin/users",
             "/admin/oauth-dcr",
             "/oauth/consent",

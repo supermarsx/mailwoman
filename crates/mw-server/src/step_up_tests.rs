@@ -846,7 +846,7 @@ async fn passwordless_engine_uses_sealed_credentials_and_requires_uv_once() {
             counter,
             uv,
         );
-        let request = json!({"pendingToken":ch["pendingToken"],"credentialId":credential,"clientDataJson":b64url(&proof.client_data_json),"authenticatorData":b64url(&proof.authenticator_data),"signature":b64url(&proof.signature)});
+        let request = json!({"pendingToken":ch["pendingToken"],"credentialId":credential,"userHandle":b64url(&crate::twofa_routes::passkey_user_handle(account)),"clientDataJson":b64url(&proof.client_data_json),"authenticatorData":b64url(&proof.authenticator_data),"signature":b64url(&proof.signature)});
         let (status, body) = post(
             &fresh,
             format!("{origin}/api/login/passkey/finish"),
@@ -1088,4 +1088,63 @@ async fn unknown_session_provenance_requires_new_login_for_proof_and_enrollment(
         401
     );
     assert_eq!(probe(&server, &user).await.0, 401);
+}
+
+#[tokio::test]
+async fn mfa_failure_uses_current_trusted_device_and_journals_expired_challenges() {
+    let s = spawn().await;
+    let original = reqwest::Client::builder()
+        .no_proxy()
+        .cookie_store(true)
+        .user_agent("Original-password-device")
+        .build()
+        .unwrap();
+    login(&s, &original).await;
+    let store = s.store().await;
+    store
+        .put_totp_secret(mw_mock_jmap::ACCOUNT_ID, &totp::generate_secret(), true)
+        .await
+        .unwrap();
+    let pending = login(&s, &original).await;
+    let current = client();
+    let response = current
+        .post(s.url("/api/login/2fa"))
+        .header("User-Agent", "Current-factor-device")
+        .header("X-Forwarded-For", "198.51.100.77")
+        .json(&json!({"pendingToken":pending["pendingToken"],"method":"totp","code":"invalid"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 401);
+    let rows = store
+        .auth_log_events(&mw_store::AuthLogQuery {
+            reason: Some("factor_refused".into()),
+            limit: 10,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].event.user_agent, "Current-factor-device");
+    assert_eq!(rows[0].event.ip, "127.0.0.1");
+    assert_eq!(
+        post(
+            &current,
+            s.url("/api/login/2fa"),
+            json!({"pendingToken":"expired","method":"totp","code":"invalid"})
+        )
+        .await
+        .0,
+        401
+    );
+    let rows = store
+        .auth_log_events(&mw_store::AuthLogQuery {
+            reason: Some("challenge-rejected".into()),
+            limit: 10,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].event.account_id, None);
 }

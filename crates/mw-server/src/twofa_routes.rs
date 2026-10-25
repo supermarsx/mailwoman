@@ -225,7 +225,7 @@ pub(crate) async fn gate_login(
     };
     let store = &state.store;
 
-    if let Some(response) = domain_signin_gate(state, &args).await {
+    if let Some(response) = domain_signin_gate(state, &args, &device).await {
         return response;
     }
 
@@ -244,6 +244,15 @@ pub(crate) async fn gate_login(
             // Engine mode connected the account to validate the password; a
             // disabled account must not be left syncing.
             account_gate::stop_engine_work(state, &args.account_id);
+            crate::security_center::record_failure(
+                state,
+                Some(&args.account_id),
+                &args.username,
+                &device,
+                args.authentication_method,
+                "account-disabled",
+            )
+            .await;
             return disabled_response(&args.username);
         }
         Ok(_) => {}
@@ -449,6 +458,15 @@ async fn pending_disabled(state: &AppState, pending: &PendingLogin) -> Result<bo
                     pending.args.username
                 );
                 account_gate::stop_engine_work(state, &pending.args.account_id);
+                crate::security_center::record_failure(
+                    state,
+                    Some(&pending.args.account_id),
+                    &pending.args.username,
+                    &pending.device,
+                    pending.args.authentication_method,
+                    "account-disabled",
+                )
+                .await;
             }
             Ok(gate.disabled)
         }
@@ -470,7 +488,7 @@ async fn complete_login(
     mut extra: serde_json::Value,
     stage: Stage,
 ) -> Response {
-    if let Some(response) = domain_signin_gate(state, args).await {
+    if let Some(response) = domain_signin_gate(state, args, device).await {
         return response;
     }
     let gate = match login_gate(state, args).await {
@@ -479,6 +497,15 @@ async fn complete_login(
     };
     if gate.disabled {
         account_gate::stop_engine_work(state, &args.account_id);
+        crate::security_center::record_failure(
+            state,
+            Some(&args.account_id),
+            &args.username,
+            device,
+            args.authentication_method,
+            "account-disabled",
+        )
+        .await;
         return match stage {
             Stage::Password => disabled_response(&args.username),
             Stage::SecondFactor | Stage::Remembered | Stage::Passwordless => {
@@ -540,10 +567,23 @@ async fn complete_login(
     .await
 }
 
-async fn domain_signin_gate(state: &AppState, args: &SessionArgs) -> Option<Response> {
+async fn domain_signin_gate(
+    state: &AppState,
+    args: &SessionArgs,
+    device: &mw_store::SessionDevice,
+) -> Option<Response> {
     match crate::domain_config::signin_allowed(&state.store, &args.creds.username).await {
         Ok(true) => None,
         Ok(false) => {
+            crate::security_center::record_failure(
+                state,
+                Some(&args.account_id),
+                &args.username,
+                device,
+                args.authentication_method,
+                "domain-denied",
+            )
+            .await;
             account_gate::stop_engine_work(state, &args.account_id);
             Some(crate::unauthorized())
         }
@@ -603,6 +643,15 @@ struct PasswordlessFinish {
     #[serde(default)]
     client_type: Option<String>,
 }
+async fn rejected_passkey(
+    state: &AppState,
+    device: &mw_store::SessionDevice,
+    reason: &str,
+) -> Response {
+    crate::security_center::record_failure(state, None, "", device, "passkey", reason).await;
+    twofa_unauthorized()
+}
+
 async fn passwordless_finish(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -616,6 +665,7 @@ async fn passwordless_finish(
         )
             .into_response();
     };
+    let device = crate::security_center::device(&headers, &ext, body.client_type.as_deref());
     let challenge = state
         .twofa
         .passwordless
@@ -623,30 +673,30 @@ async fn passwordless_finish(
         .expect("passwordless lock")
         .remove(&body.pending_token);
     let Some(challenge) = challenge.filter(|value| value.expires_at > Instant::now()) else {
-        return twofa_unauthorized();
+        return rejected_passkey(&state, &device, "challenge-rejected").await;
     };
     let Ok(true) = state.store.passkey_discoverable(&body.credential_id).await else {
-        return twofa_unauthorized();
+        return rejected_passkey(&state, &device, "credential-rejected").await;
     };
     let Ok(Some(credential)) = state
         .store
         .get_webauthn_credential(&body.credential_id)
         .await
     else {
-        return twofa_unauthorized();
+        return rejected_passkey(&state, &device, "credential-rejected").await;
     };
     if !passkey_handle_matches(&credential.account_id, body.user_handle.as_deref(), true) {
-        return twofa_unauthorized();
+        return rejected_passkey(&state, &device, "credential-rejected").await;
     }
     let Ok(Some(previous)) = state.store.webauthn_state(&body.credential_id).await else {
-        return twofa_unauthorized();
+        return rejected_passkey(&state, &device, "credential-rejected").await;
     };
     let (Some(client_data_json), Some(authenticator_data), Some(signature)) = (
         decode_b64(&body.client_data_json),
         decode_b64(&body.authenticator_data),
         decode_b64(&body.signature),
     ) else {
-        return twofa_unauthorized();
+        return rejected_passkey(&state, &device, "credential-rejected").await;
     };
     let request = AssertionRequest {
         challenge: challenge.challenge,
@@ -660,13 +710,13 @@ async fn passwordless_finish(
         user_verification: UserVerification::Required,
     };
     let Ok(assertion) = verify_assertion_with_backup(&request, previous.backup_eligible) else {
-        return twofa_unauthorized();
+        return rejected_passkey(&state, &device, "credential-rejected").await;
     };
     let Ok(account) = state.store.get_account(&credential.account_id).await else {
-        return twofa_unauthorized();
+        return rejected_passkey(&state, &device, "credential-rejected").await;
     };
     let Ok(creds) = state.store.account_credentials(&account.id).await else {
-        return twofa_unauthorized();
+        return rejected_passkey(&state, &device, "credential-rejected").await;
     };
     let policy = match crate::security_center::policy(&state, &account.id, &account.username).await
     {
@@ -674,7 +724,7 @@ async fn passwordless_finish(
         Err(r) => return r,
     };
     if !policy.passkeys_enabled {
-        return twofa_unauthorized();
+        return rejected_passkey(&state, &device, "credential-rejected").await;
     }
     let args = SessionArgs {
         authentication_method: "passkey",
@@ -685,7 +735,7 @@ async fn passwordless_finish(
         creds,
         client_type: body.client_type,
     };
-    if let Some(response) = domain_signin_gate(&state, &args).await {
+    if let Some(response) = domain_signin_gate(&state, &args, &device).await {
         return response;
     }
     let gate = match login_gate(&state, &args).await {
@@ -693,6 +743,15 @@ async fn passwordless_finish(
         Err(e) => return server_error("account policy", e),
     };
     if gate.disabled {
+        crate::security_center::record_failure(
+            &state,
+            Some(&args.account_id),
+            &args.username,
+            &device,
+            args.authentication_method,
+            "account-disabled",
+        )
+        .await;
         return twofa_unauthorized();
     }
     let upstream = match crate::upstream_resolve::resolve_upstream(&state, &args.username).await {
@@ -726,7 +785,7 @@ async fn passwordless_finish(
         Ok(false) => return twofa_unauthorized(),
         Err(e) => return server_error("passkey state", e),
     }
-    let device = crate::security_center::device(&headers, &ext, args.client_type.as_deref());
+
     complete_login(&state, &args, &device, json!({}), Stage::Passwordless).await
 }
 
@@ -762,11 +821,35 @@ struct VerifyReq {
 /// An account disabled since the password step is treated as a wrong factor
 /// whatever was presented: the same 401, the same count against the attempt cap,
 /// and the factor is not looked at (no TOTP step or recovery code is spent).
-async fn verify_2fa(State(state): State<AppState>, Json(body): Json<VerifyReq>) -> Response {
+async fn verify_2fa(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    ext: axum::http::Extensions,
+    Json(body): Json<VerifyReq>,
+) -> Response {
+    let device = crate::security_center::device(&headers, &ext, None);
     let Some(pending) = state.twofa.peek_pending(&body.pending_token) else {
+        crate::security_center::record_failure(
+            &state,
+            None,
+            "",
+            &device,
+            &body.method,
+            "challenge-rejected",
+        )
+        .await;
         return twofa_unauthorized();
     };
     if pending.kind != PendingKind::Verify {
+        crate::security_center::record_failure(
+            &state,
+            None,
+            "",
+            &device,
+            &body.method,
+            "challenge-rejected",
+        )
+        .await;
         return twofa_unauthorized();
     }
     if body.method == "webauthn" {
@@ -814,7 +897,7 @@ async fn verify_2fa(State(state): State<AppState>, Json(body): Json<VerifyReq>) 
                 &state,
                 Some(account_id),
                 &pending.args.username,
-                &pending.device,
+                &device,
                 &body.method,
                 "factor_refused",
             )

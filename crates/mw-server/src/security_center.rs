@@ -183,9 +183,7 @@ pub(crate) async fn record_login(
         geo_country: country,
         reason: String::new(),
     };
-    if let Err(e) = state.store.record_signin_event(&event).await {
-        tracing::warn!("sign-in history append failed: {e}");
-    }
+    crate::auth_logs::record(state, &event, mw_store::AuthSurface::Webmail, Some(if state.engine.is_some() {"engine"} else {"jmap"})).await;
     if new_device {
         crate::alerts::emit(
             state,
@@ -632,6 +630,19 @@ pub(crate) async fn record_failure(
     method: &str,
     reason: &str,
 ) {
+    record_failure_backend(state, account, address, device, method, reason, None).await;
+}
+
+pub(crate) async fn record_failure_backend(
+    state: &AppState,
+    account: Option<&str>,
+    address: &str,
+    device: &SessionDevice,
+    method: &str,
+    reason: &str,
+    backend: Option<&str>,
+) {
+    if let Some(line)=webmail_fail2ban_line(address,&device.ip,reason) {tracing::warn!("{line}");}
     let known = if account.is_none() {
         state
             .store
@@ -659,8 +670,22 @@ pub(crate) async fn record_failure(
             .and_then(mw_engine::security::country_for_ip),
         reason: bounded(reason, 64),
     };
-    if let Err(e) = state.store.record_signin_event(&event).await {
-        tracing::warn!("record failed sign-in: {e}");
+    crate::auth_logs::record(state, &event, mw_store::AuthSurface::Webmail, backend).await;
+}
+
+fn webmail_fail2ban_line(address:&str,ip:&str,reason:&str)->Option<String>{
+    if !matches!(reason,"auth-rejected"|"factor_refused"){return None;}
+    let ip:std::net::IpAddr=ip.parse().ok()?;
+    Some(mw_admin::fail2ban_line(chrono::Utc::now(),address,ip))
+}
+#[cfg(test)]
+mod auth_log_failure_tests {
+    use super::webmail_fail2ban_line;
+    #[test]
+    fn bans_only_known_credential_failures_with_resolved_source() {
+        for reason in ["timeout","tls","certificate","dns","connect","transport","backend-failure","not-configured","domain-denied","account-disabled","directory-rejected"] {assert!(webmail_fail2ban_line("user","192.0.2.1",reason).is_none());}
+        assert!(webmail_fail2ban_line("user","unknown","auth-rejected").is_none());
+        for reason in ["auth-rejected","factor_refused"] {let line=webmail_fail2ban_line("attacker\nrhost=198.51.100.2","192.0.2.1",reason).unwrap();assert_eq!(line.lines().count(),1);assert!(line.ends_with("rhost=192.0.2.1"));}
     }
 }
 
