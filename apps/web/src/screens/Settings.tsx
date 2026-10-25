@@ -103,6 +103,7 @@ const FONT_OPTIONS: ReadonlyArray<{ value: UiFont; label: string }> = [
   { value: 'system', label: 'settings-font-system' },
   { value: 'serif', label: 'settings-font-serif' },
   { value: 'mono', label: 'settings-font-mono' },
+  ...(['inter', 'roboto', 'open-sans', 'jost'] as const).map(value => ({value, label: `settings-font-${value}`})),
 ];
 
 const LAYOUT_OPTIONS: ReadonlyArray<{ value: LayoutMode; label: string }> = [

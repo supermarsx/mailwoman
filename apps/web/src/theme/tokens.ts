@@ -112,13 +112,12 @@ function elevationOf(appearance: Appearance): ThemeTokens['elevation'] {
 }
 
 // The UI face is Jost, bundled with the web build (styles/typeface.css). The
-// reading and mono families are the operator's `mailwoman fonts pull` overlay
-// (fonts/manifest.json + styles/fonts.css.ts) with system fallbacks, so nothing
-// breaks when those files are absent. font-src 'self' — no remote URL ever.
+// reading and mono families are bundled Fontsource variable fonts with system
+// fallbacks. font-src 'self' — no remote URL ever.
 const font: ThemeTokens['font'] = {
   ui: '"Jost", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-  reading: '"Newsreader", Georgia, "Times New Roman", serif',
-  mono: '"JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace',
+  reading: '"Newsreader Variable", Georgia, "Times New Roman", serif',
+  mono: '"JetBrains Mono Variable", ui-monospace, "Cascadia Code", Consolas, monospace',
 };
 
 const fontSize: ThemeTokens['fontSize'] = { base: '14px' };

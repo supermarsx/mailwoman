@@ -236,3 +236,8 @@ settings-search-with-attachments = With attachments
 settings-search-without-attachments = Without attachments
 settings-search-unread = Unread messages only
 settings-search-flagged = Flagged messages only
+
+settings-font-inter = Inter
+settings-font-roboto = Roboto
+settings-font-open-sans = Open Sans
+settings-font-jost = Jost

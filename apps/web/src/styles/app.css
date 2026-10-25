@@ -1,3 +1,4 @@
+@import './bundledFonts.css';
 @import './typeface.css';
 
 /* Colours and structural tokens come from theme/themes.css.ts, which binds the

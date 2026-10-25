@@ -33,7 +33,6 @@
 // vanilla-extract themes + @font-face + print CSS into the bundle graph, since
 // the store is reachable from `main.tsx`.
 import '../../theme/themes.css.ts';
-import '../../styles/fonts.css.ts';
 import '../../styles/print.css.ts';
 
 import { createSignal, type Accessor } from 'solid-js';

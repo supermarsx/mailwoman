@@ -67,3 +67,8 @@ admin-totp-recovery-count = Unused recovery codes: { $count }
 admin-totp-recovery-replace = Replace recovery codes
 admin-totp-recovery-shared = Recovery codes are shared by your admin second factors. Replacing them invalidates all previous unused codes.
 admin-totp-remove-detail = Remove this authenticator from your admin account. The secure confirmation can use another enrolled factor or a recovery code if your authenticator is lost.
+
+admin-personal-font-inter = Inter
+admin-personal-font-roboto = Roboto
+admin-personal-font-open-sans = Open Sans
+admin-personal-font-jost = Jost

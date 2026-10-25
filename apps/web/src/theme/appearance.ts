@@ -37,7 +37,7 @@ export type ThemeMode = 'fixed' | 'system' | 'schedule';
 export const THEME_MODES: readonly ThemeMode[] = ['fixed', 'system', 'schedule'];
 
 /** UI-font override choice. */
-export type UiFont = 'default' | 'system' | 'serif' | 'mono';
+export type UiFont = 'default' | 'system' | 'serif' | 'mono' | 'inter' | 'roboto' | 'open-sans' | 'jost';
 
 /** Chrome layout preset. */
 export type LayoutMode = 'default' | 'ribbon';
@@ -45,9 +45,13 @@ export type LayoutMode = 'default' | 'ribbon';
 /** UI-font override stacks; `null` = remove the override (use the theme font). */
 export const FONT_STACKS: Record<UiFont, string | null> = {
   default: null,
+  inter: '"Inter Variable", system-ui, sans-serif',
+  roboto: '"Roboto Variable", system-ui, sans-serif',
+  'open-sans': '"Open Sans Variable", system-ui, sans-serif',
+  jost: '"Jost", system-ui, sans-serif',
   system: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-  serif: '"Newsreader", Georgia, "Times New Roman", serif',
-  mono: '"JetBrains Mono", ui-monospace, Consolas, monospace',
+  serif: '"Newsreader Variable", Georgia, "Times New Roman", serif',
+  mono: '"JetBrains Mono Variable", ui-monospace, Consolas, monospace',
 };
 
 /** Local-clock window during which the dark pack is used, `HH:MM` 24-hour. */
