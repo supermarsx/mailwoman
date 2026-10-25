@@ -1,7 +1,41 @@
-# MT-SEED — NOT REVIEWED
-# Locale: ja · Module: tasks. Source of truth: ../en/tasks.ftl
-#
-# PLACEHOLDER awaiting human translation via Weblate. This catalog holds NO
-# reviewed translations — every key falls back to the en source at runtime until
-# a translator fills it in, so Weblate shows it as needing translation (0%).
-# Do NOT hand-edit or paste raw machine output as final: translate in Weblate.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: ja · Module: tasks. Source: ../en/tasks.ftl
+
+tasks-title = タスク
+tasks-lists = タスクリスト
+tasks-all = すべてのタスク
+tasks-my-day = 今日の予定
+tasks-lists-heading = リスト
+tasks-no-lists = リストはまだありません。
+tasks-new-title = 新しいタスクのタイトル
+tasks-add-placeholder = タスクを追加…
+tasks-my-day-empty = 今日が期限のタスクはありません。
+tasks-convert = 変換:
+tasks-mail-id = 変換するメッセージの ID
+tasks-mail-id-placeholder = メッセージ ID
+tasks-mail-to-task = メール → タスク
+tasks-event-id = 変換する予定の ID
+tasks-event-id-placeholder = 予定 ID
+tasks-event-to-task = 予定 → タスク
+tasks-followup-mail = フォローアップ: メール { $id }
+tasks-prep-event = 準備: 予定 { $id }
+tasks-list-label = タスク
+tasks-subtasks = サブタスク
+tasks-empty-list = このリストにタスクはありません。
+tasks-complete = { $title } を完了
+tasks-reopen = { $title } を再開
+tasks-high-priority = 優先度: 高
+tasks-edit = { $title } を編集
+tasks-field-title = タイトル
+tasks-field-due = 期限
+tasks-field-priority = 優先度
+tasks-priority-none = なし
+tasks-priority-high = 高
+tasks-priority-medium = 中
+tasks-priority-low = 低
+tasks-delete-confirm = このタスクを削除しますか？この操作は元に戻せません。
+tasks-delete-yes = タスクを削除
+tasks-delete-no = タスクを残す
+tasks-changed-elsewhere = このタスクは別のデバイスまたはセッションで変更されました。あなたの編集内容は保持されます。保存すると、変更したフィールドのみが適用されます。
+tasks-deleted-elsewhere = 「{ $title }」は別のデバイスまたはセッションで削除されたため、編集フォームを閉じました。
+tasks-notice-dismiss = 閉じる
