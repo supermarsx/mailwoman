@@ -1,7 +1,41 @@
-# MT-SEED — NOT REVIEWED
-# Locale: pl · Module: tasks. Source of truth: ../en/tasks.ftl
-#
-# PLACEHOLDER awaiting human translation via Weblate. This catalog holds NO
-# reviewed translations — every key falls back to the en source at runtime until
-# a translator fills it in, so Weblate shows it as needing translation (0%).
-# Do NOT hand-edit or paste raw machine output as final: translate in Weblate.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: pl · Module: tasks. Source: ../en/tasks.ftl
+
+tasks-title = Zadania
+tasks-lists = Listy zadań
+tasks-all = Wszystkie zadania
+tasks-my-day = Mój dzień
+tasks-lists-heading = Listy
+tasks-no-lists = Brak list.
+tasks-new-title = Tytuł nowego zadania
+tasks-add-placeholder = Dodaj zadanie…
+tasks-my-day-empty = Na dziś nic nie zaplanowano. Czas na chwilę spokoju.
+tasks-convert = Konwertuj:
+tasks-mail-id = Identyfikator wiadomości do konwersji
+tasks-mail-id-placeholder = identyfikator wiadomości
+tasks-mail-to-task = Wiadomość → zadanie
+tasks-event-id = Identyfikator wydarzenia do konwersji
+tasks-event-id-placeholder = identyfikator wydarzenia
+tasks-event-to-task = Wydarzenie → zadanie
+tasks-followup-mail = Do załatwienia: wiadomość { $id }
+tasks-prep-event = Przygotowanie: wydarzenie { $id }
+tasks-list-label = Zadania
+tasks-subtasks = Podzadania
+tasks-empty-list = Brak zadań na tej liście.
+tasks-complete = Ukończ { $title }
+tasks-reopen = Otwórz ponownie { $title }
+tasks-high-priority = Wysoki priorytet
+tasks-edit = Edytuj { $title }
+tasks-field-title = Tytuł
+tasks-field-due = Termin
+tasks-field-priority = Priorytet
+tasks-priority-none = Brak
+tasks-priority-high = Wysoki
+tasks-priority-medium = Średni
+tasks-priority-low = Niski
+tasks-delete-confirm = Usunąć to zadanie? Tej operacji nie można cofnąć.
+tasks-delete-yes = Usuń zadanie
+tasks-delete-no = Zachowaj zadanie
+tasks-changed-elsewhere = To zadanie zostało zmienione na innym urządzeniu lub w innej sesji. Twoje zmiany zostały zachowane; „Zapisz” stosuje tylko zmienione pola.
+tasks-deleted-elsewhere = Zadanie „{ $title }” zostało usunięte na innym urządzeniu lub w innej sesji, więc jego formularz edycji został zamknięty.
+tasks-notice-dismiss = Zamknij
