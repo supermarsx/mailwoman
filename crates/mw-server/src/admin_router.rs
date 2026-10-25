@@ -79,6 +79,8 @@ pub(crate) trait AdminRegistrar {
 fn endpoints(r: &mut impl AdminRegistrar) {
     // f02 (e24a): the catalogue.
     r.admin_endpoint(Method::GET, "/capabilities", Access::SignedIn, capabilities);
+    // f01 (e10b): the settings model C (`/settings/**`).
+    crate::settings_routes::register(r);
 }
 
 /// The mounted admin routes (merged by `router()` in `lib.rs`).

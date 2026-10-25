@@ -26,19 +26,22 @@ use crate::{AdminError, ObservabilityConfig};
 
 /// Appearance/branding config (§19 appearance section).
 ///
-/// This is the DEPLOYMENT DEFAULT, not a policy. A user with no stored
-/// appearance sees these values; the moment they pick a theme, density or accent
-/// of their own, their per-account preferences (SPEC §17.3, stored by
+/// This is the DEPLOYMENT DEFAULT. A user with no stored appearance sees these
+/// values; the moment they pick a theme, density or accent of their own, their
+/// per-account preferences (SPEC §17.3, stored by
 /// `crates/mw-server/src/prefs_routes.rs` and served at
 /// `GET /api/account/appearance` alongside these defaults) win, and changing the
-/// deployment default afterwards does not move them back. Nothing here can force
-/// a user's appearance.
+/// deployment default afterwards does not move them back.
 ///
-/// That is deliberate. §17.1 makes the theme a per-user choice, and the theme set
-/// includes the high-contrast packs — an operator-enforced theme would be an
-/// operator-enforced accessibility regression. An operator who needs the whole
-/// deployment on one theme sets the default and leaves it; they do not get a
-/// lock, and the admin panel says so rather than implying one.
+/// Since 26.20 (t32 settings model C) the three values are the global values of
+/// the settings keys `appearance.theme`, `appearance.brandName` and
+/// `appearance.accent`, stored in the database ([`crate::store::AdminBackend::
+/// get_deployment_appearance`]); `GET/PUT /admin/appearance` and
+/// `mailwoman admin appearance show|set` read and write them. An administrator
+/// who must hold users to one theme locks `appearance.theme` in the settings
+/// model, which is a separate and explicit decision; this struct only carries the
+/// default. `Appearance::default()` is the built-in default when nothing is
+/// stored: the `dark` pack, as the web client's own default.
 ///
 /// `theme` is stored as a free string and is NOT validated against the theme
 /// registry, which lives in TypeScript (`apps/web/src/theme/registry.ts`) and
@@ -58,7 +61,7 @@ pub struct Appearance {
 impl Default for Appearance {
     fn default() -> Self {
         Self {
-            theme: "grove-light".to_string(),
+            theme: "dark".to_string(),
             brand_name: "Mailwoman".to_string(),
             accent: None,
         }

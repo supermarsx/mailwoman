@@ -19,8 +19,9 @@ use chrono::Utc;
 
 use mw_admin::store::UserRecord;
 use mw_admin::{
-    ActorKind, AdminBackend, AdminError, AuditLogEntry, BanEntry, CacheScopeRow as AdminCacheScope,
-    Domain, ObservabilityConfig, Quota, SecurityPolicy, UserFeatureFlags,
+    ActorKind, AdminBackend, AdminError, Appearance, AuditLogEntry, BanEntry,
+    CacheScopeRow as AdminCacheScope, Domain, ObservabilityConfig, Quota, SecurityPolicy,
+    UserFeatureFlags,
 };
 use mw_oauth::{ApiKey, OAuthClient, OAuthError, OAuthStore, OAuthToken, TokenKind};
 use mw_store::{
@@ -616,7 +617,82 @@ impl AdminBackend for AdminBackendAdapter {
     async fn is_banned(&self, ip: &str) -> Result<bool, AdminError> {
         Ok(self.load_bans().await?.iter().any(|b| b.ip == ip))
     }
+
+    /// The global values of the settings keys `appearance.theme`,
+    /// `appearance.brandName` and `appearance.accent` (t32 settings model C).
+    /// `None` when none of the three is stored.
+    async fn get_deployment_appearance(&self) -> Result<Option<Appearance>, AdminError> {
+        let mut out = Appearance::default();
+        let mut any = false;
+        for key in APPEARANCE_KEYS {
+            let Some(raw) = self
+                .store
+                .get_setting_policy(key)
+                .await
+                .map_err(admin_err)?
+                .and_then(|p| p.global_value)
+            else {
+                continue;
+            };
+            let Ok(serde_json::Value::String(v)) = serde_json::from_str::<serde_json::Value>(&raw)
+            else {
+                continue;
+            };
+            any = true;
+            match key {
+                "appearance.theme" => out.theme = v,
+                "appearance.brandName" => out.brand_name = v,
+                _ => out.accent = (!v.is_empty()).then_some(v),
+            }
+        }
+        Ok(any.then_some(out))
+    }
+
+    /// Store the three global values. Each key's lock and user-override flags
+    /// are kept as they are; a key never stored gets the registry's defaults.
+    async fn set_deployment_appearance(
+        &self,
+        appearance: &Appearance,
+        actor: &str,
+    ) -> Result<(), AdminError> {
+        let values = [
+            ("appearance.theme", appearance.theme.clone()),
+            ("appearance.brandName", appearance.brand_name.clone()),
+            (
+                "appearance.accent",
+                appearance.accent.clone().unwrap_or_default(),
+            ),
+        ];
+        for (key, value) in values {
+            let def = crate::settings_registry::lookup(key)
+                .ok_or_else(|| AdminError::Config(format!("{key} is not registered")))?;
+            crate::settings_registry::validate(def, &serde_json::Value::String(value.clone()), "/value")
+                .map_err(|r| AdminError::Invalid(format!("{key}: {}", r.detail)))?;
+            let current = self.store.get_setting_policy(key).await.map_err(admin_err)?;
+            self.store
+                .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+                    key: key.to_string(),
+                    global_value: Some(serde_json::Value::String(value).to_string()),
+                    allow_user_override: current
+                        .as_ref()
+                        .map_or(def.user_override, |p| p.allow_user_override),
+                    global_locked: current.as_ref().is_some_and(|p| p.global_locked),
+                    updated_by: actor.to_string(),
+                    updated_at: Utc::now().timestamp(),
+                })
+                .await
+                .map_err(admin_err)?;
+        }
+        Ok(())
+    }
 }
+
+/// The settings keys the deployment appearance is made of.
+const APPEARANCE_KEYS: [&str; 3] = [
+    "appearance.theme",
+    "appearance.brandName",
+    "appearance.accent",
+];
 
 impl AdminBackendAdapter {
     async fn load_bans(&self) -> Result<Vec<BanEntry>, AdminError> {

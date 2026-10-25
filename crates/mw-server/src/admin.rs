@@ -25,8 +25,14 @@
 //! in the workspace applies is not presented as a setting:
 //! * `/admin/domains/{name}` registers a name. A domain's stored upstream JSON,
 //!   allowlist and blocklist are neither returned nor accepted.
-//! * `/admin/observability` and `/admin/appearance` still answer, for a later
-//!   release that gives them a reader; the panel shows neither form.
+//! * `/admin/observability` still answers, for a later release that gives it a
+//!   reader; the panel does not show it.
+//!
+//! **Appearance (26.20, t32 settings model C).** `/admin/appearance` reads and
+//! writes the global values of the settings keys `appearance.theme`,
+//! `appearance.brandName` and `appearance.accent`, stored in the database and
+//! validated by the settings registry; the same values are under
+//! `/admin/settings`.
 //!
 //! JSON is camelCase to satisfy the typed web client in `state/slices/admin.ts`.
 
@@ -921,15 +927,20 @@ async fn remove_ban(
 
 // ─── appearance ───────────────────────────────────────────────────────────────
 
-/// `GET /admin/appearance` — the deployment-default appearance held in this
-/// process's memory (see [`mw_admin::Admin::set_appearance`]: it is not persisted).
-/// The panel does not call this.
+/// `GET /admin/appearance` — the deployment-default appearance: the stored global
+/// values of `appearance.theme`, `appearance.brandName` and `appearance.accent`,
+/// or the built-in defaults.
 async fn get_appearance(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(r) = admin_authed(&state, &headers).await {
         return r;
     }
-    let a = state.v6.admin.config().appearance;
-    Json(json!({ "theme": a.theme, "brandName": a.brand_name, "accent": a.accent })).into_response()
+    match state.v6.admin.appearance().await {
+        Ok(a) => {
+            Json(json!({ "theme": a.theme, "brandName": a.brand_name, "accent": a.accent }))
+                .into_response()
+        }
+        Err(e) => err500(e),
+    }
 }
 
 #[derive(Deserialize)]
@@ -951,10 +962,15 @@ async fn set_appearance(
     let appearance = mw_admin::Appearance {
         theme: body.theme,
         brand_name: body.brand_name,
-        accent: body.accent,
+        accent: body.accent.filter(|a| !a.is_empty()),
     };
     match state.v6.admin.set_appearance(&actor, appearance).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(AdminError::Invalid(why)) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "code": "invalidValue", "detail": why, "error": why })),
+        )
+            .into_response(),
         Err(e) => err500(e),
     }
 }

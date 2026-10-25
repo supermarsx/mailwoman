@@ -17,8 +17,8 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 
 use crate::{
-    AdminError, AuditLogEntry, BanEntry, CacheScopeRow, Domain, FlagUpdate, ObservabilityConfig,
-    Quota, SecurityPolicy, UserFeatureFlags,
+    AdminError, Appearance, AuditLogEntry, BanEntry, CacheScopeRow, Domain, FlagUpdate,
+    ObservabilityConfig, Quota, SecurityPolicy, UserFeatureFlags,
 };
 
 /// A provisioned mail user (`admin_users`/`quotas`, 0007). `password_hash` is
@@ -94,6 +94,24 @@ pub trait AdminBackend: Send + Sync {
     async fn remove_ban(&self, ip: &str) -> Result<(), AdminError>;
     async fn list_bans(&self) -> Result<Vec<BanEntry>, AdminError>;
     async fn is_banned(&self, ip: &str) -> Result<bool, AdminError>;
+
+    // ── Deployment appearance (settings model C global values) ───────────────
+    /// The stored deployment-default appearance, or `None` when nothing is
+    /// stored (the built-in [`Appearance::default`] applies). A backend without
+    /// persistence keeps the default.
+    async fn get_deployment_appearance(&self) -> Result<Option<Appearance>, AdminError> {
+        Ok(None)
+    }
+    /// Store the deployment-default appearance.
+    async fn set_deployment_appearance(
+        &self,
+        _appearance: &Appearance,
+        _actor: &str,
+    ) -> Result<(), AdminError> {
+        Err(AdminError::Config(
+            "this admin backend does not store the appearance".into(),
+        ))
+    }
 }
 
 /// In-memory [`AdminBackend`] — the default backend for `Admin::default()` and
@@ -117,6 +135,7 @@ struct Inner {
     observability: Option<ObservabilityConfig>,
     cache_scope: HashMap<String, CacheScopeRow>,
     bans: HashMap<String, BanEntry>,
+    appearance: Option<Appearance>,
 }
 
 impl InMemoryBackend {
@@ -280,5 +299,18 @@ impl AdminBackend for InMemoryBackend {
 
     async fn is_banned(&self, ip: &str) -> Result<bool, AdminError> {
         Ok(self.lock().bans.contains_key(ip))
+    }
+
+    async fn get_deployment_appearance(&self) -> Result<Option<Appearance>, AdminError> {
+        Ok(self.lock().appearance.clone())
+    }
+
+    async fn set_deployment_appearance(
+        &self,
+        appearance: &Appearance,
+        _actor: &str,
+    ) -> Result<(), AdminError> {
+        self.lock().appearance = Some(appearance.clone());
+        Ok(())
     }
 }

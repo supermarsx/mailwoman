@@ -30,6 +30,18 @@
 //! * The read-receipt policy (t29-e9) is one word per account on the same
 //!   `settings` store, under the key the engine reads when `MDN/send` is asked
 //!   to send without the user's confirmation.
+//! * **Settings model C (26.20 t32-e10b, f01).** An administrator can hold
+//!   `appearance.theme|accent|density`, `mail.readReceipts` and
+//!   `notifications.enabled` (global, domain or per user;
+//!   `crate::settings_registry`). These routes stay the user's writers of those
+//!   values and apply the hold: the appearance object's held fields are replaced
+//!   by the administrator's values on every write and read (one object, so the
+//!   rest of it is still saved) and named in `lockedFields`; a read-receipt or
+//!   notifications write that changes a held value is refused `403
+//!   {code:"setting_locked"}`, and reads report the held value. The deployment
+//!   default served with the appearance is the effective value of those keys for
+//!   the user's domain. `/api/settings` is merged here
+//!   (`crate::settings_routes::user_router`).
 
 use axum::Json;
 use axum::Router;
@@ -185,12 +197,25 @@ async fn signatures_delete(
 // ─────────────────────────────────────────────────────────────────────────────
 
 async fn notifications_get(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let account = match account_id(&state, &headers).await {
-        Ok(a) => a,
+    let session = match session_of(&state, &headers).await {
+        Ok(s) => s,
         Err(r) => return r,
     };
-    match do_get_notifications(&state.store, &account).await {
-        Ok(cfg) => Json(cfg).into_response(),
+    let held = match held(&state, &session, "notifications.enabled").await {
+        Ok(h) => h,
+        Err(r) => return r,
+    };
+    match do_get_notifications(&state.store, &session.account_id).await {
+        Ok(mut cfg) => {
+            let mut locked = Vec::new();
+            if let Some(v) = held.as_ref().and_then(|e| e.value.as_bool()) {
+                cfg.enabled = v;
+                locked.push("enabled");
+            }
+            let mut body = serde_json::to_value(cfg).unwrap_or_else(|_| json!({}));
+            body["lockedFields"] = json!(locked);
+            Json(body).into_response()
+        }
         Err(e) => server_error("get notifications", e),
     }
 }
@@ -200,10 +225,18 @@ async fn notifications_put(
     headers: HeaderMap,
     Json(body): Json<NotificationConfigDto>,
 ) -> Response {
-    let account = match account_id(&state, &headers).await {
-        Ok(a) => a,
+    let session = match session_of(&state, &headers).await {
+        Ok(s) => s,
         Err(r) => return r,
     };
+    let account = session.account_id.clone();
+    match held(&state, &session, "notifications.enabled").await {
+        Ok(Some(e)) if e.value.as_bool() != Some(body.enabled) => {
+            return setting_locked("notifications.enabled");
+        }
+        Ok(_) => {}
+        Err(r) => return r,
+    }
     match do_put_notifications(&state.store, &account, &body).await {
         Ok(()) => ok(),
         Err(e) => server_error("put notifications", e),
@@ -377,9 +410,13 @@ struct AppearanceResponse {
     appearance: Option<serde_json::Value>,
     /// When it was stored (server clock, ms), or `null`.
     updated_at: Option<i64>,
-    /// The admin `[appearance]` section. A DEFAULT, never an enforcement — see
-    /// `crates/mw-admin/src/config.rs`.
+    /// The administrator's appearance for this user's domain: the effective
+    /// values of `appearance.theme`, `appearance.brandName` and
+    /// `appearance.accent` without the user's own choice.
     deployment_default: DeploymentAppearanceDto,
+    /// Fields of `appearance` an administrator holds; their values above are the
+    /// administrator's, and a write cannot change them.
+    locked_fields: Vec<&'static str>,
 }
 
 /// The deployment-wide appearance default (`mw_admin::Appearance`), in the same
@@ -400,22 +437,33 @@ struct AppearanceRequest {
 }
 
 async fn appearance_get(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let account = match account_id(&state, &headers).await {
-        Ok(a) => a,
+    let session = match session_of(&state, &headers).await {
+        Ok(s) => s,
         Err(r) => return r,
     };
-    let cfg = state.v6.admin.config().appearance;
-    match do_get_appearance(&state.store, &account).await {
-        Ok(stored) => Json(AppearanceResponse {
-            appearance: stored.as_ref().and_then(|e| e.prefs.clone()),
-            updated_at: stored.as_ref().map(|e| e.updated_at),
-            deployment_default: DeploymentAppearanceDto {
-                theme: cfg.theme,
-                brand_name: cfg.brand_name,
-                accent: cfg.accent,
-            },
-        })
-        .into_response(),
+    let locks = match appearance_locks(&state, &session).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let deployment_default = match deployment_default(&state, &session).await {
+        Ok(d) => d,
+        Err(e) => return server_error("get appearance default", e),
+    };
+    match do_get_appearance(&state.store, &session.account_id).await {
+        Ok(stored) => {
+            let mut appearance = stored.as_ref().and_then(|e| e.prefs.clone());
+            let locked_fields = match appearance.as_mut() {
+                Some(prefs) => apply_appearance_locks(prefs, &locks),
+                None => locked_field_names(&locks),
+            };
+            Json(AppearanceResponse {
+                appearance,
+                updated_at: stored.as_ref().map(|e| e.updated_at),
+                deployment_default,
+                locked_fields,
+            })
+            .into_response()
+        }
         Err(e) => server_error("get appearance", e),
     }
 }
@@ -425,18 +473,31 @@ async fn appearance_put(
     headers: HeaderMap,
     Json(body): Json<AppearanceRequest>,
 ) -> Response {
-    let account = match account_id(&state, &headers).await {
-        Ok(a) => a,
+    let session = match session_of(&state, &headers).await {
+        Ok(s) => s,
         Err(r) => return r,
     };
-    if !body.appearance.is_object() {
+    let mut prefs = body.appearance;
+    if !prefs.is_object() {
         return bad_request("appearance preferences must be a JSON object");
     }
-    if serialized_len(&body.appearance) > MAX_APPEARANCE_BYTES {
+    if serialized_len(&prefs) > MAX_APPEARANCE_BYTES {
         return payload_too_large("appearance preferences are too large");
     }
-    match do_put_appearance(&state.store, &account, Some(body.appearance), now_ms()).await {
-        Ok(updated_at) => Json(json!({ "ok": true, "updatedAt": updated_at })).into_response(),
+    let locks = match appearance_locks(&state, &session).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    // Held fields are replaced, not refused: the object is one value and the
+    // rest of it is the user's to save (t32-admin §2.4).
+    let locked_fields = apply_appearance_locks(&mut prefs, &locks);
+    match do_put_appearance(&state.store, &session.account_id, Some(prefs), now_ms()).await {
+        Ok(updated_at) => Json(json!({
+            "ok": true,
+            "updatedAt": updated_at,
+            "lockedFields": locked_fields,
+        }))
+        .into_response(),
         Err(e) => server_error("put appearance", e),
     }
 }
@@ -502,18 +563,22 @@ fn no_mdn_policy() -> Response {
 }
 
 async fn mdn_policy_get(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let account = match account_id(&state, &headers).await {
-        Ok(a) => a,
+    let session = match session_of(&state, &headers).await {
+        Ok(s) => s,
         Err(r) => return r,
     };
     let Some(engine) = &state.engine else {
         return no_mdn_policy();
     };
-    match engine.mdn_policy(&account).await {
-        Ok(policy) => Json(MdnPolicyDto {
-            policy: policy.to_string(),
-        })
-        .into_response(),
+    let held = match held(&state, &session, "mail.readReceipts").await {
+        Ok(h) => h,
+        Err(r) => return r,
+    };
+    if let Some(policy) = held.as_ref().and_then(|e| e.value.as_str()) {
+        return Json(json!({ "policy": policy, "locked": true })).into_response();
+    }
+    match engine.mdn_policy(&session.account_id).await {
+        Ok(policy) => Json(json!({ "policy": policy, "locked": false })).into_response(),
         Err(e) => {
             tracing::error!("prefs: get mdn policy failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response()
@@ -526,15 +591,23 @@ async fn mdn_policy_put(
     headers: HeaderMap,
     Json(body): Json<MdnPolicyDto>,
 ) -> Response {
-    let account = match account_id(&state, &headers).await {
-        Ok(a) => a,
+    let session = match session_of(&state, &headers).await {
+        Ok(s) => s,
         Err(r) => return r,
     };
+    let account = session.account_id.clone();
     if state.engine.is_none() {
         return no_mdn_policy();
     }
     if !mw_engine::Engine::MDN_POLICIES.contains(&body.policy.as_str()) {
         return bad_request("policy must be one of: ask, never, always");
+    }
+    match held(&state, &session, "mail.readReceipts").await {
+        Ok(Some(e)) if e.value.as_str() != Some(body.policy.as_str()) => {
+            return setting_locked("mail.readReceipts");
+        }
+        Ok(_) => {}
+        Err(r) => return r,
     }
     match state
         .store
@@ -845,11 +918,130 @@ pub(crate) fn prefs_router() -> Router<AppState> {
             "/api/account/mdn-policy",
             get(mdn_policy_get).put(mdn_policy_put),
         )
+        // t32-e10b (f01): the settings model C, user side.
+        .merge(crate::settings_routes::user_router())
 }
 
 /// The authenticated caller's account id, or an early auth `Response` to return.
 async fn account_id(state: &AppState, headers: &HeaderMap) -> Result<String, Response> {
     crate::authed(state, headers).await.map(|s| s.account_id)
+}
+
+/// The authenticated caller's session, or an early auth `Response` to return.
+async fn session_of(state: &AppState, headers: &HeaderMap) -> Result<mw_store::Session, Response> {
+    crate::authed(state, headers).await
+}
+
+/// `403 {code:"setting_locked"}`: an administrator holds `key` for this user.
+fn setting_locked(key: &str) -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        Json(json!({
+            "code": "setting_locked",
+            "error": format!("{key} is set by your administrator"),
+            "setting": key,
+        })),
+    )
+        .into_response()
+}
+
+/// The effective value of `key` when an administrator holds it for this user,
+/// `None` when the user may choose.
+async fn held(
+    state: &AppState,
+    session: &mw_store::Session,
+    key: &str,
+) -> Result<Option<crate::settings_registry::Effective>, Response> {
+    match crate::settings_routes::effective_for_session(state, session, key).await {
+        Ok(Some(e)) if e.locked() => Ok(Some(e)),
+        Ok(_) => Ok(None),
+        Err(e) => Err(server_error("read setting", e)),
+    }
+}
+
+/// The appearance keys and the fields of the appearance object each one holds.
+const APPEARANCE_FIELDS: [(&str, &[&str]); 3] = [
+    ("appearance.theme", &["mode", "theme", "lightTheme", "darkTheme"]),
+    ("appearance.accent", &["accentId"]),
+    ("appearance.density", &["density"]),
+];
+
+/// The held appearance keys and their values, for this user.
+async fn appearance_locks(
+    state: &AppState,
+    session: &mw_store::Session,
+) -> Result<Vec<(&'static str, serde_json::Value)>, Response> {
+    let mut out = Vec::new();
+    for (key, _) in APPEARANCE_FIELDS {
+        if let Some(e) = held(state, session, key).await? {
+            out.push((key, e.value));
+        }
+    }
+    Ok(out)
+}
+
+fn locked_field_names(locks: &[(&'static str, serde_json::Value)]) -> Vec<&'static str> {
+    APPEARANCE_FIELDS
+        .iter()
+        .filter(|(key, _)| locks.iter().any(|(k, _)| k == key))
+        .flat_map(|(_, fields)| fields.iter().copied())
+        .collect()
+}
+
+/// Replace the held fields of an appearance object with the administrator's
+/// values and return their names. A held theme fixes the mode and both pair
+/// members to that theme, so no `system`/`schedule` switch can show another one.
+fn apply_appearance_locks(
+    prefs: &mut serde_json::Value,
+    locks: &[(&'static str, serde_json::Value)],
+) -> Vec<&'static str> {
+    let Some(obj) = prefs.as_object_mut() else {
+        return Vec::new();
+    };
+    for (key, value) in locks {
+        match *key {
+            "appearance.theme" => {
+                obj.insert("mode".into(), json!("fixed"));
+                obj.insert("theme".into(), value.clone());
+                obj.insert("lightTheme".into(), value.clone());
+                obj.insert("darkTheme".into(), value.clone());
+                obj.insert("chosen".into(), json!(true));
+            }
+            "appearance.accent" => {
+                obj.insert("accentId".into(), value.clone());
+            }
+            "appearance.density" => {
+                obj.insert("density".into(), value.clone());
+            }
+            _ => {}
+        }
+    }
+    locked_field_names(locks)
+}
+
+/// The administrator's appearance for this user: the effective values of the
+/// three keys from the settings tables alone (the user's own object is not one
+/// of them), falling back to the built-in defaults.
+async fn deployment_default(
+    state: &AppState,
+    session: &mw_store::Session,
+) -> Result<DeploymentAppearanceDto, StoreError> {
+    let subject = crate::settings_routes::UserSubject::of(session);
+    let value = |e: Option<crate::settings_registry::Effective>| {
+        e.and_then(|e| e.value.as_str().map(str::to_string))
+    };
+    let store = &state.store;
+    let s = subject.as_subject();
+    let theme = value(crate::settings_registry::effective_for(store, "appearance.theme", &s).await?);
+    let brand =
+        value(crate::settings_registry::effective_for(store, "appearance.brandName", &s).await?);
+    let accent = value(crate::settings_registry::effective_for(store, "appearance.accent", &s).await?);
+    let fallback = mw_admin::Appearance::default();
+    Ok(DeploymentAppearanceDto {
+        theme: theme.unwrap_or(fallback.theme),
+        brand_name: brand.unwrap_or(fallback.brand_name),
+        accent: accent.filter(|a| !a.is_empty()),
+    })
 }
 
 /// A fresh opaque row id for a newly created saved search / identity.

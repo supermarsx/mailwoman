@@ -687,24 +687,42 @@ impl Admin {
 
     // ── Appearance ───────────────────────────────────────────────────────────
 
-    /// Replace the deployment-default appearance **in this process's memory**.
-    ///
-    /// It is not persisted: a restart returns to [`Appearance::default`]. While the
-    /// process runs, `GET /api/account/appearance` serves the value to accounts that
-    /// have chosen no appearance of their own. The panel does not offer this control
-    /// since 26.20, and the CLI never could change a running server with it.
+    /// The deployment-default appearance: the stored global values of the
+    /// settings keys `appearance.theme`, `appearance.brandName` and
+    /// `appearance.accent` (t32 settings model C), or [`Appearance::default`]
+    /// when nothing is stored.
+    pub async fn appearance(&self) -> Result<Appearance, AdminError> {
+        Ok(self
+            .backend
+            .get_deployment_appearance()
+            .await?
+            .unwrap_or_default())
+    }
+
+    /// Store the deployment-default appearance (the global values of the three
+    /// settings keys), so every server process on the database serves it to
+    /// accounts that have chosen no appearance of their own, and it survives a
+    /// restart. The caller validates the values (`mw-server`'s settings
+    /// registry, or the CLI's `validate_appearance`); the change is audited.
     pub async fn set_appearance(
         &self,
         actor: &str,
         appearance: Appearance,
     ) -> Result<(), AdminError> {
+        self.backend
+            .set_deployment_appearance(&appearance, actor)
+            .await?;
         self.config.lock().expect("config poisoned").appearance = appearance.clone();
         self.emit(
             actor,
             ActorKind::Admin,
             AuditKind::AppearanceChanged,
-            None,
-            serde_json::json!({ "theme": appearance.theme, "brand_name": appearance.brand_name }),
+            Some("setting:appearance".to_string()),
+            serde_json::json!({
+                "theme": appearance.theme,
+                "brand_name": appearance.brand_name,
+                "accent": appearance.accent,
+            }),
         )
         .await
     }

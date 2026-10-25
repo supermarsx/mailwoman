@@ -63,7 +63,7 @@ pub enum AdminCommand {
         #[command(subcommand)]
         verb: ObsVerb,
     },
-    /// The built-in appearance defaults.
+    /// The deployment-default appearance (theme, brand name, accent).
     Appearance {
         #[command(subcommand)]
         verb: AppearanceVerb,
@@ -243,9 +243,22 @@ pub struct ObsSetArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum AppearanceVerb {
-    /// Show the built-in appearance defaults. There is no `set`: the appearance is
-    /// not persisted, so a CLI process could not change what a server serves.
+    /// Show the deployment-default appearance (stored values, or the built-in
+    /// defaults when nothing is stored).
     Show,
+    /// Store the deployment-default appearance. Omitted options keep their
+    /// current value. A running server serves it within 30 seconds.
+    Set {
+        /// Theme id, for example `dark` or `grove-light`.
+        #[arg(long)]
+        theme: Option<String>,
+        /// The product name shown to users.
+        #[arg(long)]
+        brand_name: Option<String>,
+        /// Accent id, for example `blue`; an empty value means the theme's own.
+        #[arg(long)]
+        accent: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -271,7 +284,7 @@ pub async fn run(admin: &Admin, command: AdminCommand, actor: &str) -> Result<St
         AdminCommand::SecurityPolicy { verb } => policy(admin, verb, actor).await,
         AdminCommand::Integrations { verb } => integrations(admin, verb, actor).await,
         AdminCommand::Observability { verb } => observability(admin, verb, actor).await,
-        AdminCommand::Appearance { verb } => appearance(admin, verb).await,
+        AdminCommand::Appearance { verb } => appearance(admin, verb, actor).await,
         AdminCommand::CacheScope { verb } => cache_scope(admin, verb, actor).await,
     }
 }
@@ -485,10 +498,66 @@ async fn observability(admin: &Admin, verb: ObsVerb, actor: &str) -> Result<Stri
     }
 }
 
-async fn appearance(admin: &Admin, verb: AppearanceVerb) -> Result<String, AdminError> {
+async fn appearance(
+    admin: &Admin,
+    verb: AppearanceVerb,
+    actor: &str,
+) -> Result<String, AdminError> {
     match verb {
-        AppearanceVerb::Show => Ok(pretty(&admin.config().appearance)),
+        AppearanceVerb::Show => Ok(pretty(&admin.appearance().await?)),
+        AppearanceVerb::Set {
+            theme,
+            brand_name,
+            accent,
+        } => {
+            let mut next = admin.appearance().await?;
+            if let Some(theme) = theme {
+                next.theme = theme;
+            }
+            if let Some(brand_name) = brand_name {
+                next.brand_name = brand_name;
+            }
+            if let Some(accent) = accent {
+                next.accent = (!accent.is_empty()).then_some(accent);
+            }
+            validate_appearance(&next)?;
+            admin.set_appearance(actor, next.clone()).await?;
+            Ok(pretty(&next))
+        }
     }
+}
+
+/// The checks the settings registry applies to the three keys
+/// (`mw-server/src/settings_registry.rs`): theme and accent ids are lower-case
+/// letters, digits and `-` (at most 64 and 32 characters), the brand name is 1 to
+/// 64 characters without control characters.
+pub fn validate_appearance(a: &crate::Appearance) -> Result<(), AdminError> {
+    let slug = |s: &str| {
+        s.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    };
+    if a.theme.is_empty() || a.theme.len() > 64 || !slug(&a.theme) {
+        return Err(AdminError::Invalid(
+            "theme: lower-case letters, digits and - (1 to 64)".into(),
+        ));
+    }
+    if a.accent
+        .as_deref()
+        .is_some_and(|x| x.len() > 32 || !slug(x))
+    {
+        return Err(AdminError::Invalid(
+            "accent: lower-case letters, digits and - (at most 32)".into(),
+        ));
+    }
+    if a.brand_name.trim().is_empty()
+        || a.brand_name.chars().count() > 64
+        || a.brand_name.chars().any(char::is_control)
+    {
+        return Err(AdminError::Invalid(
+            "brand name: 1 to 64 characters, no control characters".into(),
+        ));
+    }
+    Ok(())
 }
 
 async fn cache_scope(
@@ -699,13 +768,67 @@ mod tests {
             ],
             vec!["admin", "domains", "create", "example.com", "--allow", "a"],
             vec!["admin", "domains", "create", "example.com", "--block", "b"],
-            vec!["admin", "appearance", "set", "--theme", "x"],
+            vec!["admin", "appearance", "set", "--upstream", "x"],
         ] {
             assert!(
                 AdminCli::try_parse_from(&argv).is_err(),
                 "{argv:?} must not parse"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn appearance_set_is_stored_validated_and_shown() {
+        let admin = Admin::in_memory();
+        async fn show(admin: &Admin) -> String {
+            let cli = AdminCli::try_parse_from(["admin", "appearance", "show"]).unwrap();
+            run(admin, cli.command, "root").await.unwrap()
+        }
+        let out = show(&admin).await;
+        assert!(out.contains("\"dark\""), "built-in default is dark: {out}");
+
+        let cli = AdminCli::try_parse_from([
+            "admin",
+            "appearance",
+            "set",
+            "--theme",
+            "grove-light",
+            "--accent",
+            "blue",
+        ])
+        .unwrap();
+        run(&admin, cli.command, "root").await.unwrap();
+        let out = show(&admin).await;
+        assert!(out.contains("grove-light") && out.contains("blue"), "{out}");
+        assert!(out.contains("Mailwoman"), "the brand name was kept: {out}");
+
+        let cli = AdminCli::try_parse_from(["admin", "appearance", "set", "--accent", ""]).unwrap();
+        run(&admin, cli.command, "root").await.unwrap();
+        assert!(!show(&admin).await.contains("blue"));
+
+        for bad in [
+            vec!["admin", "appearance", "set", "--theme", "Not A Theme"],
+            vec!["admin", "appearance", "set", "--brand-name", ""],
+            vec!["admin", "appearance", "set", "--accent", "BLUE"],
+        ] {
+            let cli = AdminCli::try_parse_from(&bad).unwrap();
+            assert!(
+                matches!(
+                    run(&admin, cli.command, "root").await,
+                    Err(AdminError::Invalid(_))
+                ),
+                "{bad:?}"
+            );
+        }
+        let audit = admin.list_audit(10).await.unwrap();
+        assert_eq!(
+            audit
+                .iter()
+                .filter(|e| e.action == "appearance-changed")
+                .count(),
+            2,
+            "one audit row per stored change"
+        );
     }
 
     #[tokio::test]
