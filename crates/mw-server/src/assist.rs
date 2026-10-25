@@ -67,7 +67,7 @@ async fn config(
     headers: HeaderMap,
     Extension(gateway): Extension<AssistHandle>,
 ) -> Response {
-    if let Err(resp) = crate::authed(&state, &headers).await {
+    if let Err(resp) = crate::user_router::feature_session(&state, &headers, "ai_assistant").await {
         return resp;
     }
     // `assist_running`, not `gateway.is_enabled()`: a gateway an administrator has
@@ -141,7 +141,7 @@ async fn invoke(
     Extension(gateway): Extension<AssistHandle>,
     Json(body): Json<InvokeReq>,
 ) -> Response {
-    if let Err(resp) = crate::authed(&state, &headers).await {
+    if let Err(resp) = crate::user_router::feature_session(&state, &headers, "ai_assistant").await {
         return resp;
     }
     let cap = body.capability;

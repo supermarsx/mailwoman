@@ -18,6 +18,29 @@ export function settingAnchorId(key: string): string {
 
 /** Every key with a label and help sentence in admin-settings.ftl and an anchor in docs/admin/settings.md. */
 export const KNOWN_KEYS: readonly string[] = [
+  'cap.integration.nextcloud',
+  'cap.integration.google',
+  'cap.integration.microsoft',
+  'cap.integration.*',
+  'cap.ui_plugin.*',
+  'cap.ai_assistant',
+  'cap.plugins',
+  'cap.pim.calendar',
+  'cap.pim.contacts',
+  'cap.pim.tasks',
+  'cap.pim.notes',
+  'cap.export',
+  'cap.import',
+  'cap.api_keys',
+  'cap.oauth_apps',
+  'cap.rules',
+  'cap.rules.forward',
+  'cap.remote_images',
+  'cap.user_background',
+  'cap.user_css',
+  'limit.attachment_bytes',
+  'limit.send_per_hour',
+  'limit.recipients_per_message',
   'privacy.remoteContent',
   'privacy.trackers',
   'privacy.cleanLinks',
@@ -117,6 +140,8 @@ export const KNOWN_KEYS: readonly string[] = [
 
 /** The registry categories, in the order the list shows them. */
 export const CATEGORIES: readonly string[] = [
+  'features',
+  'integrations',
   'interface',
   'appearance',
   'mail',

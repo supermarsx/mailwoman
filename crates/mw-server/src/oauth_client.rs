@@ -551,6 +551,7 @@ pub async fn acquire_access_token(
     client_secret: Option<&str>,
     account: &str,
 ) -> std::result::Result<String, String> {
+    enforce_integration_policy(store, account).await?;
     let cached = store
         .get_bridge_oauth_token(account)
         .await
@@ -599,6 +600,72 @@ pub async fn acquire_access_token(
         .await
         .map_err(|e| format!("cache write failed: {e}"))?;
     Ok(refreshed.access_token)
+}
+
+/// Policy must run even on a token-cache hit. Resolve the persisted identity,
+/// never an address guessed from an opaque account id or a preferred domain.
+async fn enforce_integration_policy(store: &Store, account: &str) -> Result<(), String> {
+    let username = match store.get_account(account).await {
+        Ok(row) => row.username,
+        Err(mw_store::StoreError::NotFound) => {
+            let rows = store
+                .session_names_by_account(account)
+                .await
+                .map_err(|_| "bridge identity unavailable")?;
+            let mut names = std::collections::BTreeSet::new();
+            for row in rows {
+                names.insert(
+                    store
+                        .canonical_policy_address(&row.username)
+                        .await
+                        .map_err(|_| "bridge identity invalid")?,
+                );
+            }
+            if names.len() != 1 {
+                return Err("bridge identity missing or ambiguous".into());
+            }
+            names.into_iter().next().unwrap()
+        }
+        Err(_) => return Err("bridge identity unavailable".into()),
+    };
+    let binding = store
+        .list_bridge_accounts()
+        .await
+        .map_err(|_| "bridge binding unavailable")?
+        .into_iter()
+        .find(|b| b.account_id == account)
+        .ok_or("bridge binding missing")?;
+    let cfg: BridgeOauthConfig = serde_json::from_str(binding.oauth_ref.as_deref().unwrap_or("{}"))
+        .map_err(|_| "bridge OAuth configuration invalid")?;
+    let provider = cfg
+        .provider
+        .as_deref()
+        .and_then(Provider::parse)
+        .or_else(|| Provider::from_bridge_id(&binding.bridge_id))
+        .ok_or("bridge OAuth provider unknown")?;
+    let domain = username.rsplit_once('@').map(|(_, d)| d).unwrap_or("");
+    let subject = mw_store::settings_policy::SettingSubject {
+        account_id: account,
+        domain,
+        address: &username,
+    };
+    let provider_key = match provider {
+        Provider::Google => "cap.integration.google",
+        Provider::Microsoft => "cap.integration.microsoft",
+    };
+    for key in [
+        "cap.plugins".to_string(),
+        format!("cap.integration.{}", binding.bridge_id),
+        provider_key.to_string(),
+    ] {
+        let value = crate::settings_registry::effective_for(store, &key, &subject)
+            .await
+            .map_err(|_| "integration policy unavailable")?;
+        if !value.is_some_and(|v| v.value.as_bool() == Some(true)) {
+            return Err(format!("feature_disabled: {key}"));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -694,6 +761,19 @@ mod tests {
     }
 
     async fn seed_binding(store: &Store, account: &str, oauth_ref: serde_json::Value) {
+        store
+            .create_session(
+                account,
+                account,
+                "https://mail.test/session",
+                "https://mail.test/api",
+                &mw_store::Credentials {
+                    username: account.into(),
+                    password: "fixture".into(),
+                },
+            )
+            .await
+            .unwrap();
         store
             .put_bridge_account(&mw_store::BridgeAccountRow {
                 account_id: account.into(),
@@ -866,6 +946,20 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(got, "AT-cached");
+        s.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "cap.integration.microsoft".into(),
+            global_value: Some("false".into()),
+            allow_user_override: false,
+            global_locked: true,
+            updated_by: "admin".into(),
+            updated_at: 1,
+        })
+        .await
+        .unwrap();
+        let error = acquire_access_token(&s, &PanicPoster, None, account)
+            .await
+            .unwrap_err();
+        assert!(error.contains("feature_disabled"), "{error}");
     }
 
     #[tokio::test]

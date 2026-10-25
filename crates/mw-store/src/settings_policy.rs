@@ -26,7 +26,7 @@
 //! simulator and the tests share one implementation.
 //!
 //! Profiles and groups are resolved by [`Store::setting_profile_and_group_ids`],
-//! which returns nothing until the feature-governance lane (e25b) fills it in.
+//! using live profile assignments and group membership.
 //!
 //! Timestamps are unix seconds and booleans are 0/1 (0033 wire contract).
 
@@ -516,16 +516,25 @@ impl Store {
     }
 
     /// The feature profiles and user groups that apply to a subject, highest
-    /// priority first. **Hook:** returns nothing until e25b (feature governance)
-    /// adds `feature_profile_assignment` / `user_group_member` reads here; the
-    /// resolution chain already places their values between domain and admin
-    /// per-user.
+    /// priority first. Equal priorities prefer user, then group, then domain
+    /// assignments, with stable profile-id ties. Groups have stable id order.
+    /// Domain-specific groups never apply outside their canonical domain.
     pub async fn setting_profile_and_group_ids(
         &self,
-        _account_id: &str,
-        _domain: &str,
+        account_id: &str,
+        domain: &str,
     ) -> Result<(Vec<String>, Vec<String>), StoreError> {
-        Ok((Vec::new(), Vec::new()))
+        let domain = self.canonical_policy_domain(domain).await?;
+        let groups: Vec<String> = q("SELECT g.id FROM user_group g JOIN user_group_member m ON m.group_id=g.id WHERE m.account_id=?1 AND ?1<>'' AND (g.domain='' OR g.domain=?2) ORDER BY g.id")
+            .bind(account_id).bind(&domain).fetch_all(&self.backend).await?.iter().map(|r|r.get_string("id")).collect();
+        let rows = q("SELECT a.profile_id FROM feature_profile_assignment a WHERE (a.scope_kind='domain' AND a.scope_id=?1 AND ?1<>'') OR (a.scope_kind='user' AND a.scope_id=?2 AND ?2<>'') OR (a.scope_kind='group' AND EXISTS (SELECT 1 FROM user_group_member m JOIN user_group g ON g.id=m.group_id WHERE m.group_id=a.scope_id AND m.account_id=?2 AND ?2<>'' AND (g.domain='' OR g.domain=?1))) ORDER BY a.priority DESC,CASE a.scope_kind WHEN 'user' THEN 0 WHEN 'group' THEN 1 ELSE 2 END,a.profile_id,a.scope_id")
+            .bind(&domain).bind(account_id).fetch_all(&self.backend).await?;
+        let mut profiles = Vec::new();
+        for row in rows {
+            let id=row.get_string("profile_id");
+            if !profiles.contains(&id) { profiles.push(id); }
+        }
+        Ok((profiles, groups))
     }
 }
 

@@ -3807,7 +3807,7 @@ async fn nextcloud_list(
     Extension(nc): Extension<crate::nextcloud::NextcloudHandle>,
     Query(q): Query<ListQuery>,
 ) -> Response {
-    if let Err(resp) = crate::authed(&state, &headers).await {
+    if let Err(resp) = crate::user_router::feature_session(&state, &headers, "integrations.nextcloud").await {
         return resp;
     }
     let Some(nc) = nc else {

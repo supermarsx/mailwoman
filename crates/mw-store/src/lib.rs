@@ -6,6 +6,8 @@
 //! translated per-backend by the [`backend`]/[`dialect`] helpers (no `sqlx::Any`).
 
 mod security_center;
+pub mod groups;
+pub mod feature_profiles;
 pub mod jobs;
 pub use security_center::{SessionDevice, SecuritySession, SigninEvent, RememberedDevice};
 mod admin_accounts;

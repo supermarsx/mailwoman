@@ -360,6 +360,26 @@ use Scopes::{
 
 /// Every registered key. Order is the admin screen's order within a category.
 pub static REGISTRY: &[SettingDef] = &[
+    def!("cap.integration.nextcloud", Kind::Bool, "true", GDA, "integrations", "Nextcloud integration"),
+    def!("cap.integration.google", Kind::Bool, "true", GDA, "integrations", "Google OAuth bridge"),
+    def!("cap.integration.microsoft", Kind::Bool, "true", GDA, "integrations", "Microsoft OAuth bridge"),
+    def!("cap.integration.*", Kind::Bool, "true", GDA, "integrations", "Individual integration permission"),
+    def!("cap.ui_plugin.*", Kind::Bool, "true", GDA, "integrations", "Individual UI plugin permission"),
+    def!("cap.ai_assistant", Kind::Bool, "true", GDA, "features", "AI assistant"),
+    def!("cap.plugins", Kind::Bool, "true", GDA, "features", "Plugins"),
+    def!("cap.pim.calendar", Kind::Bool, "true", GDA, "features", "Calendar"),
+    def!("cap.pim.contacts", Kind::Bool, "true", GDA, "features", "Contacts"),
+    def!("cap.pim.tasks", Kind::Bool, "true", GDA, "features", "Tasks"),
+    def!("cap.pim.notes", Kind::Bool, "true", GDA, "features", "Notes"),
+    def!("cap.export", Kind::Bool, "true", GDA, "features", "Export"),
+    def!("cap.import", Kind::Bool, "true", GDA, "features", "Import"),
+    def!("cap.api_keys", Kind::Bool, "true", GDA, "features", "API keys"),
+    def!("cap.oauth_apps", Kind::Bool, "true", GDA, "features", "OAuth applications"),
+    def!("cap.rules", Kind::Bool, "true", GDA, "features", "Mail rules"),
+    def!("cap.rules.forward", Kind::Bool, "true", GDA, "features", "Rule forwarding"),
+    def!("cap.remote_images", Kind::Bool, "true", GDA, "features", "Remote images"),
+    def!("cap.user_background", Kind::Bool, "false", GDA, "features", "Custom background"),
+    def!("cap.user_css", Kind::Bool, "false", GDA, "features", "Custom CSS"),
     def!(
         "privacy.remoteContent",
         Kind::Enum(&["block", "ask", "proxy", "direct"]),
@@ -761,6 +781,9 @@ pub static REGISTRY: &[SettingDef] = &[
         "password policy: a symbol"
     ),
     // ── Limits, quotas, usage (e67) ─────────────────────────────────────────
+    per_address(def!("limit.attachment_bytes", int(0, BYTES_MAX), "50000000", GDA, "limits", "Attachment bytes; 0 = no limit")),
+    per_address(def!("limit.send_per_hour", int(0, 1_000_000), "0", GDA, "limits", "Submissions per hour; 0 = no limit")),
+    per_address(def!("limit.recipients_per_message", int(0, 1_000_000), "0", GDA, "limits", "Recipients per message; 0 = no limit")),
     per_address(def!(
         "limit.storage_bytes",
         int(0, BYTES_MAX),

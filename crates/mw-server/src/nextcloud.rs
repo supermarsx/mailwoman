@@ -127,7 +127,7 @@ async fn attach(
     Extension(nc): Extension<NextcloudHandle>,
     Json(body): Json<AttachReq>,
 ) -> Response {
-    if let Err(resp) = crate::authed(&state, &headers).await {
+    if let Err(resp) = crate::user_router::feature_session(&state, &headers, "integrations.nextcloud").await {
         return resp;
     }
     let Some(nc) = nc else {
@@ -159,7 +159,7 @@ async fn save(
     Extension(nc): Extension<NextcloudHandle>,
     Json(body): Json<SaveReq>,
 ) -> Response {
-    if let Err(resp) = crate::authed(&state, &headers).await {
+    if let Err(resp) = crate::user_router::feature_session(&state, &headers, "integrations.nextcloud").await {
         return resp;
     }
     let Some(nc) = nc else {
@@ -188,7 +188,7 @@ async fn share_link(
     Extension(nc): Extension<NextcloudHandle>,
     Json(body): Json<ShareLinkReq>,
 ) -> Response {
-    if let Err(resp) = crate::authed(&state, &headers).await {
+    if let Err(resp) = crate::user_router::feature_session(&state, &headers, "integrations.nextcloud").await {
         return resp;
     }
     let Some(nc) = nc else {

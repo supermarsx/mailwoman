@@ -519,9 +519,10 @@ async fn remove(
 /// (`apps/web/src/App.tsx` mounts the tier in the `inMail()` branch); the login
 /// screen does not use it.
 async fn list_public(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(resp) = crate::authed(&state, &headers).await {
-        return resp;
-    }
+    let session = match crate::user_router::feature_session(&state, &headers, "plugins.ui").await {
+        Ok(session) => session,
+        Err(resp) => return resp,
+    };
     let rows = match state.store.list_ui_plugins().await {
         Ok(r) => r,
         Err(e) => return store_error(&e),
@@ -531,6 +532,10 @@ async fn list_public(State(state): State<AppState>, headers: HeaderMap) -> Respo
     for r in &rows {
         if r.approved_by.is_none() || !r.enabled {
             continue; // deny-by-default: only approved+enabled plugins are served.
+        }
+        if let Err(response) = crate::user_router::require_key(&state, &session, &crate::features::ui_plugin_policy_key(&r.id), &format!("plugins.ui.{}",r.id)).await {
+            if response.status() == StatusCode::FORBIDDEN { continue; }
+            return response;
         }
         let manifest: Value =
             serde_json::from_str(&r.manifest_json).unwrap_or_else(|_| json!({ "id": r.id }));
@@ -585,12 +590,15 @@ async fn broker_rpc(
     UrlPath(plugin_id): UrlPath<String>,
     Json(req): Json<RpcRequest>,
 ) -> Response {
-    let session = match crate::authed(&state, &headers).await {
+    let session = match crate::user_router::feature_session(&state, &headers, "plugins.ui").await {
         Ok(s) => s,
         Err(resp) => return resp,
     };
     if req.v != RPC_PROTOCOL_VERSION {
         return rpc_err(&req.id, "bad-request", "unsupported RPC protocol version");
+    }
+    if let Err(response) = crate::user_router::require_key(&state, &session, &crate::features::ui_plugin_policy_key(&plugin_id), &format!("plugins.ui.{plugin_id}")).await {
+        return response;
     }
     // The plugin must exist + be approved + enabled.
     let plugin = match state.store.get_ui_plugin(&plugin_id).await {

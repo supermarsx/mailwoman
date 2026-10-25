@@ -489,3 +489,84 @@ current session and message over the signed URL's one-hour lifetime. These
 counts are held in memory, can reset after restart or eviction, and retain at
 most 256 URLs per message across 1024 recent messages. A saturated count is
 shown as a lower bound. They do not count images loaded directly by the browser.
+
+## Feature and integration permissions
+
+These administrator-only settings use the same global, domain, profile, group,
+and per-user policy chain. Capability defaults are true except custom CSS and
+backgrounds. Broader locks win. The feature catalogue distinguishes enforced,
+token-acquisition-only, and pending controls; a defined key alone does not mean
+every integration path is governed yet.
+
+Individual UI-plugin keys use SHA-256 of the original plugin ID as their suffix.
+Use `integrationPolicyKeys` from `/admin/features`; do not normalize or construct
+keys from displayed plugin names. Existing plugin approval and grants still apply.
+
+<a id="cap.integration.nextcloud"></a>
+`cap.integration.nextcloud` — Allow Nextcloud file and share-link operations.
+
+<a id="cap.integration.google"></a>
+`cap.integration.google` — Allow acquisition and refresh of Google bridge tokens.
+
+<a id="cap.integration.microsoft"></a>
+`cap.integration.microsoft` — Allow acquisition and refresh of Microsoft bridge tokens.
+
+<a id="cap.integration.*"></a>
+`cap.integration.*` — Permission for an individual integration identifier; runtime coverage is listed in the feature catalogue.
+
+<a id="cap.ui_plugin.*"></a>
+`cap.ui_plugin.*` — Permission for one UI plugin. Use the exact policy key from the integration catalogue.
+
+<a id="cap.ai_assistant"></a>
+`cap.ai_assistant` — Allow assistant configuration and invocation.
+
+<a id="cap.plugins"></a>
+`cap.plugins` — Allow UI plugins and bridge token acquisition.
+
+<a id="cap.pim.calendar"></a>
+`cap.pim.calendar` — Allow calendar methods and subscriptions.
+
+<a id="cap.pim.contacts"></a>
+`cap.pim.contacts` — Allow contact and address-book methods.
+
+<a id="cap.pim.tasks"></a>
+`cap.pim.tasks` — Allow task methods.
+
+<a id="cap.pim.notes"></a>
+`cap.pim.notes` — Allow note methods.
+
+<a id="cap.export"></a>
+`cap.export` — Allow mail and PIM exports.
+
+<a id="cap.import"></a>
+`cap.import` — Allow mail and PIM imports.
+
+<a id="cap.api_keys"></a>
+`cap.api_keys` — API-key policy. Check the feature catalogue for enforcement coverage.
+
+<a id="cap.oauth_apps"></a>
+`cap.oauth_apps` — OAuth-application policy. Check the feature catalogue for enforcement coverage.
+
+<a id="cap.rules"></a>
+`cap.rules` — Allow managed mail-rule and vacation methods.
+
+<a id="cap.rules.forward"></a>
+`cap.rules.forward` — Forwarding policy. Check the feature catalogue for enforcement coverage.
+
+<a id="cap.remote_images"></a>
+`cap.remote_images` — Remote-image capability. Existing privacy settings continue to govern requests; check feature coverage.
+
+<a id="cap.user_background"></a>
+`cap.user_background` — Custom-background capability, disabled by default. Check feature coverage.
+
+<a id="cap.user_css"></a>
+`cap.user_css` — Custom-CSS capability, disabled by default. Check feature coverage.
+
+<a id="limit.attachment_bytes"></a>
+`limit.attachment_bytes` — Attachment policy in bytes, default 50000000. Runtime enforcement remains pending.
+
+<a id="limit.send_per_hour"></a>
+`limit.send_per_hour` — Submission policy per hour; zero means unlimited. Runtime enforcement remains pending.
+
+<a id="limit.recipients_per_message"></a>
+`limit.recipients_per_message` — Recipient-count policy; zero means unlimited. Runtime enforcement remains pending.

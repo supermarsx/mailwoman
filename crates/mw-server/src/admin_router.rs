@@ -81,6 +81,8 @@ fn endpoints(r: &mut impl AdminRegistrar) {
     r.admin_endpoint(Method::GET, "/capabilities", Access::SignedIn, capabilities);
     // f01 (e10b): the settings model C (`/settings/**`).
     crate::settings_routes::register(r);
+    crate::features::register(r);
+    crate::config_routes::register(r);
     // f02 (e24c): sign-in, the admin's own profile, admin accounts and roles.
     crate::admin_accounts::register(r);
     crate::step_up::register(r);

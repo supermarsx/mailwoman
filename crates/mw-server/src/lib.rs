@@ -39,6 +39,8 @@ pub mod engine_mode;
 pub mod fonts;
 pub mod hardening;
 pub mod http_metrics;
+pub mod knobs;
+mod config_routes;
 pub mod holidays;
 pub mod push;
 pub mod push_relay;
@@ -105,6 +107,9 @@ pub mod prefs_routes;
 // defaults, scopes, environment precedence, the limit ceiling) and its routes.
 pub mod settings_registry;
 pub mod settings_routes;
+mod features;
+mod feature_jmap;
+mod user_router;
 // t16 (26.16, e10) A9: a runtime ManageSieve caller — compile the account's rules to
 // a Sieve script and upload+activate it on the user's ManageSieve server.
 pub mod sieve_sync;
@@ -809,6 +814,7 @@ fn mount_under_base_path(app: Router, base: &str) -> Router {
 
 #[derive(Clone)]
 pub(crate) struct AppState {
+    config_snapshot: config_routes::BootConfigSnapshot,
     store: Store,
     pub(crate) scheduler: Arc<jobs::Scheduler>,
     render_bin: Option<PathBuf>,
@@ -980,14 +986,14 @@ async fn build_app_inner(
     // Refuse the `MW_ADMIN_*` variables nothing applies, check the ones the security
     // policy overlay applies, and set the admin cookie name (t29-e6).
     webhooks::reject_legacy_inbound_secret()?;
+    let config_snapshot = config_routes::BootConfigSnapshot::from_config(&config);
     let admin_overlay = admin_apply::env_overlay()?;
     let key = match &config.server_key_hex {
         Some(h) => ServerKey::from_hex(h).map_err(|_| anyhow!("MW_SERVER_KEY is not valid hex"))?,
         None => {
             let k = ServerKey::generate();
             tracing::warn!(
-                "MW_SERVER_KEY not set; generated an ephemeral key {} (set it to persist sessions across restarts)",
-                k.to_hex()
+                "MW_SERVER_KEY not set; generated an ephemeral key (set it to persist sessions across restarts)"
             );
             k
         }
@@ -1253,6 +1259,7 @@ async fn build_app_inner(
         tracing::info!("serving under sub-path {base_path} (MW_BASE_PATH)");
     }
     let state = AppState {
+        config_snapshot,
         store,
         scheduler: jobs::new_scheduler(),
         render_bin,
@@ -1395,6 +1402,7 @@ fn router(
         //     (its GET reuses e6's SSRF-safe fetcher).
         .merge(image_proxy::image_proxy_router())
         .merge(prefs_routes::prefs_router())
+        .merge(features::user_router())
         .merge(client_policy::router())
         .merge(import_routes::import_router())
         .merge(sieve_sync::sieve_sync_router())
@@ -2698,6 +2706,15 @@ async fn jmap_api(State(state): State<AppState>, source: Option<Extension<scope_
         // A credential lookup must never inherit another browser's proof.
         session.id.clear();
     }
+    // Authorize the entire batch before connecting an account or forwarding
+    // any call. A disabled feature cannot hide behind a permitted first call.
+    let request: Value = match serde_json::from_slice(&body) {
+        Ok(value) => value,
+        Err(_) => return (StatusCode::BAD_REQUEST, "invalid JMAP JSON").into_response(),
+    };
+    if let Err(response) = feature_jmap::admit(&state, &session, &request).await {
+        return response;
+    }
     if let Some(engine) = &state.engine {
         if let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await {
             tracing::warn!("engine account not available: {e}");
@@ -3548,7 +3565,7 @@ async fn export_message(
     UrlPath(stable_id): UrlPath<String>,
     Query(q): Query<ExportQuery>,
 ) -> Response {
-    let session = match authed(&state, &headers).await {
+    let session = match user_router::feature_session(&state, &headers, "export").await {
         Ok(s) => s,
         Err(resp) => return resp,
     };

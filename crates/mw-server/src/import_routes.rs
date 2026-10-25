@@ -48,7 +48,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::{AppState, authed, payload_too_large};
+use crate::{AppState, payload_too_large};
 
 /// Hard cap on messages accepted in one import call — bounds work + upload writes
 /// for a single request (a larger archive is split client-side).
@@ -103,7 +103,7 @@ struct ImportQuery {
 /// server accepts and how each body is expected. Session-authed so the wizard is
 /// only reachable to a logged-in user, and so it doubles as an engine-mode probe.
 async fn import_formats(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = authed(&state, &headers).await {
+    if let Err(r) = crate::user_router::feature_session(&state, &headers, "import").await {
         return r;
     }
     let engine_ready = state.engine.is_some();
@@ -203,7 +203,7 @@ async fn ingest_messages(
     mailbox_id: Option<&str>,
     messages: Vec<Vec<u8>>,
 ) -> Response {
-    let session = match authed(state, headers).await {
+    let session = match crate::user_router::feature_session(state, headers, "import").await {
         Ok(s) => s,
         Err(resp) => return resp,
     };
@@ -636,7 +636,7 @@ async fn auth_engine<'a>(
     state: &'a AppState,
     headers: &HeaderMap,
 ) -> Result<(mw_store::Session, &'a mw_engine::Engine), Response> {
-    let session = authed(state, headers).await?;
+    let session = crate::user_router::feature_session(state, headers, "calendar").await?;
     let Some(engine) = &state.engine else {
         return Err((
             StatusCode::NOT_IMPLEMENTED,

@@ -1,0 +1,394 @@
+# Server configuration reference
+
+<!-- Generated from crates/mw-server/src/knobs.rs and settings_registry.rs.
+     Do not edit by hand: run `BLESS=1 cargo test -p mw-server --test t32_cfg_knob_coverage`. -->
+
+Catalogue of declared server, deployment and build inputs and their configuration locations.
+The console's **Server configuration** page shows the same list with each value and
+its source. Values marked unavailable are not introspectable from this running process;
+configuredInput is an environment input, not an assertion about effective runtime state.
+Registry values describe resolved policy, not proof that every subsystem consumes that key.
+Secret values are never shown, only whether they are set. URLs are
+shown without user name, password and query.
+
+Precedence: **pin** = the variable wins and a console write is refused
+(`409 pinnedByEnv`); **fallback** = the stored value wins, the variable is used when
+nothing is stored; **boot** = read once at start, a change needs a restart.
+
+## Listener, TLS and HTTP headers
+
+| Name | Class | Value | Default | Precedence | What | Set in / reason |
+|---|---|---|---|---|---|---|
+| <a id="mw-bind"></a>`MW_BIND` | readOnly | plain | 0.0.0.0:8080 | boot | listen address | needed before the database opens or to reach the console |
+| <a id="mw-base-path"></a>`MW_BASE_PATH` | readOnly | plain |  | boot | URL prefix of every route, the console included | needed before the database opens or to reach the console |
+| <a id="mw-public-url"></a>`MW_PUBLIC_URL` | readOnly | url | the request's Host header | boot | canonical external origin (cookies, WebAuthn, OAuth) | needed before the database opens or to reach the console |
+| <a id="mw-cookie-secure"></a>`MW_COOKIE_SECURE` | readOnly | plain | derived from the scheme | boot | the Secure attribute on cookies | needed before the database opens or to reach the console |
+| <a id="mw-mode"></a>`MW_MODE` | readOnly | plain | proxy | boot | proxy or engine mode, for the whole process | needed before the database opens or to reach the console |
+| <a id="mw-acme"></a>`MW_ACME` | readOnly | plain | false | boot | built-in ACME certificates | needed before the database opens or to reach the console |
+| <a id="mw-acme-contact"></a>`MW_ACME_CONTACT` | readOnly | plain |  | boot | ACME account contact | needed before the database opens or to reach the console |
+| <a id="mw-acme-cache"></a>`MW_ACME_CACHE` | readOnly | path | acme-cache | boot | ACME account and certificate cache directory | needed before the database opens or to reach the console |
+| <a id="mw-acme-staging"></a>`MW_ACME_STAGING` | readOnly | plain | false | boot | use the ACME staging directory | needed before the database opens or to reach the console |
+| <a id="mw-tls-cert"></a>`MW_TLS_CERT` | readOnly | path |  | boot | certificate file (reloaded on SIGHUP) | needed before the database opens or to reach the console |
+| <a id="mw-tls-key"></a>`MW_TLS_KEY` | readOnly | secret |  | boot | private key file (reloaded on SIGHUP) | needed before the database opens or to reach the console |
+| <a id="mw-proxy-protocol"></a>`MW_PROXY_PROTOCOL` | readOnly | plain | off | boot | accept the PROXY protocol from trusted peers | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-trusted-proxies"></a>`MW_TRUSTED_PROXIES` | readOnly | plain |  | boot | peers that may set the client address and scheme | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-forwarded-mode"></a>`MW_FORWARDED_MODE` | readOnly | plain | off | boot | which forwarding headers are read from trusted peers | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-hsts"></a>`MW_HSTS` | readOnly | plain | false | boot | send Strict-Transport-Security | a wrong value leaves state in clients that cannot be undone |
+| <a id="mw-hsts-max-age"></a>`MW_HSTS_MAX_AGE` | readOnly | plain |  | boot | HSTS max-age in seconds | a wrong value leaves state in clients that cannot be undone |
+| <a id="mw-hsts-include-subdomains"></a>`MW_HSTS_INCLUDE_SUBDOMAINS` | readOnly | plain | false | boot | HSTS includeSubDomains | a wrong value leaves state in clients that cannot be undone |
+| <a id="mw-hsts-preload"></a>`MW_HSTS_PRELOAD` | readOnly | plain | false | boot | HSTS preload | a wrong value leaves state in clients that cannot be undone |
+| <a id="mw-coep"></a>`MW_COEP` | readOnly | plain | true | boot | Cross-Origin-Embedder-Policy require-corp | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-csrf-strict"></a>`MW_CSRF_STRICT` | readOnly | plain | false (deploy.sh: true) | boot | double-submit CSRF enforcement | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-native-origins"></a>`MW_NATIVE_ORIGINS` | readOnly | url |  | boot | CORS origins of the desktop and mobile shells | a root of trust, or a protection a stolen admin session could switch off |
+
+## Storage and host paths
+
+| Name | Class | Value | Default | Precedence | What | Set in / reason |
+|---|---|---|---|---|---|---|
+| <a id="mw-server-key"></a>`MW_SERVER_KEY` | readOnly | secret | generated at first start | boot | 32-byte key that seals every stored secret | needed before the database opens or to reach the console |
+| <a id="mw-db-path"></a>`MW_DB_PATH` | readOnly | dsn | mailwoman.db | boot | SQLite path or PostgreSQL URL | needed before the database opens or to reach the console |
+| <a id="mw-web-dir"></a>`MW_WEB_DIR` | readOnly | path | embedded | boot | serve the web client from this directory | needed before the database opens or to reach the console |
+| <a id="mw-redis-url"></a>`MW_REDIS_URL` | readOnly | url |  | boot | shared cache | needed before the database opens or to reach the console |
+| <a id="mw-upload-dir"></a>`MW_UPLOAD_DIR` | readOnly | path | the database | boot | sealed upload directory | needed before the database opens or to reach the console |
+| <a id="mw-render-bin"></a>`MW_RENDER_BIN` | readOnly | path |  | boot | render sandbox binary | needed before the database opens or to reach the console |
+| <a id="mw-render-jail"></a>`MW_RENDER_JAIL` | readOnly | plain |  | boot | require the render sandbox jail | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-plugin-dir"></a>`MW_PLUGIN_DIR` | readOnly | path |  | boot | plugin directory | needed before the database opens or to reach the console |
+| <a id="mw-thirdparty-plugin-dir"></a>`MW_THIRDPARTY_PLUGIN_DIR` | readOnly | path |  | boot | third-party plugin directory | needed before the database opens or to reach the console |
+| <a id="mw-search-dir"></a>`MW_SEARCH_DIR` | readOnly | path | next to the database | boot | search index location (memory or a path) | needed before the database opens or to reach the console |
+| <a id="mw-wkd-dir"></a>`MW_WKD_DIR` | readOnly | path |  | boot | WKD files directory | needed before the database opens or to reach the console |
+| <a id="mw-abuse-spool"></a>`MW_ABUSE_SPOOL` | readOnly | path |  | boot | abuse report (ARF) spool directory | needed before the database opens or to reach the console |
+| <a id="mw-geoip-db"></a>`MW_GEOIP_DB` | readOnly | path |  | boot | local GeoIP database file | needed before the database opens or to reach the console |
+
+## Admin console bootstrap
+
+| Name | Class | Value | Default | Precedence | What | Set in / reason |
+|---|---|---|---|---|---|---|
+| <a id="mw-admin-enabled"></a>`MW_ADMIN_ENABLED` | readOnly | plain | true when user and password are set | boot | admin console on or off | needed before the database opens or to reach the console |
+| <a id="mw-admin-user"></a>`MW_ADMIN_USER` | readOnly | plain |  | boot | environment admin user name (break-glass) | needed before the database opens or to reach the console |
+| <a id="mw-admin-password"></a>`MW_ADMIN_PASSWORD` | readOnly | secret |  | boot | environment admin password (break-glass) | needed before the database opens or to reach the console |
+| <a id="mw-admin-path"></a>`MW_ADMIN_PATH` | readOnly | plain | /admin | boot | console and admin API path | needed before the database opens or to reach the console |
+| <a id="mw-admin-session-cookie"></a>`MW_ADMIN_SESSION_COOKIE` | readOnly | plain | mw_admin_session | boot | admin session cookie name | needed before the database opens or to reach the console |
+| <a id="mw-admin-env-login"></a>`MW_ADMIN_ENV_LOGIN` | readOnly | plain | on | boot | whether the environment admin may sign in (off turns it off) | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-admin-min-tls"></a>`MW_ADMIN_MIN_TLS` | ui | plain |  | pin | pins the stored admin TLS floor | Admin → Security policy |
+| <a id="mw-admin-require-2fa"></a>`MW_ADMIN_REQUIRE_2FA` | ui | plain |  | pin | pins the admin two-factor requirement | Admin → Security policy |
+| <a id="mw-admin-port"></a>`MW_ADMIN_PORT` | refused | plain |  | boot | refused at start (see the reason) | the admin panel is served on the main listener; there is no separate admin port |
+| <a id="mw-admin-log-level"></a>`MW_ADMIN_LOG_LEVEL` | refused | plain |  | boot | refused at start (see the reason) | the log filter is set with MW_LOG at start |
+| <a id="mw-admin-otlp-dsn"></a>`MW_ADMIN_OTLP_DSN` | refused | plain |  | boot | refused at start (see the reason) | the OTLP collector is set with MW_OTLP_ENDPOINT at start |
+| <a id="mw-admin-metrics"></a>`MW_ADMIN_METRICS` | refused | plain |  | boot | refused at start (see the reason) | /metrics is served when MW_METRICS_TOKEN is set at start |
+| <a id="mw-admin-theme"></a>`MW_ADMIN_THEME` | refused | plain |  | boot | refused at start (see the reason) | no deployment-default theme is read from the environment |
+| <a id="mw-admin-brand"></a>`MW_ADMIN_BRAND` | refused | plain |  | boot | refused at start (see the reason) | no brand name is read from the environment |
+| <a id="mw-admin-accent"></a>`MW_ADMIN_ACCENT` | refused | plain |  | boot | refused at start (see the reason) | no accent colour is read from the environment |
+
+## Sign-in, identity providers and sessions
+
+| Name | Class | Value | Default | Precedence | What | Set in / reason |
+|---|---|---|---|---|---|---|
+| <a id="mw-header-auth"></a>`MW_HEADER_AUTH` | readOnly | plain | false | boot | trust an identity header from listed addresses | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-header-auth-header"></a>`MW_HEADER_AUTH_HEADER` | readOnly | plain |  | boot | the identity header name | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-header-auth-password"></a>`MW_HEADER_AUTH_PASSWORD` | readOnly | secret |  | boot | service password for header-authenticated mail access | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-header-auth-jmap-url"></a>`MW_HEADER_AUTH_JMAP_URL` | readOnly | url |  | boot | JMAP upstream for header-authenticated sessions | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-header-auth-trusted-ips"></a>`MW_HEADER_AUTH_TRUSTED_IPS` | readOnly | plain |  | boot | addresses allowed to send the identity header | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-directory-bind-dn"></a>`MW_DIRECTORY_BIND_DN` | ui | plain |  | pin | directory (GAL/LDAP) service bind DN | Admin → Integrations → Directory |
+| <a id="mw-directory-bind-pw"></a>`MW_DIRECTORY_BIND_PW` | ui | secret |  | pin | directory (GAL/LDAP) service bind password | Admin → Integrations → Directory |
+| <a id="mw-webauthn-origin"></a>`MW_WEBAUTHN_ORIGIN` | readOnly | url | derived from the public URL | boot | WebAuthn relying-party origin | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-webauthn-rp-id"></a>`MW_WEBAUTHN_RP_ID` | readOnly | plain | derived from the public URL | boot | WebAuthn relying-party id | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-session-idle-secs"></a>`MW_SESSION_IDLE_SECS` | ui | plain | 1800 | boot | mailbox session idle limit (upper bound for the stored policy) | Admin → Sessions |
+| <a id="mw-session-absolute-secs"></a>`MW_SESSION_ABSOLUTE_SECS` | ui | plain | 43200 | boot | mailbox session absolute limit (upper bound for the stored policy) | Admin → Sessions |
+
+## Integrations
+
+| Name | Class | Value | Default | Precedence | What | Set in / reason |
+|---|---|---|---|---|---|---|
+| <a id="mw-passwd-backend"></a>`MW_PASSWD_BACKEND` | ui | plain |  | pin | password-change backend; when set the environment integration is in force | Admin → Integrations → Password change |
+| <a id="mw-passwd-ldap-url"></a>`MW_PASSWD_LDAP_URL` | ui | url |  | pin | LDAP password-modify server | Admin → Integrations → Password change |
+| <a id="mw-passwd-ldap-starttls"></a>`MW_PASSWD_LDAP_STARTTLS` | ui | plain |  | pin | LDAP password-modify STARTTLS | Admin → Integrations → Password change |
+| <a id="mw-passwd-ldap-bind-dn"></a>`MW_PASSWD_LDAP_BIND_DN` | ui | plain |  | pin | LDAP password-modify bind DN | Admin → Integrations → Password change |
+| <a id="mw-passwd-ldap-bind-pw"></a>`MW_PASSWD_LDAP_BIND_PW` | ui | secret |  | pin | LDAP password-modify bind password | Admin → Integrations → Password change |
+| <a id="mw-passwd-dovecot-url"></a>`MW_PASSWD_DOVECOT_URL` | ui | url |  | pin | doveadm HTTP API | Admin → Integrations → Password change |
+| <a id="mw-passwd-dovecot-api-key"></a>`MW_PASSWD_DOVECOT_API_KEY` | ui | secret |  | pin | doveadm HTTP API key | Admin → Integrations → Password change |
+| <a id="mw-passwd-dovecot-command"></a>`MW_PASSWD_DOVECOT_COMMAND` | ui | plain | pw | pin | doveadm API command name sent in the request | Admin → Integrations → Password change |
+| <a id="mw-passwd-poppassd-host"></a>`MW_PASSWD_POPPASSD_HOST` | ui | plain |  | pin | poppassd host | Admin → Integrations → Password change |
+| <a id="mw-passwd-poppassd-port"></a>`MW_PASSWD_POPPASSD_PORT` | ui | plain | 106 | pin | poppassd port | Admin → Integrations → Password change |
+| <a id="mw-passwd-webhook-url"></a>`MW_PASSWD_WEBHOOK_URL` | ui | url |  | pin | password-change webhook | Admin → Integrations → Password change |
+| <a id="mw-passwd-webhook-secret"></a>`MW_PASSWD_WEBHOOK_SECRET` | ui | secret |  | pin | password-change webhook signing secret | Admin → Integrations → Password change |
+| <a id="mw-nextcloud-url"></a>`MW_NEXTCLOUD_URL` | ui | url |  | pin | Nextcloud file picker server | Admin → Integrations → Nextcloud |
+| <a id="mw-nextcloud-user"></a>`MW_NEXTCLOUD_USER` | ui | plain |  | pin | Nextcloud user | Admin → Integrations → Nextcloud |
+| <a id="mw-nextcloud-app-password"></a>`MW_NEXTCLOUD_APP_PASSWORD` | ui | secret |  | pin | Nextcloud app password | Admin → Integrations → Nextcloud |
+| <a id="mw-bridge-oauth-client-secret"></a>`MW_BRIDGE_OAUTH_CLIENT_SECRET` | ui | secret |  | pin | bridge OAuth client secret | Admin → OAuth providers |
+| <a id="mw-dcr-initial-access-token"></a>`MW_DCR_INITIAL_ACCESS_TOKEN` | ui | secret |  | pin | OAuth dynamic client registration initial access token | Admin → Integrations → Client registration |
+| <a id="mw-webhook-inbound-secret"></a>`MW_WEBHOOK_INBOUND_SECRET` | ui | secret |  | pin | inbound webhook HMAC secret | Admin → Integrations → Inbound webhooks |
+| <a id="mw-ui-plugin-trust-keys"></a>`MW_UI_PLUGIN_TRUST_KEYS` | readOnly | plain |  | boot | public keys UI plugin signatures are checked against | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-assist-local-programs"></a>`MW_ASSIST_LOCAL_PROGRAMS` | readOnly | plain |  | boot | programs a local AI adapter may run on the host | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-mcp-resource"></a>`MW_MCP_RESOURCE` | readOnly | url | derived from the public origin | boot | MCP OAuth resource identifier; changing it invalidates issued tokens | a wrong value leaves state in clients that cannot be undone |
+
+## Mail, upstreams and content
+
+| Name | Class | Value | Default | Precedence | What | Set in / reason |
+|---|---|---|---|---|---|---|
+| <a id="mw-jmap-upstreams"></a>`MW_JMAP_UPSTREAMS` | ui | url |  | fallback | allowed JMAP proxy origins (seeds the default upstream) | Admin → Domains → Upstreams |
+| <a id="mw-smtp-host"></a>`MW_SMTP_HOST` | ui | plain | the IMAP host | fallback | engine submission host when a domain has no SMTP upstream | Admin → Domains → Upstreams |
+| <a id="mw-smtp-port"></a>`MW_SMTP_PORT` | ui | plain | 587 | fallback | engine submission port | Admin → Domains → Upstreams |
+| <a id="mw-smtp-security"></a>`MW_SMTP_SECURITY` | ui | plain | starttls | fallback | engine submission security | Admin → Domains → Upstreams |
+| <a id="mw-engine-tls"></a>`MW_ENGINE_TLS` | readOnly | plain |  | boot | forces the engine's TLS mode (test override; the dashboard warns while it is set) | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-autoconfig-allow-private"></a>`MW_AUTOCONFIG_ALLOW_PRIVATE` | readOnly | plain | false | boot | allow private addresses in autoconfig lookups | a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-allowed-froms"></a>`MW_ALLOWED_FROMS` | ui | plain |  | boot | server-advertised sender identities | Admin → Identities |
+| <a id="mw-dlp-rules"></a>`MW_DLP_RULES` | ui | plain |  | boot | outbound DLP rules from the environment (applied beside the stored rules) | Admin → Security policy |
+
+## Logs, traces and metrics
+
+| Name | Class | Value | Default | Precedence | What | Set in / reason |
+|---|---|---|---|---|---|---|
+| <a id="mw-log"></a>`MW_LOG` | readOnly | plain | info | boot | log filter at start (the live level is set in the console) | needed before the database opens or to reach the console |
+| <a id="mw-otlp-endpoint"></a>`MW_OTLP_ENDPOINT` | readOnly | url |  | boot | OTLP trace collector | needed before the database opens or to reach the console |
+| <a id="mw-otel-service"></a>`MW_OTEL_SERVICE` | readOnly | plain | mailwoman | boot | OpenTelemetry service name | needed before the database opens or to reach the console |
+| <a id="mw-metrics-token"></a>`MW_METRICS_TOKEN` | ui | secret |  | pin | bearer token for /metrics | Admin → Observability |
+| <a id="mw-sentry-dsn"></a>`MW_SENTRY_DSN` | readOnly | secret |  | boot | Sentry error export | needed before the database opens or to reach the console |
+| <a id="rust-log"></a>`RUST_LOG` | readOnly | plain |  | boot | log filter; wins over MW_LOG | needed before the database opens or to reach the console |
+
+## Built-in constants
+
+| Name | Class | Value | Default | Precedence | What | Set in / reason |
+|---|---|---|---|---|---|---|
+| <a id="const-refresh-every"></a>`const:REFRESH_EVERY` | readOnly | plain | 30 s |  | how often each process re-reads admin changes | a CLI, build or test input, or a protocol or safety constant |
+| <a id="const-boot-register-concurrency"></a>`const:BOOT_REGISTER_CONCURRENCY` | readOnly | plain | 4 |  | engine accounts registered in parallel at start | a CLI, build or test input, or a protocol or safety constant |
+| <a id="const-boot-register-timeout"></a>`const:BOOT_REGISTER_TIMEOUT` | readOnly | plain | 600 s |  | time limit for registering engine accounts at start | a CLI, build or test input, or a protocol or safety constant |
+| <a id="const-materialize-back-days"></a>`const:MATERIALIZE_BACK_DAYS` | readOnly | plain | 2 years |  | recurring events expanded into the past | a CLI, build or test input, or a protocol or safety constant |
+| <a id="const-materialize-fwd-days"></a>`const:MATERIALIZE_FWD_DAYS` | readOnly | plain | 5 years |  | recurring events expanded into the future | a CLI, build or test input, or a protocol or safety constant |
+| <a id="const-rerank-top-n"></a>`const:RERANK_TOP_N` | readOnly | plain | built-in |  | semantic search rerank depth | a CLI, build or test input, or a protocol or safety constant |
+| <a id="const-rest-default-limit"></a>`const:REST_DEFAULT_LIMIT` | readOnly | plain | 50 |  | REST API page size | a CLI, build or test input, or a protocol or safety constant |
+| <a id="const-rest-max-limit"></a>`const:REST_MAX_LIMIT` | readOnly | plain | 200 |  | REST API largest page | a CLI, build or test input, or a protocol or safety constant |
+| <a id="const-plugin-max-memory-mb"></a>`const:PLUGIN_MAX_MEMORY_MB` | readOnly | plain | 1024 |  | ceiling for a plugin's memory limit | a CLI, build or test input, or a protocol or safety constant |
+| <a id="const-plugin-max-deadline-ms"></a>`const:PLUGIN_MAX_DEADLINE_MS` | readOnly | plain | 120000 |  | ceiling for a plugin's time limit | a CLI, build or test input, or a protocol or safety constant |
+| <a id="const-open-tracking-limits"></a>`const:OPEN_TRACKING_LIMITS` | readOnly | plain | built-in |  | open-tracking abuse ceilings | a CLI, build or test input, or a protocol or safety constant |
+| <a id="const-push-wake-ttl"></a>`const:PUSH_WAKE_TTL` | readOnly | plain | built-in |  | push wake time to live | a CLI, build or test input, or a protocol or safety constant |
+| <a id="const-realtime-heartbeat"></a>`const:REALTIME_HEARTBEAT` | readOnly | plain | built-in |  | event stream heartbeat | a CLI, build or test input, or a protocol or safety constant |
+| <a id="const-discover-limits"></a>`const:DISCOVER_LIMITS` | readOnly | plain | built-in |  | discovery route limits (the route answers 410) | a CLI, build or test input, or a protocol or safety constant |
+| <a id="const-default-max-query-changes"></a>`const:DEFAULT_MAX_QUERY_CHANGES` | readOnly | plain | 500 |  | JMAP queryChanges limit | a CLI, build or test input, or a protocol or safety constant |
+| <a id="const-max-appearance-bytes"></a>`const:MAX_APPEARANCE_BYTES` | readOnly | plain | 8 KiB |  | largest stored appearance record | a CLI, build or test input, or a protocol or safety constant |
+| <a id="const-sso-pending-ttl"></a>`const:SSO_PENDING_TTL` | readOnly | plain | 600 s |  | single sign-on round-trip life | a CLI, build or test input, or a protocol or safety constant |
+
+## Stored settings keys, tables, CLI actions and files
+
+| Name | Class | Value | Default | Precedence | What | Set in / reason |
+|---|---|---|---|---|---|---|
+| <a id="const-max-upload-bytes"></a>`const:MAX_UPLOAD_BYTES` | ui | plain |  |  | largest attachment upload (the limit.* keys set it per user) | Admin → Limits |
+| <a id="const-image-proxy-limits"></a>`const:IMAGE_PROXY_LIMITS` | ui | plain |  |  | remote-content cache and rate limits | Admin → Privacy → Remote content |
+| <a id="const-totp-issuer"></a>`const:TOTP_ISSUER` | ui | plain |  |  | issuer label in authenticator apps (the product name) | Admin → Branding |
+| <a id="key-v6-admin-security-policy"></a>`key:v6:admin:security_policy` | ui | plain |  |  | security policy record | Admin → Security policy |
+| <a id="key-v6-admin-observability"></a>`key:v6:admin:observability` | ui | plain |  |  | metrics toggle and live log level | Admin → Observability |
+| <a id="key-v6-admin-bans"></a>`key:v6:admin:bans` | ui | plain |  |  | IP bans written by the admin API, the CLI and failed admin sign-ins | Admin → Access |
+| <a id="key-v6-admin-flags"></a>`key:v6:admin:flags` | ui | plain |  |  | per-account flags (disabled, features) | Admin → Users |
+| <a id="key-appearance"></a>`key:appearance` | ui | plain |  |  | a user's appearance record | Settings → Appearance; Admin → Settings |
+| <a id="key-mdn-policy"></a>`key:mdn_policy` | ui | plain |  |  | a user's read-receipt policy | Settings → Mail; Admin → Settings |
+| <a id="key-push.quiet-hours"></a>`key:push.quiet_hours` | ui | plain |  |  | old quiet-hours key, read once as the fallback of push.quietHours | Admin → Notifications |
+| <a id="table-domains"></a>`table:domains` | ui | plain |  |  | domains, upstreams and allow/block lists | Admin → Domains |
+| <a id="table-quotas"></a>`table:quotas` | ui | plain |  |  | per-user quotas | Admin → Users |
+| <a id="table-admin-users"></a>`table:admin_users` | ui | plain |  |  | admin accounts | Admin → Admins |
+| <a id="table-twofa-policy"></a>`table:twofa_policy` | ui | plain |  |  | two-factor policy | Admin → Two-factor |
+| <a id="table-assist-config"></a>`table:assist_config` | ui | plain |  |  | AI assistant configuration | Admin → AI assistant |
+| <a id="table-sso-config"></a>`table:sso_config` | ui | plain |  |  | single sign-on providers | Admin → Single sign-on |
+| <a id="table-egress-proxy"></a>`table:egress_proxy` | ui | plain |  |  | outbound proxies | Admin → Outbound |
+| <a id="table-plugins"></a>`table:plugins` | ui | plain |  |  | server plugins and their limits | Admin → Plugins |
+| <a id="table-ui-plugins"></a>`table:ui_plugins` | ui | plain |  |  | UI plugins | Admin → UI plugins |
+| <a id="table-oauth-dcr"></a>`table:oauth_dcr` | ui | plain |  |  | dynamically registered OAuth clients | Admin → OAuth clients |
+| <a id="table-webhooks"></a>`table:webhooks` | ui | plain |  |  | outbound webhooks | Admin → Integrations |
+| <a id="table-api-keys"></a>`table:api_keys` | ui | plain |  |  | API keys | Admin → Integrations |
+| <a id="table-cache-scope"></a>`table:cache_scope` | ui | plain |  |  | cache layers and lifetimes per data class | Admin → Cache scope |
+| <a id="table-directory-config"></a>`table:directory_config` | ui | plain |  |  | directory (LDAP/GAL) endpoints | Admin → Integrations → Directory |
+| <a id="table-push-config"></a>`table:push_config` | ui | plain |  |  | VAPID key pair | Admin → Notifications |
+| <a id="table-integration-config"></a>`table:integration_config` | ui | plain |  |  | password change, Nextcloud, client registration and inbound webhook integrations | Admin → Integrations |
+| <a id="cli-admin"></a>`cli:admin` | ui | plain |  |  | mailwoman admin … (every console write keeps CLI parity where it exists) | mailwoman admin |
+| <a id="cli-plugin"></a>`cli:plugin` | ui | plain |  |  | mailwoman plugin list\|approve | Admin → Plugins |
+| <a id="cli-maintenance-rethread"></a>`cli:maintenance rethread` | ui | plain |  |  | re-thread mailboxes | Admin → Maintenance |
+| <a id="cli-doctor"></a>`cli:doctor` | ui | plain |  |  | cache and sandbox posture | Admin → Diagnostics |
+| <a id="cli-maintenance-gc-uploads"></a>`cli:maintenance gc-uploads` | ui | plain |  |  | remove unreferenced uploads | Admin → Scheduled tasks |
+| <a id="cli-maintenance-vacuum"></a>`cli:maintenance vacuum` | ui | plain |  |  | compact the database | Admin → Scheduled tasks |
+| <a id="cli-fonts-pull"></a>`cli:fonts pull` | readOnly | plain |  |  | a build step that writes the self-hosted font files into the web build | a CLI, build or test input, or a protocol or safety constant |
+| <a id="cli-healthcheck"></a>`cli:healthcheck` | readOnly | plain |  |  | container health probe | a CLI, build or test input, or a protocol or safety constant |
+| <a id="cli-migrate-store"></a>`cli:migrate-store` | readOnly | plain |  |  | offline copy between SQLite and PostgreSQL (server stopped) | a CLI, build or test input, or a protocol or safety constant |
+| <a id="cli-mcp-stdio"></a>`cli:mcp-stdio` | readOnly | plain |  |  | MCP client proxy | a CLI, build or test input, or a protocol or safety constant |
+| <a id="cli-password"></a>`cli:password` | readOnly | plain |  |  | change one account's password from the CLI | a CLI, build or test input, or a protocol or safety constant |
+| <a id="file-admin.toml"></a>`file:admin.toml` | readOnly | plain |  |  | AdminConfig TOML; nothing loads it (the configuration export is the file form) | a CLI, build or test input, or a protocol or safety constant |
+| <a id="file-server.json"></a>`file:server.json` | readOnly | plain |  |  | desktop provisioning file, written by the OS administrator | a CLI, build or test input, or a protocol or safety constant |
+
+## CLI inputs
+
+| Name | Class | Value | Default | Precedence | What | Set in / reason |
+|---|---|---|---|---|---|---|
+| <a id="mw-account-id"></a>`MW_ACCOUNT_ID` | cliOnly | plain |  |  | account whose password the CLI changes | mailwoman password; a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-old-password"></a>`MW_OLD_PASSWORD` | cliOnly | secret |  |  | current password for the CLI change | mailwoman password; a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-new-password"></a>`MW_NEW_PASSWORD` | cliOnly | secret |  |  | new password for the CLI change | mailwoman password; a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-migrate-from"></a>`MW_MIGRATE_FROM` | cliOnly | dsn |  |  | source store of an offline copy | mailwoman migrate-store; a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-migrate-to"></a>`MW_MIGRATE_TO` | cliOnly | dsn |  |  | target store of an offline copy | mailwoman migrate-store; a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-mcp-server"></a>`MW_MCP_SERVER` | cliOnly | url |  |  | server the MCP client proxy talks to | mailwoman mcp-stdio; a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-mcp-token"></a>`MW_MCP_TOKEN` | cliOnly | secret |  |  | token of the MCP client proxy | mailwoman mcp-stdio; a CLI, build or test input, or a protocol or safety constant |
+
+## Build inputs
+
+| Name | Class | Value | Default | Precedence | What | Set in / reason |
+|---|---|---|---|---|---|---|
+| <a id="mw-shell-server-url"></a>`MW_SHELL_SERVER_URL` | build | url |  |  | server URL baked into a shell build | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-shell-product-name"></a>`MW_SHELL_PRODUCT_NAME` | build | plain |  |  | product name of a shell build | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-shell-identifier"></a>`MW_SHELL_IDENTIFIER` | build | plain |  |  | bundle identifier of a shell build | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-shell-updater-url"></a>`MW_SHELL_UPDATER_URL` | build | url |  |  | desktop update feed of a shell build | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-shell-updater-pubkey"></a>`MW_SHELL_UPDATER_PUBKEY` | build | secret |  |  | desktop update signing public key of a shell build | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-i18n-pseudo"></a>`MW_I18N_PSEUDO` | build | plain |  |  | build the web client with the pseudo-locale | a CLI, build or test input, or a protocol or safety constant |
+
+## Deployment tooling
+
+| Name | Class | Value | Default | Precedence | What | Set in / reason |
+|---|---|---|---|---|---|---|
+| <a id="mw-image-digest"></a>`MW_IMAGE_DIGEST` | deploy | plain |  |  | image digest deploy.sh writes into the app environment | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-caddyfile"></a>`MW_CADDYFILE` | deploy | plain |  |  | Caddyfile deploy.sh passes to the proxy container | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-acme-ca-root"></a>`MW_ACME_CA_ROOT` | deploy | plain |  |  | private ACME CA root deploy.sh passes to the proxy container | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-proxy-app-image"></a>`MW_PROXY_APP_IMAGE` | deploy | plain |  |  | app image of the proxy-conformance compose file | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-proxy-mock-image"></a>`MW_PROXY_MOCK_IMAGE` | deploy | plain |  |  | mock image of the proxy-conformance compose file | a CLI, build or test input, or a protocol or safety constant |
+
+## Test inputs and markers
+
+| Name | Class | Value | Default | Precedence | What | Set in / reason |
+|---|---|---|---|---|---|---|
+| <a id="mw-test-pg"></a>`MW_TEST_PG` | testOnly | dsn |  |  | PostgreSQL for the store tests | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-test-redis"></a>`MW_TEST_REDIS` | testOnly | plain |  |  | run the Redis tests | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-test-redis-url"></a>`MW_TEST_REDIS_URL` | testOnly | url |  |  | Redis for the cache tests | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-test-skip-log"></a>`MW_TEST_SKIP_LOG` | testOnly | plain |  |  | quiet test logging | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-require-live"></a>`MW_REQUIRE_LIVE` | testOnly | plain |  |  | fail instead of skipping when a live test service is missing | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-e14-pg-dsn"></a>`MW_E14_PG_DSN` | testOnly | secret |  |  | PostgreSQL for the e14 tests | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-mock-port"></a>`MW_MOCK_PORT` | testOnly | plain |  |  | port of the mock mail server | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-e2e-admin-path"></a>`MW_E2E_ADMIN_PATH` | testOnly | plain |  |  | console path the e2e suites use | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-imap-live-host"></a>`MW_IMAP_LIVE_HOST` | testOnly | plain |  |  | live IMAP test server | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-pop3-live-host"></a>`MW_POP3_LIVE_HOST` | testOnly | plain |  |  | live POP3 test server | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-sso-live"></a>`MW_SSO_LIVE` | testOnly | plain |  |  | run the live single sign-on tests | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-t14-live"></a>`MW_T14_LIVE` | testOnly | plain |  |  | run the t14 live tests | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-t14-tls-live"></a>`MW_T14_TLS_LIVE` | testOnly | plain |  |  | run the t14 TLS live tests | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-t20-proxy"></a>`MW_T20_PROXY` | testOnly | plain |  |  | t20 forwarding test proxy | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-t20-proxy-base"></a>`MW_T20_PROXY_BASE` | testOnly | plain |  |  | t20 forwarding test base path | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-t20-proxy-kind"></a>`MW_T20_PROXY_KIND` | testOnly | plain |  |  | t20 forwarding test proxy kind | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-t22-squid"></a>`MW_T22_SQUID` | testOnly | plain |  |  | t22 egress test proxy | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-actions"></a>`MW_ACTIONS` | marker | plain |  |  | a marker in the AI assistant's tool prompt, not a variable | a CLI, build or test input, or a protocol or safety constant |
+
+## Settings registry keys
+
+Set under **Settings** in the console or through
+the routes under `/settings`. Each key's details are in [settings.md](settings.md).
+
+| Key | Category | Scopes | Default | Value | Environment | Hot | Read by |
+|---|---|---|---|---|---|---|---|
+| <a id="cap.integration.nextcloud"></a>`cap.integration.nextcloud` | integrations | global+domain+admin_user | true | plain |  | yes | Nextcloud integration |
+| <a id="cap.integration.google"></a>`cap.integration.google` | integrations | global+domain+admin_user | true | plain |  | yes | Google OAuth bridge |
+| <a id="cap.integration.microsoft"></a>`cap.integration.microsoft` | integrations | global+domain+admin_user | true | plain |  | yes | Microsoft OAuth bridge |
+| <a id="cap.integration."></a>`cap.integration.*` | integrations | global+domain+admin_user | true | plain |  | yes | Individual integration permission |
+| <a id="cap.ui-plugin."></a>`cap.ui_plugin.*` | integrations | global+domain+admin_user | true | plain |  | yes | Individual UI plugin permission |
+| <a id="cap.ai-assistant"></a>`cap.ai_assistant` | features | global+domain+admin_user | true | plain |  | yes | AI assistant |
+| <a id="cap.plugins"></a>`cap.plugins` | features | global+domain+admin_user | true | plain |  | yes | Plugins |
+| <a id="cap.pim.calendar"></a>`cap.pim.calendar` | features | global+domain+admin_user | true | plain |  | yes | Calendar |
+| <a id="cap.pim.contacts"></a>`cap.pim.contacts` | features | global+domain+admin_user | true | plain |  | yes | Contacts |
+| <a id="cap.pim.tasks"></a>`cap.pim.tasks` | features | global+domain+admin_user | true | plain |  | yes | Tasks |
+| <a id="cap.pim.notes"></a>`cap.pim.notes` | features | global+domain+admin_user | true | plain |  | yes | Notes |
+| <a id="cap.export"></a>`cap.export` | features | global+domain+admin_user | true | plain |  | yes | Export |
+| <a id="cap.import"></a>`cap.import` | features | global+domain+admin_user | true | plain |  | yes | Import |
+| <a id="cap.api-keys"></a>`cap.api_keys` | features | global+domain+admin_user | true | plain |  | yes | API keys |
+| <a id="cap.oauth-apps"></a>`cap.oauth_apps` | features | global+domain+admin_user | true | plain |  | yes | OAuth applications |
+| <a id="cap.rules"></a>`cap.rules` | features | global+domain+admin_user | true | plain |  | yes | Mail rules |
+| <a id="cap.rules.forward"></a>`cap.rules.forward` | features | global+domain+admin_user | true | plain |  | yes | Rule forwarding |
+| <a id="cap.remote-images"></a>`cap.remote_images` | features | global+domain+admin_user | true | plain |  | yes | Remote images |
+| <a id="cap.user-background"></a>`cap.user_background` | features | global+domain+admin_user | false | plain |  | yes | Custom background |
+| <a id="cap.user-css"></a>`cap.user_css` | features | global+domain+admin_user | false | plain |  | yes | Custom CSS |
+| <a id="privacy.remotecontent"></a>`privacy.remoteContent` | privacy | global+domain+user | "ask" | plain |  | yes | Reader remote-content mode |
+| <a id="privacy.trackers"></a>`privacy.trackers` | privacy | global+domain+user | true | plain |  | yes | Block email trackers |
+| <a id="privacy.cleanlinks"></a>`privacy.cleanLinks` | privacy | global+domain+user | true | plain |  | yes | Remove tracking parameters from links |
+| <a id="privacy.maxbytes"></a>`privacy.maxBytes` | privacy | global | 8388608 | plain |  | yes | Largest fetched remote image in bytes |
+| <a id="privacy.cachebytes"></a>`privacy.cacheBytes` | privacy | global | 33554432 | plain |  | yes | Remote image cache size in bytes |
+| <a id="privacy.ratepermin"></a>`privacy.ratePerMin` | privacy | global | 120 | plain |  | yes | Remote fetches per account per minute |
+| <a id="privacy.allowdirect"></a>`privacy.allowDirect` | privacy | global | false | plain |  | yes | Permit direct remote-content mode with the direct-content capability |
+| <a id="cap.remote-content.direct"></a>`cap.remote_content.direct` | privacy | global+domain+admin_user | false | plain |  | yes | Permit this account to load remote images directly |
+| <a id="session.maxconcurrent"></a>`session.maxConcurrent` | signin | global+domain+admin_user | 10 | plain |  | yes | Maximum concurrent mailbox sessions |
+| <a id="session.idlesecs"></a>`session.idleSecs` | signin | global+domain+admin_user | 1800 | plain |  | yes | Mailbox session idle timeout, bounded by the deployment cap |
+| <a id="session.absolutesecs"></a>`session.absoluteSecs` | signin | global+domain+admin_user | 43200 | plain |  | yes | Mailbox session absolute timeout, bounded by the deployment cap |
+| <a id="twofa.rememberdays"></a>`twofa.rememberDays` | signin | global+domain+admin_user | 0 | plain |  | yes | Remembered-device lifetime; zero disables remembered devices |
+| <a id="twofa.passkeysenabled"></a>`twofa.passkeysEnabled` | signin | global+domain+admin_user | true | plain |  | yes | Allow passkey authentication |
+| <a id="twofa.required"></a>`twofa.required` | signin | global+domain+admin_user | false | plain |  | yes | Require a second authentication factor |
+| <a id="sieve.maxscriptbytes"></a>`sieve.maxScriptBytes` | sieve | global+domain+admin_user | 65536 | plain |  | yes | Sieve script byte limit |
+| <a id="sieve.maxscripts"></a>`sieve.maxScripts` | sieve | global+domain+admin_user | 5 | plain |  | yes | Sieve script count limit |
+| <a id="sieve.maxredirects"></a>`sieve.maxRedirects` | sieve | global+domain+admin_user | 4 | plain |  | yes | Sieve redirect count limit |
+| <a id="sieve.vacationallowed"></a>`sieve.vacationAllowed` | sieve | global+domain+admin_user | false | plain |  | yes | Sieve vacation actions |
+| <a id="sieve.allowedextensions"></a>`sieve.allowedExtensions` | sieve | global+domain+admin_user | null | plain |  | yes | Allowed Sieve extensions |
+| <a id="cap.sieve.raw-edit"></a>`cap.sieve.raw_edit` | sieve | global+domain+admin_user | false | plain |  | yes | Raw Sieve editing permission |
+| <a id="cap.sieve.forward-external"></a>`cap.sieve.forward_external` | sieve | global+domain+admin_user | false | plain |  | yes | Sieve forwarding outside the account domain |
+| <a id="ui.language"></a>`ui.language` | interface | global+domain+user | "browser" | plain |  | yes | web client locale (cached in localStorage mw.locale) |
+| <a id="appearance.theme"></a>`appearance.theme` | appearance | global+domain+user | "dark" | plain |  | yes | appearance blob theme/lightTheme/darkTheme; deployment default |
+| <a id="appearance.accent"></a>`appearance.accent` | appearance | global+domain+user | "" | plain |  | yes | appearance blob accentId (empty = the theme's own) |
+| <a id="appearance.density"></a>`appearance.density` | appearance | global+domain+user | "cozy" | plain |  | yes | appearance blob density |
+| <a id="appearance.brandname"></a>`appearance.brandName` | appearance | global | "Mailwoman" | plain |  | yes | public config brand name |
+| <a id="login.notice"></a>`login.notice` | appearance | global | null | plain |  | yes | public config sign-in notice |
+| <a id="mail.readreceipts"></a>`mail.readReceipts` | mail | global+domain+user | "ask" | plain |  | yes | mdn_policy:<account> (MDN/send) |
+| <a id="notifications.enabled"></a>`notifications.enabled` | notifications | global+domain+user | false | plain |  | yes | notification rules enabled flag |
+| <a id="offline.retentiondays"></a>`offline.retentionDays` | offline | global+domain+user | 30 | plain |  | yes | web device prefs offlineRetentionDays (client clamps) |
+| <a id="offline.budgetmb"></a>`offline.budgetMb` | offline | global+domain+user | 250 | plain |  | yes | web device prefs offlineBudgetMb (client clamps) |
+| <a id="assistant.enabled"></a>`assistant.enabled` | assistant | global+domain+user | true | plain |  | yes | below the assist_config deployment ceiling and kill switch |
+| <a id="upstream.default"></a>`upstream.default` | upstream | global | null | url | `MW_UPSTREAM_DEFAULT` (fallback) | yes | deployment default upstream (domain config wins) |
+| <a id="upstream.proxytimeoutsecs"></a>`upstream.proxyTimeoutSecs` | upstream | global | 300 | plain |  | yes | proxy per-request timeout (lib.rs) |
+| <a id="signin.newusers"></a>`signin.newUsers` | signin | global+domain | "open" | plain |  | yes | signin_policy::admit new-user rule |
+| <a id="signin.domainmode"></a>`signin.domainMode` | signin | global | "any" | plain |  | yes | domain gate mode (e12) |
+| <a id="signin.refusaldetail"></a>`signin.refusalDetail` | signin | global | "explain" | plain |  | yes | refusal answers: explain (403 codes) or uniform (401) |
+| <a id="signin.ldapbindprecheck"></a>`signin.ldapBindPrecheck` | signin | global | false | plain | `MW_LDAP_BIND_AUTH` (pin) | yes | LDAP bind pre-check before the mail credential |
+| <a id="twofa.pendingttlsecs"></a>`twofa.pendingTtlSecs` | signin | global | 300 | plain |  | yes | pending 2FA token life (twofa_routes.rs) |
+| <a id="twofa.maxattempts"></a>`twofa.maxAttempts` | signin | global | 5 | plain |  | yes | pending 2FA attempts (twofa_routes.rs) |
+| <a id="admin.session.idlesecs"></a>`admin.session.idleSecs` | admin | global | 1800 | plain |  | yes | admin session idle timeout |
+| <a id="admin.session.absolutesecs"></a>`admin.session.absoluteSecs` | admin | global | 43200 | plain |  | yes | admin session absolute cap |
+| <a id="passwd.policy.minlength"></a>`passwd.policy.minLength` | passwords | global+domain | 12 | plain |  | yes | password policy minimum length (every backend) |
+| <a id="passwd.policy.requireupper"></a>`passwd.policy.requireUpper` | passwords | global+domain | false | plain |  | yes | password policy: an upper-case letter |
+| <a id="passwd.policy.requirelower"></a>`passwd.policy.requireLower` | passwords | global+domain | false | plain |  | yes | password policy: a lower-case letter |
+| <a id="passwd.policy.requiredigit"></a>`passwd.policy.requireDigit` | passwords | global+domain | false | plain |  | yes | password policy: a digit |
+| <a id="passwd.policy.requiresymbol"></a>`passwd.policy.requireSymbol` | passwords | global+domain | false | plain |  | yes | password policy: a symbol |
+| <a id="limit.attachment-bytes"></a>`limit.attachment_bytes` | limits | global+domain+admin_user | 50000000 | plain |  | yes | Attachment bytes; 0 = no limit |
+| <a id="limit.send-per-hour"></a>`limit.send_per_hour` | limits | global+domain+admin_user | 0 | plain |  | yes | Submissions per hour; 0 = no limit |
+| <a id="limit.recipients-per-message"></a>`limit.recipients_per_message` | limits | global+domain+admin_user | 0 | plain |  | yes | Recipients per message; 0 = no limit |
+| <a id="limit.storage-bytes"></a>`limit.storage_bytes` | limits | global+domain+admin_user | 0 | plain |  | yes | blob reservations; 0 = no limit |
+| <a id="limit.send-per-day"></a>`limit.send_per_day` | limits | global+domain+admin_user | 0 | plain |  | yes | EmailSubmission/set creates per day; 0 = no limit |
+| <a id="limit.ai-calls-per-day"></a>`limit.ai_calls_per_day` | limits | global+domain+admin_user | 0 | plain |  | yes | assistant adapter calls per day; 0 = no limit |
+| <a id="quota.warnthresholds"></a>`quota.warnThresholds` | limits | global+domain | [80,95] | plain |  | yes | usage warning thresholds (percent) |
+| <a id="quota.warnenabled"></a>`quota.warnEnabled` | limits | global+domain | true | plain |  | yes | usage warnings on |
+| <a id="usage.retentiondays"></a>`usage.retentionDays` | limits | global | 400 | plain |  | yes | usage counter pruning |
+| <a id="usage.meterapi"></a>`usage.meterApi` | limits | global | true | plain |  | yes | API usage counters |
+| <a id="usage.measureintervalhours"></a>`usage.measureIntervalHours` | limits | global | 6 | plain |  | yes | storage measurer interval |
+| <a id="assistant.ratelimitpermin"></a>`assistant.rateLimitPerMin` | assistant | global | 0 | plain | `MW_ASSIST_RATE_LIMIT_PER_MIN` (pin) | yes | assistant rate limit; 0 = none (v7_mount.rs) |
+| <a id="plugins.kv.maxkeybytes"></a>`plugins.kv.maxKeyBytes` | plugins | global | 256 | plain | `MW_PLUGIN_KV_MAX_KEY_BYTES` (pin) | yes | plugin KV key size (v7_mount.rs) |
+| <a id="plugins.kv.maxvaluebytes"></a>`plugins.kv.maxValueBytes` | plugins | global | 65536 | plain | `MW_PLUGIN_KV_MAX_VALUE_BYTES` (pin) | yes | plugin KV value size |
+| <a id="plugins.kv.maxtotalbytes"></a>`plugins.kv.maxTotalBytes` | plugins | global | 5242880 | plain | `MW_PLUGIN_KV_MAX_TOTAL_BYTES` (pin) | yes | plugin KV total size |
+| <a id="plugins.kv.maxkeys"></a>`plugins.kv.maxKeys` | plugins | global | 1000 | plain | `MW_PLUGIN_KV_MAX_KEYS` (pin) | yes | plugin KV key count |
+| <a id="import.maxmessages"></a>`import.maxMessages` | import | global+domain | 20000 | plain |  | yes | import message count (import_routes.rs) |
+| <a id="import.maxmessagebytes"></a>`import.maxMessageBytes` | import | global+domain | 67108864 | plain |  | yes | import message size (import_routes.rs) |
+| <a id="webhooks.maxattempts"></a>`webhooks.maxAttempts` | webhooks | global | 3 | plain |  | yes | webhook delivery attempts |
+| <a id="webhooks.timeoutsecs"></a>`webhooks.timeoutSecs` | webhooks | global | 10 | plain |  | yes | webhook delivery timeout |
+| <a id="outbox.maxattempts"></a>`outbox.maxAttempts` | mail | global | 8 | plain |  | yes | submission attempts (engine dispatcher) |
+| <a id="realtime.rechecksecs"></a>`realtime.recheckSecs` | realtime | global | 30 | plain | `MW_REALTIME_RECHECK_SECS` (pin) | yes | push stream re-check period (push.rs) |
+| <a id="privacy.watermark.enabled"></a>`privacy.watermark.enabled` | privacy | global+domain | false | plain | `MW_WATERMARK` (pin) | yes | reader watermark |
+| <a id="privacy.watermark.opacity"></a>`privacy.watermark.opacity` | privacy | global+domain | 0.08 | plain | `MW_WATERMARK_OPACITY` (pin) | yes | reader watermark opacity |
+| <a id="privacy.opentracking.retentiondays"></a>`privacy.openTracking.retentionDays` | privacy | global | 90 | plain |  | yes | open-tracking token retention |
+| <a id="privacy.opentracking.unboundttlhours"></a>`privacy.openTracking.unboundTtlHours` | privacy | global | 24 | plain |  | yes | open-tracking unbound token life |
+| <a id="maskedemail.domain"></a>`maskedEmail.domain` | mail | global | null | plain | `MW_MASKED_EMAIL_DOMAIN` (pin) | yes | masked-address domain (masked.rs) |
+| <a id="abuse.reportaddress"></a>`abuse.reportAddress` | mail | global+domain | null | plain | `MW_ABUSE_ADDRESS` (pin) | yes | ARF report address |
+| <a id="dlp.adminaddress"></a>`dlp.adminAddress` | mail | global | null | plain | `MW_DLP_ADMIN` (pin) | yes | DLP notice address |
+| <a id="observability.errorforwardurl"></a>`observability.errorForwardUrl` | observability | global | null | url | `MW_ERROR_FORWARD_URL` (pin) | yes | client error forwarding (errors.rs) |
+| <a id="egress.probeurl"></a>`egress.probeUrl` | egress | global | "https://example.com/" | url | `MW_EGRESS_PROBE_URL` (pin) | yes | egress proxy test target |
+| <a id="push.vapidcontact"></a>`push.vapidContact` | notifications | global | null | url | `MW_VAPID_CONTACT` (pin) | yes | VAPID contact (push_relay.rs) |
+| <a id="push.quiethours"></a>`push.quietHours` | notifications | global | null | plain |  | yes | push quiet hours, UTC |
+| <a id="updates.check"></a>`updates.check` | updates | global | "off" | plain |  | yes | daily update check |
+| <a id="updates.feedurl"></a>`updates.feedUrl` | updates | global | "https://api.github.com/repos/supermarsx/mailwoman/releases" | url |  | yes | release feed |
+| <a id="updates.apply"></a>`updates.apply` | updates | global | "disabled" | plain |  | yes | update apply through the host agent |
+| <a id="backup.retentioncount"></a>`backup.retentionCount` | backups | global | 7 | plain |  | yes | SQLite backups kept |
+| <a id="about.securitycontact"></a>`about.securityContact` | about | global | null | url |  | yes | security.txt Contact |
+| <a id="about.securitypolicyurl"></a>`about.securityPolicyUrl` | about | global | null | url |  | yes | security.txt Policy |
+| <a id="about.projectlinks"></a>`about.projectLinks` | about | global | [] | url |  | yes | About screen links |
+| <a id="config.snapshotskept"></a>`config.snapshotsKept` | config | global | 20 | plain |  | yes | configuration snapshots kept |
+| <a id="jobs.historydays"></a>`jobs.historyDays` | jobs | global | 30 | plain |  | yes | job run history |
+| <a id="maintenance.announceminutesdefault"></a>`maintenance.announceMinutesDefault` | maintenance | global | 15 | plain |  | yes | maintenance announcement lead time |
+| <a id="maintenance.defaultmessage"></a>`maintenance.defaultMessage` | maintenance | global | {} | plain |  | yes | maintenance banner text per locale |
+| <a id="health.diskfreeminpercent"></a>`health.diskFreeMinPercent` | health | global | 5 | plain |  | yes | /readyz disk free floor |
+| <a id="observability.otlpmetrics"></a>`observability.otlpMetrics` | observability | global | false | plain |  | yes | OTLP metrics export |
+| <a id="metrics.drilldowntopn"></a>`metrics.drilldownTopN` | observability | global | 200 | plain |  | yes | metrics drill-down rows |
+| <a id="metrics.rollupdays"></a>`metrics.rollupDays` | observability | global | 30 | plain |  | yes | hourly metric rollups kept |
+| <a id="diagnostics.retentiondays"></a>`diagnostics.retentionDays` | diagnostics | global | 30 | plain |  | yes | diagnostic runs kept |
+| <a id="dataexport.linkhours"></a>`dataExport.linkHours` | users | global | 24 | plain |  | yes | data export download window |
+| <a id="servertext."></a>`serverText.*` | serverText | global+domain | {} | plain |  | yes | server_text(id, locale, domain) overrides |
