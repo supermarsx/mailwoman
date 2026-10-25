@@ -110,7 +110,7 @@ layer (`apps/web/src/platform`), which degrades gracefully in a plain browser:
 
 ## Auto-update
 
-The Tauri updater is wired (`tauri-plugin-updater`) but ships **inactive**: V5 does
-not run a hosted update feed or ship a signing key. A hosted update feed + signing
-account is an **ops/sponsorship follow-up** (§28.7), not a V5 gate — the config and
-plumbing are present so enabling it later needs no code change.
+The Tauri updater (`tauri-plugin-updater`) is off unless a build is given an update
+feed and its signing key (`MW_SHELL_UPDATER_URL`, `MW_SHELL_UPDATER_PUBKEY`); the
+committed config names neither. See `shells.md`, "Desktop updates". Nothing in the
+app asks the feed for an update yet.

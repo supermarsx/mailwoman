@@ -27,7 +27,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "publisher": "Mailwoman",
     "homepage": "https://mailwoman.example",
     "license": "AGPL-3.0-or-later",
@@ -61,19 +61,6 @@
       "signingIdentity": "HUMAN_PROVIDE_APPLE_DEVELOPER_ID_APPLICATION_CERT__see_packaging/macos/notarize.md",
       "providerShortName": "HUMAN_PROVIDE_APPLE_TEAM_ID__see_packaging/macos/notarize.md",
       "exceptionDomain": ""
-    }
-  },
-  "plugins": {
-    "updater": {
-      "active": true,
-      "pubkey": "HUMAN_PROVIDE_MINISIGN_UPDATER_PUBKEY__see_packaging/updater/README.md",
-      "endpoints": [
-        "https://releases.mailwoman.example/updater/stable/{{target}}/{{arch}}/{{current_version}}",
-        "https://releases.mailwoman.example/updater/staging/{{target}}/{{arch}}/{{current_version}}"
-      ],
-      "windows": {
-        "installMode": "passive"
-      }
     }
   }
 }

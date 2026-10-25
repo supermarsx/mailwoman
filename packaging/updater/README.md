@@ -1,58 +1,35 @@
-# Auto-update: signing + staging recipe (Tauri updater)
+# Auto-update: per-deployment feed and signing key (Tauri updater)
 
-The desktop shell wires `tauri-plugin-updater`. The config lives in
-`apps/desktop/src-tauri/tauri.conf.json` under `plugins.updater` and
-`bundle.createUpdaterArtifacts: true`. Auto-update is **signed + staged** per SPEC
-§16 ("Auto-update signed + staged; self-hosters can pin/disable").
+The desktop shell can use `tauri-plugin-updater`, but only when its build is given an
+update feed and a signing key. The committed
+`apps/desktop/src-tauri/tauri.conf.json` has no `plugins.updater` block and sets
+`bundle.createUpdaterArtifacts: false`; the shell registers the plugin only when a
+block with a key and a feed is present (`updater_configured`,
+`apps/desktop/src-tauri/src/lib.rs`).
 
-Mobile (`apps/mobile`) intentionally has **no self-updater**: Android/iOS updates are
-delivered by the stores (Play / App Store / F-Droid). Shipping a self-updating mobile
-binary would violate store policy. See `docs/deploy/packaging.md`.
+The full recipe is in [`docs/deploy/shells.md`](../../docs/deploy/shells.md),
+"Desktop updates". In short:
 
-## What is already wired (autonomous)
+- `MW_SHELL_UPDATER_URL` (https feed, normally
+  `https://host/path/{{target}}/{{arch}}/{{current_version}}`) and
+  `MW_SHELL_UPDATER_PUBKEY` (the minisign public key as `tauri signer generate`
+  prints it) together turn the updater on; `scripts/shells/config-overlay.mjs`
+  writes the overlay (`plugins.updater` with Windows install mode `passive`, and
+  `bundle.createUpdaterArtifacts: true`) that `scripts/build-shells.*` and
+  `tauri build --config` apply.
+- Either one missing: no updater (SPEC §16 "self-hosters can pin/disable").
+- The private key and its password stay outside the repository, in
+  `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` for the installer
+  build. Nothing here is signed or published by CI.
+- A canary channel is a second feed URL used by a second build; promote a release by
+  serving it at the stable feed.
 
-- `plugins.updater.active: true`
-- `plugins.updater.endpoints`: a **stable** and a **staging** channel, templated with
-  Tauri's `{{target}}/{{arch}}/{{current_version}}` variables.
-- `plugins.updater.windows.installMode: passive`
-- `bundle.createUpdaterArtifacts: true` (emits the `.sig` + updater bundle at
-  `tauri build` time).
+Nothing in the app asks the feed for an update yet (no screen or start-up step calls
+the plugin).
 
-## HUMAN-gated inputs (required before real updates)
+Mobile (`apps/mobile`) has **no self-updater**: Android and iOS updates are delivered
+by the stores (Play, App Store, F-Droid). See `docs/deploy/packaging.md`.
 
-```
-# HUMAN: provide signing key
-#   1. Generate a minisign keypair (Tauri updater uses minisign):
-#        pnpm -C apps/desktop exec tauri signer generate -w ~/.mailwoman/updater.key
-#      -> prints the PUBLIC key and writes the PASSWORD-protected PRIVATE key.
-#   2. Paste the PUBLIC key into apps/desktop/src-tauri/tauri.conf.json
-#        plugins.updater.pubkey   (currently the HUMAN_PROVIDE_... placeholder).
-#   3. Keep the PRIVATE key + its password OUT of the repo. In CI/release, export:
-#        TAURI_SIGNING_PRIVATE_KEY           (the key file contents or base64)
-#        TAURI_SIGNING_PRIVATE_KEY_PASSWORD  (the password)
-#      as protected secrets. `tauri build` then signs the updater artifacts.
-```
-
-- `# HUMAN:` host the update feed. Point the two `endpoints` at a real host that
-  serves the Tauri v2 updater JSON per platform/arch/version (`static.json` or a small
-  service). The `staging/` endpoint is for a canary channel; promote a build by copying
-  its artifacts from `staging/` to `stable/`.
-- `# HUMAN:` (optional) Windows Authenticode + macOS Developer ID certs so the
-  downloaded update binary itself is OS-trusted — see `../macos/notarize.md` and the
-  `bundle.windows.certificateThumbprint` placeholder in `tauri.conf.json`.
-
-## Self-hoster opt-out (SPEC §16: "can pin/disable")
-
-Distro/self-hosted builds may set `plugins.updater.active: false` (or ship without a
-`pubkey`) to disable in-app updates entirely and rely on the OS package manager.
-Document this switch in the release notes for downstream packagers.
-
-## Staging → stable promotion (feed layout)
-
-```
-releases.mailwoman.example/updater/
-  staging/{target}/{arch}/{current_version}   <- canary; promote after soak
-  stable/{target}/{arch}/{current_version}    <- general availability
-```
-
-Nothing here is signed or published by CI — the private key is a human secret.
+Optional, so the downloaded update itself is trusted by the OS: Windows Authenticode
+and macOS Developer ID certificates; see `../macos/notarize.md` and the
+`bundle.windows.certificateThumbprint` placeholder in `tauri.conf.json`.

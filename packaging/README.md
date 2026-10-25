@@ -16,7 +16,8 @@ is marked with a `HUMAN` placeholder and explained in
 | Linux deb/rpm/AppImage | [`linux/`](linux/) | (built by CI; signing/repo hosting is ops) |
 
 The Tauri bundle config that drives deb/rpm/AppImage/msi/dmg lives in
-`apps/desktop/src-tauri/tauri.conf.json` (`bundle` + `plugins.updater`); the mobile
+`apps/desktop/src-tauri/tauri.conf.json` (`bundle`; `plugins.updater` only through the
+per-build overlay, see `updater/`); the mobile
 shell config is `apps/mobile/src-tauri/tauri.conf.json`.
 
 > **App identifier:** the shells ship the reverse-DNS namespace `com.mailwoman.*`

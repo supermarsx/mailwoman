@@ -53,14 +53,17 @@ const PRODUCT_NAME: &str = match option_env!("MW_SHELL_PRODUCT_NAME") {
 /// The frozen JS handshake (§2.1/§2.5): injected before the SPA runs so the
 /// capability layer knows it is native, which mobile OS it is on and which server
 /// it talks to (`serverUrl`: the baked address, or `null` and the SPA says the app
-/// has not been set up, t32). Mirrors the desktop shell's `bootstrap_config_script`
-/// (kept camelCase per the `__MW_CONFIG__` precedent).
+/// has not been set up, t32). `platform.updater` is always false: Android and iOS
+/// apps are updated by their store, not by the app (t32-cfg §4.18). Mirrors the
+/// desktop shell's `bootstrap_config_script` (kept camelCase per the
+/// `__MW_CONFIG__` precedent).
 fn bootstrap_config_script(server_url: Option<&str>) -> String {
     let cfg = json!({
         "platform": {
             "kind": platform_kind(),
             "os": std::env::consts::OS,
             "version": env!("CARGO_PKG_VERSION"),
+            "updater": false,
         },
         "serverUrl": server_url,
         "native": true,
@@ -232,6 +235,7 @@ mod tests {
         assert!(s.contains("__MW_CONFIG__"));
         assert!(s.contains("\"native\":true"));
         assert!(s.contains("\"serverUrl\":null"));
+        assert!(s.contains("\"updater\":false"));
         let s = bootstrap_config_script(Some("https://mail.example.org"));
         assert!(s.contains("\"serverUrl\":\"https://mail.example.org\""));
     }

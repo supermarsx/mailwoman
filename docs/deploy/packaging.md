@@ -29,7 +29,7 @@ artifacts **build** and meet the §16 size budgets.
 | F-Droid | [`packaging/fdroid/`](../../packaging/fdroid/) | metadata parses | `fdroiddata` MR; reproducible build review |
 | Google Play | (Android APK/AAB via `apps/mobile`) | APK builds (`android-apk` CI job) | Play Console account; Play **upload key**; store listing + review |
 | Apple App Store | (`apps/mobile` iOS) | — (needs macOS + Xcode) | App Store Connect account; distribution cert; listing + review |
-| Desktop auto-update | [`packaging/updater/`](../../packaging/updater/) | config wired; `createUpdaterArtifacts` | minisign keypair; hosted stable+staging feed |
+| Desktop auto-update | [`packaging/updater/`](../../packaging/updater/) | per-build overlay (`MW_SHELL_UPDATER_URL` + `MW_SHELL_UPDATER_PUBKEY`); off without both | minisign keypair per deployment; hosted feed |
 
 ### Version
 
@@ -56,9 +56,10 @@ Before any store presence a human must provide:
   certificate; notarization credentials (Apple ID + app-specific password **or** an
   App Store Connect API key). For the Mac App Store: an *Apple Distribution* cert +
   App Store Connect submission.
-- **Auto-update:** a minisign keypair (public key → `plugins.updater.pubkey`; private
-  key + password → CI secrets `TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]`); a host serving
-  the stable + staging update feeds.
+- **Auto-update:** a minisign keypair per deployment (public key →
+  `MW_SHELL_UPDATER_PUBKEY`; private key + password → `TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]`
+  for the installer build) and a host serving the feed (`MW_SHELL_UPDATER_URL`); see
+  `shells.md`, "Desktop updates".
 - **Google Play:** a Play Console account; the Play **upload/signing key**; a store
   listing + content rating + review.
 - **Apple App Store (iOS):** an App Store Connect account; distribution signing;

@@ -135,6 +135,92 @@ yourself, for example
 identifier stays `com.mailwoman.mobile`, because the Kotlin plugins live in that
 package.
 
+## Desktop updates
+
+A desktop build has an updater only when it is given an update feed and the public
+key the updates are signed with. Without both it has none: the committed
+`tauri.conf.json` names no feed and no key.
+
+| Variable | Effect |
+|---|---|
+| `MW_SHELL_UPDATER_URL` | The update feed. `https://` only, no user name or password. Normally a template such as `https://updates.example.org/mail/{{target}}/{{arch}}/{{current_version}}`; a fixed URL (one JSON file for every platform) is accepted with a note. |
+| `MW_SHELL_UPDATER_PUBKEY` | The minisign public key, exactly as `tauri signer generate` prints it (the base64 text of the whole `.pub` file, not the bare `RW…` line). |
+
+With both set, `build-shells` adds `plugins.updater` (the key, the feed, Windows
+install mode `passive`) and `bundle.createUpdaterArtifacts: true` to the config
+overlay, and the app registers the updater plugin when it starts. With either one
+missing there is no updater block, the plugin is not registered, and the build says
+so (`updater off: MW_SHELL_UPDATER_PUBKEY is not set …`). An invalid value (not
+`https://`, a user name in the URL, a key that is not a minisign public key) stops
+`build-shells` before it builds anything. The check is
+`scripts/shells/config-overlay.mjs`; its tests are
+`node --test scripts/shells/*.test.mjs`.
+
+### Signing keys, one pair per deployment
+
+```sh
+pnpm -C apps/desktop exec tauri signer generate -w ~/.mailwoman/updater.key
+```
+
+The command prints the public key: that is `MW_SHELL_UPDATER_PUBKEY`. The private
+key file and its password stay out of the repository; the installer build reads
+them from `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` and
+signs each update bundle (`.sig` next to it). An app accepts only updates signed by
+the key it was built with, so losing the private key means shipping a new build
+with a new key by some other channel.
+
+`build-shells` builds with `--no-bundle` (no installers, no update bundles). For the
+installers and update bundles of a deployment, pass the same overlay to
+`tauri build`:
+
+```sh
+node scripts/shells/config-overlay.mjs > overlay.json
+pnpm -C apps/desktop exec tauri build --config overlay.json
+```
+
+### Feed layout
+
+The app replaces `{{target}}` (`windows`, `linux`, `darwin`), `{{arch}}`
+(`x86_64`, `aarch64`, `i686`, `armv7`) and `{{current_version}}` in the feed URL. The
+feed answers `204 No Content` when there is nothing newer, or `200` with
+
+```json
+{ "version": "26.21.0", "notes": "…", "pub_date": "2026-11-01T12:00:00Z",
+  "url": "https://updates.example.org/mail/files/Mailwoman_26.21.0_x64-setup.exe",
+  "signature": "<contents of the .sig file for that bundle>" }
+```
+
+A fixed URL instead serves one JSON file with a `platforms` object keyed
+`<target>-<arch>` (such as `windows-x86_64`), each entry with its `url` and
+`signature`. A canary channel is a second feed URL used by a second build.
+
+### Turning updates off
+
+Leave both variables unset; that is the default. A build that already has a feed
+keeps it: to stop such builds from updating, answer `204 No Content` at the feed.
+
+### What is not wired yet
+
+Nothing in the app asks the feed for an update yet. The plugin is registered and the
+app window may call it (`updater:default` in `capabilities/default.json`), but no
+screen and no start-up step does. Mobile apps have no updater; they are updated
+through their store.
+
+## Client version header
+
+The apps name themselves to the server in `X-Mailwoman-Client`:
+
+| Client | Value | Sent |
+|---|---|---|
+| Desktop app | `desktop/<version>; updater=on` or `updater=off` | on sign-in and every request to the server |
+| Android and iOS app | `mobile/<version>; updater=off` | on sign-in and every request to the server |
+| Browser | `browser/<version>` | on sign-in (`/api/login`, `/api/login/2fa`) |
+
+`<version>` is the app's own release number (`26.20.0`); anything else is sent as
+`unknown`. The server allows the header in its answer to the apps' cross-origin
+preflight. Recording it with the session and listing the versions in use in the
+console come with the session overview; this build does not store it yet.
+
 ## The server side
 
 The server must accept the apps' sign-in: the fixed Tauri origins

@@ -27,6 +27,12 @@
 #                          Mailwoman.
 #   MW_SHELL_IDENTIFIER    the desktop bundle identifier (reverse DNS); default
 #                          com.mailwoman.desktop.
+#   MW_SHELL_UPDATER_URL   the desktop update feed, https, normally
+#                          https://host/path/{{target}}/{{arch}}/{{current_version}}
+#   MW_SHELL_UPDATER_PUBKEY  the minisign public key the update bundles are signed
+#                          for, as `tauri signer generate` prints it. With both set
+#                          the desktop shell checks that feed; with either missing
+#                          it has no updater (scripts/shells/config-overlay.mjs).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -50,24 +56,26 @@ else
   fail "set MW_SHELL_SERVER_URL=https://mail.example.org (the server this build talks to), or MW_SHELL_NO_SERVER_URL=1 for a build provisioned only by server.json (docs/deploy/shells.md)"
 fi
 
-# Branding: passed to tauri as a config overlay, and to the shell crates
-# (window title) through the environment.
+# Branding and the updater: passed to tauri as a config overlay, and the branding
+# to the shell crates (window title) through the environment.
 TAURI_CONFIG_ARGS=()
-if [ -n "${MW_SHELL_PRODUCT_NAME:-}${MW_SHELL_IDENTIFIER:-}" ]; then
-  if [ -n "${MW_SHELL_PRODUCT_NAME:-}" ]; then
-    if [ "${#MW_SHELL_PRODUCT_NAME}" -gt 64 ] || printf '%s' "$MW_SHELL_PRODUCT_NAME" | LC_ALL=C grep -q '[[:cntrl:]/\]'; then
-      fail "MW_SHELL_PRODUCT_NAME must be at most 64 characters with no control characters, / or a backslash"
-    fi
-    export MW_SHELL_PRODUCT_NAME
+if [ -n "${MW_SHELL_PRODUCT_NAME:-}" ]; then
+  if [ "${#MW_SHELL_PRODUCT_NAME}" -gt 64 ] || printf '%s' "$MW_SHELL_PRODUCT_NAME" | LC_ALL=C grep -q '[[:cntrl:]/\]'; then
+    fail "MW_SHELL_PRODUCT_NAME must be at most 64 characters with no control characters, / or a backslash"
   fi
-  if [ -n "${MW_SHELL_IDENTIFIER:-}" ] && ! printf '%s' "$MW_SHELL_IDENTIFIER" | grep -Eq '^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z][A-Za-z0-9-]*)+$'; then
-    fail "MW_SHELL_IDENTIFIER must be reverse DNS, such as org.example.mail: $MW_SHELL_IDENTIFIER"
-  fi
-  TAURI_CONFIG_FILE="$(mktemp)"
-  trap 'rm -f "$TAURI_CONFIG_FILE"' EXIT
-  node -e 'const c = {}; if (process.env.MW_SHELL_PRODUCT_NAME) c.productName = process.env.MW_SHELL_PRODUCT_NAME; if (process.env.MW_SHELL_IDENTIFIER) c.identifier = process.env.MW_SHELL_IDENTIFIER; process.stdout.write(JSON.stringify(c));' > "$TAURI_CONFIG_FILE"
+  export MW_SHELL_PRODUCT_NAME
+fi
+if [ -n "${MW_SHELL_IDENTIFIER:-}" ] && ! printf '%s' "$MW_SHELL_IDENTIFIER" | grep -Eq '^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z][A-Za-z0-9-]*)+$'; then
+  fail "MW_SHELL_IDENTIFIER must be reverse DNS, such as org.example.mail: $MW_SHELL_IDENTIFIER"
+fi
+TAURI_CONFIG_FILE="$(mktemp)"
+trap 'rm -f "$TAURI_CONFIG_FILE"' EXIT
+# The updater inputs are checked here, before the long SPA build.
+node scripts/shells/config-overlay.mjs > "$TAURI_CONFIG_FILE" ||
+  fail "fix the updater inputs above, or unset both MW_SHELL_UPDATER_URL and MW_SHELL_UPDATER_PUBKEY for a build without an updater"
+if [ "$(cat "$TAURI_CONFIG_FILE")" != "{}" ]; then
   TAURI_CONFIG_ARGS=(--config "$TAURI_CONFIG_FILE")
-  echo "[build-shells] branding: $(cat "$TAURI_CONFIG_FILE")"
+  echo "[build-shells] config overlay: $(cat "$TAURI_CONFIG_FILE")"
 fi
 
 # Include the self-contained mw-server in the bundle unless MW_SELF_CONTAINED=0.

@@ -50,14 +50,17 @@ const PRODUCT_NAME: &str = match option_env!("MW_SHELL_PRODUCT_NAME") {
 /// running natively, where its server is, and that the native capability consumers
 /// are active. `serverUrl` is the address from `serverconfig` (provisioning file,
 /// else the build), or `null` when there is none and the SPA says the app has not
-/// been set up (t32). camelCase matches the existing `__MW_CONFIG__` precedent
-/// (`viewers/max-security.ts`).
-fn bootstrap_config_script(server_url: Option<&str>) -> String {
+/// been set up (t32). `platform.updater` says whether this build has an update feed
+/// (`updater_configured`); the SPA reports it with the version in
+/// `X-Mailwoman-Client` (`api/transport.ts`). camelCase matches the existing
+/// `__MW_CONFIG__` precedent (`viewers/max-security.ts`).
+fn bootstrap_config_script(server_url: Option<&str>, updater: bool) -> String {
     let cfg = json!({
         "platform": {
             "kind": "desktop",
             "os": std::env::consts::OS,
             "version": env!("CARGO_PKG_VERSION"),
+            "updater": updater,
         },
         "serverUrl": server_url,
         "native": true,
@@ -69,6 +72,27 @@ fn bootstrap_config_script(server_url: Option<&str>) -> String {
     });
     // Assign early so import-time reads (e.g. `readAdminFloor()`) see it.
     format!("globalThis.__MW_CONFIG__ = Object.assign(globalThis.__MW_CONFIG__ || {{}}, {cfg});")
+}
+
+/// Whether this build has an update feed (t32-cfg §4.18). The committed
+/// `tauri.conf.json` has no `plugins.updater` block; `scripts/build-shells.*` adds
+/// one, with the deployment's minisign public key and feed URL, only when both
+/// `MW_SHELL_UPDATER_PUBKEY` and `MW_SHELL_UPDATER_URL` are set. Without a key and a
+/// feed the updater plugin is not registered: it cannot start without a key, and
+/// there is nothing to check against.
+fn updater_configured(updater: Option<&serde_json::Value>) -> bool {
+    let Some(updater) = updater else {
+        return false;
+    };
+    let has_key = updater
+        .get("pubkey")
+        .and_then(|k| k.as_str())
+        .is_some_and(|k| !k.trim().is_empty());
+    let has_feed = updater
+        .get("endpoints")
+        .and_then(|e| e.as_array())
+        .is_some_and(|e| !e.is_empty());
+    has_key && has_feed
 }
 
 /// The build-emitted UI-bundle manifest (`scripts/emit-bundle-hash.mjs`, §7.4 /
@@ -233,13 +257,18 @@ pub fn run() {
     if let Some(message) = webview_missing() {
         fatal(&message);
     }
-    let app = tauri::Builder::default()
+    let context = tauri::generate_context!();
+    let updater = updater_configured(context.config().plugins.0.get("updater"));
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_deep_link::init());
+    if updater {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+    let app = builder
         // Self-contained mode's child-process manager (e3), reachable from the
         // `mw_*_local_server` commands and the quit handler.
         .manage(selfcontained::LocalServer::new())
@@ -268,7 +297,7 @@ pub fn run() {
             push::mw_push_subscribe,
             push::mw_push_unsubscribe,
         ])
-        .setup(|app| {
+        .setup(move |app| {
             // §7.4 tamper gate BEFORE any window loads the SPA or points at a server.
             if let Err(reason) = verify_bundle_integrity(app.handle()) {
                 fatal(&format!("UI-bundle integrity check failed: {reason}"));
@@ -314,14 +343,14 @@ pub fn run() {
                     .inner_size(1200.0, 800.0)
                     .min_inner_size(720.0, 560.0)
                     .content_protected(false)
-                    .initialization_script(bootstrap_config_script(server.url.as_deref()))
+                    .initialization_script(bootstrap_config_script(server.url.as_deref(), updater))
                     .build()
             {
                 fatal(&format!("the main window could not be opened: {e}"));
             }
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .unwrap_or_else(|e| fatal(&format!("the desktop shell could not start: {e}")));
 
     app.run(|app_handle, event| {
@@ -338,15 +367,72 @@ mod tests {
 
     #[test]
     fn bootstrap_script_declares_desktop_native_config() {
-        let s = bootstrap_config_script(None);
+        let s = bootstrap_config_script(None, false);
         assert!(s.contains("__MW_CONFIG__"));
         assert!(s.contains("\"kind\":\"desktop\""));
         assert!(s.contains("\"native\":true"));
         assert!(s.contains("\"capabilities\":true"));
+        assert!(s.contains(&format!("\"version\":\"{}\"", env!("CARGO_PKG_VERSION"))));
+        assert!(s.contains("\"updater\":false"));
         // No configured server: the SPA shows that the app is not set up.
         assert!(s.contains("\"serverUrl\":null"));
-        let s = bootstrap_config_script(Some("https://mail.example.org"));
+        let s = bootstrap_config_script(Some("https://mail.example.org"), true);
         assert!(s.contains("\"serverUrl\":\"https://mail.example.org\""));
+        assert!(s.contains("\"updater\":true"));
+    }
+
+    #[test]
+    fn the_updater_needs_a_key_and_a_feed() {
+        assert!(!updater_configured(None));
+        let feed = "https://updates.example.org/{{target}}/{{arch}}/{{current_version}}";
+        assert!(updater_configured(Some(&json!({
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWdu",
+            "endpoints": [feed],
+        }))));
+        for incomplete in [
+            json!({ "endpoints": [feed] }),
+            json!({ "pubkey": "", "endpoints": [feed] }),
+            json!({ "pubkey": "dW50cnVzdGVk" }),
+            json!({ "pubkey": "dW50cnVzdGVk", "endpoints": [] }),
+            json!({ "active": false }),
+        ] {
+            assert!(!updater_configured(Some(&incomplete)), "{incomplete}");
+        }
+    }
+
+    #[test]
+    fn the_build_overlay_block_is_what_the_plugin_reads() {
+        // The shape scripts/shells/config-overlay.mjs writes for a build with both
+        // MW_SHELL_UPDATER_* inputs: the plugin must accept it, or the registered
+        // plugin would stop the app at start.
+        let block = json!({
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWdu",
+            "endpoints": ["https://updates.example.org/mail/{{target}}/{{arch}}/{{current_version}}"],
+            "windows": { "installMode": "passive" },
+        });
+        assert!(updater_configured(Some(&block)));
+        let cfg: tauri_plugin_updater::Config = serde_json::from_value(block).unwrap();
+        assert_eq!(cfg.endpoints.len(), 1);
+        // Without a key the plugin cannot start, which is why it is registered
+        // only when `updater_configured` says so.
+        let no_key = json!({ "endpoints": ["https://updates.example.org/x"] });
+        assert!(serde_json::from_value::<tauri_plugin_updater::Config>(no_key).is_err());
+        assert!(serde_json::from_value::<tauri_plugin_updater::Config>(json!(null)).is_err());
+    }
+
+    #[test]
+    fn the_committed_config_has_no_update_feed() {
+        // F31: the placeholder key and example feed are gone; a build gets an
+        // updater only from `scripts/build-shells.*` (MW_SHELL_UPDATER_*).
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert!(conf.pointer("/plugins/updater").is_none(), "{conf}");
+        assert_eq!(
+            conf.pointer("/bundle/createUpdaterArtifacts"),
+            Some(&json!(false))
+        );
+        assert!(!updater_configured(conf.pointer("/plugins/updater")));
+        assert!(!include_str!("../tauri.conf.json").contains("releases.mailwoman.example"));
     }
 
     #[test]

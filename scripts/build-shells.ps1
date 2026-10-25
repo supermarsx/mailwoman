@@ -26,6 +26,11 @@ function Assert-LastExit([string]$Label) {
 #   MW_SHELL_NO_SERVER_URL=1  build without one; the app then needs a provisioning file.
 #   MW_SHELL_PRODUCT_NAME     the app name (window title, bundle name); default Mailwoman.
 #   MW_SHELL_IDENTIFIER       the desktop bundle identifier; default com.mailwoman.desktop.
+#   MW_SHELL_UPDATER_URL      the desktop update feed (https, normally
+#                             https://host/path/{{target}}/{{arch}}/{{current_version}}).
+#   MW_SHELL_UPDATER_PUBKEY   the minisign public key, as `tauri signer generate` prints
+#                             it. Both set: the desktop shell checks that feed; either
+#                             missing: no updater (scripts/shells/config-overlay.mjs).
 # A first check before the long SPA build; the shell crates check the server
 # address again at compile time and refuse anything else.
 if ($env:MW_SHELL_SERVER_URL) {
@@ -44,29 +49,29 @@ if ($env:MW_SHELL_SERVER_URL) {
   throw '[build-shells] set MW_SHELL_SERVER_URL=https://mail.example.org (the server this build talks to), or MW_SHELL_NO_SERVER_URL=1 for a build provisioned only by server.json (docs/deploy/shells.md)'
 }
 
-# Branding: a tauri config overlay, and the environment for the shell crates
-# (window title).
+# Branding and the updater: a tauri config overlay, and the branding in the
+# environment for the shell crates (window title).
+if ($env:MW_SHELL_PRODUCT_NAME) {
+  $name = $env:MW_SHELL_PRODUCT_NAME
+  if ($name.Length -gt 64 -or $name -match '[\p{Cc}/\\]') {
+    throw '[build-shells] MW_SHELL_PRODUCT_NAME must be at most 64 characters with no control characters, / or backslash'
+  }
+}
+if ($env:MW_SHELL_IDENTIFIER) {
+  if ($env:MW_SHELL_IDENTIFIER -cnotmatch '^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z][A-Za-z0-9-]*)+$') {
+    throw "[build-shells] MW_SHELL_IDENTIFIER must be reverse DNS, such as org.example.mail: $($env:MW_SHELL_IDENTIFIER)"
+  }
+}
+# The updater inputs are checked here, before the long SPA build.
+$overlay = node scripts/shells/config-overlay.mjs
+Assert-LastExit 'scripts/shells/config-overlay.mjs (fix the updater inputs, or unset both MW_SHELL_UPDATER_URL and MW_SHELL_UPDATER_PUBKEY for a build without an updater)'
 $tauriConfigArgs = @()
 $tauriConfigFile = $null
-if ($env:MW_SHELL_PRODUCT_NAME -or $env:MW_SHELL_IDENTIFIER) {
-  $overlay = [ordered]@{}
-  if ($env:MW_SHELL_PRODUCT_NAME) {
-    $name = $env:MW_SHELL_PRODUCT_NAME
-    if ($name.Length -gt 64 -or $name -match '[\p{Cc}/\\]') {
-      throw '[build-shells] MW_SHELL_PRODUCT_NAME must be at most 64 characters with no control characters, / or backslash'
-    }
-    $overlay.productName = $name
-  }
-  if ($env:MW_SHELL_IDENTIFIER) {
-    if ($env:MW_SHELL_IDENTIFIER -cnotmatch '^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z][A-Za-z0-9-]*)+$') {
-      throw "[build-shells] MW_SHELL_IDENTIFIER must be reverse DNS, such as org.example.mail: $($env:MW_SHELL_IDENTIFIER)"
-    }
-    $overlay.identifier = $env:MW_SHELL_IDENTIFIER
-  }
+if ($overlay -ne '{}') {
   $tauriConfigFile = [System.IO.Path]::GetTempFileName()
-  [System.IO.File]::WriteAllText($tauriConfigFile, ($overlay | ConvertTo-Json -Compress))
+  [System.IO.File]::WriteAllText($tauriConfigFile, $overlay)
   $tauriConfigArgs = @('--config', $tauriConfigFile)
-  Write-Host "[build-shells] branding: $(Get-Content -Raw $tauriConfigFile)"
+  Write-Host "[build-shells] config overlay: $overlay"
 }
 
 # Include the self-contained mw-server unless MW_SELF_CONTAINED=0.
