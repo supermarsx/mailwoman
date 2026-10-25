@@ -61,6 +61,7 @@ pub struct ImapBackend {
     /// How connections reach the server (`None` = direct TCP). The `watch` IDLE
     /// loop dials through the same one.
     dialer: Option<SharedDialer>,
+    tls_options: mw_net::TlsOptions,
     session: Mutex<Session>,
     caps: BackendCaps,
 }
@@ -75,11 +76,20 @@ impl ImapBackend {
     /// (the command connection and the `watch` IDLE connection) opened by
     /// `dialer` (`None` = direct TCP).
     pub async fn connect_via(config: ImapConfig, dialer: Option<SharedDialer>) -> Result<Self> {
-        let session = connect_session(&config, dialer.as_deref()).await?;
+        Self::connect_via_with_tls(config, dialer, mw_net::TlsOptions::default()).await
+    }
+
+    pub async fn connect_via_with_tls(
+        config: ImapConfig,
+        dialer: Option<SharedDialer>,
+        tls_options: mw_net::TlsOptions,
+    ) -> Result<Self> {
+        let session = connect_session(&config, dialer.as_deref(), &tls_options).await?;
         let caps = session.backend_caps();
         Ok(ImapBackend {
             config,
             dialer,
+            tls_options,
             session: Mutex::new(session),
             caps,
         })
@@ -91,8 +101,14 @@ impl ImapBackend {
     }
 }
 
-async fn connect_session(config: &ImapConfig, dialer: Option<&dyn Dialer>) -> Result<Session> {
-    let mut session = Session::connect_via(dialer, &config.host, config.port, config.tls).await?;
+async fn connect_session(
+    config: &ImapConfig,
+    dialer: Option<&dyn Dialer>,
+    options: &mw_net::TlsOptions,
+) -> Result<Session> {
+    let mut session =
+        Session::connect_via_with_tls(dialer, &config.host, config.port, config.tls, options)
+            .await?;
     session.login(&config.credentials).await?;
     // ID + ENABLE are best-effort niceties; never fail the connect over them.
     let _ = session.send_id().await;
@@ -159,8 +175,9 @@ impl AccountBackend for ImapBackend {
         let (stop_tx, stop_rx) = watch::channel(false);
         let config = self.config.clone();
         let dialer = self.dialer.clone();
+        let tls_options = self.tls_options.clone();
         tokio::spawn(async move {
-            watch_loop(config, dialer, sink, stop_rx).await;
+            watch_loop(config, dialer, tls_options, sink, stop_rx).await;
         });
         Ok(WatchHandle::new(stop_tx))
     }
@@ -319,11 +336,12 @@ fn group_imap_refs(refs: &[MessageRef]) -> Result<Vec<(RawMailboxRef, Vec<u32>)>
 async fn watch_loop(
     config: ImapConfig,
     dialer: Option<SharedDialer>,
+    tls_options: mw_net::TlsOptions,
     sink: ChangeSink,
     mut stop: watch::Receiver<bool>,
 ) {
     let mailbox = config.watch_mailbox.clone();
-    let mut session = match connect_session(&config, dialer.as_deref()).await {
+    let mut session = match connect_session(&config, dialer.as_deref(), &tls_options).await {
         Ok(s) => s,
         Err(_) => {
             let _ = sink.emit(ChangeEvent::Disconnected);

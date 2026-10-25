@@ -112,7 +112,18 @@ impl Session {
         port: u16,
         mode: TlsMode,
     ) -> ImapResult<Self> {
-        let (conn, greeting) = Connection::connect_via(dialer, host, port, mode).await?;
+        Self::connect_via_with_tls(dialer, host, port, mode, &mw_net::TlsOptions::default()).await
+    }
+
+    pub async fn connect_via_with_tls(
+        dialer: Option<&dyn mw_net::Dialer>,
+        host: &str,
+        port: u16,
+        mode: TlsMode,
+        options: &mw_net::TlsOptions,
+    ) -> ImapResult<Self> {
+        let (conn, greeting) =
+            Connection::connect_via_with_tls(dialer, host, port, mode, options).await?;
         let mut caps = CapabilitySet::default();
         if let Response::Data {
             code: Some(ResponseCode::Capabilities(c)),

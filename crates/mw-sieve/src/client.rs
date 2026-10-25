@@ -75,8 +75,18 @@ impl ManageSieveClient {
         mode: TlsMode,
         creds: Credentials,
     ) -> Result<Self> {
-        let stream = SieveStream::from_stream(stream, host, mode).await?;
-        Self::handshake(host, stream, mode, creds).await
+        Self::from_stream_with_tls(stream, host, mode, creds, &mw_net::TlsOptions::default()).await
+    }
+
+    pub async fn from_stream_with_tls(
+        stream: mw_net::BoxStream,
+        host: &str,
+        mode: TlsMode,
+        creds: Credentials,
+        options: &mw_net::TlsOptions,
+    ) -> Result<Self> {
+        let stream = SieveStream::from_stream_with_tls(stream, host, mode, options).await?;
+        Self::handshake_with_tls(host, stream, mode, creds, options).await
     }
 
     /// Shared post-connect flow: open the connection, perform the optional
@@ -88,6 +98,16 @@ impl ManageSieveClient {
         mode: TlsMode,
         creds: Credentials,
     ) -> Result<Self> {
+        Self::handshake_with_tls(host, stream, mode, creds, &mw_net::TlsOptions::default()).await
+    }
+
+    async fn handshake_with_tls(
+        host: &str,
+        stream: SieveStream,
+        mode: TlsMode,
+        creds: Credentials,
+        options: &mw_net::TlsOptions,
+    ) -> Result<Self> {
         let mut conn = Connection::open(stream).await?;
 
         if mode == TlsMode::StartTls {
@@ -97,7 +117,7 @@ impl ManageSieveClient {
                 ));
             }
             conn.starttls().await?;
-            let stream = conn.into_inner()?.upgrade(host).await?;
+            let stream = conn.into_inner()?.upgrade_with_tls(host, options).await?;
             conn = Connection::open(stream).await?;
         }
 

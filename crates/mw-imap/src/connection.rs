@@ -76,6 +76,7 @@ pub struct Connection {
     buf: BytesMut,
     tag_seq: u32,
     host: String,
+    tls_options: mw_net::TlsOptions,
 }
 
 impl Connection {
@@ -99,12 +100,23 @@ impl Connection {
         port: u16,
         mode: TlsMode,
     ) -> ImapResult<(Self, OwnedResponse)> {
-        let stream = ImapStream::connect_via(dialer, host, port, mode).await?;
+        Self::connect_via_with_tls(dialer, host, port, mode, &mw_net::TlsOptions::default()).await
+    }
+
+    pub async fn connect_via_with_tls(
+        dialer: Option<&dyn mw_net::Dialer>,
+        host: &str,
+        port: u16,
+        mode: TlsMode,
+        options: &mw_net::TlsOptions,
+    ) -> ImapResult<(Self, OwnedResponse)> {
+        let stream = ImapStream::connect_via_with_tls(dialer, host, port, mode, options).await?;
         let mut conn = Connection {
             stream: Some(stream),
             buf: BytesMut::with_capacity(8 * 1024),
             tag_seq: 0,
             host: host.to_string(),
+            tls_options: options.clone(),
         };
         let greeting = conn.read_response().await?;
         match &greeting {
@@ -492,7 +504,7 @@ impl Connection {
         self.execute("STARTTLS").await?.ok()?;
         let stream = self.stream.take().ok_or(ImapError::Eof)?;
         let host = self.host.clone();
-        self.stream = Some(stream.upgrade(&host).await?);
+        self.stream = Some(stream.upgrade_with_tls(&host, &self.tls_options).await?);
         // Any buffered pre-TLS bytes would be a protocol violation; discard.
         self.buf.clear();
         Ok(())

@@ -63,9 +63,18 @@ impl SieveStream {
     /// validation only; for [`TlsMode::StartTls`] the upgrade happens later, in
     /// the client's handshake.
     pub async fn from_stream(stream: BoxStream, host: &str, mode: TlsMode) -> crate::Result<Self> {
+        Self::from_stream_with_tls(stream, host, mode, &mw_net::TlsOptions::default()).await
+    }
+
+    pub async fn from_stream_with_tls(
+        stream: BoxStream,
+        host: &str,
+        mode: TlsMode,
+        options: &mw_net::TlsOptions,
+    ) -> crate::Result<Self> {
         match mode {
             TlsMode::Plaintext | TlsMode::StartTls => Ok(SieveStream::Plain(stream)),
-            TlsMode::Implicit => Self::wrap_tls(stream, host).await,
+            TlsMode::Implicit => Self::wrap_tls(stream, host, options).await,
         }
     }
 
@@ -87,14 +96,28 @@ impl SieveStream {
 
     /// Upgrade a plaintext stream to TLS in place (the `STARTTLS` handshake).
     pub async fn upgrade(self, host: &str) -> crate::Result<Self> {
+        self.upgrade_with_tls(host, &mw_net::TlsOptions::default())
+            .await
+    }
+
+    pub async fn upgrade_with_tls(
+        self,
+        host: &str,
+        options: &mw_net::TlsOptions,
+    ) -> crate::Result<Self> {
         match self {
-            SieveStream::Plain(tcp) => Self::wrap_tls(tcp, host).await,
+            SieveStream::Plain(tcp) => Self::wrap_tls(tcp, host, options).await,
             SieveStream::Tls(_) => Err(SieveError::ManageSieve("stream already encrypted".into())),
         }
     }
 
-    async fn wrap_tls(tcp: BoxStream, host: &str) -> crate::Result<Self> {
-        let connector = tls::connector()?;
+    async fn wrap_tls(
+        tcp: BoxStream,
+        host: &str,
+        options: &mw_net::TlsOptions,
+    ) -> crate::Result<Self> {
+        let connector = tls::connector_with_options(options)?;
+        let host = options.server_name.as_deref().unwrap_or(host);
         let server_name = ServerName::try_from(host.to_string())
             .map_err(|e| SieveError::ManageSieve(format!("invalid server name {host:?}: {e}")))?;
         let tls = connector

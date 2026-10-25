@@ -103,9 +103,19 @@ pub(crate) struct TlsUpgrade {
 /// binding for SCRAM-SHA-256-PLUS is computed: the RFC 9266 `tls-exporter` on
 /// TLS 1.3, or the RFC 5929 `tls-server-end-point` (leaf-certificate hash) on
 /// TLS 1.2. Under a [`MinTls::V13`] floor only the first can occur.
-pub(crate) async fn connect(tcp: BoxStream, host: &str) -> Result<TlsUpgrade, SmtpError> {
+pub(crate) async fn connect(
+    tcp: BoxStream,
+    host: &str,
+    options: &mw_net::TlsOptions,
+) -> Result<TlsUpgrade, SmtpError> {
     let mut roots = RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    for cert in &options.additional_roots {
+        roots
+            .add(rustls_pki_types::CertificateDer::from(cert.clone()))
+            .map_err(|_| SmtpError::Transport("invalid custom trust anchor".into()))?;
+    }
+    let host = options.server_name.as_deref().unwrap_or(host);
     connect_with_roots(tcp, host, roots).await
 }
 
@@ -269,6 +279,32 @@ YqfW0Bfyo6G3YnlWYjUrStuY5R68A7lxiZznYBOKulqbEKmad70FATFl
 
     /// The floor is process-wide, so every assertion that moves it lives in this
     /// one test.
+    #[tokio::test]
+    async fn endpoint_roots_and_name_preserve_verification_and_channel_binding() {
+        let addr = tls_peer(rustls::ALL_VERSIONS).await;
+        let mut options = mw_net::TlsOptions {
+            server_name: Some("localhost".into()),
+            additional_roots: vec![
+                CertificateDer::from_pem_slice(CERT_PEM.as_bytes())
+                    .unwrap()
+                    .as_ref()
+                    .to_vec(),
+            ],
+        };
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        assert!(
+            connect(Box::new(tcp), "127.0.0.1", &mw_net::TlsOptions::default())
+                .await
+                .is_err()
+        );
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let up = connect(Box::new(tcp), "127.0.0.1", &options).await.unwrap();
+        assert!(up.channel_binding.is_some());
+        options.server_name = Some("wrong.example".into());
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        assert!(connect(Box::new(tcp), "127.0.0.1", &options).await.is_err());
+    }
+
     #[tokio::test]
     async fn a_tls13_floor_refuses_a_tls12_only_server_and_scram_plus_still_binds() {
         let only12 = tls_peer(ONLY_TLS12).await;

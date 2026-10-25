@@ -84,6 +84,14 @@ impl Pop3Conn {
     /// direct TCP). TLS and STLS run over the dialled stream exactly as over a
     /// direct socket.
     pub async fn open_via(cfg: &Pop3Config, dialer: Option<&dyn mw_net::Dialer>) -> Result<Self> {
+        Self::open_via_with_tls(cfg, dialer, &mw_net::TlsOptions::default()).await
+    }
+
+    pub async fn open_via_with_tls(
+        cfg: &Pop3Config,
+        dialer: Option<&dyn mw_net::Dialer>,
+        options: &mw_net::TlsOptions,
+    ) -> Result<Self> {
         let tcp = mw_net::dial(dialer, &cfg.host, cfg.port)
             .await
             .map_err(transport)?;
@@ -95,7 +103,7 @@ impl Pop3Conn {
                 c
             }
             TlsMode::Implicit => {
-                let (tls, binding) = tls_connect(tcp, &cfg.host).await?;
+                let (tls, binding) = tls_connect(tcp, &cfg.host, options).await?;
                 let mut c = Pop3Conn::with_binding(tls, binding);
                 c.read_greeting().await?;
                 c
@@ -105,7 +113,7 @@ impl Pop3Conn {
                 c.read_greeting().await?;
                 c.stls().await?;
                 let inner = c.into_inner()?;
-                let (tls, binding) = tls_connect(inner, &cfg.host).await?;
+                let (tls, binding) = tls_connect(inner, &cfg.host, options).await?;
                 Pop3Conn::with_binding(tls, binding)
             }
         };
@@ -533,9 +541,16 @@ fn explain(e: std::io::Error, floor: MinTls) -> std::io::Error {
 async fn tls_connect(
     io: Box<dyn AsyncStream>,
     host: &str,
+    options: &mw_net::TlsOptions,
 ) -> Result<(Box<dyn AsyncStream>, Option<(&'static str, Vec<u8>)>)> {
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    for cert in &options.additional_roots {
+        roots
+            .add(rustls_pki_types::CertificateDer::from(cert.clone()))
+            .map_err(|_| EngineError::Transport("invalid custom trust anchor".into()))?;
+    }
+    let host = options.server_name.as_deref().unwrap_or(host);
     tls_connect_with_roots(io, host, roots).await
 }
 
@@ -926,6 +941,39 @@ YqfW0Bfyo6G3YnlWYjUrStuY5R68A7lxiZznYBOKulqbEKmad70FATFl
 
     /// The floor is process-wide, so every assertion that moves it lives in this
     /// one test.
+    #[tokio::test]
+    async fn endpoint_roots_and_name_preserve_verification_and_channel_binding() {
+        use rustls_pki_types::{CertificateDer, pem::PemObject};
+        let addr = tls_peer(rustls::ALL_VERSIONS).await;
+        let mut options = mw_net::TlsOptions {
+            server_name: Some("localhost".into()),
+            additional_roots: vec![
+                CertificateDer::from_pem_slice(CERT_PEM.as_bytes())
+                    .unwrap()
+                    .as_ref()
+                    .to_vec(),
+            ],
+        };
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        assert!(
+            tls_connect(Box::new(tcp), "127.0.0.1", &mw_net::TlsOptions::default())
+                .await
+                .is_err()
+        );
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let (_, binding) = tls_connect(Box::new(tcp), "127.0.0.1", &options)
+            .await
+            .unwrap();
+        assert!(binding.is_some());
+        options.server_name = Some("wrong.example".into());
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        assert!(
+            tls_connect(Box::new(tcp), "127.0.0.1", &options)
+                .await
+                .is_err()
+        );
+    }
+
     #[tokio::test]
     async fn a_tls13_floor_refuses_a_tls12_only_server_and_scram_plus_still_binds() {
         use rustls_pki_types::pem::PemObject;

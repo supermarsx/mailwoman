@@ -233,6 +233,7 @@ pub struct Submitter {
     config: SubmitConfig,
     /// How the connection reaches the server (`None` = direct TCP).
     dialer: Option<mw_net::SharedDialer>,
+    tls_options: mw_net::TlsOptions,
 }
 
 impl Submitter {
@@ -241,6 +242,7 @@ impl Submitter {
         Self {
             config,
             dialer: None,
+            tls_options: mw_net::TlsOptions::default(),
         }
     }
 
@@ -249,6 +251,11 @@ impl Submitter {
     /// direct socket, validated against the configured host.
     pub fn with_dialer(mut self, dialer: Option<mw_net::SharedDialer>) -> Self {
         self.dialer = dialer;
+        self
+    }
+
+    pub fn with_tls_options(mut self, options: mw_net::TlsOptions) -> Self {
+        self.tls_options = options;
         self
     }
 
@@ -279,7 +286,7 @@ impl Submitter {
 
         match self.config.security {
             Security::ImplicitTls => {
-                let up = tls::connect(tcp, &self.config.host).await?;
+                let up = tls::connect(tcp, &self.config.host, &self.tls_options).await?;
                 let binding = up.channel_binding;
                 let mut conn = Connection::new(up.stream);
                 conn.read_greeting().await?;
@@ -306,7 +313,7 @@ impl Submitter {
                 }
                 conn.starttls().await?;
                 let tcp = conn.into_inner()?;
-                let up = tls::connect(tcp, &self.config.host).await?;
+                let up = tls::connect(tcp, &self.config.host, &self.tls_options).await?;
                 let binding = up.channel_binding;
                 let mut conn = Connection::new(up.stream);
                 self.session(

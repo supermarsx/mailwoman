@@ -41,6 +41,15 @@ pub type BoxStream = Box<dyn AsyncStream>;
 /// A boxed, `Send` future (the object-safe return type of [`Dialer::dial`]).
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+/// Explicit endpoint verification settings. Protocol clients still terminate TLS
+/// themselves and enforce their configured minimum version. No insecure verifier.
+#[derive(Debug, Clone, Default)]
+pub struct TlsOptions {
+    pub server_name: Option<String>,
+    /// Additional public trust anchors in DER form; malformed certificates fail closed.
+    pub additional_roots: Vec<Vec<u8>>,
+}
+
 /// Opens the byte stream to an upstream server.
 ///
 /// `host` is the name or address literal the account is configured with and

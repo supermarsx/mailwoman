@@ -56,8 +56,21 @@ impl ImapStream {
         port: u16,
         mode: TlsMode,
     ) -> ImapResult<Self> {
+        Self::connect_via_with_tls(dialer, host, port, mode, &mw_net::TlsOptions::default()).await
+    }
+
+    pub async fn connect_via_with_tls(
+        dialer: Option<&dyn Dialer>,
+        host: &str,
+        port: u16,
+        mode: TlsMode,
+        options: &mw_net::TlsOptions,
+    ) -> ImapResult<Self> {
         let stream = mw_net::dial(dialer, host, port).await?;
-        Self::from_stream(stream, host, mode).await
+        match mode {
+            TlsMode::Plaintext | TlsMode::StartTls => Ok(ImapStream::Plain(stream)),
+            TlsMode::Implicit => Self::wrap_tls_with_options(stream, host, options).await,
+        }
     }
 
     /// Adopt a stream that is already open to the server (`host` is used for
@@ -74,14 +87,32 @@ impl ImapStream {
     ///
     /// A no-op (error) if the stream is already encrypted.
     pub async fn upgrade(self, host: &str) -> ImapResult<Self> {
+        self.upgrade_with_tls(host, &mw_net::TlsOptions::default())
+            .await
+    }
+
+    pub async fn upgrade_with_tls(
+        self,
+        host: &str,
+        options: &mw_net::TlsOptions,
+    ) -> ImapResult<Self> {
         match self {
-            ImapStream::Plain(tcp) => Self::wrap_tls(tcp, host).await,
+            ImapStream::Plain(tcp) => Self::wrap_tls_with_options(tcp, host, options).await,
             ImapStream::Tls(_) => Err(ImapError::Tls("stream already encrypted".into())),
         }
     }
 
     async fn wrap_tls(tcp: BoxStream, host: &str) -> ImapResult<Self> {
-        let connector = tls::connector()?;
+        Self::wrap_tls_with_options(tcp, host, &mw_net::TlsOptions::default()).await
+    }
+
+    async fn wrap_tls_with_options(
+        tcp: BoxStream,
+        host: &str,
+        options: &mw_net::TlsOptions,
+    ) -> ImapResult<Self> {
+        let connector = tls::connector_with_options(options)?;
+        let host = options.server_name.as_deref().unwrap_or(host);
         let server_name = ServerName::try_from(host.to_string())
             .map_err(|e| ImapError::Tls(format!("invalid server name {host:?}: {e}")))?;
         let tls = connector

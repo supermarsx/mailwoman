@@ -92,6 +92,7 @@ pub struct Pop3Backend {
     config: Pop3Config,
     /// How each session reaches the server (`None` = direct TCP).
     dialer: Option<SharedDialer>,
+    tls_options: mw_net::TlsOptions,
 }
 
 impl Pop3Backend {
@@ -100,6 +101,7 @@ impl Pop3Backend {
         Self {
             config,
             dialer: None,
+            tls_options: mw_net::TlsOptions::default(),
         }
     }
 
@@ -107,6 +109,11 @@ impl Pop3Backend {
     /// TCP, the default).
     pub fn with_dialer(mut self, dialer: Option<SharedDialer>) -> Self {
         self.dialer = dialer;
+        self
+    }
+
+    pub fn with_tls_options(mut self, options: mw_net::TlsOptions) -> Self {
+        self.tls_options = options;
         self
     }
 
@@ -123,7 +130,7 @@ impl Pop3Backend {
     }
 
     async fn open(&self) -> Result<Pop3Conn> {
-        Pop3Conn::open_via(&self.config, self.dialer.as_deref()).await
+        Pop3Conn::open_via_with_tls(&self.config, self.dialer.as_deref(), &self.tls_options).await
     }
 }
 

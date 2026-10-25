@@ -106,14 +106,18 @@ fn explain(e: io::Error, floor: MinTls) -> io::Error {
 
 /// Build a [`Connector`] trusting the Mozilla webpki root set, at the floor
 /// currently in force.
-pub(crate) fn connector() -> ImapResult<Connector> {
+pub(crate) fn connector_with_options(options: &mw_net::TlsOptions) -> ImapResult<Connector> {
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    for cert in &options.additional_roots {
+        roots
+            .add(rustls_pki_types::CertificateDer::from(cert.clone()))
+            .map_err(|_| ImapError::Tls("invalid custom trust anchor".into()))?;
+    }
     connector_with_roots(roots)
 }
 
-/// [`connector`] with the trust anchors supplied. Private: the only caller
-/// outside this module's tests is [`connector`], which passes the webpki roots.
+/// Build with the caller's verified trust anchors and the process TLS floor.
 fn connector_with_roots(roots: rustls::RootCertStore) -> ImapResult<Connector> {
     let floor = min_tls();
     let provider = Arc::new(rustls::crypto::ring::default_provider());
@@ -213,8 +217,60 @@ YqfW0Bfyo6G3YnlWYjUrStuY5R68A7lxiZznYBOKulqbEKmad70FATFl
         Ok(tls.get_ref().1.protocol_version().unwrap())
     }
 
-    /// The floor is process-wide, so every assertion that moves it lives in this
-    /// one test.
+    #[tokio::test]
+    async fn endpoint_roots_and_server_name_apply_to_implicit_and_upgraded_tls() {
+        use crate::transport::{ImapStream, TlsMode};
+        let addr = tls_peer(rustls::ALL_VERSIONS).await;
+        let mut options = mw_net::TlsOptions {
+            server_name: Some("localhost".into()),
+            additional_roots: vec![
+                CertificateDer::from_pem_slice(CERT_PEM.as_bytes())
+                    .unwrap()
+                    .as_ref()
+                    .to_vec(),
+            ],
+        };
+        assert!(
+            ImapStream::connect("127.0.0.1", addr.port(), TlsMode::Implicit)
+                .await
+                .is_err()
+        );
+        let stream = ImapStream::connect_via_with_tls(
+            None,
+            "127.0.0.1",
+            addr.port(),
+            TlsMode::Implicit,
+            &options,
+        )
+        .await
+        .unwrap();
+        assert!(stream.is_encrypted());
+        let plain = ImapStream::connect("127.0.0.1", addr.port(), TlsMode::StartTls)
+            .await
+            .unwrap();
+        assert!(
+            plain
+                .upgrade_with_tls("127.0.0.1", &options)
+                .await
+                .unwrap()
+                .is_encrypted()
+        );
+        options.server_name = Some("wrong.example".into());
+        assert!(
+            ImapStream::connect_via_with_tls(
+                None,
+                "127.0.0.1",
+                addr.port(),
+                TlsMode::Implicit,
+                &options
+            )
+            .await
+            .is_err()
+        );
+        options.additional_roots = vec![vec![1, 2, 3]];
+        assert!(connector_with_options(&options).is_err());
+    }
+
     #[tokio::test]
     async fn a_tls13_floor_refuses_a_tls12_only_server_and_names_the_reason() {
         let only12 = tls_peer(ONLY_TLS12).await;
