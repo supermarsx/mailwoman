@@ -14,6 +14,7 @@ import { createSignal, onCleanup, Show, type JSX } from 'solid-js';
 import { t } from '../i18n/index.ts';
 import { NetworkError } from '../api/client.ts';
 import * as a11y from './mailA11y.css.ts';
+import * as loading from './asyncState.css.ts';
 
 /**
  * How long any single loading state may claim to be loading.
@@ -98,8 +99,8 @@ export function AsyncPending(props: {
       when={!elapsed()}
       fallback={<AsyncError onRetry={props.onRetry} />}
     >
-      <p class="async-state async-state--pending" role="status" aria-live="polite" data-testid="async-pending">
-        {props.message ?? t('common-loading')}
+      <p class={`async-state async-state--pending ${loading.pending}`} role="status" aria-live="polite" data-testid="async-pending">
+        <span class={loading.indicator}>{props.message ?? t('common-loading')}</span>
       </p>
     </Show>
   );

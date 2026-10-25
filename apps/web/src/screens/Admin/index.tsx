@@ -18,6 +18,7 @@ import { Show, Suspense, createEffect, createSignal, onCleanup, onMount, type JS
 import { Dynamic } from 'solid-js/web';
 import { createAdminSlice, createHttpAdminApi, type AdminApi } from '../../state/slices/admin.ts';
 import { t, loadCatalog } from '../../i18n';
+import { AsyncPending } from '../../components/AsyncState.tsx';
 import { AdminContext, useAdmin } from './context.ts';
 import { AdminLogin } from './AdminLogin.tsx';
 import { AdminShell } from './shell/AdminShell.tsx';
@@ -66,7 +67,7 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
 
   return (
       <AdminContext.Provider value={admin}>
-        <Show when={admin.sessionChecked()} fallback={<div class={css.gate}>{t('common-loading')}</div>}>
+        <Show when={admin.sessionChecked()} fallback={<div class={css.gate}><AsyncPending /></div>}>
           <Show when={admin.session()} fallback={<AdminLogin verifyTotp={props.verifyTotp} />}>
             {(session) => <Console {...props} username={session().username} />}
           </Show>
@@ -175,7 +176,7 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
         username: () => props.username,
       }}
     >
-      <Show when={can.loaded()} fallback={<div class={css.gate}>{t('common-loading')}</div>}>
+      <Show when={can.loaded()} fallback={<div class={css.gate}><AsyncPending /></div>}>
         <AdminShell
           sections={sections}
           route={router.route()}
@@ -195,9 +196,9 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
           />
           <Suspense
             fallback={
-              <p class={shellCss.state} role="status">
-                {t('admin-shell-loading')}
-              </p>
+              <div class={shellCss.state}>
+                <AsyncPending message={t('admin-shell-loading')} />
+              </div>
             }
           >
             <Show

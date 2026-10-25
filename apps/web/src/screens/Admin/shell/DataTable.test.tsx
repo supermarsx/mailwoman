@@ -25,6 +25,25 @@ describe('DataTable', () => {
     expect(within(table).getAllByRole('row')).toHaveLength(4);
   });
 
+  it('retains the same rows and focus during a background refresh', () => {
+    const [state, setState] = createSignal<'loading' | 'ready'>('ready');
+    render(() => <DataTable caption="Domains" columns={columns} rows={rows} rowKey={(r) => r.name} state={state()} emptyText="none" />);
+    const table = screen.getByRole('table');
+    const row = within(table).getAllByRole('row')[1]!;
+    row.focus();
+    setState('loading');
+    expect(screen.getByRole('table')).toBe(table);
+    expect(within(table).getAllByRole('row')[1]).toBe(row);
+    expect(row).toHaveFocus();
+    expect(table).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('status')).toHaveTextContent('Loading');
+    setState('ready');
+    expect(screen.getByRole('table')).toBe(table);
+    expect(row).toHaveFocus();
+    expect(table).toHaveAttribute('aria-busy', 'false');
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
   it('loading and error states, with retry', () => {
     const retry = vi.fn();
     const [state, setState] = createSignal<'loading' | 'ready' | 'error'>('loading');

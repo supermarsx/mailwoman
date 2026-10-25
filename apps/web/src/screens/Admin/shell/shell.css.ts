@@ -561,3 +561,7 @@ export const busy = style({
 });
 
 registerFieldLayout(field);
+
+/** Reserve refresh feedback space so retained table rows never jump. */
+export const tableRefresh = style({ minBlockSize: '44px' });
+globalStyle(`${tableRefresh} > .async-state`, { marginBlock: 0, minBlockSize: '44px' });

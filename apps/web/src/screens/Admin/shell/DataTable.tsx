@@ -12,6 +12,7 @@
 
 import { For, Show, createSignal, createUniqueId, onCleanup, type JSX } from 'solid-js';
 import { t } from '../../../i18n';
+import { AsyncPending } from '../../../components/AsyncState.tsx';
 import { Feedback } from './Feedback.tsx';
 import * as css from './shell.css.ts';
 import * as admin from '../admin.css.ts';
@@ -139,10 +140,10 @@ export function DataTable<R>(props: DataTableProps<R>): JSX.Element {
           </Show>
         </div>
       }>
-        <Show when={props.state === 'ready'} fallback={
-          <p class={css.state} role="status">
-            <span class={css.busy} aria-hidden="true" /> {t('admin-shell-loading')}
-          </p>
+        <Show when={props.state === 'ready' || props.rows.length > 0} fallback={
+          <div class={css.state}>
+            <AsyncPending message={t('admin-shell-loading')} onRetry={props.onRetry} />
+          </div>
         }>
           <Show when={props.rows.length > 0} fallback={
             <div class={css.state} data-testid="table-empty">
@@ -156,8 +157,13 @@ export function DataTable<R>(props: DataTableProps<R>): JSX.Element {
               </Show>
             </div>
           }>
+            <div class={css.tableRefresh}>
+              <Show when={props.state === 'loading'}>
+                <AsyncPending message={t('admin-shell-loading')} onRetry={props.onRetry} />
+              </Show>
+            </div>
             <div class={admin.tableWrap}>
-              <table class={admin.table}>
+              <table class={admin.table} aria-busy={props.state === 'loading'}>
                 <caption class={css.srOnly}>{props.caption}</caption>
                 <thead>
                   <tr>
