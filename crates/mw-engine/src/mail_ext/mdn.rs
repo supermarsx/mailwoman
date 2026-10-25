@@ -227,8 +227,14 @@ impl Engine {
     }
 
     /// The account's read-receipt policy: one of [`Engine::MDN_POLICIES`].
-    /// Nothing stored, or a stored value that is none of them, reads as `ask`.
+    /// A value an administrator holds `mail.readReceipts` at for this account
+    /// wins over the stored one (a user who stored `always` before an admin
+    /// locked receipts to `never` must not keep sending them). Otherwise nothing
+    /// stored, or a stored value that is none of them, reads as `ask`.
     pub async fn mdn_policy(&self, account_id: &str) -> Result<&'static str> {
+        if let Some(held) = self.held_mdn_policy(account_id).await? {
+            return Ok(held);
+        }
         let stored = self
             .store()
             .get_setting(&Self::mdn_policy_key(account_id))
@@ -237,6 +243,38 @@ impl Engine {
             .into_iter()
             .find(|p| stored.as_deref() == Some(p))
             .unwrap_or("ask"))
+    }
+
+    /// The read-receipt policy an administrator holds for this account
+    /// (`mail.readReceipts` in the settings model), or `None` when the user may
+    /// choose. The subject is the account's lower-cased sign-in name and its
+    /// domain part (empty when the name has none).
+    async fn held_mdn_policy(&self, account_id: &str) -> Result<Option<&'static str>> {
+        let address = self
+            .store()
+            .get_account(account_id)
+            .await
+            .map(|a| a.username.to_ascii_lowercase())
+            .unwrap_or_default();
+        let domain = address
+            .rsplit_once('@')
+            .map(|(_, d)| d.to_string())
+            .unwrap_or_default();
+        let held = self
+            .store()
+            .held_setting(
+                "mail.readReceipts",
+                "\"ask\"",
+                &mw_store::settings_policy::SettingSubject {
+                    domain: &domain,
+                    account_id,
+                    address: &address,
+                },
+            )
+            .await?;
+        Ok(held
+            .and_then(|json| serde_json::from_str::<String>(&json).ok())
+            .and_then(|word| Self::MDN_POLICIES.into_iter().find(|p| *p == word)))
     }
 
     /// Whether a receipt has been sent, or claimed, for a message: the
