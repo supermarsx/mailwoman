@@ -1,0 +1,286 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -34,10 +34,12 @@
+ all-features = true
+ 
+ [features]
++p521 = ["dep:p521", "ssh-key/p521"]
+ _bench = ["dep:criterion"]
+ async-trait = ["dep:async-trait"]
+ aws-lc-rs = ["dep:aws-lc-rs"]
+ default = [
++    "p521",
+     "flate2",
+     "aws-lc-rs",
+     "rsa",
+@@ -278,6 +280,7 @@
+ features = ["ecdh"]
+ 
+ [dependencies.p521]
++optional = true
+ version = "0.14"
+ features = ["ecdh"]
+ 
+@@ -360,7 +363,6 @@
+     "ed25519",
+     "p256",
+     "p384",
+-    "p521",
+     "encryption",
+     "ppk",
+     "sha1",
+--- a/src/kex/ecdh_nistp.rs
++++ b/src/kex/ecdh_nistp.rs
+@@ -10,8 +10,11 @@
+ use log::debug;
+ use p256::NistP256;
+ use p384::NistP384;
++#[cfg(feature = "p521")]
+ use p521::NistP521;
+-use sha2::{Digest, Sha256, Sha384, Sha512};
++use sha2::{Digest, Sha256, Sha384};
++#[cfg(feature = "p521")]
++use sha2::Sha512;
+ use ssh_encoding::{Encode, Writer};
+ 
+ use super::{KexAlgorithm, SharedSecret as KexSharedSecret, encode_mpint};
+@@ -46,8 +49,10 @@
+     }
+ }
+ 
++#[cfg(feature = "p521")]
+ pub struct EcdhNistP521KexType {}
+ 
++#[cfg(feature = "p521")]
+ impl KexType for EcdhNistP521KexType {
+     fn make(&self) -> KexAlgorithm {
+         EcdhNistPKex::<NistP521, Sha512> {
+--- a/src/kex/mod.rs
++++ b/src/kex/mod.rs
+@@ -35,11 +35,14 @@
+     DhGroup18Sha512KexType,
+ };
+ use digest::Digest;
+-use ecdh_nistp::{EcdhNistP256KexType, EcdhNistP384KexType, EcdhNistP521KexType};
++use ecdh_nistp::{EcdhNistP256KexType, EcdhNistP384KexType};
++#[cfg(feature = "p521")]
++use ecdh_nistp::EcdhNistP521KexType;
+ use enum_dispatch::enum_dispatch;
+ use hybrid_mlkem::MlKem768X25519KexType;
+ use p256::NistP256;
+ use p384::NistP384;
++#[cfg(feature = "p521")]
+ use p521::NistP521;
+ use sha1::Sha1;
+ use sha2::{Sha256, Sha384, Sha512};
+@@ -141,6 +144,7 @@
+     Curve25519Kex(curve25519::Curve25519Kex),
+     EcdhNistP256Kex(ecdh_nistp::EcdhNistPKex<NistP256, Sha256>),
+     EcdhNistP384Kex(ecdh_nistp::EcdhNistPKex<NistP384, Sha384>),
++#[cfg(feature = "p521")]
+     EcdhNistP521Kex(ecdh_nistp::EcdhNistPKex<NistP521, Sha512>),
+     MlKem768X25519Kex(hybrid_mlkem::MlKem768X25519Kex),
+     None(none::NoneKexAlgorithm),
+@@ -289,6 +293,7 @@
+ const _DH_G18_SHA512: DhGroup18Sha512KexType = DhGroup18Sha512KexType {};
+ const _ECDH_SHA2_NISTP256: EcdhNistP256KexType = EcdhNistP256KexType {};
+ const _ECDH_SHA2_NISTP384: EcdhNistP384KexType = EcdhNistP384KexType {};
++#[cfg(feature = "p521")]
+ const _ECDH_SHA2_NISTP521: EcdhNistP521KexType = EcdhNistP521KexType {};
+ const _MLKEM768X25519_SHA256: MlKem768X25519KexType = MlKem768X25519KexType {};
+ const _NONE: none::NoneKexType = none::NoneKexType {};
+@@ -308,6 +313,7 @@
+     &DH_G18_SHA512,
+     &ECDH_SHA2_NISTP256,
+     &ECDH_SHA2_NISTP384,
++#[cfg(feature = "p521")]
+     &ECDH_SHA2_NISTP521,
+     &NONE,
+ ];
+@@ -329,6 +335,7 @@
+         h.insert(&DH_G1_SHA1, &_DH_G1_SHA1);
+         h.insert(&ECDH_SHA2_NISTP256, &_ECDH_SHA2_NISTP256);
+         h.insert(&ECDH_SHA2_NISTP384, &_ECDH_SHA2_NISTP384);
++#[cfg(feature = "p521")]
+         h.insert(&ECDH_SHA2_NISTP521, &_ECDH_SHA2_NISTP521);
+         h.insert(&NONE, &_NONE);
+         assert_eq!(ALL_KEX_ALGORITHMS.len(), h.len());
+--- a/src/keys/format/pkcs8.rs
++++ b/src/keys/format/pkcs8.rs
+@@ -2,6 +2,7 @@
+ 
+ use p256::NistP256;
+ use p384::NistP384;
++#[cfg(feature = "p521")]
+ use p521::NistP521;
+ use pkcs8::{AssociatedOid, EncodePrivateKey, PrivateKeyInfoRef, SecretDocument};
+ use spki::ObjectIdentifier;
+@@ -75,6 +76,7 @@
+     }
+ }
+ 
++#[cfg(feature = "p521")]
+ fn ec_key_data_into_keypair<K, E>(
+     curve_oid: ObjectIdentifier,
+     private_key: K,
+@@ -111,6 +113,36 @@
+     })
+ }
+ 
++#[cfg(not(feature = "p521"))]
++fn ec_key_data_into_keypair<K, E>(
++    curve_oid: ObjectIdentifier,
++    private_key: K,
++) -> Result<EcdsaKeypair, Error>
++where
++    p256::SecretKey: TryFrom<K, Error = E>,
++    p384::SecretKey: TryFrom<K, Error = E>,
++    crate::keys::Error: From<E>,
++{
++    Ok(match curve_oid {
++        NistP256::OID => {
++            let sk = p256::SecretKey::try_from(private_key)?;
++            EcdsaKeypair::NistP256 {
++                public: sk.public_key().into(),
++                private: sk.into(),
++            }
++        }
++        NistP384::OID => {
++            let sk = p384::SecretKey::try_from(private_key)?;
++            EcdsaKeypair::NistP384 {
++                public: sk.public_key().into(),
++                private: sk.into(),
++            }
++        }
++
++        oid => return Err(Error::UnknownAlgorithm(oid)),
++    })
++}
++
+ mod explicit_curve_params {
+     use super::*;
+ 
+@@ -172,6 +204,7 @@
+             Ok(match prime.as_bytes().len() {
+                 32 => NistP256::OID,
+                 48 => NistP384::OID,
++                #[cfg(feature = "p521")]
+                 66 => NistP521::OID,
+                 _ => return Err(Error::CouldNotReadKey),
+             })
+@@ -183,29 +216,33 @@
+         curve_oid: ObjectIdentifier,
+         private_key_bytes: &[u8],
+     ) -> Result<EcdsaKeypair, Error> {
+-        if curve_oid == NistP256::OID {
++        match curve_oid {
++        NistP256::OID => {
+             let sk = p256::SecretKey::from_slice(private_key_bytes)
+                 .map_err(|_| Error::CouldNotReadKey)?;
+             Ok(EcdsaKeypair::NistP256 {
+                 public: sk.public_key().into(),
+                 private: sk.into(),
+             })
+-        } else if curve_oid == NistP384::OID {
++        },
++        NistP384::OID => {
+             let sk = p384::SecretKey::from_slice(private_key_bytes)
+                 .map_err(|_| Error::CouldNotReadKey)?;
+             Ok(EcdsaKeypair::NistP384 {
+                 public: sk.public_key().into(),
+                 private: sk.into(),
+             })
+-        } else if curve_oid == NistP521::OID {
++        },
++        #[cfg(feature = "p521")]
++        NistP521::OID => {
+             let sk = p521::SecretKey::from_slice(private_key_bytes)
+                 .map_err(|_| Error::CouldNotReadKey)?;
+             Ok(EcdsaKeypair::NistP521 {
+                 public: sk.public_key().into(),
+                 private: sk.into(),
+             })
+-        } else {
+-            Err(Error::UnknownAlgorithm(curve_oid))
++        },
++        _ => Err(Error::UnknownAlgorithm(curve_oid)),
+         }
+     }
+ }
+@@ -256,10 +293,16 @@
+                 let sk = p384::SecretKey::from_slice(private.as_slice())?;
+                 sk.to_pkcs8_der()?.as_bytes().to_vec()
+             }
++            #[cfg(feature = "p521")]
+             EcdsaKeypair::NistP521 { private, .. } => {
+                 let sk = p521::SecretKey::from_slice(private.as_slice())?;
+                 sk.to_pkcs8_der()?.as_bytes().to_vec()
+             }
++            #[cfg(not(feature = "p521"))]
++            EcdsaKeypair::NistP521 { .. } => return Err(Error::UnsupportedKeyType {
++                key_type_string: "ecdsa-sha2-nistp521".into(),
++                key_type_raw: b"ecdsa-sha2-nistp521".to_vec(),
++            }),
+         },
+         _ => {
+             let algo = key.algorithm();
+--- a/src/keys/format/tests.rs
++++ b/src/keys/format/tests.rs
+@@ -49,6 +49,7 @@
+ }
+ 
+ #[test]
++#[cfg(feature = "p521")]
+ fn test_ec_p521_private_key_with_full_domain_params() {
+     // P-521 key with full EC domain parameters (not named curve OID).
+     // Generated with: openssl ecparam -name secp521r1 -genkey -param_enc explicit -noout
+--- a/src/keys/key.rs
++++ b/src/keys/key.rs
+@@ -106,7 +106,8 @@
+     Algorithm::Ecdsa {
+         curve: EcdsaCurve::NistP384,
+     },
+-    Algorithm::Ecdsa {
++    #[cfg(feature = "p521")]
++Algorithm::Ecdsa {
+         curve: EcdsaCurve::NistP521,
+     },
+     Algorithm::Ed25519,
+--- a/src/keys/mod.rs
++++ b/src/keys/mod.rs
+@@ -423,6 +423,7 @@
+     }
+ 
+     #[test]
++    #[cfg(feature = "p521")]
+     fn test_decode_openssh_p521_secret_key() {
+         // Generated using: ssh-keygen -t ecdsa -b 521 -m rfc4716 -f $file
+         let key = "-----BEGIN OPENSSH PRIVATE KEY-----
+@@ -485,6 +486,7 @@
+     }
+ 
+     #[test]
++    #[cfg(feature = "p521")]
+     fn test_parse_p521_public_key() {
+         env_logger::try_init().unwrap_or(());
+         let key = "AAAAE2VjZHNhLXNoYTItbmlzdHA1MjEAAAAIbmlzdHA1MjEAAACFBAAQepXEpOrzlX22r4E5zEHjhHWeZUe//zaevTanOWRBnnaCGWJFGCdjeAbNOuAmLtXc+HZdJTCZGREeSLSrpJa71QDCgZl0N7DkDUanCpHZJe/DCK6qwtHYbEMn28iLMlGCOrCIa060EyJHbp1xcJx4I1SKj/f/fm3DhhID/do6zyf8Cg==";
+@@ -615,6 +617,7 @@
+     }
+ 
+     #[test]
++    #[cfg(feature = "p521")]
+     fn test_decode_pkcs8_p521_secret_key() {
+         // Generated using: ssh-keygen -t ecdsa -b 521 -m pkcs8 -f $file
+         let key = "-----BEGIN PRIVATE KEY-----
+--- a/src/negotiation.rs
++++ b/src/negotiation.rs
+@@ -218,7 +218,8 @@
+             Algorithm::Ecdsa {
+                 curve: EcdsaCurve::NistP384,
+             },
+-            Algorithm::Ecdsa {
++            #[cfg(feature = "p521")]
++Algorithm::Ecdsa {
+                 curve: EcdsaCurve::NistP521,
+             },
+             Algorithm::Rsa {

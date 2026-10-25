@@ -1,5 +1,6 @@
 [workspace]
 resolver = "3"
+exclude = ["vendor/russh-0.64.1"]
 members = [
     "crates/mw-jmap",
     "crates/mw-sanitize",
@@ -58,6 +59,7 @@ members = [
     # the protocol crates take a `Dialer` from it so an upstream connection can
     # run through an SSH tunnel instead of a direct TCP connect. ──
     "crates/mw-net",
+    "crates/mw-ssh-tunnel",
     "plugins/bridge-graph",
     "plugins/bridge-ews",
     "plugins/bridge-gmail",
@@ -90,6 +92,9 @@ url = "=2.5.8"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros", "chrono"] }
 chacha20poly1305 = "0.10"
 rand = "0.8"
+rand10 = { package = "rand", version = "=0.10.3" }
+# P-521 is optional in this audited upstream-compatible patch; never forward it.
+russh = { path = "vendor/russh-0.64.1", default-features = false, features = ["ring", "rsa"] }
 hex = "0.4"
 base64 = "0.22"
 bytes = "1"
@@ -378,6 +383,7 @@ mw-sandbox = { path = "crates/mw-sandbox" }
 # ── t22 (26.20) shared outbound-egress policy (plan §2.2 e6). ──
 mw-egress = { path = "crates/mw-egress" }
 mw-net = { path = "crates/mw-net" }
+mw-ssh-tunnel = { path = "crates/mw-ssh-tunnel" }
 # ── t25 (26.20) e1: test-support only. Taken exclusively as a `[dev-dependencies]`
 # entry. Deliberately NO `version` key: Cargo strips a path dev-dependency that has
 # none from the published manifest, so `mw-engine`/`mw-store` can use it from their

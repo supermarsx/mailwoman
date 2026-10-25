@@ -1,0 +1,15 @@
+[package]
+name = "mw-ssh-tunnel"
+description = "Pinned SSH direct-tcpip dialer with bounded sessions and channels"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+mw-net.workspace = true
+russh.workspace = true
+rand10.workspace = true
+tokio.workspace = true
+serde.workspace = true
+zeroize.workspace = true

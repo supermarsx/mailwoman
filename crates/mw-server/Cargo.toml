@@ -47,6 +47,8 @@ mw-export = { workspace = true }
 mw-sieve = { workspace = true }
 mw-imap = { workspace = true }
 mw-net = { workspace = true }
+mw-ssh-tunnel = { workspace = true }
+zeroize = { workspace = true }
 mw-crypto = { workspace = true }
 mw-pop3 = { workspace = true }
 mw-smtp = { workspace = true }
@@ -85,6 +87,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 bytes = { workspace = true }
 reqwest = { workspace = true }
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+http-body-util = { workspace = true }
 rust-embed = { workspace = true }
 mime_guess = { workspace = true }
 clap = { workspace = true }
@@ -119,6 +124,7 @@ futures-util = { workspace = true }
 rustls = { workspace = true }
 tokio-rustls = { workspace = true }
 rustls-pki-types = { workspace = true }
+webpki-roots = { workspace = true }
 # V6 observability + webhooks + REST (plan §3 e9). All workspace-declared (plan §5),
 # pure-Rust + rustls throughout — NO openssl. `hmac` (+ in-tree `sha2`) signs
 # outbound webhooks (HMAC-SHA256). `metrics`/`metrics-exporter-prometheus` back the
@@ -143,6 +149,8 @@ opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "trace", "metric
 tracing-opentelemetry = { workspace = true }
 
 [dev-dependencies]
+russh = { workspace = true }
+rand10 = { workspace = true }
 # t25-e1: `tests/common/gate.rs` is now a re-export of this crate, which is where the
 # skip/gate convention lives — it had to move out of `tests/` so `mw-engine`'s and
 # `mw-store`'s library `#[cfg(test)]` modules could reach it without a `#[path]`
