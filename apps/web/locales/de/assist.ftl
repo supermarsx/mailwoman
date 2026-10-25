@@ -48,7 +48,7 @@ assist-undo = Rückgängig
 # -- Dictation --------------------------------------------------------------
 assist-dictate-hold = Zum Diktieren gedrückt halten
 assist-dictate-stop = Diktat beenden
-assist-dictate-hold-text = 🎙 Zum Diktieren gedrückt halten
+assist-dictate-hold-text = Zum Diktieren gedrückt halten
 assist-dictate-listening = ● Hört zu…
 assist-dictate-endpoint-note = Audio wird von Ihrem KI-Assistenten-Endpunkt transkribiert.
 assist-dictate-err = Diktierfehler.

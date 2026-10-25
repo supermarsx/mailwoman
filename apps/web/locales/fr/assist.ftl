@@ -48,7 +48,7 @@ assist-undo = Annuler
 # -- Dictation --------------------------------------------------------------
 assist-dictate-hold = Maintenir pour dicter
 assist-dictate-stop = Arrêter la dictée
-assist-dictate-hold-text = 🎙 Maintenir pour dicter
+assist-dictate-hold-text = Maintenir pour dicter
 assist-dictate-listening = ● Écoute…
 assist-dictate-endpoint-note = L’audio est transcrit par le point de terminaison de votre assistant IA.
 assist-dictate-err = Erreur de dictée.

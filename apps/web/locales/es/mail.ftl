@@ -126,7 +126,7 @@ mail-attachment-loading = Cargando adjunto…
 
 # -- Reader: decrypt ---------------------------------------------------------
 mail-encrypted-region = Mensaje cifrado
-mail-encrypted-note = 🔒 Este mensaje está cifrado de extremo a extremo. Desbloquéelo en este dispositivo para leerlo.
+mail-encrypted-note = Este mensaje está cifrado de extremo a extremo. Desbloquéelo en este dispositivo para leerlo.
 mail-key-passphrase = Frase de contraseña de la clave
 mail-decrypt = Descifrar
 mail-decrypting = Descifrando…

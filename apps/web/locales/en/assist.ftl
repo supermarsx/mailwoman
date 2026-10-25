@@ -54,7 +54,7 @@ assist-undo = Undo
 # -- Dictation --------------------------------------------------------------
 assist-dictate-hold = Hold to dictate
 assist-dictate-stop = Stop dictation
-assist-dictate-hold-text = 🎙 Hold to dictate
+assist-dictate-hold-text = Hold to dictate
 assist-dictate-listening = ● Listening…
 assist-dictate-endpoint-note = Audio is transcribed by your AI assistant endpoint.
 assist-dictate-err = Dictation error.

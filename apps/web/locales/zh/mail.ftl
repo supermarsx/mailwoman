@@ -127,7 +127,7 @@ mail-attachment-loading = 正在加载附件…
 
 # -- Reader: decrypt ---------------------------------------------------------
 mail-encrypted-region = 加密邮件
-mail-encrypted-note = 🔒 此邮件已端到端加密。请在此设备上解锁后阅读。
+mail-encrypted-note = 此邮件已端到端加密。请在此设备上解锁后阅读。
 mail-key-passphrase = 密钥密码短语
 mail-decrypt = 解密
 mail-decrypting = 正在解密…

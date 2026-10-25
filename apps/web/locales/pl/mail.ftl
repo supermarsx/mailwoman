@@ -136,7 +136,7 @@ mail-attachment-loading = Ładowanie załącznika…
 
 # -- Reader: decrypt ---------------------------------------------------------
 mail-encrypted-region = Zaszyfrowana wiadomość
-mail-encrypted-note = 🔒 Ta wiadomość jest zaszyfrowana end-to-end. Odblokuj ją na tym urządzeniu, aby ją przeczytać.
+mail-encrypted-note = Ta wiadomość jest zaszyfrowana end-to-end. Odblokuj ją na tym urządzeniu, aby ją przeczytać.
 mail-key-passphrase = Hasło klucza
 mail-decrypt = Odszyfruj
 mail-decrypting = Odszyfrowywanie…

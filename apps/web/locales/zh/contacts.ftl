@@ -17,7 +17,7 @@ contacts-select-hint = 选择一个联系人以查看其名片。
 contacts-books-groups = 通讯录和群组
 contacts-address-books = 通讯录
 contacts-all = 所有联系人
-contacts-favorites = ★ 收藏
+contacts-favorites = 收藏
 contacts-groups = 群组
 contacts-new-group = 新建群组
 contacts-new-group-name = 新群组名称
@@ -28,8 +28,8 @@ contacts-import = 导入…
 
 # -- Business card -----------------------------------------------------------
 contacts-card = 联系人 { $name }
-contacts-favorited = ★ 已收藏
-contacts-favorite-action = ☆ 收藏
+contacts-favorited = 已收藏
+contacts-favorite-action = 收藏
 contacts-email = 电子邮件
 contacts-phone = 电话
 contacts-dates = 日期

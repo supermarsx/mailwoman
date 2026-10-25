@@ -17,7 +17,7 @@ contacts-select-hint = Selecteer een contact om de kaart te bekijken.
 contacts-books-groups = Adresboeken en groepen
 contacts-address-books = Adresboeken
 contacts-all = Alle contacten
-contacts-favorites = ★ Favorieten
+contacts-favorites = Favorieten
 contacts-groups = Groepen
 contacts-new-group = Nieuwe groep
 contacts-new-group-name = Naam nieuwe groep
@@ -28,8 +28,8 @@ contacts-import = Importeren…
 
 # -- Business card -----------------------------------------------------------
 contacts-card = Contact { $name }
-contacts-favorited = ★ Favoriet
-contacts-favorite-action = ☆ Favoriet
+contacts-favorited = Favoriet
+contacts-favorite-action = Favoriet
 contacts-email = E-mail
 contacts-phone = Telefoon
 contacts-dates = Datums

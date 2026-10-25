@@ -48,7 +48,7 @@ assist-undo = تراجع
 # -- Dictation --------------------------------------------------------------
 assist-dictate-hold = اضغط مطولًا للإملاء
 assist-dictate-stop = إيقاف الإملاء
-assist-dictate-hold-text = 🎙 اضغط مطولًا للإملاء
+assist-dictate-hold-text = اضغط مطولًا للإملاء
 assist-dictate-listening = ● جارٍ الاستماع…
 assist-dictate-endpoint-note = يُحوَّل الصوت إلى نص بواسطة نقطة نهاية مساعد الذكاء الاصطناعي الخاصة بك.
 assist-dictate-err = خطأ في الإملاء.

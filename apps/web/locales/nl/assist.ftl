@@ -48,7 +48,7 @@ assist-undo = Ongedaan maken
 # -- Dictation --------------------------------------------------------------
 assist-dictate-hold = Ingedrukt houden om te dicteren
 assist-dictate-stop = Dicteren stoppen
-assist-dictate-hold-text = 🎙 Ingedrukt houden om te dicteren
+assist-dictate-hold-text = Ingedrukt houden om te dicteren
 assist-dictate-listening = ● Luisteren…
 assist-dictate-endpoint-note = Audio wordt omgezet naar tekst door het endpoint van je AI-assistent.
 assist-dictate-err = Fout bij dicteren.

@@ -226,7 +226,7 @@ function Sidebar(props: {
         aria-current={app.favoritesOnly()}
         onClick={() => { app.setFavoritesOnly(!app.favoritesOnly()); app.setSelectedGroup(null); }}
       >
-        <span>{t('contacts-favorites')}</span>
+        <span><Icon name="star" /> {t('contacts-favorites')}</span>
         <span class={css.count}>{app.contacts().filter((c) => c.isFavorite).length}</span>
       </button>
       <For each={app.addressBooks()}>
@@ -316,7 +316,7 @@ function BusinessCard(props: { card: ContactCard; onEdit: () => void }): JSX.Ele
             aria-pressed={card().isFavorite}
             onClick={() => void app.toggleFavorite(card().id)}
           >
-            {card().isFavorite ? t('contacts-favorited') : t('contacts-favorite-action')}
+            <Icon name={card().isFavorite ? 'star' : 'starOutline'} /> {card().isFavorite ? t('contacts-favorited') : t('contacts-favorite-action')}
           </button>
           <button type="button" class={css.button} onClick={props.onEdit}>{t('common-edit')}</button>
           <button type="button" class={css.buttonGhost} onClick={() => void app.deleteContact(card().id)}>{t('common-delete')}</button>

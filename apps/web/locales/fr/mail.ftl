@@ -129,7 +129,7 @@ mail-attachment-loading = Chargement de la pièce jointe…
 
 # -- Reader: decrypt ---------------------------------------------------------
 mail-encrypted-region = Message chiffré
-mail-encrypted-note = 🔒 Ce message est chiffré de bout en bout. Déverrouillez-le sur cet appareil pour le lire.
+mail-encrypted-note = Ce message est chiffré de bout en bout. Déverrouillez-le sur cet appareil pour le lire.
 mail-key-passphrase = Phrase secrète de la clé
 mail-decrypt = Déchiffrer
 mail-decrypting = Déchiffrement…

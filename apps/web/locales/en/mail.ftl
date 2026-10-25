@@ -135,7 +135,7 @@ mail-attachment-loading = Loading attachment…
 
 # -- Reader: decrypt ---------------------------------------------------------
 mail-encrypted-region = Encrypted message
-mail-encrypted-note = 🔒 This message is end-to-end encrypted. Unlock it on this device to read it.
+mail-encrypted-note = This message is end-to-end encrypted. Unlock it on this device to read it.
 mail-key-passphrase = Key passphrase
 mail-decrypt = Decrypt
 mail-decrypting = Decrypting…

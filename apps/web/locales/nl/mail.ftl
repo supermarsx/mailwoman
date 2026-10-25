@@ -130,7 +130,7 @@ mail-attachment-loading = Bijlage laden…
 
 # -- Reader: decrypt ---------------------------------------------------------
 mail-encrypted-region = Versleuteld bericht
-mail-encrypted-note = 🔒 Dit bericht is end-to-end versleuteld. Ontgrendel het op dit apparaat om het te lezen.
+mail-encrypted-note = Dit bericht is end-to-end versleuteld. Ontgrendel het op dit apparaat om het te lezen.
 mail-key-passphrase = Wachtwoordzin voor de sleutel
 mail-decrypt = Ontsleutelen
 mail-decrypting = Ontsleutelen…

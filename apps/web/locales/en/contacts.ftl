@@ -19,7 +19,7 @@ contacts-select-hint = Select a contact to see their card.
 contacts-books-groups = Address books and groups
 contacts-address-books = Address books
 contacts-all = All contacts
-contacts-favorites = ★ Favorites
+contacts-favorites = Favorites
 contacts-groups = Groups
 contacts-new-group = New group
 contacts-new-group-name = New group name
@@ -30,8 +30,8 @@ contacts-import = Import…
 
 # -- Business card -----------------------------------------------------------
 contacts-card = Contact { $name }
-contacts-favorited = ★ Favorited
-contacts-favorite-action = ☆ Favorite
+contacts-favorited = Favorited
+contacts-favorite-action = Favorite
 contacts-email = Email
 contacts-phone = Phone
 contacts-dates = Dates

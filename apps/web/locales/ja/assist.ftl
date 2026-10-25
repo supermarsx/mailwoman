@@ -48,7 +48,7 @@ assist-undo = 元に戻す
 # -- Dictation --------------------------------------------------------------
 assist-dictate-hold = 長押しで音声入力
 assist-dictate-stop = 音声入力を停止
-assist-dictate-hold-text = 🎙 長押しで音声入力
+assist-dictate-hold-text = 長押しで音声入力
 assist-dictate-listening = ● 聞き取り中…
 assist-dictate-endpoint-note = 音声は AI アシスタントのエンドポイントで文字起こしされます。
 assist-dictate-err = 音声入力のエラーです。

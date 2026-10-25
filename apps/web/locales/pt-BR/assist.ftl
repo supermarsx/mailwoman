@@ -48,7 +48,7 @@ assist-undo = Desfazer
 # -- Dictation --------------------------------------------------------------
 assist-dictate-hold = Segure para ditar
 assist-dictate-stop = Parar ditado
-assist-dictate-hold-text = 🎙 Segure para ditar
+assist-dictate-hold-text = Segure para ditar
 assist-dictate-listening = ● Ouvindo…
 assist-dictate-endpoint-note = O áudio é transcrito pelo endpoint do seu assistente de IA.
 assist-dictate-err = Erro no ditado.

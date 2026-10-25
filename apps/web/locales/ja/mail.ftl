@@ -123,7 +123,7 @@ mail-attachment-loading = 添付ファイルを読み込み中…
 
 # -- Reader: decrypt ---------------------------------------------------------
 mail-encrypted-region = 暗号化されたメッセージ
-mail-encrypted-note = 🔒 このメッセージはエンドツーエンドで暗号化されています。読むには、このデバイスでロックを解除してください。
+mail-encrypted-note = このメッセージはエンドツーエンドで暗号化されています。読むには、このデバイスでロックを解除してください。
 mail-key-passphrase = 鍵のパスフレーズ
 mail-decrypt = 復号
 mail-decrypting = 復号中…

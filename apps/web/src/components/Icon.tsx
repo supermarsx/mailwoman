@@ -90,7 +90,8 @@ export type IconName =
   | 'busy'
   | 'tentative'
   | 'chevronLeft'
-  | 'back';
+  | 'back'
+  | 'microphone';
 
 /** Icons whose meaning depends on reading direction. */
 export const DIRECTIONAL: ReadonlySet<IconName> = new Set<IconName>(['signOut', 'egress', 'chevron', 'chevronLeft', 'back', 'reply', 'forward']);
@@ -99,6 +100,7 @@ const S = { fill: 'none', stroke: 'currentColor', 'stroke-width': '2' } as const
 const F = { fill: 'currentColor' } as const;
 
 const PATHS: Record<IconName, () => JSX.Element> = {
+  microphone: () => <path d="M5 4 A3 3 0 0 1 11 4 V7 A3 3 0 0 1 5 7 Z M2 6 V7 A6 6 0 0 0 14 7 V6 M8 13 V15 M5 15 H11" {...S} />,
   back: () => <path d="M7 2 L1 8 L7 14 M1 8 H15" {...S} />,
   chevronLeft: () => <path d="M10 3 L5 8 L10 13" {...S} />,
   more: () => <path d="M2 8 H4 M7 8 H9 M12 8 H14" {...S} />,

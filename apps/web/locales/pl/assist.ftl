@@ -48,7 +48,7 @@ assist-undo = Cofnij
 # -- Dictation --------------------------------------------------------------
 assist-dictate-hold = Przytrzymaj, aby dyktować
 assist-dictate-stop = Zatrzymaj dyktowanie
-assist-dictate-hold-text = 🎙 Przytrzymaj, aby dyktować
+assist-dictate-hold-text = Przytrzymaj, aby dyktować
 assist-dictate-listening = ● Słucham…
 assist-dictate-endpoint-note = Dźwięk jest transkrybowany przez punkt końcowy Twojego asystenta AI.
 assist-dictate-err = Błąd dyktowania.

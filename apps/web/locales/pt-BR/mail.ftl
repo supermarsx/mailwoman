@@ -133,7 +133,7 @@ mail-attachment-loading = Carregando anexo…
 
 # -- Reader: decrypt ---------------------------------------------------------
 mail-encrypted-region = Mensagem criptografada
-mail-encrypted-note = 🔒 Esta mensagem tem criptografia de ponta a ponta. Desbloqueie-a neste dispositivo para lê-la.
+mail-encrypted-note = Esta mensagem tem criptografia de ponta a ponta. Desbloqueie-a neste dispositivo para lê-la.
 mail-key-passphrase = Frase secreta da chave
 mail-decrypt = Descriptografar
 mail-decrypting = Descriptografando…

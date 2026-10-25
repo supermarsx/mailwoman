@@ -17,7 +17,7 @@ contacts-select-hint = 連絡先を選択すると、カードが表示されま
 contacts-books-groups = アドレス帳とグループ
 contacts-address-books = アドレス帳
 contacts-all = すべての連絡先
-contacts-favorites = ★ お気に入り
+contacts-favorites = お気に入り
 contacts-groups = グループ
 contacts-new-group = 新しいグループ
 contacts-new-group-name = 新しいグループ名
@@ -28,8 +28,8 @@ contacts-import = インポート…
 
 # -- Business card -----------------------------------------------------------
 contacts-card = 連絡先 { $name }
-contacts-favorited = ★ お気に入り済み
-contacts-favorite-action = ☆ お気に入り
+contacts-favorited = お気に入り済み
+contacts-favorite-action = お気に入り
 contacts-email = メール
 contacts-phone = 電話
 contacts-dates = 日付

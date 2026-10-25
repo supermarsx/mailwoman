@@ -48,7 +48,7 @@ assist-undo = Annulla
 # -- Dictation --------------------------------------------------------------
 assist-dictate-hold = Tieni premuto per dettare
 assist-dictate-stop = Interrompi dettatura
-assist-dictate-hold-text = 🎙 Tieni premuto per dettare
+assist-dictate-hold-text = Tieni premuto per dettare
 assist-dictate-listening = ● In ascolto…
 assist-dictate-endpoint-note = L'audio viene trascritto dall'endpoint dell'assistente IA.
 assist-dictate-err = Errore di dettatura.

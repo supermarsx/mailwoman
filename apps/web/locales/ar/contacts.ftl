@@ -17,7 +17,7 @@ contacts-select-hint = اختر جهة اتصال لعرض بطاقتها.
 contacts-books-groups = دفاتر العناوين والمجموعات
 contacts-address-books = دفاتر العناوين
 contacts-all = كل جهات الاتصال
-contacts-favorites = ★ المفضلة
+contacts-favorites = المفضلة
 contacts-groups = المجموعات
 contacts-new-group = مجموعة جديدة
 contacts-new-group-name = اسم المجموعة الجديدة
@@ -28,8 +28,8 @@ contacts-import = استيراد…
 
 # -- Business card -----------------------------------------------------------
 contacts-card = جهة الاتصال { $name }
-contacts-favorited = ★ في المفضلة
-contacts-favorite-action = ☆ تفضيل
+contacts-favorited = في المفضلة
+contacts-favorite-action = تفضيل
 contacts-email = البريد الإلكتروني
 contacts-phone = الهاتف
 contacts-dates = التواريخ

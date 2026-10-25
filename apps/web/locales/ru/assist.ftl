@@ -48,7 +48,7 @@ assist-undo = Отменить
 # -- Dictation --------------------------------------------------------------
 assist-dictate-hold = Удерживайте для диктовки
 assist-dictate-stop = Остановить диктовку
-assist-dictate-hold-text = 🎙 Удерживайте для диктовки
+assist-dictate-hold-text = Удерживайте для диктовки
 assist-dictate-listening = ● Слушаю…
 assist-dictate-endpoint-note = Аудио расшифровывается конечной точкой вашего ИИ-ассистента.
 assist-dictate-err = Ошибка диктовки.

@@ -138,7 +138,7 @@ mail-attachment-loading = جارٍ تحميل المرفق…
 
 # -- Reader: decrypt ---------------------------------------------------------
 mail-encrypted-region = رسالة مشفّرة
-mail-encrypted-note = 🔒 هذه الرسالة مشفّرة بين الطرفين. افتح قفلها على هذا الجهاز لقراءتها.
+mail-encrypted-note = هذه الرسالة مشفّرة بين الطرفين. افتح قفلها على هذا الجهاز لقراءتها.
 mail-key-passphrase = عبارة مرور المفتاح
 mail-decrypt = فك التشفير
 mail-decrypting = جارٍ فك التشفير…

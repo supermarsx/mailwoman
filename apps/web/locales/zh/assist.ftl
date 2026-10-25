@@ -48,7 +48,7 @@ assist-undo = 撤销
 # -- Dictation --------------------------------------------------------------
 assist-dictate-hold = 按住以听写
 assist-dictate-stop = 停止听写
-assist-dictate-hold-text = 🎙 按住以听写
+assist-dictate-hold-text = 按住以听写
 assist-dictate-listening = ● 正在聆听…
 assist-dictate-endpoint-note = 音频由你的 AI 助手端点转写。
 assist-dictate-err = 听写出错。

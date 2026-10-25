@@ -17,7 +17,7 @@ contacts-select-hint = Выберите контакт, чтобы увидет�
 contacts-books-groups = Адресные книги и группы
 contacts-address-books = Адресные книги
 contacts-all = Все контакты
-contacts-favorites = ★ Избранное
+contacts-favorites = Избранное
 contacts-groups = Группы
 contacts-new-group = Новая группа
 contacts-new-group-name = Название новой группы
@@ -28,8 +28,8 @@ contacts-import = Импорт…
 
 # -- Business card -----------------------------------------------------------
 contacts-card = Контакт { $name }
-contacts-favorited = ★ В избранном
-contacts-favorite-action = ☆ В избранное
+contacts-favorited = В избранном
+contacts-favorite-action = В избранное
 contacts-email = Эл. почта
 contacts-phone = Телефон
 contacts-dates = Даты

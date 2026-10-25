@@ -1,3 +1,4 @@
+import { Icon } from '../../components/Icon.tsx';
 // V7 push-to-talk dictation (SPEC §14.3, plan §3 e6). Press-and-hold to dictate;
 // releasing stops. Prefers the on-device browser SpeechRecognition (nothing leaves
 // the device); falls back to the Assist STT endpoint only when the browser has no
@@ -122,7 +123,7 @@ export function Dictation(props: DictationProps): JSX.Element {
           onPointerUp={() => stop()}
           onPointerLeave={() => recording() && stop()}
         >
-          {recording() ? t('assist-dictate-listening') : t('assist-dictate-hold-text')}
+          <Icon name="microphone" /> {recording() ? t('assist-dictate-listening') : t('assist-dictate-hold-text')}
         </button>
         <Show when={source() === 'endpoint'}>
           <span class={css.meta}>{t('assist-dictate-endpoint-note')}</span>
