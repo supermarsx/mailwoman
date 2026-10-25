@@ -245,7 +245,7 @@ export function MailboxScreen(): JSX.Element {
   // Seed a single "messages" sub-tab so the multi-surface strip is live.
   onMount(() => {
     if (subTabs.tabs().length === 0) {
-      subTabs.open({ kind: 'messages', title: 'Mail', id: 'mail', pinned: true });
+      subTabs.open({ kind: 'messages', title: t('common-module-mail'), id: 'mail', pinned: true });
     }
   });
 
