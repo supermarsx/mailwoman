@@ -12,7 +12,7 @@
 //! lines of items rather than as text.
 //!
 //! Implemented commands: `CAPABILITY`, `AUTHENTICATE` (SASL PLAIN, LOGIN,
-//! OAUTHBEARER, XOAUTH2), `STARTTLS` (framing only — the transport
+//! SCRAM-SHA-256, OAUTHBEARER, XOAUTH2), `STARTTLS` (framing only — the transport
 //! does the upgrade), `PUTSCRIPT`, `CHECKSCRIPT`, `HAVESPACE`, `LISTSCRIPTS`,
 //! `SETACTIVE`, `GETSCRIPT`, `RENAMESCRIPT` (with the RFC 5804 §2.11.1 fallback
 //! for servers older than VERSION 1.0), `DELETESCRIPT`, `NOOP`, `LOGOUT`.
@@ -115,6 +115,7 @@ pub struct ScriptInfo {
 pub enum Credentials {
     Plain { username: String, password: String },
     Login { username: String, password: String },
+    ScramSha256 { username: String, password: String },
     OAuthBearer { username: String, token: String },
     XOAuth2 { username: String, token: String },
 }
@@ -124,6 +125,7 @@ impl std::fmt::Debug for Credentials {
         let (mech, user) = match self {
             Credentials::Plain { username, .. } => ("PLAIN", username),
             Credentials::Login { username, .. } => ("LOGIN", username),
+            Credentials::ScramSha256 { username, .. } => ("SCRAM-SHA-256", username),
             Credentials::OAuthBearer { username, .. } => ("OAUTHBEARER", username),
             Credentials::XOAuth2 { username, .. } => ("XOAUTH2", username),
         };
@@ -135,12 +137,14 @@ impl std::fmt::Debug for Credentials {
 }
 
 impl Credentials {
-    /// The password mechanism to use with `caps`: PLAIN, or LOGIN when only
-    /// LOGIN is offered. PLAIN when the server lists neither (some list no SASL
-    /// line before TLS).
+    /// The strongest password mechanism `caps` offers: SCRAM-SHA-256, then
+    /// PLAIN, then LOGIN. PLAIN when the server lists none of them (some list no
+    /// SASL line before TLS).
     pub fn password_for(caps: &Capabilities, username: &str, password: &str) -> Self {
         let (username, password) = (username.to_string(), password.to_string());
-        if !caps.offers_sasl("PLAIN") && caps.offers_sasl("LOGIN") {
+        if caps.offers_sasl("SCRAM-SHA-256") {
+            Credentials::ScramSha256 { username, password }
+        } else if !caps.offers_sasl("PLAIN") && caps.offers_sasl("LOGIN") {
             Credentials::Login { username, password }
         } else {
             Credentials::Plain { username, password }
@@ -151,6 +155,7 @@ impl Credentials {
         match self {
             Credentials::Plain { .. } => "PLAIN",
             Credentials::Login { .. } => "LOGIN",
+            Credentials::ScramSha256 { .. } => "SCRAM-SHA-256",
             Credentials::OAuthBearer { .. } => "OAUTHBEARER",
             Credentials::XOAuth2 { .. } => "XOAUTH2",
         }
@@ -888,8 +893,19 @@ fn warnings(resp: &Response) -> Option<String> {
 /// One mechanism's client state.
 enum Mech {
     Plain(Vec<u8>),
-    Login { answers: [String; 2], next: usize },
-    OAuth { initial: Vec<u8>, bearer: bool },
+    Login {
+        answers: [String; 2],
+        next: usize,
+    },
+    Scram {
+        scram: sasl::ScramSha256,
+        first: String,
+        verified: bool,
+    },
+    OAuth {
+        initial: Vec<u8>,
+        bearer: bool,
+    },
 }
 
 impl Mech {
@@ -902,6 +918,15 @@ impl Mech {
                 answers: [username.clone(), password.clone()],
                 next: 0,
             },
+            Credentials::ScramSha256 { username, password } => {
+                let (scram, first) =
+                    sasl::ScramSha256::new(username, password, &sasl::client_nonce());
+                Mech::Scram {
+                    scram,
+                    first,
+                    verified: false,
+                }
+            }
             Credentials::OAuthBearer { username, token } => Mech::OAuth {
                 initial: sasl::oauthbearer(username, token),
                 bearer: true,
@@ -918,6 +943,7 @@ impl Mech {
         match self {
             Mech::Plain(p) => Some(p.clone()),
             Mech::Login { .. } => None,
+            Mech::Scram { first, .. } => Some(first.clone().into_bytes()),
             Mech::OAuth { initial, .. } => Some(initial.clone()),
         }
     }
@@ -934,6 +960,19 @@ impl Mech {
                 *next += 1;
                 Ok(answer.into_bytes())
             }
+            Mech::Scram {
+                scram, verified, ..
+            } => {
+                let text = std::str::from_utf8(challenge)
+                    .map_err(|_| "SCRAM challenge is not UTF-8".to_string())?;
+                if text.starts_with("v=") || text.starts_with("e=") {
+                    scram.verify(text)?;
+                    *verified = true;
+                    Ok(Vec::new())
+                } else {
+                    Ok(scram.client_final(text)?.into_bytes())
+                }
+            }
             // RFC 7628 §3.2.3: an error challenge is answered with %x01; XOAUTH2
             // with an empty response. The server then says NO.
             Mech::OAuth { bearer: true, .. } => Ok(vec![0x01]),
@@ -941,10 +980,27 @@ impl Mech {
         }
     }
 
-    /// Called on `OK`, with the decoded `(SASL "...")` data if any. None of
-    /// these mechanisms has server-final data to check.
-    fn finish(&mut self, _server_final: Option<&[u8]>) -> std::result::Result<(), String> {
-        Ok(())
+    /// Called on `OK`, with the decoded `(SASL "...")` data if any. SCRAM
+    /// must have seen and verified the server's signature by now.
+    fn finish(&mut self, server_final: Option<&[u8]>) -> std::result::Result<(), String> {
+        match self {
+            Mech::Scram {
+                scram, verified, ..
+            } => {
+                if let Some(data) = server_final {
+                    let text = std::str::from_utf8(data)
+                        .map_err(|_| "SCRAM server-final is not UTF-8".to_string())?;
+                    scram.verify(text)?;
+                    *verified = true;
+                }
+                if *verified {
+                    Ok(())
+                } else {
+                    Err("server accepted SCRAM without proving it knows the password".into())
+                }
+            }
+            _ => Ok(()),
+        }
     }
 }
 
@@ -1165,8 +1221,10 @@ mod tests {
             (Some(9), Some(2), "bad")
         );
 
-        let p = script_problems("1792933068.M1.host.tmp: line 4: error: x.
-error: validation failed.");
+        let p = script_problems(
+            "1792933068.M1.host.tmp: line 4: error: x.
+error: validation failed.",
+        );
         assert_eq!((p[0].line, p[0].message.as_str()), (Some(4), "error: x."));
 
         let p = script_problems("script is broken");

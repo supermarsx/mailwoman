@@ -2,7 +2,7 @@
   "schema": "mailwoman-third-party/2",
   "generator": "scripts/about/gen-third-party.mjs",
   "generatedFrom": {
-    "cargoLock": "5368ed4fd239a483dc545586e0860360ca8fe9b58ddfbd8ff96562e8ff21e392",
+    "cargoLock": "9c1dfcec4e12d6694b239b0b5257145adbccbd274ec578e12568308f03c9788d",
     "mediaWasmLock": "f8d4fc4e4a5f7e0a85cd61ed79e9e87fa8a3b2c636a35ae8ae89472559ff05e3",
     "pnpmLock": "1c167a84a868799294c6c69bfde605d6b10018f07ddbde9b1802fab7334a6c29"
   },

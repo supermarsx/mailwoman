@@ -14,6 +14,8 @@ the parser must never panic on arbitrary input.
 | `imap_utf7` | `mw-imap` | modified UTF-7 mailbox names; decode/encode must round-trip |
 | `pop3_parse` | `mw-pop3` | POP3 CAPA/UIDL/LIST bodies off the wire |
 | `sieve_parse` | `mw-sieve` | user-supplied Sieve scripts |
+| `sieve_grammar` | `mw-sieve` | any Sieve script: full grammar, validation, server policy, builder merge |
+| `managesieve_response` | `mw-sieve` | ManageSieve server responses and compile-error text |
 | `search_query` | `mw-search` | search-operator text typed by users (`Email/query`'s `filter.text`) |
 
 ## Running

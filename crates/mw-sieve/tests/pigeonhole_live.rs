@@ -112,7 +112,9 @@ async fn live_script_lifecycle() {
     let body = generate(&sample_rules()).unwrap();
     check(&body).expect("our validator accepts the generated script");
 
-    c.have_space("mw-live", body.len() as u64).await.expect("havespace");
+    c.have_space("mw-live", body.len() as u64)
+        .await
+        .expect("havespace");
     assert_eq!(
         c.check_script(&body).await.unwrap(),
         Checked::Valid { warnings: None }
@@ -202,6 +204,35 @@ async fn live_validator_agrees_with_pigeonhole() {
     c.logout().await.unwrap();
 }
 
+/// SCRAM-SHA-256 against Pigeonhole: the client proves the password without
+/// sending it and checks the server's signature.
+#[tokio::test]
+async fn live_variant_scram_login() {
+    let Some((host, port)) = target("MW_SIEVE_LIVE_VARIANT") else {
+        eprintln!("MW_SIEVE_LIVE_VARIANT not set; skipping");
+        return;
+    };
+    let creds = Credentials::ScramSha256 {
+        username: "testuser".into(),
+        password: "testpass".into(),
+    };
+    let mut c = ManageSieveClient::connect(&host, port, TlsMode::Plaintext, creds)
+        .await
+        .expect("SCRAM-SHA-256 login");
+    c.list_scripts().await.expect("authenticated session");
+    c.logout().await.unwrap();
+
+    let wrong = Credentials::ScramSha256 {
+        username: "testuser".into(),
+        password: "not-the-password".into(),
+    };
+    assert!(
+        ManageSieveClient::connect(&host, port, TlsMode::Plaintext, wrong)
+            .await
+            .is_err()
+    );
+}
+
 /// Quota refusals surface with their codes, and an extension the server does
 /// not advertise is refused by the policy before anything is uploaded.
 #[tokio::test]
@@ -213,7 +244,10 @@ async fn live_variant_quota_and_unadvertised_extension() {
     let mut c = login(&host, port).await;
     clean(&mut c).await;
 
-    assert!(!c.capabilities().supports("vacation"), "variant hides vacation");
+    assert!(
+        !c.capabilities().supports("vacation"),
+        "variant hides vacation"
+    );
     let advertised = c
         .capabilities()
         .sieve

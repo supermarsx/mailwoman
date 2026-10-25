@@ -17,6 +17,11 @@ rustls = { workspace = true }
 rustls-pki-types = { workspace = true }
 webpki-roots = { workspace = true }
 tracing = { workspace = true }
+# SASL SCRAM-SHA-256 for ManageSieve (RFC 5802 / RFC 7677): HMAC-SHA-256 and
+# SHA-256 from the in-tree RustCrypto pins (as mw-imap and mw-pop3 use); PBKDF2
+# is the single-block HMAC iteration, so no `pbkdf2` crate.
+hmac = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread", "net", "time"] }

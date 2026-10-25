@@ -71,6 +71,20 @@ doc = false
 bench = false
 
 [[bin]]
+name = "sieve_grammar"
+path = "fuzz_targets/sieve_grammar.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "managesieve_response"
+path = "fuzz_targets/managesieve_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "search_query"
 path = "fuzz_targets/search_query.rs"
 test = false
