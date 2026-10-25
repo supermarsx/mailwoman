@@ -60,6 +60,19 @@
 // Every such instance is printed. Any other growth, on these probes or elsewhere, is
 // still a violation (a phone height change, a field growing wider, a card wider than
 // the maximum).
+//
+// Show/hide button exemption (t32-h17, user request "add capability to peek password on
+// the login too"): a password field listed in PASSWORD_TOGGLE carries a 24 px show/hide
+// button inside its box, at the inline end (components/passwordInput.css.ts), and its end
+// padding grows so typed text never runs under the button. That one padding side is not
+// counted when ALL of these hold:
+//   - only one of padding-right / padding-left grew (the end side; left under RTL), and
+//     after it is at most PASSWORD_TOGGLE_END_PADDING (touch target + twice space[3]);
+//   - the box did not grow: width and height each within 1 px of before or smaller;
+//   - font-size did not grow; the top, bottom and start padding and every border side
+//     did not grow by more than 1 px.
+// AUTH_CARD accepts the same end padding on such a field. Every such instance is printed;
+// any other growth on these fields is still a violation.
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -140,7 +153,37 @@ export const AUTH_CARD = [
   { probe: 'admin.login-submit', card: 'admin.login-card#0', rule: 'phone-w', why: 'button follows the sign-in card inside the 16 px phone gutter (styles/authCard.css.ts)' },
 ];
 
+/** End padding a password field may grow to: 24 px touch target + 2 × space[3] 8 px (components/passwordInput.css.ts). */
+export const PASSWORD_TOGGLE_END_PADDING = 24 + 8 + 8;
+
+/** Password fields that carry the show/hide button (see PASSWORD_TOGGLE above). */
+export const PASSWORD_TOGGLE = [
+  { probe: 'login.password' },
+  { probe: 'admin.login-field', label: /^Password$/ },
+  { probe: 'settings.password' },
+];
+
 const probeName = (id) => id.replace(/#\d+$/, '');
+
+/** The padding side (1 right, 3 left) that grew for the show/hide button of instance `id`, or null. */
+export function passwordToggle(b, a, id) {
+  const pb = b.probes[id];
+  const pa = a.probes[id];
+  const entry = PASSWORD_TOGGLE.find((f) => f.probe === probeName(id) && (f.label === undefined || f.label.test(pa.label ?? '')));
+  if (!entry) return null;
+  if (pa.w > pb.w + TOL || pa.h > pb.h + TOL) return null;
+  if (pa.fontSize > pb.fontSize + EPS) return null;
+  for (let i = 0; i < 4; i++) {
+    if (pa.border[i] > pb.border[i] + TOL) return null;
+  }
+  if (pa.padding[0] > pb.padding[0] + TOL || pa.padding[2] > pb.padding[2] + TOL) return null;
+  const grewRight = pa.padding[1] > pb.padding[1] + TOL;
+  const grewLeft = pa.padding[3] > pb.padding[3] + TOL;
+  if (grewRight === grewLeft) return null;
+  const side = grewRight ? 1 : 3;
+  if (pa.padding[side] > PASSWORD_TOGGLE_END_PADDING + EPS) return null;
+  return { side, why: 'end padding for the show/hide button inside the field (components/passwordInput.css.ts)' };
+}
 
 /** Why a change of instance `id` under `rule` ('h' or 'phone-w') is the sign-in card narrowing, or null. */
 export function authCard(b, a, id, rule) {
@@ -153,8 +196,9 @@ export function authCard(b, a, id, rule) {
   if (!cb?.visible || !ca?.visible) return null;
   if (!(ca.w <= AUTH_CARD_MAX_WIDTH + EPS) || !(ca.w < cb.w - TOL)) return null;
   if (pa.fontSize > pb.fontSize + EPS) return null;
+  const toggleSide = passwordToggle(b, a, id)?.side;
   for (let i = 0; i < 4; i++) {
-    if (pa.padding[i] > pb.padding[i] + TOL || pa.border[i] > pb.border[i] + TOL) return null;
+    if ((i !== toggleSide && pa.padding[i] > pb.padding[i] + TOL) || pa.border[i] > pb.border[i] + TOL) return null;
   }
   if (!(pa.w < pb.w - TOL)) return null;
   if (entry.text) {
@@ -250,6 +294,7 @@ export function compare(before, after, { partial = false } = {}) {
   const exempt = [];
   const targets = [];
   const cards = [];
+  const toggles = [];
   const add = (key, probe, rule, b, a) => violations.push({ screen: key, probe, rule, before: r1(b), after: r1(a) });
 
   for (const [key, b] of Object.entries(before).sort()) {
@@ -282,8 +327,11 @@ export function compare(before, after, { partial = false } = {}) {
       if (pb.kind === 'control' && pa.w > pb.w + TOL) grew('w', 'control width +>1px');
       if (pa.fontSize > pb.fontSize + EPS) add(key, id, 'font-size grew', pb.fontSize, pa.fontSize);
       if (pa.lineHeight > pb.lineHeight + TOL) add(key, id, 'line-height +>1px', pb.lineHeight, pa.lineHeight);
+      const pt = passwordToggle(b, a, id);
       ['top', 'right', 'bottom', 'left'].forEach((side, i) => {
-        if (pa.padding[i] > pb.padding[i] + TOL) add(key, id, `padding-${side} +>1px`, pb.padding[i], pa.padding[i]);
+        if (!(pa.padding[i] > pb.padding[i] + TOL)) return;
+        if (pt && pt.side === i) toggles.push({ screen: key, probe: id, rule: `padding-${side} +>1px`, before: r1(pb.padding[i]), after: r1(pa.padding[i]), why: pt.why });
+        else add(key, id, `padding-${side} +>1px`, pb.padding[i], pa.padding[i]);
       });
       if (pb.interactive && phone) {
         if (Math.abs(pa.w - pb.w) > TOL) {
@@ -302,7 +350,7 @@ export function compare(before, after, { partial = false } = {}) {
       }
     }
   }
-  return { violations, shrunk, exempt, targets, cards };
+  return { violations, shrunk, exempt, targets, cards, toggles };
 }
 
 function table(rows, cols) {
@@ -322,7 +370,7 @@ if (isMain) {
   if (pos.length !== 2) usage();
   const before = load(pos[0]);
   const after = load(pos[1]);
-  const { violations, shrunk, exempt, targets, cards } = compare(before, after, { partial });
+  const { violations, shrunk, exempt, targets, cards, toggles } = compare(before, after, { partial });
   const screens = Object.keys(before).filter((k) => partial ? after[k] !== undefined : true).length;
   const probes = Object.entries(before)
     .filter(([k]) => after[k] !== undefined)
@@ -347,7 +395,12 @@ ${targets.length} checkbox growth(s) to the 24 px target not counted (CHECK_TARG
 ${cards.length} sign-in card narrowing change(s) not counted (AUTH_CARD):`);
     console.log(table(cards, ['screen', 'probe', 'rule', 'before', 'after', 'why']));
   }
-  if (jsonOut) writeFileSync(jsonOut, JSON.stringify({ violations, shrunk, exempt, targets, cards }, null, 1));
+  if (toggles.length > 0) {
+    console.log(`
+${toggles.length} password field end padding change(s) for the show/hide button not counted (PASSWORD_TOGGLE):`);
+    console.log(table(toggles, ['screen', 'probe', 'rule', 'before', 'after', 'why']));
+  }
+  if (jsonOut) writeFileSync(jsonOut, JSON.stringify({ violations, shrunk, exempt, targets, cards, toggles }, null, 1));
   if (violations.length > 0) {
     console.log(`\n${violations.length} violation(s):`);
     console.log(table(violations, ['screen', 'probe', 'rule', 'before', 'after']));
