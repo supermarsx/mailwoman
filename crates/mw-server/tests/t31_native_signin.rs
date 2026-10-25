@@ -562,3 +562,72 @@ async fn a_plain_options_request_is_not_answered_by_the_cors_layer() {
     assert!(r.allow_origin.is_none(), "{r:?}");
     assert!(r.allow_methods.is_none(), "{r:?}");
 }
+
+#[tokio::test]
+async fn native_preferences_expose_etags_and_allow_cas_without_widening_origins() {
+    let mock = spawn_mock().await;
+    let base = spawn_server(&mock).await;
+    let c = client();
+    let token = native_login(&c, &base, &mock, TAURI).await;
+    let endpoint = format!("{base}/api/account/preferences");
+    let preflight = c
+        .request(reqwest::Method::OPTIONS, &endpoint)
+        .header("origin", TAURI)
+        .header("access-control-request-method", "PUT")
+        .header(
+            "access-control-request-headers",
+            "authorization, content-type, if-match",
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(preflight.headers()["access-control-allow-origin"], TAURI);
+    assert!(
+        preflight.headers()["access-control-allow-headers"]
+            .to_str()
+            .unwrap()
+            .split(',')
+            .any(|v| v.trim() == "if-match")
+    );
+    let loaded = c
+        .get(&endpoint)
+        .header("origin", TAURI)
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(loaded.status(), 200);
+    assert_eq!(loaded.headers()["access-control-expose-headers"], "etag");
+    let etag = loaded.headers()["etag"].clone();
+    let saved = c
+        .put(&endpoint)
+        .header("origin", TAURI)
+        .bearer_auth(&token)
+        .header("if-match", etag)
+        .json(&json!({"version":1,"preferences":{"workspaceLayout":"stack"}}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), 200);
+    for origin in [Some(EVIL), None] {
+        let request = c.get(&endpoint).bearer_auth(&token);
+        let request = if let Some(origin) = origin {
+            request.header("origin", origin)
+        } else {
+            request
+        };
+        let response = request.send().await.unwrap();
+        assert!(
+            response
+                .headers()
+                .get("access-control-expose-headers")
+                .is_none()
+        );
+        assert!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .is_none()
+        );
+    }
+}
