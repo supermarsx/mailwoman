@@ -17,3 +17,8 @@ it('moves in either direction and ignores unknown drag targets',()=>{
  expect(moveFolder(['a','b','c'],'c','b')).toEqual(['a','c','b']);
  expect(moveFolder(['a','b','c'],'unknown','b')).toEqual(['a','b','c']);
 });
+
+it('uses a search icon for virtual folders while honoring custom icons', () => {
+ expect(folderIcon({id:'s',name:'Invoices',mailwomanSearchQuery:'{}'},{})).toBe('search');
+ expect(folderIcon({id:'s',name:'Invoices',mailwomanSearchQuery:'{}'},{folderIcons:{s:'star'}})).toBe('star');
+});

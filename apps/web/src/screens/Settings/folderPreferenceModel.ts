@@ -1,10 +1,10 @@
 import type { IconName } from '../../components/Icon.tsx';
 import { FOLDER_ICONS, type AccountUiPreferences } from '../../api/accountPreferences.ts';
-export interface PreferenceFolder { id: string; name: string; role?: string | null }
+export interface PreferenceFolder { id: string; name: string; role?: string | null; mailwomanSearchQuery?: string }
 const ROLE_ICONS: Readonly<Record<string, IconName>> = {inbox:'inbox',sent:'sent',drafts:'edit',trash:'delete',junk:'alert',archive:'archive',outbox:'clock',important:'flag',all:'mail'};
 export function folderIcon(folder: PreferenceFolder, preferences: AccountUiPreferences): IconName {
   const custom = preferences.folderIcons?.[folder.id];
-  return custom && (FOLDER_ICONS as readonly string[]).includes(custom) ? custom : ROLE_ICONS[folder.role ?? ''] ?? 'folder';
+  return custom && (FOLDER_ICONS as readonly string[]).includes(custom) ? custom : (folder.mailwomanSearchQuery !== undefined ? 'search' : ROLE_ICONS[folder.role ?? ''] ?? 'folder');
 }
 /** Preserve server order for new/unlisted folders; never rename or move mail. */
 export function orderedFolders<T extends PreferenceFolder>(folders: readonly T[], preferences: AccountUiPreferences): T[] {

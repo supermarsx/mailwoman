@@ -263,7 +263,7 @@ export function Settings(props: SettingsProps): JSX.Element {
             <>
               <Show when={visible('security')}><AsyncBoundary><PasswordChange accountId={accountId()} /></AsyncBoundary></Show>
               <AsyncBoundary>
-                <AccountSettings hideSecurity {...(props.embedded ? {section:()=>navigation.route().section} : {})} />
+                <AccountSettings hideSecurity onSearchFoldersChanged={() => app.refreshFolders()} {...(props.embedded ? {section:()=>navigation.route().section} : {})} />
               </AsyncBoundary>
               <Show when={visible('security')}><AsyncBoundary><SecurityCenter /></AsyncBoundary></Show>
               <Show when={visible('privacy')}><AsyncBoundary><Privacy /></AsyncBoundary></Show>

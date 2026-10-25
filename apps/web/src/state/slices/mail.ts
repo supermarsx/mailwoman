@@ -177,6 +177,7 @@ export interface MailSlice {
   /** Refetch the current mailbox list in place (push/peer-sync), preserving the
    *  open message + selection (unlike `selectMailbox`). No-op during search. */
   refreshCurrentMailbox(): Promise<void>;
+  refreshFolders(): Promise<void>;
   // ── Paging (t22-e4) ─────────────────────────────────────────────────────
   /**
    * How many messages the CURRENT query matches, or `null` when the server did
@@ -1085,6 +1086,20 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   });
 
   // ── V1 session + mail behaviour (unchanged) ───────────────────────────────
+  async function refreshFolders(): Promise<void> {
+    const acct = accountId();
+    if (acct === null) return;
+    const res = await client.jmap(mailboxGet(acct));
+    if (accountId() !== acct) return;
+    const boxes = sortMailboxes(responseFor<MailboxGetResponse>(res, 'c0').list);
+    setMailboxes(boxes);
+    const selected = selectedMailboxId();
+    if (selected && !boxes.some(box => box.id === selected)) {
+      const fallback = boxes.find(box => box.role === 'inbox') ?? boxes[0];
+      if (fallback) await selectMailbox(fallback.id);
+    } else if (selected) await refreshCurrentMailbox();
+  }
+
   async function loadMailboxes(): Promise<void> {
     const session = await client.session();
     setDownloadUrl(session.downloadUrl);
@@ -1647,6 +1662,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     searchMessages,
     clearSearch,
     refreshCurrentMailbox,
+    refreshFolders,
 
     total,
     loadedRange,

@@ -1506,3 +1506,21 @@ describe('mail slice — receipt, inline images and open tracking (t29-e12)', ()
     });
   });
 });
+
+describe('search folder catalogue refresh', () => {
+ it('adds virtual folders without resetting selection and falls back after deletion', async () => {
+  await withInbox([], async (mail, {jmap}) => {
+   await mail.selectMailbox('archive');
+   const virtual: Mailbox = {...MAILBOXES[0]!, id:'saved-invoices', name:'Invoices',role:null,mailwomanSearchQuery:'{"subject":"invoice"}'};
+   const reply = (boxes: Mailbox[]): JmapResponse => ({methodResponses:[['Mailbox/get',{accountId:'acct1',state:'s',list:boxes,notFound:[]},'c0']],sessionState:'s'});
+   jmap.mockResolvedValueOnce(reply([...MAILBOXES, virtual]));
+   await mail.refreshFolders();
+   expect(mail.mailboxes().some(box => box.id === virtual.id)).toBe(true);
+   expect(mail.selectedMailboxId()).toBe('archive');
+   await mail.selectMailbox(virtual.id);
+   jmap.mockResolvedValueOnce(reply(MAILBOXES));
+   await mail.refreshFolders();
+   expect(mail.selectedMailboxId()).toBe('inbox');
+  });
+ });
+});

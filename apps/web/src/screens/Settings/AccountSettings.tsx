@@ -29,6 +29,7 @@ import * as css from './styles.css.ts';
 
 export interface AccountSettingsProps {
   hideSecurity?: boolean;
+  onSearchFoldersChanged?: () => void | Promise<void>;
   /** A workspace section; omitted keeps the legacy aggregate surface. */
   section?: () => string;
   /** Injected in tests; production uses the same-origin cookie service. */
@@ -85,7 +86,7 @@ export function AccountSettings(props: AccountSettingsProps): JSX.Element {
       </Show>
       <Show when={selected('searches')}>
       <AsyncBoundary>
-        <SavedSearches service={service} />
+        <SavedSearches service={service} {...(props.onSearchFoldersChanged ? {onChanged: props.onSearchFoldersChanged} : {})} />
       </AsyncBoundary>
       </Show>
       <Show when={selected('preferences')}>

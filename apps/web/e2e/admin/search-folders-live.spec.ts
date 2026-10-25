@@ -1,0 +1,33 @@
+import { test, expect } from '../csrf.ts';
+import { signInManually } from '../helpers.ts';
+
+test('search folders save, appear in the sidebar, and edit on a dedicated page @phone', async ({ page }) => {
+  await page.goto('/');
+  await signInManually(page, { username: 'testuser', password: 'testpass' });
+  const show = page.getByRole('button', { name: 'Show folders sidebar' });
+  if (await show.isVisible()) await show.click();
+  if (test.info().project.name === 'phone') await page.getByRole('button', { name: 'Open folders and apps' }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const sections = page.getByRole('navigation', { name: 'Settings sections' });
+  await sections.getByRole('button', { name: /Saved searches|Search folders/ }).click();
+  await page.getByRole('button', { name: 'New search folder' }).click();
+  await expect(page.getByTestId('saved-search-list')).toHaveCount(0);
+  const name = `Invoices-${test.info().project.name}-${Date.now()}`;
+  await page.getByLabel('Folder name', { exact: true }).fill(name);
+  await page.getByLabel('Subject contains').fill(name);
+  await page.getByLabel('Unread messages only').check();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  const row = page.getByTestId('saved-search-list').locator('li').filter({ hasText: name });
+  await expect(row).toBeVisible();
+  await expect(page.locator('.sidebar__box-name').filter({ hasText: name })).toHaveCount(1);
+  await row.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.getByTestId('saved-search-list')).toHaveCount(0);
+  await expect(page.getByLabel('Subject contains')).toHaveValue(name);
+  await expect(page.getByLabel('Unread messages only')).toBeChecked();
+  await page.screenshot({ path: test.info().outputPath('search-folder-editor.png'), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await row.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(row).toHaveCount(0);
+  await expect(page.locator('.sidebar__box-name').filter({ hasText: name })).toHaveCount(0);
+});

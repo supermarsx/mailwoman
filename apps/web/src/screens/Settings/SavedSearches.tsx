@@ -9,10 +9,13 @@ import { t, loadCatalog } from '../../i18n';
 import { SettingsService } from './service.ts';
 import type { SavedSearch } from './types.ts';
 import { toast } from '../../components/toast/index.ts';
+import { SearchFolderEditor } from './SearchFolderEditor.tsx';
+import { useEntityNavigation } from './entityEditor.tsx';
 import * as css from './styles.css.ts';
 
 export interface SavedSearchesProps {
   service?: SettingsService;
+  onChanged?: () => void | Promise<void>;
 }
 
 export function SavedSearches(props: SavedSearchesProps): JSX.Element {
@@ -20,6 +23,11 @@ export function SavedSearches(props: SavedSearchesProps): JSX.Element {
   onMount(() => void loadCatalog('settings'));
 
   const [searches, { refetch }] = createResource<SavedSearch[]>(() => service.listSavedSearches());
+  const navigation = useEntityNavigation('searches');
+  const editor = () => navigation.route().section === 'searches' ? navigation.route().editor : undefined;
+  const back = async (): Promise<void> => { await navigation.navigate({ section: 'searches' }); };
+  const open = (id?: string) => navigation.navigate({ section: 'searches', editor: id ? { kind: 'edit', id } : { kind: 'new' } });
+  const changed = async (): Promise<void> => { await refetch(); await props.onChanged?.(); };
   const [busy, setBusy] = createSignal(false);
 
   // A failed action is a toast (t32 f39).
@@ -31,7 +39,7 @@ export function SavedSearches(props: SavedSearchesProps): JSX.Element {
     setBusy(true);
     try {
       await service.upsertSavedSearch({ ...search, asFolder });
-      await refetch();
+      await changed();
     } catch (e) {
       fail(e);
     } finally {
@@ -43,7 +51,7 @@ export function SavedSearches(props: SavedSearchesProps): JSX.Element {
     setBusy(true);
     try {
       await service.deleteSavedSearch(id);
-      await refetch();
+      await changed();
     } catch (e) {
       fail(e);
     } finally {
@@ -52,9 +60,10 @@ export function SavedSearches(props: SavedSearchesProps): JSX.Element {
   }
 
   return (
-    <section class={css.section} aria-label={t('settings-search-title')}>
+    <Show when={editor()} keyed fallback={<section class={css.section} aria-label={t('settings-search-title')}>
       <h2 class={css.heading}>{t('settings-search-title')}</h2>
       <p class={css.prose}>{t('settings-search-intro')}</p>
+      <div class={css.actions}><button class={css.button} type="button" onClick={() => void open()}>{t('settings-search-new')}</button></div>
 
       <Show
         when={(searches() ?? []).length > 0}
@@ -68,6 +77,7 @@ export function SavedSearches(props: SavedSearchesProps): JSX.Element {
                   <span class={css.itemName}>{search.name}</span>
                 </div>
                 <div class={css.actions}>
+                  <button type="button" class={css.ghost} disabled={busy()} onClick={() => void open(search.id)}>{t('settings-edit')}</button>
                   <label class={css.check}>
                     <input
                       class={css.checkbox}
@@ -88,7 +98,7 @@ export function SavedSearches(props: SavedSearchesProps): JSX.Element {
           </For>
         </ul>
       </Show>
-    </section>
+    </section>}>{route => <Show when={route.kind === 'new'} fallback={<Show when={searches()?.find(item => item.id === route.id)} keyed fallback={<p>{t('settings-editor-missing')}</p>}>{item => <SearchFolderEditor initial={item} service={service} onSaved={async () => { await changed(); await back(); }} onCancel={back} />}</Show>}><SearchFolderEditor service={service} onSaved={async () => { await changed(); await back(); }} onCancel={back} /></Show>}</Show>
   );
 }
 
