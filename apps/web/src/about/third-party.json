@@ -2,7 +2,7 @@
   "schema": "mailwoman-third-party/2",
   "generator": "scripts/about/gen-third-party.mjs",
   "generatedFrom": {
-    "cargoLock": "061852f36088e31a47185e7619350be0875b7444a6d9b5ae61c96811a1b94dc8",
+    "cargoLock": "8a5910952889297890a11ddf77868ec1c8948bb26b98216e04431afa9db3f66c",
     "mediaWasmLock": "f8d4fc4e4a5f7e0a85cd61ed79e9e87fa8a3b2c636a35ae8ae89472559ff05e3",
     "pnpmLock": "1c167a84a868799294c6c69bfde605d6b10018f07ddbde9b1802fab7334a6c29"
   },
@@ -2465,7 +2465,7 @@
     {
       "kind": "crate",
       "name": "crypto-bigint",
-      "version": "0.7.5",
+      "version": "0.7.6",
       "licence": "Apache-2.0 OR MIT",
       "repository": "https://github.com/RustCrypto/crypto-bigint",
       "texts": [
