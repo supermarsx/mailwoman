@@ -336,7 +336,10 @@ impl Engine {
         if let Some(book) = self.store().get_address_book(&row.address_book_id).await?
             && let (Some(base), Some(url)) = (rt.dav.clone(), book.carddav_url.clone())
         {
-            let href = resource_href(&url, &row.uid, "vcf");
+            let href = match self.store().contact_href(id).await? {
+                Some(h) => h,
+                None => resource_href(&url, &row.uid, "vcf"),
+            };
             let _ = self.carddav_delete(&base, &href, row.etag.as_deref()).await;
         }
         self.store().delete_contact(id).await?;
@@ -346,9 +349,32 @@ impl Engine {
     }
 
     /// Emit + persist a contact from its projection, pushing to CardDAV when the
-    /// book is DAV-backed. Shared by create/update/import/merge + the sync pull.
+    /// book is DAV-backed. Shared by create/update/import/merge.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn persist_contact(
+        &self,
+        account_id: &str,
+        book_id: &str,
+        id: &str,
+        uid: &str,
+        json: Value,
+        prior_etag: Option<String>,
+        push_rt: Option<&AccountRuntime>,
+    ) -> Result<()> {
+        self.persist_contact_with(
+            account_id, book_id, id, uid, json, prior_etag, push_rt, None,
+        )
+        .await
+    }
+
+    /// [`Engine::persist_contact`], or the sync pull's adoption of the server's
+    /// card (`server`): its body is stored verbatim as `vcard_raw` and its href
+    /// recorded. A local edit of a card the server named is merged into the
+    /// stored card before the PUT ([`super::sync::merge_vcard`]), so `PHOTO`,
+    /// `URL`, `X-*` and the other properties the projection does not model are
+    /// not lost (t28-e19).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn persist_contact_with(
         &self,
         _account_id: &str,
         book_id: &str,
@@ -357,13 +383,14 @@ impl Engine {
         mut json: Value,
         prior_etag: Option<String>,
         push_rt: Option<&AccountRuntime>,
+        server: Option<super::sync::ServerCopy<'_>>,
     ) -> Result<()> {
         set_str(&mut json, "id", id);
         set_str(&mut json, "addressBookId", book_id);
         set_str(&mut json, "uid", uid);
 
-        let vcard_raw = mw_ics::emit_vcard(&json).map_err(super::events::ics_err)?;
-        let mut canonical = mw_ics::parse_vcard(vcard_raw.as_bytes())
+        let emitted = mw_ics::emit_vcard(&json).map_err(super::events::ics_err)?;
+        let mut canonical = mw_ics::parse_vcard(emitted.as_bytes())
             .map_err(super::events::ics_err)?
             .into_iter()
             .next()
@@ -387,17 +414,29 @@ impl Engine {
             .map(String::from);
         set_json(&mut canonical, "photoBlobId", json!(photo_blob_id));
 
+        let mut vcard_raw = server.map_or_else(|| emitted.clone(), |s| s.body.to_string());
+        let mut pushed_href: Option<String> = None;
         let mut etag = prior_etag.clone();
-        if let Some(rt) = push_rt
+        if server.is_none()
+            && let Some(rt) = push_rt
             && let Some(book) = self.store().get_address_book(book_id).await?
             && let (Some(base), Some(url)) = (rt.dav.clone(), book.carddav_url.clone())
         {
-            let href = resource_href(&url, uid, "vcf");
+            let stored_href = self.store().contact_href(id).await?;
+            if stored_href.is_some()
+                && let Some(prev) = self.store().get_contact(id).await?
+            {
+                vcard_raw = super::sync::merge_vcard(&prev.vcard_raw, &emitted);
+            }
+            let href = stored_href.unwrap_or_else(|| resource_href(&url, uid, "vcf"));
             match self
                 .carddav_put(&base, &href, &vcard_raw, prior_etag.as_deref())
                 .await
             {
-                Ok(new_etag) => etag = new_etag,
+                Ok(new_etag) => {
+                    etag = new_etag;
+                    pushed_href = Some(href);
+                }
                 Err(e) => tracing::warn!("CardDAV put for contact {id} failed: {e}"),
             }
         }
@@ -425,6 +464,9 @@ impl Engine {
                 .map(String::from),
         };
         self.store().upsert_contact(&row).await?;
+        if let Some(href) = server.map(|s| s.href).or(pushed_href.as_deref()) {
+            self.store().set_contact_href(id, Some(href)).await?;
+        }
         Ok(())
     }
 

@@ -57,12 +57,53 @@ pub type EtagList = (Option<String>, Vec<(String, String)>);
 
 /// Credentials + base URL for a DAV account. The shared core is protocol-
 /// agnostic; CalDAV/CardDAV layer their collection semantics on top.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DavConfig {
     /// The server base or discovery URL (`.well-known/caldav` is tried).
     pub base_url: String,
     pub username: String,
     pub password: String,
+    /// The address the base URL's host was checked against the egress policy as
+    /// (t28-e19). When set, every request connects to this address only, never
+    /// follows a redirect, and is refused for a URL on any other host — so a DAV
+    /// server cannot point the client at a second host the policy never saw.
+    /// `None`: the host is resolved per request (tests, and callers that do their
+    /// own checking).
+    pub pin: Option<std::net::SocketAddr>,
+}
+
+/// The host of `url` (lower-cased), if it has one.
+fn host_of(url: &str) -> Option<String> {
+    reqwest::Url::parse(url)
+        .ok()?
+        .host_str()
+        .map(str::to_ascii_lowercase)
+}
+
+/// The HTTP client a DAV account's requests use: no ambient proxy (it carries the
+/// account's credentials), and, with [`DavConfig::pin`], connected to the checked
+/// address only and with redirects off. `mw-carddav` builds its transport with it.
+pub fn http_client(config: &DavConfig) -> Result<reqwest::Client> {
+    // `.no_proxy()`: this client carries account credentials to a configured base
+    // URL; an ambient `HTTP_PROXY` would route them through an unrelated third
+    // party. See `mw_egress::harden_client`.
+    let mut builder = reqwest::Client::builder().no_proxy();
+    if let Some(addr) = config.pin {
+        let host = host_of(&config.base_url)
+            .ok_or_else(|| DavError::Transport("the DAV base URL has no host".into()))?;
+        builder = builder
+            .resolve(&host, addr)
+            .redirect(reqwest::redirect::Policy::none());
+    }
+    builder
+        .build()
+        .map_err(|e| DavError::Transport(e.to_string()))
+}
+
+/// Whether a request to `url` may be sent under `config`: always without a pin;
+/// with one, only to the base URL's own host.
+pub fn url_allowed(config: &DavConfig, url: &str) -> bool {
+    config.pin.is_none() || (host_of(url).is_some() && host_of(url) == host_of(&config.base_url))
 }
 
 /// A discovered DAV collection (calendar or address book): its href plus the
@@ -152,13 +193,7 @@ pub struct DavClient {
 impl DavClient {
     /// Construct a DAV client for an account (rustls `reqwest`).
     pub fn new(config: DavConfig) -> Result<Self> {
-        // `.no_proxy()`: this client carries account credentials to a
-        // user-supplied base URL; an ambient `HTTP_PROXY` would route them
-        // through an unrelated third party. See `mw_egress::harden_client`.
-        let http = reqwest::Client::builder()
-            .no_proxy()
-            .build()
-            .map_err(|e| DavError::Transport(e.to_string()))?;
+        let http = http_client(&config)?;
         Ok(Self { config, http })
     }
 
@@ -172,6 +207,31 @@ impl DavClient {
         extra_headers: &[(&str, &str)],
         body: Option<String>,
     ) -> Result<DavResponse> {
+        self.send_typed(
+            method,
+            url,
+            depth,
+            extra_headers,
+            body.map(|b| ("application/xml; charset=utf-8", b)),
+        )
+        .await
+    }
+
+    /// [`DavClient::send`] with the body's `Content-Type` named by the caller (a
+    /// scheduling POST is `text/calendar`, not XML).
+    async fn send_typed(
+        &self,
+        method: &str,
+        url: &str,
+        depth: Option<&str>,
+        extra_headers: &[(&str, &str)],
+        body: Option<(&str, String)>,
+    ) -> Result<DavResponse> {
+        if !url_allowed(&self.config, url) {
+            return Err(DavError::Transport(
+                "refused: the DAV server named a URL on another host".into(),
+            ));
+        }
         let method = reqwest::Method::from_bytes(method.as_bytes())
             .map_err(|e| DavError::Transport(e.to_string()))?;
         let mut req = self
@@ -184,10 +244,8 @@ impl DavClient {
         for (k, v) in extra_headers {
             req = req.header(*k, *v);
         }
-        if let Some(b) = body {
-            req = req
-                .header("Content-Type", "application/xml; charset=utf-8")
-                .body(b);
+        if let Some((content_type, b)) = body {
+            req = req.header("Content-Type", content_type).body(b);
         }
         let resp = req
             .send()
@@ -442,6 +500,124 @@ impl DavClient {
         check_status(r.status, &r.body)?;
         response::parse_free_busy(&r.body)
     }
+
+    /// Ask the server for other people's free/busy (RFC 6638 §5): find the
+    /// signed-in principal's `schedule-outbox-URL` and POST a `VFREEBUSY`
+    /// request naming `attendees`. Returns one [`FreeBusyReply`] per recipient
+    /// the server answered for. `start`/`end` are RFC 3339 UTC.
+    ///
+    /// [`DavError::Discovery`] when the server advertises no outbox — it does not
+    /// do scheduling, and the caller reports those addresses as unknown.
+    pub async fn schedule_free_busy(
+        &self,
+        organizer: &str,
+        attendees: &[String],
+        start: &str,
+        end: &str,
+    ) -> Result<Vec<FreeBusyReply>> {
+        let start_url = resolve(&self.config.base_url, DavKind::CalDav.well_known());
+        let r = self
+            .send(
+                "PROPFIND",
+                &start_url,
+                Some("0"),
+                &[],
+                Some(request::propfind_current_user_principal()),
+            )
+            .await?;
+        let principal = response::parse_current_user_principal(&r.body)?
+            .ok_or_else(|| DavError::Discovery("no current-user-principal".into()))?;
+        let principal_url = resolve(&self.config.base_url, &principal);
+        let r = self
+            .send(
+                "PROPFIND",
+                &principal_url,
+                Some("0"),
+                &[],
+                Some(request::propfind_schedule_outbox()),
+            )
+            .await?;
+        let outbox = response::parse_schedule_outbox(&r.body)?
+            .ok_or_else(|| DavError::Discovery("no schedule-outbox-URL".into()))?;
+        let outbox_url = resolve(&self.config.base_url, &outbox);
+        let stamp = |rfc: &str| rfc.replace(['-', ':'], "");
+        let now = chrono_like_now();
+        let body = request::free_busy_request(
+            organizer,
+            attendees,
+            &stamp(start),
+            &stamp(end),
+            &format!("mw-fb-{now}"),
+            &now,
+        );
+        let r = self
+            .send_typed(
+                "POST",
+                &outbox_url,
+                None,
+                &[],
+                Some(("text/calendar; charset=utf-8; method=REQUEST", body)),
+            )
+            .await?;
+        check_status(r.status, &r.body)?;
+        let replies = response::parse_schedule_response(&r.body)?;
+        Ok(replies
+            .into_iter()
+            .map(|reply| {
+                let busy = if reply.ok() {
+                    reply
+                        .calendar_data
+                        .as_deref()
+                        .and_then(|ics| response::parse_free_busy(ics).ok())
+                } else {
+                    None
+                };
+                FreeBusyReply {
+                    recipient: reply.recipient,
+                    busy,
+                }
+            })
+            .collect())
+    }
+}
+
+/// One recipient's free/busy from [`DavClient::schedule_free_busy`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FreeBusyReply {
+    /// The address, lower-cased, without `mailto:`.
+    pub recipient: String,
+    /// The busy blocks, or `None` when the server could not answer for this
+    /// address (unknown user, no permission).
+    pub busy: Option<Vec<mw_ics::BusyInterval>>,
+}
+
+/// The current UTC time as an iCalendar basic-format stamp (`20260701T090000Z`),
+/// without a date crate: seconds since the epoch, converted by the civil-from-days
+/// algorithm.
+fn chrono_like_now() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let days = secs.div_euclid(86_400);
+    let rem = secs.rem_euclid(86_400);
+    // Howard Hinnant's civil_from_days.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!(
+        "{y:04}{m:02}{d:02}T{:02}{:02}{:02}Z",
+        rem / 3600,
+        (rem % 3600) / 60,
+        rem % 60
+    )
 }
 
 #[cfg(test)]

@@ -177,9 +177,13 @@ impl Engine {
             .await?
             .ok_or_else(|| EngineError::Protocol(format!("unknown task {id}")))?;
         if let Some(list) = self.store().get_calendar(&row.list_id).await?
+            && !list.is_overlay
             && let (Some(base), Some(url)) = (rt.dav.clone(), list.caldav_url.clone())
         {
-            let href = resource_href(&url, &row.uid, "ics");
+            let href = match self.store().task_href(id).await? {
+                Some(h) => h,
+                None => resource_href(&url, &row.uid, "ics"),
+            };
             let _ = self.dav_delete(&base, &href, row.etag.as_deref()).await;
         }
         self.store().delete_task(id).await?;
@@ -189,9 +193,28 @@ impl Engine {
     }
 
     /// Emit + persist a task from its projection, pushing to CalDAV when the
-    /// list is DAV-backed. Shared by create/update and the sync pull path.
+    /// list is DAV-backed. Shared by create/update.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn persist_task(
+        &self,
+        account_id: &str,
+        list_id: &str,
+        id: &str,
+        uid: &str,
+        json: Value,
+        prior_etag: Option<String>,
+        push_rt: Option<&AccountRuntime>,
+    ) -> Result<()> {
+        self.persist_task_with(
+            account_id, list_id, id, uid, json, prior_etag, push_rt, None,
+        )
+        .await
+    }
+
+    /// [`Engine::persist_task`], or the sync pull's adoption of the server's copy
+    /// (`server`; see [`Engine::persist_event_with`], whose rules this follows).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn persist_task_with(
         &self,
         _account_id: &str,
         list_id: &str,
@@ -200,14 +223,15 @@ impl Engine {
         mut json: Value,
         prior_etag: Option<String>,
         push_rt: Option<&AccountRuntime>,
+        server: Option<super::sync::ServerCopy<'_>>,
     ) -> Result<()> {
         set_str(&mut json, "id", id);
         set_str(&mut json, "listId", list_id);
         set_str(&mut json, "uid", uid);
 
-        let ical_raw = mw_ics::emit_ical(&json).map_err(ics_err)?;
+        let emitted = mw_ics::emit_ical(&json).map_err(ics_err)?;
         // Re-parse for the canonical VTODO projection.
-        let mut canonical = mw_ics::parse_ical(ical_raw.as_bytes())
+        let mut canonical = mw_ics::parse_ical(emitted.as_bytes())
             .map_err(ics_err)?
             .into_iter()
             .next()
@@ -221,17 +245,30 @@ impl Engine {
             set_json(&mut canonical, "myDayDate", my_day);
         }
 
+        let mut ical_raw = server.map_or_else(|| emitted.clone(), |s| s.body.to_string());
+        let mut pushed_href: Option<String> = None;
         let mut etag = prior_etag.clone();
-        if let Some(rt) = push_rt
+        if server.is_none()
+            && let Some(rt) = push_rt
             && let Some(list) = self.store().get_calendar(list_id).await?
+            && !list.is_overlay
             && let (Some(base), Some(url)) = (rt.dav.clone(), list.caldav_url.clone())
         {
-            let href = resource_href(&url, uid, "ics");
+            let stored_href = self.store().task_href(id).await?;
+            if stored_href.is_some()
+                && let Some(prev) = self.store().get_task(id).await?
+            {
+                ical_raw = super::sync::merge_ics(&prev.ical_raw, &emitted);
+            }
+            let href = stored_href.unwrap_or_else(|| resource_href(&url, uid, "ics"));
             match self
                 .dav_put(&base, &href, &ical_raw, prior_etag.as_deref())
                 .await
             {
-                Ok(new_etag) => etag = new_etag,
+                Ok(new_etag) => {
+                    etag = new_etag;
+                    pushed_href = Some(href);
+                }
                 Err(e) => tracing::warn!("CalDAV put for task {id} failed: {e}"),
             }
         }
@@ -279,6 +316,9 @@ impl Engine {
             json: serde_json::to_vec(&canonical).ok(),
         };
         self.store().upsert_task(&row).await?;
+        if let Some(href) = server.map(|s| s.href).or(pushed_href.as_deref()) {
+            self.store().set_task_href(id, Some(href)).await?;
+        }
         Ok(())
     }
 

@@ -139,6 +139,7 @@ fn radicale_config() -> Option<mw_dav::DavConfig> {
         base_url,
         username: std::env::var("RADICALE_USER").unwrap_or_default(),
         password: std::env::var("RADICALE_PASS").unwrap_or_default(),
+        pin: None,
     })
 }
 

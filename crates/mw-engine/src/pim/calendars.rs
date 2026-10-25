@@ -356,12 +356,23 @@ impl Engine {
         json!({ "accountId": account_id, "calendarId": calendar_id, "imported": imported })
     }
 
-    // ── Calendar/freeBusy (§2.2) ─────────────────────────────────────────────
+    // ── Calendar/freeBusy (§2.2; t29 A3) ─────────────────────────────────────
 
+    /// The account's own busy blocks over `[start, end)`, and — when `principals`
+    /// lists addresses — each address's blocks tagged `principal` (t29 §6 A3).
+    ///
+    /// Untagged entries are the account's own (as before 26.20). For a requested
+    /// address the sources are tried in order: (1) a same-server account at that
+    /// address that has shared a calendar with this account, over the shared
+    /// calendars only — never an account that has not shared; (2) the bridge's
+    /// `get_schedule` when the account is bridge-bound; (3) this account's CalDAV
+    /// server through an RFC 6638 free/busy request when it has one. An address
+    /// none of them answers for gets one entry `{principal, status: "unknown"}`.
+    /// Cancelled events are not busy.
     pub(crate) async fn calendar_free_busy(
         &self,
         account_id: &str,
-        _rt: &AccountRuntime,
+        rt: &AccountRuntime,
         args: &Value,
     ) -> Value {
         let start = args.get("start").and_then(Value::as_str);
@@ -382,16 +393,141 @@ impl Engine {
             Ok(v) => v,
             Err(e) => return server_fail(e),
         };
-        match mw_ics::aggregate_free_busy(&events, start, end) {
-            Ok(intervals) => {
-                let list: Vec<Value> = intervals
-                    .into_iter()
-                    .map(|b| json!({ "start": b.start_utc, "end": b.end_utc, "status": b.status }))
+        let own = match busy_blocks(&events, start, end) {
+            Ok(b) => b,
+            Err(e) => return server_fail(e),
+        };
+        let mut list: Vec<Value> = own.iter().map(|b| block_json(b, None)).collect();
+
+        let principals: Vec<String> = args
+            .get("principals")
+            .and_then(Value::as_array)
+            .map(|a| {
+                let mut v: Vec<String> = a
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(|p| p.trim().to_ascii_lowercase())
+                    .filter(|p| !p.is_empty())
                     .collect();
-                json!({ "accountId": account_id, "list": list })
-            }
-            Err(e) => server_fail(e),
+                v.sort();
+                v.dedup();
+                v
+            })
+            .unwrap_or_default();
+        if principals.is_empty() {
+            return json!({ "accountId": account_id, "list": list });
         }
+
+        let me = match self.store().get_account(account_id).await {
+            Ok(a) => a.username.to_ascii_lowercase(),
+            Err(_) => rt.identity.to_ascii_lowercase(),
+        };
+        let mut unresolved: Vec<String> = Vec::new();
+        for p in principals {
+            if p == me {
+                list.extend(own.iter().map(|b| block_json(b, Some(&p))));
+                continue;
+            }
+            match self.shared_busy(&me, &p, start, end).await {
+                Ok(Some(blocks)) => list.extend(blocks.iter().map(|b| block_json(b, Some(&p)))),
+                Ok(None) => unresolved.push(p),
+                Err(e) => {
+                    tracing::warn!("free/busy from a shared calendar failed: {e}");
+                    unresolved.push(p);
+                }
+            }
+        }
+
+        if !unresolved.is_empty()
+            && let Some(bridge) = self.bridge_calendar(account_id)
+        {
+            let mut left = Vec::new();
+            for p in unresolved {
+                match bridge.get_schedule(&p, start, end).await {
+                    Ok(ics) => match mw_dav::response::parse_free_busy(&ics) {
+                        Ok(blocks) => list.extend(blocks.iter().map(|b| block_json(b, Some(&p)))),
+                        Err(_) => left.push(p),
+                    },
+                    Err(_) => left.push(p),
+                }
+            }
+            unresolved = left;
+        }
+
+        if !unresolved.is_empty()
+            && let Some(dav) = rt.dav.clone()
+        {
+            match mw_dav::DavClient::new(dav) {
+                Ok(client) => match client
+                    .schedule_free_busy(&me, &unresolved, start, end)
+                    .await
+                {
+                    Ok(replies) => {
+                        let mut left = Vec::new();
+                        for p in unresolved {
+                            match replies
+                                .iter()
+                                .find(|r| r.recipient == p)
+                                .and_then(|r| r.busy.as_ref())
+                            {
+                                Some(blocks) => {
+                                    list.extend(blocks.iter().map(|b| block_json(b, Some(&p))))
+                                }
+                                None => left.push(p),
+                            }
+                        }
+                        unresolved = left;
+                    }
+                    Err(e) => tracing::debug!("CalDAV free/busy request not answered: {e}"),
+                },
+                Err(e) => tracing::debug!("CalDAV client for free/busy: {e}"),
+            }
+        }
+
+        list.extend(
+            unresolved
+                .into_iter()
+                .map(|p| json!({ "principal": p, "status": "unknown" })),
+        );
+        json!({ "accountId": account_id, "list": list })
+    }
+
+    /// The busy blocks of the same-server account at `principal`, over only the
+    /// calendars it has shared with `me`. `None` when no such account exists or it
+    /// has shared no calendar with `me` — its time is then not ours to read.
+    async fn shared_busy(
+        &self,
+        me: &str,
+        principal: &str,
+        start: &str,
+        end: &str,
+    ) -> Result<Option<Vec<mw_ics::BusyInterval>>> {
+        let Some(owner) = self
+            .store()
+            .list_accounts()
+            .await?
+            .into_iter()
+            .find(|a| a.username.eq_ignore_ascii_case(principal))
+        else {
+            return Ok(None);
+        };
+        let mut shared = Vec::new();
+        for cal in self.store().list_calendars(&owner.id).await? {
+            if cal.component != "VEVENT" {
+                continue;
+            }
+            let grants = self.store().list_calendar_shares(&cal.id).await?;
+            if grants.iter().any(|(who, _)| who.eq_ignore_ascii_case(me)) {
+                shared.push(cal.id);
+            }
+        }
+        if shared.is_empty() {
+            return Ok(None);
+        }
+        let events = self.gather_event_json(&owner.id, Some(&shared)).await?;
+        busy_blocks(&events, start, end)
+            .map(Some)
+            .map_err(|e| crate::backend::EngineError::Protocol(format!("ics: {e}")))
     }
 
     // ── Calendar/detectConflicts (§2.2) ──────────────────────────────────────
@@ -569,6 +705,35 @@ fn normalize_webcal(url: &str) -> String {
     } else {
         url.to_string()
     }
+}
+
+/// Busy blocks of `events` over `[start, end)`; cancelled events are not busy
+/// (t29 A3).
+fn busy_blocks(
+    events: &[Value],
+    start: &str,
+    end: &str,
+) -> mw_ics::Result<Vec<mw_ics::BusyInterval>> {
+    let live: Vec<Value> = events
+        .iter()
+        .filter(|e| {
+            !e.get("status")
+                .and_then(Value::as_str)
+                .is_some_and(|s| s.eq_ignore_ascii_case("cancelled"))
+        })
+        .cloned()
+        .collect();
+    mw_ics::aggregate_free_busy(&live, start, end)
+}
+
+/// One `Calendar/freeBusy` list entry, tagged with `principal` when it is not
+/// the account's own.
+fn block_json(b: &mw_ics::BusyInterval, principal: Option<&str>) -> Value {
+    let mut v = json!({ "start": b.start_utc, "end": b.end_utc, "status": b.status });
+    if let Some(p) = principal {
+        v["principal"] = Value::String(p.to_string());
+    }
+    v
 }
 
 #[cfg(test)]

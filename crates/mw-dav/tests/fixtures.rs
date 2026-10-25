@@ -164,6 +164,7 @@ async fn live_discover_and_sync() {
         base_url,
         username: std::env::var("RADICALE_USER").unwrap_or_else(|_| "test".into()),
         password: std::env::var("RADICALE_PASS").unwrap_or_else(|_| "test".into()),
+        pin: None,
     };
     let client = mw_dav::DavClient::new(config).unwrap();
     let calendars = client.discover_calendars().await.expect("discovery");

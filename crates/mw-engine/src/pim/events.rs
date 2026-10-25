@@ -217,11 +217,17 @@ impl Engine {
             .get_event(id)
             .await?
             .ok_or_else(|| EngineError::Protocol(format!("unknown event {id}")))?;
-        // Best-effort remote delete for CalDAV-backed calendars.
+        // Best-effort remote delete for CalDAV-backed calendars, at the href the
+        // server named the event with (t28-e19). A webcal overlay is a feed, not a
+        // DAV collection: nothing is sent to it.
         if let Some(cal) = self.store().get_calendar(&row.calendar_id).await?
+            && !cal.is_overlay
             && let (Some(base), Some(url)) = (rt.dav.clone(), cal.caldav_url.clone())
         {
-            let href = resource_href(&url, &row.uid, "ics");
+            let href = match self.store().event_href(id).await? {
+                Some(h) => h,
+                None => resource_href(&url, &row.uid, "ics"),
+            };
             let _ = self.dav_delete(&base, &href, row.etag.as_deref()).await;
         }
         self.store().delete_event(id).await?;
@@ -236,10 +242,43 @@ impl Engine {
     }
 
     /// Emit + materialize + persist an event from its projection, pushing to
-    /// CalDAV when the calendar is DAV-backed. Shared by create/update/import
-    /// and the sync pull path. Returns the stored row.
+    /// CalDAV when the calendar is DAV-backed. Shared by create/update/import.
+    /// Returns the stored row.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn persist_event(
+        &self,
+        account_id: &str,
+        calendar_id: &str,
+        id: &str,
+        uid: &str,
+        json: Value,
+        prior_etag: Option<String>,
+        push_rt: Option<&AccountRuntime>,
+    ) -> Result<EventRow> {
+        self.persist_event_with(
+            account_id,
+            calendar_id,
+            id,
+            uid,
+            json,
+            prior_etag,
+            push_rt,
+            None,
+        )
+        .await
+    }
+
+    /// [`Engine::persist_event`], or — with `server` — the sync pull's adoption of
+    /// the server's copy (t28-e19): its body is stored verbatim as `ical_raw` and
+    /// its href recorded, and nothing is pushed.
+    ///
+    /// A local edit of an event the server named (it has an href) is merged into
+    /// the stored server copy before the PUT ([`super::sync::merge_ics`]), so the
+    /// properties the projection does not model are sent back as the server had
+    /// them, and goes to that href; a new event goes to `<collection>/<uid>.ics`.
+    /// A webcal overlay is never pushed to.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn persist_event_with(
         &self,
         _account_id: &str,
         calendar_id: &str,
@@ -248,6 +287,7 @@ impl Engine {
         mut json: Value,
         prior_etag: Option<String>,
         push_rt: Option<&AccountRuntime>,
+        server: Option<super::sync::ServerCopy<'_>>,
     ) -> Result<EventRow> {
         // Stamp identity onto the projection so get/query are self-consistent.
         set_str(&mut json, "id", id);
@@ -266,9 +306,9 @@ impl Engine {
             })
             .collect();
 
-        let ical_raw = mw_ics::emit_ical(&json).map_err(ics_err)?;
+        let emitted = mw_ics::emit_ical(&json).map_err(ics_err)?;
         // Re-parse so the stored json is the canonical round-trip projection.
-        let mut canonical = mw_ics::parse_ical(ical_raw.as_bytes())
+        let mut canonical = mw_ics::parse_ical(emitted.as_bytes())
             .map_err(ics_err)?
             .into_iter()
             .next()
@@ -308,18 +348,33 @@ impl Engine {
             .map(|i| (Some(i.start_utc.clone()), Some(i.end_utc.clone())))
             .unwrap_or((None, None));
 
+        // The stored body: the server's copy on a pull, else what was emitted.
+        let mut ical_raw = server.map_or_else(|| emitted.clone(), |s| s.body.to_string());
+        let mut pushed_href: Option<String> = None;
+
         // Push to CalDAV where backed; adopt the server etag.
         let mut etag = prior_etag.clone();
-        if let Some(rt) = push_rt
+        if server.is_none()
+            && let Some(rt) = push_rt
             && let Some(cal) = self.store().get_calendar(calendar_id).await?
+            && !cal.is_overlay
             && let (Some(base), Some(url)) = (rt.dav.clone(), cal.caldav_url.clone())
         {
-            let href = resource_href(&url, uid, "ics");
+            let stored_href = self.store().event_href(id).await?;
+            if stored_href.is_some()
+                && let Some(prev) = self.store().get_event(id).await?
+            {
+                ical_raw = super::sync::merge_ics(&prev.ical_raw, &emitted);
+            }
+            let href = stored_href.unwrap_or_else(|| resource_href(&url, uid, "ics"));
             match self
                 .dav_put(&base, &href, &ical_raw, prior_etag.as_deref())
                 .await
             {
-                Ok(new_etag) => etag = new_etag,
+                Ok(new_etag) => {
+                    etag = new_etag;
+                    pushed_href = Some(href);
+                }
                 Err(e) => tracing::warn!("CalDAV put for event {id} failed: {e}"),
             }
         }
@@ -353,6 +408,9 @@ impl Engine {
             })
             .collect();
         self.store().replace_event_instances(id, &inst_rows).await?;
+        if let Some(href) = server.map(|s| s.href).or(pushed_href.as_deref()) {
+            self.store().set_event_href(id, Some(href)).await?;
+        }
         Ok(row)
     }
 

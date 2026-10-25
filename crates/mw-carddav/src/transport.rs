@@ -28,13 +28,9 @@ pub(crate) struct Http {
 
 impl Http {
     pub(crate) fn new(config: DavConfig) -> Result<Self> {
-        // `.no_proxy()`: this client carries account credentials to a
-        // user-supplied base URL; an ambient `HTTP_PROXY` would route them
-        // through an unrelated third party. See `mw_egress::harden_client`.
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .build()
-            .map_err(|e| Error::Transport(e.to_string()))?;
+        // The shared DAV core's client: no ambient proxy, and pinned to the
+        // checked address when the config carries one (t28-e19).
+        let client = mw_dav::http_client(&config).map_err(|e| Error::Transport(e.to_string()))?;
         Ok(Self { client, config })
     }
 
@@ -66,6 +62,11 @@ impl Http {
         if_none_match: Option<&str>,
     ) -> Result<HttpResponse> {
         let url = self.resolve(href)?;
+        if !mw_dav::url_allowed(&self.config, url.as_str()) {
+            return Err(Error::Transport(
+                "refused: the DAV server named a URL on another host".into(),
+            ));
+        }
         let mut req = self
             .client
             .request(method, url)
@@ -222,6 +223,7 @@ mod live {
             base_url: base,
             username: user,
             password: pass,
+            pin: None,
         })
         .expect("client");
 

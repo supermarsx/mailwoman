@@ -213,6 +213,51 @@ pub fn mkcalendar(display_name: &str) -> String {
     )
 }
 
+/// `PROPFIND` body requesting the principal's `schedule-outbox-URL` (RFC 6638
+/// §2.1), the collection a free/busy request is POSTed to.
+pub fn propfind_schedule_outbox() -> String {
+    format!(
+        "{DECL}<d:propfind xmlns:d=\"{NS_DAV}\" xmlns:c=\"{NS_CALDAV}\">\
+<d:prop><c:schedule-outbox-URL/></d:prop></d:propfind>"
+    )
+}
+
+/// A value safe inside one iCalendar content line: control characters (CR, LF
+/// included) removed, so an address cannot end the line and add a property.
+fn ics_line_value(s: &str) -> String {
+    s.chars().filter(|c| !c.is_control()).collect()
+}
+
+/// The `text/calendar` body of an RFC 6638 §5 free/busy request: a `VFREEBUSY`
+/// with `METHOD:REQUEST`, the organizer and one `ATTENDEE` per address, over
+/// `[start, end)`. Times are iCalendar UTC (`20260701T090000Z`); `uid` and
+/// `dtstamp` are the caller's.
+pub fn free_busy_request(
+    organizer: &str,
+    attendees: &[String],
+    start: &str,
+    end: &str,
+    uid: &str,
+    dtstamp: &str,
+) -> String {
+    let mut out = String::from(
+        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailwoman//DAV//EN\r\nMETHOD:REQUEST\r\nBEGIN:VFREEBUSY\r\n",
+    );
+    out.push_str(&format!("UID:{}\r\n", ics_line_value(uid)));
+    out.push_str(&format!("DTSTAMP:{}\r\n", ics_line_value(dtstamp)));
+    out.push_str(&format!("DTSTART:{}\r\n", ics_line_value(start)));
+    out.push_str(&format!("DTEND:{}\r\n", ics_line_value(end)));
+    out.push_str(&format!(
+        "ORGANIZER:mailto:{}\r\n",
+        ics_line_value(organizer)
+    ));
+    for a in attendees {
+        out.push_str(&format!("ATTENDEE:mailto:{}\r\n", ics_line_value(a)));
+    }
+    out.push_str("END:VFREEBUSY\r\nEND:VCALENDAR\r\n");
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

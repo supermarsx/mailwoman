@@ -412,6 +412,110 @@ pub fn parse_free_busy(ics: &str) -> Result<Vec<mw_ics::BusyInterval>> {
     Ok(out)
 }
 
+/// Extract the `schedule-outbox-URL` href from a principal `PROPFIND` reply
+/// (RFC 6638 §2.1). `None` when the server does not do scheduling.
+pub fn parse_schedule_outbox(xml: &str) -> Result<Option<String>> {
+    first_href_in(xml, b"schedule-outbox-url")
+}
+
+/// One recipient's answer in an RFC 6638 `schedule-response`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScheduleReply {
+    /// The recipient address without `mailto:`, lower-cased.
+    pub recipient: String,
+    /// The `request-status` line, e.g. `2.0;Success`.
+    pub request_status: String,
+    /// The `calendar-data` (a `VFREEBUSY`), when the server sent one.
+    pub calendar_data: Option<String>,
+}
+
+impl ScheduleReply {
+    /// Whether the server answered for this recipient (`2.x` status).
+    pub fn ok(&self) -> bool {
+        self.request_status.trim_start().starts_with('2')
+    }
+}
+
+/// Parse an RFC 6638 §5 `schedule-response` document into one reply per
+/// recipient.
+pub fn parse_schedule_response(xml: &str) -> Result<Vec<ScheduleReply>> {
+    let mut reader = Reader::from_str(xml);
+    let mut out = Vec::new();
+    let mut cur: Option<ScheduleReply> = None;
+    let mut in_recipient = false;
+    let mut field: Option<Vec<u8>> = None;
+    let mut buf = String::new();
+    loop {
+        match reader
+            .read_event()
+            .map_err(|e| DavError::Xml(e.to_string()))?
+        {
+            Event::Eof => break,
+            Event::Start(e) => {
+                let n = local(e.name().as_ref());
+                match n.as_slice() {
+                    b"response" => {
+                        cur = Some(ScheduleReply {
+                            recipient: String::new(),
+                            request_status: String::new(),
+                            calendar_data: None,
+                        })
+                    }
+                    b"recipient" => in_recipient = true,
+                    b"href" if in_recipient => {
+                        field = Some(n.clone());
+                        buf.clear();
+                    }
+                    b"request-status" | b"calendar-data" => {
+                        field = Some(n.clone());
+                        buf.clear();
+                    }
+                    _ => {}
+                }
+            }
+            Event::Text(e) if field.is_some() => buf.push_str(&decode_text(&e)?),
+            Event::CData(e) if field.is_some() => {
+                buf.push_str(&String::from_utf8_lossy(&e.into_inner()))
+            }
+            Event::GeneralRef(e) if field.is_some() => buf.push_str(&resolve_ref(&e)?),
+            Event::End(e) => {
+                let n = local(e.name().as_ref());
+                if field.as_deref() == Some(n.as_slice())
+                    && let Some(reply) = cur.as_mut()
+                {
+                    let text = buf.trim().to_string();
+                    match n.as_slice() {
+                        b"href" => {
+                            let bare = text
+                                .strip_prefix("mailto:")
+                                .or_else(|| text.strip_prefix("MAILTO:"))
+                                .unwrap_or(&text);
+                            reply.recipient = bare.to_ascii_lowercase();
+                        }
+                        b"request-status" => reply.request_status = text,
+                        b"calendar-data" => reply.calendar_data = Some(buf.clone()),
+                        _ => {}
+                    }
+                    field = None;
+                }
+                match n.as_slice() {
+                    b"recipient" => in_recipient = false,
+                    b"response" => {
+                        if let Some(reply) = cur.take()
+                            && !reply.recipient.is_empty()
+                        {
+                            out.push(reply);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
