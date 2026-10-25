@@ -3,13 +3,12 @@
 # Mailwoman multi-stage build (SPEC §7.5: minimal, non-root runtime).
 #
 #   web     -> builds the SolidJS SPA (apps/web/dist)
-#   build   -> compiles the Rust workspace (release), embedding the SPA
+#   build   -> compiles the Rust workspace (release), independently of the SPA
 #   runtime -> production image: mailwoman + mw-render only, distroless non-root
 #   mock    -> dev/E2E image: mw-mock-jmap (+ mailwoman for its healthcheck)
 #
-# Default target is `runtime`. The dev compose stack selects `mock` explicitly.
-# Follow-up (SPEC §7.5): a FROM scratch + musl static build is a later
-# hardening step; distroless/cc is used here to de-risk V0.
+# The deployment script selects `runtime-static`. The dev compose stack selects
+# `mock` explicitly; `runtime` remains available for distroless deployments.
 #
 # Every base image is named by tag AND digest (`name:tag@sha256:<index digest>`),
 # so a rebuild uses the same bytes until the digest is changed here.
@@ -32,23 +31,34 @@ RUN pnpm build
 # -> /web/dist
 
 # ---------------------------------------------------------------------------
-# Stage 2 — build: compile the Rust workspace. The SPA must be in place at
-# apps/web/dist BEFORE cargo runs so rust-embed bakes it into `mailwoman`.
+# Rust inputs are isolated from web/docs/deploy changes. Docker images serve the
+# separately packaged SPA through the existing MW_WEB_DIR path; standalone Rust
+# builds retain their embedded-asset support. UI-only deploys reuse the Rust layer.
+# Both build stages need every workspace manifest, even for unselected members.
 # ---------------------------------------------------------------------------
-# The image's rustc must match `rust-toolchain.toml` (COPY . . brings that file
+FROM scratch AS rust-source
+COPY Cargo.toml Cargo.lock rust-toolchain.toml /src/
+COPY .cargo /src/.cargo
+COPY crates /src/crates
+COPY plugins /src/plugins
+COPY apps/desktop/src-tauri /src/apps/desktop/src-tauri
+COPY apps/mobile/src-tauri /src/apps/mobile/src-tauri
+COPY apps/web/dist/.gitkeep /src/apps/web/dist/.gitkeep
+
+# ---------------------------------------------------------------------------
+# Stage 2 — build: compile the Rust workspace independently of the web build.
+# ---------------------------------------------------------------------------
+# The image's rustc must match `rust-toolchain.toml` (rust-source brings that file
 # in, and a mismatch makes rustup download the pinned toolchain inside the build).
 # Bump both together.
 FROM rust:1.98.1-bookworm@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288a37b5a285fc83971e AS build
 WORKDIR /src
-COPY . .
-# Replace the committed dist placeholder with the freshly built SPA.
-RUN rm -rf apps/web/dist
-COPY --from=web /web/dist apps/web/dist
+COPY --from=rust-source /src/ /src/
 # Cache the cargo registry and target dir across builds; copy the finished
 # binaries OUT of the (non-persisted) cache mount so later stages can COPY them.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/target \
-    cargo build --release --bin mailwoman --bin mw-render --bin mw-mock-jmap \
+    --mount=type=cache,target=/src/target,sharing=locked \
+    cargo build --locked --release --bin mailwoman --bin mw-render --bin mw-mock-jmap \
     && mkdir -p /out /data-empty \
     && cp target/release/mailwoman target/release/mw-render target/release/mw-mock-jmap /out/
 
@@ -59,6 +69,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f AS runtime
 COPY --from=build /out/mailwoman   /usr/local/bin/mailwoman
 COPY --from=build /out/mw-render   /usr/local/bin/mw-render
+COPY --from=web /web/dist /usr/lib/mailwoman/web
 # First-party bridge/plugin `.wasm` components (26.9, t9-e5): no longer embedded in
 # the binary — shipped as external, read-only data files and digest-pinned by the
 # server (`v7_mount::FIRST_PARTY_DIGESTS`), which loads them from MW_PLUGIN_DIR and
@@ -71,7 +82,8 @@ COPY --from=build --chown=65532:65532 /data-empty /data
 ENV MW_BIND=0.0.0.0:8080 \
     MW_DB_PATH=/data/mailwoman.db \
     MW_RENDER_BIN=/usr/local/bin/mw-render \
-    MW_PLUGIN_DIR=/usr/lib/mailwoman/plugins
+    MW_PLUGIN_DIR=/usr/lib/mailwoman/plugins \
+    MW_WEB_DIR=/usr/lib/mailwoman/web
 EXPOSE 8080
 VOLUME ["/data"]
 USER nonroot
@@ -112,17 +124,14 @@ FROM rust:1.98.1-alpine@sha256:7cc1c22d77d9432f7fe012a70e6d3e555af54c2a6832700ed
 RUN apk add --no-cache build-base ca-certificates
 WORKDIR /src
 ENV RUSTFLAGS="-C target-feature=+crt-static"
-COPY . .
-# Reuse the SPA already built in the `web` stage so rust-embed bakes it in.
-RUN rm -rf apps/web/dist
-COPY --from=web /web/dist apps/web/dist
+COPY --from=rust-source /src/ /src/
 # Build a nonroot passwd/group and an empty data dir to carry into scratch.
 RUN printf 'nonroot:x:65532:65532:nonroot:/data:/sbin/nologin\n' > /etc/mw-passwd \
     && printf 'nonroot:x:65532:\n' > /etc/mw-group \
     && mkdir -p /data-empty /tmp-empty
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/target \
-    cargo build --release --target x86_64-unknown-linux-musl \
+    --mount=type=cache,target=/src/target,sharing=locked \
+    cargo build --locked --release --target x86_64-unknown-linux-musl \
         --bin mailwoman --bin mw-render \
     && mkdir -p /out-musl \
     && cp target/x86_64-unknown-linux-musl/release/mailwoman \
@@ -135,7 +144,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # No libc, no shell, no coreutils — the attack surface is the binary alone.
 #
 # Build/select explicitly:  docker build --target runtime-static -t mailwoman:static .
-# The default target stays `runtime` (distroless) so nothing else changes.
+# This final stage is also Docker's default when no target is specified.
 # ---------------------------------------------------------------------------
 FROM scratch AS runtime-static
 COPY --from=build-musl /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
@@ -143,6 +152,7 @@ COPY --from=build-musl /etc/mw-passwd /etc/passwd
 COPY --from=build-musl /etc/mw-group  /etc/group
 COPY --from=build-musl /out-musl/mailwoman /usr/local/bin/mailwoman
 COPY --from=build-musl /out-musl/mw-render /usr/local/bin/mw-render
+COPY --from=web /web/dist /usr/lib/mailwoman/web
 # Plugins are committed, read-only data files — take them from the musl build
 # context so the scratch image never depends on the glibc `build` stage.
 COPY --from=build-musl /src/plugins/dist /usr/lib/mailwoman/plugins
@@ -154,6 +164,7 @@ ENV MW_BIND=0.0.0.0:8080 \
     MW_DB_PATH=/data/mailwoman.db \
     MW_RENDER_BIN=/usr/local/bin/mw-render \
     MW_PLUGIN_DIR=/usr/lib/mailwoman/plugins \
+    MW_WEB_DIR=/usr/lib/mailwoman/web \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 EXPOSE 8080
 VOLUME ["/data"]

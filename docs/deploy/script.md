@@ -1,7 +1,7 @@
 # Root deployment script
 
 [`deploy.sh`](../../deploy.sh) manages a single-host Docker deployment of the
-Mailwoman web app: embedded SPA, Rust server, render worker, first-party plugins,
+Mailwoman web app: packaged SPA, Rust server, render worker, first-party plugins,
 SQLite database and filesystem upload storage. It does not install a mail server.
 Users connect their existing JMAP accounts, or IMAP/POP3 + SMTP in engine mode.
 
@@ -13,6 +13,19 @@ Run as a user who can access the Docker daemon. Host Rust, Node and pnpm are not
 required: the repository's Dockerfile builds the web app and binaries. Use the
 same local Docker daemon for every operation; remote Docker contexts are not
 supported by the localhost exposure and verification steps.
+
+### Build reuse
+
+Deploy normally with `sh deploy.sh deploy` to pull and build the updated source.
+Docker builds the web app separately from Rust and packages its files in the
+image at `MW_WEB_DIR`. With the same builder and its cache retained, a UI-only
+change reuses the completed Rust build layer. Rust source or dependency changes
+rebuild Rust, reusing Cargo's registry and target caches where possible.
+The first build still compiles the dependencies; changing the toolchain or
+pruning the builder cache can require another expensive build.
+
+`--no-build` reuses an existing application image. It applies deployment
+configuration but does not put newly pulled application code into that image.
 
 Clone the repository and check out the branch you intend to deploy, then run:
 

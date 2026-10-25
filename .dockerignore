@@ -23,6 +23,8 @@ playwright-report
 .env
 *.local
 .orchestration
+.claude
+System.Diagnostics.Process
 .vscode
 .idea
 
