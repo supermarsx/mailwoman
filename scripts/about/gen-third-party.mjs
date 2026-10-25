@@ -1,137 +1,138 @@
 #!/usr/bin/env node
-// Third-party list for the About screens (t32-e75; plan t32-cfg.md §4.11, DC9 with
-// licence texts in scope).
+// Third-party list for the About screens (t32-e75; plan t32-cfg.md §4.11 with review
+// amendments A12/A28; DC9 with licence texts in scope).
 //
-//   node scripts/about/gen-third-party.mjs           write the three outputs
-//   node scripts/about/gen-third-party.mjs --check   exit 1 when they are stale
+//   node scripts/about/gen-third-party.mjs                 regenerate the list
+//   node scripts/about/gen-third-party.mjs --check         exit 1 when it is stale or a rule fails
+//   node scripts/about/gen-third-party.mjs --image TAG     also re-read the runtime image's
+//                                                          Debian packages from a local image
 //
-// Inputs (all read-only, offline):
-//   - `cargo metadata --format-version 1 --locked --offline` for the workspace and for
-//     the standalone crates/mw-media-wasm (its module is embedded in mw-render). Only
-//     crates reachable through normal or build dependencies from a shipped root are
-//     listed; dev-dependencies and the first-party workspace crates are not.
-//   - `pnpm licenses list --json --prod`, run in apps/web, plus each package's
-//     package.json for its repository link. Packages pinned to one OS or CPU (the
-//     prebuilt native binaries of optional dependencies) are left out: which of them
-//     are installed depends on the host, and none of them is in the browser bundle.
-//   - Licence files from the unpacked cargo registry sources and from
-//     apps/web/node_modules. A package without one gets the standard text of its
-//     licence from standard-texts.mjs, marked as such.
+// Run it after `vite build` in apps/web: the web list is what rollup put in the bundle,
+// recorded by apps/web/scripts/about-bundled-packages.mjs.
 //
-// Outputs (committed; `--check` compares them as parsed JSON):
-//   apps/web/src/about/third-party.web.json         npm packages, fonts, icons
-//   crates/mw-server/src/about/third-party.crates.json  Rust crates
-//   apps/web/src/about/texts/<0-f>.json             each licence text once, by id,
-//                                                   in 16 shards by the id's first hex
-//                                                   digit, so opening one text loads ~85 KB
+// Sections of apps/web/src/about/third-party.json:
+//   rust        crates linked into what ships, through normal dependencies only:
+//               mailwoman + mw-render for x86_64/aarch64 Linux (glibc) and x86_64 musl,
+//               mw-crypto + mw-sanitize for wasm32 (web bundle), the plugins for
+//               wasm32-wasip2 (plugins/dist), mw-media-wasm (embedded in mw-render).
+//               Each `cargo metadata --filter-platform <target>` so a dependency of
+//               another platform is not listed.
+//   shells      crates only in the Tauri desktop and mobile apps (their own targets)
+//   web         npm packages rollup included in the web bundle
+//   assets      the bundled Jost face, the fonts `mailwoman fonts pull` fetches, the
+//               icons and theme textures (first-party)
+//   runtimeImage  what the server images add: the distroless Debian packages of the
+//               `runtime` image with their /usr/share/doc/*/copyright files, and for
+//               the FROM-scratch `runtime-static` image the statically linked musl and
+//               Alpine's CA bundle
+//   buildTools  proc-macros, build scripts and their dependencies: run while building,
+//               not shipped
+// Licence texts: each package's LICENSE*/COPYING*/NOTICE*/COPYRIGHT* files (NOTICE kept),
+// stored once by hash in apps/web/src/about/texts/<first hex digit>.json; a package with
+// no file gets the SPDX standard text from scripts/about/spdx/<id>.txt, marked so.
 //
-// No dependency beyond node itself.
+// --check fails when: a lockfile changed since generation; the list differs from a fresh
+// run (a shipped crate, bundled package or asset added, removed or changed); an entry has
+// no licence text; a licence in rust/shells/web/buildTools is outside deny.toml's
+// [licenses] allow list (the same policy `cargo deny` applies); a font, image or other
+// file under apps/web/src/assets or apps/web/public is not accounted for; the bundle
+// record is missing; or the Dockerfile names a different runtime image than the list was
+// made from. Assets and runtime-image packages are listed but not held to deny.toml:
+// fonts are not code, and the Debian packages are the base image's, not dependencies.
+//
+// spdx/: MIT, ISC, BSD-2-Clause, BSD-3-Clause and Zlib are the SPDX templates (copyright
+// line left as the placeholder); Apache-2.0, MPL-2.0, BSL-1.0, Unicode-3.0 and CC0-1.0 are
+// the texts as shipped unchanged by crates in the registry (ammonia 4.1.4, cssparser
+// 0.36.0, ryu 1.0.23, unicode-ident 1.0.27, constant_time_eq 0.4.2); OFL-1.1 is the licence
+// part of apps/web/src/assets/fonts/jost/OFL.txt.
+//
+// No dependency beyond node itself. cargo, and docker for --image, are run read-only.
 
-import { execFileSync, execSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { STANDARD_TEXTS } from './standard-texts.mjs';
+import { promisify } from 'node:util';
 
-export const SCHEMA = 'mailwoman-third-party/1';
-
-export const OUTPUTS = {
-  web: 'apps/web/src/about/third-party.web.json',
-  crates: 'crates/mw-server/src/about/third-party.crates.json',
-  textsDir: 'apps/web/src/about/texts',
-};
-
+export const SCHEMA = 'mailwoman-third-party/2';
+export const OUTPUT = 'apps/web/src/about/third-party.json';
+export const TEXTS_DIR = 'apps/web/src/about/texts';
 export const SHARDS = '0123456789abcdef'.split('');
-
-/** Every output file as [path relative to the root, document]. */
-export function outputFiles(out) {
-  const shards = Object.fromEntries(SHARDS.map((h) => [h, {}]));
-  for (const [id, text] of Object.entries(out.texts)) shards[id[0]][id] = text;
-  return [
-    [OUTPUTS.web, out.web],
-    [OUTPUTS.crates, out.crates],
-    ...SHARDS.map((h) => [`${OUTPUTS.textsDir}/${h}.json`, shards[h]]),
-  ];
-}
-
+// Outside dist/ on purpose: everything in dist/ is embedded in the server and served.
+export const BUNDLE_RECORD = 'apps/web/node_modules/.cache/mailwoman-about/bundled-packages.json';
 export const LOCKFILES = {
-  cargo: ['Cargo.lock', 'crates/mw-media-wasm/Cargo.lock'],
-  web: ['apps/web/pnpm-lock.yaml'],
+  cargoLock: 'Cargo.lock',
+  mediaWasmLock: 'crates/mw-media-wasm/Cargo.lock',
+  pnpmLock: 'apps/web/pnpm-lock.yaml',
 };
+export const SECTIONS = ['rust', 'shells', 'web', 'assets', 'runtimeImage', 'buildTools'];
+const POLICY_SECTIONS = ['rust', 'shells', 'web', 'buildTools'];
 
-// Shipped Rust roots, by workspace package name, and what each one ends up in.
-//   server   the `mailwoman` server binary and its `mw-render` worker
-//   web      crates compiled to wasm by scripts/build-wasm.sh into the web bundle
-//   plugins  the first-party wasm components in plugins/dist
-//   desktop / mobile  the Tauri shells (listed, tagged, so a reader can tell them apart)
-export const ROOTS = {
-  'mw-server': 'server',
-  'mw-render': 'server',
-  'mw-crypto': 'web',
-  'mw-sanitize': 'web',
-  'bridge-ews': 'plugins',
-  'bridge-gmail': 'plugins',
-  'bridge-graph': 'plugins',
-  languagetool: 'plugins',
-  'masked-email': 'plugins',
-  'nextcloud-plugin': 'plugins',
-  'spam-rspamd': 'plugins',
-  'spam-spamassassin': 'plugins',
-  'mailwoman-desktop': 'desktop',
-  'mailwoman-mobile': 'mobile',
-  // standalone workspace, embedded in mw-render with include_bytes!
-  'mw-media-wasm': 'server',
-};
+const LINUX = ['x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu', 'x86_64-unknown-linux-musl'];
+const DESKTOP = ['x86_64-pc-windows-msvc', 'x86_64-apple-darwin', 'aarch64-apple-darwin', 'x86_64-unknown-linux-gnu'];
+const MOBILE = ['aarch64-linux-android', 'armv7-linux-androideabi', 'x86_64-linux-android', 'aarch64-apple-ios'];
+const PLUGINS = ['bridge-ews', 'bridge-gmail', 'bridge-graph', 'languagetool', 'masked-email', 'nextcloud-plugin', 'spam-rspamd', 'spam-spamassassin'];
 
+// One `cargo metadata` per (manifest, platform); `roots` names the workspace packages
+// walked in it and the artifact each ends up in.
+export const CARGO_WALKS = [
+  { manifest: null, platforms: LINUX, roots: { 'mw-server': 'server', 'mw-render': 'server' } },
+  { manifest: null, platforms: ['wasm32-unknown-unknown'], roots: { 'mw-crypto': 'web', 'mw-sanitize': 'web' } },
+  { manifest: null, platforms: ['wasm32-wasip2'], roots: Object.fromEntries(PLUGINS.map((p) => [p, 'plugins'])) },
+  { manifest: 'crates/mw-media-wasm/Cargo.toml', platforms: ['wasm32-unknown-unknown'], roots: { 'mw-media-wasm': 'server' } },
+  { manifest: null, platforms: DESKTOP, roots: { 'mailwoman-desktop': 'desktop' } },
+  { manifest: null, platforms: MOBILE, roots: { 'mailwoman-mobile': 'mobile' } },
+];
 export const ARTIFACT_ORDER = ['server', 'web', 'plugins', 'desktop', 'mobile'];
+const SHIPPED_ARTIFACTS = new Set(['server', 'web', 'plugins']);
 
-// Assets that are not packages: the bundled UI typeface, the fonts an operator may
-// pull with `mailwoman fonts pull`, and the icons.
+// Assets. `covers` lists the files (prefix match) an entry accounts for.
 export const ASSETS = [
   {
     kind: 'font',
     name: 'Jost',
-    version: '5.3.0',
+    versionFrom: 'apps/web/src/assets/fonts/jost/SOURCE.txt',
     licence: 'OFL-1.1',
     repository: 'https://github.com/indestructible-type/Jost',
     homepage: 'https://fontsource.org/fonts/jost',
     files: ['apps/web/src/assets/fonts/jost/OFL.txt'],
+    covers: ['apps/web/src/assets/fonts/jost/'],
     note: 'bundled',
   },
-  {
-    kind: 'font',
-    name: 'Inter',
-    licence: 'OFL-1.1',
-    repository: 'https://github.com/rsms/inter',
-    homepage: 'https://fonts.google.com/specimen/Inter',
-    note: 'fonts-pull',
-  },
-  {
-    kind: 'font',
-    name: 'Newsreader',
-    licence: 'OFL-1.1',
-    repository: 'https://github.com/productiontype/Newsreader',
-    homepage: 'https://fonts.google.com/specimen/Newsreader',
-    note: 'fonts-pull',
-  },
-  {
-    kind: 'font',
-    name: 'JetBrains Mono',
-    licence: 'OFL-1.1',
-    repository: 'https://github.com/JetBrains/JetBrainsMono',
-    homepage: 'https://fonts.google.com/specimen/JetBrains+Mono',
-    note: 'fonts-pull',
-  },
+  { kind: 'font', name: 'Inter', licence: 'OFL-1.1', repository: 'https://github.com/rsms/inter', homepage: 'https://fonts.google.com/specimen/Inter', note: 'fonts-pull' },
+  { kind: 'font', name: 'Newsreader', licence: 'OFL-1.1', repository: 'https://github.com/productiontype/Newsreader', homepage: 'https://fonts.google.com/specimen/Newsreader', note: 'fonts-pull' },
+  { kind: 'font', name: 'JetBrains Mono', licence: 'OFL-1.1', repository: 'https://github.com/JetBrains/JetBrainsMono', homepage: 'https://fonts.google.com/specimen/JetBrains+Mono', note: 'fonts-pull' },
   {
     kind: 'icons',
     name: 'Mailwoman icons',
     licence: 'MIT',
     repository: 'https://github.com/supermarsx/mailwoman',
     files: ['license.md'],
+    covers: ['apps/web/public/icons/', 'apps/web/public/favicon.svg', 'apps/web/public/favicon.ico', 'apps/web/public/apple-touch-icon.png'],
     note: 'first-party',
   },
+  {
+    kind: 'image',
+    name: 'Theme textures',
+    licence: 'MIT',
+    repository: 'https://github.com/supermarsx/mailwoman',
+    files: ['license.md'],
+    covers: ['apps/web/public/themes/'],
+    note: 'first-party',
+  },
+];
+// Files in apps/web/public copied from a package rather than bundled by rollup.
+export const VENDORED_PUBLIC = { 'apps/web/public/pdf.worker.mjs': 'pdfjs-dist' };
+// First-party code and configuration in apps/web/public (not assets).
+export const FIRST_PARTY_PUBLIC = ['apps/web/public/sw.js', 'apps/web/public/manifest.webmanifest'];
+const ASSET_EXT = /\.(woff2?|ttf|otf|eot|png|jpe?g|gif|webp|avif|svg|ico|bmp)$/i;
+
+// The FROM-scratch image's non-Rust contents (Dockerfile stage runtime-static).
+const STATIC_IMAGE_ENTRIES = [
+  { name: 'musl', licence: 'MIT', homepage: 'https://musl.libc.org', note: 'static-libc' },
+  { name: 'ca-certificates', licence: 'MPL-2.0 AND MIT', homepage: 'https://gitlab.alpinelinux.org/alpine/ca-certificates', note: 'alpine-ca' },
 ];
 
 // SPDX licence and exception ids this generator knows. Anything else is flagged so a
@@ -146,6 +147,16 @@ export const KNOWN_LICENCES = new Set([
   'LGPL-2.1-or-later',
 ]);
 export const KNOWN_EXCEPTIONS = new Set(['LLVM-exception']);
+
+/** SPDX standard texts by id, from scripts/about/spdx/<id>.txt. */
+export const STANDARD_TEXTS = (() => {
+  const dir = fileURLToPath(new URL('./spdx/', import.meta.url));
+  const out = {};
+  for (const f of existsSync(dir) ? readdirSync(dir) : []) {
+    if (f.endsWith('.txt')) out[f.slice(0, -4)] = readFileSync(join(dir, f), 'utf8');
+  }
+  return out;
+})();
 
 const LICENCE_FILE = /^(licen[cs]e|copying|notice|unlicense|copyright)([-._][\w.-]*)?$/i;
 const MAX_TEXT_BYTES = 256 * 1024;
@@ -202,7 +213,7 @@ export function parseSpdx(expr) {
 export function normaliseLicence(expr) {
   if (typeof expr !== 'string') return '';
   const s = expr.trim().replace(/\s*\/\s*/g, ' OR ').replace(/\s+/g, ' ');
-  // pnpm prints "(MIT OR Apache-2.0)"; drop one outer pair that spans the whole thing.
+  // package.json sometimes says "(MIT OR Apache-2.0)"; drop one outer pair that spans it all.
   if (s.startsWith('(') && s.endsWith(')') && parseSpdx(s.slice(1, -1))) {
     let depth = 0;
     let spans = true;
@@ -314,51 +325,74 @@ export function licenceFiles(dir) {
     .sort();
 }
 
+/** The `License:` short names of a Debian (DEP-5) copyright file, in order, once each. */
+export function debianLicences(copyright) {
+  const names = [];
+  for (const m of copyright.matchAll(/^License:[ \t]*(\S[^\n]*)$/gm)) {
+    const name = m[1].trim();
+    if (!names.includes(name)) names.push(name);
+  }
+  return names;
+}
+
+/** `FROM <ref> AS <stage>` lines of a Dockerfile, by stage name. */
+export function dockerStages(src) {
+  const out = {};
+  for (const m of src.matchAll(/^FROM\s+(\S+)\s+AS\s+(\S+)\s*$/gim)) out[m[2]] = m[1];
+  return out;
+}
+
+const isProcMacro = (pkg) => (pkg?.targets ?? []).some((t) => (t.kind ?? []).includes('proc-macro'));
+
 /**
- * Crates reachable from the roots through normal and build dependencies, with the
- * set of artifacts each one ends up in. `metadata` is `cargo metadata` output.
+ * Walk one `cargo metadata` graph from the roots. Normal edges into a non-proc-macro
+ * crate are shipped; a proc-macro, or anything behind a build edge, starts the build-
+ * tool walk, which follows normal and build edges. Workspace crates are walked through
+ * but not returned. Result: { shipped, tools }: Map(id -> { pkg, artifacts:Set }).
  */
 export function walkCargo(metadata, roots) {
   const pkgs = new Map(metadata.packages.map((p) => [p.id, p]));
   const nodes = new Map(metadata.resolve.nodes.map((n) => [n.id, n]));
-  const reached = new Map(); // id -> Set(artifact)
-  for (const id of metadata.workspace_members) {
-    const artifact = roots[pkgs.get(id)?.name];
+  const shipped = new Map();
+  const tools = new Map();
+  const mark = (map, id, artifact) => {
+    if (!map.has(id)) map.set(id, { pkg: pkgs.get(id), artifacts: new Set() });
+    const had = map.get(id).artifacts.has(artifact);
+    map.get(id).artifacts.add(artifact);
+    return !had;
+  };
+  const kinds = (d) => (d.dep_kinds ?? [{ kind: null }]).map((k) => k.kind);
+  for (const rootId of metadata.workspace_members) {
+    const artifact = roots[pkgs.get(rootId)?.name];
     if (!artifact) continue;
-    const queue = [id];
-    const seen = new Set(queue);
+    const queue = [rootId];
+    const toolQueue = [];
+    mark(shipped, rootId, artifact);
     while (queue.length) {
       const cur = queue.shift();
-      if (!reached.has(cur)) reached.set(cur, new Set());
-      reached.get(cur).add(artifact);
       for (const d of nodes.get(cur)?.deps ?? []) {
-        const shipped = (d.dep_kinds ?? [{ kind: null }]).some((k) => k.kind === null || k.kind === 'build');
-        if (shipped && !seen.has(d.pkg)) {
-          seen.add(d.pkg);
-          queue.push(d.pkg);
+        const k = kinds(d);
+        if (k.includes(null)) {
+          if (isProcMacro(pkgs.get(d.pkg))) toolQueue.push(d.pkg);
+          else if (mark(shipped, d.pkg, artifact)) queue.push(d.pkg);
         }
+        if (k.includes('build')) toolQueue.push(d.pkg);
+      }
+    }
+    const seen = new Set();
+    while (toolQueue.length) {
+      const cur = toolQueue.shift();
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      mark(tools, cur, artifact);
+      for (const d of nodes.get(cur)?.deps ?? []) {
+        const k = kinds(d);
+        if (k.includes(null) || k.includes('build')) toolQueue.push(d.pkg);
       }
     }
   }
-  const out = [];
-  for (const [id, artifacts] of reached) {
-    const p = pkgs.get(id);
-    if (!p || p.source === null || p.source === undefined) continue; // first-party
-    out.push({ pkg: p, artifacts: ARTIFACT_ORDER.filter((a) => artifacts.has(a)) });
-  }
-  return out;
-}
-
-/** Same artifact sets merged when one crate version is reached from two workspaces. */
-function mergeCrates(lists) {
-  const byKey = new Map();
-  for (const { pkg, artifacts } of lists.flat()) {
-    const key = `${pkg.name}@${pkg.version}`;
-    const prev = byKey.get(key);
-    if (prev) prev.artifacts = ARTIFACT_ORDER.filter((a) => prev.artifacts.includes(a) || artifacts.includes(a));
-    else byKey.set(key, { pkg, artifacts });
-  }
-  return [...byKey.values()];
+  const external = (map) => new Map([...map].filter(([, v]) => v.pkg && v.pkg.source !== null && v.pkg.source !== undefined));
+  return { shipped: external(shipped), tools: external(tools) };
 }
 
 // ---------------------------------------------------------------------------
@@ -375,10 +409,17 @@ class Texts {
     this.map.set(id, t);
     return id;
   }
+  put(id, text) {
+    this.map.set(id, text);
+  }
   toJSON() {
     return Object.fromEntries([...this.map.entries()].sort(([a], [b]) => (a < b ? -1 : 1)));
   }
 }
+
+const label = (e) => `${e.name}@${e.version ?? '-'}`;
+const sortEntries = (a, b) =>
+  a.name.localeCompare(b.name, 'en') || String(a.version ?? '').localeCompare(String(b.version ?? ''), 'en', { numeric: true });
 
 function registryDirs(cargoHome) {
   const base = join(cargoHome, 'registry', 'src');
@@ -387,7 +428,6 @@ function registryDirs(cargoHome) {
 }
 
 function crateSourceDir(pkg, regDirs) {
-  // Prefer the manifest cargo metadata reports; fall back to a registry lookup.
   const fromManifest = pkg.manifest_path ? dirname(pkg.manifest_path) : null;
   if (fromManifest && existsSync(fromManifest)) return fromManifest;
   for (const d of regDirs) {
@@ -397,12 +437,8 @@ function crateSourceDir(pkg, regDirs) {
   return null;
 }
 
-/**
- * Attach licence texts to an entry. Files from the package come first; with none,
- * the standard text of each licence id in the expression, flagged when the table
- * lacks one.
- */
-function attachTexts(entry, dir, extraFiles, texts, flags) {
+/** Licence texts: the package's own files first; with none, the standard text of each id. */
+function attachTexts(entry, dir, extraFiles, texts) {
   const files = [...new Set([...(dir ? licenceFiles(dir) : []), ...extraFiles])];
   const out = [];
   for (const f of files) {
@@ -413,205 +449,331 @@ function attachTexts(entry, dir, extraFiles, texts, flags) {
     out.push({ file: dir ? relative(dir, full).replace(/\\/g, '/') : f.split(/[\\/]/).pop(), id: texts.add(readFileSync(full, 'utf8')) });
   }
   if (out.length === 0) {
-    const ids = licenceIds(parseSpdx(entry.licence));
-    for (const id of ids) if (STANDARD_TEXTS[id]) out.push({ standard: id, id: texts.add(STANDARD_TEXTS[id]) });
-    // One text per alternative is enough for an OR; flag only when none is known,
-    // or when an AND leaves a part without text.
-    const tree = parseSpdx(entry.licence);
-    const missing = ids.filter((id) => !STANDARD_TEXTS[id]);
-    if (out.length === 0 || (missing.length && tree && !tree.or)) {
-      flags.push(`${entry.name}@${entry.version ?? '-'}: no licence file and no standard text for ${missing.join(', ') || '(no licence)'}`);
+    for (const id of licenceIds(parseSpdx(entry.licence))) {
+      if (STANDARD_TEXTS[id]) out.push({ standard: id, id: texts.add(STANDARD_TEXTS[id]) });
     }
   }
   entry.texts = out;
 }
 
 function linkFields(entry, repository, homepage, flags) {
-  const label = `${entry.name}@${entry.version ?? '-'}`;
   for (const [field, raw] of [['repository', repository], ['homepage', homepage]]) {
     if (raw === undefined || raw === null || raw === '') continue;
     const link = httpsLink(raw);
     if (link) entry[field] = link;
-    else flags.push(`${label}: ${field} dropped (not https): ${raw}`);
+    else flags.push(`${label(entry)}: ${field} dropped (not https): ${raw}`);
   }
   if (entry.homepage && entry.homepage === entry.repository) delete entry.homepage;
 }
 
 function licenceField(entry, raw, flags) {
-  const label = `${entry.name}@${entry.version ?? '-'}`;
   entry.licence = raw ? normaliseLicence(raw) : '';
   const unknown = entry.licence ? unknownIds(entry.licence) : ['(none)'];
-  if (unknown.length) flags.push(`${label}: unknown licence ${unknown.join(', ')} in "${entry.licence}"`);
+  if (unknown.length) flags.push(`${label(entry)}: unknown licence ${unknown.join(', ')} in "${entry.licence}"`);
 }
 
-const sortEntries = (a, b) =>
-  a.name.localeCompare(b.name, 'en') || String(a.version ?? '').localeCompare(String(b.version ?? ''), 'en', { numeric: true });
+function crateEntry(pkg, artifacts, regDirs, texts, flags) {
+  const e = { kind: 'crate', name: pkg.name, version: pkg.version };
+  licenceField(e, pkg.license, flags);
+  linkFields(e, pkg.repository, pkg.homepage, flags);
+  const dir = crateSourceDir(pkg, regDirs);
+  if (!dir) flags.push(`${label(e)}: source not unpacked (run cargo fetch --locked)`);
+  attachTexts(e, dir, pkg.license_file && dir ? [pkg.license_file] : [], texts);
+  e.artifacts = ARTIFACT_ORDER.filter((a) => artifacts.has(a));
+  return e;
+}
 
-export function collectCrates({ metadatas, cargoHome, texts, flags }) {
+export function collectCrates({ cargo, cargoHome, texts, flags }) {
   const regDirs = registryDirs(cargoHome);
-  const merged = mergeCrates(metadatas.map((m) => walkCargo(m, ROOTS)));
-  const entries = [];
-  for (const { pkg, artifacts } of merged) {
-    const e = { name: pkg.name, version: pkg.version };
-    licenceField(e, pkg.license, flags);
-    linkFields(e, pkg.repository, pkg.homepage, flags);
-    const dir = crateSourceDir(pkg, regDirs);
-    if (!dir) flags.push(`${e.name}@${e.version}: source not unpacked under ${cargoHome} (run cargo fetch --locked)`);
-    const extra = pkg.license_file && dir ? [pkg.license_file] : [];
-    attachTexts(e, dir, extra, texts, flags);
-    e.artifacts = artifacts;
-    entries.push(e);
+  const shipped = new Map(); // name@version -> { pkg, artifacts:Set }
+  const tools = new Map();
+  const merge = (into, from) => {
+    for (const { pkg, artifacts } of from.values()) {
+      const key = `${pkg.name}@${pkg.version}`;
+      if (!into.has(key)) into.set(key, { pkg, artifacts: new Set() });
+      for (const a of artifacts) into.get(key).artifacts.add(a);
+    }
+  };
+  for (const { metadata, roots } of cargo) {
+    const w = walkCargo(metadata, roots);
+    merge(shipped, w.shipped);
+    merge(tools, w.tools);
   }
-  return entries.sort(sortEntries);
+  const rust = [];
+  const shells = [];
+  for (const { pkg, artifacts } of shipped.values()) {
+    const e = crateEntry(pkg, artifacts, regDirs, texts, flags);
+    ([...artifacts].some((a) => SHIPPED_ARTIFACTS.has(a)) ? rust : shells).push(e);
+  }
+  const buildTools = [];
+  for (const [key, { pkg, artifacts }] of tools) {
+    if (shipped.has(key)) continue;
+    buildTools.push(crateEntry(pkg, artifacts, regDirs, texts, flags));
+  }
+  return { rust: rust.sort(sortEntries), shells: shells.sort(sortEntries), buildTools: buildTools.sort(sortEntries) };
 }
 
-export function collectNpm({ pnpmList, webDir, texts, flags }) {
+function npmDir(root, name, version, recorded) {
+  if (recorded && existsSync(join(recorded, 'package.json'))) return recorded;
+  const nm = join(root, 'apps/web/node_modules');
+  const store = join(nm, '.pnpm', `${name.replace('/', '+')}@${version}`, 'node_modules', name);
+  if (existsSync(join(store, 'package.json'))) return store;
+  const top = join(nm, name);
+  return existsSync(join(top, 'package.json')) ? top : null;
+}
+
+export function collectWeb({ root, bundled, texts, flags, problems }) {
+  if (!bundled || !Array.isArray(bundled.packages)) {
+    problems.push(`bundle record missing (${BUNDLE_RECORD}): run \`vite build\` in apps/web first`);
+    return [];
+  }
   const entries = [];
   const seen = new Set();
-  for (const items of Object.values(pnpmList)) {
-    for (const item of items) {
-      item.versions.forEach((version, k) => {
-        const dir = item.paths?.[k] ?? item.paths?.[0];
-        const key = `${item.name}@${version}`;
-        if (seen.has(key)) return;
-        let pj = {};
-        try {
-          pj = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
-        } catch {
-          flags.push(`${key}: package.json not readable under node_modules`);
-        }
-        if (pj.os || pj.cpu) return; // host-specific prebuilt binary, see header
-        seen.add(key);
-        const e = { name: item.name, version };
-        licenceField(e, item.license ?? pj.license, flags);
-        const repo = typeof pj.repository === 'string' ? pj.repository : pj.repository?.url;
-        linkFields(e, repo, item.homepage ?? pj.homepage, flags);
-        attachTexts(e, dir && existsSync(dir) ? dir : null, [], texts, flags);
-        entries.push(e);
-      });
-    }
+  for (const rec of bundled.packages) {
+    const key = `${rec.name}@${rec.version}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const dir = npmDir(root, rec.name, rec.version, rec.dir);
+    let pj = {};
+    if (dir) pj = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+    else problems.push(`${key}: bundled, but its package.json is not under apps/web/node_modules`);
+    const e = { kind: 'npm', name: rec.name, version: rec.version };
+    const lic = typeof pj.license === 'string' ? pj.license : pj.license?.type;
+    licenceField(e, lic, flags);
+    const repo = typeof pj.repository === 'string' ? pj.repository : pj.repository?.url;
+    linkFields(e, repo, pj.homepage, flags);
+    attachTexts(e, dir, [], texts);
+    entries.push(e);
   }
-  void webDir;
   return entries.sort(sortEntries);
 }
 
 export function collectAssets({ root, texts, flags }) {
   return ASSETS.map((a) => {
     const e = { kind: a.kind, name: a.name };
-    if (a.version) e.version = a.version;
+    if (a.versionFrom) {
+      const m = readFileSync(join(root, a.versionFrom), 'utf8').match(/^Package:\s+\S+\s+(\d[\w.+-]*)/m);
+      if (m) e.version = m[1];
+      else flags.push(`${a.name}: no "Package: <name> <version>" line in ${a.versionFrom}`);
+    }
     licenceField(e, a.licence, flags);
     linkFields(e, a.repository, a.homepage, flags);
-    attachTexts(e, null, (a.files ?? []).map((f) => join(root, f)), texts, flags);
+    attachTexts(e, null, (a.files ?? []).map((f) => join(root, f)), texts);
     e.note = a.note;
     return e;
   });
 }
 
-function lockInfo(root, files) {
-  return files.map((f) => ({ file: f, sha256: existsSync(join(root, f)) ? sha256File(join(root, f)) : null }));
+function listFiles(dir) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true }).flatMap((d) =>
+    d.isDirectory() ? listFiles(join(dir, d.name)) : [join(dir, d.name)],
+  );
+}
+
+/** Fonts and images under src/assets, and every file under public, must be accounted for. */
+export function uncoveredFiles(root, web) {
+  const rel = (p) => relative(root, p).replace(/\\/g, '/');
+  const covers = ASSETS.flatMap((a) => a.covers ?? []);
+  const covered = (p) => covers.some((c) => (c.endsWith('/') ? p.startsWith(c) : p === c));
+  const problems = [];
+  const assetFiles = listFiles(join(root, 'apps/web/src/assets')).map(rel).filter((p) => ASSET_EXT.test(p));
+  const publicFiles = listFiles(join(root, 'apps/web/public')).map(rel);
+  for (const p of [...assetFiles, ...publicFiles].sort()) {
+    if (covered(p) || FIRST_PARTY_PUBLIC.includes(p)) continue;
+    const pkg = VENDORED_PUBLIC[p];
+    if (pkg) {
+      if (!web.some((e) => e.name === pkg)) problems.push(`${p}: a copy from ${pkg}, which is not in the web list`);
+      continue;
+    }
+    problems.push(`${p}: not covered by any entry`);
+  }
+  return problems;
+}
+
+/**
+ * Runtime image entries. `image` (from --image) refreshes the Debian packages; without
+ * it the previous list's are kept while the Dockerfile names the same base image.
+ */
+export function collectRuntimeImage({ root, image, previous, texts, flags, problems }) {
+  const stages = existsSync(join(root, 'Dockerfile')) ? dockerStages(readFileSync(join(root, 'Dockerfile'), 'utf8')) : {};
+  const images = {
+    runtime: { from: stages.runtime ?? null },
+    runtimeStatic: { from: 'scratch', buildFrom: stages['build-musl'] ?? null },
+  };
+  let debs = [];
+  if (image) {
+    images.runtime.readFrom = image.readFrom;
+    for (const p of image.packages) {
+      const e = { kind: 'os', name: p.name, version: p.version };
+      e.licence = debianLicences(p.copyright).join(' AND ');
+      linkFields(e, null, p.homepage, flags);
+      e.texts = p.copyright ? [{ file: `/usr/share/doc/${p.name}/copyright`, id: texts.add(p.copyright) }] : [];
+      e.images = ['runtime'];
+      debs.push(e);
+    }
+  } else if (previous?.doc?.images?.runtime?.from && previous.doc.images.runtime.from === images.runtime.from) {
+    images.runtime.readFrom = previous.doc.images.runtime.readFrom;
+    debs = (previous.doc.runtimeImage ?? []).filter((e) => e.images?.includes('runtime'));
+    for (const e of debs) {
+      for (const t of e.texts ?? []) {
+        if (previous.texts?.[t.id] !== undefined) texts.put(t.id, previous.texts[t.id]);
+        else problems.push(`${label(e)}: licence text ${t.id} missing from the previous list; regenerate with --image`);
+      }
+    }
+  } else if (previous?.doc?.images?.runtime?.from) {
+    problems.push(
+      `runtime image changed (Dockerfile: ${images.runtime.from}; list made from ${previous.doc.images.runtime.from}): ` +
+        'regenerate with --image <tag built from this Dockerfile>',
+    );
+  } else {
+    problems.push('no runtime image entries yet: regenerate with --image <tag built from this Dockerfile>');
+  }
+  if (images.runtimeStatic.buildFrom === null) problems.push('Dockerfile has no `AS build-musl` stage; update STATIC_IMAGE_ENTRIES');
+  const statics = STATIC_IMAGE_ENTRIES.map((s) => {
+    const e = { kind: 'os', name: s.name };
+    licenceField(e, s.licence, flags);
+    linkFields(e, null, s.homepage, flags);
+    attachTexts(e, null, [], texts);
+    e.images = ['runtime-static'];
+    e.note = s.note;
+    return e;
+  });
+  return { images, runtimeImage: [...debs, ...statics].sort(sortEntries) };
 }
 
 function readDenyAllow(root) {
   const p = join(root, 'deny.toml');
   if (!existsSync(p)) return null;
-  const src = readFileSync(p, 'utf8');
-  const sec = src.match(/^\[licenses\][\s\S]*?^allow\s*=\s*\[([\s\S]*?)^\]/m);
+  const sec = readFileSync(p, 'utf8').match(/^\[licenses\][\s\S]*?^allow\s*=\s*\[([\s\S]*?)^\]/m);
   if (!sec) return null;
   return new Set([...sec[1].replace(/#.*$/gm, '').matchAll(/"([^"]+)"/g)].map((m) => m[1]));
-}
-
-/** The js-licenses job's --onlyAllow list in ci.yml (web side of the policy). */
-function readJsAllow(root) {
-  const p = join(root, '.github/workflows/ci.yml');
-  if (!existsSync(p)) return null;
-  const m = readFileSync(p, 'utf8').match(/--onlyAllow\s+"([^"]+)"/);
-  return m ? new Set(m[1].split(';').map((s) => s.trim()).filter(Boolean)) : null;
-}
-
-/** Entries whose licence cannot be satisfied under a policy allow-list. */
-export function policyConflicts(entries, allow) {
-  if (!allow) return [];
-  return entries.filter((e) => !allowedBy(e.licence, allow)).map((e) => `${e.name}@${e.version ?? '-'} (${e.licence})`);
-}
-
-// ---------------------------------------------------------------------------
-// Inputs from tools
-// ---------------------------------------------------------------------------
-
-function cargoMetadata(root, manifest) {
-  const args = ['metadata', '--format-version', '1', '--locked', '--offline'];
-  if (manifest) args.push('--manifest-path', join(root, manifest));
-  const out = execFileSync('cargo', args, { cwd: root, encoding: 'utf8', maxBuffer: 512 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
-  return JSON.parse(out);
-}
-
-function pnpmLicences(webDir) {
-  // A fixed command line through the shell: on Windows pnpm is a .cmd shim, which
-  // execFile cannot start without one.
-  const out = execSync('pnpm licenses list --json --prod', {
-    cwd: webDir,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  return JSON.parse(out);
 }
 
 // ---------------------------------------------------------------------------
 // Build + compare
 // ---------------------------------------------------------------------------
 
-export function build({ root, metadatas, pnpmList, cargoHome }) {
+/**
+ * Everything from already-gathered inputs; no tools run here.
+ *   cargo:    [{ metadata, roots }]   one per `cargo metadata` call
+ *   bundled:  the bundle record, or null
+ *   image:    { readFrom, packages:[{ name, version, homepage, copyright }] } or null
+ *   previous: { doc, texts } of the committed list, or null
+ * Returns { doc, texts, flags (informational), problems (fail --check) }.
+ */
+export function build({ root, cargo, bundled, cargoHome, image = null, previous = null }) {
   const texts = new Texts();
   const flags = [];
-  const crates = collectCrates({ metadatas, cargoHome, texts, flags });
-  const npm = collectNpm({ pnpmList, webDir: join(root, 'apps/web'), texts, flags });
+  const problems = [];
+  const { rust, shells, buildTools } = collectCrates({ cargo, cargoHome, texts, flags });
+  const web = collectWeb({ root, bundled, texts, flags, problems });
   const assets = collectAssets({ root, texts, flags });
-  const generator = 'scripts/about/gen-third-party.mjs';
-  const web = {
+  const { images, runtimeImage } = collectRuntimeImage({ root, image, previous, texts, flags, problems });
+  const generatedFrom = Object.fromEntries(
+    Object.entries(LOCKFILES).map(([k, f]) => [k, existsSync(join(root, f)) ? sha256File(join(root, f)) : null]),
+  );
+  const doc = {
     schema: SCHEMA,
-    generator,
-    locks: lockInfo(root, LOCKFILES.web),
+    generator: 'scripts/about/gen-third-party.mjs',
+    generatedFrom,
+    images,
     texts: 'texts/<first character of the id>.json',
-    packages: npm,
+    rust,
+    shells,
+    web,
     assets,
+    runtimeImage,
+    buildTools,
   };
-  const cratesDoc = {
-    schema: SCHEMA,
-    generator,
-    locks: lockInfo(root, LOCKFILES.cargo),
-    texts: 'apps/web/src/about/texts/<first character of the id>.json',
-    artifacts: ARTIFACT_ORDER,
-    packages: crates,
-  };
-  const policy = {
-    cargoDeny: policyConflicts(crates, readDenyAllow(root)),
-    jsLicenses: policyConflicts(npm, readJsAllow(root)),
-  };
-  return { web, crates: cratesDoc, texts: texts.toJSON(), flags, policy };
+
+  for (const s of SECTIONS) for (const e of doc[s]) if (e.texts.length === 0) problems.push(`${label(e)}: no licence text`);
+  const allow = readDenyAllow(root);
+  if (!allow) problems.push("deny.toml has no [licenses] allow list to check against");
+  else {
+    for (const s of POLICY_SECTIONS) {
+      for (const e of doc[s]) {
+        if (!allowedBy(e.licence, allow)) problems.push(`${label(e)}: licence ${e.licence || '(none)'} is outside deny.toml's [licenses] allow list`);
+      }
+    }
+  }
+  problems.push(...uncoveredFiles(root, web));
+  return { doc, texts: texts.toJSON(), flags, problems };
+}
+
+/** Every output file as [path relative to the root, document]. */
+export function outputFiles(out) {
+  const shards = Object.fromEntries(SHARDS.map((h) => [h, {}]));
+  for (const [id, text] of Object.entries(out.texts)) shards[id[0]][id] = text;
+  return [[OUTPUT, out.doc], ...SHARDS.map((h) => [`${TEXTS_DIR}/${h}.json`, shards[h]])];
 }
 
 const serialise = (doc) => `${JSON.stringify(doc, null, 2)}\n`;
 
 /** Human-readable differences between a committed document and a fresh one. */
 export function diffDocs(name, committed, fresh) {
-  if (committed === null) return [`${name}: missing`];
+  if (committed === null || committed === undefined) return [`${name}: missing`];
   if (JSON.stringify(committed) === JSON.stringify(fresh)) return [];
   const out = [];
-  for (const l of fresh.locks ?? []) {
-    const old = (committed.locks ?? []).find((c) => c.file === l.file);
-    if (!old || old.sha256 !== l.sha256) out.push(`${name}: ${l.file} changed since the list was generated`);
+  for (const [k, sha] of Object.entries(fresh.generatedFrom ?? {})) {
+    if (committed.generatedFrom?.[k] !== sha) out.push(`${name}: ${LOCKFILES[k] ?? k} changed since the list was generated`);
   }
-  const key = (e) => `${e.kind ?? ''}${e.name}@${e.version ?? ''}`;
-  if (fresh.packages) {
-    const a = new Map((committed.packages ?? []).map((e) => [key(e), JSON.stringify(e)]));
-    const b = new Map(fresh.packages.map((e) => [key(e), JSON.stringify(e)]));
-    for (const k of b.keys()) if (!a.has(k)) out.push(`${name}: added ${k}`);
-    for (const k of a.keys()) if (!b.has(k)) out.push(`${name}: removed ${k}`);
-    for (const [k, v] of b) if (a.has(k) && a.get(k) !== v) out.push(`${name}: changed ${k}`);
+  const key = (e) => `${e.kind === 'crate' || e.kind === 'npm' ? '' : `${e.kind}:`}${e.name}@${e.version ?? ''}`;
+  for (const s of SECTIONS) {
+    if (!fresh[s]) continue;
+    const a = new Map((committed[s] ?? []).map((e) => [key(e), JSON.stringify(e)]));
+    const b = new Map(fresh[s].map((e) => [key(e), JSON.stringify(e)]));
+    for (const k of b.keys()) if (!a.has(k)) out.push(`${name}: ${s}: added ${k}`);
+    for (const k of a.keys()) if (!b.has(k)) out.push(`${name}: ${s}: removed ${k}`);
+    for (const [k, v] of b) if (a.has(k) && a.get(k) !== v) out.push(`${name}: ${s}: changed ${k}`);
   }
   if (out.length === 0) out.push(`${name}: content differs`);
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Inputs from tools
+// ---------------------------------------------------------------------------
+
+const execFileP = promisify(execFile);
+
+async function cargoMetadata(root, manifest, platform) {
+  const args = ['metadata', '--format-version', '1', '--locked', '--offline', '--filter-platform', platform];
+  if (manifest) args.push('--manifest-path', join(root, manifest));
+  const { stdout } = await execFileP('cargo', args, { cwd: root, encoding: 'utf8', maxBuffer: 512 * 1024 * 1024 });
+  return JSON.parse(stdout);
+}
+
+/** Debian packages of a local image: name, version and homepage from dpkg status.d, copyright text. */
+export function readImage(ref) {
+  const docker = (...a) => execFileSync('docker', a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const id = docker('create', ref);
+  const tmp = mkdtempSync(join(tmpdir(), 'mw-tp-image-'));
+  try {
+    docker('cp', `${id}:/var/lib/dpkg/status.d`, join(tmp, 'status.d'));
+    const packages = [];
+    for (const f of readdirSync(join(tmp, 'status.d')).filter((n) => !n.includes('.')).sort()) {
+      const status = readFileSync(join(tmp, 'status.d', f), 'utf8');
+      const field = (n) => status.match(new RegExp(`^${n}:\\s*(.+)$`, 'm'))?.[1].trim();
+      const name = field('Package') ?? f;
+      let copyright = '';
+      try {
+        docker('cp', '-L', `${id}:/usr/share/doc/${name}/copyright`, join(tmp, `${name}.copyright`));
+        copyright = readFileSync(join(tmp, `${name}.copyright`), 'utf8');
+      } catch {
+        // no copyright file: the entry gets none, and --check reports it
+      }
+      packages.push({ name, version: field('Version'), homepage: field('Homepage'), copyright });
+    }
+    return { readFrom: ref, packages };
+  } finally {
+    try {
+      docker('rm', id);
+    } catch {
+      // already gone
+    }
+    rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 function readJson(path) {
@@ -622,63 +784,78 @@ function readJson(path) {
   }
 }
 
+function readPrevious(root) {
+  const doc = readJson(join(root, OUTPUT));
+  if (!doc) return null;
+  const texts = Object.assign({}, ...SHARDS.map((h) => readJson(join(root, TEXTS_DIR, `${h}.json`)) ?? {}));
+  return { doc, texts };
+}
+
 function parseArgs(argv) {
-  const opts = { check: false, root: null, quiet: false, pnpmJson: null };
+  const opts = { check: false, root: null, quiet: false, bundled: null, image: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--check') opts.check = true;
     else if (a === '--quiet') opts.quiet = true;
     else if (a === '--root') opts.root = argv[++i];
-    else if (a === '--pnpm-json') opts.pnpmJson = argv[++i];
+    else if (a === '--bundled') opts.bundled = argv[++i];
+    else if (a === '--image') opts.image = argv[++i];
     else if (a === '--help' || a === '-h') opts.help = true;
     else throw new Error(`unknown argument ${a}`);
   }
   return opts;
 }
 
-export function main(argv = process.argv.slice(2)) {
+export async function main(argv = process.argv.slice(2)) {
   const opts = parseArgs(argv);
   if (opts.help) {
-    console.log('usage: node scripts/about/gen-third-party.mjs [--check] [--root DIR] [--pnpm-json FILE] [--quiet]');
-    console.log('  --root DIR        run against another checkout (default: this repository)');
-    console.log('  --pnpm-json FILE  saved `pnpm licenses list --json --prod` output instead of running pnpm');
+    console.log('usage: node scripts/about/gen-third-party.mjs [--check] [--image TAG] [--root DIR] [--bundled FILE] [--quiet]');
+    console.log('  --check         write nothing; exit 1 when the list is stale or a rule fails');
+    console.log('  --image TAG     re-read the runtime image packages from a local image built from this Dockerfile');
+    console.log('  --root DIR      run against another checkout (default: this repository)');
+    console.log(`  --bundled FILE  bundle record (default: <root>/${BUNDLE_RECORD}, written by vite build)`);
     return 0;
   }
   const root = resolve(opts.root ?? fileURLToPath(new URL('../../', import.meta.url)));
   const cargoHome = process.env.CARGO_HOME || join(homedir(), '.cargo');
-  let metadatas;
-  let pnpmList;
+  let cargo;
+  let image = null;
   try {
-    metadatas = [cargoMetadata(root), cargoMetadata(root, 'crates/mw-media-wasm/Cargo.toml')];
-    pnpmList = opts.pnpmJson ? JSON.parse(readFileSync(opts.pnpmJson, 'utf8')) : pnpmLicences(join(root, 'apps/web'));
+    const calls = CARGO_WALKS.flatMap((w) => w.platforms.map((p) => ({ w, p })));
+    const metas = await Promise.all(calls.map(({ w, p }) => cargoMetadata(root, w.manifest, p)));
+    cargo = metas.map((metadata, i) => ({ metadata, roots: calls[i].w.roots }));
+    if (opts.image) image = readImage(opts.image);
   } catch (err) {
-    console.error(`gen-third-party: could not read the dependency set: ${String(err.stderr || err.message).trim()}`);
-    console.error('  needs `cargo fetch --locked` (offline metadata and sources) and apps/web/node_modules.');
-    return opts.check ? 1 : 2;
+    console.error(`gen-third-party: could not read an input: ${String(err.stderr || err.message).trim()}`);
+    console.error('  needs `cargo fetch --locked` (offline metadata and sources), and docker for --image.');
+    return 1;
   }
-  const out = build({ root, metadatas, pnpmList, cargoHome });
+  const bundled = readJson(opts.bundled ? resolve(opts.bundled) : join(root, BUNDLE_RECORD));
+  const out = build({ root, cargo, bundled, cargoHome, image, previous: readPrevious(root) });
   const files = outputFiles(out);
 
   const report = () => {
     if (opts.quiet) return;
     const bytes = files.map(([, doc]) => Buffer.byteLength(serialise(doc)));
-    const shardBytes = bytes.slice(2);
+    const shardBytes = bytes.slice(1);
+    const n = (s) => `${s} ${out.doc[s].length}`;
     console.log(
-      `crates ${out.crates.packages.length}, npm packages ${out.web.packages.length}, assets ${out.web.assets.length}, ` +
-        `unique licence texts ${Object.keys(out.texts).length}; bytes web ${bytes[0]}, crates ${bytes[1]}, ` +
-        `texts ${shardBytes.reduce((a, b) => a + b, 0)} in ${shardBytes.length} shards (largest ${Math.max(...shardBytes)})`,
+      `${SECTIONS.map(n).join(', ')}; unique licence texts ${Object.keys(out.texts).length}; ` +
+        `bytes list ${bytes[0]}, texts ${shardBytes.reduce((a, b) => a + b, 0)} in ${shardBytes.length} shards (largest ${Math.max(...shardBytes)})`,
     );
     for (const f of out.flags) console.log(`FLAG ${f}`);
-    for (const c of out.policy.cargoDeny) console.log(`POLICY deny.toml [licenses].allow does not cover ${c}`);
-    for (const c of out.policy.jsLicenses) console.log(`POLICY ci.yml js-licenses --onlyAllow does not cover ${c}`);
+  };
+  const fail = (lines, what) => {
+    for (const p of lines.slice(0, 60)) console.error(`${what} ${p}`);
+    if (lines.length > 60) console.error(`${what} … and ${lines.length - 60} more`);
   };
 
   if (opts.check) {
-    const problems = files.flatMap(([rel, doc]) => diffDocs(rel, readJson(join(root, rel)), doc));
-    if (problems.length) {
-      for (const p of problems.slice(0, 50)) console.error(`STALE ${p}`);
-      if (problems.length > 50) console.error(`STALE … and ${problems.length - 50} more`);
-      console.error('gen-third-party --check: FAIL. Run `node scripts/about/gen-third-party.mjs` and commit the result.');
+    const stale = files.flatMap(([rel, doc]) => diffDocs(rel, readJson(join(root, rel)), doc));
+    if (stale.length || out.problems.length) {
+      fail(out.problems, 'PROBLEM');
+      fail(stale, 'STALE');
+      console.error('gen-third-party --check: FAIL. Fix the problems, run `node scripts/about/gen-third-party.mjs` and commit the result.');
       return 1;
     }
     report();
@@ -691,9 +868,16 @@ export function main(argv = process.argv.slice(2)) {
     writeFileSync(join(root, rel), serialise(doc));
   }
   report();
+  if (out.problems.length) {
+    fail(out.problems, 'PROBLEM');
+    console.error('gen-third-party: written, but the problems above fail --check.');
+    return 1;
+  }
   return 0;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  process.exitCode = main();
+  main().then((code) => {
+    process.exitCode = code;
+  });
 }
