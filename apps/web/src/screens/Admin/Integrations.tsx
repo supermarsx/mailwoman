@@ -1,6 +1,6 @@
-// Admin › Integrations (§19). Outbound webhooks + MCP/API-key oversight (list +
-// revoke), and whether this deployment has an LDAP directory and a Nextcloud
-// bridge configured.
+// Admin › Integrations (§19). Webhooks (outbound and inbound; `Webhooks.tsx`,
+// t28-e18) + MCP/API-key oversight (list + revoke), and whether this deployment
+// has an LDAP directory and a Nextcloud bridge configured.
 //
 // The LDAP / Nextcloud rows render what `GET /admin/integrations` reports
 // (`get_integrations`, `crates/mw-server/src/admin.rs`): `configured`,
@@ -17,12 +17,8 @@
 
 import { createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
-import {
-  AdminApiError,
-  type ApiKeyInfo,
-  type IntegrationsConfig,
-  type WebhookInfo,
-} from '../../state/slices/admin.ts';
+import { AdminApiError, type ApiKeyInfo, type IntegrationsConfig } from '../../state/slices/admin.ts';
+import { Webhooks } from './Webhooks.tsx';
 import { createFocusTrap } from '../../components/a11y';
 import { modalOverlay } from '../../components/modalOverlay.css.ts';
 import { t } from '../../i18n';
@@ -98,7 +94,6 @@ interface PendingUnattended {
 export function Integrations(): JSX.Element {
   const { api } = useAdmin();
   const [integrations, setIntegrations] = createSignal<IntegrationsConfig>(UNKNOWN_INTEGRATIONS);
-  const [webhooks, setWebhooks] = createSignal<WebhookInfo[]>([]);
   const [keys, setKeys] = createSignal<ApiKeyInfo[]>([]);
   const [error, setError] = createSignal<string | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
@@ -111,9 +106,8 @@ export function Integrations(): JSX.Element {
 
   async function reload(): Promise<void> {
     try {
-      const [i, w, k] = await Promise.all([api.getIntegrations(), api.listWebhooks(), api.listApiKeys()]);
+      const [i, k] = await Promise.all([api.getIntegrations(), api.listApiKeys()]);
       setIntegrations(i);
-      setWebhooks(w);
       setKeys(k);
       setError(null);
     } catch {
@@ -199,28 +193,7 @@ export function Integrations(): JSX.Element {
         <p class={css.note}>{t('admin-integrations-config-note')}</p>
       </div>
 
-      <div class={css.card}>
-        <h3 class={css.heading}>
-          {t('admin-integrations-webhooks')}{' '}
-          <span class={css.badge}>{statusLabel(integrations().webhooks)}</span>
-        </h3>
-        <Show when={webhooks().length > 0} fallback={<p class={css.note}>{t('admin-integrations-webhooks-empty')}</p>}>
-          <For each={webhooks()}>
-            {(w) => (
-              <div class={css.listRow}>
-                <div>
-                  <div class={css.mono} dir="auto">
-                    {w.url}
-                  </div>
-                  <span class={css.note} dir="auto">
-                    {w.accountId}
-                  </span>
-                </div>
-              </div>
-            )}
-          </For>
-        </Show>
-      </div>
+      <Webhooks />
 
       <div class={css.card}>
         <h3 class={css.heading}>

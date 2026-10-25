@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { Integrations } from './Integrations.tsx';
 import { mockAdminApi, renderWithAdmin } from './testkit.tsx';
@@ -44,6 +44,16 @@ const REQUESTED: ApiKeyInfo = {
 const APPROVED: ApiKeyInfo = { ...REQUESTED, id: 'k3', prefix: 'mwk_app789', unattendedSendApproved: true };
 
 describe('Admin › Integrations', () => {
+  // The Webhooks card reads its own route (`api/admin/webhooks.ts`); here the
+  // server has none, so the card says so and stays out of these cases.
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('not found', { status: 404 })),
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
   // Status strings are the server's: `IntegrationStatus::as_str` in
   // crates/mw-admin/src/provisioning.rs, sent by `get_integrations` in
   // crates/mw-server/src/admin.rs.
