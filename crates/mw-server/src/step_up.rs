@@ -85,12 +85,14 @@ pub enum StepUpAction {
     UpdatesApply,
     /// An admin imports a configuration.
     ConfigImport,
+    /// Configure an integration or mutate its remote managed resources.
+    IntegrationManage,
     /// An admin exports a user's data.
     AdminDataExport,
 }
 
 impl StepUpAction {
-    pub const ALL: [StepUpAction; 10] = [
+    pub const ALL: [StepUpAction; 11] = [
         StepUpAction::DataExport,
         StepUpAction::DelegationGrant,
         StepUpAction::ApiKeyCreate,
@@ -100,6 +102,7 @@ impl StepUpAction {
         StepUpAction::BrandingCss,
         StepUpAction::UpdatesApply,
         StepUpAction::ConfigImport,
+        StepUpAction::IntegrationManage,
         StepUpAction::AdminDataExport,
     ];
 
@@ -115,6 +118,7 @@ impl StepUpAction {
             StepUpAction::BrandingCss => "brandingCss",
             StepUpAction::UpdatesApply => "updatesApply",
             StepUpAction::ConfigImport => "configImport",
+            StepUpAction::IntegrationManage => "integrationManage",
             StepUpAction::AdminDataExport => "adminDataExport",
         }
     }
@@ -149,6 +153,7 @@ pub mod action {
         BrandingCss,
         UpdatesApply,
         ConfigImport,
+        IntegrationManage,
         AdminDataExport,
     );
 }

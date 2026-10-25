@@ -110,6 +110,10 @@ pub mod settings_routes;
 mod features;
 mod feature_jmap;
 mod diagnostics;
+mod hosting_connections;
+mod ssh_tunnels;
+mod hosting_operations;
+mod hosting_transport;
 pub mod application_logs;
 mod user_router;
 // t16 (26.16, e10) A9: a runtime ManageSieve caller — compile the account's rules to

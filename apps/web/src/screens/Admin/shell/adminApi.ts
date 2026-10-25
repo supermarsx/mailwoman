@@ -19,6 +19,7 @@ import { AdminApiError } from '../../../state/slices/admin.ts';
 /** A failed admin request with the server's problem body, when it sent one. */
 export class AdminProblemError extends AdminApiError {
   readonly code: string | undefined;
+  readonly resultUncertain: boolean;
   readonly detail: string | undefined;
   /** JSON pointer to the refused field (`/smtp/port`), 422 only. */
   readonly field: string | undefined;
@@ -33,6 +34,7 @@ export class AdminProblemError extends AdminApiError {
     super(status, str('detail') ?? str('error') ?? `admin request failed (${status})`);
     this.name = 'AdminProblemError';
     this.code = str('code');
+    this.resultUncertain = body['resultUncertain'] === true;
     this.detail = str('detail');
     this.field = str('field');
     this.updatedBy = str('updatedBy');

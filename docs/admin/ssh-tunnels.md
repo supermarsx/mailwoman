@@ -1,0 +1,15 @@
+# Saved SSH tunnels
+
+Administrators can create named SSH tunnels under Integrations and select them for hosting-panel connections. This transport opens SSH `direct-tcpip` channels only; it does not run commands or open shells. Mail protocol bindings and remote DNS are not implemented by this integration.
+
+Each saved tunnel defines a jump host, port, username, explicit host-key pins, and an exact target host/port allowlist. Host-key inspection stops before authentication. Inspecting a key does not trust it: verify its fingerprint through an independent trusted channel before saving the pin. Supported keys are Ed25519, ECDSA P-256/P-384, and RSA of at least 3072 bits with SHA-2 signatures.
+
+Credentials can be generated as Ed25519, imported as a private key, or supplied as a password. Secrets are sealed at rest and never returned by the API. An omitted credential action keeps the existing credential; replacement and clearing are explicit. An enabled tunnel requires a credential, at least one pin, and at least one target. Changing the jump host, port, username, or pins while retaining a credential requires explicit confirmation of the authority change.
+
+The server resolves names locally and rejects a result set containing any prohibited address. Channels receive a validated numeric destination while HTTPS retains the original TLS server name, certificate validation, and configured CA policy. Private destinations require permission in both the tunnel target and the hosting connection. Private jump hosts require the tunnel's separate permission. Metadata and reserved destinations remain prohibited. An active global egress proxy currently makes this SSH path unavailable; it never silently falls back to direct traffic.
+
+Tunnel inspection and testing require the unscoped tunnel-test capability and a fresh sensitive-action proof. Changes require the unscoped tunnel-write capability and that proof; binding or changing a hosting connection's SSH route additionally requires the unscoped tunnel-bind capability. Reads require tunnel-read. Inspection and tests are rate limited. Updates and deletion require the quoted revision ETag in `If-Match`; stale updates fail. Deleting a tunnel referenced by a hosting or egress connection is refused.
+
+Authenticated sessions are reused within the process, with bounded channels, connection and channel deadlines, keepalives, and reconnect backoff. Every new dial checks that the saved authority is still enabled and has the same revision. Revocation prevents subsequent dials; it cannot retract bytes already sent by an in-flight operation. A saved tunnel test opens a channel to the first allowed target, so it checks SSH authentication and destination connectivity rather than the destination's application protocol. Hosting diagnostics exercise HTTPS separately.
+
+Tunnel configuration and credentials are deployment-local and are intentionally excluded from cross-store migration. Preserve the deployment database and server sealing key together when backing up this configuration.

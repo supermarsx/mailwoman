@@ -1028,6 +1028,7 @@ async fn migrate_store_sqlite_to_postgres() {
 /// deployment, or an admin/deployment surface the operator re-configures on the
 /// new host. `(table, reason)`.
 const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
+    ("hosting_connection", "Panel host authority and sealed provisioning credentials are deployment-local, like directory and tunnel configuration; re-approve on the new deployment."),
     (
         "admin_users",
         "0007: the admin panel is a separate identity domain from mail accounts; the \
@@ -2147,6 +2148,10 @@ mod admin_controls_0033 {
             ("public_key", 'T', "!", "ssh-ed25519 AAAAC3Nz"),
             ("key_algorithm", 'T', "!", "ed25519"),
             ("host_key_pins_json", 'T', "=[]", "[\"SHA256:abc\"]"),
+            ("targets_json", 'T', "=[]", "[]"),
+            ("allow_private", 'I', "=0", "0"),
+            ("auth_kind", 'T', "~=privateKey", "privateKey"),
+            ("revision", 'T', "=legacy", "ssh-revision"),
             ("keepalive_secs", 'I', "=30", "60"),
             ("connect_timeout_ms", 'I', "=5000", "3000"),
             ("max_channels", 'I', "=16", "8"),
@@ -3271,6 +3276,7 @@ mod admin_controls_0033 {
         match rule {
             "!" => (true, None),
             "~" => (false, None),
+            r if r.starts_with("~=") => (false, Some(r[2..].to_string())),
             r => (true, Some(r.strip_prefix('=').expect("rule").to_string())),
         }
     }
@@ -3496,6 +3502,7 @@ mod admin_controls_0033 {
                 .map(|c| match c.2 {
                     "!" => render_sample(c.1, c.3),
                     "~" => "NULL".to_string(),
+                    r if r.starts_with("~=") => r[2..].to_string(),
                     r => r[1..].to_string(),
                 })
                 .collect();

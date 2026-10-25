@@ -181,7 +181,7 @@ export const SECTIONS: readonly SectionDef[] = [
     icon: 'integrations',
     label: () => t('admin-nav-integrations'),
     capability: 'integrations.read',
-    component: screen(() => import('../Integrations.tsx').then((m) => m.Integrations), false),
+    component: screen(() => import('../IntegrationsRouter.tsx').then((m) => m.IntegrationsRouter), false),
   },
   {
     id: 'plugins',

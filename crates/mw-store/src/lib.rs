@@ -6,6 +6,10 @@
 //! translated per-backend by the [`backend`]/[`dialect`] helpers (no `sqlx::Any`).
 
 mod security_center;
+mod hosting_connections;
+pub use hosting_connections::{HostingConnectionRow, HostingCredentialChange, HostingMutation};
+mod ssh_tunnels;
+pub use ssh_tunnels::{SshCredentialChange, SshTunnelDelete, SshTunnelMutation, SshTunnelRow};
 pub mod groups;
 pub mod feature_profiles;
 pub mod diagnostics;

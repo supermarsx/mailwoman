@@ -33,6 +33,8 @@ export interface ConfirmDialogProps {
   /** May return a promise; a rejection keeps the dialog open with the error. */
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
+  /** Domain-specific safe error wording, e.g. uncertain remote mutations. */
+  describeError?: (error: unknown) => string;
 }
 
 export function ConfirmDialog(props: ConfirmDialogProps): JSX.Element {
@@ -71,7 +73,7 @@ function ConfirmDialogOpen(props: ConfirmDialogProps): JSX.Element {
     try {
       await props.onConfirm();
     } catch (err) {
-      setError(describeAdminError(err));
+      setError((props.describeError ?? describeAdminError)(err));
     } finally {
       setBusy(false);
     }

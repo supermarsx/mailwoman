@@ -33,6 +33,7 @@ export const CAPABILITIES = [
   'tunnels.read',
   'tunnels.write',
   'tunnels.test',
+  'tunnels.bind',
   'security.read',
   'security.write',
   'security_policy.write',
