@@ -13,6 +13,7 @@
 // it, so a module cannot ship "unit-green but unmounted".
 
 import { lazy, type JSX } from 'solid-js';
+import { t } from '../i18n/index.ts';
 
 // Each module is lazy-loaded into its own chunk, off the login→inbox mail
 // critical path (plan risk #10 / e11 bundle gate). Calendar routes through the
@@ -49,8 +50,9 @@ export interface CommandPaletteEntry {
 export interface AppModule {
   /** Stable module id (`'calendar' | 'tasks' | 'notes' | 'contacts'`). */
   id: string;
-  /** Nav-rail label. */
-  label: string;
+  /** Nav-rail label, in the active locale (the entries below read it through a
+   *  getter, so the nav follows a language switch). */
+  readonly label: string;
   /** Nav-rail glyph (emoji, matching the ribbon icon style). */
   icon: string;
   /** Base route (§2.5 uses `/calendar/:view?`, `/tasks`, `/notes/:id?`,
@@ -71,7 +73,9 @@ export interface AppModule {
 export const APP_MODULES: readonly AppModule[] = [
   {
     id: 'calendar',
-    label: 'Calendar',
+    get label() {
+      return t('common-module-calendar');
+    },
     icon: '📅',
     route: '/calendar',
     mount: () => CalendarMount,
@@ -80,7 +84,9 @@ export const APP_MODULES: readonly AppModule[] = [
   },
   {
     id: 'tasks',
-    label: 'Tasks',
+    get label() {
+      return t('common-module-tasks');
+    },
     icon: '✅',
     route: '/tasks',
     mount: () => TasksMount,
@@ -89,7 +95,9 @@ export const APP_MODULES: readonly AppModule[] = [
   },
   {
     id: 'notes',
-    label: 'Notes',
+    get label() {
+      return t('common-module-notes');
+    },
     icon: '🗒️',
     route: '/notes',
     mount: () => NotesMount,
@@ -98,7 +106,9 @@ export const APP_MODULES: readonly AppModule[] = [
   },
   {
     id: 'contacts',
-    label: 'Contacts',
+    get label() {
+      return t('common-module-contacts');
+    },
     icon: '👤',
     route: '/contacts',
     mount: () => ContactsMount,
@@ -120,7 +130,9 @@ const KeysMount = lazy(() => import('../modules/keys/index.tsx').then((m) => ({ 
 
 export const KEYS_MODULE: AppModule = {
   id: 'keys',
-  label: 'Keys',
+  get label() {
+    return t('common-module-keys');
+  },
   icon: '🔑',
   route: '/keys',
   mount: () => KeysMount,

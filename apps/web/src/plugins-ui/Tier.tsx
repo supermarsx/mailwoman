@@ -45,10 +45,7 @@ export function UnsignedBanner(props: { readonly ids: readonly string[] }): JSX.
         </span>
         <div class={css.bannerBody}>
           <p class={css.bannerTitle}>{t('plugins-unsigned-title')}</p>
-          <p class={css.bannerText}>
-            These plugins were admitted without a verified signature. They run sandboxed, but
-            their code has not been checked against a trusted key.
-          </p>
+          <p class={css.bannerText}>{t('plugins-unsigned-text')}</p>
           <ul class={css.bannerList}>
             <For each={props.ids}>
               {(id) => <li class={css.bannerPluginId}>{id}</li>}
@@ -87,7 +84,7 @@ function PluginFrame(props: {
   };
 
   return (
-    <section class={css.slot} aria-label={`Plugin: ${manifest.name}`} data-plugin-id={manifest.id}>
+    <section class={css.slot} aria-label={t('plugins-frame-label', { name: manifest.name })} data-plugin-id={manifest.id}>
       <span class={css.slotLabel}>{manifest.name}</span>
       <iframe
         ref={frameEl}
@@ -95,7 +92,7 @@ function PluginFrame(props: {
         // SECURITY: opaque-origin sandbox. `allow-scripts` ONLY — never `allow-same-origin`.
         sandbox={PLUGIN_IFRAME_SANDBOX}
         referrerpolicy="no-referrer"
-        title={`plugin:${manifest.id}`}
+        title={t('plugins-frame-title', { id: manifest.id })}
         srcdoc={srcdoc}
         onLoad={onFrameLoad}
       />

@@ -121,27 +121,28 @@ export interface MintedKey {
   readonly record: ApiKeyRecord;
 }
 
-/** The MCP tool ids grantable per key (SPEC §20.3 / plan §2.4). */
+/**
+ * The MCP tool ids grantable per key (SPEC §20.3 / plan §2.4). The checkbox text
+ * lives in apikeys.ftl as `apikeys-tool-<id>-label` / `-desc` (dots become dashes).
+ */
 export interface McpTool {
   readonly id: string;
-  readonly label: string;
-  readonly description: string;
   /** Whether granting this tool implies the mail-send path (Outbox-gated). */
   readonly sends: boolean;
 }
 
-/** The frozen §2.4 MCP tool set, with mail marked as untrusted input at the source. */
+/** The frozen §2.4 MCP tool set; the mail tool descriptions say results are untrusted input. */
 export const MCP_TOOLS: readonly McpTool[] = [
-  { id: 'mail.search', label: 'Search mail', description: 'Search messages. Results are labelled untrusted input.', sends: false },
-  { id: 'mail.read', label: 'Read mail', description: 'Read a message body. Bodies are labelled untrusted input.', sends: false },
-  { id: 'folders.list', label: 'List folders', description: 'List mailbox folders.', sends: false },
-  { id: 'drafts.create', label: 'Create drafts', description: 'Create a draft message (never sent automatically).', sends: false },
-  { id: 'mail.send', label: 'Send mail', description: 'Queue a message to the Outbox for in-app confirmation.', sends: true },
-  { id: 'calendar.read', label: 'Read calendar', description: 'Read calendar events.', sends: false },
-  { id: 'calendar.propose', label: 'Propose events', description: 'Propose (not commit) calendar events.', sends: false },
-  { id: 'tasks.read', label: 'Read tasks', description: 'Read tasks.', sends: false },
-  { id: 'tasks.write', label: 'Write tasks', description: 'Create or update tasks.', sends: false },
-  { id: 'contacts.read', label: 'Read contacts', description: 'Read contacts.', sends: false },
+  { id: 'mail.search', sends: false },
+  { id: 'mail.read', sends: false },
+  { id: 'folders.list', sends: false },
+  { id: 'drafts.create', sends: false },
+  { id: 'mail.send', sends: true },
+  { id: 'calendar.read', sends: false },
+  { id: 'calendar.propose', sends: false },
+  { id: 'tasks.read', sends: false },
+  { id: 'tasks.write', sends: false },
+  { id: 'contacts.read', sends: false },
 ];
 
 /** The honest `unattended_send` disclosure copy (plan §2.4 / R4 — safety-critical). */

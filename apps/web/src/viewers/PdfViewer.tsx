@@ -31,6 +31,7 @@ import { onCleanup, onMount, Show, createSignal, type JSX } from 'solid-js';
 import type { ViewerProps } from '../contracts/viewer.ts';
 import { PDF_WORKER_SRC, isSelfHosted } from './pdfWorkerSrc.ts';
 import { maxWindowPages, visiblePageRange } from './pdfWindow.ts';
+import { t } from '../i18n/index.ts';
 
 export { PDF_WORKER_SRC, isSelfHosted };
 
@@ -203,10 +204,10 @@ export function PdfViewer(props: ViewerProps): JSX.Element {
   return (
     <div ref={scroller} class="mw-viewer__pdf" onScroll={() => update()}>
       <Show when={status() === 'loading'}>
-        <p class="mw-viewer__loading">Rendering PDF…</p>
+        <p class="mw-viewer__loading">{t('common-viewer-rendering-pdf')}</p>
       </Show>
       <Show when={status() === 'error'}>
-        <p class="mw-viewer__error">Could not render this PDF.</p>
+        <p class="mw-viewer__error">{t('common-viewer-pdf-failed')}</p>
       </Show>
       <div ref={host} class="mw-viewer__pdf-pages" aria-label={props.name} />
     </div>

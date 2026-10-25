@@ -17,6 +17,7 @@ import {
   isAtLeastAsStrict,
   type SecurityMode,
 } from './max-security.ts';
+import { t } from '../i18n/index.ts';
 import './max-security-switch.css';
 
 export interface MaxSecuritySwitchProps {
@@ -76,7 +77,7 @@ export function MaxSecuritySwitch(props: MaxSecuritySwitchProps): JSX.Element {
     <div
       class="mw-maxsec"
       role="radiogroup"
-      aria-label={props.label ?? 'Message security level'}
+      aria-label={props.label ?? t('mail-maxsec-label')}
       data-testid="max-security-switch"
       data-mode={props.value}
       onKeyDown={onKeyDown}
@@ -98,12 +99,12 @@ export function MaxSecuritySwitch(props: MaxSecuritySwitchProps): JSX.Element {
               aria-disabled={!isEnabled()}
               disabled={!isEnabled()}
               tabindex={isSelected() ? 0 : -1}
-              title={SECURITY_MODE_HINTS[mode]}
+              title={SECURITY_MODE_HINTS[mode]()}
               data-mode={mode}
               data-testid={`max-security-opt-${mode}`}
               onClick={() => choose(mode)}
             >
-              {SECURITY_MODE_LABELS[mode]}
+              {SECURITY_MODE_LABELS[mode]()}
             </button>
           );
         }}

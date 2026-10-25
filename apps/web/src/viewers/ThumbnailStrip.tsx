@@ -2,6 +2,7 @@ import { createResource, For, Show, type JSX } from 'solid-js';
 import './viewers.css';
 import { categoryOf, type TypeCategory } from './attachments.ts';
 import { createObjectUrlOwner } from './objectUrl.ts';
+import { t } from '../i18n/index.ts';
 
 /** The preview box `.mw-thumb__preview` reserves (viewers.css). Emitted as the
  *  `<img>`'s intrinsic `width`/`height` so the row has its final height before
@@ -82,7 +83,7 @@ function Thumb(props: {
 /** Horizontal strip of a message's attachments (plan §2.4). */
 export function ThumbnailStrip(props: ThumbnailStripProps): JSX.Element {
   return (
-    <div class="mw-thumbs" role="listbox" aria-label="Attachments">
+    <div class="mw-thumbs" role="listbox" aria-label={t('common-viewer-attachments')}>
       <For each={props.items}>
         {(item) => (
           <Thumb

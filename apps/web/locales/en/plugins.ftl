@@ -9,6 +9,11 @@
 # -- Unsigned-plugin trust banner --------------------------------------------
 plugins-unsigned-warning-label = Unsigned UI plugin warning
 plugins-unsigned-title = Unsigned plugins are running
+plugins-unsigned-text = These plugins were admitted without a verified signature. They run sandboxed, but their code has not been checked against a trusted key.
+
+# -- Plugin frames: the region around each sandboxed frame and the frame title -
+plugins-frame-label = Plugin: { $name }
+plugins-frame-title = plugin:{ $id }
 
 # -- Admin: engine plugins (src/screens/Admin/Plugins) ------------------------
 plugins-admin-intro = Engine plugins run in a WebAssembly sandbox. A plugin runs only after it is registered, approved, granted at least one capability and enabled. It can use only the capabilities granted here.

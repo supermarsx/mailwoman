@@ -410,3 +410,13 @@ mail-ribbon-group-folders = Folders
 mail-density-compact = compact
 mail-density-cozy = cozy
 mail-density-relaxed = relaxed
+
+# -- Message security level: the three-position switch in the reader toolbar
+# (viewers/MaxSecuritySwitch.tsx). The hint is the tooltip of each position.
+mail-maxsec-label = Message security level
+mail-maxsec-full = Full
+mail-maxsec-full-hint = Sanitized HTML with images and styling.
+mail-maxsec-no-media = No media
+mail-maxsec-no-media-hint = Sanitized HTML with all images and media removed.
+mail-maxsec-plain-text = Plain text
+mail-maxsec-plain-text-hint = No HTML rendered — message shown as plain text only.

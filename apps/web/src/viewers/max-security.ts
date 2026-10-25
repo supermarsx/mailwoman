@@ -18,6 +18,7 @@
 import { createSignal, type Accessor } from 'solid-js';
 import { bodyCsp, type SecurityMode } from './sandbox.ts';
 import { clientPolicy, loadClientPolicy } from '../api/policy.ts';
+import { t } from '../i18n/index.ts';
 
 export type { SecurityMode } from './sandbox.ts';
 
@@ -28,18 +29,19 @@ export const SECURITY_MODES: readonly SecurityMode[] = [
   'plain-text',
 ];
 
-/** Human labels for the switch / settings UI. */
-export const SECURITY_MODE_LABELS: Record<SecurityMode, string> = {
-  'full-sanitized': 'Full',
-  'sanitized-no-media': 'No media',
-  'plain-text': 'Plain text',
+/** Human labels for the switch / settings UI (mail.ftl), read at render time so
+ *  they follow a language switch. */
+export const SECURITY_MODE_LABELS: Record<SecurityMode, () => string> = {
+  'full-sanitized': () => t('mail-maxsec-full'),
+  'sanitized-no-media': () => t('mail-maxsec-no-media'),
+  'plain-text': () => t('mail-maxsec-plain-text'),
 };
 
 /** One-line explanations (tooltip / a11y description). */
-export const SECURITY_MODE_HINTS: Record<SecurityMode, string> = {
-  'full-sanitized': 'Sanitized HTML with images and styling.',
-  'sanitized-no-media': 'Sanitized HTML with all images and media removed.',
-  'plain-text': 'No HTML rendered — message shown as plain text only.',
+export const SECURITY_MODE_HINTS: Record<SecurityMode, () => string> = {
+  'full-sanitized': () => t('mail-maxsec-full-hint'),
+  'sanitized-no-media': () => t('mail-maxsec-no-media-hint'),
+  'plain-text': () => t('mail-maxsec-plain-text-hint'),
 };
 
 /** Restrictiveness rank: higher = more locked-down / more secure. */

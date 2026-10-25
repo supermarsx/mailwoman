@@ -3,17 +3,6 @@
   "entries": [
     { "text": "Loading…", "reason": "BOOTSTRAP: App.tsx outer Suspense fallback renders before any catalog has loaded, so t() would show the id." },
     { "text": "name@example.com", "reason": "RFC 2606 example address used as a placeholder; reserved names are left as they are in every language." },
-    { "text": "https://mail.example.org", "reason": "RFC 2606 example URL used as a placeholder; reserved names are left as they are in every language." },
-    { "text": "Servers", "reason": "BASELINE DEBT: platform/ServerSettings.tsx (t7 native shell); the file is removed by t32-e14." },
-    { "text": "No servers configured.", "reason": "BASELINE DEBT: platform/ServerSettings.tsx (t7 native shell); the file is removed by t32-e14." },
-    { "text": "Add server URL", "reason": "BASELINE DEBT: platform/ServerSettings.tsx (t7 native shell); the file is removed by t32-e14." },
-    { "text": "Attachments", "reason": "BASELINE DEBT: viewers/ (t4-e8), to move to a catalog in the t32 i18n pass." },
-    { "text": "Loading viewer…", "reason": "BASELINE DEBT: viewers/ (t4-e8), to move to a catalog in the t32 i18n pass." },
-    { "text": "Loading audio…", "reason": "BASELINE DEBT: viewers/ (t4-e8), to move to a catalog in the t32 i18n pass." },
-    { "text": "Loading image…", "reason": "BASELINE DEBT: viewers/ (t4-e8), to move to a catalog in the t32 i18n pass." },
-    { "text": "Loading video…", "reason": "BASELINE DEBT: viewers/ (t4-e8), to move to a catalog in the t32 i18n pass." },
-    { "text": "Rendering PDF…", "reason": "BASELINE DEBT: viewers/ (t4-e8), to move to a catalog in the t32 i18n pass." },
-    { "text": "Could not render this PDF.", "reason": "BASELINE DEBT: viewers/ (t4-e8), to move to a catalog in the t32 i18n pass." },
-    { "text": "No inline preview for this file type.", "reason": "BASELINE DEBT: viewers/ (t4-e8), to move to a catalog in the t32 i18n pass." }
+    { "text": "mwk_", "reason": "Prefix of every API key token (modules/apikeys/ApiKeys.tsx); part of the token format, the same in every language." }
   ]
 }

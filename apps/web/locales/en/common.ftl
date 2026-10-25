@@ -96,3 +96,25 @@ common-attach-cat-other = other
 # pressed. The hide text is the pointer tooltip while the password is shown.
 common-password-show = Show password
 common-password-hide = Hide password
+
+# -- App modules: the nav-rail names of the modules beside mail (shell/modules.ts)
+# and the title of the pinned mail tab (screens/Mailbox.tsx).
+common-module-mail = Mail
+common-module-calendar = Calendar
+common-module-tasks = Tasks
+common-module-notes = Notes
+common-module-contacts = Contacts
+common-module-keys = Keys
+
+# -- Attachment viewers (viewers/): the in-app preview of one attachment and the
+# thumbnail strip under a message. The MIME type itself is shown untranslated.
+common-viewer-loading = Loading viewer…
+common-viewer-loading-audio = Loading audio…
+common-viewer-loading-image = Loading image…
+common-viewer-loading-video = Loading video…
+common-viewer-rendering-pdf = Rendering PDF…
+common-viewer-pdf-failed = Could not render this PDF.
+common-viewer-no-preview = No inline preview for this file type.
+common-viewer-unknown-type = unknown type
+common-viewer-download = Download
+common-viewer-attachments = Attachments
