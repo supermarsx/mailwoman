@@ -47,6 +47,7 @@ import { AccountSettings } from './Settings/index.ts';
 import { Language } from './Settings/Language.tsx';
 import { SecurityCenter } from './Settings/SecurityCenter.tsx';
 import { Privacy } from './Settings/Privacy.tsx';
+import { ReaderAppearanceSettings } from './Settings/ReaderAppearance.tsx';
 import { LockNote } from './Settings/LockNote.tsx';
 import { useSetting } from './Settings/useSetting.ts';
 import { AsyncBoundary } from '../components/ErrorBoundary.tsx';
@@ -254,6 +255,7 @@ export function Settings(props: SettingsProps): JSX.Element {
               <AsyncBoundary>
                 <SecurityCenter />
                 <Privacy />
+                <ReaderAppearanceSettings />
               </AsyncBoundary>
               <AsyncBoundary>
                 <RulesSettings accountId={accountId()} />

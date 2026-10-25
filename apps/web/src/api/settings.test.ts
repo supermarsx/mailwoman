@@ -27,6 +27,27 @@ const FREE = { value: 'cozy', source: 'default', locked: false };
 describe('api/settings', () => {
   beforeEach(() => clearSettings());
 
+  it('ignores an old account load after switching accounts', async () => {
+    let resolve!: (response: Response) => void;
+    const old = loadSettings({ fetcher: () => new Promise<Response>(r => { resolve = r; }) });
+    clearSettings();
+    await loadSettings({ fetcher: async () => json(200, { settings: { 'reader.colorMode': { value: 'original', source: 'user', locked: false } } }) });
+    resolve(json(200, { settings: { 'reader.colorMode': { value: 'invert', source: 'user', locked: false } } }));
+    await old;
+    expect(settings()['reader.colorMode']?.value).toBe('original');
+  });
+
+  it('does not apply an old account write acknowledgement to the next account', async () => {
+    let resolve!: (response: Response) => void;
+    await loadSettings({ fetcher: async (_url, init) => init?.method === 'PUT' ? new Promise<Response>(r => { resolve = r; }) : json(200, { settings: {} }) });
+    const old = writeSetting('reader.colorMode', 'invert');
+    clearSettings();
+    await loadSettings({ fetcher: async () => json(200, { settings: {} }) });
+    resolve(json(200, { value: 'invert', source: 'user', locked: false }));
+    await old;
+    expect(settings()['reader.colorMode']).toBeUndefined();
+  });
+
   it('parses entries and drops malformed ones', async () => {
     const fetcher = vi.fn<Fetcher>(async () =>
       json(200, {

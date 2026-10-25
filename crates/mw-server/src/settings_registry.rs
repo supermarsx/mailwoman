@@ -552,6 +552,12 @@ pub static REGISTRY: &[SettingDef] = &[
         "Sieve forwarding outside the account domain"
     ),
     // ── Interface (user-facing) ──────────────────────────────────────────────
+    def!("reader.colorMode", Kind::Enum(&["auto", "original", "adaptive", "invert"]), "\"auto\"", GDU, "reader", "message color adaptation inside the isolated reader"),
+    def!("reader.fontSize", int(12, 24), "14", GDU, "reader", "message reading font size in pixels"),
+    def!("reader.lineHeight", Kind::Float { min: 1.2, max: 2.2 }, "1.6", GDU, "reader", "message reading line height"),
+    def!("reader.contentWidth", Kind::Enum(&["comfortable", "wide", "full"]), "\"wide\"", GDU, "reader", "message content width"),
+    def!("reader.loading", Kind::Enum(&["skeleton", "indicator", "none"]), "\"skeleton\"", GDU, "reader", "message loading appearance"),
+    def!("reader.loadingDelayMs", int(0, 1000), "120", GDU, "reader", "delay before showing message loading feedback"),
     def!(
         "ui.language",
         Kind::Locale,

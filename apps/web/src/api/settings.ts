@@ -167,6 +167,8 @@ const [settingsStatus, setSettingsStatus] = createSignal<'idle' | 'loading' | 'r
 
 let inflight: Promise<void> | null = null;
 let activeFetcher: Fetcher = defaultFetcher;
+let generation = 0;
+let loadSequence = 0;
 
 /** The shared map (reactive). Empty until `loadSettings` settles. */
 export function settings(): SettingsMap {
@@ -186,13 +188,17 @@ export function loadSettings(opts: { refresh?: boolean; fetcher?: Fetcher } = {}
   if (opts.fetcher !== undefined) activeFetcher = opts.fetcher;
   if (inflight !== null && opts.refresh !== true) return inflight;
   if (settingsStatus() === 'ready' && opts.refresh !== true) return Promise.resolve();
+  const current = generation;
+  const sequence = ++loadSequence;
   setSettingsStatus('loading');
   const run = fetchSettings(activeFetcher)
     .then((map) => {
+      if (current !== generation || sequence !== loadSequence) return;
       setSettingsMap(map);
       setSettingsStatus('ready');
     })
     .catch((e: unknown) => {
+      if (current !== generation || sequence !== loadSequence) return;
       setSettingsMap({});
       setSettingsStatus(e instanceof SettingsApiError && e.status === 401 ? 'signed-out' : 'error');
     })
@@ -214,25 +220,28 @@ function store(key: string, entry: SettingEntry): void {
  * it loaded) before rethrowing.
  */
 export async function writeSetting(key: string, value: unknown): Promise<SettingEntry> {
+  const current = generation;
   try {
     const entry = await putSetting(key, value, activeFetcher);
-    store(key, entry);
+    if (current === generation) store(key, entry);
     return entry;
   } catch (e) {
-    if (e instanceof SettingsApiError && e.code === 'setting_locked') void loadSettings({ refresh: true });
+    if (current === generation && e instanceof SettingsApiError && e.code === 'setting_locked') void loadSettings({ refresh: true });
     throw e;
   }
 }
 
 /** Remove the user's value for `key` and update the shared map. */
 export async function resetSetting(key: string): Promise<SettingEntry> {
+  const current = generation;
   const entry = await deleteSetting(key, activeFetcher);
-  store(key, entry);
+  if (current === generation) store(key, entry);
   return entry;
 }
 
 /** Forget the shared map (sign-out, tests). */
 export function clearSettings(): void {
+  generation++;
   inflight = null;
   activeFetcher = defaultFetcher;
   setSettingsMap({});

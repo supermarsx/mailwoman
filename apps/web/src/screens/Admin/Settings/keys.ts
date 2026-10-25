@@ -18,6 +18,8 @@ export function settingAnchorId(key: string): string {
 
 /** Every key with a label and help sentence in admin-settings.ftl and an anchor in docs/admin/settings.md. */
 export const KNOWN_KEYS: readonly string[] = [
+  'reader.colorMode', 'reader.fontSize', 'reader.lineHeight',
+  'reader.contentWidth', 'reader.loading', 'reader.loadingDelayMs',
   'cap.integration.nextcloud',
   'cap.integration.google',
   'cap.integration.microsoft',

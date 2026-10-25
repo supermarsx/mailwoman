@@ -372,3 +372,17 @@ admin-settings-key-privacy-allow-direct = Allow direct images
 admin-settings-key-cap-remote-content-direct = Direct image permission
 admin-settings-help-cap-remote-content-direct = Allow this account to select direct images when the server permits it.
 admin-settings-help-privacy-allow-direct = Permit direct image loading for accounts with the required capability.
+
+admin-settings-key-reader-color-mode = Message colors
+admin-settings-cat-reader = Message display
+admin-settings-help-reader-color-mode = Automatic follows dark themes. Choose original, adaptive or inverted rendering inside the isolated message frame.
+admin-settings-key-reader-font-size = Message font size
+admin-settings-help-reader-font-size = Default reading size in pixels, from 12 to 24.
+admin-settings-key-reader-line-height = Message line height
+admin-settings-help-reader-line-height = Reading line spacing from 1.2 to 2.2.
+admin-settings-key-reader-content-width = Message reading width
+admin-settings-help-reader-content-width = Comfortable, wide or full-pane message content.
+admin-settings-key-reader-loading = Message loading appearance
+admin-settings-help-reader-loading = Placeholder lines, a text indicator or no visual indicator. Accessibility announcements remain available.
+admin-settings-key-reader-loading-delay-ms = Message loading delay
+admin-settings-help-reader-loading-delay-ms = Delay only the loading indicator, between 0 and 1000 milliseconds. Message delivery is never delayed.

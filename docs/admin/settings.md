@@ -577,3 +577,18 @@ spam classification applies the recipient account's domain and profile policy.
 
 <a id="limit.recipients_per_message"></a>
 `limit.recipients_per_message` — Recipient-count policy; zero means unlimited. Runtime enforcement remains pending.
+
+### Message display
+
+These keys support global and domain defaults, administrator locks and user overrides. The settings apply inside the isolated message renderer, without changing its content security policy or remote-image permissions.
+
+| Key | Values | Default |
+| --- | --- | --- |
+| <a id="reader.colorMode"></a>`reader.colorMode` | auto, original, adaptive, invert | auto |
+| <a id="reader.fontSize"></a>`reader.fontSize` | 12–24 pixels | 14 |
+| <a id="reader.lineHeight"></a>`reader.lineHeight` | 1.2–2.2 | 1.6 |
+| <a id="reader.contentWidth"></a>`reader.contentWidth` | comfortable, wide, full | wide |
+| <a id="reader.loading"></a>`reader.loading` | skeleton, indicator, none | skeleton |
+| <a id="reader.loadingDelayMs"></a>`reader.loadingDelayMs` | 0–1000 milliseconds | 120 |
+
+Automatic colors adapt in dark themes and preserve original colors in light themes. Inversion reverses message colors while counter-inverting images. Adaptive mode removes sender foreground/background overrides while preserving layout and media sources. Loader delay affects only feedback, never delivery.

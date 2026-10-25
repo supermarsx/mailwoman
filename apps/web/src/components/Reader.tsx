@@ -57,6 +57,10 @@ import { RemoteContentBar } from './RemoteContentBar.tsx';
 import { DirectReaderFrame } from './DirectReaderFrame.tsx';
 import { remotePolicy, decodedTrackerStats, remoteServerBase, signContent, readerReferences, rewriteReaderContent, signedSource, BLOCKED_POLICY, EMPTY_SIGNED, type RemotePolicy } from '../api/remote-content.ts';
 import { settings } from '../api/settings.ts';
+import { themeCssVars } from '../theme/themeCssVars.ts';
+import { MessageLoading } from './MessageLoading.tsx';
+import { Icon } from './Icon.tsx';
+import type { ReaderAppearance } from '../viewers/readerAppearance.ts';
 import { isNativeAuth } from '../api/serverAddress.ts';
 import {
   formatAddressList,
@@ -365,7 +369,7 @@ export function AttachmentsPane(props: { email: Email }): JSX.Element {
                   aria-label={t('mail-attachment-close')}
                   onClick={() => setOpenItem(null)}
                 >
-                  ✕
+                  <Icon name="close" />
                 </button>
               </div>
               <Show when={settled(blobUrl)} fallback={<p class="attachment-modal__loading">{t('mail-attachment-loading')}</p>}>
@@ -466,7 +470,7 @@ function DecryptPanel(props: {
 
   return (
     <section class="reader__decrypt" data-testid="reader-decrypt" aria-label={t('mail-encrypted-region')}>
-      <p class="reader__decrypt-note">{t('mail-encrypted-note')}</p>
+      <p class="reader__decrypt-note"><Icon name="lock" /> {t('mail-encrypted-note')}</p>
       <form
         class="reader__decrypt-form"
         onSubmit={(e) => {
@@ -730,14 +734,23 @@ export function Reader(props: {
     },
   );
   const currentBody = () => { const body = readerBody.state === 'ready' || readerBody.state === 'refreshing' ? readerBody.latest : undefined; return body?.emailId === emailId() && body.account === app.accountId() ? body : undefined; };
+  const readerAppearance = (): ReaderAppearance => {
+    const values = settings();
+    const mode = values['reader.colorMode']?.value;
+    const colorMode = mode === 'original' || mode === 'adaptive' || mode === 'invert' ? mode : app.appearance() === 'dark' ? 'adaptive' : 'original';
+    const width = values['reader.contentWidth']?.value;
+    return { colorMode, fontSize: Number(values['reader.fontSize']?.value ?? 14), lineHeight: Number(values['reader.lineHeight']?.value ?? 1.6), contentWidth: width === 'comfortable' || width === 'full' ? width : 'wide' };
+  };
+  const frameOptions = () => ({ appearance: readerAppearance(), themeVars: readerAppearance().colorMode === 'adaptive' ? themeCssVars(app.theme(), { density: app.density() }) : '' });
+  const messageLoading = () => <MessageLoading variant={String(settings()['reader.loading']?.value ?? 'skeleton')} delayMs={Number(settings()['reader.loadingDelayMs']?.value ?? 120)} />;
   const bodySrcdoc = createMemo<string | null>(() => {
     const email = app.openEmail(); if (!email) return null;
     const mode = maxsec.effectiveMode(sender());
-    const text = decryptedText(); if (text !== null) return bodyFrameDoc('plain-text', { text });
-    if (mode === 'plain-text') return bodyFrameDoc('plain-text', { text: decryptedHtml() ?? plainTextOf(email) });
-    if (mode === 'sanitized-no-media') return bodyFrameDoc(mode, { html: currentBody()?.html ?? decryptedHtml() ?? app.sanitizedHtml() });
+    const text = decryptedText(); if (text !== null) return bodyFrameDoc('plain-text', { text }, frameOptions());
+    if (mode === 'plain-text') return bodyFrameDoc('plain-text', { text: decryptedHtml() ?? plainTextOf(email) }, frameOptions());
+    if (mode === 'sanitized-no-media') return bodyFrameDoc(mode, { html: currentBody()?.html ?? decryptedHtml() ?? app.sanitizedHtml() }, frameOptions());
     const body = currentBody(); if (!body || body.emailId !== email.id || body.account !== app.accountId()) return null;
-    return bodyFrameDoc('full-sanitized', { html: body.html }, { direct: body.policy.mode === 'direct' && body.policy.allowDirect, serverBase: remoteServerBase() });
+    return bodyFrameDoc('full-sanitized', { html: body.html }, { ...frameOptions(), direct: body.policy.mode === 'direct' && body.policy.allowDirect, serverBase: remoteServerBase() });
   });
 
   // ── Reply / Reply all / Forward ────────────────────────────────────────────
@@ -944,7 +957,7 @@ export function Reader(props: {
                 class={`btn btn--ghost reader__close ${a11y.focusable}`}
                 onClick={closeAndRefocusList}
               >
-                ← {t('mail-back')}
+                <Icon name="back" /> {t('mail-back')}
               </button>
               <h2 class="reader__subject">{email().subject ?? t('mail-no-subject')}</h2>
               <div class="reader__meta">
@@ -997,7 +1010,7 @@ export function Reader(props: {
               fallback={
                 <Show
                   when={bodySrcdoc() !== null}
-                  fallback={<p class="reader__empty">{app.readLoading() ? t('mail-sanitizing') : t('mail-no-content')}</p>}
+                  fallback={<Show when={app.readLoading() || readerBody.loading || privacy.loading || grants.loading} fallback={<p class="reader__empty">{t('mail-no-content')}</p>}>{messageLoading()}</Show>}
                 >
                   {/*
                     Security-critical (SPEC §7.2): the message body renders in a

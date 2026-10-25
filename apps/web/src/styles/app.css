@@ -483,7 +483,7 @@ body {
   min-height: 12rem;
   width: 100%;
   border: var(--border-rule) solid var(--border-strong);
-  background: #ffffff;
+  background: var(--surface);
 }
 /* Jost at the button weight sets "Sweep sender" 1.75px wider than the old
    fallback face did, while the other action labels stay within 1px. The

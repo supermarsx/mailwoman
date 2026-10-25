@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createEffect, createSignal, Show, Switch, Match, type JSX } from 'solid-js';
+import { on, onMount, onCleanup, createEffect, createSignal, Show, Switch, Match, type JSX } from 'solid-js';
 import { AppContext } from './state/context.ts';
 import { createAppState } from './state/store.ts';
 import { createConfiguredClient } from './api/transport.ts';
@@ -13,6 +13,7 @@ import { ConnectionToast } from './realtime/ConnectionToast.tsx';
 import { AsyncBoundary, LazyRoute } from './components/ErrorBoundary.tsx';
 import { AsyncError, AsyncPending } from './components/AsyncState.tsx';
 import { t } from './i18n/index.ts';
+import { clearSettings, loadSettings } from './api/settings.ts';
 
 // Every route below is a DYNAMIC IMPORT, and each now loads through `LazyRoute`
 // rather than a bare `<Suspense fallback="Loading…">`. A chunk that fails to
@@ -88,6 +89,11 @@ export function App(): JSX.Element {
 
   const client = createConfiguredClient();
   const app = createAppState(client);
+  createEffect(on(app.accountId, account => {
+    clearSettings();
+    if (account) void loadSettings();
+  }));
+  onCleanup(clearSettings);
 
   // `init()` resolves the session. A 401 is not a failure — it is the logged-out
   // answer and `init` handles it — so anything that lands here is a real boot

@@ -425,91 +425,20 @@ describe('themeCssVars — the print stylesheet', () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('themeCssVars is not wired up — KNOWN GAP', () => {
-  // Found while checking which file owns the print-contrast defect above. The
-  // answer turned out to be "none of them, yet".
-  //
-  // `bodyFrameDoc(mode, content, { themeVars })` in `viewers/sandbox.ts` is the
-  // designed injection point, and `styles/print.css.ts:7` states as fact that
-  // the message body's print theming comes from
-  // `themeCssVars(theme, { forPrint: true })`, "injected into the srcdoc by e7".
-  // It is not: no call site anywhere passes `themeVars`, and `themeCssVars` has
-  // no runtime caller at all. Its 0% line coverage before this suite was a
-  // SYMPTOM, not an oversight.
-  //
-  // Consequence: the message body is never themed. `BODY_STYLE` falls back to
-  // `var(--mw-text, #1c1e21)` over a transparent body, and `.reader__frame`
-  // (`styles/app.css:293`) hardcodes `background: #ffffff` on the iframe
-  // ELEMENT — which is the only reason the near-black text stays readable at
-  // all. So a dark theme shows a dark reader pane wrapped around a white
-  // message block. The print shortfalls recorded above are therefore LATENT —
-  // real properties of the function, not currently rendered by anything.
-  //
-  // FOUR blockers, not two (the third and fourth found by t19-e13, verified
-  // here): (1) no call site passes `themeVars`; (2) the variable names
-  // disagree; (3) the theme block is injected BEFORE `BODY_STYLE`, which
-  // re-declares the same selectors at equal specificity and therefore wins;
-  // (4) `.reader__frame`'s hardcoded white has to be tokenized or dropped.
-  // "Wire it up and rename the vars" reads like a small fix and is not one —
-  // it touches `Reader.tsx`, `sandbox.ts`, `themeCssVars.ts`, `print.css.ts`
-  // and `app.css`.
-  //
-  // Nothing here is fixed: all five files are outside this lane's locks, and
-  // wiring it is a product decision (mail authored for white backgrounds is a
-  // defensible default) rather than a mechanical repair.
-
-  it('emits a variable name that the consumer does not read', () => {
-    // The sharper half of the defect, and the reason it would survive being
-    // wired: producer and consumer disagree on the name. `themeCssVars` emits
-    // `--mw-color-text`; `BODY_STYLE` reads `var(--mw-text, …)`. Passing the
-    // output through today would still leave the fallback in force.
-    const css = themeCssVars('dark');
-    expect(css).toContain('--mw-color-text:');
-    expect(css).not.toContain('--mw-text:');
-
-    const framed = bodyFrameDoc('full-sanitized', { html: '<p>x</p>' }, { themeVars: css });
-    expect(framed).toContain('var(--mw-text,#1c1e21)');
-    // Both names present, neither resolving to the other: the emitted block
-    // defines `--mw-color-text`, the stylesheet reads `--mw-text`.
+describe('message theme bridge', () => {
+  it('uses the same text variable as the isolated theme producer', () => {
+    const framed = bodyFrameDoc('full-sanitized', { html: '<p>x</p>' }, { themeVars: themeCssVars('dark') });
     expect(framed).toContain('--mw-color-text:');
+    expect(framed).toContain('color:var(--mw-color-text,#1c1e21)');
+    expect(framed).not.toContain('var(--mw-text,');
   });
-
-  it('injects the theme block BEFORE the stylesheet that overrides it', () => {
-    // The third blocker, found by t19-e13 and verified here. `bodyFrameDoc`
-    // concatenates `${styleVars}${BODY_STYLE}` — theme block FIRST. Both
-    // declare `html, body` / `body` at equal specificity (one type selector
-    // each), so the LATER wins and `BODY_STYLE` overrides the theme block
-    // wholesale. Renaming the variables and adding the missing call site would
-    // therefore STILL leave the body transparent and near-black.
-    //
-    // Asserted as document order, because document order is precisely what the
-    // cascade resolves on here.
-    const css = themeCssVars('dark');
-    const doc = bodyFrameDoc('full-sanitized', { html: '<p>x</p>' }, { themeVars: css });
-
-    const themeBg = doc.indexOf('background: var(--mw-color-bg)');
-    const overrideBg = doc.indexOf('background:transparent');
-    expect(themeBg).toBeGreaterThan(-1);
-    expect(overrideBg).toBeGreaterThan(-1);
-    expect(overrideBg).toBeGreaterThan(themeBg); // later ⇒ wins
-
-    const themeColor = doc.indexOf('color: var(--mw-color-text)');
-    const overrideColor = doc.indexOf('color:var(--mw-text,#1c1e21)');
-    expect(overrideColor).toBeGreaterThan(themeColor);
+  it('applies theme rules after the baseline body stylesheet', () => {
+    const doc = bodyFrameDoc('full-sanitized', { html: '<p>x</p>' }, { themeVars: themeCssVars('dark') });
+    expect(doc.indexOf('background: var(--mw-color-bg)')).toBeGreaterThan(doc.indexOf('background:transparent'));
+    expect(doc.indexOf('color: var(--mw-color-text)')).toBeGreaterThan(doc.indexOf('color:var(--mw-color-text,#1c1e21)'));
   });
-
-  it('renders identically with and without the theme block, for the text colour', () => {
-    // The behavioural consequence of the name mismatch, stated as behaviour
-    // rather than as string matching.
-    const withTheme = bodyFrameDoc('full-sanitized', { html: '<p>x</p>' }, {
-      themeVars: themeCssVars('dark'),
-    });
-    const without = bodyFrameDoc('full-sanitized', { html: '<p>x</p>' });
-    for (const doc of [withTheme, without]) {
-      expect(doc).toContain('color:var(--mw-text,#1c1e21)');
-    }
-    // The dark palette's text colour never reaches the document as the value
-    // the body actually resolves.
-    expect(without).not.toContain(THEMES.dark.color.text);
+  it('supplies concrete theme colors only when requested', () => {
+    expect(bodyFrameDoc('full-sanitized', { html: '<p>x</p>' }, { themeVars: themeCssVars('dark') })).toContain(THEMES.dark.color.text);
+    expect(bodyFrameDoc('full-sanitized', { html: '<p>x</p>' })).not.toContain(THEMES.dark.color.text);
   });
 });

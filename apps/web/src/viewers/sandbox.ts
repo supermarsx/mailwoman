@@ -14,6 +14,7 @@
 // "no transcode" rule (native <img>/<audio>/<video>) while staying script-free.
 
 import { apiFetch } from '../api/http.ts';
+import { adaptReaderColors, readerAppearanceCss, type ReaderAppearance } from './readerAppearance.ts';
 
 /** The frozen sandbox token set: no scripts, no same-origin, opaque frame. */
 export const SANDBOX_TOKENS = '';
@@ -114,7 +115,7 @@ export function bodyCsp(mode: SecurityMode = 'full-sanitized', direct = false, s
 const BODY_STYLE =
   'html,body{margin:0;background:transparent}' +
   'body{padding:12px;font:14px/1.6 ui-sans-serif,system-ui,sans-serif;word-break:break-word;' +
-  'color:var(--mw-text,#1c1e21)}' +
+  'color:var(--mw-color-text,#1c1e21)}' +
   // `max-width:100%;height:auto` is deliberately kept: it is the pairing that
   // makes an intrinsic `width`/`height` USABLE. The UA maps the two attributes
   // to `aspect-ratio`, and `height:auto` lets the box shrink along that ratio
@@ -172,17 +173,17 @@ export function withImageLoadingHints(html: string): string {
 export function bodyFrameDoc(
   mode: SecurityMode,
   content: { html?: string | null; text?: string | null },
-  opts: { themeVars?: string; direct?: boolean; serverBase?: string } = {},
+  opts: { themeVars?: string; direct?: boolean; serverBase?: string; appearance?: ReaderAppearance } = {},
 ): string {
   const styleVars = opts.themeVars !== undefined && opts.themeVars.length > 0 ? opts.themeVars : '';
   const inner =
     mode === 'plain-text'
       ? `<pre>${escapeHtml(content.text ?? '')}</pre>`
-      : withImageLoadingHints(content.html ?? '');
+      : withImageLoadingHints(opts.appearance?.colorMode === 'adaptive' ? adaptReaderColors(content.html ?? '') : content.html ?? '');
   return (
     '<!doctype html><html><head><meta charset="utf-8">' +
     `<meta http-equiv="Content-Security-Policy" content="${bodyCsp(mode, opts.direct === true, opts.serverBase)}">` +
-    `<style>${styleVars}${BODY_STYLE}</style></head><body>${inner}</body></html>`
+    `<style>${BODY_STYLE}${styleVars}${opts.appearance ? readerAppearanceCss(opts.appearance) : ''}</style></head><body>${inner}</body></html>`
   );
 }
 
