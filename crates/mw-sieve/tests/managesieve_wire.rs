@@ -77,11 +77,9 @@ async fn greeting_populates_capabilities() {
     assert!(!caps.supports("editheader"));
 }
 
-/// Escaped quotes and backslashes inside a capability *value* are unescaped, so
+/// Escaped quotes and backslashes inside a capability value are unescaped, so
 /// a server whose implementation string contains one is reported whole rather
-/// than truncated at the escape. (The key side of the same line does not honour
-/// escapes — see `script_names_containing_an_escaped_quote_are_truncated` — but
-/// capability keys are protocol constants, so it is unreachable in practice.)
+/// than truncated at the escape.
 #[tokio::test]
 async fn capability_values_are_unescaped() {
     let (client, mut server) = pipe();
@@ -307,21 +305,13 @@ async fn list_scripts_reports_names_and_the_active_one() {
     assert!(scripts[2].active, "trailing whitespace after ACTIVE");
 }
 
-/// DEFECT (recorded, not fixed): a quoted-string body is scanned for its closing
-/// quote without honouring `\"` escapes, so a name containing an escaped quote is
-/// truncated at that quote. `unescape` is then applied to the already-truncated
-/// slice, which is why the asymmetry is easy to miss: the client *writes* names
-/// with `\"` escaping (`quote_arg`) but does not *read* them that way.
-///
-/// This affects `parse_script_line` (script names) and, in the same way,
-/// `split_cap_line`'s extraction of the capability *key* — though not its value,
-/// which is delimited by `strip_prefix`/`strip_suffix` and does unescape
-/// correctly. Impact is limited: a truncated name simply fails to match on a
-/// later `SETACTIVE`/`GETSCRIPT`, capability keys are protocol constants, and a
-/// quote in a Sieve script name is exotic. But the round-trip the code implies
-/// does not hold.
+/// A quoted script name is read with its `\"` escapes honoured, so a name
+/// containing an escaped quote comes back whole and its `ACTIVE` flag is kept.
+/// (Until t32 f18 the closing quote was found without honouring escapes: this
+/// name came back as `with ` and lost its flag, although the client *writes*
+/// names with that escaping.)
 #[tokio::test]
-async fn script_names_containing_an_escaped_quote_are_truncated() {
+async fn script_names_containing_an_escaped_quote_round_trip() {
     let (mut conn, mut server) = connected("").await;
     server
         .write_all(b"\"with \\\"quotes\\\" inside\" ACTIVE\r\nOK\r\n")
@@ -330,12 +320,8 @@ async fn script_names_containing_an_escaped_quote_are_truncated() {
 
     let scripts = conn.list_scripts().await.expect("listscripts");
     assert_eq!(scripts.len(), 1);
-    // Correct would be `with "quotes" inside`; the name is cut at the escape.
-    assert_eq!(scripts[0].name, "with ");
-    assert!(
-        !scripts[0].active,
-        "the ACTIVE flag is lost with the rest of the line"
-    );
+    assert_eq!(scripts[0].name, "with \"quotes\" inside");
+    assert!(scripts[0].active, "the ACTIVE flag after an escaped quote");
 }
 
 /// `GETSCRIPT` reads the body from a literal, and falls back to a quoted data

@@ -41,14 +41,28 @@ pub fn generate(rules: &[Rule]) -> Result<String> {
 
     let mut out = String::new();
     if !extensions.is_empty() {
-        let quoted: Vec<String> = extensions.iter().map(|e| quote(e)).collect();
-        out.push_str(&format!("require [{}];\n", quoted.join(", ")));
+        out.push_str(&require_line(&extensions));
         if !body.is_empty() {
             out.push('\n');
         }
     }
     out.push_str(&body);
     Ok(out)
+}
+
+/// Render one rule on its own, enabled or not, with the extensions it needs.
+/// The builder's managed blocks ([`crate::managed`]) are made of these.
+pub fn generate_rule(rule: &Rule) -> (String, BTreeSet<&'static str>) {
+    let mut extensions = BTreeSet::new();
+    let mut out = String::new();
+    render_rule(rule, &mut out, &mut extensions);
+    (out, extensions)
+}
+
+/// `require ["a", "b"];` plus a newline, for a non-empty extension set.
+pub fn require_line(extensions: &BTreeSet<&str>) -> String {
+    let quoted: Vec<String> = extensions.iter().map(|e| quote(e)).collect();
+    format!("require [{}];\n", quoted.join(", "))
 }
 
 fn render_rule(rule: &Rule, out: &mut String, ext: &mut BTreeSet<&'static str>) {

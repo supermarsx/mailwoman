@@ -14,8 +14,15 @@
 //!   over the constrained subset it emits (`parse(generate(rules)) == rules`);
 //! - [`eval`] — the engine-side [`evaluate`]/[`evaluate_all`] (no-ManageSieve path);
 //! - [`lint`] — basic syntactic validation of raw Sieve text;
+//! - [`grammar`] — the full RFC 5228 grammar: any script → a positioned syntax
+//!   tree, errors at line and column;
+//! - [`extensions`] — validation of that tree and its extension inventory;
+//! - [`policy`] — the server-side checks a script passes before `PUTSCRIPT`;
+//! - [`managed`] — the builder's `# mailwoman:rule <id>` blocks inside a
+//!   hand-editable script, merged without touching the user's text;
 //! - [`managesieve`] — the RFC 5804 client (CAPABILITY, AUTHENTICATE, PUTSCRIPT,
-//!   LISTSCRIPTS, SETACTIVE, GETSCRIPT) for servers that advertise it.
+//!   CHECKSCRIPT, HAVESPACE, LISTSCRIPTS, SETACTIVE, GETSCRIPT, RENAMESCRIPT,
+//!   DELETESCRIPT) for servers that advertise it.
 //!
 //! The Sieve-text [`fuzz_sieve_text`] entry point drives the `cargo-fuzz` target
 //! and the in-crate corpus smoke test — no input may panic the linter/parser.
@@ -25,17 +32,27 @@ use serde::{Deserialize, Serialize};
 pub mod client;
 pub mod codegen;
 pub mod eval;
+pub mod extensions;
+pub mod grammar;
 pub mod lint;
+pub mod managed;
 pub mod managesieve;
 pub mod parse;
+pub mod policy;
+mod sasl;
 mod tls;
 pub mod transport;
 
 pub use client::ManageSieveClient;
 pub use codegen::generate;
 pub use eval::{evaluate, evaluate_all};
+pub use extensions::{Analysis, analyze, check};
+pub use grammar::{Script, ScriptError, parse_script};
 pub use lint::lint;
-pub use managesieve::{Capabilities, Connection, Credentials, ScriptInfo};
+pub use managesieve::{
+    Capabilities, Checked, Connection, Credentials, Refusal, ResponseCode, ScriptInfo,
+    ScriptProblem,
+};
 pub use parse::parse;
 pub use tls::{MIN_TLS_REFUSED, MinTls, min_tls, set_min_tls};
 pub use transport::{SieveStream, TlsMode};
@@ -120,6 +137,10 @@ pub enum SieveError {
     Generate(String),
     #[error("managesieve error: {0}")]
     ManageSieve(String),
+    /// The ManageSieve server answered `NO` or `BYE`; the code tells a full
+    /// quota (`QUOTA/MAXSIZE`) or a missing script (`NONEXISTENT`) apart.
+    #[error("managesieve error: {0}")]
+    Refused(managesieve::Refusal),
     #[error("lint error: {0}")]
     Lint(String),
     #[error("parse error: {0}")]
@@ -144,6 +165,34 @@ pub fn fuzz_sieve_text(data: &[u8]) {
     // The round-trip parser must never panic either — it returns `Err` on
     // anything outside the codegen subset, but never unwinds.
     let _ = parse(&text);
+    fuzz_sieve_grammar(data);
+}
+
+/// Fuzz entry point for the full grammar and everything built on it: parse,
+/// validate, apply a restrictive and a permissive policy, and split/merge the
+/// builder's managed blocks. Drives `fuzz/fuzz_targets/sieve_grammar.rs`.
+pub fn fuzz_sieve_grammar(data: &[u8]) {
+    let text = String::from_utf8_lossy(data);
+    let _ = check(&text);
+    let strict = policy::Policy {
+        max_script_bytes: Some(4096),
+        max_redirects: Some(1),
+        own_domains: vec!["example.com".into()],
+        allowed_extensions: Some(["fileinto".to_string()].into()),
+        ..policy::Policy::default()
+    };
+    let _ = policy::enforce(&text, &strict, policy::EditKind::Raw);
+    let open = policy::Policy {
+        forward_external: true,
+        vacation_allowed: true,
+        raw_edit: true,
+        ..policy::Policy::default()
+    };
+    let _ = policy::enforce(&text, &open, policy::EditKind::Builder);
+    if let Ok(rules) = managed::rules(&text) {
+        let _ = managed::merge(&text, &rules);
+    }
+    let _ = managed::merge(&text, &[]);
 }
 
 #[cfg(test)]

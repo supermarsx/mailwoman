@@ -7,7 +7,7 @@
 
 use std::net::SocketAddr;
 
-use crate::managesieve::{Connection, Credentials, ScriptInfo};
+use crate::managesieve::{Checked, Connection, Credentials, ScriptInfo};
 use crate::transport::{SieveStream, TlsMode};
 use crate::{Result, SieveError};
 
@@ -72,9 +72,24 @@ impl ManageSieveClient {
         self.conn.capabilities()
     }
 
-    /// Upload (or replace) a script.
-    pub async fn put_script(&mut self, name: &str, body: &str) -> Result<()> {
+    /// Upload (or replace) a script; returns the server's warnings, if any.
+    pub async fn put_script(&mut self, name: &str, body: &str) -> Result<Option<String>> {
         self.conn.put_script(name, body).await
+    }
+
+    /// Ask the server whether a script compiles, without storing it.
+    pub async fn check_script(&mut self, body: &str) -> Result<Checked> {
+        self.conn.check_script(body).await
+    }
+
+    /// Whether a script of `size` bytes under `name` fits the quota.
+    pub async fn have_space(&mut self, name: &str, size: u64) -> Result<()> {
+        self.conn.have_space(name, size).await
+    }
+
+    /// Rename a stored script (keeps its active flag).
+    pub async fn rename_script(&mut self, old: &str, new: &str) -> Result<()> {
+        self.conn.rename_script(old, new).await
     }
 
     /// List stored scripts and their active state.
