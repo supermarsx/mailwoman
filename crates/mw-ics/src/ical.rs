@@ -265,7 +265,21 @@ fn read_participants(c: &PComponent) -> Value {
     if let Some(org) = find(c, "ORGANIZER") {
         add(org, "organizer");
     }
+    // The organizer may also be listed as an attendee (RFC 5545 allows it, and
+    // most clients write it so). Participants are keyed by address, so that line
+    // would replace the organizer's entry and leave the event without one.
+    let address = |p: &PProperty| {
+        p.val
+            .as_str()
+            .trim_start_matches("mailto:")
+            .trim_start_matches("MAILTO:")
+            .to_string()
+    };
+    let organizer = find(c, "ORGANIZER").map(address);
     for att in find_all(c, "ATTENDEE") {
+        if organizer.as_deref() == Some(address(att).as_str()) {
+            continue;
+        }
         add(att, "attendee");
     }
     Value::Object(map)

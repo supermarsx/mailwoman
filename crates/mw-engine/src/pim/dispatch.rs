@@ -68,6 +68,7 @@ impl Engine {
             "CalendarEvent/import" => self.event_import(account_id, rt, args).await,
             "CalendarEvent/export" => self.event_export(account_id, args).await,
             "CalendarEvent/respond" => self.event_respond(account_id, rt, args).await,
+            "CalendarEvent/itip" => self.event_itip(account_id, rt, args).await,
             "CalendarEvent/quickAdd" => self.event_quick_add(account_id, rt, args).await,
             // ── Tasks (§2.2) ──
             "Task/get" => self.task_get(account_id, args).await,

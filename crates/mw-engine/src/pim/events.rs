@@ -297,7 +297,10 @@ impl Engine {
         // P4/P5: `categories` + `attachments` are engine-carried projection fields —
         // `mw-ics` does not round-trip CATEGORIES/ATTACH, so capture them before the
         // ICS canonicalization and re-apply below (get/query then see them).
-        let carried: Vec<(&str, Value)> = ["categories", "attachments"]
+        // `itipDtstamp` is the DTSTAMP of the last iTIP message applied to the
+        // event (t28-e21): the emitted DTSTAMP is the time of emission, so the
+        // freshness check keeps its own copy.
+        let carried: Vec<(&str, Value)> = ["categories", "attachments", "itipDtstamp"]
             .iter()
             .filter_map(|k| {
                 json.get(*k)
@@ -578,12 +581,22 @@ impl Engine {
     pub(crate) async fn event_parse(&self, account_id: &str, args: &Value) -> Value {
         let blob = args.get("blob").and_then(Value::as_str).unwrap_or_default();
         match parse_calendar_blob(blob) {
-            Ok(events) => json!({ "accountId": account_id, "parsed": events }),
+            Ok(doc) => json!({
+                "accountId": account_id,
+                "method": doc.method.map(method_name),
+                "parsed": doc.events,
+            }),
             Err(e) => server_fail(e),
         }
     }
 
     /// Import an ICS / `.hol` blob into a calendar, persisting each event (§2.2).
+    ///
+    /// An import is not a scheduling message (t28-e21): a document whose METHOD
+    /// is CANCEL, REPLY or COUNTER is refused (`itipNotImportable`); it is
+    /// applied from the message it came in, through `CalendarEvent/itip`, which
+    /// knows its sender. An event whose UID the calendar already holds is skipped,
+    /// neither stored again nor overwritten; `skipped` counts them.
     pub(crate) async fn event_import(
         &self,
         account_id: &str,
@@ -592,7 +605,10 @@ impl Engine {
     ) -> Value {
         let blob = args.get("blob").and_then(Value::as_str).unwrap_or_default();
         let events = match parse_calendar_blob(blob) {
-            Ok(v) => v,
+            Ok(doc) => match not_importable(doc.method) {
+                Some(refusal) => return refusal,
+                None => doc.events,
+            },
             Err(e) => return server_fail(e),
         };
         let calendar_id = match args.get("calendarId").and_then(Value::as_str) {
@@ -602,11 +618,16 @@ impl Engine {
                 Err(e) => return server_fail(e),
             },
         };
-        let created = self
-            .persist_parsed_events(account_id, &calendar_id, events, Some(rt))
+        let (created, skipped) = self
+            .persist_new_events(account_id, &calendar_id, events, Some(rt))
             .await;
         self.broadcast_state(account_id).await;
-        json!({ "accountId": account_id, "imported": created.clone(), "count": created.len() })
+        json!({
+            "accountId": account_id,
+            "imported": created.clone(),
+            "count": created.len(),
+            "skipped": skipped,
+        })
     }
 
     /// Persist a batch of parsed event projections into `calendar_id`, recording a
@@ -621,14 +642,43 @@ impl Engine {
         events: Vec<Value>,
         push_rt: Option<&AccountRuntime>,
     ) -> Vec<String> {
+        self.persist_new_events(account_id, calendar_id, events, push_rt)
+            .await
+            .0
+    }
+
+    /// [`Engine::persist_parsed_events`], also counting the events skipped because
+    /// `calendar_id` already held their UID before this batch (t28-e21: a
+    /// re-import adds nothing). Components of one batch that share a UID are
+    /// kept as before; only what was stored earlier is compared.
+    async fn persist_new_events(
+        &self,
+        account_id: &str,
+        calendar_id: &str,
+        events: Vec<Value>,
+        push_rt: Option<&AccountRuntime>,
+    ) -> (Vec<String>, usize) {
+        let held: std::collections::HashSet<String> =
+            match self.store().list_events(calendar_id).await {
+                Ok(rows) => rows.into_iter().map(|r| r.uid).collect(),
+                Err(e) => {
+                    tracing::warn!("event import could not list {calendar_id}: {e}");
+                    return (Vec::new(), 0);
+                }
+            };
         let mut created = Vec::new();
+        let mut skipped = 0usize;
         for ev in events {
-            let uid = ev
+            let given = ev
                 .get("uid")
                 .and_then(Value::as_str)
                 .filter(|s| !s.is_empty())
-                .map(String::from)
-                .unwrap_or_else(|| format!("{}@mailwoman.local", gen_token()));
+                .map(String::from);
+            if given.as_ref().is_some_and(|u| held.contains(u)) {
+                skipped += 1;
+                continue;
+            }
+            let uid = given.unwrap_or_else(|| format!("{}@mailwoman.local", gen_token()));
             let id = gen_id("ev");
             match self
                 .persist_event(account_id, calendar_id, &id, &uid, ev, None, push_rt)
@@ -648,13 +698,21 @@ impl Engine {
                 Err(e) => tracing::warn!("event import skipped one: {e}"),
             }
         }
-        created
+        (created, skipped)
     }
 
     /// Parse an ICS/iTIP/`.hol` blob into event projections (P6 subscription
-    /// refresh helper; exposes the module-private feature-detecting parser).
+    /// refresh helper; exposes the module-private feature-detecting parser). A
+    /// feed is read like an import: a CANCEL, REPLY or COUNTER is refused.
     pub(crate) fn parse_calendar_document(&self, blob: &str) -> Result<Vec<Value>> {
-        parse_calendar_blob(blob)
+        let doc = parse_calendar_blob(blob)?;
+        match doc.method {
+            Some(m) if m != mw_ics::ItipMethod::Request => Err(EngineError::Protocol(format!(
+                "ics: a METHOD:{} message is not a calendar to import",
+                method_name(m)
+            ))),
+            _ => Ok(doc.events),
+        }
     }
 
     /// Export events (by id) to a single ICS document (§2.2).
@@ -966,12 +1024,7 @@ impl Engine {
                 return;
             }
         };
-        let method_name = match method {
-            mw_ics::ItipMethod::Request => "REQUEST",
-            mw_ics::ItipMethod::Reply => "REPLY",
-            mw_ics::ItipMethod::Counter => "COUNTER",
-            mw_ics::ItipMethod::Cancel => "CANCEL",
-        };
+        let method_name = method_name(method);
         let title = event_json
             .get("title")
             .and_then(Value::as_str)
@@ -994,7 +1047,7 @@ impl Engine {
 // ── free helpers ─────────────────────────────────────────────────────────────
 
 /// Fill sane defaults on an event projection so `emit_ical` always succeeds.
-fn normalize_event(json: &mut Value) {
+pub(super) fn normalize_event(json: &mut Value) {
     let obj = match json.as_object_mut() {
         Some(o) => o,
         None => return,
@@ -1017,13 +1070,13 @@ fn merge_patch(target: &mut Value, patch: &Value) {
     }
 }
 
-fn set_str(json: &mut Value, key: &str, val: &str) {
+pub(super) fn set_str(json: &mut Value, key: &str, val: &str) {
     if let Some(obj) = json.as_object_mut() {
         obj.insert(key.to_string(), Value::String(val.to_string()));
     }
 }
 
-fn set_json(json: &mut Value, key: &str, val: Value) {
+pub(super) fn set_json(json: &mut Value, key: &str, val: Value) {
     if let Some(obj) = json.as_object_mut() {
         obj.insert(key.to_string(), val);
     }
@@ -1039,28 +1092,70 @@ fn organizer_email(json: &Value) -> Option<String> {
         .or_else(|| parts.keys().next().cloned())
 }
 
+/// A parsed calendar document: its iTIP METHOD (`None` for a plain calendar, a
+/// `PUBLISH` or a `.hol` pack) and its event projections.
+pub(super) struct CalendarDoc {
+    pub(super) method: Option<mw_ics::ItipMethod>,
+    pub(super) events: Vec<Value>,
+}
+
 /// Parse an ICS / iTIP / `.hol` blob into event projections, feature-detecting
 /// the format (plan §2.6 iMIP + §11 .hol import). A blob that is none of the
-/// three is an error, not an empty list.
-fn parse_calendar_blob(blob: &str) -> Result<Vec<Value>> {
+/// three is an error, not an empty list. The METHOD is returned, not discarded
+/// (t28-e21): what a caller may do with the events depends on it.
+pub(super) fn parse_calendar_blob(blob: &str) -> Result<CalendarDoc> {
     let bytes = blob.as_bytes();
     if blob.contains("METHOD:") && blob.contains("BEGIN:VCALENDAR") {
         // iTIP: unwrap the METHOD-framed component.
-        if let Ok((_m, parsed)) = mw_ics::parse_itip(bytes) {
-            return Ok(vec![parsed.json]);
+        if let Ok((m, parsed)) = mw_ics::parse_itip(bytes) {
+            return Ok(CalendarDoc {
+                method: Some(m),
+                events: vec![parsed.json],
+            });
         }
     }
-    if blob.contains("BEGIN:VCALENDAR") {
-        return mw_ics::parse_ical(bytes)
+    let events = if blob.contains("BEGIN:VCALENDAR") {
+        mw_ics::parse_ical(bytes)
             .map(|v| v.into_iter().map(|p| p.json).collect())
-            .map_err(ics_err);
+            .map_err(ics_err)?
+    } else {
+        // Fall back to an Outlook `.hol` holiday pack. `parse_hol` refuses a text
+        // that is not one, and a blob that is neither format is not a calendar:
+        // the answer says that, not which `.hol` part was missing.
+        mw_ics::parse_hol(bytes)
+            .map(|v| v.into_iter().map(|p| p.json).collect())
+            .map_err(|_| EngineError::Protocol("ics: not a calendar document".into()))?
+    };
+    Ok(CalendarDoc {
+        method: None,
+        events,
+    })
+}
+
+/// The iCalendar name of an iTIP method.
+pub(super) fn method_name(m: mw_ics::ItipMethod) -> &'static str {
+    match m {
+        mw_ics::ItipMethod::Request => "REQUEST",
+        mw_ics::ItipMethod::Reply => "REPLY",
+        mw_ics::ItipMethod::Counter => "COUNTER",
+        mw_ics::ItipMethod::Cancel => "CANCEL",
     }
-    // Fall back to an Outlook `.hol` holiday pack. `parse_hol` refuses a text
-    // that is not one, and a blob that is neither format is not a calendar: the
-    // answer says that, not which `.hol` part was missing.
-    mw_ics::parse_hol(bytes)
-        .map(|v| v.into_iter().map(|p| p.json).collect())
-        .map_err(|_| EngineError::Protocol("ics: not a calendar document".into()))
+}
+
+/// The refusal for importing a scheduling message that is not an invitation: a
+/// CANCEL, REPLY or COUNTER changes an event someone else sent, and only the
+/// message it came in says who sent it.
+fn not_importable(method: Option<mw_ics::ItipMethod>) -> Option<Value> {
+    let m = method.filter(|m| *m != mw_ics::ItipMethod::Request)?;
+    Some(json!({
+        "type": "invalidArguments",
+        "code": "itipNotImportable",
+        "method": method_name(m),
+        "description": format!(
+            "a METHOD:{} message is applied from the message it came in, not imported",
+            method_name(m)
+        ),
+    }))
 }
 
 /// Extract the inner components (VEVENT…END:VEVENT) of a single-component
