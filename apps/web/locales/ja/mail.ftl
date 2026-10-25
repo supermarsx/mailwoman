@@ -180,6 +180,12 @@ mail-compose-encrypted-subject = 暗号化されたメッセージ
 mail-compose-dlp-blocked = 情報漏えい防止ルールにより送信がブロックされています（上の警告を参照）。
 mail-compose-send-failed = 送信に失敗しました
 mail-compose-send-later-past = 未来の送信日時を選ぶか、欄を空にしてすぐに送信してください。
+mail-compose-options = 送信オプション
+mail-compose-request-receipt = 開封確認を要求する
+mail-compose-request-receipt-hint = 受信者のメールソフトは、受信者に確認する、確認せずに送信する、または要求を無視する場合があります。
+mail-compose-track-opens = このメッセージが開かれた日時を記録する
+mail-compose-track-opens-hint = このサーバーから読み込まれる 1×1 の画像がメッセージに追加されます。多くのメールソフトは画像をブロックしたり事前に読み込んだりするため、開封が記録されてもメッセージが読まれた証明にはならず、記録がなくても読まれていない証明にはなりません。受信者には通知されません。
+mail-compose-image-type = { $name } は本文に配置できません。PNG、JPEG、GIF、WebP のいずれかの画像を使ってください。
 mail-send-not-signed-in = サインインしていません。
 mail-send-no-draft-folder = このアカウントには下書きを保存するフォルダーがありません。
 mail-send-no-recipient = 受信者を 1 人以上追加してください。
@@ -187,6 +193,7 @@ mail-send-bad-recipient = { $count ->
    *[other] メールアドレスではありません：{ $addresses }
 }
 mail-send-later-past = 送信日時が未来ではありません。何も送信されていません。
+mail-send-tracking-failed = 現在は開封を記録できないため、何も送信されていません。「このメッセージが開かれた日時を記録する」をオフにすると、記録なしで送信できます。
 mail-send-draft-refused = サーバーがこのメッセージを拒否しました：{ $reason }。何も送信されていません。
 mail-send-submission-refused = サーバーがこのメッセージの送信を拒否しました：{ $reason }。何も送信されていません。
 mail-compose-sign-unlock-title = 署名鍵のロックを解除
@@ -210,6 +217,7 @@ mail-compose-rt-quote = 引用
 mail-compose-rt-link = リンク
 mail-compose-rt-link-placeholder = https://example.org
 mail-compose-rt-link-apply = 適用
+mail-compose-rt-image = 画像を挿入
 
 mail-compose-signature = 署名
 mail-compose-signature-none = 署名を追加…
@@ -350,6 +358,7 @@ mail-toast-export-nothing = エクスポートするものはありません
 mail-toast-exported = .eml をエクスポートしました
 mail-toast-export-failed = エクスポートに失敗しました
 mail-toast-send-queued = キューに追加しました — オンラインに戻ると送信されます
+mail-toast-tracking-not-bound = メッセージは送信されましたが、開封は記録されません。
 mail-toast-send-scheduled = 送信を予約しました
 mail-toast-sent = メッセージを送信しました
 mail-toast-send-canceled = 送信をキャンセルしました

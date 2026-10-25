@@ -195,6 +195,12 @@ mail-compose-encrypted-subject = رسالة مشفّرة
 mail-compose-dlp-blocked = الإرسال محظور بموجب قاعدة لمنع فقدان البيانات (انظر التحذير أعلاه).
 mail-compose-send-failed = فشل الإرسال
 mail-compose-send-later-past = اختر وقت إرسال في المستقبل، أو امسح الحقل للإرسال الآن.
+mail-compose-options = خيارات الإرسال
+mail-compose-request-receipt = طلب إشعار بالقراءة
+mail-compose-request-receipt-hint = قد يسأل برنامج البريد لدى المستلم صاحبه، أو يرسل إشعارًا دون سؤال، أو يتجاهل الطلب.
+mail-compose-track-opens = تسجيل وقت فتح هذه الرسالة
+mail-compose-track-opens-hint = تُضاف إلى الرسالة صورة بحجم 1×1 تُحمَّل من هذا الخادم. كثير من برامج البريد تحظر الصور أو تحمّلها مسبقًا، لذا فإن تسجيل الفتح لا يثبت أن الرسالة قُرئت، وغياب التسجيل لا يثبت أنها لم تُقرأ. لا يُبلَّغ المستلم بذلك.
+mail-compose-image-type = لا يمكن وضع { $name } في النص. استخدم صورة PNG أو JPEG أو GIF أو WebP.
 mail-send-not-signed-in = لم تسجّل الدخول.
 mail-send-no-draft-folder = لا يوجد في هذا الحساب مجلد لحفظ المسودة.
 mail-send-no-recipient = أضف مستلمًا واحدًا على الأقل.
@@ -207,6 +213,7 @@ mail-send-bad-recipient = { $count ->
    *[other] هذه ليست عناوين بريد إلكتروني: { $addresses }
 }
 mail-send-later-past = وقت الإرسال ليس في المستقبل. لم يُرسل شيء.
+mail-send-tracking-failed = لا يمكن تسجيل مرات الفتح الآن، لذا لم يُرسل شيء. ألغِ تحديد «تسجيل وقت فتح هذه الرسالة» للإرسال بدونه.
 mail-send-draft-refused = رفض الخادم هذه الرسالة: { $reason }. لم يُرسل شيء.
 mail-send-submission-refused = رفض الخادم إرسال هذه الرسالة: { $reason }. لم يُرسل شيء.
 mail-compose-sign-unlock-title = فتح قفل مفتاح التوقيع
@@ -230,6 +237,7 @@ mail-compose-rt-quote = اقتباس
 mail-compose-rt-link = رابط
 mail-compose-rt-link-placeholder = https://example.org
 mail-compose-rt-link-apply = تطبيق
+mail-compose-rt-image = إدراج صورة
 
 mail-compose-signature = التوقيع
 mail-compose-signature-none = إضافة توقيع…
@@ -462,6 +470,7 @@ mail-toast-export-nothing = لا شيء للتصدير
 mail-toast-exported = صُدّر ملف .eml
 mail-toast-export-failed = فشل التصدير
 mail-toast-send-queued = في قائمة الانتظار — ستُرسل عند عودة الاتصال
+mail-toast-tracking-not-bound = أُرسلت الرسالة، لكن لن تُسجَّل مرات فتحها.
 mail-toast-send-scheduled = جُدولت للإرسال
 mail-toast-sent = أُرسلت الرسالة
 mail-toast-send-canceled = أُلغي الإرسال

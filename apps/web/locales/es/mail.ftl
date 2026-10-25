@@ -183,6 +183,12 @@ mail-compose-encrypted-subject = Mensaje cifrado
 mail-compose-dlp-blocked = El envío está bloqueado por una regla de prevención de pérdida de datos (vea la advertencia de arriba).
 mail-compose-send-failed = Error al enviar
 mail-compose-send-later-past = Elija una hora de envío en el futuro o vacíe el campo para enviar ahora.
+mail-compose-options = Opciones de envío
+mail-compose-request-receipt = Solicitar confirmación de lectura
+mail-compose-request-receipt-hint = El programa de correo del destinatario puede preguntarle, enviar una confirmación sin preguntar o ignorar la solicitud.
+mail-compose-track-opens = Registrar cuándo se abre este mensaje
+mail-compose-track-opens-hint = Se añade al mensaje una imagen de 1×1 que se carga desde este servidor. Muchos programas de correo bloquean las imágenes o las cargan por adelantado, así que una apertura registrada no demuestra que el mensaje se haya leído, y la falta de registro no demuestra que no se haya leído. No se avisa al destinatario.
+mail-compose-image-type = { $name } no se puede colocar en el texto. Use una imagen PNG, JPEG, GIF o WebP.
 mail-send-not-signed-in = No ha iniciado sesión.
 mail-send-no-draft-folder = Esta cuenta no tiene ninguna carpeta para guardar el borrador.
 mail-send-no-recipient = Añada al menos un destinatario.
@@ -191,6 +197,7 @@ mail-send-bad-recipient = { $count ->
    *[other] Estas no son direcciones de correo electrónico: { $addresses }
 }
 mail-send-later-past = La hora de envío no está en el futuro. No se envió nada.
+mail-send-tracking-failed = Ahora no se pueden registrar las aperturas, así que no se envió nada. Desmarque «Registrar cuándo se abre este mensaje» para enviarlo sin ello.
 mail-send-draft-refused = El servidor rechazó este mensaje: { $reason }. No se envió nada.
 mail-send-submission-refused = El servidor se negó a enviar este mensaje: { $reason }. No se envió nada.
 mail-compose-sign-unlock-title = Desbloquear clave de firma
@@ -214,6 +221,7 @@ mail-compose-rt-quote = Cita
 mail-compose-rt-link = Enlace
 mail-compose-rt-link-placeholder = https://example.org
 mail-compose-rt-link-apply = Aplicar
+mail-compose-rt-image = Insertar una imagen
 
 mail-compose-signature = Firma
 mail-compose-signature-none = Añadir una firma…
@@ -364,6 +372,7 @@ mail-toast-export-nothing = No hay nada que exportar
 mail-toast-exported = Exportado como .eml
 mail-toast-export-failed = Error al exportar
 mail-toast-send-queued = En cola — se enviará al recuperar la conexión
+mail-toast-tracking-not-bound = El mensaje se envió, pero sus aperturas no se registrarán.
 mail-toast-send-scheduled = Envío programado
 mail-toast-sent = Mensaje enviado
 mail-toast-send-canceled = Envío cancelado
