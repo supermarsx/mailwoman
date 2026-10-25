@@ -106,7 +106,11 @@ export function AdminSso(props: AdminSsoProps): JSX.Element {
   const [notice, setNotice] = createSignal<string | null>(null);
   const [failure, setFailure] = createSignal<string | null>(null);
 
-  const all = (): SsoBackendRow[] => (rows.error === undefined ? (rows.latest ?? []) : []);
+  // `latest` throws once the read failed (and a JSX ternary reads each condition on
+  // its own), so it is read only through `loaded`.
+  const loaded = (): SsoBackendRow[] | undefined => (rows.error === undefined ? rows.latest : undefined);
+  const all = (): SsoBackendRow[] => loaded() ?? [];
+  const tableState = (): 'loading' | 'error' | 'ready' => (rows.error !== undefined ? 'error' : loaded() === undefined ? 'loading' : 'ready');
   const shown = createMemo(() => {
     const q = query().trim().toLowerCase();
     return all().filter(
@@ -225,7 +229,7 @@ export function AdminSso(props: AdminSsoProps): JSX.Element {
     }
     return (
       <Show
-        when={rows.error === undefined && rows.latest !== undefined}
+        when={loaded() !== undefined}
         fallback={rows.error !== undefined ? <Feedback kind="error" message={t('admin-sso-load-error')} /> : <p role="status">{t('admin-shell-loading')}</p>}
       >
         <Show when={find(id)} fallback={<Feedback kind="error" message={t('admin-sso-not-found', { id: isolate(id) })} />}>
@@ -271,7 +275,7 @@ export function AdminSso(props: AdminSsoProps): JSX.Element {
           columns,
           rows: shown(),
           rowKey: (r) => r.id,
-          state: rows.error !== undefined ? 'error' : rows.latest === undefined ? 'loading' : 'ready',
+          state: tableState(),
           errorText: t('admin-sso-load-error'),
           onRetry: () => void refetch(),
           emptyText: all().length === 0 ? t('admin-sso-empty') : t('admin-sso-no-match'),

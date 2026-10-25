@@ -58,7 +58,10 @@ export function AdminUiPlugins(props: AdminUiPluginsProps): JSX.Element {
   };
 
   const [plugins, { refetch }] = createResource(() => api.list());
-  const rows = (): UiPluginInfo[] => (plugins.error === undefined ? (plugins.latest ?? []) : []);
+  // `latest` throws once the read failed, so it is read only through `loaded`.
+  const loaded = (): UiPluginInfo[] | undefined => (plugins.error === undefined ? plugins.latest : undefined);
+  const rows = (): UiPluginInfo[] => loaded() ?? [];
+  const tableState = (): 'loading' | 'error' | 'ready' => (plugins.error !== undefined ? 'error' : loaded() === undefined ? 'loading' : 'ready');
   const find = (id: string): UiPluginInfo | undefined => rows().find((p) => p.id === id);
   const [query, setQuery] = createSignal('');
   const shown = createMemo(() => {
@@ -187,7 +190,7 @@ export function AdminUiPlugins(props: AdminUiPluginsProps): JSX.Element {
           columns,
           rows: shown(),
           rowKey: (p) => p.id,
-          state: plugins.error !== undefined ? 'error' : plugins.latest === undefined ? 'loading' : 'ready',
+          state: tableState(),
           errorText: t('plugins-admin-ui-load-error'),
           onRetry: () => void refetch(),
           emptyText: rows().length === 0 ? t('plugins-admin-ui-empty') : t('plugins-admin-no-match'),

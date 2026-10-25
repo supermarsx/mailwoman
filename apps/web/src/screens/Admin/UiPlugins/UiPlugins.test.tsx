@@ -146,6 +146,21 @@ describe('Admin → UI plugins: registration', () => {
 });
 
 describe('Admin → UI plugins: list and detail', () => {
+  it('a failed read shows the error with Try again', async () => {
+    const api = mockApi([row()]);
+    let fail = true;
+    const list = api.list.bind(api);
+    api.list = async () => {
+      if (fail) throw new UiPluginsApiError(500, 'boom');
+      return list();
+    };
+    renderInShell(() => <AdminUiPlugins api={api} route={{ section: 'ui-plugins', rest: [] }} navigate={() => undefined} />);
+    expect(await screen.findByText('Could not load the UI plugins.')).toBeInTheDocument();
+    fail = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(listRow('acme-toolbar')).not.toBeNull());
+  });
+
   it('approve enables; disable asks first; enable follows the server', async () => {
     const { api } = setup([row()]);
     await waitFor(() => expect(listRow('acme-toolbar')).not.toBeNull());

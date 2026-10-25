@@ -157,6 +157,25 @@ describe('Admin › SSO list', () => {
   });
 });
 
+describe('Admin › SSO list errors', () => {
+  it('a failed read shows the error with Try again, which reads again', async () => {
+    let fail = true;
+    const api: SsoAdminApi = {
+      list: vi.fn(async () => {
+        if (fail) throw Object.assign(new Error('x'), { status: 500 });
+        return [OIDC_ROW];
+      }),
+      save: vi.fn(),
+      remove: vi.fn(),
+    };
+    renderInShell(() => <AdminSso api={api} listDomains={async () => []} route={{ section: 'sso', rest: [] }} navigate={vi.fn()} />);
+    expect(await screen.findByText('Could not load SSO backends.')).toBeInTheDocument();
+    fail = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(document.querySelector('[data-row-key="corp-oidc"]')).not.toBeNull());
+  });
+});
+
 describe('Admin › SSO detail', () => {
   it('opens a provider at #/sso/<id> with its values, history, and a fixed id', async () => {
     setup([OIDC_ROW], { rest: ['corp-oidc'] });

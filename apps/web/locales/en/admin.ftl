@@ -415,6 +415,8 @@ admin-servermeta-select-option = Select an account…
 admin-servermeta-select-prompt = Select an account to view and edit its server annotations.
 admin-servermeta-load-error = Could not load the account list.
 admin-servermeta-no-accounts = No accounts are provisioned.
+admin-servermeta-add-user = Add a user
+admin-servermeta-account-help = The annotations are read and written on this account's mail server, which decides what the account may set.
 
 # -- Re-thread mailbox: one-shot JWZ backfill (t14, admin opt-in) --------------
 # Keys are disjoint from admin-servermeta-* (E4) — additive. This drives the
