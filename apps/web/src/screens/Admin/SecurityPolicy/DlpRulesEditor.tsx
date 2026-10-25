@@ -3,8 +3,8 @@
 //
 // Each rule is a group of plain controls: name, on/off, what happens on a match,
 // priority, the sentence the sender sees, the built-in detectors, a custom
-// pattern, recipient domains, attachment types and size. Members the editor has
-// no control for (dictionaries, classification) are kept as stored. Rules from
+// pattern, keyword phrases, recipient domains, attachment types and size. Members
+// the editor has no control for (classification) are kept as stored. Rules from
 // `MW_DLP_RULES` are listed above the editor, read-only: the server applies them
 // beside the stored ones and an environment rule wins over a stored rule with the
 // same id.

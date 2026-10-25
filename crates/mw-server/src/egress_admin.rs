@@ -63,9 +63,24 @@ use mw_store::EgressProxyRow;
 
 /// The egress admin routes (registered through `v7_mount::register_admin`).
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
-    r.admin_endpoint(Method::GET, "/egress/privacy-stats", Capability::EgressRead, crate::image_proxy::remote_content::stats);
-    r.admin_endpoint(Method::GET, "/egress/proxies", Capability::EgressRead, list_proxies);
-    r.admin_endpoint(Method::POST, "/egress/proxies", Capability::EgressWrite, put_proxy);
+    r.admin_endpoint(
+        Method::GET,
+        "/egress/privacy-stats",
+        Capability::EgressRead,
+        crate::image_proxy::remote_content::stats,
+    );
+    r.admin_endpoint(
+        Method::GET,
+        "/egress/proxies",
+        Capability::EgressRead,
+        list_proxies,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/egress/proxies",
+        Capability::EgressWrite,
+        put_proxy,
+    );
     r.admin_endpoint(
         Method::POST,
         "/egress/proxies/{id}/delete",

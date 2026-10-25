@@ -455,112 +455,6 @@ fn scope_error_response(e: &OAuthError) -> Response {
     (code, Json(json!({ "error": msg }))).into_response()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn hdrs(pairs: &[(&str, &str)]) -> HeaderMap {
-        let mut h = HeaderMap::new();
-        for (k, v) in pairs {
-            h.insert(
-                axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(),
-                v.parse().unwrap(),
-            );
-        }
-        h
-    }
-
-    #[test]
-    fn extracts_key_from_header_and_bearer() {
-        let h = hdrs(&[("x-api-key", "mwk_abc.def")]);
-        let k = extract_api_key(&h).unwrap();
-        assert_eq!(k.token, "mwk_abc.def");
-        assert_eq!(k.location, KeyLocation::Header);
-
-        let h = hdrs(&[("authorization", "Bearer mwk_zzz.yyy")]);
-        let k = extract_api_key(&h).unwrap();
-        assert_eq!(k.location, KeyLocation::Bearer);
-
-        // A non-mwk bearer (native session token) is not a key.
-        let h = hdrs(&[("authorization", "Bearer plain-session-id")]);
-        assert!(extract_api_key(&h).is_none());
-        assert!(extract_api_key(&HeaderMap::new()).is_none());
-    }
-
-    #[test]
-    fn client_ip_ignores_forwarded_headers_from_an_untrusted_peer() {
-        // No ConnectInfo → no source IP at all; a header alone never produces one.
-        let empty = axum::http::Extensions::new();
-        let h = hdrs(&[("x-forwarded-for", "8.8.8.8, 10.0.0.1")]);
-        assert!(client_ip(&h, &empty).is_none());
-
-        // With a peer address and the default posture, the header is ignored.
-        let mut ext = axum::http::Extensions::new();
-        ext.insert(axum::extract::ConnectInfo(
-            "198.51.100.7:52000"
-                .parse::<std::net::SocketAddr>()
-                .unwrap(),
-        ));
-        let expect = "198.51.100.7".parse::<IpAddr>().unwrap();
-        assert_eq!(client_ip(&h, &ext).unwrap(), expect);
-
-        let h = hdrs(&[("forwarded", "for=1.2.3.4:5678;proto=https")]);
-        assert_eq!(client_ip(&h, &ext).unwrap(), expect);
-
-        assert_eq!(client_ip(&HeaderMap::new(), &ext).unwrap(), expect);
-    }
-
-    #[test]
-    fn required_scope_maps_verb_and_surface() {
-        let s = rest_required_scope(&Method::GET, "/api/v1/messages", ScopeSelector::All, None);
-        assert!(s.read && s.mail && !s.pim && !s.send);
-        let s = rest_required_scope(&Method::GET, "/api/v1/calendar/x", ScopeSelector::All, None);
-        assert!(s.read && s.pim && !s.mail);
-        let s = rest_required_scope(
-            &Method::DELETE,
-            "/api/v1/messages/1",
-            ScopeSelector::All,
-            None,
-        );
-        assert!(s.delete && !s.read);
-    }
-
-    #[test]
-    fn the_named_folder_becomes_the_required_folder() {
-        assert_eq!(
-            named_folder("/api/v1/messages", Some("mailbox=mbx-a&limit=5")).as_deref(),
-            Some("mbx-a")
-        );
-        assert_eq!(named_folder("/api/v1/messages", Some("limit=5")), None);
-        assert_eq!(named_folder("/api/v1/messages", Some("mailbox=")), None);
-        assert_eq!(named_folder("/api/v1/messages", None), None);
-        // Only the message list takes the parameter.
-        assert_eq!(
-            named_folder("/api/v1/mailboxes", Some("mailbox=mbx-a")),
-            None
-        );
-        let s = rest_required_scope(
-            &Method::GET,
-            "/api/v1/messages",
-            ScopeSelector::All,
-            Some("mbx-a"),
-        );
-        assert_eq!(s.folders, ScopeSelector::Subset(vec!["mbx-a".into()]));
-        let s = rest_required_scope(&Method::GET, "/api/v1/messages", ScopeSelector::All, None);
-        assert_eq!(s.folders, ScopeSelector::Subset(vec![]));
-    }
-
-    #[test]
-    fn rest_folders_admit_only_granted_mailboxes() {
-        let all = RestFolders::from_grant(&ScopeSelector::All);
-        assert!(all.admits_any(["x"].into_iter()));
-        let some = RestFolders::from_grant(&ScopeSelector::Subset(vec!["a".into()]));
-        assert!(some.admits_any(["b", "a"].into_iter()));
-        assert!(!some.admits_any(["b"].into_iter()));
-        assert!(!some.admits_any(std::iter::empty()));
-    }
-}
-
 /// Downscope Sieve JMAP calls by an explicitly presented API key. Native bearer
 /// sessions are not API keys. Account-wide scripts require an all-folders grant.
 pub(crate) async fn jmap_sieve_scope_guard(
@@ -744,4 +638,110 @@ pub(crate) async fn sieve_key_session(
         }
     }
     Ok(Some(session))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hdrs(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        for (k, v) in pairs {
+            h.insert(
+                axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                v.parse().unwrap(),
+            );
+        }
+        h
+    }
+
+    #[test]
+    fn extracts_key_from_header_and_bearer() {
+        let h = hdrs(&[("x-api-key", "mwk_abc.def")]);
+        let k = extract_api_key(&h).unwrap();
+        assert_eq!(k.token, "mwk_abc.def");
+        assert_eq!(k.location, KeyLocation::Header);
+
+        let h = hdrs(&[("authorization", "Bearer mwk_zzz.yyy")]);
+        let k = extract_api_key(&h).unwrap();
+        assert_eq!(k.location, KeyLocation::Bearer);
+
+        // A non-mwk bearer (native session token) is not a key.
+        let h = hdrs(&[("authorization", "Bearer plain-session-id")]);
+        assert!(extract_api_key(&h).is_none());
+        assert!(extract_api_key(&HeaderMap::new()).is_none());
+    }
+
+    #[test]
+    fn client_ip_ignores_forwarded_headers_from_an_untrusted_peer() {
+        // No ConnectInfo → no source IP at all; a header alone never produces one.
+        let empty = axum::http::Extensions::new();
+        let h = hdrs(&[("x-forwarded-for", "8.8.8.8, 10.0.0.1")]);
+        assert!(client_ip(&h, &empty).is_none());
+
+        // With a peer address and the default posture, the header is ignored.
+        let mut ext = axum::http::Extensions::new();
+        ext.insert(axum::extract::ConnectInfo(
+            "198.51.100.7:52000"
+                .parse::<std::net::SocketAddr>()
+                .unwrap(),
+        ));
+        let expect = "198.51.100.7".parse::<IpAddr>().unwrap();
+        assert_eq!(client_ip(&h, &ext).unwrap(), expect);
+
+        let h = hdrs(&[("forwarded", "for=1.2.3.4:5678;proto=https")]);
+        assert_eq!(client_ip(&h, &ext).unwrap(), expect);
+
+        assert_eq!(client_ip(&HeaderMap::new(), &ext).unwrap(), expect);
+    }
+
+    #[test]
+    fn required_scope_maps_verb_and_surface() {
+        let s = rest_required_scope(&Method::GET, "/api/v1/messages", ScopeSelector::All, None);
+        assert!(s.read && s.mail && !s.pim && !s.send);
+        let s = rest_required_scope(&Method::GET, "/api/v1/calendar/x", ScopeSelector::All, None);
+        assert!(s.read && s.pim && !s.mail);
+        let s = rest_required_scope(
+            &Method::DELETE,
+            "/api/v1/messages/1",
+            ScopeSelector::All,
+            None,
+        );
+        assert!(s.delete && !s.read);
+    }
+
+    #[test]
+    fn the_named_folder_becomes_the_required_folder() {
+        assert_eq!(
+            named_folder("/api/v1/messages", Some("mailbox=mbx-a&limit=5")).as_deref(),
+            Some("mbx-a")
+        );
+        assert_eq!(named_folder("/api/v1/messages", Some("limit=5")), None);
+        assert_eq!(named_folder("/api/v1/messages", Some("mailbox=")), None);
+        assert_eq!(named_folder("/api/v1/messages", None), None);
+        // Only the message list takes the parameter.
+        assert_eq!(
+            named_folder("/api/v1/mailboxes", Some("mailbox=mbx-a")),
+            None
+        );
+        let s = rest_required_scope(
+            &Method::GET,
+            "/api/v1/messages",
+            ScopeSelector::All,
+            Some("mbx-a"),
+        );
+        assert_eq!(s.folders, ScopeSelector::Subset(vec!["mbx-a".into()]));
+        let s = rest_required_scope(&Method::GET, "/api/v1/messages", ScopeSelector::All, None);
+        assert_eq!(s.folders, ScopeSelector::Subset(vec![]));
+    }
+
+    #[test]
+    fn rest_folders_admit_only_granted_mailboxes() {
+        let all = RestFolders::from_grant(&ScopeSelector::All);
+        assert!(all.admits_any(["x"].into_iter()));
+        let some = RestFolders::from_grant(&ScopeSelector::Subset(vec!["a".into()]));
+        assert!(some.admits_any(["b", "a"].into_iter()));
+        assert!(!some.admits_any(["b"].into_iter()));
+        assert!(!some.admits_any(std::iter::empty()));
+    }
 }

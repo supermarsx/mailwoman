@@ -64,7 +64,9 @@ async fn http_sieve_scopes_cookie_native_and_headless_are_account_bound() {
         .json()
         .await
         .unwrap();
-    let account = login["accountId"].as_str().expect(&login.to_string());
+    let account = login["accountId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{}", login));
     let proof = browser
         .post(format!("{base}/api/security/step-up"))
         .json(&json!({"password":"test-password"}))
@@ -101,7 +103,7 @@ async fn http_sieve_scopes_cookie_native_and_headless_are_account_bound() {
             .unwrap();
         value["displayToken"]
             .as_str()
-            .expect(&value.to_string())
+            .unwrap_or_else(|| panic!("{}", value))
             .into()
     }
     let granted = mint(&browser, &base, account, true).await;
@@ -154,7 +156,9 @@ async fn http_sieve_scopes_cookie_native_and_headless_are_account_bound() {
         .json()
         .await
         .unwrap();
-    let blob = upload["blobId"].as_str().expect(&upload.to_string());
+    let blob = upload["blobId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{}", upload));
     let created:Value=browser.post(format!("{base}/jmap/api")).json(&json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:sieve"],"methodCalls":[["SieveScript/set",{"accountId":account,"create":{"one":{"name":"main","blobId":blob}},"onSuccessActivateScript":"#one"},"s"]]})).send().await.unwrap().json().await.unwrap();
     assert_eq!(
         created["methodResponses"][0][1]["created"]["one"]["isActive"], true,
@@ -176,7 +180,9 @@ async fn http_sieve_scopes_cookie_native_and_headless_are_account_bound() {
     );
     // A native token is not a scoped key and remains authorized by its native session.
     let native:Value=headless.post(format!("{base}/api/login")).json(&json!({"username":"alice@example.org","password":"test-password","clientType":"native"})).send().await.unwrap().json().await.unwrap();
-    let token = native["token"].as_str().expect(&native.to_string());
+    let token = native["token"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{}", native));
     assert_eq!(
         headless
             .post(format!("{base}/jmap/api"))
@@ -218,7 +224,9 @@ async fn http_sieve_scopes_cookie_native_and_headless_are_account_bound() {
         .json()
         .await
         .unwrap();
-    let script_blob = uploaded["blobId"].as_str().expect(&uploaded.to_string());
+    let script_blob = uploaded["blobId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{}", uploaded));
     let saved:Value=headless.post(format!("{base}/jmap/api")).bearer_auth(&granted)
         .json(&json!({"using":["urn:ietf:params:jmap:core",capability],"methodCalls":[["SieveScript/set",{"accountId":account,"create":{"key":{"name":"key-created","blobId":script_blob}}},"s"]]})).send().await.unwrap().json().await.unwrap();
     assert!(

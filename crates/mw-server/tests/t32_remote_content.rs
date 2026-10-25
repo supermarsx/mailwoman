@@ -69,7 +69,7 @@ fn png(w: u32, h: u32) -> Vec<u8> {
     }
     let mut raw = Vec::new();
     for _ in 0..h {
-        raw.push(0u8);
+        raw.extend_from_slice(&[0u8]);
         for _ in 0..w {
             raw.extend_from_slice(&[0x20, 0x40, 0x80]);
         }
