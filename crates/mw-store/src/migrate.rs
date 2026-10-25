@@ -9,8 +9,8 @@
 //! validated at commit.
 //!
 //! **The copy is not the whole schema, but it is now nearly all of it.** `TABLES`
-//! below is the complete list of what is copied: as of migration 0034 that is 120
-//! tables out of the 146 the migrations create. The other 26 are left behind
+//! below is the complete list of what is copied: as of migration 0035 that is 121
+//! tables out of the 147 the migrations create. The other 26 are left behind
 //! deliberately, each with its reason recorded at its entry in
 //! `NOT_MIGRATED_DELIBERATELY` in `tests/backend_parity.rs`: the admin panel's
 //! separate identity domain, OAuth clients and tokens, API keys, webhooks (and,
@@ -736,8 +736,10 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "events",
-        select: "SELECT id, calendar_id, uid, etag, ical_raw, start_utc, end_utc, tzid, rrule, status, json FROM events",
-        insert: "INSERT INTO events (id, calendar_id, uid, etag, ical_raw, start_utc, end_utc, tzid, rrule, status, json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+        // 0035: `href` is the DAV server's name for the resource; without it the
+        // destination would address every synced event by a guessed href.
+        select: "SELECT id, calendar_id, uid, etag, ical_raw, start_utc, end_utc, tzid, rrule, status, json, href FROM events",
+        insert: "INSERT INTO events (id, calendar_id, uid, etag, ical_raw, start_utc, end_utc, tzid, rrule, status, json, href) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -751,6 +753,7 @@ const TABLES: &[TableSpec] = &[
                 ot(r, "rrule"),
                 t(r, "status"),
                 ob(r, "json"),
+                ot(r, "href"),
             ]
         },
     },
@@ -768,8 +771,8 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "tasks",
-        select: "SELECT id, list_id, uid, etag, due_utc, start_utc, priority, percent_complete, status, parent_id, my_day_date, ical_raw, json FROM tasks",
-        insert: "INSERT INTO tasks (id, list_id, uid, etag, due_utc, start_utc, priority, percent_complete, status, parent_id, my_day_date, ical_raw, json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+        select: "SELECT id, list_id, uid, etag, due_utc, start_utc, priority, percent_complete, status, parent_id, my_day_date, ical_raw, json, href FROM tasks",
+        insert: "INSERT INTO tasks (id, list_id, uid, etag, due_utc, start_utc, priority, percent_complete, status, parent_id, my_day_date, ical_raw, json, href) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -785,6 +788,7 @@ const TABLES: &[TableSpec] = &[
                 ot(r, "my_day_date"),
                 t(r, "ical_raw"),
                 ob(r, "json"),
+                ot(r, "href"),
             ]
         },
     },
@@ -839,8 +843,8 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "contacts",
-        select: "SELECT id, address_book_id, uid, etag, vcard_raw, json, full_name, is_favorite, photo_blob_id, pgp_key, smime_cert FROM contacts",
-        insert: "INSERT INTO contacts (id, address_book_id, uid, etag, vcard_raw, json, full_name, is_favorite, photo_blob_id, pgp_key, smime_cert) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+        select: "SELECT id, address_book_id, uid, etag, vcard_raw, json, full_name, is_favorite, photo_blob_id, pgp_key, smime_cert, href FROM contacts",
+        insert: "INSERT INTO contacts (id, address_book_id, uid, etag, vcard_raw, json, full_name, is_favorite, photo_blob_id, pgp_key, smime_cert, href) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -854,6 +858,32 @@ const TABLES: &[TableSpec] = &[
                 ot(r, "photo_blob_id"),
                 ot(r, "pgp_key"),
                 ot(r, "smime_cert"),
+                ot(r, "href"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "dav_account",
+        // 0035: an account's CalDAV/CardDAV sign-in (a sealed password when it is
+        // not the mail one) and its sync backoff. Copied like the other sealed
+        // account credentials: without it every DAV-syncing account stops syncing
+        // until its owner enters the password again. The server URLs are not here;
+        // they come from the domain on the destination.
+        select: "SELECT account_id, enabled, use_mail_credentials, username, sealed_password, last_sync_at, last_error, failures, next_attempt_at, created_at, updated_at FROM dav_account",
+        insert: "INSERT INTO dav_account (account_id, enabled, use_mail_credentials, username, sealed_password, last_sync_at, last_error, failures, next_attempt_at, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                i(r, "enabled"),
+                i(r, "use_mail_credentials"),
+                t(r, "username"),
+                ob(r, "sealed_password"),
+                oi(r, "last_sync_at"),
+                t(r, "last_error"),
+                i(r, "failures"),
+                oi(r, "next_attempt_at"),
+                i(r, "created_at"),
+                i(r, "updated_at"),
             ]
         },
     },

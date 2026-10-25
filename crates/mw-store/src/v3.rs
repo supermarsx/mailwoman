@@ -1065,6 +1065,279 @@ impl Store {
             })
             .collect())
     }
+
+    // ── DAV resource hrefs (0035) ────────────────────────────────────────────
+
+    /// Record the href the DAV server named an event with (`None` clears it).
+    pub async fn set_event_href(&self, id: &str, href: Option<&str>) -> Result<(), StoreError> {
+        self.set_dav_href(DavObject::Event, id, href).await
+    }
+
+    /// Record the href the DAV server named a task with (`None` clears it).
+    pub async fn set_task_href(&self, id: &str, href: Option<&str>) -> Result<(), StoreError> {
+        self.set_dav_href(DavObject::Task, id, href).await
+    }
+
+    /// Record the href the DAV server named a contact with (`None` clears it).
+    pub async fn set_contact_href(&self, id: &str, href: Option<&str>) -> Result<(), StoreError> {
+        self.set_dav_href(DavObject::Contact, id, href).await
+    }
+
+    /// The href the DAV server named an event with, when one was recorded.
+    pub async fn event_href(&self, id: &str) -> Result<Option<String>, StoreError> {
+        self.dav_href(DavObject::Event, id).await
+    }
+
+    /// The href the DAV server named a task with, when one was recorded.
+    pub async fn task_href(&self, id: &str) -> Result<Option<String>, StoreError> {
+        self.dav_href(DavObject::Task, id).await
+    }
+
+    /// The href the DAV server named a contact with, when one was recorded.
+    pub async fn contact_href(&self, id: &str) -> Result<Option<String>, StoreError> {
+        self.dav_href(DavObject::Contact, id).await
+    }
+
+    /// `(id, href, etag)` of every event of a calendar that has an href: what the
+    /// sync pull compares the server's member list against.
+    pub async fn event_dav_members(&self, calendar_id: &str) -> Result<DavMembers, StoreError> {
+        self.dav_members(DavObject::Event, calendar_id).await
+    }
+
+    /// [`Store::event_dav_members`] for a task list.
+    pub async fn task_dav_members(&self, list_id: &str) -> Result<DavMembers, StoreError> {
+        self.dav_members(DavObject::Task, list_id).await
+    }
+
+    /// [`Store::event_dav_members`] for an address book.
+    pub async fn contact_dav_members(&self, book_id: &str) -> Result<DavMembers, StoreError> {
+        self.dav_members(DavObject::Contact, book_id).await
+    }
+
+    async fn set_dav_href(
+        &self,
+        kind: DavObject,
+        id: &str,
+        href: Option<&str>,
+    ) -> Result<(), StoreError> {
+        q(match kind {
+            DavObject::Event => "UPDATE events SET href = ?2 WHERE id = ?1",
+            DavObject::Task => "UPDATE tasks SET href = ?2 WHERE id = ?1",
+            DavObject::Contact => "UPDATE contacts SET href = ?2 WHERE id = ?1",
+        })
+        .bind(id)
+        .bind(href)
+        .execute(&self.backend)
+        .await?;
+        Ok(())
+    }
+
+    async fn dav_href(&self, kind: DavObject, id: &str) -> Result<Option<String>, StoreError> {
+        let row = q(match kind {
+            DavObject::Event => "SELECT href FROM events WHERE id = ?1",
+            DavObject::Task => "SELECT href FROM tasks WHERE id = ?1",
+            DavObject::Contact => "SELECT href FROM contacts WHERE id = ?1",
+        })
+        .bind(id)
+        .fetch_optional(&self.backend)
+        .await?;
+        Ok(row.and_then(|r| r.get_opt_string("href")))
+    }
+
+    async fn dav_members(
+        &self,
+        kind: DavObject,
+        collection_id: &str,
+    ) -> Result<DavMembers, StoreError> {
+        let rows = q(match kind {
+            DavObject::Event => {
+                "SELECT id, href, etag FROM events WHERE calendar_id = ?1 AND href IS NOT NULL"
+            }
+            DavObject::Task => {
+                "SELECT id, href, etag FROM tasks WHERE list_id = ?1 AND href IS NOT NULL"
+            }
+            DavObject::Contact => {
+                "SELECT id, href, etag FROM contacts WHERE address_book_id = ?1 AND href IS NOT NULL"
+            }
+        })
+        .bind(collection_id)
+        .fetch_all(&self.backend)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| {
+                (
+                    r.get_string("id"),
+                    r.get_string("href"),
+                    r.get_opt_string("etag"),
+                )
+            })
+            .collect())
+    }
+
+    // ── DAV accounts (0035) ──────────────────────────────────────────────────
+
+    /// Create or replace an account's DAV sign-in. With `use_mail_credentials`
+    /// the mail username and password are used and `username`/`password` are
+    /// ignored; otherwise `password` is sealed under the server key. `None` keeps
+    /// the sealed password already stored. The backoff is reset.
+    pub async fn put_dav_account(
+        &self,
+        account_id: &str,
+        enabled: bool,
+        use_mail_credentials: bool,
+        username: &str,
+        password: Option<&str>,
+        now: i64,
+    ) -> Result<(), StoreError> {
+        let sealed = match (use_mail_credentials, password) {
+            (true, _) => None,
+            (false, Some(p)) => Some(self.key.seal(p.as_bytes())?),
+            (false, None) => q("SELECT sealed_password FROM dav_account WHERE account_id = ?1")
+                .bind(account_id)
+                .fetch_optional(&self.backend)
+                .await?
+                .and_then(|r| r.get_opt_blob("sealed_password")),
+        };
+        q("INSERT INTO dav_account
+             (account_id, enabled, use_mail_credentials, username, sealed_password,
+              last_error, failures, next_attempt_at, created_at, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, '', 0, NULL, ?6, ?6)
+           ON CONFLICT(account_id) DO UPDATE SET
+             enabled = excluded.enabled,
+             use_mail_credentials = excluded.use_mail_credentials,
+             username = excluded.username,
+             sealed_password = excluded.sealed_password,
+             last_error = '', failures = 0, next_attempt_at = NULL,
+             updated_at = excluded.updated_at")
+        .bind(account_id)
+        .bind(i64::from(enabled))
+        .bind(i64::from(use_mail_credentials))
+        .bind(if use_mail_credentials { "" } else { username })
+        .bind(sealed)
+        .bind(now)
+        .execute(&self.backend)
+        .await?;
+        Ok(())
+    }
+
+    /// An account's DAV sign-in and sync state, the password opened.
+    pub async fn get_dav_account(
+        &self,
+        account_id: &str,
+    ) -> Result<Option<DavAccountRow>, StoreError> {
+        let row = q(
+            "SELECT account_id, enabled, use_mail_credentials, username, sealed_password,
+                            COALESCE(last_sync_at, 0) AS last_sync_at, last_error, failures,
+                            COALESCE(next_attempt_at, 0) AS next_attempt_at, updated_at
+                       FROM dav_account WHERE account_id = ?1",
+        )
+        .bind(account_id)
+        .fetch_optional(&self.backend)
+        .await?;
+        let Some(r) = row else {
+            return Ok(None);
+        };
+        let password = match r.get_opt_blob("sealed_password") {
+            Some(sealed) => Some(
+                String::from_utf8(self.key.open(&sealed)?)
+                    .map_err(|_| StoreError::Corrupt("DAV password is not UTF-8".into()))?,
+            ),
+            None => None,
+        };
+        Ok(Some(DavAccountRow {
+            account_id: r.get_string("account_id"),
+            enabled: r.get_i64("enabled") != 0,
+            use_mail_credentials: r.get_i64("use_mail_credentials") != 0,
+            username: r.get_string("username"),
+            password,
+            last_sync_at: r.get_i64("last_sync_at"),
+            last_error: r.get_string("last_error"),
+            failures: r.get_i64("failures"),
+            next_attempt_at: r.get_i64("next_attempt_at"),
+            updated_at: r.get_i64("updated_at"),
+        }))
+    }
+
+    /// Remove an account's DAV sign-in.
+    pub async fn delete_dav_account(&self, account_id: &str) -> Result<(), StoreError> {
+        q("DELETE FROM dav_account WHERE account_id = ?1")
+            .bind(account_id)
+            .execute(&self.backend)
+            .await?;
+        Ok(())
+    }
+
+    /// Enabled DAV accounts whose next attempt is due at `now` (never attempted, or
+    /// `next_attempt_at <= now`).
+    pub async fn due_dav_accounts(&self, now: i64) -> Result<Vec<String>, StoreError> {
+        let rows = q("SELECT account_id FROM dav_account
+                       WHERE enabled = 1 AND (next_attempt_at IS NULL OR next_attempt_at <= ?1)
+                       ORDER BY account_id")
+        .bind(now)
+        .fetch_all(&self.backend)
+        .await?;
+        Ok(rows.iter().map(|r| r.get_string("account_id")).collect())
+    }
+
+    /// Record a sync attempt. Success clears the error and the failure count and
+    /// schedules the next pull at `next_attempt_at`; a failure keeps the error
+    /// text (no credentials in it, by the caller's contract), counts it, and
+    /// schedules the retry at `next_attempt_at`.
+    pub async fn record_dav_sync(
+        &self,
+        account_id: &str,
+        error: Option<&str>,
+        now: i64,
+        next_attempt_at: i64,
+    ) -> Result<(), StoreError> {
+        match error {
+            None => q("UPDATE dav_account
+                         SET last_sync_at = ?2, last_error = '', failures = 0, next_attempt_at = ?3
+                       WHERE account_id = ?1")
+            .bind(account_id)
+            .bind(now)
+            .bind(next_attempt_at),
+            Some(e) => q("UPDATE dav_account
+                            SET last_error = ?2, failures = failures + 1, next_attempt_at = ?3
+                          WHERE account_id = ?1")
+            .bind(account_id)
+            .bind(e)
+            .bind(next_attempt_at),
+        }
+        .execute(&self.backend)
+        .await?;
+        Ok(())
+    }
+}
+
+/// `(id, href, etag)` rows of a DAV-synced collection (0035).
+pub type DavMembers = Vec<(String, String, Option<String>)>;
+
+/// Which object table a DAV href belongs to (0035).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DavObject {
+    Event,
+    Task,
+    Contact,
+}
+
+/// An account's DAV sign-in and sync state (`dav_account`, 0035), password opened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DavAccountRow {
+    pub account_id: String,
+    pub enabled: bool,
+    pub use_mail_credentials: bool,
+    pub username: String,
+    /// The separate DAV password; `None` with mail credentials.
+    pub password: Option<String>,
+    /// Unix seconds; `0` = never synced.
+    pub last_sync_at: i64,
+    pub last_error: String,
+    pub failures: i64,
+    /// Unix seconds; `0` = due now.
+    pub next_attempt_at: i64,
+    pub updated_at: i64,
 }
 
 #[cfg(test)]
@@ -1450,5 +1723,217 @@ mod tests {
                 .unwrap(),
             1
         );
+    }
+    /// What 0035 promises, on whichever backend `s` is: a separate DAV password
+    /// is sealed at rest and opens to what was stored, mail credentials store no
+    /// password, the backoff counts failures and is reset by a save, the due list
+    /// follows `next_attempt_at`, and an event's href survives a later upsert.
+    async fn assert_dav_0035(s: &Store) {
+        // An account of its own, so the Postgres leg can run against a shared
+        // database that other legs have written to.
+        let a = s
+            .create_account(
+                &NewAccount {
+                    kind: AccountKind::Imap,
+                    host: "dav-0035.test",
+                    port: 993,
+                    tls: "implicit",
+                    username: "u",
+                    sync_policy_json: "{}",
+                },
+                &Credentials {
+                    username: "u".into(),
+                    password: "p".into(),
+                },
+            )
+            .await
+            .unwrap();
+        s.put_dav_account(&a, true, false, "dav-user", Some("dav-secret-pw"), 100)
+            .await
+            .unwrap();
+        let sealed = q("SELECT sealed_password FROM dav_account WHERE account_id = ?1")
+            .bind(a.as_str())
+            .fetch_one(&s.backend)
+            .await
+            .unwrap()
+            .get_opt_blob("sealed_password")
+            .expect("a sealed password");
+        assert!(
+            !sealed.windows(13).any(|w| w == b"dav-secret-pw"),
+            "the DAV password is not stored in the clear"
+        );
+        let got = s.get_dav_account(&a).await.unwrap().unwrap();
+        assert_eq!(got.password.as_deref(), Some("dav-secret-pw"));
+        assert_eq!(got.username, "dav-user");
+        assert!(got.enabled && !got.use_mail_credentials);
+        assert_eq!(
+            (got.failures, got.next_attempt_at, got.last_sync_at),
+            (0, 0, 0)
+        );
+
+        // A save without a password keeps the sealed one.
+        s.put_dav_account(&a, true, false, "dav-user2", None, 110)
+            .await
+            .unwrap();
+        let got = s.get_dav_account(&a).await.unwrap().unwrap();
+        assert_eq!(got.password.as_deref(), Some("dav-secret-pw"));
+        assert_eq!(got.username, "dav-user2");
+
+        // Due now; a failure pushes it out and counts; success resets.
+        assert!(s.due_dav_accounts(120).await.unwrap().contains(&a));
+        s.record_dav_sync(&a, Some("dav: status 503"), 120, 180)
+            .await
+            .unwrap();
+        let got = s.get_dav_account(&a).await.unwrap().unwrap();
+        assert_eq!((got.failures, got.next_attempt_at), (1, 180));
+        assert_eq!(got.last_error, "dav: status 503");
+        assert!(!s.due_dav_accounts(150).await.unwrap().contains(&a));
+        assert!(s.due_dav_accounts(180).await.unwrap().contains(&a));
+        s.record_dav_sync(&a, None, 190, 490).await.unwrap();
+        let got = s.get_dav_account(&a).await.unwrap().unwrap();
+        assert_eq!(
+            (got.failures, got.last_sync_at, got.last_error.as_str()),
+            (0, 190, "")
+        );
+
+        // Mail credentials: no password kept.
+        s.put_dav_account(&a, true, true, "ignored", Some("ignored"), 200)
+            .await
+            .unwrap();
+        let got = s.get_dav_account(&a).await.unwrap().unwrap();
+        assert!(got.use_mail_credentials && got.password.is_none() && got.username.is_empty());
+        // Disabled accounts are never due.
+        s.put_dav_account(&a, false, true, "", None, 210)
+            .await
+            .unwrap();
+        assert!(!s.due_dav_accounts(i64::MAX).await.unwrap().contains(&a));
+
+        // Hrefs: recorded, listed per collection, kept across an upsert.
+        let mut cal = calendar("cal-dav-0035", &a, "VEVENT");
+        cal.caldav_url = Some("https://dav.example/cal/".into());
+        s.upsert_calendar(&cal).await.unwrap();
+        let ev = EventRow {
+            id: "ev-dav-0035".into(),
+            calendar_id: "cal-dav-0035".into(),
+            uid: "uid-0035".into(),
+            etag: Some("\"1\"".into()),
+            ical_raw: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n".into(),
+            start_utc: None,
+            end_utc: None,
+            tzid: None,
+            rrule: None,
+            status: "confirmed".into(),
+            json: None,
+        };
+        s.upsert_event(&ev).await.unwrap();
+        assert_eq!(s.event_href("ev-dav-0035").await.unwrap(), None);
+        assert!(
+            s.event_dav_members("cal-dav-0035")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        s.set_event_href("ev-dav-0035", Some("/cal/server-named-7.ics"))
+            .await
+            .unwrap();
+        s.upsert_event(&EventRow {
+            etag: Some("\"2\"".into()),
+            ..ev.clone()
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            s.event_href("ev-dav-0035").await.unwrap().as_deref(),
+            Some("/cal/server-named-7.ics"),
+            "an upsert keeps the server's href"
+        );
+        assert_eq!(
+            s.event_dav_members("cal-dav-0035").await.unwrap(),
+            vec![(
+                "ev-dav-0035".to_string(),
+                "/cal/server-named-7.ics".to_string(),
+                Some("\"2\"".to_string())
+            )]
+        );
+        assert_eq!(s.task_href("nope").await.unwrap(), None);
+        assert_eq!(s.contact_href("nope").await.unwrap(), None);
+        s.delete_dav_account(&a).await.unwrap();
+        assert!(s.get_dav_account(&a).await.unwrap().is_none());
+    }
+
+    /// 0035 over a database that already holds a calendar event (SQLite): the row
+    /// survives with no href, and `dav_account` starts empty.
+    #[tokio::test]
+    async fn migration_0035_over_a_populated_sqlite_database() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let mut before = sqlx::migrate!("./migrations");
+        before.migrations.to_mut().retain(|m| m.version < 35);
+        before.run(&pool).await.unwrap();
+        let pre = Store {
+            backend: crate::backend::Backend::Sqlite(pool.clone()),
+            key: ServerKey::from_bytes(&[5u8; 32]).unwrap(),
+            uploads: crate::upload::fail_closed_backend(),
+        };
+        let a = account(&pre).await;
+        pre.upsert_calendar(&calendar("cal-old", &a, "VEVENT"))
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO events (id, calendar_id, uid, etag, ical_raw, status)
+             VALUES ('ev-old', 'cal-old', 'uid-old', '\"9\"', 'BEGIN:VCALENDAR', 'confirmed')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let after = Store::init_sqlite(pool, ServerKey::from_bytes(&[5u8; 32]).unwrap())
+            .await
+            .expect("0035 applies over a populated database");
+        let ev = after.get_event("ev-old").await.unwrap().expect("kept");
+        assert_eq!(ev.etag.as_deref(), Some("\"9\""));
+        assert_eq!(after.event_href("ev-old").await.unwrap(), None);
+        assert!(after.get_dav_account(&a).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn dav_accounts_and_hrefs_0035() {
+        assert_dav_0035(&store().await).await;
+    }
+
+    /// The Postgres half (f34, 0035).
+    #[tokio::test]
+    async fn postgres_dav_accounts_and_hrefs_0035() {
+        let Some(dsn) = std::env::var("DATABASE_URL_PG")
+            .ok()
+            .or_else(|| std::env::var("MW_TEST_PG").ok())
+            .filter(|s| !s.trim().is_empty())
+        else {
+            mw_test_gate::skip(
+                "[mw-store] f34 DAV accounts and hrefs 0035: Postgres path (set DATABASE_URL_PG \
+                 or MW_TEST_PG to a live postgres:16 to run it). The SQLite path still asserted."
+                    .to_string(),
+            );
+            return;
+        };
+        let s = Store::open_postgres(&dsn, ServerKey::generate())
+            .await
+            .expect("DATABASE_URL_PG is set but Postgres is not reachable");
+        q("DELETE FROM events WHERE id = 'ev-dav-0035'")
+            .execute(&s.backend)
+            .await
+            .unwrap();
+        q("DELETE FROM calendars WHERE id = 'cal-dav-0035'")
+            .execute(&s.backend)
+            .await
+            .unwrap();
+        q("DELETE FROM accounts WHERE host = 'dav-0035.test'")
+            .execute(&s.backend)
+            .await
+            .unwrap();
+        assert_dav_0035(&s).await;
     }
 }

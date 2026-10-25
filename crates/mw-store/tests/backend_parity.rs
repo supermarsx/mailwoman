@@ -75,7 +75,7 @@ const ALL_TABLES: &str = "sessions, settings, accounts, mailboxes, messages, bod
     user_group_member, feature_profile, feature_profile_assignment, mail_user, \
     mail_user_account, signin_allow, usage_counter, usage_storage, config_snapshot, \
     maintenance_window, scheduled_task, job_run, diag_run, account_ban, metric_rollup, \
-    data_export, inbound_webhooks, webhook_nonce";
+    data_export, inbound_webhooks, webhook_nonce, dav_account";
 
 async fn truncate_pg(dsn: &str) {
     use sqlx::postgres::PgPoolOptions;
@@ -1165,7 +1165,7 @@ const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
 
 /// Formerly the UNCLASSIFIED list: tables whose omission had not been ruled a
 /// deliberate design choice. **It is empty, and that is the point.** Every schema
-/// table (146 as of 0034) is now either copied or listed in
+/// table (147 as of 0035) is now either copied or listed in
 /// `NOT_MIGRATED_DELIBERATELY` with a reason — there is no third category where a
 /// table can sit un-argued.
 ///
