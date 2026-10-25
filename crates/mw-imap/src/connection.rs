@@ -88,7 +88,18 @@ impl Connection {
         port: u16,
         mode: TlsMode,
     ) -> ImapResult<(Self, OwnedResponse)> {
-        let stream = ImapStream::connect(host, port, mode).await?;
+        Self::connect_via(None, host, port, mode).await
+    }
+
+    /// Like [`connect`](Self::connect), with the stream opened by `dialer`
+    /// (`None` = direct TCP).
+    pub async fn connect_via(
+        dialer: Option<&dyn mw_net::Dialer>,
+        host: &str,
+        port: u16,
+        mode: TlsMode,
+    ) -> ImapResult<(Self, OwnedResponse)> {
+        let stream = ImapStream::connect_via(dialer, host, port, mode).await?;
         let mut conn = Connection {
             stream: Some(stream),
             buf: BytesMut::with_capacity(8 * 1024),
@@ -352,6 +363,16 @@ impl Connection {
     /// Safe only for commands that never return synchronizing literals (true of
     /// `THREAD`): the reply is a sequence of CRLF-terminated lines.
     pub async fn execute_lines(&mut self, command: &str) -> ImapResult<Vec<String>> {
+        self.execute_lines_with_tag(command)
+            .await
+            .map(|(_, lines)| lines)
+    }
+
+    /// Retain the request tag for extensions with response correlators.
+    pub(crate) async fn execute_lines_with_tag(
+        &mut self,
+        command: &str,
+    ) -> ImapResult<(String, Vec<String>)> {
         let tag = self.next_tag();
         tracing::trace!(target: "mw_imap::wire", tag = %tag, "C: {command}");
         self.write_all(format!("{tag} {command}\r\n").as_bytes())
@@ -364,7 +385,7 @@ impl Connection {
                 let status = rest.split_whitespace().next().unwrap_or("");
                 let info = rest[status.len()..].trim().to_string();
                 return match status.to_ascii_uppercase().as_str() {
-                    "OK" => Ok(lines),
+                    "OK" => Ok((tag, lines)),
                     "NO" => Err(ImapError::No(info)),
                     "BAD" => Err(ImapError::Bad(info)),
                     "BYE" => Err(ImapError::Bye(info)),

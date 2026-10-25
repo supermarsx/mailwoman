@@ -35,6 +35,7 @@ pub mod eval;
 pub mod extensions;
 pub mod grammar;
 pub mod lint;
+pub mod local;
 pub mod managed;
 pub mod managesieve;
 pub mod parse;
@@ -113,6 +114,7 @@ pub enum Action {
     Tag { keyword: String },
     Mark { keyword: String },
     Forward { address: String },
+    ForwardCopy { address: String },
     ReplyTemplate { template: String },
     Notify { message: String },
     Stop,

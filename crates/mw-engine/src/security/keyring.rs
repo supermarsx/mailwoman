@@ -393,7 +393,10 @@ impl Engine {
                 .map(String::from)
                 .collect()
         });
-        let rules = self.get_rules(account_id).await.unwrap_or_default();
+        let rules = match self.get_rules(account_id).await {
+            Ok(rules) => rules,
+            Err(error) => return server_fail(error),
+        };
         let mut list = Vec::new();
         let mut found = Vec::new();
         for rule in &rules {
@@ -428,11 +431,24 @@ impl Engine {
         rt: &AccountRuntime,
         args: &Value,
     ) -> Value {
+        self.mail_rule_set_managed(account_id, Some(rt), args, None).await
+    }
+
+    pub(crate) async fn mail_rule_set_managed(
+        &self,
+        account_id: &str,
+        rt: Option<&AccountRuntime>,
+        args: &Value,
+        context: Option<&mut crate::sieve_jmap::SieveContext>,
+    ) -> Value {
         let old_state = self
             .crypto_type_state(account_id, ChangeType::MailRule)
             .await
             .unwrap_or_default();
-        let mut rules = self.get_rules(account_id).await.unwrap_or_default();
+        let mut rules = match self.get_rules(account_id).await {
+            Ok(rules) => rules,
+            Err(error) => return server_fail(error),
+        };
         let mut created = Map::new();
         let mut not_created = Map::new();
         let mut updated = Map::new();
@@ -443,9 +459,7 @@ impl Engine {
         if let Some(creates) = args.get("create").and_then(Value::as_object) {
             for (client_id, spec) in creates {
                 if let Ok(mut mr) = serde_json::from_value::<MailRule>(inject_defaults(spec)) {
-                    if mr.id.is_empty() {
-                        mr.id = gen_id("mr");
-                    }
+                    mr.id = gen_id("mr");
                     let id = mr.id.clone();
                     match mail_rule_to_rule(&mr) {
                         Ok(rule) => rules.push(rule),
@@ -456,6 +470,8 @@ impl Engine {
                     }
                     created.insert(client_id.clone(), json!({ "id": id }));
                     changed_ids.push((id, ChangeOp::Created));
+                } else {
+                    not_created.insert(client_id.clone(), json!({"type":"invalidProperties"}));
                 }
             }
         }
@@ -473,6 +489,8 @@ impl Engine {
                     }
                     updated.insert(id.clone(), Value::Null);
                     changed_ids.push((id.clone(), ChangeOp::Updated));
+                } else {
+                    not_updated.insert(id.clone(), json!({"type":"notFound"}));
                 }
             }
         }
@@ -487,11 +505,17 @@ impl Engine {
         }
 
         if !changed_ids.is_empty() {
+            if let Some(context) = context
+                && let Err(error) = self.persist_managed_rules(account_id, &rules, context).await {
+                return error;
+            }
             if let Err(e) = self.set_rules(account_id, &rules).await {
                 return server_fail(e);
             }
             // Best-effort ManageSieve upload where advertised (e7 owns the wiring).
-            let _ = self.upload_sieve_if_supported(rt, &rules).await;
+            if let Some(rt) = rt {
+                let _ = self.upload_sieve_if_supported(rt, &rules).await;
+            }
             for (id, op) in &changed_ids {
                 let _ = self
                     .record_crypto_change(account_id, ChangeType::MailRule, id, *op)

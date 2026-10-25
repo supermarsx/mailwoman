@@ -8,6 +8,8 @@
 //! [`backend`] seam; the orchestration itself is filled in by e6.
 
 pub mod account;
+mod sieve_scripts;
+pub mod sieve_jmap;
 pub mod acl;
 pub mod backend;
 pub mod change;

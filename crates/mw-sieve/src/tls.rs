@@ -16,9 +16,9 @@ use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
+use mw_net::BoxStream;
 use rustls::ClientConfig;
 use rustls_pki_types::ServerName;
-use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
 
@@ -69,8 +69,8 @@ impl Connector {
     pub(crate) async fn connect(
         &self,
         server_name: ServerName<'static>,
-        tcp: TcpStream,
-    ) -> io::Result<TlsStream<TcpStream>> {
+        tcp: BoxStream,
+    ) -> io::Result<TlsStream<BoxStream>> {
         self.inner
             .connect(server_name, tcp)
             .await
@@ -138,7 +138,7 @@ mod tests {
     use rustls_pki_types::{CertificateDer, PrivateKeyDer};
     use std::net::SocketAddr;
     use tokio::io::AsyncReadExt;
-    use tokio::net::TcpListener;
+    use tokio::net::{TcpListener, TcpStream};
 
     /// A self-signed certificate for `localhost` (P-256, valid to 2126), used only
     /// as the test peer's identity and as the single trust anchor of the test
@@ -209,7 +209,7 @@ YqfW0Bfyo6G3YnlWYjUrStuY5R68A7lxiZznYBOKulqbEKmad70FATFl
         let connector = connector_with_roots(test_roots()).unwrap();
         let tcp = TcpStream::connect(addr).await.unwrap();
         let name = ServerName::try_from("localhost").unwrap();
-        let tls = connector.connect(name, tcp).await?;
+        let tls = connector.connect(name, Box::new(tcp)).await?;
         Ok(tls.get_ref().1.protocol_version().unwrap())
     }
 

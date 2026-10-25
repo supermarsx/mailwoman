@@ -18,6 +18,7 @@ use mw_engine::backend::{
     MessageRef, MoveOutcome, RawMailbox, RawMailboxRef, RawMessage, Result, SyncCursor,
     WatchHandle,
 };
+use mw_net::SharedDialer;
 use tokio::sync::watch;
 
 use crate::conn::Pop3Conn;
@@ -89,12 +90,24 @@ pub struct Pop3Config {
 #[derive(Debug, Clone)]
 pub struct Pop3Backend {
     config: Pop3Config,
+    /// How each session reaches the server (`None` = direct TCP).
+    dialer: Option<SharedDialer>,
 }
 
 impl Pop3Backend {
     /// Build a backend from a full connection + policy configuration.
     pub fn new(config: Pop3Config) -> Self {
-        Self { config }
+        Self {
+            config,
+            dialer: None,
+        }
+    }
+
+    /// Open every session of this backend through `dialer` (`None` = direct
+    /// TCP, the default).
+    pub fn with_dialer(mut self, dialer: Option<SharedDialer>) -> Self {
+        self.dialer = dialer;
+        self
     }
 
     /// The leave-on-server policy this backend enforces.
@@ -110,7 +123,7 @@ impl Pop3Backend {
     }
 
     async fn open(&self) -> Result<Pop3Conn> {
-        Pop3Conn::open(&self.config).await
+        Pop3Conn::open_via(&self.config, self.dialer.as_deref()).await
     }
 }
 

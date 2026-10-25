@@ -247,9 +247,27 @@ impl Engine {
 
     /// The read-receipt policy an administrator holds for this account
     /// (`mail.readReceipts` in the settings model), or `None` when the user may
-    /// choose. The subject is the account's lower-cased sign-in name and its
-    /// domain part (empty when the name has none).
+    /// choose.
     async fn held_mdn_policy(&self, account_id: &str) -> Result<Option<&'static str>> {
+        let held = self
+            .held_setting_for(account_id, "mail.readReceipts", "\"ask\"")
+            .await?;
+        Ok(held
+            .and_then(|json| serde_json::from_str::<String>(&json).ok())
+            .and_then(|word| Self::MDN_POLICIES.into_iter().find(|p| *p == word)))
+    }
+
+    /// The value an administrator holds a settings-model `key` at for this
+    /// account ([`mw_store::Store::held_setting`]), or `None` when the user may
+    /// choose. The subject is the account's lower-cased sign-in name and its
+    /// domain part (empty when the name has none). `floor` is the key's default
+    /// as JSON text.
+    pub(crate) async fn held_setting_for(
+        &self,
+        account_id: &str,
+        key: &str,
+        floor: &str,
+    ) -> Result<Option<String>> {
         let address = self
             .store()
             .get_account(account_id)
@@ -260,21 +278,18 @@ impl Engine {
             .rsplit_once('@')
             .map(|(_, d)| d.to_string())
             .unwrap_or_default();
-        let held = self
+        Ok(self
             .store()
             .held_setting(
-                "mail.readReceipts",
-                "\"ask\"",
+                key,
+                floor,
                 &mw_store::settings_policy::SettingSubject {
                     domain: &domain,
                     account_id,
                     address: &address,
                 },
             )
-            .await?;
-        Ok(held
-            .and_then(|json| serde_json::from_str::<String>(&json).ok())
-            .and_then(|word| Self::MDN_POLICIES.into_iter().find(|p| *p == word)))
+            .await?)
     }
 
     /// Whether a receipt has been sent, or claimed, for a message: the

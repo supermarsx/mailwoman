@@ -16,6 +16,8 @@ pub enum JmapError {
     /// it is, builds a client for that target and asks again.
     #[error("upstream redirected to {0}")]
     Redirect(String),
+    #[error("upstream response exceeds the configured limit")]
+    TooLarge,
 }
 
 /// Thin async JMAP client with HTTP Basic auth (upstream servers; the
@@ -99,6 +101,31 @@ impl JmapClient {
         Ok(resp.json::<Session>().await?)
     }
 
+    /// Bounded session discovery; callers must validate every redirect target.
+    pub async fn session_at_limited(&self, url: &str, limit: usize) -> Result<Session, JmapError> {
+        let response = self
+            .http
+            .get(url)
+            .header("Authorization", &self.authorization)
+            .header("Accept", "application/json")
+            .send()
+            .await?;
+        if response.status().is_redirection() {
+            let location = response
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .ok_or(JmapError::Status(response.status()))?;
+            return Err(JmapError::Redirect(location.to_owned()));
+        }
+        if !response.status().is_success() {
+            return Err(JmapError::Status(response.status()));
+        }
+        let bytes = limited_body(response, limit).await?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| JmapError::InvalidUrl("invalid session document".into()))
+    }
+
     /// Execute a JMAP API request against the session's `apiUrl`.
     pub async fn request(&self, api_url: &str, request: &Request) -> Result<Response, JmapError> {
         let resp = self
@@ -134,6 +161,47 @@ impl JmapClient {
         let status = resp.status();
         let bytes = resp.bytes().await?;
         Ok((status, bytes))
+    }
+
+    /// Forward a metadata request, bounding the body while it is streamed.
+    pub async fn request_raw_limited(
+        &self,
+        api_url: &str,
+        body: bytes::Bytes,
+        limit: usize,
+    ) -> Result<(reqwest::StatusCode, bytes::Bytes), JmapError> {
+        let resp = self
+            .http
+            .post(api_url)
+            .header("Authorization", &self.authorization)
+            .header("Content-Type", "application/json")
+            .body(body)
+            .send()
+            .await?;
+        let status = resp.status();
+        Ok((status, limited_body(resp, limit).await?))
+    }
+
+    /// Download a blob with an enforced streaming byte limit, including responses
+    /// without Content-Length. Redirects remain subject to the supplied client.
+    pub async fn get_bytes_limited(
+        &self,
+        url: &str,
+        limit: usize,
+    ) -> Result<(reqwest::StatusCode, Option<String>, bytes::Bytes), JmapError> {
+        let resp = self
+            .http
+            .get(url)
+            .header("Authorization", &self.authorization)
+            .send()
+            .await?;
+        let status = resp.status();
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
+        Ok((status, content_type, limited_body(resp, limit).await?))
     }
 
     /// POST raw bytes to an upload URL with injected auth and a caller-supplied
@@ -204,9 +272,77 @@ impl JmapClient {
     }
 }
 
+async fn limited_body(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> Result<bytes::Bytes, JmapError> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > limit as u64)
+    {
+        return Err(JmapError::TooLarge);
+    }
+    let mut body = bytes::BytesMut::new();
+    while let Some(chunk) = response.chunk().await? {
+        if chunk.len() > limit.saturating_sub(body.len()) {
+            return Err(JmapError::TooLarge);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body.freeze())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn streamed_limits_reject_length_and_chunked_overflow_but_allow_exact_body() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for (wire, allowed) in [
+            (
+                "HTTP/1.1 200 OK\r\nContent-Length: 9\r\nConnection: close\r\n\r\n123456789",
+                false,
+            ),
+            (
+                "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n4\r\n1234\r\n5\r\n56789\r\n0\r\n\r\n",
+                false,
+            ),
+            (
+                "HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\n12345678",
+                true,
+            ),
+        ] {
+            for post in [false, true] {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let url = format!("http://{}/", listener.local_addr().unwrap());
+                tokio::spawn(async move {
+                    let (mut stream, _) = listener.accept().await.unwrap();
+                    let mut request = [0; 2048];
+                    let _ = stream.read(&mut request).await;
+                    stream.write_all(wire.as_bytes()).await.unwrap();
+                });
+                let client = JmapClient::with_http(
+                    reqwest::Client::builder().no_proxy().build().unwrap(),
+                    "user",
+                    "pw",
+                );
+                let result = if post {
+                    client
+                        .request_raw_limited(&url, bytes::Bytes::new(), 8)
+                        .await
+                        .map(|(_, b)| b)
+                } else {
+                    client.get_bytes_limited(&url, 8).await.map(|(_, _, b)| b)
+                };
+                if allowed {
+                    assert_eq!(result.unwrap().as_ref(), b"12345678");
+                } else {
+                    assert!(matches!(result, Err(JmapError::TooLarge)), "{result:?}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn session_url_normalization() {

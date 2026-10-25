@@ -13,6 +13,7 @@ use mw_engine::backend::{
     MailboxDelta, MessageRef, MetadataEntry, MoveOutcome, RawMailbox, RawMailboxRef, RawMessage,
     Result, SyncCursor, WatchHandle,
 };
+use mw_net::{Dialer, SharedDialer};
 use tokio::sync::{Mutex, watch};
 
 use crate::session::{Credentials, SelectMode, Session};
@@ -57,6 +58,9 @@ impl ImapConfig {
 /// IMAP implementation of the account-backend seam.
 pub struct ImapBackend {
     config: ImapConfig,
+    /// How connections reach the server (`None` = direct TCP). The `watch` IDLE
+    /// loop dials through the same one.
+    dialer: Option<SharedDialer>,
     session: Mutex<Session>,
     caps: BackendCaps,
 }
@@ -64,10 +68,18 @@ pub struct ImapBackend {
 impl ImapBackend {
     /// Dial, authenticate, send `ID`, and enable the sync extensions.
     pub async fn connect(config: ImapConfig) -> Result<Self> {
-        let session = connect_session(&config).await?;
+        Self::connect_via(config, None).await
+    }
+
+    /// Like [`connect`](Self::connect), with every connection of this backend
+    /// (the command connection and the `watch` IDLE connection) opened by
+    /// `dialer` (`None` = direct TCP).
+    pub async fn connect_via(config: ImapConfig, dialer: Option<SharedDialer>) -> Result<Self> {
+        let session = connect_session(&config, dialer.as_deref()).await?;
         let caps = session.backend_caps();
         Ok(ImapBackend {
             config,
+            dialer,
             session: Mutex::new(session),
             caps,
         })
@@ -79,8 +91,8 @@ impl ImapBackend {
     }
 }
 
-async fn connect_session(config: &ImapConfig) -> Result<Session> {
-    let mut session = Session::connect(&config.host, config.port, config.tls).await?;
+async fn connect_session(config: &ImapConfig, dialer: Option<&dyn Dialer>) -> Result<Session> {
+    let mut session = Session::connect_via(dialer, &config.host, config.port, config.tls).await?;
     session.login(&config.credentials).await?;
     // ID + ENABLE are best-effort niceties; never fail the connect over them.
     let _ = session.send_id().await;
@@ -146,8 +158,9 @@ impl AccountBackend for ImapBackend {
     async fn watch(&self, sink: ChangeSink) -> Result<WatchHandle> {
         let (stop_tx, stop_rx) = watch::channel(false);
         let config = self.config.clone();
+        let dialer = self.dialer.clone();
         tokio::spawn(async move {
-            watch_loop(config, sink, stop_rx).await;
+            watch_loop(config, dialer, sink, stop_rx).await;
         });
         Ok(WatchHandle::new(stop_tx))
     }
@@ -303,9 +316,14 @@ fn group_imap_refs(refs: &[MessageRef]) -> Result<Vec<(RawMailboxRef, Vec<u32>)>
 
 /// The IDLE watch loop: on any mailbox activity emit `MailboxChanged`; renew the
 /// IDLE before the 30-minute server limit; stop cleanly when signalled.
-async fn watch_loop(config: ImapConfig, sink: ChangeSink, mut stop: watch::Receiver<bool>) {
+async fn watch_loop(
+    config: ImapConfig,
+    dialer: Option<SharedDialer>,
+    sink: ChangeSink,
+    mut stop: watch::Receiver<bool>,
+) {
     let mailbox = config.watch_mailbox.clone();
-    let mut session = match connect_session(&config).await {
+    let mut session = match connect_session(&config, dialer.as_deref()).await {
         Ok(s) => s,
         Err(_) => {
             let _ = sink.emit(ChangeEvent::Disconnected);

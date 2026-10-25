@@ -9,6 +9,7 @@
 //! advertised UIDNEXT boundary.
 
 use mw_engine::backend::{MailboxDelta, MessageRef, RawMailboxRef, SyncCursor};
+use std::collections::BTreeSet;
 
 use crate::error::ImapResult;
 use crate::session::{FetchItem, SelectMode, SelectResult, Session};
@@ -21,6 +22,37 @@ impl Session {
         cursor: &SyncCursor,
     ) -> ImapResult<MailboxDelta> {
         match cursor {
+            SyncCursor::ImapSnapshot {
+                uidvalidity,
+                uidnext,
+                known_uids,
+                highestmodseq,
+            } => {
+                let condstore = self.caps().has("CONDSTORE") || self.caps().has("QRESYNC");
+                let sel = self
+                    .select(
+                        &mbox.name,
+                        if condstore {
+                            SelectMode::Condstore
+                        } else {
+                            SelectMode::Plain
+                        },
+                    )
+                    .await?;
+                if sel.uidvalidity != *uidvalidity
+                    || (self.caps().has("QRESYNC") && sel.highestmodseq > 0)
+                {
+                    return self.full_resync(&mbox.name, &sel).await;
+                }
+                self.snapshot_delta(
+                    &mbox.name,
+                    &sel,
+                    Some(known_uids),
+                    *uidnext,
+                    highestmodseq.filter(|_| condstore && sel.highestmodseq > 0),
+                )
+                .await
+            }
             SyncCursor::Qresync {
                 uidvalidity,
                 highestmodseq,
@@ -74,7 +106,7 @@ impl Session {
                 },
             )
             .await?;
-        if sel.uidvalidity != uidvalidity {
+        if sel.uidvalidity != uidvalidity || sel.highestmodseq == 0 {
             return self.full_resync(name, &sel).await;
         }
         let removed = refs(name, sel.uidvalidity, &sel.vanished);
@@ -94,24 +126,15 @@ impl Session {
         &mut self,
         name: &str,
         uidvalidity: u32,
-        modseq: u64,
+        _modseq: u64,
     ) -> ImapResult<MailboxDelta> {
         let sel = self.select(name, SelectMode::Condstore).await?;
         if sel.uidvalidity != uidvalidity {
             return self.full_resync(name, &sel).await;
         }
-        let changed = self.uid_fetch_changed(modseq).await?;
-        let flag_changes = fetch_flag_changes(name, sel.uidvalidity, &changed);
-        let next_modseq = sel.highestmodseq.max(modseq);
-        Ok(MailboxDelta {
-            added: Vec::new(),
-            flag_changes,
-            removed: Vec::new(),
-            next_cursor: SyncCursor::Condstore {
-                uidvalidity: sel.uidvalidity,
-                modseq: next_modseq,
-            },
-        })
+        // Legacy CONDSTORE cursors have no UID membership. Refresh flags once
+        // and let the engine reconcile old cache members before persisting it.
+        self.snapshot_delta(name, &sel, None, u32::MAX, None).await
     }
 
     async fn sync_uid_window(
@@ -120,32 +143,29 @@ impl Session {
         uidvalidity: u32,
         uidnext: u32,
     ) -> ImapResult<MailboxDelta> {
-        let sel = self.select(name, SelectMode::Plain).await?;
-        if uidvalidity != 0 && sel.uidvalidity != uidvalidity {
+        // Request mod-sequences on initial selection so the promoted cursor
+        // records the server's actual checkpoint, rather than zero.
+        let mode = if self.caps().has("CONDSTORE") || self.caps().has("QRESYNC") {
+            SelectMode::Condstore
+        } else {
+            SelectMode::Plain
+        };
+        let sel = self.select(name, mode).await?;
+        if uidvalidity == 0
+            || sel.uidvalidity != uidvalidity
+            || (self.caps().has("QRESYNC") && sel.highestmodseq > 0)
+        {
             return self.full_resync(name, &sel).await;
         }
-        // New messages occupy [old_uidnext, new_uidnext). Bounded search avoids
-        // the `n:*` wrap-around that would re-surface the last existing UID.
-        let added_uids = if sel.uidnext > uidnext {
-            self.uid_search_range(uidnext.max(1), sel.uidnext - 1)
-                .await?
-        } else {
-            Vec::new()
-        };
-        Ok(MailboxDelta {
-            added: refs(name, sel.uidvalidity, &added_uids),
-            flag_changes: Vec::new(),
-            removed: Vec::new(),
-            next_cursor: SyncCursor::UidWindow {
-                uidvalidity: sel.uidvalidity,
-                uidnext: sel.uidnext,
-            },
-        })
+        self.snapshot_delta(name, &sel, None, uidnext, None).await
     }
 
     /// UIDVALIDITY changed (or first-ever sync of a reset mailbox): every
     /// current UID is treated as newly added; the engine re-derives stable ids.
     async fn full_resync(&mut self, name: &str, sel: &SelectResult) -> ImapResult<MailboxDelta> {
+        if sel.highestmodseq == 0 || !self.caps().has("QRESYNC") {
+            return self.snapshot_delta(name, sel, None, 1, None).await;
+        }
         let all = self.uid_search_all().await?;
         Ok(MailboxDelta {
             added: refs(name, sel.uidvalidity, &all),
@@ -155,9 +175,60 @@ impl Session {
         })
     }
 
+    async fn snapshot_delta(
+        &mut self,
+        name: &str,
+        sel: &SelectResult,
+        previous: Option<&BTreeSet<u32>>,
+        legacy_uidnext: u32,
+        since: Option<u64>,
+    ) -> ImapResult<MailboxDelta> {
+        let current: BTreeSet<u32> = self.uid_search_all().await?.into_iter().collect();
+        let fetched = if current.is_empty() {
+            Vec::new()
+        } else if let Some(since) = since {
+            self.uid_fetch_changed(since).await?
+        } else {
+            self.uid_fetch_all_flags().await?
+        };
+        let added: BTreeSet<u32> = current
+            .iter()
+            .copied()
+            .filter(|uid| previous.map_or(*uid >= legacy_uidnext, |old| !old.contains(uid)))
+            .collect();
+        let removed: Vec<u32> = previous
+            .map(|old| old.difference(&current).copied().collect())
+            .unwrap_or_default();
+        let changed: Vec<_> = fetched
+            .into_iter()
+            .filter(|item| {
+                item.uid
+                    .is_some_and(|uid| current.contains(&uid) && !added.contains(&uid))
+            })
+            .collect();
+        Ok(MailboxDelta {
+            added: refs(
+                name,
+                sel.uidvalidity,
+                &added.into_iter().collect::<Vec<_>>(),
+            ),
+            flag_changes: fetch_flag_changes(name, sel.uidvalidity, &changed),
+            removed: refs(name, sel.uidvalidity, &removed),
+            next_cursor: SyncCursor::ImapSnapshot {
+                uidvalidity: sel.uidvalidity,
+                uidnext: sel.uidnext,
+                known_uids: current,
+                highestmodseq: (self.caps().has("CONDSTORE") && sel.highestmodseq > 0)
+                    .then_some(sel.highestmodseq),
+            },
+        })
+    }
+
     /// Pick the strongest cursor this server supports for a freshly-synced state.
     fn strongest_cursor(&self, sel: &SelectResult) -> SyncCursor {
-        if self.caps().has("QRESYNC") || self.caps().has("CONDSTORE") {
+        // NOMODSEQ (or an absent HIGHESTMODSEQ) means this mailbox cannot
+        // support a mod-sequence cursor even when the server advertises it.
+        if sel.highestmodseq > 0 && (self.caps().has("QRESYNC") || self.caps().has("CONDSTORE")) {
             if self.caps().has("QRESYNC") {
                 SyncCursor::Qresync {
                     uidvalidity: sel.uidvalidity,

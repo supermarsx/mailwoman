@@ -13,14 +13,13 @@
 //! successful [`Submitter::submit`] the engine calls `backend.append(Sent, …)`
 //! to file the sent copy (unless the server auto-files). This crate accepts the
 //! already-serialized MIME bytes ([`Outgoing::raw`], built by `mw-mime`) so it
-//! stays decoupled — it depends on no other workspace crate.
+//! stays decoupled — the only workspace crate it depends on is `mw-net`, the
+//! tokio-only dial seam (t32-ext §J).
 
 mod addr;
 mod conn;
 mod sasl;
 mod tls;
-
-use tokio::net::TcpStream;
 
 pub use addr::{validate_mailbox, validate_reverse_path};
 use conn::{Connection, MailParams, RcptOutcome};
@@ -232,12 +231,25 @@ impl Default for SubmitConfig {
 #[derive(Debug, Clone, Default)]
 pub struct Submitter {
     config: SubmitConfig,
+    /// How the connection reaches the server (`None` = direct TCP).
+    dialer: Option<mw_net::SharedDialer>,
 }
 
 impl Submitter {
     /// Construct a submitter for the given server configuration.
     pub fn new(config: SubmitConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            dialer: None,
+        }
+    }
+
+    /// Open every submission connection through `dialer` (`None` = direct TCP,
+    /// the default). TLS and STARTTLS run over the dialled stream as over a
+    /// direct socket, validated against the configured host.
+    pub fn with_dialer(mut self, dialer: Option<mw_net::SharedDialer>) -> Self {
+        self.dialer = dialer;
+        self
     }
 
     /// Submit one message with the default (no-extension) flow. Equivalent to
@@ -263,8 +275,7 @@ impl Submitter {
         msg.validate()?;
         conn::check_ehlo_name(&self.config.ehlo_name)?;
 
-        let addr = format!("{}:{}", self.config.host, self.config.port);
-        let tcp = TcpStream::connect(&addr).await?;
+        let tcp = mw_net::dial(self.dialer.as_deref(), &self.config.host, self.config.port).await?;
 
         match self.config.security {
             Security::ImplicitTls => {

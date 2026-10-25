@@ -428,6 +428,17 @@ pub enum SyncCursor {
     Condstore { uidvalidity: u32, modseq: u64 },
     /// Plain UID-window poll: everything at/after `uidnext` is new.
     UidWindow { uidvalidity: u32, uidnext: u32 },
+    /// Complete UID membership for servers without QRESYNC. Unlike a UID
+    /// window, this survives reconnects and detects expunges as a set difference.
+    ImapSnapshot {
+        uidvalidity: u32,
+        uidnext: u32,
+        known_uids: BTreeSet<u32>,
+        /// CONDSTORE checkpoint when supported. UID membership still catches
+        /// expunges, which CHANGEDSINCE alone cannot report.
+        #[serde(default)]
+        highestmodseq: Option<u64>,
+    },
     /// POP3 UIDL diff: the set of UIDLs already ingested.
     Pop3Uidl { seen: BTreeSet<String> },
     /// Opaque bridge/plugin cursor (plan §3 e8, R1-residual). A WASM/native bridge

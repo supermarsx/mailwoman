@@ -5,7 +5,7 @@
 //! message, and compose → "send" → appears in Sent.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -34,6 +34,8 @@ struct Scripted {
 }
 
 struct FakeBackend {
+    snapshot: AtomicBool,
+    uidvalidity: AtomicU32,
     state: Mutex<Scripted>,
     store_flags_calls: AtomicUsize,
     move_calls: AtomicUsize,
@@ -61,6 +63,8 @@ impl FakeBackend {
         let mut messages: HashMap<String, Vec<ScriptMsg>> = HashMap::new();
         messages.insert("INBOX".to_string(), inbox);
         Self {
+            snapshot: AtomicBool::new(false),
+            uidvalidity: AtomicU32::new(UIDVALIDITY),
             state: Mutex::new(Scripted {
                 mailboxes,
                 messages,
@@ -93,7 +97,7 @@ impl AccountBackend for FakeBackend {
                 RawMailbox {
                     mailbox_ref: RawMailboxRef {
                         name: name.clone(),
-                        uidvalidity: UIDVALIDITY,
+                        uidvalidity: self.uidvalidity.load(Ordering::SeqCst),
                     },
                     role: *role,
                     parent: None,
@@ -117,12 +121,38 @@ impl AccountBackend for FakeBackend {
         };
         let st = self.state.lock().unwrap();
         let msgs = st.messages.get(&mbox.name).cloned().unwrap_or_default();
+        if self.snapshot.load(Ordering::SeqCst) {
+            let known_uids = msgs.iter().map(|(uid, ..)| *uid).collect();
+            return Ok(MailboxDelta {
+                added: Vec::new(),
+                flag_changes: msgs
+                    .iter()
+                    .map(|(uid, _, flags, _)| {
+                        (
+                            MessageRef::Imap {
+                                mailbox: mbox.clone(),
+                                uidvalidity: self.uidvalidity.load(Ordering::SeqCst),
+                                uid: *uid,
+                            },
+                            flags.clone(),
+                        )
+                    })
+                    .collect(),
+                removed: Vec::new(),
+                next_cursor: SyncCursor::ImapSnapshot {
+                    uidvalidity: self.uidvalidity.load(Ordering::SeqCst),
+                    uidnext: 4,
+                    known_uids,
+                    highestmodseq: None,
+                },
+            });
+        }
         let added: Vec<MessageRef> = msgs
             .iter()
             .filter(|(uid, ..)| *uid >= uidnext_from)
             .map(|(uid, ..)| MessageRef::Imap {
                 mailbox: mbox.clone(),
-                uidvalidity: UIDVALIDITY,
+                uidvalidity: self.uidvalidity.load(Ordering::SeqCst),
                 uid: *uid,
             })
             .collect();
@@ -132,7 +162,7 @@ impl AccountBackend for FakeBackend {
             flag_changes: Vec::new(),
             removed: Vec::new(),
             next_cursor: SyncCursor::UidWindow {
-                uidvalidity: UIDVALIDITY,
+                uidvalidity: self.uidvalidity.load(Ordering::SeqCst),
                 uidnext: max_uid + 1,
             },
         })
@@ -176,7 +206,7 @@ impl AccountBackend for FakeBackend {
     ) -> Result<MoveOutcome> {
         self.move_calls.fetch_add(1, Ordering::SeqCst);
         Ok(MoveOutcome::Uidplus {
-            uidvalidity: UIDVALIDITY,
+            uidvalidity: self.uidvalidity.load(Ordering::SeqCst),
             uids: vec![999],
         })
     }
@@ -194,7 +224,7 @@ impl AccountBackend for FakeBackend {
         ));
         Ok(MessageRef::Imap {
             mailbox: mbox.clone(),
-            uidvalidity: UIDVALIDITY,
+            uidvalidity: self.uidvalidity.load(Ordering::SeqCst),
             uid,
         })
     }
@@ -210,6 +240,8 @@ impl AccountBackend for FakeBackend {
 struct FakeSubmitter {
     calls: AtomicUsize,
     last_rcpt: Mutex<Vec<String>>,
+    last_raw: Mutex<Vec<u8>>,
+    last_sender: Mutex<String>,
 }
 
 impl FakeSubmitter {
@@ -217,6 +249,8 @@ impl FakeSubmitter {
         Self {
             calls: AtomicUsize::new(0),
             last_rcpt: Mutex::new(Vec::new()),
+            last_raw: Mutex::new(Vec::new()),
+            last_sender: Mutex::new(String::new()),
         }
     }
 }
@@ -226,6 +260,8 @@ impl MailSubmitter for FakeSubmitter {
     async fn submit(&self, msg: Outgoing) -> Result<SubmissionResult> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         *self.last_rcpt.lock().unwrap() = msg.rcpt_to.clone();
+        *self.last_raw.lock().unwrap() = msg.raw.clone();
+        *self.last_sender.lock().unwrap() = msg.mail_from.clone();
         Ok(SubmissionResult {
             accepted: msg.rcpt_to,
             rejected: Vec::new(),
@@ -834,4 +870,263 @@ async fn watch_reconnects_after_a_drop() {
         "watch loop did not reconnect after a drop (watch called {} times)",
         backend.watch_calls.load(Ordering::SeqCst)
     );
+}
+
+#[tokio::test]
+async fn legacy_cursor_upgrade_removes_expunges_and_publishes_flag_changes() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let mailbox_result = jmap(&h, json!([["Mailbox/get", {}, "mb"]])).await;
+    let inbox = mailbox_id(&mailbox_result, "inbox");
+    let initial = jmap(&h, json!([["Email/query", {"filter":{"inMailbox": inbox}}, "q"], ["Email/get", {"#ids": {"resultOf":"q", "name":"Email/query", "path":"/ids"}}, "before"]])).await;
+    let initial = method_result(&initial, "before");
+    let state = initial["state"].as_str().unwrap().to_string();
+    let changed_id = initial["list"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|email| email["subject"] == "Lunch plans")
+        .unwrap_or_else(|| panic!("initial messages: {initial}"))["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let removed_id = initial["list"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|email| email["subject"] == "Multipart hello")
+        .map(|email| email["id"].as_str().unwrap().to_string());
+    {
+        let mut backend = h.backend.state.lock().unwrap();
+        let messages = backend.messages.get_mut("INBOX").unwrap();
+        messages.retain(|(uid, ..)| *uid != 1);
+        messages.iter_mut().find(|(uid, ..)| *uid == 2).unwrap().2 = vec![Flag::Seen];
+    }
+    h.backend.snapshot.store(true, Ordering::SeqCst);
+    h.engine.resync(&h.account_id).await.unwrap();
+    let after = jmap(
+        &h,
+        json!([["Email/query", {"filter":{"inMailbox": inbox}}, "q"], ["Email/get", {"#ids": {"resultOf":"q", "name":"Email/query", "path":"/ids"}}, "get"], ["Email/changes", {"sinceState": state}, "changes"]]),
+    )
+    .await;
+    let emails = method_result(&after, "get")["list"].as_array().unwrap();
+    assert_eq!(emails.len(), 2);
+    assert_eq!(
+        emails
+            .iter()
+            .find(|email| email["id"] == changed_id)
+            .unwrap()["keywords"]["$seen"],
+        true
+    );
+    let changes = method_result(&after, "changes");
+    assert!(
+        changes["updated"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(changed_id))
+    );
+    assert_eq!(changes["destroyed"].as_array().unwrap().len(), 1);
+    if let Some(id) = removed_id {
+        assert!(
+            changes["destroyed"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(id))
+        );
+    }
+    let stable_state = method_result(&after, "get")["state"].clone();
+    h.engine.resync(&h.account_id).await.unwrap();
+    let again = jmap(&h, json!([["Email/get", {}, "get"]])).await;
+    assert_eq!(method_result(&again, "get")["state"], stable_state);
+}
+
+#[tokio::test]
+async fn active_raw_sieve_runs_at_ingest_and_policy_refusal_preserves_it() {
+    let h = setup().await;
+    let policy = mw_sieve::policy::Policy {
+        raw_edit: true,
+        own_domains: vec!["example.org".into()],
+        max_script_bytes: Some(65536),
+        max_scripts: Some(5),
+        ..Default::default()
+    };
+    let source = r#"require ["fileinto", "imap4flags"]; if header :is "Subject" "Lunch plans" { addflag "\\Seen"; fileinto "Archive"; stop; }"#;
+    h.engine
+        .put_local_sieve_script(
+            &h.account_id,
+            "active",
+            source,
+            true,
+            &policy,
+            mw_sieve::policy::EditKind::Raw,
+        )
+        .await
+        .unwrap();
+    let denied = h
+        .engine
+        .put_local_sieve_script(
+            &h.account_id,
+            "active",
+            "redirect \"outside@elsewhere.test\";",
+            true,
+            &policy,
+            mw_sieve::policy::EditKind::Raw,
+        )
+        .await;
+    assert!(denied.is_err());
+    h.engine.resync(&h.account_id).await.unwrap();
+    assert_eq!(h.backend.store_flags_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(h.backend.move_calls.load(Ordering::SeqCst), 1);
+    let boxes = jmap(&h, json!([["Mailbox/get", {}, "mb"]])).await;
+    let archive = mailbox_id(&boxes, "archive");
+    let result = jmap(&h, json!([["Email/query", {"filter":{"inMailbox":archive}}, "q"], ["Email/get", {"#ids":{"resultOf":"q","name":"Email/query","path":"/ids"}}, "get"]])).await;
+    let emails = method_result(&result, "get")["list"].as_array().unwrap();
+    assert_eq!(emails.len(), 1);
+    assert_eq!(emails[0]["keywords"]["$seen"], true);
+    assert_eq!(emails[0]["subject"], "Lunch plans");
+}
+
+#[tokio::test]
+async fn uidvalidity_reset_preserves_mailbox_and_surviving_ids_and_removes_stale_mail() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let boxes = jmap(&h, json!([["Mailbox/get", {}, "mb"]])).await;
+    let inbox = mailbox_id(&boxes, "inbox");
+    let initial = jmap(&h, json!([["Email/query", {"filter":{"inMailbox":inbox}}, "q"], ["Email/get", {"#ids":{"resultOf":"q","name":"Email/query","path":"/ids"}}, "get"]])).await;
+    let before = method_result(&initial, "get");
+    let survivor = before["list"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|email| email["subject"] == "Lunch plans")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let old_state = before["state"].as_str().unwrap().to_string();
+    {
+        let mut state = h.backend.state.lock().unwrap();
+        let messages = state.messages.get_mut("INBOX").unwrap();
+        messages.retain(|(uid, ..)| *uid == 2);
+        messages[0].0 = 7;
+        messages[0].2 = vec![Flag::Seen];
+    }
+    // A newly activated rule must not replay on historical survivors of reset.
+    h.engine
+        .put_local_sieve_script(
+            &h.account_id,
+            "after-delivery",
+            r#"require "imap4flags"; addflag "\\Flagged";"#,
+            true,
+            &mw_sieve::policy::Policy {
+                raw_edit: true,
+                ..Default::default()
+            },
+            mw_sieve::policy::EditKind::Raw,
+        )
+        .await
+        .unwrap();
+    h.backend.uidvalidity.store(200, Ordering::SeqCst);
+    h.engine.resync(&h.account_id).await.unwrap();
+    let boxes_after = jmap(&h, json!([["Mailbox/get", {}, "mb"]])).await;
+    assert_eq!(mailbox_id(&boxes_after, "inbox"), inbox);
+    assert_eq!(
+        method_result(&boxes_after, "mb")["list"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
+    let result = jmap(&h, json!([["Email/query", {"filter":{"inMailbox":inbox}}, "q"], ["Email/get", {"#ids":{"resultOf":"q","name":"Email/query","path":"/ids"}}, "get"], ["Email/changes", {"sinceState":old_state}, "changes"]])).await;
+    let emails = method_result(&result, "get")["list"].as_array().unwrap();
+    assert_eq!(emails.len(), 1);
+    assert_eq!(emails[0]["id"], survivor);
+    assert_eq!(emails[0]["keywords"]["$seen"], true);
+    assert_eq!(
+        method_result(&result, "changes")["destroyed"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    let row = h.engine.store().get_message(&survivor).await.unwrap();
+    assert_eq!((row.uidvalidity, row.uid), (200, 7));
+    assert_eq!(
+        h.backend.store_flags_calls.load(Ordering::SeqCst),
+        0,
+        "historical reset must not replay Sieve"
+    );
+    h.engine.resync(&h.account_id).await.unwrap();
+    assert_eq!(
+        h.engine
+            .store()
+            .list_message_ids(&inbox, 100, 0)
+            .await
+            .unwrap(),
+        vec![survivor]
+    );
+}
+
+#[tokio::test]
+async fn local_vacation_submits_once_to_envelope_sender_and_suppresses_automatic_mail() {
+    let cases = [
+        ("sender@example.net", "me@example.org", ""),
+        ("sender@example.net", "me@example.org", ""),
+        ("list@example.net", "me@example.org", "List-Id: <list.example.net>\r\n"),
+        ("auto@example.net", "me@example.org", "Auto-Submitted: auto-generated\r\n"),
+        ("bulk@example.net", "me@example.org", "Precedence: bulk\r\n"),
+        ("", "me@example.org", ""),
+        ("me@example.org", "me@example.org", ""),
+        ("hidden@example.net", "somebody@example.org", ""),
+        ("loop@example.net", "me@example.org", "X-Mailwoman-Loop: vacation\r\n"),
+    ];
+    let messages = cases.iter().enumerate().map(|(i,(sender,to,extra))| {
+        ((i+1) as u32,format!("Message-ID: <vacation-{i}@example.net>\r\nReturn-Path: <{sender}>\r\nFrom: forged@example.net\r\nTo: {to}\r\nSubject: Hello\r\n{extra}\r\nHello").into_bytes(),vec![],"2026-07-01T09:00:00Z".into())
+    }).collect();
+    let h = setup_with(Arc::new(FakeBackend::with_inbox(messages))).await;
+    h.engine.store().put_setting_value(&mw_store::settings_policy::SettingValueRow {
+        scope:mw_store::settings_policy::SettingScope::AdminUser, scope_id:h.account_id.clone(),key:"sieve.vacationAllowed".into(),value:"true".into(),locked:true,updated_by:"test".into(),updated_at:0,
+    }).await.unwrap();
+    h.engine.put_local_sieve_script(&h.account_id,"vacation",r#"require "vacation"; vacation :days 7 :subject "Away" "Back soon";"#,true,
+        &mw_sieve::policy::Policy {raw_edit:true,vacation_allowed:true,..Default::default()},mw_sieve::policy::EditKind::Raw).await.unwrap();
+    h.engine.resync(&h.account_id).await.unwrap();
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst),1);
+    assert_eq!(*h.submitter.last_rcpt.lock().unwrap(),vec!["sender@example.net"]);
+    assert_eq!(*h.submitter.last_sender.lock().unwrap(),"");
+    let raw = String::from_utf8(h.submitter.last_raw.lock().unwrap().clone()).unwrap();
+    assert!(raw.contains("Auto-Submitted: auto-replied"),"{raw}");
+    assert!(raw.contains("Back soon"),"{raw}");
+    assert!(raw.contains("In-Reply-To:"),"{raw}");
+    // A second sync and a UID epoch reset do not replay historical mail.
+    h.engine.resync(&h.account_id).await.unwrap();
+    h.backend.uidvalidity.store(200,Ordering::SeqCst);
+    h.engine.resync(&h.account_id).await.unwrap();
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst),1);
+    h.engine.store().put_setting_value(&mw_store::settings_policy::SettingValueRow {
+        scope:mw_store::settings_policy::SettingScope::AdminUser, scope_id:h.account_id.clone(),key:"sieve.vacationAllowed".into(),value:"false".into(),locked:true,updated_by:"test".into(),updated_at:1,
+    }).await.unwrap();
+    h.backend.state.lock().unwrap().messages.get_mut("INBOX").unwrap().push((20,b"Message-ID: <after-revocation@example.net>\r\nReturn-Path: <new@example.net>\r\nFrom: new@example.net\r\nTo: me@example.org\r\n\r\nNew mail".to_vec(),vec![],"2026-07-01T09:00:00Z".into()));
+    let _ = h.engine.resync(&h.account_id).await;
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst),1,"revoked vacation authority must apply at delivery");
+}
+
+#[tokio::test]
+async fn local_redirect_copy_uses_smtp_and_hot_revocation_prevents_later_forwarding() {
+    let message = b"Message-ID: <forward-1@example.net>\r\nReturn-Path: <sender@example.net>\r\nFrom: sender@example.net\r\nTo: me@example.org\r\nSubject: Forward\r\n\r\nHello".to_vec();
+    let h=setup_with(Arc::new(FakeBackend::with_inbox(vec![(1,message.clone(),vec![],"2026-07-01T09:00:00Z".into())]))).await;
+    let setting = |value: &str| mw_store::settings_policy::SettingValueRow {
+        scope:mw_store::settings_policy::SettingScope::AdminUser,scope_id:h.account_id.clone(),key:"cap.sieve.forward_external".into(),value:value.into(),locked:true,updated_by:"test".into(),updated_at:0,
+    };
+    h.engine.store().put_setting_value(&setting("true")).await.unwrap();
+    h.engine.put_local_sieve_script(&h.account_id,"forward",r#"require "copy"; redirect :copy "target@external.test";"#,true,
+        &mw_sieve::policy::Policy {raw_edit:true,forward_external:true,..Default::default()},mw_sieve::policy::EditKind::Raw).await.unwrap();
+    h.engine.resync(&h.account_id).await.unwrap();
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst),1);
+    assert_eq!(*h.submitter.last_rcpt.lock().unwrap(),vec!["target@external.test"]);
+    assert!(h.submitter.last_raw.lock().unwrap().starts_with(b"X-Mailwoman-Loop: local-sieve\r\n"));
+    assert_eq!(h.backend.move_calls.load(Ordering::SeqCst),0);
+    h.engine.store().put_setting_value(&setting("false")).await.unwrap();
+    h.backend.state.lock().unwrap().messages.get_mut("INBOX").unwrap().push((2,String::from_utf8(message).unwrap().replace("forward-1","forward-2").into_bytes(),vec![],"2026-07-01T09:00:00Z".into()));
+    let _=h.engine.resync(&h.account_id).await;
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst),1);
 }

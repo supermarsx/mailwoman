@@ -209,6 +209,7 @@ impl Walker {
     fn need(&mut self, cap: &str, span: Span, what: &str) -> Result<(), ScriptError> {
         self.a.used.insert(cap.to_string());
         let satisfied = self.a.required.contains(cap)
+            || (cap == "vacation" && self.a.required.contains("vacation-seconds"))
             || (cap == "spamtest" && self.a.required.contains("spamtestplus"));
         if satisfied {
             Ok(())

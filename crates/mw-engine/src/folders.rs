@@ -282,6 +282,16 @@ impl Engine {
                 "urn:ietf:params:jmap:mail".into(),
                 mail_account_capability(manages),
             );
+            // RFC 8621 §1.3.2; `DSN` drives the composer's delivery-report
+            // options (t32-e46). `sendAt` has no upper bound here, so the
+            // largest value the field can carry in every client is given.
+            caps.insert(
+                "urn:ietf:params:jmap:submission".into(),
+                json!({
+                    "maxDelayedSend": 0x7fff_ffff_u32,
+                    "submissionExtensions": self.submission_extensions(account_id),
+                }),
+            );
         }
         session
     }

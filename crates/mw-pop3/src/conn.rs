@@ -12,8 +12,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
 use mw_engine::backend::EngineError;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::net::TcpStream;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_rustls::TlsConnector;
 
 use crate::backend::{Pop3Auth, Pop3Config, TlsMode};
@@ -28,10 +27,11 @@ type Result<T> = mw_engine::backend::Result<T>;
 
 /// Any bidirectional async byte stream the connection can run over.
 ///
-/// Blanket-implemented for `TcpStream` and `tokio_rustls` streams, so a boxed
-/// trait object erases the TLS/plaintext distinction after the handshake.
-pub trait AsyncStream: AsyncRead + AsyncWrite + Send + Unpin {}
-impl<T: AsyncRead + AsyncWrite + Send + Unpin> AsyncStream for T {}
+/// Blanket-implemented for `TcpStream`, `tokio_rustls` streams and anything a
+/// [`mw_net::Dialer`] returns, so a boxed trait object erases the TLS/plaintext
+/// distinction after the handshake. The definition lives in `mw-net` (the dial
+/// seam, t32-ext §J); this re-export keeps the old path.
+pub use mw_net::AsyncStream;
 
 fn transport(e: impl std::fmt::Display) -> EngineError {
     EngineError::Transport(e.to_string())
@@ -77,24 +77,31 @@ impl Pop3Conn {
 
     /// Connect, run any TLS handshake, consume the greeting, and authenticate.
     pub async fn open(cfg: &Pop3Config) -> Result<Self> {
-        let addr = (cfg.host.as_str(), cfg.port);
-        let tcp = TcpStream::connect(addr).await.map_err(transport)?;
-        tcp.set_nodelay(true).ok();
+        Self::open_via(cfg, None).await
+    }
+
+    /// Like [`open`](Self::open), with the stream opened by `dialer` (`None` =
+    /// direct TCP). TLS and STLS run over the dialled stream exactly as over a
+    /// direct socket.
+    pub async fn open_via(cfg: &Pop3Config, dialer: Option<&dyn mw_net::Dialer>) -> Result<Self> {
+        let tcp = mw_net::dial(dialer, &cfg.host, cfg.port)
+            .await
+            .map_err(transport)?;
 
         let mut conn = match cfg.tls {
             TlsMode::Plain => {
-                let mut c = Pop3Conn::new(Box::new(tcp));
+                let mut c = Pop3Conn::new(tcp);
                 c.read_greeting().await?;
                 c
             }
             TlsMode::Implicit => {
-                let (tls, binding) = tls_connect(Box::new(tcp), &cfg.host).await?;
+                let (tls, binding) = tls_connect(tcp, &cfg.host).await?;
                 let mut c = Pop3Conn::with_binding(tls, binding);
                 c.read_greeting().await?;
                 c
             }
             TlsMode::StartTls => {
-                let mut c = Pop3Conn::new(Box::new(tcp));
+                let mut c = Pop3Conn::new(tcp);
                 c.read_greeting().await?;
                 c.stls().await?;
                 let inner = c.into_inner()?;
@@ -610,7 +617,7 @@ fn tls_client_config(
 mod tests {
     use super::*;
     use tokio::io::AsyncWriteExt;
-    use tokio::net::TcpListener;
+    use tokio::net::{TcpListener, TcpStream};
 
     /// STLS framing (RFC 2595): the client must send `STLS`, accept `+OK`, and
     /// leave no buffered bytes so the subsequent TLS handshake is injection-safe.

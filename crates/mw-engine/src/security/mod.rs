@@ -31,6 +31,7 @@ pub mod sender_controls;
 pub mod store_key;
 pub mod types;
 pub mod verdict;
+pub use verdict::country_for_ip;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};

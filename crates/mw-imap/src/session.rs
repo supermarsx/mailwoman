@@ -100,7 +100,19 @@ impl Session {
     /// Connect, read the greeting, harvest any greeting-time capabilities, and
     /// (for STARTTLS) upgrade before authentication.
     pub async fn connect(host: &str, port: u16, mode: TlsMode) -> ImapResult<Self> {
-        let (conn, greeting) = Connection::connect(host, port, mode).await?;
+        Self::connect_via(None, host, port, mode).await
+    }
+
+    /// Like [`connect`](Self::connect), with the stream opened by `dialer`
+    /// (`None` = direct TCP). TLS and STARTTLS are handled here as for a direct
+    /// connection.
+    pub async fn connect_via(
+        dialer: Option<&dyn mw_net::Dialer>,
+        host: &str,
+        port: u16,
+        mode: TlsMode,
+    ) -> ImapResult<Self> {
+        let (conn, greeting) = Connection::connect_via(dialer, host, port, mode).await?;
         let mut caps = CapabilitySet::default();
         if let Response::Data {
             code: Some(ResponseCode::Capabilities(c)),
@@ -243,9 +255,9 @@ impl Session {
         } else if self.caps.has("CONDSTORE") {
             exts.push("CONDSTORE");
         }
-        // IMAP4rev2 is deliberately not enabled: a rev2 server answers SEARCH
-        // with `* ESEARCH`, which imap-proto 0.16.7 cannot parse (t32 D-2).
-        // t32-e35 re-enables it once it parses ESEARCH.
+        if self.caps.has("IMAP4rev2") {
+            exts.push("IMAP4rev2");
+        }
         if exts.is_empty() {
             return Ok(());
         }
@@ -441,6 +453,11 @@ impl Session {
         Ok(collect_fetches(tagged))
     }
 
+    pub(crate) async fn uid_fetch_all_flags(&mut self) -> ImapResult<Vec<FetchItem>> {
+        let tagged = self.conn.execute("UID FETCH 1:* (UID FLAGS)").await?.ok()?;
+        Ok(collect_fetches(tagged))
+    }
+
     /// `UID SEARCH UID a:b` — bounded new-message discovery (avoids the `n:*`
     /// wrap-around gotcha by never using an open upper bound).
     pub async fn uid_search_range(&mut self, low: u32, high: u32) -> ImapResult<Vec<u32>> {
@@ -457,6 +474,50 @@ impl Session {
     }
 
     async fn uid_search(&mut self, cmd: &str) -> ImapResult<Vec<u32>> {
+        if self.caps.has("ESEARCH") || self.caps.has("IMAP4rev2") {
+            let criteria = cmd
+                .strip_prefix("UID SEARCH ")
+                .ok_or_else(|| ImapError::Protocol("invalid UID search command".into()))?;
+            let command = format!("UID SEARCH RETURN (ALL COUNT MIN MAX) {criteria}");
+            let (tag, lines) = self.conn.execute_lines_with_tag(&command).await?;
+            let mut uids = Vec::new();
+            for line in lines {
+                let bytes = format!("{line}\r\n");
+                if line.to_ascii_uppercase().starts_with("* ESEARCH") {
+                    match crate::esearch::parse(bytes.as_bytes()) {
+                        crate::lex::Parsed::Done { value, .. } => {
+                            if !value.uid || value.tag.as_ref().is_some_and(|t| t != &tag) {
+                                return Err(ImapError::Protocol(
+                                    "ESEARCH UID marker or correlator mismatch".into(),
+                                ));
+                            }
+                            if value.count.is_some_and(|n| n > 0) && value.all.is_none() {
+                                return Err(ImapError::Protocol(
+                                    "ESEARCH omitted requested ALL results".into(),
+                                ));
+                            }
+                            uids.extend(
+                                value
+                                    .numbers(1_000_000usize.saturating_sub(uids.len()))
+                                    .ok_or_else(|| {
+                                        ImapError::Protocol("ESEARCH result exceeds limit".into())
+                                    })?,
+                            );
+                        }
+                        _ => return Err(ImapError::Protocol("malformed ESEARCH response".into())),
+                    }
+                } else if let Ok((_, Response::MailboxData(MailboxDatum::Search(found)))) =
+                    Response::from_bytes(bytes.as_bytes())
+                {
+                    uids.extend(found);
+                } else if line.to_ascii_uppercase().starts_with("* BYE") {
+                    return Err(ImapError::Bye(line));
+                }
+            }
+            uids.sort_unstable();
+            uids.dedup();
+            return Ok(uids);
+        }
         let tagged = self.conn.execute(cmd).await?.ok()?;
         let mut uids = Vec::new();
         for resp in tagged.untagged {

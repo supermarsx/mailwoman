@@ -136,6 +136,8 @@ pub(crate) fn rule_to_mail_rule(rule: &Rule) -> MailRule {
                 kind: "stop".into(),
                 value: None,
             }),
+            Action::Forward { address } => Some(MailRuleAction {kind:"forward".into(),value:Some(address.clone())}),
+            Action::ForwardCopy { address } => Some(MailRuleAction {kind:"forwardCopy".into(),value:Some(address.clone())}),
             _ => None,
         })
         .collect();
@@ -160,6 +162,9 @@ pub(crate) fn rule_to_mail_rule(rule: &Rule) -> MailRule {
 /// the RFC 8620 §5.3 `invalidProperties` SetError (`Err`) instead. Thread
 /// rules stay unsupported until the Sieve rework (t32-ext.md §S).
 pub(crate) fn mail_rule_to_rule(mr: &MailRule) -> Result<Rule, Value> {
+    if mr.actions.iter().any(|a|!matches!(a.kind.as_str(),"move"|"archive"|"tag"|"stop"|"forward"|"forwardCopy")) {
+        return Err(json!({"type":"invalidProperties","properties":["actions"],"description":"unsupported rule action"}));
+    }
     let mut unsupported: Vec<&str> = mr
         .conditions
         .iter()
@@ -181,6 +186,11 @@ pub(crate) fn mail_rule_to_rule(mr: &MailRule) -> Result<Rule, Value> {
 /// update that leaves no conditions on a rule that had some (a stored
 /// condition the DTO cannot show is lost on the round trip).
 pub(crate) fn mail_rule_update_to_rule(stored: &Rule, mr: &MailRule) -> Result<Rule, Value> {
+    if stored.conditions.iter().any(|condition| !matches!(condition,Condition::From(_) | Condition::To(_) | Condition::Subject(_)))
+        || stored.actions.iter().any(|action| !matches!(action,Action::Move {..} | Action::Tag {..} | Action::Mark {..} | Action::Forward {..} | Action::ForwardCopy {..} | Action::Stop)) {
+        return Err(json!({"type":"invalidProperties","properties":["conditions","actions"],
+            "description":"this rule contains tests or actions the visual builder cannot preserve; edit its Sieve source"}));
+    }
     let rule = mail_rule_to_rule(mr)?;
     if rule.conditions.is_empty() && !stored.conditions.is_empty() {
         return Err(invalid_conditions(
@@ -229,6 +239,8 @@ fn convert_mail_rule(mr: &MailRule) -> Rule {
                 keyword: a.value.clone().unwrap_or_default(),
             }),
             "stop" => Some(Action::Stop),
+            "forward" => Some(Action::Forward {address:a.value.clone().unwrap_or_default()}),
+            "forwardCopy" => Some(Action::ForwardCopy {address:a.value.clone().unwrap_or_default()}),
             _ => None,
         })
         .collect();

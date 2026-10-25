@@ -1438,6 +1438,28 @@ impl Store {
         }
     }
 
+    /// Read a body only when its sealed length fits the plaintext limit. The
+    /// predicate executes in the database before transferring the blob. Missing,
+    /// oversized and other-account bodies all return `None`.
+    pub async fn get_body_limited(
+        &self,
+        account_id: &str,
+        blob_ref: &str,
+        limit: usize,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        // XChaCha20-Poly1305 stores a 24-byte nonce and a 16-byte tag.
+        let sealed_limit = i64::try_from(limit.saturating_add(40)).unwrap_or(i64::MAX);
+        let row = q("SELECT sealed_bytes FROM bodies WHERE account_id = ?1 AND blob_ref = ?2 AND length(sealed_bytes) <= ?3")
+            .bind(account_id).bind(blob_ref).bind(sealed_limit).fetch_optional(&self.backend).await?;
+        match row {
+            Some(row) => {
+                let bytes = self.key.open(&row.get_blob("sealed_bytes"))?;
+                Ok((bytes.len() <= limit).then_some(bytes))
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Open a message's sealed envelope bytes (for `Email/get` without
     /// re-parsing), if one was stored.
     pub async fn get_envelope(&self, stable_id: &str) -> Result<Option<Vec<u8>>, StoreError> {

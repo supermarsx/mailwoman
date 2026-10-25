@@ -4,13 +4,17 @@
 //! Plaintext mode exists for STARTTLS bootstrap and for the deterministic mock
 //! / Greenmail transports used by the test suite; production accounts always
 //! finish in [`ImapStream::Tls`].
+//!
+//! The byte stream underneath comes from a [`Dialer`] (t32-ext §J): a direct TCP
+//! connection unless the caller passes another dialer (an SSH tunnel channel).
+//! TLS is always terminated here, against `host`, whatever carries the bytes.
 
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use mw_net::{BoxStream, Dialer};
 use rustls_pki_types::ServerName;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 
 use crate::error::{ImapError, ImapResult};
@@ -27,23 +31,42 @@ pub enum TlsMode {
     Plaintext,
 }
 
-/// A stream that is either plaintext TCP or a rustls-wrapped TCP stream.
+/// A stream that is either the dialled plaintext stream or a rustls session
+/// over it.
 ///
 /// Both inner types are `Unpin`, so the `AsyncRead`/`AsyncWrite` delegation
 /// uses `Pin::new` on the matched inner stream.
 pub enum ImapStream {
-    Plain(TcpStream),
-    Tls(Box<TlsStream<TcpStream>>),
+    Plain(BoxStream),
+    Tls(Box<TlsStream<BoxStream>>),
 }
 
 impl ImapStream {
-    /// Open a TCP connection, applying implicit TLS immediately when requested.
+    /// Open a direct TCP connection, applying implicit TLS immediately when
+    /// requested.
     pub async fn connect(host: &str, port: u16, mode: TlsMode) -> ImapResult<Self> {
-        let tcp = TcpStream::connect((host, port)).await?;
-        tcp.set_nodelay(true).ok();
+        Self::connect_via(None, host, port, mode).await
+    }
+
+    /// Like [`connect`](Self::connect), with the stream opened by `dialer`
+    /// (`None` = direct TCP).
+    pub async fn connect_via(
+        dialer: Option<&dyn Dialer>,
+        host: &str,
+        port: u16,
+        mode: TlsMode,
+    ) -> ImapResult<Self> {
+        let stream = mw_net::dial(dialer, host, port).await?;
+        Self::from_stream(stream, host, mode).await
+    }
+
+    /// Adopt a stream that is already open to the server (`host` is used for
+    /// TLS SNI and certificate validation only), applying implicit TLS
+    /// immediately when requested.
+    pub async fn from_stream(stream: BoxStream, host: &str, mode: TlsMode) -> ImapResult<Self> {
         match mode {
-            TlsMode::Plaintext | TlsMode::StartTls => Ok(ImapStream::Plain(tcp)),
-            TlsMode::Implicit => Self::wrap_tls(tcp, host).await,
+            TlsMode::Plaintext | TlsMode::StartTls => Ok(ImapStream::Plain(stream)),
+            TlsMode::Implicit => Self::wrap_tls(stream, host).await,
         }
     }
 
@@ -57,7 +80,7 @@ impl ImapStream {
         }
     }
 
-    async fn wrap_tls(tcp: TcpStream, host: &str) -> ImapResult<Self> {
+    async fn wrap_tls(tcp: BoxStream, host: &str) -> ImapResult<Self> {
         let connector = tls::connector()?;
         let server_name = ServerName::try_from(host.to_string())
             .map_err(|e| ImapError::Tls(format!("invalid server name {host:?}: {e}")))?;

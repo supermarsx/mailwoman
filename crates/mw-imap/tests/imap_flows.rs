@@ -362,7 +362,11 @@ async fn sync_condstore_reports_flag_changes() {
             respond: select.into(),
         },
         Ex::Cmd {
-            expect: "CHANGEDSINCE",
+            expect: "SEARCH",
+            respond: "* SEARCH 20 21\r\n{tag} OK Search\r\n".into(),
+        },
+        Ex::Cmd {
+            expect: "UID FETCH 1:* (UID FLAGS)",
             respond: fetch.into(),
         },
     ];
@@ -385,9 +389,11 @@ async fn sync_condstore_reports_flag_changes() {
     assert_eq!(delta.flag_changes[1].1, Vec::<Flag>::new());
     assert_eq!(
         delta.next_cursor,
-        SyncCursor::Condstore {
+        SyncCursor::ImapSnapshot {
             uidvalidity: 99,
-            modseq: 400
+            uidnext: 0,
+            known_uids: [20, 21].into_iter().collect(),
+            highestmodseq: Some(400),
         }
     );
 }
@@ -414,6 +420,10 @@ async fn sync_uid_window_reports_added_when_no_condstore() {
         Ex::Cmd {
             expect: "SEARCH",
             respond: search.into(),
+        },
+        Ex::Cmd {
+            expect: "UID FETCH 1:* (UID FLAGS)",
+            respond: "* 1 FETCH (UID 10 FLAGS ())\r\n* 2 FETCH (UID 11 FLAGS ())\r\n* 3 FETCH (UID 12 FLAGS ())\r\n{tag} OK Fetch\r\n".into(),
         },
     ];
     let (addr, _log) = spawn_mock(vec![Script { greeting, steps }]).await;
@@ -442,9 +452,11 @@ async fn sync_uid_window_reports_added_when_no_condstore() {
     assert_eq!(added, vec![10, 11, 12]);
     assert_eq!(
         delta.next_cursor,
-        SyncCursor::UidWindow {
+        SyncCursor::ImapSnapshot {
             uidvalidity: 1,
-            uidnext: 13
+            uidnext: 13,
+            known_uids: [10, 11, 12].into_iter().collect(),
+            highestmodseq: None,
         }
     );
 }
@@ -729,4 +741,254 @@ async fn recorded_fixtures_parse_without_panic() {
         count += 1;
     }
     assert!(count > 0, "expected recorded fixtures in {dir:?}");
+}
+
+// --- dial seam (t32-ext §J) -------------------------------------------------
+
+/// A dialer that sends every connection to one loopback address and records
+/// the `(host, port)` it was asked for, standing in for an SSH tunnel.
+#[derive(Debug)]
+struct RedirectDialer {
+    to: SocketAddr,
+    asked: Mutex<Vec<(String, u16)>>,
+}
+
+impl mw_net::Dialer for RedirectDialer {
+    fn dial<'a>(
+        &'a self,
+        host: &'a str,
+        port: u16,
+    ) -> mw_net::BoxFuture<'a, std::io::Result<mw_net::BoxStream>> {
+        Box::pin(async move {
+            self.asked.lock().unwrap().push((host.to_string(), port));
+            let tcp = TcpStream::connect(self.to).await?;
+            Ok(Box::new(tcp) as mw_net::BoxStream)
+        })
+    }
+}
+
+#[tokio::test]
+async fn connect_via_a_dialer_runs_both_connections_through_it() {
+    let cmd_script = dovecot_script(vec![]);
+    let watch_steps = {
+        let mut s = dovecot_connect_steps();
+        s.push(Ex::Cmd {
+            expect: "SELECT",
+            respond: "{tag} OK [READ-WRITE] Selected\r\n".into(),
+        });
+        s.push(Ex::Idle {
+            unsolicited: "* 5 EXISTS\r\n".into(),
+            respond: "{tag} OK IDLE terminated\r\n".into(),
+        });
+        s.push(Ex::Idle {
+            unsolicited: String::new(),
+            respond: "{tag} OK IDLE terminated\r\n".into(),
+        });
+        s
+    };
+    let (addr, _log) = spawn_mock(vec![
+        cmd_script,
+        Script {
+            greeting: dovecot_greeting(),
+            steps: watch_steps,
+        },
+    ])
+    .await;
+    let dialer = Arc::new(RedirectDialer {
+        to: addr,
+        asked: Mutex::new(Vec::new()),
+    });
+    // The configured name does not resolve; only the dialer can reach the server.
+    let config = ImapConfig::new("imap.tunnel.invalid", password_creds())
+        .port(143)
+        .tls(TlsMode::Plaintext);
+    let backend = ImapBackend::connect_via(config, Some(dialer.clone()))
+        .await
+        .expect("connect through the dialer");
+    assert!(backend.capabilities().await.unwrap().imap4rev2);
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let handle = backend.watch(ChangeSink::new(tx)).await.unwrap();
+    let event = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+        .await
+        .expect("watch event within timeout")
+        .expect("channel open");
+    assert!(matches!(event, ChangeEvent::MailboxChanged { .. }));
+    handle.stop();
+
+    assert_eq!(
+        *dialer.asked.lock().unwrap(),
+        vec![
+            ("imap.tunnel.invalid".to_string(), 143),
+            ("imap.tunnel.invalid".to_string(), 143)
+        ],
+        "the command and the IDLE connection both went through the dialer"
+    );
+}
+
+/// A dialer that refuses every target, as a tunnel refuses one outside its set.
+#[derive(Debug)]
+struct RefusingDialer;
+
+impl mw_net::Dialer for RefusingDialer {
+    fn dial<'a>(
+        &'a self,
+        _host: &'a str,
+        _port: u16,
+    ) -> mw_net::BoxFuture<'a, std::io::Result<mw_net::BoxStream>> {
+        Box::pin(async {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "target not allowed",
+            ))
+        })
+    }
+}
+
+#[tokio::test]
+async fn a_dialer_refusal_fails_the_connect_without_a_direct_fallback() {
+    let (addr, log) = spawn_mock(vec![dovecot_script(vec![])]).await;
+    // The configured address is reachable directly; the refusal must still win.
+    let err = ImapBackend::connect_via(
+        config(addr, password_creds()),
+        Some(Arc::new(RefusingDialer)),
+    )
+    .await
+    .err()
+    .expect("refused");
+    assert!(err.to_string().contains("target not allowed"), "{err}");
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(
+        log.lock().unwrap().is_empty(),
+        "no direct connection was made"
+    );
+}
+
+#[tokio::test]
+async fn first_sync_promotes_zero_uidvalidity_to_qresync() {
+    let steps = vec![
+        Ex::Cmd { expect: "SELECT", respond: "* OK [UIDVALIDITY 99]\r\n* OK [UIDNEXT 12]\r\n* OK [HIGHESTMODSEQ 50]\r\n{tag} OK Selected\r\n".into() },
+        Ex::Cmd { expect: "SEARCH", respond: "* SEARCH 10 11\r\n{tag} OK Search\r\n".into() },
+        Ex::Cmd { expect: "QRESYNC (99 50)", respond: "* OK [UIDVALIDITY 99]\r\n* OK [HIGHESTMODSEQ 51]\r\n* VANISHED (EARLIER) 10\r\n* 1 FETCH (UID 11 FLAGS (\\Seen) MODSEQ (51))\r\n{tag} OK Selected\r\n".into() },
+    ];
+    let (addr, _) = spawn_mock(vec![dovecot_script(steps)]).await;
+    let backend = connect_dovecot(addr, vec![]).await;
+    let mailbox = RawMailboxRef {
+        name: "INBOX".into(),
+        uidvalidity: 0,
+    };
+    let first = backend
+        .sync_mailbox(
+            &mailbox,
+            &SyncCursor::UidWindow {
+                uidvalidity: 0,
+                uidnext: 1,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        first.next_cursor,
+        SyncCursor::Qresync {
+            uidvalidity: 99,
+            highestmodseq: 50
+        }
+    );
+    assert_eq!(first.added.len(), 2);
+    let second = backend
+        .sync_mailbox(&mailbox, &first.next_cursor)
+        .await
+        .unwrap();
+    assert!(matches!(
+        second.removed.as_slice(),
+        [MessageRef::Imap { uid: 10, .. }]
+    ));
+    assert_eq!(second.flag_changes[0].1, vec![Flag::Seen]);
+}
+
+#[tokio::test]
+async fn persisted_snapshot_reports_flags_and_expunges_after_reconnect() {
+    let greeting = "* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] ready\r\n".to_string();
+    let steps = vec![
+        Ex::Auth { expect: "AUTHENTICATE PLAIN", respond: "{tag} OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] Logged in\r\n".into() },
+        Ex::Cmd { expect: "SELECT", respond: "* OK [UIDVALIDITY 1]\r\n* OK [UIDNEXT 14]\r\n{tag} OK Selected\r\n".into() },
+        Ex::Cmd { expect: "UID SEARCH ALL", respond: "* SEARCH 11 13\r\n{tag} OK Search\r\n".into() },
+        Ex::Cmd { expect: "UID FETCH 1:* (UID FLAGS)", respond: "* 1 FETCH (UID 11 FLAGS (\\Seen))\r\n* 2 FETCH (UID 13 FLAGS ())\r\n{tag} OK Fetch\r\n".into() },
+    ];
+    let (addr, _) = spawn_mock(vec![Script { greeting, steps }]).await;
+    let backend = ImapBackend::connect(config(addr, password_creds()))
+        .await
+        .unwrap();
+    let persisted = mw_engine::mapping::cursor_to_json(&SyncCursor::ImapSnapshot {
+        uidvalidity: 1,
+        uidnext: 13,
+        known_uids: [10, 11, 12].into_iter().collect(),
+        highestmodseq: None,
+    });
+    let cursor = mw_engine::mapping::cursor_from_json(&persisted).unwrap();
+    let delta = backend
+        .sync_mailbox(
+            &RawMailboxRef {
+                name: "INBOX".into(),
+                uidvalidity: 1,
+            },
+            &cursor,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        delta.added.as_slice(),
+        [MessageRef::Imap { uid: 13, .. }]
+    ));
+    assert_eq!(delta.removed.len(), 2);
+    assert!(matches!(delta.removed[0], MessageRef::Imap { uid: 10, .. }));
+    assert!(matches!(delta.removed[1], MessageRef::Imap { uid: 12, .. }));
+    assert_eq!(delta.flag_changes.len(), 1);
+    assert!(matches!(
+        delta.flag_changes[0].0,
+        MessageRef::Imap { uid: 11, .. }
+    ));
+    assert_eq!(delta.flag_changes[0].1, vec![Flag::Seen]);
+}
+
+#[tokio::test]
+async fn condstore_snapshot_reports_expunges_and_uses_changed_since_after_reconnect() {
+    let caps = "IMAP4rev1 AUTH=PLAIN CONDSTORE";
+    let greeting = format!("* OK [CAPABILITY {caps}] ready\r\n");
+    let steps = vec![
+        Ex::Auth { expect: "AUTHENTICATE PLAIN", respond: format!("{{tag}} OK [CAPABILITY {caps}] Logged in\r\n") },
+        Ex::Cmd { expect: "CONDSTORE", respond: "* OK [UIDVALIDITY 1]\r\n* OK [UIDNEXT 13]\r\n* OK [HIGHESTMODSEQ 51]\r\n{tag} OK Selected\r\n".into() },
+        Ex::Cmd { expect: "UID SEARCH ALL", respond: "* SEARCH 11\r\n{tag} OK Search\r\n".into() },
+        Ex::Cmd { expect: "CHANGEDSINCE 50", respond: "* 1 FETCH (UID 11 FLAGS (\\Seen) MODSEQ (51))\r\n{tag} OK Fetch\r\n".into() },
+    ];
+    let (addr, _) = spawn_mock(vec![Script { greeting, steps }]).await;
+    let backend = ImapBackend::connect(config(addr, password_creds()))
+        .await
+        .unwrap();
+    let cursor = SyncCursor::ImapSnapshot {
+        uidvalidity: 1,
+        uidnext: 13,
+        known_uids: [10, 11, 12].into_iter().collect(),
+        highestmodseq: Some(50),
+    };
+    let delta = backend
+        .sync_mailbox(
+            &RawMailboxRef {
+                name: "INBOX".into(),
+                uidvalidity: 1,
+            },
+            &cursor,
+        )
+        .await
+        .unwrap();
+    assert_eq!(delta.removed.len(), 2);
+    assert_eq!(delta.flag_changes.len(), 1);
+    assert_eq!(delta.flag_changes[0].1, vec![Flag::Seen]);
+    assert!(matches!(
+        delta.next_cursor,
+        SyncCursor::ImapSnapshot {
+            highestmodseq: Some(51),
+            ..
+        }
+    ));
 }

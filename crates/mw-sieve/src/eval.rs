@@ -87,9 +87,13 @@ fn string_matches(test: &StringTest, haystack: &str) -> bool {
 /// Sieve `:matches` glob: `*` matches any run (incl. empty), `?` matches exactly
 /// one character. Case-insensitive (ascii-casemap). Iterative backtracking so an
 /// adversarial pattern cannot blow the stack.
-fn glob_matches(pattern: &str, text: &str) -> bool {
-    let p: Vec<char> = pattern.to_ascii_lowercase().chars().collect();
-    let t: Vec<char> = text.to_ascii_lowercase().chars().collect();
+pub(crate) fn glob_matches(pattern: &str, text: &str) -> bool {
+    glob_matches_exact(&pattern.to_ascii_lowercase(), &text.to_ascii_lowercase())
+}
+
+pub(crate) fn glob_matches_exact(pattern: &str, text: &str) -> bool {
+    let p: Vec<char> = pattern.chars().collect();
+    let t: Vec<char> = text.chars().collect();
     let (mut pi, mut ti) = (0usize, 0usize);
     let (mut star, mut mark) = (None, 0usize);
 

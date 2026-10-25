@@ -151,6 +151,9 @@ fn render_action(action: &Action) -> (String, &'static [&'static str]) {
         Action::Tag { keyword } => (format!("addflag {};", quote(keyword)), &["imap4flags"]),
         Action::Mark { keyword } => (format!("addflag {};", quote(keyword)), &["imap4flags"]),
         Action::Forward { address } => (format!("redirect {};", quote(address)), &[]),
+        Action::ForwardCopy { address } => {
+            (format!("redirect :copy {};", quote(address)), &["copy"])
+        }
         Action::ReplyTemplate { template } => {
             (format!("vacation {};", quote(template)), &["vacation"])
         }

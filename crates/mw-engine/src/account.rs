@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mw_smtp::{Outgoing, SubmissionResult, Submitter};
+use mw_smtp::{Outgoing, SubmissionResult, SubmitOptions, Submitter};
 use serde::{Deserialize, Serialize};
 
 use crate::backend::{AccountBackend, EngineError, Result, WatchHandle};
@@ -20,7 +20,23 @@ use crate::backend::{AccountBackend, EngineError, Result, WatchHandle};
 pub trait MailSubmitter: Send + Sync {
     /// Submit one already-serialized message, reporting per-recipient outcome.
     async fn submit(&self, msg: Outgoing) -> Result<SubmissionResult>;
+
+    /// Submit with ESMTP options (t32-e46: DSN). A submitter that cannot honour
+    /// a DSN request answers [`EngineError::Unsupported`] with
+    /// [`DSN_NOT_OFFERED`] before anything is sent, and the engine sends the
+    /// message without it. Without a DSN request this is [`Self::submit`].
+    async fn submit_with(&self, msg: Outgoing, opts: SubmitOptions) -> Result<SubmissionResult> {
+        if opts.dsn.is_some() {
+            return Err(EngineError::Unsupported(DSN_NOT_OFFERED.into()));
+        }
+        self.submit(msg).await
+    }
 }
+
+/// The refusal text for a DSN request the submission server cannot honour. It
+/// is the text `mw-smtp` gives when the server's EHLO has no `DSN`, which it
+/// checks before `MAIL FROM`, so nothing has been sent when it is returned.
+pub const DSN_NOT_OFFERED: &str = "server does not advertise DSN";
 
 /// Text for one header line: `s` with every control character removed (CR, LF,
 /// NUL, TAB, DEL, C1 …), so the value cannot end the header it is written into.
@@ -35,15 +51,26 @@ pub(crate) fn header_text(s: &str) -> String {
 #[async_trait]
 impl MailSubmitter for Submitter {
     async fn submit(&self, msg: Outgoing) -> Result<SubmissionResult> {
-        Submitter::submit(self, msg).await.map_err(|e| match e {
-            mw_smtp::SmtpError::Auth(m) => EngineError::Auth(m),
-            mw_smtp::SmtpError::Transport(m) => EngineError::Transport(m),
-            mw_smtp::SmtpError::Protocol(m) => EngineError::Protocol(m),
-            e @ mw_smtp::SmtpError::InvalidAddress(_) => EngineError::Protocol(e.to_string()),
-            // The server lacks an extension the message cannot do without.
-            // `Unsupported` is what `transmit_draft` does not retry.
-            e @ mw_smtp::SmtpError::SmtpUtf8Required(_) => EngineError::Unsupported(e.to_string()),
-        })
+        MailSubmitter::submit_with(self, msg, SubmitOptions::default()).await
+    }
+
+    async fn submit_with(&self, msg: Outgoing, opts: SubmitOptions) -> Result<SubmissionResult> {
+        Submitter::submit_with(self, msg, opts)
+            .await
+            .map_err(|e| match e {
+                mw_smtp::SmtpError::Auth(m) => EngineError::Auth(m),
+                mw_smtp::SmtpError::Protocol(m) if m == DSN_NOT_OFFERED => {
+                    EngineError::Unsupported(m)
+                }
+                mw_smtp::SmtpError::Transport(m) => EngineError::Transport(m),
+                mw_smtp::SmtpError::Protocol(m) => EngineError::Protocol(m),
+                e @ mw_smtp::SmtpError::InvalidAddress(_) => EngineError::Protocol(e.to_string()),
+                // The server lacks an extension the message cannot do without.
+                // `Unsupported` is what `transmit_draft` does not retry.
+                e @ mw_smtp::SmtpError::SmtpUtf8Required(_) => {
+                    EngineError::Unsupported(e.to_string())
+                }
+            })
     }
 }
 

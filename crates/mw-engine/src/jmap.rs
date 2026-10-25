@@ -105,6 +105,16 @@ impl Engine {
     /// Handle one JMAP `Request` (RFC 8620 §3.3) and produce the `Response`,
     /// resolving `#`-prefixed result references before dispatching each call.
     pub async fn handle_jmap(&self, account_id: &str, request: &Value) -> Value {
+        self.handle_jmap_with_sieve(account_id, request, None).await
+    }
+
+    /// Dispatch with server-selected Sieve transport and policy, never request-supplied authority.
+    pub async fn handle_jmap_with_sieve(
+        &self,
+        account_id: &str,
+        request: &Value,
+        mut sieve: Option<&mut crate::sieve_jmap::SieveContext>,
+    ) -> Value {
         let rt = self.runtime(account_id);
         let empty = Vec::new();
         let calls = request
@@ -126,6 +136,24 @@ impl Engine {
             let call_id = arr[2].as_str().unwrap_or("c0");
             let mut args = arr[1].clone();
             resolve_references(&mut args, &responses);
+            if crate::sieve_jmap::is_managed_method(name) && let Some(ctx) = sieve.as_deref_mut() {
+                let response = Box::pin(self.handle_managed_sieve(account_id, name, &args, ctx)).await;
+                let response_name = if response.get("type").is_some() { "error" } else { name };
+                responses.push(json!([response_name, response, call_id]));
+                continue;
+            }
+            if crate::sieve_jmap::is_sieve_method(name) {
+                if !request.get("using").and_then(Value::as_array).is_some_and(|caps| {
+                    caps.iter().any(|cap| cap == crate::sieve_jmap::CAPABILITY)
+                }) {
+                    responses.push(json!(["error", {"type":"unknownMethod"}, call_id]));
+                    continue;
+                }
+                let response = Box::pin(self.handle_sieve_jmap(account_id, name, &args, sieve.as_deref_mut(), &mut created_ids)).await;
+                let response_name = if response.get("type").is_some() { "error" } else { name };
+                responses.push(json!([response_name, response, call_id]));
+                continue;
+            }
 
             // The implicit `Email/set` response of an `EmailSubmission/set`
             // whose `onSuccess*` arguments changed an Email in this call
@@ -2148,6 +2176,15 @@ impl Engine {
                 }));
             }
         }
+        let dsn = envelope.as_ref().and_then(|e| e.dsn.clone());
+        // An administrator may forbid asking for delivery reports
+        // (`receipts.dsnAllowed`, t32-e46).
+        if dsn.is_some() && !self.dsn_allowed(account_id).await {
+            return Err(json!({
+                "type": "forbidden",
+                "description": "delivery status notifications are turned off by the administrator",
+            }));
+        }
         let rcpt_to = envelope.map(|e| e.rcpt_to);
         // The mailbox an `onSuccessUpdateEmail` patch files the message into
         // must be one of this account's, checked now so the refusal reaches
@@ -2189,7 +2226,7 @@ impl Engine {
                 hold_seconds,
                 hold,
                 origin,
-                at_send: at_send_json(on_success, rcpt_to.as_deref()),
+                at_send: at_send_json(on_success, rcpt_to.as_deref(), dsn.as_ref()),
             },
         )
         .await
@@ -2376,17 +2413,19 @@ impl Engine {
             return Err(refused(&row.undo_status));
         }
         if let Some(on_success) = on_success {
-            // Replace the instructions; the recipients the create fixed stay.
-            let rcpt_to = self
+            // Replace the instructions; the recipients and the DSN request the
+            // create fixed stay.
+            let stored = self
                 .store()
                 .get_submission_hold(id)
                 .await?
-                .and_then(|h| h.on_success)
-                .and_then(|stored| stored_rcpt_to(&stored));
+                .and_then(|h| h.on_success);
+            let rcpt_to = stored.as_deref().and_then(stored_rcpt_to);
+            let dsn = stored.as_deref().and_then(stored_dsn);
             self.store()
                 .set_submission_on_success(
                     id,
-                    at_send_json(Some(on_success), rcpt_to.as_deref()).as_deref(),
+                    at_send_json(Some(on_success), rcpt_to.as_deref(), dsn.as_ref()).as_deref(),
                 )
                 .await?;
         }
@@ -2708,8 +2747,11 @@ impl Engine {
             .map_err(|e| NotSent::transient(e.into()))?
             .and_then(|h| h.on_success);
         let rcpt_to = stored.as_deref().and_then(stored_rcpt_to);
+        let dsn = stored.as_deref().and_then(stored_dsn);
         let on_success = stored.as_deref().and_then(OnSuccess::from_json);
-        let sent = self.transmit_draft(rt, email_id, rcpt_to).await?;
+        let sent = self
+            .transmit_draft(account_id, rt, email_id, rcpt_to, dsn)
+            .await?;
         self.record_delivered(sub_id).await;
         self.emit_event(
             crate::change::EventKind::SubmissionSent,
@@ -3146,9 +3188,11 @@ impl Engine {
     /// inline, delayed, released.
     async fn transmit_draft(
         &self,
+        account_id: &str,
         rt: &AccountRuntime,
         email_id: &str,
         envelope_rcpt: Option<Vec<String>>,
+        dsn: Option<mail_ext::dsn::DsnRequest>,
     ) -> std::result::Result<Transmitted, NotSent> {
         let msg = self
             .store()
@@ -3208,7 +3252,34 @@ impl Engine {
         // the deferred send paths before a submission is ever enqueued. By the
         // time we reach the actual dispatch here the draft has already cleared
         // DLP, so no second evaluation (and no duplicate audit) is needed.
-        let result = rt.submitter.submit(outgoing).await.map_err(|e| match e {
+        // Delivery status notifications (t32-e46): asked for through the
+        // envelope parameters. A server that does not offer DSN refuses before
+        // anything is sent; the message then goes without, and the account
+        // remembers it so the option stops being offered.
+        let result = match dsn {
+            Some(dsn) => {
+                let opts = mw_smtp::SubmitOptions {
+                    dsn: Some(dsn.to_smtp()),
+                    ..mw_smtp::SubmitOptions::default()
+                };
+                match rt.submitter.submit_with(outgoing.clone(), opts).await {
+                    Err(EngineError::Unsupported(m)) if m == crate::account::DSN_NOT_OFFERED => {
+                        self.record_dsn_support(account_id, false).await;
+                        tracing::info!(
+                            "draft {email_id}: the submission server does not offer DSN; sent without"
+                        );
+                        rt.submitter.submit(outgoing).await
+                    }
+                    Ok(r) => {
+                        self.record_dsn_support(account_id, true).await;
+                        Ok(r)
+                    }
+                    other => other,
+                }
+            }
+            None => rt.submitter.submit(outgoing).await,
+        }
+        .map_err(|e| match e {
             // A submitter that cannot send will not start to on a retry.
             e @ EngineError::Unsupported(_) => NotSent::permanent(e),
             e => NotSent::transient(e),
@@ -4382,6 +4453,8 @@ struct CheckedEnvelope {
     mail_from: Option<String>,
     /// `envelope.rcptTo[].email`: at least one, each a valid mailbox.
     rcpt_to: Vec<String>,
+    /// The DSN parameters (`NOTIFY`, `ORCPT`, `RET`, `ENVID`), if any.
+    dsn: Option<mail_ext::dsn::DsnRequest>,
 }
 
 /// The `envelope` of an `EmailSubmission/set` create spec. Absent or `null`
@@ -4427,7 +4500,12 @@ fn checked_envelope(spec: &Value) -> std::result::Result<Option<CheckedEnvelope>
             Ok(email.to_string())
         })
         .collect::<std::result::Result<Vec<String>, Value>>()?;
-    Ok(Some(CheckedEnvelope { mail_from, rcpt_to }))
+    let dsn = mail_ext::dsn::DsnRequest::from_envelope(envelope).map_err(invalid)?;
+    Ok(Some(CheckedEnvelope {
+        mail_from,
+        rcpt_to,
+        dsn,
+    }))
 }
 
 /// What a submission's create asked to happen when the message is sent, as
@@ -4437,8 +4515,12 @@ fn checked_envelope(spec: &Value) -> std::result::Result<Option<CheckedEnvelope>
 /// The column it is stored in is named `on_success` (0031), after the first
 /// thing kept there; the envelope recipients joined it rather than take
 /// another migration.
-fn at_send_json(on_success: Option<&OnSuccess>, rcpt_to: Option<&[String]>) -> Option<String> {
-    if on_success.is_none() && rcpt_to.is_none() {
+fn at_send_json(
+    on_success: Option<&OnSuccess>,
+    rcpt_to: Option<&[String]>,
+    dsn: Option<&mail_ext::dsn::DsnRequest>,
+) -> Option<String> {
+    if on_success.is_none() && rcpt_to.is_none() && dsn.is_none() {
         return None;
     }
     Some(
@@ -4446,9 +4528,16 @@ fn at_send_json(on_success: Option<&OnSuccess>, rcpt_to: Option<&[String]>) -> O
             "update": on_success.and_then(|o| o.update.as_ref()),
             "destroy": on_success.is_some_and(|o| o.destroy),
             "rcptTo": rcpt_to,
+            "dsn": dsn.map(|d| d.to_json()),
         })
         .to_string(),
     )
+}
+
+/// The DSN request in a stored [`at_send_json`] object, if it has one.
+fn stored_dsn(stored: &str) -> Option<mail_ext::dsn::DsnRequest> {
+    let v: Value = serde_json::from_str(stored).ok()?;
+    mail_ext::dsn::DsnRequest::from_json(v.get("dsn")?)
 }
 
 /// The envelope recipients in a stored [`at_send_json`] object, if it has any.

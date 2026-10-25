@@ -160,6 +160,17 @@ pub fn enforce(source: &str, policy: &Policy, edit: EditKind) -> Result<Analysis
         }
     };
 
+    // A remote server may understand vendor commands, but we cannot prove what
+    // they send or execute. Likewise, an include can hide actions in a script
+    // outside this validation transaction. Refuse both until a trusted resolver
+    // can recursively validate the complete execution graph under this policy.
+    if !analysis.unknown.is_empty() || !analysis.includes.is_empty() {
+        out.push(Violation::whole(
+            ViolationKind::ExtensionNotAllowed,
+            "unmodelled commands and unresolved includes cannot be policy checked",
+        ));
+    }
+
     for (cap, span) in &analysis.require_spans {
         if let Some(allowed) = &policy.allowed_extensions
             && !allowed.contains(cap)
@@ -485,5 +496,28 @@ mod tests {
             ViolationKind::TooManyScripts
         );
         assert!(check_script_count(99, false, &policy()).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod opaque_policy_regressions {
+    use super::*;
+    #[test]
+    fn opaque_vendor_commands_and_unresolved_includes_cannot_hide_forwarding() {
+        let policy = Policy {
+            raw_edit: true,
+            own_domains: vec!["example.org".into()],
+            advertised: Some(["vnd.dovecot.pipe".into(), "include".into()].into()),
+            ..Default::default()
+        };
+        for source in [
+            "require [\"vnd.dovecot.pipe\"]; pipe \"exfiltrate\";",
+            "require [\"include\"]; include :personal \"unvalidated-external-forward\";",
+        ] {
+            assert!(
+                enforce(source, &policy, EditKind::Raw).is_err(),
+                "opaque execution escaped policy: {source}"
+            );
+        }
     }
 }

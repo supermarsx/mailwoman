@@ -261,9 +261,18 @@ impl<'a> Parser<'a> {
                     "addflag" => Action::Tag {
                         keyword: self.expect_str()?,
                     },
-                    "redirect" => Action::Forward {
-                        address: self.expect_str()?,
-                    },
+                    "redirect" => {
+                        let copy = matches!(self.peek(), Some(Token::Word(t)) if t == ":copy");
+                        if copy {
+                            self.pos += 1;
+                        }
+                        let address = self.expect_str()?;
+                        if copy {
+                            Action::ForwardCopy { address }
+                        } else {
+                            Action::Forward { address }
+                        }
+                    }
                     "vacation" => Action::ReplyTemplate {
                         template: self.expect_str()?,
                     },

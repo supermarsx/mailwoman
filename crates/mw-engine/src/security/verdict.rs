@@ -526,6 +526,11 @@ struct GeoEnrichment {
     country: Option<String>,
 }
 
+/// Country from the operator's local GeoIP database; no network lookup.
+pub fn country_for_ip(ip: IpAddr) -> Option<String> {
+    geoip_enrich(Some(ip)).country
+}
+
 /// The admin-supplied GeoIP database path (`MW_GEOIP_DB`), when it points at an
 /// existing file. `None` (the default) leaves every hop's ASN/country unset.
 fn geoip_db_path() -> Option<std::path::PathBuf> {

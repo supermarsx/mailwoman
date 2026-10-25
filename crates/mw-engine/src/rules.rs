@@ -20,6 +20,19 @@ use crate::mapping::{flags_from_json, flags_to_json, flags_to_keywords};
 impl Engine {
     /// The account's stored rules (empty when none configured or unparseable).
     pub async fn get_rules(&self, account_id: &str) -> Result<Vec<Rule>> {
+        if let Some(active) = self
+            .store()
+            .list_sieve_scripts(account_id)
+            .await?
+            .into_iter()
+            .find(|s| s.active)
+        {
+            return mw_sieve::managed::rules(&active.content)
+                .map_err(|_| EngineError::Protocol("invalid managed Sieve rule blocks".into()));
+        }
+        if self.store().has_sieve_authority(account_id).await? {
+            return Ok(Vec::new());
+        }
         let key = format!("rules:{account_id}");
         let json = self.store().get_setting(&key).await?;
         Ok(json

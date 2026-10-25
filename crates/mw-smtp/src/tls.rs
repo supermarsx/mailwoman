@@ -18,8 +18,8 @@ use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
+use mw_net::BoxStream;
 use rustls_pki_types::ServerName;
-use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
 use tokio_rustls::rustls::{ClientConfig, ProtocolVersion, RootCertStore};
@@ -93,17 +93,17 @@ fn explain(e: io::Error, floor: MinTls) -> io::Error {
 /// parseable leaf certificate), in which case SCRAM-`PLUS` is skipped and plain
 /// SCRAM over the TLS channel is used instead.
 pub(crate) struct TlsUpgrade {
-    pub stream: TlsStream<TcpStream>,
+    pub stream: TlsStream<BoxStream>,
     pub channel_binding: Option<(&'static str, Vec<u8>)>,
 }
 
-/// Wrap an established TCP stream in a TLS session validated against
+/// Wrap an established stream (direct TCP or one a dialer opened) in a TLS session validated against
 /// `webpki-roots`, using `host` as the SNI / certificate name, at the floor
 /// currently in force ([`min_tls`]). After the handshake the negotiated channel
 /// binding for SCRAM-SHA-256-PLUS is computed: the RFC 9266 `tls-exporter` on
 /// TLS 1.3, or the RFC 5929 `tls-server-end-point` (leaf-certificate hash) on
 /// TLS 1.2. Under a [`MinTls::V13`] floor only the first can occur.
-pub(crate) async fn connect(tcp: TcpStream, host: &str) -> Result<TlsUpgrade, SmtpError> {
+pub(crate) async fn connect(tcp: BoxStream, host: &str) -> Result<TlsUpgrade, SmtpError> {
     let mut roots = RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     connect_with_roots(tcp, host, roots).await
@@ -112,7 +112,7 @@ pub(crate) async fn connect(tcp: TcpStream, host: &str) -> Result<TlsUpgrade, Sm
 /// [`connect`] with the trust anchors supplied. Private: the only caller outside
 /// this module's tests is [`connect`], which passes the webpki roots.
 async fn connect_with_roots(
-    tcp: TcpStream,
+    tcp: BoxStream,
     host: &str,
     roots: RootCertStore,
 ) -> Result<TlsUpgrade, SmtpError> {
@@ -175,7 +175,7 @@ mod tests {
     use rustls_pki_types::{CertificateDer, PrivateKeyDer};
     use std::net::SocketAddr;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
+    use tokio::net::{TcpListener, TcpStream};
     use tokio_rustls::rustls;
 
     /// A self-signed certificate for `localhost` (P-256, valid to 2126), used only
@@ -261,7 +261,7 @@ YqfW0Bfyo6G3YnlWYjUrStuY5R68A7lxiZznYBOKulqbEKmad70FATFl
     /// One upgrade through this module's `connect` path at the floor in force.
     async fn upgrade(addr: SocketAddr) -> Result<Bound, SmtpError> {
         let tcp = TcpStream::connect(addr).await.unwrap();
-        let mut up = connect_with_roots(tcp, "localhost", test_roots()).await?;
+        let mut up = connect_with_roots(Box::new(tcp), "localhost", test_roots()).await?;
         let mut server_exported = [0u8; 32];
         up.stream.read_exact(&mut server_exported).await.unwrap();
         Ok((up.channel_binding, server_exported))

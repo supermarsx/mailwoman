@@ -280,16 +280,53 @@ impl Engine {
 
     // ---- sync engine ----------------------------------------------------
 
+    /// Deliver a server notification to the actual upstream Inbox, then refresh.
+    /// Read-only backends report Unsupported; callers retain the account activity alert.
+    pub async fn deliver_security_notice(&self, account_id: &str, raw: &[u8]) -> Result<()> {
+        let rt = self.require_runtime(account_id)?;
+        let inbox = rt
+            .backend
+            .list_mailboxes()
+            .await?
+            .into_iter()
+            .find(|mailbox| mailbox.mailbox_ref.name.eq_ignore_ascii_case("inbox"))
+            .ok_or_else(|| EngineError::MailboxNotFound("INBOX".into()))?;
+        rt.backend.append(&inbox.mailbox_ref, raw, &[]).await?;
+        self.resync(account_id).await
+    }
+
     /// Full sync: enumerate mailboxes, upsert them, then incrementally sync each
     /// from its persisted cursor. Idempotent — safe to call on every change tick.
     pub async fn resync(&self, account_id: &str) -> Result<()> {
         let rt = self.require_runtime(account_id)?;
         let mailboxes = rt.backend.list_mailboxes().await?;
+        let cached_mailboxes = self.store.list_mailboxes(account_id).await?;
         // Upsert every mailbox first so ingest-time rules (plan §0.6) can target
         // any folder even when it sorts after the inbox in the backend's list.
         let mut pairs = Vec::with_capacity(mailboxes.len());
-        for rm in &mailboxes {
-            let mailbox_id = self.upsert_mailbox(account_id, rm).await?;
+        for mut rm in mailboxes {
+            if let Some(cached) = cached_mailboxes
+                .iter()
+                .find(|cached| {
+                    cached.name == rm.mailbox_ref.name
+                        && cached.uidvalidity == rm.mailbox_ref.uidvalidity
+                })
+                .or_else(|| {
+                    cached_mailboxes
+                        .iter()
+                        .find(|cached| cached.name == rm.mailbox_ref.name)
+                })
+            {
+                if rm.mailbox_ref.uidvalidity == 0 {
+                    // LIST without STATUS does not establish UIDVALIDITY.
+                    rm.mailbox_ref.uidvalidity = cached.uidvalidity;
+                } else if cached.uidvalidity != rm.mailbox_ref.uidvalidity {
+                    self.store
+                        .revalidate_mailbox(&cached.id, rm.mailbox_ref.uidvalidity)
+                        .await?;
+                }
+            }
+            let mailbox_id = self.upsert_mailbox(account_id, &rm).await?;
             pairs.push((rm, mailbox_id));
         }
         for (rm, mailbox_id) in &pairs {
@@ -333,7 +370,52 @@ impl Engine {
             .await?
             .and_then(|json| cursor_from_json(&json))
             .unwrap_or_else(|| self.initial_cursor_for(account_id));
-        let delta: MailboxDelta = rt.backend.sync_mailbox(&rm.mailbox_ref, &cursor).await?;
+        let mut delta: MailboxDelta = rt.backend.sync_mailbox(&rm.mailbox_ref, &cursor).await?;
+        let validity = |cursor: &SyncCursor| match cursor {
+            SyncCursor::Qresync { uidvalidity, .. }
+            | SyncCursor::Condstore { uidvalidity, .. }
+            | SyncCursor::UidWindow { uidvalidity, .. }
+            | SyncCursor::ImapSnapshot { uidvalidity, .. } => Some(*uidvalidity),
+            _ => None,
+        };
+        let next_validity = validity(&delta.next_cursor);
+        if let Some(next) = next_validity.filter(|value| *value != 0)
+            && self.store.get_mailbox(mailbox_id).await?.uidvalidity != next
+        {
+            // SELECT is authoritative when LIST had no status or raced a reset.
+            self.store.revalidate_mailbox(mailbox_id, next).await?;
+        }
+        // Older UID-window cursors contain no membership set. On their first
+        // snapshot sync, reconcile against the persisted cache so messages
+        // expunged before this upgrade are removed too.
+        if !matches!(cursor, SyncCursor::ImapSnapshot { .. })
+            && let SyncCursor::ImapSnapshot {
+                uidvalidity,
+                known_uids,
+                ..
+            } = &delta.next_cursor
+        {
+            let mut offset = 0;
+            loop {
+                let ids = self
+                    .store
+                    .list_message_ids(mailbox_id, 1000, offset)
+                    .await?;
+                if ids.is_empty() {
+                    break;
+                }
+                for message in self.store.get_messages(&ids).await?.into_iter().flatten() {
+                    if message.uidvalidity == *uidvalidity && !known_uids.contains(&message.uid) {
+                        delta.removed.push(MessageRef::Imap {
+                            mailbox: rm.mailbox_ref.clone(),
+                            uidvalidity: *uidvalidity,
+                            uid: message.uid,
+                        });
+                    }
+                }
+                offset += ids.len() as i64;
+            }
+        }
 
         // New messages: fetch raw bytes, parse in one pass, ingest.
         if !delta.added.is_empty() {
@@ -348,7 +430,30 @@ impl Engine {
         // and ingest it so nothing is lost.
         for (mref, flags) in &delta.flag_changes {
             match self.resolve_ref(account_id, mailbox_id, mref).await? {
-                Some(sid) => self.store.set_flags(&sid, &flags_to_json(flags)).await?,
+                Some(sid) => {
+                    let next_flags = flags_to_json(flags);
+                    let cached = self.store.get_message(&sid).await?;
+                    if cached.flags_json != next_flags {
+                        self.store.set_flags(&sid, &next_flags).await?;
+                        self.invalidate_message_cache(&sid).await;
+                        self.reindex_messages(&[IndexPatch {
+                            stable_id: sid.clone(),
+                            flags: Some(flags.clone()),
+                            pinned: None,
+                            moved: false,
+                        }])
+                        .await;
+                        self.record_change(account_id, ChangeType::Email, &sid, ChangeOp::Updated)
+                            .await?;
+                        self.record_change(
+                            account_id,
+                            ChangeType::Mailbox,
+                            mailbox_id,
+                            ChangeOp::Updated,
+                        )
+                        .await?;
+                    }
+                }
                 None => {
                     let raws = rt.backend.fetch_raw(std::slice::from_ref(mref)).await?;
                     for raw in &raws {
@@ -359,6 +464,32 @@ impl Engine {
         }
 
         // Removals (EXPUNGE / VANISHED / dropped UIDL).
+        // Full reset ingest has now re-derived stable IDs for surviving mail.
+        // Only old coordinates left over after that successful ingest are stale.
+        if let Some(next) = next_validity.filter(|value| *value != 0)
+            && validity(&cursor) != Some(next)
+        {
+            let mut offset = 0;
+            loop {
+                let ids = self
+                    .store
+                    .list_message_ids(mailbox_id, 1000, offset)
+                    .await?;
+                if ids.is_empty() {
+                    break;
+                }
+                for message in self.store.get_messages(&ids).await?.into_iter().flatten() {
+                    if message.uidvalidity != next {
+                        delta.removed.push(MessageRef::Imap {
+                            mailbox: rm.mailbox_ref.clone(),
+                            uidvalidity: message.uidvalidity,
+                            uid: message.uid,
+                        });
+                    }
+                }
+                offset += ids.len() as i64;
+            }
+        }
         for mref in &delta.removed {
             if let Some(sid) = self.resolve_ref(account_id, mailbox_id, mref).await? {
                 self.store.delete_message(&sid).await?;
@@ -448,28 +579,13 @@ impl Engine {
         email.thread_id = thread_id.clone();
 
         let (uidvalidity, uid, uidl) = coords(&raw.message_ref);
-        // Was this coordinate already cached? Distinguishes a genuinely new
-        // arrival (→ run rules, record `created`) from a re-ingest (→ `updated`).
-        let existed = match &uidl {
-            Some(u) => self
-                .store
-                .stable_id_for_uidl(account_id, u)
-                .await?
-                .is_some(),
-            None => self
-                .store
-                .stable_id_for(account_id, mailbox_id, uidvalidity, uid)
-                .await?
-                .is_some(),
-        };
-
         let env_bytes = serde_json::to_vec(&email).unwrap_or_default();
         let blob_ref = self.store.put_body(account_id, &raw.raw).await?;
         let flags_json = flags_to_json(&raw.flags);
 
-        let sid = self
+        let (sid, existed) = self
             .store
-            .upsert_message(&MessageUpsert {
+            .upsert_message_with_status(&MessageUpsert {
                 account_id,
                 mailbox_id,
                 uid,
@@ -520,8 +636,13 @@ impl Engine {
         // Rules run once, on genuinely new inbox arrivals (never on our own
         // drafts/sent, never on historical re-sync).
         if !existed {
-            self.apply_rules_at_ingest(account_id, mailbox_id, &sid, &email, &raw.flags)
-                .await?;
+            if !self
+                .apply_local_sieve_at_ingest(account_id, mailbox_id, &sid, &email, &raw.raw)
+                .await?
+            {
+                self.apply_rules_at_ingest(account_id, mailbox_id, &sid, &email, &raw.flags)
+                    .await?;
+            }
             // §10.8 spam classification (fail-soft): a jailed `spam-action` plugin
             // verdict tags $Junk + moves to Junk. Errors are swallowed so a classifier
             // failure can NEVER drop a delivered message; a no-op when no hook is
@@ -883,6 +1004,94 @@ impl Engine {
                 }))
             }
         }
+    }
+
+    /// Bounded CID path: only stored message parts, never uploads or an
+    /// unbounded backend re-fetch. The raw MIME ceiling is independent of the
+    /// decoded image ceiling, allowing small images within larger messages.
+    pub async fn fetch_blob_limited(
+        &self,
+        account_id: &str,
+        blob_id: &str,
+        raw_limit: usize,
+        part_limit: usize,
+    ) -> Result<Option<BlobData>> {
+        let Some((stable_id, part_id)) = blob_id.split_once('.') else {
+            return Ok(None);
+        };
+        let Ok(part_id) = part_id.parse::<u32>() else {
+            return Ok(None);
+        };
+        let Some(raw) = self
+            .stored_raw_limited(account_id, stable_id, raw_limit)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let Some(part) = mw_mime::part_blob(&raw, part_id) else {
+            return Ok(None);
+        };
+        if part.bytes.len() > part_limit {
+            return Ok(None);
+        }
+        Ok(Some(BlobData {
+            content_type: part.content_type,
+            filename: part.filename.unwrap_or_else(|| "part.bin".into()),
+            bytes: part.bytes,
+        }))
+    }
+
+    /// CID membership from the same bounded, account-scoped source as downloads.
+    pub async fn inline_part_ids_limited(
+        &self,
+        account_id: &str,
+        stable_id: &str,
+        raw_limit: usize,
+    ) -> Result<Vec<String>> {
+        use mail_parser::{MessageParser, MimeHeaders, PartType};
+        let Some(raw) = self
+            .stored_raw_limited(account_id, stable_id, raw_limit)
+            .await?
+        else {
+            return Ok(Vec::new());
+        };
+        let Some(message) = MessageParser::default().parse(&raw) else {
+            return Ok(Vec::new());
+        };
+        Ok(message
+            .parts
+            .iter()
+            .enumerate()
+            .filter(|(_, part)| {
+                matches!(part.body, PartType::Binary(_) | PartType::InlineBinary(_))
+                    && part.content_id().is_some_and(|id| !id.trim().is_empty())
+            })
+            .take(256)
+            .map(|(index, _)| format!("{stable_id}.{index}"))
+            .collect())
+    }
+
+    async fn stored_raw_limited(
+        &self,
+        account_id: &str,
+        stable_id: &str,
+        limit: usize,
+    ) -> Result<Option<Vec<u8>>> {
+        let message = match self.store.get_message(stable_id).await {
+            Ok(message) => message,
+            Err(mw_store::StoreError::NotFound) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        if message.account_id != account_id {
+            return Ok(None);
+        }
+        let Some(blob_ref) = message.blob_ref else {
+            return Ok(None);
+        };
+        Ok(self
+            .store
+            .get_body_limited(account_id, &blob_ref, limit)
+            .await?)
     }
 
     /// Raw RFC822 bytes for a stable id, scoped to `account_id`: served from the
