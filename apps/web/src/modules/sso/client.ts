@@ -72,8 +72,9 @@ export class SsoAdminError extends Error {
  * exactly one `/admin/sso` endpoint — the contract e3 mounts.
  */
 export interface SsoAdminApi {
-  /** `GET /admin/sso` → every configured backend (secrets excluded). */
-  list(): Promise<SsoBackendRow[]>;
+  /** `GET /admin/sso?scope=` → the backends of one scope (`deployment`, the default, or
+   *  `domain:<d>`); secrets excluded, `hasSecret` says whether one is stored. */
+  list(scope?: string): Promise<SsoBackendRow[]>;
   /** `POST /admin/sso` → create or update a backend (secret write-only). */
   save(input: SsoBackendInput): Promise<void>;
   /** `DELETE /admin/sso/{id}` → remove a backend (idempotent). */
@@ -83,10 +84,14 @@ export interface SsoAdminApi {
 /** The production HTTP client (same-origin, admin-session cookie-authed). */
 export function createHttpSsoAdminApi(base = basePath()): SsoAdminApi {
   return {
-    async list() {
-      const res = await apiFetch(adminUrl('/sso', base), { credentials: 'same-origin' });
+    async list(scope) {
+      const query = scope !== undefined && scope !== 'deployment' ? `?scope=${encodeURIComponent(scope)}` : '';
+      const res = await apiFetch(adminUrl(`/sso${query}`, base), { credentials: 'same-origin' });
       if (!res.ok) throw new SsoAdminError(res.status, `GET /admin/sso failed (${res.status})`);
-      return (await res.json()) as SsoBackendRow[];
+      // The server answers `{ backends: [...] }` (admin_sso.rs `list`); a bare array is accepted too.
+      const body = (await res.json()) as unknown;
+      const rows = Array.isArray(body) ? body : (body as { backends?: unknown } | null)?.backends;
+      return Array.isArray(rows) ? (rows as SsoBackendRow[]) : [];
     },
     async save(input) {
       const res = await apiFetch(adminUrl('/sso', base), {

@@ -68,6 +68,14 @@ describe('createHttpSsoAdminApi', () => {
     expect(fetchMock).toHaveBeenCalledWith('/admin/sso', { credentials: 'same-origin' });
   });
 
+  it("reads the server's { backends } body and asks for a domain scope", async () => {
+    const row = { id: 'd1', displayName: 'D', scope: 'domain:example.org', enabled: false, config: null, claimMap: null, hasSecret: true };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ backends: [row] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await createHttpSsoAdminApi().list('domain:example.org')).toEqual([row]);
+    expect(fetchMock).toHaveBeenCalledWith('/admin/sso?scope=domain%3Aexample.org', { credentials: 'same-origin' });
+  });
+
   it('POSTs the input on save', async () => {
     const fetchMock = vi.fn(async () => new Response('', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);

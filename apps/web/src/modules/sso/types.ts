@@ -61,6 +61,11 @@ export interface SsoBackendRow {
   enabled: boolean;
   config: SsoConfig;
   claimMap: ClaimMap;
+  /** `GET` only: a secret (OIDC client secret / SAML SP key) is stored. */
+  hasSecret?: boolean;
+  /** `GET` only (RFC 3339). */
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 /**

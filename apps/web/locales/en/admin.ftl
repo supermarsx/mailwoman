@@ -299,6 +299,106 @@ admin-sso-enable-for = Enable { $name }
 admin-sso-disable-for = Disable { $name }
 admin-sso-delete-for = Delete { $name }
 
+# Rebuilt list + detail (f33, t32-cfg §4.12). `name` and `id` are isolated values.
+admin-sso-col-name = Name
+admin-sso-col-state = State
+admin-sso-search = Search providers
+admin-sso-no-match = No provider matches the search.
+admin-sso-scope-for-domain = Domain { $domain }
+admin-sso-config-unreadable = Unreadable configuration
+admin-sso-config-unreadable-note = The stored configuration of this provider could not be read. Fill in the form and save to replace it.
+admin-sso-not-found = There is no sign-in provider with the id { $id }.
+admin-sso-edit-title = Edit sign-in provider
+admin-sso-enabled-done = { $name } is on.
+admin-sso-disabled-done = { $name } is off.
+admin-sso-deleted-done = { $name } was deleted.
+admin-sso-disable-title = Turn off { $name }?
+admin-sso-disable-body = Its button leaves the sign-in page and nobody can sign in with it until it is turned on again. Accounts are kept.
+admin-sso-delete-title = Delete { $name }?
+admin-sso-delete-body = The provider and its stored secret are removed and nobody can sign in with it. Accounts made through it are kept.
+admin-sso-err-required = { $field } is required.
+admin-sso-on = On
+
+admin-sso-group-basics = Provider
+admin-sso-id-help = A short id in lower-case letters, digits and hyphens; it becomes part of this server's addresses for the provider.
+admin-sso-id-fixed = The id cannot change because the provider knows this server's addresses by it; delete the provider and add it again to use another id.
+admin-sso-id-pattern = Use lower-case letters, digits and hyphens, starting with a letter or digit.
+admin-sso-id-taken = Another provider already uses the id { $id }.
+admin-sso-display-name-help = The text of the button on the sign-in page.
+admin-sso-kind-help = OpenID Connect for providers such as Keycloak, Entra ID or Google; SAML 2.0 for providers that publish SAML metadata.
+admin-sso-scope-help = Whole deployment shows the button to everyone; one domain shows it only for addresses in that domain.
+admin-sso-domain-help = The mail domain whose sign-in page shows this provider.
+admin-sso-domain-choose = Choose a domain
+admin-sso-domain-invalid = Enter a domain name such as example.org.
+admin-sso-first-login-help = What happens when someone signs in for the first time: refused unless their account exists, or an account is made for them.
+admin-sso-enabled-help = Off keeps the settings but takes the button off the sign-in page.
+
+admin-sso-group-oidc = OpenID Connect
+admin-sso-issuer-help = The provider's issuer address; this server reads its discovery document from there.
+admin-sso-client-id-help = The client id this server was registered with at the provider.
+admin-sso-client-secret-help = The client secret from the provider; it is stored sealed and never shown again.
+admin-sso-redirect-help = Leave empty to use this server's address /api/sso/<id>/callback; register the same address at the provider.
+admin-sso-scopes-help = The scopes asked for at sign-in; openid is required.
+admin-sso-scopes-openid = The scopes must include openid.
+admin-sso-scopes-invalid = A scope is one word without spaces or quotes.
+
+admin-sso-group-saml-idp = Identity provider (SAML)
+admin-sso-group-saml-idp-help = Read the provider's metadata file to fill these fields, or enter them by hand.
+admin-sso-meta = Provider metadata
+admin-sso-meta-help = Upload or paste the provider's metadata to see what it contains and fill the fields below from it.
+admin-sso-meta-none-stored = No metadata is stored with this provider.
+admin-sso-meta-stored = Metadata from { $entity } is stored with this provider.
+admin-sso-meta-stored-unnamed = Metadata is stored with this provider.
+admin-sso-meta-file = Metadata file
+admin-sso-meta-paste = Or paste the metadata
+admin-sso-meta-not-xml = This is not an XML document.
+admin-sso-meta-no-idp = This metadata does not describe an identity provider (no IDPSSODescriptor).
+admin-sso-meta-preview = What the metadata says
+admin-sso-meta-entity = Provider entity id
+admin-sso-meta-missing = Not in the metadata
+admin-sso-meta-sso-binding = Listed only for a binding other than HTTP-Redirect, which this server uses
+admin-sso-meta-no-certs = No signing certificate in the metadata
+admin-sso-meta-use = Use these values
+admin-sso-meta-used = The sign-in address, sign-out address and certificates were filled in from the metadata. Save to keep them.
+admin-sso-idp-sso-url-help = Where people are sent to sign in (HTTP-Redirect binding).
+admin-sso-idp-slo-url-help = Where people are sent to sign out; leave empty when the provider has none.
+admin-sso-idp-certs-help = The certificates the provider signs with; a response signed with any other certificate is refused.
+admin-sso-cert-required = Add at least one signing certificate.
+admin-sso-idp-metadata-url-help = Kept for reference only: this server does not fetch metadata from it.
+
+admin-sso-cert-valid = Valid until { $date }
+admin-sso-cert-expiring =
+    { $days ->
+        [0] Expires today
+        [one] Expires in 1 day
+       *[other] Expires in { $days } days
+    }
+admin-sso-cert-expired = Expired on { $date }
+admin-sso-cert-not-yet = Valid from { $date }
+admin-sso-cert-unreadable = Unreadable certificate
+admin-sso-cert-none-found = No PEM certificate found. A certificate starts with -----BEGIN CERTIFICATE-----.
+admin-sso-cert-empty = No certificate yet.
+admin-sso-cert-no-subject = Certificate without a name
+admin-sso-cert-remove = Remove the certificate { $subject }
+admin-sso-cert-file = Add from a file
+admin-sso-cert-paste = Or paste a certificate
+admin-sso-cert-add = Add certificate
+
+admin-sso-group-saml-sp = This server (SAML)
+admin-sso-sp-entity-id-help = The name this server uses towards the provider; leave empty to use its metadata address /api/sso/<id>/metadata.
+admin-sso-acs-url-help = Where the provider posts its answer; leave empty to use /api/sso/<id>/acs on this server.
+admin-sso-nameid-format-help = The kind of user identifier asked from the provider.
+admin-sso-want-signed-help = Refuse assertions that are not signed by one of the certificates above.
+admin-sso-want-encrypted-help = Refuse assertions that are not encrypted to this server; needs the service provider key below.
+admin-sso-sp-key = Service provider private key
+admin-sso-sp-key-help = The PEM private key this server decrypts assertions with; it is stored sealed and never shown again.
+
+admin-sso-claims-help = Which claim or attribute of the provider's answer fills each part of the account.
+admin-sso-claim-email-help = The email address of the person.
+admin-sso-claim-username-help = The name the account is matched or made with.
+admin-sso-claim-display-help = The name shown to others.
+admin-sso-claim-groups-help = Group membership; leave empty when not used.
+
 # -- Server metadata editor (t14, RFC 5464 annotations under /admin) ----------
 # The editor body (entry list, add form) reuses the servermeta.ftl catalog; these
 # ids cover only the admin wrapper (account picker + framing).

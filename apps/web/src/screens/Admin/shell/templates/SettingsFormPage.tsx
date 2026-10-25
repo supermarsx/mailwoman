@@ -58,6 +58,8 @@ export interface FieldRenderContext {
   setValue: (v: unknown) => void;
   /** Every current value of the form (read-only). */
   values: Readonly<Record<string, unknown>>;
+  /** Set several fields at once (a parsed file filling the fields it names). */
+  setValues: (patch: Record<string, unknown>) => void;
 }
 
 export interface SettingField {
@@ -225,9 +227,13 @@ export function SettingsFormPage(props: SettingsFormPageProps): JSX.Element {
   onMount(() => void load());
 
   function setValue(fieldId: string, v: unknown): void {
-    setDraft((d) => ({ ...d, [fieldId]: v }));
+    setValues({ [fieldId]: v });
+  }
+
+  function setValues(patch: Record<string, unknown>): void {
+    setDraft((d) => ({ ...d, ...patch }));
     setResult(null);
-    if (errors.error(fieldId) !== null) errors.set(fieldId, null);
+    for (const fieldId of Object.keys(patch)) if (errors.error(fieldId) !== null) errors.set(fieldId, null);
   }
 
   function discard(): void {
@@ -335,6 +341,7 @@ export function SettingsFormPage(props: SettingsFormPageProps): JSX.Element {
                         values={draft()}
                         error={errors.error(f.id)}
                         onInput={(v) => setValue(f.id, v)}
+                        onPatch={setValues}
                       />
                     </Show>
                   )}
@@ -388,6 +395,7 @@ interface FieldViewProps {
   values: Readonly<Record<string, unknown>>;
   error: string | null;
   onInput: (v: unknown) => void;
+  onPatch: (patch: Record<string, unknown>) => void;
 }
 
 function SettingFieldView(props: FieldViewProps): JSX.Element {
@@ -436,6 +444,7 @@ function SettingFieldView(props: FieldViewProps): JSX.Element {
           get values() {
             return props.values;
           },
+          setValues: props.onPatch,
         }),
       );
     }
