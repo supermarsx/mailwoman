@@ -22,6 +22,7 @@
 //! Network access is behind the [`Fetcher`] trait so the ladder is exercised
 //! against recorded fixtures with no live network (see the crate tests).
 
+pub mod diagnostics;
 mod provider;
 mod resolver;
 mod xml;
