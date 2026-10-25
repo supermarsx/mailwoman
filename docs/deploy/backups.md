@@ -59,3 +59,44 @@ both kinds with their sizes:
 They are deleted only with `prune --replaced --yes`. Each one is checked again
 just before it is deleted. Images pulled with `--image` and the Caddy image are
 never listed; remove those with `docker image rm` yourself.
+
+## Encryption: `BACKUP_RECIPIENT`
+
+With `BACKUP_RECIPIENT` set in `deploy.env`, `backup` writes the snapshot as one
+encrypted archive, `backups/<name>.tar.age` or `backups/<name>.tar.gpg`, and
+removes the clear-text directory. The archive holds the same files as a snapshot
+directory, `app.env` included. Beside it, `<name>.release.env` keeps the image
+IDs in the clear (no secrets), so `prune` knows which images the archive needs.
+Only the public key is used: the host needs no key that can decrypt its own
+backups, and should not have one.
+
+| `BACKUP_RECIPIENT` | Tool | Restore with |
+|---|---|---|
+| `age1...` (an age recipient) or `ssh-ed25519 AAAA...` / `ssh-rsa AAAA...` (an SSH public key, without a comment) | [age](https://age-encryption.org) | `bash deploy.sh restore backups/<name>.tar.age --identity /path/to/key` |
+| a full OpenPGP key fingerprint (40 hex digits) | `gpg --encrypt --recipient` | `bash deploy.sh restore backups/<name>.tar.gpg`, as a user whose gpg keyring holds the private key |
+
+For gpg, import only the public key into the keyring of the user that runs
+`deploy.sh` (`gpg --import backup-key.pub.asc`); a fingerprint is required so
+that exactly one key can match. `doctor` reports which tool is used, fails when
+it is not installed or the gpg key is missing, and notes when the host holds the
+private key as well. A password-based `openssl enc` is not offered: it does not
+authenticate the archive, and the password would have to sit beside the data.
+
+Restoring an archive decrypts it into a private directory under the state
+directory, checks it exactly as a snapshot directory is checked, and removes the
+decrypted copy when the command ends. Without the private key (no `--identity`
+for age, or no secret key in the gpg keyring) nothing is changed.
+
+### What stays in clear text
+
+- The snapshot `deploy` takes just before an update. Automatic rollback has to
+  restore it unattended, so it is not encrypted. It is no more exposed than the
+  live volume and `app.env` beside it. With `BACKUP_RECIPIENT` set, each
+  successful `deploy` removes the clear-text snapshot the previous deploy took,
+  so one such snapshot is on the host at a time.
+- The snapshot `restore` and `rollback` take of the installation they replace.
+  It is the only copy of that installation's last data, so it is not removed
+  automatically; move it off the host, or delete it once it is no longer needed
+  (retention also removes it once it falls outside `BACKUP_KEEP`).
+- If encryption fails, `backup` exits non-zero and leaves the clear-text
+  snapshot where it was, so the backup itself is not lost.

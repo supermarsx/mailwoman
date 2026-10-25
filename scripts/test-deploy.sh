@@ -32,6 +32,11 @@ elif [[ ${DEPLOY_TEST_REQUIRE:-} == all ]]; then
     fail 'Playwright cannot start (neither `pnpm exec playwright` in apps/web nor apps/web/node_modules/.bin/playwright runs) and DEPLOY_TEST_REQUIRE=all: the admin panel browser test cannot run'
 fi
 
+# Encrypted backups need gpg or age (BACKUP_RECIPIENT); each one present is tested.
+if ! command -v gpg >/dev/null 2>&1 && ! command -v age >/dev/null 2>&1 && [[ ${DEPLOY_TEST_REQUIRE:-} == all ]]; then
+    fail 'neither gpg nor age is installed and DEPLOY_TEST_REQUIRE=all: the encrypted backup case cannot run'
+fi
+
 PROJECT="${DEPLOY_TEST_PREFIX:-mw-deploy-test}-$$-$RANDOM"
 STATE=$(mktemp -d "$ROOT/.deploy-test-XXXXXX.local")
 PORT=${DEPLOY_TEST_PORT:-18089}
@@ -45,6 +50,9 @@ BAD_IMAGE="$PROJECT-unhealthy:test"
 SIGNED=
 REGISTRY_IMAGE=registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
 SERVER_KEY=
+GNUPG_FULL=
+GNUPG_PUBLIC=
+ENCRYPTION='encrypted backups SKIPPED'
 PASSED=false
 
 run() { bash "$DEPLOY" "$@" --state-dir "$STATE"; }
@@ -115,6 +123,12 @@ cleanup() {
             [[ -n $reference ]] && docker image rm "$reference" >/dev/null 2>&1 || true
         done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$IMAGE" 2>/dev/null | grep -F "${SIGNED%:signed}@")
     fi
+    local home
+    for home in "$GNUPG_FULL" "$GNUPG_PUBLIC"; do
+        [[ -n $home && -d $home ]] || continue
+        GNUPGHOME=$home gpgconf --kill gpg-agent >/dev/null 2>&1 || true
+        rm -rf -- "$home"
+    done
     if $PASSED && [[ $STATE == "$ROOT"/.deploy-test-*.local && $NET_STATE == "$ROOT"/.deploy-test-*.local && $PICK_STATE == "$ROOT"/.deploy-test-*.local && $ACME_STATE == "$ROOT"/.deploy-test-*.local ]]; then
         rm -rf -- "$STATE" "$NET_STATE" "$PICK_STATE" "$ACME_STATE"
     else
@@ -454,6 +468,83 @@ printf 'prune: %s\n' "$(grep -F -e 'Deleted' -e 'kept,' "$STATE/prune.log" | tr 
 docker image rm "mailwoman-deploy:$PROJECT-active" >/dev/null
 rm -r -- "$RECENT_INCOMPLETE" "$STATE/backups/notes.txt"
 set_config BACKUP_KEEP=
+
+# Encrypted backups. With BACKUP_RECIPIENT set, backup leaves one archive that
+# holds no clear text, and no snapshot directory; the archive restores with the
+# private key and is refused without it, leaving the app as it was. gpg: the
+# deploy runs with a keyring that holds only the public key (the host needs no
+# private key), and the restore with one that holds the private key. age: the
+# identity file is given with --identity. A later deploy removes the clear-text
+# snapshot the previous deploy took for rollback.
+# encrypted_case TOOL RECIPIENT, with BACKUP_ENV (environment of doctor and backup),
+# REFUSED_ENV/REFUSED_ARGS (a restore that must be refused) and RESTORE_ENV/
+# RESTORE_ARGS (the restore that must succeed).
+encrypted_case() {
+    local tool=$1 recipient=$2 archive name
+    set_config "BACKUP_RECIPIENT=$recipient"
+    printf 'encrypted-%s\n' "$tool" > "$STATE/uploads/deploy-test-object"
+    docker cp "$STATE/uploads" "$(dc ps -q mailwoman):/data/"
+    env "${BACKUP_ENV[@]}" bash "$DEPLOY" doctor --state-dir "$STATE" 2> "$STATE/doctor.log" || fail "doctor refused BACKUP_RECIPIENT for $tool: $(cat "$STATE/doctor.log")"
+    grep -F "Backups are encrypted with $tool to $recipient" "$STATE/doctor.log" >/dev/null || fail "doctor did not report $tool: $(cat "$STATE/doctor.log")"
+    env "${BACKUP_ENV[@]}" bash "$DEPLOY" backup --state-dir "$STATE" 2> "$STATE/backup.log" || { cat "$STATE/backup.log" >&2; fail "an encrypted backup with $tool failed"; }
+    archive=$(grep -o "Encrypted backup ready: [^ ]*" "$STATE/backup.log" | cut -d' ' -f4)
+    name=${archive##*/}
+    name=${name%.tar."$tool"}
+    [[ -s $archive && $archive == "$STATE/backups/"*".tar.$tool" ]] || fail "no $tool archive: $(cat "$STATE/backup.log")"
+    [[ ! -e $STATE/backups/$name ]] || fail "the clear-text snapshot $name is still there beside the $tool archive"
+    if grep -aF -e "$SERVER_KEY" -e "encrypted-$tool" "$archive" >/dev/null; then fail "the $tool archive contains clear text"; fi
+    printf 'after-encrypted-backup\n' > "$STATE/uploads/deploy-test-object"
+    CID=$(dc ps -q mailwoman)
+    docker cp "$STATE/uploads" "$CID:/data/"
+    if env "${REFUSED_ENV[@]}" bash "$DEPLOY" restore "$archive" "${REFUSED_ARGS[@]}" --state-dir "$STATE" > "$STATE/rejected.log" 2>&1; then fail "the $tool archive restored without its private key"; fi
+    grep -F 'nothing was changed' "$STATE/rejected.log" >/dev/null || fail "the $tool restore without the key was refused for another reason: $(cat "$STATE/rejected.log")"
+    [[ $(dc ps -q mailwoman) == "$CID" && $(docker inspect --format '{{.State.Running}}' "$CID") == true ]] || fail "a refused $tool restore replaced or stopped the app"
+    env "${RESTORE_ENV[@]}" bash "$DEPLOY" restore "$archive" "${RESTORE_ARGS[@]}" --state-dir "$STATE" 2> "$STATE/restore.log" || { cat "$STATE/restore.log" >&2; fail "the $tool archive did not restore with its private key"; }
+    CID=$(dc ps -q mailwoman)
+    docker cp "$CID:/data/uploads/deploy-test-object" "$STATE/restored-object"
+    [[ $(cat "$STATE/restored-object") == "encrypted-$tool" ]] || fail "the $tool archive restored other data: $(cat "$STATE/restored-object")"
+    [[ -z $(find "$STATE" -maxdepth 1 -name '.work.*') ]] || fail "the decrypted snapshot was left in the state directory"
+    ENCRYPTION+=" $tool"
+}
+ENCRYPTION='encrypted backups with'
+if command -v gpg >/dev/null 2>&1; then
+    # Short paths: gpg-agent's socket path has a length limit.
+    GNUPG_FULL=$(mktemp -d)
+    GNUPG_PUBLIC=$(mktemp -d)
+    chmod 700 "$GNUPG_FULL" "$GNUPG_PUBLIC"
+    GNUPGHOME=$GNUPG_FULL gpg --batch --quiet --pinentry-mode loopback --passphrase '' --quick-generate-key 'mailwoman deploy test <deploy-test@example.invalid>' default default never 2>/dev/null
+    FINGERPRINT=$(GNUPGHOME=$GNUPG_FULL gpg --batch --with-colons --list-keys 2>/dev/null | awk -F: '$1 == "fpr" {print $10; exit}')
+    [[ $FINGERPRINT =~ ^[0-9A-F]{40}$ ]] || fail "could not create a test gpg key: '$FINGERPRINT'"
+    GNUPGHOME=$GNUPG_FULL gpg --batch --export "$FINGERPRINT" | GNUPGHOME=$GNUPG_PUBLIC gpg --batch --quiet --import 2>/dev/null
+    BACKUP_ENV=("GNUPGHOME=$GNUPG_PUBLIC"); REFUSED_ENV=("GNUPGHOME=$GNUPG_PUBLIC"); REFUSED_ARGS=()
+    RESTORE_ENV=("GNUPGHOME=$GNUPG_FULL"); RESTORE_ARGS=()
+    encrypted_case gpg "$FINGERPRINT"
+fi
+if command -v age >/dev/null 2>&1 && command -v age-keygen >/dev/null 2>&1; then
+    age-keygen -o "$STATE/age-identity.txt" 2>/dev/null
+    age-keygen -o "$STATE/age-other.txt" 2>/dev/null
+    AGE_RECIPIENT=$(age-keygen -y "$STATE/age-identity.txt")
+    BACKUP_ENV=(); REFUSED_ENV=(); RESTORE_ENV=(); RESTORE_ARGS=(--identity "$STATE/age-identity.txt")
+    # Refused with an identity that does not match, and without --identity.
+    REFUSED_ARGS=(--identity "$STATE/age-other.txt")
+    encrypted_case age "$AGE_RECIPIENT"
+    ARCHIVE=$(find "$STATE/backups" -maxdepth 1 -name '*.tar.age' | head -n 1)
+    reject restore "$ARCHIVE"
+    grep -F 'give the identity file that matches BACKUP_RECIPIENT with --identity FILE' "$STATE/rejected.log" >/dev/null || fail "an age restore without --identity was refused for another reason: $(cat "$STATE/rejected.log")"
+else
+    printf 'SKIP: age is not installed; only the gpg encrypted backup case ran.\n' >&2
+fi
+if [[ $ENCRYPTION == 'encrypted backups with' ]]; then
+    ENCRYPTION='encrypted backups SKIPPED (neither gpg nor age)'
+else
+    PREVIOUS_ROLLBACK=$(cat "$STATE/rollback.path")
+    [[ -d $PREVIOUS_ROLLBACK ]] || fail 'the rollback snapshot is missing before the encrypted deploy case'
+    run deploy --no-build 2> "$STATE/encrypted-deploy.log" || { cat "$STATE/encrypted-deploy.log" >&2; fail 'a deploy with BACKUP_RECIPIENT set failed'; }
+    [[ ! -e $PREVIOUS_ROLLBACK ]] || fail 'with BACKUP_RECIPIENT set, a deploy kept the clear-text snapshot the previous deploy took'
+    [[ -d $(cat "$STATE/rollback.path") ]] || fail 'the deploy took no clear-text snapshot for rollback'
+    set_config BACKUP_RECIPIENT=
+fi
+printf '%s\n' "$ENCRYPTION"
 
 # --image signature check. A registry container on localhost port DEPLOY_TEST_PORT + 2
 # holds a copy of the test image (a fixed port: Docker Desktop's daemon cannot reach

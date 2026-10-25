@@ -274,7 +274,10 @@ keys `BACKUP_KEEP` / `BACKUP_KEEP_DAYS` in `deploy.env`, and
 [backups.md](backups.md).
 
 Backups contain plaintext configuration secrets and potentially sensitive data;
-copy them to private, encrypted off-host storage. Checksums detect accidental
+copy them to private, encrypted off-host storage. With `BACKUP_RECIPIENT` in
+`deploy.env`, `backup` writes one archive encrypted to an age or gpg public key
+instead, and `restore` takes that archive (`--identity FILE` for age); see
+[backups.md](backups.md). Checksums detect accidental
 corruption, not malicious replacement: restore only trusted snapshots. Caddy's
 certificate volumes are not included; preserve them separately if required, or
 allow Caddy to reissue certificates on a replacement host.

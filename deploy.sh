@@ -54,6 +54,9 @@ PRUNE_REPLACED=false
 ASSUME_YES=false
 BACKUP_KEEP=
 BACKUP_KEEP_DAYS=
+BACKUP_RECIPIENT=
+IDENTITY=
+EXTRACT=
 
 usage() {
     cat <<'HELP'
@@ -70,7 +73,9 @@ Commands (default: deploy):
   start             Start the last applied configuration and verify health
   restart           Restart the last applied configuration and verify health
   backup            Stop the app briefly; snapshot data, uploads, config and key
-  restore PATH      Restore a snapshot into a NEW volume, then verify health
+                    (one encrypted archive when BACKUP_RECIPIENT is set)
+  restore PATH      Restore a snapshot directory or encrypted archive into a NEW
+                    volume, then verify health
   rollback          Restore the snapshot taken immediately before the last deploy
   prune             Remove old snapshots (BACKUP_KEEP / BACKUP_KEEP_DAYS in
                     deploy.env); list replaced data volumes and old built images
@@ -102,6 +107,8 @@ Options:
   --replaced        With prune: also delete the replaced data volumes and old
                     built images it lists (needs --yes)
   --yes             Confirm the deletion asked for with --replaced
+  --identity FILE   With restore of a .tar.age archive: the age identity (private
+                    key) to decrypt it with; .tar.gpg uses your gpg keyring
   --dry-run         Describe the operation without writing or contacting Docker
   -h, --help        Show this help
 
@@ -157,6 +164,7 @@ while (($#)); do
         --no-auto-rollback) AUTO_ROLLBACK=false ;;
         --replaced) PRUNE_REPLACED=true ;;
         --yes) ASSUME_YES=true ;;
+        --identity) need_value "$@"; IDENTITY=$2; shift ;;
         --dry-run) DRY_RUN=true ;;
         -h|--help) usage; exit 0 ;;
         *) die "Unknown argument: $1 (see --help)" ;;
@@ -176,6 +184,7 @@ fi
 if $INIT_OPTIONS && [[ $ACTION != init && $ACTION != deploy ]]; then die "Setup options apply only to init/first deploy"; fi
 if { $PRUNE_REPLACED || $ASSUME_YES; } && [[ $ACTION != prune ]]; then die "--replaced and --yes apply only to prune"; fi
 if $ASSUME_YES && ! $PRUNE_REPLACED; then die "--yes confirms --replaced; give both"; fi
+if [[ -n $IDENTITY && $ACTION != restore ]]; then die "--identity applies only to restore"; fi
 
 read_config() {
     local file=$1 line key value seen='|'
@@ -184,7 +193,7 @@ read_config() {
     # empty unless this file sets them, never left over from a file read earlier.
     if [[ ${file##*/} == deploy.env ]]; then
         PROXY_NETWORK=; ACME_CA=; ACME_CA_ROOT=; MEMORY_LIMIT=; CPU_LIMIT=; SIGNATURE_IDENTITY=; SIGNATURE_ISSUER=
-        BACKUP_KEEP=; BACKUP_KEEP_DAYS=
+        BACKUP_KEEP=; BACKUP_KEEP_DAYS=; BACKUP_RECIPIENT=
     fi
     while IFS= read -r line || [[ -n $line ]]; do
         [[ -z $line || $line == \#* ]] && continue
@@ -193,7 +202,7 @@ read_config() {
         [[ $seen != *"|$key|"* ]] || die "Duplicate $key in $file"
         seen+="$key|"
         case "$key" in
-            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|BACKUP_KEEP|BACKUP_KEEP_DAYS|IMAGE_ID|DATA_VOLUME|CADDY_ID)
+            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|BACKUP_KEEP|BACKUP_KEEP_DAYS|BACKUP_RECIPIENT|IMAGE_ID|DATA_VOLUME|CADDY_ID)
                 printf -v "$key" '%s' "$value" ;;
             *) die "Unknown setting $key in $file" ;;
         esac
@@ -238,6 +247,9 @@ validate_config() {
     [[ -z $SIGNATURE_ISSUER || $SIGNATURE_ISSUER =~ ^https://[a-zA-Z0-9][a-zA-Z0-9._~:/%+-]*$ ]] || die "SIGNATURE_ISSUER must be the https:// URL of an OIDC issuer"
     [[ -z $BACKUP_KEEP || $BACKUP_KEEP =~ ^[1-9][0-9]{0,3}$ ]] || die "BACKUP_KEEP must be a number of snapshots from 1 to 9999, or empty"
     [[ -z $BACKUP_KEEP_DAYS || $BACKUP_KEEP_DAYS =~ ^[1-9][0-9]{0,4}$ ]] || die "BACKUP_KEEP_DAYS must be a number of days from 1 to 99999, or empty"
+    # age: an age1 recipient or an SSH public key. gpg: a full key fingerprint, so
+    # that exactly one key in the keyring can match.
+    [[ -z $BACKUP_RECIPIENT || $BACKUP_RECIPIENT =~ ^(age1[02-9ac-hj-np-z]{58}|ssh-(ed25519|rsa)\ [A-Za-z0-9+/]+={0,2}|[0-9A-Fa-f]{40}|[0-9A-Fa-f]{64})$ ]] || die "BACKUP_RECIPIENT must be an age recipient (age1...), an SSH public key (ssh-ed25519 AAAA...) or a full gpg key fingerprint (40 hex digits), or empty"
 }
 
 write_config() {
@@ -260,6 +272,7 @@ SIGNATURE_IDENTITY=$SIGNATURE_IDENTITY
 SIGNATURE_ISSUER=$SIGNATURE_ISSUER
 BACKUP_KEEP=$BACKUP_KEEP
 BACKUP_KEEP_DAYS=$BACKUP_KEEP_DAYS
+BACKUP_RECIPIENT=$BACKUP_RECIPIENT
 EOF
 }
 
@@ -291,6 +304,8 @@ cleanup() {
         docker start "$RESUME_CONTAINER" >/dev/null || log "Recovery needed: docker start $RESUME_CONTAINER"
     fi
     if [[ -n $HELPER_CONTAINER ]]; then docker rm "$HELPER_CONTAINER" >/dev/null 2>&1 || true; fi
+    # EXTRACT holds a decrypted snapshot while it is restored.
+    if [[ -n $EXTRACT && -d $EXTRACT && $EXTRACT == "$STATE"/.work.* ]]; then rm -rf -- "$EXTRACT"; fi
     if [[ -n $WORK && -d $WORK && $WORK == "$STATE"/.work.* ]]; then
         # WORK is always a private mktemp child of STATE; never remove arbitrary input.
         rm -rf -- "$WORK"
@@ -499,7 +514,7 @@ check_signature() {
 
 # Keys that steer backup, prune and check rather than the running app. They take
 # effect as soon as deploy.env is saved, so they are not taken from the applied copy.
-OPERATION_KEYS=(BACKUP_KEEP BACKUP_KEEP_DAYS)
+OPERATION_KEYS=(BACKUP_KEEP BACKUP_KEEP_DAYS BACKUP_RECIPIENT)
 
 load_active() {
     local key
@@ -693,6 +708,61 @@ verify() {
     die "App is healthy internally, but $url is not reachable with valid HTTP(S). Check DNS, firewall, proxy and service logs; containers remain available."
 }
 
+# The files of a snapshot directory, which is also the order in an encrypted archive.
+SNAPSHOT_FILES=(COMPLETE SHA256SUMS data.tar compose.yaml app.env deploy.env release.env)
+
+# encryption_tool: age for an age or SSH recipient, gpg for a key fingerprint.
+encryption_tool() { case "$BACKUP_RECIPIENT" in age1*|ssh-*) printf age ;; *) printf gpg ;; esac; }
+
+# encrypt_snapshot DIR: write DIR as one archive encrypted to BACKUP_RECIPIENT, then
+# remove DIR. Only the recipient's public key is used; nothing here can decrypt it.
+# On failure DIR stays as it is and no archive is left.
+encrypt_snapshot() {
+    local from=$1 name tool archive
+    name=${from##*/}
+    tool=$(encryption_tool)
+    need "$tool"
+    archive="$STATE/backups/$name.tar.$tool"
+    log "Encrypting the snapshot with $tool to $BACKUP_RECIPIENT"
+    if [[ $tool == age ]]; then
+        tar -C "$from" -cf - "${SNAPSHOT_FILES[@]}" | age --encrypt --recipient "$BACKUP_RECIPIENT" --output "$archive.partial" || { rm -f -- "$archive.partial"; die "age could not encrypt the snapshot; the clear-text copy is still at $from"; }
+    else
+        tar -C "$from" -cf - "${SNAPSHOT_FILES[@]}" | gpg --batch --yes --quiet --trust-model always --encrypt --recipient "$BACKUP_RECIPIENT" --output "$archive.partial" || { rm -f -- "$archive.partial"; die "gpg could not encrypt the snapshot to $BACKUP_RECIPIENT (is its public key in this user's keyring?); the clear-text copy is still at $from"; }
+    fi
+    [[ -s $archive.partial ]] || { rm -f -- "$archive.partial"; die "$tool wrote an empty archive; the clear-text copy is still at $from"; }
+    mv -- "$archive.partial" "$archive"
+    # The image IDs stay readable beside the archive: prune keeps the images a
+    # snapshot needs, and restore needs the image before it can start.
+    cp -- "$from/release.env" "$STATE/backups/$name.release.env"
+    [[ $from == "$STATE"/backups/* ]] && rm -rf -- "$from"
+    LAST_BACKUP=$archive
+    log "Encrypted backup ready: $archive (clear-text copy removed)"
+}
+
+# decrypt_snapshot ARCHIVE: decrypt an archive written by encrypt_snapshot into a
+# private directory under the state directory, removed when the command ends, and
+# set SNAPSHOT to it.
+decrypt_snapshot() {
+    local archive=$1 name tool
+    [[ -f $archive && ! -L $archive ]] || die "Not an encrypted snapshot: $archive"
+    name=${archive##*/}
+    tool=${name##*.}
+    name=${name%.tar.*}
+    [[ $name =~ $SNAPSHOT_NAME ]] || die "Not an encrypted snapshot name: $archive"
+    need "$tool"
+    EXTRACT=$(mktemp -d "$STATE/.work.XXXXXX")
+    mkdir "$EXTRACT/$name"
+    if [[ $tool == age ]]; then
+        [[ -n $IDENTITY ]] || die "$archive is encrypted with age: give the identity file that matches BACKUP_RECIPIENT with --identity FILE"
+        [[ -f $IDENTITY && -r $IDENTITY ]] || die "--identity names no readable file: $IDENTITY"
+        age --decrypt --identity "$IDENTITY" "$archive" | tar -xf - -C "$EXTRACT/$name" "${SNAPSHOT_FILES[@]}" || die "Could not decrypt $archive with $IDENTITY; nothing was changed"
+    else
+        [[ -z $IDENTITY ]] || die "--identity is for .tar.age archives; gpg decrypts with the private key in your keyring"
+        gpg --batch --quiet --decrypt "$archive" | tar -xf - -C "$EXTRACT/$name" "${SNAPSHOT_FILES[@]}" || die "Could not decrypt $archive: gpg needs the private key of its recipient in your keyring; nothing was changed"
+    fi
+    SNAPSHOT="$EXTRACT/$name"
+}
+
 # snapshot [keep-stopped]: with keep-stopped a running app stays stopped once the
 # copy is complete (restore replaces it next, healthy or not); after a failed copy
 # it is resumed either way.
@@ -829,16 +899,19 @@ human_size() { awk -v b="$1" 'BEGIN { split("B KB MB GB TB", u); i = 1; while (b
 # than that. The snapshot named in rollback.path is always kept; an incomplete one
 # is removed only after seven days; anything else in the directory is left alone.
 prune_snapshots() {
-    local keep=${BACKUP_KEEP:-7} protected='' entry name stamp position=0 kept=0 removed=0 old_stamp='' stale_stamp
+    local keep=${BACKUP_KEEP:-7} protected='' entry name archive stamp position=0 kept=0 removed=0 old_stamp='' stale_stamp
     [[ -d $STATE/backups && ! -L $STATE/backups ]] || { log "No snapshots in $STATE/backups"; return 0; }
     if [[ -f $STATE/rollback.path ]]; then IFS= read -r protected < "$STATE/rollback.path"; fi
     stale_stamp=$(days_ago_stamp 7)
     [[ -z $BACKUP_KEEP_DAYS ]] || old_stamp=$(days_ago_stamp "$BACKUP_KEEP_DAYS")
     while IFS= read -r entry; do
         name=${entry##*/}
-        [[ $name =~ $SNAPSHOT_NAME && -d $entry && ! -L $entry ]] || continue
+        archive=false
+        if [[ $name == *.tar.age || $name == *.tar.gpg ]]; then name=${name%.tar.*}; archive=true; fi
+        [[ $name =~ $SNAPSHOT_NAME && ! -L $entry ]] || continue
+        if $archive; then [[ -f $entry ]] || continue; else [[ -d $entry ]] || continue; fi
         stamp=${name:0:16}
-        if [[ ! -f $entry/COMPLETE ]]; then
+        if ! $archive && [[ ! -f $entry/COMPLETE ]]; then
             if [[ $stamp < $stale_stamp ]]; then
                 log "Removing incomplete snapshot $name (older than seven days)"
                 rm -rf -- "$entry"
@@ -853,8 +926,9 @@ prune_snapshots() {
             log "Keeping $name: it is the snapshot rollback restores"
             kept=$((kept + 1))
         else
-            log "Removing snapshot $name"
+            log "Removing snapshot ${entry##*/}"
             rm -rf -- "$entry"
+            if $archive; then rm -f -- "$STATE/backups/$name.release.env"; fi
             removed=$((removed + 1))
         fi
     done < <(find "$STATE/backups" -mindepth 1 -maxdepth 1 -print | LC_ALL=C sort -r)
@@ -878,7 +952,7 @@ prune_replaced() {
         volumes+=("$volume")
     done < <(docker volume ls -q --filter "label=mailwoman.deploy.project=$PROJECT")
     # A kept snapshot can be restored only with its image: those images stay.
-    for file in "$STATE"/backups/*/release.env; do
+    for file in "$STATE"/backups/*/release.env "$STATE"/backups/*.release.env; do
         [[ -f $file ]] || continue
         while IFS= read -r line; do
             [[ $line == IMAGE_ID=* ]] && protected+="${line#IMAGE_ID=}|"
@@ -942,6 +1016,19 @@ case "$ACTION" in
         cp "$STATE/app.env" "$WORK/app.env"
         render "$WORK"
         compose "$WORK" config --quiet
+        if [[ -n $BACKUP_RECIPIENT ]]; then
+            tool=$(encryption_tool)
+            command -v "$tool" >/dev/null 2>&1 || die "BACKUP_RECIPIENT needs $tool, which is not installed"
+            if [[ $tool == gpg ]]; then
+                gpg --batch --list-keys "$BACKUP_RECIPIENT" >/dev/null 2>&1 || die "BACKUP_RECIPIENT $BACKUP_RECIPIENT is not in this user's gpg keyring; import its public key"
+                if gpg --batch --list-secret-keys "$BACKUP_RECIPIENT" >/dev/null 2>&1; then
+                    log "Note: this host holds the private key for $BACKUP_RECIPIENT, so anyone with this account can decrypt the backups; keep only the public key here"
+                fi
+            fi
+            log "Backups are encrypted with $tool to $BACKUP_RECIPIENT"
+        else
+            log "Backups are not encrypted (BACKUP_RECIPIENT is empty; age $(command -v age >/dev/null 2>&1 && printf 'is' || printf 'is not') installed, gpg $(command -v gpg >/dev/null 2>&1 && printf 'is' || printf 'is not'))"
+        fi
         log "Prerequisites and configuration OK. App mode: $MODE; URL: $PUBLIC_URL" ;;
     status) load_active; compose "$ACTIVE" ps -a; log "URL: $PUBLIC_URL; data volume: $DATA_VOLUME${PROXY_NETWORK:+; proxy network: $PROXY_NETWORK (http://$PROJECT:8080)}" ;;
     logs) load_active; compose "$ACTIVE" logs --tail 100 --follow ;;
@@ -951,6 +1038,7 @@ case "$ACTION" in
     backup)
         load_active
         snapshot
+        if [[ -n $BACKUP_RECIPIENT ]]; then encrypt_snapshot "$LAST_BACKUP"; fi
         # Retention runs after a backup only when deploy.env asks for it.
         if [[ -n $BACKUP_KEEP$BACKUP_KEEP_DAYS ]]; then prune_snapshots; fi
         ;;
@@ -1018,6 +1106,8 @@ case "$ACTION" in
         cp "$STATE/app.env" "$WORK/app.env"
         render "$WORK"
         compose "$WORK" config --quiet
+        previous_rollback=
+        if [[ -f $STATE/rollback.path ]]; then IFS= read -r previous_rollback < "$STATE/rollback.path"; fi
         if [[ -f $ACTIVE/release.env ]]; then
             snapshot
             printf '%s\n' "$LAST_BACKUP" > "$STATE/rollback.path"
@@ -1036,13 +1126,23 @@ case "$ACTION" in
         else
             activate "$WORK"
         fi
+        # With encrypted backups, only one clear-text snapshot stays on the host: the
+        # one this deploy took for rollback. The one the previous deploy took goes.
+        if [[ -n $BACKUP_RECIPIENT && -n $previous_rollback && $previous_rollback != "$LAST_BACKUP" &&
+              $previous_rollback == "$STATE"/backups/* && -d $previous_rollback && ! -L $previous_rollback &&
+              ${previous_rollback##*/} =~ $SNAPSHOT_NAME ]]; then
+            rm -rf -- "$previous_rollback"
+            log "Removed the previous pre-deploy snapshot $previous_rollback (clear text; BACKUP_RECIPIENT is set)"
+        fi
         ;;
     restore|rollback)
         if [[ $ACTION == rollback ]]; then
             [[ -f $STATE/rollback.path ]] || die "No pre-deploy snapshot recorded"
             IFS= read -r SNAPSHOT < "$STATE/rollback.path"
         fi
+        restored=$SNAPSHOT
+        if [[ $ACTION == restore && ($SNAPSHOT == *.tar.age || $SNAPSHOT == *.tar.gpg) ]]; then decrypt_snapshot "$SNAPSHOT"; fi
         restore_snapshot "$SNAPSHOT" save
-        log "Restored snapshot $SNAPSHOT; replaced volumes and backups remain available"
+        log "Restored snapshot $restored; replaced volumes and backups remain available"
         ;;
 esac
