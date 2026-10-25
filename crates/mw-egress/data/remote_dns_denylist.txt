@@ -1,0 +1,34 @@
+# Host names a remote-DNS egress route (socks5h) never asks its proxy to resolve.
+#
+# A remote-DNS route lets the proxy resolve origin names, so Mailwoman cannot check
+# the address a name ends up at. An admin switches it on only after accepting that
+# hosts reachable from the proxy's network can be fetched. This list removes the
+# names that point inside a network by convention; it cannot remove every name
+# that does (see docs/security/egress.md).
+#
+# One entry per line. `name` matches that name exactly; `*.suffix` matches every
+# name ending in `.suffix` (and not `suffix` itself). Matching ignores case and a
+# trailing dot. Names without a dot are refused separately, because a resolver
+# completes them with its search domains.
+#
+# Kept in the repo and reviewed like code (t32 e31b, plan R2).
+
+localhost
+*.localhost
+*.local
+*.localdomain
+*.internal
+*.intranet
+*.lan
+*.home
+*.home.arpa
+*.corp
+*.private
+*.arpa
+*.svc
+*.cluster.local
+*.consul
+metadata.google.internal
+metadata.goog
+instance-data
+instance-data.ec2.internal

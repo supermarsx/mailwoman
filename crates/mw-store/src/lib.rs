@@ -102,7 +102,7 @@ pub mod settings_policy;
 pub(crate) use backend::{Backend, Row, q};
 
 pub use bridge_tokens::BridgeOauthTokenRow;
-pub use egress_config::EgressProxyRow;
+pub use egress_config::{EgressAllowRow, EgressProxyRow};
 pub use embeddings::{MAX_EMBEDDING_DIM, MessageEmbedding};
 pub use ews_cred::EwsAccountCred;
 pub use image_grants::RemoteImageGrantRow;

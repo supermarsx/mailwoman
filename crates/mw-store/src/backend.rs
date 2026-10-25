@@ -359,6 +359,13 @@ impl Row {
         }
     }
 
+    pub(crate) fn get_opt_i64(&self, col: &str) -> Option<i64> {
+        match self {
+            Row::Sqlite(r) => r.get(col),
+            Row::Postgres(r) => r.get(col),
+        }
+    }
+
     pub(crate) fn get_blob(&self, col: &str) -> Vec<u8> {
         match self {
             Row::Sqlite(r) => r.get(col),

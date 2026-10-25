@@ -609,3 +609,6 @@ fn refusals_map_onto_the_direct_paths_taxonomy() {
         Refusal::BadRequest(_)
     ));
 }
+
+/// TLS to the proxy and remote DNS (t32 e31b).
+mod kinds;

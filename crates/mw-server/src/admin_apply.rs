@@ -103,6 +103,11 @@ pub(crate) async fn boot(
     engine: Option<Arc<mw_engine::Engine>>,
     overlay: EnvOverlay,
 ) -> anyhow::Result<(Admin, EffectiveSecurityPolicy)> {
+    // The egress plan (routes by class and domain, internal allowlist) is security
+    // policy too, and a process without one refuses every class request, so it is
+    // installed here, before the server accepts requests, and kept fresh from here
+    // (t32 e31b).
+    crate::image_proxy::start_plan_refresh(store.clone()).await;
     let admin = admin_for(store, engine, overlay);
     sync_require_2fa(&admin).await?;
     let policy = admin

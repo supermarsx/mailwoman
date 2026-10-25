@@ -11,9 +11,10 @@
 //! There is no `danger_accept_invalid_certs`, no custom verifier and no way to
 //! inject a root store: [`connector`] takes no arguments precisely so no call site
 //! and no configuration flag can weaken it. A change that adds a parameter here is
-//! the change to reject in review. (The one function in this file that takes a
-//! root store, `build_config`, is private; outside this file's tests its only
-//! caller passes the webpki roots.)
+//! the change to reject in review. (The functions in this file that take a root
+//! store are `build_config`, which is private and outside tests is only called
+//! with the webpki roots, and `connector_trusting`, which exists only under
+//! `cfg(test)`.)
 //!
 //! # Minimum TLS version
 //! The one setting this module has is a process-wide floor ([`set_min_tls`] /
@@ -22,6 +23,15 @@
 //! cannot disable or loosen certificate verification. It defaults to
 //! [`MinTls::V12`], which is the configuration this module built before the floor
 //! existed. It is read for each tunnel, so a change applies to the next one.
+//!
+//! # TLS to the proxy (t32 e31b)
+//! An `https-connect` route also speaks TLS to the **proxy** before sending
+//! `CONNECT`, so the `Proxy-Authorization` credential is never on the wire in the
+//! clear. That handshake ([`proxy_tls`]) verifies the proxy's certificate for the
+//! route's host against the same roots, with the same connector; the origin TLS
+//! then runs inside it, so an `https` origin is TLS inside TLS and the proxy still
+//! sees only the origin's ciphertext. [`ProxyConn`] is the connection to the proxy,
+//! plain or TLS.
 
 use std::io;
 use std::pin::Pin;
@@ -108,6 +118,14 @@ fn build_config(roots: rustls::RootCertStore, floor: MinTls) -> Arc<ClientConfig
     Arc::new(builder.with_root_certificates(roots).with_no_client_auth())
 }
 
+/// A [`TlsConnector`] trusting exactly `roots`, at the floor in force. For this
+/// crate's tests, which stand up a TLS proxy whose certificate no public root
+/// signs; production never calls it.
+#[cfg(test)]
+pub(crate) fn connector_trusting(roots: rustls::RootCertStore) -> TlsConnector {
+    TlsConnector::from(build_config(roots, min_tls()))
+}
+
 /// The shared client configuration for `floor`: Mozilla webpki roots, explicit
 /// `ring` provider. Mirrors `mw-imap`/`mw-sieve`/`mw-smtp` so the tunnelled fetch
 /// and every other TLS client in the tree trust the same set. One configuration
@@ -134,14 +152,99 @@ pub fn connector() -> TlsConnector {
     TlsConnector::from(client_config(min_tls()))
 }
 
+/// The connection to the proxy itself: plain TCP, or TLS verified against the
+/// proxy's host name for an `https-connect` route.
+pub enum ProxyConn {
+    /// Plain TCP to the proxy (`http-connect`, `socks5`, `socks5h`).
+    Tcp(TcpStream),
+    /// TLS to the proxy (`https-connect`); `CONNECT` and its credential travel
+    /// inside it.
+    Tls(Box<tokio_rustls::client::TlsStream<TcpStream>>),
+}
+
+impl From<TcpStream> for ProxyConn {
+    fn from(tcp: TcpStream) -> Self {
+        ProxyConn::Tcp(tcp)
+    }
+}
+
+impl AsyncRead for ProxyConn {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            ProxyConn::Tcp(s) => Pin::new(s).poll_read(cx, buf),
+            ProxyConn::Tls(s) => Pin::new(s.as_mut()).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for ProxyConn {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        match self.get_mut() {
+            ProxyConn::Tcp(s) => Pin::new(s).poll_write(cx, buf),
+            ProxyConn::Tls(s) => Pin::new(s.as_mut()).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            ProxyConn::Tcp(s) => Pin::new(s).poll_flush(cx),
+            ProxyConn::Tls(s) => Pin::new(s.as_mut()).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            ProxyConn::Tcp(s) => Pin::new(s).poll_shutdown(cx),
+            ProxyConn::Tls(s) => Pin::new(s.as_mut()).poll_shutdown(cx),
+        }
+    }
+}
+
+/// Speak TLS to the proxy at `tcp`, verified for `proxy_host` (the route's host:
+/// a name, or an IP literal verified as an IP address) by `connector`. Production
+/// passes [`connector`]; the only other caller is this crate's tests, with a root
+/// store that trusts their stand-in proxy.
+///
+/// A failure is [`ProxyRefusal::ProxyTls`]: nothing has been sent to the proxy yet,
+/// so the credential has not left this process.
+///
+/// Crate-private so no caller outside this crate can hand in a connector with a
+/// weaker verifier: the connectors this crate can build are [`connector`] and, in
+/// its own tests only, `connector_trusting`.
+pub(crate) async fn proxy_tls(
+    connector: TlsConnector,
+    tcp: TcpStream,
+    proxy_host: &str,
+) -> Result<ProxyConn, ProxyRefusal> {
+    let bare = proxy_host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(proxy_host);
+    let server_name = ServerName::try_from(bare.to_string())
+        .map_err(|_| ProxyRefusal::RouteInvalid("the proxy host is not a valid TLS server name"))?;
+    let stream = connector
+        .connect(server_name, tcp)
+        .await
+        .map_err(|e| ProxyRefusal::ProxyTls(explain(e, min_tls())))?;
+    Ok(ProxyConn::Tls(Box::new(stream)))
+}
+
 /// Either side of the one decision the tunnel makes: plaintext (only with a route's
 /// explicit `allow_plaintext`) or TLS terminated by us against the origin's name.
 pub enum TunnelStream {
     /// Plaintext through the tunnel. The proxy can read and rewrite everything —
     /// which is why this needs a per-route opt-in (plan OQ-3).
-    Plain(TcpStream),
+    Plain(ProxyConn),
     /// TLS we terminate ourselves; the proxy sees ciphertext only.
-    Tls(Box<tokio_rustls::client::TlsStream<TcpStream>>),
+    Tls(Box<tokio_rustls::client::TlsStream<ProxyConn>>),
 }
 
 impl TunnelStream {
@@ -201,12 +304,15 @@ impl AsyncWrite for TunnelStream {
 /// The handshake runs at the floor in force ([`min_tls`]). An origin refused
 /// because it did not offer TLS 1.3 under a [`MinTls::V13`] floor is an
 /// `OriginTls` refusal whose text starts with [`MIN_TLS_REFUSED`].
-pub async fn wrap_tls(tcp: TcpStream, origin_host: &str) -> Result<TunnelStream, ProxyRefusal> {
+pub async fn wrap_tls(
+    conn: impl Into<ProxyConn>,
+    origin_host: &str,
+) -> Result<TunnelStream, ProxyRefusal> {
     let floor = min_tls();
     handshake(
         TlsConnector::from(client_config(floor)),
         floor,
-        tcp,
+        conn.into(),
         origin_host,
     )
     .await
@@ -217,7 +323,7 @@ pub async fn wrap_tls(tcp: TcpStream, origin_host: &str) -> Result<TunnelStream,
 async fn handshake(
     connector: TlsConnector,
     floor: MinTls,
-    tcp: TcpStream,
+    tcp: ProxyConn,
     origin_host: &str,
 ) -> Result<TunnelStream, ProxyRefusal> {
     // `Url::host_str` brackets an IPv6 literal (`[2606:2800::1]`) but `ServerName`
@@ -335,7 +441,7 @@ mod tests {
         let floor = min_tls();
         let connector = TlsConnector::from(build_config(roots.clone(), floor));
         let tcp = TcpStream::connect(addr).await.unwrap();
-        match handshake(connector, floor, tcp, "localhost").await? {
+        match handshake(connector, floor, tcp.into(), "localhost").await? {
             TunnelStream::Tls(tls) => Ok(tls.get_ref().1.protocol_version().unwrap()),
             TunnelStream::Plain(_) => panic!("handshake returns a TLS stream"),
         }

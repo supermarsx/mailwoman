@@ -28,6 +28,14 @@
 //!
 //! Authentication is no-auth (`0x00`) and username/password (`0x02`, RFC 1929)
 //! only; GSSAPI is not implemented (plan OQ-7).
+//!
+//! # The remote-DNS route kind lives elsewhere (t32 e31b)
+//! A `socks5h` route, which an admin may switch on only after accepting the risk,
+//! does hand the proxy a name. Its encoder is in [`super::remote_dns`] and takes a
+//! [`super::remote_dns::RemoteName`], which cannot be built from a denylisted or
+//! single-label name. Nothing in **this** file changed for it: the encoder here
+//! still cannot express a name, and [`handshake_with`] only sends the request bytes
+//! it is given after the same greeting and authentication.
 
 use std::net::{IpAddr, SocketAddr};
 
@@ -210,6 +218,22 @@ pub async fn handshake<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    handshake_with(stream, &encode_connect_request(dst), credentials).await
+}
+
+/// The handshake with a caller-encoded `CONNECT` request: the greeting, the
+/// authentication, `request`, and the reply. [`handshake`] passes
+/// [`encode_connect_request`]; the remote-DNS route kind passes its own encoding of
+/// a checked name. Crate-private so no outside caller can send arbitrary request
+/// bytes through it.
+pub(crate) async fn handshake_with<S>(
+    stream: &mut S,
+    request: &[u8],
+    credentials: Option<(&str, &str)>,
+) -> Result<(), ProxyRefusal>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     stream
         .write_all(&encode_greeting(credentials.is_some()))
         .await
@@ -273,7 +297,7 @@ where
     }
 
     stream
-        .write_all(&encode_connect_request(dst))
+        .write_all(request)
         .await
         .map_err(|_| ProxyRefusal::ProxyRejected("SOCKS5 CONNECT could not be sent".into()))?;
     stream

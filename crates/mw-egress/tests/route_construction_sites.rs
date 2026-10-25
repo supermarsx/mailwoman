@@ -407,7 +407,11 @@ fn exactly_one_production_site_builds_a_proxy_route() {
     // which meant the visibility rule ran on one factory instead of two while
     // every assertion still passed.
     let factories = scan.production_of(Kind::Factory);
-    for name in ["fn proxy_route", "fn active_route"] {
+    // `active_route` (t22-e14) was replaced by `image_proxy::load_plan` (t32 e31b),
+    // which builds the live routes through `proxy_route` and returns an
+    // `EgressPlan`; the store-fed factory still visible to the crate is
+    // `route_by_id`, the named exception.
+    for name in ["fn proxy_route", "fn route_by_id"] {
         assert!(
             factories.iter().any(|f| f.line.contains(name)),
             "`{name}` is a production factory and must be seen as one, or the \

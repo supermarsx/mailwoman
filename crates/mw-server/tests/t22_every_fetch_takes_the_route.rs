@@ -45,7 +45,18 @@ const UNROUTED: [&str; 5] = [
 /// The routed wrappers that must be used instead. Substrings of the unrouted names
 /// would otherwise match them (`fetch_url_hardened_routed` contains
 /// `fetch_url_hardened`), so they are stripped before the search.
-const ROUTED: [&str; 2] = ["fetch_url_hardened_routed(", "fetch_remote_routed("];
+///
+/// Since t32 e31b the image proxy and the ICS wrapper send through the egress plan
+/// (`mw_egress::plan::send_with` with the plan from `image_proxy::load_plan`), which
+/// picks the route by traffic class; `plan::send` and `plan::fetch_class` use the
+/// plan installed for the process.
+const ROUTED: [&str; 5] = [
+    "fetch_url_hardened_routed(",
+    "fetch_remote_routed(",
+    "plan::send_with(",
+    "plan::send(",
+    "plan::fetch_class(",
+];
 
 fn server_src() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")
@@ -178,9 +189,10 @@ fn no_server_fetch_surface_bypasses_the_configured_egress_route() {
          the deployment, not for whichever surfaces happened to be wired. A fetch \
          that quietly goes direct defeats network policy, egress-IP control and \
          reader anonymity at exactly the moment nobody is looking.\n\n\
-         Use `image_proxy::fetch_url_hardened_routed` (or `mw_egress::\
-         fetch_remote_routed` with `image_proxy::active_route`), which adds the route \
-         lookup, the fail-closed dispatch and the audit row.\n\n\
+         Use `image_proxy::fetch_url_hardened_routed` (or `mw_egress::plan::\
+         send_with` with the plan from `image_proxy::load_plan`, or `plan::send` with \
+         a traffic class), which adds the route lookup, the fail-closed dispatch and \
+         the audit row.\n\n\
          If a surface genuinely must bypass the route, that is a security decision: \
          allow it here explicitly, with the reason.\n\n\
          found: {hits:#?}"

@@ -108,9 +108,9 @@ memory whole, with no size cap beyond the 300-second request limit.
 ## The upstream proxy, and the one thing it cannot guarantee
 
 26.20 adds the machinery for an operator to route outbound fetches through their
-own HTTP `CONNECT` or SOCKS5 proxy. **Check `../deploy/egress-proxy.md` for what
-is actually wired** — at the time of writing the transport, config and admin
-surface had landed but no fetch path consumed a configured route.
+own HTTP `CONNECT` or SOCKS5 proxy. The image proxy and calendar subscriptions
+use the configured route (t22-e14), and since t32 e31b every traffic class does
+(see below). `../deploy/egress-proxy.md` covers setting one up.
 
 Introducing a middlebox into a path whose whole point is address policy is a
 security regression by construction unless the guarantees are re-established
@@ -160,6 +160,65 @@ why it is off by default — there is no such bound.
 This is irreducible for this design. Do not read the address policy as protecting
 you *from your own proxy*; it protects the proxy's operator and Mailwoman from
 the destinations a caller can name.
+
+### Traffic classes and route kinds (26.20, t32 e31b)
+
+Every outbound request the server makes for itself has a **traffic class**:
+`remote_content`, `ics_feeds`, `keyservers`, `webhooks`, `admin_detect`, `pki`,
+`dns_auth`, `unsubscribe`, `siem`, `oauth`, `update_check`. A route lists the
+classes it carries; a class that no live route lists goes direct. A route can be
+global or scoped to one mail domain, and a domain route replaces the global one
+for the classes it lists. The route is chosen by the class (a constant in the
+code) and the domain of the signed-in account, among routes an admin saved; no
+request field, header or destination chooses it. A process that has not loaded
+the egress configuration refuses every class request rather than sending direct.
+
+Route kinds:
+
+* `http` — HTTP `CONNECT`, as above.
+* `http` with **TLS to the proxy** — the same, inside TLS to the proxy, verified
+  for the proxy's host name against the same roots as an origin. The
+  `Proxy-Authorization` credential is then never on the wire in the clear. A
+  proxy whose certificate does not verify, or that does not speak TLS, gets
+  nothing: the TLS handshake comes before `CONNECT`.
+* `socks5` — as above; the proxy only ever receives an address.
+* `socks5h` — **remote DNS**; see below.
+
+An admin may also list internal destinations that the `webhooks` and `siem`
+classes may reach (an on-premises collector on a private address). Entries are
+an address, a network (at least `/8` for IPv4, `/16` for IPv6) or one host name,
+optionally with a port. Loopback, link-local, the cloud metadata address and
+their NAT64/6to4/Teredo/ISATAP forms are refused when an entry is saved and
+again when a request is checked. Through a route, the strict policy applies and
+the allowlist does not: an internal destination is only reachable on a class
+that goes direct.
+
+### Remote DNS (`socks5h`), and what you accept with it
+
+A `socks5h` route sends the origin **name** to the proxy, so the proxy, not
+Mailwoman, decides which address it connects to. Mailwoman's address policy
+cannot check that address. The route is refused until an admin with the egress
+capability ticks *"I accept that hosts reachable from the proxy's network can be
+fetched"*; who ticked it and when is stored with the route and audited, and an
+edit that changes the route's kind, host, port or remote-DNS setting clears it.
+
+What still holds on such a route:
+
+* A literal address in a URL is checked here and sent as an address, never as a
+  name; private, loopback and metadata literals are refused.
+* A name must contain a dot (a resolver completes a bare name with its search
+  domains) and must not match the denylist in
+  `crates/mw-egress/data/remote_dns_denylist.txt`: `localhost`, `*.local`,
+  `*.localdomain`, `*.internal`, `*.intranet`, `*.lan`, `*.home`, `*.home.arpa`,
+  `*.corp`, `*.private`, `*.arpa`, `*.svc`, `*.cluster.local`, `*.consul`,
+  `metadata.google.internal`, `metadata.goog`, `instance-data`.
+* Every redirect is checked again the same way; TLS to the origin, the plaintext
+  rule and the size and time limits are unchanged.
+
+What does not hold: a public name that resolves, at the proxy, to an address
+inside the proxy's network can be fetched. The denylist covers names that point
+inward by convention; it cannot cover names that do so by DNS. That is the risk
+the admin accepts.
 
 ---
 

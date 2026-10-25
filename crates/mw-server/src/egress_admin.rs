@@ -143,6 +143,12 @@ struct ProxyView {
     username: String,
     has_credentials: bool,
     allow_plaintext: bool,
+    /// Route kind (0033): `http`, `socks5`, `socks5h` or `ssh`.
+    kind: String,
+    /// `global` or `domain:<name>`.
+    scope: String,
+    /// The traffic classes this route carries.
+    traffic_classes: Vec<String>,
     /// Whether this is the live route. At most one row may be, by 0027's partial
     /// unique index — see `Store::active_egress_proxy` for why that is a security
     /// property. Not a secret, so the UI may show it.
@@ -155,12 +161,15 @@ impl From<&EgressProxyRow> for ProxyView {
     fn from(r: &EgressProxyRow) -> Self {
         Self {
             id: r.id.clone(),
-            scheme: r.scheme.clone(),
+            scheme: mw_store_legacy_scheme(&r.kind).to_string(),
             host: r.host.clone(),
             port: r.port,
             username: r.username.clone(),
             has_credentials: r.password.is_some(),
             allow_plaintext: r.allow_plaintext,
+            kind: r.kind.clone(),
+            scope: r.scope.clone(),
+            traffic_classes: r.traffic_classes.clone(),
             active: r.active,
             created_at: r.created_at.clone(),
             updated_at: r.updated_at.clone(),
@@ -188,7 +197,16 @@ impl From<&EgressProxyRow> for ProxyView {
 /// spells the scheme the transport's way (`http-connect://…`), this one the way the
 /// row and the admin UI do (`http://…`).
 fn endpoint(r: &EgressProxyRow) -> String {
-    format!("{}://{}:{}", r.scheme, r.host, r.port)
+    format!("{}://{}:{}", r.kind, r.host, r.port)
+}
+
+/// The `scheme` the 26.19 admin UI reads: the kind, with `socks5h` shown as the
+/// SOCKS5 proxy it is.
+fn mw_store_legacy_scheme(kind: &str) -> &str {
+    match kind {
+        "socks5h" => "socks5",
+        other => other,
+    }
 }
 
 /// The audit detail for a route. Deliberately carries no secret material: the
@@ -262,9 +280,40 @@ async fn put_proxy(
         return bad_request("username is required when a password is set");
     }
 
+    // The 0033 route policy (scope, classes, TLS to the proxy, remote DNS, tunnel,
+    // chain) is not part of this request: it is carried over from the stored row
+    // so an edit from this form cannot reset it, and a new route starts with the
+    // migration defaults (global, remote content and ICS feeds).
+    let existing = match state.store.get_egress_proxy(&body.id).await {
+        Ok(r) => r,
+        Err(e) => return store_failed("put lookup", &e),
+    };
+    let policy = existing.unwrap_or_else(|| EgressProxyRow {
+        id: String::new(),
+        kind: String::new(),
+        host: String::new(),
+        port: 0,
+        username: String::new(),
+        password: None,
+        allow_plaintext: false,
+        active: false,
+        tls_to_proxy: false,
+        remote_dns: false,
+        remote_dns_risk_accepted_by: None,
+        remote_dns_risk_accepted_at: None,
+        tunnel_id: None,
+        chain_next_id: None,
+        scope: "global".to_string(),
+        traffic_classes: mw_egress::TrafficClass::ROUTED_BY_DEFAULT
+            .iter()
+            .map(|c| c.as_str().to_string())
+            .collect(),
+        created_at: String::new(),
+        updated_at: String::new(),
+    });
     let row = EgressProxyRow {
         id: body.id.clone(),
-        scheme: body.scheme.clone(),
+        kind: body.scheme.clone(),
         host: body.host.clone(),
         port: body.port,
         username: body.username.clone(),
@@ -274,12 +323,21 @@ async fn put_proxy(
         // (0027), never a side effect of an edit. Set explicitly rather than by a
         // `..Default::default()` so this stays visible at the call site.
         active: false,
+        tls_to_proxy: policy.tls_to_proxy,
+        remote_dns: policy.remote_dns,
+        remote_dns_risk_accepted_by: None,
+        remote_dns_risk_accepted_at: None,
+        tunnel_id: policy.tunnel_id,
+        chain_next_id: policy.chain_next_id,
+        scope: policy.scope,
+        traffic_classes: policy.traffic_classes,
         created_at: String::new(),
         updated_at: String::new(),
     };
     if let Err(e) = state.store.put_egress_proxy(&row).await {
         return store_failed("put", &e);
     }
+    refresh_plan(&state).await;
     append_egress_audit(&state, &admin, &row.id, audit_detail(&row)).await;
     Json(json!({ "ok": true, "proxy": ProxyView::from(&row) })).into_response()
 }
@@ -298,6 +356,7 @@ async fn delete_proxy(
         // nothing, and a row claiming otherwise would be a false record in an
         // append-only table.
         Ok(removed) => {
+            refresh_plan(&state).await;
             append_egress_audit(&state, &admin, &id, json!({ "removed": removed })).await;
             Json(json!({ "ok": true, "removed": removed })).into_response()
         }
@@ -335,6 +394,7 @@ async fn activate_proxy(
     };
     match state.store.set_active_egress_proxy(Some(&id)).await {
         Ok(activated) => {
+            refresh_plan(&state).await;
             append_egress_audit(
                 &state,
                 &admin,
@@ -368,6 +428,7 @@ async fn deactivate_proxies(State(state): State<AppState>, headers: HeaderMap) -
     if let Err(e) = state.store.set_active_egress_proxy(None).await {
         return store_failed("deactivate", &e);
     }
+    refresh_plan(&state).await;
     let target = previous.as_ref().map_or("", |r| r.id.as_str());
     append_egress_audit(
         &state,
@@ -411,7 +472,7 @@ fn probe_url() -> String {
 #[serde(rename_all = "camelCase")]
 struct TestVerdict {
     /// `connected` · `authRejected` · `refusedByPolicy` · `dnsFailed` ·
-    /// `unreachable` · `originTlsFailed` · `routeInvalid`.
+    /// `unreachable` · `originTlsFailed` · `proxyTlsFailed` · `routeInvalid`.
     outcome: &'static str,
     /// Where the attempt stopped: `dns` · `connect` · `tunnel` · `origin`.
     stage: &'static str,
@@ -502,6 +563,14 @@ fn classify(
             "originTlsFailed",
             "origin",
             "TLS to the probe URL failed inside the tunnel.".to_string(),
+        ),
+        // Nothing was sent to the proxy, the credential included.
+        Err(ProxyRefusal::ProxyTls(_)) => (
+            "proxyTlsFailed",
+            "tunnel",
+            "TLS to the proxy failed: its certificate is not valid for the proxy host, or it \
+             does not speak TLS."
+                .to_string(),
         ),
     }
 }
@@ -638,6 +707,20 @@ async fn test_proxy(
     Json(verdict).into_response()
 }
 
+/// Re-install this process's egress plan after a change, so the change applies
+/// here at once; other processes pick it up within the refresh interval
+/// (`image_proxy::start_plan_refresh`). A failed read keeps the previous plan,
+/// and the per-request reads in the image proxy and the ICS fetch refuse on their
+/// own if the store cannot be read.
+async fn refresh_plan(state: &AppState) {
+    if crate::image_proxy::refresh_plan(&state.store)
+        .await
+        .is_err()
+    {
+        tracing::warn!("egress plan not refreshed after an admin change");
+    }
+}
+
 /// Append an egress-configuration audit row.
 ///
 /// Uses the existing `SecurityPolicyChanged` kind: an egress route decides where all
@@ -679,13 +762,21 @@ mod tests {
     fn row() -> EgressProxyRow {
         EgressProxyRow {
             id: "corp".into(),
-            scheme: "http".into(),
+            kind: "http".into(),
             host: "proxy.corp.example".into(),
             port: 3128,
             username: "svc-mail".into(),
             password: Some(PASSWORD.into()),
             allow_plaintext: false,
             active: false,
+            tls_to_proxy: false,
+            remote_dns: false,
+            remote_dns_risk_accepted_by: None,
+            remote_dns_risk_accepted_at: None,
+            tunnel_id: None,
+            chain_next_id: None,
+            scope: "global".into(),
+            traffic_classes: vec!["remote_content".into(), "ics_feeds".into()],
             created_at: "t0".into(),
             updated_at: "t0".into(),
         }
@@ -794,6 +885,10 @@ mod tests {
             c(Err(ProxyRefusal::RouteInvalid("x")), false),
             ("routeInvalid", "connect")
         );
+        assert_eq!(
+            c(Err(ProxyRefusal::ProxyTls("bad cert".into())), false),
+            ("proxyTlsFailed", "tunnel")
+        );
     }
 
     /// Text the proxy or the origin sent is not copied into the verdict.
@@ -803,6 +898,7 @@ mod tests {
         for refusal in [
             ProxyRefusal::ProxyRejected(MARK.into()),
             ProxyRefusal::OriginTls(MARK.into()),
+            ProxyRefusal::ProxyTls(MARK.into()),
             ProxyRefusal::OriginHttp(MARK.into()),
         ] {
             let (_, _, detail) = classify(&Err(refusal), true);

@@ -56,6 +56,13 @@
 //! domain, which picks among the operator's routes and cannot name a host
 //! ([`crate::plan`], t32 e31b).
 //!
+//! # Route kinds (t32 e31b)
+//! [`ProxyScheme`] has four kinds. `http-connect` and `socks5` are the design above.
+//! `https-connect` is `http-connect` over TLS to the proxy, so the proxy credential
+//! is not sent in the clear ([`stream::proxy_tls`]). `socks5h` is the one kind that
+//! hands the proxy a name; it exists only behind a recorded admin acceptance and a
+//! host-name denylist, and its rules are in [`remote_dns`].
+//!
 //! # Fail-closed
 //! If a route is configured and the tunnel cannot be established, the fetch
 //! **fails**. Nothing here falls back to a direct connection — an operator
@@ -70,6 +77,7 @@
 
 pub mod connect;
 pub mod http;
+pub mod remote_dns;
 pub mod socks5;
 pub mod stream;
 
@@ -95,8 +103,17 @@ use crate::{
 pub enum ProxyScheme {
     /// HTTP `CONNECT` (RFC 9110 §9.3.6) — e.g. Squid.
     HttpConnect,
-    /// SOCKS5 (RFC 1928) — e.g. a Tor client's SOCKS port.
+    /// HTTP `CONNECT` over TLS to the proxy, verified for the route's host against
+    /// the same roots as an origin, so the `Proxy-Authorization` credential is
+    /// never sent in the clear (t32 e31b).
+    HttpsConnect,
+    /// SOCKS5 (RFC 1928) — e.g. a Tor client's SOCKS port. The proxy is handed a
+    /// literal address only.
     Socks5,
+    /// SOCKS5 with **remote DNS**: the proxy is handed the origin name. Built only
+    /// by `mw-server`'s one construction site, and only when an admin's acceptance
+    /// of the risk is recorded on the route; see [`remote_dns`] for what still holds.
+    Socks5h,
 }
 
 impl ProxyScheme {
@@ -104,10 +121,11 @@ impl ProxyScheme {
     pub fn as_str(self) -> &'static str {
         match self {
             ProxyScheme::HttpConnect => "http-connect",
-            // Deliberately NOT `socks5h`: the `h` form means "the proxy resolves
-            // the name", which is the bypass. It is not merely unconfigured here,
-            // it is unimplementable — nothing in `socks5` can send a name.
+            ProxyScheme::HttpsConnect => "https-connect",
             ProxyScheme::Socks5 => "socks5",
+            // The `h` form means "the proxy resolves the name". It is a separate
+            // kind with its own encoder (`remote_dns`), never what `socks5` does.
+            ProxyScheme::Socks5h => "socks5h",
         }
     }
 }
@@ -217,6 +235,10 @@ pub enum ProxyRefusal {
     ProxyAuthRejected(&'static str),
     /// TLS to the **origin** failed inside the tunnel. A MITM proxy lands here.
     OriginTls(String),
+    /// TLS to the **proxy** failed (an `https-connect` route): its certificate is
+    /// not valid for the route's host, or it does not speak TLS. Nothing was sent
+    /// to the proxy, the credential included.
+    ProxyTls(String),
     /// The HTTP exchange inside the tunnel failed.
     OriginHttp(String),
     /// A plaintext `http` origin was requested through a route without
@@ -238,6 +260,7 @@ impl From<ProxyRefusal> for Refusal {
             | ProxyRefusal::ProxyRejected(_)
             | ProxyRefusal::ProxyAuthRejected(_)
             | ProxyRefusal::OriginTls(_)
+            | ProxyRefusal::ProxyTls(_)
             | ProxyRefusal::OriginHttp(_) => Refusal::Upstream,
         }
     }
@@ -254,6 +277,7 @@ impl fmt::Display for ProxyRefusal {
                 write!(f, "egress proxy rejected the route credentials: {m}")
             }
             ProxyRefusal::OriginTls(m) => write!(f, "origin TLS failed through the tunnel: {m}"),
+            ProxyRefusal::ProxyTls(m) => write!(f, "TLS to the egress proxy failed: {m}"),
             ProxyRefusal::OriginHttp(m) => write!(f, "origin HTTP failed through the tunnel: {m}"),
             ProxyRefusal::PlaintextRefused => {
                 write!(
@@ -295,13 +319,39 @@ pub struct ProxyFetch {
 
 // ── the transport ──────────────────────────────────────────────────────────────
 
-/// Dial the route's proxy and negotiate a tunnel to the literal address `dst`.
+/// Where the proxy is asked to connect: a literal address (every kind), or a
+/// checked name (`socks5h` only).
+enum TunnelDest<'a> {
+    Addr(SocketAddr),
+    Remote(&'a remote_dns::RemoteDest),
+}
+
+/// The TLS connector used for TLS to the proxy. Production uses
+/// [`stream::connector`]; this crate's tests substitute one that trusts their
+/// stand-in proxy's certificate.
+struct Dialer {
+    proxy_tls: tokio_rustls::TlsConnector,
+}
+
+impl Dialer {
+    fn production() -> Dialer {
+        Dialer {
+            proxy_tls: stream::connector(),
+        }
+    }
+}
+
+/// Dial the route's proxy and negotiate a tunnel to `dst`.
 ///
-/// This is transport, not policy: `dst` has *already* been through
-/// [`ip_allowed`] by the caller ([`tunnel_fetch_hop`] is the only in-crate caller
-/// and checks it first). The proxy endpoint itself is deliberately **not** checked
-/// — see the module docs.
-async fn open_tunnel(route: &ProxyRoute, dst: SocketAddr) -> Result<TcpStream, ProxyRefusal> {
+/// This is transport, not policy: a [`TunnelDest::Addr`] has *already* been through
+/// [`ip_allowed`] ([`tunnel_send_hop`] checks it first), and a
+/// [`TunnelDest::Remote`] through [`remote_dns::remote_destination`]. The proxy
+/// endpoint itself is deliberately **not** checked — see the module docs.
+async fn open_tunnel(
+    dialer: &Dialer,
+    route: &ProxyRoute,
+    dst: TunnelDest<'_>,
+) -> Result<stream::ProxyConn, ProxyRefusal> {
     // The proxy's own hostname is resolved by us as well, so a route naming a host
     // gets one address rather than reconnect-per-attempt roulette.
     let proxy_addr = tokio::net::lookup_host((route.host.as_str(), route.port))
@@ -312,17 +362,39 @@ async fn open_tunnel(route: &ProxyRoute, dst: SocketAddr) -> Result<TcpStream, P
             "egress proxy host resolved to no address",
         ))?;
 
-    let mut stream = TcpStream::connect(proxy_addr)
+    let tcp = TcpStream::connect(proxy_addr)
         .await
         .map_err(|_| ProxyRefusal::ProxyUnreachable("could not connect to the egress proxy"))?;
-
-    match route.scheme {
-        ProxyScheme::HttpConnect => {
-            connect::handshake(&mut stream, dst, route.credentials()).await?
+    // TLS to the proxy comes first, so `CONNECT` and its credential are never
+    // written to a plain socket on an `https-connect` route.
+    let mut conn = match route.scheme {
+        ProxyScheme::HttpsConnect => {
+            stream::proxy_tls(dialer.proxy_tls.clone(), tcp, &route.host).await?
         }
-        ProxyScheme::Socks5 => socks5::handshake(&mut stream, dst, route.credentials()).await?,
+        _ => stream::ProxyConn::Tcp(tcp),
+    };
+
+    let creds = route.credentials();
+    match (route.scheme, dst) {
+        (ProxyScheme::HttpConnect | ProxyScheme::HttpsConnect, TunnelDest::Addr(a)) => {
+            connect::handshake(&mut conn, a, creds).await?
+        }
+        (ProxyScheme::Socks5, TunnelDest::Addr(a)) => {
+            socks5::handshake(&mut conn, a, creds).await?
+        }
+        (ProxyScheme::Socks5h, TunnelDest::Remote(d)) => {
+            remote_dns::handshake(&mut conn, d, creds).await?
+        }
+        // A name for a kind that resolves locally, or a resolved address for the
+        // remote-DNS kind: the dispatch below never builds either, and refusing is
+        // the answer if it ever did.
+        _ => {
+            return Err(ProxyRefusal::RouteInvalid(
+                "the destination does not match the route kind",
+            ));
+        }
     }
-    Ok(stream)
+    Ok(conn)
 }
 
 /// One tunnelled hop against an **already validated** target, with no address check
@@ -331,28 +403,98 @@ async fn open_tunnel(route: &ProxyRoute, dst: SocketAddr) -> Result<TcpStream, P
 ///
 /// `traversed` is flipped the moment the proxy accepts the tunnel, so the caller
 /// can report the truth even when the hop is later cancelled by the timeout.
+///
+/// Only this crate's transport tests call it; production goes through
+/// [`tunnel_send_hop`].
+#[cfg(test)]
 async fn hop_over_tunnel(
     target: &Target,
     route: &ProxyRoute,
     out: &Outgoing<'_>,
     traversed: &Arc<AtomicBool>,
 ) -> Result<Hop, ProxyRefusal> {
-    let is_https = target.url.scheme() == "https";
+    hop_with(
+        &Dialer::production(),
+        route,
+        TunnelDest::Addr(target.addr),
+        &target.url,
+        &target.host,
+        out,
+        traversed,
+    )
+    .await
+}
+
+/// The hop body shared by every kind: the plaintext rule, the tunnel, origin TLS
+/// against `origin_host` (the URL's host, never the proxy's and never the literal
+/// handed to it), and the exchange.
+async fn hop_with(
+    dialer: &Dialer,
+    route: &ProxyRoute,
+    dst: TunnelDest<'_>,
+    url: &reqwest::Url,
+    origin_host: &str,
+    out: &Outgoing<'_>,
+    traversed: &Arc<AtomicBool>,
+) -> Result<Hop, ProxyRefusal> {
+    let is_https = url.scheme() == "https";
     if !is_https && !route.allow_plaintext {
         return Err(ProxyRefusal::PlaintextRefused);
     }
 
-    let tcp = open_tunnel(route, target.addr).await?;
+    let conn = open_tunnel(dialer, route, dst).await?;
     // From here the bytes have gone through the proxy. Set this BEFORE the TLS
     // handshake, so a certificate failure still reports a traversed tunnel.
     traversed.store(true, Ordering::SeqCst);
 
     let pipe = if is_https {
-        stream::wrap_tls(tcp, &target.host).await?
+        stream::wrap_tls(conn, origin_host).await?
     } else {
-        stream::TunnelStream::Plain(tcp)
+        stream::TunnelStream::Plain(conn)
     };
-    http::exchange_with(pipe, &target.url, out).await
+    http::exchange_with(pipe, url, out).await
+}
+
+/// One hop on a `socks5h` route: the destination is checked by
+/// [`remote_dns::remote_destination`] (a literal through [`ip_allowed`], a name
+/// through the denylist) instead of being resolved here.
+async fn remote_dns_hop(
+    dialer: &Dialer,
+    url: &reqwest::Url,
+    route: &ProxyRoute,
+    out: &Outgoing<'_>,
+) -> ProxyHop {
+    let (dest, host) = match remote_dns::remote_destination(url) {
+        Ok(d) => d,
+        Err(r) => {
+            return ProxyHop {
+                traversed_proxy: false,
+                outcome: Err(ProxyRefusal::Origin(r)),
+            };
+        }
+    };
+    let traversed = Arc::new(AtomicBool::new(false));
+    let outcome = match tokio::time::timeout(
+        FETCH_TIMEOUT,
+        hop_with(
+            dialer,
+            route,
+            TunnelDest::Remote(&dest),
+            url,
+            &host,
+            out,
+            &traversed,
+        ),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(ProxyRefusal::Origin(Refusal::Timeout)),
+    };
+    ProxyHop {
+        traversed_proxy: traversed.load(Ordering::SeqCst),
+        outcome,
+    }
 }
 
 /// Fetch **one hop** through the route's proxy, refusing unless the target's
@@ -387,6 +529,16 @@ pub async fn tunnel_fetch_hop(target: &Target, route: &ProxyRoute, accept: &str)
 /// `POST` body when there is one). The address and scheme checks below are the
 /// same, unconditional, and still run before the proxy is dialled.
 pub async fn tunnel_send_hop(target: &Target, route: &ProxyRoute, out: &Outgoing<'_>) -> ProxyHop {
+    tunnel_send_hop_with(&Dialer::production(), target, route, out).await
+}
+
+/// [`tunnel_send_hop`] with a given [`Dialer`]; the checks are the same.
+async fn tunnel_send_hop_with(
+    dialer: &Dialer,
+    target: &Target,
+    route: &ProxyRoute,
+    out: &Outgoing<'_>,
+) -> ProxyHop {
     // ── the ip_allowed check on a possibly hand-built Target ──────────────────
     if !ip_allowed(&target.addr.ip()) {
         return ProxyHop {
@@ -406,10 +558,29 @@ pub async fn tunnel_send_hop(target: &Target, route: &ProxyRoute, out: &Outgoing
         };
     }
 
+    if route.scheme == ProxyScheme::Socks5h {
+        // A remote-DNS route is driven by name ([`send_via_proxy`]); handing it a
+        // locally resolved target would be a third behaviour nobody configured.
+        return ProxyHop {
+            traversed_proxy: false,
+            outcome: Err(ProxyRefusal::RouteInvalid(
+                "a remote-DNS route is used by name, not with a resolved target",
+            )),
+        };
+    }
+
     let traversed = Arc::new(AtomicBool::new(false));
     let outcome = match tokio::time::timeout(
         FETCH_TIMEOUT,
-        hop_over_tunnel(target, route, out, &traversed),
+        hop_with(
+            dialer,
+            route,
+            TunnelDest::Addr(target.addr),
+            &target.url,
+            &target.host,
+            out,
+            &traversed,
+        ),
     )
     .await
     {
@@ -453,19 +624,35 @@ pub async fn send_via_proxy(
     route: &ProxyRoute,
     out: &Outgoing<'_>,
 ) -> ProxyFetch {
+    send_via_proxy_with(&Dialer::production(), start, route, out).await
+}
+
+/// [`send_via_proxy`] with a given [`Dialer`]. Each hop of a `socks5h` route is
+/// checked by name ([`remote_dns_hop`]); every other kind resolves locally through
+/// [`validate_and_resolve`] and the address check in [`tunnel_send_hop`].
+async fn send_via_proxy_with(
+    dialer: &Dialer,
+    start: reqwest::Url,
+    route: &ProxyRoute,
+    out: &Outgoing<'_>,
+) -> ProxyFetch {
     let mut url = start;
     let mut traversed_proxy = false;
     for _ in 0..=MAX_REDIRECTS {
-        let target = match validate_and_resolve(url.clone()).await {
-            Ok(t) => t,
-            Err(r) => {
-                return ProxyFetch {
-                    traversed_proxy,
-                    outcome: Err(ProxyRefusal::Origin(r)),
-                };
-            }
+        let hop = if route.scheme == ProxyScheme::Socks5h {
+            remote_dns_hop(dialer, &url, route, out).await
+        } else {
+            let target = match validate_and_resolve(url.clone()).await {
+                Ok(t) => t,
+                Err(r) => {
+                    return ProxyFetch {
+                        traversed_proxy,
+                        outcome: Err(ProxyRefusal::Origin(r)),
+                    };
+                }
+            };
+            tunnel_send_hop_with(dialer, &target, route, out).await
         };
-        let hop = tunnel_send_hop(&target, route, out).await;
         traversed_proxy |= hop.traversed_proxy;
         match hop.outcome {
             Ok(Hop::Body(bytes)) => {

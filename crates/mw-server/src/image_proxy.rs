@@ -83,15 +83,16 @@
 //!
 //! As of 26.20 t22-e14 it additionally owns the **egress route** for the whole
 //! crate: [`proxy_route`] is the only production construction site of a
-//! `mw_egress::proxy::ProxyRoute` in the workspace, [`active_route`] is the only way
-//! to obtain one, and [`fetch_url_hardened_routed`] is how `import_routes.rs`'s
+//! `mw_egress::proxy::ProxyRoute` in the workspace, [`load_plan`] is the only way
+//! to obtain the live ones (as an egress plan, t32 e31b), and
+//! [`fetch_url_hardened_routed`] is how `import_routes.rs`'s
 //! `webcal://`/ICS fetch takes that route. Both hardened-fetch surfaces in this
 //! crate therefore share one route lookup, one fail-closed dispatch and one audit
 //! emission, rather than two implementations that can drift apart.
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use axum::extract::{Query, State};
@@ -103,8 +104,9 @@ use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
+use mw_egress::plan::{self, EgressPlan, PlanRoute, Request, RouteScope};
 use mw_egress::proxy::{ProxyAuth, ProxyRoute, ProxyScheme};
-use mw_egress::{Refusal, fetch_remote_routed};
+use mw_egress::{AllowDestination, AllowEntry, InternalAllowList, Refusal, TrafficClass};
 use mw_store::EgressProxyRow;
 
 use crate::AppState;
@@ -190,7 +192,7 @@ const CACHE_TTL: Duration = Duration::from_secs(3600);
 /// accounts: with a URL-only key, bytes fetched over one egress path could be served
 /// to a request that was supposed to take another. t22-e7 built that in while the
 /// route was still constant; as of t22-e14 it stops being constant, and
-/// [`active_route`] supplies a real route id here whenever one is live.
+/// the plan's selected route supplies a real route id here whenever one applies.
 ///
 /// It is a reserved token rather than an empty string so a direct entry and a
 /// configured route are always distinguishable in the key space. An operator route
@@ -227,8 +229,8 @@ const DIRECT_ROUTE: &str = "direct";
 ///
 /// Hence the shape, which is the enforcement:
 ///   * the only input is an [`EgressProxyRow`], which comes only from
-///     [`active_route`] → `Store::active_egress_proxy(&self)`;
-///   * this function is **private**, and [`active_route`] is `pub(crate)` and takes
+///     [`load_plan`] → `Store::live_egress_routes(&self)` or from [`route_by_id`];
+///   * this function is **private**, and [`load_plan`] is `pub(crate)` and takes
 ///     only a store handle, so no caller anywhere can supply the fields;
 ///   * `ProxyRoute` derives no `Deserialize`, `FromStr` or `TryFrom`, so there is no
 ///     deserialisation path into one either.
@@ -248,20 +250,41 @@ const DIRECT_ROUTE: &str = "direct";
 /// runtime assertion here would not be.
 ///
 /// # Behaviour
-/// Returns `None` for a `scheme` this build cannot speak. The admin boundary
-/// validates `scheme` against its own allow-list, so that should be unreachable —
-/// but "should be unreachable" is not a reason to guess, and the caller turns it
-/// into a refusal rather than into a direct fetch. See [`active_route`].
+/// The stored kind and flags map onto the transport's kinds (t32 e31b):
+///
+/// | `kind` | `tls_to_proxy` | `remote_dns` | transport |
+/// |---|---|---|---|
+/// | `http` | off | off | `HttpConnect` |
+/// | `http` | on | off | `HttpsConnect` (TLS to the proxy) |
+/// | `socks5` | off | off | `Socks5` |
+/// | `socks5h` | off | on, **and an acceptance is recorded** | `Socks5h` (remote DNS) |
+///
+/// Every other combination returns `None`: an `ssh` route or a chained second hop
+/// (not carried by this build yet), a `socks5h` route whose remote-DNS acceptance
+/// is missing or was cleared by an edit, and the inconsistent ones. The caller turns
+/// `None` into a refusal rather than into a direct fetch — and never into a
+/// different kind: carrying a route without what it asked for (TLS to the proxy,
+/// say) would send the credential in the clear, which is what the operator switched
+/// it on to prevent. See [`load_plan`].
 ///
 /// The password travels from the sealed column into [`ProxyAuth`], which redacts it
 /// in `Debug`; `EgressProxyRow` redacts it too, so there is no point on this path
 /// where a formatted value carries the credential.
 fn proxy_route(row: &EgressProxyRow) -> Option<ProxyRoute> {
-    let scheme = match row.scheme.as_str() {
-        "http" => ProxyScheme::HttpConnect,
-        "socks5" => ProxyScheme::Socks5,
+    let scheme = match (row.kind.as_str(), row.tls_to_proxy, row.remote_dns) {
+        ("http", false, false) => ProxyScheme::HttpConnect,
+        ("http", true, false) => ProxyScheme::HttpsConnect,
+        ("socks5", false, false) => ProxyScheme::Socks5,
+        // The one kind that hands the proxy a name exists only behind the
+        // recorded acceptance (`Store::accept_egress_remote_dns_risk`).
+        ("socks5h", false, true) if row.remote_dns_risk_accepted_by.is_some() => {
+            ProxyScheme::Socks5h
+        }
         _ => return None,
     };
+    if row.chain_next_id.is_some() {
+        return None;
+    }
     Some(ProxyRoute {
         id: row.id.clone(),
         scheme,
@@ -277,59 +300,123 @@ fn proxy_route(row: &EgressProxyRow) -> Option<ProxyRoute> {
     })
 }
 
-/// **The** live egress route, or `None` when egress is direct.
+/// The deployment's egress plan, built from the store: every live route with its
+/// scope and classes, and the internal-destination allowlist (t32 e31b).
 ///
-/// # This function takes no request-shaped argument, and that is the security property
-/// It reads `Store::active_egress_proxy(&self)`, which takes `&self` and nothing
-/// else. [`ProxyRoute::host`] is deliberately **exempt** from the SSRF address policy
-/// — an egress proxy on loopback or RFC1918 (a Squid, a Tor SOCKS port) is the normal
-/// operator deployment — and that carve-out is safe **only** while a route cannot be
-/// chosen by anything about a request. Give route selection a destination host, an
-/// account or a header to key on and choosing a route becomes choosing a destination
-/// whose address bypasses the gate.
-///
-/// So: no parameter here, no parameter in the store method, and no route field in any
-/// user-facing DTO. **A function with no request-shaped parameter cannot be steered**,
-/// which is checkable by reading one signature and holds under every future edit to
-/// the body. If a caller ever needs to select by something about the request, that is
-/// the moment to escalate rather than to add an argument.
+/// # This function takes a store handle and nothing else
+/// The routes come from `Store::live_egress_routes(&self)` and the allowlist from
+/// `Store::list_egress_internal_allow(&self)`; neither takes a request-shaped
+/// argument. [`ProxyRoute::host`] is deliberately **exempt** from the SSRF address
+/// policy, which is safe only while no request can construct or choose a host.
+/// Which of the plan's routes a request takes is decided later, by
+/// `EgressPlan::selected_route(class, domain)`: a traffic-class constant and the
+/// signed-in account's domain, selecting among these operator rows — never a
+/// destination or a header.
 ///
 /// # `Err` means "do not fetch", never "fetch directly"
-/// A store failure and an unusable `scheme` both return `Err(())`, and the caller
-/// turns that into a `500`. Falling back to a direct fetch would mean a transient
-/// database error silently disables the operator's egress control — the same
-/// fail-open shape as a silent fallback on tunnel failure, arriving by a different
-/// door.
+/// A store failure, a live route this build cannot carry ([`proxy_route`] says
+/// `None`), a corrupt scope or class, or two live routes answering the same class
+/// in one scope all return `Err(())`, and the caller refuses. Falling back to a
+/// direct fetch would mean a transient database error silently disables the
+/// operator's egress control.
 ///
-/// `pub(crate)` rather than private because `import_routes.rs`'s `webcal://`/ICS
-/// fetcher is the workspace's **second** hardened-fetch surface and must take the
-/// same route — see [`fetch_url_hardened_routed`]. It is deliberately **not** `pub`:
-/// a fully-public function returning a `ProxyRoute` would re-open construction to
-/// any caller, which is the thing [`proxy_route`]'s doc comment and
-/// `route_construction_sites.rs` exist to prevent. Widening this to `pub` should
-/// fail that test; if it ever does not, the test is wrong.
-pub(crate) async fn active_route(store: &mw_store::Store) -> Result<Option<ProxyRoute>, ()> {
-    match store.active_egress_proxy().await {
-        Ok(None) => Ok(None),
-        Ok(Some(row)) => match proxy_route(&row) {
-            Some(route) => Ok(Some(route)),
-            None => {
-                // Never render the row: it holds the credential, and this is an
-                // error path, which is the exit people forget.
-                tracing::warn!(
-                    "egress route {} has scheme {:?}, which this build cannot speak — \
-                     refusing rather than egressing directly",
-                    row.id,
-                    row.scheme
-                );
-                Err(())
-            }
-        },
-        Err(e) => {
-            tracing::warn!("egress route lookup failed: {e}");
-            Err(())
+/// An allowlist row that does not parse is **skipped** with a warning instead: a
+/// missing entry only narrows what `webhooks`/`siem` may reach, which is the safe
+/// direction, and one bad row must not stop all egress.
+///
+/// `pub(crate)` rather than `pub`: see `route_construction_sites.rs`.
+pub(crate) async fn load_plan(store: &mw_store::Store) -> Result<EgressPlan, ()> {
+    let rows = store.live_egress_routes().await.map_err(|e| {
+        tracing::warn!("egress route lookup failed: {e}");
+    })?;
+    let mut routes = Vec::with_capacity(rows.len());
+    for row in &rows {
+        // Never render the row: it holds the credential, and these are error paths,
+        // which is the exit people forget.
+        let Some(route) = proxy_route(row) else {
+            tracing::warn!(
+                "egress route {} (kind {:?}) cannot be carried by this build as configured — \
+                 refusing rather than egressing directly",
+                row.id,
+                row.kind
+            );
+            return Err(());
+        };
+        let Some(scope) = RouteScope::parse(&row.scope) else {
+            tracing::warn!("egress route {} has an unreadable scope", row.id);
+            return Err(());
+        };
+        let mut classes = Vec::with_capacity(row.traffic_classes.len());
+        for c in &row.traffic_classes {
+            let Some(class) = TrafficClass::parse(c) else {
+                tracing::warn!("egress route {} lists an unknown traffic class", row.id);
+                return Err(());
+            };
+            classes.push(class);
+        }
+        routes.push(PlanRoute {
+            scope,
+            classes,
+            route,
+        });
+    }
+
+    let allow_rows = store.list_egress_internal_allow().await.map_err(|e| {
+        tracing::warn!("egress allowlist lookup failed: {e}");
+    })?;
+    let mut entries = Vec::with_capacity(allow_rows.len());
+    for row in &allow_rows {
+        let entry = TrafficClass::parse(&row.traffic_class)
+            .ok_or("unknown class")
+            .and_then(|class| {
+                AllowDestination::parse(&row.destination)
+                    .and_then(|dest| AllowEntry::new(class, dest))
+            });
+        match entry {
+            Ok(e) => entries.push(e),
+            Err(why) => tracing::warn!("egress allowlist entry {} skipped: {why}", row.id),
         }
     }
+
+    EgressPlan::new(routes, InternalAllowList::new(entries)).map_err(|e| {
+        tracing::warn!("egress plan refused: {e}");
+    })
+}
+
+/// [`load_plan`], then install it for this process (`mw_egress::plan::install`), so
+/// crates without a store handle (`mw-crypto`, `mw-autoconfig`, `mw-admin`) send
+/// under the same routes. On `Err` the installed plan is left as it was.
+pub(crate) async fn refresh_plan(store: &mw_store::Store) -> Result<Arc<EgressPlan>, ()> {
+    load_plan(store).await.map(plan::install)
+}
+
+/// How often every process re-reads the egress plan (R-CFG 6: hot settings apply
+/// within 30 s on every process). The admin API also refreshes it at once after a
+/// change, on the process that served the change.
+const PLAN_REFRESH_EVERY: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Install the plan now and keep it fresh. Called once at start
+/// (`admin_apply::boot`), before the server accepts requests, because a process
+/// with no installed plan refuses every class request.
+///
+/// If the first read fails, an empty plan is **not** installed in its place: the
+/// process keeps refusing class requests until a read succeeds, rather than sending
+/// direct around routes it could not read. A later failed read keeps the last good
+/// plan (still the operator's routes) and logs.
+pub(crate) async fn start_plan_refresh(store: mw_store::Store) {
+    if refresh_plan(&store).await.is_err() {
+        tracing::warn!(
+            "egress plan not installed at start; class requests are refused until it loads"
+        );
+    }
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(PLAN_REFRESH_EVERY);
+        tick.tick().await;
+        loop {
+            tick.tick().await;
+            let _ = refresh_plan(&store).await;
+        }
+    });
 }
 
 /// One stored route by id, mapped for the transport, or `Ok(None)` when no row has
@@ -345,9 +432,9 @@ pub(crate) async fn active_route(store: &mw_store::Store) -> Result<Option<Proxy
 /// `crates/mw-egress/tests/route_construction_sites.rs`; the literal is still built
 /// only by [`proxy_route`].
 ///
-/// Nothing that serves mail traffic may call this — those paths take
-/// [`active_route`], which has no parameter to steer. `Err(())` has the meaning it
-/// has there: the route could not be loaded or mapped, so do not fetch.
+/// Nothing that serves mail traffic may call this — those paths take the plan from
+/// [`load_plan`], which has no parameter to steer. `Err(())` has the meaning it has
+/// there: the route could not be loaded or mapped, so do not fetch.
 #[rustfmt::skip] // one line: `route_construction_sites.rs` reads a signature per line
 pub(crate) async fn route_by_id(store: &mw_store::Store, id: &str) -> Result<Option<ProxyRoute>, ()> {
     match store.get_egress_proxy(id).await {
@@ -356,9 +443,9 @@ pub(crate) async fn route_by_id(store: &mw_store::Store, id: &str) -> Result<Opt
             Some(route) => Ok(Some(route)),
             None => {
                 tracing::warn!(
-                    "egress route {} has scheme {:?}, which this build cannot speak",
+                    "egress route {} (kind {:?}) cannot be carried by this build as configured",
                     row.id,
-                    row.scheme
+                    row.kind
                 );
                 Err(())
             }
@@ -417,7 +504,7 @@ fn last_egress() -> &'static Mutex<Option<(String, bool)>> {
 /// | `"corp"` | `true`  | the fetch went through `corp` |
 /// | `"corp"` | `false` | `corp` was live and was **not** traversed — the fetch was **refused**, not re-routed |
 ///
-/// The third row can never mean "went direct", because `fetch_remote_routed` is
+/// The third row can never mean "went direct", because `plan::send_with` is
 /// fail-closed: once a route is configured there is no path to the direct fetcher.
 /// `DIRECT_ROUTE` is a reserved token precisely so the first and third rows are
 /// distinguishable by value rather than by inference.
@@ -489,12 +576,19 @@ pub(crate) async fn fetch_url_hardened_routed(
     url_str: &str,
     accept: &str,
 ) -> Result<Vec<u8>, String> {
-    let route = active_route(&state.store)
+    let plan = load_plan(&state.store)
         .await
         .map_err(|()| "egress route is not usable".to_string())?;
-    let route_id = route.as_ref().map_or(DIRECT_ROUTE, |r| r.id.as_str());
+    let route_id = plan
+        .selected_route(TrafficClass::IcsFeeds, None)
+        .map_or(DIRECT_ROUTE, |r| r.id.as_str());
     let url = reqwest::Url::parse(url_str).map_err(|_| "malformed URL".to_string())?;
-    let routed = fetch_remote_routed(url, accept, mw_egress::ip_allowed, route.as_ref()).await;
+    let routed = plan::send_with(
+        &plan,
+        url,
+        &Request::get(TrafficClass::IcsFeeds).accept(accept),
+    )
+    .await;
     audit_egress_transition(state, route_id, routed.traversed_proxy).await;
     routed.outcome.map_err(|r| match r {
         Refusal::BadRequest(m) => m.to_string(),
@@ -889,11 +983,15 @@ async fn proxy_image(
     // served to a request that was supposed to take another, and that decision
     // cannot be made after the lookup. Costs one indexed read (and one AEAD open, on
     // a configured route) per request, cache hits included.
-    let route = match active_route(&state.store).await {
-        Ok(r) => r,
+    let plan = match load_plan(&state.store).await {
+        Ok(p) => p,
         Err(()) => return internal("egress route lookup"),
     };
-    let route_id = route.as_ref().map_or(DIRECT_ROUTE, |r| r.id.as_str());
+    // A route scoped to the account's mail domain overrides the global one.
+    let domain = crate::upstream_resolve::domain_of(&session.username);
+    let route_id = plan
+        .selected_route(TrafficClass::RemoteContent, domain.as_deref())
+        .map_or(DIRECT_ROUTE, |r| r.id.as_str());
 
     // Serve a cache hit before doing any work (and honor If-None-Match). A cache hit
     // performs no upstream fetch, so it does NOT consume the per-account rate budget.
@@ -933,11 +1031,15 @@ async fn proxy_image(
         }
     };
 
-    // The fetch. With a route configured this is FAIL-CLOSED: `fetch_remote_routed`
-    // has no arm that reaches the direct path once a route is in play, so a proxy
-    // that is down produces a `502` rather than a quiet direct fetch that defeats
-    // the egress control the operator configured.
-    let routed = fetch_remote_routed(url, "image/*", mw_egress::ip_allowed, route.as_ref()).await;
+    // The fetch. With a route configured this is FAIL-CLOSED: `plan::send_with` has
+    // no arm that reaches the direct path once a route is in play, so a proxy that
+    // is down produces a `502` rather than a quiet direct fetch that defeats the
+    // egress control the operator configured.
+    let mut request = Request::get(TrafficClass::RemoteContent).accept("image/*");
+    if let Some(d) = domain.as_deref() {
+        request = request.for_domain(d);
+    }
+    let routed = plan::send_with(&plan, url, &request).await;
     // Audited BEFORE the refusal is returned, and from the transport's own signal —
     // a failed fetch is exactly when an operator needs the row, and `traversed_proxy`
     // is still true or false as a matter of fact rather than of configuration.
@@ -982,7 +1084,7 @@ async fn proxy_image(
 /// whether or not the caller holds a grant, so the grant gate never becomes a way to
 /// tell a granted session's refusals apart from an ungranted one's. Neither step
 /// fetches anything, and the policy runs exactly once on this path — a granted
-/// request runs it inside [`fetch_remote_routed`] instead, never twice.
+/// request runs it inside `plan::send_with` instead, never twice.
 ///
 /// Known residual, stated rather than implied: an authenticated session with no grant
 /// can still cause a DNS resolution of an arbitrary host here, and can still learn
@@ -1736,5 +1838,186 @@ mod tests {
         for k in ["", "global", "sender", "domain", "ALL"] {
             assert!(!valid_scope_kind(k));
         }
+    }
+
+    // ── the egress plan from the store (t32 e31b) ──────────────────────────────
+
+    fn stored(kind: &str) -> EgressProxyRow {
+        EgressProxyRow {
+            id: "r1".into(),
+            kind: kind.into(),
+            host: "proxy.corp.example".into(),
+            port: 3128,
+            username: "svc".into(),
+            password: Some("pw".into()),
+            allow_plaintext: false,
+            active: false,
+            tls_to_proxy: false,
+            remote_dns: false,
+            remote_dns_risk_accepted_by: None,
+            remote_dns_risk_accepted_at: None,
+            tunnel_id: None,
+            chain_next_id: None,
+            scope: "global".into(),
+            traffic_classes: vec!["remote_content".into(), "ics_feeds".into()],
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn each_stored_kind_maps_to_its_transport_or_to_a_refusal() {
+        let scheme = |r: &EgressProxyRow| proxy_route(r).map(|p| p.scheme);
+        assert_eq!(scheme(&stored("http")), Some(ProxyScheme::HttpConnect));
+        assert_eq!(scheme(&stored("socks5")), Some(ProxyScheme::Socks5));
+
+        let mut tls = stored("http");
+        tls.tls_to_proxy = true;
+        assert_eq!(scheme(&tls), Some(ProxyScheme::HttpsConnect));
+
+        // Remote DNS only with the recorded acceptance.
+        let mut h = stored("socks5h");
+        h.remote_dns = true;
+        assert_eq!(scheme(&h), None, "no acceptance recorded");
+        h.remote_dns_risk_accepted_by = Some("root".into());
+        h.remote_dns_risk_accepted_at = Some(1);
+        assert_eq!(scheme(&h), Some(ProxyScheme::Socks5h));
+
+        // Not carried by this build yet, or inconsistent: refused, never downgraded.
+        let mut chained = stored("http");
+        chained.chain_next_id = Some("r2".into());
+        let mut socks_tls = stored("socks5");
+        socks_tls.tls_to_proxy = true;
+        let mut socks_remote = stored("socks5");
+        socks_remote.remote_dns = true;
+        socks_remote.remote_dns_risk_accepted_by = Some("root".into());
+        let mut h_off = stored("socks5h");
+        h_off.remote_dns_risk_accepted_by = Some("root".into());
+        let mut http_remote = stored("http");
+        http_remote.remote_dns = true;
+        http_remote.remote_dns_risk_accepted_by = Some("root".into());
+        for (what, r) in [
+            ("ssh", stored("ssh")),
+            ("unknown kind", stored("ftp")),
+            ("chained", chained),
+            ("socks5 with TLS", socks_tls),
+            ("socks5 with remote DNS", socks_remote),
+            ("socks5h without remote DNS", h_off),
+            ("http with remote DNS", http_remote),
+        ] {
+            assert_eq!(scheme(&r), None, "{what}");
+        }
+    }
+
+    async fn plan_store() -> mw_store::Store {
+        mw_store::Store::open_in_memory(mw_store::ServerKey::generate())
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_plan_carries_the_live_routes_classes_and_the_allowlist() {
+        let store = plan_store().await;
+        let mut r = stored("http");
+        r.traffic_classes = vec!["remote_content".into(), "keyservers".into()];
+        store.put_egress_proxy(&r).await.unwrap();
+
+        // Configured but not live: every class goes direct.
+        let plan = load_plan(&store).await.unwrap();
+        assert!(
+            plan.selected_route(TrafficClass::RemoteContent, None)
+                .is_none()
+        );
+
+        store.set_active_egress_proxy(Some("r1")).await.unwrap();
+        store
+            .add_egress_internal_allow(&mw_store::EgressAllowRow {
+                id: "a1".into(),
+                traffic_class: "siem".into(),
+                destination: "10.20.0.0/16".into(),
+                note: String::new(),
+                created_by: "root".into(),
+                created_at: 1,
+            })
+            .await
+            .unwrap();
+        let plan = load_plan(&store).await.unwrap();
+        let id = |c| {
+            plan.selected_route(c, Some("any.example"))
+                .map(|r| r.id.clone())
+        };
+        assert_eq!(id(TrafficClass::RemoteContent), Some("r1".into()));
+        assert_eq!(id(TrafficClass::Keyservers), Some("r1".into()));
+        assert_eq!(id(TrafficClass::IcsFeeds), None, "not listed, so direct");
+        assert!(plan.allow().permits(
+            TrafficClass::Siem,
+            "siem",
+            6514,
+            &"10.20.1.1".parse().unwrap()
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_live_route_the_build_cannot_carry_refuses_the_plan() {
+        let store = plan_store().await;
+        let mut h = stored("socks5h");
+        h.remote_dns = true;
+        store.put_egress_proxy(&h).await.unwrap();
+        store.set_active_egress_proxy(Some("r1")).await.unwrap();
+        assert!(
+            load_plan(&store).await.is_err(),
+            "a live remote-DNS route without the acceptance must stop egress, not go direct"
+        );
+        assert!(
+            store
+                .accept_egress_remote_dns_risk("r1", "root", 1)
+                .await
+                .unwrap()
+        );
+        let plan = load_plan(&store).await.unwrap();
+        assert_eq!(
+            plan.selected_route(TrafficClass::RemoteContent, None)
+                .map(|r| r.scheme),
+            Some(ProxyScheme::Socks5h)
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unknown_class_on_a_live_route_refuses_the_plan() {
+        let store = plan_store().await;
+        let mut r = stored("http");
+        r.traffic_classes = vec!["remote_content".into(), "everything".into()];
+        store.put_egress_proxy(&r).await.unwrap();
+        store.set_active_egress_proxy(Some("r1")).await.unwrap();
+        assert!(load_plan(&store).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_bad_allowlist_row_is_skipped_and_the_rest_still_applies() {
+        let store = plan_store().await;
+        let row = |id: &str, dest: &str| mw_store::EgressAllowRow {
+            id: id.into(),
+            traffic_class: "webhooks".into(),
+            destination: dest.into(),
+            note: String::new(),
+            created_by: "root".into(),
+            created_at: 1,
+        };
+        store
+            .add_egress_internal_allow(&row("bad", "169.254.169.254"))
+            .await
+            .unwrap();
+        store
+            .add_egress_internal_allow(&row("good", "10.1.0.0/16"))
+            .await
+            .unwrap();
+        let plan = load_plan(&store).await.unwrap();
+        assert_eq!(plan.allow().entries().len(), 1);
+        assert!(!plan.allow().permits(
+            TrafficClass::Webhooks,
+            "x",
+            80,
+            &"169.254.169.254".parse().unwrap()
+        ));
     }
 }
