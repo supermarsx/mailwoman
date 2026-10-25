@@ -363,6 +363,36 @@ impl Store {
         rows.iter().map(value_from_row).collect()
     }
 
+    /// The value an administrator holds `key` at for `subject`, or `None` when the
+    /// user may choose (no lock at any scope and user overrides allowed). `floor`
+    /// is the key's built-in default as JSON text. For readers outside
+    /// `mw-server` that cannot use its registry (the engine's read-receipt
+    /// policy, the push relay's notification switch): they keep reading the
+    /// user's own stored value unless this answers `Some`. The user's own value
+    /// lives outside `setting_value` for those keys, so only admin layers are
+    /// read here. No environment pin applies to such keys.
+    pub async fn held_setting(
+        &self,
+        key: &str,
+        floor: &str,
+        subject: &SettingSubject<'_>,
+    ) -> Result<Option<String>, StoreError> {
+        let policy = self.get_setting_policy(key).await?;
+        let rows = self.setting_values_for_subject(subject).await?;
+        let mine: Vec<&SettingValueRow> = rows
+            .iter()
+            .filter(|r| r.key == key && r.scope != SettingScope::User)
+            .collect();
+        let r = resolve(&ResolveInput {
+            floor,
+            floor_is_env: false,
+            pin: None,
+            policy: policy.as_ref(),
+            values: &mine,
+        });
+        Ok((!r.user_may_override).then_some(r.value))
+    }
+
     /// The feature profiles and user groups that apply to a subject, highest
     /// priority first. **Hook:** returns nothing until e25b (feature governance)
     /// adds `feature_profile_assignment` / `user_group_member` reads here; the
@@ -829,6 +859,58 @@ mod tests {
     #[tokio::test]
     async fn subject_rows_cover_domain_and_both_user_ids_only() {
         subject_rows(&store().await).await;
+    }
+
+    #[tokio::test]
+    async fn held_setting_answers_only_when_the_user_may_not_choose() {
+        let s = store().await;
+        let subject = SettingSubject {
+            domain: "example.org",
+            account_id: "acct-1",
+            address: "alice@example.org",
+        };
+        let key = "mail.readReceipts";
+        let held = |s: &Store| {
+            let s = s.clone();
+            async move { s.held_setting(key, "\"ask\"", &subject).await.unwrap() }
+        };
+        assert_eq!(held(&s).await, None, "nothing stored: the user chooses");
+
+        let mut p = policy(Some("\"always\""), true, false);
+        p.key = key.into();
+        s.put_setting_policy(&p).await.unwrap();
+        assert_eq!(held(&s).await, None, "a global value without a lock");
+
+        let mut v = val(SettingScope::Domain, "\"never\"", true);
+        v.scope_id = "example.org".into();
+        v.key = key.into();
+        s.put_setting_value(&v).await.unwrap();
+        assert_eq!(
+            held(&s).await.as_deref(),
+            Some("\"never\""),
+            "a domain lock"
+        );
+
+        p.global_locked = true;
+        p.global_value = None;
+        s.put_setting_policy(&p).await.unwrap();
+        assert_eq!(
+            held(&s).await.as_deref(),
+            Some("\"ask\""),
+            "a global lock without a value holds the default"
+        );
+
+        p.global_locked = false;
+        p.allow_user_override = false;
+        s.put_setting_policy(&p).await.unwrap();
+        s.delete_setting_value(SettingScope::Domain, "example.org", key)
+            .await
+            .unwrap();
+        assert_eq!(
+            held(&s).await.as_deref(),
+            Some("\"ask\""),
+            "overrides switched off: the admin layers decide"
+        );
     }
 
     async fn subject_rows(s: &Store) {
