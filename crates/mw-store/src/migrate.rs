@@ -9,14 +9,15 @@
 //! validated at commit.
 //!
 //! **The copy is not the whole schema, but it is now nearly all of it.** `TABLES`
-//! below is the complete list of what is copied: as of migration 0032 that is 61
-//! tables out of the 78 the migrations create. The other 17 are left behind
+//! below is the complete list of what is copied: as of migration 0033 that is 120
+//! tables out of the 144 the migrations create. The other 24 are left behind
 //! deliberately, each with its reason recorded at its entry in
 //! `NOT_MIGRATED_DELIBERATELY` in `tests/backend_parity.rs`: the admin panel's
 //! separate identity domain, OAuth clients and tokens, API keys, webhooks, the
-//! managed-domain/directory/egress/SSO configuration that names the OLD
-//! deployment's hosts, and the plugin registries and their capability grants,
-//! which are deny-by-default and re-approved by an operator.
+//! managed-domain/directory/egress/SSO/tunnel/integration configuration that
+//! names the OLD deployment's hosts or network position (and the 0033 tables
+//! that hang off `domains`), and the plugin registries and their capability
+//! grants, which are deny-by-default and re-approved by an operator.
 //!
 //! There is no longer an "undecided" category. An earlier version of this note
 //! claimed "only the 0001–0006 tables are copied; the 0007 admin/OAuth/webhook
@@ -44,6 +45,10 @@
 //! plugin state, Assist and cache configuration, and the last three append-only
 //! audit logs — were copied once it was clear that every one of them was data a
 //! store move should carry rather than configuration an operator re-enters.
+//!
+//! Migration 0033 (t32 admin controls) added 66 tables and was classified in the
+//! same commit: 59 copied, 7 deliberate, none left as an open question. The
+//! reasons sit at each `TableSpec` below and each deliberate entry.
 //!
 //! `plugin_grants` is the one table that moved the *other* way, to deliberate: it
 //! grants capabilities to plugins in `plugins`, which is not copied, so copying it
@@ -123,6 +128,14 @@ fn ot(r: &Row, c: &str) -> Arg {
 fn i(r: &Row, c: &str) -> Arg {
     r.get_i64(c).into_arg()
 }
+fn oi(r: &Row, c: &str) -> Arg {
+    use sqlx::Row as _;
+    let v: Option<i64> = match r {
+        Row::Sqlite(r) => r.get(c),
+        Row::Postgres(r) => r.get(c),
+    };
+    v.into_arg()
+}
 fn b(r: &Row, c: &str) -> Arg {
     r.get_blob(c).into_arg()
 }
@@ -142,8 +155,10 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "sessions",
-        select: "SELECT id, account_id, username, jmap_url, api_url, sealed_creds, created_at, last_seen FROM sessions",
-        insert: "INSERT INTO sessions (id, account_id, username, jmap_url, api_url, sealed_creds, created_at, last_seen) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+        // 0033 (26.20): the device columns travel with the session, so "sign out
+        // this device" still names the right device after a move.
+        select: "SELECT id, account_id, username, jmap_url, api_url, sealed_creds, created_at, last_seen, user_agent, ip, client_type, device_label, client_version FROM sessions",
+        insert: "INSERT INTO sessions (id, account_id, username, jmap_url, api_url, sealed_creds, created_at, last_seen, user_agent, ip, client_type, device_label, client_version) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -154,6 +169,11 @@ const TABLES: &[TableSpec] = &[
                 b(r, "sealed_creds"),
                 t(r, "created_at"),
                 t(r, "last_seen"),
+                ot(r, "user_agent"),
+                ot(r, "ip"),
+                ot(r, "client_type"),
+                ot(r, "device_label"),
+                ot(r, "client_version"),
             ]
         },
     },
@@ -233,8 +253,10 @@ const TABLES: &[TableSpec] = &[
         // is the clone-detection counter and must never travel backwards, so it is
         // copied rather than defaulted: a destination that reset it to 0 would stop
         // noticing a cloned authenticator.
-        select: "SELECT credential_id, account_id, cose_public_key, sign_count, transports, label, created_at FROM webauthn_credentials",
-        insert: "INSERT INTO webauthn_credentials (credential_id, account_id, cose_public_key, sign_count, transports, label, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        // 0033 (26.20): `discoverable` marks a passkey usable without a username;
+        // dropped, passwordless sign-in would stop finding it.
+        select: "SELECT credential_id, account_id, cose_public_key, sign_count, transports, label, created_at, discoverable FROM webauthn_credentials",
+        insert: "INSERT INTO webauthn_credentials (credential_id, account_id, cose_public_key, sign_count, transports, label, created_at, discoverable) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
         map: |r| {
             vec![
                 t(r, "credential_id"),
@@ -244,6 +266,7 @@ const TABLES: &[TableSpec] = &[
                 t(r, "transports"),
                 t(r, "label"),
                 t(r, "created_at"),
+                i(r, "discoverable"),
             ]
         },
     },
@@ -285,8 +308,9 @@ const TABLES: &[TableSpec] = &[
         name: "signatures",
         // User-authored content. The `identities.signature_*` columns beside it were
         // always copied, so leaving these behind lost half of one feature.
-        select: "SELECT account_id, name, body, is_default, rule_json, updated_at FROM signatures",
-        insert: "INSERT INTO signatures (account_id, name, body, is_default, rule_json, updated_at) VALUES (?1,?2,?3,?4,?5,?6)",
+        // 0033 (26.20): the HTML/text pair, the edited flag and the images.
+        select: "SELECT account_id, name, body, is_default, rule_json, updated_at, html, text, text_edited, images_json FROM signatures",
+        insert: "INSERT INTO signatures (account_id, name, body, is_default, rule_json, updated_at, html, text, text_edited, images_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
         map: |r| {
             vec![
                 t(r, "account_id"),
@@ -295,6 +319,10 @@ const TABLES: &[TableSpec] = &[
                 i(r, "is_default"),
                 t(r, "rule_json"),
                 t(r, "updated_at"),
+                ot(r, "html"),
+                ot(r, "text"),
+                i(r, "text_edited"),
+                t(r, "images_json"),
             ]
         },
     },
@@ -578,8 +606,10 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "saved_searches",
-        select: "SELECT id, \"user\", name, query_json, as_folder FROM saved_searches",
-        insert: "INSERT INTO saved_searches (id, \"user\", name, query_json, as_folder) VALUES (?1,?2,?3,?4,?5)",
+        // 0033 (26.20): the view columns (query text, builder, accounts,
+        // settings, order, icon, accent, start page, source, org view link).
+        select: "SELECT id, \"user\", name, query_json, as_folder, query_text, builder_json, accounts_json, settings_json, position, icon, accent_id, start_page, source, org_view_id FROM saved_searches",
+        insert: "INSERT INTO saved_searches (id, \"user\", name, query_json, as_folder, query_text, builder_json, accounts_json, settings_json, position, icon, accent_id, start_page, source, org_view_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -587,6 +617,16 @@ const TABLES: &[TableSpec] = &[
                 t(r, "name"),
                 t(r, "query_json"),
                 i(r, "as_folder"),
+                ot(r, "query_text"),
+                ot(r, "builder_json"),
+                ot(r, "accounts_json"),
+                t(r, "settings_json"),
+                i(r, "position"),
+                ot(r, "icon"),
+                ot(r, "accent_id"),
+                i(r, "start_page"),
+                t(r, "source"),
+                ot(r, "org_view_id"),
             ]
         },
     },
@@ -624,8 +664,11 @@ const TABLES: &[TableSpec] = &[
     TableSpec {
         name: "identities",
         // 0020 (26.17): `signature_name` copied alongside the 0003 columns.
-        select: "SELECT id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name FROM identities",
-        insert: "INSERT INTO identities (id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        // 0033 (26.20): auto-Bcc, colour, key links, receipt request, the
+        // verification time (an unverified copy would block sending as it) and
+        // the Sender header.
+        select: "SELECT id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name, auto_bcc, color, pgp_key_id, smime_cert_id, request_receipt, verified_at, sender_header FROM identities",
+        insert: "INSERT INTO identities (id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name, auto_bcc, color, pgp_key_id, smime_cert_id, request_receipt, verified_at, sender_header) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -638,6 +681,13 @@ const TABLES: &[TableSpec] = &[
                 ot(r, "sent_mailbox_id"),
                 t(r, "source"),
                 ot(r, "signature_name"),
+                ot(r, "auto_bcc"),
+                ot(r, "color"),
+                ot(r, "pgp_key_id"),
+                ot(r, "smime_cert_id"),
+                i(r, "request_receipt"),
+                oi(r, "verified_at"),
+                ot(r, "sender_header"),
             ]
         },
     },
@@ -1006,8 +1056,11 @@ const TABLES: &[TableSpec] = &[
         name: "audit_log",
         // 0007, SPEC §21: append-only, with no update or delete path anywhere in
         // the store. A migration that dropped it was the only way to erase it.
-        select: "SELECT id, ts, actor, actor_kind, action, target, detail_json, ip FROM audit_log",
-        insert: "INSERT INTO audit_log (id, ts, actor, actor_kind, action, target, detail_json, ip) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+        // 0033 (26.20): the RBAC, category, request-id, before/after and hash
+        // chain columns, with `seq`: the chain only verifies if every link
+        // arrives unchanged.
+        select: "SELECT id, ts, actor, actor_kind, action, target, detail_json, ip, admin_role, capability, category, request_id, before_json, after_json, prev_hash, hash, seq FROM audit_log",
+        insert: "INSERT INTO audit_log (id, ts, actor, actor_kind, action, target, detail_json, ip, admin_role, capability, category, request_id, before_json, after_json, prev_hash, hash, seq) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -1018,6 +1071,15 @@ const TABLES: &[TableSpec] = &[
                 ot(r, "target"),
                 t(r, "detail_json"),
                 ot(r, "ip"),
+                ot(r, "admin_role"),
+                ot(r, "capability"),
+                ot(r, "category"),
+                ot(r, "request_id"),
+                ot(r, "before_json"),
+                ot(r, "after_json"),
+                ot(r, "prev_hash"),
+                ot(r, "hash"),
+                oi(r, "seq"),
             ]
         },
     },
@@ -1129,6 +1191,998 @@ const TABLES: &[TableSpec] = &[
                 t(r, "capability"),
                 t(r, "scope_summary"),
                 t(r, "endpoint_host"),
+            ]
+        },
+    },
+    // ── 0033 (26.20 t32-e10a): admin controls, users and sign-in policy,
+    // configuration. 59 of its 66 new tables are copied; the other seven are in
+    // `NOT_MIGRATED_DELIBERATELY` with their reasons (children of the uncopied
+    // `domains`; tunnels, egress allowances, upstream OAuth client registrations
+    // and integration endpoints, which describe the OLD deployment's network
+    // position like `egress_proxy` and `directory_config`). FKs exist only
+    // inside the copied set, parents first.
+    TableSpec {
+        name: "setting_policy",
+        // Global values and locks of the settings registry. Left behind, a locked
+        // setting silently unlocks on the destination, so this fails OPEN like
+        // `twofa_policy` did.
+        select: "SELECT key, global_value, allow_user_override, global_locked, updated_by, updated_at FROM setting_policy",
+        insert: "INSERT INTO setting_policy (key, global_value, allow_user_override, global_locked, updated_by, updated_at) VALUES (?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "key"),
+                ot(r, "global_value"),
+                i(r, "allow_user_override"),
+                i(r, "global_locked"),
+                t(r, "updated_by"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "setting_value",
+        select: "SELECT scope_kind, scope_id, key, value, locked, updated_by, updated_at FROM setting_value",
+        insert: "INSERT INTO setting_value (scope_kind, scope_id, key, value, locked, updated_by, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "scope_kind"),
+                t(r, "scope_id"),
+                t(r, "key"),
+                t(r, "value"),
+                i(r, "locked"),
+                t(r, "updated_by"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "auth_failure",
+        // Live failure counters, copied like `sessions`: dropping them resets every
+        // lockout window in the middle of an attack.
+        select: "SELECT surface, key_kind, key, window_start, count FROM auth_failure",
+        insert: "INSERT INTO auth_failure (surface, key_kind, key, window_start, count) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "surface"),
+                t(r, "key_kind"),
+                t(r, "key"),
+                i(r, "window_start"),
+                i(r, "count"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "ip_block",
+        // Omission would lift every ban and every allowlist restriction — both fail
+        // OPEN. `ip_allow` follows for the same reason.
+        select: "SELECT id, ip_or_cidr, surface, reason, offences, blocked_until, created_by, created_at, note FROM ip_block",
+        insert: "INSERT INTO ip_block (id, ip_or_cidr, surface, reason, offences, blocked_until, created_by, created_at, note) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "ip_or_cidr"),
+                t(r, "surface"),
+                t(r, "reason"),
+                i(r, "offences"),
+                oi(r, "blocked_until"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+                t(r, "note"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "ip_allow",
+        select: "SELECT id, surface, scope_kind, scope_id, cidr, note, created_by, created_at FROM ip_allow",
+        insert: "INSERT INTO ip_allow (id, surface, scope_kind, scope_id, cidr, note, created_by, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "surface"),
+                t(r, "scope_kind"),
+                t(r, "scope_id"),
+                t(r, "cidr"),
+                t(r, "note"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "admin_account",
+        // Admin accounts, their TOTP enrolments and their roles travel together, for
+        // the reason the mail 2FA tables do: a role or an enrolment without its
+        // account (or the reverse) is a lockout or a silent change of rights. FK
+        // parents first: the SQLite destination enforces them row by row.
+        select: "SELECT id, username, display_name, password_hash, disabled, source, created_at, updated_at, last_login_at FROM admin_account",
+        insert: "INSERT INTO admin_account (id, username, display_name, password_hash, disabled, source, created_at, updated_at, last_login_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "username"),
+                t(r, "display_name"),
+                ot(r, "password_hash"),
+                i(r, "disabled"),
+                t(r, "source"),
+                i(r, "created_at"),
+                i(r, "updated_at"),
+                oi(r, "last_login_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "admin_totp",
+        // `last_step` is the replay guard and is copied with the secret (see
+        // `totp_secrets`).
+        select: "SELECT account_id, sealed_secret, last_step, enrolled_at FROM admin_totp",
+        insert: "INSERT INTO admin_totp (account_id, sealed_secret, last_step, enrolled_at) VALUES (?1,?2,?3,?4)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                b(r, "sealed_secret"),
+                i(r, "last_step"),
+                i(r, "enrolled_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "admin_role",
+        select: "SELECT id, name, builtin FROM admin_role",
+        insert: "INSERT INTO admin_role (id, name, builtin) VALUES (?1,?2,?3)",
+        map: |r| vec![t(r, "id"), t(r, "name"), i(r, "builtin")],
+    },
+    TableSpec {
+        name: "admin_role_capability",
+        select: "SELECT role_id, capability FROM admin_role_capability",
+        insert: "INSERT INTO admin_role_capability (role_id, capability) VALUES (?1,?2)",
+        map: |r| vec![t(r, "role_id"), t(r, "capability")],
+    },
+    TableSpec {
+        name: "admin_account_role",
+        select: "SELECT account_id, role_id, domains_json FROM admin_account_role",
+        insert: "INSERT INTO admin_account_role (account_id, role_id, domains_json) VALUES (?1,?2,?3)",
+        map: |r| vec![t(r, "account_id"), t(r, "role_id"), ot(r, "domains_json")],
+    },
+    TableSpec {
+        name: "admin_capability_override",
+        select: "SELECT account_id, capability, effect FROM admin_capability_override",
+        insert: "INSERT INTO admin_capability_override (account_id, capability, effect) VALUES (?1,?2,?3)",
+        map: |r| vec![t(r, "account_id"), t(r, "capability"), t(r, "effect")],
+    },
+    TableSpec {
+        name: "admin_saved_query",
+        select: "SELECT id, admin_account_id, name, filter_json, created_at FROM admin_saved_query",
+        insert: "INSERT INTO admin_saved_query (id, admin_account_id, name, filter_json, created_at) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "admin_account_id"),
+                t(r, "name"),
+                t(r, "filter_json"),
+                i(r, "created_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "audit_chain_head",
+        // `audit_log` is copied with its `prev_hash`/`hash`/`seq`; the chain head,
+        // checkpoints, retention (incl. legal hold) and sinks with their cursors must
+        // follow, or the destination either fails chain verification or prunes rows
+        // under legal hold, and a SIEM sink re-sends or skips rows.
+        select: "SELECT id, last_id, hash FROM audit_chain_head",
+        insert: "INSERT INTO audit_chain_head (id, last_id, hash) VALUES (?1,?2,?3)",
+        map: |r| vec![i(r, "id"), i(r, "last_id"), ot(r, "hash")],
+    },
+    TableSpec {
+        name: "audit_checkpoint",
+        select: "SELECT id, kind, pruned_through_id, pruned_through_hash, ts FROM audit_checkpoint",
+        insert: "INSERT INTO audit_checkpoint (id, kind, pruned_through_id, pruned_through_hash, ts) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "kind"),
+                i(r, "pruned_through_id"),
+                ot(r, "pruned_through_hash"),
+                i(r, "ts"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "audit_retention",
+        select: "SELECT category, days, legal_hold, updated_by, updated_at FROM audit_retention",
+        insert: "INSERT INTO audit_retention (category, days, legal_hold, updated_by, updated_at) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "category"),
+                oi(r, "days"),
+                i(r, "legal_hold"),
+                t(r, "updated_by"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "audit_sink",
+        select: "SELECT id, kind, sealed_config, enabled, cursor_id, last_ok_at, last_error, created_by, created_at FROM audit_sink",
+        insert: "INSERT INTO audit_sink (id, kind, sealed_config, enabled, cursor_id, last_ok_at, last_error, created_by, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "kind"),
+                b(r, "sealed_config"),
+                i(r, "enabled"),
+                i(r, "cursor_id"),
+                oi(r, "last_ok_at"),
+                ot(r, "last_error"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "alert_rule",
+        // Omission silently stops every admin alert.
+        select: "SELECT id, name, condition_json, channels_json, throttle_secs, enabled, created_by, created_at, updated_at FROM alert_rule",
+        insert: "INSERT INTO alert_rule (id, name, condition_json, channels_json, throttle_secs, enabled, created_by, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "name"),
+                t(r, "condition_json"),
+                t(r, "channels_json"),
+                i(r, "throttle_secs"),
+                i(r, "enabled"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "alert_event",
+        select: "SELECT id, rule_id, fired_at, summary, delivered_json, audit_id FROM alert_event",
+        insert: "INSERT INTO alert_event (id, rule_id, fired_at, summary, delivered_json, audit_id) VALUES (?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "rule_id"),
+                i(r, "fired_at"),
+                t(r, "summary"),
+                t(r, "delivered_json"),
+                ot(r, "audit_id"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "signin_event",
+        // Sign-in history the user sees in My activity; append-only like the other
+        // audit logs.
+        select: "SELECT id, account_id, username_attempted, ts, result, method, ip, user_agent, geo_country, reason FROM signin_event",
+        insert: "INSERT INTO signin_event (id, account_id, username_attempted, ts, result, method, ip, user_agent, geo_country, reason) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                ot(r, "account_id"),
+                t(r, "username_attempted"),
+                i(r, "ts"),
+                t(r, "result"),
+                t(r, "method"),
+                t(r, "ip"),
+                t(r, "user_agent"),
+                ot(r, "geo_country"),
+                t(r, "reason"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "remembered_device",
+        select: "SELECT id, account_id, token_hash, label, created_at, expires_at, last_used_at FROM remembered_device",
+        insert: "INSERT INTO remembered_device (id, account_id, token_hash, label, created_at, expires_at, last_used_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "account_id"),
+                t(r, "token_hash"),
+                t(r, "label"),
+                i(r, "created_at"),
+                i(r, "expires_at"),
+                i(r, "last_used_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "branding",
+        // Branding, user backgrounds, signature images, themes: content, nothing that
+        // names the old host.
+        select: "SELECT scope, config_json, updated_by, updated_at FROM branding",
+        insert: "INSERT INTO branding (scope, config_json, updated_by, updated_at) VALUES (?1,?2,?3,?4)",
+        map: |r| {
+            vec![
+                t(r, "scope"),
+                t(r, "config_json"),
+                t(r, "updated_by"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "brand_asset",
+        select: "SELECT id, scope, kind, owner_account, sha256, content_type, bytes, width, height, duration_ms, licence_ack, data, created_by, created_at FROM brand_asset",
+        insert: "INSERT INTO brand_asset (id, scope, kind, owner_account, sha256, content_type, bytes, width, height, duration_ms, licence_ack, data, created_by, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "scope"),
+                t(r, "kind"),
+                ot(r, "owner_account"),
+                t(r, "sha256"),
+                t(r, "content_type"),
+                i(r, "bytes"),
+                oi(r, "width"),
+                oi(r, "height"),
+                oi(r, "duration_ms"),
+                ot(r, "licence_ack"),
+                b(r, "data"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "custom_css",
+        select: "SELECT scope_kind, scope_id, source, sanitized, sha256, updated_by, updated_at FROM custom_css",
+        insert: "INSERT INTO custom_css (scope_kind, scope_id, source, sanitized, sha256, updated_by, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "scope_kind"),
+                t(r, "scope_id"),
+                t(r, "source"),
+                t(r, "sanitized"),
+                t(r, "sha256"),
+                t(r, "updated_by"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "custom_theme",
+        select: "SELECT id, name, appearance, tokens_json, enabled, scope, created_by, created_at, updated_at FROM custom_theme",
+        insert: "INSERT INTO custom_theme (id, name, appearance, tokens_json, enabled, scope, created_by, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "name"),
+                t(r, "appearance"),
+                t(r, "tokens_json"),
+                i(r, "enabled"),
+                t(r, "scope"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "custom_accent",
+        select: "SELECT id, name, shades_json, enabled, scope, created_by, created_at, updated_at FROM custom_accent",
+        insert: "INSERT INTO custom_accent (id, name, shades_json, enabled, scope, created_by, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "name"),
+                t(r, "shades_json"),
+                i(r, "enabled"),
+                t(r, "scope"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "sieve_script",
+        select: "SELECT account_id, name, content, active, size, state_json, updated_at FROM sieve_script",
+        insert: "INSERT INTO sieve_script (account_id, name, content, active, size, state_json, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "name"),
+                t(r, "content"),
+                i(r, "active"),
+                i(r, "size"),
+                t(r, "state_json"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "smime_trust_root",
+        select: "SELECT id, scope, der, fingerprint, label, added_by, added_at FROM smime_trust_root",
+        insert: "INSERT INTO smime_trust_root (id, scope, der, fingerprint, label, added_by, added_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "scope"),
+                b(r, "der"),
+                t(r, "fingerprint"),
+                t(r, "label"),
+                t(r, "added_by"),
+                i(r, "added_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "pki_revocation_cache",
+        // A cached `revoked` status must not be forgotten while the responder is
+        // unreachable from the new host.
+        select: "SELECT issuer_key_hash, serial, status, source, this_update, next_update, checked_at FROM pki_revocation_cache",
+        insert: "INSERT INTO pki_revocation_cache (issuer_key_hash, serial, status, source, this_update, next_update, checked_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "issuer_key_hash"),
+                t(r, "serial"),
+                t(r, "status"),
+                t(r, "source"),
+                i(r, "this_update"),
+                oi(r, "next_update"),
+                i(r, "checked_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "identity_signature_default",
+        select: "SELECT identity_id, mode, signature_name, placement, separator FROM identity_signature_default",
+        insert: "INSERT INTO identity_signature_default (identity_id, mode, signature_name, placement, separator) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "identity_id"),
+                t(r, "mode"),
+                t(r, "signature_name"),
+                t(r, "placement"),
+                i(r, "separator"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "domain_signature_template",
+        select: "SELECT domain, name, html, text, user_editable, updated_by, updated_at FROM domain_signature_template",
+        insert: "INSERT INTO domain_signature_template (domain, name, html, text, user_editable, updated_by, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "domain"),
+                t(r, "name"),
+                t(r, "html"),
+                t(r, "text"),
+                i(r, "user_editable"),
+                t(r, "updated_by"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "domain_disclaimer",
+        select: "SELECT domain, html, text, enabled, updated_by, updated_at FROM domain_disclaimer",
+        insert: "INSERT INTO domain_disclaimer (domain, html, text, enabled, updated_by, updated_at) VALUES (?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "domain"),
+                t(r, "html"),
+                t(r, "text"),
+                i(r, "enabled"),
+                t(r, "updated_by"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "mdn_sender_rule",
+        select: "SELECT account_id, address, decision, updated_at FROM mdn_sender_rule",
+        insert: "INSERT INTO mdn_sender_rule (account_id, address, decision, updated_at) VALUES (?1,?2,?3,?4)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "address"),
+                t(r, "decision"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "receipt_status",
+        select: "SELECT account_id, sent_email_id, recipient, kind, status, reported_at, report_email_id FROM receipt_status",
+        insert: "INSERT INTO receipt_status (account_id, sent_email_id, recipient, kind, status, reported_at, report_email_id) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "sent_email_id"),
+                t(r, "recipient"),
+                t(r, "kind"),
+                t(r, "status"),
+                oi(r, "reported_at"),
+                ot(r, "report_email_id"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "child_account",
+        select: "SELECT owner_account_id, account_id, provider_id, display_name, accent_id, position, paused, added_at FROM child_account",
+        insert: "INSERT INTO child_account (owner_account_id, account_id, provider_id, display_name, accent_id, position, paused, added_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+        map: |r| {
+            vec![
+                t(r, "owner_account_id"),
+                t(r, "account_id"),
+                ot(r, "provider_id"),
+                t(r, "display_name"),
+                ot(r, "accent_id"),
+                i(r, "position"),
+                i(r, "paused"),
+                i(r, "added_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "provider_profile",
+        select: "SELECT id, name, kind, endpoints_json, oauth_client_id, tunnel_id, egress_route_id, scope, enabled, preset, created_by, updated_at FROM provider_profile",
+        insert: "INSERT INTO provider_profile (id, name, kind, endpoints_json, oauth_client_id, tunnel_id, egress_route_id, scope, enabled, preset, created_by, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "name"),
+                t(r, "kind"),
+                t(r, "endpoints_json"),
+                ot(r, "oauth_client_id"),
+                ot(r, "tunnel_id"),
+                ot(r, "egress_route_id"),
+                t(r, "scope"),
+                i(r, "enabled"),
+                ot(r, "preset"),
+                t(r, "created_by"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "account_oauth",
+        // Sealed refresh tokens of linked accounts, copied like
+        // `bridge_oauth_tokens`. The `oauth_client` registration they were issued to
+        // is deliberately NOT copied (its redirect names the old host); the operator
+        // re-enters it with the same client id and these tokens keep working.
+        select: "SELECT account_id, provider_id, sealed_refresh_token, expires_at, scope, needs_signin, updated_at FROM account_oauth",
+        insert: "INSERT INTO account_oauth (account_id, provider_id, sealed_refresh_token, expires_at, scope, needs_signin, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "provider_id"),
+                b(r, "sealed_refresh_token"),
+                i(r, "expires_at"),
+                t(r, "scope"),
+                i(r, "needs_signin"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "delegation_grant",
+        select: "SELECT id, owner_account_id, delegate_owner_account_id, delegate_group_id, scope_kind, mailbox_ids_json, permissions_json, expires_at, created_at, revoked_at FROM delegation_grant",
+        insert: "INSERT INTO delegation_grant (id, owner_account_id, delegate_owner_account_id, delegate_group_id, scope_kind, mailbox_ids_json, permissions_json, expires_at, created_at, revoked_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "owner_account_id"),
+                ot(r, "delegate_owner_account_id"),
+                ot(r, "delegate_group_id"),
+                t(r, "scope_kind"),
+                t(r, "mailbox_ids_json"),
+                t(r, "permissions_json"),
+                oi(r, "expires_at"),
+                i(r, "created_at"),
+                oi(r, "revoked_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "shared_mailbox",
+        select: "SELECT account_id, domain, name, created_by, created_at FROM shared_mailbox",
+        insert: "INSERT INTO shared_mailbox (account_id, domain, name, created_by, created_at) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "domain"),
+                t(r, "name"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "org_view",
+        select: "SELECT id, scope, name, query_text, settings_json, mandatory, created_by, updated_at FROM org_view",
+        insert: "INSERT INTO org_view (id, scope, name, query_text, settings_json, mandatory, created_by, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "scope"),
+                t(r, "name"),
+                t(r, "query_text"),
+                t(r, "settings_json"),
+                i(r, "mandatory"),
+                t(r, "created_by"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "identity_verification",
+        select: "SELECT token_hash, identity_id, sent_at, expires_at, consumed FROM identity_verification",
+        insert: "INSERT INTO identity_verification (token_hash, identity_id, sent_at, expires_at, consumed) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "token_hash"),
+                t(r, "identity_id"),
+                i(r, "sent_at"),
+                i(r, "expires_at"),
+                i(r, "consumed"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "template",
+        // FK parent of `template_version`.
+        select: "SELECT id, owner_kind, owner_id, folder, name, subject, html, text, attachments_json, identity_id, recipients_json, fields_json, mandatory, user_copyable, version, usage_count, created_by, created_at, updated_at FROM template",
+        insert: "INSERT INTO template (id, owner_kind, owner_id, folder, name, subject, html, text, attachments_json, identity_id, recipients_json, fields_json, mandatory, user_copyable, version, usage_count, created_by, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "owner_kind"),
+                t(r, "owner_id"),
+                t(r, "folder"),
+                t(r, "name"),
+                t(r, "subject"),
+                t(r, "html"),
+                t(r, "text"),
+                t(r, "attachments_json"),
+                ot(r, "identity_id"),
+                t(r, "recipients_json"),
+                t(r, "fields_json"),
+                i(r, "mandatory"),
+                i(r, "user_copyable"),
+                i(r, "version"),
+                i(r, "usage_count"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "template_version",
+        select: "SELECT template_id, version, subject, html, text, attachments_json, created_by, created_at FROM template_version",
+        insert: "INSERT INTO template_version (template_id, version, subject, html, text, attachments_json, created_by, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+        map: |r| {
+            vec![
+                t(r, "template_id"),
+                i(r, "version"),
+                t(r, "subject"),
+                t(r, "html"),
+                t(r, "text"),
+                t(r, "attachments_json"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "user_group",
+        // FK parent of `user_group_member`; `feature_profile` likewise precedes its
+        // assignments.
+        select: "SELECT id, name, domain, source, ldap_dn, created_at FROM user_group",
+        insert: "INSERT INTO user_group (id, name, domain, source, ldap_dn, created_at) VALUES (?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "name"),
+                t(r, "domain"),
+                t(r, "source"),
+                ot(r, "ldap_dn"),
+                i(r, "created_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "user_group_member",
+        select: "SELECT group_id, account_id FROM user_group_member",
+        insert: "INSERT INTO user_group_member (group_id, account_id) VALUES (?1,?2)",
+        map: |r| vec![t(r, "group_id"), t(r, "account_id")],
+    },
+    TableSpec {
+        name: "feature_profile",
+        select: "SELECT id, name, values_json, builtin, updated_at FROM feature_profile",
+        insert: "INSERT INTO feature_profile (id, name, values_json, builtin, updated_at) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "name"),
+                t(r, "values_json"),
+                i(r, "builtin"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "feature_profile_assignment",
+        select: "SELECT scope_kind, scope_id, profile_id, priority FROM feature_profile_assignment",
+        insert: "INSERT INTO feature_profile_assignment (scope_kind, scope_id, profile_id, priority) VALUES (?1,?2,?3,?4)",
+        map: |r| {
+            vec![
+                t(r, "scope_kind"),
+                t(r, "scope_id"),
+                t(r, "profile_id"),
+                i(r, "priority"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "mail_user",
+        // t32-q: the user directory, its account mapping, allow patterns and usage.
+        // Left behind, a `known`/`provisioned` sign-in policy would refuse everyone on
+        // the destination and a disabled user would lose the mirror of that state.
+        select: "SELECT address, domain, local_part, origin, status, display_name, note, created_at, created_by, first_signin_at, last_signin_at, status_changed_at, status_changed_by, status_reason, expires_at, deleted_at FROM mail_user",
+        insert: "INSERT INTO mail_user (address, domain, local_part, origin, status, display_name, note, created_at, created_by, first_signin_at, last_signin_at, status_changed_at, status_changed_by, status_reason, expires_at, deleted_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+        map: |r| {
+            vec![
+                t(r, "address"),
+                t(r, "domain"),
+                t(r, "local_part"),
+                t(r, "origin"),
+                t(r, "status"),
+                ot(r, "display_name"),
+                ot(r, "note"),
+                i(r, "created_at"),
+                ot(r, "created_by"),
+                oi(r, "first_signin_at"),
+                oi(r, "last_signin_at"),
+                oi(r, "status_changed_at"),
+                ot(r, "status_changed_by"),
+                ot(r, "status_reason"),
+                oi(r, "expires_at"),
+                oi(r, "deleted_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "mail_user_account",
+        select: "SELECT account_id, address, mode, first_seen, last_seen FROM mail_user_account",
+        insert: "INSERT INTO mail_user_account (account_id, address, mode, first_seen, last_seen) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "address"),
+                t(r, "mode"),
+                i(r, "first_seen"),
+                i(r, "last_seen"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "signin_allow",
+        select: "SELECT id, domain, pattern, note, expires_at, max_uses, uses, created_by, created_at FROM signin_allow",
+        insert: "INSERT INTO signin_allow (id, domain, pattern, note, expires_at, max_uses, uses, created_by, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "domain"),
+                t(r, "pattern"),
+                ot(r, "note"),
+                oi(r, "expires_at"),
+                oi(r, "max_uses"),
+                i(r, "uses"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "usage_counter",
+        select: "SELECT address, domain, metric, day, value FROM usage_counter",
+        insert: "INSERT INTO usage_counter (address, domain, metric, day, value) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "address"),
+                t(r, "domain"),
+                t(r, "metric"),
+                i(r, "day"),
+                i(r, "value"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "usage_storage",
+        select: "SELECT address, domain, blob_bytes, blob_count, content_bytes, cache_bytes, cache_messages, search_docs, breakdown_json, measured_at, measuring_until, upstream_used_bytes, upstream_limit_bytes, upstream_json, upstream_status, upstream_checked_at, warn_level FROM usage_storage",
+        insert: "INSERT INTO usage_storage (address, domain, blob_bytes, blob_count, content_bytes, cache_bytes, cache_messages, search_docs, breakdown_json, measured_at, measuring_until, upstream_used_bytes, upstream_limit_bytes, upstream_json, upstream_status, upstream_checked_at, warn_level) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+        map: |r| {
+            vec![
+                t(r, "address"),
+                t(r, "domain"),
+                i(r, "blob_bytes"),
+                i(r, "blob_count"),
+                i(r, "content_bytes"),
+                i(r, "cache_bytes"),
+                i(r, "cache_messages"),
+                oi(r, "search_docs"),
+                ot(r, "breakdown_json"),
+                oi(r, "measured_at"),
+                oi(r, "measuring_until"),
+                oi(r, "upstream_used_bytes"),
+                oi(r, "upstream_limit_bytes"),
+                ot(r, "upstream_json"),
+                ot(r, "upstream_status"),
+                oi(r, "upstream_checked_at"),
+                i(r, "warn_level"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "config_snapshot",
+        select: "SELECT id, created_at, created_by, reason, sha256, json FROM config_snapshot",
+        insert: "INSERT INTO config_snapshot (id, created_at, created_by, reason, sha256, json) VALUES (?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                i(r, "created_at"),
+                t(r, "created_by"),
+                t(r, "reason"),
+                t(r, "sha256"),
+                t(r, "json"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "maintenance_window",
+        // t32-cfg operational state and history. A scheduled window or task keeps
+        // its schedule; `lease_owner`/`lease_until` name the old process and simply
+        // expire. `account_ban` omission would lift every identity ban (fails OPEN).
+        select: "SELECT id, scope_kind, scope_id, mode, starts_at, ends_at, tz, recurrence_json, announce_minutes, message_json, created_by, created_at, updated_by, updated_at, occurrence_ended_at, cancelled_at, cancelled_by FROM maintenance_window",
+        insert: "INSERT INTO maintenance_window (id, scope_kind, scope_id, mode, starts_at, ends_at, tz, recurrence_json, announce_minutes, message_json, created_by, created_at, updated_by, updated_at, occurrence_ended_at, cancelled_at, cancelled_by) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "scope_kind"),
+                t(r, "scope_id"),
+                t(r, "mode"),
+                i(r, "starts_at"),
+                oi(r, "ends_at"),
+                t(r, "tz"),
+                ot(r, "recurrence_json"),
+                i(r, "announce_minutes"),
+                t(r, "message_json"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+                t(r, "updated_by"),
+                i(r, "updated_at"),
+                oi(r, "occurrence_ended_at"),
+                oi(r, "cancelled_at"),
+                ot(r, "cancelled_by"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "scheduled_task",
+        select: "SELECT id, kind, schedule_json, params_json, enabled, only_in_window, created_by, created_at, updated_at, last_run_at, last_status, next_run_at, lease_owner, lease_until FROM scheduled_task",
+        insert: "INSERT INTO scheduled_task (id, kind, schedule_json, params_json, enabled, only_in_window, created_by, created_at, updated_at, last_run_at, last_status, next_run_at, lease_owner, lease_until) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "kind"),
+                t(r, "schedule_json"),
+                t(r, "params_json"),
+                i(r, "enabled"),
+                i(r, "only_in_window"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+                i(r, "updated_at"),
+                oi(r, "last_run_at"),
+                ot(r, "last_status"),
+                oi(r, "next_run_at"),
+                ot(r, "lease_owner"),
+                oi(r, "lease_until"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "job_run",
+        select: "SELECT id, task_id, kind, instance, started_at, heartbeat_at, finished_at, status, summary, detail_json, triggered_by FROM job_run",
+        insert: "INSERT INTO job_run (id, task_id, kind, instance, started_at, heartbeat_at, finished_at, status, summary, detail_json, triggered_by) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                ot(r, "task_id"),
+                t(r, "kind"),
+                t(r, "instance"),
+                i(r, "started_at"),
+                i(r, "heartbeat_at"),
+                oi(r, "finished_at"),
+                t(r, "status"),
+                ot(r, "summary"),
+                ot(r, "detail_json"),
+                t(r, "triggered_by"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "diag_run",
+        select: "SELECT id, suite, target, started_at, finished_at, status, results_json, triggered_by, task_id FROM diag_run",
+        insert: "INSERT INTO diag_run (id, suite, target, started_at, finished_at, status, results_json, triggered_by, task_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "suite"),
+                ot(r, "target"),
+                i(r, "started_at"),
+                oi(r, "finished_at"),
+                t(r, "status"),
+                t(r, "results_json"),
+                t(r, "triggered_by"),
+                ot(r, "task_id"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "account_ban",
+        select: "SELECT id, kind, value, surface, reason, user_note, starts_at, expires_at, source, created_by, created_at, lifted_at, lifted_by, lift_reason, hits, last_hit_at FROM account_ban",
+        insert: "INSERT INTO account_ban (id, kind, value, surface, reason, user_note, starts_at, expires_at, source, created_by, created_at, lifted_at, lifted_by, lift_reason, hits, last_hit_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "kind"),
+                t(r, "value"),
+                t(r, "surface"),
+                t(r, "reason"),
+                ot(r, "user_note"),
+                i(r, "starts_at"),
+                oi(r, "expires_at"),
+                t(r, "source"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+                oi(r, "lifted_at"),
+                ot(r, "lifted_by"),
+                ot(r, "lift_reason"),
+                i(r, "hits"),
+                oi(r, "last_hit_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "metric_rollup",
+        select: "SELECT series, hour, instance, value_json FROM metric_rollup",
+        insert: "INSERT INTO metric_rollup (series, hour, instance, value_json) VALUES (?1,?2,?3,?4)",
+        map: |r| {
+            vec![
+                t(r, "series"),
+                i(r, "hour"),
+                t(r, "instance"),
+                t(r, "value_json"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "data_export",
+        // `blob_ref` points at the sealed archive on the upload backend, like
+        // `uploaded_blobs.storage_key`: if the move also changes the upload
+        // directory, the archive must move with it.
+        select: "SELECT id, address, requested_by, status, item_counts_json, bytes, blob_ref, created_at, expires_at, downloaded_at FROM data_export",
+        insert: "INSERT INTO data_export (id, address, requested_by, status, item_counts_json, bytes, blob_ref, created_at, expires_at, downloaded_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "address"),
+                t(r, "requested_by"),
+                t(r, "status"),
+                t(r, "item_counts_json"),
+                oi(r, "bytes"),
+                ot(r, "blob_ref"),
+                i(r, "created_at"),
+                i(r, "expires_at"),
+                oi(r, "downloaded_at"),
             ]
         },
     },

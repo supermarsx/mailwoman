@@ -63,7 +63,19 @@ const ALL_TABLES: &str = "sessions, settings, accounts, mailboxes, messages, bod
     remote_image_grants, masked_email, ews_account_cred, bridge_accounts, \
     bridge_oauth_tokens, uploaded_blobs, message_embeddings, plugin_kv, \
     assist_config, cache_scope, password_change_audit, assist_audit, open_tracking, \
-    open_events";
+    open_events, setting_policy, setting_value, auth_failure, ip_block, ip_allow, \
+    admin_account, admin_totp, admin_role, admin_role_capability, admin_account_role, \
+    admin_capability_override, admin_saved_query, audit_chain_head, audit_checkpoint, \
+    audit_retention, audit_sink, alert_rule, alert_event, signin_event, remembered_device, \
+    branding, brand_asset, custom_css, custom_theme, custom_accent, sieve_script, \
+    smime_trust_root, pki_revocation_cache, identity_signature_default, \
+    domain_signature_template, domain_disclaimer, mdn_sender_rule, receipt_status, \
+    child_account, provider_profile, account_oauth, delegation_grant, shared_mailbox, \
+    org_view, identity_verification, template, template_version, user_group, \
+    user_group_member, feature_profile, feature_profile_assignment, mail_user, \
+    mail_user_account, signin_allow, usage_counter, usage_storage, config_snapshot, \
+    maintenance_window, scheduled_task, job_run, diag_run, account_ban, metric_rollup, \
+    data_export";
 
 async fn truncate_pg(dsn: &str) {
     use sqlx::postgres::PgPoolOptions;
@@ -1099,11 +1111,50 @@ const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
         "0010: admin-granted UI plugin capabilities. Omission fails CLOSED — no capability \
          is granted until an admin grants it again.",
     ),
+    (
+        "domain_alias",
+        "0033: alias -> managed domain, `REFERENCES domains(name)`. `domains` is not copied, \
+         so a copied alias would violate its foreign key at commit; it is re-entered with \
+         its domain.",
+    ),
+    (
+        "domain_host",
+        "0033: host name -> managed domain, `REFERENCES domains(name)`; same reason as \
+         `domain_alias`.",
+    ),
+    (
+        "diag_probe_account",
+        "0033: the per-domain diagnostics probe login (sealed password), \
+         `REFERENCES domains(name)`; same reason as `domain_alias`, and a probe is a test \
+         credential the operator saves again.",
+    ),
+    (
+        "ssh_tunnel",
+        "0033: SSH bastions, their sealed private keys and host-key pins describe the OLD \
+         deployment's network position, like `egress_proxy`.",
+    ),
+    (
+        "egress_internal_allow",
+        "0033: internal destinations the SIEM/webhook traffic may reach from the OLD \
+         deployment's network, like `egress_proxy`.",
+    ),
+    (
+        "oauth_client",
+        "0033: this server's client registrations at upstream OAuth providers; the redirect \
+         names the OLD host, like `sso_config`. Re-entered with the same client id, the \
+         copied `account_oauth` tokens keep working.",
+    ),
+    (
+        "integration_config",
+        "0033: password-change backend, Nextcloud, inbound webhook and DCR endpoints and \
+         secrets, the same family as `directory_config`. Disabled by default; the env \
+         configuration stays in force until an admin re-enters them.",
+    ),
 ];
 
 /// Formerly the UNCLASSIFIED list: tables whose omission had not been ruled a
-/// deliberate design choice. **It is empty, and that is the point.** Every one of
-/// the 76 schema tables is now either copied or listed in
+/// deliberate design choice. **It is empty, and that is the point.** Every schema
+/// table (144 as of 0033) is now either copied or listed in
 /// `NOT_MIGRATED_DELIBERATELY` with a reason — there is no third category where a
 /// table can sit un-argued.
 ///
@@ -1981,4 +2032,1842 @@ async fn migrate_store_carries_zero_access_and_policy_rows_sqlite() {
          metadata, embeddings, plugin state, Assist/cache config and all four \
          append-only audit logs carried (SQLite destination)."
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Migration 0033 (26.20 t32-e10a): the admin-controls tables.
+//
+// The spec below is written from the plan (`t32-schedule.md` §4, §12.3, §12.9,
+// §13.3, §13.10), not read back from the migration files, so it is an oracle the
+// two `0033_admin_controls.sql` files can disagree with. Each dialect is checked
+// against it on its own: column set, types, NOT NULL, defaults, CHECK values,
+// unique and partial indexes, foreign keys with ON DELETE CASCADE, a full-row
+// round trip, the defaults of a minimal row, and the `migrate-store` copy.
+// ─────────────────────────────────────────────────────────────────────────────
+
+mod admin_controls_0033 {
+    use super::{key, pg_dsn, remove_sqlite_files, test_db};
+    use mw_store::Store;
+    use sqlx::pool::PoolConnection;
+    use sqlx::{Postgres, Sqlite};
+
+    /// `(column, type, rule, sample)`. Type `T` text, `I` integer, `B` blob. Rule
+    /// `!` = NOT NULL without a default, `~` = nullable without a default, `=v` =
+    /// NOT NULL DEFAULT v (`=` alone is the empty string). Samples differ from the
+    /// defaults, so a round trip cannot pass by reading a default back.
+    type Col = (&'static str, char, &'static str, &'static str);
+
+    struct NewTable {
+        name: &'static str,
+        /// Copied by `migrate-store` (else listed in `NOT_MIGRATED_DELIBERATELY`).
+        copied: bool,
+        cols: &'static [Col],
+    }
+
+    const TS: &str = "1767225600";
+
+    /// Every table 0033 creates, FK parents before their children.
+    #[rustfmt::skip]
+    const NEW_TABLES: &[NewTable] = &[
+        // C/AG settings
+        NewTable { name: "setting_policy", copied: true, cols: &[
+            ("key", 'T', "!", "signin.newUsers"),
+            ("global_value", 'T', "~", "open"),
+            ("allow_user_override", 'I', "=1", "0"),
+            ("global_locked", 'I', "=0", "1"),
+            ("updated_by", 'T', "!", "admin:root"),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "setting_value", copied: true, cols: &[
+            ("scope_kind", 'T', "!", "domain"),
+            ("scope_id", 'T', "!", "example.test"),
+            ("key", 'T', "!", "signin.newUsers"),
+            ("value", 'T', "!", "known"),
+            ("locked", 'I', "=0", "1"),
+            ("updated_by", 'T', "!", "admin:root"),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        // D security controls
+        NewTable { name: "auth_failure", copied: true, cols: &[
+            ("surface", 'T', "!", "webmail"),
+            ("key_kind", 'T', "!", "ip"),
+            ("key", 'T', "!", "192.0.2.1"),
+            ("window_start", 'I', "!", TS),
+            ("count", 'I', "=0", "3"),
+        ]},
+        NewTable { name: "ip_block", copied: true, cols: &[
+            ("id", 'T', "!", "ipb-1"),
+            ("ip_or_cidr", 'T', "!", "192.0.2.0/24"),
+            ("surface", 'T', "!", "all"),
+            ("reason", 'T', "!", "manual"),
+            ("offences", 'I', "=1", "2"),
+            ("blocked_until", 'I', "~", "1767229200"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("created_at", 'I', "!", TS),
+            ("note", 'T', "=", "abuse report"),
+        ]},
+        NewTable { name: "ip_allow", copied: true, cols: &[
+            ("id", 'T', "!", "ipa-1"),
+            ("surface", 'T', "!", "admin"),
+            ("scope_kind", 'T', "=global", "domain"),
+            ("scope_id", 'T', "=", "example.test"),
+            ("cidr", 'T', "!", "198.51.100.0/24"),
+            ("note", 'T', "=", "office"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("created_at", 'I', "!", TS),
+        ]},
+        // E/G domains
+        NewTable { name: "domain_alias", copied: false, cols: &[
+            ("alias", 'T', "!", "alias.test"),
+            ("domain", 'T', "!", "example.test"),
+        ]},
+        NewTable { name: "domain_host", copied: false, cols: &[
+            ("host", 'T', "!", "mail.example.test"),
+            ("domain", 'T', "!", "example.test"),
+        ]},
+        // J tunnels
+        NewTable { name: "ssh_tunnel", copied: false, cols: &[
+            ("id", 'T', "!", "tun-1"),
+            ("name", 'T', "!", "bastion"),
+            ("host", 'T', "!", "bastion.example.test"),
+            ("port", 'I', "!", "2222"),
+            ("username", 'T', "!", "mw"),
+            ("sealed_private_key", 'B', "!", "sealed-private-key"),
+            ("public_key", 'T', "!", "ssh-ed25519 AAAAC3Nz"),
+            ("key_algorithm", 'T', "!", "ed25519"),
+            ("host_key_pins_json", 'T', "=[]", "[\"SHA256:abc\"]"),
+            ("keepalive_secs", 'I', "=30", "60"),
+            ("connect_timeout_ms", 'I', "=5000", "3000"),
+            ("max_channels", 'I', "=16", "8"),
+            ("enabled", 'I', "=1", "0"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("created_at", 'I', "!", TS),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        // M admin accounts and roles
+        NewTable { name: "admin_account", copied: true, cols: &[
+            ("id", 'T', "!", "adm-1"),
+            ("username", 'T', "!", "ops"),
+            ("display_name", 'T', "!", "Operations"),
+            ("password_hash", 'T', "~", "$argon2id$v=19$stub"),
+            ("disabled", 'I', "=0", "1"),
+            ("source", 'T', "!", "db"),
+            ("created_at", 'I', "!", TS),
+            ("updated_at", 'I', "!", TS),
+            ("last_login_at", 'I', "~", "1767229200"),
+        ]},
+        NewTable { name: "admin_totp", copied: true, cols: &[
+            ("account_id", 'T', "!", "adm-1"),
+            ("sealed_secret", 'B', "!", "sealed-totp"),
+            ("last_step", 'I', "=0", "58907520"),
+            ("enrolled_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "admin_role", copied: true, cols: &[
+            ("id", 'T', "!", "role-1"),
+            ("name", 'T', "!", "Helpdesk"),
+            ("builtin", 'I', "=0", "1"),
+        ]},
+        NewTable { name: "admin_role_capability", copied: true, cols: &[
+            ("role_id", 'T', "!", "role-1"),
+            ("capability", 'T', "!", "users.read"),
+        ]},
+        NewTable { name: "admin_account_role", copied: true, cols: &[
+            ("account_id", 'T', "!", "adm-1"),
+            ("role_id", 'T', "!", "role-1"),
+            ("domains_json", 'T', "~", "[\"example.test\"]"),
+        ]},
+        NewTable { name: "admin_capability_override", copied: true, cols: &[
+            ("account_id", 'T', "!", "adm-1"),
+            ("capability", 'T', "!", "bans.write"),
+            ("effect", 'T', "!", "deny"),
+        ]},
+        // AD/M audit
+        NewTable { name: "audit_chain_head", copied: true, cols: &[
+            ("id", 'I', "=1", "1"),
+            ("last_id", 'I', "=0", "42"),
+            ("hash", 'T', "~", "9f86d081"),
+        ]},
+        NewTable { name: "audit_checkpoint", copied: true, cols: &[
+            ("id", 'T', "!", "ck-1"),
+            ("kind", 'T', "!", "prune"),
+            ("pruned_through_id", 'I', "=0", "40"),
+            ("pruned_through_hash", 'T', "~", "e3b0c442"),
+            ("ts", 'I', "!", TS),
+        ]},
+        NewTable { name: "audit_retention", copied: true, cols: &[
+            ("category", 'T', "!", "auth"),
+            ("days", 'I', "~", "365"),
+            ("legal_hold", 'I', "=0", "1"),
+            ("updated_by", 'T', "!", "admin:root"),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "audit_sink", copied: true, cols: &[
+            ("id", 'T', "!", "sink-1"),
+            ("kind", 'T', "!", "webhook"),
+            ("sealed_config", 'B', "!", "sealed-sink-config"),
+            ("enabled", 'I', "=1", "0"),
+            ("cursor_id", 'I', "=0", "17"),
+            ("last_ok_at", 'I', "~", "1767229200"),
+            ("last_error", 'T', "~", "timeout"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("created_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "admin_saved_query", copied: true, cols: &[
+            ("id", 'T', "!", "asq-1"),
+            ("admin_account_id", 'T', "!", "adm-1"),
+            ("name", 'T', "!", "failed sign-ins"),
+            ("filter_json", 'T', "!", "{\"action\":\"login\"}"),
+            ("created_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "alert_rule", copied: true, cols: &[
+            ("id", 'T', "!", "ar-1"),
+            ("name", 'T', "!", "sign-in flood"),
+            ("condition_json", 'T', "!", "{\"event\":\"login.failed\"}"),
+            ("channels_json", 'T', "!", "[\"email\"]"),
+            ("throttle_secs", 'I', "=900", "60"),
+            ("enabled", 'I', "=1", "0"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("created_at", 'I', "!", TS),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "alert_event", copied: true, cols: &[
+            ("id", 'T', "!", "ae-1"),
+            ("rule_id", 'T', "!", "ar-1"),
+            ("fired_at", 'I', "!", TS),
+            ("summary", 'T', "!", "12 failures in 5 min"),
+            ("delivered_json", 'T', "!", "{\"email\":true}"),
+            ("audit_id", 'T', "~", "audit-9"),
+        ]},
+        // AD sessions
+        NewTable { name: "signin_event", copied: true, cols: &[
+            ("id", 'T', "!", "se-1"),
+            ("account_id", 'T', "~", "acct-1"),
+            ("username_attempted", 'T', "!", "alice@example.test"),
+            ("ts", 'I', "!", TS),
+            ("result", 'T', "!", "failure"),
+            ("method", 'T', "!", "password"),
+            ("ip", 'T', "!", "192.0.2.7"),
+            ("user_agent", 'T', "!", "Mozilla/5.0"),
+            ("geo_country", 'T', "~", "GB"),
+            ("reason", 'T', "!", "badCredentials"),
+        ]},
+        NewTable { name: "remembered_device", copied: true, cols: &[
+            ("id", 'T', "!", "rd-1"),
+            ("account_id", 'T', "!", "acct-1"),
+            ("token_hash", 'T', "!", "rd-token-hash"),
+            ("label", 'T', "!", "Laptop"),
+            ("created_at", 'I', "!", TS),
+            ("expires_at", 'I', "!", "1769817600"),
+            ("last_used_at", 'I', "!", "1767229200"),
+        ]},
+        // P/Q/Z/X/AF assets
+        NewTable { name: "branding", copied: true, cols: &[
+            ("scope", 'T', "!", "global"),
+            ("config_json", 'T', "!", "{\"productName\":\"Mail\"}"),
+            ("updated_by", 'T', "!", "admin:root"),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "brand_asset", copied: true, cols: &[
+            ("id", 'T', "!", "ba-1"),
+            ("scope", 'T', "!", "global"),
+            ("kind", 'T', "!", "user_background"),
+            ("owner_account", 'T', "~", "acct-1"),
+            ("sha256", 'T', "!", "ab12"),
+            ("content_type", 'T', "!", "image/webp"),
+            ("bytes", 'I', "!", "2048"),
+            ("width", 'I', "~", "1920"),
+            ("height", 'I', "~", "1080"),
+            ("duration_ms", 'I', "~", "1500"),
+            ("licence_ack", 'T', "~", "OFL-1.1"),
+            ("data", 'B', "!", "RIFF....WEBP"),
+            ("created_by", 'T', "!", "acct-1"),
+            ("created_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "custom_css", copied: true, cols: &[
+            ("scope_kind", 'T', "!", "domain_app"),
+            ("scope_id", 'T', "!", "example.test"),
+            ("source", 'T', "!", ".x{color:red}"),
+            ("sanitized", 'T', "!", ".x{color:red}"),
+            ("sha256", 'T', "!", "cd34"),
+            ("updated_by", 'T', "!", "admin:root"),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        // V2 themes
+        NewTable { name: "custom_theme", copied: true, cols: &[
+            ("id", 'T', "!", "th-1"),
+            ("name", 'T', "!", "Harbour"),
+            ("appearance", 'T', "!", "dark"),
+            ("tokens_json", 'T', "!", "{\"bg\":\"#000\"}"),
+            ("enabled", 'I', "=1", "0"),
+            ("scope", 'T', "=global", "example.test"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("created_at", 'I', "!", TS),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "custom_accent", copied: true, cols: &[
+            ("id", 'T', "!", "acc-1"),
+            ("name", 'T', "!", "Coral"),
+            ("shades_json", 'T', "!", "{\"th-1\":\"#ff7f50\"}"),
+            ("enabled", 'I', "=1", "0"),
+            ("scope", 'T', "=global", "example.test"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("created_at", 'I', "!", TS),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        // S Sieve
+        NewTable { name: "sieve_script", copied: true, cols: &[
+            ("account_id", 'T', "!", "acct-1"),
+            ("name", 'T', "!", "main"),
+            ("content", 'T', "!", "keep;"),
+            ("active", 'I', "=0", "1"),
+            ("size", 'I', "!", "5"),
+            ("state_json", 'T', "={}", "{\"vacation\":{}}"),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        // R2 egress
+        NewTable { name: "egress_internal_allow", copied: false, cols: &[
+            ("id", 'T', "!", "eia-1"),
+            ("traffic_class", 'T', "!", "siem"),
+            ("destination", 'T', "!", "10.0.0.5:6514"),
+            ("note", 'T', "=", "SIEM collector"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("created_at", 'I', "!", TS),
+        ]},
+        // W PKI
+        NewTable { name: "smime_trust_root", copied: true, cols: &[
+            ("id", 'T', "!", "str-1"),
+            ("scope", 'T', "!", "global"),
+            ("der", 'B', "!", "0DER-bytes"),
+            ("fingerprint", 'T', "!", "sha256:ef56"),
+            ("label", 'T', "!", "Corp CA"),
+            ("added_by", 'T', "!", "admin:root"),
+            ("added_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "pki_revocation_cache", copied: true, cols: &[
+            ("issuer_key_hash", 'T', "!", "ikh-1"),
+            ("serial", 'T', "!", "0a1b"),
+            ("status", 'T', "!", "revoked"),
+            ("source", 'T', "!", "crl"),
+            ("this_update", 'I', "!", TS),
+            ("next_update", 'I', "~", "1767312000"),
+            ("checked_at", 'I', "!", TS),
+        ]},
+        // X signatures
+        NewTable { name: "identity_signature_default", copied: true, cols: &[
+            ("identity_id", 'T', "!", "id-1"),
+            ("mode", 'T', "!", "reply"),
+            ("signature_name", 'T', "!", "Short"),
+            ("placement", 'T', "!", "above"),
+            ("separator", 'I', "=1", "0"),
+        ]},
+        NewTable { name: "domain_signature_template", copied: true, cols: &[
+            ("domain", 'T', "!", "example.test"),
+            ("name", 'T', "!", "Standard"),
+            ("html", 'T', "!", "<p>{{name}}</p>"),
+            ("text", 'T', "!", "{{name}}"),
+            ("user_editable", 'I', "!", "1"),
+            ("updated_by", 'T', "!", "admin:root"),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "domain_disclaimer", copied: true, cols: &[
+            ("domain", 'T', "!", "example.test"),
+            ("html", 'T', "!", "<p>Confidential</p>"),
+            ("text", 'T', "!", "Confidential"),
+            ("enabled", 'I', "!", "1"),
+            ("updated_by", 'T', "!", "admin:root"),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        // Y3 receipts
+        NewTable { name: "mdn_sender_rule", copied: true, cols: &[
+            ("account_id", 'T', "!", "acct-1"),
+            ("address", 'T', "!", "boss@example.test"),
+            ("decision", 'T', "!", "always"),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "receipt_status", copied: true, cols: &[
+            ("account_id", 'T', "!", "acct-1"),
+            ("sent_email_id", 'T', "!", "em-1"),
+            ("recipient", 'T', "!", "bob@example.test"),
+            ("kind", 'T', "!", "dsn"),
+            ("status", 'T', "!", "delivered"),
+            ("reported_at", 'I', "~", TS),
+            ("report_email_id", 'T', "~", "em-2"),
+        ]},
+        // AB linked accounts and delegation
+        NewTable { name: "child_account", copied: true, cols: &[
+            ("owner_account_id", 'T', "!", "acct-1"),
+            ("account_id", 'T', "!", "acct-2"),
+            ("provider_id", 'T', "~", "pp-1"),
+            ("display_name", 'T', "!", "Old mailbox"),
+            ("accent_id", 'T', "~", "acc-1"),
+            ("position", 'I', "!", "2"),
+            ("paused", 'I', "=0", "1"),
+            ("added_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "provider_profile", copied: true, cols: &[
+            ("id", 'T', "!", "pp-1"),
+            ("name", 'T', "!", "Example IMAP"),
+            ("kind", 'T', "!", "pop3"),
+            ("endpoints_json", 'T', "!", "{\"pop3\":\"pop.example.test:995\"}"),
+            ("oauth_client_id", 'T', "~", "oc-1"),
+            ("tunnel_id", 'T', "~", "tun-1"),
+            ("egress_route_id", 'T', "~", "eg-1"),
+            ("scope", 'T', "=global", "example.test"),
+            ("enabled", 'I', "=0", "1"),
+            ("preset", 'T', "~", "generic"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "oauth_client", copied: false, cols: &[
+            ("id", 'T', "!", "oc-1"),
+            ("provider_id", 'T', "!", "pp-1"),
+            ("client_id", 'T', "!", "client-abc"),
+            ("sealed_client_secret", 'B', "~", "sealed-client-secret"),
+            ("auth_url", 'T', "!", "https://idp.example.test/auth"),
+            ("token_url", 'T', "!", "https://idp.example.test/token"),
+            ("device_url", 'T', "~", "https://idp.example.test/device"),
+            ("scopes", 'T', "!", "mail offline_access"),
+            ("redirect", 'T', "!", "https://mail.example.test/cb"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "account_oauth", copied: true, cols: &[
+            ("account_id", 'T', "!", "acct-2"),
+            ("provider_id", 'T', "!", "pp-1"),
+            ("sealed_refresh_token", 'B', "!", "sealed-refresh"),
+            ("expires_at", 'I', "!", "1767229200"),
+            ("scope", 'T', "!", "mail"),
+            ("needs_signin", 'I', "=0", "1"),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "delegation_grant", copied: true, cols: &[
+            ("id", 'T', "!", "dg-1"),
+            ("owner_account_id", 'T', "!", "acct-1"),
+            ("delegate_owner_account_id", 'T', "~", "acct-3"),
+            ("delegate_group_id", 'T', "~", "grp-1"),
+            ("scope_kind", 'T', "!", "mailboxes"),
+            ("mailbox_ids_json", 'T', "!", "[\"mb-1\"]"),
+            ("permissions_json", 'T', "!", "[\"read\"]"),
+            ("expires_at", 'I', "~", "1769817600"),
+            ("created_at", 'I', "!", TS),
+            ("revoked_at", 'I', "~", "1767229200"),
+        ]},
+        NewTable { name: "shared_mailbox", copied: true, cols: &[
+            ("account_id", 'T', "!", "acct-9"),
+            ("domain", 'T', "!", "example.test"),
+            ("name", 'T', "!", "support"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("created_at", 'I', "!", TS),
+        ]},
+        // AC views
+        NewTable { name: "org_view", copied: true, cols: &[
+            ("id", 'T', "!", "ov-1"),
+            ("scope", 'T', "!", "example.test"),
+            ("name", 'T', "!", "Invoices"),
+            ("query_text", 'T', "!", "subject:invoice"),
+            ("settings_json", 'T', "!", "{}"),
+            ("mandatory", 'I', "=0", "1"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        // AE identities
+        NewTable { name: "identity_verification", copied: true, cols: &[
+            ("token_hash", 'T', "!", "iv-hash"),
+            ("identity_id", 'T', "!", "id-1"),
+            ("sent_at", 'I', "!", TS),
+            ("expires_at", 'I', "!", "1767312000"),
+            ("consumed", 'I', "=0", "1"),
+        ]},
+        // AF templates
+        NewTable { name: "template", copied: true, cols: &[
+            ("id", 'T', "!", "tpl-1"),
+            ("owner_kind", 'T', "!", "domain"),
+            ("owner_id", 'T', "!", "example.test"),
+            ("folder", 'T', "!", "Sales"),
+            ("name", 'T', "!", "Quote"),
+            ("subject", 'T', "!", "Your quote"),
+            ("html", 'T', "!", "<p>Hello</p>"),
+            ("text", 'T', "!", "Hello"),
+            ("attachments_json", 'T', "!", "[]"),
+            ("identity_id", 'T', "~", "id-1"),
+            ("recipients_json", 'T', "!", "{\"to\":[]}"),
+            ("fields_json", 'T', "!", "[\"name\"]"),
+            ("mandatory", 'I', "=0", "1"),
+            ("user_copyable", 'I', "=1", "0"),
+            ("version", 'I', "=1", "3"),
+            ("usage_count", 'I', "=0", "7"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("created_at", 'I', "!", TS),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "template_version", copied: true, cols: &[
+            ("template_id", 'T', "!", "tpl-1"),
+            ("version", 'I', "!", "3"),
+            ("subject", 'T', "!", "Your quote"),
+            ("html", 'T', "!", "<p>Hello</p>"),
+            ("text", 'T', "!", "Hello"),
+            ("attachments_json", 'T', "!", "[]"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("created_at", 'I', "!", TS),
+        ]},
+        // AG groups and feature profiles
+        NewTable { name: "user_group", copied: true, cols: &[
+            ("id", 'T', "!", "grp-1"),
+            ("name", 'T', "!", "Sales"),
+            ("domain", 'T', "!", "example.test"),
+            ("source", 'T', "!", "ldap"),
+            ("ldap_dn", 'T', "~", "cn=sales,dc=example,dc=test"),
+            ("created_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "user_group_member", copied: true, cols: &[
+            ("group_id", 'T', "!", "grp-1"),
+            ("account_id", 'T', "!", "acct-1"),
+        ]},
+        NewTable { name: "feature_profile", copied: true, cols: &[
+            ("id", 'T', "!", "fp-1"),
+            ("name", 'T', "!", "Restricted"),
+            ("values_json", 'T', "!", "{\"assistant.enabled\":false}"),
+            ("builtin", 'I', "=0", "1"),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "feature_profile_assignment", copied: true, cols: &[
+            ("scope_kind", 'T', "!", "group"),
+            ("scope_id", 'T', "!", "grp-1"),
+            ("profile_id", 'T', "!", "fp-1"),
+            ("priority", 'I', "!", "10"),
+        ]},
+        // Q users, sign-in policy, usage
+        NewTable { name: "mail_user", copied: true, cols: &[
+            ("address", 'T', "!", "alice@example.test"),
+            ("domain", 'T', "!", "example.test"),
+            ("local_part", 'T', "!", "alice"),
+            ("origin", 'T', "!", "provisioned"),
+            ("status", 'T', "=active", "disabled"),
+            ("display_name", 'T', "~", "Alice"),
+            ("note", 'T', "~", "contractor"),
+            ("created_at", 'I', "!", TS),
+            ("created_by", 'T', "~", "admin:root"),
+            ("first_signin_at", 'I', "~", "1767229200"),
+            ("last_signin_at", 'I', "~", "1767232800"),
+            ("status_changed_at", 'I', "~", "1767236400"),
+            ("status_changed_by", 'T', "~", "admin:root"),
+            ("status_reason", 'T', "~", "left"),
+            ("expires_at", 'I', "~", "1769817600"),
+            ("deleted_at", 'I', "~", "1769904000"),
+        ]},
+        NewTable { name: "mail_user_account", copied: true, cols: &[
+            ("account_id", 'T', "!", "acct-2"),
+            ("address", 'T', "!", "alice@example.test"),
+            ("mode", 'T', "!", "child"),
+            ("first_seen", 'I', "!", TS),
+            ("last_seen", 'I', "!", "1767229200"),
+        ]},
+        NewTable { name: "signin_allow", copied: true, cols: &[
+            ("id", 'T', "!", "sa-1"),
+            ("domain", 'T', "!", "example.test"),
+            ("pattern", 'T', "!", "bot-*"),
+            ("note", 'T', "~", "invitation"),
+            ("expires_at", 'I', "~", "1769817600"),
+            ("max_uses", 'I', "~", "1"),
+            ("uses", 'I', "=0", "1"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("created_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "usage_counter", copied: true, cols: &[
+            ("address", 'T', "!", "alice@example.test"),
+            ("domain", 'T', "!", "example.test"),
+            ("metric", 'T', "!", "send.messages"),
+            ("day", 'I', "!", "20454"),
+            ("value", 'I', "=0", "12"),
+        ]},
+        NewTable { name: "usage_storage", copied: true, cols: &[
+            ("address", 'T', "!", "alice@example.test"),
+            ("domain", 'T', "!", "example.test"),
+            ("blob_bytes", 'I', "=0", "1000"),
+            ("blob_count", 'I', "=0", "2"),
+            ("content_bytes", 'I', "=0", "300"),
+            ("cache_bytes", 'I', "=0", "50000"),
+            ("cache_messages", 'I', "=0", "40"),
+            ("search_docs", 'I', "~", "40"),
+            ("breakdown_json", 'T', "~", "{\"notes\":300}"),
+            ("measured_at", 'I', "~", TS),
+            ("measuring_until", 'I', "~", "1767226200"),
+            ("upstream_used_bytes", 'I', "~", "900000"),
+            ("upstream_limit_bytes", 'I', "~", "1000000"),
+            ("upstream_json", 'T', "~", "{\"root\":{}}"),
+            ("upstream_status", 'T', "~", "ok"),
+            ("upstream_checked_at", 'I', "~", TS),
+            ("warn_level", 'I', "=0", "80"),
+        ]},
+        // CFG configuration, maintenance, jobs, diagnostics, bans, metrics, export
+        NewTable { name: "config_snapshot", copied: true, cols: &[
+            ("id", 'T', "!", "cs-1"),
+            ("created_at", 'I', "!", TS),
+            ("created_by", 'T', "!", "admin:root"),
+            ("reason", 'T', "!", "pre-import"),
+            ("sha256", 'T', "!", "0f0f"),
+            ("json", 'T', "!", "{\"version\":1}"),
+        ]},
+        NewTable { name: "integration_config", copied: false, cols: &[
+            ("kind", 'T', "!", "nextcloud"),
+            ("config_json", 'T', "={}", "{\"url\":\"https://cloud.example.test\"}"),
+            ("sealed_secret", 'B', "~", "sealed-app-password"),
+            ("secret_hash", 'T', "~", "sha256:1234"),
+            ("enabled", 'I', "=0", "1"),
+            ("updated_by", 'T', "!", "admin:root"),
+            ("updated_at", 'I', "!", TS),
+        ]},
+        NewTable { name: "maintenance_window", copied: true, cols: &[
+            ("id", 'T', "!", "mw-1"),
+            ("scope_kind", 'T', "=global", "domain"),
+            ("scope_id", 'T', "=", "example.test"),
+            ("mode", 'T', "!", "read_only"),
+            ("starts_at", 'I', "!", TS),
+            ("ends_at", 'I', "~", "1767232800"),
+            ("tz", 'T', "=UTC", "Europe/London"),
+            ("recurrence_json", 'T', "~", "{\"weekly\":{\"days\":[0]}}"),
+            ("announce_minutes", 'I', "=60", "15"),
+            ("message_json", 'T', "={}", "{\"en\":\"Upgrade\"}"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("created_at", 'I', "!", TS),
+            ("updated_by", 'T', "!", "admin:root"),
+            ("updated_at", 'I', "!", TS),
+            ("occurrence_ended_at", 'I', "~", "1767230000"),
+            ("cancelled_at", 'I', "~", "1767231000"),
+            ("cancelled_by", 'T', "~", "admin:root"),
+        ]},
+        NewTable { name: "scheduled_task", copied: true, cols: &[
+            ("id", 'T', "!", "st-1"),
+            ("kind", 'T', "!", "vacuum"),
+            ("schedule_json", 'T', "!", "{\"every_secs\":86400}"),
+            ("params_json", 'T', "={}", "{\"full\":true}"),
+            ("enabled", 'I', "=0", "1"),
+            ("only_in_window", 'I', "=0", "1"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("created_at", 'I', "!", TS),
+            ("updated_at", 'I', "!", TS),
+            ("last_run_at", 'I', "~", "1767229200"),
+            ("last_status", 'T', "~", "ok"),
+            ("next_run_at", 'I', "~", "1767312000"),
+            ("lease_owner", 'T', "~", "host-a:1767225600"),
+            ("lease_until", 'I', "~", "1767229800"),
+        ]},
+        NewTable { name: "job_run", copied: true, cols: &[
+            ("id", 'T', "!", "jr-1"),
+            ("task_id", 'T', "~", "st-1"),
+            ("kind", 'T', "!", "vacuum"),
+            ("instance", 'T', "!", "host-a:1767225600"),
+            ("started_at", 'I', "!", TS),
+            ("heartbeat_at", 'I', "!", "1767225660"),
+            ("finished_at", 'I', "~", "1767225700"),
+            ("status", 'T', "!", "abandoned"),
+            ("summary", 'T', "~", "lease lost"),
+            ("detail_json", 'T', "~", "{}"),
+            ("triggered_by", 'T', "!", "schedule"),
+        ]},
+        NewTable { name: "diag_run", copied: true, cols: &[
+            ("id", 'T', "!", "dr-1"),
+            ("suite", 'T', "!", "all"),
+            ("target", 'T', "~", "example.test"),
+            ("started_at", 'I', "!", TS),
+            ("finished_at", 'I', "~", "1767225700"),
+            ("status", 'T', "!", "warn"),
+            ("results_json", 'T', "=[]", "[{\"id\":\"dns.mx\"}]"),
+            ("triggered_by", 'T', "!", "admin:root"),
+            ("task_id", 'T', "~", "st-1"),
+        ]},
+        NewTable { name: "diag_probe_account", copied: false, cols: &[
+            ("domain", 'T', "!", "example.test"),
+            ("address", 'T', "!", "probe@example.test"),
+            ("sealed_password", 'B', "!", "sealed-probe-password"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("updated_at", 'I', "!", TS),
+            ("last_loop_at", 'I', "~", "1767229200"),
+            ("last_loop_ms", 'I', "~", "840"),
+            ("last_loop_status", 'T', "~", "pass"),
+        ]},
+        NewTable { name: "account_ban", copied: true, cols: &[
+            ("id", 'T', "!", "ban-1"),
+            ("kind", 'T', "!", "pattern"),
+            ("value", 'T', "!", "*@spam.example"),
+            ("surface", 'T', "=webmail", "all"),
+            ("reason", 'T', "!", "spam run"),
+            ("user_note", 'T', "~", "contact support"),
+            ("starts_at", 'I', "!", TS),
+            ("expires_at", 'I', "~", "1769817600"),
+            ("source", 'T', "=manual", "import"),
+            ("created_by", 'T', "!", "admin:root"),
+            ("created_at", 'I', "!", TS),
+            ("lifted_at", 'I', "~", "1767312000"),
+            ("lifted_by", 'T', "~", "admin:root"),
+            ("lift_reason", 'T', "~", "resolved"),
+            ("hits", 'I', "=0", "4"),
+            ("last_hit_at", 'I', "~", "1767229200"),
+        ]},
+        NewTable { name: "metric_rollup", copied: true, cols: &[
+            ("series", 'T', "!", "http.requests"),
+            ("hour", 'I', "!", "490896"),
+            ("instance", 'T', "!", "host-a"),
+            ("value_json", 'T', "!", "{\"sum\":10}"),
+        ]},
+        NewTable { name: "data_export", copied: true, cols: &[
+            ("id", 'T', "!", "dx-1"),
+            ("address", 'T', "!", "alice@example.test"),
+            ("requested_by", 'T', "!", "admin:root"),
+            ("status", 'T', "!", "ready"),
+            ("item_counts_json", 'T', "={}", "{\"mail\":3}"),
+            ("bytes", 'I', "~", "4096"),
+            ("blob_ref", 'T', "~", "export/dx-1"),
+            ("created_at", 'I', "!", TS),
+            ("expires_at", 'I', "!", "1767312000"),
+            ("downloaded_at", 'I', "~", "1767229200"),
+        ]},
+    ];
+
+    /// `(column, type, rule)` of a column added to an existing table.
+    type AddedCol = (&'static str, char, &'static str);
+
+    /// `(table, columns)`: the columns 0033 adds to existing tables.
+    #[rustfmt::skip]
+    const ALTERED: &[(&str, &[AddedCol])] = &[
+        ("domains", &[
+            ("enabled", 'I', "=1"),
+            ("preferred", 'I', "=0"),
+            ("settings_json", 'T', "={}"),
+            ("updated_at", 'I', "~"),
+        ]),
+        ("audit_log", &[
+            ("admin_role", 'T', "~"),
+            ("capability", 'T', "~"),
+            ("category", 'T', "~"),
+            ("request_id", 'T', "~"),
+            ("before_json", 'T', "~"),
+            ("after_json", 'T', "~"),
+            ("prev_hash", 'T', "~"),
+            ("hash", 'T', "~"),
+            ("seq", 'I', "~"),
+        ]),
+        ("sessions", &[
+            ("user_agent", 'T', "~"),
+            ("ip", 'T', "~"),
+            ("client_type", 'T', "~"),
+            ("device_label", 'T', "~"),
+            ("client_version", 'T', "~"),
+        ]),
+        ("webauthn_credentials", &[("discoverable", 'I', "=0")]),
+        ("egress_proxy", &[
+            ("kind", 'T', "=http"),
+            ("tunnel_id", 'T', "~"),
+            ("tls_to_proxy", 'I', "=0"),
+            ("remote_dns", 'I', "=0"),
+            ("remote_dns_risk_accepted_by", 'T', "~"),
+            ("remote_dns_risk_accepted_at", 'I', "~"),
+            ("chain_next_id", 'T', "~"),
+            ("scope", 'T', "=global"),
+            ("traffic_classes_json", 'T', "=[\"remote_content\",\"ics_feeds\"]"),
+        ]),
+        ("signatures", &[
+            ("html", 'T', "~"),
+            ("text", 'T', "~"),
+            ("text_edited", 'I', "=0"),
+            ("images_json", 'T', "=[]"),
+        ]),
+        ("saved_searches", &[
+            ("query_text", 'T', "~"),
+            ("builder_json", 'T', "~"),
+            ("accounts_json", 'T', "~"),
+            ("settings_json", 'T', "={}"),
+            ("position", 'I', "=0"),
+            ("icon", 'T', "~"),
+            ("accent_id", 'T', "~"),
+            ("start_page", 'I', "=0"),
+            ("source", 'T', "=user"),
+            ("org_view_id", 'T', "~"),
+        ]),
+        ("identities", &[
+            ("auto_bcc", 'T', "~"),
+            ("color", 'T', "~"),
+            ("pgp_key_id", 'T', "~"),
+            ("smime_cert_id", 'T', "~"),
+            ("request_receipt", 'I', "=0"),
+            ("verified_at", 'I', "~"),
+            ("sender_header", 'T', "~"),
+        ]),
+        ("directory_config", &[("sealed_bind_password", 'B', "~")]),
+    ];
+
+    /// `(table, column, allowed values)`. One value outside the list must be
+    /// refused, and every listed value accepted, in both dialects.
+    #[rustfmt::skip]
+    const CHECKS: &[(&str, &str, &[&str])] = &[
+        ("setting_value", "scope_kind", &["domain", "profile", "group", "admin_user", "user"]),
+        ("auth_failure", "surface", &["admin", "webmail"]),
+        ("auth_failure", "key_kind", &["ip", "account"]),
+        ("ip_block", "surface", &["admin", "webmail", "all"]),
+        ("ip_block", "reason", &["auto", "manual"]),
+        ("ip_allow", "surface", &["admin", "webmail"]),
+        ("ip_allow", "scope_kind", &["global", "domain", "account"]),
+        ("admin_account", "source", &["db", "env-bootstrap"]),
+        ("admin_capability_override", "effect", &["allow", "deny"]),
+        ("audit_chain_head", "id", &["1"]),
+        ("audit_checkpoint", "kind", &["genesis", "prune"]),
+        ("audit_sink", "kind", &["syslog", "webhook"]),
+        ("signin_event", "result", &["success", "failure", "blocked"]),
+        ("brand_asset", "kind", &[
+            "logo", "background", "icon_master", "font", "preset", "user_background",
+            "signature", "template_attachment", "sound",
+        ]),
+        ("custom_css", "scope_kind", &[
+            "global_login", "global_app", "domain_login", "domain_app", "user",
+        ]),
+        ("custom_theme", "appearance", &["light", "dark"]),
+        ("egress_internal_allow", "traffic_class", &["siem", "webhooks"]),
+        ("pki_revocation_cache", "status", &["good", "revoked", "unknown"]),
+        ("pki_revocation_cache", "source", &["ocsp", "crl"]),
+        ("identity_signature_default", "mode", &["new", "reply", "forward"]),
+        ("identity_signature_default", "placement", &["below", "above"]),
+        ("mdn_sender_rule", "decision", &["always", "never"]),
+        ("receipt_status", "kind", &["mdn", "dsn"]),
+        ("provider_profile", "kind", &["imap", "pop3", "bridge"]),
+        ("delegation_grant", "scope_kind", &["account", "mailboxes"]),
+        ("template", "owner_kind", &["user", "domain", "group"]),
+        ("user_group", "source", &["manual", "ldap"]),
+        ("feature_profile_assignment", "scope_kind", &["domain", "group", "user"]),
+        ("mail_user", "origin", &["provisioned", "signin", "sso", "import"]),
+        ("mail_user", "status", &["active", "disabled", "deleting", "deleted"]),
+        ("mail_user_account", "mode", &["engine", "proxy", "header", "sso", "child"]),
+        ("config_snapshot", "reason", &["export", "pre-import", "manual"]),
+        ("maintenance_window", "scope_kind", &["global", "domain"]),
+        ("maintenance_window", "mode", &["announce", "read_only", "signin_closed", "full"]),
+        ("job_run", "status", &["running", "ok", "failed", "cancelled", "abandoned"]),
+        ("diag_run", "status", &["running", "pass", "warn", "fail", "error"]),
+        ("account_ban", "kind", &["user", "pattern", "domain", "asn", "country"]),
+        ("account_ban", "surface", &["webmail", "admin", "all"]),
+        ("account_ban", "source", &["manual", "import", "rule"]),
+        ("data_export", "status", &[
+            "queued", "running", "ready", "downloaded", "expired", "failed",
+        ]),
+    ];
+
+    /// Columns that deliberately carry NO check: any value is stored (A16: a new
+    /// integration kind needs no SQLite table rebuild).
+    const UNCHECKED: &[(&str, &str, &str)] = &[("integration_config", "kind", "future_kind")];
+
+    /// `(child, child column, parent, parent column)`, all `ON DELETE CASCADE`.
+    /// These are the ONLY foreign keys the new tables declare.
+    const FKS: &[(&str, &str, &str, &str)] = &[
+        ("domain_alias", "domain", "domains", "name"),
+        ("domain_host", "domain", "domains", "name"),
+        ("admin_totp", "account_id", "admin_account", "id"),
+        ("admin_role_capability", "role_id", "admin_role", "id"),
+        ("admin_account_role", "account_id", "admin_account", "id"),
+        ("admin_account_role", "role_id", "admin_role", "id"),
+        (
+            "admin_capability_override",
+            "account_id",
+            "admin_account",
+            "id",
+        ),
+        (
+            "admin_saved_query",
+            "admin_account_id",
+            "admin_account",
+            "id",
+        ),
+        ("template_version", "template_id", "template", "id"),
+        ("user_group_member", "group_id", "user_group", "id"),
+        (
+            "feature_profile_assignment",
+            "profile_id",
+            "feature_profile",
+            "id",
+        ),
+        ("diag_probe_account", "domain", "domains", "name"),
+    ];
+
+    /// `(index, table, unique, partial, columns)`, named identically in both
+    /// dialects so they can be compared by name.
+    #[rustfmt::skip]
+    const INDEXES: &[(&str, &str, bool, bool, &str)] = &[
+        ("idx_setting_value_key", "setting_value", false, false, "key"),
+        ("idx_auth_failure_window", "auth_failure", false, false, "window_start"),
+        ("idx_ip_block_until", "ip_block", false, false, "blocked_until"),
+        ("idx_ip_block_ip", "ip_block", false, false, "ip_or_cidr"),
+        ("idx_ip_allow_scope", "ip_allow", false, false, "surface,scope_kind,scope_id"),
+        ("idx_domains_preferred", "domains", true, true, "preferred"),
+        ("idx_domain_alias_domain", "domain_alias", false, false, "domain"),
+        ("idx_domain_host_domain", "domain_host", false, false, "domain"),
+        ("idx_admin_account_username", "admin_account", true, false, "username"),
+        ("idx_admin_role_name", "admin_role", true, false, "name"),
+        ("idx_admin_account_role_role", "admin_account_role", false, false, "role_id"),
+        ("idx_audit_log_seq", "audit_log", true, false, "seq"),
+        ("idx_audit_log_request", "audit_log", false, false, "request_id"),
+        ("idx_audit_log_category", "audit_log", false, false, "category,ts"),
+        ("idx_admin_saved_query_account", "admin_saved_query", false, false, "admin_account_id"),
+        ("idx_alert_event_rule", "alert_event", false, false, "rule_id,fired_at"),
+        ("idx_signin_event_account", "signin_event", false, false, "account_id,ts"),
+        ("idx_signin_event_ts", "signin_event", false, false, "ts"),
+        ("idx_remembered_device_token", "remembered_device", true, false, "token_hash"),
+        ("idx_remembered_device_account", "remembered_device", false, false, "account_id"),
+        ("idx_brand_asset_owner", "brand_asset", false, false, "owner_account,kind"),
+        ("idx_brand_asset_scope", "brand_asset", false, false, "scope,kind"),
+        ("idx_sieve_script_active", "sieve_script", true, true, "account_id"),
+        ("idx_identity_verification_identity", "identity_verification", false, false, "identity_id"),
+        ("idx_child_account_account", "child_account", false, false, "account_id"),
+        ("idx_oauth_client_provider", "oauth_client", false, false, "provider_id"),
+        ("idx_delegation_grant_owner", "delegation_grant", false, false, "owner_account_id"),
+        ("idx_delegation_grant_delegate", "delegation_grant", false, false, "delegate_owner_account_id"),
+        ("idx_delegation_grant_group", "delegation_grant", false, false, "delegate_group_id"),
+        ("idx_shared_mailbox_domain", "shared_mailbox", false, false, "domain"),
+        ("idx_template_owner", "template", false, false, "owner_kind,owner_id"),
+        ("idx_user_group_domain", "user_group", false, false, "domain"),
+        ("idx_user_group_member_account", "user_group_member", false, false, "account_id"),
+        ("idx_feature_profile_name", "feature_profile", true, false, "name"),
+        ("idx_feature_profile_assignment_profile", "feature_profile_assignment", false, false, "profile_id"),
+        ("idx_mail_user_domain", "mail_user", false, false, "domain,address"),
+        ("idx_mail_user_status", "mail_user", false, false, "status"),
+        ("idx_mail_user_last_signin", "mail_user", false, false, "last_signin_at"),
+        ("idx_mail_user_account_address", "mail_user_account", false, false, "address"),
+        ("idx_signin_allow_domain_pattern", "signin_allow", true, false, "domain,pattern"),
+        ("idx_usage_counter_domain", "usage_counter", false, false, "domain,metric,day"),
+        ("idx_usage_counter_day", "usage_counter", false, false, "day"),
+        ("idx_usage_storage_domain", "usage_storage", false, false, "domain"),
+        ("idx_bodies_account", "bodies", false, false, "account_id"),
+        ("idx_config_snapshot_created", "config_snapshot", false, false, "created_at"),
+        ("idx_maintenance_window_starts", "maintenance_window", false, false, "starts_at"),
+        ("idx_scheduled_task_next", "scheduled_task", false, false, "next_run_at"),
+        ("idx_job_run_kind", "job_run", false, false, "kind,started_at"),
+        ("idx_diag_run_suite", "diag_run", false, false, "suite,started_at"),
+        ("idx_account_ban_kind", "account_ban", false, false, "kind,value"),
+        ("idx_account_ban_expires", "account_ban", false, false, "expires_at"),
+        ("idx_metric_rollup_hour", "metric_rollup", false, false, "hour"),
+        ("idx_data_export_address", "data_export", false, false, "address"),
+        ("idx_data_export_expires", "data_export", false, false, "expires_at"),
+    ];
+
+    type Overrides = &'static [(&'static str, &'static str)];
+
+    /// `(table, first row overrides, second row overrides, second must conflict)`.
+    #[rustfmt::skip]
+    const UNIQUES: &[(&str, Overrides, Overrides, bool)] = &[
+        ("admin_account", &[("id", "a1"), ("username", "dup")], &[("id", "a2"), ("username", "dup")], true),
+        ("admin_role", &[("id", "r1"), ("name", "dup")], &[("id", "r2"), ("name", "dup")], true),
+        ("feature_profile", &[("id", "f1"), ("name", "dup")], &[("id", "f2"), ("name", "dup")], true),
+        ("remembered_device", &[("id", "d1"), ("token_hash", "h")], &[("id", "d2"), ("token_hash", "h")], true),
+        ("signin_allow", &[("id", "s1")], &[("id", "s2")], true),
+        ("signin_allow", &[("id", "s1")], &[("id", "s2"), ("domain", "other.test")], false),
+        ("sieve_script", &[("name", "a"), ("active", "1")], &[("name", "b"), ("active", "1")], true),
+        ("sieve_script", &[("name", "a"), ("active", "0")], &[("name", "b"), ("active", "0")], false),
+        ("sieve_script", &[("name", "a"), ("active", "1")], &[("account_id", "acct-x"), ("active", "1")], false),
+    ];
+
+    // ── a small two-dialect SQL layer ────────────────────────────────────────
+
+    #[derive(Clone, Debug)]
+    enum Val {
+        T(String),
+        I(i64),
+        B(Vec<u8>),
+        /// A typed NULL: Postgres needs the parameter type.
+        N(char),
+    }
+
+    fn val(ty: char, s: &str) -> Val {
+        match ty {
+            'T' => Val::T(s.to_string()),
+            'I' => Val::I(s.parse().unwrap_or_else(|_| panic!("integer sample {s:?}"))),
+            'B' => Val::B(s.as_bytes().to_vec()),
+            other => panic!("unknown type {other}"),
+        }
+    }
+
+    fn render_sample(ty: char, s: &str) -> String {
+        match ty {
+            'B' => format!("b:{s}"),
+            _ => s.to_string(),
+        }
+    }
+
+    /// `?` → `$n` for Postgres. No SQL here contains a literal `?`.
+    fn pg_placeholders(sql: &str) -> String {
+        let mut out = String::with_capacity(sql.len() + 8);
+        let mut n = 0;
+        for ch in sql.chars() {
+            if ch == '?' {
+                n += 1;
+                out.push_str(&format!("${n}"));
+            } else {
+                out.push(ch);
+            }
+        }
+        out
+    }
+
+    enum Conn {
+        Lite(PoolConnection<Sqlite>),
+        Pg(PoolConnection<Postgres>),
+    }
+
+    macro_rules! bind_all {
+        ($q:expr, $args:expr) => {{
+            let mut q = $q;
+            for a in $args {
+                q = match a {
+                    Val::T(s) => q.bind(s.clone()),
+                    Val::I(i) => q.bind(*i),
+                    Val::B(b) => q.bind(b.clone()),
+                    Val::N('I') => q.bind(Option::<i64>::None),
+                    Val::N('B') => q.bind(Option::<Vec<u8>>::None),
+                    Val::N(_) => q.bind(Option::<String>::None),
+                };
+            }
+            q
+        }};
+    }
+
+    /// One cell rendered as a string: `NULL`, the text, the integer, or `b:` and
+    /// the bytes.
+    macro_rules! cell {
+        ($r:expr, $i:expr, $ty:expr) => {{
+            use sqlx::Row as _;
+            let rendered = match $ty {
+                'T' => $r.try_get::<Option<String>, _>($i),
+                'I' => $r
+                    .try_get::<Option<i64>, _>($i)
+                    .map(|v| v.map(|n| n.to_string())),
+                'B' => $r
+                    .try_get::<Option<Vec<u8>>, _>($i)
+                    .map(|v| v.map(|b| format!("b:{}", String::from_utf8_lossy(&b)))),
+                other => panic!("unknown type {other}"),
+            };
+            match rendered {
+                Ok(Some(s)) => s,
+                Ok(None) => "NULL".to_string(),
+                Err(e) => format!("DECODE-ERROR({}): {e}", $ty),
+            }
+        }};
+    }
+
+    impl Conn {
+        fn is_pg(&self) -> bool {
+            matches!(self, Conn::Pg(_))
+        }
+
+        fn dialect(&self) -> &'static str {
+            if self.is_pg() { "postgres" } else { "sqlite" }
+        }
+
+        async fn exec(&mut self, sql: &str, args: &[Val]) -> Result<u64, String> {
+            match self {
+                Conn::Lite(c) => bind_all!(sqlx::query(sql), args)
+                    .execute(&mut **c)
+                    .await
+                    .map(|r| r.rows_affected())
+                    .map_err(|e| e.to_string()),
+                Conn::Pg(c) => {
+                    let sql = pg_placeholders(sql);
+                    bind_all!(sqlx::query(&sql), args)
+                        .execute(&mut **c)
+                        .await
+                        .map(|r| r.rows_affected())
+                        .map_err(|e| e.to_string())
+                }
+            }
+        }
+
+        /// Rows rendered as strings, decoding column `i` as `types[i]`.
+        async fn rows(&mut self, sql: &str, args: &[Val], types: &[char]) -> Vec<Vec<String>> {
+            match self {
+                Conn::Lite(c) => {
+                    let rows = bind_all!(sqlx::query(sql), args)
+                        .fetch_all(&mut **c)
+                        .await
+                        .unwrap_or_else(|e| panic!("sqlite: {sql}: {e}"));
+                    rows.iter()
+                        .map(|r| {
+                            types
+                                .iter()
+                                .enumerate()
+                                .map(|(i, t)| cell!(r, i, *t))
+                                .collect()
+                        })
+                        .collect()
+                }
+                Conn::Pg(c) => {
+                    let sql = pg_placeholders(sql);
+                    let rows = bind_all!(sqlx::query(&sql), args)
+                        .fetch_all(&mut **c)
+                        .await
+                        .unwrap_or_else(|e| panic!("postgres: {sql}: {e}"));
+                    rows.iter()
+                        .map(|r| {
+                            types
+                                .iter()
+                                .enumerate()
+                                .map(|(i, t)| cell!(r, i, *t))
+                                .collect()
+                        })
+                        .collect()
+                }
+            }
+        }
+
+        async fn count(&mut self, sql: &str, args: &[Val]) -> i64 {
+            self.rows(sql, args, &['I']).await[0][0]
+                .parse()
+                .unwrap_or_else(|e| panic!("{sql}: not a count: {e}"))
+        }
+
+        /// Run `stmts` inside a transaction that is always rolled back, and return
+        /// the outcome of the LAST statement (earlier ones must succeed), plus
+        /// `probe` evaluated as a count inside the same transaction.
+        async fn in_rollback(
+            &mut self,
+            stmts: &[(String, Vec<Val>)],
+            probe: Option<&str>,
+        ) -> (Result<u64, String>, Option<i64>) {
+            self.exec("BEGIN", &[]).await.expect("BEGIN");
+            let mut last = Ok(0);
+            for (i, (sql, args)) in stmts.iter().enumerate() {
+                last = self.exec(sql, args).await;
+                if i + 1 < stmts.len()
+                    && let Err(e) = &last
+                {
+                    let _ = self.exec("ROLLBACK", &[]).await;
+                    panic!("{}: setup statement failed: {sql}: {e}", self.dialect());
+                }
+            }
+            let probed = match (probe, &last) {
+                (Some(p), Ok(_)) => Some(self.count(p, &[]).await),
+                _ => None,
+            };
+            self.exec("ROLLBACK", &[]).await.expect("ROLLBACK");
+            (last, probed)
+        }
+    }
+
+    fn table(name: &str) -> &'static NewTable {
+        NEW_TABLES
+            .iter()
+            .find(|t| t.name == name)
+            .unwrap_or_else(|| panic!("no spec for {name}"))
+    }
+
+    /// An `INSERT` of the sample row with `overrides`, keeping only the columns
+    /// `keep` accepts.
+    fn insert_of(
+        t: &NewTable,
+        overrides: &[(&str, &str)],
+        keep: impl Fn(&Col) -> bool,
+    ) -> (String, Vec<Val>) {
+        let mut names = Vec::new();
+        let mut args = Vec::new();
+        for c in t.cols.iter().filter(|c| keep(c)) {
+            let sample = overrides
+                .iter()
+                .find(|(n, _)| *n == c.0)
+                .map(|(_, v)| *v)
+                .unwrap_or(c.3);
+            names.push(format!("\"{}\"", c.0));
+            args.push(val(c.1, sample));
+        }
+        if names.is_empty() {
+            // Every column has a default (`audit_chain_head`).
+            return (format!("INSERT INTO {} DEFAULT VALUES", t.name), args);
+        }
+        let marks = vec!["?"; names.len()].join(", ");
+        (
+            format!(
+                "INSERT INTO {} ({}) VALUES ({marks})",
+                t.name,
+                names.join(", ")
+            ),
+            args,
+        )
+    }
+
+    fn select_all(t: &NewTable) -> (String, Vec<char>) {
+        let cols: Vec<String> = t.cols.iter().map(|c| format!("\"{}\"", c.0)).collect();
+        (
+            format!("SELECT {} FROM {}", cols.join(", "), t.name),
+            t.cols.iter().map(|c| c.1).collect(),
+        )
+    }
+
+    /// Rows of existing tables the new tables point at.
+    const PRELUDE: &[&str] =
+        &["INSERT INTO domains (name, upstream_json) VALUES ('example.test', '{}')"];
+
+    // ── schema metadata, per dialect ─────────────────────────────────────────
+
+    type LiveCol = (String, String, bool, Option<String>);
+
+    /// `(name, type, notnull, normalised default)` per column of `table`.
+    async fn columns(c: &mut Conn, table: &str) -> Vec<LiveCol> {
+        let rows = if c.is_pg() {
+            c.rows(
+                "SELECT column_name::text, data_type::text, \
+                        (CASE WHEN is_nullable = 'NO' THEN 1 ELSE 0 END)::bigint, \
+                        column_default::text \
+                   FROM information_schema.columns \
+                  WHERE table_schema = current_schema() AND table_name = ?",
+                &[Val::T(table.to_string())],
+                &['T', 'T', 'I', 'T'],
+            )
+            .await
+        } else {
+            c.rows(
+                &format!(
+                    "SELECT name, type, \"notnull\", dflt_value FROM pragma_table_info('{table}')"
+                ),
+                &[],
+                &['T', 'T', 'I', 'T'],
+            )
+            .await
+        };
+        rows.into_iter()
+            .map(|r| {
+                let ty = match r[1].to_ascii_lowercase().as_str() {
+                    "text" => "T",
+                    "integer" | "bigint" => "I",
+                    "blob" | "bytea" => "B",
+                    other => panic!("{table}.{}: unexpected type {other}", r[0]),
+                }
+                .to_string();
+                let default = (r[3] != "NULL").then(|| normalise_default(&r[3]));
+                (r[0].clone(), ty, r[2] == "1", default)
+            })
+            .collect()
+    }
+
+    /// `'x'::text` (Postgres) and `'x'` (SQLite) both become `x`; `1` stays `1`.
+    fn normalise_default(d: &str) -> String {
+        let d = d.trim();
+        if let Some(rest) = d.strip_prefix('\'') {
+            let end = rest.rfind('\'').expect("closing quote");
+            rest[..end].replace("''", "'")
+        } else {
+            d.split("::")
+                .next()
+                .unwrap()
+                .trim_matches(['(', ')'])
+                .to_string()
+        }
+    }
+
+    fn expect_rule(rule: &str) -> (bool, Option<String>) {
+        match rule {
+            "!" => (true, None),
+            "~" => (false, None),
+            r => (true, Some(r.strip_prefix('=').expect("rule").to_string())),
+        }
+    }
+
+    async fn check_metadata(c: &mut Conn) -> Vec<String> {
+        let mut bad = Vec::new();
+        let d = c.dialect();
+        for t in NEW_TABLES {
+            let live = columns(c, t.name).await;
+            let mut have: Vec<&str> = live.iter().map(|l| l.0.as_str()).collect();
+            let mut want: Vec<&str> = t.cols.iter().map(|c| c.0).collect();
+            have.sort_unstable();
+            want.sort_unstable();
+            if have != want {
+                bad.push(format!("{d}: {} columns {have:?}, plan {want:?}", t.name));
+                continue;
+            }
+            for col in t.cols {
+                let l = live.iter().find(|l| l.0 == col.0).unwrap();
+                let (nn, def) = expect_rule(col.2);
+                let got = (l.1.clone(), l.2, l.3.clone());
+                let want = (col.1.to_string(), nn, def);
+                if got != want {
+                    bad.push(format!(
+                        "{d}: {}.{} is {got:?}, plan {want:?}",
+                        t.name, col.0
+                    ));
+                }
+            }
+        }
+        for (tname, cols) in ALTERED {
+            let live = columns(c, tname).await;
+            for (name, ty, rule) in *cols {
+                let Some(l) = live.iter().find(|l| l.0 == *name) else {
+                    bad.push(format!("{d}: {tname}.{name} missing"));
+                    continue;
+                };
+                let (nn, def) = expect_rule(rule);
+                let got = (l.1.clone(), l.2, l.3.clone());
+                let want = (ty.to_string(), nn, def);
+                if got != want {
+                    bad.push(format!("{d}: {tname}.{name} is {got:?}, plan {want:?}"));
+                }
+            }
+        }
+        bad
+    }
+
+    /// `(unique, partial, columns)` of `index`, or `None` when it is absent.
+    async fn index_shape(c: &mut Conn, index: &str, table: &str) -> Option<(bool, bool, String)> {
+        if c.is_pg() {
+            let head = c
+                .rows(
+                    "SELECT (CASE WHEN ix.indisunique THEN 1 ELSE 0 END)::bigint, \
+                            (CASE WHEN ix.indpred IS NULL THEN 0 ELSE 1 END)::bigint, \
+                            t.relname::text \
+                       FROM pg_index ix \
+                       JOIN pg_class i ON i.oid = ix.indexrelid \
+                       JOIN pg_class t ON t.oid = ix.indrelid \
+                       JOIN pg_namespace n ON n.oid = i.relnamespace \
+                      WHERE i.relname = ? AND n.nspname = current_schema()",
+                    &[Val::T(index.to_string())],
+                    &['I', 'I', 'T'],
+                )
+                .await;
+            let h = head.first()?;
+            if h[2] != table {
+                return Some((false, false, format!("on table {}", h[2])));
+            }
+            let cols = c
+                .rows(
+                    "SELECT a.attname::text \
+                       FROM pg_index ix \
+                       JOIN pg_class i ON i.oid = ix.indexrelid \
+                       JOIN pg_namespace n ON n.oid = i.relnamespace \
+                       CROSS JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) \
+                       JOIN pg_attribute a ON a.attrelid = ix.indrelid AND a.attnum = k.attnum \
+                      WHERE i.relname = ? AND n.nspname = current_schema() \
+                      ORDER BY k.ord",
+                    &[Val::T(index.to_string())],
+                    &['T'],
+                )
+                .await;
+            let cols: Vec<String> = cols.into_iter().map(|r| r[0].clone()).collect();
+            Some((h[0] == "1", h[1] == "1", cols.join(",")))
+        } else {
+            let head = c
+                .rows(
+                    &format!(
+                        "SELECT \"unique\", partial FROM pragma_index_list('{table}') \
+                          WHERE name = ?"
+                    ),
+                    &[Val::T(index.to_string())],
+                    &['I', 'I'],
+                )
+                .await;
+            let h = head.first()?;
+            let cols = c
+                .rows(
+                    &format!("SELECT name FROM pragma_index_info('{index}') ORDER BY seqno"),
+                    &[],
+                    &['T'],
+                )
+                .await;
+            let cols: Vec<String> = cols.into_iter().map(|r| r[0].clone()).collect();
+            Some((h[0] == "1", h[1] == "1", cols.join(",")))
+        }
+    }
+
+    async fn fk_count(c: &mut Conn, table: &str) -> i64 {
+        if c.is_pg() {
+            c.count(
+                "SELECT COUNT(*)::bigint FROM information_schema.table_constraints \
+                  WHERE constraint_type = 'FOREIGN KEY' AND table_schema = current_schema() \
+                    AND table_name = ?",
+                &[Val::T(table.to_string())],
+            )
+            .await
+        } else {
+            c.count(
+                &format!("SELECT COUNT(*) FROM pragma_foreign_key_list('{table}')"),
+                &[],
+            )
+            .await
+        }
+    }
+
+    // ── the checks, run against one dialect ──────────────────────────────────
+
+    /// Everything except the `migrate-store` copy. Returns the disagreements with
+    /// the plan; empty means this dialect matches it.
+    async fn assert_schema(c: &mut Conn) -> Vec<String> {
+        let d = c.dialect();
+        let mut bad = check_metadata(c).await;
+
+        for (index, tname, unique, partial, cols) in INDEXES {
+            match index_shape(c, index, tname).await {
+                None => bad.push(format!("{d}: index {index} on {tname} missing")),
+                Some(got) => {
+                    let want = (*unique, *partial, cols.to_string());
+                    if got != want {
+                        bad.push(format!("{d}: index {index} is {got:?}, plan {want:?}"));
+                    }
+                }
+            }
+        }
+
+        for t in NEW_TABLES {
+            let want = FKS.iter().filter(|f| f.0 == t.name).count() as i64;
+            let got = fk_count(c, t.name).await;
+            if got != want {
+                bad.push(format!(
+                    "{d}: {} declares {got} foreign keys, plan {want}",
+                    t.name
+                ));
+            }
+        }
+        if c.is_pg() {
+            let not_deferrable = c
+                .count(
+                    "SELECT COUNT(*)::bigint FROM information_schema.table_constraints \
+                      WHERE constraint_type = 'FOREIGN KEY' AND table_schema = current_schema() \
+                        AND is_deferrable <> 'YES'",
+                    &[],
+                )
+                .await;
+            if not_deferrable != 0 {
+                bad.push(format!(
+                    "postgres: {not_deferrable} foreign keys are not DEFERRABLE (migrate-store \
+                     defers every constraint to commit)"
+                ));
+            }
+        }
+        if !bad.is_empty() {
+            // The behavioural checks below need the tables to exist.
+            return bad;
+        }
+
+        // Full-row round trip, parents first.
+        for p in PRELUDE {
+            c.exec(p, &[])
+                .await
+                .unwrap_or_else(|e| panic!("{d}: {p}: {e}"));
+        }
+        for t in NEW_TABLES {
+            let (sql, args) = insert_of(t, &[], |_| true);
+            if let Err(e) = c.exec(&sql, &args).await {
+                bad.push(format!("{d}: full row into {}: {e}", t.name));
+                continue;
+            }
+            let (sel, types) = select_all(t);
+            let got = c.rows(&sel, &[], &types).await;
+            let want: Vec<String> = t.cols.iter().map(|c| render_sample(c.1, c.3)).collect();
+            if got != vec![want.clone()] {
+                bad.push(format!(
+                    "{d}: {} round trip {got:?}, wrote {want:?}",
+                    t.name
+                ));
+            }
+        }
+        if !bad.is_empty() {
+            return bad;
+        }
+
+        // Defaults of a minimal row, and NOT NULL on each required column.
+        for t in NEW_TABLES {
+            let del = (format!("DELETE FROM {}", t.name), vec![]);
+            let minimal = insert_of(t, &[], |c| c.2 == "!");
+            let (sel, types) = select_all(t);
+            let (res, _) = c.in_rollback(&[del.clone(), minimal.clone()], None).await;
+            if let Err(e) = res {
+                bad.push(format!("{d}: minimal row into {}: {e}", t.name));
+                continue;
+            }
+            c.exec("BEGIN", &[]).await.unwrap();
+            c.exec(&del.0, &[]).await.unwrap();
+            c.exec(&minimal.0, &minimal.1).await.unwrap();
+            let got = c.rows(&sel, &[], &types).await;
+            c.exec("ROLLBACK", &[]).await.unwrap();
+            let want: Vec<String> = t
+                .cols
+                .iter()
+                .map(|c| match c.2 {
+                    "!" => render_sample(c.1, c.3),
+                    "~" => "NULL".to_string(),
+                    r => r[1..].to_string(),
+                })
+                .collect();
+            if got != vec![want.clone()] {
+                bad.push(format!("{d}: {} defaults {got:?}, plan {want:?}", t.name));
+            }
+            for req in t.cols.iter().filter(|c| c.2 == "!") {
+                let without = insert_of(t, &[], |c| c.2 == "!" && c.0 != req.0);
+                let (res, _) = c.in_rollback(&[del.clone(), without], None).await;
+                if res.is_ok() {
+                    bad.push(format!(
+                        "{d}: {}.{} accepted a missing value",
+                        t.name, req.0
+                    ));
+                }
+            }
+        }
+
+        // CHECK constraints.
+        for (tname, col, allowed) in CHECKS {
+            let t = table(tname);
+            let ty = t.cols.iter().find(|c| c.0 == *col).expect("check column").1;
+            let del = (format!("DELETE FROM {tname}"), vec![]);
+            for v in *allowed {
+                let row = insert_of(t, &[(col, v)], |_| true);
+                let (res, _) = c.in_rollback(&[del.clone(), row], None).await;
+                if let Err(e) = res {
+                    bad.push(format!("{d}: {tname}.{col} refused allowed {v:?}: {e}"));
+                }
+            }
+            let outside = if ty == 'I' { "2" } else { "not-a-listed-value" };
+            let row = insert_of(t, &[(col, outside)], |_| true);
+            let (res, _) = c.in_rollback(&[del.clone(), row], None).await;
+            if res.is_ok() {
+                bad.push(format!("{d}: {tname}.{col} accepted {outside:?}"));
+            }
+        }
+        for (tname, col, v) in UNCHECKED {
+            let t = table(tname);
+            let del = (format!("DELETE FROM {tname}"), vec![]);
+            let row = insert_of(t, &[(col, v)], |_| true);
+            let (res, _) = c.in_rollback(&[del, row], None).await;
+            if let Err(e) = res {
+                bad.push(format!(
+                    "{d}: {tname}.{col} must take any value, refused {v:?}: {e}"
+                ));
+            }
+        }
+
+        // Unique and partial unique indexes.
+        for (tname, a, b, conflict) in UNIQUES {
+            let t = table(tname);
+            let del = (format!("DELETE FROM {tname}"), vec![]);
+            let rows = [del, insert_of(t, a, |_| true), insert_of(t, b, |_| true)];
+            let (res, _) = c.in_rollback(&rows, None).await;
+            if res.is_ok() == *conflict {
+                bad.push(format!(
+                    "{d}: {tname} {a:?} then {b:?}: expected {}, got {res:?}",
+                    if *conflict {
+                        "a conflict"
+                    } else {
+                        "both stored"
+                    }
+                ));
+            }
+        }
+
+        // Foreign keys: a missing parent is refused, a deleted parent cascades.
+        for (child, ccol, parent, pcol) in FKS {
+            let ct = table(child);
+            let del = (format!("DELETE FROM {child}"), vec![]);
+            let orphan = insert_of(ct, &[(ccol, "no-such-parent")], |_| true);
+            let (res, _) = c.in_rollback(&[del, orphan], None).await;
+            if res.is_ok() {
+                bad.push(format!("{d}: {child}.{ccol} accepted a missing {parent}"));
+            }
+            let parent_value = ct.cols.iter().find(|c| c.0 == *ccol).unwrap().3;
+            let kill = (
+                format!("DELETE FROM {parent} WHERE {pcol} = ?"),
+                vec![Val::T(parent_value.to_string())],
+            );
+            let probe = format!("SELECT COUNT(*) FROM {child}");
+            let (res, left) = c.in_rollback(&[kill], Some(&probe)).await;
+            match (res, left) {
+                (Ok(_), Some(0)) => {}
+                other => bad.push(format!("{d}: deleting {parent} left {child} at {other:?}")),
+            }
+        }
+
+        bad.extend(assert_altered_behaviour(c).await);
+        bad
+    }
+
+    /// Behaviour of the columns added to existing tables that the metadata check
+    /// cannot see: the egress kind CHECK, the one-preferred-domain index and the
+    /// audit sequence index.
+    async fn assert_altered_behaviour(c: &mut Conn) -> Vec<String> {
+        let d = c.dialect();
+        let mut bad = Vec::new();
+        let proxy = |id: &str, kind: &str| {
+            (
+                "INSERT INTO egress_proxy (id, scheme, host, port, created_at, updated_at, kind) \
+                 VALUES (?, 'http', 'proxy.example.test', 3128, 't', 't', ?)"
+                    .to_string(),
+                vec![Val::T(id.into()), Val::T(kind.into())],
+            )
+        };
+        for (i, k) in ["http", "socks5", "socks5h", "ssh"].iter().enumerate() {
+            let (res, _) = c.in_rollback(&[proxy(&format!("p{i}"), k)], None).await;
+            if let Err(e) = res {
+                bad.push(format!("{d}: egress_proxy.kind refused {k}: {e}"));
+            }
+        }
+        let (res, _) = c.in_rollback(&[proxy("px", "ftp")], None).await;
+        if res.is_ok() {
+            bad.push(format!("{d}: egress_proxy.kind accepted ftp"));
+        }
+
+        let dom = |n: &str, p: i64| {
+            (
+                "INSERT INTO domains (name, upstream_json, preferred) VALUES (?, '{}', ?)"
+                    .to_string(),
+                vec![Val::T(n.into()), Val::I(p)],
+            )
+        };
+        let (res, _) = c
+            .in_rollback(&[dom("a.test", 1), dom("b.test", 1)], None)
+            .await;
+        if res.is_ok() {
+            bad.push(format!("{d}: two preferred domains were stored"));
+        }
+        let (res, _) = c
+            .in_rollback(&[dom("a.test", 0), dom("b.test", 0)], None)
+            .await;
+        if let Err(e) = res {
+            bad.push(format!("{d}: two non-preferred domains refused: {e}"));
+        }
+
+        let audit = |id: &str, seq: Option<i64>| {
+            (
+                "INSERT INTO audit_log (id, ts, actor, actor_kind, action, detail_json, seq) \
+                 VALUES (?, 't', 'root', 'admin', 'x', '{}', ?)"
+                    .to_string(),
+                vec![Val::T(id.into()), seq.map(Val::I).unwrap_or(Val::N('I'))],
+            )
+        };
+        let (res, _) = c
+            .in_rollback(&[audit("a", Some(7)), audit("b", Some(7))], None)
+            .await;
+        if res.is_ok() {
+            bad.push(format!("{d}: two audit rows shared seq 7"));
+        }
+        let (res, _) = c
+            .in_rollback(&[audit("a", None), audit("b", None)], None)
+            .await;
+        if let Err(e) = res {
+            bad.push(format!("{d}: two audit rows without seq refused: {e}"));
+        }
+        bad
+    }
+
+    // ── connections ──────────────────────────────────────────────────────────
+
+    async fn sqlite_conn(path: &str) -> (sqlx::SqlitePool, Conn) {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&format!("sqlite://{path}"))
+            .await
+            .unwrap();
+        let conn = Conn::Lite(pool.acquire().await.unwrap());
+        (pool, conn)
+    }
+
+    async fn pg_conn(dsn: &str) -> (sqlx::PgPool, Conn) {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(dsn)
+            .await
+            .unwrap();
+        let conn = Conn::Pg(pool.acquire().await.unwrap());
+        (pool, conn)
+    }
+
+    /// A Postgres schema of its own for one test, so the shared database's other
+    /// tests (which TRUNCATE it) and this one cannot see each other's rows.
+    /// Returns `(admin pool, schema, scoped dsn)`.
+    async fn pg_scratch_schema(dsn: &str, tag: &str) -> (sqlx::PgPool, String, String) {
+        let schema = format!(
+            "t32_e10a_{tag}_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let admin = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(dsn)
+            .await
+            .expect("DATABASE_URL_PG is set but Postgres is not reachable");
+        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+            .execute(&admin)
+            .await
+            .unwrap();
+        let sep = if dsn.contains('?') { '&' } else { '?' };
+        let scoped = format!("{dsn}{sep}options=-c%20search_path%3D{schema}");
+        (admin, schema, scoped)
+    }
+
+    async fn drop_schema(admin: &sqlx::PgPool, schema: &str) {
+        let _ = sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+            .execute(admin)
+            .await;
+    }
+
+    fn report(bad: &[String]) {
+        assert!(
+            bad.is_empty(),
+            "migration 0033 disagrees with the plan in {} place(s):\n  - {}",
+            bad.len(),
+            bad.join("\n  - ")
+        );
+    }
+
+    #[tokio::test]
+    async fn schema_0033_matches_the_plan_on_sqlite() {
+        let path = test_db::unique_file_path("mw-store-0033-schema", "s.sqlite");
+        let path_str = path.to_string_lossy().to_string();
+        drop(Store::open(&path_str, key()).await.unwrap());
+        let (pool, mut conn) = sqlite_conn(&path_str).await;
+        let bad = assert_schema(&mut conn).await;
+        drop(conn);
+        pool.close().await;
+        remove_sqlite_files(&path_str);
+        report(&bad);
+        eprintln!(
+            "[mw-store] 0033 on SQLite: {} new tables, {} altered tables, {} indexes, {} \
+             foreign keys and {} CHECK columns match the plan.",
+            NEW_TABLES.len(),
+            ALTERED.len(),
+            INDEXES.len(),
+            FKS.len(),
+            CHECKS.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn schema_0033_matches_the_plan_on_postgres() {
+        let Some(dsn) = pg_dsn() else {
+            super::gate::skip(
+                "[mw-store] 0033 schema on Postgres: DATABASE_URL_PG and MW_TEST_PG unset — \
+                 the Postgres dialect of migration 0033 is not checked.",
+            );
+            return;
+        };
+        let (admin, schema, scoped) = pg_scratch_schema(&dsn, "schema").await;
+        let outcome = tokio::spawn(async move {
+            drop(Store::open_postgres(&scoped, key()).await.unwrap());
+            let (pool, mut conn) = pg_conn(&scoped).await;
+            let bad = assert_schema(&mut conn).await;
+            drop(conn);
+            pool.close().await;
+            bad
+        })
+        .await;
+        drop_schema(&admin, &schema).await;
+        let bad = outcome.expect("the Postgres leg panicked");
+        report(&bad);
+        eprintln!("[mw-store] 0033 on Postgres: RAN and matches the plan.");
+    }
+
+    /// The destination of a `migrate-store` run from [`seeded_source`]: copied
+    /// tables carry the sample row byte for byte, the deliberately left-behind ones
+    /// are empty.
+    async fn assert_copied(dest: &mut Conn) -> Vec<String> {
+        let d = dest.dialect();
+        let mut bad = Vec::new();
+        for t in NEW_TABLES {
+            let (sel, types) = select_all(t);
+            let got = dest.rows(&sel, &[], &types).await;
+            if t.copied {
+                let want: Vec<String> = t.cols.iter().map(|c| render_sample(c.1, c.3)).collect();
+                if got != vec![want.clone()] {
+                    bad.push(format!(
+                        "{d}: migrate-store gave {} {got:?}, source {want:?}",
+                        t.name
+                    ));
+                }
+            } else if !got.is_empty() {
+                bad.push(format!(
+                    "{d}: {} is not copied by design, yet the destination holds {got:?}",
+                    t.name
+                ));
+            }
+        }
+        bad
+    }
+
+    /// A SQLite source holding one sample row in every new table.
+    async fn seeded_source(tag: &str) -> String {
+        let path = test_db::unique_file_path(tag, "src.sqlite");
+        let path_str = path.to_string_lossy().to_string();
+        drop(Store::open(&path_str, key()).await.unwrap());
+        let (pool, mut c) = sqlite_conn(&path_str).await;
+        for p in PRELUDE {
+            c.exec(p, &[]).await.unwrap();
+        }
+        for t in NEW_TABLES {
+            let (sql, args) = insert_of(t, &[], |_| true);
+            c.exec(&sql, &args)
+                .await
+                .unwrap_or_else(|e| panic!("seeding {}: {e}", t.name));
+        }
+        drop(c);
+        pool.close().await;
+        path_str
+    }
+
+    #[tokio::test]
+    async fn migrate_store_copies_the_0033_tables_sqlite() {
+        let src = seeded_source("mw-store-0033-copy-src").await;
+        let dest_path = test_db::unique_file_path("mw-store-0033-copy-dest", "dest.sqlite");
+        let dest_str = dest_path.to_string_lossy().to_string();
+        let dest = Store::open(&dest_str, key()).await.unwrap();
+        dest.migrate_from_sqlite(&src).await.unwrap();
+        drop(dest);
+        let (pool, mut conn) = sqlite_conn(&dest_str).await;
+        let bad = assert_copied(&mut conn).await;
+        drop(conn);
+        pool.close().await;
+        remove_sqlite_files(&src);
+        remove_sqlite_files(&dest_str);
+        report(&bad);
+        eprintln!(
+            "[mw-store] migrate-store 0033 (SQLite destination): {} tables copied, {} left \
+             behind by design.",
+            NEW_TABLES.iter().filter(|t| t.copied).count(),
+            NEW_TABLES.iter().filter(|t| !t.copied).count()
+        );
+    }
+
+    #[tokio::test]
+    async fn migrate_store_copies_the_0033_tables_postgres() {
+        let Some(dsn) = pg_dsn() else {
+            super::gate::skip(
+                "[mw-store] migrate-store 0033 to Postgres: DATABASE_URL_PG and MW_TEST_PG \
+                 unset — the copy of the 0033 tables into Postgres is not driven.",
+            );
+            return;
+        };
+        let src = seeded_source("mw-store-0033-copy-pg-src").await;
+        let (admin, schema, scoped) = pg_scratch_schema(&dsn, "copy").await;
+        let src2 = src.clone();
+        let outcome = tokio::spawn(async move {
+            let dest = Store::open_postgres(&scoped, key()).await.unwrap();
+            dest.migrate_from_sqlite(&src2).await.unwrap();
+            drop(dest);
+            let (pool, mut conn) = pg_conn(&scoped).await;
+            let bad = assert_copied(&mut conn).await;
+            drop(conn);
+            pool.close().await;
+            bad
+        })
+        .await;
+        drop_schema(&admin, &schema).await;
+        remove_sqlite_files(&src);
+        let bad = outcome.expect("the Postgres leg panicked");
+        report(&bad);
+        eprintln!("[mw-store] migrate-store 0033 (Postgres destination): RAN and matched.");
+    }
+
+    /// `NOT_MIGRATED_DELIBERATELY` names exactly the new tables marked
+    /// `copied: false` here, so the two lists cannot drift apart.
+    #[test]
+    fn deliberate_list_agrees_with_the_0033_spec() {
+        for t in NEW_TABLES {
+            let listed = super::NOT_MIGRATED_DELIBERATELY
+                .iter()
+                .any(|(n, _)| *n == t.name);
+            assert_eq!(
+                listed, !t.copied,
+                "{}: copied={} in the 0033 spec but listed={listed} in NOT_MIGRATED_DELIBERATELY",
+                t.name, t.copied
+            );
+        }
+    }
 }
