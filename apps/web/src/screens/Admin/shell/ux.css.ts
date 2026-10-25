@@ -44,6 +44,12 @@ export const pageTitleBlock = style({ display: 'flex', flexDirection: 'column', 
 export const pageTitle = style({ margin: 0, fontSize: '1.25rem', fontWeight: vars.weight.heavy });
 export const pageDescription = style({ margin: 0, color: vars.color.textDim, maxWidth: '72ch' });
 export const pageActions = style({ display: 'flex', flexWrap: 'wrap', gap: vars.space[2] });
+export const iconAction = style({
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  inlineSize: vars.a11y.touchTarget, blockSize: vars.a11y.touchTarget,
+  minInlineSize: vars.a11y.touchTarget, padding: 0, flexShrink: 0,
+  selectors: { '&:focus-visible': focusRing },
+});
 
 /** Loading / error / empty / not-available block inside the final layout (UX11). */
 export const pageState = style({
@@ -66,7 +72,7 @@ export const listDetail = style({
   gridTemplateColumns: 'minmax(0, 1fr)',
   gap: vars.space[4],
   '@media': {
-    'screen and (min-width: 1200px)': { gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)' },
+    'screen and (min-width: 1200px)': { selectors: { '&[data-detail-open]': { gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)' } } },
   },
 });
 export const listPane = style({
@@ -75,6 +81,8 @@ export const listPane = style({
 });
 export const detailPane = style({
   minWidth: 0,
+  alignSelf: 'start',
+  boxSizing: 'border-box',
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[3],
@@ -82,9 +90,18 @@ export const detailPane = style({
   border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   borderRadius: vars.radius.md,
   background: vars.color.surface,
+  '@media': {
+    'screen and (min-width: 1200px)': {
+      position: 'sticky', insetBlockStart: vars.space[4],
+      maxBlockSize: `calc(100dvh - ${vars.space[6]} * 2 - ${vars.space[4]} * 2)`,
+      overflowY: 'auto', overscrollBehavior: 'contain', scrollbarGutter: 'stable',
+    },
+  },
   selectors: { '&:focus-visible': focusRing },
 });
+globalStyle(`${detailPane} > *`, { flexShrink: 0 });
 export const detailHead = style({ display: 'flex', alignItems: 'center', gap: vars.space[2], flexWrap: 'wrap' });
+export const detailClose = style({ marginInlineStart: 'auto' });
 export const detailTitle = style({ margin: 0, fontSize: '1.05rem', fontWeight: vars.weight.heavy, overflowWrap: 'anywhere' });
 /** "Back to the list" link: shown on phones only, where list and detail are one at a time. */
 export const backLink = style({

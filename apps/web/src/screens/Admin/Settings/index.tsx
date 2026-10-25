@@ -10,7 +10,8 @@
 
 import { createMemo, createResource, createSignal, Show, useContext, type JSX } from 'solid-js';
 import { loadCatalog, t } from '../../../i18n';
-import { listAdminSettings, type AdminSetting } from '../../../api/admin/settings.ts';
+import { deleteGlobal, listAdminSettings, type AdminSetting } from '../../../api/admin/settings.ts';
+import { RevertToDefault } from '../shell/RevertToDefault.tsx';
 import type { AdminReadResult } from '../shell/adminApi.ts';
 import { ShellContext } from '../shell/context.ts';
 import { parseAdminPath, type AdminRoute } from '../shell/router.ts';
@@ -82,6 +83,7 @@ export function AdminSettings(props: AdminSettingsProps): JSX.Element {
         section="settings"
         route={route()}
         testId="admin-settings"
+        compactActions
         table={{
           caption: t('admin-settings-list-caption'),
           columns: [
@@ -95,7 +97,7 @@ export function AdminSettings(props: AdminSettingsProps): JSX.Element {
                 </span>
               ),
             },
-            { id: 'value', header: t('admin-settings-col-value'), cell: (s) => displayValue(s.kind, s.effective.value) },
+            { id: 'value', header: t('admin-settings-col-value'), cell: (s) => <span class={css.valueCell} title={displayValue(s.kind, s.effective.value)}>{displayValue(s.kind, s.effective.value)}</span> },
             { id: 'source', header: t('admin-settings-col-source'), cell: (s) => <SourceBadge source={sourceOf(s)} /> },
             { id: 'overrides', header: t('admin-settings-col-overrides'), cell: overridesText },
           ],
@@ -108,6 +110,11 @@ export function AdminSettings(props: AdminSettingsProps): JSX.Element {
           search: { label: t('admin-settings-search'), value: query(), onSearch: setQuery },
           filters: present().map((c) => ({ id: c, label: categoryLabel(c), active: category() === c })),
           onToggleFilter: (id) => setCategory(category() === id ? null : id),
+          rowActions: (s) => <Show when={!s.dedicatedRoute && (s.globalValue !== null && s.globalValue !== undefined || s.globalLocked)}>
+            <RevertToDefault compact label={settingLabel(s.key)} defaultDisplay={displayValue(s.kind, s.default)} isDefault={false}
+              disabledReason={s.envState?.set && s.envState.precedence === 'pin' ? t('admin-settings-pinned', { name: s.envState.var }) : shell?.can.can('settings.write') === false ? shell.can.reason('settings.write') : null}
+              onRevert={async () => { await deleteGlobal(s.key, s.etag); await refetch(); }} />
+          </Show>,
         }}
         openLabel={() => t('admin-settings-open')}
         detailTitle={(key) => settingLabel(key)}

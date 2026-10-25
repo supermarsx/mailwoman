@@ -10,6 +10,7 @@
 import { Show, createSignal, createUniqueId, type JSX } from 'solid-js';
 import { isolate, t } from '../../../i18n';
 import { Feedback, describeAdminError } from './Feedback.tsx';
+import { Icon } from './icons.tsx';
 import * as css from './shell.css.ts';
 import * as ux from './ux.css.ts';
 
@@ -24,6 +25,7 @@ export interface RevertToDefaultProps {
   onRevert: () => void | Promise<void>;
   /** Why the value cannot be changed here, or null. */
   disabledReason?: string | null;
+  compact?: boolean;
 }
 
 export function RevertToDefault(props: RevertToDefaultProps): JSX.Element {
@@ -48,18 +50,18 @@ export function RevertToDefault(props: RevertToDefaultProps): JSX.Element {
 
   return (
     <div class={ux.stateRow} data-testid="revert-to-default">
-      <span id={`${id}-default`}>{t('admin-ux-revert-default-is', { value: isolate(props.defaultDisplay) })}</span>
+      <span id={`${id}-default`} class={props.compact ? css.srOnly : undefined}>{t('admin-ux-revert-default-is', { value: isolate(props.defaultDisplay) })}</span>
       <Show when={!props.isDefault}>
         <button
           type="button"
-          class={ux.linkButton}
+          class={`btn btn--ghost ${ux.iconAction}`}
           disabled={busy() || Boolean(props.disabledReason)}
           aria-describedby={`${id}-default`}
-          title={props.disabledReason ?? undefined}
+          title={props.disabledReason ?? `${t('admin-ux-revert')} (${props.label})`}
           onClick={() => void revert()}
         >
-          {t('admin-ux-revert')}
-          <span class={css.srOnly}> {t('admin-ux-revert-field', { label: props.label })}</span>
+          <Icon name="restore" />
+          <span class={css.srOnly}>{t('admin-ux-revert')} {t('admin-ux-revert-field', { label: props.label })}</span>
         </button>
       </Show>
       <Feedback kind="success" message={done()} />

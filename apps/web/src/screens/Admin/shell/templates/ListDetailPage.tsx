@@ -33,6 +33,7 @@ export interface ListDetailPageProps<R> {
   renderDetail: (id: string) => JSX.Element;
   /** The Open link's text for a row (default "Open"); its accessible name adds the row key. */
   openLabel?: (row: R) => string;
+  compactActions?: boolean;
   /** Navigate in place. Default: the shell router. */
   navigate?: (path: string) => void;
   testId?: string;
@@ -54,7 +55,10 @@ export function ListDetailPage<R>(props: ListDetailPageProps<R>): JSX.Element {
 
   createEffect(
     on(selected, (id, prev) => {
-      if (id !== undefined && id !== prev) queueMicrotask(() => detailHeading?.focus({ preventScroll: false }));
+      if (id !== undefined && id !== prev) queueMicrotask(() => {
+        detailHeading?.closest<HTMLElement>('[data-testid="list-detail"]')?.scrollTo?.({ top: 0 });
+        detailHeading?.focus({ preventScroll: window.matchMedia?.('(min-width: 1200px)').matches ?? false });
+      });
     }),
   );
 
@@ -64,12 +68,15 @@ export function ListDetailPage<R>(props: ListDetailPageProps<R>): JSX.Element {
     return (
       <>
         <a
-          class="btn btn--ghost"
+          class={`btn btn--ghost ${props.compactActions ? ux.iconAction : ''}`}
+          title={`${props.openLabel?.(row) ?? t('admin-ux-list-open')} ${key}`}
           href={hrefFor(path)}
           aria-current={selected() === key ? 'true' : undefined}
           onClick={(e) => inPlace(e, path)}
         >
-          {props.openLabel?.(row) ?? t('admin-ux-list-open')}
+          <Show when={props.compactActions} fallback={props.openLabel?.(row) ?? t('admin-ux-list-open')}>
+            <Icon name="edit" /><span class={css.srOnly}>{props.openLabel?.(row) ?? t('admin-ux-list-open')}</span>
+          </Show>
           <span class={css.srOnly}> {key}</span>
         </a>
         {props.table.rowActions?.(row)}
@@ -100,6 +107,10 @@ export function ListDetailPage<R>(props: ListDetailPageProps<R>): JSX.Element {
                 <h3 id={`${props.section}-detail-title`} ref={detailHeading} tabindex="-1" class={ux.detailTitle}>
                   {props.detailTitle(id())}
                 </h3>
+                <a class={`btn btn--ghost ${ux.iconAction} ${ux.detailClose}`} href={hrefFor(sectionPath(props.section))}
+                  aria-label={t('common-close')} title={t('common-close')} onClick={(e) => inPlace(e, sectionPath(props.section))}>
+                  <Icon name="close" />
+                </a>
               </div>
               {props.renderDetail(id())}
             </section>
