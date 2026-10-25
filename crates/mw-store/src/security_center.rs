@@ -63,7 +63,7 @@ impl Store {
         &self,
         stale_before: &str,
     ) -> Result<serde_json::Value, StoreError> {
-        let coverage=q("WITH known AS (SELECT id AS account_id FROM accounts UNION SELECT account_id FROM sessions UNION SELECT account_id FROM signin_event WHERE account_id IS NOT NULL) SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN EXISTS(SELECT 1 FROM totp_secrets t WHERE t.account_id=known.account_id AND t.confirmed=1) OR EXISTS(SELECT 1 FROM webauthn_credentials w WHERE w.account_id=known.account_id) THEN 1 ELSE 0 END),0) AS enrolled FROM known").fetch_optional(&self.backend).await?.ok_or(StoreError::NotFound)?;
+        let coverage=q("WITH known AS (SELECT id AS account_id FROM accounts UNION SELECT account_id FROM sessions UNION SELECT account_id FROM signin_identity) SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN EXISTS(SELECT 1 FROM totp_secrets t WHERE t.account_id=known.account_id AND t.confirmed=1) OR EXISTS(SELECT 1 FROM webauthn_credentials w WHERE w.account_id=known.account_id) THEN 1 ELSE 0 END),0) AS enrolled FROM known").fetch_optional(&self.backend).await?.ok_or(StoreError::NotFound)?;
         let admins=q("SELECT COUNT(*) AS n FROM admin_account a WHERE disabled=0 AND password_hash IS NOT NULL AND NOT EXISTS(SELECT 1 FROM admin_totp t WHERE t.account_id=a.id)").fetch_optional(&self.backend).await?.ok_or(StoreError::NotFound)?.get_i64("n");
         let keys=q("SELECT COUNT(*) AS n FROM api_keys WHERE revoked_at IS NULL AND COALESCE(last_used_at,created_at)<?1").bind(stale_before).fetch_optional(&self.backend).await?.ok_or(StoreError::NotFound)?.get_i64("n");
         Ok(
@@ -74,13 +74,13 @@ impl Store {
         &self,
         address: &str,
     ) -> Result<Option<String>, StoreError> {
-        Ok(q("SELECT account_id FROM signin_event WHERE lower(username_attempted)=?1 AND result='success' AND account_id IS NOT NULL ORDER BY ts DESC LIMIT 1").bind(address.to_ascii_lowercase()).fetch_optional(&self.backend).await?.map(|row|row.get_string("account_id")))
+        Ok(q("SELECT account_id FROM signin_identity WHERE lower(address)=?1 ORDER BY seen_at DESC,event_id DESC,account_id DESC LIMIT 1").bind(address.to_ascii_lowercase()).fetch_optional(&self.backend).await?.map(|row|row.get_string("account_id")))
     }
     pub async fn security_account_address(
         &self,
         account: &str,
     ) -> Result<Option<String>, StoreError> {
-        Ok(q("SELECT username_attempted FROM signin_event WHERE account_id=?1 AND result='success' ORDER BY ts DESC LIMIT 1").bind(account).fetch_optional(&self.backend).await?.map(|row|row.get_string("username_attempted")))
+        Ok(q("SELECT address AS username_attempted FROM signin_identity WHERE account_id=?1").bind(account).fetch_optional(&self.backend).await?.map(|row|row.get_string("username_attempted")))
     }
     /// Preserve the original authentication lifetime and device while rotating a cookie.
     /// A concurrently revoked old session cannot be resurrected by the replacement.
@@ -242,9 +242,7 @@ impl Store {
             .collect())
     }
     pub async fn record_signin_event(&self, event: &SigninEvent) -> Result<(), StoreError> {
-        q("INSERT INTO signin_event(id,account_id,username_attempted,ts,result,method,ip,user_agent,geo_country,reason) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)")
-            .bind(&event.id).bind(event.account_id.as_deref()).bind(&event.username_attempted).bind(event.ts).bind(&event.result).bind(&event.method).bind(&event.ip).bind(&event.user_agent).bind(event.geo_country.as_deref()).bind(&event.reason).execute(&self.backend).await?;
-        Ok(())
+        self.record_auth_event(event, crate::AuthSurface::Webmail, None, crate::AuthLogLimits::default()).await
     }
     pub async fn signin_history(
         &self,
@@ -253,7 +251,7 @@ impl Store {
         result: Option<&str>,
         limit: u32,
     ) -> Result<Vec<SigninEvent>, StoreError> {
-        let rows=q("SELECT id,account_id,username_attempted,ts,result,method,ip,user_agent,geo_country,reason FROM signin_event WHERE account_id=?1 AND ts<=?2 AND (?3 IS NULL OR result=?3) ORDER BY ts DESC,id DESC LIMIT ?4")
+        let rows=q("SELECT id,account_id,username_attempted,ts,result,method,ip,user_agent,geo_country,reason FROM signin_event WHERE surface='webmail' AND account_id=?1 AND ts<=?2 AND (?3 IS NULL OR result=?3) ORDER BY ts DESC,id DESC LIMIT ?4")
             .bind(account).bind(before).bind(result).bind(i64::from(limit.clamp(1,500))).fetch_all(&self.backend).await?;
         Ok(rows
             .iter()

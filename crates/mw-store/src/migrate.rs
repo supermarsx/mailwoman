@@ -1362,6 +1362,18 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "admin_webauthn_credentials",
+        select: "SELECT credential_id,account_id,cose_public_key,sign_count,transports,label,created_at,backup_eligible,backup_state,uv_initialized,state_revision FROM admin_webauthn_credentials",
+        insert: "INSERT INTO admin_webauthn_credentials(credential_id,account_id,cose_public_key,sign_count,transports,label,created_at,backup_eligible,backup_state,uv_initialized,state_revision) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+        map: |r|vec![t(r,"credential_id"),t(r,"account_id"),b(r,"cose_public_key"),i(r,"sign_count"),t(r,"transports"),t(r,"label"),t(r,"created_at"),i(r,"backup_eligible"),i(r,"backup_state"),i(r,"uv_initialized"),i(r,"state_revision")],
+    },
+    TableSpec {
+        name: "admin_recovery_codes",
+        select: "SELECT account_id,code_hash,used FROM admin_recovery_codes",
+        insert: "INSERT INTO admin_recovery_codes(account_id,code_hash,used) VALUES(?1,?2,?3)",
+        map: |r|vec![t(r,"account_id"),t(r,"code_hash"),i(r,"used")],
+    },
+    TableSpec {
         name: "admin_role",
         select: "SELECT id, name, builtin FROM admin_role",
         insert: "INSERT INTO admin_role (id, name, builtin) VALUES (?1,?2,?3)",
@@ -1493,8 +1505,8 @@ const TABLES: &[TableSpec] = &[
         name: "signin_event",
         // Sign-in history the user sees in My activity; append-only like the other
         // audit logs.
-        select: "SELECT id, account_id, username_attempted, ts, result, method, ip, user_agent, geo_country, reason FROM signin_event",
-        insert: "INSERT INTO signin_event (id, account_id, username_attempted, ts, result, method, ip, user_agent, geo_country, reason) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        select: "SELECT id, account_id, username_attempted, ts, result, method, ip, user_agent, geo_country, reason, surface, backend, last_seen, repeat_count, aggregate_key FROM signin_event",
+        insert: "INSERT INTO signin_event (id, account_id, username_attempted, ts, result, method, ip, user_agent, geo_country, reason, surface, backend, last_seen, repeat_count, aggregate_key) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -1506,9 +1518,15 @@ const TABLES: &[TableSpec] = &[
                 t(r, "ip"),
                 t(r, "user_agent"),
                 ot(r, "geo_country"),
-                t(r, "reason"),
+                t(r, "reason"), t(r, "surface"), ot(r, "backend"), i(r, "last_seen"), i(r, "repeat_count"), ot(r, "aggregate_key"),
             ]
         },
+    },
+    TableSpec {
+        name: "signin_identity",
+        select: "SELECT account_id,address,seen_at,event_id FROM signin_identity",
+        insert: "INSERT INTO signin_identity(account_id,address,seen_at,event_id) VALUES(?1,?2,?3,?4)",
+        map: |r| vec![t(r,"account_id"),t(r,"address"),i(r,"seen_at"),t(r,"event_id")],
     },
     TableSpec {
         name: "remembered_device",

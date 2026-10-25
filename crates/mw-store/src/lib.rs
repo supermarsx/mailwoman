@@ -6,6 +6,8 @@
 //! translated per-backend by the [`backend`]/[`dialect`] helpers (no `sqlx::Any`).
 
 mod security_center;
+mod auth_logs;
+pub use auth_logs::{AuthLogEvent, AuthLogLimits, AuthLogQuery, AuthSurface};
 mod hosting_connections;
 pub use hosting_connections::{HostingConnectionRow, HostingCredentialChange, HostingMutation};
 mod ssh_tunnels;
@@ -16,6 +18,8 @@ pub mod diagnostics;
 pub mod jobs;
 pub use security_center::{SessionDevice, SecuritySession, SigninEvent, RememberedDevice};
 mod admin_accounts;
+mod admin_passkeys;
+pub use admin_passkeys::{AdminPasskey, AdminSessionFactor};
 mod domain_config;
 pub use domain_config::{
     DomainAccount, DomainConfigRow, DomainMutation, DomainSigninState, SessionAuthority,

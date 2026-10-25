@@ -66,7 +66,7 @@ const ALL_TABLES: &str = "sessions, settings, accounts, mailboxes, messages, bod
     open_events, setting_policy, setting_value, auth_failure, ip_block, ip_allow, \
     admin_account, admin_totp, admin_role, admin_role_capability, admin_account_role, \
     admin_capability_override, admin_saved_query, audit_chain_head, audit_checkpoint, \
-    audit_retention, audit_sink, alert_rule, alert_event, signin_event, remembered_device, \
+    audit_retention, audit_sink, alert_rule, alert_event, signin_event, signin_identity, remembered_device, \
     branding, brand_asset, custom_css, custom_theme, custom_accent, sieve_script, \
     smime_trust_root, pki_revocation_cache, identity_signature_default, \
     domain_signature_template, domain_disclaimer, mdn_sender_rule, receipt_status, \
@@ -75,7 +75,7 @@ const ALL_TABLES: &str = "sessions, settings, accounts, mailboxes, messages, bod
     user_group_member, feature_profile, feature_profile_assignment, mail_user, \
     mail_user_account, signin_allow, usage_counter, usage_storage, config_snapshot, \
     maintenance_window, scheduled_task, job_run, diag_run, account_ban, metric_rollup, \
-    data_export, inbound_webhooks, webhook_nonce, dav_account";
+    data_export, inbound_webhooks, webhook_nonce, dav_account, admin_webauthn_credentials, admin_recovery_codes";
 
 async fn truncate_pg(dsn: &str) {
     use sqlx::postgres::PgPoolOptions;
@@ -2266,6 +2266,17 @@ mod admin_controls_0033 {
             ("user_agent", 'T', "!", "Mozilla/5.0"),
             ("geo_country", 'T', "~", "GB"),
             ("reason", 'T', "!", "badCredentials"),
+            ("surface", 'T', "=webmail", "webmail"),
+            ("backend", 'T', "~", "imap"),
+            ("last_seen", 'I', "=0", TS),
+            ("repeat_count", 'I', "=1", "4"),
+            ("aggregate_key", 'T', "~", "aggregate-1"),
+        ]},
+        NewTable { name: "signin_identity", copied: true, cols: &[
+            ("account_id", 'T', "!", "acct-1"),
+            ("address", 'T', "!", "alice@example.test"),
+            ("seen_at", 'I', "!", TS),
+            ("event_id", 'T', "!", "success-1"),
         ]},
         NewTable { name: "remembered_device", copied: true, cols: &[
             ("id", 'T', "!", "rd-1"),

@@ -23,6 +23,9 @@ use std::fmt;
 use crate::backend::q;
 use crate::{Store, StoreError};
 
+#[path = "admin_totp.rs"]
+mod self_service_totp;
+
 /// One admin account (0033 `admin_account`).
 #[derive(Clone, PartialEq, Eq)]
 pub struct AdminAccountRow {
@@ -338,6 +341,8 @@ impl Store {
                 "DELETE FROM admin_account_role WHERE account_id = ?1",
                 "DELETE FROM admin_capability_override WHERE account_id = ?1",
                 "DELETE FROM admin_totp WHERE account_id = ?1",
+                "DELETE FROM admin_webauthn_credentials WHERE account_id = ?1",
+                "DELETE FROM admin_recovery_codes WHERE account_id = ?1",
                 "DELETE FROM admin_account WHERE id = ?1",
             ] {
                 q(sql).bind(id).execute_tx(&mut tx).await?;
@@ -416,6 +421,8 @@ impl Store {
             "DELETE FROM admin_account_role WHERE account_id = ?1",
             "DELETE FROM admin_capability_override WHERE account_id = ?1",
             "DELETE FROM admin_totp WHERE account_id = ?1",
+            "DELETE FROM admin_webauthn_credentials WHERE account_id = ?1",
+            "DELETE FROM admin_recovery_codes WHERE account_id = ?1",
         ] {
             q(sql).bind(id).execute_tx(&mut tx).await?;
         }
