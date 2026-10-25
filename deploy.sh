@@ -930,7 +930,7 @@ snapshot() {
     elif [[ -n $RESUME_CONTAINER ]]; then
         docker start "$RESUME_CONTAINER" >/dev/null
         RESUME_CONTAINER=
-        compose "$ACTIVE" start --wait --wait-timeout "$TIMEOUT" mailwoman
+        compose "$ACTIVE" up -d --no-recreate --wait --wait-timeout "$TIMEOUT" mailwoman
     fi
     LAST_BACKUP=$destination
     log "Backup ready: $LAST_BACKUP"
@@ -1291,7 +1291,7 @@ case "$ACTION" in
     logs) load_active; compose "$ACTIVE" logs --tail 100 --follow ;;
     stop) load_active; compose "$ACTIVE" stop --timeout 60; log "Stopped; data retained" ;;
     start) load_active; require_free_ports; ensure_proxy_network; compose "$ACTIVE" up -d --wait --wait-timeout "$TIMEOUT"; verify ;;
-    restart) load_active; require_free_ports; ensure_proxy_network; compose "$ACTIVE" restart; compose "$ACTIVE" start --wait --wait-timeout "$TIMEOUT"; verify ;;
+    restart) load_active; require_free_ports; ensure_proxy_network; compose "$ACTIVE" restart; compose "$ACTIVE" up -d --no-recreate --wait --wait-timeout "$TIMEOUT"; verify ;;
     backup)
         load_active
         snapshot
