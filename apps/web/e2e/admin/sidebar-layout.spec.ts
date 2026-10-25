@@ -39,6 +39,7 @@ test('admin sidebar resizes, collapses and restores from account preferences @ph
       await expect(splitter).toHaveAttribute('aria-valuenow', '320');
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    if (info.project.name !== 'phone') expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
     await page.screenshot({ path: info.outputPath('sidebar-layout.png'), fullPage: true });
   } finally {
     const current = await page.request.get('/admin/me/preferences');

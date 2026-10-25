@@ -227,6 +227,7 @@ export const drawerHead = style({ display: 'flex', alignItems: 'center', justify
 
 // ── Main column ────────────────────────────────────────────────────────────────
 export const main = style({
+  position: 'relative',
   padding: vars.space[6],
   display: 'flex',
   flexDirection: 'column',
