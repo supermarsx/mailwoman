@@ -24,8 +24,70 @@ use std::collections::BTreeMap;
 /// Preserve arbitrary existing plugin IDs without normalizing two IDs together.
 pub(crate) fn ui_plugin_policy_key(id: &str) -> String {
     let digest: String = Sha256::digest(id.as_bytes())
-        .iter().map(|byte| format!("{byte:02x}")).collect();
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     format!("cap.ui_plugin.{digest}")
+}
+
+pub(crate) fn plugin_policy_key(id: &str) -> String {
+    ui_plugin_policy_key(id).replacen("cap.ui_plugin.", "cap.integration.", 1)
+}
+
+pub(crate) async fn plugin_policy_admit(
+    store: &mw_store::Store,
+    plugin: &str,
+    account: Option<&str>,
+) -> Result<(), String> {
+    let account = account.unwrap_or("");
+    let username = if account.is_empty() {
+        String::new()
+    } else {
+        match store.get_account(account).await {
+            Ok(row) => row.username,
+            Err(mw_store::StoreError::NotFound) => {
+                let rows = store
+                    .session_names_by_account(account)
+                    .await
+                    .map_err(|_| "plugin identity unavailable")?;
+                let mut names = std::collections::BTreeSet::new();
+                for row in rows {
+                    names.insert(
+                        store
+                            .canonical_policy_address(&row.username)
+                            .await
+                            .map_err(|_| "plugin identity invalid")?,
+                    );
+                }
+                if names.len() != 1 {
+                    return Err("plugin identity missing or ambiguous".into());
+                }
+                names.into_iter().next().unwrap()
+            }
+            Err(_) => return Err("plugin identity unavailable".into()),
+        }
+    };
+    let subject = mw_store::settings_policy::SettingSubject {
+        account_id: account,
+        domain: username.rsplit_once('@').map(|(_, d)| d).unwrap_or(""),
+        address: &username,
+    };
+    let mut keys = vec!["cap.plugins".to_string(), plugin_policy_key(plugin)];
+    match plugin {
+        "bridge-graph" => keys.push("cap.integration.microsoft".into()),
+        "bridge-gmail" => keys.push("cap.integration.google".into()),
+        "nextcloud" | "nextcloud-plugin" => keys.push("cap.integration.nextcloud".into()),
+        _ => {}
+    }
+    for key in keys {
+        let value = registry::effective_for(store, &key, &subject)
+            .await
+            .map_err(|_| "plugin policy unavailable")?;
+        if !value.is_some_and(|v| v.value.as_bool() == Some(true)) {
+            return Err(format!("feature_disabled: {key}"));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -117,7 +179,7 @@ fn enforcement(id: &str) -> &'static str {
         | "plugins.ui"
         | "sieve.raw"
         | "forwarding.external" => "enforced",
-        "integrations.google" | "integrations.microsoft" => "token-acquisition",
+        "integrations.google" | "integrations.microsoft" => "enforced",
         _ => "pending",
     }
 }
@@ -233,13 +295,14 @@ async fn admin_features(
     ctx: AdminCtx,
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::SettingsRead)?;
-    let plugin_keys: Vec<Value> = state
+    let mut plugin_keys: Vec<Value> = state
         .store
         .list_ui_plugins()
         .await?
         .into_iter()
         .map(|p| json!({"id":p.id,"key":ui_plugin_policy_key(&p.id),"kind":"ui-plugin"}))
         .collect();
+    plugin_keys.extend(state.store.list_plugins().await?.into_iter().map(|p|json!({"id":p.id,"key":plugin_policy_key(&p.id),"kind":"wasm-plugin","enforcement":"enforced"})));
     let catalogue: Vec<Value> = CATALOGUE
         .iter()
         .map(|f| {
@@ -529,4 +592,82 @@ fn refusal(r: registry::Refusal) -> AdminApiError {
         error = error.with(key, value);
     }
     error
+}
+
+#[cfg(test)]
+mod integration_policy_tests {
+    use super::*;
+    #[tokio::test]
+    async fn account_policy_uses_persisted_alias_identity_and_never_guesses_account_ids() {
+        let store = mw_store::Store::open_in_memory(mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        store
+            .put_domain_config(&mw_store::DomainConfigRow {
+                name: "canonical.test".into(),
+                upstream_json: "{}".into(),
+                allowlist_json: "[]".into(),
+                blocklist_json: "[]".into(),
+                enabled: true,
+                preferred: false,
+                settings_json: "{}".into(),
+                updated_at: 1,
+            })
+            .await
+            .unwrap();
+        store
+            .put_domain_alias("alias.test", "canonical.test")
+            .await
+            .unwrap();
+        let account = store
+            .create_account(
+                &mw_store::NewAccount {
+                    kind: mw_store::AccountKind::Imap,
+                    host: "mail.test",
+                    port: 993,
+                    tls: "implicit",
+                    username: "User@Alias.Test",
+                    sync_policy_json: "{}",
+                },
+                &mw_store::Credentials {
+                    username: "User@Alias.Test".into(),
+                    password: "fixture".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let key = plugin_policy_key("bridge-ews");
+        store
+            .put_setting_value(&mw_store::settings_policy::SettingValueRow {
+                scope: mw_store::settings_policy::SettingScope::Domain,
+                scope_id: "canonical.test".into(),
+                key: key.clone(),
+                value: "false".into(),
+                locked: true,
+                updated_by: "admin".into(),
+                updated_at: 1,
+            })
+            .await
+            .unwrap();
+        assert!(
+            plugin_policy_admit(&store, "bridge-ews", Some(&account))
+                .await
+                .unwrap_err()
+                .contains("feature_disabled")
+        );
+        assert!(
+            plugin_policy_admit(&store, "bridge-ews", None)
+                .await
+                .is_ok()
+        );
+        assert!(
+            plugin_policy_admit(&store, "bridge-ews", Some("user@canonical.test"))
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            store.get_account(&account).await.unwrap().username,
+            "User@Alias.Test"
+        );
+    }
 }

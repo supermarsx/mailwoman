@@ -19,6 +19,133 @@ use crate::{Capability, PluginError, PluginLimits, Result};
 
 const MIB: usize = 1024 * 1024;
 
+#[cfg(test)]
+mod live_policy_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    #[derive(Default)]
+    struct Calls {
+        oauth: AtomicUsize,
+        basic: AtomicUsize,
+        http: AtomicUsize,
+    }
+    #[async_trait]
+    impl OAuthTokenProvider for Calls {
+        async fn token(&self, account: &str) -> std::result::Result<String, String> {
+            assert_eq!(account, "own");
+            self.oauth.fetch_add(1, Ordering::SeqCst);
+            Ok("cached-bearer".into())
+        }
+    }
+    #[async_trait]
+    impl BasicCredentialProvider for Calls {
+        async fn credentials(
+            &self,
+            account: &str,
+        ) -> std::result::Result<BasicCredentials, String> {
+            assert_eq!(account, "own");
+            self.basic.fetch_add(1, Ordering::SeqCst);
+            Ok(BasicCredentials::default())
+        }
+    }
+    #[async_trait]
+    impl HttpFetcher for Calls {
+        async fn fetch(&self, _req: HttpReq) -> std::result::Result<HttpResp, String> {
+            self.http.fetch_add(1, Ordering::SeqCst);
+            Ok(HttpResp {
+                status: 200,
+                headers: vec![],
+                body: vec![],
+            })
+        }
+    }
+    struct Switch(AtomicBool);
+    #[async_trait]
+    impl InvocationPolicy for Switch {
+        async fn admit(
+            &self,
+            _plugin: &str,
+            _account: Option<&str>,
+        ) -> std::result::Result<(), String> {
+            if self.0.load(Ordering::SeqCst) {
+                Ok(())
+            } else {
+                Err("feature_disabled".into())
+            }
+        }
+    }
+    fn state(
+        calls: Arc<Calls>,
+        policy: Option<Arc<dyn InvocationPolicy>>,
+        bound: Option<&str>,
+    ) -> HostState {
+        HostState::new(
+            CapGate::new(
+                BTreeSet::from([Capability::AccountBackend, Capability::Net]),
+                vec!["allowed.test".into()],
+            ),
+            Arc::new(HostServices {
+                oauth: calls.clone(),
+                basic_creds: calls.clone(),
+                http: calls,
+                invocation_policy: policy,
+                ..Default::default()
+            }),
+            &PluginLimits::default(),
+            "plugin".into(),
+            bound.map(str::to_owned),
+        )
+    }
+    #[tokio::test]
+    async fn credentials_never_accept_foreign_or_unbound_guest_handles() {
+        let calls = Arc::new(Calls::default());
+        let mut guest = state(calls.clone(), None, Some("own"));
+        assert!(guest.oauth_token("foreign".into()).await.unwrap().is_err());
+        assert!(
+            guest
+                .basic_credentials("foreign".into())
+                .await
+                .unwrap()
+                .is_err()
+        );
+        assert_eq!(calls.oauth.load(Ordering::SeqCst), 0);
+        assert_eq!(calls.basic.load(Ordering::SeqCst), 0);
+        assert!(guest.oauth_token("".into()).await.unwrap().is_ok());
+        assert!(guest.basic_credentials("own".into()).await.unwrap().is_ok());
+        let mut unbound = state(calls.clone(), None, None);
+        assert!(unbound.oauth_token("own".into()).await.unwrap().is_err());
+        assert!(
+            unbound
+                .basic_credentials("own".into())
+                .await
+                .unwrap()
+                .is_err()
+        );
+        assert_eq!(calls.oauth.load(Ordering::SeqCst), 1);
+        assert_eq!(calls.basic.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn cached_guest_token_cannot_cross_http_import_after_policy_revocation() {
+        let calls = Arc::new(Calls::default());
+        let switch = Arc::new(Switch(AtomicBool::new(true)));
+        let mut guest = state(calls.clone(), Some(switch.clone()), Some("own"));
+        let token = guest.oauth_token("".into()).await.unwrap().unwrap();
+        let request = || HttpRequest {
+            method: "GET".into(),
+            url: "https://allowed.test/mail".into(),
+            headers: vec![("authorization".into(), format!("Bearer {token}"))],
+            body: None,
+        };
+        assert!(guest.http_fetch(request()).await.unwrap().is_ok());
+        switch.0.store(false, Ordering::SeqCst);
+        assert!(guest.http_fetch(request()).await.unwrap().is_err());
+        assert!(guest.basic_credentials("".into()).await.unwrap().is_err());
+        assert_eq!(calls.http.load(Ordering::SeqCst), 1);
+        assert_eq!(calls.basic.load(Ordering::SeqCst), 0);
+    }
+}
+
 // ── Injected host services (embedder-provided; deny-leaning defaults) ──────────
 
 /// A host-mediated outbound HTTP request (the guest never opens a socket).
@@ -52,6 +179,17 @@ pub trait HttpFetcher: Send + Sync {
 #[async_trait]
 pub trait OAuthTokenProvider: Send + Sync {
     async fn token(&self, account: &str) -> std::result::Result<String, String>;
+}
+
+/// Live deployment policy, checked for each invocation and privileged import.
+/// Coordinates are supplied by the host, never selected by a guest.
+#[async_trait]
+pub trait InvocationPolicy: Send + Sync {
+    async fn admit(
+        &self,
+        plugin_id: &str,
+        account_id: Option<&str>,
+    ) -> std::result::Result<(), String>;
 }
 
 /// Per-account cleartext credentials for a password-based bridge (on-prem EWS
@@ -113,6 +251,9 @@ pub trait Rng: Send + Sync {
 /// The bundle of host services a [`crate::PluginHost`] provides to its guests.
 #[derive(Clone)]
 pub struct HostServices {
+    /// None retains the embedder's static manifest/grant policy. The server
+    /// always injects its live settings-backed policy.
+    pub invocation_policy: Option<Arc<dyn InvocationPolicy>>,
     pub http: Arc<dyn HttpFetcher>,
     pub oauth: Arc<dyn OAuthTokenProvider>,
     /// Per-account password-auth credentials (EWS Basic/NTLMv2), t12 additive seam.
@@ -125,6 +266,7 @@ pub struct HostServices {
 impl Default for HostServices {
     fn default() -> Self {
         Self {
+            invocation_policy: None,
             http: Arc::new(DeniedHttp),
             oauth: Arc::new(DeniedOAuth),
             basic_creds: Arc::new(DeniedBasicCreds),
@@ -370,19 +512,24 @@ impl HostState {
         }
     }
 
-    /// Resolve the account handle a guest supplied for a per-account host import.
-    /// A guest that follows the "one instance backs one account" contract passes an
-    /// EMPTY/blank handle, expecting the host to fill in the account this instance is
-    /// bound to; a non-empty explicit handle passes through UNCHANGED (backward
-    /// compatible — no WIT change). When unbound, the (empty) handle passes through
-    /// and the provider fails closed.
-    fn resolve_account(&self, handle: &str) -> String {
-        if handle.trim().is_empty()
-            && let Some(bound) = &self.bound_account
-        {
-            return bound.clone();
+    /// Guest arguments cannot select another account's credentials.
+    fn resolve_account(&self, handle: &str) -> std::result::Result<String, WitError> {
+        match self.bound_account.as_deref() {
+            Some(bound) if !bound.is_empty() && (handle.trim().is_empty() || handle == bound) => {
+                Ok(bound.to_string())
+            }
+            _ => Err(denied("credential account is not bound to this instance")),
         }
-        handle.to_string()
+    }
+
+    async fn admit(&mut self) -> wasmtime::Result<()> {
+        if let Some(policy) = &self.services.invocation_policy {
+            policy
+                .admit(&self.plugin_id, self.bound_account.as_deref())
+                .await
+                .map_err(wasmtime::Error::msg)?;
+        }
+        Ok(())
     }
 }
 
@@ -428,6 +575,9 @@ impl Host for HostState {
         &mut self,
         req: HttpRequest,
     ) -> wasmtime::Result<std::result::Result<HttpResponse, WitError>> {
+        if let Err(error) = self.admit().await {
+            return Ok(Err(denied(error.to_string())));
+        }
         // DENY-BY-DEFAULT: requires the `net` capability AND a URL whose host is in
         // the manifest `net_allowlist`. Either miss ⇒ capability-denied (the guest
         // sees the error; it never reaches the network).
@@ -467,14 +617,19 @@ impl Host for HostState {
         &mut self,
         account: String,
     ) -> wasmtime::Result<std::result::Result<String, WitError>> {
+        if let Err(error) = self.admit().await {
+            return Ok(Err(denied(error.to_string())));
+        }
         // OAuth acquisition is a bridge (account-backend) capability.
         if !self.gate.has(Capability::AccountBackend) {
             return Ok(Err(denied(
                 "oauth-token requires the account-backend capability",
             )));
         }
-        // Empty handle ⇒ this instance's bound account (§2.5); explicit handle unchanged.
-        let account = self.resolve_account(&account);
+        let account = match self.resolve_account(&account) {
+            Ok(account) => account,
+            Err(error) => return Ok(Err(error)),
+        };
         Ok(self
             .services
             .oauth
@@ -487,6 +642,9 @@ impl Host for HostState {
         &mut self,
         account: String,
     ) -> wasmtime::Result<std::result::Result<HostCredentials, WitError>> {
+        if let Err(error) = self.admit().await {
+            return Ok(Err(denied(error.to_string())));
+        }
         // Password-auth credential acquisition is, like `oauth-token`, an
         // account-backend (bridge) capability — deny-by-default otherwise.
         if !self.gate.has(Capability::AccountBackend) {
@@ -494,8 +652,10 @@ impl Host for HostState {
                 "basic-credentials requires the account-backend capability",
             )));
         }
-        // Empty handle ⇒ this instance's bound account (§2.5); explicit handle unchanged.
-        let account = self.resolve_account(&account);
+        let account = match self.resolve_account(&account) {
+            Ok(account) => account,
+            Err(error) => return Ok(Err(error)),
+        };
         Ok(self
             .services
             .basic_creds
@@ -512,6 +672,7 @@ impl Host for HostState {
     }
 
     async fn kv_get(&mut self, key: String) -> wasmtime::Result<Option<Vec<u8>>> {
+        self.admit().await?;
         if !self.gate.has(Capability::StoreKvScoped) {
             return Ok(None);
         }
@@ -520,6 +681,7 @@ impl Host for HostState {
     }
 
     async fn kv_put(&mut self, key: String, value: Vec<u8>) -> wasmtime::Result<()> {
+        self.admit().await?;
         // DENY-BY-DEFAULT: ungranted ⇒ a silent no-op (the documented contract). When
         // granted, an over-quota / oversize put is surfaced as a TRAP so the guest's put
         // fails visibly (a distinct runtime error) rather than appearing to succeed —
@@ -540,6 +702,7 @@ impl Host for HostState {
     }
 
     async fn kv_delete(&mut self, key: String) -> wasmtime::Result<()> {
+        self.admit().await?;
         if self.gate.has(Capability::StoreKvScoped) {
             let account = self.kv_account();
             self.services
@@ -551,6 +714,7 @@ impl Host for HostState {
     }
 
     async fn kv_list(&mut self) -> wasmtime::Result<Vec<String>> {
+        self.admit().await?;
         if !self.gate.has(Capability::StoreKvScoped) {
             return Ok(Vec::new());
         }

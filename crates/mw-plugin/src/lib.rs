@@ -43,7 +43,7 @@ pub mod signature;
 
 pub use host_state::{
     BasicCredentialProvider, BasicCredentials, Clock, HostServices, HttpFetcher, HttpReq, HttpResp,
-    KvStore, OAuthTokenProvider, Rng,
+    InvocationPolicy, KvStore, OAuthTokenProvider, Rng,
 };
 pub use signature::{SignatureStatus, TrustRoot};
 
@@ -250,6 +250,21 @@ impl PluginHandle {
         }
     }
 
+    /// Host-selected account context for a shared classifier; never guest input.
+    pub async fn call_spam_action_for_account(
+        &self,
+        account: &str,
+        raw: Vec<u8>,
+    ) -> Result<String> {
+        self.require(Capability::SpamAction)?;
+        let mut session = self.ctx.instantiate_for_account(Some(account)).await?;
+        let guest = session.plugin.mailwoman_plugin_spam_action();
+        match guest.call_classify(&mut session.store, &raw).await {
+            Ok(inner) => inner.map_err(adapter::wit_to_plugin_err),
+            Err(error) => Err(host_state::map_call_err(&session.store, error)),
+        }
+    }
+
     /// Invoke the `addrbook-source` hook (§13). Requires `addrbook-source`; the
     /// guest's outbound HTTP (if any) is separately gated by `net` + `net_allowlist`.
     pub async fn call_addrbook_search(&self, query: String) -> Result<Vec<String>> {
@@ -285,15 +300,40 @@ impl PluginHandle {
 }
 
 impl PluginCtx {
+    async fn admit(&self, account: Option<&str>) -> Result<()> {
+        if let Some(bound) = self.bound_account.as_deref()
+            && account != Some(bound)
+        {
+            return Err(PluginError::CapabilityDenied(
+                "host account binding mismatch".into(),
+            ));
+        }
+        if let Some(policy) = &self.services.invocation_policy {
+            policy
+                .admit(&self.plugin_id, account)
+                .await
+                .map_err(PluginError::CapabilityDenied)?;
+        }
+        Ok(())
+    }
     /// Instantiate a fresh, resource-limited store + component instance (async).
     async fn instantiate(self: &Arc<Self>) -> Result<adapter::GuestSession> {
+        self.instantiate_for_account(self.bound_account.as_deref())
+            .await
+    }
+
+    async fn instantiate_for_account(
+        self: &Arc<Self>,
+        account: Option<&str>,
+    ) -> Result<adapter::GuestSession> {
+        self.admit(account).await?;
         let mut store = host_state::new_store(
             &self.engine,
             self.gate.clone(),
             self.services.clone(),
             &self.limits,
             self.plugin_id.clone(),
-            self.bound_account.clone(),
+            account.map(str::to_owned),
         )?;
         let plugin = bindings::Plugin::instantiate_async(&mut store, &self.component, &self.linker)
             .await

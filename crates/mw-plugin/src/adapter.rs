@@ -61,6 +61,10 @@ impl AccountBackendAdapter {
 
     /// Get (or lazily instantiate) the persistent session for this account.
     async fn session(&self) -> Result<Arc<Mutex<GuestSession>>, EngineError> {
+        self.ctx
+            .admit(self.ctx.bound_account.as_deref())
+            .await
+            .map_err(plugin_to_engine)?;
         let mut slot = self.session.lock().await;
         if let Some(s) = slot.as_ref() {
             return Ok(s.clone());
@@ -200,6 +204,10 @@ impl AccountBackend for AccountBackendAdapter {
     }
 
     async fn watch(&self, sink: ChangeSink) -> mw_engine::Result<WatchHandle> {
+        self.ctx
+            .admit(self.ctx.bound_account.as_deref())
+            .await
+            .map_err(plugin_to_engine)?;
         // Host-driven polling loop (the WIT `poll-changes` replaces the WASI async
         // stream, R1). A fresh, resource-limited session is used so the poll loop
         // never contends with foreground syncs; the WatchHandle stops it.
@@ -217,6 +225,7 @@ impl AccountBackend for AccountBackendAdapter {
                         if *stop_rx.borrow() { break; }
                     }
                     _ = ticker.tick() => {
+                        if ctx.admit(ctx.bound_account.as_deref()).await.is_err() { break; }
                         let GuestSession { store, plugin } = &mut sess;
                         let ab = plugin.mailwoman_plugin_account_backend();
                         if let Ok(Ok(events)) = ab.call_poll_changes(&mut *store).await {

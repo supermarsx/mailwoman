@@ -433,6 +433,17 @@ impl Rng for HostRng {
 /// allowlist check in `mw-plugin`), the store-backed bridge OAuth provider (B1 —
 /// cached-or-refreshed 0018 tokens over the host reqwest/rustls client), the
 /// store-backed EWS per-account basic-credential provider, and scoped KV/clock/rng.
+struct StoreInvocationPolicy {
+    store: Store,
+}
+
+#[async_trait]
+impl mw_plugin::InvocationPolicy for StoreInvocationPolicy {
+    async fn admit(&self, plugin_id: &str, account_id: Option<&str>) -> Result<(), String> {
+        crate::features::plugin_policy_admit(&self.store, plugin_id, account_id).await
+    }
+}
+
 pub(crate) fn host_services(store: &Store) -> HostServices {
     // `.no_proxy()`: the OAuth poster carries bridge refresh tokens, and an ambient
     // `HTTP_PROXY` would see the token exchange. See `mw_egress::harden_client`.
@@ -441,6 +452,9 @@ pub(crate) fn host_services(store: &Store) -> HostServices {
         .build()
         .expect("reqwest client builds");
     HostServices {
+        invocation_policy: Some(Arc::new(StoreInvocationPolicy {
+            store: store.clone(),
+        })),
         http: Arc::new(ReqwestFetcher::from_env()),
         oauth: Arc::new(StoreOAuthProvider {
             store: store.clone(),
@@ -2942,6 +2956,16 @@ struct SpamPluginHook {
 
 #[async_trait]
 impl mw_engine::SpamHook for SpamPluginHook {
+    async fn classify_for_account(&self, account_id: &str, raw: &[u8]) -> mw_engine::SpamVerdict {
+        match self
+            .handle
+            .call_spam_action_for_account(account_id, raw.to_vec())
+            .await
+        {
+            Ok(json) => parse_spam_verdict(&json),
+            Err(_) => mw_engine::SpamVerdict::Unknown,
+        }
+    }
     async fn classify(&self, raw: &[u8]) -> mw_engine::SpamVerdict {
         match self.handle.call_spam_action(raw.to_vec()).await {
             Ok(json) => parse_spam_verdict(&json),

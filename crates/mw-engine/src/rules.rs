@@ -144,7 +144,7 @@ impl Engine {
             return Ok(());
         }
         // Only a "spam" verdict acts; ham/unknown/classifier-error deliver unchanged.
-        if hook.classify(raw).await != crate::v7::SpamVerdict::Spam {
+        if hook.classify_for_account(account_id, raw).await != crate::v7::SpamVerdict::Spam {
             return Ok(());
         }
         let Some(rt) = self.runtime(account_id) else {

@@ -158,6 +158,7 @@ impl PluginPimBackend {
     /// SAME resource limits (memory ceiling + epoch deadline + fuel) as the
     /// account-backend path.
     async fn session(&self) -> Result<Arc<Mutex<PimSession>>> {
+        self.ctx.admit(self.ctx.bound_account.as_deref()).await?;
         let mut slot = self.session.lock().await;
         if let Some(s) = slot.as_ref() {
             return Ok(s.clone());

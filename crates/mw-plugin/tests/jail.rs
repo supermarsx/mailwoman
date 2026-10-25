@@ -22,6 +22,62 @@ use mw_plugin::{
 
 const GUEST: &[u8] = include_bytes!("fixtures/guest.wasm");
 
+struct LiveSwitch(std::sync::atomic::AtomicBool);
+#[async_trait]
+impl mw_plugin::InvocationPolicy for LiveSwitch {
+    async fn admit(&self, plugin: &str, account: Option<&str>) -> Result<(), String> {
+        assert_eq!(plugin, "test-guest");
+        assert_eq!(account, Some("account-1"));
+        if self.0.load(std::sync::atomic::Ordering::SeqCst) {
+            Ok(())
+        } else {
+            Err("feature_disabled".into())
+        }
+    }
+}
+
+#[tokio::test]
+async fn live_policy_revokes_persistent_backend_and_account_pipeline_without_reload() {
+    let switch = Arc::new(LiveSwitch(std::sync::atomic::AtomicBool::new(true)));
+    let host = PluginHost::try_new(
+        HostServices {
+            invocation_policy: Some(switch.clone()),
+            ..Default::default()
+        },
+        TrustRoot::empty(),
+    )
+    .unwrap();
+    let caps = vec![Capability::AccountBackend, Capability::SpamAction];
+    let m = manifest(caps.clone(), &[], fast_limits(), None);
+    let handle = host
+        .load_for_account(GUEST, &m, &grant(caps, true), "account-1")
+        .unwrap();
+    let backend = handle.as_account_backend().unwrap();
+    assert_eq!(backend.list_mailboxes().await.unwrap().len(), 2);
+    assert!(
+        handle
+            .call_spam_action_for_account("account-1", vec![])
+            .await
+            .is_ok()
+    );
+    switch.0.store(false, std::sync::atomic::Ordering::SeqCst);
+    assert!(backend.list_mailboxes().await.is_err());
+    assert!(
+        handle
+            .call_spam_action_for_account("account-1", vec![])
+            .await
+            .is_err()
+    );
+    switch.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(
+        handle
+            .call_spam_action_for_account("foreign", vec![])
+            .await
+            .is_err()
+    );
+    assert_eq!(backend.list_mailboxes().await.unwrap().len(), 2);
+}
+
 fn manifest(
     caps: Vec<Capability>,
     allowlist: &[&str],

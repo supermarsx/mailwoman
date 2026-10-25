@@ -502,6 +502,13 @@ Individual UI-plugin keys use SHA-256 of the original plugin ID as their suffix.
 Use `integrationPolicyKeys` from `/admin/features`; do not normalize or construct
 keys from displayed plugin names. Existing plugin approval and grants still apply.
 
+WASM plugin policy keys also use SHA-256 of the original ID and are returned in
+the same catalogue. Loaded plugins recheck permissions for each invocation and
+privileged host import, including requests carrying a cached OAuth token.
+Credential imports require an instance explicitly bound by the host to that
+account; a guest cannot request another account's credentials. Account-aware
+spam classification applies the recipient account's domain and profile policy.
+
 <a id="cap.integration.nextcloud"></a>
 `cap.integration.nextcloud` — Allow Nextcloud file and share-link operations.
 

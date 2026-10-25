@@ -304,6 +304,10 @@ pub trait SpamHook: Send + Sync {
     /// Classify a raw RFC822 message. MUST NOT error — a classifier failure is
     /// reported as [`SpamVerdict::Unknown`] (fail-soft, never a hard block).
     async fn classify(&self, raw: &[u8]) -> SpamVerdict;
+    /// Account-aware policy hook; existing classifiers retain their behavior.
+    async fn classify_for_account(&self, _account_id: &str, raw: &[u8]) -> SpamVerdict {
+        self.classify(raw).await
+    }
 }
 
 // ─── The additive V7 hook bundle ─────────────────────────────────────────────────

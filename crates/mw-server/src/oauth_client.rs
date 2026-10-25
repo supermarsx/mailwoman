@@ -655,7 +655,7 @@ async fn enforce_integration_policy(store: &Store, account: &str) -> Result<(), 
     };
     for key in [
         "cap.plugins".to_string(),
-        format!("cap.integration.{}", binding.bridge_id),
+        crate::features::plugin_policy_key(&binding.bridge_id),
         provider_key.to_string(),
     ] {
         let value = crate::settings_registry::effective_for(store, &key, &subject)
