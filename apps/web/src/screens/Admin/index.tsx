@@ -21,6 +21,7 @@ import { t, loadCatalog } from '../../i18n';
 import { AdminContext, useAdmin } from './context.ts';
 import { AdminLogin } from './AdminLogin.tsx';
 import { AdminShell } from './shell/AdminShell.tsx';
+import { RouteTransition } from './shell/RouteTransition.tsx';
 import { SECTIONS, findSection, type SectionDef } from './shell/sections.ts';
 import { createAdminRouter, hrefFor, sectionPath, type AdminRouter } from './shell/router.ts';
 import { createLeaveCheck } from './shell/useDirtyGuard.ts';
@@ -217,7 +218,7 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
                 </div>
               }
             >
-              {(s) => <Dynamic component={s().component} api={admin.api} route={router.route()} />}
+              {(s) => <RouteTransition routeKey={`${router.route().section}/${router.route().rest.join('/')}`}><Dynamic component={s().component} api={admin.api} route={router.route()} /></RouteTransition>}
             </Show>
           </Suspense>
         </AdminShell>
