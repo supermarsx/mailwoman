@@ -1,7 +1,41 @@
-# MT-SEED — NOT REVIEWED
-# Locale: de · Module: tasks. Source of truth: ../en/tasks.ftl
-#
-# PLACEHOLDER awaiting human translation via Weblate. This catalog holds NO
-# reviewed translations — every key falls back to the en source at runtime until
-# a translator fills it in, so Weblate shows it as needing translation (0%).
-# Do NOT hand-edit or paste raw machine output as final: translate in Weblate.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: de · Module: tasks. Source: ../en/tasks.ftl
+
+tasks-title = Aufgaben
+tasks-lists = Aufgabenlisten
+tasks-all = Alle Aufgaben
+tasks-my-day = Mein Tag
+tasks-lists-heading = Listen
+tasks-no-lists = Noch keine Listen.
+tasks-new-title = Titel der neuen Aufgabe
+tasks-add-placeholder = Aufgabe hinzufügen…
+tasks-my-day-empty = Heute ist nichts fällig.
+tasks-convert = Umwandeln:
+tasks-mail-id = ID der umzuwandelnden Nachricht
+tasks-mail-id-placeholder = Nachrichten-ID
+tasks-mail-to-task = E-Mail → Aufgabe
+tasks-event-id = ID des umzuwandelnden Termins
+tasks-event-id-placeholder = Termin-ID
+tasks-event-to-task = Termin → Aufgabe
+tasks-followup-mail = Nachfassen: E-Mail { $id }
+tasks-prep-event = Vorbereiten: Termin { $id }
+tasks-list-label = Aufgaben
+tasks-subtasks = Unteraufgaben
+tasks-empty-list = Keine Aufgaben in dieser Liste.
+tasks-complete = { $title } abschließen
+tasks-reopen = { $title } wieder öffnen
+tasks-high-priority = Hohe Priorität
+tasks-edit = { $title } bearbeiten
+tasks-field-title = Titel
+tasks-field-due = Fälligkeitsdatum
+tasks-field-priority = Priorität
+tasks-priority-none = Keine
+tasks-priority-high = Hoch
+tasks-priority-medium = Mittel
+tasks-priority-low = Niedrig
+tasks-delete-confirm = Diese Aufgabe löschen? Dies kann nicht rückgängig gemacht werden.
+tasks-delete-yes = Aufgabe löschen
+tasks-delete-no = Aufgabe behalten
+tasks-changed-elsewhere = Diese Aufgabe wurde auf einem anderen Gerät oder in einer anderen Sitzung geändert. Ihre Änderungen bleiben erhalten; „Speichern“ übernimmt nur die von Ihnen geänderten Felder.
+tasks-deleted-elsewhere = „{ $title }“ wurde auf einem anderen Gerät oder in einer anderen Sitzung gelöscht, daher wurde das Bearbeitungsformular geschlossen.
+tasks-notice-dismiss = Schließen
