@@ -65,6 +65,7 @@ impl fmt::Debug for AdminAccountRow {
 pub struct AdminRoleRow {
     pub id: String,
     pub name: String,
+    pub description: String,
     pub builtin: bool,
     pub capabilities: Vec<String>,
 }
@@ -457,7 +458,7 @@ impl Store {
 
     /// Every role with its stored capabilities, built-in roles first, then by name.
     pub async fn list_admin_roles(&self) -> Result<Vec<AdminRoleRow>, StoreError> {
-        let rows = q("SELECT id, name, builtin FROM admin_role ORDER BY builtin DESC, name")
+        let rows = q("SELECT id, name, description, builtin FROM admin_role ORDER BY builtin DESC, name")
             .fetch_all(&self.backend)
             .await?;
         let caps = q("SELECT role_id, capability FROM admin_role_capability \
@@ -475,6 +476,7 @@ impl Store {
                         .map(|c| c.get_string("capability"))
                         .collect(),
                     name: r.get_string("name"),
+                    description: r.get_string("description"),
                     builtin: r.get_i64("builtin") != 0,
                     id,
                 }
@@ -498,13 +500,25 @@ impl Store {
         name: &str,
         capabilities: &[String],
     ) -> Result<(), StoreError> {
+        self.put_admin_role_description(id, name, capabilities, None).await
+    }
+
+    /// Omission preserves the existing purpose; an explicit empty string clears it.
+    pub async fn put_admin_role_description(
+        &self,
+        id: &str,
+        name: &str,
+        capabilities: &[String],
+        description: Option<&str>,
+    ) -> Result<(), StoreError> {
         let mut tx = self.backend.begin().await?;
         q(
-            "INSERT INTO admin_role (id, name, builtin) VALUES (?1, ?2, 0) \
-           ON CONFLICT(id) DO UPDATE SET name = excluded.name",
+            "INSERT INTO admin_role (id, name, builtin, description) VALUES (?1, ?2, 0, COALESCE(?3,'')) \
+           ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = COALESCE(?3,admin_role.description)",
         )
         .bind(id)
         .bind(name)
+        .bind(description)
         .execute_tx(&mut tx)
         .await?;
         q("DELETE FROM admin_role_capability WHERE role_id = ?1")

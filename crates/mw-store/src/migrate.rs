@@ -1393,9 +1393,9 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "admin_role",
-        select: "SELECT id, name, builtin FROM admin_role",
-        insert: "INSERT INTO admin_role (id, name, builtin) VALUES (?1,?2,?3)",
-        map: |r| vec![t(r, "id"), t(r, "name"), i(r, "builtin")],
+        select: "SELECT id, name, builtin, description FROM admin_role",
+        insert: "INSERT INTO admin_role (id, name, builtin, description) VALUES (?1,?2,?3,?4)",
+        map: |r| vec![t(r, "id"), t(r, "name"), i(r, "builtin"), t(r, "description")],
     },
     TableSpec {
         name: "admin_role_capability",

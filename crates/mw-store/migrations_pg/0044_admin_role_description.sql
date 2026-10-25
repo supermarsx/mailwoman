@@ -1,0 +1,1 @@
+ALTER TABLE admin_role ADD COLUMN description TEXT NOT NULL DEFAULT '';

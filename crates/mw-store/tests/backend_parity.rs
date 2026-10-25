@@ -2182,6 +2182,7 @@ mod admin_controls_0033 {
         NewTable { name: "admin_role", copied: true, cols: &[
             ("id", 'T', "!", "role-1"),
             ("name", 'T', "!", "Helpdesk"),
+            ("description", 'T', "=", "Handles mailbox support requests."),
             ("builtin", 'I', "=0", "1"),
         ]},
         NewTable { name: "admin_role_capability", copied: true, cols: &[

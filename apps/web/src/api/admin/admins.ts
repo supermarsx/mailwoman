@@ -3,7 +3,7 @@ import { adminRequest } from '../../screens/Admin/shell/adminApi.ts';
 export interface RoleGrant { roleId: string; domains: string[] | null }
 export interface Override { capability: string; effect: 'allow' | 'deny' }
 export interface AdminAccount { id: string; username: string; displayName: string; disabled: boolean; roles: RoleGrant[]; overrides: Override[]; totpEnrolled: boolean; passkeyCount?: number; etag?: string }
-export interface AdminRole { id: string; name: string; builtin: boolean; capabilities: string[]; holders: number; etag?: string }
+export interface AdminRole { id: string; name: string; description?: string; builtin: boolean; capabilities: string[]; holders: number; etag?: string }
 export interface AdminMe { username: string; capabilities: string[]; totpEnrolled: boolean }
 export interface AdminSession { id: string; adminId: string; createdAt: string; current: boolean }
 export const adminsApi = {

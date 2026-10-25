@@ -16,6 +16,24 @@ function mount(path: string, api = service()) {
   return { api, ...renderInShell(() => <AdminRoles service={api} />, { route, navigate: p => setRoute(parseAdminPath(p)) }) };
 }
 describe('dedicated role pages', () => {
+  it('explains built-in responsibilities without offering editable built-in permissions', async () => {
+    const api = service();
+    vi.mocked(api.roles).mockResolvedValue([{ ...role, id: 'helpdesk', name: 'Helpdesk', builtin: true }]);
+    mount('/admin#/roles/helpdesk/edit', api);
+    expect(await screen.findByText(/Account support and incident triage/)).toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.getByText(/does not grant user creation, deletion, quota changes/)).toBeInTheDocument();
+    expect(api.write).not.toHaveBeenCalled();
+  });
+  it('persists a custom purpose while preserving the exact selected permissions', async () => {
+    const { api } = mount('/admin#/roles/support/edit');
+    fireEvent.input(await screen.findByLabelText('Purpose and responsibilities'), { target: { value: 'Read mailbox support information.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(screen.getByText('Read mailbox support information.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.write).toHaveBeenCalledWith('/roles/support', 'PUT', { name: 'Support', capabilities: ['users.read'], description: 'Read mailbox support information.' }, '"v1"'));
+  });
   it('keeps forms off the role list and reviews a new role before writing', async () => {
     const { api, container, navigate } = mount('/admin#/roles');
     const create = await screen.findByRole('button', { name: 'New role' });
@@ -30,7 +48,7 @@ describe('dedicated role pages', () => {
     expect(api.write).not.toHaveBeenCalled();
     await expectNoAxeViolations(container);
     fireEvent.click(screen.getByRole('button', { name: 'Create role' }));
-    await waitFor(() => expect(api.write).toHaveBeenCalledWith('/roles', 'POST', { name: 'Mail support', capabilities: ['users.read'] }, undefined));
+    await waitFor(() => expect(api.write).toHaveBeenCalledWith('/roles', 'POST', { name: 'Mail support', capabilities: ['users.read'], description: '' }, undefined));
   });
   it('loads a linked edit page and preserves its concurrency token', async () => {
     const { api } = mount('/admin#/roles/support/edit');
@@ -40,7 +58,7 @@ describe('dedicated role pages', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(screen.getByText(/2 accounts holding/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(api.write).toHaveBeenCalledWith('/roles/support', 'PUT', { name: 'Support team', capabilities: ['users.read'] }, '"v1"'));
+    await waitFor(() => expect(api.write).toHaveBeenCalledWith('/roles/support', 'PUT', { name: 'Support team', capabilities: ['users.read'], description: '' }, '"v1"'));
   });
   it('keeps the review and draft on a failed save', async () => {
     const api = service(); vi.mocked(api.write).mockRejectedValue(new Error('Version conflict'));
