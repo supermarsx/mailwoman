@@ -1,0 +1,17 @@
+import { apiFetch } from './http.ts';
+import { transportBase } from './transport.ts';
+
+export interface PublicConfig {
+  brandName: string;
+  theme: string;
+  accent: string;
+  loginNotice: string | null;
+  usernameDomainHint: string | null;
+}
+
+/** Public hints never contain the domain inventory or an upstream address. */
+export async function publicConfig(): Promise<PublicConfig> {
+  const response = await apiFetch(`${transportBase()}/api/public-config`, { cache: 'no-store' });
+  if (!response.ok) throw new Error('Public configuration is unavailable');
+  return response.json() as Promise<PublicConfig>;
+}
