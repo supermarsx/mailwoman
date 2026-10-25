@@ -27,6 +27,7 @@ DATA_VOLUME=
 # a deploy.env written earlier keeps the value it has.
 CADDY_IMAGE=caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
 CADDY_ID=
+CADDY_PROTOCOLS='h1 h2 h3'
 ACME_CA=
 ACME_CA_ROOT=
 MEMORY_LIMIT=
@@ -106,6 +107,7 @@ Options:
   --port NUMBER     Localhost HTTP port (init only; default: the first free
                     port from 8080 to 8099)
   --mode MODE       proxy for JMAP; engine for IMAP/POP3 + SMTP (init only)
+  --http-protocols LIST  Caddy protocols: 'h1', 'h1 h2', or 'h1 h2 h3' (default)
   --proxy-prefix IP First 3 octets of a private /24 for Caddy, e.g. 172.30.71
                     (init only; default 172.30.70; choose an unused subnet)
   --image REF       Use a ready-built Mailwoman image instead of building source
@@ -142,6 +144,7 @@ Running the same command again updates the installation; setup options may be
 repeated unchanged or left out. No domain means a local HTTP installation at http://localhost:8080, or the
 next free port; the chosen URL is printed and kept in deploy.env.
 For public HTTPS, point DNS to this host and allow TCP ports 80 and 443.
+HTTP/3 (QUIC) also needs UDP port 443; HTTP/2 and HTTP/1.1 remain available.
 The script deploys the webmail app; mailbox/SMTP servers remain external.
 Restore/rollback reverts data to the snapshot time (including configuration).
 The replaced volume is retained. Backups contain secrets: store them privately.
@@ -210,6 +213,7 @@ while (($#)); do
         --port) need_value "$@"; PORT=$2; REQUESTED[PORT]=$2; PORT_SET=true; INIT_OPTIONS=true; shift ;;
         --proxy-network) need_value "$@"; PROXY_NETWORK=$2; REQUESTED[PROXY_NETWORK]=$2; INIT_OPTIONS=true; shift ;;
         --mode) need_value "$@"; MODE=$2; REQUESTED[MODE]=$2; INIT_OPTIONS=true; shift ;;
+        --http-protocols) need_value "$@"; CADDY_PROTOCOLS=$2; REQUESTED[CADDY_PROTOCOLS]=$2; INIT_OPTIONS=true; shift ;;
         --proxy-prefix) need_value "$@"; PROXY_PREFIX=$2; REQUESTED[PROXY_PREFIX]=$2; INIT_OPTIONS=true; shift ;;
         --image) need_value "$@"; IMAGE=$2; shift ;;
         --image-tag) need_value "$@"; IMAGE_TAG=$2; shift ;;
@@ -329,7 +333,7 @@ read_config() {
         [[ $seen != *"|$key|"* ]] || die "Duplicate $key in $file"
         seen+="$key|"
         case "$key" in
-            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|UPSTREAM_DEFAULT|IMAGE_REPOSITORY|BACKUP_KEEP|BACKUP_KEEP_DAYS|BACKUP_RECIPIENT|BACKUP_HOOK|ALERT_HOOK|IMAGE_ID|IMAGE_DIGEST|DATA_VOLUME|CADDY_ID)
+            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|CADDY_PROTOCOLS|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|UPSTREAM_DEFAULT|IMAGE_REPOSITORY|BACKUP_KEEP|BACKUP_KEEP_DAYS|BACKUP_RECIPIENT|BACKUP_HOOK|ALERT_HOOK|IMAGE_ID|IMAGE_DIGEST|DATA_VOLUME|CADDY_ID)
                 printf -v "$key" '%s' "$value" ;;
             *) die "Unknown setting $key in $file" ;;
         esac
@@ -347,6 +351,7 @@ validate_config() {
     ((b <= 255 && c <= 255 && (a == 10 || (a == 172 && b >= 16 && b <= 31) || (a == 192 && b == 168)))) || die "Proxy subnet must be a private /24"
     PROXY_PREFIX=$a.$b.$c
     [[ $CADDY_IMAGE =~ ^[a-zA-Z0-9][a-zA-Z0-9./_:@-]+$ ]] || die "Invalid Caddy image reference"
+    case "$CADDY_PROTOCOLS" in 'h1'|'h1 h2'|'h1 h2 h3') ;; *) die "CADDY_PROTOCOLS must be h1, h1 h2, or h1 h2 h3" ;; esac
     case "$EXPOSURE" in
         local) [[ -z $DOMAIN && $PUBLIC_URL == "http://localhost:$PORT" ]] || die "Local URL must be http://localhost:$PORT" ;;
         caddy)
@@ -403,6 +408,7 @@ MODE=$MODE
 PROXY_PREFIX=$PROXY_PREFIX
 PROXY_NETWORK=$PROXY_NETWORK
 CADDY_IMAGE=$CADDY_IMAGE
+CADDY_PROTOCOLS=$CADDY_PROTOCOLS
 ACME_CA=$ACME_CA
 ACME_CA_ROOT=$ACME_CA_ROOT
 MEMORY_LIMIT=$MEMORY_LIMIT
@@ -774,13 +780,10 @@ EOF
         # and that root travel in the Compose file as environment values, so a
         # snapshot keeps them, and the entrypoint writes them to the tmpfs: Compose
         # refuses inline configs for a service with a read-only root filesystem.
-        caddyfile=
-        if [[ -n $ACME_CA$ACME_CA_ROOT ]]; then
-            caddyfile="{"$'\n'
-            [[ -z $ACME_CA ]] || caddyfile+="    acme_ca $ACME_CA"$'\n'
-            [[ -z $ACME_CA_ROOT ]] || caddyfile+="    acme_ca_root /tmp/acme-ca-root.pem"$'\n'
-            caddyfile+="}"$'\n'
-        fi
+        caddyfile="{"$'\n'"    servers {"$'\n'"        protocols $CADDY_PROTOCOLS"$'\n'"    }"$'\n'
+        [[ -z $ACME_CA ]] || caddyfile+="    acme_ca $ACME_CA"$'\n'
+        [[ -z $ACME_CA_ROOT ]] || caddyfile+="    acme_ca_root /tmp/acme-ca-root.pem"$'\n'
+        caddyfile+="}"$'\n'
         caddyfile+="$DOMAIN {"$'\n'"    reverse_proxy mailwoman:8080 {"$'\n'"        flush_interval -1"$'\n'"    }"$'\n'"}"
         caddy_env="      MW_CADDYFILE: |"$'\n'"$(indent '        ' "$caddyfile")"
         if [[ -n $ACME_CA_ROOT ]]; then
@@ -801,7 +804,7 @@ EOF
     cap_add: [NET_BIND_SERVICE]
     pids_limit: 128
     tmpfs: ['/tmp:rw,noexec,nosuid,nodev,size=16m']
-    ports: ['80:80', '443:443']
+    ports: ['80:80/tcp', '443:443/tcp'$(if [[ $CADDY_PROTOCOLS == *h3* ]]; then printf ", '443:443/udp'"; fi)]
     volumes: ['caddy_data:/data', 'caddy_config:/config']
     environment:
 $caddy_env

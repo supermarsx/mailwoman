@@ -32,8 +32,20 @@ Clone the repository and check out the branch you intend to deploy, then run:
 ```sh
 # Automatic HTTPS: first point this hostname's A/AAAA records at this host.
 # TCP ports 80 and 443 must be free and reachable from the Internet.
+# UDP 443 is also needed for HTTP/3 (QUIC).
 bash deploy.sh --domain mail.example.org --mode engine
 ```
+
+The managed Caddy listener offers HTTP/1.1, HTTP/2 and HTTP/3. Its Compose
+manifest publishes both TCP and UDP 443. QUIC requires UDP forwarding through
+the host firewall and any upstream load balancer; TCP clients retain HTTP/2
+or HTTP/1.1. For a TCP-only installation, initialize with
+`--http-protocols 'h1 h2'`. On an existing installation, set
+`CADDY_PROTOCOLS=h1 h2` in `.deploy.local/deploy.env` and run
+`sh deploy.sh deploy --no-build`. `h1` is also supported. These are listener
+settings for managed Caddy, not a claim of native application HTTP/3 or a
+change to an externally managed proxy. The application connection behind
+Caddy remains on the private deployment network.
 
 For a local installation:
 
