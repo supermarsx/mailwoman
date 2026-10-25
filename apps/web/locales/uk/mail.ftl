@@ -196,6 +196,12 @@ mail-compose-encrypted-subject = Зашифроване повідомлення
 mail-compose-dlp-blocked = Надсилання заблоковано правилом захисту від витоку даних (див. попередження вище).
 mail-compose-send-failed = Не вдалося надіслати
 mail-compose-send-later-past = Виберіть час надсилання в майбутньому або очистьте поле, щоб надіслати зараз.
+mail-compose-options = Параметри надсилання
+mail-compose-request-receipt = Запитати сповіщення про прочитання
+mail-compose-request-receipt-hint = Поштова програма одержувача може запитати його, надіслати сповіщення без запиту або проігнорувати запит.
+mail-compose-track-opens = Фіксувати відкриття цього повідомлення
+mail-compose-track-opens-hint = До повідомлення додається зображення 1×1, яке завантажується з цього сервера. Багато поштових програм блокують зображення або завантажують їх заздалегідь, тому зафіксоване відкриття не доводить, що повідомлення прочитано, а відсутність запису не доводить, що його не прочитано. Одержувача про це не повідомляють.
+mail-compose-image-type = { $name } не можна вставити в текст. Використайте зображення PNG, JPEG, GIF або WebP.
 # Refusals raised by the send itself. The composer stays open and shows them.
 mail-send-not-signed-in = Ви не ввійшли в систему.
 mail-send-no-draft-folder = У цьому обліковому записі немає теки для зберігання чернетки.
@@ -207,6 +213,7 @@ mail-send-bad-recipient = { $count ->
    *[other] Це не адреси електронної пошти: { $addresses }
 }
 mail-send-later-past = Час надсилання не в майбутньому. Нічого не надіслано.
+mail-send-tracking-failed = Зараз неможливо фіксувати відкриття, тому нічого не надіслано. Зніміть позначку «Фіксувати відкриття цього повідомлення», щоб надіслати без цього.
 mail-send-draft-refused = Сервер відхилив це повідомлення: { $reason }. Нічого не надіслано.
 mail-send-submission-refused = Сервер відмовився надіслати це повідомлення: { $reason }. Нічого не надіслано.
 # Signing-key unlock (sign-on-send)
@@ -232,6 +239,7 @@ mail-compose-rt-quote = Цитата
 mail-compose-rt-link = Посилання
 mail-compose-rt-link-placeholder = https://example.org
 mail-compose-rt-link-apply = Застосувати
+mail-compose-rt-image = Вставити зображення
 
 # Signature picker (W12)
 mail-compose-signature = Підпис
@@ -445,6 +453,7 @@ mail-toast-export-nothing = Немає чого експортувати
 mail-toast-exported = Експортовано .eml
 mail-toast-export-failed = Не вдалося експортувати
 mail-toast-send-queued = У черзі — буде надіслано, коли з'явиться з'єднання
+mail-toast-tracking-not-bound = Повідомлення надіслано, але його відкриття не фіксуватимуться.
 mail-toast-send-scheduled = Надсилання заплановано
 mail-toast-sent = Повідомлення надіслано
 mail-toast-send-canceled = Надсилання скасовано

@@ -187,6 +187,12 @@ mail-compose-encrypted-subject = 加密邮件
 mail-compose-dlp-blocked = 发送已被数据防泄漏规则阻止（请参阅上方的警告）。
 mail-compose-send-failed = 发送失败
 mail-compose-send-later-past = 请选择将来的发送时间，或清空此字段以立即发送。
+mail-compose-options = 发送选项
+mail-compose-request-receipt = 请求已读回执
+mail-compose-request-receipt-hint = 收件人的邮件程序可能会询问收件人、不询问直接发送回执，或忽略此请求。
+mail-compose-track-opens = 记录此邮件何时被打开
+mail-compose-track-opens-hint = 邮件中会添加一张从本服务器加载的 1×1 图片。许多邮件程序会屏蔽图片或提前加载图片，因此记录到打开并不能证明邮件已被阅读，没有记录也不能证明未被阅读。收件人不会收到通知。
+mail-compose-image-type = { $name } 无法放入正文。请使用 PNG、JPEG、GIF 或 WebP 图片。
 # Refusals raised by the send itself. The composer stays open and shows them.
 mail-send-not-signed-in = 你尚未登录。
 mail-send-no-draft-folder = 此账户没有用于保存草稿的文件夹。
@@ -195,6 +201,7 @@ mail-send-bad-recipient = { $count ->
    *[other] 以下不是有效的电子邮件地址：{ $addresses }
 }
 mail-send-later-past = 发送时间不在将来。未发送任何内容。
+mail-send-tracking-failed = 目前无法记录打开情况，因此未发送任何内容。取消勾选“记录此邮件何时被打开”即可不带此功能发送。
 mail-send-draft-refused = 服务器拒绝了此邮件：{ $reason }。未发送任何内容。
 mail-send-submission-refused = 服务器拒绝发送此邮件：{ $reason }。未发送任何内容。
 # Signing-key unlock (sign-on-send)
@@ -220,6 +227,7 @@ mail-compose-rt-quote = 引用
 mail-compose-rt-link = 链接
 mail-compose-rt-link-placeholder = https://example.org
 mail-compose-rt-link-apply = 应用
+mail-compose-rt-image = 插入图片
 
 # Signature picker (W12)
 mail-compose-signature = 签名
@@ -368,6 +376,7 @@ mail-toast-export-nothing = 没有可导出的内容
 mail-toast-exported = 已导出 .eml
 mail-toast-export-failed = 导出失败
 mail-toast-send-queued = 已排队——恢复在线后将发送
+mail-toast-tracking-not-bound = 邮件已发送，但不会记录其打开情况。
 mail-toast-send-scheduled = 已定时发送
 mail-toast-sent = 邮件已发送
 mail-toast-send-canceled = 已取消发送
