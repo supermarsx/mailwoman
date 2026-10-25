@@ -50,6 +50,10 @@ RESUME_CONTAINER=
 HELPER_CONTAINER=
 WORK=
 LAST_BACKUP=
+PRUNE_REPLACED=false
+ASSUME_YES=false
+BACKUP_KEEP=
+BACKUP_KEEP_DAYS=
 
 usage() {
     cat <<'HELP'
@@ -68,6 +72,8 @@ Commands (default: deploy):
   backup            Stop the app briefly; snapshot data, uploads, config and key
   restore PATH      Restore a snapshot into a NEW volume, then verify health
   rollback          Restore the snapshot taken immediately before the last deploy
+  prune             Remove old snapshots (BACKUP_KEEP / BACKUP_KEEP_DAYS in
+                    deploy.env); list replaced data volumes and old built images
 
 Options:
   --state-dir PATH   Deployment files/backups (default: <repo>/.deploy.local)
@@ -93,6 +99,9 @@ Options:
                     Leave a failed update in place instead of restoring the
                     previous release and its data automatically
   --timeout SECS    Health/startup timeout, 10..3600 (default 180)
+  --replaced        With prune: also delete the replaced data volumes and old
+                    built images it lists (needs --yes)
+  --yes             Confirm the deletion asked for with --replaced
   --dry-run         Describe the operation without writing or contacting Docker
   -h, --help        Show this help
 
@@ -128,7 +137,7 @@ port_in_use() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 declare -A REQUESTED=()
 while (($#)); do
     case "$1" in
-        init|deploy|doctor|status|logs|stop|start|restart|backup|rollback|restore)
+        init|deploy|doctor|status|logs|stop|start|restart|backup|rollback|restore|prune)
             $ACTION_SET && die "Specify only one command"
             ACTION=$1; ACTION_SET=true
             if [[ $ACTION == restore ]]; then need_value "$@"; SNAPSHOT=$2; shift; fi ;;
@@ -146,6 +155,8 @@ while (($#)); do
         --require-signature) REQUIRE_SIGNATURE=true ;;
         --no-build) NO_BUILD=true ;;
         --no-auto-rollback) AUTO_ROLLBACK=false ;;
+        --replaced) PRUNE_REPLACED=true ;;
+        --yes) ASSUME_YES=true ;;
         --dry-run) DRY_RUN=true ;;
         -h|--help) usage; exit 0 ;;
         *) die "Unknown argument: $1 (see --help)" ;;
@@ -163,6 +174,8 @@ if [[ $ACTION != deploy ]] && { [[ -n $IMAGE ]] || $NO_BUILD || $PULL || ! $AUTO
     die "Image and rollback options apply only to deploy"
 fi
 if $INIT_OPTIONS && [[ $ACTION != init && $ACTION != deploy ]]; then die "Setup options apply only to init/first deploy"; fi
+if { $PRUNE_REPLACED || $ASSUME_YES; } && [[ $ACTION != prune ]]; then die "--replaced and --yes apply only to prune"; fi
+if $ASSUME_YES && ! $PRUNE_REPLACED; then die "--yes confirms --replaced; give both"; fi
 
 read_config() {
     local file=$1 line key value seen='|'
@@ -171,6 +184,7 @@ read_config() {
     # empty unless this file sets them, never left over from a file read earlier.
     if [[ ${file##*/} == deploy.env ]]; then
         PROXY_NETWORK=; ACME_CA=; ACME_CA_ROOT=; MEMORY_LIMIT=; CPU_LIMIT=; SIGNATURE_IDENTITY=; SIGNATURE_ISSUER=
+        BACKUP_KEEP=; BACKUP_KEEP_DAYS=
     fi
     while IFS= read -r line || [[ -n $line ]]; do
         [[ -z $line || $line == \#* ]] && continue
@@ -179,7 +193,7 @@ read_config() {
         [[ $seen != *"|$key|"* ]] || die "Duplicate $key in $file"
         seen+="$key|"
         case "$key" in
-            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|IMAGE_ID|DATA_VOLUME|CADDY_ID)
+            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|BACKUP_KEEP|BACKUP_KEEP_DAYS|IMAGE_ID|DATA_VOLUME|CADDY_ID)
                 printf -v "$key" '%s' "$value" ;;
             *) die "Unknown setting $key in $file" ;;
         esac
@@ -222,6 +236,8 @@ validate_config() {
     [[ -z $CPU_LIMIT || ($CPU_LIMIT =~ ^[0-9]{1,3}(\.[0-9]{1,2})?$ && $CPU_LIMIT =~ [1-9]) ]] || die "CPU_LIMIT must be a number of CPUs such as 2 or 1.5, or empty for no limit"
     [[ -z $SIGNATURE_IDENTITY || $SIGNATURE_IDENTITY =~ ^[a-zA-Z0-9][a-zA-Z0-9._~:/@%+=-]*$ ]] || die "SIGNATURE_IDENTITY must be a certificate identity such as $DEFAULT_SIGNATURE_IDENTITY"
     [[ -z $SIGNATURE_ISSUER || $SIGNATURE_ISSUER =~ ^https://[a-zA-Z0-9][a-zA-Z0-9._~:/%+-]*$ ]] || die "SIGNATURE_ISSUER must be the https:// URL of an OIDC issuer"
+    [[ -z $BACKUP_KEEP || $BACKUP_KEEP =~ ^[1-9][0-9]{0,3}$ ]] || die "BACKUP_KEEP must be a number of snapshots from 1 to 9999, or empty"
+    [[ -z $BACKUP_KEEP_DAYS || $BACKUP_KEEP_DAYS =~ ^[1-9][0-9]{0,4}$ ]] || die "BACKUP_KEEP_DAYS must be a number of days from 1 to 99999, or empty"
 }
 
 write_config() {
@@ -242,6 +258,8 @@ MEMORY_LIMIT=$MEMORY_LIMIT
 CPU_LIMIT=$CPU_LIMIT
 SIGNATURE_IDENTITY=$SIGNATURE_IDENTITY
 SIGNATURE_ISSUER=$SIGNATURE_ISSUER
+BACKUP_KEEP=$BACKUP_KEEP
+BACKUP_KEEP_DAYS=$BACKUP_KEEP_DAYS
 EOF
 }
 
@@ -479,10 +497,18 @@ check_signature() {
     log "Signature verified: $IMAGE"
 }
 
+# Keys that steer backup, prune and check rather than the running app. They take
+# effect as soon as deploy.env is saved, so they are not taken from the applied copy.
+OPERATION_KEYS=(BACKUP_KEEP BACKUP_KEEP_DAYS)
+
 load_active() {
+    local key
+    local -A operation=()
     [[ -f $ACTIVE/release.env ]] || die "No applied deployment. Run deploy first"
+    for key in "${OPERATION_KEYS[@]}"; do operation[$key]=${!key}; done
     read_config "$ACTIVE/deploy.env"
     read_config "$ACTIVE/release.env"
+    for key in "${OPERATION_KEYS[@]}"; do printf -v "$key" '%s' "${operation[$key]}"; done
     validate_config
 }
 
@@ -785,6 +811,125 @@ auto_rollback() {
     die "The update was rolled back. The previous release (exposure $EXPOSURE, image $IMAGE_ID) runs on a copy of the data saved in $saved, in volume $DATA_VOLUME. The failed release's files and logs are in $failed and its data volume $failed_volume is kept; deploy.env and app.env still hold the settings that failed"
 }
 
+# A snapshot directory name: UTC time, process ID, random number.
+SNAPSHOT_NAME='^[0-9]{8}T[0-9]{6}Z-[0-9]+-[0-9]+$'
+
+# days_ago_stamp DAYS: the snapshot-name timestamp of DAYS days ago (GNU or BSD date).
+days_ago_stamp() {
+    local epoch=$(($(date -u +%s) - $1 * 86400))
+    date -u -d "@$epoch" +%Y%m%dT%H%M%SZ 2>/dev/null || date -u -r "$epoch" +%Y%m%dT%H%M%SZ
+}
+
+# human_size BYTES
+human_size() { awk -v b="$1" 'BEGIN { split("B KB MB GB TB", u); i = 1; while (b >= 1000 && i < 5) { b /= 1000; i++ } printf (i == 1 ? "%d %s" : "%.1f %s"), b, u[i] }'; }
+
+# prune_snapshots: apply BACKUP_KEEP (default 7) and BACKUP_KEEP_DAYS to the
+# snapshots in $STATE/backups, newest first. A complete snapshot is removed only
+# when it is outside the newest BACKUP_KEEP and, if BACKUP_KEEP_DAYS is set, older
+# than that. The snapshot named in rollback.path is always kept; an incomplete one
+# is removed only after seven days; anything else in the directory is left alone.
+prune_snapshots() {
+    local keep=${BACKUP_KEEP:-7} protected='' entry name stamp position=0 kept=0 removed=0 old_stamp='' stale_stamp
+    [[ -d $STATE/backups && ! -L $STATE/backups ]] || { log "No snapshots in $STATE/backups"; return 0; }
+    if [[ -f $STATE/rollback.path ]]; then IFS= read -r protected < "$STATE/rollback.path"; fi
+    stale_stamp=$(days_ago_stamp 7)
+    [[ -z $BACKUP_KEEP_DAYS ]] || old_stamp=$(days_ago_stamp "$BACKUP_KEEP_DAYS")
+    while IFS= read -r entry; do
+        name=${entry##*/}
+        [[ $name =~ $SNAPSHOT_NAME && -d $entry && ! -L $entry ]] || continue
+        stamp=${name:0:16}
+        if [[ ! -f $entry/COMPLETE ]]; then
+            if [[ $stamp < $stale_stamp ]]; then
+                log "Removing incomplete snapshot $name (older than seven days)"
+                rm -rf -- "$entry"
+                removed=$((removed + 1))
+            fi
+            continue
+        fi
+        position=$((position + 1))
+        if ((position <= keep)) || [[ -n $old_stamp && ! $stamp < $old_stamp ]]; then
+            kept=$((kept + 1))
+        elif [[ $entry == "$protected" ]]; then
+            log "Keeping $name: it is the snapshot rollback restores"
+            kept=$((kept + 1))
+        else
+            log "Removing snapshot $name"
+            rm -rf -- "$entry"
+            removed=$((removed + 1))
+        fi
+    done < <(find "$STATE/backups" -mindepth 1 -maxdepth 1 -print | LC_ALL=C sort -r)
+    log "Snapshots: $kept kept, $removed removed (BACKUP_KEEP=$keep${BACKUP_KEEP_DAYS:+, BACKUP_KEEP_DAYS=$BACKUP_KEEP_DAYS})"
+}
+
+# prune_replaced: list the data volumes of this project other than the active one,
+# and the images deploy.sh built for it that neither the active release nor a kept
+# snapshot uses, with their sizes. With --replaced --yes, delete them, checking
+# each again first; the active volume and a volume a container uses are never
+# deleted.
+prune_replaced() {
+    local volume ref id size sizes='' protected="|$IMAGE_ID|" file line
+    local -a volumes=() images=()
+    while IFS= read -r volume; do
+        [[ -n $volume && $volume != "$DATA_VOLUME" ]] || continue
+        if [[ -n $(docker ps -aq --filter "volume=$volume") ]]; then
+            log "Data volume $volume is used by a container; not listed"
+            continue
+        fi
+        volumes+=("$volume")
+    done < <(docker volume ls -q --filter "label=mailwoman.deploy.project=$PROJECT")
+    # A kept snapshot can be restored only with its image: those images stay.
+    for file in "$STATE"/backups/*/release.env; do
+        [[ -f $file ]] || continue
+        while IFS= read -r line; do
+            [[ $line == IMAGE_ID=* ]] && protected+="${line#IMAGE_ID=}|"
+        done < "$file"
+    done
+    while IFS= read -r ref; do
+        [[ -n $ref ]] || continue
+        id=$(docker image inspect --format '{{.Id}}' "$ref")
+        if [[ $protected == *"|$id|"* ]]; then continue; fi
+        images+=("$ref")
+    done < <(docker image ls --format '{{.Repository}}:{{.Tag}}' --filter "reference=mailwoman-deploy:${PROJECT}-*")
+    if ((${#volumes[@]} + ${#images[@]} == 0)); then
+        log "No replaced data volumes or old built images"
+        return 0
+    fi
+    if ((${#volumes[@]})); then
+        sizes=$(docker system df -v --format '{{range .Volumes}}{{.Name}} {{.Size}}
+{{end}}')
+    fi
+    for volume in "${volumes[@]}"; do
+        size=$(awk -v name="$volume" '$1 == name {print $2; exit}' <<< "$sizes")
+        log "Replaced data volume: $volume (${size:-size unknown})"
+    done
+    for ref in "${images[@]}"; do
+        log "Old built image: $ref ($(human_size "$(docker image inspect --format '{{.Size}}' "$ref")"))"
+    done
+    if ! $PRUNE_REPLACED; then
+        log "Nothing above was deleted. 'prune --replaced --yes' deletes them; save an image first (docker image save) if an old snapshot may need it"
+        return 0
+    fi
+    if ! $ASSUME_YES; then
+        log "Nothing was deleted: add --yes to delete the volumes and images listed above"
+        return 0
+    fi
+    for volume in "${volumes[@]}"; do
+        if [[ $volume == "$DATA_VOLUME" || -n $(docker ps -aq --filter "volume=$volume") ]] ||
+           [[ $(docker volume inspect --format '{{index .Labels "mailwoman.deploy.project"}}' "$volume" 2>/dev/null) != "$PROJECT" ]]; then
+            log "Not deleting $volume: it changed since it was listed"
+            continue
+        fi
+        docker volume rm "$volume" >/dev/null
+        log "Deleted data volume $volume"
+    done
+    for ref in "${images[@]}"; do
+        id=$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null) || continue
+        if [[ $protected == *"|$id|"* ]]; then continue; fi
+        docker image rm "$ref" >/dev/null
+        log "Deleted image $ref"
+    done
+}
+
 preflight
 case "$ACTION" in
     doctor)
@@ -803,7 +948,16 @@ case "$ACTION" in
     stop) load_active; compose "$ACTIVE" stop --timeout 60; log "Stopped; data retained" ;;
     start) load_active; require_free_ports; ensure_proxy_network; compose "$ACTIVE" up -d --wait --wait-timeout "$TIMEOUT"; verify ;;
     restart) load_active; require_free_ports; ensure_proxy_network; compose "$ACTIVE" restart; compose "$ACTIVE" start --wait --wait-timeout "$TIMEOUT"; verify ;;
-    backup) load_active; snapshot ;;
+    backup)
+        load_active
+        snapshot
+        # Retention runs after a backup only when deploy.env asks for it.
+        if [[ -n $BACKUP_KEEP$BACKUP_KEEP_DAYS ]]; then prune_snapshots; fi
+        ;;
+    prune)
+        prune_snapshots
+        if [[ -f $ACTIVE/release.env ]]; then load_active; prune_replaced; fi
+        ;;
     deploy)
         WORK=$(mktemp -d "$STATE/.work.XXXXXX")
         if [[ -f $ACTIVE/release.env ]]; then

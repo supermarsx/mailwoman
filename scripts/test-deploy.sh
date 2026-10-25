@@ -108,7 +108,7 @@ cleanup() {
     docker network rm "$NETWORK" >/dev/null 2>&1 || true
     # A move from local to network exposure leaves the project's default network.
     docker network rm "${PROJECT}_default" "${NET_PROJECT}_default" >/dev/null 2>&1 || true
-    docker image rm "$BAD_IMAGE" >/dev/null 2>&1 || true
+    docker image rm "$BAD_IMAGE" "mailwoman-deploy:$PROJECT-active" "mailwoman-deploy:$PROJECT-old" >/dev/null 2>&1 || true
     if [[ -n $SIGNED ]]; then
         docker image rm "$SIGNED" >/dev/null 2>&1 || true
         while IFS= read -r reference; do
@@ -405,6 +405,55 @@ run start
 run stop
 run start
 run status
+
+# prune: BACKUP_KEEP=1 keeps the newest complete snapshot and the one rollback.path
+# names, removes the other complete one, removes an incomplete snapshot older than
+# seven days but not a recent one, and leaves files it did not write. It lists the
+# volume the rollback replaced and an image deploy.sh would have built, deleting
+# them only with --replaced --yes, never the active volume or the active image.
+ROLLBACK_SNAPSHOT=$(cat "$STATE/rollback.path")
+mapfile -t COMPLETE_SNAPSHOTS < <(find "$STATE/backups" -mindepth 2 -maxdepth 2 -name COMPLETE -printf '%h
+' | LC_ALL=C sort -r)
+((${#COMPLETE_SNAPSHOTS[@]} == 3)) || fail "expected three complete snapshots before prune, found: ${COMPLETE_SNAPSHOTS[*]}"
+NEWEST_SNAPSHOT=${COMPLETE_SNAPSHOTS[0]}
+[[ $NEWEST_SNAPSHOT != "$ROLLBACK_SNAPSHOT" ]] || fail 'the newest snapshot is the rollback snapshot; the prune case needs another'
+for OTHER_SNAPSHOT in "${COMPLETE_SNAPSHOTS[@]}"; do
+    [[ $OTHER_SNAPSHOT == "$NEWEST_SNAPSHOT" || $OTHER_SNAPSHOT == "$ROLLBACK_SNAPSHOT" ]] || break
+done
+mkdir "$STATE/backups/20200101T000000Z-1-1" "$STATE/backups/$(date -u +%Y%m%dT%H%M%SZ)-2-2"
+RECENT_INCOMPLETE=$(find "$STATE/backups" -mindepth 1 -maxdepth 1 -name '*-2-2')
+printf 'kept by the operator\n' > "$STATE/backups/notes.txt"
+docker tag "$IMAGE" "mailwoman-deploy:$PROJECT-active"
+OLD_BUILT_CID=$(docker create --label "mailwoman.deploy.test=$PROJECT" "$IMAGE")
+docker commit --change "LABEL mailwoman.deploy.test=$PROJECT" "$OLD_BUILT_CID" "mailwoman-deploy:$PROJECT-old" >/dev/null
+docker rm "$OLD_BUILT_CID" >/dev/null
+ACTIVE_VOLUME=$(awk -F= '$1 == "DATA_VOLUME" {print $2}' "$STATE/active/release.env")
+set_config BACKUP_KEEP=1
+run prune 2> "$STATE/prune.log" || { cat "$STATE/prune.log" >&2; fail 'prune failed'; }
+[[ -d $NEWEST_SNAPSHOT ]] || fail 'prune removed the newest snapshot'
+[[ -d $ROLLBACK_SNAPSHOT ]] || fail 'prune removed the snapshot rollback.path names'
+[[ ! -e $OTHER_SNAPSHOT ]] || fail "prune kept $OTHER_SNAPSHOT beyond BACKUP_KEEP=1"
+[[ ! -e $STATE/backups/20200101T000000Z-1-1 ]] || fail 'prune kept an incomplete snapshot older than seven days'
+[[ -d $RECENT_INCOMPLETE ]] || fail 'prune removed a recent incomplete snapshot'
+[[ -f $STATE/backups/notes.txt ]] || fail 'prune removed a file it did not write'
+grep -F "Replaced data volume: $OLD_VOLUME (" "$STATE/prune.log" >/dev/null || fail "prune did not list the replaced volume $OLD_VOLUME: $(cat "$STATE/prune.log")"
+grep -F "Old built image: mailwoman-deploy:$PROJECT-old (" "$STATE/prune.log" >/dev/null || fail "prune did not list the old built image: $(cat "$STATE/prune.log")"
+if grep -F -e "$ACTIVE_VOLUME (" -e "mailwoman-deploy:$PROJECT-active" "$STATE/prune.log" >/dev/null; then fail "prune listed the active volume or image: $(cat "$STATE/prune.log")"; fi
+docker volume inspect "$OLD_VOLUME" >/dev/null || fail 'prune without --replaced --yes deleted a volume'
+run prune --replaced 2> "$STATE/prune.log" || { cat "$STATE/prune.log" >&2; fail 'prune --replaced failed'; }
+docker volume inspect "$OLD_VOLUME" >/dev/null || fail 'prune --replaced without --yes deleted a volume'
+docker image inspect "mailwoman-deploy:$PROJECT-old" >/dev/null || fail 'prune --replaced without --yes deleted an image'
+reject prune --yes
+run prune --replaced --yes 2> "$STATE/prune.log" || { cat "$STATE/prune.log" >&2; fail 'prune --replaced --yes failed'; }
+if docker volume inspect "$OLD_VOLUME" >/dev/null 2>&1; then fail 'prune --replaced --yes kept the replaced volume'; fi
+if docker image inspect "mailwoman-deploy:$PROJECT-old" >/dev/null 2>&1; then fail 'prune --replaced --yes kept the old built image'; fi
+docker volume inspect "$ACTIVE_VOLUME" >/dev/null || fail 'prune --replaced --yes deleted the active volume'
+docker image inspect "mailwoman-deploy:$PROJECT-active" >/dev/null || fail 'prune --replaced --yes deleted an image the active release uses'
+[[ $(docker inspect --format '{{.State.Health.Status}}' "$(dc ps -q mailwoman)") == healthy ]] || fail 'the app is not healthy after prune'
+printf 'prune: %s\n' "$(grep -F -e 'Deleted' -e 'kept,' "$STATE/prune.log" | tr '\n' ' ')"
+docker image rm "mailwoman-deploy:$PROJECT-active" >/dev/null
+rm -r -- "$RECENT_INCOMPLETE" "$STATE/backups/notes.txt"
+set_config BACKUP_KEEP=
 
 # --image signature check. A registry container on localhost port DEPLOY_TEST_PORT + 2
 # holds a copy of the test image (a fixed port: Docker Desktop's daemon cannot reach

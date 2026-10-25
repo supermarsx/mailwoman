@@ -243,8 +243,9 @@ update in place for diagnosis; `bash deploy.sh rollback` then restores the same
 snapshot. A first installation has nothing to roll back to: on failure it keeps
 its data volume and containers, and after fixing DNS, firewall or proxy, `start`
 checks it again.
-The script never runs `git pull`, installs host packages, prunes images or deletes
-data volumes. A directory lock prevents concurrent mutations; after SIGKILL or a
+The script never runs `git pull` or installs host packages. It deletes data
+volumes and images only when asked with `prune --replaced --yes`
+([backups.md](backups.md)). A directory lock prevents concurrent mutations; after SIGKILL or a
 host crash, remove a stale `.lock` only after verifying no operation is running.
 
 ## Backups and recovery
@@ -267,7 +268,10 @@ can still be replaced), and starts the saved version/configuration against the
 recovered data. It reverts all writes since the snapshot time. The old volume and the
 pre-restore snapshot remain available. `rollback` restores the pre-deployment
 snapshot, including the old image and data; it is not just an image downgrade.
-Snapshots and old volumes are not automatically expired.
+Snapshots and old volumes are kept until `prune` removes them: the retention
+keys `BACKUP_KEEP` / `BACKUP_KEEP_DAYS` in `deploy.env`, and
+`prune --replaced --yes` for replaced volumes and old images, are described in
+[backups.md](backups.md).
 
 Backups contain plaintext configuration secrets and potentially sensitive data;
 copy them to private, encrypted off-host storage. Checksums detect accidental
