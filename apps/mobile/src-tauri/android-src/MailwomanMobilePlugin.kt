@@ -4,6 +4,8 @@
 //   * UnifiedPush registration     → registerUnifiedPush / unregisterUnifiedPush / getDistributor
 //   * Share targets & file handlers → takePendingShare (+ the `shareTarget` event)
 //   * Badge counts                 → setBadge
+//   * New-mail notifications       → notify (+ setNotificationActionHandler: a tap or
+//     an action button reaches the Rust side over a Tauri Channel, t32 f25 / D-23)
 //   * Secure store (OS keychain)   → keychainGet / keychainSet / keychainDelete
 //     (Android EncryptedSharedPreferences, AES-256 keyed by the Android Keystore —
 //     the mobile counterpart of desktop's `keyring` DPAPI/Keychain/Secret Service)
@@ -23,8 +25,10 @@
 
 package com.mailwoman.mobile
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -36,6 +40,7 @@ import androidx.security.crypto.MasterKey
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
+import app.tauri.plugin.Channel
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.Plugin
@@ -52,6 +57,88 @@ private const val MAX_INLINE_BYTES = 8 * 1024 * 1024
 @InvokeArg
 class SetBadgeArgs {
     var count: Int = 0
+}
+
+@InvokeArg
+class NotificationActionHandlerArgs {
+    lateinit var handler: Channel
+}
+
+/// Posts new-mail notifications for the plugin (`notify`) and for the UnifiedPush
+/// receiver (a wake that carries a notification, posted while no webview runs).
+/// A tap opens the app with the notification id and action in the intent extras;
+/// the plugin reads them back in `load` / `onNewIntent`.
+object MailNotifications {
+    private const val CHANNEL_ID = "mailwoman_mail"
+    private const val EXTRA_ID = "com.mailwoman.mobile.NOTIFICATION_ID"
+    private const val EXTRA_ACTION = "com.mailwoman.mobile.NOTIFICATION_ACTION"
+    const val ACTION_DEFAULT = "default"
+
+    /// Show one notification. `actions` are (id, label) pairs for the buttons;
+    /// `channelName` is the user-visible name of the Android channel.
+    fun post(
+        context: Context,
+        id: String,
+        title: String,
+        body: String,
+        actions: List<Pair<String, String>>,
+        channelName: String,
+    ) {
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, channelName, NotificationManager.IMPORTANCE_DEFAULT),
+            )
+        }
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(context, CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(context)
+        }
+        builder
+            .setSmallIcon(context.applicationInfo.icon)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setAutoCancel(true)
+            .setContentIntent(tapIntent(context, id, ACTION_DEFAULT))
+        for ((actionId, label) in actions) {
+            builder.addAction(
+                Notification.Action.Builder(
+                    null as android.graphics.drawable.Icon?,
+                    label,
+                    tapIntent(context, id, actionId),
+                ).build(),
+            )
+        }
+        nm.notify(id.hashCode(), builder.build())
+    }
+
+    /// The (notification id, action id) a tap put into `intent`, or null. The
+    /// extras are removed so a recreated activity does not deliver them twice.
+    fun activation(intent: Intent?): Pair<String, String>? {
+        val id = intent?.getStringExtra(EXTRA_ID) ?: return null
+        val action = intent.getStringExtra(EXTRA_ACTION) ?: ACTION_DEFAULT
+        intent.removeExtra(EXTRA_ID)
+        intent.removeExtra(EXTRA_ACTION)
+        return id to action
+    }
+
+    private fun tapIntent(context: Context, id: String, action: String): PendingIntent {
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?: Intent().setPackage(context.packageName)
+        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        launch.putExtra(EXTRA_ID, id)
+        launch.putExtra(EXTRA_ACTION, action)
+        // One PendingIntent per (notification, action): the request code keeps them
+        // apart, so one button's extras never replace another's.
+        return PendingIntent.getActivity(
+            context,
+            (id + "\u0000" + action).hashCode(),
+            launch,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
 }
 
 @InvokeArg
@@ -80,17 +167,81 @@ class MailwomanMobilePlugin(private val activity: android.app.Activity) : Plugin
     @Volatile
     private var pendingShare: JSObject? = null
 
+    // Where notification taps go (set by the Rust side at start), and a tap that
+    // arrived before it was set (the app was started by the tap).
+    private var notificationActionHandler: Channel? = null
+    private var pendingNotificationAction: Pair<String, String>? = null
+
     override fun load(webView: WebView) {
         super.load(webView)
         PushBridge.plugin = this
-        // The launch intent may itself be a share / file-open.
+        // The launch intent may itself be a share / file-open, or a notification tap.
         captureShareIntent(activity.intent)
+        captureNotificationIntent(activity.intent)
     }
 
     // Tauri forwards new intents (e.g. a share while the app is already running).
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         captureShareIntent(intent)
+        captureNotificationIntent(intent)
+    }
+
+    // ── New-mail notifications ───────────────────────────────────────────────
+
+    @Command
+    fun notify(invoke: Invoke) {
+        try {
+            val args = invoke.getArgs()
+            val actions = mutableListOf<Pair<String, String>>()
+            val list = args.optJSONArray("actions")
+            if (list != null) {
+                for (i in 0 until list.length()) {
+                    val a = list.optJSONObject(i) ?: continue
+                    actions.add(a.optString("id") to a.optString("label"))
+                }
+            }
+            MailNotifications.post(
+                activity,
+                args.optString("id"),
+                args.optString("title"),
+                args.optString("body"),
+                actions,
+                args.optString("channelName", "Mail"),
+            )
+            invoke.resolve(JSObject())
+        } catch (e: Exception) {
+            invoke.reject("notify: ${e.message}")
+        }
+    }
+
+    @Command
+    fun setNotificationActionHandler(invoke: Invoke) {
+        val args = invoke.parseArgs(NotificationActionHandlerArgs::class.java)
+        val pending = synchronized(this) {
+            notificationActionHandler = args.handler
+            pendingNotificationAction.also { pendingNotificationAction = null }
+        }
+        pending?.let { (id, action) -> sendNotificationAction(args.handler, id, action) }
+        invoke.resolve(JSObject())
+    }
+
+    private fun captureNotificationIntent(intent: Intent?) {
+        val (id, action) = MailNotifications.activation(intent) ?: return
+        val handler = synchronized(this) {
+            notificationActionHandler ?: run {
+                pendingNotificationAction = id to action
+                null
+            }
+        }
+        handler?.let { sendNotificationAction(it, id, action) }
+    }
+
+    private fun sendNotificationAction(handler: Channel, id: String, action: String) {
+        handler.send(JSObject().apply {
+            put("notificationId", id)
+            put("actionId", action)
+        })
     }
 
     // ── Share targets + file handlers ────────────────────────────────────────

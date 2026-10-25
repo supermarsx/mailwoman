@@ -121,6 +121,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
                 let capture =
                     _api.register_android_plugin(ANDROID_PLUGIN_IDENTIFIER, "FlagSecurePlugin")?;
                 app.manage(CaptureBridge { handle: capture });
+                // Notification taps come back over a channel (t32 f25).
+                notifications::register_action_handler(app)?;
             }
             #[cfg(target_os = "ios")]
             {

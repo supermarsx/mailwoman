@@ -9,9 +9,14 @@
 //     app is foregrounded, so `tauri.ts` can POST the endpoint to
 //     `/api/push/subscribe` and refetch `/changes` on a wake.
 //
-// PRIVACY (§2.3): a wake message carries NO content — only "something changed,
-// wake + fetch". We never read message bytes as mail content; we trigger a
-// foreground JMAP `/changes` refetch (or a minimal notification when backgrounded).
+// PRIVACY (§2.3): a plain wake carries NO content — only "something changed,
+// wake + fetch"; it triggers a foreground JMAP `/changes` refetch. When the
+// server's notification rules decide a new message should be announced (t32 e48),
+// the message is the JSON `{"mw":1,"notify":{"id","title","body"[,"channelName"]}}`,
+// whose text the server has already limited to what its content policy allows;
+// that notification is posted here (also while no webview runs) and the wake is
+// forwarded as before. Anything that is not that JSON (e.g. the `mw-wake` marker)
+// is a wake only. Message bytes are never parsed as mail.
 //
 // Registered in the manifest (see `android-src/manifest-intents.xml`). Requires
 // the `org.unifiedpush.android:connector` Gradle dependency (see README).
@@ -20,6 +25,7 @@ package com.mailwoman.mobile
 
 import android.content.Context
 import android.content.SharedPreferences
+import org.json.JSONObject
 import org.unifiedpush.android.connector.MessagingReceiver
 
 private const val PREFS = "mailwoman_push"
@@ -71,7 +77,33 @@ class UnifiedPushReceiver : MessagingReceiver() {
     }
 
     override fun onMessage(context: Context, message: ByteArray, instance: String) {
-        // Opaque wake ONLY — message content is never treated as mail (§2.3).
+        wakeNotification(message)?.let { n ->
+            MailNotifications.post(context, n.id, n.title, n.body, emptyList(), n.channelName)
+        }
         PushBridge.onWake()
+    }
+}
+
+/// The notification a wake asks for (see the PRIVACY note above).
+data class WakeNotification(
+    val id: String,
+    val title: String,
+    val body: String,
+    val channelName: String,
+)
+
+/// Parse `{"mw":1,"notify":{...}}`; null for a plain wake or anything else.
+fun wakeNotification(message: ByteArray): WakeNotification? {
+    if (message.isEmpty() || message[0] != '{'.code.toByte()) return null
+    return try {
+        val root = JSONObject(String(message, Charsets.UTF_8))
+        if (root.optInt("mw") != 1) return null
+        val n = root.optJSONObject("notify") ?: return null
+        val id = n.optString("id")
+        val title = n.optString("title")
+        if (id.isEmpty() || title.isEmpty()) return null
+        WakeNotification(id, title, n.optString("body"), n.optString("channelName", "Mail"))
+    } catch (e: Exception) {
+        null
     }
 }
