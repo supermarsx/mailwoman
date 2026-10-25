@@ -468,6 +468,7 @@ async fn main() -> std::process::ExitCode {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&obs.log_directives)),
         )
         .with(tracing_subscriber::fmt::layer())
+        .with(mw_server::application_logs::CaptureLayer::default())
         .with(otlp_layer)
         .init();
 
