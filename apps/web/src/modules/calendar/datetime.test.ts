@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { setActiveLocale } from '../../i18n/registry.ts';
 import {
   parseLocal,
   localToDate,
@@ -14,6 +15,13 @@ import {
   dayMinuteSpan,
   minutesOfDay,
   sameDay,
+  formatFull,
+  formatMonth,
+  formatMonthYear,
+  formatTime,
+  formatWeekday,
+  localeWeekStart,
+  weekdayNames,
 } from './datetime.ts';
 
 describe('calendar datetime helpers', () => {
@@ -76,5 +84,39 @@ describe('calendar datetime helpers', () => {
     expect(minutesOfDay(new Date(2026, 6, 12, 2, 30))).toBe(150);
     expect(sameDay(new Date(2026, 6, 12, 1), new Date(2026, 6, 12, 23))).toBe(true);
     expect(sameDay(new Date(2026, 6, 12), new Date(2026, 6, 13))).toBe(false);
+  });
+});
+
+// Display text follows the active app locale (the one `t()` uses), read when the
+// function is called, not the browser's locale frozen when the module loaded.
+describe('calendar formatting follows the app locale', () => {
+  afterEach(() => {
+    setActiveLocale('en');
+    vi.unstubAllGlobals();
+  });
+
+  it('formats month, weekday and full date in the locale picked after load', () => {
+    const d = new Date(2026, 9, 25, 14, 5);
+    const de = (o: Intl.DateTimeFormatOptions, at: Date = d): string => new Intl.DateTimeFormat('de', o).format(at);
+    expect(formatMonth(d)).toBe('October');
+    setActiveLocale('de');
+    expect(formatMonth(d)).toBe('Oktober');
+    expect(formatMonthYear(d)).toBe(de({ month: 'long', year: 'numeric' }));
+    expect(formatWeekday(d)).toBe(de({ weekday: 'short' }));
+    expect(formatFull(d)).toBe(de({ weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }));
+    expect(formatTime(d)).toBe('14:05');
+    expect(weekdayNames(1, 'long')[0]).toBe('Montag');
+    expect(weekdayNames(1)).toEqual([...Array(7).keys()].map((i) => de({ weekday: 'short' }, new Date(2023, 0, 2 + i))));
+  });
+
+  it('starts the week by the app language, keeping the browser region when the language matches', () => {
+    vi.stubGlobal('navigator', { language: 'en-US' });
+    expect(localeWeekStart()).toBe(0);
+    setActiveLocale('de');
+    expect(localeWeekStart()).toBe(1);
+    vi.stubGlobal('navigator', { language: 'en-GB' });
+    setActiveLocale('en');
+    expect(localeWeekStart()).toBe(1);
+    expect(localeWeekStart('ar-EG')).toBe(6);
   });
 });

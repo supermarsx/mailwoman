@@ -26,17 +26,17 @@ export type CalendarView =
   | 'agenda'
   | 'year';
 
-/** All views in nav order, with a short label. */
-export const CALENDAR_VIEWS: ReadonlyArray<{ id: CalendarView; label: string }> = [
-  { id: 'day', label: 'Day' },
-  { id: '3day', label: '3 Day' },
-  { id: 'work-week', label: 'Work Week' },
-  { id: 'week', label: 'Week' },
-  { id: 'month', label: 'Month' },
-  { id: 'tri-month', label: 'Quarter' },
-  { id: 'schedule', label: 'Schedule' },
-  { id: 'agenda', label: 'Agenda' },
-  { id: 'year', label: 'Year' },
+/** All views in nav order; each button's text is `calendar-view-<id>`. */
+export const CALENDAR_VIEWS: ReadonlyArray<{ id: CalendarView }> = [
+  { id: 'day' },
+  { id: '3day' },
+  { id: 'work-week' },
+  { id: 'week' },
+  { id: 'month' },
+  { id: 'tri-month' },
+  { id: 'schedule' },
+  { id: 'agenda' },
+  { id: 'year' },
 ];
 
 /**

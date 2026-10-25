@@ -75,6 +75,8 @@ calendar-overlaps = This event overlaps { $count ->
    *[other] { $count } other events
 }.
 calendar-field-title = Title
+# Stored as the title of an event saved with the title left empty.
+calendar-untitled = (no title)
 calendar-field-calendar = Calendar
 calendar-field-all-day = All day
 calendar-field-start = Start

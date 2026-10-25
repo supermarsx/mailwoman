@@ -1,5 +1,6 @@
-// Pure date/time helpers for the calendar grid (plan §3 e4). DOM-free and
-// dependency-free (native `Date` / `Intl`) so they are directly unit-testable.
+// Pure date/time helpers for the calendar grid (plan §3 e4). DOM-free (native
+// `Date` / `Intl`, display text through `i18n/format.ts`) so they are directly
+// unit-testable.
 //
 // Time model (plan §1.12): event wall-clock times are `LocalDateTime` strings
 // with a separate IANA `timeZone`; the engine does the authoritative TZID-aware
@@ -7,6 +8,8 @@
 // resolved, so these helpers work in the viewer's local zone — the same
 // discipline `Intl.DateTimeFormat` applies. All grid math is calendar-arithmetic
 // (add days/months), never naive millisecond addition, so DST shifts are safe.
+
+import { formatDateWith, formatLocale } from '../../i18n/format.ts';
 
 /** Parsed components of a `LocalDateTime` / date string. */
 export interface DateParts {
@@ -160,7 +163,7 @@ export function startOfWeek(d: Date, weekStartsOn: number = 1): Date {
  */
 export function localeWeekStart(locale?: string): number {
   try {
-    const tag = locale ?? (typeof navigator !== 'undefined' ? navigator.language : 'en');
+    const tag = locale ?? weekLocale();
     const loc = new Intl.Locale(tag) as Intl.Locale & {
       getWeekInfo?: () => { firstDay: number };
       weekInfo?: { firstDay: number };
@@ -173,6 +176,18 @@ export function localeWeekStart(locale?: string): number {
     /* Intl.Locale unsupported / bad tag — fall through to Monday. */
   }
   return 1;
+}
+
+/**
+ * The locale whose week the grid follows: the active app locale, which carries no
+ * region (`en`, `de`), refined by the browser's region when the browser speaks
+ * the same language, so `en` on an `en-GB` browser still starts on Monday.
+ */
+function weekLocale(): string {
+  const app = formatLocale();
+  const browser = typeof navigator !== 'undefined' ? navigator.language : '';
+  const lang = (tag: string): string => tag.split('-')[0]!.toLowerCase();
+  return browser !== '' && lang(browser) === lang(app) ? browser : app;
 }
 
 export function sameDay(a: Date, b: Date): boolean {
@@ -213,32 +228,36 @@ export function monthGrid(year: number, month0: number, weekStartsOn: number = 1
   return weeks;
 }
 
-// ── Formatting (Intl, viewer locale) ─────────────────────────────────────────
+// ── Formatting (active app locale, through i18n/format.ts) ──────────────────
+//
+// Built at call time, not at module load: `formatDateWith` reads the active app
+// locale (the one `t()` uses) and caches one formatter per locale + options, so
+// a language switch is followed and an English browser shows German dates to a
+// user who picked German.
 
-const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
-const dayHeaderFmt = new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric' });
-const weekdayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'short' });
-const monthYearFmt = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' });
-const monthFmt = new Intl.DateTimeFormat(undefined, { month: 'long' });
-const fullFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+const TIME: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' };
+const DAY_HEADER: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric' };
+const MONTH_YEAR: Intl.DateTimeFormatOptions = { month: 'long', year: 'numeric' };
+const MONTH: Intl.DateTimeFormatOptions = { month: 'long' };
+const FULL: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' };
 
 export function formatTime(d: Date): string {
-  return timeFmt.format(d);
+  return formatDateWith(d, TIME);
 }
 export function formatDayHeader(d: Date): string {
-  return dayHeaderFmt.format(d);
+  return formatDateWith(d, DAY_HEADER);
 }
 export function formatWeekday(d: Date): string {
-  return weekdayFmt.format(d);
+  return formatDateWith(d, { weekday: 'short' });
 }
 export function formatMonthYear(d: Date): string {
-  return monthYearFmt.format(d);
+  return formatDateWith(d, MONTH_YEAR);
 }
 export function formatMonth(d: Date): string {
-  return monthFmt.format(d);
+  return formatDateWith(d, MONTH);
 }
 export function formatFull(d: Date): string {
-  return fullFmt.format(d);
+  return formatDateWith(d, FULL);
 }
 
 /**
@@ -247,10 +266,9 @@ export function formatFull(d: Date): string {
  * header reads correctly in every locale. `2023-01-01` is a known Sunday anchor.
  */
 export function weekdayNames(weekStart = 1, style: 'short' | 'long' = 'short'): string[] {
-  const fmt = style === 'long' ? new Intl.DateTimeFormat(undefined, { weekday: 'long' }) : weekdayFmt;
   const sunday = new Date(2023, 0, 1);
   const out: string[] = [];
-  for (let i = 0; i < 7; i += 1) out.push(fmt.format(addDays(sunday, weekStart + i)));
+  for (let i = 0; i < 7; i += 1) out.push(formatDateWith(addDays(sunday, weekStart + i), { weekday: style }));
   return out;
 }
 

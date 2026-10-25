@@ -259,7 +259,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
     });
     return {
       calendarId: calendarId(),
-      title: title() === '' ? '(no title)' : title(),
+      title: title() === '' ? t('calendar-untitled') : title(),
       description: description(),
       start: s,
       timeZone: allDay() ? null : (ev?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone),
