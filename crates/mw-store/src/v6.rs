@@ -79,6 +79,32 @@ pub struct WebhookRow {
     pub secret_sealed: Vec<u8>,
     pub event_filter_json: String,
     pub created_at: String,
+    /// What the endpoint is for, as the admin typed it (0034). Empty for rows
+    /// written before 0034.
+    pub label: String,
+    /// Who registered it (0034): `admin:<id>`. Empty for rows written before 0034.
+    pub created_by: String,
+}
+
+/// An `inbound_webhooks` row (0034) with its secret already opened. Returned by
+/// [`Store::get_inbound_webhook`] / [`Store::list_inbound_webhooks`]; written with
+/// [`Store::put_inbound_webhook`], which seals the secret.
+#[derive(Debug, Clone)]
+pub struct InboundWebhookRow {
+    pub id: String,
+    /// The only account a call through this webhook acts on.
+    pub account_id: String,
+    /// The opened HMAC-SHA256 secret. Never logged, never returned by an API after
+    /// creation.
+    pub secret: Vec<u8>,
+    /// JSON array of the action kinds this webhook may run.
+    pub actions_json: String,
+    pub label: String,
+    pub created_by: String,
+    /// Unix seconds.
+    pub created_at: i64,
+    /// Unix seconds of the last accepted call; `0` when never used.
+    pub last_used_at: i64,
 }
 
 /// An `audit_log` row (0007). Append-only — no update/delete method exists.
@@ -356,22 +382,41 @@ impl Store {
     // ── webhooks ─────────────────────────────────────────────────────────────
 
     pub async fn put_webhook(&self, row: &WebhookRow) -> Result<(), StoreError> {
-        q(
-            "INSERT INTO webhooks (id, account_id, url, secret_sealed, event_filter, created_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        q("INSERT INTO webhooks
+               (id, account_id, url, secret_sealed, event_filter, created_at, label, created_by)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
            ON CONFLICT(id) DO UPDATE SET
              url = excluded.url, secret_sealed = excluded.secret_sealed,
-             event_filter = excluded.event_filter",
-        )
+             event_filter = excluded.event_filter, label = excluded.label")
         .bind(&row.id)
         .bind(&row.account_id)
         .bind(&row.url)
         .bind(&row.secret_sealed)
         .bind(&row.event_filter_json)
         .bind(&row.created_at)
+        .bind(&row.label)
+        .bind(&row.created_by)
         .execute(&self.backend)
         .await?;
         Ok(())
+    }
+
+    /// Seal an outbound webhook's HMAC secret under the server key, for
+    /// [`WebhookRow::secret_sealed`].
+    pub fn seal_webhook_secret(&self, secret: &[u8]) -> Result<Vec<u8>, StoreError> {
+        Ok(self.key.seal(secret)?)
+    }
+
+    /// One outbound webhook by id.
+    pub async fn get_webhook(&self, id: &str) -> Result<Option<WebhookRow>, StoreError> {
+        let row = q(
+            "SELECT id, account_id, url, secret_sealed, event_filter, created_at, label, created_by
+               FROM webhooks WHERE id = ?1",
+        )
+        .bind(id)
+        .fetch_optional(&self.backend)
+        .await?;
+        Ok(row.as_ref().map(webhook_from_row))
     }
 
     pub async fn list_webhooks_for_account(
@@ -379,7 +424,7 @@ impl Store {
         account_id: &str,
     ) -> Result<Vec<WebhookRow>, StoreError> {
         let rows = q(
-            "SELECT id, account_id, url, secret_sealed, event_filter, created_at
+            "SELECT id, account_id, url, secret_sealed, event_filter, created_at, label, created_by
                       FROM webhooks WHERE account_id = ?1",
         )
         .bind(account_id)
@@ -390,7 +435,7 @@ impl Store {
 
     pub async fn list_all_webhooks(&self) -> Result<Vec<WebhookRow>, StoreError> {
         let rows = q(
-            "SELECT id, account_id, url, secret_sealed, event_filter, created_at
+            "SELECT id, account_id, url, secret_sealed, event_filter, created_at, label, created_by
                       FROM webhooks ORDER BY created_at DESC",
         )
         .fetch_all(&self.backend)
@@ -404,6 +449,121 @@ impl Store {
             .execute(&self.backend)
             .await?;
         Ok(())
+    }
+
+    // ── inbound webhooks (0034) ──────────────────────────────────────────────
+
+    /// Create an inbound webhook. `secret` is sealed under the server key here;
+    /// `actions_json` is the JSON array of action kinds it may run. Fails with a
+    /// database error when `id` exists (ids are minted by the caller).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn put_inbound_webhook(
+        &self,
+        id: &str,
+        account_id: &str,
+        secret: &[u8],
+        actions_json: &str,
+        label: &str,
+        created_by: &str,
+        created_at: i64,
+    ) -> Result<(), StoreError> {
+        let sealed = self.key.seal(secret)?;
+        q("INSERT INTO inbound_webhooks
+             (id, account_id, secret_sealed, actions_json, label, created_by, created_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
+        .bind(id)
+        .bind(account_id)
+        .bind(&sealed)
+        .bind(actions_json)
+        .bind(label)
+        .bind(created_by)
+        .bind(created_at)
+        .execute(&self.backend)
+        .await?;
+        Ok(())
+    }
+
+    /// One inbound webhook with its secret opened, or `None`.
+    pub async fn get_inbound_webhook(
+        &self,
+        id: &str,
+    ) -> Result<Option<InboundWebhookRow>, StoreError> {
+        let row = q(INBOUND_SELECT_BY_ID)
+            .bind(id)
+            .fetch_optional(&self.backend)
+            .await?;
+        row.as_ref().map(|r| self.inbound_from_row(r)).transpose()
+    }
+
+    /// Every inbound webhook, newest first, secrets opened.
+    pub async fn list_inbound_webhooks(&self) -> Result<Vec<InboundWebhookRow>, StoreError> {
+        let rows = q(INBOUND_SELECT_ALL).fetch_all(&self.backend).await?;
+        rows.iter().map(|r| self.inbound_from_row(r)).collect()
+    }
+
+    /// Delete an inbound webhook and its remembered nonces. Returns whether a row
+    /// was deleted.
+    pub async fn delete_inbound_webhook(&self, id: &str) -> Result<bool, StoreError> {
+        let n = q("DELETE FROM inbound_webhooks WHERE id = ?1")
+            .bind(id)
+            .execute(&self.backend)
+            .await?;
+        q("DELETE FROM webhook_nonce WHERE hook_id = ?1")
+            .bind(id)
+            .execute(&self.backend)
+            .await?;
+        Ok(n > 0)
+    }
+
+    /// Record an accepted call's time on an inbound webhook.
+    pub async fn touch_inbound_webhook(&self, id: &str, at: i64) -> Result<(), StoreError> {
+        q("UPDATE inbound_webhooks SET last_used_at = ?2 WHERE id = ?1")
+            .bind(id)
+            .bind(at)
+            .execute(&self.backend)
+            .await?;
+        Ok(())
+    }
+
+    /// Remember `nonce` for `hook_id`. Returns `false` when the pair was already
+    /// remembered — the replay case. The primary key decides, so two processes
+    /// on one database cannot both accept the same nonce. Pairs seen before
+    /// `forget_before` (unix seconds) are deleted first, which bounds the table to
+    /// one signature window of calls.
+    pub async fn remember_webhook_nonce(
+        &self,
+        hook_id: &str,
+        nonce: &str,
+        now: i64,
+        forget_before: i64,
+    ) -> Result<bool, StoreError> {
+        q("DELETE FROM webhook_nonce WHERE seen_at < ?1")
+            .bind(forget_before)
+            .execute(&self.backend)
+            .await?;
+        let n = q(
+            "INSERT INTO webhook_nonce (hook_id, nonce, seen_at) VALUES (?1, ?2, ?3)
+                   ON CONFLICT (hook_id, nonce) DO NOTHING",
+        )
+        .bind(hook_id)
+        .bind(nonce)
+        .bind(now)
+        .execute(&self.backend)
+        .await?;
+        Ok(n == 1)
+    }
+
+    fn inbound_from_row(&self, r: &crate::backend::Row) -> Result<InboundWebhookRow, StoreError> {
+        Ok(InboundWebhookRow {
+            id: r.get_string("id"),
+            account_id: r.get_string("account_id"),
+            secret: self.key.open(&r.get_blob("secret_sealed"))?,
+            actions_json: r.get_string("actions_json"),
+            label: r.get_string("label"),
+            created_by: r.get_string("created_by"),
+            created_at: r.get_i64("created_at"),
+            last_used_at: r.get_i64("last_used_at"),
+        })
     }
 
     // ── audit_log (append-only) ──────────────────────────────────────────────
@@ -1062,6 +1222,14 @@ fn parse_account_names(raw: &str) -> Result<Vec<String>, StoreError> {
         .map_err(|e| StoreError::Corrupt(format!("account names are not valid JSON: {e}")))
 }
 
+const INBOUND_SELECT_BY_ID: &str = "SELECT id, account_id, secret_sealed, actions_json, label,
+        created_by, created_at, COALESCE(last_used_at, 0) AS last_used_at
+   FROM inbound_webhooks WHERE id = ?1";
+
+const INBOUND_SELECT_ALL: &str = "SELECT id, account_id, secret_sealed, actions_json, label,
+        created_by, created_at, COALESCE(last_used_at, 0) AS last_used_at
+   FROM inbound_webhooks ORDER BY created_at DESC, id";
+
 fn webhook_from_row(r: &crate::backend::Row) -> WebhookRow {
     WebhookRow {
         id: r.get_string("id"),
@@ -1070,6 +1238,8 @@ fn webhook_from_row(r: &crate::backend::Row) -> WebhookRow {
         secret_sealed: r.get_blob("secret_sealed"),
         event_filter_json: r.get_string("event_filter"),
         created_at: r.get_string("created_at"),
+        label: r.get_string("label"),
+        created_by: r.get_string("created_by"),
     }
 }
 
@@ -1633,6 +1803,8 @@ mod tests {
             secret_sealed: vec![1, 2, 3],
             event_filter_json: "[]".into(),
             created_at: "t".into(),
+            label: "CRM".into(),
+            created_by: "admin:root".into(),
         })
         .await
         .unwrap();
@@ -1650,5 +1822,190 @@ mod tests {
         .unwrap();
         assert_eq!(s.list_zeroaccess_enabled().await.unwrap(), vec!["a@x"]);
         assert!(s.get_zeroaccess("a@x").await.unwrap().unwrap().enabled);
+    }
+
+    /// What 0034 promises, run on whichever backend `s` is: the inbound secret is
+    /// sealed at rest and opens to what was stored; a nonce is accepted once per
+    /// webhook; nonces older than the window are forgotten; delete takes the
+    /// nonces with it; the outbound row keeps its label and author.
+    async fn assert_inbound_webhooks(s: &Store) {
+        s.put_inbound_webhook(
+            "iw-1",
+            "a@x",
+            b"inbound-secret",
+            r#"["run_rules"]"#,
+            "CRM",
+            "admin:root",
+            1_767_225_600,
+        )
+        .await
+        .unwrap();
+        let sealed = q("SELECT secret_sealed FROM inbound_webhooks WHERE id = ?1")
+            .bind("iw-1")
+            .fetch_one(&s.backend)
+            .await
+            .unwrap()
+            .get_blob("secret_sealed");
+        assert!(
+            !sealed.windows(14).any(|w| w == b"inbound-secret"),
+            "the secret is not stored in the clear"
+        );
+        let got = s.get_inbound_webhook("iw-1").await.unwrap().unwrap();
+        assert_eq!(got.secret, b"inbound-secret");
+        assert_eq!(got.account_id, "a@x");
+        assert_eq!(got.actions_json, r#"["run_rules"]"#);
+        assert_eq!(
+            (got.label.as_str(), got.created_by.as_str()),
+            ("CRM", "admin:root")
+        );
+        assert_eq!(got.last_used_at, 0, "never used");
+        s.touch_inbound_webhook("iw-1", 1_767_225_700)
+            .await
+            .unwrap();
+        assert_eq!(
+            s.get_inbound_webhook("iw-1")
+                .await
+                .unwrap()
+                .unwrap()
+                .last_used_at,
+            1_767_225_700
+        );
+        assert!(s.get_inbound_webhook("nope").await.unwrap().is_none());
+        assert_eq!(s.list_inbound_webhooks().await.unwrap().len(), 1);
+
+        // Replay: the same nonce is accepted once per webhook, not once globally.
+        let now = 1_767_225_600;
+        assert!(
+            s.remember_webhook_nonce("iw-1", "n1", now, now - 300)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !s.remember_webhook_nonce("iw-1", "n1", now + 1, now - 299)
+                .await
+                .unwrap()
+        );
+        assert!(
+            s.remember_webhook_nonce("iw-2", "n1", now, now - 300)
+                .await
+                .unwrap()
+        );
+        // Once the window has passed, the old pair is forgotten.
+        assert!(
+            s.remember_webhook_nonce("iw-1", "n1", now + 400, now + 100)
+                .await
+                .unwrap()
+        );
+
+        assert!(s.delete_inbound_webhook("iw-1").await.unwrap());
+        assert!(!s.delete_inbound_webhook("iw-1").await.unwrap());
+        let left = q("SELECT COUNT(*) AS n FROM webhook_nonce WHERE hook_id = ?1")
+            .bind("iw-1")
+            .fetch_one(&s.backend)
+            .await
+            .unwrap()
+            .get_i64("n");
+        assert_eq!(left, 0, "delete takes the webhook's nonces with it");
+
+        let sealed = s.seal_webhook_secret(b"out-secret").unwrap();
+        s.put_webhook(&WebhookRow {
+            id: "ow-1".into(),
+            account_id: "a@x".into(),
+            url: "https://hooks.example/x".into(),
+            secret_sealed: sealed,
+            event_filter_json: r#"["message.received"]"#.into(),
+            created_at: "2026-10-25T00:00:00Z".into(),
+            label: "Ticketing".into(),
+            created_by: "admin:root".into(),
+        })
+        .await
+        .unwrap();
+        let out = s.get_webhook("ow-1").await.unwrap().unwrap();
+        assert_eq!(
+            (out.label.as_str(), out.created_by.as_str()),
+            ("Ticketing", "admin:root")
+        );
+        assert_eq!(s.key.open(&out.secret_sealed).unwrap(), b"out-secret");
+        s.delete_webhook("ow-1").await.unwrap();
+        s.delete_inbound_webhook("iw-2").await.unwrap();
+        q("DELETE FROM webhook_nonce")
+            .execute(&s.backend)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn inbound_webhooks_0034() {
+        assert_inbound_webhooks(&store().await).await;
+    }
+
+    /// The Postgres half (f34, 0034).
+    #[tokio::test]
+    async fn postgres_inbound_webhooks_0034() {
+        let Some(dsn) = std::env::var("DATABASE_URL_PG")
+            .ok()
+            .or_else(|| std::env::var("MW_TEST_PG").ok())
+            .filter(|s| !s.trim().is_empty())
+        else {
+            mw_test_gate::skip(
+                "[mw-store] f34 inbound webhooks 0034: Postgres path (set DATABASE_URL_PG or \
+                 MW_TEST_PG to a live postgres:16 to run it). The SQLite path still asserted."
+                    .to_string(),
+            );
+            return;
+        };
+        let s = Store::open_postgres(&dsn, ServerKey::generate())
+            .await
+            .expect("DATABASE_URL_PG is set but Postgres is not reachable");
+        q("DELETE FROM inbound_webhooks WHERE id IN ('iw-1', 'iw-2')")
+            .execute(&s.backend)
+            .await
+            .unwrap();
+        q("DELETE FROM webhooks WHERE id = 'ow-1'")
+            .execute(&s.backend)
+            .await
+            .unwrap();
+        assert_inbound_webhooks(&s).await;
+    }
+
+    /// 0034 over a database that already holds an outbound webhook (SQLite, the
+    /// default deployment): the row survives with an empty label and author, and
+    /// the new tables start empty.
+    #[tokio::test]
+    async fn migration_0034_over_a_populated_sqlite_database() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let mut before = sqlx::migrate!("./migrations");
+        before.migrations.to_mut().retain(|m| m.version < 34);
+        before.run(&pool).await.unwrap();
+        let key = ServerKey::from_bytes(&[7u8; 32]).unwrap();
+        let sealed = key.seal(b"old-secret").unwrap();
+        sqlx::query(
+            "INSERT INTO webhooks (id, account_id, url, secret_sealed, event_filter, created_at)
+             VALUES ('old-1', 'a@x', 'https://hooks.example/old', ?1, '[]', '2026-01-01T00:00:00Z')",
+        )
+        .bind(&sealed)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let after = Store::init_sqlite(pool, key)
+            .await
+            .expect("0034 applies over a populated database");
+        let rows = after.list_webhooks_for_account("a@x").await.unwrap();
+        assert_eq!(rows.len(), 1, "the outbound webhook survives 0034");
+        assert_eq!(rows[0].url, "https://hooks.example/old");
+        assert_eq!(
+            (rows[0].label.as_str(), rows[0].created_by.as_str()),
+            ("", "")
+        );
+        assert_eq!(
+            after.key.open(&rows[0].secret_sealed).unwrap(),
+            b"old-secret"
+        );
+        assert!(after.list_inbound_webhooks().await.unwrap().is_empty());
     }
 }

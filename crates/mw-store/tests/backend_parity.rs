@@ -75,7 +75,7 @@ const ALL_TABLES: &str = "sessions, settings, accounts, mailboxes, messages, bod
     user_group_member, feature_profile, feature_profile_assignment, mail_user, \
     mail_user_account, signin_allow, usage_counter, usage_storage, config_snapshot, \
     maintenance_window, scheduled_task, job_run, diag_run, account_ban, metric_rollup, \
-    data_export";
+    data_export, inbound_webhooks, webhook_nonce";
 
 async fn truncate_pg(dsn: &str) {
     use sqlx::postgres::PgPoolOptions;
@@ -1068,6 +1068,17 @@ const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
          the old deployment's delivery surface.",
     ),
     (
+        "inbound_webhooks",
+        "0034: inbound webhooks with their sealed secrets, bound accounts and allowed \
+         actions. Like the outbound `webhooks` they belong to the old deployment's \
+         integrations; the operator re-creates them and hands out the new secrets.",
+    ),
+    (
+        "webhook_nonce",
+        "0034: the replay cache of accepted inbound-webhook nonces, kept for one \
+         five-minute signature window. Nothing in it outlives the move.",
+    ),
+    (
         "domains",
         "0007 (SPEC §19): managed-domain upstream routing + allow/blocklists — operator \
          configuration of the deployment, re-entered in the admin UI.",
@@ -1154,7 +1165,7 @@ const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
 
 /// Formerly the UNCLASSIFIED list: tables whose omission had not been ruled a
 /// deliberate design choice. **It is empty, and that is the point.** Every schema
-/// table (144 as of 0033) is now either copied or listed in
+/// table (146 as of 0034) is now either copied or listed in
 /// `NOT_MIGRATED_DELIBERATELY` with a reason — there is no third category where a
 /// table can sit un-argued.
 ///

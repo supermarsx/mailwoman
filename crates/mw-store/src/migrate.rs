@@ -9,11 +9,12 @@
 //! validated at commit.
 //!
 //! **The copy is not the whole schema, but it is now nearly all of it.** `TABLES`
-//! below is the complete list of what is copied: as of migration 0033 that is 120
-//! tables out of the 144 the migrations create. The other 24 are left behind
+//! below is the complete list of what is copied: as of migration 0034 that is 120
+//! tables out of the 146 the migrations create. The other 26 are left behind
 //! deliberately, each with its reason recorded at its entry in
 //! `NOT_MIGRATED_DELIBERATELY` in `tests/backend_parity.rs`: the admin panel's
-//! separate identity domain, OAuth clients and tokens, API keys, webhooks, the
+//! separate identity domain, OAuth clients and tokens, API keys, webhooks (and,
+//! from 0034, inbound webhooks with their nonce cache), the
 //! managed-domain/directory/egress/SSO/tunnel/integration configuration that
 //! names the OLD deployment's hosts or network position (and the 0033 tables
 //! that hang off `domains`), and the plugin registries and their capability
