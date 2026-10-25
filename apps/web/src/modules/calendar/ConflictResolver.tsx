@@ -121,8 +121,10 @@ export function ConflictResolver(props: ConflictResolverProps): JSX.Element {
    */
   function statusAt(hour: number): FbStatus {
     const g = grid();
-    const slotStart = new Date(g.day.getTime() + hour * 3600 * 1000);
-    const slotEnd = new Date(slotStart.getTime() + 3600 * 1000);
+    // The wall-clock hour, not midnight + `hour` x 3600 s: a day the clocks
+    // change on has 23 or 25 hours, and the latter is an hour off after the change.
+    const slotStart = new Date(g.day.getFullYear(), g.day.getMonth(), g.day.getDate(), hour);
+    const slotEnd = new Date(g.day.getFullYear(), g.day.getMonth(), g.day.getDate(), hour + 1);
     let status: FbStatus = 'free';
     for (const b of blocks() ?? []) {
       const bs = instanceBound(b.start, true);

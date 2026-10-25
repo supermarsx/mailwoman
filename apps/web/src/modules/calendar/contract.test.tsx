@@ -15,7 +15,7 @@
 // If a handler changes, change the fixture from the Rust; do not copy the
 // client's types into it.
 
-import { describe, it, expect } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import type { Invocation, JmapRequest, JmapResponse } from '../../api/jmap-types.ts';
 import type { CalendarEvent } from '../../api/pim-types.ts';
@@ -540,6 +540,44 @@ describe('conflict resolver free/busy grid', () => {
     render(() => <ConflictResolver controller={controller} onClose={() => {}} />);
     expect(await screen.findByTestId('freebusy-unavailable')).toBeInTheDocument();
     expect(screen.queryByTestId('freebusy-grid')).toBeNull();
+  });
+
+  // A cell is the wall-clock hour its label names, also on the days a zone's
+  // clocks change: 2026-10-25 has 25 hours in London and 2026-03-29 has 23, so
+  // "midnight + 12 h" is 11:00 or 13:00 there. The test sets the zone itself
+  // (Node re-reads `TZ` on assignment; each test file runs in its own process)
+  // so it fails on any host, not only on one whose clocks change that day.
+  describe.each(['Europe/London', 'America/New_York', 'UTC'])('in %s', (zone) => {
+    let savedTz: string | undefined;
+    beforeAll(() => {
+      savedTz = process.env['TZ'];
+      process.env['TZ'] = zone;
+    });
+    afterAll(() => {
+      if (savedTz === undefined) delete process.env['TZ'];
+      else process.env['TZ'] = savedTz;
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it.each([
+      [2026, 9, 25],
+      [2026, 2, 29],
+      [2026, 10, 1],
+      [2026, 2, 8],
+      [2026, 6, 14],
+    ])('labels each hour by its wall clock on %i-%i-%i (month0)', async (y, m0, d) => {
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date(y, m0, d, 8, 0, 0) });
+      const store = createMockStore();
+      const controller = mockController(store);
+      await controller.load();
+      render(() => <ConflictResolver controller={controller} onClose={() => {}} />);
+      await screen.findByTestId('freebusy-grid');
+      // Lunch 12:00-13:00 and the review 12:30-13:30 make 12:00-13:30 busy.
+      await waitFor(() => expect(screen.getByLabelText('Yours at 12:00: Busy')).toBeInTheDocument());
+      expect(screen.getByLabelText('Yours at 11:00: Free')).toBeInTheDocument();
+      expect(screen.getByLabelText('Yours at 13:00: Busy')).toBeInTheDocument();
+      expect(screen.getByLabelText('Yours at 14:00: Free')).toBeInTheDocument();
+    });
   });
 });
 
