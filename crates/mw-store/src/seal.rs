@@ -1,6 +1,6 @@
 //! Authenticated encryption for data at rest (XChaCha20-Poly1305).
 
-use chacha20poly1305::aead::{Aead, KeyInit};
+use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use rand::RngCore;
 
@@ -49,7 +49,7 @@ impl ServerKey {
         Self::from_bytes(&bytes)
     }
 
-    /// Hex-encode the key (e.g. to log a freshly generated `MW_SERVER_KEY`).
+    /// Hex-encode the key for explicit secure persistence. Never log this value.
     pub fn to_hex(&self) -> String {
         hex_encode(&self.0)
     }
@@ -79,6 +79,66 @@ impl ServerKey {
         let nonce = XNonce::from_slice(nonce_bytes);
         cipher.decrypt(nonce, ct).map_err(|_| SealError::Decrypt)
     }
+
+    /// Versioned encryption bound to an exact purpose and ordered authority fields.
+    /// Length prefixes prevent ambiguous concatenations. This format deliberately
+    /// cannot be opened by the legacy, unbound credential decoder.
+    pub fn seal_bound(
+        &self,
+        plaintext: &[u8],
+        purpose: &str,
+        authority: &[&str],
+    ) -> Result<Vec<u8>, SealError> {
+        let aad = bound_context(purpose, authority);
+        let mut nonce = [0u8; NONCE_LEN];
+        rand::thread_rng().fill_bytes(&mut nonce);
+        let ciphertext = XChaCha20Poly1305::new(&self.0.into())
+            .encrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: plaintext,
+                    aad: &aad,
+                },
+            )
+            .map_err(|_| SealError::Decrypt)?;
+        let mut output = b"MWB1".to_vec();
+        output.extend_from_slice(&nonce);
+        output.extend_from_slice(&ciphertext);
+        Ok(output)
+    }
+
+    pub fn open_bound(
+        &self,
+        sealed: &[u8],
+        purpose: &str,
+        authority: &[&str],
+    ) -> Result<Vec<u8>, SealError> {
+        if sealed.len() < 4 + NONCE_LEN + 16 {
+            return Err(SealError::Truncated);
+        }
+        if &sealed[..4] != b"MWB1" {
+            return Err(SealError::Decrypt);
+        }
+        let aad = bound_context(purpose, authority);
+        XChaCha20Poly1305::new(&self.0.into())
+            .decrypt(
+                XNonce::from_slice(&sealed[4..4 + NONCE_LEN]),
+                Payload {
+                    msg: &sealed[4 + NONCE_LEN..],
+                    aad: &aad,
+                },
+            )
+            .map_err(|_| SealError::Decrypt)
+    }
+}
+
+fn bound_context(purpose: &str, authority: &[&str]) -> Vec<u8> {
+    let mut output = b"mailwoman-bound-secret-v1".to_vec();
+    for field in std::iter::once(purpose).chain(authority.iter().copied()) {
+        output.extend_from_slice(&(field.len() as u64).to_be_bytes());
+        output.extend_from_slice(field.as_bytes());
+    }
+    output
 }
 
 impl ServerKey {
@@ -152,6 +212,33 @@ fn hex_decode(s: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bound_secrets_refuse_owner_link_purpose_and_format_swaps() {
+        let key = ServerKey::generate();
+        let context = ["owner", "link", "authority"];
+        let sealed = key
+            .seal_bound(b"credential", "child-account", &context)
+            .unwrap();
+        assert_eq!(
+            key.open_bound(&sealed, "child-account", &context).unwrap(),
+            b"credential"
+        );
+        for context in [
+            ["other", "link", "authority"],
+            ["owner", "other", "authority"],
+            ["owner", "link", "other"],
+        ] {
+            assert!(key.open_bound(&sealed, "child-account", &context).is_err());
+        }
+        assert!(key.open_bound(&sealed, "oidc-key", &context).is_err());
+        assert!(key.open(&sealed).is_err());
+        assert!(
+            key.open_bound(&key.seal(b"credential").unwrap(), "child-account", &context)
+                .is_err()
+        );
+        assert_ne!(bound_context("a", &["bc"]), bound_context("ab", &["c"]));
+    }
 
     #[test]
     fn hmac_matches_rfc_4231() {

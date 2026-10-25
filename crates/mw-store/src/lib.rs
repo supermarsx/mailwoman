@@ -6,6 +6,7 @@
 //! translated per-backend by the [`backend`]/[`dialect`] helpers (no `sqlx::Any`).
 
 mod security_center;
+pub mod identity_principal;
 mod auth_logs;
 mod hosting_connections;
 pub use hosting_connections::{HostingConnectionRow, HostingCredentialChange, HostingMutation};

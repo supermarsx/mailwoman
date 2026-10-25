@@ -149,6 +149,18 @@ fn ob(r: &Row, c: &str) -> Arg {
 /// the module note above for the two lists that account for the rest.
 const TABLES: &[TableSpec] = &[
     TableSpec {
+        name: "identity_principal",
+        select: "SELECT id,state,created_at,retired_at FROM identity_principal",
+        insert: "INSERT INTO identity_principal(id,state,created_at,retired_at) VALUES(?1,?2,?3,?4)",
+        map: |r| vec![t(r,"id"),t(r,"state"),i(r,"created_at"),oi(r,"retired_at")],
+    },
+    TableSpec {
+        name: "identity_binding",
+        select: "SELECT id,principal_id,kind,authority,subject,created_at,retired_at FROM identity_binding",
+        insert: "INSERT INTO identity_binding(id,principal_id,kind,authority,subject,created_at,retired_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| vec![t(r,"id"),t(r,"principal_id"),t(r,"kind"),t(r,"authority"),t(r,"subject"),i(r,"created_at"),oi(r,"retired_at")],
+    },
+    TableSpec {
         name: "settings",
         select: "SELECT key, value FROM settings",
         insert: "INSERT INTO settings (key, value) VALUES (?1, ?2)",
@@ -178,6 +190,12 @@ const TABLES: &[TableSpec] = &[
                 t(r, "authentication_method"),
             ]
         },
+    },
+    TableSpec {
+        name: "session_principal",
+        select: "SELECT session_id,principal_id,binding_id,primary_account_id,auth_time,authentication_method FROM session_principal",
+        insert: "INSERT INTO session_principal(session_id,principal_id,binding_id,primary_account_id,auth_time,authentication_method) VALUES(?1,?2,?3,?4,?5,?6)",
+        map: |r| vec![t(r,"session_id"),t(r,"principal_id"),t(r,"binding_id"),t(r,"primary_account_id"),i(r,"auth_time"),t(r,"authentication_method")],
     },
     TableSpec {
         name: "accounts",

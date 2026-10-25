@@ -89,6 +89,12 @@ impl Store {
             return Ok(false);
         }
         let mut tx = self.backend.begin().await?;
+        // Same order as principal retirement: identity lock, then session lock.
+        // Otherwise a PostgreSQL DELETE snapshot can miss a concurrently copied
+        // replacement session after waiting for the old session's row lock.
+        q("UPDATE identity_serialization SET id=id WHERE id=1")
+            .execute_tx(&mut tx)
+            .await?;
         // Serialize against another rotation/revocation of this same old session.
         if q("UPDATE sessions SET last_seen=last_seen WHERE id=?1")
             .bind(old)
@@ -103,6 +109,13 @@ impl Store {
         if changed != 1 {
             return Ok(false);
         }
+        // A rotation cannot replace an independently authenticated identity.
+        if !q("SELECT session_id FROM session_principal WHERE session_id=?1")
+            .bind(new).fetch_all_tx(&mut tx).await?.is_empty() {
+            return Ok(false);
+        }
+        q("INSERT INTO session_principal(session_id,principal_id,binding_id,primary_account_id,auth_time,authentication_method) SELECT ?2,principal_id,binding_id,primary_account_id,auth_time,authentication_method FROM session_principal WHERE session_id=?1")
+            .bind(old).bind(new).execute_tx(&mut tx).await?;
         q("DELETE FROM sessions WHERE id=?1")
             .bind(old)
             .execute_tx(&mut tx)
