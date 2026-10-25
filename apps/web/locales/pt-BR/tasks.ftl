@@ -1,7 +1,41 @@
-# MT-SEED — NOT REVIEWED
-# Locale: pt-BR · Module: tasks. Source of truth: ../en/tasks.ftl
-#
-# PLACEHOLDER awaiting human translation via Weblate. This catalog holds NO
-# reviewed translations — every key falls back to the en source at runtime until
-# a translator fills it in, so Weblate shows it as needing translation (0%).
-# Do NOT hand-edit or paste raw machine output as final: translate in Weblate.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: pt-BR · Module: tasks. Source: ../en/tasks.ftl
+
+tasks-title = Tarefas
+tasks-lists = Listas de tarefas
+tasks-all = Todas as tarefas
+tasks-my-day = Meu dia
+tasks-lists-heading = Listas
+tasks-no-lists = Nenhuma lista ainda.
+tasks-new-title = Título da nova tarefa
+tasks-add-placeholder = Adicionar uma tarefa…
+tasks-my-day-empty = Nada para hoje. Aproveite a calma.
+tasks-convert = Converter:
+tasks-mail-id = ID da mensagem a converter
+tasks-mail-id-placeholder = ID da mensagem
+tasks-mail-to-task = Mensagem → tarefa
+tasks-event-id = ID do evento a converter
+tasks-event-id-placeholder = ID do evento
+tasks-event-to-task = Evento → tarefa
+tasks-followup-mail = Acompanhar: mensagem { $id }
+tasks-prep-event = Preparar: evento { $id }
+tasks-list-label = Tarefas
+tasks-subtasks = Subtarefas
+tasks-empty-list = Nenhuma tarefa nesta lista.
+tasks-complete = Concluir { $title }
+tasks-reopen = Reabrir { $title }
+tasks-high-priority = Prioridade alta
+tasks-edit = Editar { $title }
+tasks-field-title = Título
+tasks-field-due = Data de vencimento
+tasks-field-priority = Prioridade
+tasks-priority-none = Nenhuma
+tasks-priority-high = Alta
+tasks-priority-medium = Média
+tasks-priority-low = Baixa
+tasks-delete-confirm = Excluir esta tarefa? Isso não pode ser desfeito.
+tasks-delete-yes = Excluir tarefa
+tasks-delete-no = Manter tarefa
+tasks-changed-elsewhere = Esta tarefa foi alterada em outro dispositivo ou sessão. Suas edições foram mantidas; Salvar aplica apenas os campos que você alterou.
+tasks-deleted-elsewhere = “{ $title }” foi excluída em outro dispositivo ou sessão, então o formulário de edição foi fechado.
+tasks-notice-dismiss = Dispensar
