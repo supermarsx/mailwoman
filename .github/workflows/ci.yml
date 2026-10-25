@@ -971,6 +971,72 @@ jobs:
         if: always()
         run: docker compose -f docker-compose.dev.yml down -v
 
+  # E2E for the t32 features: apps/web/e2e/t32/playwright.t32.config.ts runs every
+  # e2e/t32/t32-*.spec.ts against the engine stack (Chrome, Firefox, and a phone
+  # for `@phone` tests) and `@mock` tests against the proxy stack;
+  # apps/web/e2e/admin/playwright.admin.config.ts runs the admin console flows
+  # (e2e/admin/*.spec.ts) against the engine stack. New spec files slot in with no
+  # workflow edit. Both stacks set MW_UPSTREAM_DEFAULT in docker-compose.dev.yml.
+  e2e-t32:
+    runs-on: ubuntu-latest
+    needs: [rust, web]
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install web deps
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('apps/web/pnpm-lock.yaml') }}
+      - name: install Playwright chromium + firefox
+        run: pnpm -C apps/web exec playwright install --with-deps chromium firefox
+      - name: build + start both stacks (engine :8090 over Greenmail, proxy :8080 over the JMAP mock)
+        run: docker compose -f docker-compose.dev.yml up -d --build --wait greenmail mailwoman-engine mock mailwoman
+      - name: wait for server health
+        run: |
+          ./scripts/wait-for-health.sh http://localhost:8090/healthz 240
+          ./scripts/wait-for-health.sh http://localhost:8080/healthz 240
+      - name: run the t32 feature specs
+        env:
+          T32_PW_OUT: ${{ github.workspace }}/apps/web/test-results-t32
+        run: pnpm -C apps/web exec playwright test --config=e2e/t32/playwright.t32.config.ts
+      # --pass-with-no-tests only while e2e/admin holds no spec yet; once one
+      # exists it runs like any other.
+      - name: run the admin console flows
+        env:
+          T32_PW_OUT: ${{ github.workspace }}/apps/web/test-results-admin
+        run: |
+          ls apps/web/e2e/admin/*.spec.ts 2>/dev/null || echo "no admin console spec yet"
+          pnpm -C apps/web exec playwright test --config=e2e/admin/playwright.admin.config.ts --pass-with-no-tests
+      - name: compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.dev.yml logs --no-color greenmail mailwoman-engine mock mailwoman
+      - name: upload Playwright results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results-t32
+          path: |
+            apps/web/test-results-t32
+            apps/web/test-results-admin
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: tear down
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down -v
+
   # ===========================================================================
   # V4 (Crypto & Security) CI jobs — plan §3 e9. Filled by e9 from the e0 stubs
   # once the wasm bundle + crypto/verdict fixtures landed (e1/e6/e8/e8b). Each is a
