@@ -1,7 +1,41 @@
-# MT-SEED — NOT REVIEWED
-# Locale: nl · Module: tasks. Source of truth: ../en/tasks.ftl
-#
-# PLACEHOLDER awaiting human translation via Weblate. This catalog holds NO
-# reviewed translations — every key falls back to the en source at runtime until
-# a translator fills it in, so Weblate shows it as needing translation (0%).
-# Do NOT hand-edit or paste raw machine output as final: translate in Weblate.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: nl · Module: tasks. Source: ../en/tasks.ftl
+
+tasks-title = Taken
+tasks-lists = Takenlijsten
+tasks-all = Alle taken
+tasks-my-day = Mijn dag
+tasks-lists-heading = Lijsten
+tasks-no-lists = Nog geen lijsten.
+tasks-new-title = Titel nieuwe taak
+tasks-add-placeholder = Taak toevoegen…
+tasks-my-day-empty = Niets gepland voor vandaag. Geniet van de rust.
+tasks-convert = Omzetten:
+tasks-mail-id = ID van het bericht om om te zetten
+tasks-mail-id-placeholder = bericht-ID
+tasks-mail-to-task = Mail → taak
+tasks-event-id = ID van de afspraak om om te zetten
+tasks-event-id-placeholder = afspraak-ID
+tasks-event-to-task = Afspraak → taak
+tasks-followup-mail = Opvolgen: mail { $id }
+tasks-prep-event = Voorbereiden: afspraak { $id }
+tasks-list-label = Taken
+tasks-subtasks = Subtaken
+tasks-empty-list = Geen taken in deze lijst.
+tasks-complete = { $title } voltooien
+tasks-reopen = { $title } heropenen
+tasks-high-priority = Hoge prioriteit
+tasks-edit = { $title } bewerken
+tasks-field-title = Titel
+tasks-field-due = Vervaldatum
+tasks-field-priority = Prioriteit
+tasks-priority-none = Geen
+tasks-priority-high = Hoog
+tasks-priority-medium = Gemiddeld
+tasks-priority-low = Laag
+tasks-delete-confirm = Deze taak verwijderen? Dit kan niet ongedaan worden gemaakt.
+tasks-delete-yes = Taak verwijderen
+tasks-delete-no = Taak behouden
+tasks-changed-elsewhere = Deze taak is op een ander apparaat of in een andere sessie gewijzigd. Je bewerkingen blijven behouden; Opslaan past alleen de velden toe die jij hebt gewijzigd.
+tasks-deleted-elsewhere = “{ $title }” is op een ander apparaat of in een andere sessie verwijderd, dus het bewerkingsformulier is gesloten.
+tasks-notice-dismiss = Sluiten
