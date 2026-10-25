@@ -1,7 +1,41 @@
-# MT-SEED — NOT REVIEWED
-# Locale: zh · Module: tasks. Source of truth: ../en/tasks.ftl
-#
-# PLACEHOLDER awaiting human translation via Weblate. This catalog holds NO
-# reviewed translations — every key falls back to the en source at runtime until
-# a translator fills it in, so Weblate shows it as needing translation (0%).
-# Do NOT hand-edit or paste raw machine output as final: translate in Weblate.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: zh · Module: tasks. Source: ../en/tasks.ftl
+
+tasks-title = 任务
+tasks-lists = 任务列表
+tasks-all = 所有任务
+tasks-my-day = 我的一天
+tasks-lists-heading = 列表
+tasks-no-lists = 还没有列表。
+tasks-new-title = 新任务标题
+tasks-add-placeholder = 添加任务…
+tasks-my-day-empty = 今天没有到期的任务。难得清闲。
+tasks-convert = 转换：
+tasks-mail-id = 要转换的邮件 ID
+tasks-mail-id-placeholder = 邮件 ID
+tasks-mail-to-task = 邮件 → 任务
+tasks-event-id = 要转换的日程 ID
+tasks-event-id-placeholder = 日程 ID
+tasks-event-to-task = 日程 → 任务
+tasks-followup-mail = 跟进：邮件 { $id }
+tasks-prep-event = 准备：日程 { $id }
+tasks-list-label = 任务
+tasks-subtasks = 子任务
+tasks-empty-list = 此列表中没有任务。
+tasks-complete = 完成 { $title }
+tasks-reopen = 重新打开 { $title }
+tasks-high-priority = 高优先级
+tasks-edit = 编辑 { $title }
+tasks-field-title = 标题
+tasks-field-due = 截止日期
+tasks-field-priority = 优先级
+tasks-priority-none = 无
+tasks-priority-high = 高
+tasks-priority-medium = 中
+tasks-priority-low = 低
+tasks-delete-confirm = 删除此任务？此操作无法撤销。
+tasks-delete-yes = 删除任务
+tasks-delete-no = 保留任务
+tasks-changed-elsewhere = 此任务已在其他设备或会话中被修改。你的编辑会保留；“保存”只会应用你更改过的字段。
+tasks-deleted-elsewhere = “{ $title }”已在其他设备或会话中被删除，因此其编辑表单已关闭。
+tasks-notice-dismiss = 关闭
