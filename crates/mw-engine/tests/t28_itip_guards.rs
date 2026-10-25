@@ -604,3 +604,19 @@ async fn a_message_without_a_calendar_part_or_of_another_account_is_refused() {
     assert_eq!(resp["type"], "notFound", "{resp}");
     assert!(h.events().await.is_empty());
 }
+
+/// What the web invite card relies on to know a message carries an invitation:
+/// the calendar part is listed among the message's attachments with its type,
+/// also when it is the second half of a `multipart/alternative`.
+#[test]
+fn the_calendar_part_is_listed_among_the_attachments() {
+    let raw = mail(ORGANIZER, &request(1, "20261020T090000Z", "Planning"));
+    let parsed = mw_mime::parse(raw.as_bytes()).unwrap();
+    let types: Vec<String> = parsed
+        .email
+        .attachments
+        .iter()
+        .filter_map(|p| p.r#type.clone())
+        .collect();
+    assert!(types.iter().any(|t| t == "text/calendar"), "{types:?}");
+}

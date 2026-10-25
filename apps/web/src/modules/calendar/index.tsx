@@ -21,6 +21,7 @@ import { ConflictResolver } from './ConflictResolver.tsx';
 import { HolLocationPicker } from './HolLocationPicker.tsx';
 import { formatFull, formatMonth, formatMonthYear } from './datetime.ts';
 import { readCalendarFile } from './decode.ts';
+import { PimMethodError } from './api.ts';
 import { FeedError } from './feeds.ts';
 import { holLocations, holPack, type HolLocation } from './hol-locations.ts';
 import { HOLIDAY_PACKS } from './holidays.ts';
@@ -95,10 +96,16 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
   async function importInto(text: string): Promise<void> {
     const target = c.visibleCalendars()[0]?.id ?? c.calendars()[0]?.id;
     if (target === undefined) return;
-    await attempt('calendar-import-failed', async () => {
-      const count = await c.importIcs(target, text);
-      setFeedback({ kind: 'info', text: t('calendar-import-done', { count }) });
-    });
+    setFeedback(null);
+    try {
+      const { count, skipped } = await c.importIcs(target, text);
+      const done = t('calendar-import-done', { count });
+      setFeedback({ kind: 'info', text: skipped > 0 ? `${done} ${t('calendar-import-skipped', { count: skipped })}` : done });
+    } catch (e) {
+      // A cancellation or reply is applied from its message, not imported.
+      const itip = e instanceof PimMethodError && e.code === 'itipNotImportable';
+      setFeedback({ kind: 'error', text: t(itip ? 'calendar-import-itip-message' : 'calendar-import-failed') });
+    }
   }
 
   onMount(() => {

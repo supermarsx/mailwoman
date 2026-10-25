@@ -232,7 +232,9 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
 
     // The repository's fixture, re-encoded by `utf16WithBom`: one location, three
     // holidays.
-    const fixture = await readFile(new URL('../../../fixtures/ics/holidays.hol', import.meta.url), 'utf8');
+    const run = uid();
+    const fixture = (await readFile(new URL('../../../fixtures/ics/holidays.hol', import.meta.url), 'utf8'))
+      .replace(/^([^\r\n,]+),/gm, `$1 ${run},`);
     const le = utf16WithBom(fixture);
     // Precondition: these are UTF-16LE bytes, not the UTF-8 file under another name.
     expect([...le.subarray(0, 6)]).toEqual([0xff, 0xfe, 0x5b, 0x00, 0x54, 0x00]);
@@ -243,7 +245,7 @@ test.describe('Calendar module through the real UI (engine mode)', () => {
 
     // Big-endian with its mark is read the same way. (Two holidays, so this
     // message is not the one already on screen.)
-    const be = utf16WithBom('[Holidays] 2\r\nNew Year,2027/01/01\r\nMay Day,2027/05/01\r\n', true);
+    const be = utf16WithBom(`[Holidays] 2\r\nNew Year ${run},2027/01/01\r\nMay Day ${run},2027/05/01\r\n`, true);
     expect([...be.subarray(0, 4)]).toEqual([0xfe, 0xff, 0x00, 0x5b]);
     await input.setInputFiles({ name: 'holidays-be.hol', mimeType: 'application/octet-stream', buffer: be });
     await expect(feedback).toHaveText('Imported 2 events.');

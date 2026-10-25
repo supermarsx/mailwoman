@@ -12,12 +12,13 @@
 // iTIP REQUEST only on create — `event_create`, `crates/mw-engine/src/pim/events.rs:145`),
 // so the dialog makes no claim that anyone is notified.
 //
-// A free/busy grid shows the signed-in account's own busy/tentative/free time
-// across the conflict day so the user can pick a clear slot. It has one row:
-// `Calendar/freeBusy` aggregates the account's own calendars and reports on no
-// other principal (`calendar_free_busy`, `crates/mw-engine/src/pim/calendars.rs:353-387`),
-// so there is no attendee availability to show. When the events have attendees
-// the dialog says so rather than drawing rows it has no data for.
+// A free/busy grid shows busy/tentative/free time across the conflict day so
+// the user can pick a clear slot: one row for the signed-in account, then one
+// per other participant of the two events. `Calendar/freeBusy` is asked with
+// their addresses as `principals` and tags each answer with the address
+// (`calendar_free_busy`, `crates/mw-engine/src/pim/calendars.rs:361-494`). A
+// participant the server could get no answer for is reported `unknown`, and
+// their row says availability could not be retrieved instead of showing free.
 //
 // a11y (WCAG 2.2 AA): a focus-trapped `role=dialog` (Escape closes, focus is
 // restored on close); the free/busy grid is a semantic table with row/column
@@ -30,6 +31,7 @@ import type { CalendarEvent } from '../../api/pim-types.ts';
 import type { CalendarController } from './controller.ts';
 import type { FreeBusyBlock } from './api.ts';
 import type { ConflictPair } from './types.ts';
+import { otherParticipants, type OtherParticipant } from './participants.ts';
 import { addDays, dateToLocal, formatFull, formatTime, instanceBound, localToDate, startOfDay } from './datetime.ts';
 import { formatDuration, parseDuration } from './recurrence.ts';
 import * as css from './calendar.css.ts';
@@ -62,7 +64,8 @@ export function ConflictResolver(props: ConflictResolverProps): JSX.Element {
   const [failed, setFailed] = createSignal(false);
   // `null` = the free/busy query failed: the grid is withheld rather than drawn
   // as all-free.
-  const [blocks, setBlocks] = createSignal<FreeBusyBlock[] | null>([]);
+  const [blocks, setBlocks] = createSignal<FreeBusyBlock[] | null>(null);
+  const [loadingBusy, setLoadingBusy] = createSignal(false);
 
   // Keep the selection in range as pairs resolve away.
   createEffect(() => {
@@ -83,12 +86,12 @@ export function ConflictResolver(props: ConflictResolverProps): JSX.Element {
     return { pair: p, earlier, later };
   });
 
-  const hasAttendees = createMemo(() => {
+  /** The other participants of the selected pair: one grid row each. */
+  const people = createMemo<OtherParticipant[]>(() => {
     const pr = pair();
-    if (pr === null) return false;
-    return Object.keys(pr.earlier.event.participants).length > 0 || Object.keys(pr.later.event.participants).length > 0;
+    if (pr === null) return [];
+    return otherParticipants([pr.earlier.event.participants, pr.later.event.participants], c.identity());
   });
-
 
   /** The conflict day + the hour span the grid covers (union ± 1h, clamped). */
   const grid = createMemo(() => {
@@ -102,24 +105,44 @@ export function ConflictResolver(props: ConflictResolverProps): JSX.Element {
     return { day, hours };
   });
 
-  // Refetch the account's busy time for the conflict day whenever the selected
-  // pair changes.
+  // Refetch busy time for the conflict day whenever the selected pair changes.
+  // Only the latest request's answer is drawn: a slower answer for a pair that
+  // is no longer selected must not replace it.
+  let fbTicket = 0;
   createEffect(() => {
+    const ticket = (fbTicket += 1);
     if (pair() === null) {
       setBlocks([]);
+      setLoadingBusy(false);
       return;
     }
+    setBlocks(null);
+    setLoadingBusy(true);
     const day = grid().day;
-    c.queryFreeBusy(day, addDays(day, 1)).then(setBlocks, () => setBlocks(null));
+    c.queryFreeBusy(
+      day,
+      addDays(day, 1),
+      people().map((p) => p.address),
+    ).then(
+      (list) => { if (ticket === fbTicket) { setBlocks(list); setLoadingBusy(false); } },
+      () => { if (ticket === fbTicket) { setBlocks(null); setLoadingBusy(false); } },
+    );
   });
 
+  /** Whether the server could get no availability for `address`. */
+  function unknown(address: string): boolean {
+    return (blocks() ?? []).some((b) => b.principal === address && b.status === 'unknown');
+  }
+
   /**
-   * The account's status for one hour of the conflict day. Blocks are read as
-   * UTC instants. A merged block does not say whether a floating or all-day
-   * event contributed to it (those are stamped `Z` at their wall clock), so such
-   * an event's cells sit off by the viewer's UTC offset.
+   * One person's status for one hour of the conflict day: the account's own
+   * (`address` null, the untagged blocks) or a participant's (the blocks tagged
+   * with their address). Blocks are read as UTC instants. A merged block does
+   * not say whether a floating or all-day event contributed to it (those are
+   * stamped `Z` at their wall clock), so such an event's cells sit off by the
+   * viewer's UTC offset.
    */
-  function statusAt(hour: number): FbStatus {
+  function statusAt(hour: number, address: string | null = null): FbStatus {
     const g = grid();
     // The wall-clock hour, not midnight + `hour` x 3600 s: a day the clocks
     // change on has 23 or 25 hours, and the latter is an hour off after the change.
@@ -127,6 +150,7 @@ export function ConflictResolver(props: ConflictResolverProps): JSX.Element {
     const slotEnd = new Date(g.day.getFullYear(), g.day.getMonth(), g.day.getDate(), hour + 1);
     let status: FbStatus = 'free';
     for (const b of blocks() ?? []) {
+      if (b.status === 'unknown' || (b.principal ?? null) !== address) continue;
       const bs = instanceBound(b.start, true);
       const be = instanceBound(b.end, true);
       if (bs < slotEnd && be > slotStart) {
@@ -296,13 +320,16 @@ export function ConflictResolver(props: ConflictResolverProps): JSX.Element {
               </p>
 
               {/* free/busy grid — the account's own busy time (queryFreeBusy) */}
-              <Show when={blocks() === null}>
+              <Show when={loadingBusy()}>
+                <p class={css.dimText} role="status">{t('calendar-fb-loading')}</p>
+              </Show>
+              <Show when={blocks() === null && !loadingBusy()}>
                 <p class={css.dimText} role="note" data-testid="freebusy-unavailable">{t('calendar-fb-unavailable')}</p>
               </Show>
               <Show when={blocks() !== null && grid().hours.length > 0}>
                 <div class={css.fbScroll}>
                   <table class={css.fbGrid} data-testid="freebusy-grid">
-                    <caption class={css.srOnly}>{t('calendar-fb-caption')}</caption>
+                    <caption class={css.srOnly}>{t('calendar-fb-caption-people')}</caption>
                     <thead>
                       <tr>
                         <th scope="col" class={css.fbCorner}>{t('calendar-fb-whose')}</th>
@@ -314,31 +341,33 @@ export function ConflictResolver(props: ConflictResolverProps): JSX.Element {
                     <tbody>
                       <tr>
                         <th scope="row" class={css.fbRowHead}>{t('calendar-fb-own')}</th>
-                        <For each={grid().hours}>
-                          {(h) => {
-                            const s = (): FbStatus => statusAt(h);
-                            return (
-                              <td
-                                class={css.fbCell[s()]}
-                                aria-label={t('calendar-fb-cell', {
-                                  principal: t('calendar-fb-own'),
-                                  hour: `${String(h).padStart(2, '0')}:00`,
-                                  status: t(`calendar-fb-${s()}`),
-                                })}
-                              >
-                                <span aria-hidden="true">{s() === 'free' ? '' : s() === 'busy' ? '●' : '◐'}</span>
-                              </td>
-                            );
-                          }}
-                        </For>
+                        <FbCells hours={grid().hours} label={t('calendar-fb-own')} statusAt={(h) => statusAt(h)} />
                       </tr>
+                      <For each={people()}>
+                        {(person) => {
+                          // A name is the event's text: isolate it, and keep the
+                          // address (what the server answered for) in the title.
+                          const label = (): string => isolate(person.name !== '' ? person.name : person.address);
+                          return (
+                            <tr data-testid="freebusy-person" data-principal={person.address}>
+                              <th scope="row" class={css.fbRowHead} title={person.address}>{label()}</th>
+                              <Show
+                                when={!unknown(person.address)}
+                                fallback={
+                                  <td class={css.fbUnknown} colSpan={grid().hours.length} data-testid="freebusy-unknown">
+                                    {t('calendar-fb-unknown', { principal: label() })}
+                                  </td>
+                                }
+                              >
+                                <FbCells hours={grid().hours} label={label()} statusAt={(h) => statusAt(h, person.address)} />
+                              </Show>
+                            </tr>
+                          );
+                        }}
+                      </For>
                     </tbody>
                   </table>
                 </div>
-              </Show>
-
-              <Show when={hasAttendees()}>
-                <p class={css.dimText} role="note" data-testid="freebusy-own-only">{t('calendar-fb-own-only')}</p>
               </Show>
 
               <Show when={failed()}>
@@ -372,5 +401,29 @@ export function ConflictResolver(props: ConflictResolverProps): JSX.Element {
         </div>
       </div>
     </div>
+  );
+}
+
+/** One grid row's hour cells. Each cell names whose, which hour and what status
+ *  in its accessible name; the symbol is decoration, never the only signal. */
+function FbCells(props: { hours: number[]; label: string; statusAt: (hour: number) => FbStatus }): JSX.Element {
+  return (
+    <For each={props.hours}>
+      {(h) => {
+        const s = (): FbStatus => props.statusAt(h);
+        return (
+          <td
+            class={css.fbCell[s()]}
+            aria-label={t('calendar-fb-cell', {
+              principal: props.label,
+              hour: `${String(h).padStart(2, '0')}:00`,
+              status: t(`calendar-fb-${s()}`),
+            })}
+          >
+            <span aria-hidden="true">{s() === 'free' ? '' : s() === 'busy' ? '●' : '◐'}</span>
+          </td>
+        );
+      }}
+    </For>
   );
 }

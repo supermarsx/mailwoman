@@ -172,15 +172,14 @@ export interface CalendarController {
   refreshSubscription(calendarId: Id): Promise<void>;
 
   // ── ics / free-busy ──
-  /** Import an ICS / `.hol` document; resolves to the number of events created. */
-  importIcs(calendarId: Id, ics: string): Promise<number>;
+  /** Import a calendar document; `skipped` counts events the calendar already
+   *  held (by UID). Rejects with a `PimMethodError` when the engine refuses it. */
+  importIcs(calendarId: Id, ics: string): Promise<{ count: number; skipped: number }>;
   /** Export to one ICS document: the given events, one calendar's, or (default) all. */
   exportIcs(opts?: { calendarId?: Id; eventIds?: Id[] }): Promise<string>;
-  /**
-   * The signed-in account's own busy intervals overlapping the local range
-   * `[start, end)`. The engine reports on no one else's calendars.
-   */
-  queryFreeBusy(start: Date, end: Date): Promise<FreeBusyBlock[]>;
+  /** Busy time over `[start, end)`: the account's own, and each address in
+   *  `principals` tagged with it (`FreeBusyBlock`). */
+  queryFreeBusy(start: Date, end: Date, principals?: string[]): Promise<FreeBusyBlock[]>;
 }
 
 /** Compute the [start,end) window a view needs expanded around `focus`. */
@@ -604,13 +603,13 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
   }
 
   // ── ics / free-busy ──
-  async function importIcs(calendarId: Id, ics: string): Promise<number> {
+  async function importIcs(calendarId: Id, ics: string): Promise<{ count: number; skipped: number }> {
     const acct = await backend.resolveAccount();
-    if (acct === null) return 0;
+    if (acct === null) return { count: 0, skipped: 0 };
     const res = await backend.jmap(eventsImport(acct, calendarId, ics));
     const imp = pimResponse<EventImportResponse>(res, 'import');
     await load();
-    return imp.count;
+    return { count: imp.count, skipped: imp.skipped ?? 0 };
   }
 
   async function exportIcs(opts: { calendarId?: Id; eventIds?: Id[] } = {}): Promise<string> {
@@ -628,11 +627,11 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     return pimResponse<EventExportResponse>(res, 'export').blob;
   }
 
-  async function queryFreeBusy(start: Date, end: Date): Promise<FreeBusyBlock[]> {
+  async function queryFreeBusy(start: Date, end: Date, principals: string[] = []): Promise<FreeBusyBlock[]> {
     const acct = await backend.resolveAccount();
     if (acct === null) return [];
     const q = queryBounds(start, end);
-    const res = await backend.jmap(freeBusy(acct, q.start, q.end));
+    const res = await backend.jmap(freeBusy(acct, q.start, q.end, undefined, principals));
     return pimResponse<FreeBusyResponse>(res, 'fb').list;
   }
 

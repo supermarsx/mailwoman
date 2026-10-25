@@ -560,3 +560,13 @@ export const fbCell = styleVariants({
   busy: [fbCellBase, { background: vars.color.danger, color: vars.color.accentText }],
   tentative: [fbCellBase, { background: vars.color.bgAlt }],
 });
+
+/** The one cell of a row whose availability could not be retrieved. */
+export const fbUnknown = style({
+  border: hair,
+  paddingBlock: '2px',
+  paddingInline: '6px',
+  color: vars.color.textDim,
+  fontStyle: 'italic',
+  textAlign: 'start',
+});

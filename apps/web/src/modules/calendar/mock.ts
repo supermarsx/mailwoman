@@ -153,6 +153,13 @@ export function seedEvents(today = new Date()): CalendarEvent[] {
 export interface MockStore {
   calendars: CalendarRow[];
   events: CalendarEvent[];
+  /**
+   * Busy time of other same-server accounts that shared a calendar with this
+   * one, by lower-cased address — what `Calendar/freeBusy` may report for them
+   * (`shared_busy`, `calendars.rs:496+`). An address not listed here is one no
+   * source answers for.
+   */
+  sharedBusy?: Record<string, Array<{ start: string; end: string; status: 'busy' | 'tentative' }>>;
 }
 
 export function createMockStore(today = new Date()): MockStore {
@@ -236,9 +243,15 @@ function parseIcsEvents(blob: string): Array<{ uid?: string; title?: string; sta
 
 /** Persist parsed events into a calendar, returning the created ids
  *  (`persist_parsed_events`, `events.rs:524-559`). */
-function persistParsed(store: MockStore, calendarId: string, blob: string): string[] {
+function persistParsed(store: MockStore, calendarId: string, blob: string): { created: string[]; skipped: number } {
   const created: string[] = [];
+  const held = new Set(store.events.filter((e) => e.calendarId === calendarId).map((e) => e.uid));
+  let skipped = 0;
   parseIcsEvents(blob).forEach((p, i) => {
+    if (p.uid !== undefined && held.has(p.uid)) {
+      skipped += 1;
+      return;
+    }
     const id = nextId('ev');
     store.events.push(
       baseEvent({
@@ -252,7 +265,7 @@ function persistParsed(store: MockStore, calendarId: string, blob: string): stri
     );
     created.push(id);
   });
-  return created;
+  return { created, skipped };
 }
 
 /**
@@ -465,13 +478,16 @@ function dispatch(store: MockStore, call: Invocation): Invocation {
       return ok(callId, name, res);
     }
     case 'Calendar/freeBusy': {
-      // `calendar_free_busy` (`calendars.rs:353-387`) + `aggregate_free_busy`
+      // `calendar_free_busy` (`calendars.rs:361-494`) + `aggregate_free_busy`
       // (`crates/mw-ics/src/freebusy.rs:31-76`): `start` + `end` are required;
-      // the optional `calendarIds` is the only filter (`principals` is not read);
-      // the account's own events are expanded, `freeBusyStatus: "free"` ones
+      // the optional `calendarIds` filters the account's own calendars; the
+      // account's own events are expanded, `freeBusyStatus: "free"` ones
       // skipped, and overlapping or touching intervals merged — a merged block
-      // is `tentative` only when every contributor was. Rows are
-      // `{start, end, status}` under `list`, with no principal.
+      // is `tentative` only when every contributor was. Own rows are
+      // `{start, end, status}` under `list`, with no principal. Each address in
+      // `principals` (lower-cased, deduped) adds its rows tagged `principal`:
+      // the account's own blocks for its own address, a sharing account's
+      // blocks (`sharedBusy` here), else one `{principal, status: "unknown"}`.
       if (typeof args['start'] !== 'string' || typeof args['end'] !== 'string') {
         return fail(callId, name, 'Calendar/freeBusy requires start + end (RFC3339 UTC)');
       }
@@ -487,15 +503,25 @@ function dispatch(store: MockStore, call: Invocation): Invocation {
         }
       }
       raw.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
-      const list: FreeBusyBlock[] = [];
+      const own: Array<{ start: string; end: string; status: 'busy' | 'tentative' }> = [];
       for (const r of raw) {
-        const last = list[list.length - 1];
+        const last = own[own.length - 1];
         if (last !== undefined && r.start <= last.end) {
           if (r.end > last.end) last.end = r.end;
           if (!r.tentative) last.status = 'busy';
         } else {
-          list.push({ start: r.start, end: r.end, status: r.tentative ? 'tentative' : 'busy' });
+          own.push({ start: r.start, end: r.end, status: r.tentative ? 'tentative' : 'busy' });
         }
+      }
+      const list: FreeBusyBlock[] = [...own];
+      const wantedPrincipals = Array.isArray(args['principals'])
+        ? [...new Set((args['principals'] as unknown[]).filter((p): p is string => typeof p === 'string').map((p) => p.trim().toLowerCase()).filter((p) => p !== ''))].sort()
+        : [];
+      for (const p of wantedPrincipals) {
+        const shared = store.sharedBusy?.[p];
+        if (p === MOCK_IDENTITY.toLowerCase()) list.push(...own.map((b) => ({ ...b, principal: p })));
+        else if (shared !== undefined) list.push(...shared.map((b) => ({ ...b, principal: p })));
+        else list.push({ principal: p, status: 'unknown' });
       }
       const res: FreeBusyResponse = { accountId: ACCOUNT, list };
       return ok(callId, name, res);
@@ -514,9 +540,20 @@ function dispatch(store: MockStore, call: Invocation): Invocation {
       if (!blob.includes('BEGIN:VCALENDAR')) {
         return fail(callId, name, 'backend protocol error: ics: not a calendar document');
       }
+      // t28-e21 (`not_importable`, events.rs): a CANCEL, REPLY or COUNTER is
+      // refused; an event whose UID the calendar already held is skipped.
+      const method = /^METHOD:([A-Za-z]+)\r?$/m.exec(blob)?.[1]?.toUpperCase() ?? null;
+      if (method === 'CANCEL' || method === 'REPLY' || method === 'COUNTER') {
+        return ok(callId, name, {
+          type: 'invalidArguments',
+          code: 'itipNotImportable',
+          method,
+          description: `a METHOD:${method} message is applied from the message it came in, not imported`,
+        });
+      }
       const calendarId = (args['calendarId'] as string | undefined) ?? eventCalendarIds(store)[0]!;
-      const imported = persistParsed(store, calendarId, blob);
-      const res: EventImportResponse = { accountId: ACCOUNT, imported, count: imported.length };
+      const { created: imported, skipped } = persistParsed(store, calendarId, blob);
+      const res: EventImportResponse = { accountId: ACCOUNT, imported, count: imported.length, skipped };
       return ok(callId, name, res);
     }
     case 'CalendarEvent/query': {
@@ -598,7 +635,7 @@ function dispatch(store: MockStore, call: Invocation): Invocation {
         component: 'VEVENT',
       };
       store.calendars.push(cal);
-      const imported = typeof args['blob'] === 'string' ? persistParsed(store, id, args['blob']).length : 0;
+      const imported = typeof args['blob'] === 'string' ? persistParsed(store, id, args['blob']).created.length : 0;
       const res: CalendarSubscribeResponse = { accountId: ACCOUNT, created: { id }, url: normalized, imported };
       return ok(callId, name, res);
     }
@@ -614,7 +651,7 @@ function dispatch(store: MockStore, call: Invocation): Invocation {
       if (cal === undefined) return fail(callId, name, `unknown calendar ${calendarId}`);
       if (!cal.isReadOnlyOverlay) return fail(callId, name, 'target calendar is not a subscription overlay');
       store.events = store.events.filter((e) => e.calendarId !== calendarId);
-      const imported = persistParsed(store, calendarId, blob).length;
+      const imported = persistParsed(store, calendarId, blob).created.length;
       const res: CalendarRefreshResponse = { accountId: ACCOUNT, calendarId, imported };
       return ok(callId, name, res);
     }

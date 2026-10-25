@@ -23,6 +23,7 @@ import { ThumbnailStrip, type StripItem } from '../viewers/ThumbnailStrip.tsx';
 import { AttachmentViewer } from '../viewers/AttachmentViewer.tsx';
 import { buildDownloadUrl, fetchObjectUrl, type AttachmentPart } from '../viewers/attachments.ts';
 import { SecurityPanel } from './SecurityPanel.tsx';
+import { InviteCard, hasCalendarPart } from './InviteCard.tsx';
 // V7 auto-tag (SPEC §14.3, e14b): model-suggested labels for the open message.
 // Gated on the `auto-tag` Assist capability, so a Disabled gateway renders nothing.
 import { AutoTag, type TagSuggestion } from '../modules/assist/index.ts';
@@ -920,6 +921,9 @@ export function Reader(props: {
               <AutoTagSection email={email()} />
             </header>
             <AttachmentsPane email={email()} />
+            <Show when={hasCalendarPart(email()) && app.accountId()}>{(accountId) => (
+              <InviteCard accountId={accountId()} emailId={email().id} />
+            )}</Show>
             {/* Remote-content bar (§S8/S9): blocked-image/tracker count + the
                 4 grant scopes, above the body it governs. */}
             <Show when={showRemoteBar()}>

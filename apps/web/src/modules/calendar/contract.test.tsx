@@ -20,6 +20,7 @@ import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import type { Invocation, JmapRequest, JmapResponse } from '../../api/jmap-types.ts';
 import type { CalendarEvent } from '../../api/pim-types.ts';
 import {
+  PimMethodError,
   detectConflicts,
   eventsExpand,
   eventsExport,
@@ -33,6 +34,7 @@ import { ConflictResolver } from './ConflictResolver.tsx';
 import { EventEditor } from './EventEditor.tsx';
 import { isMailbox, ownParticipant } from './participants.ts';
 import { conflictsInWindow, createCalendarController, type CalendarController } from './controller.ts';
+import { isolate } from '../../i18n';
 import { instanceBound, queryBounds } from './datetime.ts';
 import { createCalendarFeeds, FeedError, type CalendarFeeds } from './feeds.ts';
 import { CalendarApp } from './index.tsx';
@@ -42,8 +44,9 @@ import { MOCK_IDENTITY, createMockFeeds, createMockJmap, createMockStore, type M
 
 /** The argument keys each handler reads (besides `accountId`). */
 const SERVER_READS: Record<string, readonly string[]> = {
-  // crates/mw-engine/src/pim/calendars.rs:359-372 — `start`, `end`, `calendarIds`.
-  'Calendar/freeBusy': ['start', 'end', 'calendarIds'],
+  // crates/mw-engine/src/pim/calendars.rs:378-415 — `start`, `end`, `calendarIds`,
+  // `principals` (26.20 t28-e19).
+  'Calendar/freeBusy': ['start', 'end', 'calendarIds', 'principals'],
   // crates/mw-engine/src/pim/calendars.rs:392-399 — `start`, `end`.
   'Calendar/detectConflicts': ['start', 'end'],
   // crates/mw-engine/src/pim/events.rs:450-455 — `start`, `end`, `ids` (via `wanted_ids`).
@@ -70,8 +73,28 @@ const SERVER_FREE_BUSY = {
   list: [{ start: '2026-07-13T09:00:00Z', end: '2026-07-13T10:00:00Z', status: 'busy' }],
 };
 
-/** `CalendarEvent/import` — events.rs:516. */
-const SERVER_IMPORT = { accountId: 'acct1', imported: ['ev-1a', 'ev-1b'], count: 2 };
+/** `Calendar/freeBusy` with `principals` — calendars.rs:424-494 (`block_json`
+ *  with a principal, and the `unknown` entry); the values are the ones
+ *  crates/mw-engine/tests/t28_free_busy_principals.rs:208-261 asserts. */
+const SERVER_FREE_BUSY_PRINCIPALS = {
+  accountId: 'acct1',
+  list: [
+    { start: '2026-07-13T09:00:00Z', end: '2026-07-13T10:00:00Z', status: 'busy', principal: 'bob@example.org' },
+    { principal: 'carol@example.org', status: 'unknown' },
+  ],
+};
+
+/** `CalendarEvent/import` — events.rs:593-631. */
+const SERVER_IMPORT = { accountId: 'acct1', imported: ['ev-1a', 'ev-1b'], count: 2, skipped: 1 };
+
+/** `CalendarEvent/import` of a CANCEL — `not_importable`, events.rs (26.20
+ *  t28-e21); asserted in crates/mw-engine/tests/t28_itip_guards.rs. */
+const SERVER_IMPORT_ITIP = {
+  type: 'invalidArguments',
+  code: 'itipNotImportable',
+  method: 'CANCEL',
+  description: 'a METHOD:CANCEL message is applied from the message it came in, not imported',
+};
 
 /** `CalendarEvent/export` — events.rs:573-584 (CRLF, one VCALENDAR). */
 const SERVER_EXPORT = {
@@ -177,6 +200,7 @@ describe('request builders send only the arguments the server reads', () => {
   const cases: Array<[string, JmapRequest]> = [
     ['Calendar/freeBusy', freeBusy('acct1', '2026-07-13T00:00:00Z', '2026-07-14T00:00:00Z')],
     ['Calendar/freeBusy', freeBusy('acct1', '2026-07-13T00:00:00Z', '2026-07-14T00:00:00Z', ['cal-1'])],
+    ['Calendar/freeBusy', freeBusy('acct1', '2026-07-13T00:00:00Z', '2026-07-14T00:00:00Z', undefined, ['bob@example.org'])],
     ['Calendar/detectConflicts', detectConflicts('acct1', '2026-07-13T00:00:00Z', '2026-07-14T00:00:00Z')],
     ['CalendarEvent/expand', eventsExpand('acct1', '2026-07-13T00:00:00Z', '2026-07-14T00:00:00Z')],
     ['CalendarEvent/import', eventsImport('acct1', 'cal-1', 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n')],
@@ -229,10 +253,28 @@ describe('controller against server-shaped responses', () => {
     expect(args).not.toHaveProperty('principals');
   });
 
-  it('import: sends `blob`, resolves to the server count', async () => {
+  it('free/busy: asks with `principals` and reads the tagged and unknown entries', async () => {
+    const h = overServer({ 'Calendar/freeBusy': SERVER_FREE_BUSY_PRINCIPALS });
+    const blocks = await h.controller.queryFreeBusy(new Date(2026, 6, 13), new Date(2026, 6, 14), [
+      'bob@example.org',
+      'carol@example.org',
+    ]);
+    expect(blocks).toEqual(SERVER_FREE_BUSY_PRINCIPALS.list);
+    expect(lastArgs(h, 'Calendar/freeBusy')['principals']).toEqual(['bob@example.org', 'carol@example.org']);
+  });
+
+  it('import: sends `blob`, resolves to the server count and skipped count', async () => {
     const h = overServer({ 'CalendarEvent/import': SERVER_IMPORT });
-    await expect(h.controller.importIcs('cal-1', 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n')).resolves.toBe(2);
+    await expect(h.controller.importIcs('cal-1', 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n')).resolves.toEqual({ count: 2, skipped: 1 });
     expect(lastArgs(h, 'CalendarEvent/import')['blob']).toBe('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n');
+  });
+
+  it('import: a refused scheduling message rejects with its code', async () => {
+    const h = overServer({ 'CalendarEvent/import': SERVER_IMPORT_ITIP });
+    const err = await h.controller.importIcs('cal-1', 'BEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nEND:VCALENDAR\r\n').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PimMethodError);
+    expect((err as PimMethodError).code).toBe('itipNotImportable');
+    expect(String(err)).toMatch(/invalidArguments/);
   });
 
   it('export: reads `blob`; everything is `ids: null`', async () => {
@@ -465,7 +507,7 @@ describe('mock.ts mirrors the server', () => {
     const [, imp] = await ask(store, 'CalendarEvent/import', { ics: 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n' });
     expect(imp).not.toHaveProperty('imported');
     expect(store.events.length).toBe(before);
-    // `principals` is not read, and without `start`/`end` the call fails (calendars.rs:361-363).
+    // `principals` alone is not enough: without `start`/`end` the call fails (calendars.rs:378-381).
     const [, fb] = await ask(store, 'Calendar/freeBusy', { principals: ['me@example.com'] });
     expect(fb).not.toHaveProperty('list');
     // `eventIds` is not read (events.rs:569): everything is exported.
@@ -477,6 +519,34 @@ describe('mock.ts mirrors the server', () => {
     expect(listFiltered['ids']).toEqual(all['ids']);
     const [, one] = await ask(store, 'CalendarEvent/query', { filter: { calendarId: 'cal-work' } });
     expect((one['ids'] as string[]).length).toBeLessThan((all['ids'] as string[]).length);
+  });
+
+  it('free/busy answers each principal like the server: tagged blocks, or one `unknown`', async () => {
+    const store = createMockStore();
+    store.sharedBusy = { 'bob@example.org': [{ start: '2026-07-13T09:00:00Z', end: '2026-07-13T10:00:00Z', status: 'busy' }] };
+    const [, fb] = await ask(store, 'Calendar/freeBusy', { ...day(), principals: ['BOB@example.org', 'carol@example.org'] });
+    const rows = fb['list'] as Array<Record<string, unknown>>;
+    const bob = rows.filter((r) => r['principal'] === 'bob@example.org');
+    const carol = rows.filter((r) => r['principal'] === 'carol@example.org');
+    expect(bob).toHaveLength(1);
+    expect(Object.keys(bob[0]!).sort()).toEqual(Object.keys(SERVER_FREE_BUSY_PRINCIPALS.list[0]!).sort());
+    expect(carol).toEqual([SERVER_FREE_BUSY_PRINCIPALS.list[1]]);
+    // The account's own blocks stay untagged.
+    expect(rows.some((r) => r['principal'] === undefined)).toBe(true);
+  });
+
+  it('import refuses a CANCEL and does not store an event twice (t28-e21)', async () => {
+    const store = createMockStore();
+    const ics = 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:twice@example.com\r\nSUMMARY:Twice\r\nDTSTART:20260714T120000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
+    const [, first] = await ask(store, 'CalendarEvent/import', { blob: ics });
+    const [, second] = await ask(store, 'CalendarEvent/import', { blob: ics });
+    expect(first['count']).toBe(1);
+    expect(second).toMatchObject({ count: 0, skipped: 1 });
+    expect(store.events.filter((e) => e.uid === 'twice@example.com')).toHaveLength(1);
+    const before = store.events.length;
+    const [, cancel] = await ask(store, 'CalendarEvent/import', { blob: ics.replace('BEGIN:VEVENT', 'METHOD:CANCEL\r\nBEGIN:VEVENT') });
+    expect(cancel).toEqual(SERVER_IMPORT_ITIP);
+    expect(store.events.length).toBe(before);
   });
 
   it('free/busy merges overlapping intervals and skips free events (aggregate_free_busy)', async () => {
@@ -505,11 +575,12 @@ describe('conflict resolver free/busy grid', () => {
     return createCalendarController({
       jmap: over.jmap ?? createMockJmap(store),
       resolveAccount: () => Promise.resolve('acct-mock'),
+      resolveIdentity: () => Promise.resolve(MOCK_IDENTITY),
       feeds: createMockFeeds(store),
     });
   }
 
-  it('renders one own-account row for a pair WITH participants, busy where the server says', async () => {
+  it('renders the account row, busy where the server says, and a row per other participant', async () => {
     const store = createMockStore();
     // Precondition: the seeded overlapping pair has participants — the case that
     // threw `TypeError: blocks() is not iterable` at render.
@@ -519,13 +590,65 @@ describe('conflict resolver free/busy grid', () => {
     expect(controller.conflicts().length).toBeGreaterThan(0);
     render(() => <ConflictResolver controller={controller} onClose={() => {}} />);
     const grid = await screen.findByTestId('freebusy-grid');
-    expect(grid.querySelectorAll('tbody tr')).toHaveLength(1);
     await waitFor(() => expect(screen.getByLabelText('Yours at 12:00: Busy')).toBeInTheDocument());
     // 11:00 is before Lunch and after the 09:30 standup.
     expect(screen.getByLabelText('Yours at 11:00: Free')).toBeInTheDocument();
-    // Attendee availability is not claimed.
-    expect(screen.getByTestId('freebusy-own-only')).toBeInTheDocument();
-    expect(screen.queryByText('boss@example.com')).toBeNull();
+    // The account's own address is its own row, not a second one.
+    expect(grid.querySelectorAll('tbody tr')).toHaveLength(2);
+    const people = screen.getAllByTestId('freebusy-person');
+    expect(people.map((r) => r.getAttribute('data-principal'))).toEqual(['boss@example.com']);
+    // No source answered for boss: the row says so instead of showing free time.
+    expect(await screen.findByTestId('freebusy-unknown')).toHaveTextContent('Availability could not be retrieved for');
+    expect(screen.getByTestId('freebusy-unknown')).toHaveTextContent('Organizer');
+    expect(screen.queryByLabelText(/^.*Organizer.* at 11:00: Free$/)).toBeNull();
+  });
+
+  it("draws a participant's busy time on their row from the blocks tagged with their address", async () => {
+    const store = createMockStore();
+    const now = new Date();
+    const at = (h: number): string => new Date(now.getFullYear(), now.getMonth(), now.getDate(), h).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    store.sharedBusy = { 'boss@example.com': [{ start: at(14), end: at(15), status: 'busy' }] };
+    const controller = mockController(store);
+    await controller.load();
+    render(() => <ConflictResolver controller={controller} onClose={() => {}} />);
+    await screen.findByTestId('freebusy-grid');
+    const boss = isolate('Organizer');
+    await waitFor(() => expect(screen.getByLabelText(`${boss} at 14:00: Busy`)).toBeInTheDocument());
+    expect(screen.getByLabelText(`${boss} at 12:00: Free`)).toBeInTheDocument();
+    // Their time is not drawn on the account's row, nor the account's on theirs.
+    expect(screen.getByLabelText('Yours at 14:00: Free')).toBeInTheDocument();
+    expect(screen.getByLabelText('Yours at 12:00: Busy')).toBeInTheDocument();
+    expect(screen.queryByTestId('freebusy-unknown')).toBeNull();
+  });
+
+  it('asks the server about the other participants by address', async () => {
+    const store = createMockStore();
+    const sent: JmapRequest[] = [];
+    const real = createMockJmap(store);
+    const controller = mockController(store, { jmap: (b) => (sent.push(b), real(b)) });
+    await controller.load();
+    render(() => <ConflictResolver controller={controller} onClose={() => {}} />);
+    await screen.findByTestId('freebusy-grid');
+    const fb = sent.map((b) => b.methodCalls[0]!).filter((c) => c[0] === 'Calendar/freeBusy');
+    expect(fb.length).toBeGreaterThan(0);
+    expect((fb[fb.length - 1]![1] as Record<string, unknown>)['principals']).toEqual(['boss@example.com']);
+  });
+
+  it('does not show availability until the free/busy request answers', async () => {
+    const store = createMockStore();
+    const real = createMockJmap(store);
+    let answer!: (response: JmapResponse) => void;
+    const controller = mockController(store, { jmap: (body) =>
+      body.methodCalls[0]![0] === 'Calendar/freeBusy'
+        ? new Promise<JmapResponse>((resolve) => { answer = resolve; })
+        : real(body),
+    });
+    await controller.load();
+    render(() => <ConflictResolver controller={controller} onClose={() => {}} />);
+    expect(screen.queryByTestId('freebusy-grid')).toBeNull();
+    await waitFor(() => expect(answer).toBeTypeOf('function'));
+    answer({ sessionState: 'test', methodResponses: [['Calendar/freeBusy', { accountId: 'acct-mock', list: [] }, 'fb']] });
+    expect(await screen.findByTestId('freebusy-grid')).toBeInTheDocument();
   });
 
   it('withholds the grid when the free/busy call fails, rather than showing all-free', async () => {

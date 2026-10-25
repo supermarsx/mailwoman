@@ -38,3 +38,37 @@ export function ownParticipant<P>(participants: Record<string, P>, identity: str
   if (identity === null || identity === '') return null;
   return Object.prototype.hasOwnProperty.call(participants, identity) ? participants[identity]! : null;
 }
+
+/** Someone other than the signed-in user taking part in an event. */
+export interface OtherParticipant {
+  /** The address, lower-cased: how `Calendar/freeBusy` tags its answer. */
+  address: string;
+  /** The display name the event gives, or ''. */
+  name: string;
+}
+
+/**
+ * Everyone but the signed-in user across `participantMaps` (organizer and
+ * attendees), once each, in the order first seen. The address is the entry's
+ * `email`, else its key; entries that are not a mailbox are left out, and so is
+ * the identity, compared without case (free/busy is asked by address, not by
+ * map key).
+ */
+export function otherParticipants(
+  participantMaps: ReadonlyArray<Record<string, { email?: string; name?: string }>>,
+  identity: string | null,
+): OtherParticipant[] {
+  const self = identity?.toLowerCase() ?? '';
+  const out: OtherParticipant[] = [];
+  const seen = new Set<string>();
+  for (const map of participantMaps) {
+    for (const [key, p] of Object.entries(map)) {
+      const raw = p.email !== undefined && p.email !== '' ? p.email : key;
+      const address = raw.toLowerCase();
+      if (!isMailbox(raw) || address === self || seen.has(address)) continue;
+      seen.add(address);
+      out.push({ address, name: p.name ?? '' });
+    }
+  }
+  return out;
+}

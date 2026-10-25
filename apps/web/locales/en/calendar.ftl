@@ -168,11 +168,14 @@ calendar-events-count-people = { $count ->
 }
 
 # -- Free/busy grid ----------------------------------------------------------
-calendar-fb-caption = Your busy time on the day of the conflict, by hour.
+calendar-fb-caption-people = Busy time on the day of the conflict, by hour, for you and each person invited.
 calendar-fb-whose = Calendars
 calendar-fb-own = Yours
-calendar-fb-own-only = Attendee availability is not shown. The server reports busy time for your own calendars only.
+# A grid row for an invited person whose busy time no source could give
+# (no shared calendar on this server, no answer from the calendar server).
+calendar-fb-unknown = Availability could not be retrieved for { $principal }.
 calendar-fb-unavailable = Your busy time could not be loaded.
+calendar-fb-loading = Loading availability…
 calendar-fb-cell = { $principal } at { $hour }: { $status }
 calendar-fb-busy = Busy
 calendar-fb-tentative = Tentative
@@ -212,6 +215,14 @@ calendar-subscribe-refresh = Refresh { $name }
 calendar-subscribe-refresh-btn = Refresh
 calendar-subscribe-refresh-failed = The calendar feed could not be fetched. Its events were left as they were.
 calendar-import-failed = That file could not be read as a calendar. Nothing was imported.
+# The file is an iTIP CANCEL, REPLY or COUNTER: a scheduling message that only
+# means something with the e-mail it came in (whose sender it is checked against).
+calendar-import-itip-message = This file is a reply or cancellation sent by e-mail. Open the message it came with to apply it. Nothing was imported.
+# Appended to calendar-import-done when some events were already there.
+calendar-import-skipped = { $count ->
+    [one] { $count } event was already in the calendar and was left as it is.
+   *[other] { $count } events were already in the calendar and were left as they are.
+}
 calendar-import-done = { $count ->
     [one] Imported 1 event.
    *[other] Imported { $count } events.
@@ -244,3 +255,27 @@ calendar-share-access-for = Access for { $principal }
 calendar-share-remove = Remove { $principal }
 calendar-share-read = Read only
 calendar-share-readwrite = Read & write
+
+# -- Received invitations ---------------------------------------------------
+calendar-invite-title = Calendar invitation
+calendar-invite-sender = From { $sender }
+calendar-invite-add = Add to calendar
+calendar-invite-update = Apply event update
+calendar-invite-cancel = Apply cancellation
+calendar-invite-reply = Record attendee reply
+calendar-invite-new = This invitation can be added to your calendar.
+calendar-invite-newer = The organizer sent an updated event.
+calendar-invite-current = Your calendar already has this version.
+calendar-invite-stale = This message is older than the event in your calendar.
+calendar-invite-cancelled = The organizer cancelled this event.
+calendar-invite-response = An attendee sent a response.
+calendar-invite-not-organizer = The sender is not the stored organizer. Nothing will be changed.
+calendar-invite-not-attendee = The sender is not a matching attendee. Nothing will be changed.
+calendar-invite-unknown = This message refers to an event that is not in your calendar.
+calendar-invite-unsupported = This proposal cannot be applied automatically.
+calendar-invite-no-reply = This updates your calendar without sending a reply.
+calendar-invite-applied = Your calendar was updated.
+calendar-invite-unchanged = The event was not changed. Review the invitation's current status.
+calendar-invite-apply-failed = The invitation could not be applied. Try again.
+calendar-invite-load-failed = The invitation could not be checked.
+calendar-invite-retry = Retry

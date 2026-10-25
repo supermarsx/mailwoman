@@ -107,17 +107,23 @@ export interface DetectConflictsResponse {
 }
 
 /**
- * One merged busy interval from `Calendar/freeBusy` (`calendar_free_busy`,
- * `calendars.rs:377-383`). The engine aggregates the ACCOUNT'S OWN events, so a
- * block names no principal: it is the signed-in user's busy time. `start` /
- * `end` are RFC3339 UTC in the same two encodings as `ExpandedInstance`, and
- * a merged block does not say which encoding its contributors used.
+ * One entry of `Calendar/freeBusy` (`calendar_free_busy`, `calendars.rs:361-494`).
+ *
+ * Without `principal` it is a merged busy interval of the ACCOUNT'S OWN events.
+ * `start` / `end` are RFC3339 UTC in the same two encodings as
+ * `ExpandedInstance`, and a merged block does not say which encoding its
+ * contributors used.
+ *
+ * With `principal` (lower-cased) it answers for an address the request listed
+ * in `principals`: that address's busy time from a same-server account that
+ * shared a calendar with this one, the bridge, or the account's CalDAV server.
+ * An address none of them answers for gets exactly one
+ * `{principal, status: 'unknown'}` and no times. An address that answered with
+ * no busy time has no entry at all: it is free.
  */
-export interface FreeBusyBlock {
-  start: string;
-  end: string;
-  status: 'busy' | 'tentative';
-}
+export type FreeBusyBlock =
+  | { start: string; end: string; status: 'busy' | 'tentative'; principal?: string }
+  | { principal: string; status: 'unknown' };
 
 export interface FreeBusyResponse {
   accountId: Id;
@@ -166,13 +172,17 @@ export interface CalendarRefreshResponse {
   imported: number;
 }
 
-/** A `CalendarEvent/import` result (`event_import`, `events.rs:516`). An event
- *  that fails to persist is skipped server-side and is simply absent here. */
+/** A `CalendarEvent/import` result (`event_import`, `events.rs:593-631`). An event
+ *  that fails to persist is skipped server-side and is simply absent here. A
+ *  CANCEL, REPLY or COUNTER document is refused with `code: 'itipNotImportable'`. */
 export interface EventImportResponse {
   accountId: Id;
   /** Ids of the events created. */
   imported: Id[];
   count: number;
+  /** Events left out because the calendar already held their UID (nothing is
+   *  stored twice or overwritten by an import). */
+  skipped: number;
 }
 
 /**
@@ -189,9 +199,23 @@ export function pimResponse<T>(res: JmapResponse, callId: string): T {
   const body = responseFor<Record<string, unknown>>(res, callId);
   if (typeof body['type'] === 'string' && body['accountId'] === undefined) {
     const description = typeof body['description'] === 'string' ? body['description'] : '';
-    throw new Error(`JMAP method error: ${body['type']} ${description}`.trim());
+    const code = typeof body['code'] === 'string' ? body['code'] : null;
+    throw new PimMethodError(body['type'], description, code);
   }
   return body as T;
+}
+
+/** A PIM method-level failure: its `type`, and the `code` when the engine names
+ *  the refusal (e.g. `itipNotImportable`). */
+export class PimMethodError extends Error {
+  constructor(
+    readonly type: string,
+    description: string,
+    readonly code: string | null = null,
+  ) {
+    super(`JMAP method error: ${type} ${description}`.trim());
+    this.name = 'PimMethodError';
+  }
 }
 
 // ── Request builders ─────────────────────────────────────────────────────────
@@ -316,20 +340,23 @@ export function detectConflicts(
 }
 
 /**
- * Query the account's own merged busy intervals over `[start, end)`.
- * `calendar_free_busy` (`calendars.rs:359-372`) reads `start` and `end` — both
- * REQUIRED to be RFC3339 with a zone designator — plus an optional
- * `calendarIds`. It reads no `principals`: it cannot report on anyone else.
+ * Query busy time over `[start, end)`. `calendar_free_busy` (`calendars.rs:378-415`)
+ * reads `start` and `end` — both REQUIRED to be RFC3339 with a zone designator —
+ * an optional `calendarIds` (which of the account's own calendars count) and an
+ * optional `principals` (addresses to report on, each answered with entries
+ * tagged `principal`; see `FreeBusyBlock`).
  */
 export function freeBusy(
   accountId: Id,
   start: string,
   end: string,
   calendarIds?: Id[],
+  principals?: string[],
   callId = 'fb',
 ): JmapRequest {
   const args: Record<string, unknown> = { accountId, start, end };
   if (calendarIds !== undefined) args['calendarIds'] = calendarIds;
+  if (principals !== undefined && principals.length > 0) args['principals'] = principals;
   return request(CAL_USING, [['Calendar/freeBusy', args, callId]]);
 }
 
