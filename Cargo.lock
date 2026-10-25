@@ -5378,6 +5378,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "chrono",
+ "chrono-tz",
  "clap",
  "futures-util",
  "hkdf 0.13.0",
@@ -5518,6 +5519,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
+ "url",
 ]
 
 [[package]]

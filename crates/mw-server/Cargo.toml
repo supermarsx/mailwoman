@@ -108,6 +108,7 @@ hkdf = "0.13"
 aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
 sha2 = { workspace = true }
 chrono = { workspace = true }
+chrono-tz = { workspace = true }
 # V2 push + ACME listener (plan §1.2/§1.10, §3 e10). `tokio-tungstenite` also
 # backs the WS test client; `tokio-rustls-acme` is the ACME/TLS listener;
 # `futures-util` drives the SSE + WS streams. `rustls`/`tokio-rustls`/pki-types

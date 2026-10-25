@@ -85,6 +85,8 @@ tower-http = { version = "0.6", features = ["trace"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+# Reuse reqwest's locked URL/IDNA parser for store-level policy identities.
+url = "=2.5.8"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros", "chrono"] }
 chacha20poly1305 = "0.10"
 rand = "0.8"
