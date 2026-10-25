@@ -9,6 +9,7 @@
 // A modal `alertdialog`: focus moves in (to the typed field, else to Cancel, the
 // safe choice), Tab stays inside, Escape cancels, and focus returns to the control
 // that opened it. A failed action keeps the dialog open and says what failed.
+// `children` go under the body, for what exactly is being confirmed (a digest).
 
 import { Show, createSignal, createUniqueId, type JSX } from 'solid-js';
 import { Portal } from 'solid-js/web';
@@ -22,6 +23,8 @@ export interface ConfirmDialogProps {
   title: string;
   /** What will happen and what will not. */
   body?: string;
+  /** Extra content under the body: the exact thing being approved (a digest). */
+  children?: JSX.Element;
   confirmLabel: string;
   /** Red confirm button (default true: this dialog is for destructive actions). */
   danger?: boolean;
@@ -97,6 +100,7 @@ function ConfirmDialogOpen(props: ConfirmDialogProps): JSX.Element {
             </p>
           )}
         </Show>
+        {props.children}
         <Show when={props.typedConfirmation}>
           {(target) => (
             <label class="field">

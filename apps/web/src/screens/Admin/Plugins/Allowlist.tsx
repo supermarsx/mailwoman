@@ -1,26 +1,23 @@
-// Admin → Plugins → Third-party allowlist panel (§7.2 / t15 26.15, plan §3 e7).
+// Admin → Plugins → Third-party allowlist (§7.2 / t15 26.15; rebuilt on the shell
+// table and confirm dialog by f33).
 //
-// The trust surface for the ONLY security-core loosening in 26.15: a NON-first-party
-// component loads only after an administrator approves its exact SHA-256 digest. This
-// panel lists the components an operator has placed in the third-party plugin directory
-// with the digest the SERVER computed over their on-disk bytes (the value the admin is
-// approving), and lets the admin approve that exact digest, revoke a pin, or uninstall a
-// plugin (which also purges its stored key/value data).
+// The trust surface for the only security-core loosening of 26.15: a component
+// that is not first-party loads only after an administrator approves its exact
+// SHA-256 digest. The first table lists the components present in the
+// third-party plugin directory with the digest the SERVER computed over their
+// bytes (the value being approved); the second lists the stored pins, approved
+// and revoked, for oversight.
 //
-// Every state-changing action is a security action, so each goes through an explicit,
-// focus-trapped confirmation dialog that names exactly what it does (the approve dialog
-// shows the exact digest being trusted). Copy is factual — neither alarmist nor
-// reassuring-marketing (memory: no-hype-wording).
+// Every change is a security action and asks first (`ConfirmDialog`), naming the
+// component: approving shows the exact digest being trusted and asks for the id
+// to be typed; revoking and uninstalling say what they change or delete. Copy is
+// factual (memory: no-hype-wording).
 //
-// It surfaces two rules honestly rather than letting the admin discover them by a
-// rejected request:
-//   * High-power capabilities (the account-backend / send-as-user class) are refused to
-//     third-party plugins at grant time by the server regardless of admin action, so they
-//     are shown as first-party-only here.
-//   * A component admitted by digest pin without a signature is expected — a neutral
-//     informational note, not a warning. The digest pin is what authorizes loading.
+// Two rules are stated rather than discovered by a refused request: high-power
+// capabilities (account-backend) are never granted to a third-party plugin, and a
+// component admitted by digest without a signature is the expected case.
 
-import { createEffect, For, onMount, Show, createSignal, type JSX } from 'solid-js';
+import { Show, createSignal, onMount, type JSX } from 'solid-js';
 import {
   createPluginsSlice,
   createHttpPluginsApi,
@@ -30,10 +27,13 @@ import {
   type AllowlistPresent,
   type AllowlistPin,
 } from '../../../state/slices/plugins.ts';
-import { createFocusTrap } from '../../../components/a11y';
-import { t, loadCatalog } from '../../../i18n';
-import { modalOverlay } from '../../../components/modalOverlay.css.ts';
-import * as css from './styles.css.ts';
+import { formatDateTime, isolate, t, loadCatalog } from '../../../i18n';
+import { DataTable, type Column } from '../shell/DataTable.tsx';
+import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
+import { Feedback } from '../shell/Feedback.tsx';
+import { StatusBadge } from '../shell/StatusBadge.tsx';
+import * as shellCss from '../shell/shell.css.ts';
+import * as css from '../shell/extras.css.ts';
 
 export interface AllowlistPanelProps {
   /** Tests / the admin shell inject a slice or a client; production defaults to HTTP. */
@@ -50,300 +50,173 @@ type Pending =
 /** The comma-joined high-power capability list shown in the not-grantable note. */
 const HIGH_POWER_LABEL = HIGH_POWER_CAPABILITIES.join(', ');
 
+function presentState(r: AllowlistPresent): JSX.Element {
+  if (r.firstParty) {
+    return (
+      <StatusBadge tone="neutral" testId="allowlist-status">
+        {t('admin-allowlist-status-firstparty')}
+      </StatusBadge>
+    );
+  }
+  return (
+    <StatusBadge tone={r.approved ? 'ok' : 'off'} testId="allowlist-status">
+      {r.approved ? t('admin-allowlist-status-approved') : t('admin-allowlist-status-pending')}
+    </StatusBadge>
+  );
+}
+
 export function AllowlistPanel(props: AllowlistPanelProps): JSX.Element {
   const slice = props.slice ?? createPluginsSlice(props.api ?? createHttpPluginsApi());
 
   onMount(() => void loadCatalog('admin'));
   onMount(() => void loadCatalog('plugins'));
-  createEffect(() => {
-    void slice.loadAllowlist();
-  });
+  onMount(() => void slice.loadAllowlist());
 
   const [pending, setPending] = createSignal<Pending | null>(null);
-  const [busy, setBusy] = createSignal(false);
-  const [failed, setFailed] = createSignal(false);
-
-  const [dialogEl, setDialogEl] = createSignal<HTMLDivElement>();
-  createFocusTrap(dialogEl, { active: () => pending() !== null, onEscape: () => setPending(null) });
+  const [done, setDone] = createSignal<string | null>(null);
 
   async function runPending(): Promise<void> {
     const p = pending();
     if (p === null) return;
-    setBusy(true);
-    setFailed(false);
-    try {
-      if (p.kind === 'approve') await slice.approveDigest(p.pluginId, p.digestHex);
-      else if (p.kind === 'revoke') await slice.revokeDigest(p.pluginId, p.digestHex);
-      else await slice.uninstall(p.pluginId);
-      setPending(null);
-    } catch {
-      setFailed(true);
-    } finally {
-      setBusy(false);
-    }
+    // A failure rejects: the dialog stays open and says what failed.
+    if (p.kind === 'approve') await slice.approveDigest(p.pluginId, p.digestHex);
+    else if (p.kind === 'revoke') await slice.revokeDigest(p.pluginId, p.digestHex);
+    else await slice.uninstall(p.pluginId);
+    setDone(t(`admin-allowlist-${p.kind}-done`, { id: isolate(p.pluginId) }));
+    setPending(null);
   }
 
-  return (
-    <section class={css.screen} data-screen="admin-allowlist" aria-label={t('admin-allowlist-title')}>
-      <div>
-        <h2 class={css.heading}>{t('admin-allowlist-title')}</h2>
-        <p class={css.prose}>{t('admin-allowlist-intro')}</p>
-      </div>
+  const presentColumns: Column<AllowlistPresent>[] = [
+    { id: 'id', header: t('admin-allowlist-col-component'), cell: (r) => <span dir="auto">{r.pluginId}</span> },
+    {
+      id: 'digest',
+      header: t('admin-allowlist-digest-label'),
+      cell: (r) => (
+        <span class={css.mono} data-testid="allowlist-digest">
+          {r.computedDigest}
+        </span>
+      ),
+    },
+    { id: 'state', header: t('admin-allowlist-col-state'), cell: presentState },
+  ];
 
-      <Show when={failed() || slice.allowlistLoadFailed()}>
-        <p class={css.error} role="alert" data-testid="allowlist-error">
-          {t('admin-allowlist-load-error')}
-        </p>
+  const presentActions = (r: AllowlistPresent): JSX.Element => (
+    <>
+      <Show when={!r.firstParty && !r.approved}>
+        <button type="button" class="btn" onClick={() => setPending({ kind: 'approve', pluginId: r.pluginId, digestHex: r.computedDigest })}>
+          {t('admin-allowlist-approve')}
+          <span class={shellCss.srOnly}> {r.pluginId}</span>
+        </button>
       </Show>
-
-      <div>
-        <h3 class={css.heading}>{t('admin-allowlist-present-heading')}</h3>
-        <Show
-          when={!slice.allowlistLoading() && slice.allowlist().present.length === 0}
-        >
-          <p class={css.meta}>{t('admin-allowlist-present-empty')}</p>
-        </Show>
-        <ul class={css.list}>
-          <For each={slice.allowlist().present}>
-            {(row) => <PresentCard row={row} onAct={setPending} />}
-          </For>
-        </ul>
-      </div>
-
-      <PinsList pins={slice.allowlist().pins} />
-
-      <Show when={pending()}>
-        {(p) => (
-          <ConfirmDialog
-            pending={p()}
-            busy={busy()}
-            setRef={setDialogEl}
-            onCancel={() => setPending(null)}
-            onConfirm={() => void runPending()}
-          />
-        )}
+      <Show when={!r.firstParty && r.approved}>
+        <button type="button" class="btn btn--ghost" onClick={() => setPending({ kind: 'revoke', pluginId: r.pluginId, digestHex: r.computedDigest })}>
+          {t('admin-allowlist-revoke')}
+          <span class={shellCss.srOnly}> {r.pluginId}</span>
+        </button>
+        <button type="button" class="btn btn--ghost" onClick={() => setPending({ kind: 'uninstall', pluginId: r.pluginId })}>
+          {t('admin-allowlist-uninstall')}
+          <span class={shellCss.srOnly}> {r.pluginId}</span>
+        </button>
       </Show>
-    </section>
+    </>
   );
-}
 
-/** One present-on-disk component: its computed digest and the actions available for it. */
-function PresentCard(props: {
-  row: AllowlistPresent;
-  onAct: (p: Pending) => void;
-}): JSX.Element {
-  const r = (): AllowlistPresent => props.row;
+  const pinColumns: Column<AllowlistPin>[] = [
+    {
+      id: 'name',
+      header: t('admin-allowlist-col-component'),
+      cell: (pin) => (
+        <>
+          <span dir="auto">{pin.name ?? pin.pluginId}</span>
+          <Show when={pin.version}> {t('admin-plugins-version', { version: pin.version ?? '' })}</Show>
+        </>
+      ),
+    },
+    { id: 'digest', header: t('admin-allowlist-digest-label'), cell: (pin) => <span class={css.mono}>{pin.digestHex}</span> },
+    {
+      id: 'approved',
+      header: t('admin-allowlist-col-approved'),
+      cell: (pin) => t('admin-allowlist-pin-approved-by', { by: isolate(pin.approvedBy), at: formatDateTime(pin.approvedAt) }),
+    },
+    {
+      id: 'state',
+      header: t('admin-allowlist-col-state'),
+      cell: (pin) => (
+        <StatusBadge tone={pin.revoked ? 'off' : 'ok'} testId="allowlist-pin-state">
+          {pin.revoked ? t('admin-allowlist-pin-revoked') : t('admin-allowlist-status-approved')}
+        </StatusBadge>
+      ),
+    },
+  ];
+
+  const p = (): Pending | null => pending();
 
   return (
-    <li class={css.card} data-plugin-id={r().pluginId} data-testid="allowlist-present-card">
-      <div class={css.cardHead}>
-        <div>
-          <p class={css.title} dir="auto">
-            {r().pluginId}
-          </p>
-          <div class={css.row}>
-            <Show
-              when={r().firstParty}
-              fallback={
-                <Show
-                  when={r().approved}
-                  fallback={
-                    <span class={css.chip} data-testid="allowlist-status">
-                      {t('admin-allowlist-status-pending')}
-                    </span>
-                  }
-                >
-                  <span class={`${css.chip} ${css.signedChip}`} data-testid="allowlist-status">
-                    {t('admin-allowlist-status-approved')}
-                  </span>
-                </Show>
-              }
-            >
-              <span class={css.chip} data-testid="allowlist-status">
-                {t('admin-allowlist-status-firstparty')}
-              </span>
-            </Show>
-          </div>
-        </div>
-        <div class={css.row}>
-          <Show when={!r().firstParty && !r().approved}>
-            <button
-              type="button"
-              class={css.button}
-              aria-label={t('admin-allowlist-approve-for', { id: r().pluginId })}
-              onClick={() => props.onAct({ kind: 'approve', pluginId: r().pluginId, digestHex: r().computedDigest })}
-            >
-              {t('admin-allowlist-approve')}
-            </button>
-          </Show>
-          <Show when={!r().firstParty && r().approved}>
-            <button
-              type="button"
-              class={css.danger}
-              aria-label={t('admin-allowlist-revoke-for', { id: r().pluginId })}
-              onClick={() => props.onAct({ kind: 'revoke', pluginId: r().pluginId, digestHex: r().computedDigest })}
-            >
-              {t('admin-allowlist-revoke')}
-            </button>
-            <button
-              type="button"
-              class={css.danger}
-              aria-label={t('admin-allowlist-uninstall-for', { id: r().pluginId })}
-              onClick={() => props.onAct({ kind: 'uninstall', pluginId: r().pluginId })}
-            >
-              {t('admin-allowlist-uninstall')}
-            </button>
-          </Show>
-        </div>
-      </div>
-
-      <div>
-        <p class={css.fieldLabel}>{t('admin-allowlist-digest-label')}</p>
-        <p class={css.digest} data-testid="allowlist-digest">
-          {r().computedDigest}
-        </p>
-      </div>
-
-      <Show
-        when={r().firstParty}
-        fallback={
-          <>
-            <p class={css.infoNote} data-testid="allowlist-unsigned-note">
-              {t('admin-allowlist-unsigned-note')}
-            </p>
-            <p class={css.infoNote} data-testid="allowlist-highpower-note">
-              {t('admin-allowlist-highpower-note', { caps: HIGH_POWER_LABEL })}
-            </p>
-          </>
-        }
-      >
-        <p class={css.infoNote} data-testid="allowlist-firstparty-note">
+    <section class={css.panel} data-screen="admin-allowlist" aria-labelledby="admin-allowlist-title">
+      <h3 id="admin-allowlist-title" class={css.panelTitle}>
+        {t('admin-allowlist-title')}
+      </h3>
+      <p class={css.panelText}>{t('admin-allowlist-intro')}</p>
+      <p class={css.panelText} data-testid="allowlist-unsigned-note">
+        {t('admin-allowlist-unsigned-note')}
+      </p>
+      <p class={css.panelText} data-testid="allowlist-highpower-note">
+        {t('admin-allowlist-highpower-note', { caps: HIGH_POWER_LABEL })}
+      </p>
+      <Show when={slice.allowlist().present.some((r) => r.firstParty)}>
+        <p class={css.panelText} data-testid="allowlist-firstparty-note">
           {t('admin-allowlist-firstparty-note')}
         </p>
       </Show>
-    </li>
-  );
-}
+      <Feedback kind="success" message={done()} testId="allowlist-notice" />
 
-/** The stored pins (approved + revoked) for oversight. */
-function PinsList(props: { pins: AllowlistPin[] }): JSX.Element {
-  return (
-    <div>
-      <h3 class={css.heading}>{t('admin-allowlist-pins-heading')}</h3>
-      <Show when={props.pins.length === 0}>
-        <p class={css.meta}>{t('admin-allowlist-pins-empty')}</p>
-      </Show>
-      <ul class={css.list}>
-        <For each={props.pins}>
-          {(pin) => (
-            <li
-              class={`${css.card} ${pin.revoked ? css.revokedRow : ''}`}
-              data-plugin-id={pin.pluginId}
-              data-testid="allowlist-pin"
-            >
-              <div class={css.cardHead}>
-                <p class={css.title} dir="auto">
-                  {pin.name ?? pin.pluginId}
-                  <Show when={pin.version}>
-                    {' '}
-                    <span class={css.meta}>{t('admin-plugins-version', { version: pin.version ?? '' })}</span>
-                  </Show>
-                </p>
-                <Show when={pin.revoked}>
-                  <span class={`${css.chip} ${css.unsignedChip}`}>{t('admin-allowlist-pin-revoked')}</span>
-                </Show>
-              </div>
-              <p class={css.digest}>{pin.digestHex}</p>
-              <p class={css.meta}>
-                {t('admin-allowlist-pin-approved-by', { by: pin.approvedBy, at: pin.approvedAt })}
-              </p>
-            </li>
-          )}
-        </For>
-      </ul>
-    </div>
-  );
-}
+      <h4 class={css.panelTitle}>{t('admin-allowlist-present-heading')}</h4>
+      <DataTable<AllowlistPresent>
+        caption={t('admin-allowlist-present-heading')}
+        columns={presentColumns}
+        rows={slice.allowlist().present}
+        rowKey={(r) => `${r.pluginId}:${r.computedDigest}`}
+        state={slice.allowlistLoadFailed() ? 'error' : slice.allowlistLoading() && slice.allowlist().present.length === 0 ? 'loading' : 'ready'}
+        errorText={t('admin-allowlist-load-error')}
+        onRetry={() => void slice.loadAllowlist()}
+        emptyText={t('admin-allowlist-present-empty')}
+        rowActions={presentActions}
+      />
 
-/** The focus-trapped confirmation for a security action. The approve variant shows the
- *  exact digest being trusted; revoke/uninstall name exactly what they change/delete. */
-function ConfirmDialog(props: {
-  pending: Pending;
-  busy: boolean;
-  setRef: (el: HTMLDivElement) => void;
-  onCancel: () => void;
-  onConfirm: () => void;
-}): JSX.Element {
-  const p = (): Pending => props.pending;
-  const titleKey = (): string =>
-    p().kind === 'approve'
-      ? 'admin-allowlist-approve-title'
-      : p().kind === 'revoke'
-        ? 'admin-allowlist-revoke-title'
-        : 'admin-allowlist-uninstall-title';
-  const detailKey = (): string =>
-    p().kind === 'approve'
-      ? 'admin-allowlist-approve-detail'
-      : p().kind === 'revoke'
-        ? 'plugins-admin-revoke-detail'
-        : 'plugins-admin-uninstall-detail';
-  const confirmKey = (): string =>
-    p().kind === 'approve'
-      ? 'admin-allowlist-approve-confirm'
-      : p().kind === 'revoke'
-        ? 'admin-allowlist-revoke-confirm'
-        : 'admin-allowlist-uninstall-confirm';
+      <h4 class={css.panelTitle}>{t('admin-allowlist-pins-heading')}</h4>
+      <DataTable<AllowlistPin>
+        caption={t('admin-allowlist-pins-heading')}
+        columns={pinColumns}
+        rows={slice.allowlist().pins}
+        rowKey={(pin) => `${pin.pluginId}:${pin.digestHex}`}
+        state={slice.allowlistLoadFailed() ? 'error' : 'ready'}
+        errorText={t('admin-allowlist-load-error')}
+        emptyText={t('admin-allowlist-pins-empty')}
+      />
 
-  return (
-    <div class={modalOverlay}>
-      <div
-        ref={props.setRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="allowlist-confirm-title"
-        aria-describedby="allowlist-confirm-detail"
-        tabindex="-1"
-        data-testid="allowlist-dialog"
-        class={css.confirmDialog}
+      <ConfirmDialog
+        open={p() !== null}
+        title={t(p()?.kind === 'approve' ? 'admin-allowlist-approve-title' : p()?.kind === 'revoke' ? 'admin-allowlist-revoke-title' : 'admin-allowlist-uninstall-title')}
+        body={t(p()?.kind === 'approve' ? 'admin-allowlist-approve-detail' : p()?.kind === 'revoke' ? 'plugins-admin-revoke-detail' : 'plugins-admin-uninstall-detail')}
+        confirmLabel={t(p()?.kind === 'approve' ? 'admin-allowlist-approve-confirm' : p()?.kind === 'revoke' ? 'admin-allowlist-revoke-confirm' : 'admin-allowlist-uninstall-confirm')}
+        {...(p()?.kind === 'uninstall' || p()?.kind === 'approve' ? { typedConfirmation: p()?.pluginId ?? '' } : {})}
+        onConfirm={runPending}
+        onCancel={() => setPending(null)}
       >
-        <h3 id="allowlist-confirm-title" class={css.heading}>
-          {t(titleKey())}
-        </h3>
-        <p id="allowlist-confirm-detail" class={css.prose}>
-          {t(detailKey())}
-        </p>
-        <p class={css.meta} dir="auto">
-          {p().pluginId}
-        </p>
-        <Show when={p().kind === 'approve'}>
-          <div>
-            <p class={css.fieldLabel}>{t('admin-allowlist-digest-label')}</p>
-            <p class={css.digest} data-testid="allowlist-dialog-digest">
-              {p().kind === 'approve' ? (p() as { digestHex: string }).digestHex : ''}
-            </p>
-          </div>
-        </Show>
-        <div class={css.confirmActions}>
-          <button
-            type="button"
-            class={css.ghost}
-            data-testid="allowlist-cancel"
-            onClick={() => props.onCancel()}
-          >
-            {t('admin-allowlist-cancel')}
-          </button>
-          <button
-            type="button"
-            class={css.danger}
-            data-testid="allowlist-confirm"
-            disabled={props.busy}
-            onClick={() => props.onConfirm()}
-          >
-            {t(confirmKey())}
-          </button>
-        </div>
-      </div>
-    </div>
+        <dl class={css.summary} data-testid="allowlist-dialog">
+          <dt class={css.summaryTerm}>{t('admin-allowlist-col-component')}</dt>
+          <dd class={css.summaryValue} dir="auto">
+            {p()?.pluginId}
+          </dd>
+          <Show when={p()?.kind !== 'uninstall'}>
+            <dt class={css.summaryTerm}>{t('admin-allowlist-digest-label')}</dt>
+            <dd class={`${css.summaryValue} ${css.mono}`} data-testid="allowlist-dialog-digest">
+              {(p() as { digestHex?: string } | null)?.digestHex ?? ''}
+            </dd>
+          </Show>
+        </dl>
+      </ConfirmDialog>
+    </section>
   );
 }
 

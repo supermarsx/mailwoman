@@ -138,6 +138,8 @@ export interface SettingsFormPageProps {
   frame?: 'page' | 'none';
   /** With `frame: 'none'`, the id of the heading that names the form. */
   labelledBy?: string;
+  /** Save works with no field changed (a form that creates something from its defaults). */
+  allowUnchanged?: boolean;
   testId?: string;
 }
 
@@ -245,7 +247,7 @@ export function SettingsFormPage(props: SettingsFormPageProps): JSX.Element {
 
   async function save(e?: Event): Promise<void> {
     e?.preventDefault();
-    if (saving() || changedIds().length === 0) return;
+    if (saving() || (changedIds().length === 0 && !props.allowUnchanged)) return;
     setResult(null);
     // Validate every field first (UX5): no request while any value is wrong.
     const found: Record<string, string> = {};
@@ -360,7 +362,7 @@ export function SettingsFormPage(props: SettingsFormPageProps): JSX.Element {
             <button type="button" class="btn btn--ghost" disabled={saving() || changedIds().length === 0} onClick={discard}>
               {t('admin-ux-form-discard')}
             </button>
-            <button type="submit" class="btn btn--primary" disabled={saving() || changedIds().length === 0}>
+            <button type="submit" class="btn btn--primary" disabled={saving() || (changedIds().length === 0 && !props.allowUnchanged)}>
               {saving() ? t('admin-ux-form-saving') : (props.saveLabel ?? t('admin-shell-save'))}
             </button>
           </div>

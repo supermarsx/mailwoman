@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
+import { render, fireEvent, screen, waitFor, within } from '@solidjs/testing-library';
+import { expectNoAxeViolations } from '../shell/uxTestkit.ts';
+import { stripIsolates } from '../../../i18n';
 import { AllowlistPanel } from './Allowlist.tsx';
 import {
   createPluginsSlice,
@@ -43,125 +45,71 @@ describe('Admin → Plugins allowlist: slice methods', () => {
 });
 
 describe('Admin → Plugins allowlist: panel', () => {
-  it('shows the computed digest and, for a third-party component, the high-power + unsigned notes', async () => {
-    const api = mockApi({
-      present: [{ pluginId: 'acme-filter', computedDigest: DIGEST_A, firstParty: false, approved: false }],
-      pins: [],
-    });
-    render(() => <AllowlistPanel api={api} />);
+  const PENDING: AllowlistView = { present: [{ pluginId: 'acme-filter', computedDigest: DIGEST_A, firstParty: false, approved: false }], pins: [] };
+  const row = (): HTMLElement => document.querySelector(`[data-row-key="acme-filter:${DIGEST_A}"]`) as HTMLElement;
 
-    await waitFor(() => expect(screen.getByTestId('allowlist-present-card')).toBeInTheDocument());
-    // the exact digest the admin is trusting is shown in full (not truncated)
-    expect(screen.getByTestId('allowlist-digest')).toHaveTextContent(DIGEST_A);
-    // high-power caps are surfaced as not-grantable-to-third-party (names the cap)
+  it('shows the computed digest in full and the high-power + unsigned notes', async () => {
+    render(() => <AllowlistPanel api={mockApi(PENDING)} />);
+    await waitFor(() => expect(screen.getByTestId('allowlist-digest')).toHaveTextContent(DIGEST_A));
     expect(screen.getByTestId('allowlist-highpower-note')).toHaveTextContent(HIGH_POWER_CAPABILITIES[0]!);
-    // unsigned-but-pinned is a neutral informational note, present for third-party
     expect(screen.getByTestId('allowlist-unsigned-note')).toBeInTheDocument();
+    expect(within(row()).getByTestId('allowlist-status')).toHaveTextContent('Not approved');
   });
 
   it('a first-party id offers no approve action and explains precedence', async () => {
-    const api = mockApi({
-      present: [{ pluginId: 'nextcloud', computedDigest: DIGEST_A, firstParty: true, approved: false }],
-      pins: [],
-    });
-    render(() => <AllowlistPanel api={api} />);
-
-    await waitFor(() => expect(screen.getByTestId('allowlist-present-card')).toBeInTheDocument());
-    expect(screen.getByTestId('allowlist-status')).toHaveTextContent('First-party');
-    expect(screen.getByTestId('allowlist-firstparty-note')).toBeInTheDocument();
-    // no approve button for a first-party id
-    expect(screen.queryByRole('button', { name: /Approve digest for/ })).not.toBeInTheDocument();
+    render(() => <AllowlistPanel api={mockApi({ present: [{ pluginId: 'spam-rspamd', computedDigest: DIGEST_B, firstParty: true, approved: false }], pins: [] })} />);
+    await waitFor(() => expect(screen.getByTestId('allowlist-firstparty-note')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /Approve digest/ })).toBeNull();
   });
 
-  it('approving is confirm-gated: the dialog shows the digest and only confirm calls the API', async () => {
-    const api = mockApi({
-      present: [{ pluginId: 'acme-filter', computedDigest: DIGEST_A, firstParty: false, approved: false }],
-      pins: [],
-    });
+  it('approving asks first: the dialog shows the digest, wants the id typed, and only confirm calls the API', async () => {
+    const api = mockApi(PENDING);
     render(() => <AllowlistPanel api={api} />);
-
-    await waitFor(() => expect(screen.getByTestId('allowlist-present-card')).toBeInTheDocument());
-
-    // pressing Approve opens the confirmation — but must NOT call the API yet
-    fireEvent.click(screen.getByRole('button', { name: 'Approve digest for acme-filter' }));
-    await waitFor(() => expect(screen.getByTestId('allowlist-dialog')).toBeInTheDocument());
-    const dialog = screen.getByTestId('allowlist-dialog');
-    expect(dialog).toHaveAttribute('role', 'dialog');
-    expect(dialog).toHaveAttribute('aria-modal', 'true');
-    // the exact digest being trusted is shown in the dialog
-    expect(screen.getByTestId('allowlist-dialog-digest')).toHaveTextContent(DIGEST_A);
-    expect(api.calls).not.toContain(`approveDigest:acme-filter:${DIGEST_A}`);
-
-    // confirm fires the request
-    fireEvent.click(screen.getByTestId('allowlist-confirm'));
-    await waitFor(() => expect(api.calls).toContain(`approveDigest:acme-filter:${DIGEST_A}`));
-    // dialog closes on success
-    await waitFor(() => expect(screen.queryByTestId('allowlist-dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(row()).not.toBeNull());
+    fireEvent.click(within(row()).getByRole('button', { name: /Approve digest/ }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByTestId('allowlist-dialog-digest')).toHaveTextContent(DIGEST_A);
+    const confirm = within(dialog).getByRole('button', { name: 'Approve digest' });
+    expect(confirm).toBeDisabled();
+    expect(api.calls).toEqual([]);
+    fireEvent.input(within(dialog).getByRole('textbox'), { target: { value: 'acme-filter' } });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(api.calls).toEqual([`approveDigest:acme-filter:${DIGEST_A}`]));
+    await waitFor(() => expect(within(row()).getByTestId('allowlist-status')).toHaveTextContent('Approved'));
+    await waitFor(() => expect(screen.getByTestId('allowlist-notice')).toBeInTheDocument());
   });
 
-  it('cancelling the confirm dialog does not call the API', async () => {
-    const api = mockApi({
-      present: [{ pluginId: 'acme-filter', computedDigest: DIGEST_A, firstParty: false, approved: false }],
-      pins: [],
-    });
+  it('cancelling does not call the API', async () => {
+    const api = mockApi(PENDING);
     render(() => <AllowlistPanel api={api} />);
-
-    await waitFor(() => expect(screen.getByTestId('allowlist-present-card')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'Approve digest for acme-filter' }));
-    await waitFor(() => expect(screen.getByTestId('allowlist-dialog')).toBeInTheDocument());
-
-    fireEvent.click(screen.getByTestId('allowlist-cancel'));
-    await waitFor(() => expect(screen.queryByTestId('allowlist-dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(row()).not.toBeNull());
+    fireEvent.click(within(row()).getByRole('button', { name: /Approve digest/ }));
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
     expect(api.calls).toEqual([]);
   });
 
   it('an approved component offers a confirm-gated revoke', async () => {
-    const api = mockApi({
-      present: [{ pluginId: 'acme-filter', computedDigest: DIGEST_A, firstParty: false, approved: true }],
-      pins: [
-        {
-          pluginId: 'acme-filter',
-          digestHex: DIGEST_A,
-          name: 'Acme filter',
-          version: '1.2.0',
-          source: null,
-          note: null,
-          approvedBy: 'admin',
-          approvedAt: '2026-07-19T00:00:00Z',
-          revoked: false,
-        },
-      ],
-    });
+    const api = mockApi({ present: [{ ...PENDING.present[0]!, approved: true }], pins: [] });
     render(() => <AllowlistPanel api={api} />);
-
-    await waitFor(() => expect(screen.getByTestId('allowlist-present-card')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'Revoke pin for acme-filter' }));
-    await waitFor(() => expect(screen.getByTestId('allowlist-dialog')).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('allowlist-confirm'));
-    await waitFor(() => expect(api.calls).toContain(`revokeDigest:acme-filter:${DIGEST_A}`));
+    await waitFor(() => expect(row()).not.toBeNull());
+    fireEvent.click(within(row()).getByRole('button', { name: /^Revoke/ }));
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Revoke pin' }));
+    await waitFor(() => expect(api.calls).toEqual([`revokeDigest:acme-filter:${DIGEST_A}`]));
   });
 
   it('renders stored pins for oversight, marking a revoked one', async () => {
     const api = mockApi({
       present: [],
       pins: [
-        {
-          pluginId: 'old-plugin',
-          digestHex: DIGEST_B,
-          name: null,
-          version: null,
-          source: null,
-          note: null,
-          approvedBy: 'admin',
-          approvedAt: '2026-01-01T00:00:00Z',
-          revoked: true,
-        },
+        { pluginId: 'acme-filter', digestHex: DIGEST_A, name: 'Acme', version: '1.0', source: null, note: null, approvedBy: 'root', approvedAt: '2026-10-01T10:00:00Z', revoked: false },
+        { pluginId: 'old-filter', digestHex: DIGEST_B, name: null, version: null, source: null, note: null, approvedBy: 'root', approvedAt: '2026-09-01T10:00:00Z', revoked: true },
       ],
     });
-    render(() => <AllowlistPanel api={api} />);
-
-    await waitFor(() => expect(screen.getByTestId('allowlist-pin')).toBeInTheDocument());
-    expect(screen.getByTestId('allowlist-pin')).toHaveTextContent(DIGEST_B);
-    expect(screen.getByTestId('allowlist-pin')).toHaveTextContent('Revoked');
+    const { container } = render(() => <AllowlistPanel api={api} />);
+    await waitFor(() => expect(screen.getAllByTestId('allowlist-pin-state')).toHaveLength(2));
+    expect(screen.getAllByTestId('allowlist-pin-state').map((e) => e.textContent)).toEqual(['Approved', 'Revoked']);
+    expect(stripIsolates(container.textContent ?? '')).toMatch(/Approved by root on/);
+    await expectNoAxeViolations(container);
   });
 });

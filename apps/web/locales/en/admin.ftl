@@ -224,6 +224,12 @@ admin-allowlist-revoke-confirm = Revoke pin
 admin-allowlist-uninstall-title = Uninstall this plugin?
 admin-allowlist-uninstall-detail = Uninstalling deletes the plugin's stored key/value data for every account, removes its allowlist pins, and disables it. The component file on disk is not deleted; it can be re-approved later.
 admin-allowlist-uninstall-confirm = Uninstall plugin
+admin-allowlist-col-component = Component
+admin-allowlist-col-state = State
+admin-allowlist-col-approved = Approved
+admin-allowlist-approve-done = The digest of { $id } is approved.
+admin-allowlist-revoke-done = The pin of { $id } is revoked and the plugin is disabled.
+admin-allowlist-uninstall-done = { $id } was uninstalled.
 
 # -- Single sign-on: OIDC + SAML login backends (t9, §18.3) -------------------
 admin-sso-title = Single sign-on
