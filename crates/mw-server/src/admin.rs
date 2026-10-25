@@ -935,10 +935,8 @@ async fn get_appearance(State(state): State<AppState>, headers: HeaderMap) -> Re
         return r;
     }
     match state.v6.admin.appearance().await {
-        Ok(a) => {
-            Json(json!({ "theme": a.theme, "brandName": a.brand_name, "accent": a.accent }))
-                .into_response()
-        }
+        Ok(a) => Json(json!({ "theme": a.theme, "brandName": a.brand_name, "accent": a.accent }))
+            .into_response(),
         Err(e) => err500(e),
     }
 }

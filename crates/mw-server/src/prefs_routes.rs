@@ -961,7 +961,10 @@ async fn held(
 
 /// The appearance keys and the fields of the appearance object each one holds.
 const APPEARANCE_FIELDS: [(&str, &[&str]); 3] = [
-    ("appearance.theme", &["mode", "theme", "lightTheme", "darkTheme"]),
+    (
+        "appearance.theme",
+        &["mode", "theme", "lightTheme", "darkTheme"],
+    ),
     ("appearance.accent", &["accentId"]),
     ("appearance.density", &["density"]),
 ];
@@ -1032,10 +1035,12 @@ async fn deployment_default(
     };
     let store = &state.store;
     let s = subject.as_subject();
-    let theme = value(crate::settings_registry::effective_for(store, "appearance.theme", &s).await?);
+    let theme =
+        value(crate::settings_registry::effective_for(store, "appearance.theme", &s).await?);
     let brand =
         value(crate::settings_registry::effective_for(store, "appearance.brandName", &s).await?);
-    let accent = value(crate::settings_registry::effective_for(store, "appearance.accent", &s).await?);
+    let accent =
+        value(crate::settings_registry::effective_for(store, "appearance.accent", &s).await?);
     let fallback = mw_admin::Appearance::default();
     Ok(DeploymentAppearanceDto {
         theme: theme.unwrap_or(fallback.theme),

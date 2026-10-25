@@ -666,9 +666,17 @@ impl AdminBackend for AdminBackendAdapter {
         for (key, value) in values {
             let def = crate::settings_registry::lookup(key)
                 .ok_or_else(|| AdminError::Config(format!("{key} is not registered")))?;
-            crate::settings_registry::validate(def, &serde_json::Value::String(value.clone()), "/value")
-                .map_err(|r| AdminError::Invalid(format!("{key}: {}", r.detail)))?;
-            let current = self.store.get_setting_policy(key).await.map_err(admin_err)?;
+            crate::settings_registry::validate(
+                def,
+                &serde_json::Value::String(value.clone()),
+                "/value",
+            )
+            .map_err(|r| AdminError::Invalid(format!("{key}: {}", r.detail)))?;
+            let current = self
+                .store
+                .get_setting_policy(key)
+                .await
+                .map_err(admin_err)?;
             self.store
                 .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
                     key: key.to_string(),

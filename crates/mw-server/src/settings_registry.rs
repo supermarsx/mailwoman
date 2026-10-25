@@ -1875,7 +1875,8 @@ mod tests {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let docs = std::fs::read_to_string(root.join("docs/admin/settings.md")).unwrap();
         let labels =
-            std::fs::read_to_string(root.join("apps/web/src/screens/Admin/Settings/keys.ts")).unwrap();
+            std::fs::read_to_string(root.join("apps/web/src/screens/Admin/Settings/keys.ts"))
+                .unwrap();
         let mut missing = Vec::new();
         for d in REGISTRY {
             if !docs.contains(&format!("<a id=\"{}\"></a>", d.key)) {

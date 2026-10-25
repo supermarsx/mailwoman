@@ -255,7 +255,12 @@ fn describe_key(
     // (`screens/Admin/shell/adminApi.ts`, `sourceFromRegistry`).
     let kind = def.kind.describe();
     v["type"] = kind["type"].clone();
-    for (alias, member) in [("min", "min"), ("max", "max"), ("options", "values"), ("maxLength", "maxLength")] {
+    for (alias, member) in [
+        ("min", "min"),
+        ("max", "max"),
+        ("options", "values"),
+        ("maxLength", "maxLength"),
+    ] {
         if let Some(x) = kind.get(member) {
             v[alias] = x.clone();
         }
@@ -1098,7 +1103,11 @@ pub(crate) async fn user_layer_rows(
         rows.push(user_row(account_id, "mail.readReceipts", json!(policy)));
     }
     if let Some(n) = state.store.get_notification_rules(account_id).await? {
-        rows.push(user_row(account_id, "notifications.enabled", json!(n.enabled)));
+        rows.push(user_row(
+            account_id,
+            "notifications.enabled",
+            json!(n.enabled),
+        ));
     }
     Ok(rows)
 }

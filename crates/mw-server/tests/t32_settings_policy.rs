@@ -165,7 +165,10 @@ async fn send(req: reqwest::RequestBuilder) -> (u16, Value) {
     let r = req.send().await.unwrap();
     let status = r.status().as_u16();
     let text = r.text().await.unwrap();
-    (status, serde_json::from_str(&text).unwrap_or(Value::String(text)))
+    (
+        status,
+        serde_json::from_str(&text).unwrap_or(Value::String(text)),
+    )
 }
 
 async fn put_global(a: &reqwest::Client, base: &str, key: &str, body: Value) -> (u16, Value) {
@@ -202,11 +205,17 @@ async fn requests_without_a_session_are_refused() {
     // A mailbox session is not an admin session.
     let (u, _) = user(&s.base).await;
     let (status, _) = put_global(&u, &s.base, "ui.language", json!({ "globalValue": "de" })).await;
-    assert_eq!(status, 401, "a mailbox cookie does not open the admin routes");
+    assert_eq!(
+        status, 401,
+        "a mailbox cookie does not open the admin routes"
+    );
     // Controls: the same requests with the right sessions go through.
     assert_eq!(send(u.get(format!("{}/api/settings", s.base))).await.0, 200);
     let a = admin(&s.base).await;
-    assert_eq!(send(a.get(format!("{}/admin/settings", s.base))).await.0, 200);
+    assert_eq!(
+        send(a.get(format!("{}/admin/settings", s.base))).await.0,
+        200
+    );
 }
 
 // ── the overview ───────────────────────────────────────────────────────────────
@@ -215,11 +224,24 @@ async fn requests_without_a_session_are_refused() {
 async fn the_overview_describes_every_key_with_an_etag() {
     let s = proxy_server("mw-t32-f01-list").await;
     let a = admin(&s.base).await;
-    let r = a.get(format!("{}/admin/settings", s.base)).send().await.unwrap();
-    assert!(r.headers().get("etag").is_some(), "the overview carries an ETag");
+    let r = a
+        .get(format!("{}/admin/settings", s.base))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        r.headers().get("etag").is_some(),
+        "the overview carries an ETag"
+    );
     let body: Value = r.json().await.unwrap();
     let items = body["settings"].as_array().unwrap();
-    let find = |k: &str| items.iter().find(|i| i["key"] == k).cloned().unwrap_or(Value::Null);
+    let find = |k: &str| {
+        items
+            .iter()
+            .find(|i| i["key"] == k)
+            .cloned()
+            .unwrap_or(Value::Null)
+    };
     let lang = find("ui.language");
     assert_eq!(lang["kind"]["type"], "locale");
     assert_eq!(lang["default"], "browser");
@@ -227,11 +249,25 @@ async fn the_overview_describes_every_key_with_an_etag() {
     assert_eq!(lang["hot"], true);
     assert!(lang["etag"].is_string());
     assert_eq!(find("appearance.theme")["default"], "dark");
-    assert!(find("signin.newUsers")["dedicatedRoute"].as_str().unwrap().ends_with("/signin-policy"));
+    assert!(
+        find("signin.newUsers")["dedicatedRoute"]
+            .as_str()
+            .unwrap()
+            .ends_with("/signin-policy")
+    );
     assert_eq!(find("limit.storage_bytes")["scopeId"], "address");
     assert_eq!(find("limit.storage_bytes")["ceiling"], true);
-    assert_eq!(find("realtime.recheckSecs")["env"]["var"], "MW_REALTIME_RECHECK_SECS");
-    assert!(body["families"].as_array().unwrap().iter().any(|f| f["key"] == "serverText.*"));
+    assert_eq!(
+        find("realtime.recheckSecs")["env"]["var"],
+        "MW_REALTIME_RECHECK_SECS"
+    );
+    assert!(
+        body["families"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["key"] == "serverText.*")
+    );
     assert_eq!(body["propagationSecs"], 30);
 }
 
@@ -246,18 +282,36 @@ async fn resolution_follows_the_scope_order_and_locks() {
     let key = "ui.language";
 
     let e = entry(&u, base, key).await;
-    assert_eq!((e["value"].clone(), e["source"].clone()), (json!("browser"), json!("default")));
+    assert_eq!(
+        (e["value"].clone(), e["source"].clone()),
+        (json!("browser"), json!("default"))
+    );
     assert_eq!(e["locked"], false);
 
     // Global.
-    assert_eq!(put_global(&a, base, key, json!({ "globalValue": "de" })).await.0, 200);
+    assert_eq!(
+        put_global(&a, base, key, json!({ "globalValue": "de" }))
+            .await
+            .0,
+        200
+    );
     let e = entry(&u, base, key).await;
-    assert_eq!((e["value"].clone(), e["source"].clone()), (json!("de"), json!("global")));
+    assert_eq!(
+        (e["value"].clone(), e["source"].clone()),
+        (json!("de"), json!("global"))
+    );
 
     // The user's own value.
-    let (status, e) = send(u.put(format!("{base}/api/settings/{key}")).json(&json!({ "value": "fr" }))).await;
+    let (status, e) = send(
+        u.put(format!("{base}/api/settings/{key}"))
+            .json(&json!({ "value": "fr" })),
+    )
+    .await;
     assert_eq!(status, 200, "{e}");
-    assert_eq!((e["value"].clone(), e["source"].clone()), (json!("fr"), json!("user")));
+    assert_eq!(
+        (e["value"].clone(), e["source"].clone()),
+        (json!("fr"), json!("user"))
+    );
 
     // Domain and admin per-user values are broader than the user's.
     let (status, body) = send(
@@ -272,12 +326,24 @@ async fn resolution_follows_the_scope_order_and_locks() {
     )
     .await;
     assert_eq!(status, 200, "{body}");
-    assert_eq!(entry(&u, base, key).await["value"], "fr", "the user's value is the narrowest");
+    assert_eq!(
+        entry(&u, base, key).await["value"],
+        "fr",
+        "the user's value is the narrowest"
+    );
 
     // Overrides off: the admin per-user value applies; the user's is reported.
-    assert_eq!(put_global(&a, base, key, json!({ "allowUserOverride": false })).await.0, 200);
+    assert_eq!(
+        put_global(&a, base, key, json!({ "allowUserOverride": false }))
+            .await
+            .0,
+        200
+    );
     let e = entry(&u, base, key).await;
-    assert_eq!((e["value"].clone(), e["source"].clone()), (json!("ja"), json!("admin_user")));
+    assert_eq!(
+        (e["value"].clone(), e["source"].clone()),
+        (json!("ja"), json!("admin_user"))
+    );
     assert_eq!(e["locked"], true);
     assert_eq!(e["userValue"], "fr");
 
@@ -287,7 +353,12 @@ async fn resolution_follows_the_scope_order_and_locks() {
     assert_eq!(entry(&u, base, key).await["source"], "domain");
 
     // Overrides back on, the domain locks: the domain value beats the user's.
-    assert_eq!(put_global(&a, base, key, json!({ "allowUserOverride": true })).await.0, 200);
+    assert_eq!(
+        put_global(&a, base, key, json!({ "allowUserOverride": true }))
+            .await
+            .0,
+        200
+    );
     assert_eq!(entry(&u, base, key).await["value"], "fr");
     let (status, _) = send(
         a.put(format!("{base}/admin/settings/{key}/domains/example.org"))
@@ -296,12 +367,21 @@ async fn resolution_follows_the_scope_order_and_locks() {
     .await;
     assert_eq!(status, 200);
     let e = entry(&u, base, key).await;
-    assert_eq!((e["value"].clone(), e["lockedBy"].clone()), (json!("it"), json!("domain")));
+    assert_eq!(
+        (e["value"].clone(), e["lockedBy"].clone()),
+        (json!("it"), json!("domain"))
+    );
 
     // The global lock beats the domain lock.
-    assert_eq!(put_global(&a, base, key, json!({ "locked": true })).await.0, 200);
+    assert_eq!(
+        put_global(&a, base, key, json!({ "locked": true })).await.0,
+        200
+    );
     let e = entry(&u, base, key).await;
-    assert_eq!((e["value"].clone(), e["lockedBy"].clone()), (json!("de"), json!("global")));
+    assert_eq!(
+        (e["value"].clone(), e["lockedBy"].clone()),
+        (json!("de"), json!("global"))
+    );
 
     // DELETE of the policy row: the global value and its lock are gone.
     let (status, item) = send(a.delete(format!("{base}/admin/settings/{key}"))).await;
@@ -321,18 +401,31 @@ async fn a_held_key_refuses_the_users_write_and_keeps_the_stored_value() {
     let key = "offline.budgetMb";
 
     // Control: the user can write while the key is free.
-    let (status, _) = send(u.put(format!("{base}/api/settings/{key}")).json(&json!({ "value": 400 }))).await;
+    let (status, _) = send(
+        u.put(format!("{base}/api/settings/{key}"))
+            .json(&json!({ "value": 400 })),
+    )
+    .await;
     assert_eq!(status, 200);
 
     assert_eq!(
-        put_global(&a, base, key, json!({ "globalValue": 100, "locked": true })).await.0,
+        put_global(&a, base, key, json!({ "globalValue": 100, "locked": true }))
+            .await
+            .0,
         200
     );
-    let (status, body) = send(u.put(format!("{base}/api/settings/{key}")).json(&json!({ "value": 900 }))).await;
+    let (status, body) = send(
+        u.put(format!("{base}/api/settings/{key}"))
+            .json(&json!({ "value": 900 })),
+    )
+    .await;
     assert_eq!(status, 403, "{body}");
     assert_eq!(body["code"], "setting_locked");
     let (status, body) = send(u.delete(format!("{base}/api/settings/{key}"))).await;
-    assert_eq!(status, 200, "removing one's own value is always allowed: {body}");
+    assert_eq!(
+        status, 200,
+        "removing one's own value is always allowed: {body}"
+    );
 
     let e = entry(&u, base, key).await;
     assert_eq!(e["value"], 100);
@@ -341,9 +434,18 @@ async fn a_held_key_refuses_the_users_write_and_keeps_the_stored_value() {
     assert!(e.get("userValue").is_none(), "{e}");
 
     // Admin-only keys are not the user's to read or write.
-    let (status, _) = send(u.put(format!("{base}/api/settings/limit.storage_bytes")).json(&json!({ "value": 0 }))).await;
+    let (status, _) = send(
+        u.put(format!("{base}/api/settings/limit.storage_bytes"))
+            .json(&json!({ "value": 0 })),
+    )
+    .await;
     assert_eq!(status, 404);
-    assert!(user_settings(&u, base).await.get("limit.storage_bytes").is_none());
+    assert!(
+        user_settings(&u, base)
+            .await
+            .get("limit.storage_bytes")
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -358,17 +460,35 @@ async fn a_held_appearance_field_is_replaced_in_the_object_and_reported() {
     });
 
     // Control: nothing held, the object is stored as sent.
-    let (status, body) = send(u.put(format!("{base}/api/account/appearance")).json(&json!({ "appearance": prefs }))).await;
+    let (status, body) = send(
+        u.put(format!("{base}/api/account/appearance"))
+            .json(&json!({ "appearance": prefs })),
+    )
+    .await;
     assert_eq!(status, 200);
     assert_eq!(body["lockedFields"], json!([]));
 
     assert_eq!(
-        put_global(&a, base, "appearance.theme", json!({ "globalValue": "hc-dark", "locked": true })).await.0,
+        put_global(
+            &a,
+            base,
+            "appearance.theme",
+            json!({ "globalValue": "hc-dark", "locked": true })
+        )
+        .await
+        .0,
         200
     );
-    let (status, body) = send(u.put(format!("{base}/api/account/appearance")).json(&json!({ "appearance": prefs }))).await;
+    let (status, body) = send(
+        u.put(format!("{base}/api/account/appearance"))
+            .json(&json!({ "appearance": prefs })),
+    )
+    .await;
     assert_eq!(status, 200, "{body}");
-    assert_eq!(body["lockedFields"], json!(["mode", "theme", "lightTheme", "darkTheme"]));
+    assert_eq!(
+        body["lockedFields"],
+        json!(["mode", "theme", "lightTheme", "darkTheme"])
+    );
 
     let (_, got) = send(u.get(format!("{base}/api/account/appearance"))).await;
     let stored = &got["appearance"];
@@ -378,7 +498,10 @@ async fn a_held_appearance_field_is_replaced_in_the_object_and_reported() {
     assert_eq!(stored["density"], "compact", "the free fields are kept");
     assert_eq!(stored["accentId"], "teal");
     assert_eq!(got["deploymentDefault"]["theme"], "hc-dark");
-    assert_eq!(got["lockedFields"], json!(["mode", "theme", "lightTheme", "darkTheme"]));
+    assert_eq!(
+        got["lockedFields"],
+        json!(["mode", "theme", "lightTheme", "darkTheme"])
+    );
 
     // /api/settings reads the object's free fields as the user's values, and
     // sends writes of these keys to the appearance route.
@@ -386,7 +509,11 @@ async fn a_held_appearance_field_is_replaced_in_the_object_and_reported() {
     assert_eq!(all["appearance.theme"]["locked"], true);
     assert_eq!(all["appearance.density"]["value"], "compact");
     assert_eq!(all["appearance.density"]["source"], "user");
-    let (status, body) = send(u.put(format!("{base}/api/settings/appearance.density")).json(&json!({ "value": "cozy" }))).await;
+    let (status, body) = send(
+        u.put(format!("{base}/api/settings/appearance.density"))
+            .json(&json!({ "value": "cozy" })),
+    )
+    .await;
     assert_eq!(status, 409, "{body}");
     assert_eq!(body["code"], "useDedicatedRoute");
     assert_eq!(body["route"], "/api/account/appearance");
@@ -398,19 +525,44 @@ async fn a_held_notifications_switch_refuses_a_change() {
     let a = admin(&s.base).await;
     let (u, _) = user(&s.base).await;
     let base = &s.base;
-    let cfg = |enabled: bool| {
-        json!({ "enabled": enabled, "rules": [], "quietHours": { "enabled": false, "start": "22:00", "end": "07:00" } })
-    };
-    assert_eq!(send(u.put(format!("{base}/api/account/notifications")).json(&cfg(true))).await.0, 200);
-
+    let cfg = |enabled: bool| json!({ "enabled": enabled, "rules": [], "quietHours": { "enabled": false, "start": "22:00", "end": "07:00" } });
     assert_eq!(
-        put_global(&a, base, "notifications.enabled", json!({ "globalValue": false, "locked": true })).await.0,
+        send(
+            u.put(format!("{base}/api/account/notifications"))
+                .json(&cfg(true))
+        )
+        .await
+        .0,
         200
     );
-    let (status, body) = send(u.put(format!("{base}/api/account/notifications")).json(&cfg(true))).await;
+
+    assert_eq!(
+        put_global(
+            &a,
+            base,
+            "notifications.enabled",
+            json!({ "globalValue": false, "locked": true })
+        )
+        .await
+        .0,
+        200
+    );
+    let (status, body) = send(
+        u.put(format!("{base}/api/account/notifications"))
+            .json(&cfg(true)),
+    )
+    .await;
     assert_eq!(status, 403, "{body}");
     assert_eq!(body["code"], "setting_locked");
-    assert_eq!(send(u.put(format!("{base}/api/account/notifications")).json(&cfg(false))).await.0, 200);
+    assert_eq!(
+        send(
+            u.put(format!("{base}/api/account/notifications"))
+                .json(&cfg(false))
+        )
+        .await
+        .0,
+        200
+    );
     let (_, got) = send(u.get(format!("{base}/api/account/notifications"))).await;
     assert_eq!(got["enabled"], false);
     assert_eq!(got["lockedFields"], json!(["enabled"]));
@@ -418,6 +570,10 @@ async fn a_held_notifications_switch_refuses_a_change() {
 
 #[tokio::test]
 async fn a_held_read_receipt_policy_refuses_a_change() {
+    // The mock speaks plain POP3; the engine reads MW_ENGINE_TLS per login.
+    // SAFETY: the canonical gate runs this binary with --test-threads=1, and no
+    // other test here reads this variable.
+    unsafe { std::env::set_var("MW_ENGINE_TLS", "plaintext") };
     let pop = MockPop3::start(ENGINE_USER, ENGINE_PASS).await;
     let db = new_db("mw-t32-f01-mdn");
     let app = build_app_full(config(&db, ServerMode::Engine, pop.url()), admin_v6())
@@ -432,26 +588,43 @@ async fn a_held_read_receipt_policy_refuses_a_change() {
         .send()
         .await
         .unwrap();
-    assert_eq!(r.status(), 200, "engine login");
+    let status = r.status();
+    assert_eq!(status, 200, "engine login: {}", r.text().await.unwrap_or_default());
     let a = admin(&base).await;
 
-    let (status, _) = send(u.put(format!("{base}/api/account/mdn-policy")).json(&json!({ "policy": "always" }))).await;
+    let (status, _) = send(
+        u.put(format!("{base}/api/account/mdn-policy"))
+            .json(&json!({ "policy": "always" })),
+    )
+    .await;
     assert_eq!(status, 200, "control: the policy is free");
 
     let (status, _) = send(
-        a.put(format!("{base}/admin/settings/mail.readReceipts/domains/example.org"))
-            .json(&json!({ "value": "never", "locked": true })),
+        a.put(format!(
+            "{base}/admin/settings/mail.readReceipts/domains/example.org"
+        ))
+        .json(&json!({ "value": "never", "locked": true })),
     )
     .await;
     assert_eq!(status, 200);
-    let (status, body) = send(u.put(format!("{base}/api/account/mdn-policy")).json(&json!({ "policy": "always" }))).await;
+    let (status, body) = send(
+        u.put(format!("{base}/api/account/mdn-policy"))
+            .json(&json!({ "policy": "always" })),
+    )
+    .await;
     assert_eq!(status, 403, "{body}");
     assert_eq!(body["code"], "setting_locked");
     let (_, got) = send(u.get(format!("{base}/api/account/mdn-policy"))).await;
-    assert_eq!((got["policy"].clone(), got["locked"].clone()), (json!("never"), json!(true)));
+    assert_eq!(
+        (got["policy"].clone(), got["locked"].clone()),
+        (json!("never"), json!(true))
+    );
     let e = entry(&u, &base, "mail.readReceipts").await;
     assert_eq!(e["value"], "never");
-    assert_eq!(e["userValue"], "always", "the user's stored word is kept, not applied");
+    assert_eq!(
+        e["userValue"], "always",
+        "the user's stored word is kept, not applied"
+    );
 }
 
 // ── the admin routes' contract ─────────────────────────────────────────────────
@@ -463,34 +636,72 @@ async fn refused_values_name_the_field() {
     let (u, _) = user(&s.base).await;
     let base = &s.base;
 
-    let (status, body) = put_global(&a, base, "offline.budgetMb", json!({ "globalValue": 99_999 })).await;
+    let (status, body) = put_global(
+        &a,
+        base,
+        "offline.budgetMb",
+        json!({ "globalValue": 99_999 }),
+    )
+    .await;
     assert_eq!(status, 422, "{body}");
-    assert_eq!((body["code"].clone(), body["field"].clone()), (json!("invalidValue"), json!("/globalValue")));
+    assert_eq!(
+        (body["code"].clone(), body["field"].clone()),
+        (json!("invalidValue"), json!("/globalValue"))
+    );
     assert!(body["detail"].as_str().unwrap().contains("10240"));
 
     let (status, body) = put_global(&a, base, "no.such.key", json!({ "globalValue": 1 })).await;
     assert_eq!((status, body["code"].clone()), (404, json!("notFound")));
 
     let (status, body) = send(
-        a.put(format!("{base}/admin/settings/appearance.brandName/domains/example.org"))
-            .json(&json!({ "value": "Acme" })),
+        a.put(format!(
+            "{base}/admin/settings/appearance.brandName/domains/example.org"
+        ))
+        .json(&json!({ "value": "Acme" })),
     )
     .await;
-    assert_eq!((status, body["code"].clone()), (422, json!("scopeNotAllowed")));
+    assert_eq!(
+        (status, body["code"].clone()),
+        (422, json!("scopeNotAllowed"))
+    );
 
-    let (status, body) = put_global(&a, base, "ui.language", json!({ "globalValue": "de", "extra": 1 })).await;
+    let (status, body) = put_global(
+        &a,
+        base,
+        "ui.language",
+        json!({ "globalValue": "de", "extra": 1 }),
+    )
+    .await;
     assert_eq!((status, body["code"].clone()), (422, json!("invalidBody")));
 
-    let (status, body) = put_global(&a, base, "limit.send_per_day", json!({ "allowUserOverride": true })).await;
-    assert_eq!((status, body["field"].clone()), (422, json!("/allowUserOverride")));
+    let (status, body) = put_global(
+        &a,
+        base,
+        "limit.send_per_day",
+        json!({ "allowUserOverride": true }),
+    )
+    .await;
+    assert_eq!(
+        (status, body["field"].clone()),
+        (422, json!("/allowUserOverride"))
+    );
 
-    let (status, body) = send(u.put(format!("{base}/api/settings/ui.language")).json(&json!({ "value": "xx" }))).await;
+    let (status, body) = send(
+        u.put(format!("{base}/api/settings/ui.language"))
+            .json(&json!({ "value": "xx" })),
+    )
+    .await;
     assert_eq!(status, 422, "{body}");
     assert_eq!(body["field"], "/value");
     assert!(body.get("detail").is_none() || body["detail"].is_string());
 
     // Control: a valid value is stored.
-    assert_eq!(put_global(&a, base, "offline.budgetMb", json!({ "globalValue": 1024 })).await.0, 200);
+    assert_eq!(
+        put_global(&a, base, "offline.budgetMb", json!({ "globalValue": 1024 }))
+            .await
+            .0,
+        200
+    );
 }
 
 #[tokio::test]
@@ -498,23 +709,42 @@ async fn signin_keys_are_written_through_their_own_route() {
     let s = proxy_server("mw-t32-f01-dedicated").await;
     let a = admin(&s.base).await;
     for (url, body) in [
-        (format!("{}/admin/settings/signin.newUsers", s.base), json!({ "globalValue": "closed" })),
         (
-            format!("{}/admin/settings/signin.newUsers/domains/example.org", s.base),
+            format!("{}/admin/settings/signin.newUsers", s.base),
+            json!({ "globalValue": "closed" }),
+        ),
+        (
+            format!(
+                "{}/admin/settings/signin.newUsers/domains/example.org",
+                s.base
+            ),
             json!({ "value": "closed" }),
         ),
-        (format!("{}/admin/settings/signin.refusalDetail", s.base), json!({ "globalValue": "uniform" })),
+        (
+            format!("{}/admin/settings/signin.refusalDetail", s.base),
+            json!({ "globalValue": "uniform" }),
+        ),
     ] {
         let (status, body) = send(a.put(url.clone()).json(&body)).await;
         assert_eq!(status, 403, "{url}: {body}");
         assert_eq!(body["code"], "useDedicatedRoute");
-        assert!(body["route"].as_str().unwrap().ends_with("/signin-policy"), "{body}");
+        assert!(
+            body["route"].as_str().unwrap().ends_with("/signin-policy"),
+            "{body}"
+        );
     }
     let (status, _) = send(a.delete(format!("{}/admin/settings/signin.domainMode", s.base))).await;
     assert_eq!(status, 403);
     // Control: a key without a dedicated route takes the same request.
     assert_eq!(
-        put_global(&a, &s.base, "usage.meterApi", json!({ "globalValue": false })).await.0,
+        put_global(
+            &a,
+            &s.base,
+            "usage.meterApi",
+            json!({ "globalValue": false })
+        )
+        .await
+        .0,
         200
     );
 }
@@ -525,7 +755,12 @@ async fn a_pinned_key_is_refused_with_its_variable() {
     let a = admin(&s.base).await;
     let key = "realtime.recheckSecs";
     // Control first: unpinned, the write goes through.
-    assert_eq!(put_global(&a, &s.base, key, json!({ "globalValue": 60 })).await.0, 200);
+    assert_eq!(
+        put_global(&a, &s.base, key, json!({ "globalValue": 60 }))
+            .await
+            .0,
+        200
+    );
 
     // SAFETY: the canonical gate runs this binary with --test-threads=1, and no
     // other test here reads this variable.
@@ -535,11 +770,17 @@ async fn a_pinned_key_is_refused_with_its_variable() {
     unsafe { std::env::remove_var("MW_REALTIME_RECHECK_SECS") };
 
     assert_eq!(status, 409, "{body}");
-    assert_eq!((body["code"].clone(), body["var"].clone()), (json!("pinnedByEnv"), json!("MW_REALTIME_RECHECK_SECS")));
+    assert_eq!(
+        (body["code"].clone(), body["var"].clone()),
+        (json!("pinnedByEnv"), json!("MW_REALTIME_RECHECK_SECS"))
+    );
     assert_eq!(item["envState"]["set"], true);
     assert_eq!(item["effective"]["source"], "envPin");
     assert_eq!(item["effective"]["value"], 45);
-    assert_eq!(item["globalValue"], 60, "the stored value is kept for when the variable is unset");
+    assert_eq!(
+        item["globalValue"], 60,
+        "the stored value is kept for when the variable is unset"
+    );
 }
 
 #[tokio::test]
@@ -561,7 +802,12 @@ async fn a_stale_if_match_is_refused_with_who_and_when() {
     let etag1 = r.headers()["etag"].to_str().unwrap().to_string();
     assert_ne!(etag0, etag1);
 
-    let (status, body) = send(a.put(&url).header("if-match", &etag0).json(&json!({ "globalValue": "fr" }))).await;
+    let (status, body) = send(
+        a.put(&url)
+            .header("if-match", &etag0)
+            .json(&json!({ "globalValue": "fr" })),
+    )
+    .await;
     assert_eq!(status, 412, "{body}");
     assert_eq!(body["code"], "stale");
     assert_eq!(body["updatedBy"], "root");
@@ -571,10 +817,33 @@ async fn a_stale_if_match_is_refused_with_who_and_when() {
 
     // Domain rows carry their own tag.
     let durl = format!("{}/admin/settings/ui.language/domains/example.org", s.base);
-    let r = a.put(&durl).json(&json!({ "value": "it" })).send().await.unwrap();
+    let r = a
+        .put(&durl)
+        .json(&json!({ "value": "it" }))
+        .send()
+        .await
+        .unwrap();
     let detag = r.headers()["etag"].to_str().unwrap().to_string();
-    assert_eq!(a.put(&durl).header("if-match", &detag).json(&json!({ "value": "es" })).send().await.unwrap().status(), 200);
-    assert_eq!(a.put(&durl).header("if-match", &detag).json(&json!({ "value": "pl" })).send().await.unwrap().status(), 412);
+    assert_eq!(
+        a.put(&durl)
+            .header("if-match", &detag)
+            .json(&json!({ "value": "es" }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        a.put(&durl)
+            .header("if-match", &detag)
+            .json(&json!({ "value": "pl" }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        412
+    );
 }
 
 #[tokio::test]
@@ -584,7 +853,15 @@ async fn a_lock_over_existing_values_previews_its_impact_without_writing() {
     let (u, account) = user(&s.base).await;
     let base = &s.base;
     let key = "offline.retentionDays";
-    assert_eq!(send(u.put(format!("{base}/api/settings/{key}")).json(&json!({ "value": 7 }))).await.0, 200);
+    assert_eq!(
+        send(
+            u.put(format!("{base}/api/settings/{key}"))
+                .json(&json!({ "value": 7 }))
+        )
+        .await
+        .0,
+        200
+    );
 
     let (status, body) = put_global(&a, base, key, json!({ "locked": true, "dryRun": true })).await;
     assert_eq!(status, 200, "{body}");
@@ -596,7 +873,13 @@ async fn a_lock_over_existing_values_previews_its_impact_without_writing() {
     assert_eq!(entry(&u, base, key).await["value"], 7);
 
     // Without a narrower value there is nothing to report.
-    let (_, body) = put_global(&a, base, "offline.budgetMb", json!({ "locked": true, "dryRun": true })).await;
+    let (_, body) = put_global(
+        &a,
+        base,
+        "offline.budgetMb",
+        json!({ "locked": true, "dryRun": true }),
+    )
+    .await;
     assert_eq!(body["impact"], json!({}));
 }
 
@@ -605,17 +888,41 @@ async fn every_write_is_audited_with_the_setting_as_target() {
     let s = proxy_server("mw-t32-f01-audit").await;
     let a = admin(&s.base).await;
     let base = &s.base;
-    assert_eq!(put_global(&a, base, "ui.language", json!({ "globalValue": "de" })).await.0, 200);
     assert_eq!(
-        send(a.put(format!("{base}/admin/settings/ui.language/domains/example.org")).json(&json!({ "value": "it" }))).await.0,
+        put_global(&a, base, "ui.language", json!({ "globalValue": "de" }))
+            .await
+            .0,
         200
     );
     assert_eq!(
-        send(a.put(format!("{base}/admin/settings/limit.storage_bytes/users/TestUser@Example.org")).json(&json!({ "value": 1000 }))).await.0,
+        send(
+            a.put(format!(
+                "{base}/admin/settings/ui.language/domains/example.org"
+            ))
+            .json(&json!({ "value": "it" }))
+        )
+        .await
+        .0,
+        200
+    );
+    assert_eq!(
+        send(
+            a.put(format!(
+                "{base}/admin/settings/limit.storage_bytes/users/TestUser@Example.org"
+            ))
+            .json(&json!({ "value": 1000 }))
+        )
+        .await
+        .0,
         200
     );
     // A refused write is not audited.
-    assert_eq!(put_global(&a, base, "ui.language", json!({ "globalValue": "xx" })).await.0, 422);
+    assert_eq!(
+        put_global(&a, base, "ui.language", json!({ "globalValue": "xx" }))
+            .await
+            .0,
+        422
+    );
 
     let (_, audit) = send(a.get(format!("{base}/admin/audit?limit=50"))).await;
     let rows: Vec<&Value> = audit
@@ -627,7 +934,13 @@ async fn every_write_is_audited_with_the_setting_as_target() {
     assert_eq!(rows.len(), 3, "{audit}");
     assert!(rows.iter().all(|r| r["actor"] == "root"));
     let targets: Vec<&str> = rows.iter().map(|r| r["target"].as_str().unwrap()).collect();
-    assert_eq!(targets.iter().filter(|t| **t == "setting:ui.language").count(), 2);
+    assert_eq!(
+        targets
+            .iter()
+            .filter(|t| **t == "setting:ui.language")
+            .count(),
+        2
+    );
     assert!(targets.contains(&"setting:limit.storage_bytes"));
     let global: Value = serde_json::from_str(
         rows.iter()
@@ -641,7 +954,10 @@ async fn every_write_is_audited_with_the_setting_as_target() {
     assert_eq!(global["after"]["globalValue"], "de");
 
     // Per-user limit rows are keyed by the canonical address (t32-q A15).
-    let (_, values) = send(a.get(format!("{base}/admin/settings/limit.storage_bytes/values?scope=admin_user"))).await;
+    let (_, values) = send(a.get(format!(
+        "{base}/admin/settings/limit.storage_bytes/values?scope=admin_user"
+    )))
+    .await;
     assert_eq!(values["values"][0]["scopeId"], "testuser@example.org");
     assert_eq!(values["values"][0]["value"], 1000);
 }
@@ -655,7 +971,10 @@ async fn the_deployment_appearance_is_stored_and_served() {
     let base = &s.base;
 
     let (_, got) = send(a.get(format!("{base}/admin/appearance"))).await;
-    assert_eq!(got["theme"], "dark", "the built-in default is the dark pack");
+    assert_eq!(
+        got["theme"], "dark",
+        "the built-in default is the dark pack"
+    );
 
     let (status, body) = send(
         a.put(format!("{base}/admin/appearance"))
@@ -671,7 +990,10 @@ async fn the_deployment_appearance_is_stored_and_served() {
     assert_eq!(status, 422, "{body}");
 
     let (_, item) = send(a.get(format!("{base}/admin/settings/appearance.theme"))).await;
-    assert_eq!(item["globalValue"], "grove-dark", "the compatibility view writes the settings key");
+    assert_eq!(
+        item["globalValue"], "grove-dark",
+        "the compatibility view writes the settings key"
+    );
 
     // A user with no appearance of their own is served it.
     let (u, _) = user(base).await;
