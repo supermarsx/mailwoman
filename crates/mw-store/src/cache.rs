@@ -626,6 +626,16 @@ impl Store {
     ///
     /// Returns the message's stable id.
     pub async fn upsert_message(&self, m: &MessageUpsert<'_>) -> Result<String, StoreError> {
+        self.upsert_message_with_status(m).await.map(|(id, _)| id)
+    }
+
+    /// As `upsert_message`, also reporting whether an exact coordinate or a
+    /// surviving identity was already cached. The result is determined in the
+    /// same transaction as the upsert so reset resyncs do not rerun ingest rules.
+    pub async fn upsert_message_with_status(
+        &self,
+        m: &MessageUpsert<'_>,
+    ) -> Result<(String, bool), StoreError> {
         let sealed_env = match m.envelope {
             Some(bytes) => Some(self.key.seal(bytes)?),
             None => None,
@@ -643,26 +653,30 @@ impl Store {
         .await?;
 
         // (2) identity match across a UIDVALIDITY change.
-        let stable_id = match existing {
-            Some(id) => id,
+        let (stable_id, existed) = match existing {
+            Some(id) => (id, true),
             None => {
                 let identity: Option<String> = match (m.message_id, m.internaldate) {
                     (Some(mid), Some(date)) => {
                         q("SELECT stable_id FROM messages
                          WHERE account_id = ?1 AND mailbox_id = ?2 AND message_id = ?3
-                           AND internaldate = ?4 AND size = ?5
+                           AND internaldate = ?4 AND size = ?5 AND uidvalidity != ?6
                          LIMIT 1")
                         .bind(m.account_id)
                         .bind(m.mailbox_id)
                         .bind(mid)
                         .bind(date)
                         .bind(to_i64(m.size))
+                        .bind(m.uidvalidity as i64)
                         .fetch_opt_scalar_string_tx(&mut tx)
                         .await?
                     }
                     _ => None,
                 };
-                identity.unwrap_or_else(seal::random_token)
+                match identity {
+                    Some(id) => (id, true),
+                    None => (seal::random_token(), false),
+                }
             }
         };
 
@@ -698,7 +712,7 @@ impl Store {
         .await?;
 
         tx.commit().await?;
-        Ok(stable_id)
+        Ok((stable_id, existed))
     }
 
     /// Fetch a message row by stable id.

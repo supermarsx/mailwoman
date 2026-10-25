@@ -5,7 +5,17 @@
 //! DSN in [`Store::open`]. Queries are authored once in the SQLite `?n` style and
 //! translated per-backend by the [`backend`]/[`dialect`] helpers (no `sqlx::Any`).
 
+mod security_center;
+pub use security_center::{SessionDevice, SecuritySession, SigninEvent, RememberedDevice};
+mod admin_accounts;
+mod domain_config;
+pub use domain_config::{
+    DomainAccount, DomainConfigRow, DomainMutation, DomainSigninState, SessionAuthority,
+};
+mod sieve_scripts;
+pub use sieve_scripts::{SieveScriptRow, SieveReplaceResult};
 mod cache;
+pub use admin_accounts::{AdminAccountRow, AdminRoleGrant, AdminRoleRow, AdminSessionRow};
 mod redact;
 mod seal;
 mod v2;
@@ -545,6 +555,31 @@ impl Store {
             .fetch_optional(&self.backend)
             .await?;
         Ok(row.map(|r| r.get_string("value")))
+    }
+
+    /// Every setting whose key, lowercased, starts with `prefix` (give it in
+    /// lower case), as `(key, value)` pairs in key order. `%`, `_` and `\` in
+    /// `prefix` match only themselves.
+    pub async fn settings_with_prefix(
+        &self,
+        prefix: &str,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        let like = format!(
+            "{}%",
+            prefix
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_")
+        );
+        let rows =
+            q("SELECT key, value FROM settings WHERE lower(key) LIKE ?1 ESCAPE '\\' ORDER BY key")
+                .bind(like.as_str())
+                .fetch_all(&self.backend)
+                .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| (r.get_string("key"), r.get_string("value")))
+            .collect())
     }
 }
 

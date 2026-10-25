@@ -586,6 +586,42 @@ impl Store {
         Ok(())
     }
 
+    /// [`Self::append_audit`] with the 0033 `category` and `request_id` columns
+    /// (security events, user alerts).
+    pub async fn append_categorized_audit(
+        &self,
+        row: &AuditRow,
+        category: &str,
+        request_id: Option<&str>,
+    ) -> Result<(), StoreError> {
+        q(
+            "INSERT INTO audit_log (id, ts, actor, actor_kind, action, target, detail_json, ip, \
+           category, request_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        )
+        .bind(&row.id)
+        .bind(&row.ts)
+        .bind(&row.actor)
+        .bind(&row.actor_kind)
+        .bind(&row.action)
+        .bind(row.target.clone())
+        .bind(&row.detail_json)
+        .bind(row.ip.clone())
+        .bind(category)
+        .bind(request_id)
+        .execute(&self.backend)
+        .await?;
+        Ok(())
+    }
+
+    /// The `category` of audit row `id` (`None` for a row written without one).
+    pub async fn audit_category(&self, id: &str) -> Result<Option<String>, StoreError> {
+        let row = q("SELECT category FROM audit_log WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&self.backend)
+            .await?;
+        Ok(row.and_then(|r| r.get_opt_string("category")))
+    }
+
     pub async fn list_audit(&self, limit: i64) -> Result<Vec<AuditRow>, StoreError> {
         let rows = q(
             "SELECT id, ts, actor, actor_kind, action, target, detail_json, ip

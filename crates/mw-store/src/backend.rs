@@ -257,6 +257,26 @@ impl Sql {
 
     // ---- transaction variants ------------------------------------------------
 
+    pub(crate) async fn fetch_all_tx(self, tx: &mut Tx) -> Result<Vec<Row>, sqlx::Error> {
+        Ok(match tx {
+            Tx::Sqlite(t) => build_sqlite(self.sql, &self.args)
+                .fetch_all(&mut **t)
+                .await?
+                .into_iter()
+                .map(Row::Sqlite)
+                .collect(),
+            Tx::Postgres(t) => {
+                let sql = dialect::placeholders(self.sql, Dialect::Postgres);
+                build_pg(&sql, &self.args)
+                    .fetch_all(&mut **t)
+                    .await?
+                    .into_iter()
+                    .map(Row::Postgres)
+                    .collect()
+            }
+        })
+    }
+
     pub(crate) async fn execute_tx(self, tx: &mut Tx) -> Result<u64, sqlx::Error> {
         match tx {
             Tx::Sqlite(t) => Ok(build_sqlite(self.sql, &self.args)
