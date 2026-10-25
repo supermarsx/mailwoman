@@ -198,6 +198,10 @@
 #   not in what the tree contains. They are RETAINED: those notices are warnings,
 #   not errors, and dropping the ignores would re-red the check if the advisories
 #   are reported against the same unmaintained crates again.
+#   (26.20, f36, 2026-10-25: all ten advisories were WITHDRAWN on 2026-08-14 -- the
+#   gtk-rs repository was unarchived and development resumed -- which is why no
+#   crate matched them. A withdrawn advisory is not reported again under its id,
+#   so the reason above no longer holds and the ten ignores were removed.)
 #
 # 26.20 (t27-e1, 2026-10-04) — wasmtime left the 46.x line. Seven advisories were
 # published against 46.0.3 with no patched 46.x release: RUSTSEC-2026-0314, -0316,
@@ -249,20 +253,11 @@ ignore = [
     # only alternative to ignoring them is dropping the desktop/mobile shells
     # entirely. Bounded + documented, same posture as RUSTSEC-2023-0071 above.
     #
-    #   gtk-rs GTK3 bindings (gtk/gdk/atk/glib/… v0.18) — Tauri's LINUX WebKitGTK
-    #   webview backend. No longer maintained upstream (GTK3 → GTK4 migration
-    #   pending across the ecosystem). Linux-only; irrelevant to the Windows/macOS
-    #   (WebView2/WKWebView) and Android/iOS backends. Revisit when Tauri adopts GTK4.
-    "RUSTSEC-2024-0411",
-    "RUSTSEC-2024-0412",
-    "RUSTSEC-2024-0413",
-    "RUSTSEC-2024-0414",
-    "RUSTSEC-2024-0415",
-    "RUSTSEC-2024-0416",
-    "RUSTSEC-2024-0417",
-    "RUSTSEC-2024-0418",
-    "RUSTSEC-2024-0419",
-    "RUSTSEC-2024-0420",
+    #   gtk-rs GTK3 bindings (gtk/gdk/atk/glib/… v0.18), Tauri's Linux WebKitGTK
+    #   webview backend: RUSTSEC-2024-0411..0420 were ignored here until 26.20. The
+    #   advisories were withdrawn on 2026-08-14 (development of the bindings
+    #   resumed), cargo-deny reported the ten ignores as `advisory-not-detected`, and
+    #   they were removed (f36, 2026-10-25).
     #   proc-macro-error v1 — unmaintained proc-macro helper pulled transitively by
     #   the GTK3 macro crates. Build-time only, no runtime surface.
     "RUSTSEC-2024-0370",
@@ -292,9 +287,10 @@ ignore = [
     # Run`; there is no `read_docx` caller in the tree). The two other zip copies
     # these advisories hit were removed rather than ignored: zip 0.6.6 (docx-rs
     # 0.4.20, by the 0.4.22 bump) and zip 4.6.1 (tauri-plugin-updater's `zip`
-    # feature, disabled in the workspace `Cargo.toml`; the shells ship v2 updater
-    # artefacts, `createUpdaterArtifacts: true`, which the plugin installs without
-    # unzipping). mail-auth's `report` feature, which also pulled zip 8, is no longer
+    # feature, disabled in the workspace `Cargo.toml`; when a desktop build has an
+    # updater, it ships v2 updater artefacts (`createUpdaterArtifacts: true`, set by
+    # the per-build overlay scripts/shells/config-overlay.mjs), which the plugin
+    # installs without unzipping). mail-auth's `report` feature, which also pulled zip 8, is no longer
     # enabled (`crates/mw-engine/Cargo.toml`). Revisit when docx-rs releases on
     # zip >= 9, or if any crate in the tree starts calling `extract`.
     "RUSTSEC-2026-0367",
@@ -309,7 +305,7 @@ ignore = [
     # only on Linux, where notify-rust talks to the desktop notification service over
     # D-Bus. `notify-rust` 4.18.2 (newest) still requires `zbus ^5`; zbus 6 exists but
     # nothing in the Tauri plugin chain uses it. The server crates do not depend on
-    # zbus. Same posture as the gtk-rs ignores above. Revisit when notify-rust (or
+    # zbus. Same posture as the other Tauri-only ignores above. Revisit when notify-rust (or
     # tauri-plugin-notification) moves to zbus 6.
     "RUSTSEC-2026-0370",
     "RUSTSEC-2026-0371",

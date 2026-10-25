@@ -230,9 +230,10 @@ tauri-plugin-process = "2"
 tauri-plugin-shell = "2"
 # Default features minus `zip` (26.20 t31-e1): `zip` pulls zip 4.6 (RUSTSEC-2026-0367/
 # -0368/-0369) and is only needed to unpack v1-format updater archives (.msi.zip /
-# .nsis.zip / .AppImage.tar.gz). The shell builds v2 artefacts
-# (`apps/desktop/src-tauri/tauri.conf.json` `createUpdaterArtifacts: true`), which
-# the plugin installs without unpacking; macOS .app.tar.gz does not use this feature.
+# .nsis.zip / .AppImage.tar.gz). A desktop build with an updater builds v2 artefacts
+# (`createUpdaterArtifacts: true`, set by the per-build overlay
+# scripts/shells/config-overlay.mjs; the committed tauri.conf.json has it false),
+# which the plugin installs without unpacking; macOS .app.tar.gz does not use this feature.
 tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls"] }
 
 # ── V6 (26.7.0) new dependencies (plan §5). ALL permissive (MIT OR Apache-2.0 /
