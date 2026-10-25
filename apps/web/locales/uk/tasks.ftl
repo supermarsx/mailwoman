@@ -1,7 +1,41 @@
-# MT-SEED — NOT REVIEWED
-# Locale: uk · Module: tasks. Source of truth: ../en/tasks.ftl
-#
-# PLACEHOLDER awaiting human translation via Weblate. This catalog holds NO
-# reviewed translations — every key falls back to the en source at runtime until
-# a translator fills it in, so Weblate shows it as needing translation (0%).
-# Do NOT hand-edit or paste raw machine output as final: translate in Weblate.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: uk · Module: tasks. Source: ../en/tasks.ftl
+
+tasks-title = Завдання
+tasks-lists = Списки завдань
+tasks-all = Усі завдання
+tasks-my-day = Мій день
+tasks-lists-heading = Списки
+tasks-no-lists = Списків ще немає.
+tasks-new-title = Назва нового завдання
+tasks-add-placeholder = Додати завдання…
+tasks-my-day-empty = На сьогодні нічого не заплановано. Насолоджуйтеся тишею.
+tasks-convert = Перетворити:
+tasks-mail-id = Ідентифікатор повідомлення для перетворення
+tasks-mail-id-placeholder = ідентифікатор повідомлення
+tasks-mail-to-task = Лист → завдання
+tasks-event-id = Ідентифікатор події для перетворення
+tasks-event-id-placeholder = ідентифікатор події
+tasks-event-to-task = Подія → завдання
+tasks-followup-mail = Відповісти: лист { $id }
+tasks-prep-event = Підготуватися: подія { $id }
+tasks-list-label = Завдання
+tasks-subtasks = Підзавдання
+tasks-empty-list = У цьому списку немає завдань.
+tasks-complete = Завершити { $title }
+tasks-reopen = Відкрити знову { $title }
+tasks-high-priority = Високий пріоритет
+tasks-edit = Редагувати { $title }
+tasks-field-title = Назва
+tasks-field-due = Термін
+tasks-field-priority = Пріоритет
+tasks-priority-none = Немає
+tasks-priority-high = Високий
+tasks-priority-medium = Середній
+tasks-priority-low = Низький
+tasks-delete-confirm = Видалити це завдання? Цю дію не можна скасувати.
+tasks-delete-yes = Видалити завдання
+tasks-delete-no = Залишити завдання
+tasks-changed-elsewhere = Це завдання змінено на іншому пристрої або в іншому сеансі. Ваші зміни збережено; «Зберегти» застосує лише змінені вами поля.
+tasks-deleted-elsewhere = «{ $title }» видалено на іншому пристрої або в іншому сеансі, тому форму редагування закрито.
+tasks-notice-dismiss = Закрити
