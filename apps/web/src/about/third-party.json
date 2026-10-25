@@ -2,7 +2,7 @@
   "schema": "mailwoman-third-party/2",
   "generator": "scripts/about/gen-third-party.mjs",
   "generatedFrom": {
-    "cargoLock": "8a5910952889297890a11ddf77868ec1c8948bb26b98216e04431afa9db3f66c",
+    "cargoLock": "04c29dec39576cee13a36d3d887a230cdf68d56cedb9df2613a86171081eaae2",
     "mediaWasmLock": "f8d4fc4e4a5f7e0a85cd61ed79e9e87fa8a3b2c636a35ae8ae89472559ff05e3",
     "pnpmLock": "1c167a84a868799294c6c69bfde605d6b10018f07ddbde9b1802fab7334a6c29"
   },
@@ -189,22 +189,6 @@
       "artifacts": [
         "server",
         "web"
-      ]
-    },
-    {
-      "kind": "crate",
-      "name": "aes-keywrap",
-      "version": "0.9.0",
-      "licence": "MIT",
-      "repository": "https://github.com/jedisct1/rust-aes-keywrap",
-      "texts": [
-        {
-          "file": "LICENSE",
-          "id": "0df8efea72ecf708"
-        }
-      ],
-      "artifacts": [
-        "server"
       ]
     },
     {
@@ -489,42 +473,6 @@
     },
     {
       "kind": "crate",
-      "name": "arrayref",
-      "version": "0.3.9",
-      "licence": "BSD-2-Clause",
-      "repository": "https://github.com/droundy/arrayref",
-      "texts": [
-        {
-          "file": "LICENSE",
-          "id": "112d1beb5fcb0478"
-        }
-      ],
-      "artifacts": [
-        "server"
-      ]
-    },
-    {
-      "kind": "crate",
-      "name": "arrayvec",
-      "version": "0.7.8",
-      "licence": "MIT OR Apache-2.0",
-      "repository": "https://github.com/bluss/arrayvec",
-      "texts": [
-        {
-          "file": "LICENSE-APACHE",
-          "id": "954f335b8baf5e1a"
-        },
-        {
-          "file": "LICENSE-MIT",
-          "id": "92c666480f818e05"
-        }
-      ],
-      "artifacts": [
-        "server"
-      ]
-    },
-    {
-      "kind": "crate",
       "name": "asn1-rs",
       "version": "0.7.2",
       "licence": "MIT OR Apache-2.0",
@@ -751,22 +699,6 @@
     },
     {
       "kind": "crate",
-      "name": "binstring",
-      "version": "0.1.7",
-      "licence": "MIT",
-      "repository": "https://github.com/jedisct1/rust-binstring",
-      "texts": [
-        {
-          "file": "LICENSE",
-          "id": "2d1023f7fee97f49"
-        }
-      ],
-      "artifacts": [
-        "server"
-      ]
-    },
-    {
-      "kind": "crate",
       "name": "bit-vec",
       "version": "0.9.1",
       "licence": "Apache-2.0 OR MIT",
@@ -898,22 +830,6 @@
       "artifacts": [
         "server",
         "web"
-      ]
-    },
-    {
-      "kind": "crate",
-      "name": "blake2b_simd",
-      "version": "1.0.4",
-      "licence": "MIT",
-      "repository": "https://github.com/oconnor663/blake2_simd",
-      "texts": [
-        {
-          "standard": "MIT",
-          "id": "c3b1b78bc8bd3ea1"
-        }
-      ],
-      "artifacts": [
-        "server"
       ]
     },
     {
@@ -1699,22 +1615,6 @@
     },
     {
       "kind": "crate",
-      "name": "coarsetime",
-      "version": "0.1.37",
-      "licence": "BSD-2-Clause",
-      "repository": "https://github.com/jedisct1/rust-coarsetime",
-      "texts": [
-        {
-          "file": "LICENSE",
-          "id": "29d945af6651b006"
-        }
-      ],
-      "artifacts": [
-        "server"
-      ]
-    },
-    {
-      "kind": "crate",
       "name": "cobs",
       "version": "0.3.0",
       "licence": "MIT OR Apache-2.0",
@@ -1854,30 +1754,6 @@
         "server",
         "web",
         "desktop"
-      ]
-    },
-    {
-      "kind": "crate",
-      "name": "constant_time_eq",
-      "version": "0.4.2",
-      "licence": "CC0-1.0 OR MIT-0 OR Apache-2.0",
-      "repository": "https://github.com/cesarb/constant_time_eq",
-      "texts": [
-        {
-          "file": "LICENSE-APACHE",
-          "id": "85ad950cce8752f7"
-        },
-        {
-          "file": "LICENSE-CC0",
-          "id": "6d489af6292662d9"
-        },
-        {
-          "file": "LICENSE-MIT0",
-          "id": "ee3c852dd133c6ca"
-        }
-      ],
-      "artifacts": [
-        "server"
       ]
     },
     {
@@ -2568,22 +2444,6 @@
     },
     {
       "kind": "crate",
-      "name": "ct-codecs",
-      "version": "1.1.7",
-      "licence": "MIT",
-      "repository": "https://github.com/jedisct1/rust-ct-codecs",
-      "texts": [
-        {
-          "file": "LICENSE",
-          "id": "0df8efea72ecf708"
-        }
-      ],
-      "artifacts": [
-        "server"
-      ]
-    },
-    {
-      "kind": "crate",
       "name": "ctr",
       "version": "0.9.2",
       "licence": "MIT OR Apache-2.0",
@@ -3130,26 +2990,6 @@
     },
     {
       "kind": "crate",
-      "name": "ece-native",
-      "version": "0.4.0",
-      "licence": "MIT OR Apache-2.0",
-      "repository": "https://github.com/leotaku/web-push-native",
-      "texts": [
-        {
-          "standard": "MIT",
-          "id": "c3b1b78bc8bd3ea1"
-        },
-        {
-          "standard": "Apache-2.0",
-          "id": "6dc0e068dcf3a5bc"
-        }
-      ],
-      "artifacts": [
-        "server"
-      ]
-    },
-    {
-      "kind": "crate",
       "name": "ed25519",
       "version": "2.2.3",
       "licence": "Apache-2.0 OR MIT",
@@ -3167,22 +3007,6 @@
       "artifacts": [
         "server",
         "web"
-      ]
-    },
-    {
-      "kind": "crate",
-      "name": "ed25519-compact",
-      "version": "2.3.1",
-      "licence": "MIT",
-      "repository": "https://github.com/jedisct1/rust-ed25519-compact",
-      "texts": [
-        {
-          "file": "LICENSE",
-          "id": "0df8efea72ecf708"
-        }
-      ],
-      "artifacts": [
-        "server"
       ]
     },
     {
@@ -4590,54 +4414,6 @@
     },
     {
       "kind": "crate",
-      "name": "hmac-sha1-compact",
-      "version": "1.1.7",
-      "licence": "ISC",
-      "repository": "https://github.com/jedisct1/rust-hmac-sha1",
-      "texts": [
-        {
-          "file": "LICENSE",
-          "id": "698c21b2f9035dc1"
-        }
-      ],
-      "artifacts": [
-        "server"
-      ]
-    },
-    {
-      "kind": "crate",
-      "name": "hmac-sha256",
-      "version": "1.1.14",
-      "licence": "ISC",
-      "repository": "https://github.com/jedisct1/rust-hmac-sha256",
-      "texts": [
-        {
-          "file": "LICENSE",
-          "id": "6781f9695963130f"
-        }
-      ],
-      "artifacts": [
-        "server"
-      ]
-    },
-    {
-      "kind": "crate",
-      "name": "hmac-sha512",
-      "version": "1.1.12",
-      "licence": "ISC",
-      "repository": "https://github.com/jedisct1/rust-hmac-sha512",
-      "texts": [
-        {
-          "file": "LICENSE",
-          "id": "a1b78f06ea0227af"
-        }
-      ],
-      "artifacts": [
-        "server"
-      ]
-    },
-    {
-      "kind": "crate",
       "name": "home",
       "version": "0.5.12",
       "licence": "MIT OR Apache-2.0",
@@ -5555,22 +5331,6 @@
     },
     {
       "kind": "crate",
-      "name": "jwt-simple",
-      "version": "0.12.17",
-      "licence": "ISC",
-      "repository": "https://github.com/jedisct1/rust-jwt-simple",
-      "texts": [
-        {
-          "file": "LICENSE",
-          "id": "a62d777ee9ae7b2a"
-        }
-      ],
-      "artifacts": [
-        "server"
-      ]
-    },
-    {
-      "kind": "crate",
       "name": "k256",
       "version": "0.13.4",
       "licence": "Apache-2.0 OR MIT",
@@ -6469,27 +6229,6 @@
         "server",
         "desktop",
         "mobile"
-      ]
-    },
-    {
-      "kind": "crate",
-      "name": "ml-dsa",
-      "version": "0.1.0-rc.11",
-      "licence": "Apache-2.0 OR MIT",
-      "repository": "https://github.com/RustCrypto/signatures",
-      "homepage": "https://github.com/RustCrypto/signatures/tree/master/ml-dsa",
-      "texts": [
-        {
-          "file": "LICENSE-APACHE",
-          "id": "570e505cb148758c"
-        },
-        {
-          "file": "LICENSE-MIT",
-          "id": "d61ccc9068807539"
-        }
-      ],
-      "artifacts": [
-        "server"
       ]
     },
     {
@@ -10398,22 +10137,6 @@
     },
     {
       "kind": "crate",
-      "name": "superboring",
-      "version": "0.1.12",
-      "licence": "ISC",
-      "repository": "https://github.com/jedisct1/rust-superboring",
-      "texts": [
-        {
-          "file": "LICENSE",
-          "id": "627e1d75fc4793bf"
-        }
-      ],
-      "artifacts": [
-        "server"
-      ]
-    },
-    {
-      "kind": "crate",
       "name": "sync_wrapper",
       "version": "1.0.2",
       "licence": "Apache-2.0",
@@ -12146,26 +11869,6 @@
         "web",
         "desktop",
         "mobile"
-      ]
-    },
-    {
-      "kind": "crate",
-      "name": "web-push-native",
-      "version": "0.4.0",
-      "licence": "MIT OR Apache-2.0",
-      "repository": "https://github.com/leotaku/web-push-native",
-      "texts": [
-        {
-          "standard": "MIT",
-          "id": "c3b1b78bc8bd3ea1"
-        },
-        {
-          "standard": "Apache-2.0",
-          "id": "6dc0e068dcf3a5bc"
-        }
-      ],
-      "artifacts": [
-        "server"
       ]
     },
     {

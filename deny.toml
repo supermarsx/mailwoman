@@ -36,13 +36,11 @@
 # `apps/desktop/src-tauri` + `apps/mobile/src-tauri`:
 #   tauri, tauri-build, tauri-plugin-{notification,os,deep-link,biometric,process,
 #   shell,updater} (MIT/Apache-2.0), keyring (MIT/Apache-2.0). These land under the
-#   MIT/Apache allow entries below. The server push relay (e5) uses `web-push-native`
-#   (leotaku/web-push-native, MIT OR Apache-2.0; VAPID + RFC 8188/http-ece over pure
-#   RustCrypto). NB: the originally-planned `web-push` 0.10 crate was DROPPED — it
-#   transitively pulls `ece` → `openssl` (a `-sys` C build BANNED in `[bans]` below
-#   that also does not build on the Windows/MSVC host); `web-push-native` is the
-#   pure-Rust replacement (no openssl/boring C) and is now linked in the tree
-#   (Cargo.lock) under the MIT/Apache allow entries — `cargo deny check` is green.
+#   MIT/Apache allow entries below. The server push relay (e5) builds Web Push
+#   itself (RFC 8291/8292 over the RustCrypto p256/hkdf/aes-gcm already in the tree;
+#   26.20 f25 dropped `web-push-native`). NB: the originally-planned `web-push` 0.10
+#   crate was DROPPED — it transitively pulls `ece` → `openssl` (a `-sys` C build
+#   BANNED in `[bans]` below that also does not build on the Windows/MSVC host).
 #   NEW allow entry required: the large Tauri dep tree transitively pulls
 #   `tiny-keccak` (via `tauri-plugin-deep-link`), licensed CC0-1.0 — a Creative
 #   Commons public-domain dedication (permissive, NOT copyleft). Added to the
@@ -325,8 +323,8 @@ ignore = [
     # bumped to 0.7.6. This ignore is for crypto-bigint 0.5.5, which has no patched
     # 0.5.x release. It reaches the tree through `elliptic-curve` 0.13 (ecdsa 0.16,
     # k256/p256/p384/p521 0.13) and `cx448`, pulled by `pgp` 0.20 (0.21 is still on
-    # elliptic-curve 0.13), `jwt-simple` 0.12 via `web-push-native` 0.4, and
-    # `openidconnect` 4. Where secret integers meet that code:
+    # elliptic-curve 0.13) and `openidconnect` 4. Where secret integers meet that
+    # code:
     #   - pgp: the server only verifies signatures and parses public keys
     #     (`crates/mw-crypto/src/native.rs:38` and `:61`, `pgp::wkd_fetch`). Signing,
     #     decryption and key generation with a user's private key run in the browser
@@ -335,18 +333,11 @@ ignore = [
     #   - openidconnect: verifies ID-token signatures with the provider's public key;
     #     the SSO client authenticates with a client secret
     #     (`crates/mw-sso/src/oidc.rs:107`), so there is no EC private-key signing.
-    #   - web-push-native / jwt-simple: the one server-side secret path. Each push
-    #     wake signs a VAPID ES256 JWT with the server's VAPID key and does one
-    #     ephemeral P-256 ECDH (`send_webpush`, `crates/mw-server/src/push_relay.rs`).
-    #     The encrypted body is the fixed `WAKE_MARKER`, never message content, so
-    #     the ephemeral key protects nothing secret. Recovering the VAPID key would
-    #     need remote timing of signatures made inside the async push dispatcher, and
-    #     would only let the holder send empty wakes to push endpoints it already
-    #     knows (endpoints are unguessable capability URLs, and a payload needs each
-    #     subscription's auth secret).
-    # Revisit when pgp moves to crypto-bigint 0.6+ (elliptic-curve 0.14), and when a
-    # web-push-native / jwt-simple release on p256 0.14 lets the VAPID path move off
-    # crypto-bigint 0.5.
+    # The server-side secret path that went through it, VAPID signing and the
+    # per-wake ECDH in `crates/mw-server/src/push_relay.rs`, no longer does: 26.20
+    # (f25) dropped `web-push-native` (0.5 still pins p256 0.13 and jwt-simple 0.12)
+    # and builds RFC 8291/8292 on p256 0.14 (crypto-bigint 0.7.6).
+    # Revisit when pgp moves to crypto-bigint 0.6+ (elliptic-curve 0.14).
     "RUSTSEC-2026-0387",
 ]
 

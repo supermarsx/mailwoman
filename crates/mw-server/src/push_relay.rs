@@ -14,8 +14,8 @@
 //!     allowlist for CORS and cookie-less sign-in,
 //!   * the push DISPATCHER ([`run_dispatcher`]) = a second consumer of the engine
 //!     `StateChange` broadcast that sends OPAQUE wakes (no message content) —
-//!     WebPush (VAPID, RFC 8188) to browser/desktop endpoints, UnifiedPush (a plain
-//!     POST) for Android, APNs mocked (needs an Apple account).
+//!     WebPush (RFC 8291 encryption, RFC 8292 VAPID) to browser/desktop endpoints,
+//!     UnifiedPush (a plain POST) for Android, APNs mocked (needs an Apple account).
 
 use anyhow::anyhow;
 use axum::http::{HeaderMap, StatusCode, header};
@@ -41,6 +41,16 @@ const WAKE_MARKER: &[u8] = b"mw-wake";
 /// wake. Four weeks: a wake that lands after the device comes back online still
 /// triggers a refetch.
 const WAKE_TTL: u32 = 2_419_200;
+
+/// The RFC 8188 record size written into the `aes128gcm` header. One record holds
+/// the whole payload, so a payload may be at most `RECORD_SIZE - 17` bytes (one
+/// delimiter byte and the 16-byte tag).
+const RECORD_SIZE: u32 = 4096;
+
+/// Lifetime of the VAPID JWT. RFC 8292 §2 caps `exp` at 24 hours after the
+/// request (push services refuse longer); 12 hours leaves room for clock skew.
+/// It is unrelated to [`WAKE_TTL`], which is how long the push service holds a wake.
+const VAPID_JWT_LIFETIME_SECS: i64 = 12 * 60 * 60;
 
 /// The origins a Tauri 2 webview loads the SPA from: `http://tauri.localhost` on
 /// Windows and Android, `tauri://localhost` on macOS, iOS and Linux, and
@@ -142,23 +152,12 @@ pub(crate) async fn ensure_vapid(store: &Store) -> anyhow::Result<()> {
 /// Generate a P-256 VAPID keypair. Returns `(applicationServerKey, private scalar)`:
 /// the public key is the base64url (no-pad) of the uncompressed SEC1 point (what the
 /// browser passes to `pushManager.subscribe`); the private key is the raw 32-byte
-/// EC scalar (what `jwt_simple::ES256KeyPair::from_bytes` consumes), only ever
-/// stored SEALED. Uses `web-push-native`'s re-exported `p256` so the curve version
-/// matches the signer exactly.
+/// EC scalar (what [`vapid_authorization`] signs with), only ever stored SEALED.
 fn generate_vapid_keypair() -> anyhow::Result<(String, Vec<u8>)> {
-    use web_push_native::p256;
-    use web_push_native::p256::elliptic_curve::sec1::ToEncodedPoint;
+    use p256::elliptic_curve::sec1::ToSec1Point;
 
-    // A valid non-zero scalar < group order; retry on the (astronomically rare)
-    // invalid draw rather than coupling to a specific RNG-crate version.
-    let secret = loop {
-        let mut bytes = [0u8; 32];
-        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
-        if let Ok(sk) = p256::SecretKey::from_slice(&bytes) {
-            break sk;
-        }
-    };
-    let point = secret.public_key().to_encoded_point(false);
+    let secret = random_p256_secret();
+    let point = secret.public_key().to_sec1_point(false);
     let public_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(point.as_bytes());
     Ok((public_b64, secret.to_bytes().to_vec()))
 }
@@ -381,43 +380,29 @@ async fn dispatch_wakes(store: &Store, http: &reqwest::Client, change: &StateCha
     }
 }
 
-/// Send a VAPID-signed, RFC 8188-encrypted opaque wake to a Web Push endpoint.
-/// `web-push-native` builds the encrypted, VAPID-authenticated `http::Request`
-/// (all headers + ECE body); we transmit it over the in-tree `reqwest` client (no
-/// extra HTTP stack). The encrypted body is the fixed [`WAKE_MARKER`] — never
-/// message content.
+/// Send a VAPID-signed, RFC 8291-encrypted opaque wake to a Web Push endpoint.
+/// [`build_wake_request`] builds the `http::Request` (headers + encrypted body);
+/// it goes out over the in-tree `reqwest` client. The encrypted body is the fixed
+/// [`WAKE_MARKER`] — never message content.
 async fn send_webpush(
     http: &reqwest::Client,
     sub: &PushSubscriptionRow,
     vapid: Option<&(String, Vec<u8>)>,
 ) -> anyhow::Result<u16> {
-    use web_push_native::jwt_simple::algorithms::ES256KeyPair;
-    use web_push_native::p256::PublicKey;
-    use web_push_native::{Auth, WebPushBuilder};
-
     let Some((_public, private_scalar)) = vapid else {
         anyhow::bail!("no VAPID keypair available");
     };
     let (Some(p256dh), Some(auth)) = (sub.p256dh.as_deref(), sub.auth.as_deref()) else {
         anyhow::bail!("webpush subscription missing p256dh/auth");
     };
-
-    let ua_public =
-        PublicKey::from_sec1_bytes(&b64url_decode(p256dh)?).map_err(|e| anyhow!("p256dh: {e}"))?;
-    let auth_bytes = b64url_decode(auth)?;
-    if auth_bytes.len() != 16 {
-        anyhow::bail!("webpush auth secret must be 16 bytes");
-    }
-    let ua_auth = Auth::clone_from_slice(&auth_bytes);
-    let key_pair =
-        ES256KeyPair::from_bytes(private_scalar).map_err(|e| anyhow!("VAPID key load: {e}"))?;
-    let endpoint: axum::http::Uri = sub.endpoint.parse().map_err(|e| anyhow!("endpoint: {e}"))?;
-
-    let request = WebPushBuilder::new(endpoint, ua_public, ua_auth)
-        .with_valid_duration(std::time::Duration::from_secs(u64::from(WAKE_TTL)))
-        .with_vapid(&key_pair, &vapid_contact())
-        .build(WAKE_MARKER.to_vec())
-        .map_err(|e| anyhow!("web push build: {e}"))?;
+    let request = build_wake_request(
+        &sub.endpoint,
+        p256dh,
+        auth,
+        private_scalar,
+        &vapid_contact(),
+        WAKE_MARKER,
+    )?;
 
     // Translate the built `http::Request` (POST + ECE headers + VAPID auth + body)
     // into a `reqwest` request — the http crate is shared with axum/reqwest.
@@ -428,6 +413,159 @@ async fn send_webpush(
     }
     let resp = req.send().await?;
     Ok(resp.status().as_u16())
+}
+
+/// Build the encrypted, VAPID-authenticated Web Push request for one subscription:
+/// the body is `payload` encrypted to the subscriber's key (RFC 8291 over RFC 8188
+/// `aes128gcm`), the `Authorization` header is a VAPID ES256 JWT (RFC 8292).
+fn build_wake_request(
+    endpoint: &str,
+    p256dh: &str,
+    auth: &str,
+    vapid_private: &[u8],
+    contact: &str,
+    payload: &[u8],
+) -> anyhow::Result<axum::http::Request<Vec<u8>>> {
+    let uri: axum::http::Uri = endpoint.parse().map_err(|e| anyhow!("endpoint: {e}"))?;
+    let audience = push_origin(&uri)?;
+    let ua_public = p256::PublicKey::from_sec1_bytes(&b64url_decode(p256dh)?)
+        .map_err(|e| anyhow!("p256dh: {e}"))?;
+    let auth = b64url_decode(auth)?;
+    if auth.len() != 16 {
+        anyhow::bail!("webpush auth secret must be 16 bytes");
+    }
+    let vapid_key =
+        p256::SecretKey::from_slice(vapid_private).map_err(|e| anyhow!("VAPID key load: {e}"))?;
+
+    let mut salt = [0u8; 16];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut salt);
+    let body = encrypt_aes128gcm(payload, &random_p256_secret(), &ua_public, &auth, &salt)?;
+    let expires = chrono::Utc::now().timestamp() + VAPID_JWT_LIFETIME_SECS;
+    let authorization = vapid_authorization(&vapid_key, &audience, contact, expires)?;
+
+    axum::http::Request::builder()
+        .method(axum::http::Method::POST)
+        .uri(uri)
+        .header("TTL", WAKE_TTL)
+        .header(header::CONTENT_ENCODING, "aes128gcm")
+        .header(header::CONTENT_TYPE, "application/octet-stream")
+        .header(header::AUTHORIZATION, authorization)
+        .body(body)
+        .map_err(|e| anyhow!("web push request: {e}"))
+}
+
+/// The RFC 6454 origin of a push endpoint, the VAPID `aud` claim (RFC 8292 §2):
+/// scheme and host, plus the port when it is not the scheme's default.
+fn push_origin(uri: &axum::http::Uri) -> anyhow::Result<String> {
+    let scheme = uri
+        .scheme_str()
+        .ok_or_else(|| anyhow!("endpoint: no scheme"))?;
+    let default_port = match scheme {
+        "https" => 443,
+        "http" => 80,
+        other => anyhow::bail!("endpoint: unsupported scheme {other:?}"),
+    };
+    let host = uri.host().ok_or_else(|| anyhow!("endpoint: no host"))?;
+    Ok(match uri.port_u16() {
+        Some(port) if port != default_port => format!("{scheme}://{host}:{port}"),
+        _ => format!("{scheme}://{host}"),
+    })
+}
+
+/// RFC 8291 §3.4 encryption into one RFC 8188 `aes128gcm` record:
+/// `salt(16) ‖ rs(4) ‖ idlen(1) ‖ keyid(65 = the sender's ephemeral public key) ‖
+/// AES-128-GCM(payload ‖ 0x02)`. `as_secret` is a fresh key per message.
+fn encrypt_aes128gcm(
+    payload: &[u8],
+    as_secret: &p256::SecretKey,
+    ua_public: &p256::PublicKey,
+    auth: &[u8],
+    salt: &[u8; 16],
+) -> anyhow::Result<Vec<u8>> {
+    use aes_gcm::aead::{Aead, KeyInit};
+    use hkdf::Hkdf;
+    use p256::elliptic_curve::sec1::ToSec1Point;
+
+    // One record holds the payload, the delimiter byte and the 16-byte tag.
+    if payload.len() + 17 > RECORD_SIZE as usize {
+        anyhow::bail!("web push payload too large");
+    }
+    let ua_point = ua_public.to_sec1_point(false);
+    let as_point = as_secret.public_key().to_sec1_point(false);
+    let shared = p256::ecdh::diffie_hellman(as_secret.to_nonzero_scalar(), ua_public.as_affine());
+
+    // IKM = HKDF(auth, ecdh_secret, "WebPush: info" ‖ 0 ‖ ua_public ‖ as_public, 32).
+    let mut key_info = Vec::with_capacity(14 + 65 + 65);
+    key_info.extend_from_slice(b"WebPush: info\0");
+    key_info.extend_from_slice(ua_point.as_bytes());
+    key_info.extend_from_slice(as_point.as_bytes());
+    let mut ikm = [0u8; 32];
+    Hkdf::<Sha256>::new(Some(auth), shared.raw_secret_bytes().as_slice())
+        .expand(&key_info, &mut ikm)
+        .map_err(|e| anyhow!("hkdf: {e}"))?;
+
+    // CEK and nonce from the record salt (RFC 8188 §2.2, §2.3).
+    let prk = Hkdf::<Sha256>::new(Some(salt), &ikm);
+    let mut cek = [0u8; 16];
+    prk.expand(b"Content-Encoding: aes128gcm\0", &mut cek)
+        .map_err(|e| anyhow!("hkdf: {e}"))?;
+    let mut nonce = [0u8; 12];
+    prk.expand(b"Content-Encoding: nonce\0", &mut nonce)
+        .map_err(|e| anyhow!("hkdf: {e}"))?;
+
+    let mut record = Vec::with_capacity(payload.len() + 1);
+    record.extend_from_slice(payload);
+    record.push(0x02); // last-record delimiter, no padding
+    let sealed = aes_gcm::Aes128Gcm::new_from_slice(&cek)
+        .map_err(|e| anyhow!("aes-gcm key: {e}"))?
+        .encrypt(&nonce.into(), record.as_slice())
+        .map_err(|e| anyhow!("aes-gcm: {e}"))?;
+
+    let mut out = Vec::with_capacity(21 + 65 + sealed.len());
+    out.extend_from_slice(salt);
+    out.extend_from_slice(&RECORD_SIZE.to_be_bytes());
+    out.push(65);
+    out.extend_from_slice(as_point.as_bytes());
+    out.extend_from_slice(&sealed);
+    Ok(out)
+}
+
+/// The RFC 8292 §3 header value `vapid t=<JWT>, k=<public key>`: an ES256 JWT
+/// (raw r ‖ s signature) with `aud`, `exp` and `sub`, and the base64url
+/// uncompressed public key it verifies with.
+fn vapid_authorization(
+    key: &p256::SecretKey,
+    audience: &str,
+    contact: &str,
+    expires: i64,
+) -> anyhow::Result<String> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use p256::ecdsa::signature::Signer;
+    use p256::elliptic_curve::sec1::ToSec1Point;
+
+    let head = URL_SAFE_NO_PAD.encode(br#"{"typ":"JWT","alg":"ES256"}"#);
+    let claims = serde_json::to_vec(&json!({ "aud": audience, "exp": expires, "sub": contact }))?;
+    let signing_input = format!("{head}.{}", URL_SAFE_NO_PAD.encode(claims));
+    let signature: p256::ecdsa::Signature =
+        p256::ecdsa::SigningKey::from(key).sign(signing_input.as_bytes());
+    let public = URL_SAFE_NO_PAD.encode(key.public_key().to_sec1_point(false).as_bytes());
+    Ok(format!(
+        "vapid t={signing_input}.{}, k={public}",
+        URL_SAFE_NO_PAD.encode(signature.to_bytes())
+    ))
+}
+
+/// A uniformly random P-256 secret key from the thread CSPRNG.
+fn random_p256_secret() -> p256::SecretKey {
+    // A valid non-zero scalar < group order; retry on the (astronomically rare)
+    // invalid draw rather than coupling to a specific RNG-crate version.
+    loop {
+        let mut bytes = [0u8; 32];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
+        if let Ok(sk) = p256::SecretKey::from_slice(&bytes) {
+            return sk;
+        }
+    }
 }
 
 /// Decode a base64url subscription field (browsers may or may not pad).
@@ -589,46 +727,47 @@ mod tests {
         assert_eq!(raw[0], 0x04);
         // The stored private scalar is the raw 32-byte EC key the VAPID signer loads.
         assert_eq!(scalar.len(), 32);
-        assert!(web_push_native::jwt_simple::algorithms::ES256KeyPair::from_bytes(&scalar).is_ok());
+        assert!(p256::ecdsa::SigningKey::from_slice(&scalar).is_ok());
     }
 
     #[test]
-    fn vapid_signed_webpush_request_is_built_over_reqwest() {
-        // The full WebPush build path (VAPID-signed, ECE-encrypted) produces a POST
-        // to the endpoint whose plaintext body never appears (it is encrypted, and
-        // in any case carries only the opaque marker — no message content).
-        use web_push_native::jwt_simple::algorithms::ES256KeyPair;
-        use web_push_native::p256::SecretKey;
-        use web_push_native::{Auth, WebPushBuilder};
-
-        let (_public, scalar) = generate_vapid_keypair().unwrap();
-        let key_pair = ES256KeyPair::from_bytes(&scalar).unwrap();
-        // A well-formed peer (browser) subscription key + 16-byte auth secret.
-        let ua_secret = loop {
-            let mut b = [0u8; 32];
-            rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut b);
-            if let Ok(sk) = SecretKey::from_slice(&b) {
-                break sk;
-            }
+    fn encryption_matches_the_rfc_8291_example() {
+        // RFC 8291 Appendix A: fixed sender key, salt and record size 4096 give this
+        // exact message body.
+        let d = |v: &str| {
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(v)
+                .unwrap()
         };
-        let ua_public = ua_secret.public_key();
-        let ua_auth = Auth::clone_from_slice(&[7u8; 16]);
-        let request = WebPushBuilder::new(
-            "https://push.example/abc".parse().unwrap(),
-            ua_public,
-            ua_auth,
-        )
-        .with_vapid(&key_pair, "mailto:push@mailwoman.invalid")
-        .build(WAKE_MARKER.to_vec())
+        let as_secret =
+            p256::SecretKey::from_slice(&d("yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw")).unwrap();
+        let ua_public = p256::PublicKey::from_sec1_bytes(&d(
+            "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",
+        ))
         .unwrap();
-        assert_eq!(request.method(), axum::http::Method::POST);
-        assert!(
-            request
-                .headers()
-                .contains_key(axum::http::header::AUTHORIZATION)
+        let ua_secret =
+            p256::SecretKey::from_slice(&d("q1dXpw3UpT5VOmu_cf_v6ih07Aems3njxI-JWgLcM94")).unwrap();
+        let auth = d("BTBZMqHH6r4Tts7J_aSIgg");
+        let salt: [u8; 16] = d("DGv6ra1nlYgDCS1FRnbzlw").try_into().unwrap();
+        let plaintext = b"When I grow up, I want to be a watermelon";
+        let body = encrypt_aes128gcm(plaintext, &as_secret, &ua_public, &auth, &salt).unwrap();
+        assert_eq!(
+            body,
+            d(
+                "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN"
+            )
         );
-        // The encrypted body is not the plaintext marker.
-        assert_ne!(request.body().as_slice(), WAKE_MARKER);
+        assert_eq!(decrypt_wake(&body, &ua_secret, &auth), plaintext);
+    }
+
+    #[test]
+    fn encryption_refuses_a_payload_over_one_record() {
+        let ua_public = random_p256_secret().public_key();
+        let fits = vec![0u8; RECORD_SIZE as usize - 17];
+        let too_big = vec![0u8; RECORD_SIZE as usize - 16];
+        let k = random_p256_secret();
+        assert!(encrypt_aes128gcm(&fits, &k, &ua_public, &[0u8; 16], &[0u8; 16]).is_ok());
+        assert!(encrypt_aes128gcm(&too_big, &k, &ua_public, &[0u8; 16], &[0u8; 16]).is_err());
     }
 
     #[test]
@@ -645,5 +784,215 @@ mod tests {
         assert!(in_quiet_window(9, 17, 12));
         assert!(!in_quiet_window(9, 17, 8));
         assert!(!in_quiet_window(9, 17, 17));
+    }
+
+    // ── Receiver-side checks (written from RFC 8291 / RFC 8292, not from the
+    // sender code): decrypt the body with the subscriber's key and verify the VAPID
+    // JWT with the server's public key.
+
+    use aes_gcm::aead::{Aead, KeyInit};
+    use hkdf::Hkdf;
+    use p256::elliptic_curve::sec1::ToSec1Point;
+
+    const CONTACT: &str = "mailto:ops@example.test";
+
+    fn ua_keypair() -> (p256::SecretKey, String) {
+        let secret = loop {
+            let mut b = [0u8; 32];
+            rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut b);
+            if let Ok(sk) = p256::SecretKey::from_slice(&b) {
+                break sk;
+            }
+        };
+        let public = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(secret.public_key().to_sec1_point(false).as_bytes());
+        (secret, public)
+    }
+
+    fn b64(s: &str) -> Vec<u8> {
+        b64url_decode(s).unwrap()
+    }
+
+    /// RFC 8291 §3.4 + RFC 8188 §2: one aes128gcm record, last-record delimiter 0x02.
+    fn decrypt_wake(body: &[u8], ua_secret: &p256::SecretKey, auth: &[u8]) -> Vec<u8> {
+        let salt = &body[..16];
+        let rs = u32::from_be_bytes(body[16..20].try_into().unwrap()) as usize;
+        let idlen = usize::from(body[20]);
+        let keyid = &body[21..21 + idlen];
+        let record = &body[21 + idlen..];
+        assert!(record.len() <= rs, "one record of at most rs bytes");
+        let as_public = p256::PublicKey::from_sec1_bytes(keyid).unwrap();
+        let shared =
+            p256::ecdh::diffie_hellman(ua_secret.to_nonzero_scalar(), as_public.as_affine());
+        let mut key_info = b"WebPush: info\0".to_vec();
+        key_info.extend_from_slice(ua_secret.public_key().to_sec1_point(false).as_bytes());
+        key_info.extend_from_slice(keyid);
+        let mut ikm = [0u8; 32];
+        Hkdf::<Sha256>::new(Some(auth), shared.raw_secret_bytes().as_slice())
+            .expand(&key_info, &mut ikm)
+            .unwrap();
+        let hk = Hkdf::<Sha256>::new(Some(salt), &ikm);
+        let mut cek = [0u8; 16];
+        hk.expand(b"Content-Encoding: aes128gcm\0", &mut cek)
+            .unwrap();
+        let mut nonce = [0u8; 12];
+        hk.expand(b"Content-Encoding: nonce\0", &mut nonce).unwrap();
+        let cipher = aes_gcm::Aes128Gcm::new_from_slice(&cek).unwrap();
+        let mut plain = cipher.decrypt(&nonce.into(), record).unwrap();
+        while plain.last() == Some(&0) {
+            plain.pop();
+        }
+        assert_eq!(plain.pop(), Some(2), "last-record delimiter");
+        plain
+    }
+
+    struct Vapid {
+        header: serde_json::Value,
+        claims: serde_json::Value,
+        key: String,
+    }
+
+    /// RFC 8292 §3: `Authorization: vapid t=<JWT>, k=<public key>`; the JWT is
+    /// ES256 (raw r||s) and must verify with `k`.
+    fn verify_vapid(req: &axum::http::Request<Vec<u8>>) -> Vapid {
+        use p256::ecdsa::signature::Verifier;
+        let value = req.headers()[header::AUTHORIZATION].to_str().unwrap();
+        let params = value.strip_prefix("vapid ").expect("vapid scheme");
+        let mut token = None;
+        let mut key = None;
+        for part in params.split(',') {
+            let part = part.trim();
+            if let Some(v) = part.strip_prefix("t=") {
+                token = Some(v);
+            } else if let Some(v) = part.strip_prefix("k=") {
+                key = Some(v);
+            }
+        }
+        let (token, key) = (token.expect("t="), key.expect("k="));
+        let (signing_input, sig) = token.rsplit_once('.').unwrap();
+        let (head, claims) = signing_input.split_once('.').unwrap();
+        let vk = p256::ecdsa::VerifyingKey::from_sec1_bytes(&b64(key)).unwrap();
+        let sig = p256::ecdsa::Signature::from_slice(&b64(sig)).unwrap();
+        vk.verify(signing_input.as_bytes(), &sig)
+            .expect("VAPID JWT verifies with k");
+        Vapid {
+            header: serde_json::from_slice(&b64(head)).unwrap(),
+            claims: serde_json::from_slice(&b64(claims)).unwrap(),
+            key: key.to_string(),
+        }
+    }
+
+    fn now_secs() -> i64 {
+        chrono::Utc::now().timestamp()
+    }
+
+    fn auth_b64(byte: u8) -> String {
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([byte; 16])
+    }
+
+    #[test]
+    fn wake_request_decrypts_to_the_marker_with_the_subscriber_key() {
+        let (vapid_public, scalar) = generate_vapid_keypair().unwrap();
+        let (ua_secret, ua_public) = ua_keypair();
+        let req = build_wake_request(
+            "https://push.example/sub/1",
+            &ua_public,
+            &auth_b64(9),
+            &scalar,
+            CONTACT,
+            WAKE_MARKER,
+        )
+        .unwrap();
+        assert_eq!(req.method(), axum::http::Method::POST);
+        assert_eq!(req.uri(), "https://push.example/sub/1");
+        assert_eq!(req.headers()[header::CONTENT_ENCODING], "aes128gcm");
+        assert_eq!(req.headers()["TTL"], WAKE_TTL.to_string().as_str());
+        assert_eq!(
+            decrypt_wake(req.body(), &ua_secret, &[9u8; 16]),
+            WAKE_MARKER
+        );
+        // The JWT is signed with the stored VAPID key, and `k` is its public half.
+        assert_eq!(verify_vapid(&req).key, vapid_public);
+    }
+
+    #[test]
+    fn vapid_jwt_is_es256_and_expires_within_24_hours() {
+        // RFC 8292 §2: "An exp claim MUST NOT be more than 24 hours from the time of
+        // the request." The 4-week TTL header is a separate thing.
+        let (_, scalar) = generate_vapid_keypair().unwrap();
+        let (_, ua_public) = ua_keypair();
+        let before = now_secs();
+        let req = build_wake_request(
+            "https://push.example/sub/1",
+            &ua_public,
+            &auth_b64(1),
+            &scalar,
+            CONTACT,
+            WAKE_MARKER,
+        )
+        .unwrap();
+        let vapid = verify_vapid(&req);
+        assert_eq!(vapid.header["alg"], "ES256");
+        assert_eq!(vapid.header["typ"], "JWT");
+        assert_eq!(vapid.claims["sub"], CONTACT);
+        let exp = vapid.claims["exp"].as_i64().expect("numeric exp");
+        assert!(exp > before, "exp in the future");
+        assert!(
+            exp <= now_secs() + 24 * 60 * 60,
+            "exp {exp} is more than 24 h after {before}"
+        );
+    }
+
+    #[test]
+    fn vapid_audience_is_the_endpoint_origin_including_a_port() {
+        // RFC 8292 §2: aud is the origin of the push resource URL (RFC 6454
+        // serialisation: scheme, host, and the port when it is not the default).
+        let (_, scalar) = generate_vapid_keypair().unwrap();
+        let (_, ua_public) = ua_keypair();
+        for (endpoint, aud) in [
+            ("https://push.example/wake/abc", "https://push.example"),
+            ("https://push.example:443/wake/abc", "https://push.example"),
+            (
+                "https://push.example:8443/wake/abc",
+                "https://push.example:8443",
+            ),
+            ("http://127.0.0.1:40850/push/1", "http://127.0.0.1:40850"),
+        ] {
+            let req = build_wake_request(
+                endpoint,
+                &ua_public,
+                &auth_b64(2),
+                &scalar,
+                CONTACT,
+                WAKE_MARKER,
+            )
+            .unwrap();
+            assert_eq!(verify_vapid(&req).claims["aud"], aud, "{endpoint}");
+        }
+    }
+
+    #[test]
+    fn wake_request_refuses_bad_subscription_keys() {
+        let (_, scalar) = generate_vapid_keypair().unwrap();
+        let (_, ua_public) = ua_keypair();
+        let short_auth = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([3u8; 8]);
+        let ep = "https://push.example/x";
+        let a = auth_b64(3);
+        assert!(build_wake_request(ep, "not-a-point", &a, &scalar, CONTACT, b"x").is_err());
+        assert!(build_wake_request(ep, &ua_public, &short_auth, &scalar, CONTACT, b"x").is_err());
+        assert!(build_wake_request(ep, &ua_public, &a, &[0u8; 32], CONTACT, b"x").is_err());
+        assert!(build_wake_request("not a uri", &ua_public, &a, &scalar, CONTACT, b"x").is_err());
+        assert!(
+            build_wake_request(
+                "ftp://push.example/x",
+                &ua_public,
+                &a,
+                &scalar,
+                CONTACT,
+                b"x"
+            )
+            .is_err()
+        );
+        assert!(build_wake_request("/relative", &ua_public, &a, &scalar, CONTACT, b"x").is_err());
     }
 }

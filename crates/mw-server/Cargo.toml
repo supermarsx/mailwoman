@@ -95,12 +95,15 @@ rand = { workspace = true }
 # ARF spool filenames (plan §3 e7).
 sha1 = { workspace = true }
 uuid = { workspace = true }
-# V5 push relay + native bearer auth (plan §1.7/§2.2/§2.3, §3 e5). `web-push-native`
-# (pure-Rust Web Push; builds the VAPID-signed RFC 8188 request, sent over the
-# in-tree `reqwest`; re-exports the `p256` + `jwt-simple` it uses so keygen matches
-# its curve version). `sha2` hashes bearer tokens for the `native_sessions` marker;
-# `chrono` timestamps the push/native-session `*_at` columns.
-web-push-native = { workspace = true }
+# V5 push relay + native bearer auth (plan §1.7/§2.2/§2.3, §3 e5). Web Push is
+# built in push_relay.rs: RFC 8291 encryption (`p256` ECDH + `hkdf` + `aes-gcm`)
+# and the RFC 8292 VAPID JWT (`p256` ECDSA), sent over the in-tree `reqwest`
+# (26.20 f25: replaces `web-push-native`, whose p256 0.13 kept crypto-bigint 0.5 on
+# the VAPID signing path). `sha2` hashes bearer tokens for the `native_sessions`
+# marker; `chrono` timestamps the push/native-session `*_at` columns.
+p256 = { workspace = true, features = ["ecdh", "ecdsa"] }
+hkdf = "0.13"
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
 sha2 = { workspace = true }
 chrono = { workspace = true }
 # V2 push + ACME listener (plan §1.2/§1.10, §3 e10). `tokio-tungstenite` also
