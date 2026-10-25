@@ -307,6 +307,19 @@ limits "$CID" 1073741824 2.00 'a new installation'
 app_env "$CID" | grep -Fx 'DEPLOY_LITERAL_TEST=dollar$sign with spaces and "quotes"' >/dev/null || fail 'raw environment was expanded'
 curl --fail --silent "http://localhost:$PORT/" -o "$STATE/index.html"
 grep -qi '<!doctype html' "$STATE/index.html" || fail 'missing embedded SPA'
+# init generated a metrics token: /metrics answers 200 with it and 401 without,
+# and status says metrics are enabled.
+METRICS_TOKEN=$(awk -F= '$1 == "MW_METRICS_TOKEN" {print $2}' "$STATE/app.env")
+[[ $METRICS_TOKEN =~ ^[0-9a-f]{64}$ ]] || fail "init wrote no random MW_METRICS_TOKEN: '$METRICS_TOKEN'"
+CODE=$(curl --silent --output "$STATE/metrics.txt" --write-out '%{http_code}' --header "Authorization: Bearer $METRICS_TOKEN" "http://localhost:$PORT/metrics")
+[[ $CODE == 200 ]] || fail "/metrics with the generated token answered $CODE"
+CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' "http://localhost:$PORT/metrics")
+[[ $CODE == 401 ]] || fail "/metrics without a token answered $CODE, expected 401"
+CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' --header "Authorization: Bearer not-$METRICS_TOKEN" "http://localhost:$PORT/metrics")
+[[ $CODE == 401 ]] || fail "/metrics with a wrong token answered $CODE, expected 401"
+run status 2> "$STATE/status.log" || { cat "$STATE/status.log" >&2; fail 'status failed'; }
+grep -F "Metrics: enabled at http://localhost:$PORT/metrics" "$STATE/status.log" >/dev/null || fail "status did not say metrics are enabled: $(cat "$STATE/status.log")"
+printf 'metrics: 200 with the token, 401 without or wrong (%s lines)\n' "$(wc -l < "$STATE/metrics.txt" | tr -d ' ')"
 docker cp "$CID:/data/mailwoman.db" "$STATE/first.db"
 [[ -s $STATE/first.db ]] || fail 'database not persisted'
 # On an applied installation dry-run changes nothing either.
@@ -419,7 +432,23 @@ if PATH="$STATE/bin:$PATH" run backup > "$STATE/copy-failure.log" 2>&1; then fai
 [[ $(docker inspect --format '{{.State.Running}}' "$CID") == true ]] || fail 'copy failure left app stopped'
 [[ ! -d $STATE/.lock ]] || fail 'copy failure leaked lock'
 run start
+# check passes on the healthy app. With the app stopped it exits non-zero and
+# runs ALERT_HOOK with the failing check's name.
+run check 2> "$STATE/check.log" || { cat "$STATE/check.log" >&2; fail 'check failed on a healthy app'; }
+grep -F "OK: $PROJECT is healthy and http://localhost:$PORT/healthz answers" "$STATE/check.log" >/dev/null || fail "check did not say what it checked: $(cat "$STATE/check.log")"
+mkdir "$STATE/alertbin"
+cat > "$STATE/alertbin/alert" <<'ALERT'
+#!/usr/bin/env bash
+printf '%s|%s\n' "$1" "$2" >> "${0%/alertbin/alert}/alerts.txt"
+ALERT
+chmod +x "$STATE/alertbin/alert"
+set_config "ALERT_HOOK=$STATE/alertbin/alert"
 run stop
+if run check > "$STATE/check.log" 2>&1; then fail 'check passed with the app stopped'; fi
+grep -F 'CHECK FAILED (container)' "$STATE/check.log" >/dev/null || fail "check failed for another reason: $(cat "$STATE/check.log")"
+[[ $(cat "$STATE/alerts.txt" 2>/dev/null) == "container|the app container of $PROJECT is not running" ]] || fail "ALERT_HOOK was not called with the failing check: '$(cat "$STATE/alerts.txt" 2>/dev/null)'"
+printf 'check: %s\n' "$(cat "$STATE/alerts.txt")"
+set_config ALERT_HOOK=
 run start
 run status
 

@@ -56,6 +56,7 @@ BACKUP_KEEP=
 BACKUP_KEEP_DAYS=
 BACKUP_RECIPIENT=
 BACKUP_HOOK=
+ALERT_HOOK=
 IDENTITY=
 EXTRACT=
 
@@ -68,7 +69,10 @@ Commands (default: deploy):
   deploy            First run: set up and start. Later runs: update in place
                     (build/pull, back up the existing install, start, verify)
   doctor            Check prerequisites, configuration, and Compose syntax
-  status            Show containers and the configured public URL
+  status            Show containers, the configured public URL and whether
+                    metrics are enabled
+  check             Exit 0 when the app is healthy and answers at its URL;
+                    otherwise run ALERT_HOOK and exit non-zero
   logs              Follow the last 100 lines of service logs (Ctrl-C to leave)
   stop              Stop services; retain all containers, volumes, and backups
   start             Start the last applied configuration and verify health
@@ -148,7 +152,7 @@ port_in_use() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 declare -A REQUESTED=()
 while (($#)); do
     case "$1" in
-        init|deploy|doctor|status|logs|stop|start|restart|backup|rollback|restore|prune|timers)
+        init|deploy|doctor|status|check|logs|stop|start|restart|backup|rollback|restore|prune|timers)
             $ACTION_SET && die "Specify only one command"
             ACTION=$1; ACTION_SET=true
             if [[ $ACTION == restore ]]; then need_value "$@"; SNAPSHOT=$2; shift; fi ;;
@@ -197,7 +201,7 @@ read_config() {
     # empty unless this file sets them, never left over from a file read earlier.
     if [[ ${file##*/} == deploy.env ]]; then
         PROXY_NETWORK=; ACME_CA=; ACME_CA_ROOT=; MEMORY_LIMIT=; CPU_LIMIT=; SIGNATURE_IDENTITY=; SIGNATURE_ISSUER=
-        BACKUP_KEEP=; BACKUP_KEEP_DAYS=; BACKUP_RECIPIENT=; BACKUP_HOOK=
+        BACKUP_KEEP=; BACKUP_KEEP_DAYS=; BACKUP_RECIPIENT=; BACKUP_HOOK=; ALERT_HOOK=
     fi
     while IFS= read -r line || [[ -n $line ]]; do
         [[ -z $line || $line == \#* ]] && continue
@@ -206,7 +210,7 @@ read_config() {
         [[ $seen != *"|$key|"* ]] || die "Duplicate $key in $file"
         seen+="$key|"
         case "$key" in
-            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|BACKUP_KEEP|BACKUP_KEEP_DAYS|BACKUP_RECIPIENT|BACKUP_HOOK|IMAGE_ID|DATA_VOLUME|CADDY_ID)
+            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|BACKUP_KEEP|BACKUP_KEEP_DAYS|BACKUP_RECIPIENT|BACKUP_HOOK|ALERT_HOOK|IMAGE_ID|DATA_VOLUME|CADDY_ID)
                 printf -v "$key" '%s' "$value" ;;
             *) die "Unknown setting $key in $file" ;;
         esac
@@ -254,6 +258,7 @@ validate_config() {
     # age: an age1 recipient or an SSH public key. gpg: a full key fingerprint, so
     # that exactly one key in the keyring can match.
     [[ -z $BACKUP_HOOK || $BACKUP_HOOK =~ ^/[a-zA-Z0-9._/+@-]+$ ]] || die "BACKUP_HOOK must be the absolute path of an executable (letters, digits and ._/+@- only), or empty"
+    [[ -z $ALERT_HOOK || $ALERT_HOOK =~ ^/[a-zA-Z0-9._/+@-]+$ ]] || die "ALERT_HOOK must be the absolute path of an executable (letters, digits and ._/+@- only), or empty"
     [[ -z $BACKUP_RECIPIENT || $BACKUP_RECIPIENT =~ ^(age1[02-9ac-hj-np-z]{58}|ssh-(ed25519|rsa)\ [A-Za-z0-9+/]+={0,2}|[0-9A-Fa-f]{40}|[0-9A-Fa-f]{64})$ ]] || die "BACKUP_RECIPIENT must be an age recipient (age1...), an SSH public key (ssh-ed25519 AAAA...) or a full gpg key fingerprint (40 hex digits), or empty"
 }
 
@@ -279,6 +284,7 @@ BACKUP_KEEP=$BACKUP_KEEP
 BACKUP_KEEP_DAYS=$BACKUP_KEEP_DAYS
 BACKUP_RECIPIENT=$BACKUP_RECIPIENT
 BACKUP_HOOK=$BACKUP_HOOK
+ALERT_HOOK=$ALERT_HOOK
 EOF
 }
 
@@ -317,7 +323,7 @@ cleanup() {
         rm -rf -- "$WORK"
     fi
     if $LOCKED; then rmdir -- "$STATE/.lock" 2>/dev/null || true; fi
-    if ((result != 0)); then log "Command failed. Data volumes have been retained. See 'status' and 'logs'."; fi
+    if ((result != 0)) && [[ $ACTION != check ]]; then log "Command failed. Data volumes have been retained. See 'status' and 'logs'."; fi
     exit "$result"
 }
 trap cleanup EXIT
@@ -375,7 +381,7 @@ case "$STATE/" in
         [[ $STATE != "$ROOT" && ${relative%%/*} == *.local ]] || die "Inside the repository, state must be in a top-level *.local directory (excluded from Git and Docker)" ;;
 esac
 ACTIVE="$STATE/active"
-if [[ $ACTION != status && $ACTION != logs && $ACTION != doctor ]]; then
+if [[ $ACTION != status && $ACTION != check && $ACTION != logs && $ACTION != doctor ]]; then
     chmod 700 "$STATE"
     mkdir "$STATE/.lock" 2>/dev/null || die "Another deployment operation holds $STATE/.lock; remove this empty lock only after verifying no operation is running"
     LOCKED=true
@@ -384,10 +390,11 @@ fi
 initialize() {
     [[ ! -e $STATE/deploy.env && ! -e $STATE/app.env ]] || die "Partial configuration found; retain the existing key and complete both deploy.env and app.env"
     need od
-    local key password
+    local key password metrics
     key=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
     password=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
-    [[ ${#key} == 64 && ${#password} == 48 ]] || die "Failed to generate secrets"
+    metrics=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
+    [[ ${#key} == 64 && ${#password} == 48 && ${#metrics} == 64 ]] || die "Failed to generate secrets"
     # New installations get the Helm chart's limits; deploy.env files written
     # before these keys existed keep running without one.
     MEMORY_LIMIT=1g
@@ -406,6 +413,9 @@ MW_ADMIN_PASSWORD=$password
 # MW_ADMIN_PATH=/admin
 MW_CSRF_STRICT=true
 RUST_LOG=info
+# Bearer token for GET /metrics (Prometheus text format); without it /metrics is
+# refused. Remove the line to turn metrics off. See docs/deploy/monitoring.md.
+MW_METRICS_TOKEN=$metrics
 # Required for sign-in: the mail server every user signs in to. The sign-in form
 # asks only for the email address and the password. Proxy mode: a JMAP URL.
 # Engine mode: imaps://host:993, imap://host:143, pop3s://host:995 or pop3://host:110.
@@ -420,7 +430,7 @@ RUST_LOG=info
 # MW_REDIS_URL=redis://cache.example.org:6379
 EOF
     chmod 600 "$STATE/deploy.env" "$STATE/app.env"
-    log "Created $STATE/deploy.env and app.env (admin credentials are in app.env)"
+    log "Created $STATE/deploy.env and app.env (admin credentials and the metrics token are in app.env)"
 }
 if [[ ! -f $STATE/deploy.env ]]; then
     [[ $ACTION == init || $ACTION == deploy ]] || die "Run init first"
@@ -520,7 +530,7 @@ check_signature() {
 
 # Keys that steer backup, prune and check rather than the running app. They take
 # effect as soon as deploy.env is saved, so they are not taken from the applied copy.
-OPERATION_KEYS=(BACKUP_KEEP BACKUP_KEEP_DAYS BACKUP_RECIPIENT BACKUP_HOOK)
+OPERATION_KEYS=(BACKUP_KEEP BACKUP_KEEP_DAYS BACKUP_RECIPIENT BACKUP_HOOK ALERT_HOOK)
 
 load_active() {
     local key
@@ -1074,6 +1084,56 @@ EOF
     log "Wrote the units to $directory; nothing was installed"
 }
 
+# check_failed NAME MESSAGE: report a failed check, run ALERT_HOOK NAME MESSAGE
+# when it is set, and exit 1.
+check_failed() {
+    local status=0
+    log "CHECK FAILED ($1): $2"
+    if [[ -n $ALERT_HOOK ]]; then
+        if [[ -f $ALERT_HOOK && -x $ALERT_HOOK ]]; then
+            "$ALERT_HOOK" "$1" "$2" < /dev/null || status=$?
+            ((status == 0)) || log "ALERT_HOOK $ALERT_HOOK exited $status"
+        else
+            log "ALERT_HOOK $ALERT_HOOK is not an executable file; no alert was sent"
+        fi
+    fi
+    exit 1
+}
+
+# run_check: the app container is running and healthy, and /healthz answers at the
+# public URL, or by name on the proxy network for network exposure (whose public
+# URL is served by a proxy this script does not manage).
+run_check() {
+    local cid health
+    cid=$(compose "$ACTIVE" ps -q mailwoman 2>/dev/null) || cid=
+    [[ -n $cid ]] || check_failed container "the app container of $PROJECT is not running"
+    health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}without a health check{{end}}' "$cid" 2>/dev/null) || health=unknown
+    [[ $health == healthy ]] || check_failed container "the app container of $PROJECT is $health, not healthy"
+    if [[ $EXPOSURE == network ]]; then
+        MSYS_NO_PATHCONV=1 docker run --rm --network "$PROXY_NETWORK" "$IMAGE_ID" healthcheck --url "http://$PROJECT:8080/healthz" >/dev/null 2>&1 ||
+            check_failed proxy-network "http://$PROJECT:8080/healthz does not answer on the Docker network $PROXY_NETWORK"
+        log "OK: $PROJECT is healthy and answers on the Docker network $PROXY_NETWORK"
+    else
+        curl --fail --silent --connect-timeout 5 --max-time 10 "$PUBLIC_URL/healthz" -o /dev/null 2>/dev/null ||
+            check_failed public-url "$PUBLIC_URL/healthz does not answer"
+        log "OK: $PROJECT is healthy and $PUBLIC_URL/healthz answers"
+    fi
+}
+
+# metrics_state: whether the applied app.env sets MW_METRICS_TOKEN, and whether
+# app.env says otherwise since.
+metrics_state() {
+    local applied edited
+    applied=$(awk -F= '$1 == "MW_METRICS_TOKEN" && $2 != "" {print "on"}' "$ACTIVE/app.env")
+    edited=$(awk -F= '$1 == "MW_METRICS_TOKEN" && $2 != "" {print "on"}' "$STATE/app.env")
+    if [[ -n $applied ]]; then
+        printf 'enabled at %s/metrics (bearer token: MW_METRICS_TOKEN in %s/app.env)' "$PUBLIC_URL" "$STATE"
+    else
+        printf 'off (no MW_METRICS_TOKEN in the applied app.env)'
+    fi
+    if [[ $applied != "$edited" ]]; then printf '; app.env has been edited since, run deploy --no-build to apply it'; fi
+}
+
 preflight
 case "$ACTION" in
     doctor)
@@ -1099,12 +1159,22 @@ case "$ACTION" in
         else
             log "Backups are not encrypted (BACKUP_RECIPIENT is empty; age $(command -v age >/dev/null 2>&1 && printf 'is' || printf 'is not') installed, gpg $(command -v gpg >/dev/null 2>&1 && printf 'is' || printf 'is not'))"
         fi
+        if [[ -n $ALERT_HOOK ]]; then
+            [[ -f $ALERT_HOOK && -x $ALERT_HOOK ]] || die "ALERT_HOOK $ALERT_HOOK is not an executable file"
+            log "A failed check runs ALERT_HOOK: $ALERT_HOOK <check> <message>"
+        fi
         if [[ -n $BACKUP_HOOK ]]; then
             [[ -f $BACKUP_HOOK && -x $BACKUP_HOOK ]] || die "BACKUP_HOOK $BACKUP_HOOK is not an executable file"
             log "After each backup, BACKUP_HOOK runs: $BACKUP_HOOK <backup path>"
         fi
         log "Prerequisites and configuration OK. App mode: $MODE; URL: $PUBLIC_URL" ;;
-    status) load_active; compose "$ACTIVE" ps -a; log "URL: $PUBLIC_URL; data volume: $DATA_VOLUME${PROXY_NETWORK:+; proxy network: $PROXY_NETWORK (http://$PROJECT:8080)}" ;;
+    status)
+        load_active
+        compose "$ACTIVE" ps -a
+        log "URL: $PUBLIC_URL; data volume: $DATA_VOLUME${PROXY_NETWORK:+; proxy network: $PROXY_NETWORK (http://$PROJECT:8080)}"
+        log "Metrics: $(metrics_state)"
+        ;;
+    check) load_active; run_check ;;
     logs) load_active; compose "$ACTIVE" logs --tail 100 --follow ;;
     stop) load_active; compose "$ACTIVE" stop --timeout 60; log "Stopped; data retained" ;;
     start) load_active; require_free_ports; ensure_proxy_network; compose "$ACTIVE" up -d --wait --wait-timeout "$TIMEOUT"; verify ;;

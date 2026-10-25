@@ -90,7 +90,9 @@ and the state directory uses `0700` on filesystems supporting Unix permissions.
   snapshot taken before the most recent deployment attempt.
 
 The admin username is initially `admin`; retrieve its generated password privately
-from `app.env`. Mailbox users authenticate against their mail provider. Secrets are
+from `app.env`. `init` also writes a random `MW_METRICS_TOKEN`, the bearer token
+for `/metrics`; [monitoring.md](monitoring.md) covers metrics, `check` and
+`ALERT_HOOK`. Mailbox users authenticate against their mail provider. Secrets are
 never printed by the script. Preserve `MW_SERVER_KEY`: it seals credentials and
 uploads. A deploy refuses to change that key under an existing data volume.
 
@@ -171,7 +173,8 @@ script deliberately keeps its backup/restore contract to SQLite plus `/data`.
 
 ```sh
 bash deploy.sh --help
-bash deploy.sh status
+bash deploy.sh status               # also says whether /metrics is enabled
+bash deploy.sh check                 # exit 0 when healthy, else ALERT_HOOK + exit 1
 bash deploy.sh logs                  # Ctrl-C exits log following
 bash deploy.sh stop                  # keeps containers and all data
 bash deploy.sh start
@@ -266,7 +269,7 @@ Restore validates the snapshot, populates a **new volume**, snapshots the curren
 installation (which then stays stopped, so a release that cannot become healthy
 can still be replaced), and starts the saved version/configuration against the
 recovered data. It reverts all writes since the snapshot time. The backup
-settings in `deploy.env` (`BACKUP_*`) are not taken from the
+settings in `deploy.env` (`BACKUP_*`, `ALERT_HOOK`) are not taken from the
 snapshot: they stay as they are. The old volume and the
 pre-restore snapshot remain available. `rollback` restores the pre-deployment
 snapshot, including the old image and data; it is not just an image downgrade.
