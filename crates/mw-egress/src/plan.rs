@@ -257,6 +257,7 @@ pub struct Request<'a> {
     accept: &'a str,
     user_agent: Option<&'a str>,
     body: Option<OutBody<'a>>,
+    response_limit: usize,
 }
 
 impl<'a> Request<'a> {
@@ -269,6 +270,7 @@ impl<'a> Request<'a> {
             accept: "*/*",
             user_agent: None,
             body: None,
+            response_limit: crate::MAX_IMAGE_BYTES,
         }
     }
 
@@ -298,6 +300,12 @@ impl<'a> Request<'a> {
         self
     }
 
+    /// Lower the response cap for every hop, including tunneled requests.
+    pub fn response_limit(mut self, bytes: usize) -> Request<'a> {
+        self.response_limit = bytes.min(crate::MAX_IMAGE_BYTES);
+        self
+    }
+
     /// A `User-Agent` other than the class default. A constant, never a browser's.
     pub fn user_agent(mut self, user_agent: &'a str) -> Request<'a> {
         self.user_agent = Some(user_agent);
@@ -316,6 +324,7 @@ impl<'a> Request<'a> {
                 .user_agent
                 .unwrap_or_else(|| self.class.default_user_agent()),
             body: self.body,
+            response_limit: self.response_limit,
         }
     }
 }
@@ -727,5 +736,175 @@ mod tests {
         let rendered = format!("{:?}", r.outgoing());
         assert!(!rendered.contains("s3cr3t"), "{rendered}");
         assert!(rendered.contains("application/json"), "{rendered}");
+    }
+}
+
+/// Open a ManageSieve byte stream using the account domain's selected route.
+/// `allow_private` MUST come from the operator's endpoint configuration, never
+/// the request body. All DNS answers pass the gate before either socket opens.
+/// TLS to the endpoint is applied by the protocol client over the returned pipe.
+pub async fn connect_sieve_with(
+    plan: &EgressPlan,
+    domain: Option<&str>,
+    host: &str,
+    port: u16,
+    allow_private: bool,
+    encrypted: bool,
+) -> Result<proxy::stream::ProxyConn, proxy::ProxyRefusal> {
+    use proxy::ProxyRefusal;
+    let route = plan.selected_route(TrafficClass::Sieve, domain);
+    if let Some(route) = route {
+        if !encrypted && !route.allow_plaintext {
+            return Err(ProxyRefusal::PlaintextRefused);
+        }
+        if route.scheme == proxy::ProxyScheme::Socks5h {
+            return Err(ProxyRefusal::RouteInvalid(
+                "remote DNS is unavailable for pinned mail transport",
+            ));
+        }
+    }
+    tokio::time::timeout(crate::FETCH_TIMEOUT, async {
+        let addresses: Vec<_> = tokio::net::lookup_host((host, port))
+            .await
+            .map_err(|_| ProxyRefusal::Origin(Refusal::Blocked))?
+            .collect();
+        let Some(destination) = addresses.first().copied() else {
+            return Err(ProxyRefusal::Origin(Refusal::Blocked));
+        };
+        if !addresses
+            .iter()
+            .all(|address| sieve_ip_allowed(&address.ip(), allow_private))
+        {
+            return Err(ProxyRefusal::Origin(Refusal::Blocked));
+        }
+        match route {
+            Some(route) => proxy::open_pinned_stream(route, destination).await,
+            None => {
+                let stream = tokio::net::TcpStream::connect(destination)
+                    .await
+                    .map_err(|_| ProxyRefusal::Origin(Refusal::Upstream))?;
+                let _ = stream.set_nodelay(true);
+                Ok(proxy::stream::ProxyConn::Tcp(stream))
+            }
+        }
+    })
+    .await
+    .map_err(|_| ProxyRefusal::Origin(Refusal::Timeout))?
+}
+
+fn sieve_ip_allowed(ip: &IpAddr, allow_private: bool) -> bool {
+    crate::operator_mail_ip_allowed(ip, allow_private)
+}
+
+#[cfg(test)]
+mod sieve_tests {
+    use super::*;
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpListener;
+    fn plan(port: u16, scope: RouteScope) -> EgressPlan {
+        EgressPlan::new(
+            vec![PlanRoute {
+                scope,
+                classes: [TrafficClass::Sieve].into_iter().collect(),
+                route: proxy::ProxyRoute {
+                    id: "sieve-proxy".into(),
+                    scheme: proxy::ProxyScheme::HttpConnect,
+                    host: "127.0.0.1".into(),
+                    port,
+                    auth: None,
+                    allow_plaintext: false,
+                },
+            }],
+            InternalAllowList::empty(),
+        )
+        .unwrap()
+    }
+    #[test]
+    fn private_permission_never_admits_metadata_or_reserved_addresses() {
+        for ip in [
+            "169.254.169.254",
+            "0.0.0.0",
+            "255.255.255.255",
+            "224.0.0.1",
+            "fd00:ec2::254",
+            "fe80::1",
+            "64:ff9b::a9fe:a9fe",
+            "2002:7f00:1::",
+        ] {
+            assert!(!sieve_ip_allowed(&ip.parse().unwrap(), true), "{ip}");
+        }
+        for ip in ["10.1.2.3", "192.168.1.2", "fd00::1", "127.0.0.1", "::1", "::ffff:127.0.0.1"] {
+            assert!(!sieve_ip_allowed(&ip.parse().unwrap(), false));
+            assert!(sieve_ip_allowed(&ip.parse().unwrap(), true));
+        }
+    }
+    #[tokio::test]
+    async fn configured_sieve_route_carries_the_pinned_stream() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let plan = plan(
+            listener.local_addr().unwrap().port(),
+            RouteScope::Domain("example.org".into()),
+        );
+        let recorder = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut stream = BufReader::new(stream);
+            let mut request = String::new();
+            loop {
+                let mut line = String::new();
+                stream.read_line(&mut line).await.unwrap();
+                if line == "\r\n" {
+                    break;
+                }
+                request.push_str(&line);
+            }
+            assert!(
+                request.starts_with("CONNECT 10.1.2.3:4190 HTTP/1.1\r\n"),
+                "{request}"
+            );
+            stream
+                .get_mut()
+                .write_all(b"HTTP/1.1 200 Connection established\r\n\r\nsieve")
+                .await
+                .unwrap();
+        });
+        let mut stream =
+            connect_sieve_with(&plan, Some("EXAMPLE.ORG"), "10.1.2.3", 4190, true, true)
+                .await
+                .unwrap();
+        let mut payload = [0; 5];
+        stream.read_exact(&mut payload).await.unwrap();
+        assert_eq!(&payload, b"sieve");
+        recorder.await.unwrap();
+    }
+    #[tokio::test]
+    async fn blocked_target_and_plaintext_open_no_proxy_socket() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let plan = plan(listener.local_addr().unwrap().port(), RouteScope::Global);
+        assert!(
+            connect_sieve_with(&plan, None, "10.1.2.3", 4190, false, true)
+                .await
+                .is_err()
+        );
+        assert!(
+            connect_sieve_with(&plan, None, "8.8.8.8", 4190, false, false)
+                .await
+                .is_err()
+        );
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), listener.accept())
+                .await
+                .is_err()
+        );
+    }
+    #[tokio::test]
+    async fn configured_route_failure_is_final() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let plan = plan(listener.local_addr().unwrap().port(), RouteScope::Global);
+        drop(listener);
+        let error = connect_sieve_with(&plan, None, "8.8.8.8", 4190, false, true)
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(error, proxy::ProxyRefusal::ProxyUnreachable(_)));
     }
 }

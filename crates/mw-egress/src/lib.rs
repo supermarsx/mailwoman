@@ -331,6 +331,10 @@ pub fn on_prem_allowed(ip: &IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => on_prem_v4_allowed(v4),
         IpAddr::V6(v6) => {
+            // AWS IMDS also has a unique-local IPv6 endpoint.
+            if v6.segments() == [0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0254] {
+                return false;
+            }
             if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
                 return false;
             }
@@ -360,6 +364,21 @@ pub fn on_prem_allowed(ip: &IpAddr) -> bool {
 /// embeddings — one place, so the carve-out cannot drift between them.
 fn on_prem_v4_allowed(v4: &Ipv4Addr) -> bool {
     !(v4.is_loopback() || v4.is_link_local() || v4.is_unspecified() || v4.is_multicast())
+}
+
+/// An exact, privileged operator-configured mail endpoint may explicitly opt in
+/// to private LAN or same-host addresses. Metadata and reserved targets stay denied.
+pub fn operator_mail_ip_allowed(ip: &IpAddr, allow_private: bool) -> bool {
+    if ip_allowed(ip) { return true; }
+    if !allow_private { return false; }
+    if let IpAddr::V6(v6)=ip && let Some(v4)=v6.to_ipv4_mapped() {
+        return operator_mail_ip_allowed(&IpAddr::V4(v4),true);
+    }
+    if ip.is_loopback() { return true; }
+    on_prem_allowed(ip) && match ip {
+        IpAddr::V4(v4)=>v4.is_private(),
+        IpAddr::V6(v6)=>v6.is_unique_local(),
+    }
 }
 
 /// Reassemble an IPv4 address from the two 16-bit v6 segments that carry it.
@@ -546,6 +565,7 @@ pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Re
             accept,
             user_agent,
             body: None,
+            response_limit: MAX_IMAGE_BYTES,
         },
     )
     .await
@@ -560,6 +580,8 @@ pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Re
 /// a reader's request (no cookie, referrer, authorization or browser UA).
 #[derive(Clone, Copy)]
 pub struct Outgoing<'a> {
+    /// Maximum response bytes; always bounded by the hard transport ceiling.
+    pub response_limit: usize,
     /// The `Accept` header.
     pub accept: &'a str,
     /// The `User-Agent` header.
@@ -662,7 +684,7 @@ pub(crate) async fn send_hop_typed(
     }
     // Early size refusal from Content-Length when present.
     if let Some(len) = resp.content_length()
-        && len as usize > MAX_IMAGE_BYTES
+        && len > out.response_limit.min(MAX_IMAGE_BYTES) as u64
     {
         return Err(Refusal::TooLarge);
     }
@@ -671,15 +693,15 @@ pub(crate) async fn send_hop_typed(
             .get(header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok()),
     );
-    Ok((Hop::Body(read_capped(resp).await?), media_type))
+    Ok((Hop::Body(read_capped(resp, out.response_limit.min(MAX_IMAGE_BYTES)).await?), media_type))
 }
 
 /// Stream a response body, refusing once it exceeds [`MAX_IMAGE_BYTES`]. Uses
 /// `chunk()` (no `stream` feature needed) so the cap applies to decoded bytes.
-async fn read_capped(mut resp: reqwest::Response) -> Result<Vec<u8>, Refusal> {
+async fn read_capped(mut resp: reqwest::Response, limit: usize) -> Result<Vec<u8>, Refusal> {
     let mut buf = Vec::new();
     while let Some(chunk) = resp.chunk().await.map_err(|_| Refusal::Upstream)? {
-        if buf.len() + chunk.len() > MAX_IMAGE_BYTES {
+        if buf.len() + chunk.len() > limit {
             return Err(Refusal::TooLarge);
         }
         buf.extend_from_slice(&chunk);

@@ -40,6 +40,7 @@ async fn hop(
         accept,
         user_agent: PROXY_UA,
         body: None,
+        response_limit: crate::MAX_IMAGE_BYTES,
     };
     let traversed = Arc::new(AtomicBool::new(false));
     let outcome = super::hop_over_tunnel(target, route, &out, &traversed).await;

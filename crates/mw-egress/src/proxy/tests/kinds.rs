@@ -28,6 +28,7 @@ fn get() -> Outgoing<'static> {
         accept: "*/*",
         user_agent: PROXY_UA,
         body: None,
+        response_limit: crate::MAX_IMAGE_BYTES,
     }
 }
 

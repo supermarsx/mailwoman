@@ -405,6 +405,20 @@ async fn open_tunnel(
     Ok(conn)
 }
 
+/// Internal transport seam. Only the plan's guarded mail connector may call
+/// this after selecting the scoped route and validating every resolved IP.
+pub(crate) async fn open_pinned_stream(
+    route: &ProxyRoute,
+    destination: SocketAddr,
+) -> Result<stream::ProxyConn, ProxyRefusal> {
+    if route.scheme == ProxyScheme::Socks5h {
+        return Err(ProxyRefusal::RouteInvalid(
+            "remote DNS is unavailable for pinned mail transport",
+        ));
+    }
+    open_tunnel(&Dialer::production(), route, TunnelDest::Addr(destination)).await
+}
+
 /// One tunnelled hop against an **already validated** target, with no address check
 /// of its own. Private: the only way in from outside this module is
 /// [`tunnel_fetch_hop`], which performs the check.
@@ -543,6 +557,7 @@ pub async fn tunnel_fetch_hop(target: &Target, route: &ProxyRoute, accept: &str)
             accept,
             user_agent: PROXY_UA,
             body: None,
+            response_limit: crate::MAX_IMAGE_BYTES,
         },
     )
     .await
@@ -631,6 +646,7 @@ pub async fn fetch_via_proxy(start: reqwest::Url, route: &ProxyRoute, accept: &s
             accept,
             user_agent: PROXY_UA,
             body: None,
+            response_limit: crate::MAX_IMAGE_BYTES,
         },
     )
     .await

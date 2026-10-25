@@ -49,6 +49,8 @@ pub enum TrafficClass {
     Oauth,
     /// The release feed polled by the optional update check.
     UpdateCheck,
+    /// ManageSieve byte streams to an operator-configured mail endpoint.
+    Sieve,
 }
 
 /// The `User-Agent` sent by every class without a more specific one. It names the
@@ -57,7 +59,7 @@ pub const CLASS_UA: &str = "Mailwoman";
 
 impl TrafficClass {
     /// Every class, in declaration order.
-    pub const ALL: [TrafficClass; 11] = [
+    pub const ALL: [TrafficClass; 12] = [
         TrafficClass::RemoteContent,
         TrafficClass::IcsFeeds,
         TrafficClass::Keyservers,
@@ -69,6 +71,7 @@ impl TrafficClass {
         TrafficClass::Siem,
         TrafficClass::Oauth,
         TrafficClass::UpdateCheck,
+        TrafficClass::Sieve,
     ];
 
     /// The classes a route carries when its row predates per-class selection:
@@ -91,6 +94,7 @@ impl TrafficClass {
             TrafficClass::Siem => "siem",
             TrafficClass::Oauth => "oauth",
             TrafficClass::UpdateCheck => "update_check",
+            TrafficClass::Sieve => "sieve",
         }
     }
 
@@ -165,6 +169,7 @@ mod tests {
                 "siem",
                 "oauth",
                 "update_check",
+                "sieve",
             ]
         );
     }

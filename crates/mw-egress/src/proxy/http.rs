@@ -63,6 +63,7 @@ where
             accept,
             user_agent: PROXY_UA,
             body: None,
+            response_limit: MAX_IMAGE_BYTES,
         },
     )
     .await
@@ -156,7 +157,7 @@ async fn exchange_inner(
         .get(header::CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<u64>().ok())
-        && declared as usize > MAX_IMAGE_BYTES
+        && declared > out.response_limit.min(MAX_IMAGE_BYTES) as u64
     {
         return Err(ProxyRefusal::Origin(Refusal::TooLarge));
     }
@@ -172,7 +173,7 @@ async fn exchange_inner(
     while let Some(frame) = body.frame().await {
         let frame = frame.map_err(|_| ProxyRefusal::Origin(Refusal::Upstream))?;
         if let Some(chunk) = frame.data_ref() {
-            if buf.len() + chunk.len() > MAX_IMAGE_BYTES {
+            if buf.len() + chunk.len() > out.response_limit.min(MAX_IMAGE_BYTES) {
                 return Err(ProxyRefusal::Origin(Refusal::TooLarge));
             }
             buf.extend_from_slice(chunk);
@@ -184,6 +185,31 @@ async fn exchange_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn caller_limit_rejects_declared_and_streamed_tunnel_bodies() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for reply in [
+            "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello",
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n",
+        ] {
+            let (client, mut server) = tokio::io::duplex(4096);
+            tokio::spawn(async move {
+                let mut request = Vec::new();
+                loop {
+                    let byte = server.read_u8().await.unwrap();
+                    request.push(byte);
+                    if request.ends_with(b"\r\n\r\n") { break; }
+                }
+                server.write_all(reply.as_bytes()).await.unwrap();
+                server.shutdown().await.unwrap();
+            });
+            let result = exchange_with(client, &url("http://example.test/image"), &Outgoing {
+                accept: "*/*", user_agent: PROXY_UA, body: None, response_limit: 4,
+            }).await;
+            assert!(matches!(result, Err(ProxyRefusal::Origin(Refusal::TooLarge))), "{result:?}");
+        }
+    }
 
     fn url(s: &str) -> reqwest::Url {
         reqwest::Url::parse(s).unwrap()
