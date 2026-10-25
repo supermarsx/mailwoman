@@ -36,7 +36,7 @@ export function FormField(props: FormFieldProps): JSX.Element {
     return ids.length > 0 ? ids.join(' ') : undefined;
   };
   return (
-    <div class={css.field}>
+    <div class={css.field} data-form-field>
       <label class={css.fieldLabel} for={id}>
         {props.label}
         <Show when={props.technical}>

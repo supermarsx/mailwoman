@@ -7,7 +7,8 @@
 // the outline ring, headings heavy, field labels small tracked capitals, and a
 // selected option is filled with the accent (plus `aria-pressed` and weight).
 
-import { style } from '@vanilla-extract/css';
+import { style, globalStyle } from '@vanilla-extract/css';
+import { registerFieldLayout, registerFieldGrid } from '../../styles/formLayout.css.ts';
 import { vars } from '../../theme/contract.css.ts';
 
 /** The outline ring (forced colours keep it; they drop a box-shadow ring). */
@@ -284,3 +285,7 @@ export const previewFrame = style({
   flexDirection: 'column',
   gap: vars.space[2],
 });
+
+registerFieldLayout(field);
+registerFieldGrid(`${section}:has(> ${field})`, field);
+globalStyle(`${section} > button`, { alignSelf: 'flex-start', maxInlineSize: '100%' });

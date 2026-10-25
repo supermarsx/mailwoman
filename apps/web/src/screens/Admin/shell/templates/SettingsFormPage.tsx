@@ -512,7 +512,7 @@ function SettingFieldView(props: FieldViewProps): JSX.Element {
   };
 
   return (
-    <div class={ux.fieldBlock} {...fieldAnchorAttrs(f().id)} data-testid={`setting-${f().id}`}>
+    <div class={ux.fieldBlock} data-form-field data-field-span={f().kind === 'textarea' || f().render ? 'full' : undefined} {...fieldAnchorAttrs(f().id)} data-testid={`setting-${f().id}`}>
       <Show
         when={f().kind === 'boolean' && !f().render}
         fallback={

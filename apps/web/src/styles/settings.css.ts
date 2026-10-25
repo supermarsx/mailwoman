@@ -6,7 +6,7 @@
 // an accent rule and a 4px inset accent bar. Options keep a 1px rule, so the
 // theme gallery cards (built on `option`) stay the same size.
 
-import { style } from '@vanilla-extract/css';
+import { style, globalStyle } from '@vanilla-extract/css';
 import { vars } from '../theme/contract.css.ts';
 
 /** The outline ring (forced colours keep it; they drop a box-shadow ring). */
@@ -121,3 +121,6 @@ export const select = style({
 // attribute, which the shell CSP (`style-src 'self'`) drops.
 /** Small dim explanatory line under a setting. */
 export const hint = style({ margin: 0, fontSize: '0.78rem', color: vars.color.textDim });
+
+// Compact choices stay intrinsic; galleries and text editors retain their width.
+globalStyle(`${row} > select, ${row} > button`, { alignSelf: 'flex-start', maxInlineSize: '100%' });

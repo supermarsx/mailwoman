@@ -10,6 +10,7 @@
 // in the system `Highlight` colour.
 
 import { globalStyle, style, styleVariants } from '@vanilla-extract/css';
+import { registerFieldLayout, registerFieldGrid } from '../../../styles/formLayout.css.ts';
 import { vars } from '../../../theme/contract.css.ts';
 import { ACCENT_LIST, THEME_LIST, accentShade } from '../../../theme/registry.ts';
 import type { ThemeName } from '../../../theme/contract.css.ts';
@@ -435,3 +436,6 @@ export const headPush = style({ marginInlineStart: 'auto', '@media': { [PHONE]: 
 export const appearanceButton = style({
   selectors: { '&:focus-visible': focusRing },
 });
+
+registerFieldLayout(fieldBlock);
+registerFieldGrid(fieldset);

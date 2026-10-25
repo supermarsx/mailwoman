@@ -9,6 +9,7 @@
 // bar with a menu button that opens the navigation as a drawer.
 
 import { style, styleVariants, globalStyle, keyframes } from '@vanilla-extract/css';
+import { registerFieldLayout } from '../../../styles/formLayout.css.ts';
 import { vars } from '../../../theme/contract.css.ts';
 
 const PHONE = 'screen and (max-width: 760px)';
@@ -558,3 +559,5 @@ export const busy = style({
   animation: `${spin} 800ms linear infinite`,
   '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none' } },
 });
+
+registerFieldLayout(field);

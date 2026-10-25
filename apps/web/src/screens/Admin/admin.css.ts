@@ -12,6 +12,7 @@
 // Logical properties throughout, so the layout mirrors under `dir=rtl`.
 
 import { style, globalStyle } from '@vanilla-extract/css';
+import { registerFieldLayout, registerFieldGrid } from '../../styles/formLayout.css.ts';
 import { vars } from '../../theme/contract.css.ts';
 
 /** Small-label treatment (P5): tracked capitals, off for scripts it breaks. */
@@ -68,7 +69,8 @@ export const listRow = style({
 
 export const grid = style({
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+  alignItems: 'start',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))',
   gap: vars.space[3],
 });
 
@@ -239,3 +241,11 @@ export const confirmActions = style({ display: 'flex', gap: vars.space[3], justi
 export const headingRow = style({ display: 'flex', justifyContent: 'space-between', alignItems: 'center' });
 /** A sub-heading inside a card. */
 export const subHeading = style({ fontSize: '1rem' });
+
+// Legacy admin cards and the typed form seam share the same field geometry.
+registerFieldLayout('[data-screen="admin"] .field');
+registerFieldGrid(`${card}:has(> .field)`);
+registerFieldGrid(`${card}:has(> [data-form-field])`);
+globalStyle(`${card} > button, ${section} > button`, { alignSelf: 'flex-start', maxInlineSize: '100%' });
+
+globalStyle(`${grid} > button`, { justifySelf: 'start', alignSelf: 'start', maxInlineSize: '100%' });
