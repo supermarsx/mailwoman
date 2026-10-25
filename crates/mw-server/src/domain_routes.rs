@@ -217,13 +217,23 @@ async fn read(
 }
 async fn list(State(state): State<AppState>, ctx: AdminCtx) -> Result<Response, AdminApiError> {
     let scope = ctx.domain_filter(C::DomainsRead);
+    let mut aliases = std::collections::BTreeMap::<String, Vec<String>>::new();
+    for (domain, alias) in state.store.list_domain_aliases().await? {
+        if scope.is_none_or(|domains| domains.contains(&domain)) {
+            aliases.entry(domain).or_default().push(alias);
+        }
+    }
     let rows: Vec<Value> = state
         .store
         .list_domain_configs()
         .await?
         .iter()
         .filter(|row| scope.is_none_or(|domains| domains.contains(&row.name)))
-        .map(dto)
+        .map(|row| {
+            let mut value = dto(row);
+            value["aliases"] = json!(aliases.remove(&row.name).unwrap_or_default());
+            value
+        })
         .collect();
     let etag = etag_of(&json!(rows));
     Ok(with_etag(Json(rows), &etag))

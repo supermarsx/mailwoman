@@ -12,8 +12,16 @@ test('domain list actions open exclusive editors and clone without enabling mail
   const body = { enabled: false, upstream: { version: 2, backends: [] }, allowlist: [], blocklist: [] };
   expect((await page.request.put(`/admin/domains/${name}`, { data: body })).ok()).toBe(true);
   try {
+    const detail = await (await page.request.get(`/admin/domains/${name}`)).json();
+    const alias = `alias-${name}`;
+    expect((await page.request.put(`/admin/domains/${name}/aliases/${alias}`, { headers: { 'if-match': detail.mappingEtag } })).ok()).toBe(true);
     await page.goto('/admin#/domains');
-    const row = page.getByRole('button', { name, exact: true }).locator('..');
+    await expect(page.getByRole('table', { name: 'Domains' })).toBeVisible();
+    await page.getByRole('searchbox', { name: 'Find a domain' }).fill(alias);
+    const row = page.getByRole('row').filter({ has: page.getByRole('button', { name, exact: true }) });
+    await expect(row.getByText(alias, { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath('domain-table-aliases.png'), fullPage: true });
     await expect(row.getByRole('button', { name: 'Enable domain', exact: true })).toBeVisible();
     await expect(row.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
     await row.getByRole('link', { name: 'Clone', exact: true }).click();

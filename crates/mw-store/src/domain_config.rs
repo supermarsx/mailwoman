@@ -298,6 +298,13 @@ impl Store {
             .fetch_all(&self.backend).await?.iter().map(domain).collect())
     }
 
+    /// Batch alias projection for domain lists, avoiding a query per domain.
+    pub async fn list_domain_aliases(&self) -> Result<Vec<(String, String)>, StoreError> {
+        Ok(q("SELECT domain, alias FROM domain_alias ORDER BY domain, alias")
+            .fetch_all(&self.backend).await?.iter()
+            .map(|row| (row.get_string("domain"), row.get_string("alias"))).collect())
+    }
+
     /// Preference is managed separately, so an ordinary edit cannot accidentally
     /// clear the preferred domain or collide with its unique index.
     pub async fn put_domain_config(&self, row: &DomainConfigRow) -> Result<(), StoreError> {

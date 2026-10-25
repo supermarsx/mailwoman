@@ -9,7 +9,8 @@ import { AdminProblemError } from '../shell/adminApi.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import * as css from '../admin.css.ts';
 import * as ux from '../shell/ux.css.ts';
-import * as pages from './pages.css.ts';
+import { DataTable } from '../shell/DataTable.tsx';
+import { GuidedDomain } from './GuidedDomain.tsx';
 import { BackendEditor } from './BackendEditor.tsx';
 import { BackendList } from './BackendList.tsx';
 import { TransportFields } from './TransportFields.tsx';
@@ -50,6 +51,8 @@ export function Domains(props: { service?: DomainsApi }): JSX.Element {
   const [capabilities, setCapabilities] = createSignal<string[]>([]);
   const [name, setName] = createSignal('');
   const [creating, setCreating] = createSignal(false);
+  const [filter, setFilter] = createSignal('');
+  const guided = () => creating() && shell.router.route().rest[1] === 'guided';
   const [upstream, setUpstream] = createSignal<DomainUpstream>({});
   const [allow, setAllow] = createSignal('');
   const [block, setBlock] = createSignal('');
@@ -82,7 +85,7 @@ export function Domains(props: { service?: DomainsApi }): JSX.Element {
     return result;
   };
   const dirty = () => Object.keys(change()).length > 0;
-  useDirtyGuard(dirty);
+  useDirtyGuard(() => dirty() || (creating() && !guided() && name().trim().length > 0));
   createEffect(on(() => [ready(), shell.router.route().rest[0]] as const, ([loaded, target]) => { if (!loaded) return; if (!target) { setSelected(undefined); setCreating(false); return; } if (target === 'new') { setCreating(true); setSelected(undefined); setName(''); return; } if (selected()?.name === target) return; if (rows().some(row => row.name === target)) void run(() => load(target)); else setName(target); }));
   function populate(d: DomainDetail): void { setCreating(false); setSelected(d); setUpstream(structuredClone(d.upstream ?? {})); setAllow((d.allowlist ?? []).join('\n')); setBlock((d.blocklist ?? []).join('\n')); setDiscovery(typeof d.settings.discovery === 'string' ? d.settings.discovery : 'off'); setPreview(undefined); setProposal(undefined); setProbe(undefined); setDns(undefined); setAlias(''); setHost(''); }
   function summary(key: string, value: ManagedDomain | null): string {
@@ -131,12 +134,26 @@ export function Domains(props: { service?: DomainsApi }): JSX.Element {
     <Show when={ready()}>
       <p class={css.note}>{t('domain-editor-intro')}</p>
       <Show when={status()?.blockedAccounts.total}><section class={css.card} aria-label={t('domain-editor-blocked-title')}><h3>{t('domain-editor-blocked-title')}</h3><p>{t('domain-editor-blocked-count', { count: status()!.blockedAccounts.total })}</p><For each={status()!.blockedAccounts.byDomain}>{row => <div class={css.listRow}><div><strong>{row.domain}</strong><p>{t('domain-editor-blocked-domain-count', { count: row.accounts })}</p><Show when={row.seenHost}><p>{t('domain-editor-import-host', { host: row.seenHost! })}</p></Show></div><Show when={canWrite()}><a class="btn" href={hrefFor(sectionPath('domains', [row.domain]))} onClick={e => { e.preventDefault(); void shell.router.navigate(sectionPath('domains', [row.domain])); }}>{t('domain-editor-configure', { name: row.domain })}</a></Show></div>}</For></section></Show>
-      <Show when={!selected() && !creating()}><Show when={canWrite()}><button type="button" class="btn btn--primary" onClick={() => { setCreating(true); setName(''); void shell.router.navigate(sectionPath('domains', ['new'])); }}>{t('admin-domains-add')}</button></Show>
-
-      <div class={css.card}><Show when={rows().length} fallback={<p>{t('admin-domains-empty')}</p>}><For each={rows()}>{d => <div class={`${css.listRow} ${pages.listRow}`}><button class="btn btn--ghost" disabled={busy()} aria-pressed={selected()?.name === d.name} onClick={() => select(d.name)}>{d.name}</button><span>{d.enabled ? t('domain-editor-enabled') : t('domain-editor-disabled')}{d.preferred ? ` · ${t('domain-editor-preferred')}` : ''}</span><div class={ux.pageActions}><Show when={canWrite()}><button type="button" class={`btn btn--ghost ${ux.iconAction}`} title={d.enabled ? t('domain-editor-disable') : t('domain-editor-enable')} aria-label={d.enabled ? t('domain-editor-disable') : t('domain-editor-enable')} disabled={busy()} onClick={() => void listMutation(d, 'toggle')}><Icon name={d.enabled ? 'disable' : 'enable'} /></button><a class={`btn btn--ghost ${ux.iconAction}`} title={t('domain-list-edit')} aria-label={t('domain-list-edit')} href={hrefFor(sectionPath('domains', [d.name, 'connections']))} onClick={e => { e.preventDefault(); void shell.router.navigate(sectionPath('domains', [d.name, 'connections'])); }}><Icon name="edit" /></a></Show><Show when={canUpstream() && canPolicy()}><a class={`btn btn--ghost ${ux.iconAction}`} title={t('domain-list-clone')} aria-label={t('domain-list-clone')} href={hrefFor(sectionPath('domains', [d.name, 'clone']))} onClick={e => { e.preventDefault(); setCloneName(''); void shell.router.navigate(sectionPath('domains', [d.name, 'clone'])); }}><Icon name="clone" /></a></Show><Show when={can('domains.delete')}><button type="button" class={`btn btn--ghost ${ux.iconAction}`} title={t('admin-delete')} aria-label={t('admin-delete')} disabled={busy()} onClick={() => void listMutation(d, 'delete')}><Icon name="delete" /></button></Show></div></div>}</For></Show></div>
+      <Show when={!selected() && !creating()}>
+        <Show when={canWrite()}><div class={ux.pageActions}>
+          <button type="button" class="btn btn--primary" onClick={() => void shell.router.navigate(sectionPath('domains', ['new']))}><Icon name="plus" /> {t('domain-list-quick-add')}</button>
+          <button type="button" class="btn" onClick={() => void shell.router.navigate(sectionPath('domains', ['new', 'guided']))}><Icon name="settings" /> {t('domain-list-guided-add')}</button>
+        </div></Show>
+        <DataTable caption={t('admin-domains-title')} rows={rows().filter(row => [row.name, ...(row.aliases ?? [])].some(value => value.toLowerCase().includes(filter().trim().toLowerCase())))} rowKey={row => row.name}
+          state={!ready() ? 'loading' : 'ready'} emptyText={filter() ? t('domain-list-no-match') : t('admin-domains-empty')}
+          search={{ label: t('domain-list-search'), value: filter(), onSearch: setFilter }}
+          columns={[
+            { id: 'domain', header: t('admin-domains-name'), cell: d => <button class="btn btn--ghost" disabled={busy()} onClick={() => select(d.name)}>{d.name}</button> },
+            { id: 'aliases', header: t('domain-editor-aliases'), cell: d => <Show when={d.aliases?.length} fallback={<span>{t('domain-editor-none')}</span>}><ul><For each={d.aliases}>{alias => <li>{alias}</li>}</For></ul></Show> },
+            { id: 'status', header: t('domain-list-status'), cell: d => <span>{d.enabled ? t('domain-editor-enabled') : t('domain-editor-disabled')}{d.preferred ? ` · ${t('domain-editor-preferred')}` : ''}</span> },
+            { id: 'connections', header: t('domain-list-connections'), cell: d => <span>{summary('upstream', d)}</span> },
+          ]}
+          rowActionsHeader={t('domain-list-actions')} rowActions={d => <div class={ux.pageActions}><Show when={canWrite()}><button type="button" class={`btn btn--ghost ${ux.iconAction}`} title={d.enabled ? t('domain-editor-disable') : t('domain-editor-enable')} aria-label={d.enabled ? t('domain-editor-disable') : t('domain-editor-enable')} disabled={busy()} onClick={() => void listMutation(d, 'toggle')}><Icon name={d.enabled ? 'disable' : 'enable'} /></button><a class={`btn btn--ghost ${ux.iconAction}`} title={t('domain-list-edit')} aria-label={t('domain-list-edit')} href={hrefFor(sectionPath('domains', [d.name, 'connections']))} onClick={e => { e.preventDefault(); void shell.router.navigate(sectionPath('domains', [d.name, 'connections'])); }}><Icon name="edit" /></a></Show><Show when={canUpstream() && canPolicy()}><a class={`btn btn--ghost ${ux.iconAction}`} title={t('domain-list-clone')} aria-label={t('domain-list-clone')} href={hrefFor(sectionPath('domains', [d.name, 'clone']))} onClick={e => { e.preventDefault(); setCloneName(''); void shell.router.navigate(sectionPath('domains', [d.name, 'clone'])); }}><Icon name="clone" /></a></Show><Show when={can('domains.delete')}><button type="button" class={`btn btn--ghost ${ux.iconAction}`} title={t('admin-delete')} aria-label={t('admin-delete')} disabled={busy()} onClick={() => void listMutation(d, 'delete')}><Icon name="delete" /></button></Show></div>}
+        />
       </Show>
       <Show when={selected() || creating()}><button type="button" class="btn" onClick={() => { void shell.router.navigate(sectionPath('domains')).then(ok => { if (ok) { setSelected(undefined); setCreating(false); setName(''); } }); }}>{t('domain-editor-back-list')}</button></Show>
-      <Show when={creating() && canWrite()}><form class={css.card} aria-label={t('admin-domains-add')} onSubmit={e => void create(e)}><label class="field"><span>{t('admin-domains-name')}</span><input required placeholder="example.com" value={name()} disabled={busy()} onInput={e => setName(e.currentTarget.value)} /></label><button class="btn btn--primary" disabled={busy()}>{t('domain-editor-create')}</button></form></Show>
+      <Show when={creating() && canWrite() && !guided()}><form class={css.card} aria-label={t('admin-domains-add')} onSubmit={e => void create(e)}><label class="field"><span>{t('admin-domains-name')}</span><input required placeholder="example.com" value={name()} disabled={busy()} onInput={e => setName(e.currentTarget.value)} /></label><button class="btn btn--primary" disabled={busy()}>{t('domain-editor-create')}</button></form></Show>
+      <Show when={guided() && canWrite()}><GuidedDomain api={api} status={status()} canUpstream={canUpstream()} onCancel={() => void shell.router.navigate(sectionPath('domains'))} onCreated={async value => { setRows(await api.list()); await load(value); await shell.router.navigate(sectionPath('domains', [value, 'connections'])); }} /></Show>
       <Show when={selected()}>{d => <>
         <h3>{d().name}</h3><p>{t('domain-editor-mode', { mode: d().mode })}</p>
         <nav class={css.grid} aria-label={t('domain-editor-pages')}>

@@ -102,3 +102,11 @@ domain-editor-overview-help = Open a configuration page to change connections, a
 domain-list-edit = Edit
 domain-list-clone = Clone
 domain-clone-help = Copy connections, discovery settings and sign-in rules to a new disabled domain. Domain aliases, login hostnames and the preferred-domain assignment remain with the original. Review the new domain before enabling it.
+
+domain-list-quick-add = Quick add
+domain-list-guided-add = Guided add
+domain-list-search = Find a domain
+domain-list-no-match = No domains match this search.
+domain-list-status = Status
+domain-list-connections = Connections
+domain-list-actions = Actions

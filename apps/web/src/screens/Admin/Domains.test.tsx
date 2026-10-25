@@ -25,6 +25,21 @@ async function page(name: string) { fireEvent.click(screen.getByRole('link', { n
 async function open(api: DomainsApi) { const result = renderDomains(api); fireEvent.click(await screen.findByRole('button', { name: domain.name })); await screen.findByRole('link', { name: 'Connections and discovery' }); await page('Connections and discovery'); await screen.findByRole('textbox', { name: 'IMAP Host' }); await waitFor(() => expect(screen.getByRole('button', { name: 'Reload server version' })).toBeEnabled()); return result; }
 
 describe('Admin Domains editor', () => {
+  it('shows aliases in a searchable domain table and keeps actions within their row', async () => {
+    const api = service({ list: vi.fn(async () => [{ ...domain, aliases: ['brand.example.net'] }]) });
+    renderDomains(api);
+    const table = await screen.findByRole('table', { name: 'Domains' });
+    expect(within(table).getByRole('columnheader', { name: 'Domain aliases' })).toBeVisible();
+    expect(within(table).getByText('brand.example.net')).toBeVisible();
+    const row = within(table).getByRole('button', { name: domain.name }).closest('tr')!;
+    expect(within(row).getByRole('link', { name: 'Edit' })).toBeVisible();
+    const search = screen.getByRole('searchbox', { name: 'Find a domain' });
+    fireEvent.input(search, { target: { value: 'BRAND.EXAMPLE' } });
+    await waitFor(() => expect(within(table).getByRole('button', { name: domain.name })).toBeVisible());
+    fireEvent.input(search, { target: { value: 'missing.test' } });
+    await screen.findByText('No domains match this search.');
+    expect(screen.queryByRole('button', { name: domain.name })).toBeNull();
+  });
   it('previews a structured upstream change and applies it with the read ETag', async () => {
     const api = service(); await open(api);
     fireEvent.input(screen.getByRole('textbox', { name: 'IMAP Host' }), { target: { value: 'new.example.com' } });
@@ -88,7 +103,7 @@ describe('Admin Domains editor', () => {
   });
   it('creates a named domain before loading its server-owned mode', async () => {
     const api = service(); renderDomains(api);
-    fireEvent.click(await screen.findByRole('button', { name: 'Add domain' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Quick add' }));
     const form = await screen.findByRole('form', { name: 'Add domain' });
     fireEvent.input(within(form).getByRole('textbox'), { target: { value: ' new.example ' } });
     fireEvent.submit(form);

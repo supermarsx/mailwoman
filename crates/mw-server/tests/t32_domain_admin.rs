@@ -129,6 +129,8 @@ async fn domain_editor_validates_previews_versions_and_protects_preference() {
     );
     let detail: Value = c.get(&path).send().await.unwrap().json().await.unwrap();
     assert_eq!(detail["aliases"], json!(["alias.test"]));
+    let listed: Value = c.get(format!("{base}/admin/domains")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(listed[0]["aliases"], json!(["alias.test"]));
     assert_eq!(
         c.delete(format!("{path}?force=true"))
             .send()
