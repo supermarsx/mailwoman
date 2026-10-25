@@ -108,7 +108,7 @@ PASSED=false
 CONTAINERS=()
 NETWORKS=()
 
-run() { bash "$ROOT/deploy.sh" "$@" --state-dir "$STATE" >> "$STATE/deploy.log" 2>&1; }
+run() { bash "$ROOT/deploy.sh" --no-pull "$@" --state-dir "$STATE" >> "$STATE/deploy.log" 2>&1; }
 dc() { docker compose --project-name "$PROJECT" --env-file /dev/null -f "$STATE/active/compose.yaml" "$@"; }
 inspect() { docker inspect --format "$1" "$APP"; }
 cleanup() {

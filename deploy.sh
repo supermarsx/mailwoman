@@ -6,6 +6,8 @@ set -Eeuo pipefail
 umask 077
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+ORIGINAL_ARGS=("$@")
+GIT_PULL=true
 STATE="$ROOT/.deploy.local"
 ACTION=deploy
 ACTION_SET=false
@@ -114,6 +116,7 @@ Options:
                     Refuse an --image whose signature cannot be checked (no
                     cosign, or used from the local image store without --pull)
   --no-build        Reuse the last applied app image (configuration-only deploy)
+  --no-pull         Deploy the current checkout without updating Git
   --no-auto-rollback
                     Leave a failed update in place instead of restoring the
                     previous release and its data automatically
@@ -176,6 +179,7 @@ while (($#)); do
         --pull) PULL=true ;;
         --require-signature) REQUIRE_SIGNATURE=true ;;
         --no-build) NO_BUILD=true ;;
+        --no-pull) GIT_PULL=false ;;
         --no-auto-rollback) AUTO_ROLLBACK=false ;;
         --replaced) PRUNE_REPLACED=true ;;
         --yes) ASSUME_YES=true ;;
@@ -202,6 +206,50 @@ if $INIT_OPTIONS && [[ $ACTION != init && $ACTION != deploy ]]; then die "Setup 
 if { $PRUNE_REPLACED || $ASSUME_YES; } && [[ $ACTION != prune ]]; then die "--replaced and --yes apply only to prune"; fi
 if $ASSUME_YES && ! $PRUNE_REPLACED; then die "--yes confirms --replaced; give both"; fi
 if [[ -n $IDENTITY && $ACTION != restore ]]; then die "--identity applies only to restore"; fi
+
+# Update before reading configuration, creating state or touching containers.
+# Keep this in a function: Bash has parsed its whole body before pull can replace
+# this script. Re-exec the updated script with exactly the original arguments.
+update_checkout() {
+    [[ $ACTION == deploy ]] || return 0
+    if ! $GIT_PULL; then
+        log "--no-pull: deploying the current checkout"
+        return 0
+    fi
+    if $DRY_RUN; then
+        log "Would update the current branch from its Git upstream (git pull --ff-only); no Git changes made"
+        return 0
+    fi
+    need git
+    git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+        die "Deployment needs a Git checkout; use --no-pull for a source archive"
+    local before upstream status
+    before=$(git -C "$ROOT" rev-parse HEAD) || die "Cannot read Git HEAD"
+    if [[ ${MW_DEPLOY_GIT_SYNCED:-} == "$before" ]]; then
+        unset MW_DEPLOY_GIT_SYNCED
+        return 0
+    fi
+    git -C "$ROOT" symbolic-ref -q HEAD >/dev/null ||
+        die "Detached Git HEAD; check out a tracking branch or use --no-pull"
+    upstream=$(git -C "$ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}') ||
+        die "This branch has no upstream; configure it or use --no-pull"
+    # Compare content, not cached stat metadata; ignore unrelated untracked files.
+    # Git itself refuses an untracked file that an incoming commit would overwrite.
+    status=0
+    git -c core.safecrlf=false -C "$ROOT" diff --quiet || status=$?
+    [[ $status == 0 ]] || die "Tracked working-tree changes or Git read failure; commit your work or use --no-pull"
+    status=0
+    git -c core.safecrlf=false -C "$ROOT" diff --cached --quiet || status=$?
+    [[ $status == 0 ]] || die "Staged changes or Git read failure; commit your work or use --no-pull"
+    log "Updating from $upstream (currently $before)"
+    git -C "$ROOT" -c rebase.autoStash=false -c merge.autoStash=false pull --ff-only ||
+        die "Git update failed; nothing was built or restarted. Reconcile the checkout or use --no-pull"
+    export MW_DEPLOY_GIT_SYNCED
+    MW_DEPLOY_GIT_SYNCED=$(git -C "$ROOT" rev-parse HEAD) || die "Cannot read updated Git HEAD"
+    log "Deploying Git revision $MW_DEPLOY_GIT_SYNCED"
+    exec bash "$ROOT/deploy.sh" "${ORIGINAL_ARGS[@]}"
+}
+update_checkout
 
 read_config() {
     local file=$1 line key value seen='|'

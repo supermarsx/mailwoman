@@ -58,7 +58,7 @@ GNUPG_PUBLIC=
 ENCRYPTION='encrypted backups SKIPPED'
 PASSED=false
 
-run() { bash "$DEPLOY" "$@" --state-dir "$STATE"; }
+run() { bash "$DEPLOY" --no-pull "$@" --state-dir "$STATE"; }
 dc() { docker compose --project-name "$PROJECT" --env-file /dev/null -f "$STATE/active/compose.yaml" "$@"; }
 reject() { if run "$@" > "$STATE/rejected.log" 2>&1; then fail "unexpected success: $*"; fi; }
 port_in_use() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
@@ -194,7 +194,7 @@ fi
 exec "$REAL_DOCKER" "$@"
 WRAPPER
 chmod +x "$ACME_STATE/bin/docker"
-acme() { PATH="$ACME_STATE/bin:$PATH" bash "$DEPLOY" "$@" --state-dir "$ACME_STATE"; }
+acme() { PATH="$ACME_STATE/bin:$PATH" bash "$DEPLOY" --no-pull "$@" --state-dir "$ACME_STATE"; }
 acme_reject() {
     local expected=$1
     shift
@@ -275,7 +275,7 @@ set_in "$PICK_STATE/deploy.env" CPU_LIMIT=2
 # A deploy without --image builds the Dockerfile's runtime-static target, the one
 # CI scans, signs and publishes. The docker wrapper records the build and fails it,
 # so nothing is built here and the deploy stops before creating anything.
-if PATH="$ACME_STATE/bin:$PATH" bash "$DEPLOY" deploy --state-dir "$PICK_STATE" > "$ACME_STATE/build.log" 2>&1; then fail 'a deploy whose image build failed succeeded'; fi
+if PATH="$ACME_STATE/bin:$PATH" bash "$DEPLOY" deploy --no-pull --state-dir "$PICK_STATE" > "$ACME_STATE/build.log" 2>&1; then fail 'a deploy whose image build failed succeeded'; fi
 [[ $(tr '\n' ' ' < "$DEPLOY_TEST_BUILD_ARGS") == "build --target runtime-static "* ]] || fail "deploy built: $(tr '\n' ' ' < "$DEPLOY_TEST_BUILD_ARGS")"
 [[ -z $(docker volume ls -q --filter "label=mailwoman.deploy.project=$PROJECT-pick") ]] || fail 'a deploy whose build failed created a volume'
 printf 'build: %s\n' "$(tr '\n' ' ' < "$DEPLOY_TEST_BUILD_ARGS" | cut -d' ' -f1-3)"
@@ -871,7 +871,7 @@ rm -- "$STATE/deploy.env.saved"
 # A second installation on a dedicated proxy network publishes no host port,
 # answers a peer on that network by project name, and trusts that network's
 # peers for forwarded headers. Its public URL is unroutable here by design.
-net() { bash "$DEPLOY" "$@" --project "$NET_PROJECT" --public-url https://mail.example.test --proxy-network "$NETWORK" --timeout 10 --state-dir "$NET_STATE"; }
+net() { bash "$DEPLOY" --no-pull "$@" --project "$NET_PROJECT" --public-url https://mail.example.test --proxy-network "$NETWORK" --timeout 10 --state-dir "$NET_STATE"; }
 net deploy --image "$IMAGE"
 NET_CID=$(docker ps -q --filter "label=com.docker.compose.project=$NET_PROJECT")
 [[ -n $NET_CID && -z $(docker port "$NET_CID") ]] || fail 'proxy-network install published a host port'

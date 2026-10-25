@@ -7,14 +7,14 @@ Users connect their existing JMAP accounts, or IMAP/POP3 + SMTP in engine mode.
 
 ## First deployment
 
-On the deployment host, install **Bash 4+**, **Docker with Linux containers and
+On the deployment host, install **Git**, **Bash 4+**, **Docker with Linux containers and
 Compose 2.30+**, `curl`, `tar`, and coreutils (`sha256sum`, `od`, `cmp`, etc.).
 Run as a user who can access the Docker daemon. Host Rust, Node and pnpm are not
 required: the repository's Dockerfile builds the web app and binaries. Use the
 same local Docker daemon for every operation; remote Docker contexts are not
 supported by the localhost exposure and verification steps.
 
-Clone/check out the version you intend to deploy, then run from the repository:
+Clone the repository and check out the branch you intend to deploy, then run:
 
 ```sh
 # Automatic HTTPS: first point this hostname's A/AAAA records at this host.
@@ -187,8 +187,9 @@ bash deploy.sh stop                  # keeps containers and all data
 bash deploy.sh start
 bash deploy.sh restart
 
-# After checking out the desired source revision:
-bash deploy.sh deploy                # build before stopping the old app
+# Update the current branch from its configured Git upstream:
+bash deploy.sh deploy                # fast-forward, then build before stopping the old app
+bash deploy.sh deploy --no-pull      # deploy exactly the current checkout
 bash deploy.sh deploy --no-build     # apply configuration, reuse the app image
 
 # Or supply an image containing the same runtime binaries/plugins:
@@ -199,6 +200,15 @@ bash deploy.sh deploy --image ghcr.io/supermarsx/mailwoman:master --pull --requi
 # --image ghcr.io/supermarsx/mailwoman:master --pull:
 bash deploy.sh deploy --image-tag master --require-signature
 ```
+
+`deploy` runs `git pull --ff-only` before reading deployment configuration or
+touching containers, then restarts the script from the updated checkout with the
+same arguments. It refuses tracked local edits, detached HEAD, a missing upstream,
+divergence, or a failed fetch. It never stashes, resets, cleans, or merges your work.
+Unrelated untracked files are retained; Git refuses incoming path collisions.
+Use `--no-pull` for an intentional local revision, a source archive, or an offline
+deployment. `--dry-run` only describes the Git update. Other commands do not pull.
+The existing `--pull` option fetches a **container image**, independently of Git.
 
 `--image-tag TAG` takes the repository from `IMAGE_REPOSITORY` in `deploy.env`
 (a repository without tag or digest), so an update script or a host update agent
