@@ -126,9 +126,13 @@ globalStyle(`${table} tbody tr:hover`, {
   background: vars.color.bgAlt,
 });
 
+// `position: relative` makes the wrapper the containing block of the visually hidden
+// (absolutely placed) text in the cells, so that text scrolls with the table instead
+// of widening the page on a phone (an Open link's hidden row name did, by 100 px).
 export const tableWrap = style({
   overflowX: 'auto',
   width: '100%',
+  position: 'relative',
 });
 
 export const note = style({

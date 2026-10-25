@@ -155,7 +155,8 @@ export function AdminUiPlugins(props: AdminUiPluginsProps): JSX.Element {
           onRegistered={async (pid, unsigned) => {
             await refetch();
             setNotice(unsigned ? t('plugins-admin-ui-registered-unsigned', { id: isolate(pid) }) : t('plugins-admin-ui-registered', { id: isolate(pid) }));
-            navigate(sectionPath(SECTION, [pid]));
+            // After the form has settled (no longer dirty), so leaving it does not ask.
+            setTimeout(() => navigate(sectionPath(SECTION, [pid])), 0);
           }}
         />
       );

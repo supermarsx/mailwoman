@@ -146,7 +146,8 @@ export function AdminPlugins(props: AdminPluginsProps): JSX.Element {
           labelledBy={`${SECTION}-detail-title`}
           onRegistered={(pid) => {
             setNotice(t('plugins-admin-registered-done', { id: isolate(pid) }));
-            navigate(sectionPath(SECTION, [pid]));
+            // After the form has settled (no longer dirty), so leaving it does not ask.
+            setTimeout(() => navigate(sectionPath(SECTION, [pid])), 0);
           }}
         />
       );

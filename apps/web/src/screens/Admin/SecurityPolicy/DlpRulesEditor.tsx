@@ -221,7 +221,13 @@ function RuleEditor(props: RuleEditorProps): JSX.Element {
             {t('admin-policy-dlp-action')}
           </label>
           <select id={`${id}-action`} class={ux.control} value={r().action} disabled={props.disabled} onChange={(e) => props.onChange({ action: e.currentTarget.value as DlpAction })}>
-            <For each={DLP_ACTIONS}>{(a) => <option value={a}>{t(`admin-policy-dlp-action-${a}`)}</option>}</For>
+            <For each={DLP_ACTIONS}>
+              {(a) => (
+                <option value={a} selected={a === r().action}>
+                  {t(`admin-policy-dlp-action-${a}`)}
+                </option>
+              )}
+            </For>
           </select>
         </div>
         <div class={shell.field}>

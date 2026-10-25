@@ -93,7 +93,13 @@ export function ServerMetadata(props: ServerMetadataProps): JSX.Element {
             onChange={(e) => setAccountId(e.currentTarget.value === '' ? null : e.currentTarget.value)}
           >
             <option value="">{t('admin-servermeta-select-option')}</option>
-            <For each={list()}>{(u) => <option value={u.accountId}>{`${u.username}@${u.domain}`}</option>}</For>
+            <For each={list()}>
+              {(u) => (
+                <option value={u.accountId} selected={u.accountId === accountId()}>
+                  {`${u.username}@${u.domain}`}
+                </option>
+              )}
+            </For>
           </select>
           <HelpNote id={`${id}-account-help`}>
             <>

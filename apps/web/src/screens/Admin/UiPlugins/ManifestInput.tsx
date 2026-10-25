@@ -144,7 +144,7 @@ export function ManifestInput(props: ManifestInputProps): JSX.Element {
         <div class={css.listAdd}>
           <input
             id={`${own}-address`}
-            class={css.listInput}
+            class={`${ux.control} ${css.listInput}`}
             type="url"
             spellcheck={false}
             value={address()}

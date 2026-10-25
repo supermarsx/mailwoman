@@ -472,7 +472,15 @@ function SettingFieldView(props: FieldViewProps): JSX.Element {
       case 'select':
         return (
           <select {...common()} value={text()} onChange={(e) => props.onInput(e.currentTarget.value)}>
-            <For each={field.options ?? []}>{(o) => <option value={o.value}>{o.label}</option>}</For>
+            {/* `selected` per option: the select's own value is set before the options
+                exist, so a browser would otherwise show the first option. */}
+            <For each={field.options ?? []}>
+              {(o) => (
+                <option value={o.value} selected={o.value === text()}>
+                  {o.label}
+                </option>
+              )}
+            </For>
           </select>
         );
       case 'textarea':

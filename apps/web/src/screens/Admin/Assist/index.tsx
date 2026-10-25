@@ -350,7 +350,9 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
           render: (ctx) => (
             <select id={ctx.id} class={ux.control} aria-describedby={ctx.describedBy} aria-invalid={ctx.invalid ? true : undefined} value={text(ctx.value)} onChange={(e) => ctx.setValue(e.currentTarget.value)}>
               {programOptions(ctx.values).map((o) => (
-                <option value={o.value}>{o.label}</option>
+                <option value={o.value} selected={o.value === text(ctx.value)}>
+                  {o.label}
+                </option>
               ))}
             </select>
           ),
@@ -567,11 +569,20 @@ function KindSelect(props: { ctx: FieldRenderContext; local: boolean }): JSX.Ele
   const ctx = props.ctx;
   return (
     <select id={ctx.id} class={ux.control} aria-describedby={ctx.describedBy} value={text(ctx.value)} onChange={(e) => ctx.setValue(e.currentTarget.value)}>
-      <option value="none">{t('assist-admin-kind-none')}</option>
-      <option value="open-ai-compatible">{t('assist-admin-kind-open-ai-compatible')}</option>
-      <option value="anthropic">{t('assist-admin-kind-anthropic')}</option>
+      {/* `selected` per option: a conditional option is added after the select's value is set. */}
+      <option value="none" selected={ctx.value === 'none'}>
+        {t('assist-admin-kind-none')}
+      </option>
+      <option value="open-ai-compatible" selected={ctx.value === 'open-ai-compatible'}>
+        {t('assist-admin-kind-open-ai-compatible')}
+      </option>
+      <option value="anthropic" selected={ctx.value === 'anthropic'}>
+        {t('assist-admin-kind-anthropic')}
+      </option>
       <Show when={props.local || ctx.value === 'local-process'}>
-        <option value="local-process">{t('assist-admin-kind-local-process')}</option>
+        <option value="local-process" selected={ctx.value === 'local-process'}>
+          {t('assist-admin-kind-local-process')}
+        </option>
       </Show>
     </select>
   );

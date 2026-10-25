@@ -123,7 +123,20 @@ export const fieldMeta = style({
   fontSize: '0.8rem',
   color: vars.color.textDim,
 });
-export const control = style({ maxWidth: '100%' });
+/** A form control (input, select, textarea) in the house field look of `.field input`
+ *  (app.css): the template's controls sit outside a `.field`, so without this a select
+ *  stayed at the browser's ~20 px (under the 24 px target) and inputs had no frame. */
+export const control = style({
+  maxWidth: '100%',
+  font: 'inherit',
+  padding: 'calc(0.5rem - 1px) calc(0.6rem - 1px)',
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
+  borderRadius: vars.radius.md,
+  background: vars.color.bgSink,
+  color: vars.color.text,
+  selectors: { ':root[data-appearance="light"] &': { background: vars.color.surface } },
+  '@media': { [PHONE]: { paddingBlock: '0.5rem' } },
+});
 export const checkboxRow = style({ display: 'flex', alignItems: 'center', gap: vars.space[2] });
 export const learnMore = style({
   color: vars.color.link,

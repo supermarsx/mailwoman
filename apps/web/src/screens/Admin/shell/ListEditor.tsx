@@ -15,6 +15,7 @@ import { For, Show, createSignal, createUniqueId, type JSX } from 'solid-js';
 import { isolate, t } from '../../../i18n';
 import { Icon } from './icons.tsx';
 import * as shell from './shell.css.ts';
+import * as ux from './ux.css.ts';
 import * as css from './extras.css.ts';
 
 export interface ListEditorProps {
@@ -130,7 +131,7 @@ export function ListEditor(props: ListEditorProps): JSX.Element {
         <input
           ref={input}
           id={inputId()}
-          class={css.listInput}
+          class={`${ux.control} ${css.listInput}`}
           type="text"
           autocomplete="off"
           spellcheck={false}

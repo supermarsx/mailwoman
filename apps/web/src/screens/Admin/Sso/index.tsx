@@ -187,7 +187,9 @@ export function AdminSso(props: AdminSsoProps): JSX.Element {
     await api.save(input);
     await refetch();
     const stored = find(input.id) ?? null;
-    if (route().rest[0] === NEW) navigate(sectionPath(SECTION, [input.id]));
+    // After the form has taken the saved values (it is no longer dirty), so the
+    // move to the new provider's address does not ask about unsaved changes.
+    if (route().rest[0] === NEW) setTimeout(() => navigate(sectionPath(SECTION, [input.id])), 0);
     return stored;
   }
 
