@@ -298,6 +298,12 @@ impl Store {
             .fetch_all(&self.backend).await?.iter().map(domain).collect())
     }
 
+    /// Bounded inventory for diagnostics; callers fetch one extra row to report truncation.
+    pub async fn list_domain_configs_limited(&self, limit: u32) -> Result<Vec<DomainConfigRow>, StoreError> {
+        Ok(q("SELECT name, upstream_json, allowlist, blocklist, enabled, preferred, settings_json, updated_at FROM domains ORDER BY name LIMIT ?1")
+            .bind(i64::from(limit.min(1000))).fetch_all(&self.backend).await?.iter().map(domain).collect())
+    }
+
     /// Batch alias projection for domain lists, avoiding a query per domain.
     pub async fn list_domain_aliases(&self) -> Result<Vec<(String, String)>, StoreError> {
         Ok(q("SELECT domain, alias FROM domain_alias ORDER BY domain, alias")

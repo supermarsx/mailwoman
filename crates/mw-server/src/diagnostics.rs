@@ -1,4 +1,6 @@
 //! Real, bounded server checks and persisted redacted history.
+#[path = "diagnostics_jobs.rs"]
+mod jobs;
 use crate::{
     AppState,
     admin_ctx::{AdminApiError, AdminCtx, AdminJson},
@@ -21,6 +23,7 @@ use std::{
 };
 
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
+    jobs::register(r);
     r.admin_endpoint(Method::POST, "/diag/run", Capability::DiagnosticsRun, run);
     r.admin_endpoint(
         Method::GET,

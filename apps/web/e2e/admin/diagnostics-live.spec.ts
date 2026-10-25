@@ -1,4 +1,5 @@
 import { test, expect } from '../csrf.ts';
+import { readFile } from 'node:fs/promises';
 
 test('server diagnostics execute real checks and retain history @phone', async ({ page }) => {
   await page.goto('/admin');
@@ -20,8 +21,25 @@ test('server diagnostics execute real checks and retain history @phone', async (
   expect(report.auditSaved).toBe(true);
   await expect(page.locator('main tbody tr')).toHaveCount(5);
   await expect(page.locator('main tbody')).toContainText('Server key seals and opens a synthetic sample');
+  await page.getByLabel('Filter checks, domains or backends').fill('query');
+  await expect(page.locator('main tbody tr')).toHaveCount(1);
+  await page.getByLabel('Filter checks, domains or backends').clear();
+  const downloaded=page.waitForEvent('download');
+  await page.getByRole('button',{name:'Export troubleshooting report'}).click();
+  const download=await downloaded;
+  const support=JSON.parse(await readFile((await download.path())!,'utf8'));
+  expect(support.schemaVersion).toBe(1);
+  expect(support.server.version).toBeTruthy();
+  expect(support.security).toHaveProperty('strictCsrf');
+  expect(JSON.stringify(support)).not.toContain('hunter2');
+  expect(support.selectedRun.id).toBe(report.run.id);
+  await expect(page.getByRole('button',{name:'Check all saved backends'})).toBeEnabled();
+  const queued=page.waitForResponse(r=>r.url().endsWith('/admin/diag/jobs') && r.request().method()==='POST');
+  await page.getByRole('button',{name:'Check all saved backends'}).click();
+  expect((await queued).status()).toBe(202);
+  await expect(page.getByRole('button',{name:'Run server checks',exact:true})).toBeEnabled({timeout:70_000});
   await page.reload();
-  await expect(page.locator('main tbody tr')).toHaveCount(5);
+  await expect(page.getByRole('button',{name:'Run server checks',exact:true})).toBeEnabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: test.info().outputPath('diagnostics.png'), fullPage: true });
 });

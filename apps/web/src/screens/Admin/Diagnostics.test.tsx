@@ -6,6 +6,29 @@ import { expectNoAxeViolations } from './shell/uxTestkit.ts';
 
 const result = { id: 'run-1', suite: 'server', startedAt: 1, status: 'fail', results: [{ id: 'db', summary: 'Database accepts a query', status: 'fail', durationMs: 5 }] };
 describe('diagnostics console', () => {
+  it('copies the allowlisted server report with the selected results', async () => {
+    const writeText=vi.fn<(value:string)=>Promise<void>>(async()=>undefined);
+    Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText}});
+    renderInShell(()=><Diagnostics api={{history:async()=>({kind:'ok',data:{runs:[result],nextCursor:null},etag:null}),run:async()=>({run:result,historySaved:true,auditSaved:true}),report:async()=>({schemaVersion:1,server:{mode:'engine'},redaction:{excluded:['credentials']}})}}/>);
+    await screen.findByText('Database accepts a query');
+    fireEvent.click(screen.getByRole('button',{name:'Copy troubleshooting report'}));
+    await vi.waitFor(()=>expect(writeText).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(writeText.mock.calls[0]![0] as string)).toMatchObject({schemaVersion:1,server:{mode:'engine'},selectedRun:{id:'run-1'}});
+  });
+  it('filters backend results and sends cancellation for the running job', async () => {
+    const cancel=vi.fn(async()=>undefined);
+    const job={run:{...result,id:'bulk',status:'running',results:[{...result.results[0]!,domain:'a.test',backendId:'backup'}]},total:2,completed:1,limited:false,historySaved:false};
+    const api:DiagnosticsApi={history:async()=>({kind:'ok',data:{runs:[],nextCursor:null},etag:null}),run:async()=>({run:result,historySaved:true,auditSaved:true}),start:async()=>job,job:async()=>job,cancel};
+    renderInShell(()=><Diagnostics api={api}/>);
+    const button=await screen.findByRole('button',{name:'Check all saved backends'});
+    await vi.waitFor(()=>expect(button).toBeEnabled());fireEvent.click(button);
+    fireEvent.click(await screen.findByRole('button',{name:'Cancel checks'}));
+    await vi.waitFor(()=>expect(cancel).toHaveBeenCalledWith('bulk'));
+    fireEvent.input(screen.getByLabelText('Filter checks, domains or backends'),{target:{value:'unrelated'}});
+    expect(screen.queryByText('Database accepts a query')).not.toBeInTheDocument();
+    fireEvent.input(screen.getByLabelText('Filter checks, domains or backends'),{target:{value:'backup'}});
+    expect(screen.getByText('Database accepts a query')).toBeInTheDocument();
+  });
   it('reports actual failed checks and unsaved history without claiming success', async () => {
     const api: DiagnosticsApi = {
       history: async () => ({ kind: 'ok', data: { runs: [], nextCursor: null }, etag: null }),

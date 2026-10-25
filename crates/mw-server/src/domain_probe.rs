@@ -552,6 +552,35 @@ async fn probe_http(
     result
 }
 
+/// Run one validated saved backend without exposing server greetings, URLs,
+/// credentials, certificates or raw transport errors in the support report.
+pub(crate) async fn diagnostic_backend(
+    domain: &str,
+    backend: &crate::domain_selection::Backend,
+    plan: &mw_egress::plan::EgressPlan,
+) -> Value {
+    use crate::domain_selection::Protocol;
+    let protocol = match backend.protocol {
+        Protocol::Imap => "imap", Protocol::Pop3 => "pop3", Protocol::Jmap => "jmap",
+        Protocol::Smtp => "smtp", Protocol::Sieve => "sieve",
+    };
+    let probe = if let Some(endpoint) = &backend.endpoint {
+        probe_mail(protocol, endpoint, domain, plan).await
+    } else if let Some(url) = &backend.session_url {
+        probe_http(protocol, url, domain, plan).await
+    } else {
+        Probe::default()
+    };
+    json!({"protocol":protocol,"reachable":probe.reachable,"tls":probe.tls,
+        "tlsVersion":probe.tls_version,"credentialsSent":false,
+        "capabilityCount":probe.capabilities.len(),"selectedReason":probe.selected_reason})
+}
+
+pub(crate) async fn diagnostic_http_service(domain: &str, protocol: &str, url: &str, plan: &mw_egress::plan::EgressPlan) -> Value {
+    let probe = probe_http(protocol, url, domain, plan).await;
+    json!({"protocol":protocol,"reachable":probe.reachable,"tls":probe.tls,"credentialsSent":false})
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
