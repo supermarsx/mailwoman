@@ -1,0 +1,29 @@
+# URL shapes of open-tracking beacons (t32 e31a, plan R).
+#
+# An image whose URL matches one of these is treated as a tracker, whatever its
+# host. Matching ignores case.
+#
+#   path-end:<text>   the URL path ends with <text>
+#   segment:<text>    one path segment equals <text>
+#   query:<k1>,<k2>   every listed query key is present
+#
+# Mailwoman's own list. Keep entries specific: a false match hides a real image.
+
+path-end:/o.gif
+path-end:/open.gif
+path-end:/open.png
+path-end:/pixel.gif
+path-end:/pixel.png
+path-end:/track.gif
+path-end:/beacon.gif
+path-end:/1x1.gif
+path-end:/1x1.png
+path-end:/spacer.gif
+path-end:/wf/open
+path-end:/track/open
+path-end:/e/o
+path-end:/open.php
+path-end:/track/open.php
+segment:tracking
+segment:beacon
+query:e,u

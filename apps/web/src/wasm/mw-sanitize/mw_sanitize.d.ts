@@ -8,11 +8,22 @@
  */
 export function sanitizeEmailHtml(html: string): string;
 
+/**
+ * `sanitizeEmailHtmlReader(html, blockTrackers, cleanLinks)` → sanitized HTML in
+ * the reader's remote-content mode (t32 e31a): remote images become `mw-rc:<n>`
+ * placeholders with their URLs in hidden markers, trackers are stripped when
+ * `blockTrackers`, and tracking parameters are removed from links when
+ * `cleanLinks`. For decrypted mail, whose URLs the reader then asks the server
+ * to sign (`POST /api/rc/sign`).
+ */
+export function sanitizeEmailHtmlReader(html: string, block_trackers: boolean, clean_links: boolean): string;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly sanitizeEmailHtml: (a: number, b: number, c: number) => void;
+    readonly sanitizeEmailHtmlReader: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;

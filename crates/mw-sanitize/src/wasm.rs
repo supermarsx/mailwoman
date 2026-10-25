@@ -20,3 +20,25 @@ use wasm_bindgen::prelude::*;
 pub fn sanitize_email_html_wasm(html: &str) -> String {
     crate::sanitize_email_html(html)
 }
+
+/// `sanitizeEmailHtmlReader(html, blockTrackers, cleanLinks)` → sanitized HTML in
+/// the reader's remote-content mode (t32 e31a): remote images become `mw-rc:<n>`
+/// placeholders with their URLs in hidden markers, trackers are stripped when
+/// `blockTrackers`, and tracking parameters are removed from links when
+/// `cleanLinks`. For decrypted mail, whose URLs the reader then asks the server
+/// to sign (`POST /api/rc/sign`).
+#[wasm_bindgen(js_name = sanitizeEmailHtmlReader)]
+pub fn sanitize_email_html_reader_wasm(
+    html: &str,
+    block_trackers: bool,
+    clean_links: bool,
+) -> String {
+    crate::sanitize_email_html_with(
+        html,
+        &crate::SanitizeOptions {
+            remote_images: crate::RemoteImages::Placeholder,
+            block_trackers,
+            clean_links,
+        },
+    )
+}

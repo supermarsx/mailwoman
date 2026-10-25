@@ -1,0 +1,41 @@
+# Email tracking hosts (t32 e31a, plan R).
+#
+# One host per line. A line matches that host and every subdomain of it. An image
+# from a listed host is treated as a tracker: with tracker protection on (the
+# default), it is never loaded and the reader counts it.
+#
+# This is Mailwoman's own list, seeded from the suffixes the sanitizer classified
+# before 26.20. Any list imported into it must be under a licence compatible with
+# MIT or CC0 (DA37). Keep it sorted.
+
+bananatag.com
+branch.io
+cmail19.com
+cmail20.com
+constantcontact.com
+convertkit-mail.com
+createsend.com
+doubleclick.net
+exct.net
+getnotify.com
+google-analytics.com
+googletagmanager.com
+hubspot.com
+hubspotemail.net
+list-manage.com
+mailchimp.com
+mailgun.org
+mailtrack.io
+mandrillapp.com
+mixpanel.com
+mktoresp.com
+pardot.com
+rs6.net
+segment.com
+sendgrid.com
+sendgrid.net
+sendinblue.com
+sibautomation.com
+sparkpostmail.com
+streak.com
+yesware.com

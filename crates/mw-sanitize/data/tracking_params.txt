@@ -1,0 +1,33 @@
+# Query parameters removed from links in mail (t32 e31a, plan R).
+#
+# With link cleaning on (the default), these are removed from the query string of
+# every http(s) link before the message is shown. One name per line; a trailing `*`
+# matches every name with that prefix. Matching ignores case.
+#
+# Mailwoman's own list. Only parameters that exist to track a click belong here;
+# a parameter a site needs to show the right page does not.
+
+utm_*
+fbclid
+gclid
+dclid
+gbraid
+wbraid
+msclkid
+yclid
+twclid
+igshid
+mc_cid
+mc_eid
+_hsenc
+_hsmi
+__hssc
+__hstc
+__hsfp
+hsctatracking
+oly_*
+mkt_tok
+vero_id
+vero_conv
+_kx
+ck_subscriber_id

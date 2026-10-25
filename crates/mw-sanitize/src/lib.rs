@@ -31,6 +31,14 @@
 //!   ([`CONTAINER_CLASS`]) so a message's stylesheet cannot leak out of the
 //!   rendered body; the sanitized output is wrapped in a
 //!   `<div class="mw-email-body">` when it carries a scoped stylesheet.
+//!
+//! Remote content (t32 e31a, [`remote`]): [`sanitize_email_html_with`] takes
+//! [`SanitizeOptions`]. [`SanitizeOptions::STRIP`] is the behaviour above and what
+//! [`sanitize_email_html`] does. [`SanitizeOptions::READER`] keeps each remote
+//! image reference (`<img src>`, `srcset`, the `background` attribute and CSS
+//! `url()` in image properties) as an unloadable `mw-rc:<n>` placeholder with a
+//! hidden marker carrying the original URL, blocks trackers, and removes tracking
+//! parameters from links.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -51,6 +59,53 @@ use cssparser::{
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 
+/// Placeholders, trackers and link cleaning (t32 e31a).
+pub mod remote;
+
+/// What happens to a remote (non-`cid:`) image reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteImages {
+    /// Removed; the host is reported in a hidden marker. Nothing about the URL is
+    /// kept in the output.
+    Strip,
+    /// Replaced by an unloadable `mw-rc:<n>` placeholder, with the original URL in
+    /// a hidden marker for the reader to have signed (see [`remote`]).
+    Placeholder,
+}
+
+/// How [`sanitize_email_html_with`] treats remote content. The script, handler,
+/// scheme and CSS rules do not change with these.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SanitizeOptions {
+    /// Remote images.
+    pub remote_images: RemoteImages,
+    /// With [`RemoteImages::Placeholder`]: a tracker by URL (listed host or beacon
+    /// shape) is stripped instead of kept as a placeholder. Trackers by declared
+    /// size are always marked. No effect with [`RemoteImages::Strip`], which keeps
+    /// nothing loadable.
+    pub block_trackers: bool,
+    /// Remove the tracking parameters in `data/tracking_params.txt` from http(s)
+    /// links, and record each original in a hidden marker.
+    pub clean_links: bool,
+}
+
+impl SanitizeOptions {
+    /// The behaviour of [`sanitize_email_html`] since before 26.20.
+    pub const STRIP: SanitizeOptions = SanitizeOptions {
+        remote_images: RemoteImages::Strip,
+        block_trackers: true,
+        clean_links: false,
+    };
+
+    /// The reader's defaults on a new install (plan R): remote images as
+    /// placeholders, trackers blocked, links cleaned.
+    pub const READER: SanitizeOptions = SanitizeOptions {
+        remote_images: RemoteImages::Placeholder,
+        block_trackers: true,
+        clean_links: true,
+    };
+}
+
 /// Class applied to the wrapper `<div>` that scopes a message's stylesheet.
 /// `<style>` selectors are rewritten to sit under `.mw-email-body …`.
 pub const CONTAINER_CLASS: &str = "mw-email-body";
@@ -69,16 +124,79 @@ struct BlockedResource {
     tracker: bool,
 }
 
+/// A remote image kept as placeholder `mw-rc:<index>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RemoteRef {
+    url: String,
+    tracker: bool,
+}
+
+/// What one sanitize run records while ammonia walks the document. The attribute
+/// filter cannot add attributes or elements, so what it removes or rewrites is
+/// reported afterwards as hidden markers built from this.
+#[derive(Debug)]
+struct Recorded {
+    opts: SanitizeOptions,
+    blocked: Vec<BlockedResource>,
+    refs: Vec<RemoteRef>,
+    /// `(original, cleaned)` for each link whose tracking parameters were removed.
+    links: Vec<(String, String)>,
+}
+
+impl Recorded {
+    fn new(opts: SanitizeOptions) -> Recorded {
+        Recorded {
+            opts,
+            blocked: Vec::new(),
+            refs: Vec::new(),
+            links: Vec::new(),
+        }
+    }
+
+    /// The output for one remote image URL: a placeholder, or `None` (stripped,
+    /// with the host reported) per the options.
+    fn remote_image(&mut self, url: &str) -> Option<String> {
+        let tracker = remote::is_tracker_url(url);
+        if self.opts.remote_images == RemoteImages::Placeholder
+            && remote::is_http_url(url)
+            && !(tracker && self.opts.block_trackers)
+        {
+            self.refs.push(RemoteRef {
+                url: url.trim().to_string(),
+                tracker,
+            });
+            return Some(remote::placeholder(self.refs.len() - 1));
+        }
+        if let Some(host) = url_host(url) {
+            // The pre-26.20 classification for the strip marker, so `STRIP` output
+            // is unchanged; the reader mode uses the listed hosts and beacons.
+            let tracker = match self.opts.remote_images {
+                RemoteImages::Strip => is_tracker_host(&host),
+                RemoteImages::Placeholder => tracker,
+            };
+            self.blocked.push(BlockedResource { host, tracker });
+        }
+        None
+    }
+}
+
 /// Sanitize untrusted HTML email content. Always returns owned, safe HTML.
+/// Remote images are stripped ([`SanitizeOptions::STRIP`]).
 pub fn sanitize_email_html(input: &str) -> String {
+    sanitize_email_html_with(input, &SanitizeOptions::STRIP)
+}
+
+/// [`sanitize_email_html`] with the remote-content behaviour chosen by `opts`.
+pub fn sanitize_email_html_with(input: &str, opts: &SanitizeOptions) -> String {
     // S9 side-channel: the attribute filter runs inside ammonia's single parse and
     // cannot ADD attributes to an element, so it records each stripped remote
-    // `<img src>` here. After cleaning we emit one hidden marker per blocked
-    // resource. `Arc<Mutex<…>>` because ammonia requires the filter be
-    // `Send + Sync + 'static`; there is no cross-thread contention (the clean runs
-    // synchronously on this thread).
-    let blocked: Arc<Mutex<Vec<BlockedResource>>> = Arc::new(Mutex::new(Vec::new()));
-    let blocked_sink = Arc::clone(&blocked);
+    // `<img src>` (and, in placeholder mode, each kept reference and cleaned link)
+    // here. After cleaning we emit hidden markers from it. `Arc<Mutex<…>>` because
+    // ammonia requires the filter be `Send + Sync + 'static`; there is no
+    // cross-thread contention (the clean runs synchronously on this thread).
+    let recorded: Arc<Mutex<Recorded>> = Arc::new(Mutex::new(Recorded::new(*opts)));
+    let sink = Arc::clone(&recorded);
+    let placeholders = opts.remote_images == RemoteImages::Placeholder;
 
     let mut builder = ammonia::Builder::default();
 
@@ -112,23 +230,64 @@ pub fn sanitize_email_html(input: &str) -> String {
     generic.insert("id");
     builder.generic_attributes(generic);
 
-    // One attribute filter: strip remote (non-cid) img@src, and rewrite inline
-    // `style` through the CSS declaration sanitizer.
+    // Placeholder mode also keeps `srcset` and the legacy `background` attribute,
+    // rewritten below; neither is a URL attribute to ammonia, so the filter checks
+    // their schemes itself. In strip mode they stay off the allowlist, so `STRIP`
+    // output is unchanged.
+    if placeholders {
+        builder.add_tag_attributes("img", &["srcset"]);
+        for tag in ["table", "td", "th", "tr"] {
+            builder.add_tag_attributes(tag, &["background"]);
+        }
+    }
+
+    // One attribute filter: remote image references (stripped or kept as
+    // placeholders), link cleaning, and inline `style` through the CSS
+    // declaration sanitizer.
     builder.attribute_filter(move |element, attribute, value| -> Option<Cow<str>> {
+        let mut rec = sink.lock().expect("sanitize record lock");
         if element == "img" && attribute == "src" && !value.starts_with("cid:") {
-            // Remote image: stripped as before (strip default UNCHANGED). Record its
-            // host + tracker classification for the block-marker report (S9).
-            if let Some(host) = url_host(value) {
-                let tracker = is_tracker_host(&host);
-                blocked_sink
-                    .lock()
-                    .expect("sanitize blocked-resource lock")
-                    .push(BlockedResource { host, tracker });
+            // Remote image: stripped (with its host reported, S9) or replaced by a
+            // placeholder, per the options.
+            return rec.remote_image(value).map(Cow::Owned);
+        }
+        if element == "img" && attribute == "srcset" {
+            let candidates = remote::srcset_candidates(value)?;
+            let mut out = Vec::with_capacity(candidates.len());
+            for (url, descriptor) in candidates {
+                let url = if url.starts_with("cid:") {
+                    url
+                } else if remote::is_http_url(&url) {
+                    rec.remote_image(&url)?
+                } else {
+                    return None;
+                };
+                out.push(if descriptor.is_empty() {
+                    url
+                } else {
+                    format!("{url} {descriptor}")
+                });
+            }
+            return Some(Cow::Owned(out.join(", ")));
+        }
+        if attribute == "background" {
+            if value.starts_with("cid:") {
+                return Some(Cow::Borrowed(value));
+            }
+            if remote::is_http_url(value) {
+                return rec.remote_image(value).map(Cow::Owned);
             }
             return None;
         }
+        if element == "a" && attribute == "href" && rec.opts.clean_links {
+            if let Some(cleaned) = remote::clean_link(value) {
+                rec.links.push((value.to_string(), cleaned.clone()));
+                return Some(Cow::Owned(cleaned));
+            }
+            return Some(Cow::Borrowed(value));
+        }
         if attribute == "style" {
-            let sanitized = sanitize_declaration_list(value);
+            let sanitized = sanitize_declaration_list_with(value, Some(&mut *rec));
             if sanitized.is_empty() {
                 return None;
             }
@@ -144,14 +303,27 @@ pub fn sanitize_email_html(input: &str) -> String {
 
     // Extract every `<style>` block from the original input, allowlist + scope
     // its CSS under the container, and prepend the result inside the wrapper.
-    let scoped_css = extract_and_scope_styles(input);
+    let scoped_css = {
+        let mut rec = recorded.lock().expect("sanitize record lock");
+        extract_and_scope_styles(input, Some(&mut *rec))
+    };
+
+    let mut rec = recorded.lock().expect("sanitize record lock");
+    if placeholders {
+        // Trackers by declared size: an `<img>` whose placeholder is `mw-rc:<n>`
+        // and whose width and height are declared at most 2×2.
+        for n in declared_pixel_refs(&body) {
+            if let Some(r) = rec.refs.get_mut(n) {
+                r.tracker = true;
+            }
+        }
+    }
 
     // S9: emit one hidden block marker per stripped remote image, carrying the host
     // (and a tracker flag) the web reader reports. Inert — a `<span hidden>` with no
     // loadable URL.
-    let blocked = blocked.lock().expect("sanitize blocked-resource lock");
     let mut markers = String::new();
-    for r in blocked.iter() {
+    for r in rec.blocked.iter() {
         markers.push_str("<span hidden data-mw-blocked-host=\"");
         markers.push_str(&escape_attr(&r.host));
         markers.push('"');
@@ -159,6 +331,33 @@ pub fn sanitize_email_html(input: &str) -> String {
             markers.push_str(" data-mw-tracker");
         }
         markers.push_str("></span>");
+    }
+    // One marker per placeholder: its number, the original URL (a `data-`
+    // attribute, which nothing fetches) and its host, so the existing blocked
+    // report counts it until the reader loads it.
+    for (n, r) in rec.refs.iter().enumerate() {
+        markers.push_str(&format!(
+            "<span hidden data-mw-rc=\"{n}\" data-mw-rc-url=\""
+        ));
+        markers.push_str(&escape_attr(&r.url));
+        markers.push('"');
+        if let Some(host) = url_host(&r.url) {
+            markers.push_str(" data-mw-blocked-host=\"");
+            markers.push_str(&escape_attr(&host));
+            markers.push('"');
+        }
+        if r.tracker {
+            markers.push_str(" data-mw-tracker");
+        }
+        markers.push_str("></span>");
+    }
+    // One marker per cleaned link, so the reader can show the original on hover.
+    for (original, cleaned) in rec.links.iter() {
+        markers.push_str("<span hidden data-mw-link-cleaned=\"");
+        markers.push_str(&escape_attr(cleaned));
+        markers.push_str("\" data-mw-link-original=\"");
+        markers.push_str(&escape_attr(original));
+        markers.push_str("\"></span>");
     }
 
     if scoped_css.is_empty() && markers.is_empty() {
@@ -271,9 +470,87 @@ fn escape_attr(s: &str) -> String {
     out
 }
 
+/// The placeholder numbers of `<img>` elements in sanitized `body` that are
+/// declared at most 2×2 pixels, by `width`/`height` attributes or by `width`/
+/// `height` in their inline style.
+///
+/// Read-only: it re-parses the sanitizer's own output with every element but
+/// `<img>` removed and reads the attributes back, so each size is tied to its
+/// placeholder number rather than to a position in the document.
+fn declared_pixel_refs(body: &str) -> Vec<usize> {
+    if !body.contains(remote::PLACEHOLDER_SCHEME) {
+        return Vec::new();
+    }
+    let mut schemes: HashSet<&str> = HashSet::new();
+    schemes.insert(remote::PLACEHOLDER_SCHEME);
+    let imgs = ammonia::Builder::empty()
+        .add_tags(&["img"])
+        .add_tag_attributes("img", &["src", "width", "height", "style"])
+        .url_schemes(schemes)
+        .clean(body)
+        .to_string();
+    let mut out = Vec::new();
+    let mut rest = imgs.as_str();
+    while let Some(start) = rest.find("<img") {
+        let tail = &rest[start..];
+        let end = tail.find('>').unwrap_or(tail.len());
+        let attrs = serialized_attrs(&tail[..end]);
+        rest = &tail[end..];
+        let get = |name: &str| {
+            attrs
+                .iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.as_str())
+        };
+        let Some(n) = get("src").and_then(remote::parse_placeholder) else {
+            continue;
+        };
+        let style = get("style").unwrap_or("");
+        let from_style = |prop: &str| {
+            style.split(';').find_map(|d| {
+                let (k, v) = d.split_once(':')?;
+                (k.trim().eq_ignore_ascii_case(prop)).then(|| remote::attr_pixels(v))?
+            })
+        };
+        let width = from_style("width").or_else(|| get("width").and_then(remote::attr_pixels));
+        let height = from_style("height").or_else(|| get("height").and_then(remote::attr_pixels));
+        if remote::is_pixel(width, height) {
+            out.push(n);
+        }
+    }
+    out
+}
+
+/// The `name="value"` pairs of one serialized start tag (html5ever's serializer
+/// always double-quotes and escapes `&` and `"` in attribute values).
+fn serialized_attrs(tag: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut rest = tag;
+    while let Some(eq) = rest.find("=\"") {
+        let name = rest[..eq]
+            .rsplit(|c: char| c.is_whitespace())
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let after = &rest[eq + 2..];
+        let Some(close) = after.find('"') else {
+            break;
+        };
+        let value = after[..close]
+            .replace("&quot;", "\"")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&nbsp;", "\u{a0}")
+            .replace("&amp;", "&");
+        out.push((name, value));
+        rest = &after[close + 1..];
+    }
+    out
+}
+
 /// Parse the input, isolate its `<style>` blocks, and return one scoped, filtered
 /// stylesheet (or an empty string when there are none).
-fn extract_and_scope_styles(input: &str) -> String {
+fn extract_and_scope_styles(input: &str, mut rec: Option<&mut Recorded>) -> String {
     // Cheap guard: no `<style` substring means no stylesheet to process.
     if !contains_ignore_ascii_case(input, "<style") {
         return String::new();
@@ -303,7 +580,11 @@ fn extract_and_scope_styles(input: &str) -> String {
             break;
         };
         let css = &tail[..close];
-        out.push_str(&sanitize_stylesheet(css, CONTAINER_CLASS));
+        out.push_str(&sanitize_stylesheet_with(
+            css,
+            CONTAINER_CLASS,
+            rec.as_deref_mut(),
+        ));
         let after_close = &tail[close..];
         let Some(cgt) = after_close.find('>') else {
             break;
@@ -503,9 +784,13 @@ fn is_allowed_property(name: &str) -> bool {
 /// A kept declaration is `Some((property, value))`; a dropped one is `None`.
 type MaybeDecl = Option<(String, String)>;
 
-struct DeclSanitizer;
+/// Sanitizes one declaration list. `rec`, when present, receives remote image
+/// URLs in placeholder mode (see [`check_and_finish`]).
+struct DeclSanitizer<'r> {
+    rec: Option<&'r mut Recorded>,
+}
 
-impl<'i> DeclarationParser<'i> for DeclSanitizer {
+impl<'i> DeclarationParser<'i> for DeclSanitizer<'_> {
     type Declaration = MaybeDecl;
     type Error = ();
 
@@ -524,22 +809,26 @@ impl<'i> DeclarationParser<'i> for DeclSanitizer {
         if append_value_tokens(input, &mut value).is_err() {
             return Ok(None);
         }
-        Ok(check_and_finish(property, value.trim().to_string()))
+        Ok(check_and_finish(
+            property,
+            value.trim().to_string(),
+            self.rec.as_deref_mut(),
+        ))
     }
 }
 
 // A declaration list rejects nested qualified/at rules (default impls do so).
-impl<'i> AtRuleParser<'i> for DeclSanitizer {
+impl<'i> AtRuleParser<'i> for DeclSanitizer<'_> {
     type Prelude = ();
     type AtRule = MaybeDecl;
     type Error = ();
 }
-impl<'i> QualifiedRuleParser<'i> for DeclSanitizer {
+impl<'i> QualifiedRuleParser<'i> for DeclSanitizer<'_> {
     type Prelude = ();
     type QualifiedRule = MaybeDecl;
     type Error = ();
 }
-impl<'i> RuleBodyItemParser<'i, MaybeDecl, ()> for DeclSanitizer {
+impl<'i> RuleBodyItemParser<'i, MaybeDecl, ()> for DeclSanitizer<'_> {
     fn parse_declarations(&self) -> bool {
         true
     }
@@ -549,7 +838,11 @@ impl<'i> RuleBodyItemParser<'i, MaybeDecl, ()> for DeclSanitizer {
 }
 
 /// Apply the value-level policy and produce the final declaration (or drop it).
-fn check_and_finish(property: String, value: String) -> MaybeDecl {
+///
+/// An external `url(…)` drops the declaration, except in placeholder mode for the
+/// properties that paint an image, where each http(s) URL becomes a placeholder
+/// (see [`rewrite_image_urls`]).
+fn check_and_finish(property: String, value: String, rec: Option<&mut Recorded>) -> MaybeDecl {
     if value.is_empty() {
         return None;
     }
@@ -557,9 +850,23 @@ fn check_and_finish(property: String, value: String) -> MaybeDecl {
     if low.contains("expression(") || low.contains("javascript:") {
         return None;
     }
-    if has_external_url(&low) {
-        return None;
-    }
+    let value = if has_external_url(&low) {
+        match rec {
+            Some(r)
+                if r.opts.remote_images == RemoteImages::Placeholder
+                    && matches!(
+                        property.as_str(),
+                        "background" | "background-image" | "list-style" | "list-style-image"
+                    ) =>
+            {
+                rewrite_image_urls(&value, r)?
+            }
+            _ => return None,
+        }
+    } else {
+        value
+    };
+    let low = value.to_ascii_lowercase();
     if property == "position" {
         let first = low.split_whitespace().next().unwrap_or("");
         if first == "fixed" || first == "sticky" {
@@ -572,6 +879,35 @@ fn check_and_finish(property: String, value: String) -> MaybeDecl {
         value
     };
     Some((property, value))
+}
+
+/// `value` with every http(s) `url(…)` replaced by `url(mw-rc:<n>)`, recording the
+/// URL; a `cid:` argument is kept. `None` (drop the declaration) for any other
+/// argument, or for a URL the options strip (a tracker with tracker protection on).
+fn rewrite_image_urls(value: &str, rec: &mut Recorded) -> Option<String> {
+    let low = value.to_ascii_lowercase();
+    let mut out = String::with_capacity(value.len());
+    let mut i = 0;
+    while let Some(p) = low[i..].find("url(") {
+        let start = i + p + 4;
+        let end = low[start..].find(')').map(|e| start + e)?;
+        let arg = value[start..end]
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'')
+            .trim();
+        out.push_str(&value[i..start]);
+        if arg.to_ascii_lowercase().starts_with("cid:") {
+            out.push_str(&value[start..end]);
+        } else if remote::is_http_url(arg) {
+            out.push_str(&rec.remote_image(arg)?);
+        } else {
+            return None;
+        }
+        out.push(')');
+        i = end + 1;
+    }
+    out.push_str(&value[i..]);
+    Some(out)
 }
 
 /// True if the (lowercased) value contains a `url(…)` whose target is not a
@@ -647,18 +983,24 @@ fn append_value_tokens<'i>(
 }
 
 /// Sanitize a bare declaration list (an inline `style="…"` value).
+#[cfg(test)]
 fn sanitize_declaration_list(src: &str) -> String {
+    sanitize_declaration_list_with(src, None)
+}
+
+/// [`sanitize_declaration_list`], recording remote image URLs into `rec`.
+fn sanitize_declaration_list_with(src: &str, rec: Option<&mut Recorded>) -> String {
     let mut input = ParserInput::new(src);
     let mut parser = Parser::new(&mut input);
     let mut out = String::new();
-    collect_declarations(&mut parser, &mut out);
+    collect_declarations(&mut parser, &mut out, rec);
     out
 }
 
 /// Drive a [`RuleBodyParser`] over `parser`, appending kept declarations as
 /// `prop:value` separated by `;`.
-fn collect_declarations(parser: &mut Parser, out: &mut String) {
-    let mut sink = DeclSanitizer;
+fn collect_declarations(parser: &mut Parser, out: &mut String, rec: Option<&mut Recorded>) {
+    let mut sink = DeclSanitizer { rec };
     let iter = RuleBodyParser::new(parser, &mut sink);
     for item in iter {
         if let Ok(Some((prop, val))) = item {
@@ -674,11 +1016,12 @@ fn collect_declarations(parser: &mut Parser, out: &mut String) {
 
 // ── stylesheet parsing (`<style>` blocks) ────────────────────────────────────
 
-struct StylesheetSanitizer<'a> {
+struct StylesheetSanitizer<'a, 'r> {
     container: &'a str,
+    rec: Option<&'r mut Recorded>,
 }
 
-impl<'i> QualifiedRuleParser<'i> for StylesheetSanitizer<'_> {
+impl<'i> QualifiedRuleParser<'i> for StylesheetSanitizer<'_, '_> {
     type Prelude = String;
     type QualifiedRule = String;
     type Error = ();
@@ -703,7 +1046,7 @@ impl<'i> QualifiedRuleParser<'i> for StylesheetSanitizer<'_> {
             return Ok(String::new());
         }
         let mut decls = String::new();
-        collect_declarations(input, &mut decls);
+        collect_declarations(input, &mut decls, self.rec.as_deref_mut());
         if decls.is_empty() {
             return Ok(String::new());
         }
@@ -711,7 +1054,7 @@ impl<'i> QualifiedRuleParser<'i> for StylesheetSanitizer<'_> {
     }
 }
 
-impl<'i> AtRuleParser<'i> for StylesheetSanitizer<'_> {
+impl<'i> AtRuleParser<'i> for StylesheetSanitizer<'_, '_> {
     // (at-rule name, raw prelude text)
     type Prelude = (String, String);
     type AtRule = String;
@@ -742,7 +1085,7 @@ impl<'i> AtRuleParser<'i> for StylesheetSanitizer<'_> {
         _start: &ParserState,
         input: &mut Parser<'i, 't>,
     ) -> Result<String, ParseError<'i, ()>> {
-        let inner = namespace_rules(input, self.container);
+        let inner = namespace_rules(input, self.container, self.rec.as_deref_mut());
         if inner.is_empty() {
             return Ok(String::new());
         }
@@ -758,8 +1101,8 @@ impl<'i> AtRuleParser<'i> for StylesheetSanitizer<'_> {
 
 /// Parse a rule list from `parser`, namespacing every qualified rule's selectors
 /// under `container` and recursing into `@media`/`@supports`.
-fn namespace_rules(parser: &mut Parser, container: &str) -> String {
-    let mut sink = StylesheetSanitizer { container };
+fn namespace_rules(parser: &mut Parser, container: &str, rec: Option<&mut Recorded>) -> String {
+    let mut sink = StylesheetSanitizer { container, rec };
     let mut out = String::new();
     let iter = StyleSheetParser::new(parser, &mut sink);
     for result in iter {
@@ -772,10 +1115,16 @@ fn namespace_rules(parser: &mut Parser, container: &str) -> String {
     out
 }
 
+#[cfg(test)]
 fn sanitize_stylesheet(src: &str, container: &str) -> String {
+    sanitize_stylesheet_with(src, container, None)
+}
+
+/// Sanitize and scope one stylesheet, recording remote image URLs into `rec`.
+fn sanitize_stylesheet_with(src: &str, container: &str, rec: Option<&mut Recorded>) -> String {
     let mut input = ParserInput::new(src);
     let mut parser = Parser::new(&mut input);
-    namespace_rules(&mut parser, container)
+    namespace_rules(&mut parser, container, rec)
 }
 
 /// Rewrite a (possibly comma-separated) selector list so every selector is
