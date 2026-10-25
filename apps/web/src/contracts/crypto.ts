@@ -52,6 +52,13 @@ export interface GenerateKeyRequest {
   passphrase: string;
   /** S/MIME only: RSA modulus size. Absent → the worker's default (3072). */
   rsaBits?: 2048 | 3072 | 4096;
+  /**
+   * PGP only: `'v6'` (default; Ed25519 + X25519, RFC 9580) or `'compatible'` (a v4
+   * EdDSA + Curve25519 key that GnuPG 2.2–2.4 read).
+   */
+  profile?: KeyProfile;
+  /** PGP only: seconds after creation when the key expires; absent = never. */
+  expiresInSecs?: number;
 }
 /**
  * `generateKey` result; the private key is wrapped by `passphrase`.
@@ -89,6 +96,11 @@ export interface EncryptRequest {
 export interface EncryptResult {
   armoredCiphertext: string;
   encryptedSubjectApplied: boolean;
+  /**
+   * PGP: 2 (SEIPDv2, AES-256/OCB) when every recipient is a v6 key or advertises
+   * it, else 1 (SEIPDv1, readable by v4-only programs such as GnuPG 2.4).
+   */
+  seipdVersion?: 1 | 2;
 }
 
 /** `decrypt` argument. */
@@ -107,6 +119,8 @@ export interface DecryptRequest {
    * `crates/mw-crypto/src/pgp.rs::decrypt`.
    */
   signerPublicKey?: string;
+  /** PGP: every candidate signer key (all of the sender's keys in the keyring). */
+  signerPublicKeys?: string[];
 }
 /**
  * `decrypt` result — the plaintext is sanitized IN-WORKER via the mw-sanitize
@@ -118,6 +132,10 @@ export interface DecryptResult {
   plaintextText?: string;
   subject?: string;
   signature: SignatureVerdict;
+  /** The full signature state (`signature.status` is derived from it). */
+  verification?: Verification;
+  /** PGP: the message used SEIPDv2. */
+  aead?: boolean;
 }
 
 /** `sign` argument. */
@@ -138,6 +156,8 @@ export interface VerifyRequest {
   data: string;
   signature: string;
   signerPublicKey: string;
+  /** PGP: further candidate signer keys. */
+  signerPublicKeys?: string[];
 }
 
 /** `importPkcs12` argument/result (S/MIME private-key material, client-side only). */
@@ -209,6 +229,224 @@ export interface ExportBackupResult {
   autocryptSetupMessage: string;
 }
 
+// ── OpenPGP core (t32-e37; Rust: crates/mw-crypto/src/pgp*, mime.rs, verdict.rs) ──
+
+/** PGP key generation profile (see `GenerateKeyRequest.profile`). */
+export type KeyProfile = 'v6' | 'compatible';
+
+/**
+ * Signature states shared by OpenPGP and S/MIME (`crates/mw-crypto/src/verdict.rs`).
+ * OpenPGP has no chain: the worker reports `valid` for a good signature by a usable
+ * key and the caller lowers it to "valid, unknown or untrusted key" from keyring
+ * trust — no green state without a trusted key.
+ */
+export type VerificationState =
+  | 'valid'
+  | 'untrusted'
+  | 'unknown-key'
+  | 'key-expired'
+  | 'not-yet-valid'
+  | 'revoked'
+  | 'revocation-unchecked'
+  | 'address-mismatch'
+  | 'bad-signature'
+  | 'not-signed'
+  | 'partial';
+
+/** A signature check with its full state. */
+export interface Verification {
+  state: VerificationState;
+  /**
+   * Why, when the state alone does not say: for `bad-signature` one of
+   * `tampered` | `weak-hash` | `not-a-signing-key` | `unbound-key` | `malformed`.
+   */
+  detail: string | null;
+  /** The frozen four-state verdict, `status` derived from `state`. */
+  signature: SignatureVerdict;
+  /** Primary key fingerprint (PGP) or certificate SHA-256 (S/MIME), upper hex. */
+  signerFingerprint: string | null;
+  signerAddresses: string[];
+  /** RFC 3339 signing time from the signature. */
+  signedAt: string | null;
+}
+
+/** State of a key or one of its parts, judged from verified self-signatures. */
+export type PgpKeyState = 'valid' | 'expired' | 'revoked' | 'invalid' | 'not-yet-valid';
+
+export type PgpKeyFlag =
+  | 'certify'
+  | 'sign'
+  | 'encrypt-communications'
+  | 'encrypt-storage'
+  | 'authenticate';
+
+export type RevocationReason = 'compromised' | 'superseded' | 'retired' | 'unspecified';
+
+export interface PgpRevocation {
+  at: string;
+  reason: RevocationReason | 'user-id-invalid';
+  /** A hard revocation voids every signature the key made; a soft one only later ones. */
+  hard: boolean;
+  message: string;
+}
+
+export interface PgpUserId {
+  value: string;
+  address: string | null;
+  primary: boolean;
+  state: 'valid' | 'revoked' | 'invalid';
+}
+
+export interface PgpSubkeyInfo {
+  fingerprint: string;
+  keyId: string;
+  algorithm: string;
+  createdAt: string;
+  expiresAt: string | null;
+  state: PgpKeyState;
+  flags: PgpKeyFlag[];
+  revocation: PgpRevocation | null;
+}
+
+/** `inspectKey` result. */
+export interface PgpKeyInfo {
+  fingerprint: string;
+  keyId: string;
+  version: number;
+  /** `ed25519`, `x25519`, `eddsa-legacy`, `rsa-3072`, `ecdsa-p256`, ... */
+  algorithm: string;
+  createdAt: string;
+  expiresAt: string | null;
+  state: PgpKeyState;
+  flags: PgpKeyFlag[];
+  revocation: PgpRevocation | null;
+  /** The key is v6 or advertises SEIPDv2 (AEAD). */
+  seipdV2: boolean;
+  userIds: PgpUserId[];
+  subkeys: PgpSubkeyInfo[];
+  canEncrypt: boolean;
+  canSign: boolean;
+  hasSecret: boolean;
+}
+
+/** `verifyPgp`: detached when `data` is given, else `signature` is cleartext-signed. */
+export interface VerifyPgpRequest {
+  data?: string | Uint8Array;
+  signature: string;
+  signerPublicKeys: string[];
+}
+export interface VerifyPgpResult {
+  verification: Verification;
+  /** Cleartext signatures: the signed text, un-escaped. */
+  signedText?: string;
+}
+
+/** A locked own key plus its passphrase, for key management. */
+export interface PgpKeyOpRequest {
+  encryptedPrivateBundle: string;
+  passphrase: string;
+}
+export interface RevokeKeyRequest extends PgpKeyOpRequest {
+  reason?: RevocationReason;
+  message?: string;
+}
+/** The key after a management operation (publish the public half again). */
+export interface ManagedKey {
+  publicKeyArmored: string;
+  encryptedPrivateBundle: string;
+}
+
+/** The header fields of a message as `[name, value]` pairs. */
+export type HeaderPairs = [string, string][];
+
+/** `pgpMimeEncrypt` / `pgpMimeSign` argument. */
+export interface PgpMimeBuildRequest {
+  /** The body entity (headers + body) as composed, attachments included. */
+  payload: string | Uint8Array;
+  /** The message header fields; the protected ones go inside (RFC 9788). */
+  headers: HeaderPairs;
+  /** Encrypt only: recipients' armored keys (include the sender's own key). */
+  recipientPublicKeys?: string[];
+  signWithKeyRef?: KeyRef;
+  encryptedPrivateBundle?: string;
+  passphrase?: string;
+  /** Encrypt only: `[address, armoredKey]` pairs written as `Autocrypt-Gossip`. */
+  gossip?: HeaderPairs;
+}
+/** A built PGP/MIME entity the server places as the message body. */
+export interface BuiltEntity {
+  /** `Content-Type` header, blank line, body. */
+  entity: string;
+  contentType: string;
+  /** What the outer `Subject:` says: `[...]` when the real one is encrypted. */
+  outerSubject: string | null;
+  seipdVersion: 1 | 2 | null;
+}
+
+/** RFC 9788 header protection read back from a payload. */
+export interface ProtectedHeaders {
+  headers: HeaderPairs;
+  scheme: 'cipher' | 'clear' | 'v1';
+  /** `HP-Outer`: what the outer header said for each obscured field. */
+  outer: HeaderPairs;
+  /** The payload with the legacy display element removed. */
+  entity: string;
+}
+
+export interface AutocryptHeader {
+  addr: string;
+  preferEncrypt: boolean;
+  key: CryptoKey;
+}
+
+/**
+ * `pgpMimeOpen` / `pgpMimeVerify` result. `entity` is untrusted MIME: every
+ * `text/html` part in it goes through the in-worker sanitizer before display.
+ */
+export interface OpenedMessage {
+  entity: string;
+  protected: ProtectedHeaders | null;
+  verification: Verification;
+  encrypted: boolean;
+  aead: boolean;
+  /** Only part of the message is signed; `verification` covers that part. */
+  partial: boolean;
+  gossip: AutocryptHeader[];
+}
+export interface PgpMimeOpenRequest {
+  raw: string | Uint8Array;
+  encryptedPrivateBundle?: string;
+  passphrase?: string;
+  signerPublicKeys?: string[];
+}
+
+export type InlineSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'message'; armored: string }
+  | { kind: 'signed'; armored: string }
+  | { kind: 'publicKey'; armored: string };
+
+/** `analyzeMessage` result: where the signed or encrypted part is. */
+export interface AnalyzeMessageResult {
+  kind: 'pgp-encrypted' | 'pgp-signed' | 'smime-signed' | 'smime-opaque' | 'inline-pgp' | 'none';
+  partial: boolean;
+  /** Child indexes from the root to the part. */
+  path: number[];
+  smimeType?: string;
+  micalg?: string;
+  segments?: InlineSegment[];
+}
+
+/** What Autocrypt knows about one correspondent (Unix seconds). */
+export interface AutocryptPeerState {
+  lastSeen: number;
+  autocryptTimestamp: number | null;
+  hasAutocryptKey: boolean;
+  hasGossipKey: boolean;
+  preferEncrypt: boolean;
+}
+export type AutocryptRecommendation = 'disable' | 'discourage' | 'available' | 'encrypt';
+
 /** `unlockKey` argument → an opaque worker-session key ref. */
 export interface UnlockKeyRequest {
   encryptedPrivateBundle: string;
@@ -242,4 +480,61 @@ export interface CryptoWorkerApi {
   unlockKey(req: UnlockKeyRequest): Promise<KeyRef>;
   /** `zeroize` + drop the cached private key for `keyRef` (also on timeout). */
   lockKey(req: { keyRef: KeyRef }): Promise<void>;
+
+  // ── OpenPGP core (t32-e37) ──
+  /** A key's version, algorithm, times, state, flags, User IDs and subkeys. */
+  inspectKey(req: { armored: string }): Promise<PgpKeyInfo>;
+  /** Detached or cleartext PGP verification with the full state. */
+  verifyPgp(req: VerifyPgpRequest): Promise<VerifyPgpResult>;
+  revokeKey(req: RevokeKeyRequest): Promise<ManagedKey>;
+  /** A revocation certificate to keep aside (armored). */
+  revocationCertificate(req: RevokeKeyRequest): Promise<{ certificate: string }>;
+  applyRevocationCertificate(req: {
+    keyArmored: string;
+    certificate: string;
+  }): Promise<{ publicKeyArmored: string }>;
+  /** New expiry (Unix seconds, `null` = never) for the key and its subkeys. */
+  setKeyExpiry(req: PgpKeyOpRequest & { expiresAt: number | null }): Promise<ManagedKey>;
+  addSubkey(
+    req: PgpKeyOpRequest & { purpose: 'encrypt' | 'sign'; expiresAt?: number | null },
+  ): Promise<ManagedKey>;
+  revokeSubkey(req: RevokeKeyRequest & { subkeyFingerprint: string }): Promise<ManagedKey>;
+  changePassphrase(req: {
+    encryptedPrivateBundle: string;
+    oldPassphrase: string;
+    newPassphrase: string;
+  }): Promise<{ encryptedPrivateBundle: string }>;
+  /** Autocrypt Setup Message backup under a fresh numeric setup code. */
+  exportBackupFull(req: {
+    encryptedPrivateBundle: string;
+    from: string;
+  }): Promise<{ setupCode: string; payload: string; mime: string }>;
+  restoreBackup(req: { payload: string; setupCode: string }): Promise<{ encryptedPrivateBundle: string }>;
+  /** RFC 3156 `multipart/encrypted` with RFC 9788 header protection inside. */
+  pgpMimeEncrypt(req: PgpMimeBuildRequest): Promise<BuiltEntity>;
+  /** RFC 3156 `multipart/signed` (`hp="clear"`). */
+  pgpMimeSign(req: PgpMimeBuildRequest): Promise<BuiltEntity>;
+  pgpMimeOpen(req: PgpMimeOpenRequest): Promise<OpenedMessage>;
+  pgpMimeVerify(req: PgpMimeOpenRequest): Promise<OpenedMessage>;
+  analyzeMessage(req: { raw: string | Uint8Array }): Promise<AnalyzeMessageResult>;
+  /** An `Autocrypt:` (or, with `gossip`, `Autocrypt-Gossip:`) header value. */
+  autocryptHeader(req: {
+    publicKeyArmored: string;
+    addr: string;
+    preferEncrypt?: boolean;
+    gossip?: boolean;
+  }): Promise<string>;
+  parseAutocrypt(req: { value: string; gossip?: boolean }): Promise<AutocryptHeader>;
+  autocryptRecommend(req: {
+    peers: (AutocryptPeerState | null)[];
+    ownPreferEncrypt: boolean;
+  }): Promise<{ perRecipient: AutocryptRecommendation[]; message: AutocryptRecommendation }>;
+  /** Keys in an attachment (`application/pgp-keys`, `.asc`), or `null` if it is not one. */
+  detectAttachedKeys(req: {
+    contentType: string;
+    filename?: string;
+    bytes: string | Uint8Array;
+  }): Promise<CryptoKey[] | null>;
+  /** `[advanced, direct]` WKD URLs for an address. */
+  wkdUrls(req: { email: string }): Promise<[string, string]>;
 }

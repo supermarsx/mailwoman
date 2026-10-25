@@ -12,6 +12,7 @@
 //! - `by-fingerprint/<FPR>`  — full (v4/v6) fingerprint, uppercase hex.
 //! - `by-keyid/<KEYID>`      — 16-hex 64-bit key id.
 
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
 use crate::error::{CryptoError, Result};
 #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
 use crate::types::CryptoKey;

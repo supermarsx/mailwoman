@@ -21,6 +21,19 @@ with rPGP — proving rPGP consumes real GnuPG output.
 Thunderbird output is standard RFC 9580/Autocrypt OpenPGP (same rPGP path); a
 recorded Thunderbird vector can be dropped in here for CI (e9) without code change.
 
+## `pgp/e37/` — key states (t32-e37)
+
+Written by `scripts/pgp/gen-fixtures.sh` (GnuPG 2.4.9, passphrase `interop-pass`):
+an RSA-3072 key whose signatures come from a signing subkey, a key revoked after it
+signed, a key created in 2020 that expired a year later (its signature dates from
+when it was valid), and a SHA-1 signature by the Bob key above. Read by
+`tests/pgp_e37_red.rs` and `tests/pgp_e37.rs`.
+
+`tests/pgp_gnupg_live.rs` drives a real `gpg` in both directions when
+`MW_GPG_INTEROP=1` is set (it fails if `gpg` is then missing). The Bob secret key
+above imports into GnuPG, but GnuPG then refuses its encryption subkey ("Bad
+passphrase") although rPGP reads it; the live tests make their own GnuPG keys.
+
 ## `smime/` — openssl (Outlook-style) interop
 
 Generated with OpenSSL 3.x — an RSA-2048 self-signed S/MIME cert (`alice`), its

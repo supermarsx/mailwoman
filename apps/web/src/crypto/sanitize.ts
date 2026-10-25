@@ -13,7 +13,7 @@
 // cannot host) — see `sanitize.test.ts` for the torture assertion (a decrypted
 // `<script>`/onclick body is stripped by the in-worker wasm sanitize).
 
-import type { DecryptResult } from '../contracts/crypto.ts';
+import type { DecryptResult, Verification } from '../contracts/crypto.ts';
 import type { SignatureVerdict } from '../api/security-types.ts';
 
 /** The raw shape `mw-crypto`'s wasm `decrypt` returns (plaintext not yet routed). */
@@ -22,6 +22,8 @@ export interface RawDecryptResult {
   plaintextHtml?: string;
   subject?: string | null;
   signature: SignatureVerdict;
+  verification?: Verification;
+  aead?: boolean | null;
 }
 
 /**
@@ -44,8 +46,10 @@ export function sanitizeDecryptResult(
   raw: RawDecryptResult,
   sanitizeHtml: (html: string) => string,
 ): DecryptResult {
-  const base: { subject?: string; signature: SignatureVerdict } =
-    raw.subject != null ? { subject: raw.subject, signature: raw.signature } : { signature: raw.signature };
+  const base: Omit<DecryptResult, 'plaintextHtml' | 'plaintextText'> = { signature: raw.signature };
+  if (raw.subject != null) base.subject = raw.subject;
+  if (raw.verification !== undefined) base.verification = raw.verification;
+  if (raw.aead != null) base.aead = raw.aead;
 
   // If the worker already produced HTML, sanitize it; otherwise inspect the text.
   if (raw.plaintextHtml !== undefined) {

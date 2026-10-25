@@ -1,8 +1,15 @@
 //! OpenPGP (RFC 9580) over rPGP — the `pgp` crate (MIT/Apache, plan §1.1/§1.11).
-//! v6 key generation (Ed25519 primary / X25519 encryption subkey), encrypt/sign/
-//! decrypt/verify with SEIPDv2 AEAD (OCB) + AES-256 + SHA-256 floor, armored +
-//! Autocrypt import/export, Autocrypt L1 header parse/gen, Autocrypt Setup Message
-//! backup, and TOFU trust evaluation.
+//!
+//! - Key generation: v6 (Ed25519 primary / X25519 encryption subkey, the default) or
+//!   the "compatible" v4 profile (EdDSA + ECDH Curve25519, what GnuPG 2.2–2.4 read).
+//! - Encryption is recipient-aware (t32-e37, DA32): SEIPDv2 (AES-256/OCB) when every
+//!   recipient is a v6 key or advertises SEIPDv2, else SEIPDv1 (AES-256 + MDC) so a
+//!   v4-only reader such as GnuPG 2.4 can decrypt.
+//! - Keys are used only through [`cert`]: verified self-signatures decide flags,
+//!   expiry, revocation and subkey binding; verdicts carry the real algorithm and
+//!   creation / expiry times ([`crate::verdict`]).
+//! - Key management lives in [`manage`], Autocrypt in [`autocrypt`], PGP/MIME
+//!   structures in [`crate::mime`].
 //!
 //! The PGP `encryptedPrivateBundle` (frozen §2.3) is the rPGP secret key armored
 //! **under S2K passphrase protection** — the private material is never emitted in
@@ -10,20 +17,34 @@
 //! the browser wasm build (plan §1.2) — but the code is target-agnostic; the
 //! feature split is purely which functions each side calls.
 
+pub mod autocrypt;
+pub mod cert;
+pub mod manage;
+pub mod pgpmime;
+
 use pgp::composed::{
     ArmorOptions, CleartextSignedMessage, Deserializable, DetachedSignature, EncryptionCaps,
-    KeyType, Message, MessageBuilder, SecretKeyParamsBuilder, SignedPublicKey, SignedPublicSubKey,
-    SignedSecretKey, SubkeyParamsBuilder,
+    KeyType, Message, MessageBuilder, SecretKeyParamsBuilder, SignedPublicKey, SignedSecretKey,
+    SubkeyParamsBuilder,
 };
 use pgp::crypto::aead::AeadAlgorithm;
+use pgp::crypto::ecc_curve::ECCCurve;
 use pgp::crypto::hash::HashAlgorithm;
 use pgp::crypto::sym::SymmetricKeyAlgorithm;
-use pgp::ser::Serialize;
-use pgp::types::{KeyDetails, KeyVersion, Password, Timestamp};
+use pgp::packet::Signature;
+use pgp::ser::Serialize as _;
+use pgp::types::{CompressionAlgorithm, KeyDetails, KeyVersion, Password, SigningKey, Timestamp};
+use serde::{Deserialize, Serialize};
+use smallvec::smallvec;
 
+use crate::clock;
 use crate::error::{CryptoError, Result};
 use crate::rng;
 use crate::types::{CryptoKey, KeyHistoryEntry, SignatureVerdict};
+use crate::verdict::{self, Verification};
+
+pub use autocrypt::{autocrypt_header, parse_autocrypt_header};
+pub use cert::{PgpKeyInfo, PgpSubkeyInfo, PgpUserId, Revocation};
 
 /// Result of [`generate_key`] — the browser stores the wrapped bundle in its vault
 /// and uploads only `public_key_armored` + the opaque bundle (never plaintext).
@@ -34,32 +55,86 @@ pub struct GeneratedKey {
     pub encrypted_private_bundle: String,
 }
 
+/// Which kind of key [`generate_key_with`] makes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum KeyProfile {
+    /// v6: Ed25519 primary (certify + sign), X25519 encryption subkey (RFC 9580).
+    #[default]
+    V6,
+    /// v4: EdDSA (Ed25519) primary, ECDH Curve25519 encryption subkey — the key type
+    /// GnuPG 2.2 to 2.4 generate and read. Advertises SEIPDv1 only.
+    Compatible,
+}
+
+/// Options for [`generate_key_with`].
+#[derive(Debug, Clone, Default)]
+pub struct GenerateOptions {
+    pub profile: KeyProfile,
+    /// Seconds after creation when the key expires; `None` = no expiry.
+    pub expires_in_secs: Option<u64>,
+}
+
 /// Result of [`decrypt`].
 pub struct Decrypted {
     pub plaintext: Vec<u8>,
     /// The protected-headers `Subject:` if the message carried one (§2.3).
     pub subject: Option<String>,
+    /// The frozen verdict (same as `verification.signature`).
     pub signature: SignatureVerdict,
+    /// The full signature state.
+    pub verification: Verification,
+    /// The message used SEIPDv2 (AEAD) rather than SEIPDv1.
+    pub aead: bool,
+}
+
+/// Result of [`encrypt_with`].
+pub struct Encrypted {
+    pub armored: String,
+    /// 1 (SEIPDv1, AES-256 + MDC) or 2 (SEIPDv2, AES-256/OCB).
+    pub seipd_version: u8,
 }
 
 fn parse(e: impl std::fmt::Display) -> CryptoError {
     CryptoError::Parse(e.to_string())
 }
 
+// ── key generation ───────────────────────────────────────────────────────────
+
 /// Generate a v6 OpenPGP key: Ed25519 primary (certify + sign), X25519 encryption
 /// subkey. The returned bundle is the secret key armored under S2K protection with
 /// `passphrase`.
 pub fn generate_key(user_id: &str, passphrase: &str) -> Result<GeneratedKey> {
-    // rPGP reads the wall clock via `std::time::SystemTime`, which panics on
-    // `wasm32-unknown-unknown` ("time not implemented"). chrono's `wasmbind` reads
-    // the JS clock on wasm, so we source the creation time from it and pass it
-    // explicitly — this also fixes the signature-creation timestamp (see `sign_now`).
+    generate_key_with(user_id, passphrase, &GenerateOptions::default())
+}
+
+/// Generate a key of `opts.profile`, optionally expiring `opts.expires_in_secs`
+/// after creation. See [`KeyProfile`].
+pub fn generate_key_with(
+    user_id: &str,
+    passphrase: &str,
+    opts: &GenerateOptions,
+) -> Result<GeneratedKey> {
+    // rPGP's builder defaults read `std::time::SystemTime`, which has no clock on
+    // `wasm32-unknown-unknown`, so the creation time is passed explicitly.
     let created = now_timestamp();
+    let keygen = |e: pgp::errors::Error| CryptoError::KeyGen(e.to_string());
+    let build = |e: pgp::composed::SubkeyParamsBuilderError| CryptoError::KeyGen(e.to_string());
+
+    let (version, primary_type, sub_type, seipd_v2) = match opts.profile {
+        KeyProfile::V6 => (KeyVersion::V6, KeyType::Ed25519, KeyType::X25519, true),
+        KeyProfile::Compatible => (
+            KeyVersion::V4,
+            KeyType::Ed25519Legacy,
+            KeyType::ECDH(ECCCurve::Curve25519Legacy),
+            false,
+        ),
+    };
 
     let mut enc_subkey = SubkeyParamsBuilder::default();
     enc_subkey
-        .version(KeyVersion::V6)
-        .key_type(KeyType::X25519)
+        .version(version)
+        .key_type(sub_type)
         .created_at(created)
         .can_encrypt(EncryptionCaps::All)
         .can_sign(false)
@@ -67,51 +142,58 @@ pub fn generate_key(user_id: &str, passphrase: &str) -> Result<GeneratedKey> {
 
     let mut params = SecretKeyParamsBuilder::default();
     params
-        .version(KeyVersion::V6)
-        .key_type(KeyType::Ed25519)
+        .version(version)
+        .key_type(primary_type)
         .created_at(created)
         .can_certify(true)
         .can_sign(true)
         .can_encrypt(EncryptionCaps::None)
+        .feature_seipd_v1(true)
+        .feature_seipd_v2(seipd_v2)
+        .preferred_symmetric_algorithms(smallvec![
+            SymmetricKeyAlgorithm::AES256,
+            SymmetricKeyAlgorithm::AES128,
+        ])
+        .preferred_hash_algorithms(smallvec![HashAlgorithm::Sha512, HashAlgorithm::Sha256])
+        .preferred_compression_algorithms(smallvec![
+            CompressionAlgorithm::ZLIB,
+            CompressionAlgorithm::Uncompressed,
+        ])
         .primary_user_id(user_id.to_string())
-        .subkey(
-            enc_subkey
-                .build()
-                .map_err(|e| CryptoError::KeyGen(e.to_string()))?,
-        );
+        .subkey(enc_subkey.build().map_err(build)?);
+    if seipd_v2 {
+        params.preferred_aead_algorithms(smallvec![
+            (SymmetricKeyAlgorithm::AES256, AeadAlgorithm::Ocb),
+            (SymmetricKeyAlgorithm::AES128, AeadAlgorithm::Ocb),
+        ]);
+    }
 
     let secret_params = params
         .build()
         .map_err(|e| CryptoError::KeyGen(e.to_string()))?;
+    let mut signed = secret_params.generate(rng::pgp_rng()).map_err(keygen)?;
 
-    let mut signed = secret_params
-        .generate(rng::pgp_rng())
-        .map_err(|e| CryptoError::KeyGen(e.to_string()))?;
+    // Expiry is a property of the self-signatures; the builder has no field for it,
+    // so the fresh (still unlocked) key is re-signed with one.
+    if let Some(secs) = opts.expires_in_secs {
+        let at = u64::from(created.as_secs()).saturating_add(secs);
+        signed = manage::with_expiry(signed, &Password::empty(), Some(at), true)?;
+    }
 
-    // Fingerprint / key id / armored public half come from the public key (which
-    // implements `KeyDetails`); `SignedSecretKey` itself does not.
     let public = signed.to_public_key();
-    let fingerprint = fingerprint_hex(&public);
+    let fingerprint = cert::fingerprint_hex(&public);
     let key_id = public.legacy_key_id().to_string();
     let public_key_armored = public
         .to_armored_string(ArmorOptions::default())
-        .map_err(|e| CryptoError::KeyGen(e.to_string()))?;
+        .map_err(keygen)?;
 
     // Lock every secret component (primary + subkeys) under the passphrase (S2K)
     // before the key can be serialized — the decryption secret lives in the
     // encryption subkey, so it must be locked too, not just the primary.
-    signed
-        .primary_key
-        .set_password(rng::pgp_rng(), &pw(passphrase))
-        .map_err(|e| CryptoError::KeyGen(e.to_string()))?;
-    for sub in &mut signed.secret_subkeys {
-        sub.key
-            .set_password(rng::pgp_rng(), &pw(passphrase))
-            .map_err(|e| CryptoError::KeyGen(e.to_string()))?;
-    }
+    manage::lock_all(&mut signed, passphrase)?;
     let encrypted_private_bundle = signed
         .to_armored_string(ArmorOptions::default())
-        .map_err(|e| CryptoError::KeyGen(e.to_string()))?;
+        .map_err(keygen)?;
 
     Ok(GeneratedKey {
         public_key_armored,
@@ -121,14 +203,41 @@ pub fn generate_key(user_id: &str, passphrase: &str) -> Result<GeneratedKey> {
     })
 }
 
-/// Encrypt `plaintext` (SEIPDv2 / OCB / AES-256) to every recipient in
-/// `recipient_public_keys` (armored), optionally signing with the passphrase-locked
-/// `sign_with` bundle. Returns armored ciphertext.
+// ── encryption ───────────────────────────────────────────────────────────────
+
+/// Encrypt `plaintext` to every recipient in `recipient_public_keys` (armored),
+/// optionally signing with the passphrase-locked `sign_with` bundle. Returns armored
+/// ciphertext. SEIPDv2 when every recipient supports it, else SEIPDv1 (see the
+/// module docs).
 pub fn encrypt(
     plaintext: &[u8],
     recipient_public_keys: &[String],
     sign_with: Option<(&str, &str)>,
 ) -> Result<String> {
+    encrypt_with(plaintext, recipient_public_keys, sign_with).map(|e| e.armored)
+}
+
+/// [`encrypt`], also reporting which SEIPD version was chosen.
+pub fn encrypt_with(
+    plaintext: &[u8],
+    recipient_public_keys: &[String],
+    sign_with: Option<(&str, &str)>,
+) -> Result<Encrypted> {
+    encrypt_at(
+        plaintext,
+        recipient_public_keys,
+        sign_with,
+        clock::now_secs(),
+    )
+}
+
+/// [`encrypt_with`] evaluating the recipients' keys at `now` (Unix seconds).
+pub fn encrypt_at(
+    plaintext: &[u8],
+    recipient_public_keys: &[String],
+    sign_with: Option<(&str, &str)>,
+    now: u64,
+) -> Result<Encrypted> {
     if recipient_public_keys.is_empty() {
         return Err(CryptoError::Input("no recipients".into()));
     }
@@ -136,37 +245,76 @@ pub fn encrypt(
         .iter()
         .map(|a| parse_public(a))
         .collect::<Result<_>>()?;
+    let evals: Vec<cert::CertEval<'_>> =
+        recipients.iter().map(|c| cert::evaluate(c, now)).collect();
+    for e in &evals {
+        if e.encryption_targets().is_empty() {
+            return Err(CryptoError::Input(format!(
+                "recipient key {} has no usable encryption key ({})",
+                cert::fingerprint_hex(&e.cert.primary_key),
+                e.state.token()
+            )));
+        }
+    }
+    let use_v2 = evals.iter().all(|e| e.seipd_v2);
 
-    let mut builder = MessageBuilder::from_bytes("", plaintext.to_vec()).seipd_v2(
-        rng::pgp_rng(),
-        SymmetricKeyAlgorithm::AES256,
-        AeadAlgorithm::Ocb,
-        Default::default(),
-    );
-
-    // Optional signing key must outlive the builder borrow.
+    // The optional signer must outlive the builder borrow.
     let signer = match sign_with {
         Some((bundle, passphrase)) => Some((parse_secret(bundle)?, passphrase.to_string())),
         None => None,
     };
-    if let Some((ref ssk, ref passphrase)) = signer {
-        builder.sign(&ssk.primary_key, pw(passphrase), HashAlgorithm::Sha256);
-    }
+    let signer_public = signer.as_ref().map(|(ssk, _)| ssk.to_public_key());
+    let signing_key = match (&signer, &signer_public) {
+        (Some((ssk, _)), Some(public)) => Some(select_signing_key(ssk, public, now)?),
+        _ => None,
+    };
 
-    let subkeys: Vec<SignedPublicSubKey> = recipients
-        .iter()
-        .map(encryption_subkey)
-        .collect::<Result<_>>()?;
-    for enc in &subkeys {
-        builder
-            .encrypt_to_key(rng::pgp_rng(), enc)
-            .map_err(|e| CryptoError::Encrypt(e.to_string()))?;
+    let armored = if use_v2 {
+        let mut builder = MessageBuilder::from_bytes("", plaintext.to_vec()).seipd_v2(
+            rng::pgp_rng(),
+            SymmetricKeyAlgorithm::AES256,
+            AeadAlgorithm::Ocb,
+            Default::default(),
+        );
+        if let (Some(key), Some((_, passphrase))) = (&signing_key, &signer) {
+            builder.sign(key.as_signing(), pw(passphrase), HashAlgorithm::Sha512);
+        }
+        for e in &evals {
+            for target in e.encryption_targets() {
+                match target {
+                    cert::EncTarget::Primary(k) => builder.encrypt_to_key(rng::pgp_rng(), k),
+                    cert::EncTarget::Sub(k) => builder.encrypt_to_key(rng::pgp_rng(), k),
+                }
+                .map_err(|e| CryptoError::Encrypt(e.to_string()))?;
+            }
+        }
+        builder.to_armored_string(rng::pgp_rng(), ArmorOptions::default())
+    } else {
+        let mut builder = MessageBuilder::from_bytes("", plaintext.to_vec())
+            .seipd_v1(rng::pgp_rng(), SymmetricKeyAlgorithm::AES256);
+        if let (Some(key), Some((_, passphrase))) = (&signing_key, &signer) {
+            builder.sign(key.as_signing(), pw(passphrase), HashAlgorithm::Sha512);
+        }
+        for e in &evals {
+            for target in e.encryption_targets() {
+                match target {
+                    cert::EncTarget::Primary(k) => builder.encrypt_to_key(rng::pgp_rng(), k),
+                    cert::EncTarget::Sub(k) => builder.encrypt_to_key(rng::pgp_rng(), k),
+                }
+                .map_err(|e| CryptoError::Encrypt(e.to_string()))?;
+            }
+        }
+        builder.to_armored_string(rng::pgp_rng(), ArmorOptions::default())
     }
+    .map_err(|e| CryptoError::Encrypt(e.to_string()))?;
 
-    builder
-        .to_armored_string(rng::pgp_rng(), ArmorOptions::default())
-        .map_err(|e| CryptoError::Encrypt(e.to_string()))
+    Ok(Encrypted {
+        armored,
+        seipd_version: if use_v2 { 2 } else { 1 },
+    })
 }
+
+// ── decryption ───────────────────────────────────────────────────────────────
 
 /// Decrypt an armored/binary PGP message with the passphrase-locked `bundle`.
 /// Verifies an inline signature against `signer_public_key` when provided and
@@ -177,15 +325,37 @@ pub fn decrypt(
     passphrase: &str,
     signer_public_key: Option<&str>,
 ) -> Result<Decrypted> {
+    let signers: Vec<&str> = signer_public_key.into_iter().collect();
+    decrypt_with(ciphertext, encrypted_private_bundle, passphrase, &signers)
+}
+
+/// [`decrypt`] checking an inline signature against any of `signer_public_keys`.
+pub fn decrypt_with(
+    ciphertext: &[u8],
+    encrypted_private_bundle: &str,
+    passphrase: &str,
+    signer_public_keys: &[&str],
+) -> Result<Decrypted> {
+    decrypt_at(
+        ciphertext,
+        encrypted_private_bundle,
+        passphrase,
+        signer_public_keys,
+        clock::now_secs(),
+    )
+}
+
+/// [`decrypt_with`] judging the signer's key at `now` (Unix seconds).
+pub fn decrypt_at(
+    ciphertext: &[u8],
+    encrypted_private_bundle: &str,
+    passphrase: &str,
+    signer_public_keys: &[&str],
+    now: u64,
+) -> Result<Decrypted> {
     let ssk = parse_secret(encrypted_private_bundle)?;
-    // Parse armored or binary; both borrow `ciphertext`, which outlives this fn.
-    let armored_str;
-    let message = if ciphertext.starts_with(b"-----BEGIN") {
-        armored_str = std::str::from_utf8(ciphertext).map_err(parse)?;
-        Message::from_string(armored_str).map_err(parse)?.0
-    } else {
-        Message::from_bytes(ciphertext).map_err(parse)?
-    };
+    let message = parse_message(ciphertext)?;
+    let aead = message_uses_aead(ciphertext);
 
     let mut decrypted = message
         .decrypt(&pw(passphrase), &ssk)
@@ -195,29 +365,105 @@ pub fn decrypt(
             .decompress()
             .map_err(|e| CryptoError::Decrypt(e.to_string()))?;
     }
-
     let data = decrypted
         .as_data_vec()
         .map_err(|e| CryptoError::Decrypt(e.to_string()))?;
 
-    let signature = match signer_public_key {
-        Some(pubkey) => {
-            let cert = parse_public(pubkey)?;
-            match decrypted.verify(&cert) {
-                Ok(_) => verdict_verified(&cert),
-                Err(_) => verdict("invalid", None),
-            }
-        }
-        None => verdict("none", None),
-    };
+    let certs: Vec<SignedPublicKey> = signer_public_keys
+        .iter()
+        .filter_map(|a| parse_public(a).ok())
+        .collect();
+    let verification = verify_message_signatures(&decrypted, &certs, now);
 
     let (subject, body) = unwrap_protected_headers(&data);
     Ok(Decrypted {
         plaintext: body,
         subject,
-        signature,
+        signature: verification.signature.clone(),
+        verification,
+        aead,
     })
 }
+
+/// Does the (armored or binary) message contain a SEIPDv2 packet? Read from the
+/// packet stream without decrypting.
+fn message_uses_aead(ciphertext: &[u8]) -> bool {
+    use pgp::packet::{Packet, PacketParser};
+    let bytes = match dearmor(ciphertext) {
+        Some(b) => b,
+        None => ciphertext.to_vec(),
+    };
+    PacketParser::new(&bytes[..]).flatten().any(|p| {
+        matches!(p, Packet::SymEncryptedProtectedData(ref d)
+            if d.version() == 2)
+    })
+}
+
+fn dearmor(input: &[u8]) -> Option<Vec<u8>> {
+    use std::io::Read;
+    if !input.starts_with(b"-----BEGIN") {
+        return None;
+    }
+    let mut d = pgp::armor::Dearmor::new(input);
+    let mut out = Vec::new();
+    d.read_to_end(&mut out).ok()?;
+    Some(out)
+}
+
+fn parse_message(ciphertext: &[u8]) -> Result<Message<'_>> {
+    if ciphertext.starts_with(b"-----BEGIN") {
+        let text = std::str::from_utf8(ciphertext).map_err(parse)?;
+        Ok(Message::from_string(text).map_err(parse)?.0)
+    } else {
+        Message::from_bytes(ciphertext).map_err(parse)
+    }
+}
+
+/// Judge the signatures of a fully read, decrypted message against `certs`.
+fn verify_message_signatures(
+    msg: &Message<'_>,
+    certs: &[SignedPublicKey],
+    now: u64,
+) -> Verification {
+    let Message::Signed { reader, .. } = msg else {
+        return Verification::not_signed("pgp");
+    };
+    let mut best: Option<Verification> = None;
+    for i in 0..reader.num_signatures() {
+        let Some(sig) = reader.signature(i) else {
+            continue;
+        };
+        let v = judge_signature(sig, certs, now, |component| {
+            msg.verify_nested_explicit(i, component.as_verifying())
+                .is_ok()
+        });
+        best = Some(match best {
+            None => v,
+            Some(b) => better(b, v),
+        });
+    }
+    best.unwrap_or_else(|| Verification::not_signed("pgp"))
+}
+
+/// Of two results for different signatures on the same data, keep the stronger.
+fn better(a: Verification, b: Verification) -> Verification {
+    fn rank(s: &str) -> u8 {
+        match s {
+            verdict::VALID => 5,
+            verdict::KEY_EXPIRED | verdict::NOT_YET_VALID => 3,
+            verdict::UNKNOWN_KEY => 2,
+            verdict::REVOKED | verdict::BAD_SIGNATURE => 1,
+            _ => 0,
+        }
+    }
+    if rank(&b.state) > rank(&a.state) {
+        b
+    } else {
+        a
+    }
+}
+
+// ── signing ──────────────────────────────────────────────────────────────────
 
 /// Produce a detached, armored signature over `data` with the locked `bundle`.
 pub fn sign_detached(
@@ -226,13 +472,24 @@ pub fn sign_detached(
     passphrase: &str,
 ) -> Result<String> {
     let ssk = parse_secret(encrypted_private_bundle)?;
-    let sig = DetachedSignature::sign_binary_data(
-        rng::pgp_rng(),
-        &ssk.primary_key,
-        &pw(passphrase),
-        HashAlgorithm::Sha256,
-        data,
-    )
+    let public = ssk.to_public_key();
+    let key = select_signing_key(&ssk, &public, clock::now_secs())?;
+    let sig = match key {
+        SignKey::Primary(k) => DetachedSignature::sign_binary_data(
+            rng::pgp_rng(),
+            k,
+            &pw(passphrase),
+            HashAlgorithm::Sha512,
+            data,
+        ),
+        SignKey::Sub(k) => DetachedSignature::sign_binary_data(
+            rng::pgp_rng(),
+            k,
+            &pw(passphrase),
+            HashAlgorithm::Sha512,
+            data,
+        ),
+    }
     .map_err(|e| CryptoError::Sign(e.to_string()))?;
     sig.to_armored_string(ArmorOptions::default())
         .map_err(|e| CryptoError::Sign(e.to_string()))
@@ -247,13 +504,63 @@ pub fn sign_detached(
 /// so the body is never discarded (the sign-only wire hole).
 pub fn clear_sign(data: &str, encrypted_private_bundle: &str, passphrase: &str) -> Result<String> {
     let ssk = parse_secret(encrypted_private_bundle)?;
-    let signed =
-        CleartextSignedMessage::sign(rng::pgp_rng(), data, &ssk.primary_key, &pw(passphrase))
-            .map_err(|e| CryptoError::Sign(e.to_string()))?;
+    let public = ssk.to_public_key();
+    let key = select_signing_key(&ssk, &public, clock::now_secs())?;
+    let signed = match key {
+        SignKey::Primary(k) => {
+            CleartextSignedMessage::sign(rng::pgp_rng(), data, k, &pw(passphrase))
+        }
+        SignKey::Sub(k) => CleartextSignedMessage::sign(rng::pgp_rng(), data, k, &pw(passphrase)),
+    }
+    .map_err(|e| CryptoError::Sign(e.to_string()))?;
     signed
         .to_armored_string(ArmorOptions::default())
         .map_err(|e| CryptoError::Sign(e.to_string()))
 }
+
+/// The secret component that makes data signatures.
+pub(crate) enum SignKey<'a> {
+    Primary(&'a pgp::packet::SecretKey),
+    Sub(&'a pgp::packet::SecretSubkey),
+}
+
+impl SignKey<'_> {
+    fn as_signing(&self) -> &dyn SigningKey {
+        match self {
+            SignKey::Primary(k) => *k,
+            SignKey::Sub(k) => *k,
+        }
+    }
+}
+
+/// Pick the signing key of a secret key at `now`: the primary when it is flagged
+/// for signing and usable, else the newest usable signing subkey.
+pub(crate) fn select_signing_key<'a>(
+    ssk: &'a SignedSecretKey,
+    public: &SignedPublicKey,
+    now: u64,
+) -> Result<SignKey<'a>> {
+    let eval = cert::evaluate(public, now);
+    let usable = eval.signing_fingerprints();
+    if usable.is_empty() {
+        return Err(CryptoError::Sign(format!(
+            "key {} has no usable signing key ({})",
+            cert::fingerprint_hex(&public.primary_key),
+            eval.state.token()
+        )));
+    }
+    if usable.contains(&cert::fingerprint_hex(&ssk.primary_key)) {
+        return Ok(SignKey::Primary(&ssk.primary_key));
+    }
+    ssk.secret_subkeys
+        .iter()
+        .filter(|s| usable.contains(&cert::fingerprint_hex(&s.key)))
+        .max_by_key(|s| s.key.created_at().as_secs())
+        .map(|s| SignKey::Sub(&s.key))
+        .ok_or_else(|| CryptoError::Sign("no secret material for the signing key".into()))
+}
+
+// ── verification ─────────────────────────────────────────────────────────────
 
 /// Verify an inline cleartext-signed message (`PGP SIGNED MESSAGE`, produced by
 /// [`clear_sign`]) against `signer_public_key`, returning `(verdict, cleartext)`.
@@ -262,15 +569,44 @@ pub fn verify_clear_signed(
     armored: &str,
     signer_public_key: &str,
 ) -> Result<(SignatureVerdict, String)> {
-    let cert = parse_public(signer_public_key)?;
+    let (v, text) = verify_cleartext(armored, &[signer_public_key])?;
+    Ok((v.signature, text))
+}
+
+/// Verify a cleartext-signed message against any of `signer_public_keys` →
+/// `(verification, signed text)`.
+pub fn verify_cleartext(
+    armored: &str,
+    signer_public_keys: &[&str],
+) -> Result<(Verification, String)> {
+    verify_cleartext_at(armored, signer_public_keys, clock::now_secs())
+}
+
+/// [`verify_cleartext`] judging keys at `now`.
+pub fn verify_cleartext_at(
+    armored: &str,
+    signer_public_keys: &[&str],
+    now: u64,
+) -> Result<(Verification, String)> {
+    let certs = parse_publics(signer_public_keys)?;
     let (msg, _) = CleartextSignedMessage::from_string(armored).map_err(parse)?;
-    let verdict = match msg.verify(&cert) {
-        Ok(_) => verdict_verified(&cert),
-        Err(_) => verdict("invalid", None),
-    };
+    let text = msg.signed_text();
+    let mut best: Option<Verification> = None;
+    for sig in msg.signatures() {
+        let v = judge_signature(sig, &certs, now, |component| {
+            component.verify_data(sig, text.as_bytes())
+        });
+        best = Some(match best {
+            None => v,
+            Some(b) => better(b, v),
+        });
+    }
     // `signed_text` is the de-dash-escaped, CRLF-normalized content the signature
     // actually covers (`text()` would return the dash-escaped transport form).
-    Ok((verdict, msg.signed_text()))
+    Ok((
+        best.unwrap_or_else(|| Verification::not_signed("pgp")),
+        text,
+    ))
 }
 
 /// Verify a detached armored signature over `data` against `signer_public_key`.
@@ -279,17 +615,241 @@ pub fn verify_detached(
     signature_armored: &str,
     signer_public_key: &str,
 ) -> Result<SignatureVerdict> {
-    let cert = parse_public(signer_public_key)?;
-    let (sig, _) = DetachedSignature::from_string(signature_armored).map_err(parse)?;
-    match sig.verify(&cert, data) {
-        Ok(_) => Ok(verdict_verified(&cert)),
-        Err(_) => Ok(verdict("invalid", None)),
+    verify_detached_with(data, signature_armored, &[signer_public_key]).map(|v| v.signature)
+}
+
+/// Verify a detached signature (armored, or binary as in a PGP/MIME
+/// `application/pgp-signature` part) over `data` against any of
+/// `signer_public_keys`.
+pub fn verify_detached_with(
+    data: &[u8],
+    signature: &str,
+    signer_public_keys: &[&str],
+) -> Result<Verification> {
+    verify_detached_at(
+        data,
+        signature.as_bytes(),
+        signer_public_keys,
+        clock::now_secs(),
+    )
+}
+
+/// [`verify_detached_with`] on raw signature bytes, judging keys at `now`.
+pub fn verify_detached_at(
+    data: &[u8],
+    signature: &[u8],
+    signer_public_keys: &[&str],
+    now: u64,
+) -> Result<Verification> {
+    let certs = parse_publics(signer_public_keys)?;
+    let sigs = parse_signatures(signature)?;
+    if sigs.is_empty() {
+        return Ok(Verification::not_signed("pgp"));
+    }
+    let mut best: Option<Verification> = None;
+    for sig in &sigs {
+        let v = judge_signature(sig, &certs, now, |component| {
+            component.verify_data(sig, data)
+        });
+        best = Some(match best {
+            None => v,
+            Some(b) => better(b, v),
+        });
+    }
+    Ok(best.unwrap_or_else(|| Verification::not_signed("pgp")))
+}
+
+/// Every signature packet in an armored or binary signature block.
+fn parse_signatures(input: &[u8]) -> Result<Vec<Signature>> {
+    use pgp::packet::{Packet, PacketParser};
+    let bytes = match dearmor(input) {
+        Some(b) => b,
+        None if input.starts_with(b"-----BEGIN") => {
+            return Err(CryptoError::Parse("signature armor did not decode".into()));
+        }
+        None => input.to_vec(),
+    };
+    let mut out = Vec::new();
+    for p in PacketParser::new(&bytes[..]) {
+        match p.map_err(parse)? {
+            Packet::Signature(s) => out.push(s),
+            Packet::Marker(_) | Packet::Padding(_) => {}
+            other => {
+                return Err(CryptoError::Parse(format!(
+                    "unexpected {:?} packet in a signature",
+                    pgp::packet::PacketTrait::tag(&other)
+                )));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// A public key component a signature may come from.
+pub(crate) enum Component<'a> {
+    Primary(&'a pgp::packet::PublicKey),
+    Sub(&'a pgp::packet::PublicSubkey),
+}
+
+impl Component<'_> {
+    fn as_verifying(&self) -> &dyn pgp::types::VerifyingKey {
+        match self {
+            Component::Primary(k) => *k,
+            Component::Sub(k) => *k,
+        }
+    }
+    fn verify_data(&self, sig: &Signature, data: &[u8]) -> bool {
+        match self {
+            Component::Primary(k) => sig.verify(*k, data).is_ok(),
+            Component::Sub(k) => sig.verify(*k, data).is_ok(),
+        }
+    }
+    fn fingerprint(&self) -> pgp::types::Fingerprint {
+        match self {
+            Component::Primary(k) => k.fingerprint(),
+            Component::Sub(k) => k.fingerprint(),
+        }
+    }
+    fn key_id(&self) -> pgp::types::KeyId {
+        match self {
+            Component::Primary(k) => k.legacy_key_id(),
+            Component::Sub(k) => k.legacy_key_id(),
+        }
+    }
+    fn matches(&self, sig: &Signature) -> bool {
+        let fp = self.fingerprint();
+        let id = self.key_id();
+        sig.issuer_fingerprint().iter().any(|f| **f == fp)
+            || sig.issuer_key_id().iter().any(|i| **i == id)
     }
 }
+
+/// Decide the state of one signature against candidate certificates. `check` runs
+/// the cryptographic verification for one key component.
+fn judge_signature(
+    sig: &Signature,
+    certs: &[SignedPublicKey],
+    now: u64,
+    check: impl Fn(&Component<'_>) -> bool,
+) -> Verification {
+    let signed_at = cert::sig_created(sig);
+    let mut v = Verification::new("pgp", verdict::UNKNOWN_KEY);
+    v.signed_at = signed_at.map(clock::rfc3339);
+    v.signature.signer_key_id = sig
+        .issuer_key_id()
+        .first()
+        .map(|k| k.to_string())
+        .or_else(|| {
+            sig.issuer_fingerprint()
+                .first()
+                .map(|f| hex::encode(f.as_bytes()).to_uppercase())
+        });
+
+    for cert in certs {
+        let mut components = vec![Component::Primary(&cert.primary_key)];
+        components.extend(cert.public_subkeys.iter().map(|s| Component::Sub(&s.key)));
+        let has_issuer = !sig.issuer_fingerprint().is_empty() || !sig.issuer_key_id().is_empty();
+        for component in components {
+            if has_issuer && !component.matches(sig) {
+                continue;
+            }
+            let good = check(&component);
+            if !good && !has_issuer {
+                continue;
+            }
+            return describe(sig, cert, &component, good, signed_at, now);
+        }
+    }
+    v
+}
+
+/// The verdict for `sig` made by `component` of `cert`; `good` says whether the
+/// cryptographic check passed.
+fn describe(
+    sig: &Signature,
+    cert: &SignedPublicKey,
+    component: &Component<'_>,
+    good: bool,
+    signed_at: Option<u64>,
+    now: u64,
+) -> Verification {
+    let fp = hex::encode(component.fingerprint().as_bytes()).to_uppercase();
+    let at_signing = cert::evaluate(cert, signed_at.unwrap_or(now));
+    let current = cert::evaluate(cert, now);
+
+    let mut v = Verification::new("pgp", verdict::VALID);
+    v.signer_fingerprint = Some(cert::fingerprint_hex(&cert.primary_key));
+    v.signer_addresses = current.addresses();
+    v.signed_at = signed_at.map(clock::rfc3339);
+    v.signature.signer_key_id = Some(cert.primary_key.legacy_key_id().to_string());
+
+    // Component metadata as of signing time.
+    let (state_then, flags_sign, expires, created, alg) =
+        if fp == cert::fingerprint_hex(&cert.primary_key) {
+            (
+                at_signing.state,
+                at_signing.flags.sign(),
+                at_signing.expires,
+                u64::from(cert.primary_key.created_at().as_secs()),
+                cert::algorithm_name(cert.primary_key.public_params()),
+            )
+        } else {
+            let sub = at_signing
+                .subkeys
+                .iter()
+                .find(|s| cert::fingerprint_hex(&s.key.key) == fp);
+            match sub {
+                Some(s) => (
+                    s.state,
+                    s.flags.sign(),
+                    match (s.expires, at_signing.expires) {
+                        (Some(a), Some(b)) => Some(a.min(b)),
+                        (a, b) => a.or(b),
+                    },
+                    u64::from(s.key.key.created_at().as_secs()),
+                    cert::algorithm_name(s.key.key.public_params()),
+                ),
+                None => (cert::State::Invalid, false, None, 0, String::new()),
+            }
+        };
+    v.signature.algorithm = Some(alg);
+    v.signature.key_created_at = Some(clock::rfc3339(created));
+    v.signature.key_expires_at = expires.map(clock::rfc3339);
+
+    let revoked_now = current
+        .revocation
+        .as_ref()
+        .is_some_and(|r| r.applies_at(signed_at.unwrap_or(now)));
+    v.signature.revocation_status = Some(if revoked_now { "revoked" } else { "good" }.into());
+
+    if !good {
+        return v.with(verdict::BAD_SIGNATURE, Some("tampered"));
+    }
+    if cert::weak_data_hash(sig) {
+        return v.with(verdict::BAD_SIGNATURE, Some("weak-hash"));
+    }
+    if revoked_now {
+        return v.with(verdict::REVOKED, None);
+    }
+    match state_then {
+        cert::State::Valid => {}
+        cert::State::Expired => return v.with(verdict::KEY_EXPIRED, None),
+        cert::State::NotYetValid => return v.with(verdict::NOT_YET_VALID, None),
+        cert::State::Revoked => return v.with(verdict::REVOKED, None),
+        cert::State::Invalid => return v.with(verdict::BAD_SIGNATURE, Some("unbound-key")),
+    }
+    if !flags_sign {
+        return v.with(verdict::BAD_SIGNATURE, Some("not-a-signing-key"));
+    }
+    v
+}
+
+// ── keys: import, inspect, export ────────────────────────────────────────────
 
 /// Parse an armored PGP key (public or secret) into a [`CryptoKey`] for the keyring.
 /// If the armor carries a secret key, `has_private` is set and the (still
 /// passphrase-locked, if it was) armored secret is returned as the bundle.
+/// `addresses` empty → the key's own valid User ID addresses.
 pub fn parse_key(armored: &str, addresses: Vec<String>) -> Result<(CryptoKey, Option<String>)> {
     // Try secret first (a TSK contains the public half too).
     if let Ok((ssk, _)) = SignedSecretKey::from_string(armored) {
@@ -305,65 +865,59 @@ pub fn parse_key(armored: &str, addresses: Vec<String>) -> Result<(CryptoKey, Op
     Ok((key, None))
 }
 
+/// Every public key in an armored or binary block (a keyring file may hold more
+/// than one), each as a [`CryptoKey`] with `source`.
+pub fn parse_keys(input: &[u8], source: &str) -> Result<Vec<CryptoKey>> {
+    let certs: Vec<SignedPublicKey> = if input.starts_with(b"-----BEGIN") {
+        let text = std::str::from_utf8(input).map_err(parse)?;
+        let (iter, _) = SignedPublicKey::from_string_many(text).map_err(parse)?;
+        iter.collect::<std::result::Result<_, _>>().map_err(parse)?
+    } else {
+        SignedPublicKey::from_bytes_many(input)
+            .map_err(parse)?
+            .collect::<std::result::Result<_, _>>()
+            .map_err(parse)?
+    };
+    certs
+        .iter()
+        .map(|c| {
+            let armored = c
+                .to_armored_string(ArmorOptions::default())
+                .map_err(parse)?;
+            Ok(build_crypto_key(c, &armored, Vec::new(), false, source))
+        })
+        .collect()
+}
+
+/// Describe a key (public or secret armor) and its parts as of now.
+pub fn inspect_key(armored: &str) -> Result<PgpKeyInfo> {
+    inspect_key_at(armored, clock::now_secs())
+}
+
+/// [`inspect_key`] at `now` (Unix seconds).
+pub fn inspect_key_at(armored: &str, now: u64) -> Result<PgpKeyInfo> {
+    if let Ok((ssk, _)) = SignedSecretKey::from_string(armored) {
+        let public = ssk.to_public_key();
+        return Ok(cert::evaluate(&public, now).info(true));
+    }
+    let public = parse_public(armored)?;
+    Ok(cert::evaluate(&public, now).info(false))
+}
+
 /// Export the armored public key from a locked secret bundle (or pass through an
 /// armored public key).
 pub fn export_public(bundle_or_public: &str) -> Result<String> {
-    if let Ok((ssk, _)) = SignedSecretKey::from_string(bundle_or_public) {
-        return ssk
-            .to_public_key()
-            .to_armored_string(ArmorOptions::default())
-            .map_err(parse);
-    }
-    let cert = parse_public(bundle_or_public)?;
-    cert.to_armored_string(ArmorOptions::default())
+    public_of(bundle_or_public)?
+        .to_armored_string(ArmorOptions::default())
         .map_err(parse)
 }
 
-/// Generate an Autocrypt Level 1 header value (`addr=...; keydata=<base64>`) for a
-/// public key. `prefer_encrypt` toggles the `prefer-encrypt=mutual` attribute.
-pub fn autocrypt_header(
-    public_key_armored: &str,
-    addr: &str,
-    prefer_encrypt: bool,
-) -> Result<String> {
-    use base64::Engine;
-    let cert = parse_public(public_key_armored)?;
-    let bytes = cert.to_bytes().map_err(parse)?;
-    let keydata = base64::engine::general_purpose::STANDARD.encode(bytes);
-    let prefer = if prefer_encrypt {
-        "prefer-encrypt=mutual; "
-    } else {
-        ""
-    };
-    Ok(format!("addr={addr}; {prefer}keydata={keydata}"))
-}
-
-/// Parse an Autocrypt Level 1 header value into a [`CryptoKey`] (`source =
-/// "autocrypt-header"`).
-pub fn parse_autocrypt_header(header_value: &str) -> Result<CryptoKey> {
-    use base64::Engine;
-    let mut addr = None;
-    let mut keydata = None;
-    for part in header_value.split(';') {
-        let part = part.trim();
-        if let Some(v) = part.strip_prefix("addr=") {
-            addr = Some(v.trim().to_string());
-        } else if let Some(v) = part.strip_prefix("keydata=") {
-            keydata = Some(v.split_whitespace().collect::<String>());
-        }
+/// The public key from a secret bundle or public armor.
+pub(crate) fn public_of(bundle_or_public: &str) -> Result<SignedPublicKey> {
+    if let Ok((ssk, _)) = SignedSecretKey::from_string(bundle_or_public) {
+        return Ok(ssk.to_public_key());
     }
-    let keydata = keydata.ok_or_else(|| CryptoError::Parse("autocrypt: no keydata".into()))?;
-    let der = base64::engine::general_purpose::STANDARD
-        .decode(keydata.as_bytes())
-        .map_err(parse)?;
-    let cert = SignedPublicKey::from_bytes(std::io::Cursor::new(der)).map_err(parse)?;
-    let armored = cert
-        .to_armored_string(ArmorOptions::default())
-        .map_err(parse)?;
-    let addresses = addr.into_iter().collect();
-    let mut key = build_crypto_key(&cert, &armored, addresses, false, "autocrypt-header");
-    key.autocrypt = true;
-    Ok(key)
+    parse_public(bundle_or_public)
 }
 
 /// Wrap the passphrase-locked secret bundle as an Autocrypt Setup Message backup.
@@ -519,7 +1073,10 @@ pub fn tofu_eval(recorded_fingerprint: Option<&str>, seen_fingerprint: &str) -> 
     }
 }
 
-// ── Protected headers (§2.3 protected/encrypted subject) ─────────────────────
+// ── Protected headers, Mailwoman's first format (kept for reading old mail) ──
+//
+// New messages use RFC 9788 header protection on the MIME entity
+// (`crate::mime::protect_headers`); this stanza is what 26.19 and earlier wrote.
 
 const PROTECTED_HEADERS_CT: &str = "Content-Type: text/plain; protected-headers=\"v1\"";
 
@@ -558,7 +1115,52 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
 
+// ── Attached keys ────────────────────────────────────────────────────────────
+
+/// Keys carried by an attachment: `application/pgp-keys`, or a `.asc`/`.gpg`/
+/// `.pgp`/`.key` file (or any text) holding a `PGP PUBLIC KEY BLOCK`. Returns
+/// `None` when the part is not a key attachment, `Some(keys)` (possibly empty when
+/// it claims to be one but holds no readable key) otherwise. Secret keys are never
+/// returned from here: a key attachment is someone else's public key.
+pub fn detect_attached_keys(
+    content_type: &str,
+    filename: Option<&str>,
+    bytes: &[u8],
+) -> Option<Vec<CryptoKey>> {
+    let ct = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let name = filename.unwrap_or("").to_ascii_lowercase();
+    let armored_key = find_subslice(bytes, b"-----BEGIN PGP PUBLIC KEY BLOCK-----");
+    let claims = ct == "application/pgp-keys"
+        || (armored_key.is_some()
+            && [".asc", ".gpg", ".pgp", ".key", ".txt"]
+                .iter()
+                .any(|ext| name.ends_with(ext) || name.is_empty()));
+    if !claims {
+        return None;
+    }
+    let slice = match armored_key {
+        Some(start) => &bytes[start..],
+        None => bytes,
+    };
+    Some(parse_keys(slice, "attached").unwrap_or_default())
+}
+
 // ── WKD (native — HTTPS GET; pure URL derivation is testable offline) ────────
+
+/// The WKD hash of an address's local part: `zbase32(SHA-1(lowercase local part))`
+/// (draft-koch-openpgp-webkey-service §3.1). Also the file name a server publishes
+/// the key under.
+pub fn wkd_hash(local_part: &str) -> String {
+    use sha1::{Digest, Sha1};
+    let mut h = Sha1::new();
+    h.update(local_part.to_lowercase().as_bytes());
+    zbase32_encode(&h.finalize())
+}
 
 /// Derive the WKD (Web Key Directory) URL for an email address: the advanced method
 /// hosts under `openpgpkey.<domain>`, the direct method under `<domain>`; the local
@@ -567,16 +1169,14 @@ pub fn wkd_url(email: &str, advanced: bool) -> Result<String> {
     let (local, domain) = email
         .rsplit_once('@')
         .ok_or_else(|| CryptoError::Input("invalid email".into()))?;
-    let local_lower = local.to_lowercase();
+    if local.is_empty() || domain.is_empty() {
+        return Err(CryptoError::Input("invalid email".into()));
+    }
+    // The hash uses the lower-cased local part; the `l=` parameter carries it as
+    // written, so a server that keys on the exact local part can still find it.
+    let encoded = wkd_hash(local);
     let domain_lower = domain.to_lowercase();
-    let hash = {
-        use sha1::{Digest, Sha1};
-        let mut h = Sha1::new();
-        h.update(local_lower.as_bytes());
-        h.finalize()
-    };
-    let encoded = zbase32_encode(&hash);
-    let local_enc = urlencode(&local_lower);
+    let local_enc = urlencode(local);
     if advanced {
         Ok(format!(
             "https://openpgpkey.{domain_lower}/.well-known/openpgpkey/{domain_lower}/hu/{encoded}?l={local_enc}"
@@ -586,6 +1186,11 @@ pub fn wkd_url(email: &str, advanced: bool) -> Result<String> {
             "https://{domain_lower}/.well-known/openpgpkey/hu/{encoded}?l={local_enc}"
         ))
     }
+}
+
+/// Both WKD URLs for an address, advanced method first (the order a client tries).
+pub fn wkd_urls(email: &str) -> Result<[String; 2]> {
+    Ok([wkd_url(email, true)?, wkd_url(email, false)?])
 }
 
 /// The `User-Agent` WKD lookups announce. Named for what it is rather than
@@ -609,10 +1214,14 @@ fn wkd_refusal(r: mw_egress::Refusal) -> CryptoError {
     }
 }
 
-/// Fetch a WKD key (native only — HTTPS GET, no keyserver fallback).
+/// Fetch a WKD key (native only — HTTPS GET, no keyserver fallback). The advanced
+/// method is tried first; when it fails (most often because the `openpgpkey.`
+/// subdomain does not exist) the direct method is tried, as the WKD draft
+/// specifies. The key must carry a User ID with the looked-up address; a server
+/// handing out someone else's key is refused.
 #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
 pub async fn wkd_fetch(email: &str) -> Result<CryptoKey> {
-    let url = wkd_url(email, true)?;
+    let [advanced, direct] = wkd_urls(email)?;
     // Routed through `mw-egress` (t22-e9): the full SSRF gate, not just the ambient
     // proxy refusal this used to carry. The URL's domain comes from a correspondent's
     // address — which arrives in an incoming message — so it is attacker-influenceable,
@@ -620,20 +1229,47 @@ pub async fn wkd_fetch(email: &str) -> Result<CryptoKey> {
     // strict `ip_allowed` policy applies: WKD is served from a public domain's
     // `.well-known`, so there is no legitimate private target here (unlike autoconfig,
     // which has an opt-in for exactly that reason).
-    let bytes = mw_egress::fetch_url_hardened_with(
-        &url,
-        "application/octet-stream",
-        WKD_UA,
-        mw_egress::ip_allowed,
-    )
-    .await
-    .map_err(wkd_refusal)?;
-    let cert = SignedPublicKey::from_bytes(std::io::Cursor::new(bytes)).map_err(parse)?;
+    let fetch = |url: String| async move {
+        mw_egress::fetch_url_hardened_with(
+            &url,
+            "application/octet-stream",
+            WKD_UA,
+            mw_egress::ip_allowed,
+        )
+        .await
+        .map_err(wkd_refusal)
+    };
+    let bytes = match fetch(advanced).await {
+        Ok(b) => b,
+        Err(first) => fetch(direct).await.map_err(|second| match second {
+            // Report the direct method's 404 (no key) over the advanced method's
+            // failure, which is usually just a missing subdomain.
+            CryptoError::Input(_) => second,
+            _ => first,
+        })?,
+    };
+    wkd_key_from_bytes(email, &bytes)
+}
+
+/// Parse a WKD response body and check it is a key for `email`.
+pub fn wkd_key_from_bytes(email: &str, bytes: &[u8]) -> Result<CryptoKey> {
+    let wanted = email.to_lowercase();
+    let certs: Vec<SignedPublicKey> = SignedPublicKey::from_bytes_many(bytes)
+        .map_err(parse)?
+        .collect::<std::result::Result<_, _>>()
+        .map_err(parse)?;
+    let now = clock::now_secs();
+    let cert = certs
+        .iter()
+        .find(|c| cert::evaluate(c, now).addresses().contains(&wanted))
+        .ok_or_else(|| {
+            CryptoError::Input("the published key has no User ID with that address".into())
+        })?;
     let armored = cert
         .to_armored_string(ArmorOptions::default())
         .map_err(parse)?;
     Ok(build_crypto_key(
-        &cert,
+        cert,
         &armored,
         vec![email.to_string()],
         false,
@@ -678,66 +1314,66 @@ fn urlencode(s: &str) -> String {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-fn pw(passphrase: &str) -> Password {
+pub(crate) fn pw(passphrase: &str) -> Password {
     passphrase.into()
 }
 
-/// The current time as an rPGP [`Timestamp`], sourced from chrono (whose `wasmbind`
-/// reads the JS clock) so it never touches `std::time::SystemTime`, which is
-/// unimplemented on `wasm32-unknown-unknown`.
-fn now_timestamp() -> Timestamp {
-    let secs = chrono::Utc::now().timestamp().clamp(0, i64::from(u32::MAX)) as u32;
-    Timestamp::from_secs(secs)
+/// The current time as an rPGP [`Timestamp`], from [`clock::now_secs`] (the JS
+/// clock on wasm), never `std::time::SystemTime`, which is unimplemented on
+/// `wasm32-unknown-unknown`.
+pub(crate) fn now_timestamp() -> Timestamp {
+    Timestamp::from_secs(u32::try_from(clock::now_secs()).unwrap_or(u32::MAX))
 }
 
-fn parse_public(armored: &str) -> Result<SignedPublicKey> {
+pub(crate) fn parse_public(armored: &str) -> Result<SignedPublicKey> {
     let (cert, _) = SignedPublicKey::from_string(armored).map_err(parse)?;
     Ok(cert)
 }
 
-fn parse_secret(armored: &str) -> Result<SignedSecretKey> {
+fn parse_publics(armored: &[&str]) -> Result<Vec<SignedPublicKey>> {
+    armored.iter().map(|a| parse_public(a)).collect()
+}
+
+pub(crate) fn parse_secret(armored: &str) -> Result<SignedSecretKey> {
     let (ssk, _) = SignedSecretKey::from_string(armored).map_err(parse)?;
     Ok(ssk)
 }
 
-fn encryption_subkey(cert: &SignedPublicKey) -> Result<SignedPublicSubKey> {
-    cert.public_subkeys
-        .iter()
-        .find(|sk| sk.algorithm().can_encrypt())
-        .cloned()
-        .ok_or_else(|| CryptoError::Input("recipient key has no encryption subkey".into()))
-}
-
-fn fingerprint_hex(key: &impl KeyDetails) -> String {
-    hex::encode(key.fingerprint().as_bytes()).to_uppercase()
-}
-
-fn build_crypto_key(
-    key: &impl KeyDetails,
+pub(crate) fn build_crypto_key(
+    cert: &SignedPublicKey,
     public_key_armored: &str,
     addresses: Vec<String>,
     has_private: bool,
     source: &str,
 ) -> CryptoKey {
-    let fingerprint = fingerprint_hex(key);
+    let now = clock::now_secs();
+    let eval = cert::evaluate(cert, now);
+    let fingerprint = cert::fingerprint_hex(&cert.primary_key);
+    let addresses = if addresses.is_empty() {
+        eval.addresses()
+    } else {
+        addresses
+    };
+    let trust = if eval.state == cert::State::Revoked {
+        "revoked"
+    } else if has_private {
+        "verified"
+    } else {
+        "unverified"
+    };
     CryptoKey {
         id: format!("pgp:{fingerprint}"),
         kind: "pgp".into(),
         is_own: has_private,
         addresses,
         fingerprint: fingerprint.clone(),
-        key_id: key.legacy_key_id().to_string(),
-        algorithm: format!("{:?}", key.algorithm()).to_lowercase(),
-        created_at: chrono::Utc::now().to_rfc3339(),
-        expires_at: None,
+        key_id: cert.primary_key.legacy_key_id().to_string(),
+        algorithm: cert::algorithm_name(cert.primary_key.public_params()),
+        created_at: clock::rfc3339(u64::from(cert.primary_key.created_at().as_secs())),
+        expires_at: eval.expires.map(clock::rfc3339),
         public_key_armored: Some(public_key_armored.to_string()),
         cert_pem: None,
-        trust: if has_private {
-            "verified"
-        } else {
-            "unverified"
-        }
-        .into(),
+        trust: trust.into(),
         autocrypt: false,
         source: source.into(),
         has_private,
@@ -745,25 +1381,12 @@ fn build_crypto_key(
         verified_at: None,
         key_history: vec![KeyHistoryEntry {
             fingerprint,
-            seen_at: chrono::Utc::now().to_rfc3339(),
+            seen_at: clock::rfc3339(now),
         }],
     }
 }
 
-fn verdict(status: &str, signer_key_id: Option<String>) -> SignatureVerdict {
-    SignatureVerdict {
-        kind: "pgp".into(),
-        status: status.into(),
-        signer_key_id,
-        algorithm: Some("ed25519".into()),
-        key_created_at: None,
-        key_expires_at: None,
-        chain_status: None,
-        revocation_status: None,
-        key_changed: false,
-    }
-}
-
-fn verdict_verified(cert: &SignedPublicKey) -> SignatureVerdict {
-    verdict("verified", Some(cert.legacy_key_id().to_string()))
+/// Serialize a public key to binary (Autocrypt `keydata`, WKD files).
+pub(crate) fn to_binary(cert: &SignedPublicKey) -> Result<Vec<u8>> {
+    cert.to_bytes().map_err(parse)
 }

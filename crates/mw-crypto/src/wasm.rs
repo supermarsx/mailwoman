@@ -21,7 +21,8 @@ use wasm_bindgen::prelude::*;
 use zeroize::Zeroize;
 
 use crate::types::{CryptoKey, SignatureVerdict};
-use crate::{pgp, smime};
+use crate::verdict::Verification;
+use crate::{mime, pgp, smime};
 
 thread_local! {
     /// Session cache of unlocked keys (keyRef → wrapped bundle + passphrase), so the
@@ -47,8 +48,12 @@ pub fn __init() {
     console_error_panic_hook::set_once();
 }
 
+/// Marshal a DTO to JS. `None` becomes `null`, as `contracts/crypto.ts` declares
+/// (`string | null`); a field that is absent rather than null says so with
+/// `skip_serializing_if`.
 fn to_js<T: Serialize>(v: &T) -> Result<JsValue, JsValue> {
-    serde_wasm_bindgen::to_value(v).map_err(js_err)
+    v.serialize(&serde_wasm_bindgen::Serializer::new().serialize_missing_as_null(true))
+        .map_err(js_err)
 }
 fn from_js<T: DeserializeOwned>(v: JsValue) -> Result<T, JsValue> {
     serde_wasm_bindgen::from_value(v).map_err(js_err)
@@ -68,6 +73,11 @@ struct GenerateKeyIn {
     /// S/MIME only: RSA modulus size (2048, 3072 or 4096). Absent → the crate
     /// default, [`smime::GENERATED_RSA_BITS`].
     rsa_bits: Option<usize>,
+    /// PGP only: `"v6"` (default) or `"compatible"` (v4, readable by GnuPG 2.4).
+    #[serde(default)]
+    profile: pgp::KeyProfile,
+    /// PGP only: seconds after creation when the key expires.
+    expires_in_secs: Option<u64>,
 }
 /// A field that does not apply to the generated kind is absent, not empty: a PGP
 /// key has no `certPem`, an S/MIME key has no `publicKeyArmored`.
@@ -102,7 +112,11 @@ pub fn generate_key(options: JsValue) -> Result<JsValue, JsValue> {
     let i: GenerateKeyIn = from_js(options)?;
     match i.kind.as_str() {
         "pgp" => {
-            let k = pgp::generate_key(&i.user_id, &i.passphrase).map_err(js_err)?;
+            let opts = pgp::GenerateOptions {
+                profile: i.profile,
+                expires_in_secs: i.expires_in_secs,
+            };
+            let k = pgp::generate_key_with(&i.user_id, &i.passphrase, &opts).map_err(js_err)?;
             to_js(&GenerateKeyOut {
                 public_key_armored: Some(k.public_key_armored),
                 fingerprint: k.fingerprint,
@@ -166,6 +180,9 @@ struct EncryptIn {
 struct EncryptOut {
     armored_ciphertext: String,
     encrypted_subject_applied: bool,
+    /// PGP: 1 (SEIPDv1, some recipient lacks AEAD support) or 2 (SEIPDv2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seipd_version: Option<u8>,
 }
 
 /// `encrypt({kind, plaintext, recipientPublicKeys, signWithKeyRef?,
@@ -182,11 +199,12 @@ pub fn encrypt(options: JsValue) -> Result<JsValue, JsValue> {
             };
             let signer = i.sign_with_key_ref.as_deref().and_then(session_lookup);
             let sign_ref = signer.as_ref().map(|(b, p)| (b.as_str(), p.as_str()));
-            let armored =
-                pgp::encrypt(&body, &i.recipient_public_keys, sign_ref).map_err(js_err)?;
+            let out =
+                pgp::encrypt_with(&body, &i.recipient_public_keys, sign_ref).map_err(js_err)?;
             to_js(&EncryptOut {
-                armored_ciphertext: armored,
+                armored_ciphertext: out.armored,
                 encrypted_subject_applied: subject_applied,
+                seipd_version: Some(out.seipd_version),
             })
         }
         "smime" => {
@@ -196,6 +214,7 @@ pub fn encrypt(options: JsValue) -> Result<JsValue, JsValue> {
             to_js(&EncryptOut {
                 armored_ciphertext: base64::engine::general_purpose::STANDARD.encode(der),
                 encrypted_subject_applied: false,
+                seipd_version: None,
             })
         }
         other => Err(js_err(format!("unknown kind: {other}"))),
@@ -212,13 +231,22 @@ struct DecryptIn {
     encrypted_private_bundle: String,
     passphrase: String,
     signer_public_key: Option<String>,
+    /// PGP: every candidate signer key (the sender's keys from the keyring).
+    #[serde(default)]
+    signer_public_keys: Vec<String>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DecryptOut {
     plaintext_text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     subject: Option<String>,
     signature: SignatureVerdict,
+    /// The full signature state (see `crate::verdict`).
+    verification: Verification,
+    /// PGP: the message used SEIPDv2.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    aead: Option<bool>,
 }
 
 /// `decrypt({kind, ciphertext, encryptedPrivateBundle, passphrase})` →
@@ -229,17 +257,25 @@ pub fn decrypt(options: JsValue) -> Result<JsValue, JsValue> {
     let i: DecryptIn = from_js(options)?;
     match i.kind.as_str() {
         "pgp" => {
-            let out = pgp::decrypt(
+            let signers: Vec<&str> = i
+                .signer_public_key
+                .iter()
+                .chain(i.signer_public_keys.iter())
+                .map(String::as_str)
+                .collect();
+            let out = pgp::decrypt_with(
                 i.ciphertext.as_bytes(),
                 &i.encrypted_private_bundle,
                 &i.passphrase,
-                i.signer_public_key.as_deref(),
+                &signers,
             )
             .map_err(js_err)?;
             to_js(&DecryptOut {
                 plaintext_text: String::from_utf8_lossy(&out.plaintext).into_owned(),
                 subject: out.subject,
                 signature: out.signature,
+                verification: out.verification,
+                aead: Some(out.aead),
             })
         }
         "smime" => {
@@ -253,6 +289,8 @@ pub fn decrypt(options: JsValue) -> Result<JsValue, JsValue> {
                 plaintext_text: String::from_utf8_lossy(&pt).into_owned(),
                 subject: None,
                 signature: none_verdict("smime"),
+                verification: Verification::not_signed("smime"),
+                aead: None,
             })
         }
         other => Err(js_err(format!("unknown kind: {other}"))),
@@ -325,6 +363,9 @@ struct VerifyIn {
     data: String,
     signature: String,
     signer_public_key: Option<String>,
+    /// PGP: every candidate signer key.
+    #[serde(default)]
+    signer_public_keys: Vec<String>,
 }
 
 /// `verify({kind, data, signature, signerPublicKey})` → `SignatureVerdict`.
@@ -333,10 +374,18 @@ pub fn verify(options: JsValue) -> Result<JsValue, JsValue> {
     let i: VerifyIn = from_js(options)?;
     let verdict = match i.kind.as_str() {
         "pgp" => {
-            let key = i
+            let signers: Vec<&str> = i
                 .signer_public_key
-                .ok_or_else(|| js_err("pgp verify requires signerPublicKey"))?;
-            pgp::verify_detached(i.data.as_bytes(), &i.signature, &key).map_err(js_err)?
+                .iter()
+                .chain(i.signer_public_keys.iter())
+                .map(String::as_str)
+                .collect();
+            if signers.is_empty() {
+                return Err(js_err("pgp verify requires signerPublicKey"));
+            }
+            pgp::verify_detached_with(i.data.as_bytes(), &i.signature, &signers)
+                .map_err(js_err)?
+                .signature
         }
         "smime" => {
             use base64::Engine;
@@ -484,6 +533,7 @@ struct ImportArmoredIn {
 #[serde(rename_all = "camelCase")]
 struct ImportArmoredOut {
     key: CryptoKey,
+    #[serde(skip_serializing_if = "Option::is_none")]
     encrypted_private_bundle: Option<String>,
 }
 
@@ -549,6 +599,582 @@ pub fn export_backup(options: JsValue) -> Result<JsValue, JsValue> {
     to_js(&ExportBackupOut {
         autocrypt_setup_message: asm,
     })
+}
+
+// ── OpenPGP core (t32-e37) ───────────────────────────────────────────────────
+
+/// Message bytes from JS: a string (taken as UTF-8) or a `Uint8Array`. Kept as the
+/// raw `JsValue` and converted by hand, because serde's untagged enums go through
+/// `deserialize_any`, which `serde-wasm-bindgen` refuses for a `Uint8Array`.
+#[derive(Deserialize)]
+#[serde(transparent)]
+struct Raw(#[serde(with = "serde_wasm_bindgen::preserve")] JsValue);
+
+impl Raw {
+    fn to_bytes(&self) -> Result<Vec<u8>, JsValue> {
+        use wasm_bindgen::JsCast;
+        if let Some(s) = self.0.as_string() {
+            return Ok(s.into_bytes());
+        }
+        if let Some(a) = self.0.dyn_ref::<js_sys::Uint8Array>() {
+            return Ok(a.to_vec());
+        }
+        // A typed array from another realm (an iframe, or jsdom under test) fails
+        // the `instanceof` check; anything array-like with a length is copied.
+        let has_length = self.0.is_object()
+            && js_sys::Reflect::get(&self.0, &JsValue::from_str("length"))
+                .ok()
+                .and_then(|l| l.as_f64())
+                .is_some();
+        if has_length {
+            return Ok(js_sys::Uint8Array::new(&self.0).to_vec());
+        }
+        Err(js_err("expected a string or a Uint8Array"))
+    }
+}
+
+/// The signing key for a PGP/MIME build: a session key ref, or bundle +
+/// passphrase.
+fn signer_from(
+    key_ref: Option<&str>,
+    bundle: Option<String>,
+    passphrase: Option<String>,
+) -> Option<(String, String)> {
+    match key_ref.and_then(session_lookup) {
+        Some(found) => Some(found),
+        None => match (bundle, passphrase) {
+            (Some(b), Some(p)) => Some((b, p)),
+            _ => None,
+        },
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ArmoredIn {
+    armored: String,
+}
+
+/// `inspectKey({armored})` → `PgpKeyInfo`: version, algorithm, creation, expiry,
+/// state (`valid`/`expired`/`revoked`/`invalid`/`not-yet-valid`), flags, User IDs
+/// and subkeys, each judged from verified self-signatures.
+#[wasm_bindgen(js_name = inspectKey)]
+pub fn inspect_key(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: ArmoredIn = from_js(options)?;
+    to_js(&pgp::inspect_key(&i.armored).map_err(js_err)?)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VerifyPgpIn {
+    /// The signed data (detached), or absent for a cleartext-signed `signature`.
+    data: Option<Raw>,
+    signature: String,
+    signer_public_keys: Vec<String>,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VerifyPgpOut {
+    verification: Verification,
+    /// For a cleartext signature: the signed text, un-escaped.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signed_text: Option<String>,
+}
+
+/// `verifyPgp({data?, signature, signerPublicKeys})` → `{verification,
+/// signedText?}`. With `data` the signature is detached (armored or binary);
+/// without, `signature` is a `PGP SIGNED MESSAGE`.
+#[wasm_bindgen(js_name = verifyPgp)]
+pub fn verify_pgp(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: VerifyPgpIn = from_js(options)?;
+    let signers: Vec<&str> = i.signer_public_keys.iter().map(String::as_str).collect();
+    let out = match &i.data {
+        Some(data) => VerifyPgpOut {
+            verification: pgp::verify_detached_with(&data.to_bytes()?, &i.signature, &signers)
+                .map_err(js_err)?,
+            signed_text: None,
+        },
+        None => {
+            let (verification, text) =
+                pgp::verify_cleartext(&i.signature, &signers).map_err(js_err)?;
+            VerifyPgpOut {
+                verification,
+                signed_text: Some(text),
+            }
+        }
+    };
+    to_js(&out)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ManageIn {
+    encrypted_private_bundle: String,
+    passphrase: String,
+    #[serde(default)]
+    reason: pgp::manage::RevocationReason,
+    #[serde(default)]
+    message: String,
+    /// Unix seconds; `null`/absent = never.
+    expires_at: Option<u64>,
+    purpose: Option<pgp::manage::SubkeyPurpose>,
+    subkey_fingerprint: Option<String>,
+}
+
+/// `revokeKey({encryptedPrivateBundle, passphrase, reason, message})` →
+/// `{publicKeyArmored, encryptedPrivateBundle}`. `reason`: `compromised` |
+/// `superseded` | `retired` | `unspecified`.
+#[wasm_bindgen(js_name = revokeKey)]
+pub fn revoke_key(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: ManageIn = from_js(options)?;
+    to_js(
+        &pgp::manage::revoke(
+            &i.encrypted_private_bundle,
+            &i.passphrase,
+            i.reason,
+            &i.message,
+        )
+        .map_err(js_err)?,
+    )
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CertificateOut {
+    certificate: String,
+}
+
+/// `revocationCertificate({encryptedPrivateBundle, passphrase, reason, message})`
+/// → `{certificate}` (armored; keep it aside to revoke the key later).
+#[wasm_bindgen(js_name = revocationCertificate)]
+pub fn revocation_certificate(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: ManageIn = from_js(options)?;
+    let certificate = pgp::manage::revocation_certificate(
+        &i.encrypted_private_bundle,
+        &i.passphrase,
+        i.reason,
+        &i.message,
+    )
+    .map_err(js_err)?;
+    to_js(&CertificateOut { certificate })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApplyRevocationIn {
+    key_armored: String,
+    certificate: String,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicOut {
+    public_key_armored: String,
+}
+
+/// `applyRevocationCertificate({keyArmored, certificate})` → `{publicKeyArmored}`.
+#[wasm_bindgen(js_name = applyRevocationCertificate)]
+pub fn apply_revocation_certificate(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: ApplyRevocationIn = from_js(options)?;
+    let public_key_armored =
+        pgp::manage::apply_revocation_certificate(&i.key_armored, &i.certificate)
+            .map_err(js_err)?;
+    to_js(&PublicOut { public_key_armored })
+}
+
+/// `setKeyExpiry({encryptedPrivateBundle, passphrase, expiresAt})` →
+/// `{publicKeyArmored, encryptedPrivateBundle}`; applies to the key and its
+/// subkeys.
+#[wasm_bindgen(js_name = setKeyExpiry)]
+pub fn set_key_expiry(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: ManageIn = from_js(options)?;
+    to_js(
+        &pgp::manage::set_expiry(&i.encrypted_private_bundle, &i.passphrase, i.expires_at)
+            .map_err(js_err)?,
+    )
+}
+
+/// `addSubkey({encryptedPrivateBundle, passphrase, purpose, expiresAt?})` →
+/// `{publicKeyArmored, encryptedPrivateBundle}`. `purpose`: `encrypt` | `sign`.
+#[wasm_bindgen(js_name = addSubkey)]
+pub fn add_subkey(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: ManageIn = from_js(options)?;
+    let purpose = i
+        .purpose
+        .ok_or_else(|| js_err("addSubkey requires purpose"))?;
+    to_js(
+        &pgp::manage::add_subkey(
+            &i.encrypted_private_bundle,
+            &i.passphrase,
+            purpose,
+            i.expires_at,
+        )
+        .map_err(js_err)?,
+    )
+}
+
+/// `revokeSubkey({encryptedPrivateBundle, passphrase, subkeyFingerprint, reason,
+/// message})` → `{publicKeyArmored, encryptedPrivateBundle}`.
+#[wasm_bindgen(js_name = revokeSubkey)]
+pub fn revoke_subkey(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: ManageIn = from_js(options)?;
+    let fp = i
+        .subkey_fingerprint
+        .ok_or_else(|| js_err("revokeSubkey requires subkeyFingerprint"))?;
+    to_js(
+        &pgp::manage::revoke_subkey(
+            &i.encrypted_private_bundle,
+            &i.passphrase,
+            &fp,
+            i.reason,
+            &i.message,
+        )
+        .map_err(js_err)?,
+    )
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChangePassphraseIn {
+    encrypted_private_bundle: String,
+    old_passphrase: String,
+    new_passphrase: String,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BundleOut {
+    encrypted_private_bundle: String,
+}
+
+/// `changePassphrase({encryptedPrivateBundle, oldPassphrase, newPassphrase})` →
+/// `{encryptedPrivateBundle}`.
+#[wasm_bindgen(js_name = changePassphrase)]
+pub fn change_passphrase(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: ChangePassphraseIn = from_js(options)?;
+    let encrypted_private_bundle = pgp::manage::change_passphrase(
+        &i.encrypted_private_bundle,
+        &i.old_passphrase,
+        &i.new_passphrase,
+    )
+    .map_err(js_err)?;
+    to_js(&BundleOut {
+        encrypted_private_bundle,
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BackupFullIn {
+    encrypted_private_bundle: String,
+    /// The account address the Autocrypt Setup Message is addressed to.
+    from: String,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackupFullOut {
+    /// Shown to the user once; needed to restore.
+    setup_code: String,
+    /// The `application/autocrypt-setup` payload.
+    payload: String,
+    /// A complete `Autocrypt-Setup-Message: v1` email holding the payload.
+    mime: String,
+}
+
+/// `exportBackupFull({encryptedPrivateBundle, from})` → `{setupCode, payload,
+/// mime}`: the still-passphrase-locked key, symmetrically encrypted under a
+/// numeric setup code (Autocrypt Level 1 §4.2).
+#[wasm_bindgen(js_name = exportBackupFull)]
+pub fn export_backup_full(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: BackupFullIn = from_js(options)?;
+    let setup_code = pgp::generate_setup_code();
+    let payload = pgp::autocrypt_setup_message_full(&i.encrypted_private_bundle, &setup_code)
+        .map_err(js_err)?;
+    let mime = pgp::autocrypt_setup_message_mime(&i.from, &payload);
+    to_js(&BackupFullOut {
+        setup_code,
+        payload,
+        mime,
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RestoreBackupIn {
+    payload: String,
+    setup_code: String,
+}
+
+/// `restoreBackup({payload, setupCode})` → `{encryptedPrivateBundle}` (still locked
+/// with the key's own passphrase).
+#[wasm_bindgen(js_name = restoreBackup)]
+pub fn restore_backup(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: RestoreBackupIn = from_js(options)?;
+    let encrypted_private_bundle =
+        pgp::decrypt_autocrypt_setup_message(&i.payload, &i.setup_code).map_err(js_err)?;
+    to_js(&BundleOut {
+        encrypted_private_bundle,
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PgpMimeBuildIn {
+    /// The body entity to protect (headers + body), as composed.
+    payload: Raw,
+    /// The message's header fields as `[name, value]` pairs.
+    headers: Vec<(String, String)>,
+    #[serde(default)]
+    recipient_public_keys: Vec<String>,
+    sign_with_key_ref: Option<String>,
+    encrypted_private_bundle: Option<String>,
+    passphrase: Option<String>,
+    /// `[address, armoredKey]` pairs written as `Autocrypt-Gossip`.
+    #[serde(default)]
+    gossip: Vec<(String, String)>,
+}
+
+/// `pgpMimeEncrypt({payload, headers, recipientPublicKeys, signWithKeyRef? |
+/// encryptedPrivateBundle+passphrase, gossip?})` → `{entity, contentType,
+/// outerSubject, seipdVersion}`: an RFC 3156 `multipart/encrypted` entity with RFC
+/// 9788 header protection inside (`Subject` outside becomes `[...]`).
+#[wasm_bindgen(js_name = pgpMimeEncrypt)]
+pub fn pgp_mime_encrypt(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: PgpMimeBuildIn = from_js(options)?;
+    let signer = signer_from(
+        i.sign_with_key_ref.as_deref(),
+        i.encrypted_private_bundle,
+        i.passphrase,
+    );
+    let sign_ref = signer.as_ref().map(|(b, p)| (b.as_str(), p.as_str()));
+    let built = pgp::pgpmime::encrypt_mime(
+        &i.payload.to_bytes()?,
+        &i.headers,
+        &i.recipient_public_keys,
+        sign_ref,
+        &i.gossip,
+    )
+    .map_err(js_err)?;
+    to_js(&built)
+}
+
+/// `pgpMimeSign({payload, headers, signWithKeyRef? |
+/// encryptedPrivateBundle+passphrase})` → `{entity, contentType, outerSubject}`:
+/// an RFC 3156 `multipart/signed` entity (`hp="clear"` header protection).
+#[wasm_bindgen(js_name = pgpMimeSign)]
+pub fn pgp_mime_sign(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: PgpMimeBuildIn = from_js(options)?;
+    let (bundle, passphrase) = signer_from(
+        i.sign_with_key_ref.as_deref(),
+        i.encrypted_private_bundle,
+        i.passphrase,
+    )
+    .ok_or_else(|| js_err("pgpMimeSign needs signWithKeyRef or encryptedPrivateBundle"))?;
+    let built = pgp::pgpmime::sign_mime(&i.payload.to_bytes()?, &i.headers, &bundle, &passphrase)
+        .map_err(js_err)?;
+    to_js(&built)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PgpMimeOpenIn {
+    raw: Raw,
+    encrypted_private_bundle: Option<String>,
+    passphrase: Option<String>,
+    #[serde(default)]
+    signer_public_keys: Vec<String>,
+}
+
+/// `pgpMimeOpen({raw, encryptedPrivateBundle, passphrase, signerPublicKeys})` →
+/// `{entity, protected, verification, encrypted, aead, partial, gossip}`. The
+/// `entity` is MIME; its HTML parts must go through the sanitizer before display.
+#[wasm_bindgen(js_name = pgpMimeOpen)]
+pub fn pgp_mime_open(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: PgpMimeOpenIn = from_js(options)?;
+    let signers: Vec<&str> = i.signer_public_keys.iter().map(String::as_str).collect();
+    let bundle = i
+        .encrypted_private_bundle
+        .ok_or_else(|| js_err("pgpMimeOpen requires encryptedPrivateBundle"))?;
+    let passphrase = i.passphrase.unwrap_or_default();
+    to_js(
+        &pgp::pgpmime::open_mime(&i.raw.to_bytes()?, &bundle, &passphrase, &signers)
+            .map_err(js_err)?,
+    )
+}
+
+/// `pgpMimeVerify({raw, signerPublicKeys})` → the `pgpMimeOpen` shape for a
+/// signed-only message (`multipart/signed` or an inline cleartext signature).
+#[wasm_bindgen(js_name = pgpMimeVerify)]
+pub fn pgp_mime_verify(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: PgpMimeOpenIn = from_js(options)?;
+    let signers: Vec<&str> = i.signer_public_keys.iter().map(String::as_str).collect();
+    to_js(&pgp::pgpmime::verify_mime(&i.raw.to_bytes()?, &signers).map_err(js_err)?)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnalyzeIn {
+    raw: Raw,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AnalyzeOut {
+    /// `pgp-encrypted` | `pgp-signed` | `smime-signed` | `smime-opaque` |
+    /// `inline-pgp` | `none`.
+    kind: &'static str,
+    partial: bool,
+    path: Vec<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    smime_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    micalg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    segments: Option<Vec<mime::InlineSegment>>,
+}
+
+/// `analyzeMessage({raw})` → `{kind, partial, path, smimeType?, micalg?,
+/// segments?}`: where the message's signed or encrypted part is.
+#[wasm_bindgen(js_name = analyzeMessage)]
+pub fn analyze_message(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: AnalyzeIn = from_js(options)?;
+    let a = mime::analyze(&i.raw.to_bytes()?);
+    let mut out = AnalyzeOut {
+        kind: "none",
+        partial: a.partial,
+        path: a.path,
+        smime_type: None,
+        micalg: None,
+        segments: None,
+    };
+    match a.part {
+        Some(mime::CryptoPart::PgpEncrypted { .. }) => out.kind = "pgp-encrypted",
+        Some(mime::CryptoPart::PgpSigned { micalg, .. }) => {
+            out.kind = "pgp-signed";
+            out.micalg = micalg;
+        }
+        Some(mime::CryptoPart::SmimeSigned { micalg, .. }) => {
+            out.kind = "smime-signed";
+            out.micalg = micalg;
+        }
+        Some(mime::CryptoPart::SmimeOpaque { smime_type, .. }) => {
+            out.kind = "smime-opaque";
+            out.smime_type = Some(smime_type);
+        }
+        Some(mime::CryptoPart::InlinePgp { segments }) => {
+            out.kind = "inline-pgp";
+            out.segments = Some(segments);
+        }
+        None => {}
+    }
+    to_js(&out)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AutocryptHeaderIn {
+    public_key_armored: String,
+    addr: String,
+    #[serde(default)]
+    prefer_encrypt: bool,
+    #[serde(default)]
+    gossip: bool,
+}
+
+/// `autocryptHeader({publicKeyArmored, addr, preferEncrypt, gossip?})` → the
+/// header value (unfolded) for `Autocrypt:`, or `Autocrypt-Gossip:` with `gossip`.
+#[wasm_bindgen(js_name = autocryptHeader)]
+pub fn autocrypt_header(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: AutocryptHeaderIn = from_js(options)?;
+    let value = if i.gossip {
+        pgp::autocrypt::gossip_header(&i.public_key_armored, &i.addr)
+    } else {
+        pgp::autocrypt::autocrypt_header(&i.public_key_armored, &i.addr, i.prefer_encrypt)
+    }
+    .map_err(js_err)?;
+    to_js(&value)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ParseAutocryptIn {
+    value: String,
+    #[serde(default)]
+    gossip: bool,
+}
+
+/// `parseAutocrypt({value, gossip?})` → `{addr, preferEncrypt, key}`.
+#[wasm_bindgen(js_name = parseAutocrypt)]
+pub fn parse_autocrypt(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: ParseAutocryptIn = from_js(options)?;
+    let h = if i.gossip {
+        pgp::autocrypt::parse_gossip(&i.value)
+    } else {
+        pgp::autocrypt::parse_autocrypt(&i.value)
+    }
+    .map_err(js_err)?;
+    to_js(&h)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RecommendIn {
+    /// One entry per recipient; `null` when nothing is known.
+    peers: Vec<Option<pgp::autocrypt::PeerState>>,
+    own_prefer_encrypt: bool,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecommendOut {
+    per_recipient: Vec<&'static str>,
+    message: &'static str,
+}
+
+/// `autocryptRecommend({peers, ownPreferEncrypt})` → `{perRecipient, message}`,
+/// each `disable` | `discourage` | `available` | `encrypt` (Autocrypt §2.4).
+#[wasm_bindgen(js_name = autocryptRecommend)]
+pub fn autocrypt_recommend(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: RecommendIn = from_js(options)?;
+    let per: Vec<&'static str> = i
+        .peers
+        .iter()
+        .map(|p| pgp::autocrypt::recommend(p.as_ref(), i.own_prefer_encrypt))
+        .collect();
+    let message = pgp::autocrypt::recommend_message(&per);
+    to_js(&RecommendOut {
+        per_recipient: per,
+        message,
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AttachedKeysIn {
+    content_type: String,
+    filename: Option<String>,
+    bytes: Raw,
+}
+
+/// `detectAttachedKeys({contentType, filename?, bytes})` → `CryptoKey[]` or
+/// `null` when the attachment is not a key.
+#[wasm_bindgen(js_name = detectAttachedKeys)]
+pub fn detect_attached_keys(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: AttachedKeysIn = from_js(options)?;
+    to_js(&pgp::detect_attached_keys(
+        &i.content_type,
+        i.filename.as_deref(),
+        &i.bytes.to_bytes()?,
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WkdIn {
+    email: String,
+}
+
+/// `wkdUrls({email})` → `[advancedUrl, directUrl]`.
+#[wasm_bindgen(js_name = wkdUrls)]
+pub fn wkd_urls(options: JsValue) -> Result<JsValue, JsValue> {
+    let i: WkdIn = from_js(options)?;
+    to_js(&pgp::wkd_urls(&i.email).map_err(js_err)?)
 }
 
 // ── unlockKey / lockKey (session cache) ──────────────────────────────────────

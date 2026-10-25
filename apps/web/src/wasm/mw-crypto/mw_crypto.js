@@ -8,6 +8,71 @@ export function __init() {
 }
 
 /**
+ * `addSubkey({encryptedPrivateBundle, passphrase, purpose, expiresAt?})` →
+ * `{publicKeyArmored, encryptedPrivateBundle}`. `purpose`: `encrypt` | `sign`.
+ * @param {any} options
+ * @returns {any}
+ */
+export function addSubkey(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.addSubkey(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `analyzeMessage({raw})` → `{kind, partial, path, smimeType?, micalg?,
+ * segments?}`: where the message's signed or encrypted part is.
+ * @param {any} options
+ * @returns {any}
+ */
+export function analyzeMessage(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.analyzeMessage(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `applyRevocationCertificate({keyArmored, certificate})` → `{publicKeyArmored}`.
+ * @param {any} options
+ * @returns {any}
+ */
+export function applyRevocationCertificate(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.applyRevocationCertificate(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
  * `attachIssuedCert({certBytes, encryptedPrivateBundle, passphrase})` →
  * `{ certPem, fingerprint, addresses, algorithm, expiresAt, selfIssued }`. Throws
  * when the certificate's public key is not the key in the bundle.
@@ -18,6 +83,50 @@ export function attachIssuedCert(options) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         wasm.attachIssuedCert(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `autocryptHeader({publicKeyArmored, addr, preferEncrypt, gossip?})` → the
+ * header value (unfolded) for `Autocrypt:`, or `Autocrypt-Gossip:` with `gossip`.
+ * @param {any} options
+ * @returns {any}
+ */
+export function autocryptHeader(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.autocryptHeader(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `autocryptRecommend({peers, ownPreferEncrypt})` → `{perRecipient, message}`,
+ * each `disable` | `discourage` | `available` | `encrypt` (Autocrypt §2.4).
+ * @param {any} options
+ * @returns {any}
+ */
+export function autocryptRecommend(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.autocryptRecommend(retptr, addHeapObject(options));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -53,6 +162,28 @@ export function certificateRequest(options) {
 }
 
 /**
+ * `changePassphrase({encryptedPrivateBundle, oldPassphrase, newPassphrase})` →
+ * `{encryptedPrivateBundle}`.
+ * @param {any} options
+ * @returns {any}
+ */
+export function changePassphrase(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.changePassphrase(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
  * `decrypt({kind, ciphertext, encryptedPrivateBundle, passphrase})` →
  * `{ plaintextText, subject?, signature }`. (In-worker mw-sanitize wasm sanitizes
  * HTML before it reaches the iframe — plan §1.3, wired by e8.)
@@ -63,6 +194,28 @@ export function decrypt(options) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         wasm.decrypt(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `detectAttachedKeys({contentType, filename?, bytes})` → `CryptoKey[]` or
+ * `null` when the attachment is not a key.
+ * @param {any} options
+ * @returns {any}
+ */
+export function detectAttachedKeys(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.detectAttachedKeys(retptr, addHeapObject(options));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -108,6 +261,29 @@ export function exportBackup(options) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         wasm.exportBackup(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `exportBackupFull({encryptedPrivateBundle, from})` → `{setupCode, payload,
+ * mime}`: the still-passphrase-locked key, symmetrically encrypted under a
+ * numeric setup code (Autocrypt Level 1 §4.2).
+ * @param {any} options
+ * @returns {any}
+ */
+export function exportBackupFull(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.exportBackupFull(retptr, addHeapObject(options));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -241,6 +417,29 @@ export function importPkcs12(options) {
 }
 
 /**
+ * `inspectKey({armored})` → `PgpKeyInfo`: version, algorithm, creation, expiry,
+ * state (`valid`/`expired`/`revoked`/`invalid`/`not-yet-valid`), flags, User IDs
+ * and subkeys, each judged from verified self-signatures.
+ * @param {any} options
+ * @returns {any}
+ */
+export function inspectKey(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.inspectKey(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
  * `lockKey({keyRef})` — `zeroize` + drop the cached private material for this ref.
  * @param {any} options
  * @returns {any}
@@ -249,6 +448,231 @@ export function lockKey(options) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         wasm.lockKey(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `parseAutocrypt({value, gossip?})` → `{addr, preferEncrypt, key}`.
+ * @param {any} options
+ * @returns {any}
+ */
+export function parseAutocrypt(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.parseAutocrypt(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `pgpMimeEncrypt({payload, headers, recipientPublicKeys, signWithKeyRef? |
+ * encryptedPrivateBundle+passphrase, gossip?})` → `{entity, contentType,
+ * outerSubject, seipdVersion}`: an RFC 3156 `multipart/encrypted` entity with RFC
+ * 9788 header protection inside (`Subject` outside becomes `[...]`).
+ * @param {any} options
+ * @returns {any}
+ */
+export function pgpMimeEncrypt(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.pgpMimeEncrypt(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `pgpMimeOpen({raw, encryptedPrivateBundle, passphrase, signerPublicKeys})` →
+ * `{entity, protected, verification, encrypted, aead, partial, gossip}`. The
+ * `entity` is MIME; its HTML parts must go through the sanitizer before display.
+ * @param {any} options
+ * @returns {any}
+ */
+export function pgpMimeOpen(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.pgpMimeOpen(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `pgpMimeSign({payload, headers, signWithKeyRef? |
+ * encryptedPrivateBundle+passphrase})` → `{entity, contentType, outerSubject}`:
+ * an RFC 3156 `multipart/signed` entity (`hp="clear"` header protection).
+ * @param {any} options
+ * @returns {any}
+ */
+export function pgpMimeSign(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.pgpMimeSign(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `pgpMimeVerify({raw, signerPublicKeys})` → the `pgpMimeOpen` shape for a
+ * signed-only message (`multipart/signed` or an inline cleartext signature).
+ * @param {any} options
+ * @returns {any}
+ */
+export function pgpMimeVerify(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.pgpMimeVerify(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `restoreBackup({payload, setupCode})` → `{encryptedPrivateBundle}` (still locked
+ * with the key's own passphrase).
+ * @param {any} options
+ * @returns {any}
+ */
+export function restoreBackup(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.restoreBackup(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `revocationCertificate({encryptedPrivateBundle, passphrase, reason, message})`
+ * → `{certificate}` (armored; keep it aside to revoke the key later).
+ * @param {any} options
+ * @returns {any}
+ */
+export function revocationCertificate(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.revocationCertificate(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `revokeKey({encryptedPrivateBundle, passphrase, reason, message})` →
+ * `{publicKeyArmored, encryptedPrivateBundle}`. `reason`: `compromised` |
+ * `superseded` | `retired` | `unspecified`.
+ * @param {any} options
+ * @returns {any}
+ */
+export function revokeKey(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.revokeKey(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `revokeSubkey({encryptedPrivateBundle, passphrase, subkeyFingerprint, reason,
+ * message})` → `{publicKeyArmored, encryptedPrivateBundle}`.
+ * @param {any} options
+ * @returns {any}
+ */
+export function revokeSubkey(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.revokeSubkey(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `setKeyExpiry({encryptedPrivateBundle, passphrase, expiresAt})` →
+ * `{publicKeyArmored, encryptedPrivateBundle}`; applies to the key and its
+ * subkeys.
+ * @param {any} options
+ * @returns {any}
+ */
+export function setKeyExpiry(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.setKeyExpiry(retptr, addHeapObject(options));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -314,6 +738,50 @@ export function verify(options) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         wasm.verify(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `verifyPgp({data?, signature, signerPublicKeys})` → `{verification,
+ * signedText?}`. With `data` the signature is detached (armored or binary);
+ * without, `signature` is a `PGP SIGNED MESSAGE`.
+ * @param {any} options
+ * @returns {any}
+ */
+export function verifyPgp(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.verifyPgp(retptr, addHeapObject(options));
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * `wkdUrls({email})` → `[advancedUrl, directUrl]`.
+ * @param {any} options
+ * @returns {any}
+ */
+export function wkdUrls(options) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.wkdUrls(retptr, addHeapObject(options));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -751,6 +1219,10 @@ function __wbg_get_imports() {
             const ret = getObject(arg0).done;
             return ret;
         },
+        __wbg_entries_015dc610cd81ede0: function(arg0) {
+            const ret = Object.entries(getObject(arg0));
+            return addHeapObject(ret);
+        },
         __wbg_error_a6fa202b58aa1cd3: function(arg0, arg1) {
             let deferred0_0;
             let deferred0_1;
@@ -765,10 +1237,14 @@ function __wbg_get_imports() {
         __wbg_getRandomValues_c44a50d8cfdaebeb: function() { return handleError(function (arg0, arg1) {
             getObject(arg0).getRandomValues(getObject(arg1));
         }, arguments); },
-        __wbg_getTime_d6f070c088c9b5ed: function(arg0) {
-            const ret = getObject(arg0).getTime();
-            return ret;
+        __wbg_get_507a50627bffa49b: function(arg0, arg1) {
+            const ret = getObject(arg0)[arg1 >>> 0];
+            return addHeapObject(ret);
         },
+        __wbg_get_78f252d074a84d0b: function() { return handleError(function (arg0, arg1) {
+            const ret = Reflect.get(getObject(arg0), getObject(arg1));
+            return addHeapObject(ret);
+        }, arguments); },
         __wbg_get_c7eb1f358a7654df: function() { return handleError(function (arg0, arg1) {
             const ret = Reflect.get(getObject(arg0), getObject(arg1));
             return addHeapObject(ret);
@@ -823,10 +1299,6 @@ function __wbg_get_imports() {
         },
         __wbg_msCrypto_bd5a034af96bcba6: function(arg0) {
             const ret = getObject(arg0).msCrypto;
-            return addHeapObject(ret);
-        },
-        __wbg_new_0_3da9e97f24fc69be: function() {
-            const ret = new Date();
             return addHeapObject(ret);
         },
         __wbg_new_227d7c05414eb861: function() {
@@ -920,17 +1392,22 @@ function __wbg_get_imports() {
             const ret = getObject(arg0).versions;
             return addHeapObject(ret);
         },
-        __wbindgen_cast_0000000000000001: function(arg0, arg1) {
+        __wbindgen_cast_0000000000000001: function(arg0) {
+            // Cast intrinsic for `F64 -> Externref`.
+            const ret = arg0;
+            return addHeapObject(ret);
+        },
+        __wbindgen_cast_0000000000000002: function(arg0, arg1) {
             // Cast intrinsic for `Ref(Slice(U8)) -> NamedExternref("Uint8Array")`.
             const ret = getArrayU8FromWasm0(arg0, arg1);
             return addHeapObject(ret);
         },
-        __wbindgen_cast_0000000000000002: function(arg0, arg1) {
+        __wbindgen_cast_0000000000000003: function(arg0, arg1) {
             // Cast intrinsic for `Ref(String) -> Externref`.
             const ret = getStringFromWasm0(arg0, arg1);
             return addHeapObject(ret);
         },
-        __wbindgen_cast_0000000000000003: function(arg0) {
+        __wbindgen_cast_0000000000000004: function(arg0) {
             // Cast intrinsic for `U64 -> Externref`.
             const ret = BigInt.asUintN(64, arg0);
             return addHeapObject(ret);

@@ -9,7 +9,11 @@
 // touches real key material — it exists only to satisfy the interface until e8.
 
 import type {
+  AnalyzeMessageResult,
   AttachIssuedCertResult,
+  AutocryptHeader,
+  AutocryptRecommendation,
+  BuiltEntity,
   CertificateRequestResult,
   CryptoWorkerApi,
   DecryptResult,
@@ -21,8 +25,14 @@ import type {
   ImportArmoredResult,
   ImportPkcs12Result,
   KeyRef,
+  ManagedKey,
+  OpenedMessage,
+  PgpKeyInfo,
   SignResult,
+  Verification,
+  VerifyPgpResult,
 } from '../contracts/crypto.ts';
+import type { CryptoKey } from '../api/crypto-types.ts';
 import type { SignatureVerdict } from '../api/security-types.ts';
 import { spawnCryptoWorker } from './worker.ts';
 
@@ -150,8 +160,114 @@ export function createStubCryptoWorker(): CryptoWorkerApi {
     async lockKey(): Promise<void> {
       // no-op (nothing cached in the stub)
     },
+    async inspectKey(): Promise<PgpKeyInfo> {
+      return {
+        fingerprint: 'STUBFINGERPRINT0000000000000000000000000',
+        keyId: 'STUBKEYID0000000',
+        version: 6,
+        algorithm: 'ed25519',
+        createdAt: new Date(0).toISOString(),
+        expiresAt: null,
+        state: 'valid',
+        flags: ['certify', 'sign'],
+        revocation: null,
+        seipdV2: true,
+        userIds: [],
+        subkeys: [],
+        canEncrypt: true,
+        canSign: true,
+        hasSecret: false,
+      };
+    },
+    async verifyPgp(): Promise<VerifyPgpResult> {
+      return { verification: STUB_VERIFICATION };
+    },
+    async revokeKey(): Promise<ManagedKey> {
+      return STUB_MANAGED;
+    },
+    async revocationCertificate(): Promise<{ certificate: string }> {
+      return { certificate: '-----BEGIN PGP PUBLIC KEY BLOCK-----\nSTUB\n-----END PGP PUBLIC KEY BLOCK-----' };
+    },
+    async applyRevocationCertificate(): Promise<{ publicKeyArmored: string }> {
+      return { publicKeyArmored: STUB_MANAGED.publicKeyArmored };
+    },
+    async setKeyExpiry(): Promise<ManagedKey> {
+      return STUB_MANAGED;
+    },
+    async addSubkey(): Promise<ManagedKey> {
+      return STUB_MANAGED;
+    },
+    async revokeSubkey(): Promise<ManagedKey> {
+      return STUB_MANAGED;
+    },
+    async changePassphrase(): Promise<{ encryptedPrivateBundle: string }> {
+      return { encryptedPrivateBundle: 'STUB_ENCRYPTED_PRIVATE_BUNDLE' };
+    },
+    async exportBackupFull(): Promise<{ setupCode: string; payload: string; mime: string }> {
+      return { setupCode: '0000-0000-0000-0000-0000-0000-0000-0000-0000', payload: 'STUB', mime: 'STUB' };
+    },
+    async restoreBackup(): Promise<{ encryptedPrivateBundle: string }> {
+      return { encryptedPrivateBundle: 'STUB_ENCRYPTED_PRIVATE_BUNDLE' };
+    },
+    async pgpMimeEncrypt(): Promise<BuiltEntity> {
+      return { entity: 'Content-Type: text/plain\r\n\r\nSTUB', contentType: 'text/plain', outerSubject: '[...]', seipdVersion: 2 };
+    },
+    async pgpMimeSign(): Promise<BuiltEntity> {
+      return { entity: 'Content-Type: text/plain\r\n\r\nSTUB', contentType: 'text/plain', outerSubject: null, seipdVersion: null };
+    },
+    async pgpMimeOpen(): Promise<OpenedMessage> {
+      return STUB_OPENED;
+    },
+    async pgpMimeVerify(): Promise<OpenedMessage> {
+      return STUB_OPENED;
+    },
+    async analyzeMessage(): Promise<AnalyzeMessageResult> {
+      return { kind: 'none', partial: false, path: [] };
+    },
+    async autocryptHeader(): Promise<string> {
+      return 'addr=stub@example.invalid; keydata=STUB';
+    },
+    async parseAutocrypt(): Promise<AutocryptHeader> {
+      throw new Error('STUB: parseAutocrypt has no stub key');
+    },
+    async autocryptRecommend(req): Promise<{
+      perRecipient: AutocryptRecommendation[];
+      message: AutocryptRecommendation;
+    }> {
+      return { perRecipient: req.peers.map(() => 'disable'), message: 'disable' };
+    },
+    async detectAttachedKeys(): Promise<CryptoKey[] | null> {
+      return null;
+    },
+    async wkdUrls(): Promise<[string, string]> {
+      return ['https://openpgpkey.example.invalid/', 'https://example.invalid/'];
+    },
   };
 }
+
+const STUB_VERIFICATION: Verification = {
+  state: 'not-signed',
+  detail: null,
+  signature: STUB_SIGNATURE,
+  signerFingerprint: null,
+  signerAddresses: [],
+  signedAt: null,
+};
+
+const STUB_MANAGED: ManagedKey = {
+  publicKeyArmored: '-----BEGIN PGP PUBLIC KEY BLOCK-----\nSTUB\n-----END PGP PUBLIC KEY BLOCK-----',
+  encryptedPrivateBundle: 'STUB_ENCRYPTED_PRIVATE_BUNDLE',
+};
+
+const STUB_OPENED: OpenedMessage = {
+  entity: 'Content-Type: text/plain\r\n\r\nSTUB decrypted body',
+  protected: null,
+  verification: STUB_VERIFICATION,
+  encrypted: true,
+  aead: true,
+  partial: false,
+  gossip: [],
+};
 
 /**
  * Whether to use the real wasm-pack worker. The browser build has `Worker`; the
@@ -188,6 +304,27 @@ function createLazyCryptoWorker(): CryptoWorkerApi {
     exportBackup: (r) => get().exportBackup(r),
     unlockKey: (r) => get().unlockKey(r),
     lockKey: (r) => get().lockKey(r),
+    inspectKey: (r) => get().inspectKey(r),
+    verifyPgp: (r) => get().verifyPgp(r),
+    revokeKey: (r) => get().revokeKey(r),
+    revocationCertificate: (r) => get().revocationCertificate(r),
+    applyRevocationCertificate: (r) => get().applyRevocationCertificate(r),
+    setKeyExpiry: (r) => get().setKeyExpiry(r),
+    addSubkey: (r) => get().addSubkey(r),
+    revokeSubkey: (r) => get().revokeSubkey(r),
+    changePassphrase: (r) => get().changePassphrase(r),
+    exportBackupFull: (r) => get().exportBackupFull(r),
+    restoreBackup: (r) => get().restoreBackup(r),
+    pgpMimeEncrypt: (r) => get().pgpMimeEncrypt(r),
+    pgpMimeSign: (r) => get().pgpMimeSign(r),
+    pgpMimeOpen: (r) => get().pgpMimeOpen(r),
+    pgpMimeVerify: (r) => get().pgpMimeVerify(r),
+    analyzeMessage: (r) => get().analyzeMessage(r),
+    autocryptHeader: (r) => get().autocryptHeader(r),
+    parseAutocrypt: (r) => get().parseAutocrypt(r),
+    autocryptRecommend: (r) => get().autocryptRecommend(r),
+    detectAttachedKeys: (r) => get().detectAttachedKeys(r),
+    wkdUrls: (r) => get().wkdUrls(r),
   };
 }
 

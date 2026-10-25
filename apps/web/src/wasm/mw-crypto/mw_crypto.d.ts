@@ -7,11 +7,40 @@
 export function __init(): void;
 
 /**
+ * `addSubkey({encryptedPrivateBundle, passphrase, purpose, expiresAt?})` →
+ * `{publicKeyArmored, encryptedPrivateBundle}`. `purpose`: `encrypt` | `sign`.
+ */
+export function addSubkey(options: any): any;
+
+/**
+ * `analyzeMessage({raw})` → `{kind, partial, path, smimeType?, micalg?,
+ * segments?}`: where the message's signed or encrypted part is.
+ */
+export function analyzeMessage(options: any): any;
+
+/**
+ * `applyRevocationCertificate({keyArmored, certificate})` → `{publicKeyArmored}`.
+ */
+export function applyRevocationCertificate(options: any): any;
+
+/**
  * `attachIssuedCert({certBytes, encryptedPrivateBundle, passphrase})` →
  * `{ certPem, fingerprint, addresses, algorithm, expiresAt, selfIssued }`. Throws
  * when the certificate's public key is not the key in the bundle.
  */
 export function attachIssuedCert(options: any): any;
+
+/**
+ * `autocryptHeader({publicKeyArmored, addr, preferEncrypt, gossip?})` → the
+ * header value (unfolded) for `Autocrypt:`, or `Autocrypt-Gossip:` with `gossip`.
+ */
+export function autocryptHeader(options: any): any;
+
+/**
+ * `autocryptRecommend({peers, ownPreferEncrypt})` → `{perRecipient, message}`,
+ * each `disable` | `discourage` | `available` | `encrypt` (Autocrypt §2.4).
+ */
+export function autocryptRecommend(options: any): any;
 
 /**
  * `certificateRequest({certPem, encryptedPrivateBundle, passphrase})` →
@@ -20,11 +49,23 @@ export function attachIssuedCert(options: any): any;
 export function certificateRequest(options: any): any;
 
 /**
+ * `changePassphrase({encryptedPrivateBundle, oldPassphrase, newPassphrase})` →
+ * `{encryptedPrivateBundle}`.
+ */
+export function changePassphrase(options: any): any;
+
+/**
  * `decrypt({kind, ciphertext, encryptedPrivateBundle, passphrase})` →
  * `{ plaintextText, subject?, signature }`. (In-worker mw-sanitize wasm sanitizes
  * HTML before it reaches the iframe — plan §1.3, wired by e8.)
  */
 export function decrypt(options: any): any;
+
+/**
+ * `detectAttachedKeys({contentType, filename?, bytes})` → `CryptoKey[]` or
+ * `null` when the attachment is not a key.
+ */
+export function detectAttachedKeys(options: any): any;
 
 /**
  * `encrypt({kind, plaintext, recipientPublicKeys, signWithKeyRef?,
@@ -38,6 +79,13 @@ export function encrypt(options: any): any;
  * (an S/MIME key leaves through `exportPkcs12`).
  */
 export function exportBackup(options: any): any;
+
+/**
+ * `exportBackupFull({encryptedPrivateBundle, from})` → `{setupCode, payload,
+ * mime}`: the still-passphrase-locked key, symmetrically encrypted under a
+ * numeric setup code (Autocrypt Level 1 §4.2).
+ */
+export function exportBackupFull(options: any): any;
 
 /**
  * `exportPkcs12({certPem, encryptedPrivateBundle, passphrase})` →
@@ -80,9 +128,81 @@ export function importArmored(options: any): any;
 export function importPkcs12(options: any): any;
 
 /**
+ * `inspectKey({armored})` → `PgpKeyInfo`: version, algorithm, creation, expiry,
+ * state (`valid`/`expired`/`revoked`/`invalid`/`not-yet-valid`), flags, User IDs
+ * and subkeys, each judged from verified self-signatures.
+ */
+export function inspectKey(options: any): any;
+
+/**
  * `lockKey({keyRef})` — `zeroize` + drop the cached private material for this ref.
  */
 export function lockKey(options: any): any;
+
+/**
+ * `parseAutocrypt({value, gossip?})` → `{addr, preferEncrypt, key}`.
+ */
+export function parseAutocrypt(options: any): any;
+
+/**
+ * `pgpMimeEncrypt({payload, headers, recipientPublicKeys, signWithKeyRef? |
+ * encryptedPrivateBundle+passphrase, gossip?})` → `{entity, contentType,
+ * outerSubject, seipdVersion}`: an RFC 3156 `multipart/encrypted` entity with RFC
+ * 9788 header protection inside (`Subject` outside becomes `[...]`).
+ */
+export function pgpMimeEncrypt(options: any): any;
+
+/**
+ * `pgpMimeOpen({raw, encryptedPrivateBundle, passphrase, signerPublicKeys})` →
+ * `{entity, protected, verification, encrypted, aead, partial, gossip}`. The
+ * `entity` is MIME; its HTML parts must go through the sanitizer before display.
+ */
+export function pgpMimeOpen(options: any): any;
+
+/**
+ * `pgpMimeSign({payload, headers, signWithKeyRef? |
+ * encryptedPrivateBundle+passphrase})` → `{entity, contentType, outerSubject}`:
+ * an RFC 3156 `multipart/signed` entity (`hp="clear"` header protection).
+ */
+export function pgpMimeSign(options: any): any;
+
+/**
+ * `pgpMimeVerify({raw, signerPublicKeys})` → the `pgpMimeOpen` shape for a
+ * signed-only message (`multipart/signed` or an inline cleartext signature).
+ */
+export function pgpMimeVerify(options: any): any;
+
+/**
+ * `restoreBackup({payload, setupCode})` → `{encryptedPrivateBundle}` (still locked
+ * with the key's own passphrase).
+ */
+export function restoreBackup(options: any): any;
+
+/**
+ * `revocationCertificate({encryptedPrivateBundle, passphrase, reason, message})`
+ * → `{certificate}` (armored; keep it aside to revoke the key later).
+ */
+export function revocationCertificate(options: any): any;
+
+/**
+ * `revokeKey({encryptedPrivateBundle, passphrase, reason, message})` →
+ * `{publicKeyArmored, encryptedPrivateBundle}`. `reason`: `compromised` |
+ * `superseded` | `retired` | `unspecified`.
+ */
+export function revokeKey(options: any): any;
+
+/**
+ * `revokeSubkey({encryptedPrivateBundle, passphrase, subkeyFingerprint, reason,
+ * message})` → `{publicKeyArmored, encryptedPrivateBundle}`.
+ */
+export function revokeSubkey(options: any): any;
+
+/**
+ * `setKeyExpiry({encryptedPrivateBundle, passphrase, expiresAt})` →
+ * `{publicKeyArmored, encryptedPrivateBundle}`; applies to the key and its
+ * subkeys.
+ */
+export function setKeyExpiry(options: any): any;
 
 /**
  * `sign({kind, data, encryptedPrivateBundle, passphrase, detached})` →
@@ -100,6 +220,18 @@ export function unlockKey(options: any): any;
  * `verify({kind, data, signature, signerPublicKey})` → `SignatureVerdict`.
  */
 export function verify(options: any): any;
+
+/**
+ * `verifyPgp({data?, signature, signerPublicKeys})` → `{verification,
+ * signedText?}`. With `data` the signature is detached (armored or binary);
+ * without, `signature` is a `PGP SIGNED MESSAGE`.
+ */
+export function verifyPgp(options: any): any;
+
+/**
+ * `wkdUrls({email})` → `[advancedUrl, directUrl]`.
+ */
+export function wkdUrls(options: any): any;
 
 /**
  * `zaDeriveKek({keyRef})` → `{ keyRef }` (the KEK, as a new in-worker ref).
@@ -192,21 +324,6 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly __init: () => void;
-    readonly attachIssuedCert: (a: number, b: number) => void;
-    readonly certificateRequest: (a: number, b: number) => void;
-    readonly decrypt: (a: number, b: number) => void;
-    readonly encrypt: (a: number, b: number) => void;
-    readonly exportBackup: (a: number, b: number) => void;
-    readonly exportPkcs12: (a: number, b: number) => void;
-    readonly exportPublic: (a: number, b: number) => void;
-    readonly generateKey: (a: number, b: number) => void;
-    readonly importArmored: (a: number, b: number) => void;
-    readonly importPkcs12: (a: number, b: number) => void;
-    readonly lockKey: (a: number, b: number) => void;
-    readonly sign: (a: number, b: number) => void;
-    readonly unlockKey: (a: number, b: number) => void;
-    readonly verify: (a: number, b: number) => void;
     readonly zaDeriveKek: (a: number, b: number) => void;
     readonly zaDeriveRootKey: (a: number, b: number) => void;
     readonly zaDeriveSubkey: (a: number, b: number) => void;
@@ -222,6 +339,42 @@ export interface InitOutput {
     readonly zaSealRow: (a: number, b: number) => void;
     readonly zaUnwrapKey: (a: number, b: number) => void;
     readonly zaWrapKey: (a: number, b: number) => void;
+    readonly __init: () => void;
+    readonly addSubkey: (a: number, b: number) => void;
+    readonly analyzeMessage: (a: number, b: number) => void;
+    readonly applyRevocationCertificate: (a: number, b: number) => void;
+    readonly attachIssuedCert: (a: number, b: number) => void;
+    readonly autocryptHeader: (a: number, b: number) => void;
+    readonly autocryptRecommend: (a: number, b: number) => void;
+    readonly certificateRequest: (a: number, b: number) => void;
+    readonly changePassphrase: (a: number, b: number) => void;
+    readonly decrypt: (a: number, b: number) => void;
+    readonly detectAttachedKeys: (a: number, b: number) => void;
+    readonly encrypt: (a: number, b: number) => void;
+    readonly exportBackup: (a: number, b: number) => void;
+    readonly exportBackupFull: (a: number, b: number) => void;
+    readonly exportPkcs12: (a: number, b: number) => void;
+    readonly exportPublic: (a: number, b: number) => void;
+    readonly generateKey: (a: number, b: number) => void;
+    readonly importArmored: (a: number, b: number) => void;
+    readonly importPkcs12: (a: number, b: number) => void;
+    readonly inspectKey: (a: number, b: number) => void;
+    readonly lockKey: (a: number, b: number) => void;
+    readonly parseAutocrypt: (a: number, b: number) => void;
+    readonly pgpMimeEncrypt: (a: number, b: number) => void;
+    readonly pgpMimeOpen: (a: number, b: number) => void;
+    readonly pgpMimeSign: (a: number, b: number) => void;
+    readonly pgpMimeVerify: (a: number, b: number) => void;
+    readonly restoreBackup: (a: number, b: number) => void;
+    readonly revocationCertificate: (a: number, b: number) => void;
+    readonly revokeKey: (a: number, b: number) => void;
+    readonly revokeSubkey: (a: number, b: number) => void;
+    readonly setKeyExpiry: (a: number, b: number) => void;
+    readonly sign: (a: number, b: number) => void;
+    readonly unlockKey: (a: number, b: number) => void;
+    readonly verify: (a: number, b: number) => void;
+    readonly verifyPgp: (a: number, b: number) => void;
+    readonly wkdUrls: (a: number, b: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_export3: (a: number) => void;

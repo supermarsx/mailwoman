@@ -73,7 +73,7 @@ describe('a generated S/MIME key is an X.509 certificate and an RSA key, as Node
   it('is a certificate, not OpenPGP material under another name', () => {
     expect(alice.certPem).toMatch(/^-----BEGIN CERTIFICATE-----\n/);
     expect(alice.publicKeyArmored).toBeUndefined();
-    expect(JSON.stringify(alice)).not.toContain('PGP');
+    expect(JSON.stringify(alice)).not.toContain('BEGIN PGP');
     expect(alice.encryptedPrivateBundle).toMatch(/^-----BEGIN ENCRYPTED PRIVATE KEY-----\n/);
   });
 

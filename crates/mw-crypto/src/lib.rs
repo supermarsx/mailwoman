@@ -31,9 +31,13 @@ pub use error::{CryptoError, Result};
 
 mod rng;
 
+pub mod clock;
 pub mod keyring;
+pub mod mime;
 pub mod pgp;
 pub mod smime;
+pub mod verdict;
+pub use verdict::Verification;
 
 /// Zero-access storage key hierarchy + device pairing (SPEC §9, plan §1.3, t6-e6).
 /// Target-agnostic core (native tests exercise it); the `#[wasm_bindgen]` browser
