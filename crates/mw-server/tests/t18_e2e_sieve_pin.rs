@@ -1,23 +1,6 @@
-//! t18-e-e2e — ManageSieve pinned-connect egress gate (R1) through the REAL
-//! sieve-sync route.
-//!
-//! 26.17 (L5) added a narrower-than-image-proxy egress gate for the ManageSieve
-//! caller. 26.18 (R1) closes the DNS-rebinding TOCTOU that remained: the caller now
-//! resolves+validates the host ONCE (`gate_sieve_target`) and dials the pinned
-//! `SocketAddr` via `ManageSieveClient::connect_pinned`, so a name cannot re-resolve
-//! to a rebound metadata/loopback target between the check and the connect (`host` is
-//! kept only for TLS SNI). The pin is a code property (`connect_pinned` dials the addr,
-//! not the host — unit-tested `connect_pinned_dials_addr_not_host` in mw-sieve, and
-//! `gate_returns_pinned_addr_for_allowed_and_refuses_blocked` in sieve_sync.rs).
-//!
-//! THIS leg proves the observable end-to-end wiring on the real route:
-//!   * a metadata / loopback / link-local host is refused at the gate → 403 (instant,
-//!     BEFORE any connect — so a rebind-after-validate can never reach it);
-//!   * an RFC1918 host PASSES the gate (NOT a 403) — an internal ManageSieve server
-//!     stays reachable, and the connect proceeds against the pinned address.
-//!
-//! Run:
-//!   cargo test -p mw-server --test t18_e2e_sieve_pin -- --nocapture --test-threads=1
+//! Client-supplied ManageSieve destinations are refused before connection.
+//! Private-network access is now an operator endpoint permission; guarded
+//! proxy/pinning behavior is covered in mw-egress plan::sieve_tests.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -114,50 +97,20 @@ async fn sieve_sync(
 }
 
 #[tokio::test]
-async fn sieve_gate_refuses_metadata_loopback_before_connect_and_pins_rfc1918() {
+async fn sieve_refuses_client_selected_destinations_and_credentials() {
     let db = temp_db();
     let addr = spawn_engine_server(&db).await;
     let base = format!("http://{addr}");
     let cookie = seed_session(&db).await;
-    let c = client();
-
-    // Metadata / loopback / link-local → refused at the gate → 403 (instant, BEFORE any
-    // connect). Because the gate returns the validated pinned address for the connect,
-    // a rebind between validate and connect can never reach one of these.
-    for (host, what) in [
-        ("169.254.169.254", "cloud metadata"),
-        ("127.0.0.1", "IPv4 loopback"),
-        ("::1", "IPv6 loopback"),
-        ("169.254.0.1", "link-local"),
+    let client = client();
+    for host in [
+        "169.254.169.254",
+        "127.0.0.1",
+        "::1",
+        "10.255.255.1",
+        "mail.example.org",
     ] {
-        let status = sieve_sync(&c, &base, &cookie, host)
-            .await
-            .unwrap_or_else(|e| {
-                panic!("{what} host must return promptly (a gate 403), not hang: {e}")
-            });
-        assert_eq!(
-            status.as_u16(),
-            403,
-            "sieve R1: {what} ({host}) must be refused at the gate before connect (got {status})"
-        );
-    }
-
-    // RFC1918 PASSES the gate: syncing to an internal ManageSieve server is legitimate,
-    // and the connect proceeds against the PINNED gated address. Nothing is listening,
-    // so it fails AFTER the gate — never an instant 403. A 403 would be immediate; a
-    // permitted host proceeds to a connect that fails (502) or exceeds the client
-    // timeout — both prove the gate allowed it and pinned the connect.
-    match sieve_sync(&c, &base, &cookie, "10.255.255.1").await {
-        Ok(status) => assert_ne!(
-            status.as_u16(),
-            403,
-            "an RFC1918 host must NOT be refused by the Sieve gate (got {status})"
-        ),
-        Err(e) if e.is_timeout() => {
-            eprintln!(
-                "[t18 sieve-pin] RFC1918 10.255.255.1 passed the gate (post-gate pinned connect timed out — expected)"
-            );
-        }
-        Err(e) => panic!("unexpected error for the RFC1918 host: {e}"),
+        let status = sieve_sync(&client, &base, &cookie, host).await.unwrap();
+        assert_eq!(status.as_u16(), 422, "request body cannot configure {host}");
     }
 }

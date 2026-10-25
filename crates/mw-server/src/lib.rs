@@ -11,6 +11,7 @@
 // change, so the refactor is deferred rather than done inside a toolchain pin.
 // Only this one lint is allowed, and only for this crate.
 #![allow(clippy::result_large_err)]
+#![recursion_limit = "256"]
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -24,7 +25,6 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use base64::Engine as _;
-use rand::RngCore;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -38,6 +38,7 @@ pub mod dlp;
 pub mod engine_mode;
 pub mod fonts;
 pub mod hardening;
+pub mod http_metrics;
 pub mod holidays;
 pub mod push;
 pub mod push_relay;
@@ -82,11 +83,17 @@ pub mod ui_plugins;
 // backfill endpoint + the server-metadata admin account passthrough helper the
 // `/jmap/api` handler calls. Additive; fail-closed.
 pub mod admin_maintenance;
+pub mod jobs;
 // t16 (26.16, e3): the login second-factor gate + enrolment/verification/recovery
 // and session-management routes over `mw-mfa` + the 0015 store tables. The
 // `gate_login` hook is called from both login branches below; `twofa_router()` is
 // merged into `router()`.
 pub mod twofa_routes;
+pub(crate) mod audit;
+pub(crate) mod alerts;
+pub(crate) mod step_up;
+mod security_center;
+mod server_text;
 // t16 (26.16, e10 chain link 3) MOUNT: the anonymizing image proxy + remote-image
 // grants (e6, S7/S8), the account-preferences router (e18, W12/W13/W15), and the
 // mailbox-import + webcal sync driver (e10, W18). e10 owns the `mod` lines + the
@@ -120,6 +127,15 @@ mod account_gate;
 mod scope_mw;
 // t32-h9: the server, never the client, picks the mail upstream for a sign-in.
 mod upstream_resolve;
+pub(crate) mod domain_config;
+mod domain_detect;
+pub mod domain_cli;
+mod domain_upgrade;
+pub mod domain_transport;
+pub mod domain_probe;
+mod client_config;
+mod remote_policy;
+mod domain_routes;
 // t32-h10: the answer for a request nothing else handled (a page for a browser
 // navigation, `{error, code}` JSON otherwise), plus the return-path and
 // static-path checks.
@@ -127,7 +143,9 @@ mod error_pages;
 // t32-e24a: admin RBAC — the capability catalogue, the signed-in admin's context
 // (`AdminCtx`, `AdminApiError`, `If-Match`), and the registry every admin route is
 // mounted through (`admin_router::admin_endpoint`).
+mod admin_accounts;
 pub mod admin_ctx;
+mod admin_roles;
 pub mod admin_router;
 pub mod capabilities;
 
@@ -792,6 +810,7 @@ fn mount_under_base_path(app: Router, base: &str) -> Router {
 #[derive(Clone)]
 pub(crate) struct AppState {
     store: Store,
+    pub(crate) scheduler: Arc<jobs::Scheduler>,
     render_bin: Option<PathBuf>,
     /// Whether a render kernel jail is expected on this deployment (DQ4/S6, via
     /// [`mw_sandbox::jail_expected`]). When set, the in-process render fallbacks
@@ -830,6 +849,7 @@ pub(crate) struct AppState {
     /// logins + passkey registration challenges). Inert until a user enrols a factor
     /// or an admin sets a require-2FA policy — the default login path is unchanged.
     pub(crate) twofa: Arc<twofa_routes::TwofaState>,
+    pub(crate) step_up: Arc<step_up::StepUpState>,
     /// t16 (26.16, e3, A1): the GAL/LDAP directory handle, so the login path can add
     /// an LDAP-bind pre-check (§18.3) when `MW_LDAP_BIND_AUTH` is set. Inert (never
     /// consulted) unless that env flag is on — the default login path is unchanged.
@@ -959,6 +979,7 @@ async fn build_app_inner(
 ) -> anyhow::Result<(Router, PushHandle)> {
     // Refuse the `MW_ADMIN_*` variables nothing applies, check the ones the security
     // policy overlay applies, and set the admin cookie name (t29-e6).
+    webhooks::reject_legacy_inbound_secret()?;
     let admin_overlay = admin_apply::env_overlay()?;
     let key = match &config.server_key_hex {
         Some(h) => ServerKey::from_hex(h).map_err(|_| anyhow!("MW_SERVER_KEY is not valid hex"))?,
@@ -1008,6 +1029,7 @@ async fn build_app_inner(
             "mw-render binary not found; /api/sanitize will sanitize in-process (degraded, no jail)"
         ),
     }
+    domain_upgrade::prepare(&store, &config.security, matches!(config.mode, ServerMode::Engine)).await?;
     let engine = match config.mode {
         ServerMode::Engine => {
             tracing::info!("engine mode: driving IMAP/POP3 accounts behind the JMAP surface");
@@ -1085,10 +1107,7 @@ async fn build_app_inner(
     );
     // Each delivery builds its own client, pinned to the address the egress gate
     // checked for that endpoint (t32-h5); see `webhooks::deliver`.
-    tokio::spawn(webhooks::run_webhook_dispatcher(
-        webhook_registry,
-        push.subscribe_relay(),
-    ));
+    webhooks::spawn(webhook_registry, engine.as_ref(), push.subscribe_relay());
 
     // Observability (OTLP/metrics/errors/inbound-webhook secret) — all off unless
     // the operator configures the corresponding env var.
@@ -1099,12 +1118,6 @@ async fn build_app_inner(
         std::mem::forget(guard);
     }
     errors::set_error_config(errors::ErrorConfig::from_env());
-    webhooks::set_inbound_secret(
-        std::env::var("MW_WEBHOOK_INBOUND_SECRET")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .map(String::into_bytes),
-    );
     // A5 (t16 e10, e9 handoff): inject the engine-backed inbound-webhook action sink,
     // mirroring the outbound `WebhookRegistryAdapter` wiring above. Until this is set
     // the inbound endpoint authenticates but returns `202 {dispatched:false}`. Engine
@@ -1185,7 +1198,7 @@ async fn build_app_inner(
         // The dispatcher, the search-index reconciliation and the connection of
         // stored accounts, all in the background. Here because they read the
         // posture source and the bridge registrations attached above.
-        engine_mode::start_background(engine);
+        engine_mode::start_background(engine, config.security.clone());
     }
 
     // The `/mcp` Streamable-HTTP router over the REAL engine. The countersign
@@ -1241,6 +1254,7 @@ async fn build_app_inner(
     }
     let state = AppState {
         store,
+        scheduler: jobs::new_scheduler(),
         render_bin,
         render_jail_required,
         web_dir: config.web_dir,
@@ -1255,8 +1269,10 @@ async fn build_app_inner(
         native_auth: NativeAuthConfig::from_env(),
         v6,
         twofa: Arc::new(twofa_routes::TwofaState::new()),
+        step_up: Arc::new(step_up::StepUpState::new()),
         directory: directory.clone(),
     };
+    jobs::start(state.clone());
     let v7 = V7Extensions {
         directory,
         passwd: passwd_backend,
@@ -1299,6 +1315,12 @@ fn router(
         scope_mw::rest_scope_guard,
     ));
 
+    // t32-e24b: the admin routes registered in `admin_router` that need a V7 extension (the
+    // plugin registry, the Assist gateway) get the same handles.
+    let admin_routes = admin_router::router(&state)
+        .layer(Extension(v7.plugins.clone()))
+        .layer(Extension(v7.assist.clone()));
+
     // ── V7 MOUNT (plan §3 e14) ────────────────────────────────────────────────
     // The five e9 route factories + the extra e14 endpoints, each layered with the
     // request extension it needs (`Extension<X>` — mirrors e9's mount contract). A
@@ -1306,7 +1328,6 @@ fn router(
     let v7_routes = directory::directory_router()
         .merge(passwd::passwd_router())
         .merge(assist::assist_router())
-        .merge(plugins::plugins_router())
         .merge(nextcloud::nextcloud_router())
         .merge(v7_mount::extra_v7_router())
         .layer(Extension(v7.directory))
@@ -1320,7 +1341,6 @@ fn router(
     // injected provider source + shared pending-flow store. Additive; the password
     // `/api/login` path is untouched.
     let sso_routes = sso::sso_router()
-        .merge(admin_sso::admin_sso_router())
         .layer(Extension(sso_source))
         .layer(Extension(sso_pending));
 
@@ -1334,19 +1354,16 @@ fn router(
         .merge(ui_plugins::ui_plugins_router())
         .merge(masked::masked_router());
 
-    let mut v6 = admin::routes()
-        // t32-e24a: every admin route registered with a capability.
-        .merge(admin_router::router(&state))
+    // t32-e24a: every admin route registered with a capability.
+    let mut v6 = admin_routes
         .merge(oauth::routes())
         .merge(rest)
         .merge(v7_routes)
         .merge(sso_routes)
         .merge(t10_routes)
-        // t14 (26.14): the admin-gated JWZ backfill endpoint (§Wave-B E-mount).
-        .merge(admin_maintenance::admin_maintenance_router())
         .route("/metrics", get(observability::metrics))
         .route("/errors", post(errors::report_error))
-        .route("/api/webhooks/inbound", post(webhooks::inbound_webhook));
+        .merge(webhooks::router());
     if let Some(mcp) = mcp_router {
         // The MCP router is a self-contained `Router<()>` (its own `Arc<McpServer>`
         // state); mount it as a service so it need not share `AppState`. The e11b
@@ -1360,11 +1377,14 @@ fn router(
     }
 
     let app = Router::new()
+        .route("/api/public-config", get(client_config::public_config))
         .merge(v6)
         // t16 (26.16, e3): 2FA login-step / enrolment / recovery + session management.
         // `/api/login/2fa*` are pre-auth (pending-token) and CSRF-exempt like
         // `/api/login`; the `/api/account/*` routes are session-authed.
         .merge(twofa_routes::twofa_router())
+        .merge(step_up::user_router())
+        .merge(security_center::router())
         // t16 (26.16, e10 chain link 3): the additive route modules e6/e18/e10 deliver.
         // All session-authed and ride the same CSRF/security-headers middleware below.
         //   * image_proxy (e6, S7/S8): the anonymizing `/api/image-proxy` + the
@@ -1394,7 +1414,7 @@ fn router(
         .route("/api/sanitize", post(sanitize))
         .route("/api/import/oft", post(import_oft))
         .route("/jmap/session", get(jmap_session))
-        .route("/jmap/api", post(jmap_api))
+        .route("/jmap/api", post(jmap_api).route_layer(middleware::from_fn_with_state(state.clone(), scope_mw::jmap_sieve_scope_guard)))
         .route(
             "/jmap/download/{accountId}/{blobId}/{name}",
             get(jmap_download),
@@ -1461,6 +1481,7 @@ fn router(
             state.clone(),
             security_headers,
         ))
+        .layer(middleware::from_fn(http_metrics::layer))
         .with_state(state.clone());
     // t20 B4: also serve the whole thing under `MW_BASE_PATH`. No-op when unset.
     mount_under_base_path(app, &state.base_path)
@@ -1645,16 +1666,23 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
             .cookie_secure(state.cookie_secure, req.headers(), req.extensions());
 
     let mut resp = next.run(req).await;
+    // Only the static reader bridge may supply its own independent policy.
+    // A response extension cannot be forged by a request header or upstream.
+    let reader_frame = resp.extensions_mut().remove::<remote_policy::ReaderFrameResponse>().is_some();
     let h = resp.headers_mut();
     // A handler's own policy (a download's sandbox, t32-h4) is kept as a second
     // header next to the shell's. The browser enforces both, so it can only
     // narrow what the shell policy allows.
     let own = h.remove("content-security-policy");
-    h.insert("content-security-policy", HeaderValue::from_static(CSP));
-    if let Some(v) = own {
-        h.append("content-security-policy", v);
+    if let (true, Some(policy)) = (reader_frame, own.as_ref()) {
+        h.insert("content-security-policy", policy.clone());
+    } else {
+        h.insert("content-security-policy", HeaderValue::from_static(CSP));
+        if let Some(v) = own {
+            h.append("content-security-policy", v);
+        }
     }
-    h.insert("x-frame-options", HeaderValue::from_static("DENY"));
+    h.insert("x-frame-options", HeaderValue::from_static(if reader_frame { "SAMEORIGIN" } else { "DENY" }));
     h.insert(
         "x-content-type-options",
         HeaderValue::from_static("nosniff"),
@@ -1670,7 +1698,13 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
     // refuse it (t29-e8).
     let own_corp = h.remove("cross-origin-resource-policy");
     hardening::apply_extra_headers(h, state.hardening.coep);
-    if let Some(v) = own_corp {
+    if reader_frame {
+        // Sandboxing gives the bridge an opaque origin in Firefox. It is a
+        // public static document; frame-ancestors and its parent handshake
+        // still restrict embedding and the delivery of message HTML.
+        h.insert("cross-origin-resource-policy", HeaderValue::from_static("cross-origin"));
+        h.insert("cross-origin-embedder-policy", HeaderValue::from_static("credentialless"));
+    } else if let Some(v) = own_corp {
         h.insert("cross-origin-resource-policy", v);
     }
     // t20 B6: tell the browser never to speak plaintext to this host again, so a
@@ -1858,7 +1892,12 @@ async fn state_change_guard(State(state): State<AppState>, req: Request, next: N
             // the Origin check above like every other write.
             if state.hardening.csrf_strict
                 && !hardening::csrf_token_exempt(req.uri().path())
-                && !hardening::csrf_double_submit_ok(req.headers())
+                && !hardening::csrf_request_ok(
+                    req.headers(),
+                    &state.store,
+                    req.uri().path().strip_prefix(&mw_admin::config::admin_path())
+                        .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with('/')),
+                )
             {
                 return (
                     StatusCode::FORBIDDEN,
@@ -2024,7 +2063,7 @@ async fn login(
     // t20 B2: the header-auth path needs the connected peer's address, which
     // lives in the request extensions as `ConnectInfo`.
     ext: axum::http::Extensions,
-    Json(body): Json<LoginReq>,
+    Json(mut body): Json<LoginReq>,
 ) -> Response {
     if body.names_a_server() {
         return client_server_refused();
@@ -2036,6 +2075,11 @@ async fn login(
     if let Some(resp) = header_auth_login(&state, &headers, &ext, &body).await {
         return resp;
     }
+    let host = state.external.host(&headers, &ext);
+    match domain_config::canonical(&state.store, &body.username, host.as_deref()).await {
+        Ok(identity) => body.username = identity.login_name,
+        Err(_) => return address_not_configured(),
+    }
     // A1 (LDAP-bind login backend, §18.3): an env-gated pre-check against the
     // directory. Off by default → the mail backend remains the sole authority.
     if let Err(resp) = directory_bind_gate(&state, &body.username, &body.password).await {
@@ -2046,7 +2090,7 @@ async fn login(
         Err(upstream_resolve::ResolveError::NotConfigured) => return address_not_configured(),
     };
     if let Some(engine) = &state.engine {
-        return engine_login(&state, &headers, engine, body, upstream.url()).await;
+        return engine_login(&state, &headers, &ext, engine, body, upstream.url()).await;
     }
     let jmap_url = upstream.url().to_string();
     let creds = Credentials {
@@ -2062,6 +2106,8 @@ async fn login(
             if let UpstreamSessionError::Refused(r) = &e {
                 tracing::warn!("proxy login refused: {r}");
             }
+            security_center::record_failure(&state,None,&body.username,
+                &security_center::device(&headers,&ext,body.client_type.as_deref()),"password","upstream-auth").await;
             return unauthorized();
         }
     };
@@ -2088,7 +2134,9 @@ async fn login(
     twofa_routes::gate_login(
         &state,
         &headers,
+        &ext,
         twofa_routes::SessionArgs {
+            authentication_method: "password",
             account_id,
             username,
             jmap_url,
@@ -2159,6 +2207,16 @@ async fn header_auth_login(
         );
         return Some(unauthorized());
     }
+    let host = state.external.host(headers, ext);
+    let username = match domain_config::canonical(&state.store, &username, host.as_deref()).await {
+        Ok(identity) => identity.login_name,
+        Err(_) => return Some(unauthorized()),
+    };
+    match domain_config::signin_allowed(&state.store, &username).await {
+        Ok(true) => {}
+        Ok(false) => return Some(unauthorized()),
+        Err(error) => return Some(account_gate::unavailable("header-auth domain policy", error)),
+    }
     // Downstream mail access uses a configured service password (empty if unset — the
     // proxy/network is expected to authorize the upstream in this deployment shape).
     let password = std::env::var("MW_HEADER_AUTH_PASSWORD").unwrap_or_default();
@@ -2168,7 +2226,16 @@ async fn header_auth_login(
     };
     // The upstream comes from the server's configuration only (t32-h9):
     // `MW_HEADER_AUTH_JMAP_URL`, else the resolver.
-    let (jmap_url, api_url) = if state.engine.is_some() {
+    let mut account_id = username.clone();
+    let (jmap_url, api_url) = if let Some(engine) = &state.engine {
+        let upstream=match upstream_resolve::resolve_upstream(state,&username).await {
+            Ok(upstream)=>upstream,
+            Err(_)=>return Some(address_not_configured()),
+        };
+        match engine_mode::engine_login(engine,upstream.url(),&username,&creds.password).await {
+            Ok((id,_))=>account_id=id,
+            Err(_)=>return Some(unauthorized()),
+        }
         ("engine".to_string(), "engine".to_string())
     } else {
         let url = match std::env::var("MW_HEADER_AUTH_JMAP_URL")
@@ -2189,8 +2256,10 @@ async fn header_auth_login(
         twofa_routes::gate_login(
             state,
             headers,
+            ext,
             twofa_routes::SessionArgs {
-                account_id: username.clone(),
+                authentication_method: "header-auth",
+                account_id,
                 username,
                 jmap_url,
                 api_url,
@@ -2349,6 +2418,7 @@ fn merge_body(base: &mut serde_json::Value, extra: serde_json::Value) {
 async fn engine_login(
     state: &AppState,
     headers: &HeaderMap,
+    ext: &axum::http::Extensions,
     engine: &Arc<Engine>,
     body: LoginReq,
     server_url: &str,
@@ -2358,6 +2428,8 @@ async fn engine_login(
             Ok(pair) => pair,
             Err(e) => {
                 tracing::warn!("engine login failed: {e}");
+                security_center::record_failure(state,None,&body.username,
+                    &security_center::device(headers,ext,body.client_type.as_deref()),"password","upstream-auth").await;
                 return unauthorized();
             }
         };
@@ -2370,7 +2442,9 @@ async fn engine_login(
     twofa_routes::gate_login(
         state,
         headers,
+        ext,
         twofa_routes::SessionArgs {
+            authentication_method: "password",
             account_id,
             username,
             jmap_url: "engine".to_string(),
@@ -2385,7 +2459,7 @@ async fn engine_login(
 /// Build a login/rotate success response: set the session cookie, mint a fresh
 /// double-submit CSRF token (cookie + body), and return the JSON payload.
 fn authenticated_response(state: &AppState, id: &str, mut body: serde_json::Value) -> Response {
-    let token = new_csrf_token();
+    let token = state.store.session_csrf_token(id);
     if let Some(obj) = body.as_object_mut() {
         obj.insert("csrfToken".into(), json!(token));
     }
@@ -2394,13 +2468,6 @@ fn authenticated_response(state: &AppState, id: &str, mut body: serde_json::Valu
     h.append(header::SET_COOKIE, session_cookie(id, state.cookie_secure));
     h.append(header::SET_COOKIE, csrf_cookie(&token, state.cookie_secure));
     resp
-}
-
-/// A random, unguessable double-submit CSRF token.
-pub(crate) fn new_csrf_token() -> String {
-    let mut bytes = [0u8; 24];
-    rand::thread_rng().fill_bytes(&mut bytes);
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
 /// `POST /api/discover` is gone (t32-h9; t32-admin plan DA7). It used to look an
@@ -2459,14 +2526,14 @@ async fn me(State(state): State<AppState>, headers: HeaderMap) -> Response {
     {
         obj.insert("passwordChangeRequired".into(), json!(true));
     }
-    // Ensure the client holds a CSRF token without rotating one it already has.
+    // Bind the readable token to this session, replacing stale tokens after login.
     let existing = hardening::cookie(&headers, CSRF_COOKIE);
-    let token = existing.clone().unwrap_or_else(new_csrf_token);
+    let token = state.store.session_csrf_token(&session.id);
     if let Some(obj) = body.as_object_mut() {
         obj.insert("csrfToken".into(), json!(token));
     }
     let mut resp = Json(body).into_response();
-    if existing.is_none() {
+    if existing.as_deref() != Some(token.as_str()) {
         resp.headers_mut()
             .append(header::SET_COOKIE, csrf_cookie(&token, state.cookie_secure));
     }
@@ -2478,6 +2545,10 @@ async fn me(State(state): State<AppState>, headers: HeaderMap) -> Response {
 /// identifier is valid without forcing re-login (§7.4). Origin-checked like all
 /// state-changing routes.
 async fn rotate_session(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    // This endpoint rotates a browser cookie, never a different bearer principal.
+    if headers.contains_key(header::AUTHORIZATION) {
+        return unauthorized();
+    }
     let old_id = match cookie_value(&headers) {
         Some(id) => id,
         None => return unauthorized(),
@@ -2503,7 +2574,17 @@ async fn rotate_session(State(state): State<AppState>, headers: HeaderMap) -> Re
             return (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response();
         }
     };
-    let _ = state.store.delete_session(&old_id).await;
+    match state.store.rotate_session_security(&old_id,&new_id).await {
+        Ok(true)=>{}
+        result=>{
+            let _=state.store.delete_session(&new_id).await;
+            return match result {
+                Err(error)=>account_gate::unavailable("session rotation",error),
+                _=>unauthorized(),
+            };
+        }
+    }
+    state.step_up.forget_user(&old_id);
     state.sessions.rotate(&old_id, &new_id);
     authenticated_response(&state, &new_id, json!({ "ok": true }))
 }
@@ -2512,23 +2593,30 @@ async fn rotate_session(State(state): State<AppState>, headers: HeaderMap) -> Re
 // JMAP proxy
 // ---------------------------------------------------------------------------
 
-async fn jmap_session(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let session = match authed(&state, &headers).await {
-        Ok(s) => s,
-        Err(resp) => return resp,
-    };
+async fn jmap_session(State(state): State<AppState>, headers: HeaderMap, ext: axum::http::Extensions) -> Response {
+    let scoped = match scope_mw::sieve_key_session(&state,&headers,&ext,None,None).await {Ok(s)=>s,Err(r)=>return r};
+    let scripts_only=scoped.is_some();
+    let session = match scoped {Some(s)=>s,None=>match authed(&state,&headers).await {Ok(s)=>s,Err(r)=>return r}};
     if let Some(engine) = &state.engine {
         if let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await {
             tracing::warn!("engine account not available: {e}");
             return upstream_error();
         }
-        return Json(prefix_session_urls(
-            engine.session_json_for(&session.account_id, &session.username),
-            &state.base_path,
-        ))
-        .into_response();
-    }
-    let mut upstream =
+        let mut document=engine.session_json_for(&session.account_id,&session.username);
+        if scripts_only {
+            document["capabilities"].as_object_mut().unwrap().retain(|key,_|key=="urn:ietf:params:jmap:core");
+            document["primaryAccounts"]=json!({});
+            if let Some(accounts)=document["accounts"].as_object_mut(){accounts.retain(|key,_|key==&session.account_id);}
+            document["accounts"][&session.account_id]["accountCapabilities"]=json!({});
+        }
+        if let Ok(context)=sieve_sync::context(&state,&session,None).await {
+            let capability=mw_engine::sieve_jmap::CAPABILITY;
+            document["capabilities"][capability]=json!({"implementation":"Mailwoman"});
+            document["accounts"][&session.account_id]["accountCapabilities"][capability]=context.account_capability();
+            document["primaryAccounts"][capability]=session.account_id.clone().into();
+        }
+        return Json(prefix_session_urls(document,&state.base_path)).into_response();
+    }    let mut upstream =
         match upstream_session(&state.security, &session.jmap_url, &session.credentials).await {
             Ok(s) => s,
             Err(e) => {
@@ -2572,8 +2660,17 @@ fn prefix_session_urls(mut session: Value, base: &str) -> Value {
     session
 }
 
-async fn jmap_api(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
-    let session = match authed(&state, &headers).await {
+async fn jmap_api(State(state): State<AppState>, source: Option<Extension<scope_mw::RestSessionSource>>, headers: HeaderMap, body: Bytes) -> Response {
+    let headless_key = matches!(&source, Some(Extension(scope_mw::RestSessionSource::Key { .. })));
+    let key_account = match &source {
+        Some(Extension(scope_mw::RestSessionSource::Key { account_id })) => Some(account_id.clone()),
+        _ => None,
+    };
+    let authenticated = match source {
+        Some(Extension(source)) => scope_mw::rest_session(&state, &headers, source).await,
+        None => authed(&state, &headers).await,
+    };
+    let mut session = match authenticated {
         Ok(s) => s,
         Err(resp) => {
             // t14 (26.14, §Wave-B E-mount): the server-metadata admin editor drives
@@ -2591,6 +2688,16 @@ async fn jmap_api(State(state): State<AppState>, headers: HeaderMap, body: Bytes
             return resp;
         }
     };
+    if headless_key {
+        if let Err(response) = domain_upgrade::refresh_session(&state, &mut session).await {
+            return response;
+        }
+        if key_account.as_deref() != Some(session.account_id.as_str()) {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+        // A credential lookup must never inherit another browser's proof.
+        session.id.clear();
+    }
     if let Some(engine) = &state.engine {
         if let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await {
             tracing::warn!("engine account not available: {e}");
@@ -2602,10 +2709,39 @@ async fn jmap_api(State(state): State<AppState>, headers: HeaderMap, body: Bytes
                 return (StatusCode::BAD_REQUEST, format!("bad json: {e}")).into_response();
             }
         };
-        let response = engine.handle_jmap(&session.account_id, &request).await;
+        let has_sieve = request.get("methodCalls").and_then(Value::as_array).is_some_and(|calls|
+            calls.iter().any(|call| call.get(0).and_then(Value::as_str).is_some_and(|name|mw_engine::sieve_jmap::is_sieve_method(name) || mw_engine::sieve_jmap::is_managed_method(name))));
+        let mut sieve = if has_sieve {
+            match sieve_sync::context(&state, &session, Some(&request)).await {
+                Ok(context) => Some(context),
+                Err(response) => return response,
+            }
+        } else { None };
+        let response = engine.handle_jmap_with_sieve(&session.account_id, &request, sieve.as_mut()).await;
+        if sieve.as_ref().is_some_and(|ctx| ctx.forwarding_added) {
+            alerts::emit(&state, &session.account_id, alerts::AlertKind::ForwardingAdded, json!({})).await;
+        }
         return Json(response).into_response();
     }
-    let client = match upstream_client(
+    let mut deferred_sieve_errors=Vec::new();
+    let mut response_order=Vec::new();
+    let body=if let Ok(mut request)=serde_json::from_slice::<Value>(&body) {
+        let has_sieve=request["methodCalls"].as_array().is_some_and(|calls|calls.iter().any(|c|c[0].as_str().is_some_and(mw_engine::sieve_jmap::is_sieve_method)));
+        if has_sieve {
+            let upstream=match upstream_session(&state.security,&session.jmap_url,&session.credentials).await {Ok(s)=>s,Err(_)=>return upstream_error()};
+            if !upstream.capabilities.contains_key(mw_engine::sieve_jmap::CAPABILITY) {
+                if let Some(calls)=request["methodCalls"].as_array_mut() {
+                    response_order=calls.iter().map(|c|c[2].clone()).collect();
+                    calls.retain(|call| {if call[0].as_str().is_some_and(mw_engine::sieve_jmap::is_sieve_method) {
+                        deferred_sieve_errors.push(json!(["error",{"type":"unknownMethod"},call[2]])); false
+                    }else{true}});
+                    if calls.is_empty(){return Json(json!({"methodResponses":deferred_sieve_errors,"sessionState":upstream.state})).into_response();}
+                }
+                if let Some(using)=request["using"].as_array_mut(){using.retain(|cap|cap!=mw_engine::sieve_jmap::CAPABILITY);}
+            }
+        }
+        Bytes::from(serde_json::to_vec(&request).unwrap_or_default())
+    }else{body};    let client = match upstream_client(
         &state.security,
         &session.jmap_url,
         &session.api_url,
@@ -2621,6 +2757,17 @@ async fn jmap_api(State(state): State<AppState>, headers: HeaderMap, body: Bytes
     };
     match client.request_raw(&session.api_url, body).await {
         Ok((status, bytes)) => {
+            let bytes=if status.is_success() && !deferred_sieve_errors.is_empty() {
+                match serde_json::from_slice::<Value>(&bytes) {
+                    Ok(mut response)=>{
+                        if let Some(responses)=response["methodResponses"].as_array_mut(){
+                            responses.extend(deferred_sieve_errors);
+                            responses.sort_by_key(|r|response_order.iter().position(|id|id==&r[2]).unwrap_or(usize::MAX));
+                        }
+                        Bytes::from(serde_json::to_vec(&response).unwrap_or_default())
+                    },Err(_)=>return upstream_error(),
+                }
+            }else{bytes};
             let code =
                 StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             let mut resp = Response::new(Body::from(bytes));
@@ -2914,13 +3061,11 @@ fn proxied_download_type(upstream: Option<&str>) -> String {
 async fn jmap_download(
     State(state): State<AppState>,
     headers: HeaderMap,
+    ext: axum::http::Extensions,
     UrlPath((account_id, blob_id, name)): UrlPath<(String, String, String)>,
 ) -> Response {
-    let session = match authed(&state, &headers).await {
-        Ok(s) => s,
-        Err(resp) => return resp,
-    };
-    // A session may only download blobs from its own account.
+    let scoped=match scope_mw::sieve_key_session(&state,&headers,&ext,Some(&account_id),Some(&blob_id)).await {Ok(s)=>s,Err(r)=>return r};
+    let session=match scoped {Some(s)=>s,None=>match authed(&state,&headers).await {Ok(s)=>s,Err(r)=>return r}};    // A session may only download blobs from its own account.
     if account_id != session.account_id {
         return (
             StatusCode::FORBIDDEN,
@@ -3065,14 +3210,13 @@ fn upload_dir_from_env() -> Option<PathBuf> {
 async fn jmap_upload(
     State(state): State<AppState>,
     headers: HeaderMap,
+    ext: axum::http::Extensions,
     UrlPath(account_id): UrlPath<String>,
     body: Body,
 ) -> Response {
-    let session = match authed(&state, &headers).await {
-        Ok(s) => s,
-        Err(resp) => return resp,
-    };
-    // A session may only upload to its own account.
+    let scoped=match scope_mw::sieve_key_session(&state,&headers,&ext,Some(&account_id),None).await {Ok(s)=>s,Err(r)=>return r};
+    let scripts_only=scoped.is_some();
+    let session=match scoped {Some(s)=>s,None=>match authed(&state,&headers).await {Ok(s)=>s,Err(r)=>return r}};    // A session may only upload to its own account.
     if account_id != session.account_id {
         return (
             StatusCode::FORBIDDEN,
@@ -3090,10 +3234,15 @@ async fn jmap_upload(
     // read is bounded here rather than by the default (smaller) extractor limit, and
     // read through [`read_body_capped`] rather than `axum::body::to_bytes` so an
     // over-limit body is drained instead of closed on — see [`DRAIN_BUDGET_BYTES`].
-    let bytes = match read_body_capped(body, MAX_UPLOAD_BYTES).await {
+    let cap=if scripts_only {
+        if !content_type.split(';').next().is_some_and(|v|v.trim().eq_ignore_ascii_case("application/sieve")) {return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();}
+        match sieve_sync::upload_limit(&state,&session).await {Ok(n)=>n,Err(r)=>return r}
+    }else{MAX_UPLOAD_BYTES};
+    let bytes = match read_body_capped(body, cap).await {
         Ok(b) => b,
         Err(()) => return upload_too_large(),
     };
+    if scripts_only && (bytes.is_empty() || std::str::from_utf8(&bytes).is_err()) {return StatusCode::BAD_REQUEST.into_response();}
     let Some(engine) = &state.engine else {
         return proxy_upload(&state.security, &session, &account_id, &content_type, bytes).await;
     };
@@ -3403,6 +3552,9 @@ async fn export_message(
         Ok(s) => s,
         Err(resp) => return resp,
     };
+    if let Err(response) = step_up::require_user(&state, &session, step_up::StepUpAction::DataExport).await {
+        return response;
+    }
     let Some(engine) = &state.engine else {
         return (
             StatusCode::NOT_IMPLEMENTED,
@@ -4745,10 +4897,16 @@ pub(crate) async fn authed_with_gate(
     headers: &HeaderMap,
 ) -> Result<(mw_store::Session, account_gate::AccountGate), Response> {
     let bearer = push_relay::bearer_token(headers);
-    let session = match &bearer {
+    let mut session = match &bearer {
         Some(token) => authed_native(state, token).await?,
         None => authed_cookie(state, headers).await?,
     };
+    if let Err(response) = domain_upgrade::refresh_session(state, &mut session).await {
+        let _ = state.store.delete_session(&session.id).await;
+        state.sessions.forget(&session.id);
+        account_gate::stop_engine_work(state, &session.account_id);
+        return Err(response);
+    }
     let gate = account_gate::for_session(&state.store, &session)
         .await
         .map_err(|e| account_gate::unavailable("session", e))?;
@@ -4792,6 +4950,7 @@ async fn authed_cookie(
         state.sessions.forget(&id);
         return Err(session_expired());
     }
+    security_center::enforce_session(state, &session).await?;
     let _ = state.store.touch_session(&id).await;
     Ok(session)
 }
@@ -4818,6 +4977,7 @@ async fn authed_native(state: &AppState, token: &str) -> Result<mw_store::Sessio
         state.sessions.forget(token);
         return Err(session_expired());
     }
+    security_center::enforce_session(state, &session).await?;
     let _ = state.store.touch_session(token).await;
     Ok(session)
 }

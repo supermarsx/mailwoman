@@ -61,13 +61,50 @@
 //! request of its keys and tokens, was answered 503 for as long as the row
 //! existed.
 //!
+//! ## Other spellings of a flagged address
+//!
+//! A mail server can accept a spelling of an address that no login here has
+//! used yet, and a login under it would otherwise be a new principal with no
+//! flags (t32-h16): with a default realm it takes the bare `alice` for
+//! `alice@example.com`, a server that strips tags takes `alice+x@example.com`,
+//! and a domain can be written in Unicode or in its ASCII (`xn--`) form. So
+//! beside the names themselves, each login name a principal is known by is also
+//! read as:
+//!
+//! * the address with the local part's `+tag` removed (`alice+x@example.com` is
+//!   gated under `alice@example.com` too);
+//! * the address with its domain in ASCII form: a flag recorded under
+//!   `alice@bücher.example` applies to `alice@xn--bcher-kva.example` and the
+//!   other way round (the IDNA mapping is the one `reqwest::Url` applies to a
+//!   host; no other dependency is used for it);
+//! * for a bare name with no `@`, every flagged address with that local part:
+//!   the bare `alice` is refused while any `alice@<domain>` is disabled.
+//!
+//! The last one fails closed. On a server with more than one domain, a bare
+//! `alice` that the mail server maps to `alice@example.org` is refused because
+//! `alice@example.com` is disabled, though they are two people. The way round it
+//! is to sign in with the full address. An account id is not read these ways,
+//! only a login name: a proxy-mode account id such as `b` is not the bare name
+//! `b`.
+//!
+//! A hold on a password change (`force_password_change`) set under a flagged
+//! address is applied through these spellings too. Changing the password clears
+//! it under the session's own names, their `+tag`-less and ASCII-domain forms,
+//! but not under an address found only from a bare name: that address may be
+//! another person's, whose hold one person's password change must not lift. A
+//! user held that way clears it by signing in with the full address, or the
+//! admin clears the flag. `zero_access` and `remote_cache_wipe` are not read by
+//! this gate.
+//!
 //! ## What this cannot see
 //!
-//! A name the mail server would accept for the mailbox but that nobody has logged
-//! in with here is unknown: a flag set under it applies from the first login that
-//! uses it. Two upstream servers that hand out the same account id are one
-//! principal to this server (as they are to its keys and second factors).
-//! Disabling an account here does not disable the mailbox on the mail server.
+//! A name the mail server would accept for the mailbox, that nobody has logged
+//! in with here and that is none of the spellings above (an alias, a tag
+//! delimiter other than `+`), is unknown: a flag set under it applies from the
+//! first login that uses it. Two upstream servers that hand out the same account
+//! id are one principal to this server (as they are to its keys and second
+//! factors). Disabling an account here does not disable the mailbox on the mail
+//! server.
 //!
 //! ## Failing closed
 //!
@@ -212,6 +249,7 @@ pub(crate) struct AccountGate {
 fn subjects(names: &[&str]) -> Vec<String> {
     let mut out: Vec<String> = Vec::with_capacity(names.len());
     for name in names {
+        if name.is_empty() { continue; }
         let s = flag_subject(name);
         if !s.is_empty() && !out.contains(&s) {
             out.push(s);
@@ -220,14 +258,149 @@ fn subjects(names: &[&str]) -> Vec<String> {
     out
 }
 
-/// The gate for a principal known by any of `names`: a flag set under any one of
-/// them applies.
-async fn gate_for(store: &Store, names: &[&str]) -> Result<AccountGate, StoreError> {
-    let mut gate = AccountGate::default();
-    for subject in subjects(names) {
+/// `domain` in ASCII form (IDNA, as `reqwest::Url` maps a host), or `None` when
+/// it is not a domain name. Lowercase.
+fn ascii_domain(domain: &str) -> Option<String> {
+    let bad = |c: char| c.is_whitespace() || "/?#@:[]\\%".contains(c);
+    if domain.is_empty() || domain.contains(bad) {
+        return None;
+    }
+    let url = reqwest::Url::parse(&format!("http://{domain}/")).ok()?;
+    url.domain().map(str::to_ascii_lowercase)
+}
+
+/// Whether `domain` has a Unicode or an ASCII (`xn--`) form other than itself.
+fn is_idn(domain: &str) -> bool {
+    !domain.is_ascii() || domain.split('.').any(|label| label.starts_with("xn--"))
+}
+
+/// The local part of a folded subject without its `+tag`, if it has one.
+fn untagged(local: &str) -> Option<&str> {
+    match local.split_once('+') {
+        Some((base, _)) if !base.is_empty() => Some(base),
+        _ => None,
+    }
+}
+
+/// The other spellings of the folded login names in `subjects` (module docs,
+/// "Other spellings of a flagged address"): subjects to read beside them, and
+/// local parts whose flagged addresses to scan, each with the ASCII form of the
+/// domain an address found must have (`None`: any domain, for a bare name).
+fn spellings(subjects: &[String]) -> (Vec<String>, Vec<(String, Option<String>)>) {
+    let mut exact: Vec<String> = Vec::new();
+    let mut scans: Vec<(String, Option<String>)> = Vec::new();
+    for subject in subjects {
+        let (local, domain) = match subject.rsplit_once('@') {
+            Some((local, domain)) => (local, Some(domain)),
+            None => (subject.as_str(), None),
+        };
+        if local.is_empty() {
+            continue;
+        }
+        let at = domain.map(|d| format!("@{d}")).unwrap_or_default();
+        if let Some(base) = untagged(local) {
+            exact.push(format!("{base}{at}"));
+        }
+        // A domain with no other form needs no scan: the record under it is
+        // read directly.
+        let scan_domain = match domain {
+            None => None,
+            Some(d) if is_idn(d) => match ascii_domain(d) {
+                Some(ascii) => Some(ascii),
+                None => continue,
+            },
+            Some(_) => continue,
+        };
+        for l in std::iter::once(local).chain(untagged(local)) {
+            let scan = (l.to_string(), scan_domain.clone());
+            if !scans.contains(&scan) {
+                scans.push(scan);
+            }
+        }
+    }
+    (exact, scans)
+}
+
+/// One flags record that applies to a principal.
+struct Applies {
+    /// The flag subject it is stored under.
+    subject: String,
+    flags: UserFeatureFlags,
+    /// Stored under one of the principal's names or another spelling of the same
+    /// address, not found only from a bare name (module docs).
+    same_address: bool,
+}
+
+/// Every flags record that applies to a principal with the account ids `ids`,
+/// known by the login names `names`: the record under each of them (absent ones
+/// as all clear), and under each other spelling of a login name (module docs,
+/// "Other spellings of a flagged address").
+async fn applicable(
+    store: &Store,
+    ids: &[&str],
+    names: &[&str],
+) -> Result<Vec<Applies>, StoreError> {
+    let mut out: Vec<Applies> = Vec::new();
+    let all: Vec<&str> = ids.iter().chain(names).copied().collect();
+    let (exact, scans) = spellings(&subjects(names));
+    for subject in subjects(&all).into_iter().chain(exact) {
+        if out.iter().any(|a| a.subject == subject) {
+            continue;
+        }
         let flags = read_flags(store, &subject).await?;
-        gate.disabled |= flags.disabled;
-        gate.password_change_required |= flags.force_password_change;
+        out.push(Applies {
+            subject,
+            flags,
+            same_address: true,
+        });
+    }
+    for (local, domain) in scans {
+        let prefix = flags_key(&format!("{local}@"));
+        for (key, raw) in store.settings_with_prefix(&prefix).await? {
+            let key = flag_subject(&key);
+            let Some(found) = key.strip_prefix(&prefix) else {
+                continue;
+            };
+            if let Some(ascii) = &domain
+                && ascii_domain(found).as_ref() != Some(ascii)
+            {
+                continue;
+            }
+            let subject = format!("{local}@{found}");
+            if let Some(seen) = out.iter_mut().find(|a| a.subject == subject) {
+                seen.same_address |= domain.is_some();
+                continue;
+            }
+            out.push(Applies {
+                subject,
+                flags: parse_flags(&raw)?,
+                same_address: domain.is_some(),
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// The gate for a principal with the account ids `ids`, known by the login names
+/// `names`: a flag set under any one of them applies, and under another spelling
+/// of a login name.
+async fn gate_for(store: &Store, ids: &[&str], names: &[&str]) -> Result<AccountGate, StoreError> {
+    let mut gate = AccountGate::default();
+    let subject = mw_store::settings_policy::SettingSubject { domain: "", account_id: "", address: "" };
+    let listed = crate::settings_registry::effective_for(store, "signin.domainMode", &subject).await?
+        .is_some_and(|value| value.value == "listed");
+    for name in names {
+        let identity = crate::domain_config::canonical(store, name, None).await
+            .map_err(StoreError::Corrupt)?;
+        match store.domain_signin_state(&identity.domain).await? {
+            mw_store::DomainSigninState::Disabled => gate.disabled = true,
+            mw_store::DomainSigninState::Unlisted if listed => gate.disabled = true,
+            _ => {}
+        }
+    }
+    for record in applicable(store, ids, names).await? {
+        gate.disabled |= record.flags.disabled;
+        gate.password_change_required |= record.flags.force_password_change;
     }
     Ok(gate)
 }
@@ -260,16 +433,15 @@ pub(crate) async fn for_login(
     let mut names = principal_names(store, account_id).await?;
     names.push(username.to_string());
     names.push(login_name.to_string());
-    gate_for_names(store, &names).await
+    gate_for_names(store, account_id, &names).await
 }
 
-/// The names an established session is gated under: its own two, its account id,
-/// and the names recorded for that account.
+/// The login names an established session is gated under: its own two and the
+/// names recorded for its account. Its account id is gated beside them.
 async fn session_names(store: &Store, session: &Session) -> Result<Vec<String>, StoreError> {
     let mut names = vec![
         session.username.clone(),
         session.credentials.username.clone(),
-        session.account_id.clone(),
     ];
     names.extend(store.account_names(&session.account_id).await?);
     Ok(names)
@@ -280,22 +452,22 @@ pub(crate) async fn for_session(
     store: &Store,
     session: &Session,
 ) -> Result<AccountGate, StoreError> {
-    gate_for_names(store, &session_names(store, session).await?).await
+    let names = session_names(store, session).await?;
+    gate_for_names(store, &session.account_id, &names).await
 }
 
-/// Every name the account `account_id` is known by (module docs, "Every name of a
-/// principal"), for principals that carry only the id (an API key, an OAuth
-/// token). Holds the id itself; an empty id is no principal and has no names (a
-/// proxy-mode upstream that names no mail account leaves sessions with an empty
-/// account id, and those must not be read as one account).
-pub(crate) async fn principal_names(
-    store: &Store,
-    account_id: &str,
-) -> Result<Vec<String>, StoreError> {
+/// Every login name the account `account_id` is known by (module docs, "Every
+/// name of a principal"), for principals that carry only the id (an API key, an
+/// OAuth token). The id itself is not among them: callers gate it as a subject
+/// of its own, and it is not read as a login name. An empty id is no principal
+/// and has no names (a proxy-mode upstream that names no mail account leaves
+/// sessions with an empty account id, and those must not be read as one
+/// account).
+async fn principal_names(store: &Store, account_id: &str) -> Result<Vec<String>, StoreError> {
+    let mut names = Vec::new();
     if account_id.is_empty() {
-        return Ok(Vec::new());
+        return Ok(names);
     }
-    let mut names = vec![account_id.to_string()];
     match store.get_account(account_id).await {
         Ok(account) => names.push(account.username),
         Err(StoreError::NotFound) => {}
@@ -312,9 +484,15 @@ pub(crate) async fn principal_names(
     Ok(names)
 }
 
-async fn gate_for_names(store: &Store, names: &[String]) -> Result<AccountGate, StoreError> {
+/// The gate for the account `account_id` known by the login names `names`. The
+/// id is read as a subject of its own, not as a login name (module docs).
+async fn gate_for_names(
+    store: &Store,
+    account_id: &str,
+    names: &[String],
+) -> Result<AccountGate, StoreError> {
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
-    gate_for(store, &names).await
+    gate_for(store, &[account_id], &names).await
 }
 
 /// The gate for a key or token principal: a flag under any name the account is
@@ -324,7 +502,8 @@ pub(crate) async fn for_account(
     store: &Store,
     account_id: &str,
 ) -> Result<AccountGate, StoreError> {
-    gate_for_names(store, &principal_names(store, account_id).await?).await
+    let names = principal_names(store, account_id).await?;
+    gate_for_names(store, account_id, &names).await
 }
 
 /// Stop the engine's work for a disabled account: drop its runtime, which ends its
@@ -344,8 +523,10 @@ pub(crate) fn stop_engine_work(state: &AppState, account_id: &str) {
 }
 
 /// Clear `force_password_change` for the account behind `session`, after it has
-/// changed its password: under every name the session is gated under, since the
-/// hold may come from any of them.
+/// changed its password: under every name the session is gated under and every
+/// other spelling of the same address, since the hold may come from any of them.
+/// A record found only from a bare name is left alone: it may be another
+/// person's (module docs, "Other spellings of a flagged address").
 ///
 /// Only that one field is changed ([`update_flags`]); a `disabled` the admin set
 /// while the password change was in flight is kept. Each record that was changed
@@ -360,7 +541,14 @@ pub(crate) async fn clear_password_change(
         .await
         .map_err(store_err)?;
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
-    for subject in subjects(&names) {
+    let records = applicable(&state.store, &[session.account_id.as_str()], &names)
+        .await
+        .map_err(store_err)?;
+    for subject in records
+        .into_iter()
+        .filter(|r| r.same_address)
+        .map(|r| r.subject)
+    {
         let (before, _) = update_flags(&state.store, &subject, |f| {
             f.force_password_change = false;
         })
@@ -538,10 +726,7 @@ mod tests {
             .await
             .unwrap();
         assert!(for_account(&s, "upstream-17").await.unwrap().disabled);
-        assert_eq!(
-            principal_names(&s, "nobody").await.unwrap(),
-            vec!["nobody".to_string()]
-        );
+        assert!(principal_names(&s, "nobody").await.unwrap().is_empty());
         // Sessions without an account id are not one principal.
         s.create_session("", "zed@example.org", "http://u", "http://u", &creds("zed"))
             .await
@@ -818,5 +1003,168 @@ mod tests {
             .await
             .unwrap();
         assert!(read_flags(&s, "JO@example.org").await.unwrap().disabled);
+    }
+
+    #[test]
+    fn domains_fold_to_their_ascii_form() {
+        assert_eq!(
+            ascii_domain("bücher.example").as_deref(),
+            Some("xn--bcher-kva.example")
+        );
+        assert_eq!(
+            ascii_domain("XN--BCHER-KVA.example").as_deref(),
+            Some("xn--bcher-kva.example")
+        );
+        assert_eq!(ascii_domain("example.com").as_deref(), Some("example.com"));
+        for not_a_domain in ["", "a b", "x/y", "evil.example@other", "127.0.0.1", "[::1]"] {
+            assert_eq!(ascii_domain(not_a_domain), None, "{not_a_domain}");
+        }
+        assert!(is_idn("bücher.example") && is_idn("xn--bcher-kva.example"));
+        assert!(!is_idn("example.com"));
+    }
+
+    #[test]
+    fn spellings_of_tagged_bare_and_idn_names() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        let (exact, scans) = spellings(&s(&["alice+x@example.com"]));
+        assert_eq!(exact, s(&["alice@example.com"]));
+        assert!(scans.is_empty(), "an ASCII domain needs no scan");
+
+        let (exact, scans) = spellings(&s(&["alice+x"]));
+        assert_eq!(exact, s(&["alice"]));
+        assert_eq!(
+            scans,
+            vec![("alice+x".to_string(), None), ("alice".to_string(), None)]
+        );
+
+        let (exact, scans) = spellings(&s(&["carol@bücher.example"]));
+        assert!(exact.is_empty());
+        assert_eq!(
+            scans,
+            vec![(
+                "carol".to_string(),
+                Some("xn--bcher-kva.example".to_string())
+            )]
+        );
+
+        // No base before the `+`: not a tag.
+        let (exact, _) = spellings(&s(&["+x@example.com", "@example.com"]));
+        assert!(exact.is_empty());
+    }
+
+    /// The bare name and a tag of a disabled address are refused; another
+    /// person with the same local part on another domain is refused too through
+    /// the bare name (it fails closed), but not through the full address.
+    #[tokio::test]
+    async fn bare_and_tagged_spellings_of_a_disabled_address_are_refused() {
+        let s = store().await;
+        write_flags(&s, "alice@example.com", disabled())
+            .await
+            .unwrap();
+        for name in ["alice", " ALICE ", "alice+x@example.com", "alice+x"] {
+            assert!(
+                for_login(&s, "", name, name).await.unwrap().disabled,
+                "{name}"
+            );
+        }
+        for name in ["alice@example.org", "bob", "alic", "alice_", "ali%"] {
+            assert!(
+                !for_login(&s, "", name, name).await.unwrap().disabled,
+                "{name}"
+            );
+        }
+    }
+
+    /// An account id is not a login name: a proxy-mode id `b` is not refused
+    /// because `b@example.com` is disabled, but a login name `b` is.
+    #[tokio::test]
+    async fn an_account_id_is_not_read_as_a_bare_name() {
+        let s = store().await;
+        write_flags(&s, "b@example.com", disabled()).await.unwrap();
+        assert!(!for_account(&s, "b").await.unwrap().disabled);
+        assert!(
+            !for_login(&s, "b", "carl@example.com", "carl")
+                .await
+                .unwrap()
+                .disabled
+        );
+        remember_login(&s, "b", "b", "b").await.unwrap();
+        assert!(for_account(&s, "b").await.unwrap().disabled);
+    }
+
+    /// Either form of the domain finds a record under the other.
+    #[tokio::test]
+    async fn the_other_form_of_a_domain_is_one_address() {
+        let s = store().await;
+        write_flags(&s, "carol@bücher.example", disabled())
+            .await
+            .unwrap();
+        assert!(
+            for_login(
+                &s,
+                "",
+                "carol@xn--bcher-kva.example",
+                "carol@XN--BCHER-KVA.example"
+            )
+            .await
+            .unwrap()
+            .disabled
+        );
+        write_flags(&s, "carol@bücher.example", UserFeatureFlags::default())
+            .await
+            .unwrap();
+        write_flags(&s, "dan@xn--bcher-kva.example", disabled())
+            .await
+            .unwrap();
+        assert!(
+            for_login(&s, "", "dan@bücher.example", "dan+tag@BÜCHER.example")
+                .await
+                .unwrap()
+                .disabled
+        );
+        assert!(
+            !for_login(&s, "", "dan@other.example", "dan@other.example")
+                .await
+                .unwrap()
+                .disabled
+        );
+    }
+
+    /// A password change clears a hold found under another spelling of the same
+    /// address, but not one found only from a bare name.
+    #[tokio::test]
+    async fn only_same_address_records_are_cleared() {
+        let s = store().await;
+        let held = UserFeatureFlags {
+            force_password_change: true,
+            ..UserFeatureFlags::default()
+        };
+        write_flags(&s, "erin@example.com", held).await.unwrap();
+        write_flags(&s, "erin@bücher.example", held).await.unwrap();
+        let records = applicable(&s, &["acct"], &["erin", "erin+x@xn--bcher-kva.example"])
+            .await
+            .unwrap();
+        let held: Vec<(&str, bool)> = records
+            .iter()
+            .filter(|r| r.flags.force_password_change)
+            .map(|r| (r.subject.as_str(), r.same_address))
+            .collect();
+        assert!(held.contains(&("erin@example.com", false)), "{held:?}");
+        assert!(held.contains(&("erin@bücher.example", true)), "{held:?}");
+    }
+
+    /// A corrupt record found by a scan is an error, like any other.
+    #[tokio::test]
+    async fn a_corrupt_record_found_by_a_scan_refuses() {
+        let s = store().await;
+        s.set_setting("v6:admin:flags:fay@example.com", "{not json")
+            .await
+            .unwrap();
+        assert!(for_login(&s, "", "fay", "fay").await.is_err());
+        assert!(
+            for_login(&s, "", "fay@example.org", "fay@example.org")
+                .await
+                .is_ok()
+        );
     }
 }

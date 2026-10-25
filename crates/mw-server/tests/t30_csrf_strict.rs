@@ -909,3 +909,81 @@ async fn routes_no_cookie_authorises_answer_as_with_strict_off() {
         assert!(body["client_id"].is_string(), "strict={is_strict}: {body}");
     }
 }
+
+#[tokio::test]
+async fn self_made_and_other_session_tokens_are_refused_and_mixed_cookies_are_route_scoped() {
+    let mock = spawn_mock().await;
+    let base = spawn_server(ServerMode::Proxy, true, Some(&mock)).await;
+    let c = client();
+    let admin = admin_login(&c, &base).await;
+    let other = admin_login(&c, &base).await;
+    let mailbox = mailbox_login(&c, &base, &mock).await;
+    let admin_write = call(
+        "PUT",
+        "/admin/me/preferences",
+        Some(json!({"density":"compact"})),
+    );
+    for token in ["self-made", other.token.as_str(), mailbox.token.as_str()] {
+        let cookies = format!("{}; mw_csrf={token}", admin.session);
+        assert!(is_token_refusal(
+            &send(&c, &base, &admin_write, Some(&cookies), Some(token), None).await
+        ));
+    }
+    let mixed = format!(
+        "{}; {}; mw_csrf={}",
+        admin.session, mailbox.session, admin.token
+    );
+    assert_eq!(
+        send(
+            &c,
+            &base,
+            &admin_write,
+            Some(&mixed),
+            Some(&admin.token),
+            None
+        )
+        .await
+        .0,
+        200
+    );
+    let mailbox_write = call("POST", "/api/session/rotate", None);
+    assert!(is_token_refusal(
+        &send(
+            &c,
+            &base,
+            &mailbox_write,
+            Some(&mixed),
+            Some(&admin.token),
+            None
+        )
+        .await
+    ));
+    let mixed = format!(
+        "{}; {}; mw_csrf={}",
+        admin.session, mailbox.session, mailbox.token
+    );
+    assert_eq!(
+        send(
+            &c,
+            &base,
+            &mailbox_write,
+            Some(&mixed),
+            Some(&mailbox.token),
+            None
+        )
+        .await
+        .0,
+        200
+    );
+    // A session read repairs a CSRF cookie left over from another signed-in tab.
+    let repaired = c
+        .get(format!("{base}/admin/session"))
+        .header("Cookie", &mixed)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        cookie_value(&set_cookies(&repaired), "mw_csrf"),
+        Some(admin.token)
+    );
+}

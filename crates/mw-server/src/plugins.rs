@@ -2,9 +2,9 @@
 //! disable, grant, allow-unsigned, settings and a classifier test, over the 0008
 //! `plugins` / `plugin_grants` tables.
 //!
-//! Every route is **admin-session-gated** (the `mw_admin_session` cookie, same
-//! domain as `/admin/*`; `401` when the admin panel is disabled) and every change
-//! writes an audit row. The store is the registry: each handler reads and writes
+//! Every route is registered in `admin_router` (`plugins.read` to list,
+//! `plugins.write` to change; `401` without an admin session or when the admin
+//! panel is disabled) and every change writes an audit row. The store is the registry: each handler reads and writes
 //! the 0008 rows and answers with the plugin as [`plugin_view`] reports it. What
 //! runs is decided in `v7_mount` from those rows:
 //!
@@ -30,30 +30,27 @@
 
 use std::sync::{Arc, Mutex};
 
+use axum::Json;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Extension, Path as UrlPath, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
-use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use mw_admin::config::admin_route;
 use mw_plugin::{Capability, PluginHost, PluginLimits, PluginManifest};
 use mw_store::PluginRow;
 
 use crate::AppState;
+use crate::admin_ctx::AdminCtx;
+use crate::admin_router::AdminRegistrar;
+use crate::capabilities::Capability as AdminCap;
 use crate::v7_mount::{self, PluginRole, TrustPolicy};
 
 /// The shared, lockable plugin host e14 injects. `pub` so the boot-load integration
 /// test (`tests/v7_boot_load.rs`) can hand `load_plugin_backends` a fixture-backed
 /// host — it is a transparent alias for `Arc<Mutex<mw_plugin::PluginHost>>`.
 pub type PluginRegistry = Arc<Mutex<PluginHost>>;
-
-fn admin_cookie_name() -> String {
-    mw_admin::config::session_cookie_name()
-}
 
 /// The KV key both spam classifiers read their daemon address from.
 const ENDPOINT_KEY: &str = "endpoint";
@@ -66,57 +63,22 @@ Message-ID: <classifier-test@mailwoman.invalid>\r\n\
 \r\n\
 This message was sent by the Mailwoman admin panel to test the spam classifier.\r\n";
 
-pub(crate) fn plugins_router() -> Router<AppState> {
-    Router::new()
-        .route(&admin_route("/plugins"), get(list).post(register))
-        .route(&admin_route("/plugins/{id}/approve"), post(approve))
-        .route(&admin_route("/plugins/{id}/enable"), post(enable))
-        .route(&admin_route("/plugins/{id}/disable"), post(disable))
-        .route(&admin_route("/plugins/{id}/grant"), post(grant))
-        .route(
-            &admin_route("/plugins/{id}/allow-unsigned"),
-            post(allow_unsigned),
-        )
-        .route(&admin_route("/plugins/{id}/settings"), post(settings))
-        .route(&admin_route("/plugins/{id}/test"), post(test_classifier))
-}
-
-// ── admin session gate (mirrors admin.rs; a user-facing mailbox session must not
-// reach the plugin registry) ──────────────────────────────────────────────────
-
-fn unauthorized() -> Response {
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(json!({ "error": "admin authentication required" })),
-    )
-        .into_response()
-}
-
-fn admin_cookie(headers: &HeaderMap) -> Option<String> {
-    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
-    for part in raw.split(';') {
-        if let Some(v) = part
-            .trim()
-            .strip_prefix(&format!("{}=", admin_cookie_name()))
-            && !v.is_empty()
-        {
-            return Some(v.to_string());
-        }
-    }
-    None
-}
-
-/// Resolve the authenticated admin id, or a `401`. Enforces the `admin.enabled` gate.
-async fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<String, Response> {
-    if !state.v6.admin_enabled {
-        return Err(unauthorized());
-    }
-    let token = admin_cookie(headers).ok_or_else(unauthorized)?;
-    let hash = crate::push_relay::hash_token(&token);
-    match state.store.get_admin_session(&hash).await {
-        Ok(Some(admin_id)) => Ok(admin_id),
-        _ => Err(unauthorized()),
-    }
+/// The plugin registry routes (registered by `admin_router`).
+pub(crate) fn register_admin(r: &mut impl AdminRegistrar) {
+    r.admin_endpoint(Method::GET, "/plugins", AdminCap::PluginsRead, list);
+    r.admin_endpoint(Method::POST, "/plugins", AdminCap::PluginsWrite, register);
+    r.admin_endpoint(Method::POST, "/plugins/{id}/approve", AdminCap::PluginsWrite, approve);
+    r.admin_endpoint(Method::POST, "/plugins/{id}/enable", AdminCap::PluginsWrite, enable);
+    r.admin_endpoint(Method::POST, "/plugins/{id}/disable", AdminCap::PluginsWrite, disable);
+    r.admin_endpoint(Method::POST, "/plugins/{id}/grant", AdminCap::PluginsWrite, grant);
+    r.admin_endpoint(
+        Method::POST,
+        "/plugins/{id}/allow-unsigned",
+        AdminCap::PluginsWrite,
+        allow_unsigned,
+    );
+    r.admin_endpoint(Method::POST, "/plugins/{id}/settings", AdminCap::PluginsWrite, settings);
+    r.admin_endpoint(Method::POST, "/plugins/{id}/test", AdminCap::PluginsWrite, test_classifier);
 }
 
 // ── responses ────────────────────────────────────────────────────────────────
@@ -471,12 +433,9 @@ fn manifest_from(req: RegisterReq) -> Result<PluginManifest, String> {
 /// id order.
 async fn list(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _ctx: AdminCtx,
     Extension(reg): Extension<PluginRegistry>,
 ) -> Response {
-    if let Err(resp) = require_admin(&state, &headers).await {
-        return resp;
-    }
     let rows = match state.store.list_plugins().await {
         Ok(rows) => rows,
         Err(e) => return store_error("list", &e),
@@ -502,14 +461,11 @@ async fn list(
 ///   the third-party directory or whose digest is not an active allowlist pin.
 async fn register(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Extension(reg): Extension<PluginRegistry>,
     body: Result<Json<RegisterReq>, JsonRejection>,
 ) -> Response {
-    let admin = match require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     let manifest = match body {
         Ok(Json(req)) => match manifest_from(req) {
             Ok(m) => m,
@@ -595,14 +551,11 @@ async fn register(
 /// `POST /admin/plugins/{id}/approve` — record the administrator's approval.
 async fn approve(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Extension(reg): Extension<PluginRegistry>,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    let admin = match require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     if let Err(resp) = row_of(&state, &id).await {
         return resp;
     }
@@ -623,14 +576,11 @@ async fn approve(
 /// allow-unsigned flag). The answer's `loaded` says whether it is now running.
 async fn enable(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Extension(reg): Extension<PluginRegistry>,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    let admin = match require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     let row = match row_of(&state, &id).await {
         Ok(row) => row,
         Err(resp) => return resp,
@@ -669,14 +619,11 @@ async fn enable(
 /// or account backend is unloaded before this answers.
 async fn disable(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Extension(reg): Extension<PluginRegistry>,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    let admin = match require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     if let Err(resp) = row_of(&state, &id).await {
         return resp;
     }
@@ -726,15 +673,12 @@ fn grantable(manifest: &PluginManifest, requested: &[String]) -> Result<Vec<Capa
 /// does not declare, or one reserved to first-party components.
 async fn grant(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Extension(reg): Extension<PluginRegistry>,
     UrlPath(id): UrlPath<String>,
     body: Result<Json<GrantReq>, JsonRejection>,
 ) -> Response {
-    let admin = match require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     let req = match body {
         Ok(Json(req)) => req,
         Err(rejection) => return bad_request(rejection.body_text()),
@@ -792,15 +736,12 @@ struct AllowUnsignedReq {
 /// id, which is trusted by its digest pin and has no such flag.
 async fn allow_unsigned(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Extension(reg): Extension<PluginRegistry>,
     UrlPath(id): UrlPath<String>,
     body: Result<Json<AllowUnsignedReq>, JsonRejection>,
 ) -> Response {
-    let admin = match require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     let allow = match body {
         Ok(Json(req)) => req.allow,
         Err(rejection) => return bad_request(rejection.body_text()),
@@ -845,15 +786,12 @@ struct SettingsReq {
 /// plugin's `netAllowlist`. `400` for a plugin that takes no endpoint.
 async fn settings(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Extension(reg): Extension<PluginRegistry>,
     UrlPath(id): UrlPath<String>,
     body: Result<Json<SettingsReq>, JsonRejection>,
 ) -> Response {
-    let admin = match require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     let endpoint = match body {
         Ok(Json(req)) => req.endpoint.map(|e| e.trim().to_string()),
         Err(rejection) => return bad_request(rejection.body_text()),
@@ -913,13 +851,10 @@ async fn settings(
 /// classifier; `502 classifier-error` when the call itself failed.
 async fn test_classifier(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _ctx: AdminCtx,
     Extension(reg): Extension<PluginRegistry>,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    if let Err(resp) = require_admin(&state, &headers).await {
-        return resp;
-    }
     let row = match row_of(&state, &id).await {
         Ok(row) => row,
         Err(resp) => return resp,

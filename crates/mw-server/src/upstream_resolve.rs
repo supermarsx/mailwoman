@@ -7,11 +7,9 @@
 //!
 //! [`resolve_upstream`] is the one place the choice is made, in this order:
 //!
-//! 1. the address's domain in the admin's domain table: **not built yet**.
-//!    [`domain_upstream`] is the seam; t32-e12 (`.orchestration/plans/t32-admin.md`
-//!    §2.6, `domain_config::resolve`) fills it, following aliases and host mappings,
-//!    and nothing else here has to change;
-//! 2. the deployment default, `MW_UPSTREAM_DEFAULT` ([`SecurityConfig::upstream_default`]);
+//! 1. the enabled canonical domain's configured upstream, following aliases;
+//! 2. the effective `upstream.default` setting, then `MW_UPSTREAM_DEFAULT`
+//!    ([`SecurityConfig::upstream_default`]);
 //! 3. proxy mode only: a `MW_JMAP_UPSTREAMS` list that names exactly one usable
 //!    origin, so a proxy install configured before t32-h9 keeps working (§2.6, the
 //!    `MW_JMAP_UPSTREAMS` migration path);
@@ -61,20 +59,70 @@ pub(crate) async fn resolve_upstream(
     state: &AppState,
     username: &str,
 ) -> Result<Upstream, ResolveError> {
-    let engine = state.engine.is_some();
-    if let Some(domain) = domain_of(username)
-        && let Some(url) = domain_upstream(state, &domain).await
-    {
-        return Ok(wrap(engine, url));
-    }
-    resolve_from_config(&state.security, engine)
+    resolve_for(&state.store, &state.security, state.engine.is_some(), username).await
 }
 
-/// Step 1, the per-domain configuration. Always `None` until t32-e12 adds the
-/// admin domain table; it then returns that domain's upstream for the running
-/// mode when one is set and the domain is enabled.
-async fn domain_upstream(_state: &AppState, _domain: &str) -> Option<String> {
-    None
+pub(crate) async fn resolve_for(
+    store: &mw_store::Store,
+    security: &SecurityConfig,
+    engine: bool,
+    username: &str,
+) -> Result<Upstream, ResolveError> {
+    let identity = crate::domain_config::canonical(store, username, None)
+        .await
+        .map_err(|_| ResolveError::NotConfigured)?;
+    let subject = mw_store::settings_policy::SettingSubject {
+        domain: &identity.domain,
+        account_id: "",
+        address: &identity.address,
+    };
+    let listed =
+        crate::settings_registry::effective_for(store, "signin.domainMode", &subject)
+            .await
+            .map_err(|_| ResolveError::NotConfigured)?
+            .is_some_and(|v| v.value == "listed");
+    let row = crate::domain_config::configured_row(store, &identity)
+        .await
+        .map_err(|_| ResolveError::NotConfigured)?;
+    match row {
+        Some(row) => {
+            if !row.enabled {
+                return Err(ResolveError::NotConfigured);
+            }
+            let config = crate::domain_config::UpstreamConfig::parse(&row.upstream_json)
+                .map_err(|_| ResolveError::NotConfigured)?;
+            if engine {
+                if let Some((endpoint, protocol)) = config.mail() {
+                    return Ok(Upstream::Mail(endpoint.mail_url(protocol)));
+                }
+                if config.jmap.is_some() {
+                    return Err(ResolveError::NotConfigured);
+                }
+            } else {
+                if let Some(jmap) = config.jmap {
+                    return Ok(Upstream::Jmap(jmap.session_url));
+                }
+                if config.mail().is_some() {
+                    return Err(ResolveError::NotConfigured);
+                }
+            }
+        }
+        None if listed => return Err(ResolveError::NotConfigured),
+        None => {}
+    }
+    if let Some(default) =
+        crate::settings_registry::effective_for(store, "upstream.default", &subject)
+            .await
+            .map_err(|_| ResolveError::NotConfigured)?
+            .and_then(|v| v.value.as_str().map(str::to_string))
+    {
+        return if fits_mode(engine, &default) {
+            Ok(wrap(engine, default))
+        } else {
+            Err(ResolveError::NotConfigured)
+        };
+    }
+    resolve_from_config(security, engine)
 }
 
 /// Steps 2-4: the deployment-wide configuration.

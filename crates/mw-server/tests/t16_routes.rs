@@ -3,7 +3,9 @@
 //!
 //! "unit-green != wired." These drive the actual shipped seams:
 //!   * A5 — a signed inbound webhook, through the REAL `/api/webhooks/inbound` route
-//!     (`build_app`), fires the wired action sink (a bad signature is refused).
+//!     (`build_app`), fires the wired action sink (a bad signature is refused). Since
+//!     26.20 (t28-e18) the webhook is a stored row with its own secret; the full
+//!     inbound contract (replay, window, account, actions) is `t28_webhooks.rs`.
 //!   * W7 — the MSG (CFB) + DOCX (OOXML/ZIP) export transform the export route serves
 //!     (`mw_export::export_one`) produces the right container bytes from a real message.
 //!   * W19 — decoded attachment text is genuinely searchable: a term present ONLY in an
@@ -21,16 +23,22 @@ use std::sync::Arc;
 use serde_json::json;
 
 use mw_server::webhooks::{
-    self, InMemoryWebhookActionSink, SIGNATURE_HEADER, WebhookActionSink, set_inbound_dispatcher,
-    set_inbound_secret,
+    self, InMemoryWebhookActionSink, NONCE_HEADER, SIGNATURE_HEADER, TIMESTAMP_HEADER,
+    WEBHOOK_ID_HEADER, WebhookActionSink, set_inbound_dispatcher,
 };
 use mw_server::{AppConfig, build_app};
+use mw_store::{ServerKey, Store};
+
+/// The server key, so the test can open the server's database and write the
+/// inbound webhook row the admin console would.
+const KEY_HEX: &str = "16a5e2e0b1c4d3f2a1b0c9d8e7f6a5b416a5e2e0b1c4d3f2a1b0c9d8e7f6a5b4";
 
 mod common;
 use common::test_db;
 
-async fn spawn_server() -> String {
+async fn spawn_server() -> (String, String) {
     let base = test_db::unique_dir("mw-t16-routes");
+    let db_path = base.join("mw.db").to_string_lossy().into_owned();
     let web = base.join("web");
     std::fs::create_dir_all(&web).unwrap();
     std::fs::write(
@@ -39,8 +47,8 @@ async fn spawn_server() -> String {
     )
     .unwrap();
     let config = AppConfig {
-        db_path: base.join("mw.db").to_string_lossy().into_owned(),
-        server_key_hex: None,
+        db_path: db_path.clone(),
+        server_key_hex: Some(KEY_HEX.into()),
         web_dir: Some(web),
         cookie_secure: false,
         mode: mw_server::ServerMode::Proxy,
@@ -53,19 +61,33 @@ async fn spawn_server() -> String {
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    format!("http://{addr}")
+    (format!("http://{addr}"), db_path)
 }
 
 // ── A5: inbound webhook fires a wired rule action (LIVE via build_app) ────────
 
 #[tokio::test]
 async fn inbound_webhook_fires_the_wired_action_sink() {
-    // The inbound dispatcher + secret are process-global; this test owns them, so run
-    // it single-threaded (the conformance job passes --test-threads=1).
-    let base = spawn_server().await;
+    // The inbound dispatcher is process-global; this test owns it, so run it
+    // single-threaded (the conformance job passes --test-threads=1).
+    let (base, db_path) = spawn_server().await;
 
     let secret = b"t16-inbound-secret".to_vec();
-    set_inbound_secret(Some(secret.clone()));
+    let store = Store::open(&db_path, ServerKey::from_hex(KEY_HEX).unwrap())
+        .await
+        .unwrap();
+    store
+        .put_inbound_webhook(
+            "whin_t16",
+            "alice@example.org",
+            &secret,
+            r#"["run_rules"]"#,
+            "t16",
+            "admin:root",
+            1_767_225_600,
+        )
+        .await
+        .unwrap();
     let sink = Arc::new(InMemoryWebhookActionSink::new());
     set_inbound_dispatcher(Some(sink.clone() as Arc<dyn WebhookActionSink>));
 
@@ -81,12 +103,21 @@ async fn inbound_webhook_fires_the_wired_action_sink() {
         }
     });
     let body = serde_json::to_vec(&payload).unwrap();
-    let signature = webhooks::sign(&secret, &body);
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .to_string();
+    let nonce = "t16-nonce-0123456789";
+    let signature = webhooks::sign_inbound(&secret, &ts, nonce, &body);
     let c = reqwest::Client::new();
 
     // A correctly-signed inbound webhook is accepted and DISPATCHED to the sink.
     let resp = c
         .post(format!("{base}/api/webhooks/inbound"))
+        .header(WEBHOOK_ID_HEADER, "whin_t16")
+        .header(TIMESTAMP_HEADER, &ts)
+        .header(NONCE_HEADER, nonce)
         .header(SIGNATURE_HEADER, &signature)
         .header("content-type", "application/json")
         .body(body.clone())
@@ -108,6 +139,9 @@ async fn inbound_webhook_fires_the_wired_action_sink() {
     // A BAD signature is refused (never reaches the sink).
     let bad = c
         .post(format!("{base}/api/webhooks/inbound"))
+        .header(WEBHOOK_ID_HEADER, "whin_t16")
+        .header(TIMESTAMP_HEADER, &ts)
+        .header(NONCE_HEADER, "t16-nonce-9876543210")
         .header(SIGNATURE_HEADER, "sha256=deadbeef")
         .header("content-type", "application/json")
         .body(body)
@@ -123,7 +157,6 @@ async fn inbound_webhook_fires_the_wired_action_sink() {
 
     // Clean up the process-global wiring for any peer test.
     set_inbound_dispatcher(None);
-    set_inbound_secret(None);
 }
 
 // ── W7: the MSG (CFB) + DOCX (OOXML) export transform the route serves ────────

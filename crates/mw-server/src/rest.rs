@@ -16,6 +16,12 @@
 //! Logging here is opaque-only (method name + counts) — never a subject, address,
 //! or body (§21.1).
 //!
+//! **Folder scope (t28-e18).** A key granted a folder subset sees only those
+//! folders ([`RestFolders`], set by the scope guard): `?mailbox=` outside the set is
+//! refused before the handler runs; a list without `?mailbox=` is the newest
+//! messages across the granted folders only; a message read by id is `404` unless
+//! it is filed in a granted folder; the mailbox list holds only granted folders.
+//!
 //! Every item below is consumed by e11's `router()` mount (the factory returns a
 //! `Router<AppState>`, and `AppState` is `pub(crate)`, so this surface cannot be
 //! `pub` without leaking a private type). Until e11 wires it in, the handlers read
@@ -34,7 +40,7 @@ use serde_json::{Value, json};
 
 use mw_store::Session;
 
-use crate::scope_mw::{RestSessionSource, rest_session};
+use crate::scope_mw::{RestFolders, RestSessionSource, rest_session};
 use crate::{AppState, engine_mode};
 
 /// The default and maximum page size for `GET /api/v1/messages`.
@@ -154,11 +160,52 @@ fn map_messages(get_result: &Value) -> Value {
     json!({ "messages": list, "count": count })
 }
 
-/// Map a `Mailbox/get` JMAP result into the REST list body (the JMAP `list` verbatim).
-fn map_mailboxes(get_result: &Value) -> Value {
-    let list = get_result.get("list").cloned().unwrap_or(json!([]));
-    let count = list.as_array().map(Vec::len).unwrap_or(0);
+/// Map a `Mailbox/get` JMAP result into the REST list body (the JMAP `list` verbatim),
+/// keeping only the folders `folders` admits.
+fn map_mailboxes(get_result: &Value, folders: &RestFolders) -> Value {
+    let list: Vec<Value> = get_result
+        .get("list")
+        .and_then(Value::as_array)
+        .map(|l| {
+            l.iter()
+                .filter(|m| folders.admits_any(m.get("id").and_then(Value::as_str).into_iter()))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    let count = list.len();
     json!({ "mailboxes": list, "count": count })
+}
+
+/// The mailbox ids an `Email` object is filed in (`mailboxIds` keys).
+fn email_mailboxes(email: &Value) -> impl Iterator<Item = &str> {
+    email
+        .get("mailboxIds")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|m| m.keys().map(String::as_str))
+}
+
+/// Merge per-folder `Email/get` lists into one newest-first list of at most
+/// `limit`, by `receivedAt` (RFC 3339 UTC strings order lexically). A message
+/// filed in two granted folders appears once.
+fn merge_newest(lists: Vec<Vec<Value>>, limit: usize) -> Vec<Value> {
+    let mut seen = std::collections::HashSet::new();
+    let mut all: Vec<Value> = lists
+        .into_iter()
+        .flatten()
+        .filter(|m| {
+            m.get("id")
+                .and_then(Value::as_str)
+                .is_none_or(|id| seen.insert(id.to_string()))
+        })
+        .collect();
+    all.sort_by(|a, b| {
+        let at = |v: &Value| v.get("receivedAt").and_then(Value::as_str).unwrap_or("").to_string();
+        at(b).cmp(&at(a))
+    });
+    all.truncate(limit);
+    all
 }
 
 // ---------------------------------------------------------------------------
@@ -245,11 +292,13 @@ struct ListQuery {
     limit: Option<u64>,
 }
 
-/// `GET /api/v1/messages` → `Email/query` + `Email/get`.
+/// `GET /api/v1/messages` → `Email/query` + `Email/get`. Under a folder-subset key
+/// and without `?mailbox=`, one query per granted folder, merged newest first.
 async fn list_messages(
     State(state): State<AppState>,
     headers: HeaderMap,
     Extension(source): Extension<RestSessionSource>,
+    Extension(folders): Extension<RestFolders>,
     Query(q): Query<ListQuery>,
 ) -> Response {
     let session = match rest_session(&state, &headers, source).await {
@@ -258,22 +307,57 @@ async fn list_messages(
     };
     metrics::counter!("mw_rest_requests_total", "endpoint" => "messages.list").increment(1);
     let limit = q.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
-    let request = build_messages_request(&session.account_id, q.mailbox.as_deref(), limit);
-    let response = match dispatch_jmap(&state, &session, &request).await {
-        Ok(v) => v,
-        Err(resp) => return resp,
+    let mailboxes: Vec<Option<String>> = match (&q.mailbox, &folders.0) {
+        // The guard checked a named folder; this repeats it in case the handler
+        // and the guard ever read the query string differently.
+        (Some(m), Some(granted)) if !granted.contains(m) => return folder_refused(),
+        (Some(m), _) => vec![Some(m.clone())],
+        (None, None) => vec![None],
+        (None, Some(granted)) => granted.iter().cloned().map(Some).collect(),
     };
-    match method_result(&response, "g") {
-        Ok(get) => json_response(map_messages(get)),
-        Err(err) => jmap_method_error(err),
+    let mut lists = Vec::with_capacity(mailboxes.len());
+    for mailbox in &mailboxes {
+        let request = build_messages_request(&session.account_id, mailbox.as_deref(), limit);
+        let response = match dispatch_jmap(&state, &session, &request).await {
+            Ok(v) => v,
+            Err(resp) => return resp,
+        };
+        match method_result(&response, "g") {
+            Ok(get) => lists.push(
+                get.get("list")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            Err(err) => return jmap_method_error(err),
+        }
     }
+    let list = if lists.len() == 1 {
+        lists.pop().unwrap_or_default()
+    } else {
+        merge_newest(lists, limit as usize)
+    };
+    json_response(map_messages(&json!({ "list": list })))
 }
 
-/// `GET /api/v1/messages/{id}` → `Email/get`.
+/// The response for a named folder outside the key's grant (the guard answers the
+/// same way: `403`).
+fn folder_refused() -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        Json(json!({ "error": "scope does not permit this request" })),
+    )
+        .into_response()
+}
+
+/// `GET /api/v1/messages/{id}` → `Email/get`. A message outside the key's folders
+/// answers `404`, as a missing one does, so a key cannot learn what exists beyond
+/// its grant.
 async fn get_message(
     State(state): State<AppState>,
     headers: HeaderMap,
     Extension(source): Extension<RestSessionSource>,
+    Extension(folders): Extension<RestFolders>,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
     let session = match rest_session(&state, &headers, source).await {
@@ -289,7 +373,10 @@ async fn get_message(
     match method_result(&response, "g") {
         Ok(get) => {
             let list = get.get("list").and_then(Value::as_array);
-            match list.and_then(|l| l.first()) {
+            match list
+                .and_then(|l| l.first())
+                .filter(|m| folders.admits_any(email_mailboxes(m)))
+            {
                 Some(message) => json_response(json!({ "message": message })),
                 None => (
                     StatusCode::NOT_FOUND,
@@ -302,11 +389,12 @@ async fn get_message(
     }
 }
 
-/// `GET /api/v1/mailboxes` → `Mailbox/get`.
+/// `GET /api/v1/mailboxes` → `Mailbox/get`, only the granted folders.
 async fn list_mailboxes(
     State(state): State<AppState>,
     headers: HeaderMap,
     Extension(source): Extension<RestSessionSource>,
+    Extension(folders): Extension<RestFolders>,
 ) -> Response {
     let session = match rest_session(&state, &headers, source).await {
         Ok(s) => s,
@@ -319,7 +407,7 @@ async fn list_mailboxes(
         Err(resp) => return resp,
     };
     match method_result(&response, "m") {
-        Ok(get) => json_response(map_mailboxes(get)),
+        Ok(get) => json_response(map_mailboxes(get, &folders)),
         Err(err) => jmap_method_error(err),
     }
 }
@@ -398,8 +486,31 @@ mod tests {
             ]
         });
         let get = method_result(&jmap_response, "m").unwrap();
-        let rest = map_mailboxes(get);
+        let rest = map_mailboxes(get, &RestFolders(None));
         assert_eq!(rest["mailboxes"], get["list"]);
         assert_eq!(rest["count"], 1);
+    }
+
+    #[test]
+    fn mailboxes_map_keeps_only_granted_folders() {
+        let get = json!({ "list": [ { "id": "a" }, { "id": "b" } ] });
+        let rest = map_mailboxes(&get, &RestFolders(Some(vec!["b".into()])));
+        assert_eq!(rest["mailboxes"], json!([ { "id": "b" } ]));
+        assert_eq!(rest["count"], 1);
+    }
+
+    #[test]
+    fn merge_newest_orders_dedups_and_limits() {
+        let a = vec![
+            json!({ "id": "1", "receivedAt": "2026-10-01T00:00:00Z" }),
+            json!({ "id": "3", "receivedAt": "2026-10-03T00:00:00Z" }),
+        ];
+        let b = vec![
+            json!({ "id": "2", "receivedAt": "2026-10-02T00:00:00Z" }),
+            json!({ "id": "3", "receivedAt": "2026-10-03T00:00:00Z" }),
+        ];
+        let merged = merge_newest(vec![a, b], 2);
+        let ids: Vec<&str> = merged.iter().map(|m| m["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["3", "2"]);
     }
 }

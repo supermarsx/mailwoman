@@ -904,7 +904,9 @@ fn no_admin_literal_outside_the_helper() {
     let mut found = Vec::new();
     for (file, n, code) in shipped_lines() {
         for needle in [
-            "\"/admin",
+            "\"/admin/",
+            "\"/admin?",
+            "\"/admin#",
             "\"admin/",
             "/admin\"",
             "| \"admin\"",

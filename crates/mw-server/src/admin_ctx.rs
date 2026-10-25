@@ -349,7 +349,13 @@ impl AdminCtx {
         }
         let token = session_cookie(headers).ok_or_else(AdminApiError::unauthenticated)?;
         let hash = crate::push_relay::hash_token(&token);
-        let username = match state.store.get_admin_session(&hash).await {
+        let (idle, _) = crate::admin_accounts::session_timeouts(state).await?;
+        let now = chrono::Utc::now().timestamp();
+        let username = match state
+            .store
+            .get_admin_session_with_idle(&hash, now, idle)
+            .await
+        {
             Ok(Some(username)) => username,
             Ok(None) => return Err(AdminApiError::unauthenticated()),
             Err(e) => return Err(AdminApiError::internal(e)),
@@ -506,13 +512,9 @@ fn session_cookie(headers: &HeaderMap) -> Option<String> {
     crate::hardening::cookie(headers, &name)
 }
 
-/// The grants of `username`. Until database admin accounts exist (e24c) the
-/// only admin who can sign in is the environment credential, which holds every
-/// capability for all domains.
-async fn load_grants(_state: &AppState, username: &str) -> Result<AdminCtx, AdminApiError> {
-    let mut ctx = AdminCtx::all_capabilities(username);
-    ctx.roles = vec![crate::capabilities::SUPER_ADMIN.to_string()];
-    Ok(ctx)
+/// The grants of `username` (`admin_roles::grants_for`).
+async fn load_grants(state: &AppState, username: &str) -> Result<AdminCtx, AdminApiError> {
+    crate::admin_roles::grants_for(state, username).await
 }
 
 #[cfg(test)]

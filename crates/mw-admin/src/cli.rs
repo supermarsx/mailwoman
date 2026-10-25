@@ -37,6 +37,12 @@ pub struct AdminCli {
 /// The `admin` noun tree — one variant per §19 panel section.
 #[derive(Debug, Subcommand)]
 pub enum AdminCommand {
+    /// Manage console administrator accounts (not mailbox users).
+    Admins {
+        #[command(subcommand)]
+        verb: AdminAccountVerb,
+    },
+
     /// Manage mail domains.
     Domains {
         #[command(subcommand)]
@@ -77,6 +83,29 @@ pub enum AdminCommand {
 }
 
 #[derive(Debug, Subcommand)]
+pub enum AdminAccountVerb {
+    List,
+    /// Read the new password from standard input, never a command-line argument.
+    Create {
+        username: String,
+        #[arg(long)]
+        display_name: Option<String>,
+    },
+    ResetPassword {
+        username: String,
+    },
+    Disable {
+        username: String,
+    },
+    GrantRole {
+        username: String,
+        role: String,
+        #[arg(long)]
+        domain: Vec<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 pub enum DomainVerb {
     /// List all domains.
     List,
@@ -86,6 +115,16 @@ pub enum DomainVerb {
     Create { name: String },
     /// Delete a domain.
     Delete { name: String },
+    /// Replace upstream configuration with a validated JSON object.
+    SetUpstream { name: String, json: String },
+    Enable { name: String },
+    Disable { name: String },
+    Prefer { name: String },
+    Unprefer,
+    /// Map an alias, or remove it with --remove.
+    Alias { name: String, alias: String, #[arg(long)] remove: bool },
+    /// Map a web host, or remove it with --remove.
+    Host { name: String, host: String, #[arg(long)] remove: bool },
 }
 
 #[derive(Debug, Subcommand)]
@@ -279,6 +318,9 @@ pub enum CacheScopeVerb {
 /// output. `actor` is the audited principal (e.g. the admin username or `cli`).
 pub async fn run(admin: &Admin, command: AdminCommand, actor: &str) -> Result<String, AdminError> {
     match command {
+        AdminCommand::Admins { .. } => Err(AdminError::Invalid(
+            "admin accounts require the mailwoman store dispatcher".into(),
+        )),
         AdminCommand::Domains { verb } => domains(admin, verb, actor).await,
         AdminCommand::Users { verb } => users(admin, verb, actor).await,
         AdminCommand::SecurityPolicy { verb } => policy(admin, verb, actor).await,
@@ -291,6 +333,9 @@ pub async fn run(admin: &Admin, command: AdminCommand, actor: &str) -> Result<St
 
 async fn domains(admin: &Admin, verb: DomainVerb, actor: &str) -> Result<String, AdminError> {
     match verb {
+        DomainVerb::SetUpstream { .. } | DomainVerb::Enable { .. } | DomainVerb::Disable { .. }
+        | DomainVerb::Prefer { .. } | DomainVerb::Unprefer | DomainVerb::Alias { .. } | DomainVerb::Host { .. } =>
+            Err(AdminError::Invalid("This domain command requires the server store adapter.".into())),
         DomainVerb::List => Ok(admin
             .list_domains()
             .await?

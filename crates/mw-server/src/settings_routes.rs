@@ -599,25 +599,24 @@ async fn list_values(
         .list_setting_values(&key, scope, q.cursor.as_deref(), limit)
         .await?;
     let next = (rows.len() as i64 == limit).then(|| rows.last().map(|r| r.scope_id.clone()));
-    let visible: Vec<Value> = rows
-        .iter()
-        .filter(|r| match filter {
-            None => true,
-            Some(set) => {
-                let d = if scope == SettingScope::Domain {
-                    r.scope_id.to_ascii_lowercase()
-                } else {
-                    domain_of(&r.scope_id)
-                };
-                set.contains(&d)
+    let mut visible = Vec::new();
+    for row in &rows {
+        if let Some(set) = filter {
+            let domain = if scope == SettingScope::Domain {
+                state.store.canonical_policy_domain(&row.scope_id).await?
+            } else {
+                user_domain(&state, &row.scope_id)
+                    .await?
+                    .unwrap_or_default()
+            };
+            if !set.contains(&domain) {
+                continue;
             }
-        })
-        .map(|r| {
-            let mut v = value_json(Some(r));
-            v["etag"] = Value::String(etag_of(&value_json(Some(r))));
-            v
-        })
-        .collect();
+        }
+        let mut value = value_json(Some(row));
+        value["etag"] = Value::String(etag_of(&value_json(Some(row))));
+        visible.push(value);
+    }
     Ok(Json(json!({ "values": visible, "nextCursor": next.flatten() })).into_response())
 }
 
@@ -654,7 +653,7 @@ async fn put_domain(
     UrlPath((key, domain)): UrlPath<(String, String)>,
     AdminJson(body): AdminJson<ScopedPut>,
 ) -> Result<Response, AdminApiError> {
-    let domain = domain.trim().trim_end_matches('.').to_ascii_lowercase();
+    let domain = state.store.canonical_policy_domain(&domain).await?;
     ctx.require_domain(&domain)?;
     let def = def_of(&key)?;
     check_scoped_write(def, &key, SettingScope::Domain)?;
@@ -737,7 +736,7 @@ async fn domain_impact(state: &AppState, key: &str, domain: &str) -> Result<Valu
             .list_setting_values(key, scope, None, 500)
             .await?
         {
-            if user_domain(state, &r.scope_id).await.as_deref() == Some(domain) {
+            if user_domain(state, &r.scope_id).await?.as_deref() == Some(domain) {
                 n += 1;
                 if names.len() < IMPACT_NAMES {
                     names.push(r.scope_id.clone());
@@ -753,13 +752,19 @@ async fn domain_impact(state: &AppState, key: &str, domain: &str) -> Result<Valu
 
 /// The domain of a per-user scope id: the address's domain, or the domain of the
 /// account's sign-in name.
-async fn user_domain(state: &AppState, id: &str) -> Option<String> {
-    if id.contains('@') {
-        return Some(domain_of(id));
-    }
-    match state.store.get_account(id).await {
-        Ok(a) if a.username.contains('@') => Some(domain_of(&a.username)),
-        _ => None,
+async fn user_domain(state: &AppState, id: &str) -> Result<Option<String>, mw_store::StoreError> {
+    let raw = if id.contains('@') {
+        Some(domain_of(id))
+    } else {
+        match state.store.get_account(id).await {
+            Ok(a) if a.username.contains('@') => Some(domain_of(&a.username)),
+            Ok(_) | Err(mw_store::StoreError::NotFound) => None,
+            Err(e) => return Err(e),
+        }
+    };
+    match raw {
+        Some(domain) => Ok(Some(state.store.canonical_policy_domain(&domain).await?)),
+        None => Ok(None),
     }
 }
 
@@ -769,7 +774,7 @@ async fn delete_domain(
     headers: HeaderMap,
     UrlPath((key, domain)): UrlPath<(String, String)>,
 ) -> Result<Response, AdminApiError> {
-    let domain = domain.trim().trim_end_matches('.').to_ascii_lowercase();
+    let domain = state.store.canonical_policy_domain(&domain).await?;
     ctx.require_domain(&domain)?;
     let def = def_of(&key)?;
     registry::refuse_if_dedicated(def).map_err(refusal)?;
@@ -813,10 +818,14 @@ struct UserPut {
 
 /// The per-user scope id for `def`: the account id as given, or the address
 /// lower-cased (t32-q A15).
-fn user_scope_id(def: &SettingDef, id: &str) -> String {
+async fn user_scope_id(
+    store: &mw_store::Store,
+    def: &SettingDef,
+    id: &str,
+) -> Result<String, mw_store::StoreError> {
     match def.scope_id {
-        registry::ScopeId::Account => id.to_string(),
-        registry::ScopeId::Address => id.trim().to_ascii_lowercase(),
+        registry::ScopeId::Account => Ok(id.to_string()),
+        registry::ScopeId::Address => store.canonical_policy_address(id).await,
     }
 }
 
@@ -827,7 +836,7 @@ async fn require_user(
     ctx: &AdminCtx,
     id: &str,
 ) -> Result<Option<String>, AdminApiError> {
-    let domain = user_domain(state, id).await;
+    let domain = user_domain(state, id).await?;
     match &domain {
         Some(d) => ctx.require_domain(d)?,
         None => ctx.require_unscoped(Capability::SettingsUserValues)?,
@@ -843,7 +852,7 @@ async fn put_user(
     AdminJson(body): AdminJson<UserPut>,
 ) -> Result<Response, AdminApiError> {
     let def = def_of(&key)?;
-    let id = user_scope_id(def, &id);
+    let id = user_scope_id(&state.store, def, &id).await?;
     let domain = require_user(&state, &ctx, &id).await?;
     check_scoped_write(def, &key, SettingScope::AdminUser)?;
     let value = registry::validate(def, &body.value, "/value").map_err(refusal)?;
@@ -901,7 +910,7 @@ async fn delete_user(
     UrlPath((key, id)): UrlPath<(String, String)>,
 ) -> Result<Response, AdminApiError> {
     let def = def_of(&key)?;
-    let id = user_scope_id(def, &id);
+    let id = user_scope_id(&state.store, def, &id).await?;
     require_user(&state, &ctx, &id).await?;
     registry::refuse_if_dedicated(def).map_err(refusal)?;
     let current = state
@@ -953,6 +962,19 @@ impl UserSubject {
             account_id: session.account_id.clone(),
             address,
         }
+    }
+
+    pub(crate) async fn resolved(
+        store: &mw_store::Store,
+        session: &mw_store::Session,
+    ) -> Result<Self, mw_store::StoreError> {
+        let raw = Self::of(session);
+        let canonical = store.canonical_setting_subject(&raw.as_subject()).await?;
+        Ok(Self {
+            domain: canonical.domain,
+            account_id: canonical.account_id,
+            address: canonical.address,
+        })
     }
 
     pub(crate) fn as_subject(&self) -> SettingSubject<'_> {
@@ -1119,7 +1141,7 @@ pub(crate) async fn effective_for_session(
     session: &mw_store::Session,
     key: &str,
 ) -> Result<Option<Effective>, mw_store::StoreError> {
-    let subject = UserSubject::of(session);
+    let subject = UserSubject::resolved(&state.store, session).await?;
     let extra = user_layer_rows(state, &subject.account_id).await?;
     registry::effective_for_with(&state.store, key, &subject.as_subject(), &extra).await
 }
@@ -1129,7 +1151,10 @@ async fn user_list(State(state): State<AppState>, headers: HeaderMap) -> Respons
         Ok(s) => s,
         Err(r) => return r,
     };
-    let subject = UserSubject::of(&session);
+    let subject = match UserSubject::resolved(&state.store, &session).await {
+        Ok(s) => s,
+        Err(e) => return server_error(e),
+    };
     let extra = match user_layer_rows(&state, &subject.account_id).await {
         Ok(rows) => rows,
         Err(e) => return server_error(e),
@@ -1183,7 +1208,10 @@ async fn user_put(
             None,
         );
     };
-    let subject = UserSubject::of(&session);
+    let subject = match UserSubject::resolved(&state.store, &session).await {
+        Ok(s) => s,
+        Err(e) => return server_error(e),
+    };
     let current = match user_entry(&state, &subject, &key).await {
         Ok(e) => e,
         Err(r) => return r,
@@ -1236,7 +1264,10 @@ async fn user_delete(
     if let Err(r) = user_def(&key).and_then(|_| refuse_elsewhere(&key)) {
         return r;
     }
-    let subject = UserSubject::of(&session);
+    let subject = match UserSubject::resolved(&state.store, &session).await {
+        Ok(s) => s,
+        Err(e) => return server_error(e),
+    };
     if let Err(e) = state
         .store
         .delete_setting_value(SettingScope::User, &subject.account_id, &key)

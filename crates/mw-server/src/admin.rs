@@ -2,13 +2,15 @@
 //!
 //! A SEPARATE session domain: `/admin/*` runs under its own cookie, named
 //! `mw_admin_session` unless `MW_ADMIN_SESSION_COOKIE` says otherwise
-//! ([`mw_admin::config::session_cookie_name`]; `Path=/`, because admin routes also
-//! live under `/api/admin/*`), distinct from the mailbox `mw_session`. Login validates the operator credentials
-//! (`MW_ADMIN_USER`/`MW_ADMIN_PASSWORD`) and mints an admin session stored (hashed)
-//! in `admin_sessions`. Every action drives [`mw_admin::Admin`] (backed by the 0007
-//! tables via [`crate::stores_v6::AdminBackendAdapter`]), which writes the
-//! append-only audit log. `MW_ADMIN_ENABLED=false` makes every route return `401`
-//! (the panel is unreachable) — the CLI keeps working.
+//! ([`mw_admin::config::session_cookie_name`]), distinct from the mailbox
+//! `mw_session`. Sign-in and the admin's own session live in
+//! [`crate::admin_accounts`]; every route here is registered in
+//! [`crate::admin_router`] with the capability it needs, and a domain-scoped admin
+//! acts only on users and domains in their domains. Every action drives
+//! [`mw_admin::Admin`] (backed by the 0007 tables via
+//! [`crate::stores_v6::AdminBackendAdapter`]), which writes the append-only audit
+//! log. `MW_ADMIN_ENABLED=false` makes every route return `401` (the panel is
+//! unreachable) — the CLI keeps working.
 //!
 //! **Session lifetime (0030).** A session ends after 30 minutes without a request
 //! and never lasts more than 12 hours; both are enforced in
@@ -23,8 +25,7 @@
 //!
 //! **What these routes do not offer (26.20, t28-e8).** A stored value that nothing
 //! in the workspace applies is not presented as a setting:
-//! * `/admin/domains/{name}` registers a name. A domain's stored upstream JSON,
-//!   allowlist and blocklist are neither returned nor accepted.
+//! * Domain configuration lives in `domain_routes`.
 //! * `/admin/observability` still answers, for a later release that gives it a
 //!   reader; the panel does not show it.
 //!
@@ -37,138 +38,90 @@
 //! JSON is camelCase to satisfy the typed web client in `state/slices/admin.ts`.
 
 use axum::Json;
-use axum::Router;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path as UrlPath, Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post, put};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use mw_admin::config::admin_route;
 use mw_admin::{
-    ActorKind, AdminError, CapturePolicy, Domain as AdminDomain, EffectiveSecurityPolicy, MinTls,
+    ActorKind, AdminError, CapturePolicy, EffectiveSecurityPolicy, MinTls,
     Quota as AdminQuota, SecurityFloor, SecurityPolicy, SecurityPolicyWrite,
 };
 
 use crate::AppState;
+use crate::admin_ctx::AdminCtx;
+use crate::admin_router::AdminRegistrar;
+use crate::capabilities::Capability;
 
-/// The `/admin/*` router (merged by e11's `router()`).
-pub(crate) fn routes() -> Router<AppState> {
-    Router::new()
-        .route(&admin_route("/login"), post(login))
-        .route(&admin_route("/logout"), post(logout))
-        .route(&admin_route("/session"), get(session))
-        .route(&admin_route("/domains"), get(list_domains))
-        .route(
-            &admin_route("/domains/{name}"),
-            put(save_domain).delete(delete_domain),
-        )
-        .route(&admin_route("/users"), get(list_users).post(provision_user))
-        .route(&admin_route("/users/{account_id}/quota"), put(set_quota))
-        .route(&admin_route("/users/{account_id}/flags"), put(set_flags))
-        .route(
-            &admin_route("/users/{account_id}/zero-access"),
-            post(toggle_zero_access),
-        )
-        .route(
-            &admin_route("/users/{account_id}/revoke-sessions"),
-            post(revoke_sessions),
-        )
-        .route(
-            &admin_route("/security-policy"),
-            get(get_policy).put(set_policy),
-        )
-        .route(&admin_route("/integrations"), get(get_integrations))
-        .route(&admin_route("/webhooks"), get(list_webhooks))
-        .route(&admin_route("/api-keys"), get(list_api_keys))
-        .route(&admin_route("/api-keys/{id}/revoke"), post(revoke_api_key))
-        .route(&admin_route("/observability"), get(get_obs).put(set_obs))
-        .route(&admin_route("/audit"), get(list_audit))
-        .route(&admin_route("/audit/export"), get(export_audit))
-        .route(&admin_route("/bans"), get(list_bans).post(add_ban))
-        .route(&admin_route("/bans/{ip}"), delete(remove_ban))
-        .route(
-            &admin_route("/appearance"),
-            get(get_appearance).put(set_appearance),
-        )
-}
-
-// ─── admin session helpers ────────────────────────────────────────────────────
-
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
-
-fn admin_cookie(headers: &HeaderMap) -> Option<String> {
-    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
-    let prefix = format!("{}=", mw_admin::config::session_cookie_name());
-    for part in raw.split(';') {
-        if let Some(v) = part.trim().strip_prefix(&prefix)
-            && !v.is_empty()
-        {
-            return Some(v.to_string());
-        }
-    }
-    None
-}
-
-/// The admin cookie. `Max-Age` is the session's absolute cap: the idle deadline is
-/// shorter and moves, and only the server can know it, so the cookie carries the
-/// one figure that is fixed at login.
-fn set_admin_cookie(token: &str, secure: bool) -> String {
-    let mut c = format!(
-        "{}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}",
-        mw_admin::config::session_cookie_name(),
-        mw_store::Store::ADMIN_SESSION_MAX_SECS
+/// The `/admin/*` routes of this module (registered by `admin_router`). Sign-in,
+/// sign-out and the session read live in `admin_accounts`.
+pub(crate) fn register(r: &mut impl AdminRegistrar) {
+    use Capability as C;
+    r.admin_endpoint(Method::GET, "/users", C::UsersRead, list_users);
+    r.admin_endpoint(Method::POST, "/users", C::UsersCreate, provision_user);
+    r.admin_endpoint(
+        Method::PUT,
+        "/users/{account_id}/quota",
+        C::UsersQuota,
+        set_quota,
     );
-    if secure {
-        c.push_str("; Secure");
-    }
-    c
-}
-
-fn clear_admin_cookie(secure: bool) -> String {
-    let mut c = format!(
-        "{}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
-        mw_admin::config::session_cookie_name()
+    r.admin_endpoint(
+        Method::PUT,
+        "/users/{account_id}/flags",
+        C::UsersFlags,
+        set_flags,
     );
-    if secure {
-        c.push_str("; Secure");
-    }
-    c
+    r.admin_endpoint(
+        Method::POST,
+        "/users/{account_id}/zero-access",
+        C::UsersFlags,
+        toggle_zero_access,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/users/{account_id}/revoke-sessions",
+        C::UsersRevokeSessions,
+        revoke_sessions,
+    );
+    r.admin_endpoint(Method::GET, "/security-policy", C::SecurityRead, get_policy);
+    r.admin_endpoint(
+        Method::PUT,
+        "/security-policy",
+        C::SecurityPolicyWrite,
+        set_policy,
+    );
+    r.admin_endpoint(
+        Method::GET,
+        "/integrations",
+        C::IntegrationsRead,
+        get_integrations,
+    );
+    r.admin_endpoint(Method::GET, "/api-keys", C::IntegrationsRead, list_api_keys);
+    r.admin_endpoint(
+        Method::POST,
+        "/api-keys/{id}/revoke",
+        C::ApiKeysRevoke,
+        revoke_api_key,
+    );
+    r.admin_endpoint(Method::GET, "/observability", C::ObservabilityRead, get_obs);
+    r.admin_endpoint(Method::PUT, "/observability", C::LogsLevel, set_obs);
+    r.admin_endpoint(Method::GET, "/audit", C::AuditRead, list_audit);
+    r.admin_endpoint(Method::GET, "/audit/export", C::AuditExport, export_audit);
+    r.admin_endpoint(Method::GET, "/bans", C::BansRead, list_bans);
+    r.admin_endpoint(Method::POST, "/bans", C::BansWrite, add_ban);
+    r.admin_endpoint(Method::DELETE, "/bans/{ip}", C::BansWrite, remove_ban);
+    r.admin_endpoint(Method::GET, "/appearance", C::BrandingRead, get_appearance);
+    r.admin_endpoint(
+        Method::PUT,
+        "/appearance",
+        C::AppearanceManage,
+        set_appearance,
+    );
 }
 
-fn unauthorized() -> Response {
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(json!({ "error": "admin authentication required" })),
-    )
-        .into_response()
-}
-
-/// Resolve the authenticated admin username, or a `401` response. Also enforces the
-/// `admin.enabled` gate (disabled → every route is `401`). An expired session is a
-/// `401` like an unknown one: `get_admin_session` answers `None` for both.
-async fn admin_authed(state: &AppState, headers: &HeaderMap) -> Result<String, Response> {
-    if !state.v6.admin_enabled {
-        return Err(unauthorized());
-    }
-    let token = admin_cookie(headers).ok_or_else(unauthorized)?;
-    let hash = crate::push_relay::hash_token(&token);
-    match state.store.get_admin_session(&hash).await {
-        Ok(Some(admin_id)) => Ok(admin_id),
-        _ => Err(unauthorized()),
-    }
-}
+// ─── helpers ──────────────────────────────────────────────────────────────────
 
 fn err500(e: impl std::fmt::Display) -> Response {
     tracing::warn!("admin error: {e}");
@@ -179,248 +132,22 @@ fn err500(e: impl std::fmt::Display) -> Response {
         .into_response()
 }
 
-// ─── login monitor ────────────────────────────────────────────────────────────
-
-/// Feed one admin-login failure to the login monitor and **emit its fail2ban
-/// line**.
-///
-/// Emitting is the point. `mw_admin::banlist` exists to hand an operator's
-/// fail2ban jail a line it can match, and the auto-ban this records is a bookkeeping
-/// entry — nothing in the request path consults [`mw_admin::Admin::is_banned`], so
-/// the jail is the enforcement. Until 26.19 the caller built that line and dropped
-/// it on the floor (`let _ = …`), so a jail pointed at Mailwoman's log matched
-/// nothing at all.
-///
-/// The line carries its own RFC 3339 timestamp in addition to the subscriber's.
-/// That is harmless: [`mw_admin::FAIL2BAN_FAILREGEX`] anchors on the
-/// `mailwoman[auth]:` token rather than on position, and fail2ban strips the
-/// leading date before applying the filter.
-async fn record_admin_login_failure(
-    state: &AppState,
-    username: &str,
-    source: Option<std::net::IpAddr>,
-) {
-    if source.is_none() {
-        warn_no_source_once();
-    }
-    match state.v6.admin.record_login_failure(username, source).await {
-        Ok(outcome) => {
-            if let Some(line) = outcome.log_line {
-                // Deliberately the raw line, unstructured: a jail reads it verbatim.
-                tracing::warn!("{line}");
-            }
-            // `banned` implies a resolved source — nothing is banned without one.
-            if outcome.banned
-                && let Some(ip) = source
-            {
-                tracing::warn!(
-                    "admin login: {ip} crossed the failure threshold and was added to the ban list"
-                );
-            }
-        }
-        Err(e) => tracing::warn!("admin login-failure not recorded: {e}"),
-    }
-}
-
-/// Say once that the monitor has nothing to work with.
-///
-/// No source address means the serve path installed no `ConnectInfo` — an
-/// operator condition, not something a client can cause. The failure is still
-/// audited, but it is not counted and no jail line is emitted, so an operator who
-/// believed brute-force protection was running needs to hear that it is not.
-/// Once per process: this fires on a login path an attacker can drive, and a
-/// per-request warning would be a log-flood lever.
-fn warn_no_source_once() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        tracing::warn!(
-            "admin login failure has no client address (no ConnectInfo on the request): \
-             the login monitor cannot count it and no fail2ban line is emitted"
-        );
-    });
-}
-
-// ─── session / login / logout ─────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-struct LoginReq {
-    username: String,
-    password: String,
-}
-
-async fn login(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    // t20 B3: the login monitor needs the address the attempt came from. It lives
-    // in the request extensions as `ConnectInfo`, installed by the serve path.
-    ext: axum::http::Extensions,
-    Json(body): Json<LoginReq>,
-) -> Response {
-    if !state.v6.admin_enabled {
-        return unauthorized();
-    }
-    // The one seam for "who is this". `proxy::client_ip` is the peer address,
-    // refined by a forwarded header only when `MW_FORWARDED_MODE` selects one AND
-    // the peer is a configured proxy. Reading `X-Forwarded-For` here instead would
-    // reintroduce t20 B1 in a place where it is worse than the bug it replaces: a
-    // ban key anyone can choose lets an attacker put a colleague's address — or a
-    // shared corporate egress IP — in the ban list on demand.
-    let source = crate::scope_mw::proxy::client_ip(&headers, &ext);
-    let (Some(user), Some(pass)) = (&state.v6.admin_username, &state.v6.admin_password) else {
-        return unauthorized();
-    };
-    if !ct_eq(body.username.as_bytes(), user.as_bytes())
-        || !ct_eq(body.password.as_bytes(), pass.as_bytes())
-    {
-        record_admin_login_failure(&state, &body.username, source).await;
-        return unauthorized();
-    }
-    let token = crate::push_relay::hash_token(&format!(
-        "{}:{}",
-        mw_store::ServerKey::generate().to_hex(),
-        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    ));
-    let hash = crate::push_relay::hash_token(&token);
-    if let Err(e) = state
-        .store
-        .put_admin_session(&hash, &body.username, &chrono::Utc::now().to_rfc3339())
-        .await
-    {
-        return err500(e);
-    }
-    if let Err(e) = state
-        .v6
-        .admin
-        .record_login_success(&body.username, source)
-        .await
-    {
-        tracing::warn!("admin login-success not recorded: {e}");
-    }
-    // A new double-submit token with every login, as `/api/login` issues
-    // (`authenticated_response`). The panel and the mailbox app share the one
-    // `mw_csrf` cookie and each reads it when it sends a request, so replacing it
-    // here does not strand an open mailbox tab.
-    let csrf_token = crate::new_csrf_token();
-    let mut resp = Json(AdminSessionDto {
-        username: body.username,
-        csrf_token: csrf_token.clone(),
-    })
-    .into_response();
-    // The admin cookie stays the first `Set-Cookie`.
-    resp.headers_mut().append(
-        header::SET_COOKIE,
-        set_admin_cookie(&token, state.cookie_secure)
-            .parse()
-            .unwrap(),
-    );
-    resp.headers_mut().append(
-        header::SET_COOKIE,
-        crate::csrf_cookie(&csrf_token, state.cookie_secure),
-    );
-    resp
-}
-
-async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Some(token) = admin_cookie(&headers) {
-        let hash = crate::push_relay::hash_token(&token);
-        let _ = state.store.delete_admin_session(&hash).await;
-    }
-    let mut resp = StatusCode::NO_CONTENT.into_response();
-    resp.headers_mut().append(
-        header::SET_COOKIE,
-        clear_admin_cookie(state.cookie_secure).parse().unwrap(),
-    );
-    resp
-}
-
-/// `GET /admin/session` — who is signed in. Also makes sure the panel holds a
-/// CSRF token without replacing one it has (as `GET /api/me` does): a session
-/// that has no `mw_csrf` cookie beside it gets one here, which is where the web
-/// client asks after a write is refused for its token.
-async fn session(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let username = match admin_authed(&state, &headers).await {
-        Ok(username) => username,
-        Err(resp) => return resp,
-    };
-    let existing = crate::hardening::cookie(&headers, crate::hardening::CSRF_COOKIE);
-    let csrf_token = existing.clone().unwrap_or_else(crate::new_csrf_token);
-    let mut resp = Json(AdminSessionDto {
-        username,
-        csrf_token: csrf_token.clone(),
-    })
-    .into_response();
-    if existing.is_none() {
-        resp.headers_mut().append(
-            header::SET_COOKIE,
-            crate::csrf_cookie(&csrf_token, state.cookie_secure),
-        );
-    }
-    resp
-}
-
-// ─── domains ──────────────────────────────────────────────────────────────────
-
-async fn list_domains(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = admin_authed(&state, &headers).await {
-        return r;
-    }
-    match state.v6.admin.list_domains().await {
-        Ok(list) => Json(list.into_iter().map(DomainDto::from).collect::<Vec<_>>()).into_response(),
-        Err(e) => err500(e),
-    }
-}
-
-/// `PUT /admin/domains/{name}` — register a domain name. The name comes from the
-/// path; no body is read. An existing domain is left as it is.
-async fn save_domain(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    UrlPath(name): UrlPath<String>,
-) -> Response {
-    let Ok(actor) = admin_authed(&state, &headers).await else {
-        return unauthorized();
-    };
-    let name = name.trim();
-    if name.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "a domain name is required" })),
-        )
-            .into_response();
-    }
-    match state.v6.admin.create_domain(&actor, name).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => err500(e),
-    }
-}
-
-async fn delete_domain(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    UrlPath(name): UrlPath<String>,
-) -> Response {
-    let Ok(actor) = admin_authed(&state, &headers).await else {
-        return unauthorized();
-    };
-    match state.v6.admin.delete_domain(&actor, &name).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => err500(e),
-    }
-}
-
 // ─── users ────────────────────────────────────────────────────────────────────
 
-async fn list_users(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = admin_authed(&state, &headers).await {
-        return r;
-    }
+async fn list_users(State(state): State<AppState>, ctx: AdminCtx) -> Response {
     let users = match state.store.list_admin_users().await {
         Ok(u) => u,
         Err(e) => return err500(e),
     };
+    let scope = ctx.domain_filter(Capability::UsersRead);
     let mut out = Vec::new();
     for u in users {
         let account_id = u.username;
+        if let Some(scope) = scope
+            && !scope.contains(&crate::admin_ctx::domain_of(&account_id))
+        {
+            continue;
+        }
         let (username, domain) = match account_id.rsplit_once('@') {
             Some((a, b)) => (a.to_string(), b.to_string()),
             None => (account_id.clone(), String::new()),
@@ -453,12 +180,13 @@ async fn list_users(State(state): State<AppState>, headers: HeaderMap) -> Respon
 
 async fn provision_user(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Json(body): Json<ProvisionReq>,
 ) -> Response {
-    let Ok(actor) = admin_authed(&state, &headers).await else {
-        return unauthorized();
-    };
+    let actor = ctx.username.clone();
+    if let Err(e) = ctx.require_domain(&body.domain) {
+        return e.into_response();
+    }
     match state
         .v6
         .admin
@@ -472,13 +200,11 @@ async fn provision_user(
 
 async fn set_quota(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     UrlPath(account_id): UrlPath<String>,
     Json(body): Json<QuotaDto>,
 ) -> Response {
-    let Ok(actor) = admin_authed(&state, &headers).await else {
-        return unauthorized();
-    };
+    let actor = ctx.username.clone();
     match state
         .v6
         .admin
@@ -492,13 +218,11 @@ async fn set_quota(
 
 async fn set_flags(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     UrlPath(account_id): UrlPath<String>,
     Json(body): Json<FlagsDto>,
 ) -> Response {
-    let Ok(actor) = admin_authed(&state, &headers).await else {
-        return unauthorized();
-    };
+    let actor = ctx.username.clone();
     match state
         .v6
         .admin
@@ -517,13 +241,11 @@ struct ToggleReq {
 
 async fn toggle_zero_access(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     UrlPath(account_id): UrlPath<String>,
     Json(body): Json<ToggleReq>,
 ) -> Response {
-    let Ok(actor) = admin_authed(&state, &headers).await else {
-        return unauthorized();
-    };
+    let actor = ctx.username.clone();
     match state
         .v6
         .admin
@@ -537,12 +259,10 @@ async fn toggle_zero_access(
 
 async fn revoke_sessions(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     UrlPath(account_id): UrlPath<String>,
 ) -> Response {
-    let Ok(actor) = admin_authed(&state, &headers).await else {
-        return unauthorized();
-    };
+    let actor = ctx.username.clone();
     match state.v6.admin.revoke_sessions(&actor, &account_id).await {
         Ok(count) => Json(json!({ "count": count })).into_response(),
         Err(e) => err500(e),
@@ -551,10 +271,7 @@ async fn revoke_sessions(
 
 // ─── security policy ──────────────────────────────────────────────────────────
 
-async fn get_policy(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = admin_authed(&state, &headers).await {
-        return r;
-    }
+async fn get_policy(State(state): State<AppState>, _ctx: AdminCtx) -> Response {
     match state.v6.admin.effective_security_policy().await {
         Ok(p) => Json(policy_body(&state, &p)).into_response(),
         Err(e) => err500(e),
@@ -572,12 +289,10 @@ async fn get_policy(State(state): State<AppState>, headers: HeaderMap) -> Respon
 /// * A change to a field an environment variable pins → 409 naming the variable.
 async fn set_policy(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     body: Result<Json<SecurityPolicyPut>, JsonRejection>,
 ) -> Response {
-    let Ok(actor) = admin_authed(&state, &headers).await else {
-        return unauthorized();
-    };
+    let actor = ctx.username.clone();
     let body = match body {
         Ok(Json(b)) => b,
         Err(rej) => {
@@ -673,10 +388,7 @@ fn nextcloud_configured() -> bool {
 ///   at start, else `not-configured`.
 ///
 /// Neither value says the remote service is reachable: nothing here connects to it.
-async fn get_integrations(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = admin_authed(&state, &headers).await {
-        return r;
-    }
+async fn get_integrations(State(state): State<AppState>, _ctx: AdminCtx) -> Response {
     use mw_admin::IntegrationStatus;
     let i = state.v6.admin.integrations();
     let ldap = match state.store.list_directory_config().await {
@@ -701,38 +413,12 @@ async fn get_integrations(State(state): State<AppState>, headers: HeaderMap) -> 
     .into_response()
 }
 
-async fn list_webhooks(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = admin_authed(&state, &headers).await {
-        return r;
-    }
-    match state.store.list_all_webhooks().await {
-        Ok(list) => Json(
-            list.into_iter()
-                .map(|w| {
-                    json!({
-                        "id": w.id,
-                        "accountId": w.account_id,
-                        "url": w.url,
-                        "eventFilterJson": w.event_filter_json,
-                        "createdAt": w.created_at,
-                    })
-                })
-                .collect::<Vec<_>>(),
-        )
-        .into_response(),
-        Err(e) => err500(e),
-    }
-}
-
 /// `GET /admin/api-keys` — every key row, live and revoked; never a key hash.
 ///
 /// `unattendedSendRequested` is the owner's request in the key's scope;
 /// `unattendedSendApproved` is the `api_keys.unattended_send` column, which only
 /// `PUT /admin/api-keys/{id}/unattended-send` (`oauth.rs`) writes.
-async fn list_api_keys(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = admin_authed(&state, &headers).await {
-        return r;
-    }
+async fn list_api_keys(State(state): State<AppState>, _ctx: AdminCtx) -> Response {
     match state.store.list_api_keys().await {
         Ok(list) => Json(
             list.into_iter()
@@ -761,12 +447,10 @@ async fn list_api_keys(State(state): State<AppState>, headers: HeaderMap) -> Res
 
 async fn revoke_api_key(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    let Ok(actor) = admin_authed(&state, &headers).await else {
-        return unauthorized();
-    };
+    let actor = ctx.username.clone();
     if let Err(e) = state
         .store
         .revoke_api_key_by_id(&id, &chrono::Utc::now().to_rfc3339())
@@ -782,10 +466,7 @@ async fn revoke_api_key(
 
 /// `GET /admin/observability` — the stored telemetry record. Stored, not applied:
 /// see [`mw_admin::ObservabilityConfig`]. The panel does not call this.
-async fn get_obs(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = admin_authed(&state, &headers).await {
-        return r;
-    }
+async fn get_obs(State(state): State<AppState>, _ctx: AdminCtx) -> Response {
     match state.v6.admin.get_observability().await {
         Ok(c) => Json(json!({
             "logLevel": c.log_level,
@@ -809,12 +490,10 @@ struct ObsDto {
 
 async fn set_obs(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Json(body): Json<ObsDto>,
 ) -> Response {
-    let Ok(actor) = admin_authed(&state, &headers).await else {
-        return unauthorized();
-    };
+    let actor = ctx.username.clone();
     let cfg = mw_admin::ObservabilityConfig {
         log_level: body.log_level,
         otlp_dsn: body.otlp_dsn,
@@ -834,12 +513,9 @@ struct LimitQuery {
 
 async fn list_audit(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _ctx: AdminCtx,
     Query(q): Query<LimitQuery>,
 ) -> Response {
-    if let Err(r) = admin_authed(&state, &headers).await {
-        return r;
-    }
     let limit = q.limit.unwrap_or(50).min(1000);
     match state.v6.admin.list_audit(limit).await {
         Ok(list) => Json(list.into_iter().map(audit_dto).collect::<Vec<_>>()).into_response(),
@@ -849,12 +525,9 @@ async fn list_audit(
 
 async fn export_audit(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _ctx: AdminCtx,
     Query(q): Query<LimitQuery>,
 ) -> Response {
-    if let Err(r) = admin_authed(&state, &headers).await {
-        return r;
-    }
     let limit = q.limit.unwrap_or(1000).min(100_000);
     match state.v6.admin.export_audit(limit).await {
         Ok(text) => ([(header::CONTENT_TYPE, "application/x-ndjson")], text).into_response(),
@@ -862,10 +535,7 @@ async fn export_audit(
     }
 }
 
-async fn list_bans(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = admin_authed(&state, &headers).await {
-        return r;
-    }
+async fn list_bans(State(state): State<AppState>, _ctx: AdminCtx) -> Response {
     match state.v6.admin.list_bans().await {
         Ok(list) => Json(
             list.into_iter()
@@ -894,12 +564,10 @@ struct BanReq {
 
 async fn add_ban(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Json(body): Json<BanReq>,
 ) -> Response {
-    let Ok(actor) = admin_authed(&state, &headers).await else {
-        return unauthorized();
-    };
+    let actor = ctx.username.clone();
     match state
         .v6
         .admin
@@ -913,12 +581,10 @@ async fn add_ban(
 
 async fn remove_ban(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     UrlPath(ip): UrlPath<String>,
 ) -> Response {
-    let Ok(actor) = admin_authed(&state, &headers).await else {
-        return unauthorized();
-    };
+    let actor = ctx.username.clone();
     match state.v6.admin.unban_ip(&actor, &ip).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => err500(e),
@@ -930,10 +596,7 @@ async fn remove_ban(
 /// `GET /admin/appearance` — the deployment-default appearance: the stored global
 /// values of `appearance.theme`, `appearance.brandName` and `appearance.accent`,
 /// or the built-in defaults.
-async fn get_appearance(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = admin_authed(&state, &headers).await {
-        return r;
-    }
+async fn get_appearance(State(state): State<AppState>, _ctx: AdminCtx) -> Response {
     match state.v6.admin.appearance().await {
         Ok(a) => Json(json!({ "theme": a.theme, "brandName": a.brand_name, "accent": a.accent }))
             .into_response(),
@@ -951,12 +614,10 @@ struct AppearanceDto {
 
 async fn set_appearance(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Json(body): Json<AppearanceDto>,
 ) -> Response {
-    let Ok(actor) = admin_authed(&state, &headers).await else {
-        return unauthorized();
-    };
+    let actor = ctx.username.clone();
     let appearance = mw_admin::Appearance {
         theme: body.theme,
         brand_name: body.brand_name,
@@ -974,28 +635,6 @@ async fn set_appearance(
 }
 
 // ─── camelCase DTOs (match state/slices/admin.ts) ─────────────────────────────
-
-/// The answer of `POST /admin/login` and `GET /admin/session`. `csrfToken` is the
-/// value of the `mw_csrf` cookie, for a client that cannot read cookies.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AdminSessionDto {
-    username: String,
-    csrf_token: String,
-}
-
-/// A domain as the panel sees it: its name. The stored `upstream_json`,
-/// `allowlist` and `blocklist` columns are not part of the wire shape — see the
-/// module docs.
-#[derive(Serialize)]
-struct DomainDto {
-    name: String,
-}
-impl From<AdminDomain> for DomainDto {
-    fn from(d: AdminDomain) -> Self {
-        Self { name: d.name }
-    }
-}
 
 #[derive(Serialize, Deserialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
@@ -1229,6 +868,13 @@ mod tests {
         set_cookie.split(';').next().unwrap().to_string()
     }
 
+    async fn correct_password_is_blocked(c: &reqwest::Client, base: &str) {
+        let response = c.post(format!("{base}/admin/login"))
+            .json(&json!({"username": ADMIN_USER, "password": ADMIN_PASS}))
+            .send().await.unwrap();
+        assert_eq!(response.status(), 401, "an active source ban also blocks a correct password");
+    }
+
     async fn bans(c: &reqwest::Client, base: &str, cookie: &str) -> Vec<serde_json::Value> {
         let resp = c
             .get(format!("{base}/admin/bans"))
@@ -1262,10 +908,11 @@ mod tests {
             .no_proxy()
             .build()
             .expect("reqwest client builds");
+        let cookie = good_login(&c, &base).await;
         for _ in 0..5 {
             bad_login(&c, &base, None).await;
         }
-        let cookie = good_login(&c, &base).await;
+        correct_password_is_blocked(&c, &base).await;
         let list = bans(&c, &base, &cookie).await;
 
         assert_eq!(list.len(), 1, "one source, one ban: {list:?}");
@@ -1294,10 +941,11 @@ mod tests {
             .no_proxy()
             .build()
             .expect("reqwest client builds");
+        let cookie = good_login(&c, &base).await;
         for _ in 0..5 {
             bad_login(&c, &base, Some(("x-forwarded-for", "203.0.113.99"))).await;
         }
-        let cookie = good_login(&c, &base).await;
+        correct_password_is_blocked(&c, &base).await;
         let list = bans(&c, &base, &cookie).await;
 
         assert_eq!(list.len(), 1, "{list:?}");

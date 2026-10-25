@@ -7,17 +7,42 @@
 use axum::Json;
 use axum::Router;
 use axum::extract::{Path as UrlPath, State};
-use axum::http::StatusCode;
+use axum::http::{Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{get, post};
 use base64::Engine as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use mw_admin::config::admin_route;
 use mw_oauth::{AuthorizeRequest, OAuthStore, Scope, ScopeSelector, TokenRequest, mint_api_key};
 
 use crate::AppState;
+use crate::admin_ctx::AdminCtx;
+use crate::admin_router::AdminRegistrar;
+use crate::capabilities::Capability as AdminCap;
+
+/// The admin routes of this module (registered by `admin_router`): the API-key
+/// countersign and the DCR policy.
+pub(crate) fn register_admin(r: &mut impl AdminRegistrar) {
+    r.admin_endpoint(
+        Method::PUT,
+        "/api-keys/{id}/unattended-send",
+        AdminCap::IntegrationsWrite,
+        set_key_unattended_send,
+    );
+    r.admin_endpoint(
+        Method::GET,
+        "/oauth-dcr",
+        AdminCap::IntegrationsRead,
+        dcr::dcr_admin_get,
+    );
+    r.admin_endpoint(
+        Method::PUT,
+        "/oauth-dcr",
+        AdminCap::OauthClientsWrite,
+        dcr::dcr_admin_put,
+    );
+}
 
 /// The user-facing V6 auth + zero-access routes (merged by e11's `router()`).
 pub(crate) fn routes() -> Router<AppState> {
@@ -29,10 +54,6 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/oauth/revoke", post(revoke))
         .route("/api/keys", get(list_keys).post(create_key))
         .route("/api/keys/{prefix}/revoke", post(revoke_key))
-        .route(
-            &admin_route("/api-keys/{id}/unattended-send"),
-            put(set_key_unattended_send),
-        )
         .route("/api/zeroaccess", get(zeroaccess_status))
         .route("/api/zeroaccess/enable", post(zeroaccess_enable))
         .route("/api/zeroaccess/disable", post(zeroaccess_disable))
@@ -334,6 +355,12 @@ async fn create_key(
         Ok(s) => s,
         Err(resp) => return resp,
     };
+    if let Err(response) =
+        crate::step_up::require_user(&state, &session, crate::step_up::StepUpAction::ApiKeyCreate)
+            .await
+    {
+        return response;
+    }
     // The key is always scoped to the requesting session's own account.
     //
     // `scope.unattended_send` is taken as given: it is the owner's *request* to
@@ -359,6 +386,13 @@ async fn create_key(
     {
         return server_error(e);
     }
+    crate::alerts::emit(
+        &state,
+        &account_id,
+        crate::alerts::AlertKind::ApiKeyCreated,
+        json!({}),
+    )
+    .await;
     // A key is never countersigned at mint; the label is echoed, not stored.
     let record = key_record_camel(&minted.record, &body.label, false);
     Json(json!({ "displayToken": minted.display_token, "record": record })).into_response()
@@ -452,14 +486,11 @@ struct UnattendedSendReq {
 /// withdrawal alike — with no restart.
 async fn set_key_unattended_send(
     State(state): State<AppState>,
-    headers: axum::http::HeaderMap,
+    ctx: AdminCtx,
     UrlPath(id): UrlPath<String>,
     Json(body): Json<UnattendedSendReq>,
 ) -> Response {
-    let actor = match dcr::require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let actor = ctx.username.clone();
     let key = match state.store.list_api_keys().await {
         Ok(rows) => rows.into_iter().find(|r| r.id == id),
         Err(e) => return server_error(e),
@@ -812,12 +843,6 @@ mod dcr {
             .route(
                 "/oauth/register/{id}",
                 get(dcr_read).put(dcr_update).delete(dcr_delete),
-            )
-            // Admin enable/read surface (parity with `/admin/sso`, `/admin/ui-plugins`).
-            // Admin-session-gated; the ONLY in-band way to toggle DCR (still default off).
-            .route(
-                &mw_admin::config::admin_route("/oauth-dcr"),
-                get(dcr_admin_get).put(dcr_admin_put),
             )
     }
 
@@ -1187,49 +1212,10 @@ mod dcr {
     //   * `PUT /admin/oauth-dcr` — upsert enabled + the redirect-host-suffix allowlist
     //     + the default granted scope (+ the optional initial-access-token requirement).
 
-    /// The admin-session cookie, same name/gate as `admin_sso.rs` / `ui_plugins.rs`.
+    /// The admin-session cookie's name (the tests below sign their requests with it).
+    #[cfg(test)]
     fn admin_cookie_name() -> String {
         mw_admin::config::session_cookie_name()
-    }
-
-    fn admin_unauthorized() -> Response {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "admin authentication required" })),
-        )
-            .into_response()
-    }
-
-    /// Extract the `mw_admin_session` cookie value (mirrors admin_sso.rs).
-    fn admin_cookie(headers: &axum::http::HeaderMap) -> Option<String> {
-        let raw = headers.get(axum::http::header::COOKIE)?.to_str().ok()?;
-        for part in raw.split(';') {
-            if let Some(v) = part
-                .trim()
-                .strip_prefix(&format!("{}=", admin_cookie_name()))
-                && !v.is_empty()
-            {
-                return Some(v.to_string());
-            }
-        }
-        None
-    }
-
-    /// Resolve the authenticated admin id, or a `401`. Enforces the `admin.enabled`
-    /// gate (disabled panel ⇒ every admin route is `401`). Mirrors admin_sso.rs.
-    pub(super) async fn require_admin(
-        state: &AppState,
-        headers: &axum::http::HeaderMap,
-    ) -> Result<String, Response> {
-        if !state.v6.admin_enabled {
-            return Err(admin_unauthorized());
-        }
-        let token = admin_cookie(headers).ok_or_else(admin_unauthorized)?;
-        let hash = crate::push_relay::hash_token(&token);
-        match state.store.get_admin_session(&hash).await {
-            Ok(Some(admin_id)) => Ok(admin_id),
-            _ => Err(admin_unauthorized()),
-        }
     }
 
     /// Parse a stored JSON array (redirect-host suffixes) back to a `Value` array.
@@ -1268,13 +1254,7 @@ mod dcr {
 
     /// `GET /admin/oauth-dcr` — read the current DCR policy (admin-gated). An absent
     /// policy row renders the default-DISABLED shape.
-    async fn dcr_admin_get(
-        State(state): State<AppState>,
-        headers: axum::http::HeaderMap,
-    ) -> Response {
-        if let Err(resp) = require_admin(&state, &headers).await {
-            return resp;
-        }
+    pub(super) async fn dcr_admin_get(State(state): State<AppState>, _ctx: AdminCtx) -> Response {
         match state.store.get_oauth_dcr_policy().await {
             Ok(row) => Json(policy_view(row.as_ref())).into_response(),
             Err(e) => server_error(e),
@@ -1285,7 +1265,7 @@ mod dcr {
     /// default (empty allowlist, no default scope, no initial-access-token requirement).
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "camelCase")]
-    struct AdminDcrReq {
+    pub(super) struct AdminDcrReq {
         /// Master switch: `false` (the default posture) keeps `/oauth/register` at 403.
         enabled: bool,
         /// Require the shared `MW_DCR_INITIAL_ACCESS_TOKEN` bearer on registration.
@@ -1305,14 +1285,11 @@ mod dcr {
 
     /// `PUT /admin/oauth-dcr` — upsert the DCR policy (admin-gated). Enabling DCR is an
     /// explicit admin action; this does not change the default-disabled posture.
-    async fn dcr_admin_put(
+    pub(super) async fn dcr_admin_put(
         State(state): State<AppState>,
-        headers: axum::http::HeaderMap,
+        _ctx: AdminCtx,
         Json(body): Json<AdminDcrReq>,
     ) -> Response {
-        if let Err(resp) = require_admin(&state, &headers).await {
-            return resp;
-        }
         let allowed_redirect_host_suffixes_json =
             serde_json::to_string(&body.allowed_redirect_host_suffixes)
                 .unwrap_or_else(|_| "[]".to_string());

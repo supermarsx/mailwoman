@@ -1,7 +1,8 @@
 //! Admin-session-gated maintenance surface (t14 26.14, plan §Wave-B E-mount).
 //!
-//! Two admin-gated server capabilities, both fail-closed behind the same
-//! `mw_admin_session` gate the rest of `/admin/*` uses (cookie + `admin.enabled`):
+//! Two admin-gated server capabilities, both fail-closed behind the admin capability
+//! gate (`admin_router`: `maintenance.run` / `maintenance.read`; the passthrough
+//! needs `server_metadata.write` for all domains):
 //!
 //! 1. **JWZ historical backfill** — `POST /admin/maintenance/rethread` invokes the
 //!    engine's idempotent one-shot [`mw_engine::Engine::rethread_account`] (E5) for
@@ -23,17 +24,19 @@
 //!    four metadata/ACL methods (any other method ⇒ fall through to the normal 401)
 //!    and to a single account per request.
 
+use axum::Json;
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
-use axum::{Json, Router};
-use mw_admin::config::admin_route;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::AppState;
+use crate::admin_ctx::AdminCtx;
+use crate::admin_router::AdminRegistrar;
+use crate::capabilities::Capability;
 
+#[cfg(test)]
 fn admin_cookie_name() -> String {
     mw_admin::config::session_cookie_name()
 }
@@ -48,50 +51,26 @@ const ADMIN_JMAP_METHODS: &[&str] = &[
     "MailboxRights/set",
 ];
 
-/// The `/admin/maintenance/*` router (merged + ridden by `lib.rs`'s middleware).
-pub(crate) fn admin_maintenance_router() -> Router<AppState> {
-    Router::new()
-        .route(&admin_route("/maintenance/rethread"), post(rethread))
-        .route(&admin_route("/maintenance/reindex"), post(reindex))
-        .route(
-            &admin_route("/maintenance/search-index"),
-            get(search_index_status),
-        )
-}
-
-// ── admin session gate (mirrors admin.rs / admin_sso.rs) ─────────────────────
-
-fn unauthorized() -> Response {
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(json!({ "error": "admin authentication required" })),
-    )
-        .into_response()
-}
-
-fn admin_cookie(headers: &HeaderMap) -> Option<String> {
-    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
-    for part in raw.split(';') {
-        if let Some(v) = part
-            .trim()
-            .strip_prefix(&format!("{}=", admin_cookie_name()))
-            && !v.is_empty()
-        {
-            return Some(v.to_string());
-        }
-    }
-    None
-}
-
-/// Resolve the authenticated admin id, or `None`. Enforces the `admin.enabled`
-/// gate (disabled ⇒ no admin is ever authenticated).
-async fn admin_id(state: &AppState, headers: &HeaderMap) -> Option<String> {
-    if !state.v6.admin_enabled {
-        return None;
-    }
-    let token = admin_cookie(headers)?;
-    let hash = crate::push_relay::hash_token(&token);
-    state.store.get_admin_session(&hash).await.ok().flatten()
+/// The `/admin/maintenance/*` routes (registered by `admin_router`).
+pub(crate) fn register(r: &mut impl AdminRegistrar) {
+    r.admin_endpoint(
+        Method::POST,
+        "/maintenance/rethread",
+        Capability::MaintenanceRun,
+        rethread,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/maintenance/reindex",
+        Capability::MaintenanceRun,
+        reindex,
+    );
+    r.admin_endpoint(
+        Method::GET,
+        "/maintenance/search-index",
+        Capability::MaintenanceRead,
+        search_index_status,
+    );
 }
 
 /// Append an admin audit line via the shared append-only mechanism. `action` is a
@@ -126,12 +105,10 @@ struct RethreadReq {
 /// summary. Admin-session-gated + engine-mode only; fail-closed.
 async fn rethread(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Json(body): Json<RethreadReq>,
 ) -> Response {
-    let Some(actor) = admin_id(&state, &headers).await else {
-        return unauthorized();
-    };
+    let actor = ctx.username.clone();
     let Some(engine) = &state.engine else {
         return (
             StatusCode::NOT_IMPLEMENTED,
@@ -199,10 +176,7 @@ fn search_status_json(s: &mw_engine::maintenance::SearchIndexStatus) -> Value {
 /// holds, how many stored messages it should hold (zero-access accounts are not
 /// indexed and not counted), whether it is on disk, and the progress of a rebuild
 /// if one is running. Admin-session-gated + engine-mode only.
-async fn search_index_status(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if admin_id(&state, &headers).await.is_none() {
-        return unauthorized();
-    }
+async fn search_index_status(State(state): State<AppState>, _ctx: AdminCtx) -> Response {
     let Some(engine) = &state.engine else {
         return engine_mode_only("the search index");
     };
@@ -234,12 +208,10 @@ struct ReindexReq {
 /// is in progress. Admin-session-gated + engine-mode only.
 async fn reindex(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     body: Option<Json<ReindexReq>>,
 ) -> Response {
-    let Some(actor) = admin_id(&state, &headers).await else {
-        return unauthorized();
-    };
+    let actor = ctx.username.clone();
     let Some(engine) = &state.engine else {
         return engine_mode_only("reindex");
     };
@@ -330,7 +302,11 @@ pub(crate) async fn try_admin_jmap_passthrough(
     let account_id = metadata_passthrough_account(&request)?;
     // Fail-closed: a valid admin session is required. No session ⇒ decline so the
     // caller emits the identical normal 401 (never reveals the passthrough exists).
-    let actor = admin_id(state, headers).await?;
+    // The editor needs `server_metadata.write` for all domains: the account is named
+    // by id, so its domain is not known here.
+    let ctx = AdminCtx::resolve(state, headers).await.ok()?;
+    ctx.require_unscoped(Capability::ServerMetadataWrite).ok()?;
+    let actor = ctx.username;
 
     // Connect the selected account's backend (metadata/ACL ride live IMAP calls).
     if let Err(e) = crate::engine_mode::ensure_account(engine, &account_id).await {

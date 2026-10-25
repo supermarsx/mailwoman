@@ -186,6 +186,161 @@ struct AdminArgs {
     command: mw_admin::cli::AdminCommand,
 }
 
+async fn admin_accounts_cmd(
+    store: mw_store::Store,
+    verb: mw_admin::cli::AdminAccountVerb,
+) -> anyhow::Result<()> {
+    use mw_admin::cli::AdminAccountVerb as Verb;
+    use mw_store::{AdminAccountRow, AdminRoleGrant};
+    let builtins: Vec<_> = mw_server::capabilities::BUILTIN_ROLES
+        .iter()
+        .map(|r| (r.id, r.name))
+        .collect();
+    store.ensure_builtin_admin_roles(&builtins).await?;
+    let now = chrono::Utc::now().timestamp();
+    let action = match &verb {
+        Verb::List => "admin-list",
+        Verb::Create { .. } => "admin-created",
+        Verb::ResetPassword { .. } => "admin-password-reset",
+        Verb::Disable { .. } => "admin-disabled",
+        Verb::GrantRole { .. } => "admin-roles-changed",
+    };
+
+    if matches!(verb, Verb::List) {
+        for a in store.list_admin_accounts().await? {
+            println!(
+                "{}\t{}\t{}",
+                a.username,
+                a.display_name,
+                if a.disabled { "disabled" } else { "enabled" }
+            );
+        }
+        return Ok(());
+    }
+    let username = match &verb {
+        Verb::Create { username, .. }
+        | Verb::ResetPassword { username }
+        | Verb::Disable { username }
+        | Verb::GrantRole { username, .. } => username.trim().to_ascii_lowercase(),
+        Verb::List => unreachable!(),
+    };
+    anyhow::ensure!(
+        !username.is_empty()
+            && username.len() <= 64
+            && username
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._@-".contains(&b)),
+        "invalid username"
+    );
+    let account = store.get_admin_account_by_username(&username).await?;
+    let password_hash = if matches!(verb, Verb::Create { .. } | Verb::ResetPassword { .. }) {
+        use std::io::Read;
+        let mut password = String::new();
+        std::io::stdin().take(1026).read_to_string(&mut password)?;
+        let password = password.trim_end_matches(['\r', '\n']);
+        anyhow::ensure!(
+            password.chars().count() >= 12 && password.len() <= 1024,
+            "password must be 12 to 1024 characters; supply it on standard input"
+        );
+        Some(mw_admin::password::hash_password(
+            password,
+            &mw_admin::SecurityPolicy::default(),
+        )?)
+    } else {
+        None
+    };
+    match verb {
+        Verb::Create { display_name, .. } => {
+            anyhow::ensure!(account.is_none(), "username already exists");
+            let row = AdminAccountRow {
+                id: uuid::Uuid::new_v4().to_string(),
+                username: username.clone(),
+                display_name: display_name.unwrap_or_else(|| username.clone()),
+                password_hash,
+                disabled: false,
+                source: "db".into(),
+                created_at: now,
+                updated_at: now,
+                last_login_at: None,
+            };
+            store
+                .insert_admin_account_with_roles(&row, &[], false)
+                .await?;
+        }
+        Verb::ResetPassword { .. } => {
+            let a = account.ok_or_else(|| anyhow::anyhow!("admin not found"))?;
+            store
+                .set_admin_password(
+                    &a.id,
+                    password_hash.as_deref().expect("password requested"),
+                    now,
+                )
+                .await?;
+            store.delete_admin_sessions_of(&username).await?;
+        }
+        Verb::Disable { .. } => {
+            let a = account.ok_or_else(|| anyhow::anyhow!("admin not found"))?;
+            anyhow::ensure!(
+                store
+                    .change_admin_account_guarded(
+                        &a.id,
+                        Some(&a.display_name),
+                        true,
+                        None,
+                        false,
+                        now
+                    )
+                    .await?,
+                "lastSuperAdmin: grant another enabled admin Super admin first"
+            );
+        }
+        Verb::GrantRole { role, domain, .. } => {
+            let a = account.ok_or_else(|| anyhow::anyhow!("admin not found"))?;
+            anyhow::ensure!(
+                store.get_admin_role(&role).await?.is_some(),
+                "role not found"
+            );
+            let mut grants = store.admin_account_roles(&a.id).await?;
+            grants.retain(|g| g.role_id != role);
+            grants.push(AdminRoleGrant {
+                role_id: role,
+                domains: if domain.is_empty() {
+                    None
+                } else {
+                    Some(domain.into_iter().map(|d| d.to_ascii_lowercase()).collect())
+                },
+            });
+            anyhow::ensure!(
+                store
+                    .change_admin_account_guarded(&a.id, None, false, Some(&grants), false, now)
+                    .await?,
+                "lastSuperAdmin"
+            );
+        }
+        Verb::List => unreachable!(),
+    }
+    store
+        .append_admin_audit(
+            &mw_store::AuditRow {
+                id: uuid::Uuid::new_v4().to_string(),
+                ts: chrono::Utc::now().to_rfc3339(),
+                actor: "cli".into(),
+                actor_kind: "admin".into(),
+                action: action.into(),
+                target: Some(format!("admin:{username}")),
+                detail_json: "{}".into(),
+                ip: None,
+            },
+            Some("local-console"),
+            Some("admins.manage"),
+            None,
+            None,
+        )
+        .await?;
+    println!("Updated admin {username}");
+    Ok(())
+}
+
 /// `mailwoman mcp-stdio` (V6 §20.3): proxy stdin/stdout JSON-RPC to a configured
 /// remote `/mcp` endpoint.
 #[derive(Parser)]
@@ -494,6 +649,15 @@ async fn migrate_store(args: MigrateStoreArgs) -> anyhow::Result<()> {
 /// `mailwoman admin <noun> <verb>` (plan §19, e5): drive the admin domain logic +
 /// audit log against the 0007 store tables.
 async fn admin_cmd(args: AdminArgs) -> anyhow::Result<()> {
+    if let mw_admin::cli::AdminCommand::Domains { verb } = args.command {
+        let store = open_store(&args.db_path, args.server_key.as_deref()).await?;
+        println!("{}", mw_server::domain_cli::run(&store, verb).await?);
+        return Ok(());
+    }
+    if let mw_admin::cli::AdminCommand::Admins { verb } = args.command {
+        let store = open_store(&args.db_path, args.server_key.as_deref()).await?;
+        return admin_accounts_cmd(store, verb).await;
+    }
     let admin = mw_server::build_admin(&args.db_path, args.server_key.as_deref()).await?;
     let out = mw_admin::cli::run(&admin, args.command, "cli").await?;
     println!("{out}");

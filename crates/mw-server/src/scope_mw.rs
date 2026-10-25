@@ -97,6 +97,32 @@ pub(crate) enum RestSessionSource {
     Key { account_id: String },
 }
 
+/// The folders a `/api/v1` request may see, inserted by [`rest_scope_guard`] next to
+/// [`RestSessionSource`] (t28-e18). `None` = every folder (the cookie path, or a key
+/// granted all folders). `Some(ids)` = only these mailbox ids: a list or a read that
+/// names no folder returns only what is in them, and a request naming a folder
+/// outside them never reaches the handler (`403`). Ids are JMAP mailbox ids, as
+/// `Mailbox/get` returns them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RestFolders(pub(crate) Option<Vec<String>>);
+
+impl RestFolders {
+    fn from_grant(folders: &ScopeSelector) -> Self {
+        match folders {
+            ScopeSelector::All => Self(None),
+            ScopeSelector::Subset(ids) => Self(Some(ids.clone())),
+        }
+    }
+
+    /// Whether a message filed in `mailbox_ids` may be shown.
+    pub(crate) fn admits_any<'a>(&self, mut mailbox_ids: impl Iterator<Item = &'a str>) -> bool {
+        match &self.0 {
+            None => true,
+            Some(ids) => mailbox_ids.any(|m| ids.iter().any(|g| g == m)),
+        }
+    }
+}
+
 /// Resolve the account session for a `/api/v1` request that passed [`rest_scope_guard`].
 pub(crate) async fn rest_session(
     state: &AppState,
@@ -104,7 +130,13 @@ pub(crate) async fn rest_session(
     source: RestSessionSource,
 ) -> Result<mw_store::Session, Response> {
     match source {
-        RestSessionSource::Cookie => crate::authed(state, headers).await,
+        RestSessionSource::Cookie => {
+            let mut headers = headers.clone();
+            if extract_api_key(&headers).is_some_and(|k| k.location == KeyLocation::Bearer) {
+                headers.remove(header::AUTHORIZATION);
+            }
+            crate::authed(state, &headers).await
+        }
         RestSessionSource::Key { account_id } => {
             // Folded V6 follow-up (a), MOUNTED by e14: a headless, cookie-less key read
             // in PROXY mode needs the account's real upstream credentials + JMAP URL to
@@ -118,16 +150,25 @@ pub(crate) async fn rest_session(
             {
                 return Ok(session);
             }
+            let credentials = if state.engine.is_some() {
+                state
+                    .store
+                    .account_credentials(&account_id)
+                    .await
+                    .map_err(|_| crate::unauthorized())?
+            } else {
+                mw_store::Credentials {
+                    username: account_id.clone(),
+                    password: String::new(),
+                }
+            };
             Ok(mw_store::Session {
                 id: String::new(),
                 account_id: account_id.clone(),
-                username: account_id,
+                username: credentials.username.clone(),
                 jmap_url: String::new(),
                 api_url: String::new(),
-                credentials: mw_store::Credentials {
-                    username: String::new(),
-                    password: String::new(),
-                },
+                credentials,
             })
         }
     }
@@ -145,11 +186,13 @@ pub(crate) async fn rest_scope_guard(
     let Some(key) = extract_api_key(&headers) else {
         // No scoped key → the browser cookie / native bearer path, unchanged.
         req.extensions_mut().insert(RestSessionSource::Cookie);
+        req.extensions_mut().insert(RestFolders(None));
         return next.run(req).await;
     };
 
     let method = req.method().clone();
     let path = req.uri().path().to_string();
+    let folder = named_folder(&path, req.uri().query());
     let source_ip = client_ip(&headers, req.extensions());
 
     // A key in `x-api-key` alongside a cookie downscopes that browser session: the
@@ -171,7 +214,7 @@ pub(crate) async fn rest_scope_guard(
         // Key-only: the key IS the account authority — impose no account constraint.
         None => ScopeSelector::Subset(vec![]),
     };
-    let required = rest_required_scope(&method, &path, required_accounts);
+    let required = rest_required_scope(&method, &path, required_accounts, folder.as_deref());
 
     let audit = AdminOAuthAudit::new(state.v6.admin.clone());
     let ctx = RequestContext {
@@ -179,16 +222,29 @@ pub(crate) async fn rest_scope_guard(
         source_ip,
         resource: None,
     };
-    match state
-        .v6
-        .auth
-        .require_scope_send(&ctx, &required, &*audit)
-        .await
-    {
+    // A request naming its folder is checked against the grant here. One naming
+    // none (a list across folders, a read by id) passes the other checks and the
+    // handler restricts what it returns to the granted folders (`RestFolders`).
+    let checked = if folder.is_some() {
+        state
+            .v6
+            .auth
+            .require_scope_send(&ctx, &required, &*audit)
+            .await
+    } else {
+        state
+            .v6
+            .auth
+            .require_scope_send_listing(&ctx, &required, &*audit)
+            .await
+    };
+    match checked {
         Ok(granted) => {
             if let Err(resp) = key_account_gate(&state, &granted.account_id).await {
                 return resp;
             }
+            req.extensions_mut()
+                .insert(RestFolders::from_grant(&granted.scope.folders));
             let source = if cookie_account.is_some() {
                 RestSessionSource::Cookie
             } else {
@@ -240,11 +296,12 @@ pub(crate) async fn mcp_scope_guard(
         resource: None,
     };
     // `nothing_required` imposes no capability check here (that is the per-tool
-    // authorizer's job); require_scope_send still enforces expiry + IP + rate-limit.
+    // authorizer's job, folders included: every tool requires all folders);
+    // require_scope_send_listing still enforces expiry + IP + rate-limit.
     match state
         .v6
         .auth
-        .require_scope_send(&ctx, &nothing_required(), &*audit)
+        .require_scope_send_listing(&ctx, &nothing_required(), &*audit)
         .await
     {
         Ok(granted) => {
@@ -315,11 +372,30 @@ fn client_ip(headers: &HeaderMap, ext: &axum::http::Extensions) -> Option<IpAddr
     proxy::client_ip(headers, ext)
 }
 
+/// The folder a `/api/v1` request names: `GET /api/v1/messages?mailbox=<id>`. Every
+/// other route names none (`/api/v1/messages/{id}`, `/api/v1/mailboxes`).
+fn named_folder(path: &str, query: Option<&str>) -> Option<String> {
+    if path.trim_end_matches('/') != "/api/v1/messages" {
+        return None;
+    }
+    let uri: axum::http::Uri = format!("/?{}", query?).parse().ok()?;
+    let axum::extract::Query(mut params) =
+        axum::extract::Query::<std::collections::HashMap<String, String>>::try_from_uri(&uri)
+            .ok()?;
+    params.remove("mailbox").filter(|v| !v.is_empty())
+}
+
 /// The [`Scope`] a `/api/v1` route requires: verb from the method (GET→read,
-/// DELETE→delete, else send), surface from the path (mail vs PIM), and the account
+/// DELETE→delete, else send), surface from the path (mail vs PIM), the account
 /// selector the caller supplies (the cookie account for a downscope, or empty for a
-/// key-only request where the key is itself the account authority).
-fn rest_required_scope(method: &Method, path: &str, accounts: ScopeSelector) -> Scope {
+/// key-only request where the key is itself the account authority), and the folder
+/// the request names (none = `Subset([])`, which only an all-folders grant covers).
+fn rest_required_scope(
+    method: &Method,
+    path: &str,
+    accounts: ScopeSelector,
+    folder: Option<&str>,
+) -> Scope {
     let is_pim = ["/calendar", "/contacts", "/tasks", "/notes"]
         .iter()
         .any(|p| path.contains(p));
@@ -333,10 +409,10 @@ fn rest_required_scope(method: &Method, path: &str, accounts: ScopeSelector) -> 
         send,
         delete,
         accounts,
-        // REST list/read is not folder-scoped per request; no folder constraint.
-        folders: ScopeSelector::Subset(Vec::new()),
+        folders: ScopeSelector::Subset(folder.map(str::to_string).into_iter().collect()),
         mail: !is_pim,
         pim: is_pim,
+        scripts: false,
         ip_allowlist: Vec::new(),
         expires_at: None,
         rate_limit: None,
@@ -356,6 +432,7 @@ fn nothing_required() -> Scope {
         folders: ScopeSelector::Subset(Vec::new()),
         mail: false,
         pim: false,
+        scripts: false,
         ip_allowlist: Vec::new(),
         expires_at: None,
         rate_limit: None,
@@ -435,11 +512,236 @@ mod tests {
 
     #[test]
     fn required_scope_maps_verb_and_surface() {
-        let s = rest_required_scope(&Method::GET, "/api/v1/messages", ScopeSelector::All);
+        let s = rest_required_scope(&Method::GET, "/api/v1/messages", ScopeSelector::All, None);
         assert!(s.read && s.mail && !s.pim && !s.send);
-        let s = rest_required_scope(&Method::GET, "/api/v1/calendar/x", ScopeSelector::All);
+        let s = rest_required_scope(&Method::GET, "/api/v1/calendar/x", ScopeSelector::All, None);
         assert!(s.read && s.pim && !s.mail);
-        let s = rest_required_scope(&Method::DELETE, "/api/v1/messages/1", ScopeSelector::All);
+        let s = rest_required_scope(
+            &Method::DELETE,
+            "/api/v1/messages/1",
+            ScopeSelector::All,
+            None,
+        );
         assert!(s.delete && !s.read);
     }
+
+    #[test]
+    fn the_named_folder_becomes_the_required_folder() {
+        assert_eq!(
+            named_folder("/api/v1/messages", Some("mailbox=mbx-a&limit=5")).as_deref(),
+            Some("mbx-a")
+        );
+        assert_eq!(named_folder("/api/v1/messages", Some("limit=5")), None);
+        assert_eq!(named_folder("/api/v1/messages", Some("mailbox=")), None);
+        assert_eq!(named_folder("/api/v1/messages", None), None);
+        // Only the message list takes the parameter.
+        assert_eq!(
+            named_folder("/api/v1/mailboxes", Some("mailbox=mbx-a")),
+            None
+        );
+        let s = rest_required_scope(
+            &Method::GET,
+            "/api/v1/messages",
+            ScopeSelector::All,
+            Some("mbx-a"),
+        );
+        assert_eq!(s.folders, ScopeSelector::Subset(vec!["mbx-a".into()]));
+        let s = rest_required_scope(&Method::GET, "/api/v1/messages", ScopeSelector::All, None);
+        assert_eq!(s.folders, ScopeSelector::Subset(vec![]));
+    }
+
+    #[test]
+    fn rest_folders_admit_only_granted_mailboxes() {
+        let all = RestFolders::from_grant(&ScopeSelector::All);
+        assert!(all.admits_any(["x"].into_iter()));
+        let some = RestFolders::from_grant(&ScopeSelector::Subset(vec!["a".into()]));
+        assert!(some.admits_any(["b", "a"].into_iter()));
+        assert!(!some.admits_any(["b"].into_iter()));
+        assert!(!some.admits_any(std::iter::empty()));
+    }
+}
+
+/// Downscope Sieve JMAP calls by an explicitly presented API key. Native bearer
+/// sessions are not API keys. Account-wide scripts require an all-folders grant.
+pub(crate) async fn jmap_sieve_scope_guard(
+    State(state): State<AppState>,
+    mut req: Request,
+    next: Next,
+) -> Response {
+    let Some(key) = extract_api_key(req.headers()) else {
+        return next.run(req).await;
+    };
+    let headers = req.headers().clone();
+    let source_ip = client_ip(&headers, req.extensions());
+    let body = match axum::body::to_bytes(std::mem::take(req.body_mut()), 2 * 1024 * 1024).await {
+        Ok(b) => b,
+        Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+    };
+    let request: serde_json::Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
+    let calls = request["methodCalls"].as_array();
+    let has_sieve = calls.is_some_and(|calls| {
+        calls.iter().any(|c| {
+            c[0].as_str().is_some_and(|name| {
+                mw_engine::sieve_jmap::is_sieve_method(name)
+                    || mw_engine::sieve_jmap::is_managed_method(name)
+            })
+        })
+    });
+    *req.body_mut() = axum::body::Body::from(body);
+    if !has_sieve {
+        return next.run(req).await;
+    }
+    let calls = calls.unwrap();
+    // A script grant cannot authorize unrelated calls hidden in the same batch.
+    if calls.iter().any(|c| {
+        !c[0].as_str().is_some_and(|name| {
+            mw_engine::sieve_jmap::is_sieve_method(name)
+                || mw_engine::sieve_jmap::is_managed_method(name)
+        })
+    }) {
+        return scope_error_response(&OAuthError::InvalidScope);
+    }
+    let accounts: Vec<String> = calls
+        .iter()
+        .filter_map(|c| c[1]["accountId"].as_str().map(str::to_string))
+        .collect();
+    if accounts.len() != calls.len() || accounts.iter().any(|a| a != &accounts[0]) {
+        return scope_error_response(&OAuthError::InvalidScope);
+    }
+    let mut cookie_headers = headers.clone();
+    if key.location == KeyLocation::Bearer {
+        cookie_headers.remove(header::AUTHORIZATION);
+    }
+    let cookie = if crate::cookie_value(&headers).is_some() {
+        match crate::authed(&state, &cookie_headers).await {
+            Ok(s) => Some(s),
+            Err(r) => return r,
+        }
+    } else {
+        None
+    };
+    if cookie.as_ref().is_some_and(|s| s.account_id != accounts[0]) {
+        return scope_error_response(&OAuthError::InvalidScope);
+    }
+    let mut required = nothing_required();
+    required.scripts = true;
+    required.accounts = ScopeSelector::Subset(vec![accounts[0].clone()]);
+    required.folders = ScopeSelector::All;
+    let audit = AdminOAuthAudit::new(state.v6.admin.clone());
+    let granted = match state
+        .v6
+        .auth
+        .require_scope_send(
+            &RequestContext {
+                credential: &key.token,
+                source_ip,
+                resource: None,
+            },
+            &required,
+            audit.as_ref(),
+        )
+        .await
+    {
+        Ok(g) => g,
+        Err(e) => return scope_error_response(&e),
+    };
+    // Even an all-accounts key is owned by one mailbox principal here.
+    if granted.account_id != accounts[0] {
+        return scope_error_response(&OAuthError::InvalidScope);
+    }
+    if let Err(r) = key_account_gate(&state, &granted.account_id).await {
+        return r;
+    }
+    req.extensions_mut().insert(if cookie.is_some() {
+        RestSessionSource::Cookie
+    } else {
+        RestSessionSource::Key {
+            account_id: granted.account_id,
+        }
+    });
+    next.run(req).await
+}
+
+/// Authorize script-only blob/session access without promoting a scoped key to
+/// unrestricted mailbox authority. Download access is confined to script blobs.
+pub(crate) async fn sieve_key_session(
+    state: &AppState,
+    headers: &HeaderMap,
+    ext: &axum::http::Extensions,
+    account: Option<&str>,
+    blob: Option<&str>,
+) -> Result<Option<mw_store::Session>, Response> {
+    let Some(key) = extract_api_key(headers) else {
+        return Ok(None);
+    };
+    if state.engine.is_none() {
+        return Err(scope_error_response(&OAuthError::InvalidScope));
+    }
+    let mut required = nothing_required();
+    required.scripts = true;
+    required.folders = ScopeSelector::All;
+    required.accounts = ScopeSelector::Subset(account.into_iter().map(str::to_string).collect());
+    let audit = AdminOAuthAudit::new(state.v6.admin.clone());
+    let granted = state
+        .v6
+        .auth
+        .require_scope_send(
+            &RequestContext {
+                credential: &key.token,
+                source_ip: client_ip(headers, ext),
+                resource: None,
+            },
+            &required,
+            audit.as_ref(),
+        )
+        .await
+        .map_err(|e| scope_error_response(&e))?;
+    if account.is_some_and(|a| a != granted.account_id) {
+        return Err(scope_error_response(&OAuthError::InvalidScope));
+    }
+    key_account_gate(state, &granted.account_id).await?;
+    let mut cookie_headers = headers.clone();
+    if key.location == KeyLocation::Bearer {
+        cookie_headers.remove(header::AUTHORIZATION);
+    }
+    let session = if crate::cookie_value(headers).is_some() {
+        let s = crate::authed(state, &cookie_headers).await?;
+        if s.account_id != granted.account_id {
+            return Err(scope_error_response(&OAuthError::InvalidScope));
+        }
+        s
+    } else {
+        let mut s = rest_session(
+            state,
+            headers,
+            RestSessionSource::Key {
+                account_id: granted.account_id.clone(),
+            },
+        )
+        .await?;
+        crate::domain_upgrade::refresh_session(state, &mut s).await?;
+        if s.account_id != granted.account_id {
+            return Err(scope_error_response(&OAuthError::InvalidScope));
+        }
+        s.id.clear();
+        s
+    };
+    if let Some(blob) = blob {
+        let rows = state
+            .store
+            .list_sieve_scripts(&granted.account_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+        if !rows.iter().any(|r| {
+            serde_json::from_str::<serde_json::Value>(&r.state_json)
+                .ok()
+                .is_some_and(|v| v["_blobId"].as_str() == Some(blob))
+        }) {
+            return Err(scope_error_response(&OAuthError::InvalidScope));
+        }
+    }
+    Ok(Some(session))
 }

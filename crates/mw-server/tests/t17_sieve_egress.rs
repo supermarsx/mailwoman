@@ -1,21 +1,6 @@
-//! t17-e-e2e — ManageSieve egress gate (L5) through the REAL sieve-sync route.
-//!
-//! 26.16's Sieve caller connected to any user-supplied host:port. 26.17 adds a
-//! NARROWER-than-image-proxy egress gate (settled DQ-L5): refuse cloud-metadata,
-//! loopback and link-local, but KEEP RFC1918/private reachable (syncing rules to your
-//! own internal ManageSieve server is legitimate). `sieve_egress_permitted` is a
-//! private fn; this leg drives the REAL `POST /api/account/sieve/sync` route (engine
-//! mode, behind a real session) and asserts the DISTINCTION live:
-//!   * a metadata / loopback / link-local host is refused at the gate → 403 (instant,
-//!     never a connect);
-//!   * an RFC1918 host PASSES the gate (it is NOT a 403 — it only fails afterward with
-//!     a gateway error / connect timeout because nothing is listening there).
-//!
-//! No live ManageSieve server is needed (settled: unit/integration ok) — the gate
-//! runs before any connect, so the 403-vs-not distinction is the wired proof.
-//!
-//! Run:
-//!   cargo test -p mw-server --test t17_sieve_egress -- --nocapture --test-threads=1
+//! Client-supplied ManageSieve destinations are refused before connection.
+//! Private-network access is now an operator endpoint permission; guarded
+//! proxy/pinning behavior is covered in mw-egress plan::sieve_tests.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -112,50 +97,20 @@ async fn sieve_sync(
 }
 
 #[tokio::test]
-async fn sieve_egress_refuses_metadata_and_loopback_but_allows_rfc1918() {
+async fn sieve_refuses_client_selected_destinations_and_credentials() {
     let db = temp_db();
     let addr = spawn_engine_server(&db).await;
     let base = format!("http://{addr}");
     let cookie = seed_session(&db).await;
-    let c = client();
-
-    // Sanity: the session is accepted (a bogus host is refused at the gate, not 401).
-    // Metadata / loopback / link-local → refused at the gate → 403 (instant, no connect).
-    for (host, what) in [
-        ("169.254.169.254", "cloud metadata"),
-        ("127.0.0.1", "IPv4 loopback"),
-        ("::1", "IPv6 loopback"),
-        ("169.254.0.1", "link-local"),
+    let client = client();
+    for host in [
+        "169.254.169.254",
+        "127.0.0.1",
+        "::1",
+        "10.255.255.1",
+        "mail.example.org",
     ] {
-        let status = sieve_sync(&c, &base, &cookie, host)
-            .await
-            .unwrap_or_else(|e| {
-                panic!("{what} host must return promptly (a gate 403), not hang: {e}")
-            });
-        assert_eq!(
-            status.as_u16(),
-            403,
-            "sieve egress: {what} ({host}) must be refused at the gate (got {status})"
-        );
-    }
-
-    // RFC1918 PASSES the gate: syncing to your own internal ManageSieve is legitimate.
-    // Nothing is listening, so it fails AFTER the gate — never a 403. A 403 would be
-    // instant; a permitted host proceeds to a connect that fails (502) or exceeds the
-    // client timeout — both prove the gate allowed it.
-    match sieve_sync(&c, &base, &cookie, "10.255.255.1").await {
-        Ok(status) => assert_ne!(
-            status.as_u16(),
-            403,
-            "an RFC1918 host must NOT be refused by the Sieve egress gate (got {status})"
-        ),
-        Err(e) if e.is_timeout() => {
-            // The gate passed and the request is stuck in the post-gate connect — a
-            // blocked host would have returned a 403 instantly, so this proves allow.
-            eprintln!(
-                "[t17 sieve] RFC1918 10.255.255.1 passed the gate (post-gate connect timed out — expected)"
-            );
-        }
-        Err(e) => panic!("unexpected error for the RFC1918 host: {e}"),
+        let status = sieve_sync(&client, &base, &cookie, host).await.unwrap();
+        assert_eq!(status.as_u16(), 422, "request body cannot configure {host}");
     }
 }

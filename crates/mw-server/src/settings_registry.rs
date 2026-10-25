@@ -124,6 +124,8 @@ pub enum Text {
     HttpsUrl,
     /// An `http://` or `https://` URL.
     HttpUrl,
+    /// HTTP(S) JMAP or IMAP/POP3 mail transport URL.
+    UpstreamUrl,
     /// An e-mail address.
     Email,
     /// A domain name.
@@ -161,6 +163,10 @@ pub enum Kind {
         max: i64,
         max_len: usize,
     },
+    StringList {
+        max_len: usize,
+        max_item: usize,
+    },
     /// `{ "start": 0..=23, "end": 0..=23 }` (UTC hours).
     QuietHours,
     /// `[{ "label": "...", "url": "https://..." }]`.
@@ -174,6 +180,9 @@ impl Kind {
     pub fn describe(&self) -> Value {
         match *self {
             Kind::Bool => json!({ "type": "bool" }),
+            Kind::StringList { max_len, max_item } => {
+                json!({ "type": "stringList", "maxItems": max_len, "maxLength": max_item })
+            }
             Kind::Int { min, max } => json!({ "type": "int", "min": min, "max": max }),
             Kind::Float { min, max } => json!({ "type": "float", "min": min, "max": max }),
             Kind::Enum(values) => json!({ "type": "enum", "values": values }),
@@ -184,6 +193,7 @@ impl Kind {
                     Text::Slug => "slug",
                     Text::HttpsUrl => "httpsUrl",
                     Text::HttpUrl => "httpUrl",
+                    Text::UpstreamUrl => "upstreamUrl",
                     Text::Email => "email",
                     Text::Domain => "domain",
                     Text::Contact => "contact",
@@ -350,6 +360,177 @@ use Scopes::{
 
 /// Every registered key. Order is the admin screen's order within a category.
 pub static REGISTRY: &[SettingDef] = &[
+    def!(
+        "privacy.remoteContent",
+        Kind::Enum(&["block", "ask", "proxy", "direct"]),
+        "\"ask\"",
+        GDU,
+        "privacy",
+        "Reader remote-content mode"
+    ),
+    def!(
+        "privacy.trackers",
+        Kind::Bool,
+        "true",
+        GDU,
+        "privacy",
+        "Block email trackers"
+    ),
+    def!(
+        "privacy.cleanLinks",
+        Kind::Bool,
+        "true",
+        GDU,
+        "privacy",
+        "Remove tracking parameters from links"
+    ),
+    def!(
+        "privacy.maxBytes",
+        int(65536, 8388608),
+        "8388608",
+        G,
+        "privacy",
+        "Largest fetched remote image in bytes"
+    ),
+    def!(
+        "privacy.cacheBytes",
+        int(0, 1073741824),
+        "33554432",
+        G,
+        "privacy",
+        "Remote image cache size in bytes"
+    ),
+    def!(
+        "privacy.ratePerMin",
+        int(10, 6000),
+        "120",
+        G,
+        "privacy",
+        "Remote fetches per account per minute"
+    ),
+    def!(
+        "privacy.allowDirect",
+        Kind::Bool,
+        "false",
+        G,
+        "privacy",
+        "Permit direct remote-content mode with the direct-content capability"
+    ),
+    def!(
+        "cap.remote_content.direct",
+        Kind::Bool,
+        "false",
+        GDA,
+        "privacy",
+        "Permit this account to load remote images directly"
+    ),
+    def!(
+        "session.maxConcurrent",
+        int(1, 100),
+        "10",
+        GDA,
+        "signin",
+        "Maximum concurrent mailbox sessions"
+    ),
+    def!(
+        "session.idleSecs",
+        int(60, 86400),
+        "1800",
+        GDA,
+        "signin",
+        "Mailbox session idle timeout, bounded by the deployment cap"
+    ),
+    def!(
+        "session.absoluteSecs",
+        int(300, 2592000),
+        "43200",
+        GDA,
+        "signin",
+        "Mailbox session absolute timeout, bounded by the deployment cap"
+    ),
+    def!(
+        "twofa.rememberDays",
+        int(0, 90),
+        "0",
+        GDA,
+        "signin",
+        "Remembered-device lifetime; zero disables remembered devices"
+    ),
+    def!(
+        "twofa.passkeysEnabled",
+        Kind::Bool,
+        "true",
+        GDA,
+        "signin",
+        "Allow passkey authentication"
+    ),
+    def!(
+        "twofa.required",
+        Kind::Bool,
+        "false",
+        GDA,
+        "signin",
+        "Require a second authentication factor"
+    ),
+    def!(
+        "sieve.maxScriptBytes",
+        int(1, 1048576),
+        "65536",
+        GDA,
+        "sieve",
+        "Sieve script byte limit"
+    ),
+    def!(
+        "sieve.maxScripts",
+        int(1, 100),
+        "5",
+        GDA,
+        "sieve",
+        "Sieve script count limit"
+    ),
+    def!(
+        "sieve.maxRedirects",
+        int(0, 100),
+        "4",
+        GDA,
+        "sieve",
+        "Sieve redirect count limit"
+    ),
+    def!(
+        "sieve.vacationAllowed",
+        Kind::Bool,
+        "false",
+        GDA,
+        "sieve",
+        "Sieve vacation actions"
+    ),
+    nullable(def!(
+        "sieve.allowedExtensions",
+        Kind::StringList {
+            max_len: 128,
+            max_item: 64
+        },
+        "null",
+        GDA,
+        "sieve",
+        "Allowed Sieve extensions"
+    )),
+    def!(
+        "cap.sieve.raw_edit",
+        Kind::Bool,
+        "false",
+        GDA,
+        "sieve",
+        "Raw Sieve editing permission"
+    ),
+    def!(
+        "cap.sieve.forward_external",
+        Kind::Bool,
+        "false",
+        GDA,
+        "sieve",
+        "Sieve forwarding outside the account domain"
+    ),
     // ── Interface (user-facing) ──────────────────────────────────────────────
     def!(
         "ui.language",
@@ -444,7 +625,7 @@ pub static REGISTRY: &[SettingDef] = &[
         env: Some(("MW_UPSTREAM_DEFAULT", Precedence::Fallback)),
         ..nullable(def!(
             "upstream.default",
-            text(Text::HttpUrl, 2048),
+            text(Text::UpstreamUrl, 2048),
             "null",
             G,
             "upstream",
@@ -1132,6 +1313,7 @@ fn check_text(shape: Text, s: &str) -> Result<(), &'static str> {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
         Text::HttpsUrl => is_url(s, &["https"]),
         Text::HttpUrl => is_url(s, &["https", "http"]),
+        Text::UpstreamUrl => is_url(s, &["https", "http", "imap", "imaps", "pop3", "pop3s"]),
         Text::Email => is_email(s),
         Text::Domain => is_domain(s),
         Text::Contact => match s.strip_prefix("mailto:") {
@@ -1147,6 +1329,7 @@ fn check_text(shape: Text, s: &str) -> Result<(), &'static str> {
             Text::Slug => "may contain only a-z, 0-9 and -",
             Text::HttpsUrl => "must be an https:// URL",
             Text::HttpUrl => "must be an http:// or https:// URL",
+            Text::UpstreamUrl => "must be an HTTP(S), IMAP(S), or POP3(S) URL",
             Text::Email => "must be an e-mail address",
             Text::Domain => "must be a domain name",
             Text::Contact => "must be mailto:<address> or an https:// URL",
@@ -1254,6 +1437,36 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                             format!("must be a whole number between {min} and {max}"),
                         ));
                     }
+                }
+            }
+            Ok(value.clone())
+        }
+        Kind::StringList { max_len, max_item } => {
+            let Some(items) = value.as_array() else {
+                return bad("must be a list of text values".into());
+            };
+            if items.len() > max_len {
+                return bad(format!("must have at most {max_len} items"));
+            }
+            let mut seen = std::collections::BTreeSet::new();
+            for (index, item) in items.iter().enumerate() {
+                let Some(text) = item.as_str() else {
+                    return Err(Refusal::invalid(
+                        &format!("{field}/{index}"),
+                        "must be text",
+                    ));
+                };
+                if text.is_empty()
+                    || text.len() > max_item
+                    || !text.bytes().all(|b| {
+                        b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'.')
+                    })
+                    || !seen.insert(text)
+                {
+                    return Err(Refusal::invalid(
+                        &format!("{field}/{index}"),
+                        "must be a unique lowercase extension name",
+                    ));
                 }
             }
             Ok(value.clone())
@@ -1542,6 +1755,8 @@ pub async fn effective_for_with(
     subject: &SettingSubject<'_>,
     extra: &[SettingValueRow],
 ) -> Result<Option<Effective>, StoreError> {
+    let canonical = store.canonical_setting_subject(subject).await?;
+    let subject = &canonical.as_subject();
     let Some(def) = lookup(key) else {
         return Ok(None);
     };
@@ -1575,6 +1790,8 @@ pub async fn effective_all_with(
     filter: impl Fn(&SettingDef) -> bool,
     extra: &[SettingValueRow],
 ) -> Result<Vec<Effective>, StoreError> {
+    let canonical = store.canonical_setting_subject(subject).await?;
+    let subject = &canonical.as_subject();
     let policies = store.list_setting_policies().await?;
     let mut values = store.setting_values_for_subject(subject).await?;
     values.extend_from_slice(extra);
@@ -1686,6 +1903,8 @@ pub async fn ceiling(
         | CeilingTarget::User { domain: d }
         | CeilingTarget::Assignment { domain: d } => d,
     };
+    let canonical_domain = store.canonical_policy_domain(domain).await?;
+    let domain = canonical_domain.as_str();
     if !domains.iter().any(|d| d.eq_ignore_ascii_case(domain)) {
         return Err(CeilingError::Refused(Refusal {
             status: 403,
@@ -2206,6 +2425,100 @@ mod tests {
             "quota.warnEnabled",
             CeilingTarget::Global,
             &json!(false),
+        )
+        .await
+        .unwrap();
+    }
+    #[tokio::test]
+    async fn alias_subject_is_canonical_before_registry_filters_and_ceiling() {
+        let s = store().await;
+        s.put_domain_config(&mw_store::DomainConfigRow {
+            name: "canonical.test".into(),
+            upstream_json: "{}".into(),
+            allowlist_json: "[]".into(),
+            blocklist_json: "[]".into(),
+            enabled: true,
+            preferred: false,
+            settings_json: "{}".into(),
+            updated_at: 1,
+        })
+        .await
+        .unwrap();
+        s.put_domain_alias("alias.test", "canonical.test")
+            .await
+            .unwrap();
+        let subject = SettingSubject {
+            domain: "alias.test",
+            account_id: "unchanged-account",
+            address: "USER@alias.test",
+        };
+        for (key, scope, id, value) in [
+            (
+                "privacy.remoteContent",
+                SettingScope::Domain,
+                "canonical.test",
+                "\"block\"",
+            ),
+            (
+                "cap.remote_content.direct",
+                SettingScope::Domain,
+                "canonical.test",
+                "false",
+            ),
+            (
+                "limit.storage_bytes",
+                SettingScope::AdminUser,
+                "user@canonical.test",
+                "123",
+            ),
+        ] {
+            s.put_setting_value(&SettingValueRow {
+                scope,
+                scope_id: id.into(),
+                key: key.into(),
+                value: value.into(),
+                locked: true,
+                updated_by: "root".into(),
+                updated_at: 1,
+            })
+            .await
+            .unwrap();
+        }
+        let remote = effective_for(&s, "privacy.remoteContent", &subject)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(remote.value, json!("block"));
+        assert!(remote.locked());
+        assert_eq!(
+            effective_for(&s, "cap.remote_content.direct", &subject)
+                .await
+                .unwrap()
+                .unwrap()
+                .value,
+            json!(false)
+        );
+        assert_eq!(
+            effective_for(&s, "limit.storage_bytes", &subject)
+                .await
+                .unwrap()
+                .unwrap()
+                .value,
+            json!(123)
+        );
+        let all = effective_all(&s, &subject, |d| d.key == "privacy.remoteContent")
+            .await
+            .unwrap();
+        assert_eq!(all[0].value, json!("block"));
+        assert!(all[0].locked());
+        ceiling(
+            &s,
+            &Actor::Domains(vec!["canonical.test".into()]),
+            "limit.storage_bytes",
+            CeilingTarget::User {
+                domain: "alias.test",
+            },
+            &json!(1),
         )
         .await
         .unwrap();

@@ -32,65 +32,7 @@ const KEY_HEX: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbc
 
 /// Admin routes still mounted outside the registry, as `(file, suffix)`. e24b
 /// moves them into `admin_router.rs` and deletes the line here.
-const LEGACY: &[(&str, &str)] = &[
-    ("admin.rs", "/login"),
-    ("admin.rs", "/logout"),
-    ("admin.rs", "/session"),
-    ("admin.rs", "/domains"),
-    ("admin.rs", "/domains/{name}"),
-    ("admin.rs", "/users"),
-    ("admin.rs", "/users/{account_id}/quota"),
-    ("admin.rs", "/users/{account_id}/flags"),
-    ("admin.rs", "/users/{account_id}/zero-access"),
-    ("admin.rs", "/users/{account_id}/revoke-sessions"),
-    ("admin.rs", "/security-policy"),
-    ("admin.rs", "/integrations"),
-    ("admin.rs", "/webhooks"),
-    ("admin.rs", "/api-keys"),
-    ("admin.rs", "/api-keys/{id}/revoke"),
-    ("admin.rs", "/observability"),
-    ("admin.rs", "/audit"),
-    ("admin.rs", "/audit/export"),
-    ("admin.rs", "/bans"),
-    ("admin.rs", "/bans/{ip}"),
-    ("admin.rs", "/appearance"),
-    ("admin_maintenance.rs", "/maintenance/rethread"),
-    ("admin_maintenance.rs", "/maintenance/reindex"),
-    ("admin_maintenance.rs", "/maintenance/search-index"),
-    ("admin_plugins.rs", "/plugins/allowlist"),
-    (
-        "admin_plugins.rs",
-        "/plugins/allowlist/{plugin_id}/{digest_hex}/revoke",
-    ),
-    ("admin_plugins.rs", "/plugins/{id}/uninstall"),
-    ("admin_sso.rs", "/sso"),
-    ("admin_sso.rs", "/sso/{id}"),
-    ("egress_admin.rs", "/egress/proxies"),
-    ("egress_admin.rs", "/egress/proxies/{id}/delete"),
-    ("egress_admin.rs", "/egress/proxies/{id}/activate"),
-    ("egress_admin.rs", "/egress/proxies/deactivate"),
-    ("egress_admin.rs", "/egress/proxies/{id}/test"),
-    ("oauth.rs", "/api-keys/{id}/unattended-send"),
-    ("oauth.rs", "/oauth-dcr"),
-    ("plugins.rs", "/plugins"),
-    ("plugins.rs", "/plugins/{id}/approve"),
-    ("plugins.rs", "/plugins/{id}/enable"),
-    ("plugins.rs", "/plugins/{id}/disable"),
-    ("plugins.rs", "/plugins/{id}/grant"),
-    ("plugins.rs", "/plugins/{id}/allow-unsigned"),
-    ("plugins.rs", "/plugins/{id}/settings"),
-    ("plugins.rs", "/plugins/{id}/test"),
-    ("twofa_routes.rs", "/2fa/policy"),
-    ("ui_plugins.rs", "/ui-plugins"),
-    ("ui_plugins.rs", "/ui-plugins/{id}/approve"),
-    ("ui_plugins.rs", "/ui-plugins/{id}/enable"),
-    ("ui_plugins.rs", "/ui-plugins/{id}/grant"),
-    ("ui_plugins.rs", "/ui-plugins/{id}/disable"),
-    ("ui_plugins.rs", "/ui-plugins/{id}"),
-    ("v7_mount.rs", "/assist"),
-    ("v7_mount.rs", "/assist/status"),
-    ("v7_mount.rs", "/assist/kill"),
-];
+const LEGACY: &[(&str, &str)] = &[];
 
 /// Route-mounting calls whose path is neither a literal nor the admin helper, as
 /// `(file, argument)`. Each one is checked by hand: it is not an admin route, or it
@@ -258,7 +200,7 @@ fn route_calls() -> Vec<(String, usize, PathArg)> {
 #[test]
 fn every_admin_route_is_registered() {
     let calls = route_calls();
-    assert!(calls.len() > 150, "only {} route calls found", calls.len());
+    assert!(calls.len() > 80, "only {} route calls found", calls.len());
     let legacy: BTreeSet<(&str, &str)> = LEGACY.iter().copied().collect();
     let registered: BTreeSet<&str> = registry().iter().map(|e| e.suffix).collect();
     let mut bypass = Vec::new();

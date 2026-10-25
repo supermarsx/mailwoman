@@ -404,3 +404,88 @@ How many hours a data export can be downloaded before it is deleted.
 
 Text the server writes into mail and notifications, per language and domain.
 
+<a id="sieve.maxScriptBytes"></a>
+### Maximum filter script size (`sieve.maxScriptBytes`)
+
+Maximum bytes per Sieve script; default 65,536, range 1–1,048,576.
+
+<a id="sieve.maxScripts"></a>
+### Maximum saved filter scripts (`sieve.maxScripts`)
+
+Maximum scripts per account; default 5, range 1–100.
+
+<a id="sieve.maxRedirects"></a>
+### Maximum redirects (`sieve.maxRedirects`)
+
+Maximum redirect commands per script; default 4, range 0–100.
+
+<a id="sieve.vacationAllowed"></a>
+### Vacation actions (`sieve.vacationAllowed`)
+
+Allow vacation commands when the backend supports them. Disabled by default.
+
+<a id="sieve.allowedExtensions"></a>
+### Allowed filter extensions (`sieve.allowedExtensions`)
+
+Optional list of lowercase extension names, at most 128 names of 64 bytes each.
+Unset adds no policy restriction; backend support and all other limits still apply.
+
+<a id="cap.sieve.raw_edit"></a>
+### Raw filter editing (`cap.sieve.raw_edit`)
+
+Allow editing Sieve source. Disabled by default.
+
+<a id="cap.sieve.forward_external"></a>
+### External forwarding (`cap.sieve.forward_external`)
+
+Allow scripts to forward outside the account's domain. Disabled by default;
+saving with this permission also requires recent verification. These seven
+settings support global, domain and administrator-set account values. Mailbox
+users cannot override them.
+
+## Session and factor policy
+
+<a id="session.maxConcurrent"></a>
+`session.maxConcurrent` limits sessions per account to 1–100 (default 10).
+Oldest sessions are revoked when a successful sign-in exceeds the cap.
+<a id="session.idleSecs"></a>
+`session.idleSecs` is 60–86400 seconds (default 1800).
+<a id="session.absoluteSecs"></a>
+`session.absoluteSecs` is 300–2592000 seconds (default 43200).
+Deployment timeout limits also apply; persisted timestamps survive restarts.
+<a id="twofa.rememberDays"></a>
+`twofa.rememberDays` is 0–90 days (default 0, disabled).
+<a id="twofa.passkeysEnabled"></a>
+`twofa.passkeysEnabled` defaults to true.
+<a id="twofa.required"></a>
+`twofa.required` defaults to false. These six settings support global, domain,
+group, profile and administrator-set account policy, without user overrides.
+
+## Reader privacy
+
+<a id="privacy.remoteContent"></a>
+`privacy.remoteContent`: `block`, `ask` (default), `proxy`, or `direct`.
+<a id="privacy.trackers"></a>
+`privacy.trackers` defaults to true.
+<a id="privacy.cleanLinks"></a>
+`privacy.cleanLinks` defaults to true. These three support global, domain and user settings.
+<a id="privacy.maxBytes"></a>
+`privacy.maxBytes`: 65536–8388608 bytes, default 8388608.
+<a id="privacy.cacheBytes"></a>
+`privacy.cacheBytes`: 0–1073741824 bytes, default 33554432.
+<a id="privacy.ratePerMin"></a>
+`privacy.ratePerMin`: 10–6000 fetches per account per minute, default 120.
+<a id="privacy.allowDirect"></a>
+`privacy.allowDirect` defaults to false; direct loading also requires the account capability.
+
+<a id="cap.remote_content.direct"></a>
+`cap.remote_content.direct` defaults to false and is assigned by administrators.
+Direct image loading requires both this permission and `privacy.allowDirect`.
+These four resource and deployment limits are global settings.
+
+The reader reports HTML tracker detections separately from remote images that
+the server decoded and replaced. The latter counts distinct image URLs for the
+current session and message over the signed URL's one-hour lifetime. These
+counts are held in memory, can reset after restart or eviction, and retain at
+most 256 URLs per message across 1024 recent messages. A saturated count is
+shown as a lower bound. They do not count images loaded directly by the browser.

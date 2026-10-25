@@ -352,8 +352,10 @@ async fn callback(
     Extension(pending): Extension<Arc<PendingFlows>>,
     UrlPath(id): UrlPath<String>,
     Query(params): Query<BTreeMap<String, String>>,
+    headers: HeaderMap,
+    ext: axum::http::Extensions,
 ) -> Response {
-    complete_flow(&state, &source, &pending, &id, params, "state").await
+    complete_flow(&state, &source, &pending, &id, params, "state", (&headers, &ext)).await
 }
 
 // ── POST /api/sso/{id}/acs (SAML) ────────────────────────────────────────────
@@ -365,9 +367,11 @@ async fn acs(
     Extension(source): Extension<SsoProviderSource>,
     Extension(pending): Extension<Arc<PendingFlows>>,
     UrlPath(id): UrlPath<String>,
+    headers: HeaderMap,
+    ext: axum::http::Extensions,
     Form(params): Form<BTreeMap<String, String>>,
 ) -> Response {
-    complete_flow(&state, &source, &pending, &id, params, "RelayState").await
+    complete_flow(&state, &source, &pending, &id, params, "RelayState", (&headers, &ext)).await
 }
 
 /// Shared completion path for OIDC callback + SAML ACS: resolve the one-shot pending
@@ -381,7 +385,9 @@ async fn complete_flow(
     id: &str,
     params: BTreeMap<String, String>,
     state_key: &str,
+    request: (&HeaderMap, &axum::http::Extensions),
 ) -> Response {
+    let (headers, ext) = request;
     let Some(entry) = source.resolve(&state.store, id).await else {
         return sso_unauthorized();
     };
@@ -409,9 +415,14 @@ async fn complete_flow(
     // Resolve the identity to a Mailwoman account under the first-login policy.
     let accounts = state.store.list_accounts().await.unwrap_or_default();
     let pairs: Vec<(String, String)> = accounts.into_iter().map(|a| (a.id, a.username)).collect();
-    let Some(account) = resolve_account(
-        &identity,
-        &entry.meta.claim_map,
+    let host = state.external.host(headers, ext);
+    let login = resolved_login(&identity, &entry.meta.claim_map);
+    let login = match crate::domain_config::canonical(&state.store, &login, host.as_deref()).await {
+        Ok(identity) => identity.login_name,
+        Err(_) => return sso_unauthorized(),
+    };
+    let Some(account) = resolve_login_account(
+        login,
         &pairs,
         entry.meta.first_login_policy,
     ) else {
@@ -427,6 +438,12 @@ async fn complete_flow(
             .await;
         return sso_unauthorized();
     };
+
+    match crate::domain_config::signin_allowed(&state.store, &account.username).await {
+        Ok(true) => {}
+        Ok(false) => return audit_and_401(state, id, entry.meta.kind, &subject_hash, "domain_policy").await,
+        Err(error) => return crate::account_gate::unavailable("sso domain policy", error),
+    }
 
     // An administratively disabled account gets no session, whatever the IdP says
     // about the user (t27-e3). Same uniform 401 and the same audit trail as any
@@ -489,6 +506,12 @@ async fn complete_flow(
         }
     };
     state.sessions.begin(&session_id);
+    let device = crate::security_center::device(headers, ext, None);
+    if let Err(response) = crate::security_center::record_login(state, &session_id, &account.id, &account.username, &device, "sso").await {
+        let _ = state.store.delete_session(&session_id).await;
+        state.sessions.forget(&session_id);
+        return response;
+    }
     let _ = state
         .store
         .append_sso_login_audit(id, entry.meta.kind.as_db(), &subject_hash, "ok")
@@ -622,6 +645,7 @@ fn resolved_login(identity: &SsoIdentity, claim_map: &ClaimMap) -> String {
 /// (matched case-insensitively on username) always wins; otherwise the policy decides:
 /// [`FirstLoginPolicy::AutoCreate`] admits the asserted identity, the default
 /// [`FirstLoginPolicy::Allowlist`] denies (returns `None`) — NO auto-registration.
+#[cfg(test)]
 fn resolve_account(
     identity: &SsoIdentity,
     claim_map: &ClaimMap,
@@ -629,6 +653,10 @@ fn resolve_account(
     policy: FirstLoginPolicy,
 ) -> Option<ResolvedAccount> {
     let login = resolved_login(identity, claim_map);
+    resolve_login_account(login, accounts, policy)
+}
+
+fn resolve_login_account(login: String, accounts: &[(String, String)], policy: FirstLoginPolicy) -> Option<ResolvedAccount> {
     if let Some((id, username)) = accounts
         .iter()
         .find(|(_, u)| u.eq_ignore_ascii_case(&login))

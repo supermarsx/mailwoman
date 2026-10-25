@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex, Weak};
 use async_trait::async_trait;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Extension, Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -27,7 +27,6 @@ use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use mw_admin::config::admin_route;
 use mw_assist::{
     AdapterConfig, AssistAudit, AssistAuditSink, AssistCapability, AssistConfig, AssistError,
     AssistGateway, ChatPayload, ChatStream, DataScope, EndpointAdapter,
@@ -46,6 +45,9 @@ use mw_plugin::{
 use mw_store::{PluginKvLimits, PluginRow, Store};
 
 use crate::AppState;
+use crate::admin_ctx::AdminCtx;
+use crate::admin_router::AdminRegistrar;
+use crate::capabilities::Capability as AdminCap;
 use crate::assist::AssistHandle;
 use crate::nextcloud::{NextcloudGateway, OcsNextcloud};
 use crate::plugins::PluginRegistry;
@@ -3181,20 +3183,7 @@ pub(crate) fn build_nextcloud() -> Option<Arc<dyn NextcloudGateway>> {
 pub(crate) fn extra_v7_router() -> Router<AppState> {
     Router::new()
         .route("/api/assist/transcribe", post(assist_transcribe))
-        .route(
-            &admin_route("/assist"),
-            get(assist_admin_get).put(assist_admin_put),
-        )
-        .route(&admin_route("/assist/status"), get(assist_admin_status))
-        .route(&admin_route("/assist/kill"), post(assist_admin_kill))
         .route("/api/nextcloud/list", get(nextcloud_list))
-        // The third-party allowlist admin API (approve/revoke/list-pending/uninstall),
-        // admin-session-gated + audited. Registered on this already-mounted router so no
-        // `lib.rs` mount edit is needed this wave.
-        .merge(admin_plugins::allowlist_router())
-        // The egress-proxy admin API (list/put/delete), admin-session-gated + audited.
-        // Registered here for the same reason as the allowlist router above.
-        .merge(egress_admin::egress_admin_router())
 }
 
 // ── Assist: dictation transcription ──────────────────────────────────────────
@@ -3241,41 +3230,25 @@ async fn assist_transcribe(
 
 // ── Admin: Assist governance (endpoint config / capability locks / kill switch) ──
 
-/// Resolve the authenticated admin id, or a `401`. Mirrors `plugins::require_admin`.
-async fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<String, Response> {
-    if !state.v6.admin_enabled {
-        return Err(admin_unauthorized());
-    }
-    let token = admin_cookie(headers).ok_or_else(admin_unauthorized)?;
-    let hash = crate::push_relay::hash_token(&token);
-    match state.store.get_admin_session(&hash).await {
-        Ok(Some(admin_id)) => Ok(admin_id),
-        _ => Err(admin_unauthorized()),
-    }
-}
-
-fn admin_unauthorized() -> Response {
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(json!({ "error": "admin authentication required" })),
-    )
-        .into_response()
-}
-
-/// The admin session cookie's value. Its name is the one in force
-/// ([`mw_admin::config::session_cookie_name`]: `MW_ADMIN_SESSION_COOKIE`, or
-/// `mw_admin_session`), as at every other admin gate.
-fn admin_cookie(headers: &HeaderMap) -> Option<String> {
-    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
-    let prefix = format!("{}=", mw_admin::config::session_cookie_name());
-    for part in raw.split(';') {
-        if let Some(v) = part.trim().strip_prefix(prefix.as_str())
-            && !v.is_empty()
-        {
-            return Some(v.to_string());
-        }
-    }
-    None
+/// The Assist governance routes, and the allowlist and egress admin routes of the
+/// two submodules (registered by `admin_router`).
+pub(crate) fn register_admin(r: &mut impl AdminRegistrar) {
+    r.admin_endpoint(Method::GET, "/assist", AdminCap::AiAssistantRead, assist_admin_get);
+    r.admin_endpoint(Method::PUT, "/assist", AdminCap::AiAssistantWrite, assist_admin_put);
+    r.admin_endpoint(
+        Method::GET,
+        "/assist/status",
+        AdminCap::AiAssistantRead,
+        assist_admin_status,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/assist/kill",
+        AdminCap::AiAssistantKill,
+        assist_admin_kill,
+    );
+    admin_plugins::register(r);
+    egress_admin::register(r);
 }
 
 // The admin wire shape of the deployment Assist configuration. `GET /admin/assist`
@@ -3724,10 +3697,7 @@ fn not_allowed(message: impl Into<String>) -> Response {
 /// `GET /admin/assist` — the stored deployment Assist configuration in the admin
 /// wire shape. With no row stored it is the default configuration, every key
 /// present. The adapter's API key is not returned, only `hasApiKey`.
-async fn assist_admin_get(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(resp) = require_admin(&state, &headers).await {
-        return resp;
-    }
+async fn assist_admin_get(State(state): State<AppState>, _ctx: AdminCtx) -> Response {
     match read_assist_config(&state).await {
         Ok(config) => Json(assist_admin_wire(&config)).into_response(),
         Err(resp) => resp,
@@ -3737,12 +3707,9 @@ async fn assist_admin_get(State(state): State<AppState>, headers: HeaderMap) -> 
 /// `GET /admin/assist/status` — [`assist_status`] for the stored configuration.
 async fn assist_admin_status(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _ctx: AdminCtx,
     Extension(gateway): Extension<AssistHandle>,
 ) -> Response {
-    if let Err(resp) = require_admin(&state, &headers).await {
-        return resp;
-    }
     match read_assist_config(&state).await {
         Ok(config) => Json(assist_status(&gateway, &config)).into_response(),
         Err(resp) => resp,
@@ -3756,14 +3723,11 @@ async fn assist_admin_status(
 /// and nothing is written. Answers with [`assist_status`].
 async fn assist_admin_put(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Extension(gateway): Extension<AssistHandle>,
     body: Result<Json<AssistAdminReq>, JsonRejection>,
 ) -> Response {
-    let admin = match require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     let config = match body {
         Ok(Json(req)) => {
             // The stored configuration supplies a key the request leaves out. One
@@ -3811,14 +3775,11 @@ struct AssistKillReq {
 /// answer reports as `restartPending`. The rest of the configuration is kept.
 async fn assist_admin_kill(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Extension(gateway): Extension<AssistHandle>,
     body: Result<Json<AssistKillReq>, JsonRejection>,
 ) -> Response {
-    let admin = match require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     let on = match body {
         Ok(Json(req)) => req.on,
         Err(rejection) => return bad_request(rejection.body_text()),

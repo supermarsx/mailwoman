@@ -111,20 +111,11 @@ use mw_store::EgressProxyRow;
 
 use crate::AppState;
 
-/// The egress policy, re-exported at the path in-tree callers already use:
-/// `sieve_sync.rs` builds its deliberately NARROWER ManageSieve policy on
-/// [`ip_allowed`] + [`embedded_ipv4s`]. Re-exporting rather than editing those call
-/// sites kept the 26.20 extraction a move.
-///
-/// **`fetch_url_hardened` was re-exported here too and no longer is** — not tidying:
-/// it had exactly one in-tree consumer, `import_routes.rs`'s `webcal://`/ICS fetch,
-/// and that now goes through [`fetch_url_hardened_routed`] so it takes the configured
-/// egress route. **There is no remaining in-tree caller of the un-routed hardened
-/// fetch**, which is the property that makes "a configured route is honoured" true of
-/// the deployment rather than of one endpoint. `mw_egress::fetch_url_hardened` is
-/// still public for out-of-tree callers; re-adding it *here* would be re-adding a
-/// path that bypasses the route, and should be argued for rather than done.
-pub(crate) use mw_egress::{embedded_ipv4s, ip_allowed};
+/// Signed remote-content URLs (t32 e31a). A child module in its own file, so no
+/// `lib.rs` mount is needed; it becomes `remote_content.rs` at the crate root when
+/// this module is renamed (plan R).
+#[path = "remote_content.rs"]
+pub(crate) mod remote_content;
 
 // ── S10: tightened shell CSP (delivered here; applied at lib.rs:102 by e10) ──────
 
@@ -175,7 +166,7 @@ const MAX_CONCURRENT: usize = 16;
 const CACHE_CAPACITY: usize = 256;
 /// Total re-encoded bytes the cache may hold. FIFO eviction runs until an insert
 /// fits — this is the ceiling on the proxy's resident image memory.
-const MAX_CACHE_BYTES: usize = 32 * 1024 * 1024;
+pub(crate) const MAX_CACHE_BYTES: usize = 32 * 1024 * 1024;
 /// The largest single re-encode worth a cache slot. A bigger one is still SERVED,
 /// just not retained: admitting it would evict a large share of the cache for one
 /// rarely-repeated image, and an entry above [`MAX_CACHE_BYTES`] could never fit at
@@ -345,6 +336,17 @@ pub(crate) async fn load_plan(store: &mw_store::Store) -> Result<EgressPlan, ()>
         let Some(scope) = RouteScope::parse(&row.scope) else {
             tracing::warn!("egress route {} has an unreadable scope", row.id);
             return Err(());
+        };
+        // Older/configuration writers may name an alias. Treat it as the same
+        // namespace; conflicting alias/canonical routes fail plan validation.
+        let scope = match scope {
+            RouteScope::Domain(domain) => RouteScope::Domain(
+                store
+                    .canonical_policy_domain(&domain)
+                    .await
+                    .map_err(|_| ())?,
+            ),
+            RouteScope::Global => RouteScope::Global,
         };
         let mut classes = Vec::with_capacity(row.traffic_classes.len());
         for c in &row.traffic_classes {
@@ -616,6 +618,14 @@ pub(crate) fn image_proxy_router() -> Router<AppState> {
         .route("/api/remote-images/grants", get(list_grants))
         .route("/api/remote-images/grant", post(grant))
         .route("/api/remote-images/revoke", post(revoke))
+        // Signed remote-content URLs for the sandboxed body frame (t32 e31a).
+        .route("/api/rc/sign", post(remote_content::sign))
+        .route("/api/rc/stats", get(remote_content::message_stats))
+        .route("/api/rc/policy", get(crate::remote_policy::get))
+        .route("/api/rc/frame", get(crate::remote_policy::frame))
+        .route("/api/rc/i/{token}", get(remote_content::image))
+        .route("/api/rc/p/{token}", get(remote_content::part))
+        .route("/api/rc/f/{token}", get(remote_content::file))
 }
 
 // ── SSRF refusal → HTTP ────────────────────────────────────────────────────────
@@ -733,10 +743,25 @@ impl ProxyCache {
     }
 
     /// Insert (or refresh) an entry, then evict until every bound holds.
+    #[cfg(test)]
     fn put(&mut self, key: CacheKey, etag: String, png: Vec<u8>) {
+        self.put_with_budget(key, etag, png, MAX_CACHE_BYTES);
+    }
+
+    fn trim(&mut self, budget: usize) {
+        while self.bytes > budget {
+            let Some(key) = self.order.front().cloned() else {
+                break;
+            };
+            self.remove(&key);
+        }
+    }
+
+    fn put_with_budget(&mut self, key: CacheKey, etag: String, png: Vec<u8>, budget: usize) {
+        self.trim(budget);
         // Too large to retain — serve it, forget it. Also what guarantees the
         // eviction loop below terminates with the entry admitted.
-        if png.len() > MAX_ENTRY_BYTES {
+        if png.len() > MAX_ENTRY_BYTES || png.len() > budget || budget == 0 {
             self.remove(&key);
             return;
         }
@@ -747,7 +772,7 @@ impl ProxyCache {
         self.remove(&key);
         self.evict_expired();
         while !self.order.is_empty()
-            && (self.map.len() >= CACHE_CAPACITY || self.bytes + png.len() > MAX_CACHE_BYTES)
+            && (self.map.len() >= CACHE_CAPACITY || self.bytes + png.len() > budget)
         {
             let Some(old) = self.order.pop_front() else {
                 break;
@@ -818,16 +843,20 @@ impl AccountRateLimiter {
     /// `true` if a token was available (request allowed), `false` if the bucket is
     /// exhausted (→ `429`). A never-seen account starts with a full burst.
     fn check(&mut self, account_id: &str) -> bool {
+        self.check_with_limit(account_id, RATE_BURST, RATE_REFILL_PER_SEC)
+    }
+
+    fn check_with_limit(&mut self, account_id: &str, burst: f64, refill_per_sec: f64) -> bool {
         let now = std::time::Instant::now();
         let b = self
             .buckets
             .entry(account_id.to_string())
             .or_insert(TokenBucket {
-                tokens: RATE_BURST,
+                tokens: burst,
                 last: now,
             });
         let elapsed = now.saturating_duration_since(b.last).as_secs_f64();
-        b.tokens = (b.tokens + elapsed * RATE_REFILL_PER_SEC).min(RATE_BURST);
+        b.tokens = (b.tokens + elapsed * refill_per_sec).min(burst);
         b.last = now;
         if b.tokens >= 1.0 {
             b.tokens -= 1.0;
@@ -952,6 +981,13 @@ async fn proxy_image(
         Ok(s) => s,
         Err(r) => return r,
     };
+    let policy = match crate::remote_policy::effective(&state, &session).await {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    if policy.mode == "block" || (policy.trackers && mw_sanitize::remote::is_tracker_url(&q.url)) {
+        return (StatusCode::FORBIDDEN, "remote content blocked by policy").into_response();
+    }
 
     // P3: the grant gate comes BEFORE the cache, or a session with no grant could
     // read images another session fetched.
@@ -988,14 +1024,24 @@ async fn proxy_image(
         Err(()) => return internal("egress route lookup"),
     };
     // A route scoped to the account's mail domain overrides the global one.
-    let domain = crate::upstream_resolve::domain_of(&session.username);
+    let domain = match crate::remote_policy::canonical_domain(&state, &session).await {
+        Ok(domain) => domain,
+        Err(response) => return response,
+    };
     let route_id = plan
         .selected_route(TrafficClass::RemoteContent, domain.as_deref())
         .map_or(DIRECT_ROUTE, |r| r.id.as_str());
 
     // Serve a cache hit before doing any work (and honor If-None-Match). A cache hit
     // performs no upstream fetch, so it does NOT consume the per-account rate budget.
-    let key = CacheKey::new(route_id, &q.url);
+    let key = CacheKey::new(
+        &format!("{route_id}:legacy:{}:{}", policy.trackers, policy.max_bytes),
+        &q.url,
+    );
+    cache()
+        .lock()
+        .expect("image cache lock")
+        .trim(policy.cache_bytes);
     if let Some((etag, png)) = cache().lock().expect("image cache lock").get(&key) {
         if if_none_match(&headers, &etag) {
             return not_modified(&etag);
@@ -1009,7 +1055,11 @@ async fn proxy_image(
     if !rate_limiter()
         .lock()
         .expect("image rate-limit lock")
-        .check(&session.account_id)
+        .check_with_limit(
+            &session.account_id,
+            policy.rate_per_min as f64,
+            policy.rate_per_min as f64 / 60.0,
+        )
     {
         return (
             StatusCode::TOO_MANY_REQUESTS,
@@ -1035,7 +1085,9 @@ async fn proxy_image(
     // no arm that reaches the direct path once a route is in play, so a proxy that
     // is down produces a `502` rather than a quiet direct fetch that defeats the
     // egress control the operator configured.
-    let mut request = Request::get(TrafficClass::RemoteContent).accept("image/*");
+    let mut request = Request::get(TrafficClass::RemoteContent)
+        .response_limit(policy.max_bytes)
+        .accept("image/*");
     if let Some(d) = domain.as_deref() {
         request = request.for_domain(d);
     }
@@ -1049,54 +1101,13 @@ async fn proxy_image(
         Err(r) => return refusal_response(r),
     };
 
-    // Re-encode in the wasm media jail. `reencode_image` is CPU-bound + blocking
-    // (a bounded wasmtime interpreter run), so run it off the async runtime.
-    let png = match tokio::task::spawn_blocking(move || mw_render::media_jail::reencode_image(&raw))
-        .await
-    {
-        Ok(Ok(png)) => png,
-        // A decode/re-encode failure means the bytes were not a usable image (or a
-        // hostile codec tripped the jail) — refuse rather than serve them.
-        Ok(Err(_)) => {
-            return (StatusCode::UNSUPPORTED_MEDIA_TYPE, "not a decodable image").into_response();
-        }
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "re-encode failed").into_response(),
-    };
-
-    let etag = etag_for(&png);
-    cache()
-        .lock()
-        .expect("image cache lock")
-        .put(key, etag.clone(), png.clone());
-    image_response(png, etag)
+    if let Some(why) = remote_content::type_refusal(routed.content_type.as_deref(), &raw) {
+        return (StatusCode::UNSUPPORTED_MEDIA_TYPE, why).into_response();
+    }
+    remote_content::reencode_and_answer(raw, Some(key), &policy).await
 }
 
-/// The response for a request no grant covers.
-///
-/// It charges the rate limiter and then runs the egress policy, in that order, and
-/// only says "not granted" if the URL would otherwise have been fetchable.
-///
-/// Both steps are deliberate. Charging keeps the fan-out cap meaningful on exactly
-/// the requests most worth capping — a session with no grant retrying in a loop —
-/// and keeps the limiter's existing behaviour, where a refused request is charged and
-/// only a cache hit is free. Running the policy first keeps a refusal reported as
-/// what it is: a `file://` URL stays a `400` and a loopback target stays a `403`
-/// whether or not the caller holds a grant, so the grant gate never becomes a way to
-/// tell a granted session's refusals apart from an ungranted one's. Neither step
-/// fetches anything, and the policy runs exactly once on this path — a granted
-/// request runs it inside `plan::send_with` instead, never twice.
-///
-/// Known residual, stated rather than implied: an authenticated session with no grant
-/// can still cause a DNS resolution of an arbitrary host here, and can still learn
-/// from the status code whether that host resolves to a blocked address. That is not
-/// new — before the gate the same session could resolve AND fetch it — but the gate
-/// does not close it.
-///
-/// The egress route is deliberately **not** consulted on this path (t22-e14). Nothing
-/// here fetches, so there is nothing to route; the resolution is the strict address
-/// policy, which is the same predicate on both egress paths. Reading the route to
-/// answer a request that will be refused anyway would add a store read and an AEAD
-/// open to the cheapest way for an ungranted session to make the server do work.
+/// Refuse without DNS or network I/O; preserve pure URL validation and throttling.
 async fn ungranted_response(account_id: &str, raw_url: &str) -> Response {
     if !rate_limiter()
         .lock()
@@ -1113,8 +1124,11 @@ async fn ungranted_response(account_id: &str, raw_url: &str) -> Response {
         Ok(u) => u,
         Err(_) => return refusal_response(Refusal::BadRequest("malformed URL")),
     };
-    if let Err(r) = mw_egress::validate_and_resolve(url).await {
-        return refusal_response(r);
+    if !matches!(url.scheme(), "http" | "https") {
+        return refusal_response(Refusal::BadRequest("URL scheme must be http or https"));
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return refusal_response(Refusal::BadRequest("URL credentials are not allowed"));
     }
     (
         StatusCode::FORBIDDEN,
@@ -1129,7 +1143,7 @@ fn image_response(png: Vec<u8>, etag: String) -> Response {
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, "image/png".to_string()),
-            (header::CACHE_CONTROL, "private, max-age=86400".to_string()),
+            (header::CACHE_CONTROL, "private, no-cache".to_string()),
             (header::ETAG, etag),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
         ],

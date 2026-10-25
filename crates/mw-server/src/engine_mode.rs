@@ -173,7 +173,7 @@ fn restrict_to_owner(dir: &std::path::Path) -> std::io::Result<()> {
 /// Call after the posture source and the plugin/bridge backends are attached:
 /// the reconciliation reads the posture, and registration skips accounts a
 /// bridge serves.
-pub(crate) fn start_background(engine: &Arc<Engine>) {
+pub(crate) fn start_background(engine: &Arc<Engine>, security: crate::SecurityConfig) {
     // Without this the dispatcher started only as a side effect of the first
     // login's `start_watch`.
     engine.start_dispatcher();
@@ -188,7 +188,7 @@ pub(crate) fn start_background(engine: &Arc<Engine>) {
     });
 
     let register = Arc::clone(engine);
-    tokio::spawn(async move { register_stored_accounts(&register).await });
+    tokio::spawn(async move { register_stored_accounts(&register, &security).await });
 }
 
 /// How many stored accounts are connected at the same time at start-up.
@@ -217,7 +217,10 @@ const BOOT_REGISTER_RETRY: [Duration; 3] = [
 /// An attempt the mail server refused as an authentication failure is not
 /// repeated: the stored password is wrong, and repeating it can lock the
 /// mailbox. Any other failure is retried per [`BOOT_REGISTER_RETRY`].
-pub(crate) async fn register_stored_accounts(engine: &Arc<Engine>) {
+pub(crate) async fn register_stored_accounts(
+    engine: &Arc<Engine>,
+    security: &crate::SecurityConfig,
+) {
     let store = engine.store();
     let accounts = match store.list_accounts().await {
         Ok(a) => a,
@@ -238,6 +241,22 @@ pub(crate) async fn register_stored_accounts(engine: &Arc<Engine>) {
     let mut tasks = tokio::task::JoinSet::new();
     for account in accounts {
         if bridged.contains(&account.id) || engine.is_registered(&account.id) {
+            continue;
+        }
+        let matches =
+            match crate::upstream_resolve::resolve_for(store, security, true, &account.username)
+                .await
+            {
+                Ok(upstream) => account_matches_upstream(store, &account, upstream.url())
+                    .await
+                    .unwrap_or(false),
+                Err(_) => false,
+            };
+        if !matches {
+            tracing::warn!(
+                "start-up account registration: {} has no configured upstream, not connected",
+                account.id
+            );
             continue;
         }
         match crate::account_gate::for_account(store, &account.id).await {
@@ -274,6 +293,24 @@ pub(crate) async fn register_stored_accounts(engine: &Arc<Engine>) {
             "start-up account registration: {connected} account(s) connected, {failed} not"
         );
     }
+}
+
+/// An old cached account must never reconnect to an authority an operator replaced.
+pub(crate) async fn account_matches_upstream(
+    store: &mw_store::Store,
+    account: &mw_store::Account,
+    url: &str,
+) -> Result<bool, String> {
+    let expected = parse_mail_url(url).ok_or("invalid configured mail URL")?;
+    let configured = crate::domain_config::upstream_for(store, &account.username).await?;
+    let endpoint = configured
+        .as_ref()
+        .and_then(|c| c.mail())
+        .map(|(endpoint, _)| endpoint);
+    Ok(account.kind == expected.kind
+        && account.host.eq_ignore_ascii_case(&expected.host)
+        && account.port == expected.port
+        && endpoint.is_none_or(|endpoint| account.tls == endpoint.transport_security()))
 }
 
 /// Connect one stored account, retrying per [`BOOT_REGISTER_RETRY`]. Returns
@@ -459,15 +496,25 @@ fn build_submitter(policy: &AccountPolicy, username: &str, password: &str) -> mw
 }
 
 /// Dial + authenticate the account backend for a stored account row.
+fn endpoint_dialer(endpoint: &crate::domain_config::Endpoint) -> mw_net::SharedDialer {
+    crate::domain_transport::GuardedDialer::shared(
+        endpoint.host.trim_matches(['[', ']']).trim_end_matches('.'),
+        endpoint.port,
+        endpoint.allow_private,
+    )
+}
+
+/// Dial + authenticate the account backend for a stored account row.
 async fn connect_backend(
     kind: AccountKind,
     host: &str,
     port: u16,
     tls: &str,
-    username: &str,
-    password: &str,
+    credentials: (&str, &str),
     policy: &AccountPolicy,
+    dialer: Option<mw_net::SharedDialer>,
 ) -> Result<Arc<dyn AccountBackend>, String> {
+    let (username, password) = credentials;
     match kind {
         AccountKind::Imap => {
             let tls_mode = match tls {
@@ -485,7 +532,7 @@ async fn connect_backend(
                 },
                 watch_mailbox: "INBOX".to_string(),
             };
-            let backend = mw_imap::ImapBackend::connect(config)
+            let backend = mw_imap::ImapBackend::connect_via(config, dialer)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(Arc::new(backend))
@@ -506,7 +553,9 @@ async fn connect_backend(
                 leave_policy: mw_pop3::LeavePolicy::Keep,
                 poll_interval: std::time::Duration::from_secs(policy.poll_secs.max(1)),
             };
-            Ok(Arc::new(mw_pop3::Pop3Backend::new(config)))
+            Ok(Arc::new(
+                mw_pop3::Pop3Backend::new(config).with_dialer(dialer),
+            ))
         }
     }
 }
@@ -593,14 +642,38 @@ pub async fn engine_login(
 ) -> Result<(String, String), String> {
     let mut url =
         parse_mail_url(server_url).ok_or_else(|| "unrecognised mail server URL".to_string())?;
+    let configured = crate::domain_config::upstream_for(engine.store(), username).await?;
+    let domain_mail = configured.as_ref().and_then(|config| config.mail());
+    if let Some((endpoint, protocol)) = domain_mail {
+        url = MailUrl {
+            kind: if protocol == "imap" {
+                AccountKind::Imap
+            } else {
+                AccountKind::Pop3
+            },
+            host: endpoint
+                .host
+                .trim_matches(['[', ']'])
+                .trim_end_matches('.')
+                .to_ascii_lowercase(),
+            port: endpoint.port,
+            tls: endpoint.transport_security().into(),
+        };
+    }
     // Deployments fronting a plaintext test server (e.g. Greenmail in CI) can
     // force the transport without changing the configured URL.
-    if let Ok(tls) = std::env::var("MW_ENGINE_TLS")
+    if domain_mail.is_none()
+        && let Ok(tls) = std::env::var("MW_ENGINE_TLS")
         && matches!(tls.as_str(), "implicit" | "starttls" | "plaintext")
     {
         url.tls = tls;
     }
-    let policy = smtp_policy(&url.host);
+    let mut policy = smtp_policy(&url.host);
+    if let Some(smtp) = configured.as_ref().and_then(|config| config.smtp.as_ref()) {
+        policy.smtp_host = smtp.host.trim_matches(['[', ']']).to_string();
+        policy.smtp_port = smtp.port;
+        policy.smtp_security = smtp.transport_security().into();
+    }
     let creds = Credentials {
         username: username.to_string(),
         password: password.to_string(),
@@ -611,7 +684,13 @@ pub async fn engine_login(
     // already exists. IMAP authenticates inside `connect`; POP3 constructs without
     // dialling, so one authenticated round-trip is what proves the password.
     let backend = connect_backend(
-        url.kind, &url.host, url.port, &url.tls, username, password, &policy,
+        url.kind,
+        &url.host,
+        url.port,
+        &url.tls,
+        (username, password),
+        &policy,
+        domain_mail.map(|(endpoint, _)| endpoint_dialer(endpoint)),
     )
     .await?;
     backend.list_mailboxes().await.map_err(|e| e.to_string())?;
@@ -661,7 +740,12 @@ pub async fn engine_login(
         .await
         .map_err(|e| e.to_string())?;
 
-    let submitter = build_submitter(&policy, username, password);
+    let submitter = build_submitter(&policy, username, password).with_dialer(
+        configured
+            .as_ref()
+            .and_then(|c| c.smtp.as_ref())
+            .map(endpoint_dialer),
+    );
     // Under the account's connect lock, so that a request for the account made
     // meanwhile (another session of it, after a restart) waits for this sync
     // instead of reading while it runs. The dial above is outside the lock.
@@ -710,19 +794,36 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
         .account_credentials(account_id)
         .await
         .map_err(|e| e.to_string())?;
-    let policy = AccountPolicy::from_json(&account.sync_policy_json);
+    let configured = crate::domain_config::upstream_for(engine.store(), &account.username).await?;
+    let domain_mail = configured.as_ref().and_then(|c| c.mail());
+    if let Some((endpoint, protocol)) = domain_mail
+        && !account_matches_upstream(engine.store(), &account, &endpoint.mail_url(protocol)).await?
+    {
+        return Err("account upstream was replaced; sign in again".into());
+    }
+    let mut policy = AccountPolicy::from_json(&account.sync_policy_json);
+    if let Some(endpoint) = configured.as_ref().and_then(|c| c.smtp.as_ref()) {
+        policy.smtp_host = endpoint.host.trim_matches(['[', ']']).to_string();
+        policy.smtp_port = endpoint.port;
+        policy.smtp_security = endpoint.transport_security().into();
+    }
 
     let backend = connect_backend(
         account.kind,
         &account.host,
         account.port,
         &account.tls,
-        &creds.username,
-        &creds.password,
+        (&creds.username, &creds.password),
         &policy,
+        domain_mail.map(|(endpoint, _)| endpoint_dialer(endpoint)),
     )
     .await?;
-    let submitter = build_submitter(&policy, &creds.username, &creds.password);
+    let submitter = build_submitter(&policy, &creds.username, &creds.password).with_dialer(
+        configured
+            .as_ref()
+            .and_then(|c| c.smtp.as_ref())
+            .map(endpoint_dialer),
+    );
     register_and_sync(engine, account_id, backend, submitter, &account.username).await
 }
 

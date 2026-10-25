@@ -5,11 +5,9 @@
 //! `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` that t22-e8 refuses on every client in the
 //! workspace. One is configuration; the other is an accident of the environment.
 //!
-//! Every route is **admin-session-gated** (`super::require_admin`, the same
-//! `mw_admin_session` cookie as `/admin/*`) and **audited**. It is a CHILD module of
-//! `v7_mount` (declared there via `#[path]`) and merged into the already-mounted
-//! `extra_v7_router()`, mirroring `admin_plugins` — so it needs no `lib.rs` mount
-//! edit, and no fourth copy of the admin gate.
+//! Every route is registered in `admin_router` (through `v7_mount::register_admin`;
+//! `egress.read` to list, `egress.write` to change) and **audited**. It is a CHILD
+//! module of `v7_mount` (declared there via `#[path]`), mirroring `admin_plugins`.
 //!
 //! Routes:
 //!   * `GET  /admin/egress/proxies` — list configured routes. **Never returns the
@@ -46,43 +44,52 @@
 //! reports whether a row actually went, and a delete of an absent id is audited as a
 //! miss rather than as a deletion.
 
-use axum::Router;
 use axum::extract::{Json, Path as UrlPath, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fmt;
 use std::time::Duration;
 
-use mw_admin::config::admin_route;
 use mw_egress::Refusal;
 use mw_egress::proxy::{ProxyRefusal, fetch_via_proxy};
 
 use crate::AppState;
+use crate::admin_ctx::AdminCtx;
+use crate::admin_router::AdminRegistrar;
+use crate::capabilities::Capability;
 use mw_store::EgressProxyRow;
 
-/// The egress admin routes. Merged into `v7_mount::extra_v7_router()`.
-pub(crate) fn egress_admin_router() -> Router<AppState> {
-    Router::new()
-        .route(
-            &admin_route("/egress/proxies"),
-            get(list_proxies).post(put_proxy),
-        )
-        .route(
-            &admin_route("/egress/proxies/{id}/delete"),
-            post(delete_proxy),
-        )
-        .route(
-            &admin_route("/egress/proxies/{id}/activate"),
-            post(activate_proxy),
-        )
-        .route(
-            &admin_route("/egress/proxies/deactivate"),
-            post(deactivate_proxies),
-        )
-        .route(&admin_route("/egress/proxies/{id}/test"), post(test_proxy))
+/// The egress admin routes (registered through `v7_mount::register_admin`).
+pub(crate) fn register(r: &mut impl AdminRegistrar) {
+    r.admin_endpoint(Method::GET, "/egress/privacy-stats", Capability::EgressRead, crate::image_proxy::remote_content::stats);
+    r.admin_endpoint(Method::GET, "/egress/proxies", Capability::EgressRead, list_proxies);
+    r.admin_endpoint(Method::POST, "/egress/proxies", Capability::EgressWrite, put_proxy);
+    r.admin_endpoint(
+        Method::POST,
+        "/egress/proxies/{id}/delete",
+        Capability::EgressWrite,
+        delete_proxy,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/egress/proxies/{id}/activate",
+        Capability::EgressWrite,
+        activate_proxy,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/egress/proxies/deactivate",
+        Capability::EgressWrite,
+        deactivate_proxies,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/egress/proxies/{id}/test",
+        Capability::EgressWrite,
+        test_proxy,
+    );
 }
 
 /// A create/replace request.
@@ -240,10 +247,7 @@ fn store_failed(op: &str, e: &impl fmt::Display) -> Response {
         .into_response()
 }
 
-async fn list_proxies(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(resp) = super::require_admin(&state, &headers).await {
-        return resp;
-    }
+async fn list_proxies(State(state): State<AppState>, _ctx: AdminCtx) -> Response {
     match state.store.list_egress_proxies().await {
         Ok(rows) => {
             let views: Vec<ProxyView> = rows.iter().map(ProxyView::from).collect();
@@ -255,13 +259,10 @@ async fn list_proxies(State(state): State<AppState>, headers: HeaderMap) -> Resp
 
 async fn put_proxy(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Json(body): Json<PutProxyReq>,
 ) -> Response {
-    let admin = match super::require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     if body.id.trim().is_empty() {
         return bad_request("id is required");
     }
@@ -344,13 +345,10 @@ async fn put_proxy(
 
 async fn delete_proxy(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    let admin = match super::require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     match state.store.delete_egress_proxy(&id).await {
         // Audit what HAPPENED, not what was asked: deleting an absent id removed
         // nothing, and a row claiming otherwise would be a false record in an
@@ -374,13 +372,10 @@ async fn delete_proxy(
 /// defence in depth for any other caller.
 async fn activate_proxy(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    let admin = match super::require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     let row = match state.store.get_egress_proxy(&id).await {
         Ok(Some(r)) => r,
         Ok(None) => {
@@ -414,11 +409,8 @@ async fn activate_proxy(
 /// using a proxy" is one deployment-wide state rather than an operation on a
 /// particular row, and naming an id would imply a per-route toggle that 0027 does
 /// not permit.
-async fn deactivate_proxies(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let admin = match super::require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+async fn deactivate_proxies(State(state): State<AppState>, ctx: AdminCtx) -> Response {
+    let admin = ctx.username.clone();
     // What was live BEFORE, so the audit row names what actually changed rather than
     // recording an anonymous "egress deactivated" that a reader cannot act on.
     let previous = match state.store.active_egress_proxy().await {
@@ -598,13 +590,10 @@ fn classify(
 /// "connection refused" and "died mid-negotiation" as one `ProxyUnreachable`.
 async fn test_proxy(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    let admin = match super::require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     let not_found = || {
         (
             StatusCode::NOT_FOUND,

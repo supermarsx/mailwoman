@@ -5,10 +5,9 @@
 //! over the exact on-disk bytes, and approves that byte-exact SHA-256 into the 0014
 //! allowlist so `resolve_component` will load it — and nothing else.
 //!
-//! Every route is **admin-session-gated** (`super::require_admin`, the same
-//! `mw_admin_session` cookie as `/admin/*`) and **audited**. It is a CHILD module of
-//! `v7_mount` (declared there via `#[path]`) and is merged into the already-mounted
-//! `extra_v7_router()`, so it needs no `lib.rs` mount edit.
+//! Every route is registered in `admin_router` (through `v7_mount::register_admin`;
+//! `plugins.read` to list, `plugins.write` to change) and **audited**. It is a CHILD
+//! module of `v7_mount` (declared there via `#[path]`).
 //!
 //! Routes (all under the existing `/admin/plugins` surface):
 //!   * `GET  /admin/plugins/allowlist` — the present-on-disk third-party components with
@@ -22,34 +21,45 @@
 //!     delete its allowlist rows, and delete its registry row, grants and allow-unsigned
 //!     flag.
 
-use axum::Router;
 use axum::extract::{Extension, Json, Path as UrlPath, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
-use mw_admin::config::admin_route;
 use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use crate::AppState;
+use crate::admin_ctx::AdminCtx;
+use crate::admin_router::AdminRegistrar;
+use crate::capabilities::Capability;
 use crate::plugins::PluginRegistry;
 
-/// The allowlist admin routes. Merged into `v7_mount::extra_v7_router()`.
-pub(crate) fn allowlist_router() -> Router<AppState> {
-    Router::new()
-        .route(
-            &admin_route("/plugins/allowlist"),
-            get(list_allowlist).post(approve_digest),
-        )
-        .route(
-            &admin_route("/plugins/allowlist/{plugin_id}/{digest_hex}/revoke"),
-            post(revoke_digest),
-        )
-        .route(
-            &admin_route("/plugins/{id}/uninstall"),
-            post(uninstall_plugin),
-        )
+/// The allowlist admin routes (registered through `v7_mount::register_admin`).
+pub(crate) fn register(r: &mut impl AdminRegistrar) {
+    r.admin_endpoint(
+        Method::GET,
+        "/plugins/allowlist",
+        Capability::PluginsRead,
+        list_allowlist,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/plugins/allowlist",
+        Capability::PluginsWrite,
+        approve_digest,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/plugins/allowlist/{plugin_id}/{digest_hex}/revoke",
+        Capability::PluginsWrite,
+        revoke_digest,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/plugins/{id}/uninstall",
+        Capability::PluginsWrite,
+        uninstall_plugin,
+    );
 }
 
 /// Scan `MW_THIRDPARTY_PLUGIN_DIR` for `<id>.wasm` files and compute each one's SHA-256.
@@ -84,10 +94,7 @@ fn scan_present_components() -> Vec<(String, String)> {
 /// component on disk with the digest the admin should approve (and whether it is already
 /// an active pin / a first-party id, which cannot be third-party-approved). `pins` is the
 /// full stored allowlist (including revoked rows) for oversight.
-async fn list_allowlist(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(resp) = super::require_admin(&state, &headers).await {
-        return resp;
-    }
+async fn list_allowlist(State(state): State<AppState>, _ctx: AdminCtx) -> Response {
     let pins = match state.store.list_plugin_allowlist().await {
         Ok(p) => p,
         Err(e) => {
@@ -150,13 +157,10 @@ struct ApproveReq {
 /// first-party id (anti-spoof, TQ2) or a non-canonical digest. Audited on success.
 async fn approve_digest(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Json(body): Json<ApproveReq>,
 ) -> Response {
-    let admin = match super::require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     let digest_hex = body.digest_hex.trim().to_ascii_lowercase();
     let row = mw_store::new_allowlist_pin(
         body.plugin_id.trim(),
@@ -219,14 +223,11 @@ async fn approve_digest(
 /// unloaded before this answers. Audited.
 async fn revoke_digest(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Extension(reg): Extension<PluginRegistry>,
     UrlPath((plugin_id, digest_hex)): UrlPath<(String, String)>,
 ) -> Response {
-    let admin = match super::require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     // Canonicalize the URL digest to lowercase-64-hex BEFORE the revoke lookup, mirroring
     // `approve_digest` (which stores `digest_hex.trim().to_ascii_lowercase()`). Stored pins
     // are always canonical lowercase, so a case-mismatched revoke would otherwise match no
@@ -270,14 +271,11 @@ async fn revoke_digest(
 /// answers. Audited.
 async fn uninstall_plugin(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Extension(reg): Extension<PluginRegistry>,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    let admin = match super::require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     let kv_purged = state.store.plugin_kv_purge(&id).await.unwrap_or_else(|e| {
         tracing::error!("plugin kv purge failed for '{id}': {e}");
         0
@@ -324,16 +322,10 @@ async fn uninstall_plugin(
 
 #[cfg(test)]
 mod tests {
-    /// The allowlist routes share the `/admin/plugins/*` prefix with the sibling plugin
-    /// routers. matchit registers routes eagerly, so a path conflict (e.g. the static
-    /// `allowlist` segment vs the `{id}` param) would PANIC here — this builds the exact
-    /// production merge (`plugins_router` + `extra_v7_router`, which already folds in
-    /// `allowlist_router`) to prove the routers coexist.
-    #[test]
-    fn allowlist_routes_merge_without_conflict() {
-        let _router: axum::Router<crate::AppState> =
-            crate::plugins::plugins_router().merge(super::super::extra_v7_router());
-    }
+    // The allowlist routes share the `/admin/plugins/*` prefix with the plugin
+    // registry routes; both are mounted by `admin_router`, so a path conflict (the
+    // static `allowlist` segment vs the `{id}` param) would panic every app build,
+    // `tests/t32_admin_route_scan.rs` among them.
 
     /// E8 low finding: a revoke whose URL digest differs only in CASE from the stored
     /// (canonical lowercase) pin must still revoke that pin — not just disable the plugin.

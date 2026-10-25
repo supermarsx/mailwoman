@@ -334,12 +334,15 @@ async fn v6_user_and_unauth_routes_are_wired() {
         .send()
         .await
         .unwrap();
-    // No inbound secret configured in the test → the handler (not the SPA) returns 404.
+    // An unsigned call naming no webhook → the handler (not the SPA) answers 401
+    // with its JSON error (t28-e18: inbound webhooks are stored, each with a secret).
     assert_eq!(
         inbound.status(),
-        404,
-        "inbound webhook handler mounted (disabled → 404)"
+        401,
+        "inbound webhook handler mounted (unsigned → 401)"
     );
+    let body: Value = inbound.json().await.unwrap();
+    assert_eq!(body["error"], "invalid webhook signature");
 }
 
 /// The admin panel: login on the SEPARATE session domain, provision a user, and see

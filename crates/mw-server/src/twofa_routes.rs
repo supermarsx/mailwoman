@@ -25,15 +25,15 @@
 //! ## What is NOT here
 //! The enrolment/verification/recovery *browser UI* is `apps/web` (t16 e15); this
 //! module is the server contract it drives. WebAuthn origin/rp-id are derived from
-//! the request Host (same-origin deployment) unless `MW_WEBAUTHN_ORIGIN`/
-//! `MW_WEBAUTHN_RP_ID` override it (reverse-proxy deployments).
+//! the configured public origin and trusted-proxy boundary; explicit
+//! `MW_WEBAUTHN_ORIGIN`/`MW_WEBAUTHN_RP_ID` overrides remain supported.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -42,7 +42,7 @@ use rand::RngCore;
 use serde::Deserialize;
 use serde_json::json;
 
-use mw_admin::config::admin_route;
+use crate::admin_ctx::AdminCtx;
 use mw_mfa::totp::TotpParams;
 use mw_mfa::webauthn::{
     AssertionRequest, RegistrationRequest, UserVerification, verify_assertion, verify_registration,
@@ -57,6 +57,7 @@ use crate::{AppState, account_gate};
 const PENDING_TTL: Duration = Duration::from_secs(300);
 /// Max second-factor attempts against one pending login before it is invalidated
 /// (brute-force cap; a 6-digit TOTP with a ±1 window admits 3 live codes).
+#[cfg(test)]
 const MAX_ATTEMPTS: u32 = 5;
 /// Bytes of entropy in a pending-login / challenge token.
 const TOKEN_BYTES: usize = 32;
@@ -85,6 +86,8 @@ enum PendingKind {
 struct PendingLogin {
     kind: PendingKind,
     args: SessionArgs,
+    device: mw_store::SessionDevice,
+    max_attempts: u32,
     /// Raw single-use WebAuthn challenge for this attempt.
     challenge: Vec<u8>,
     origin: String,
@@ -97,6 +100,7 @@ struct PendingLogin {
 /// for a passkey `navigator.credentials.create` ceremony.
 #[derive(Clone)]
 struct RegChallenge {
+    discoverable: bool,
     challenge: Vec<u8>,
     origin: String,
     rp_id: String,
@@ -109,6 +113,7 @@ struct RegChallenge {
 pub(crate) struct TwofaState {
     pending: Mutex<HashMap<String, PendingLogin>>,
     reg: Mutex<HashMap<String, RegChallenge>>,
+    passwordless: Mutex<HashMap<String, RegChallenge>>,
 }
 
 impl TwofaState {
@@ -116,6 +121,7 @@ impl TwofaState {
         TwofaState {
             pending: Mutex::new(HashMap::new()),
             reg: Mutex::new(HashMap::new()),
+            passwordless: Mutex::new(HashMap::new()),
         }
     }
 
@@ -151,7 +157,7 @@ impl TwofaState {
         let mut map = self.pending.lock().expect("twofa pending poisoned");
         if let Some(e) = map.get_mut(token) {
             e.attempts += 1;
-            if e.attempts >= MAX_ATTEMPTS {
+            if e.attempts >= e.max_attempts {
                 map.remove(token);
                 return true;
             }
@@ -176,6 +182,7 @@ impl TwofaState {
 /// second-factor round-trip unchanged (so the password is checked exactly once).
 #[derive(Clone)]
 pub(crate) struct SessionArgs {
+    pub authentication_method: &'static str,
     pub account_id: String,
     pub username: String,
     /// The `jmap_url`/`api_url` [`Store::create_session`](mw_store::Store) persists
@@ -206,9 +213,20 @@ pub(crate) struct SessionArgs {
 pub(crate) async fn gate_login(
     state: &AppState,
     headers: &HeaderMap,
+    ext: &axum::http::Extensions,
     args: SessionArgs,
 ) -> Response {
+    let device = crate::security_center::device(headers, ext, args.client_type.as_deref());
+    let policy = match crate::security_center::policy(state, &args.account_id, &args.username).await
+    {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
     let store = &state.store;
+
+    if let Some(response) = domain_signin_gate(state, &args).await {
+        return response;
+    }
 
     if let Err(e) = account_gate::remember_login(
         store,
@@ -246,17 +264,44 @@ pub(crate) async fn gate_login(
     };
     let enrolled = totp_enrolled || !passkeys.is_empty();
 
-    let required = match policy_requires(state, &args.username).await {
-        Ok(r) => r,
-        Err(e) => return server_error("read 2fa policy", e),
-    };
+    let required = policy.required
+        || match policy_requires(state, &args.account_id, &args.username).await {
+            Ok(r) => r,
+            Err(e) => return server_error("read 2fa policy", e),
+        };
 
+    if !policy.passkeys_enabled && !passkeys.is_empty() && !totp_enrolled {
+        return twofa_unauthorized();
+    }
+    if enrolled {
+        let session = mw_store::Session {
+            id: String::new(),
+            account_id: args.account_id.clone(),
+            username: args.username.clone(),
+            jmap_url: args.jmap_url.clone(),
+            api_url: args.api_url.clone(),
+            credentials: args.creds.clone(),
+        };
+        match crate::security_center::remembered_login(state, headers, &session).await {
+            Ok(true) => {
+                return complete_login(state, &args, &device, json!({}), Stage::Remembered).await;
+            }
+            Ok(false) => {}
+            Err(r) => return r,
+        }
+    }
     // Opt-in user with no factor and no policy requiring one → unchanged path.
     if !enrolled && !required {
-        return complete_login(state, &args, json!({}), Stage::Password).await;
+        return complete_login(state, &args, &device, json!({}), Stage::Password).await;
     }
 
-    let (origin, rp_id) = derive_rp(state.cookie_secure, headers);
+    let Some((origin, rp_id)) = crate::step_up::webauthn_rp(&state.external, headers, ext) else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Configure a valid public WebAuthn origin.",
+        )
+            .into_response();
+    };
     let token = new_token();
 
     if enrolled {
@@ -266,18 +311,20 @@ pub(crate) async fn gate_login(
             PendingLogin {
                 kind: PendingKind::Verify,
                 args,
+                device,
+                max_attempts: policy.max_attempts,
                 challenge: challenge.clone(),
                 origin,
                 rp_id: rp_id.clone(),
                 attempts: 0,
-                expires_at: Instant::now() + PENDING_TTL,
+                expires_at: Instant::now() + Duration::from_secs(policy.pending_secs),
             },
         );
         let mut factors = Vec::new();
         if totp_enrolled {
             factors.push("totp");
         }
-        if !passkeys.is_empty() {
+        if policy.passkeys_enabled && !passkeys.is_empty() {
             factors.push("webauthn");
         }
         if recovery_available {
@@ -303,18 +350,20 @@ pub(crate) async fn gate_login(
             PendingLogin {
                 kind: PendingKind::Enroll,
                 args,
+                device,
+                max_attempts: policy.max_attempts,
                 challenge: Vec::new(),
                 origin,
                 rp_id,
                 attempts: 0,
-                expires_at: Instant::now() + PENDING_TTL,
+                expires_at: Instant::now() + Duration::from_secs(policy.pending_secs),
             },
         );
         Json(json!({
             "twofaRequired": true,
             "enrollmentRequired": true,
             "pendingToken": token,
-            "factors": ["totp", "webauthn"],
+            "factors": if policy.passkeys_enabled { vec!["totp", "webauthn"] } else { vec!["totp"] },
         }))
         .into_response()
     }
@@ -322,7 +371,11 @@ pub(crate) async fn gate_login(
 
 /// Whether a second factor is REQUIRED for `username` by admin policy — the global
 /// scope or the user's domain.
-async fn policy_requires(state: &AppState, username: &str) -> Result<bool, mw_store::StoreError> {
+async fn policy_requires(
+    state: &AppState,
+    account_id: &str,
+    username: &str,
+) -> Result<bool, mw_store::StoreError> {
     if let Some(p) = state.store.get_twofa_policy("global", "").await?
         && p.require_2fa
     {
@@ -331,6 +384,17 @@ async fn policy_requires(state: &AppState, username: &str) -> Result<bool, mw_st
     if let Some(domain) = username.rsplit('@').next().filter(|d| *d != username)
         && let Some(p) = state.store.get_twofa_policy("domain", domain).await?
         && p.require_2fa
+    {
+        return Ok(true);
+    }
+    let subject = mw_store::settings_policy::SettingSubject {
+        domain: username.rsplit_once('@').map_or("", |(_, d)| d),
+        account_id,
+        address: username,
+    };
+    if crate::settings_registry::effective_for(&state.store, "twofa.required", &subject)
+        .await?
+        .is_some_and(|v| v.value.as_bool() == Some(true))
     {
         return Ok(true);
     }
@@ -366,6 +430,8 @@ async fn login_gate(
 enum Stage {
     Password,
     SecondFactor,
+    Remembered,
+    Passwordless,
 }
 
 /// Whether the account of a pending login has been disabled since the password
@@ -399,9 +465,13 @@ async fn pending_disabled(state: &AppState, pending: &PendingLogin) -> Result<bo
 async fn complete_login(
     state: &AppState,
     args: &SessionArgs,
+    device: &mw_store::SessionDevice,
     mut extra: serde_json::Value,
     stage: Stage,
 ) -> Response {
+    if let Some(response) = domain_signin_gate(state, args).await {
+        return response;
+    }
     let gate = match login_gate(state, args).await {
         Ok(gate) => gate,
         Err(e) => return account_gate::unavailable("login", e),
@@ -410,7 +480,7 @@ async fn complete_login(
         account_gate::stop_engine_work(state, &args.account_id);
         return match stage {
             Stage::Password => disabled_response(&args.username),
-            Stage::SecondFactor => {
+            Stage::SecondFactor | Stage::Remembered | Stage::Passwordless => {
                 tracing::info!("login refused: account {} is disabled", args.username);
                 twofa_unauthorized()
             }
@@ -435,6 +505,28 @@ async fn complete_login(
         Ok(id) => id,
         Err(e) => return server_error("persist session", e),
     };
+    if let Err(response) = crate::security_center::record_login(
+        state,
+        &id,
+        &args.account_id,
+        &args.username,
+        device,
+        if args.authentication_method == "header-auth" {
+            "header-auth"
+        } else {
+            match stage {
+                Stage::Password => "password",
+                Stage::SecondFactor => "password+factor",
+                Stage::Remembered => "remembered-device",
+                Stage::Passwordless => "passkey",
+            }
+        },
+    )
+    .await
+    {
+        let _ = state.store.delete_session(&id).await;
+        return response;
+    }
     state.sessions.begin(&id);
     crate::finish_login_ext(
         state,
@@ -445,6 +537,190 @@ async fn complete_login(
         extra,
     )
     .await
+}
+
+async fn domain_signin_gate(state: &AppState, args: &SessionArgs) -> Option<Response> {
+    match crate::domain_config::signin_allowed(&state.store, &args.creds.username).await {
+        Ok(true) => None,
+        Ok(false) => {
+            account_gate::stop_engine_work(state, &args.account_id);
+            Some(crate::unauthorized())
+        }
+        Err(error) => Some(account_gate::unavailable("domain sign-in policy", error)),
+    }
+}
+
+async fn login_methods(State(state): State<AppState>) -> Response {
+    Json(json!({"passwordless":state.engine.is_some()})).into_response()
+}
+async fn passwordless_begin(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    ext: axum::http::Extensions,
+) -> Response {
+    if state.engine.is_none() {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(json!({"code":"passwordlessEngineOnly"})),
+        )
+            .into_response();
+    }
+    let Some((origin, rp_id)) = crate::step_up::webauthn_rp(&state.external, &headers, &ext) else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let token = new_token();
+    let challenge = random_challenge();
+    {
+        let mut pending = state.twofa.passwordless.lock().expect("passwordless lock");
+        pending.retain(|_, value| value.expires_at > Instant::now());
+        if pending.len() >= 1024 {
+            return StatusCode::TOO_MANY_REQUESTS.into_response();
+        }
+        pending.insert(
+            token.clone(),
+            RegChallenge {
+                discoverable: true,
+                challenge: challenge.clone(),
+                origin,
+                rp_id: rp_id.clone(),
+                expires_at: Instant::now() + PENDING_TTL,
+            },
+        );
+    }
+    Json(json!({"pendingToken":token,"challenge":b64(&challenge),"rpId":rp_id,"credentialIds":[],"userVerification":"required"})).into_response()
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PasswordlessFinish {
+    pending_token: String,
+    credential_id: String,
+    client_data_json: String,
+    authenticator_data: String,
+    signature: String,
+    #[serde(default)]
+    client_type: Option<String>,
+}
+async fn passwordless_finish(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    ext: axum::http::Extensions,
+    Json(body): Json<PasswordlessFinish>,
+) -> Response {
+    let Some(engine) = &state.engine else {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(json!({"code":"passwordlessEngineOnly"})),
+        )
+            .into_response();
+    };
+    let challenge = state
+        .twofa
+        .passwordless
+        .lock()
+        .expect("passwordless lock")
+        .remove(&body.pending_token);
+    let Some(challenge) = challenge.filter(|value| value.expires_at > Instant::now()) else {
+        return twofa_unauthorized();
+    };
+    let Ok(true) = state.store.passkey_discoverable(&body.credential_id).await else {
+        return twofa_unauthorized();
+    };
+    let Ok(Some(credential)) = state
+        .store
+        .get_webauthn_credential(&body.credential_id)
+        .await
+    else {
+        return twofa_unauthorized();
+    };
+    let (Some(client_data_json), Some(authenticator_data), Some(signature)) = (
+        decode_b64(&body.client_data_json),
+        decode_b64(&body.authenticator_data),
+        decode_b64(&body.signature),
+    ) else {
+        return twofa_unauthorized();
+    };
+    let request = AssertionRequest {
+        challenge: challenge.challenge,
+        origin: challenge.origin,
+        rp_id: challenge.rp_id,
+        client_data_json,
+        authenticator_data,
+        signature,
+        cose_public_key: credential.cose_public_key,
+        stored_sign_count: credential.sign_count.max(0) as u32,
+        user_verification: UserVerification::Required,
+    };
+    let Ok(assertion) = verify_assertion(&request) else {
+        return twofa_unauthorized();
+    };
+    let Ok(account) = state.store.get_account(&credential.account_id).await else {
+        return twofa_unauthorized();
+    };
+    let Ok(creds) = state.store.account_credentials(&account.id).await else {
+        return twofa_unauthorized();
+    };
+    let policy = match crate::security_center::policy(&state, &account.id, &account.username).await
+    {
+        Ok(policy) => policy,
+        Err(r) => return r,
+    };
+    if !policy.passkeys_enabled {
+        return twofa_unauthorized();
+    }
+    let args = SessionArgs {
+        authentication_method: "passkey",
+        account_id: account.id.clone(),
+        username: account.username,
+        jmap_url: "engine".into(),
+        api_url: "engine".into(),
+        creds,
+        client_type: body.client_type,
+    };
+    if let Some(response) = domain_signin_gate(&state, &args).await {
+        return response;
+    }
+    let gate = match login_gate(&state, &args).await {
+        Ok(gate) => gate,
+        Err(e) => return server_error("account policy", e),
+    };
+    if gate.disabled {
+        return twofa_unauthorized();
+    }
+    let upstream = match crate::upstream_resolve::resolve_upstream(&state, &args.username).await {
+        Ok(upstream) => upstream,
+        Err(_) => return twofa_unauthorized(),
+    };
+    let Ok(account) = state.store.get_account(&args.account_id).await else {
+        return twofa_unauthorized();
+    };
+    if !crate::engine_mode::account_matches_upstream(&state.store, &account, upstream.url())
+        .await
+        .unwrap_or(false)
+    {
+        return twofa_unauthorized();
+    }
+    if !engine.is_registered(&args.account_id) {
+        match crate::engine_mode::engine_login(
+            engine,
+            upstream.url(),
+            &args.creds.username,
+            &args.creds.password,
+        )
+        .await
+        {
+            Ok((id, _)) if id == args.account_id => {}
+            _ => return twofa_unauthorized(),
+        }
+    }
+    if let Err(e) = state
+        .store
+        .update_webauthn_sign_count(&body.credential_id, i64::from(assertion.new_sign_count))
+        .await
+    {
+        return server_error("passkey counter", e);
+    }
+    let device = crate::security_center::device(&headers, &ext, args.client_type.as_deref());
+    complete_login(&state, &args, &device, json!({}), Stage::Passwordless).await
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -484,6 +760,19 @@ async fn verify_2fa(State(state): State<AppState>, Json(body): Json<VerifyReq>) 
     if pending.kind != PendingKind::Verify {
         return twofa_unauthorized();
     }
+    if body.method == "webauthn" {
+        match crate::security_center::policy(
+            &state,
+            &pending.args.account_id,
+            &pending.args.username,
+        )
+        .await
+        {
+            Ok(policy) if policy.passkeys_enabled => {}
+            Ok(_) => return twofa_unauthorized(),
+            Err(r) => return r,
+        }
+    }
     match pending_disabled(&state, &pending).await {
         Ok(false) => {}
         Ok(true) => {
@@ -504,12 +793,23 @@ async fn verify_2fa(State(state): State<AppState>, Json(body): Json<VerifyReq>) 
         Ok(true) => {
             // Redeem the pending login exactly once (burns the challenge).
             match state.twofa.take_pending(&body.pending_token) {
-                Some(p) => complete_login(&state, &p.args, json!({}), Stage::SecondFactor).await,
+                Some(p) => {
+                    complete_login(&state, &p.args, &p.device, json!({}), Stage::SecondFactor).await
+                }
                 None => twofa_unauthorized(),
             }
         }
         Ok(false) => {
             state.twofa.note_failure(&body.pending_token);
+            crate::security_center::record_failure(
+                &state,
+                Some(account_id),
+                &pending.args.username,
+                &pending.device,
+                &body.method,
+                "factor_refused",
+            )
+            .await;
             twofa_unauthorized()
         }
         Err(e) => server_error("verify 2fa", e),
@@ -662,6 +962,7 @@ async fn login_enroll_totp_confirm(
             complete_login(
                 &state,
                 &p.args,
+                &p.device,
                 json!({ "recoveryCodes": codes }),
                 Stage::SecondFactor,
             )
@@ -676,12 +977,24 @@ async fn login_enroll_totp_confirm(
 async fn login_enroll_passkey_begin(
     State(state): State<AppState>,
     headers: HeaderMap,
+    ext: axum::http::Extensions,
     Json(body): Json<PendingTokenReq>,
 ) -> Response {
     let Some(p) = enroll_pending(&state, &body.pending_token) else {
         return twofa_unauthorized();
     };
-    passkey_begin(&state, &headers, &p.args.account_id, &p.args.username)
+    match crate::security_center::policy(&state, &p.args.account_id, &p.args.username).await {
+        Ok(policy) if policy.passkeys_enabled => {}
+        Ok(_) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({"code":"passkeysDisabled"})),
+            )
+                .into_response();
+        }
+        Err(r) => return r,
+    }
+    passkey_begin(&state, &headers, &ext, &p.args.account_id, &p.args.username)
 }
 
 /// Finish forced passkey enrolment; on success issue recovery codes AND the session.
@@ -718,6 +1031,7 @@ async fn login_enroll_passkey_finish(
             complete_login(
                 &state,
                 &p.args,
+                &p.device,
                 json!({ "recoveryCodes": codes }),
                 Stage::SecondFactor,
             )
@@ -759,7 +1073,7 @@ async fn twofa_status(State(state): State<AppState>, headers: HeaderMap) -> Resp
         Ok(v) => v.len(),
         Err(e) => return server_error("list recovery", e),
     };
-    let required = match policy_requires(&state, &session.username).await {
+    let required = match policy_requires(&state, &session.account_id, &session.username).await {
         Ok(r) => r,
         Err(e) => return server_error("read policy", e),
     };
@@ -777,11 +1091,47 @@ async fn twofa_status(State(state): State<AppState>, headers: HeaderMap) -> Resp
 }
 
 /// `POST /api/account/2fa/totp/begin` — start TOTP enrolment.
+async fn guard_factor_enrollment(
+    state: &AppState,
+    session: &mw_store::Session,
+) -> Result<(), Response> {
+    crate::step_up::require_known_authentication(state, session).await?;
+    let has_factor = state
+        .store
+        .get_totp_secret(&session.account_id)
+        .await
+        .map_err(|e| server_error("factor", e))?
+        .is_some_and(|t| t.confirmed)
+        || !state
+            .store
+            .list_webauthn_credentials(&session.account_id)
+            .await
+            .map_err(|e| server_error("factor", e))?
+            .is_empty();
+    // A first SSO factor must remain enrollable without a pre-existing factor.
+    if has_factor
+        || crate::step_up::session_password_capable(state, session)
+            .await
+            .map_err(|e| server_error("authentication method", e))?
+    {
+        crate::step_up::require_user(
+            state,
+            session,
+            crate::step_up::StepUpAction::TwoFactorDisable,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 async fn totp_begin_route(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let session = match crate::authed(&state, &headers).await {
         Ok(s) => s,
         Err(r) => return r,
     };
+    if let Err(r) = guard_factor_enrollment(&state, &session).await {
+        return r;
+    }
     totp_begin(&state, &session.account_id, &session.username).await
 }
 
@@ -795,6 +1145,9 @@ async fn totp_confirm_route(
         Ok(s) => s,
         Err(r) => return r,
     };
+    if let Err(r) = guard_factor_enrollment(&state, &session).await {
+        return r;
+    }
     match confirm_totp_and_seed_recovery(&state, &session.account_id, &body.code).await {
         Ok(Some(codes)) => Json(json!({ "ok": true, "recoveryCodes": codes })).into_response(),
         Ok(None) => (
@@ -813,6 +1166,15 @@ async fn totp_disable_route(State(state): State<AppState>, headers: HeaderMap) -
         Ok(s) => s,
         Err(r) => return r,
     };
+    if let Err(response) = crate::step_up::require_user(
+        &state,
+        &session,
+        crate::step_up::StepUpAction::TwoFactorDisable,
+    )
+    .await
+    {
+        return response;
+    }
     let account_id = &session.account_id;
     let passkeys = match state.store.list_webauthn_credentials(account_id).await {
         Ok(v) => v.len(),
@@ -820,6 +1182,7 @@ async fn totp_disable_route(State(state): State<AppState>, headers: HeaderMap) -
     };
     if let Err(r) = guard_last_factor(
         &state,
+        &session.account_id,
         &session.username,
         passkeys, /*remaining factors*/
     )
@@ -830,16 +1193,47 @@ async fn totp_disable_route(State(state): State<AppState>, headers: HeaderMap) -
     if let Err(e) = state.store.delete_totp_secret(account_id).await {
         return server_error("delete totp", e);
     }
+    crate::alerts::emit(
+        &state,
+        account_id,
+        crate::alerts::AlertKind::TwoFactorChanged,
+        json!({}),
+    )
+    .await;
     Json(json!({ "ok": true })).into_response()
 }
 
 /// `POST /api/account/2fa/passkey/begin` — issue a registration challenge.
-async fn passkey_begin_route(State(state): State<AppState>, headers: HeaderMap) -> Response {
+async fn passkey_begin_route(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    ext: axum::http::Extensions,
+) -> Response {
     let session = match crate::authed(&state, &headers).await {
         Ok(s) => s,
         Err(r) => return r,
     };
-    passkey_begin(&state, &headers, &session.account_id, &session.username)
+    if let Err(r) = guard_factor_enrollment(&state, &session).await {
+        return r;
+    }
+    match crate::security_center::policy(&state, &session.account_id, &session.username).await {
+        Ok(policy) if policy.passkeys_enabled => {}
+        Ok(_) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({"code":"passkeysDisabled"})),
+            )
+                .into_response();
+        }
+        Err(r) => return r,
+    }
+    passkey_begin(
+        &state,
+        &headers,
+        &ext,
+        &session.account_id,
+        &session.username,
+    )
 }
 
 /// `POST /api/account/2fa/passkey/finish` — verify + store a registered passkey.
@@ -852,6 +1246,20 @@ async fn passkey_finish_route(
         Ok(s) => s,
         Err(r) => return r,
     };
+    if let Err(r) = guard_factor_enrollment(&state, &session).await {
+        return r;
+    }
+    match crate::security_center::policy(&state, &session.account_id, &session.username).await {
+        Ok(policy) if policy.passkeys_enabled => {}
+        Ok(_) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({"code":"passkeysDisabled"})),
+            )
+                .into_response();
+        }
+        Err(r) => return r,
+    }
     match register_passkey(
         &state,
         &session.account_id,
@@ -889,6 +1297,15 @@ async fn passkey_remove_route(
         Ok(s) => s,
         Err(r) => return r,
     };
+    if let Err(response) = crate::step_up::require_user(
+        &state,
+        &session,
+        crate::step_up::StepUpAction::TwoFactorDisable,
+    )
+    .await
+    {
+        return response;
+    }
     let account_id = &session.account_id;
     let passkeys = match state.store.list_webauthn_credentials(account_id).await {
         Ok(v) => v,
@@ -907,7 +1324,9 @@ async fn passkey_remove_route(
     // Remaining factors AFTER this removal.
     let totp = matches!(state.store.get_totp_secret(account_id).await, Ok(Some(t)) if t.confirmed);
     let remaining = (passkeys.len() - 1) + usize::from(totp);
-    if let Err(r) = guard_last_factor(&state, &session.username, remaining).await {
+    if let Err(r) =
+        guard_last_factor(&state, &session.account_id, &session.username, remaining).await
+    {
         return r;
     }
     if let Err(e) = state
@@ -917,6 +1336,13 @@ async fn passkey_remove_route(
     {
         return server_error("delete passkey", e);
     }
+    crate::alerts::emit(
+        &state,
+        account_id,
+        crate::alerts::AlertKind::TwoFactorChanged,
+        json!({}),
+    )
+    .await;
     Json(json!({ "ok": true })).into_response()
 }
 
@@ -927,6 +1353,15 @@ async fn recovery_regenerate_route(State(state): State<AppState>, headers: Heade
         Ok(s) => s,
         Err(r) => return r,
     };
+    if let Err(response) = crate::step_up::require_user(
+        &state,
+        &session,
+        crate::step_up::StepUpAction::TwoFactorDisable,
+    )
+    .await
+    {
+        return response;
+    }
     let account_id = &session.account_id;
     let codes = recovery::generate_codes(recovery::DEFAULT_RECOVERY_CODES);
     let hashes: Vec<String> = codes.iter().map(|c| recovery::hash_code(c)).collect();
@@ -936,6 +1371,13 @@ async fn recovery_regenerate_route(State(state): State<AppState>, headers: Heade
     if let Err(e) = state.store.add_recovery_codes(account_id, &hashes).await {
         return server_error("add recovery", e);
     }
+    crate::alerts::emit(
+        &state,
+        account_id,
+        crate::alerts::AlertKind::TwoFactorChanged,
+        json!({}),
+    )
+    .await;
     Json(json!({ "ok": true, "recoveryCodes": codes })).into_response()
 }
 
@@ -949,7 +1391,11 @@ async fn sessions_list_route(State(state): State<AppState>, headers: HeaderMap) 
         Err(r) => return r,
     };
     let current = mw_store::session_handle(&session.id);
-    let metas = match state.store.list_session_meta(&session.account_id).await {
+    let metas = match state
+        .store
+        .list_security_sessions(Some(&session.account_id), 100)
+        .await
+    {
         Ok(m) => m,
         Err(e) => return server_error("list sessions", e),
     };
@@ -962,6 +1408,8 @@ async fn sessions_list_route(State(state): State<AppState>, headers: HeaderMap) 
                 "createdAt": m.created_at,
                 "lastSeen": m.last_seen,
                 "current": m.handle == current,
+                "country": m.device.ip.parse().ok().and_then(mw_engine::security::country_for_ip),
+                "userAgent":m.device.user_agent,"ip":m.device.ip,"clientType":m.device.client_type,"clientVersion":m.device.client_version,"deviceLabel":m.device.device_label,
             })
         })
         .collect();
@@ -1054,6 +1502,10 @@ struct PasskeyFinishReq {
 /// Generate + store an UNCONFIRMED TOTP secret and return the base32 secret +
 /// `otpauth://` URI for the authenticator app.
 async fn totp_begin(state: &AppState, account_id: &str, username: &str) -> Response {
+    match state.store.get_totp_secret(account_id).await {
+        Ok(Some(secret)) if secret.confirmed => return (StatusCode::CONFLICT,Json(json!({"code":"totpAlreadyEnrolled","error":"Remove the current authenticator before replacing it."}))).into_response(),
+        Ok(_) => {}, Err(e) => return server_error("factor",e),
+    }
     let secret = totp::generate_secret();
     if let Err(e) = state
         .store
@@ -1124,14 +1576,22 @@ async fn seed_recovery_if_empty(
 fn passkey_begin(
     state: &AppState,
     headers: &HeaderMap,
+    ext: &axum::http::Extensions,
     account_id: &str,
     username: &str,
 ) -> Response {
-    let (origin, rp_id) = derive_rp(state.cookie_secure, headers);
+    let Some((origin, rp_id)) = crate::step_up::webauthn_rp(&state.external, headers, ext) else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Configure a valid public WebAuthn origin.",
+        )
+            .into_response();
+    };
     let challenge = random_challenge();
     state.twofa.put_reg(
         account_id.to_string(),
         RegChallenge {
+            discoverable: state.engine.is_some(),
             challenge: challenge.clone(),
             origin,
             rp_id: rp_id.clone(),
@@ -1143,6 +1603,7 @@ fn passkey_begin(
         "ok": true,
         "challenge": b64(&challenge),
         "rpId": rp_id,
+        "residentKey": if state.engine.is_some() { "required" } else { "discouraged" },
         "userHandle": b64(account_id.as_bytes()),
         "userName": username,
         "userVerification": "preferred",
@@ -1197,6 +1658,10 @@ async fn register_passkey(
         created_at: String::new(),
     };
     state.store.add_webauthn_credential(&row).await?;
+    state
+        .store
+        .set_passkey_discoverable(&row.credential_id, account_id, reg.discoverable)
+        .await?;
     Ok(true)
 }
 
@@ -1205,11 +1670,12 @@ async fn register_passkey(
 /// account with no policy requirement may disable freely.
 async fn guard_last_factor(
     state: &AppState,
+    account_id: &str,
     username: &str,
     remaining: usize,
 ) -> Result<(), Response> {
     if remaining == 0 {
-        let required = policy_requires(state, username)
+        let required = policy_requires(state, account_id, username)
             .await
             .map_err(|e| server_error("read policy", e))?;
         if required {
@@ -1229,38 +1695,25 @@ async fn guard_last_factor(
 // Admin: require-2FA policy (DQ2; consumed by the e16 admin panel)
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn admin_cookie_name() -> String {
-    mw_admin::config::session_cookie_name()
-}
-
-/// The authenticated admin id, or `None` (mirrors `admin_maintenance.rs`). Honours
-/// the `admin.enabled` gate.
-async fn admin_actor(state: &AppState, headers: &HeaderMap) -> Option<String> {
-    if !state.v6.admin_enabled {
-        return None;
-    }
-    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
-    let prefix = format!("{}=", admin_cookie_name());
-    let token = raw
-        .split(';')
-        .find_map(|p| p.trim().strip_prefix(&prefix).filter(|v| !v.is_empty()))?;
-    let hash = crate::push_relay::hash_token(token);
-    state.store.get_admin_session(&hash).await.ok().flatten()
-}
-
-fn admin_unauthorized() -> Response {
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(json!({ "error": "admin authentication required" })),
-    )
-        .into_response()
+/// The require-2FA policy routes (registered by `admin_router`).
+pub(crate) fn register_admin(r: &mut impl crate::admin_router::AdminRegistrar) {
+    use crate::capabilities::Capability;
+    r.admin_endpoint(
+        axum::http::Method::GET,
+        "/2fa/policy",
+        Capability::SecurityRead,
+        policy_list,
+    );
+    r.admin_endpoint(
+        axum::http::Method::POST,
+        "/2fa/policy",
+        Capability::TwofaPolicyWrite,
+        policy_set,
+    );
 }
 
 /// `GET /admin/2fa/policy` — the current require-2FA policy rows (admin-gated).
-async fn policy_list(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if admin_actor(&state, &headers).await.is_none() {
-        return admin_unauthorized();
-    }
+async fn policy_list(State(state): State<AppState>, _ctx: AdminCtx) -> Response {
     match state.store.list_twofa_policies().await {
         Ok(rows) => {
             let out: Vec<_> = rows
@@ -1300,12 +1753,10 @@ struct PolicyReq {
 /// Writing the pinned value, and any per-domain rule, is accepted.
 async fn policy_set(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     Json(body): Json<PolicyReq>,
 ) -> Response {
-    let Some(actor) = admin_actor(&state, &headers).await else {
-        return admin_unauthorized();
-    };
+    let actor = ctx.username.clone();
     if body.scope_kind != "global" && body.scope_kind != "domain" {
         return (
             StatusCode::BAD_REQUEST,
@@ -1397,6 +1848,9 @@ pub(crate) fn twofa_router() -> Router<AppState> {
     Router::new()
         // Step 2 of login + forced enrolment (pending-token authority).
         .route("/api/login/2fa", post(verify_2fa))
+        .route("/api/login/methods", get(login_methods))
+        .route("/api/login/passkey/begin", post(passwordless_begin))
+        .route("/api/login/passkey/finish", post(passwordless_finish))
         .route(
             "/api/login/2fa/enroll/totp/begin",
             post(login_enroll_totp_begin),
@@ -1434,39 +1888,11 @@ pub(crate) fn twofa_router() -> Router<AppState> {
         // Session management (S11).
         .route("/api/account/sessions", get(sessions_list_route))
         .route("/api/account/sessions/revoke", post(sessions_revoke_route))
-        // Admin require-2FA policy (DQ2; consumed by the e16 admin panel).
-        .route(
-            &admin_route("/2fa/policy"),
-            get(policy_list).post(policy_set),
-        )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Small helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-/// The WebAuthn origin (`scheme://host[:port]`) and rp-id (`host`) for this
-/// deployment. `MW_WEBAUTHN_ORIGIN`/`MW_WEBAUTHN_RP_ID` override the Host-derived
-/// values (needed when a reverse proxy rewrites Host); otherwise the same-origin
-/// deployment's Host header is authoritative.
-fn derive_rp(cookie_secure: bool, headers: &HeaderMap) -> (String, String) {
-    let host = headers
-        .get(header::HOST)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("localhost")
-        .to_string();
-    let host_only = host.split(':').next().unwrap_or(&host).to_string();
-    let scheme = if cookie_secure { "https" } else { "http" };
-    let origin = std::env::var("MW_WEBAUTHN_ORIGIN")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| format!("{scheme}://{host}"));
-    let rp_id = std::env::var("MW_WEBAUTHN_RP_ID")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or(host_only);
-    (origin, rp_id)
-}
 
 /// Current UNIX time (seconds) for TOTP.
 fn now_unix() -> u64 {
@@ -1537,6 +1963,7 @@ mod tests {
 
     fn args() -> SessionArgs {
         SessionArgs {
+            authentication_method: "password",
             account_id: "a@ex".into(),
             username: "a@ex".into(),
             jmap_url: "engine".into(),
@@ -1553,6 +1980,8 @@ mod tests {
         PendingLogin {
             kind,
             args: args(),
+            device: mw_store::SessionDevice::default(),
+            max_attempts: MAX_ATTEMPTS,
             challenge: vec![1, 2, 3, 4],
             origin: "https://mail.ex".into(),
             rp_id: "mail.ex".into(),
@@ -1603,6 +2032,7 @@ mod tests {
         st.put_reg(
             "a@ex".into(),
             RegChallenge {
+                discoverable: false,
                 challenge: vec![9, 9],
                 origin: "https://mail.ex".into(),
                 rp_id: "mail.ex".into(),
@@ -1622,24 +2052,6 @@ mod tests {
         assert_eq!(decode_b64(&std).unwrap(), raw);
         assert_eq!(decode_b64(&url).unwrap(), raw);
         assert!(decode_b64("not valid base64!!").is_none());
-    }
-
-    #[test]
-    fn derive_rp_prefers_host_and_scheme() {
-        // Env overrides must not leak between tests; assert only the Host-derived path
-        // when the override vars are absent.
-        if std::env::var("MW_WEBAUTHN_ORIGIN").is_err()
-            && std::env::var("MW_WEBAUTHN_RP_ID").is_err()
-        {
-            let mut h = HeaderMap::new();
-            h.insert(header::HOST, "mail.example.com:8443".parse().unwrap());
-            let (origin, rp_id) = derive_rp(true, &h);
-            assert_eq!(origin, "https://mail.example.com:8443");
-            assert_eq!(rp_id, "mail.example.com");
-
-            let (origin_http, _) = derive_rp(false, &h);
-            assert_eq!(origin_http, "http://mail.example.com:8443");
-        }
     }
 
     #[test]

@@ -134,6 +134,32 @@ pub fn csrf_double_submit_ok(headers: &HeaderMap) -> bool {
     }
 }
 
+/// Cookie-authenticated writes require the MAC for the session authorizing
+/// this route. A mailbox session cannot authorize an admin request or vice versa.
+pub fn csrf_request_ok(headers: &HeaderMap, store: &mw_store::Store, admin_route: bool) -> bool {
+    if !csrf_double_submit_ok(headers) {
+        return false;
+    }
+    let name = if admin_route {
+        mw_admin::config::session_cookie_name()
+    } else {
+        "mw_session".into()
+    };
+    let Some(id) = cookie(headers, &name) else {
+        return !has_auth_cookie(headers);
+    };
+    let expected = store.session_csrf_token(&id);
+    let actual = cookie(headers, CSRF_COOKIE).unwrap_or_default();
+    if actual.len() != expected.len() {
+        return false;
+    }
+    actual
+        .bytes()
+        .zip(expected.bytes())
+        .fold(0u8, |diff, (a, b)| diff | (a ^ b))
+        == 0
+}
+
 /// The state-changing routes that `csrf_strict` does not ask for the double-submit
 /// token. `path` is the request path with any `MW_BASE_PATH` prefix already
 /// removed, as `state_change_guard` sees it.
@@ -250,13 +276,18 @@ pub fn has_auth_cookie(headers: &HeaderMap) -> bool {
 
 /// Pull one cookie value out of the `Cookie` header.
 pub fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
-    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
     let needle = format!("{name}=");
-    for part in raw.split(';') {
-        if let Some(v) = part.trim().strip_prefix(&needle)
-            && !v.is_empty()
-        {
-            return Some(v.to_string());
+    for raw in headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+    {
+        for part in raw.split(';') {
+            if let Some(v) = part.trim().strip_prefix(&needle)
+                && !v.is_empty()
+            {
+                return Some(v.to_string());
+            }
         }
     }
     None

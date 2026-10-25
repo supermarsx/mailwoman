@@ -49,23 +49,21 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
 use axum::extract::{Path as UrlPath, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use base64::Engine as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use mw_admin::config::admin_route;
 use mw_plugin::{SignatureStatus, TrustRoot};
 use mw_store::{Store, StoreError, UiPluginGrantRow, UiPluginRow};
 
 use crate::AppState;
-
-fn admin_cookie_name() -> String {
-    mw_admin::config::session_cookie_name()
-}
+use crate::admin_ctx::AdminCtx;
+use crate::admin_router::AdminRegistrar;
+use crate::capabilities::Capability as AdminCap;
 
 /// The frozen RPC envelope protocol version (mirrors web `RPC_PROTOCOL_VERSION`).
 const RPC_PROTOCOL_VERSION: u32 = 1;
@@ -73,51 +71,19 @@ const RPC_PROTOCOL_VERSION: u32 = 1;
 /// e13 merges this into `router()`. Unmounted today (`router()` byte-unchanged).
 pub(crate) fn ui_plugins_router() -> Router<AppState> {
     Router::new()
-        .route(&admin_route("/ui-plugins"), get(list_admin).post(register))
-        .route(&admin_route("/ui-plugins/{id}/approve"), post(approve))
-        .route(&admin_route("/ui-plugins/{id}/enable"), post(enable))
-        .route(&admin_route("/ui-plugins/{id}/grant"), post(grant))
-        .route(&admin_route("/ui-plugins/{id}/disable"), post(disable))
-        .route(&admin_route("/ui-plugins/{id}"), delete(remove))
         .route("/api/ui-plugins", get(list_public))
         .route("/api/ui-plugins/{id}/rpc", post(broker_rpc))
 }
 
-// ── admin session gate (mirrors plugins.rs / admin.rs) ──────────────────────────
-
-fn unauthorized() -> Response {
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(json!({ "error": "admin authentication required" })),
-    )
-        .into_response()
-}
-
-fn admin_cookie(headers: &HeaderMap) -> Option<String> {
-    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
-    for part in raw.split(';') {
-        if let Some(v) = part
-            .trim()
-            .strip_prefix(&format!("{}=", admin_cookie_name()))
-            && !v.is_empty()
-        {
-            return Some(v.to_string());
-        }
-    }
-    None
-}
-
-/// Resolve the authenticated admin id, or a `401`. Enforces the `admin.enabled` gate.
-async fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<String, Response> {
-    if !state.v6.admin_enabled {
-        return Err(unauthorized());
-    }
-    let token = admin_cookie(headers).ok_or_else(unauthorized)?;
-    let hash = crate::push_relay::hash_token(&token);
-    match state.store.get_admin_session(&hash).await {
-        Ok(Some(admin_id)) => Ok(admin_id),
-        _ => Err(unauthorized()),
-    }
+/// The UI-plugin admin routes (registered by `admin_router`).
+pub(crate) fn register_admin(r: &mut impl AdminRegistrar) {
+    r.admin_endpoint(Method::GET, "/ui-plugins", AdminCap::PluginsRead, list_admin);
+    r.admin_endpoint(Method::POST, "/ui-plugins", AdminCap::UiPluginsWrite, register);
+    r.admin_endpoint(Method::POST, "/ui-plugins/{id}/approve", AdminCap::UiPluginsWrite, approve);
+    r.admin_endpoint(Method::POST, "/ui-plugins/{id}/enable", AdminCap::UiPluginsWrite, enable);
+    r.admin_endpoint(Method::POST, "/ui-plugins/{id}/grant", AdminCap::UiPluginsWrite, grant);
+    r.admin_endpoint(Method::POST, "/ui-plugins/{id}/disable", AdminCap::UiPluginsWrite, disable);
+    r.admin_endpoint(Method::DELETE, "/ui-plugins/{id}", AdminCap::UiPluginsWrite, remove);
 }
 
 // ── manifest model (server view of the frozen §2.3 `ui-plugin.json`) ────────────
@@ -348,10 +314,7 @@ async fn do_grant(
 
 /// `GET /admin/ui-plugins` — every registered plugin (id/name/version/enabled/approved/
 /// signed + declared capabilities). `signed=false` ⇒ the UI raises the persistent banner.
-async fn list_admin(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(resp) = require_admin(&state, &headers).await {
-        return resp;
-    }
+async fn list_admin(State(state): State<AppState>, _ctx: AdminCtx) -> Response {
     let rows = match state.store.list_ui_plugins().await {
         Ok(r) => r,
         Err(e) => return store_error(&e),
@@ -379,12 +342,9 @@ async fn list_admin(State(state): State<AppState>, headers: HeaderMap) -> Respon
 /// `bannerSignal` (mirrors the WASM tier's persistent-banner behaviour).
 async fn register(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _ctx: AdminCtx,
     Json(body): Json<RegisterReq>,
 ) -> Response {
-    if let Err(resp) = require_admin(&state, &headers).await {
-        return resp;
-    }
     let manifest: UiManifest = match serde_json::from_value(body.manifest.clone()) {
         Ok(m) => m,
         Err(e) => {
@@ -460,13 +420,10 @@ async fn register(
 /// `POST /admin/ui-plugins/{id}/approve` — approve + enable.
 async fn approve(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    let admin = match require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     match do_approve(&state.store, &id, &admin).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => not_found(&id),
@@ -477,12 +434,9 @@ async fn approve(
 /// `POST /admin/ui-plugins/{id}/enable` — enable an already-approved plugin.
 async fn enable(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _ctx: AdminCtx,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    if let Err(resp) = require_admin(&state, &headers).await {
-        return resp;
-    }
     match state.store.get_ui_plugin(&id).await {
         Ok(Some(row)) if row.approved_by.is_some() => {
             match state.store.set_ui_plugin_enabled(&id, true).await {
@@ -503,14 +457,11 @@ async fn enable(
 /// `POST /admin/ui-plugins/{id}/grant` — grant one declared capability (deny-by-default).
 async fn grant(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ctx: AdminCtx,
     UrlPath(id): UrlPath<String>,
     Json(body): Json<GrantReq>,
 ) -> Response {
-    let admin = match require_admin(&state, &headers).await {
-        Ok(a) => a,
-        Err(resp) => return resp,
-    };
+    let admin = ctx.username.clone();
     match do_grant(&state.store, &id, &admin, &body.capability, &body.params).await {
         Ok(GrantOutcome::Granted) => Json(json!({
             "pluginId": id,
@@ -535,12 +486,9 @@ async fn grant(
 /// `POST /admin/ui-plugins/{id}/disable`.
 async fn disable(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _ctx: AdminCtx,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    if let Err(resp) = require_admin(&state, &headers).await {
-        return resp;
-    }
     match state.store.set_ui_plugin_enabled(&id, false).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => store_error(&e),
@@ -550,12 +498,9 @@ async fn disable(
 /// `DELETE /admin/ui-plugins/{id}` — delete a plugin and its grants (idempotent).
 async fn remove(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _ctx: AdminCtx,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    if let Err(resp) = require_admin(&state, &headers).await {
-        return resp;
-    }
     match state.store.delete_ui_plugin(&id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => store_error(&e),

@@ -2,8 +2,8 @@
 //! management of the 0009 `sso_config` backends, mirroring the `directory`/`plugins`
 //! admin surfaces.
 //!
-//! `/admin/sso` — **admin-session-gated** (the `mw_admin_session` cookie, same gate
-//! as `/admin/plugins`); when the admin panel is disabled every route is `401`.
+//! `/admin/sso` — registered in `admin_router` (`sso.read` to list, `sso.write` to
+//! change); without an admin session, or with the panel disabled, every route is `401`.
 //!   * `GET /admin/sso?scope=` — list the backends in a scope (default `deployment`); the sealed secret is NEVER returned, only a `hasSecret` flag.
 //!   * `POST /admin/sso` — create/update a backend; the secret is SEALED at the store (`put_sso_config`), and omitting it on an update preserves the existing sealed secret.
 //!   * `DELETE /admin/sso/{id}` — delete a backend (idempotent).
@@ -13,65 +13,25 @@
 //! it manages.
 #![allow(dead_code)]
 
+use axum::Json;
 use axum::extract::{Path as UrlPath, Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get};
-use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
 
-use mw_admin::config::admin_route;
 use mw_sso::{ClaimMap, SsoConfig};
 
 use crate::AppState;
+use crate::admin_ctx::AdminCtx;
+use crate::admin_router::AdminRegistrar;
+use crate::capabilities::Capability;
 
-fn admin_cookie_name() -> String {
-    mw_admin::config::session_cookie_name()
-}
-
-/// The `/admin/sso` router (merged + admin-gated by `lib.rs`).
-pub(crate) fn admin_sso_router() -> Router<AppState> {
-    Router::new()
-        .route(&admin_route("/sso"), get(list).post(upsert))
-        .route(&admin_route("/sso/{id}"), delete(remove))
-}
-
-// ── admin session gate (mirrors admin.rs / plugins.rs) ───────────────────────
-
-fn unauthorized() -> Response {
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(json!({ "error": "admin authentication required" })),
-    )
-        .into_response()
-}
-
-fn admin_cookie(headers: &HeaderMap) -> Option<String> {
-    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
-    for part in raw.split(';') {
-        if let Some(v) = part
-            .trim()
-            .strip_prefix(&format!("{}=", admin_cookie_name()))
-            && !v.is_empty()
-        {
-            return Some(v.to_string());
-        }
-    }
-    None
-}
-
-/// Resolve the authenticated admin id, or a `401`. Enforces the `admin.enabled` gate.
-async fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<String, Response> {
-    if !state.v6.admin_enabled {
-        return Err(unauthorized());
-    }
-    let token = admin_cookie(headers).ok_or_else(unauthorized)?;
-    let hash = crate::push_relay::hash_token(&token);
-    match state.store.get_admin_session(&hash).await {
-        Ok(Some(admin_id)) => Ok(admin_id),
-        _ => Err(unauthorized()),
-    }
+/// The `/admin/sso` routes (registered by `admin_router`).
+pub(crate) fn register(r: &mut impl AdminRegistrar) {
+    r.admin_endpoint(Method::GET, "/sso", Capability::SsoRead, list);
+    r.admin_endpoint(Method::POST, "/sso", Capability::SsoWrite, upsert);
+    r.admin_endpoint(Method::DELETE, "/sso/{id}", Capability::SsoWrite, remove);
 }
 
 // ── handlers ─────────────────────────────────────────────────────────────────
@@ -87,12 +47,9 @@ struct ScopeQuery {
 /// returned; a `hasSecret` flag says whether one is sealed.
 async fn list(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _ctx: AdminCtx,
     Query(q): Query<ScopeQuery>,
 ) -> Response {
-    if let Err(resp) = require_admin(&state, &headers).await {
-        return resp;
-    }
     let scope = q.scope.as_deref().unwrap_or("deployment");
     let rows = match state.store.list_sso_config(scope).await {
         Ok(rows) => rows,
@@ -153,12 +110,9 @@ struct UpsertReq {
 /// secret at the store, and preserves an existing secret when none is supplied.
 async fn upsert(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _ctx: AdminCtx,
     Json(body): Json<UpsertReq>,
 ) -> Response {
-    if let Err(resp) = require_admin(&state, &headers).await {
-        return resp;
-    }
     // `kind` is derived from the (validated) config so the column can never disagree.
     let kind = body.config.kind().as_db().to_string();
     let scope = body.scope.unwrap_or_else(|| "deployment".to_string());
@@ -213,12 +167,9 @@ async fn upsert(
 /// `DELETE /admin/sso/{id}` — delete a backend (idempotent).
 async fn remove(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _ctx: AdminCtx,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    if let Err(resp) = require_admin(&state, &headers).await {
-        return resp;
-    }
     match state.store.delete_sso_config(&id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => {

@@ -29,6 +29,7 @@ use tokio::sync::broadcast;
 
 use mw_engine::StateChange;
 use mw_store::{PushSubscriptionRow, Store};
+use p256::elliptic_curve::zeroize::{Zeroize, Zeroizing};
 
 use crate::AppState;
 
@@ -42,10 +43,17 @@ const WAKE_MARKER: &[u8] = b"mw-wake";
 /// triggers a refetch.
 const WAKE_TTL: u32 = 2_419_200;
 
-/// The RFC 8188 record size written into the `aes128gcm` header. One record holds
-/// the whole payload, so a payload may be at most `RECORD_SIZE - 17` bytes (one
-/// delimiter byte and the 16-byte tag).
+/// The RFC 8188 record size written into the `aes128gcm` header. The whole payload
+/// goes in one record.
 const RECORD_SIZE: u32 = 4096;
+
+/// Largest push message body a push service must accept (RFC 8291 §4).
+const MAX_MESSAGE_BYTES: usize = 4096;
+
+/// Largest payload that fits one message: the body is the 86-byte header
+/// (salt 16, rs 4, idlen 1, key 65), then the payload, the 0x02 delimiter and
+/// the 16-byte tag.
+const MAX_WAKE_PAYLOAD: usize = MAX_MESSAGE_BYTES - 86 - 1 - 16;
 
 /// Lifetime of the VAPID JWT. RFC 8292 §2 caps `exp` at 24 hours after the
 /// request (push services refuse longer); 12 hours leaves room for clock skew.
@@ -152,14 +160,18 @@ pub(crate) async fn ensure_vapid(store: &Store) -> anyhow::Result<()> {
 /// Generate a P-256 VAPID keypair. Returns `(applicationServerKey, private scalar)`:
 /// the public key is the base64url (no-pad) of the uncompressed SEC1 point (what the
 /// browser passes to `pushManager.subscribe`); the private key is the raw 32-byte
-/// EC scalar (what [`vapid_authorization`] signs with), only ever stored SEALED.
-fn generate_vapid_keypair() -> anyhow::Result<(String, Vec<u8>)> {
+/// EC scalar (what [`vapid_authorization`] signs with), only ever stored SEALED,
+/// and wiped from memory when the returned buffer drops.
+fn generate_vapid_keypair() -> anyhow::Result<(String, Zeroizing<Vec<u8>>)> {
     use p256::elliptic_curve::sec1::ToSec1Point;
 
     let secret = random_p256_secret();
     let point = secret.public_key().to_sec1_point(false);
     let public_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(point.as_bytes());
-    Ok((public_b64, secret.to_bytes().to_vec()))
+    let mut raw: [u8; 32] = secret.to_bytes().into();
+    let private = Zeroizing::new(raw.to_vec());
+    raw.zeroize();
+    Ok((public_b64, private))
 }
 
 // ---------------------------------------------------------------------------
@@ -356,10 +368,11 @@ async fn dispatch_wakes(store: &Store, http: &reqwest::Client, change: &StateCha
     }
     // Load the sealed VAPID keypair once per change (only the WebPush transport
     // needs it). `None` before first-boot init — WebPush is skipped, others proceed.
-    let vapid = store.load_vapid_keypair().await.ok().flatten();
+    let vapid = vapid_for_dispatch(store.load_vapid_keypair().await.ok().flatten());
+    let vapid_private = vapid.as_ref().map(|(_, private)| private.as_slice());
     for sub in subs {
         let result = match sub.transport.as_str() {
-            "webpush" => send_webpush(http, &sub, vapid.as_ref()).await,
+            "webpush" => send_webpush(http, &sub, vapid_private).await,
             "unifiedpush" => send_unifiedpush(http, &sub).await,
             "apns" => send_apns_mock(&sub),
             other => {
@@ -375,9 +388,17 @@ async fn dispatch_wakes(store: &Store, http: &reqwest::Client, change: &StateCha
             Ok(_) => {
                 let _ = store.touch_push_wake(&sub.id, &now_rfc3339()).await;
             }
-            Err(e) => tracing::warn!("push send to {} failed: {e}", sub.endpoint),
+            // The subscription id, never the endpoint: endpoints are capability
+            // URLs, and send errors carry no URL (`without_url`).
+            Err(e) => tracing::warn!("push send for subscription {} failed: {e:#}", sub.id),
         }
     }
+}
+
+/// The loaded VAPID keypair with the private scalar in a buffer that is wiped
+/// when the dispatch of one change is done.
+fn vapid_for_dispatch(loaded: Option<(String, Vec<u8>)>) -> Option<(String, Zeroizing<Vec<u8>>)> {
+    loaded.map(|(public, private)| (public, Zeroizing::new(private)))
 }
 
 /// Send a VAPID-signed, RFC 8291-encrypted opaque wake to a Web Push endpoint.
@@ -387,9 +408,9 @@ async fn dispatch_wakes(store: &Store, http: &reqwest::Client, change: &StateCha
 async fn send_webpush(
     http: &reqwest::Client,
     sub: &PushSubscriptionRow,
-    vapid: Option<&(String, Vec<u8>)>,
+    vapid_private: Option<&[u8]>,
 ) -> anyhow::Result<u16> {
-    let Some((_public, private_scalar)) = vapid else {
+    let Some(private_scalar) = vapid_private else {
         anyhow::bail!("no VAPID keypair available");
     };
     let (Some(p256dh), Some(auth)) = (sub.p256dh.as_deref(), sub.auth.as_deref()) else {
@@ -411,7 +432,7 @@ async fn send_webpush(
     for (name, value) in parts.headers.iter() {
         req = req.header(name.clone(), value.clone());
     }
-    let resp = req.send().await?;
+    let resp = req.send().await.map_err(reqwest::Error::without_url)?;
     Ok(resp.status().as_u16())
 }
 
@@ -437,8 +458,9 @@ fn build_wake_request(
     let vapid_key =
         p256::SecretKey::from_slice(vapid_private).map_err(|e| anyhow!("VAPID key load: {e}"))?;
 
+    // A fresh salt and ephemeral key from the OS RNG for every message.
     let mut salt = [0u8; 16];
-    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut salt);
+    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut salt);
     let body = encrypt_aes128gcm(payload, &random_p256_secret(), &ua_public, &auth, &salt)?;
     let expires = chrono::Utc::now().timestamp() + VAPID_JWT_LIFETIME_SECS;
     let authorization = vapid_authorization(&vapid_key, &audience, contact, expires)?;
@@ -486,9 +508,12 @@ fn encrypt_aes128gcm(
     use hkdf::Hkdf;
     use p256::elliptic_curve::sec1::ToSec1Point;
 
-    // One record holds the payload, the delimiter byte and the 16-byte tag.
-    if payload.len() + 17 > RECORD_SIZE as usize {
-        anyhow::bail!("web push payload too large");
+    if payload.len() > MAX_WAKE_PAYLOAD {
+        anyhow::bail!(
+            "web push payload is {} bytes; at most {MAX_WAKE_PAYLOAD} fit in one \
+             {MAX_MESSAGE_BYTES}-byte push message",
+            payload.len()
+        );
     }
     let ua_point = ua_public.to_sec1_point(false);
     let as_point = as_secret.public_key().to_sec1_point(false);
@@ -499,24 +524,25 @@ fn encrypt_aes128gcm(
     key_info.extend_from_slice(b"WebPush: info\0");
     key_info.extend_from_slice(ua_point.as_bytes());
     key_info.extend_from_slice(as_point.as_bytes());
-    let mut ikm = [0u8; 32];
+    // Derived key material lives in buffers that are wiped on drop.
+    let mut ikm = Zeroizing::new([0u8; 32]);
     Hkdf::<Sha256>::new(Some(auth), shared.raw_secret_bytes().as_slice())
-        .expand(&key_info, &mut ikm)
+        .expand(&key_info, ikm.as_mut())
         .map_err(|e| anyhow!("hkdf: {e}"))?;
 
     // CEK and nonce from the record salt (RFC 8188 §2.2, §2.3).
-    let prk = Hkdf::<Sha256>::new(Some(salt), &ikm);
-    let mut cek = [0u8; 16];
-    prk.expand(b"Content-Encoding: aes128gcm\0", &mut cek)
+    let prk = Hkdf::<Sha256>::new(Some(salt), ikm.as_ref());
+    let mut cek = Zeroizing::new([0u8; 16]);
+    prk.expand(b"Content-Encoding: aes128gcm\0", cek.as_mut())
         .map_err(|e| anyhow!("hkdf: {e}"))?;
     let mut nonce = [0u8; 12];
     prk.expand(b"Content-Encoding: nonce\0", &mut nonce)
         .map_err(|e| anyhow!("hkdf: {e}"))?;
 
-    let mut record = Vec::with_capacity(payload.len() + 1);
+    let mut record = Zeroizing::new(Vec::with_capacity(payload.len() + 1));
     record.extend_from_slice(payload);
     record.push(0x02); // last-record delimiter, no padding
-    let sealed = aes_gcm::Aes128Gcm::new_from_slice(&cek)
+    let sealed = aes_gcm::Aes128Gcm::new_from_slice(cek.as_ref())
         .map_err(|e| anyhow!("aes-gcm key: {e}"))?
         .encrypt(&nonce.into(), record.as_slice())
         .map_err(|e| anyhow!("aes-gcm: {e}"))?;
@@ -555,14 +581,15 @@ fn vapid_authorization(
     ))
 }
 
-/// A uniformly random P-256 secret key from the thread CSPRNG.
+/// A uniformly random P-256 secret key from the OS RNG. `SecretKey` wipes itself
+/// on drop; the draw buffer is wiped here.
 fn random_p256_secret() -> p256::SecretKey {
     // A valid non-zero scalar < group order; retry on the (astronomically rare)
     // invalid draw rather than coupling to a specific RNG-crate version.
+    let mut bytes = Zeroizing::new([0u8; 32]);
     loop {
-        let mut bytes = [0u8; 32];
-        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
-        if let Ok(sk) = p256::SecretKey::from_slice(&bytes) {
+        rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, bytes.as_mut());
+        if let Ok(sk) = p256::SecretKey::from_slice(bytes.as_ref()) {
             return sk;
         }
     }
@@ -584,7 +611,12 @@ async fn send_unifiedpush(
     http: &reqwest::Client,
     sub: &PushSubscriptionRow,
 ) -> anyhow::Result<u16> {
-    let resp = http.post(&sub.endpoint).body(WAKE_MARKER).send().await?;
+    let resp = http
+        .post(&sub.endpoint)
+        .body(WAKE_MARKER)
+        .send()
+        .await
+        .map_err(reqwest::Error::without_url)?;
     Ok(resp.status().as_u16())
 }
 
@@ -594,8 +626,8 @@ async fn send_unifiedpush(
 /// here so the dispatcher path is exercised end-to-end without Apple infra.
 fn send_apns_mock(sub: &PushSubscriptionRow) -> anyhow::Result<u16> {
     tracing::info!(
-        "APNs opaque wake (mocked) for endpoint {} — no content transits push",
-        sub.endpoint
+        "APNs opaque wake (mocked) for subscription {} — no content transits push",
+        sub.id
     );
     Ok(200)
 }
@@ -603,8 +635,12 @@ fn send_apns_mock(sub: &PushSubscriptionRow) -> anyhow::Result<u16> {
 /// The VAPID `sub` claim (a contact URI push services use to reach the operator on
 /// delivery problems). From `MW_VAPID_CONTACT`, else a neutral default.
 fn vapid_contact() -> String {
-    std::env::var("MW_VAPID_CONTACT")
-        .ok()
+    vapid_contact_from(std::env::var("MW_VAPID_CONTACT").ok())
+}
+
+/// [`vapid_contact`] for a given `MW_VAPID_CONTACT` value.
+fn vapid_contact_from(value: Option<String>) -> String {
+    value
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "mailto:push@mailwoman.invalid".to_string())
 }
@@ -758,16 +794,6 @@ mod tests {
             )
         );
         assert_eq!(decrypt_wake(&body, &ua_secret, &auth), plaintext);
-    }
-
-    #[test]
-    fn encryption_refuses_a_payload_over_one_record() {
-        let ua_public = random_p256_secret().public_key();
-        let fits = vec![0u8; RECORD_SIZE as usize - 17];
-        let too_big = vec![0u8; RECORD_SIZE as usize - 16];
-        let k = random_p256_secret();
-        assert!(encrypt_aes128gcm(&fits, &k, &ua_public, &[0u8; 16], &[0u8; 16]).is_ok());
-        assert!(encrypt_aes128gcm(&too_big, &k, &ua_public, &[0u8; 16], &[0u8; 16]).is_err());
     }
 
     #[test]
@@ -994,5 +1020,317 @@ mod tests {
             .is_err()
         );
         assert!(build_wake_request("/relative", &ua_public, &a, &scalar, CONTACT, b"x").is_err());
+    }
+
+    // ── Coordinator conditions for the hand-built Web Push crypto (f25).
+
+    fn subscriber() -> (p256::SecretKey, p256::PublicKey) {
+        let secret = random_p256_secret();
+        let public = secret.public_key();
+        (secret, public)
+    }
+
+    #[test]
+    fn two_encryptions_of_the_same_body_differ() {
+        // Condition 1: a fresh ephemeral key and salt per message.
+        let (_, scalar) = generate_vapid_keypair().unwrap();
+        let (ua_secret, ua_public) = ua_keypair();
+        let build = || {
+            build_wake_request(
+                "https://push.example/sub/1",
+                &ua_public,
+                &auth_b64(4),
+                &scalar,
+                CONTACT,
+                WAKE_MARKER,
+            )
+            .unwrap()
+            .into_body()
+        };
+        let (a, b) = (build(), build());
+        assert_ne!(a[..16], b[..16], "salt");
+        assert_ne!(a[21..86], b[21..86], "ephemeral public key");
+        assert_ne!(a[86..], b[86..], "ciphertext");
+        assert_eq!(decrypt_wake(&a, &ua_secret, &[4u8; 16]), WAKE_MARKER);
+        assert_eq!(decrypt_wake(&b, &ua_secret, &[4u8; 16]), WAKE_MARKER);
+    }
+
+    #[test]
+    fn body_is_one_4096_record_with_the_0x02_delimiter_and_no_padding() {
+        // Condition 3: rs = 4096, keyid = the 65-byte ephemeral key, one record of
+        // payload + 0x02 + 16-byte tag (decrypt_wake checks the delimiter).
+        let (ua_secret, ua_public) = subscriber();
+        let body = encrypt_aes128gcm(
+            b"hello",
+            &random_p256_secret(),
+            &ua_public,
+            &[5u8; 16],
+            &[6u8; 16],
+        )
+        .unwrap();
+        assert_eq!(&body[..16], &[6u8; 16]);
+        assert_eq!(u32::from_be_bytes(body[16..20].try_into().unwrap()), 4096);
+        assert_eq!(body[20], 65);
+        assert_eq!(body[21], 0x04);
+        assert_eq!(body.len(), 86 + b"hello".len() + 1 + 16);
+        assert_eq!(decrypt_wake(&body, &ua_secret, &[5u8; 16]), b"hello");
+    }
+
+    #[test]
+    fn a_body_over_4096_bytes_is_refused_with_a_clear_error() {
+        // Condition 3: push services take at most 4096 bytes of message body
+        // (RFC 8291 §4): 86 header bytes + payload + 0x02 + 16-byte tag.
+        let (ua_secret, ua_public) = subscriber();
+        let k = random_p256_secret();
+        let largest = vec![7u8; 4096 - 86 - 17];
+        let body = encrypt_aes128gcm(&largest, &k, &ua_public, &[1u8; 16], &[2u8; 16]).unwrap();
+        assert_eq!(body.len(), 4096);
+        assert_eq!(decrypt_wake(&body, &ua_secret, &[1u8; 16]), largest);
+        let over = vec![7u8; largest.len() + 1];
+        let err = encrypt_aes128gcm(&over, &k, &ua_public, &[1u8; 16], &[2u8; 16])
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("4096"), "{err}");
+        assert!(err.contains(&over.len().to_string()), "{err}");
+    }
+
+    #[test]
+    fn vapid_signature_is_raw_r_s_not_der() {
+        // Condition 4: JWS ES256 is the 64-byte r ‖ s, not an ASN.1 DER sequence.
+        let (_, scalar) = generate_vapid_keypair().unwrap();
+        let (_, ua_public) = ua_keypair();
+        let req = build_wake_request(
+            "https://push.example/x",
+            &ua_public,
+            &auth_b64(8),
+            &scalar,
+            CONTACT,
+            WAKE_MARKER,
+        )
+        .unwrap();
+        let value = req.headers()[header::AUTHORIZATION].to_str().unwrap();
+        let token = value
+            .strip_prefix("vapid t=")
+            .unwrap()
+            .split(", k=")
+            .next()
+            .unwrap();
+        let sig = b64(token.rsplit('.').next().unwrap());
+        assert_eq!(sig.len(), 64);
+        assert!(p256::ecdsa::DerSignature::try_from(sig.as_slice()).is_err());
+    }
+
+    #[test]
+    fn vapid_authorization_header_has_the_rfc_8292_form() {
+        // Condition 4: `vapid t=<b64url>.<b64url>.<b64url>, k=<b64url 65-byte point>`,
+        // JWT header {"typ":"JWT","alg":"ES256"}, claims exactly aud, exp, sub.
+        let (vapid_public, scalar) = generate_vapid_keypair().unwrap();
+        let (_, ua_public) = ua_keypair();
+        let before = now_secs();
+        let req = build_wake_request(
+            "https://push.example:8443/x",
+            &ua_public,
+            &auth_b64(9),
+            &scalar,
+            CONTACT,
+            WAKE_MARKER,
+        )
+        .unwrap();
+        let after = now_secs();
+        let value = req.headers()[header::AUTHORIZATION].to_str().unwrap();
+        let rest = value
+            .strip_prefix("vapid t=")
+            .expect("starts with `vapid t=`");
+        let (token, key) = rest.split_once(", k=").expect("`, k=` separator");
+        let b64url = |s: &str| {
+            !s.is_empty()
+                && s.bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+        };
+        let parts: Vec<&str> = token.split('.').collect();
+        assert_eq!(parts.len(), 3, "{token}");
+        assert!(parts.iter().all(|p| b64url(p)), "{token}");
+        assert!(b64url(key), "{key}");
+        assert_eq!(key, vapid_public);
+        let point = b64(key);
+        assert_eq!((point.len(), point[0]), (65, 0x04));
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&b64(parts[0])).unwrap(),
+            json!({ "typ": "JWT", "alg": "ES256" })
+        );
+        let claims: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_slice(&b64(parts[1])).unwrap();
+        let mut names: Vec<&str> = claims.keys().map(String::as_str).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["aud", "exp", "sub"]);
+        assert_eq!(claims["aud"], "https://push.example:8443");
+        assert_eq!(claims["sub"], CONTACT);
+        // 12 h after the request.
+        let exp = claims["exp"].as_i64().unwrap();
+        assert!(
+            exp >= before + 12 * 3600 && exp <= after + 12 * 3600,
+            "{exp}"
+        );
+    }
+
+    #[test]
+    fn vapid_contact_is_unchanged() {
+        // Condition 4: `sub` is MW_VAPID_CONTACT, else the old neutral default.
+        assert_eq!(vapid_contact_from(None), "mailto:push@mailwoman.invalid");
+        assert_eq!(
+            vapid_contact_from(Some(String::new())),
+            "mailto:push@mailwoman.invalid"
+        );
+        assert_eq!(
+            vapid_contact_from(Some("mailto:ops@example.org".into())),
+            "mailto:ops@example.org"
+        );
+    }
+
+    #[test]
+    fn vapid_private_key_is_held_in_zeroizing_buffers() {
+        // Condition 5: the generated scalar and the one loaded for dispatch are
+        // `Zeroizing`, so they are wiped on drop (p256::SecretKey and SigningKey
+        // zeroize themselves).
+        let (_, scalar): (String, Zeroizing<Vec<u8>>) = generate_vapid_keypair().unwrap();
+        let loaded: Option<(String, Zeroizing<Vec<u8>>)> =
+            vapid_for_dispatch(Some(("pub".into(), scalar.to_vec())));
+        assert_eq!(loaded.unwrap().1.len(), 32);
+    }
+
+    #[tokio::test]
+    async fn send_errors_do_not_carry_the_endpoint_url() {
+        // Condition 5: endpoints are capability URLs; a failed send is logged, so
+        // its error must not contain the URL. The local listener closes every
+        // connection without answering.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((conn, _)) = listener.accept().await {
+                drop(conn);
+            }
+        });
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap();
+        let (_, scalar) = generate_vapid_keypair().unwrap();
+        let (_, ua_public) = ua_keypair();
+        let sub = |transport: &str| PushSubscriptionRow {
+            id: "sub-1".into(),
+            account_id: "acct".into(),
+            transport: transport.into(),
+            endpoint: format!("http://127.0.0.1:{port}/capability-secret-7f3a"),
+            p256dh: Some(ua_public.clone()),
+            auth: Some(auth_b64(1)),
+            app_id: None,
+            expires_at: None,
+            created_at: now_rfc3339(),
+            last_wake_at: None,
+        };
+        let errors = [
+            send_unifiedpush(&http, &sub("unifiedpush"))
+                .await
+                .unwrap_err(),
+            send_webpush(&http, &sub("webpush"), Some(scalar.as_slice()))
+                .await
+                .unwrap_err(),
+        ];
+        for e in errors {
+            let text = format!("{e:#}");
+            assert!(!text.contains("capability-secret-7f3a"), "{text}");
+            assert!(!text.contains(&format!("127.0.0.1:{port}")), "{text}");
+        }
+    }
+
+    #[test]
+    fn push_logs_name_no_endpoint_key_or_token() {
+        // Condition 5: no tracing call in this module formats an endpoint, a key,
+        // the JWT or the Authorization header (message text may name them).
+        let src = include_str!("push_relay.rs");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        let mut rest = code;
+        while let Some(at) = rest.find("tracing::") {
+            let call = tracing_call(&rest[at..]);
+            let values = formatted_values(call).to_ascii_lowercase();
+            for word in [
+                "endpoint",
+                "scalar",
+                "private",
+                "authorization",
+                "token",
+                "jwt",
+                "p256dh",
+                "auth",
+            ] {
+                assert!(
+                    !values.contains(word),
+                    "tracing call formats `{word}`: {call}"
+                );
+            }
+            rest = &rest[at + call.len()..];
+        }
+    }
+
+    // A tracing macro can end a match arm with a comma, without a semicolon.
+    // Stop at its matching parenthesis so nearby code/comments are not treated
+    // as values included in the log message.
+    fn tracing_call(source: &str) -> &str {
+        let start = source.find('(').expect("tracing macro arguments");
+        let (mut depth, mut quoted, mut escaped) = (0usize, false, false);
+        for (offset, ch) in source[start..].char_indices() {
+            if quoted {
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == '"' {
+                    quoted = false;
+                }
+                continue;
+            }
+            match ch {
+                '"' => quoted = true,
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &source[..start + offset + 1];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("unterminated tracing macro")
+    }
+
+    #[test]
+    fn tracing_scanner_stops_at_match_arm_and_keeps_nested_values() {
+        let call = r#"tracing::warn!("failed ({})", failure.kind()), next => endpoint(secret);"#;
+        assert_eq!(tracing_call(call), r#"tracing::warn!("failed ({})", failure.kind())"#);
+        let sensitive = r#"tracing::warn!("failed: {}", endpoint(secret)),"#;
+        assert!(formatted_values(tracing_call(sensitive)).contains("endpoint(secret)"));
+    }
+
+    /// `call` with string-literal text blanked, keeping `{…}` captures inside
+    /// literals and everything outside them: the values the call formats.
+    fn formatted_values(call: &str) -> String {
+        let (mut out, mut in_str, mut in_capture) = (String::new(), false, false);
+        for ch in call.chars() {
+            match (in_str, ch) {
+                (false, '"') => in_str = true,
+                (true, '"') => in_str = false,
+                (true, '{') => in_capture = true,
+                (true, '}') => {
+                    in_capture = false;
+                    out.push(' ');
+                }
+                (true, c) if in_capture => out.push(c),
+                (true, _) => {}
+                (false, c) => out.push(c),
+            }
+        }
+        out
     }
 }

@@ -81,6 +81,24 @@ fn endpoints(r: &mut impl AdminRegistrar) {
     r.admin_endpoint(Method::GET, "/capabilities", Access::SignedIn, capabilities);
     // f01 (e10b): the settings model C (`/settings/**`).
     crate::settings_routes::register(r);
+    // f02 (e24c): sign-in, the admin's own profile, admin accounts and roles.
+    crate::admin_accounts::register(r);
+    crate::step_up::register(r);
+    crate::security_center::register_admin(r);
+    crate::admin_roles::register(r);
+    // f02 (e24b): the routes that had their own session helpers.
+    crate::admin::register(r);
+    crate::domain_routes::register(r);
+    crate::domain_probe::register(r);
+    crate::http_metrics::register(r);
+    crate::admin_sso::register(r);
+    crate::admin_maintenance::register(r);
+    crate::oauth::register_admin(r);
+    crate::plugins::register_admin(r);
+    crate::twofa_routes::register_admin(r);
+    crate::ui_plugins::register_admin(r);
+    crate::v7_mount::register_admin(r);
+    crate::webhooks::register_admin(r);
 }
 
 /// The mounted admin routes (merged by `router()` in `lib.rs`).
