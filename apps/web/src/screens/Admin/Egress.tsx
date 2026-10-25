@@ -48,6 +48,7 @@
 
 import { createSignal, For, onMount, Show, type JSX } from 'solid-js';
 import { basePath } from '../../api/basePath.ts';
+import { adminUrl } from '../../api/adminPath.ts';
 import { apiFetch } from '../../api/http.ts';
 import { t } from '../../i18n/index.ts';
 import * as a11y from '../../components/mailA11y.css.ts';
@@ -170,7 +171,7 @@ export interface EgressAdminApi {
 
 /** The production client. Same-origin, cookie-authed against the admin domain. */
 export function createHttpEgressAdminApi(base = basePath()): EgressAdminApi {
-  const root = `${base}/admin/egress/proxies`;
+  const root = adminUrl('/egress/proxies', base);
   async function send(url: string, body?: unknown): Promise<Response> {
     const init: RequestInit = { method: 'POST', credentials: 'same-origin' };
     if (body !== undefined) {
