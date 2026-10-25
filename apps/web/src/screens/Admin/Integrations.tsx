@@ -15,9 +15,11 @@
 // in `crates/mw-server/src/oauth.rs`). Approving and withdrawing each go through
 // a confirmation dialog that names the key, its owner and its scope.
 
-import { createSignal, For, Show, onMount, type JSX } from 'solid-js';
+import { createSignal, For, Show, onMount, useContext, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import { AdminApiError, type ApiKeyInfo, type IntegrationsConfig } from '../../state/slices/admin.ts';
+import { DirectoryIntegration } from './DirectoryIntegration.tsx';
+import { ShellContext } from './shell/context.ts';
 import { Webhooks } from './Webhooks.tsx';
 import { createFocusTrap } from '../../components/a11y';
 import { modalOverlay } from '../../components/modalOverlay.css.ts';
@@ -92,6 +94,7 @@ interface PendingUnattended {
 }
 
 export function Integrations(): JSX.Element {
+  const shell = useContext(ShellContext);
   const { api } = useAdmin();
   const [integrations, setIntegrations] = createSignal<IntegrationsConfig>(UNKNOWN_INTEGRATIONS);
   const [keys, setKeys] = createSignal<ApiKeyInfo[]>([]);
@@ -193,6 +196,7 @@ export function Integrations(): JSX.Element {
         <p class={css.note}>{t('admin-integrations-config-note')}</p>
       </div>
 
+      <Show when={shell?.can.can('integrations.read')}><DirectoryIntegration canWrite={shell?.can.can('integrations.write') ?? false} /></Show>
       <Webhooks />
 
       <div class={css.card}>

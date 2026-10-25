@@ -93,6 +93,7 @@ fn endpoints(r: &mut impl AdminRegistrar) {
     crate::admin::register(r);
     crate::domain_routes::register(r);
     crate::domain_probe::register(r);
+    crate::integration_directory::register(r);
     crate::http_metrics::register(r);
     crate::admin_sso::register(r);
     crate::admin_maintenance::register(r);

@@ -139,6 +139,7 @@ pub mod domain_cli;
 mod domain_upgrade;
 pub mod domain_transport;
 pub mod domain_probe;
+mod integration_directory;
 mod client_config;
 mod remote_policy;
 mod domain_routes;

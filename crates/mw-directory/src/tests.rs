@@ -286,6 +286,7 @@ fn mk(
         options,
         cache,
         runtimes,
+        revision: None,
     }
 }
 

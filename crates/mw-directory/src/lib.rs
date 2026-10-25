@@ -145,6 +145,11 @@ impl Default for DirectoryOptions {
 /// `mw-cache::GalDirectory`.
 #[async_trait]
 pub trait DirectorySource: Send + Sync {
+    /// Opaque startup configuration revision for truthful restart diagnostics.
+    fn configuration_revision(&self) -> Option<&str> {
+        None
+    }
+
     /// GAL search across every recipient field; `page` is a 0-based page index.
     async fn search_gal(&self, query: &str, page: u32) -> Result<Vec<GalEntry>>;
     /// Expand a distribution group DN to its members (recursively upstream).
@@ -167,12 +172,20 @@ struct EndpointRuntime {
     service_bind_pw: Option<String>,
 }
 
+/// A deployment-owned connector that enforces outbound policy before opening LDAP.
+/// The original endpoint URL is still used by ldap3 for TLS hostname validation.
+#[async_trait]
+pub trait DirectoryConnector: Send + Sync {
+    async fn connect(&self, url: &str) -> Result<std::net::TcpStream>;
+}
+
 /// The concrete multi-directory client (plan §2.2).
 pub struct Directory {
     config: DirectoryConfig,
     options: DirectoryOptions,
     cache: Option<Cache>,
     runtimes: Vec<EndpointRuntime>,
+    revision: Option<String>,
 }
 
 impl Directory {
@@ -205,6 +218,7 @@ impl Directory {
             options,
             cache,
             runtimes,
+            revision: None,
         }
     }
 
@@ -216,6 +230,34 @@ impl Directory {
         let password = password.into();
         for rt in &mut self.runtimes {
             if rt.endpoint.bind_dn.as_deref() == Some(bind_dn) {
+                rt.service_bind_pw = Some(password.clone());
+            }
+        }
+        self
+    }
+
+    pub fn with_configuration_revision(mut self, revision: String) -> Self {
+        self.revision = Some(revision);
+        self
+    }
+
+    /// Attach a guarded connector to exactly one URL (all matching endpoint rows).
+    pub fn with_connector(mut self, url: &str, connector: Arc<dyn DirectoryConnector>) -> Self {
+        for rt in &mut self.runtimes {
+            if rt.endpoint.url == url {
+                rt.backend = Arc::new(Ldap3Backend::with_connector(
+                    &rt.endpoint,
+                    connector.clone(),
+                ));
+            }
+        }
+        self
+    }
+
+    /// Inject one endpoint credential without sharing it with another server using the same DN.
+    pub fn with_endpoint_password(mut self, url: &str, bind_dn: &str, password: String) -> Self {
+        for rt in &mut self.runtimes {
+            if rt.endpoint.url == url && rt.endpoint.bind_dn.as_deref() == Some(bind_dn) {
                 rt.service_bind_pw = Some(password.clone());
             }
         }
@@ -405,6 +447,10 @@ impl Directory {
 
 #[async_trait]
 impl DirectorySource for Directory {
+    fn configuration_revision(&self) -> Option<&str> {
+        self.revision.as_deref()
+    }
+
     async fn search_gal(&self, query: &str, page: u32) -> Result<Vec<GalEntry>> {
         if self.runtimes.is_empty() {
             return Err(DirectoryError::NotConfigured);

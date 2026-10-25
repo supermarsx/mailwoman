@@ -31,7 +31,7 @@ use mw_assist::{
     AdapterConfig, AssistAudit, AssistAuditSink, AssistCapability, AssistConfig, AssistError,
     AssistGateway, ChatPayload, ChatStream, DataScope, EndpointAdapter,
 };
-use mw_directory::{AttrMap, Directory, DirectoryConfig, LdapEndpoint, LdapTls};
+use mw_directory::Directory;
 use mw_passwd::{
     Ctx, DovecotConfig, DovecotHttp, Ldap3062, LdapExopTransport, Local, LocalCredentialStore,
     PasswordChangeBackend, PasswordPolicy, Poppassd, PoppassdConfig, Result as PwResult, Secret,
@@ -481,29 +481,7 @@ pub(crate) fn host_services(store: &Store) -> HostServices {
 /// all-disabled config yields a directory whose lookups return `NotConfigured` (⇒ the
 /// routes 501 and the engine GAL resolver returns empty — byte-unchanged non-GAL path).
 pub(crate) async fn build_directory(store: &Store) -> Arc<Directory> {
-    let rows = store.list_directory_config().await.unwrap_or_default();
-    let endpoints: Vec<LdapEndpoint> = rows
-        .iter()
-        .filter(|r| r.enabled)
-        .map(|r| LdapEndpoint {
-            url: r.url.clone(),
-            base_dn: r.base_dn.clone(),
-            bind_dn: r.bind_dn.clone(),
-            tls: match r.tls.as_str() {
-                "ldaps" => LdapTls::Ldaps,
-                "starttls" => LdapTls::StartTls,
-                _ => LdapTls::None,
-            },
-            priority: r.priority as i32,
-            attr_map: serde_json::from_str::<AttrMap>(&r.attr_map_json).unwrap_or_default(),
-        })
-        .collect();
-    let mut dir = Directory::new(DirectoryConfig { endpoints });
-    // Optional sealed/env service-bind password (0008 has no password column).
-    if let (Some(bind_dn), Some(pw)) = (env("MW_DIRECTORY_BIND_DN"), env("MW_DIRECTORY_BIND_PW")) {
-        dir = dir.with_service_password(&bind_dn, pw);
-    }
-    Arc::new(dir)
+    crate::integration_directory::build_directory(store).await
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

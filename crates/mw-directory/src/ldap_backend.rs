@@ -195,6 +195,7 @@ pub(crate) fn to_gal(raw: &RawEntry, map: &AttrMap) -> Option<crate::GalEntry> {
 pub(crate) struct Ldap3Backend {
     url: String,
     plan: TlsPlan,
+    connector: Option<std::sync::Arc<dyn crate::DirectoryConnector>>,
 }
 
 impl Ldap3Backend {
@@ -202,11 +203,27 @@ impl Ldap3Backend {
         Self {
             url: ep.url.clone(),
             plan: tls_plan(ep),
+            connector: None,
+        }
+    }
+
+    pub(crate) fn with_connector(
+        ep: &LdapEndpoint,
+        connector: std::sync::Arc<dyn crate::DirectoryConnector>,
+    ) -> Self {
+        Self {
+            url: ep.url.clone(),
+            plan: tls_plan(ep),
+            connector: Some(connector),
         }
     }
 
     async fn connect(&self) -> Result<ldap3::Ldap> {
-        let settings = ldap3::LdapConnSettings::new().set_starttls(self.plan.starttls);
+        let mut settings = ldap3::LdapConnSettings::new().set_starttls(self.plan.starttls);
+        if let Some(connector) = &self.connector {
+            settings =
+                settings.set_std_stream(ldap3::StdStream::Tcp(connector.connect(&self.url).await?));
+        }
         let (conn, ldap) = ldap3::LdapConnAsync::with_settings(settings, &self.url)
             .await
             .map_err(|e| DirectoryError::Transport(e.to_string()))?;
@@ -269,6 +286,11 @@ impl LdapBackend for Ldap3Backend {
     }
 
     async fn bind(&self, dn: &str, password: &str) -> Result<bool> {
+        if self.connector.is_some() && !self.plan.ldaps && !self.plan.starttls {
+            return Err(DirectoryError::Auth(
+                "LDAP authentication requires TLS".into(),
+            ));
+        }
         let mut ldap = self.connect().await?;
         let res = ldap
             .simple_bind(dn, password)

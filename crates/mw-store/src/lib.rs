@@ -42,6 +42,8 @@ mod v7;
 // V7 (0008) admin-config persistence (t7-e14 MOUNT): directory/plugins/assist
 // config rows + the content-free assist audit sink.
 mod v7_config;
+mod directory_admin;
+pub use directory_admin::{DirectoryAdminRow, DirectoryAdminWrite, DirectoryPasswordChange};
 // V8 (0009) SSO config + content-free login-audit persistence (t9-e0). New `Store`
 // methods over the sso_config/sso_login_audit tables; sealed secret column.
 mod sso;
