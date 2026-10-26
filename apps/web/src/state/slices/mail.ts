@@ -241,7 +241,7 @@ export interface MailSlice {
   // ── V2 message mutations (each with a 10s undo) ──
   applyTag(id: Id, keyword: string): Promise<void>;
   removeTag(id: Id, keyword: string): Promise<void>;
-  tagMessages(ids: readonly Id[], keyword: string, on: boolean): Promise<void>;
+  tagMessages(ids: readonly Id[], keyword: string, on: boolean, displayName?: string): Promise<void>;
   pinMessage(id: Id, pinned: boolean): Promise<void>;
   snoozeMessage(id: Id, untilIso: string): Promise<void>;
   unsnoozeMessage(id: Id): Promise<void>;
@@ -829,9 +829,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   // ── tags ─────────────────────────────────────────────────────────────────
-  async function tagMessages(ids: readonly Id[],keyword:string,on:boolean):Promise<void> {
+  async function tagMessages(ids: readonly Id[],keyword:string,on:boolean,displayName=keyword):Promise<void> {
     if(!/^[a-zA-Z0-9_-]{1,255}$/.test(keyword))return;
-    await markWithUndo(ids,keyword,on,count=>t(on?'mail-toast-labels-added':'mail-toast-labels-removed',{count,label:keyword}));
+    await markWithUndo(ids,keyword,on,count=>t(on?'mail-toast-labels-added':'mail-toast-labels-removed',{count,label:isolate(toastTarget(displayName,keyword))}));
   }
   async function applyTag(id: Id, keyword: string): Promise<void> {
     await rawKeyword(id, keyword, true);

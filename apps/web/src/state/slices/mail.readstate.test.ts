@@ -258,7 +258,8 @@ describe('bulk actions are one request', () => {
   it('labels a selection in one request, preserves existing labels on undo and reports partial refusal',async()=>{
     await withSlice([msg('a'),msg('b',{keywords:{work:true}}),msg('c')],async(mail,server,toast)=>{
       server.refuse.add('c');server.jmap.mockClear();
-      await mail.tagMessages(['a','b','c'],'work',true);
+      await mail.tagMessages(['a','b','c'],'work',true,'Trabalho');
+      expect(mail.pendingUndo()?.label).toContain('Trabalho');
       expect(server.sets()).toEqual([{a:{'keywords/work':true},c:{'keywords/work':true}}]);
       expect(server.stored('a').keywords?.work).toBe(true);expect(server.stored('b').keywords?.work).toBe(true);expect(server.stored('c').keywords?.work).not.toBe(true);
       expect(toast).toHaveBeenCalledWith('error','The server refused the change for one message');
