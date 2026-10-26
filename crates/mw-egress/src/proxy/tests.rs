@@ -37,6 +37,7 @@ async fn hop(
     accept: &str,
 ) -> (bool, Result<Hop, ProxyRefusal>) {
     let out = Outgoing {
+        authorized_api: None,
         authorized_dav: None,
         web_push: None,
         accept,

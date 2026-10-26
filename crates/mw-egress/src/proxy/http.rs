@@ -60,6 +60,7 @@ where
         stream,
         url,
         &Outgoing {
+            authorized_api: None,
             authorized_dav: None,
             web_push: None,
             accept,
@@ -140,7 +141,23 @@ async fn exchange_inner(
     } else {
         builder
     };
-    let request = if let Some(dav) = out.authorized_dav {
+    let request = if let Some(api) = out.authorized_api {
+        api.validate_target(url).map_err(ProxyRefusal::Origin)?;
+        if out.authorized_dav.is_some() || out.web_push.is_some() {
+            return Err(ProxyRefusal::Origin(Refusal::BadRequest(
+                "mixed authorization refused",
+            )));
+        }
+        let builder = builder
+            .method(api.method.as_str())
+            .header("as-api-key", api.key);
+        match out.body {
+            None => builder.body(Either::Left(Empty::<Bytes>::new())),
+            Some(body) => builder
+                .header(header::CONTENT_TYPE, body.content_type)
+                .body(Either::Right(Full::new(Bytes::copy_from_slice(body.bytes)))),
+        }
+    } else if let Some(dav) = out.authorized_dav {
         dav.validate().map_err(ProxyRefusal::Origin)?;
         let mut builder = builder
             .method(dav.method.as_str())
@@ -231,6 +248,80 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn package_api_sends_only_fixed_secret_header_over_verified_test_tls() {
+        use rustls_pki_types::{PrivatePkcs8KeyDer, ServerName};
+        use std::sync::Arc;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let cert = rcgen::generate_simple_self_signed(vec!["api.aftership.com".into()]).unwrap();
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let server = rustls::ServerConfig::builder_with_provider(provider.clone())
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![cert.cert.der().clone()],
+                PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der()).into(),
+            )
+            .unwrap();
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(cert.cert.der().clone()).unwrap();
+        let client = rustls::ClientConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        let (a, b) = tokio::io::duplex(16384);
+        let receiver = tokio::spawn(async move {
+            let mut stream = tokio_rustls::TlsAcceptor::from(Arc::new(server))
+                .accept(b)
+                .await
+                .unwrap();
+            let mut bytes = vec![];
+            while !bytes.ends_with(b"\r\n\r\n") {
+                bytes.push(stream.read_u8().await.unwrap());
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+                .await
+                .unwrap();
+            String::from_utf8(bytes).unwrap()
+        });
+        let stream = tokio_rustls::TlsConnector::from(Arc::new(client))
+            .connect(ServerName::try_from("api.aftership.com").unwrap(), a)
+            .await
+            .unwrap();
+        let out = Outgoing {
+            authorized_api: Some(crate::AuthorizedApi {
+                method: crate::ApiMethod::Delete,
+                key: "fixture-key",
+            }),
+            authorized_dav: None,
+            web_push: None,
+            response_limit: 1024,
+            accept: "application/json",
+            user_agent: PROXY_UA,
+            body: None,
+        };
+        assert!(matches!(
+            exchange_with(
+                stream,
+                &url("https://api.aftership.com/tracking/2026-07/trackings/id"),
+                &out
+            )
+            .await
+            .unwrap(),
+            Hop::Body(_)
+        ));
+        let request = receiver.await.unwrap().to_ascii_lowercase();
+        assert!(request.starts_with("delete /tracking/2026-07/trackings/id http/1.1"));
+        assert!(request.contains("as-api-key: fixture-key\r\n"));
+        assert!(
+            !request.contains("authorization:")
+                && !request.contains("cookie:")
+                && !request.contains("referer:")
+        );
+    }
+    #[tokio::test]
     async fn caller_limit_rejects_declared_and_streamed_tunnel_bodies() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         for reply in [
@@ -254,6 +345,7 @@ mod tests {
                 client,
                 &url("http://example.test/image"),
                 &Outgoing {
+                    authorized_api: None,
                     authorized_dav: None,
                     web_push: None,
                     accept: "*/*",

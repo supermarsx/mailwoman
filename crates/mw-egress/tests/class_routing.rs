@@ -448,7 +448,12 @@ async fn the_allowlist_admits_its_class_on_the_direct_arm_and_nothing_else() {
             continue;
         }
         let r = plan::send_with(&plan, target.clone(), &Request::get(c)).await;
-        assert_eq!(r.outcome.unwrap_err(), Refusal::Blocked, "{c}");
+        let expected = if matches!(c, TrafficClass::Push | TrafficClass::PackageTracking) {
+            Refusal::BadRequest("this traffic class requires HTTPS")
+        } else {
+            Refusal::Blocked
+        };
+        assert_eq!(r.outcome.unwrap_err(), expected, "{c}");
     }
     assert_eq!(
         hits.load(Ordering::SeqCst),

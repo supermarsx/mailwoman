@@ -27,6 +27,8 @@ use std::fmt;
 /// `egress_proxy.traffic_classes_json` and `egress_internal_allow.traffic_class`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TrafficClass {
+    /// Explicitly enabled fixed-provider parcel tracking; public destinations only.
+    PackageTracking,
     /// Public HTTPS Web Push and UnifiedPush endpoints supplied by clients.
     Push,
     /// Remote images and remote linked files in mail, fetched by the privacy proxy.
@@ -65,7 +67,8 @@ pub const CLASS_UA: &str = "Mailwoman";
 
 impl TrafficClass {
     /// Every class, in declaration order.
-    pub const ALL: [TrafficClass; 15] = [
+    pub const ALL: [TrafficClass; 16] = [
+        TrafficClass::PackageTracking,
         TrafficClass::Push,
         TrafficClass::RemoteContent,
         TrafficClass::IcsFeeds,
@@ -92,6 +95,7 @@ impl TrafficClass {
     /// The storage and wire spelling.
     pub const fn as_str(self) -> &'static str {
         match self {
+            TrafficClass::PackageTracking => "package_tracking",
             TrafficClass::Push => "push",
             TrafficClass::RemoteContent => "remote_content",
             TrafficClass::IcsFeeds => "ics_feeds",
@@ -176,6 +180,8 @@ mod tests {
         assert_eq!(
             names,
             [
+                "package_tracking",
+                "push",
                 "remote_content",
                 "ics_feeds",
                 "keyservers",

@@ -460,6 +460,9 @@ async fn hop_with(
     out: &Outgoing<'_>,
     traversed: &Arc<AtomicBool>,
 ) -> TypedHop {
+    if let Some(api) = out.authorized_api {
+        api.validate_target(url).map_err(ProxyRefusal::Origin)?;
+    }
     let is_https = url.scheme() == "https";
     if !is_https && !route.allow_plaintext {
         return Err(ProxyRefusal::PlaintextRefused);
@@ -559,6 +562,7 @@ pub async fn tunnel_fetch_hop(target: &Target, route: &ProxyRoute, accept: &str)
         target,
         route,
         &Outgoing {
+            authorized_api: None,
             authorized_dav: None,
             web_push: None,
             accept,
@@ -650,6 +654,7 @@ pub async fn fetch_via_proxy(start: reqwest::Url, route: &ProxyRoute, accept: &s
         start,
         route,
         &Outgoing {
+            authorized_api: None,
             authorized_dav: None,
             web_push: None,
             accept,
@@ -684,6 +689,20 @@ async fn send_via_proxy_with(
     route: &ProxyRoute,
     out: &Outgoing<'_>,
 ) -> ProxyFetch {
+    if let Some(api) = out.authorized_api {
+        let refused = api.validate_target(&start).err().or_else(|| {
+            (route.scheme == ProxyScheme::Socks5h).then_some(Refusal::BadRequest(
+                "package API requires local DNS verification",
+            ))
+        });
+        if let Some(error) = refused {
+            return ProxyFetch {
+                traversed_proxy: false,
+                content_type: None,
+                outcome: Err(ProxyRefusal::Origin(error)),
+            };
+        }
+    }
     let mut url = start;
     let mut traversed_proxy = false;
     for _ in 0..=MAX_REDIRECTS {
@@ -711,7 +730,11 @@ async fn send_via_proxy_with(
                     outcome: Ok(bytes),
                 };
             }
-            Ok(Hop::Redirect(_)) if out.body.is_some() || out.authorized_dav.is_some() => {
+            Ok(Hop::Redirect(_))
+                if out.body.is_some()
+                    || out.authorized_dav.is_some()
+                    || out.authorized_api.is_some() =>
+            {
                 return ProxyFetch {
                     traversed_proxy,
                     content_type: None,

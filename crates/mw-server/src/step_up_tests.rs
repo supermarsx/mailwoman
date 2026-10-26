@@ -115,6 +115,7 @@ async fn spawn() -> Server {
 
 fn client() -> reqwest::Client {
     reqwest::Client::builder()
+        .no_proxy()
         .cookie_store(true)
         .build()
         .unwrap()

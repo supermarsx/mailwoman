@@ -618,3 +618,5 @@ admin-obs-ban-invalid-expiry = Choose a future expiry or leave it empty.
 admin-obs-ban-status = Status and expiry
 admin-obs-ban-search = Search IP bans
 admin-obs-ban-active-only = Active bans only
+
+admin-egress-class-package_tracking = Optional package tracking provider

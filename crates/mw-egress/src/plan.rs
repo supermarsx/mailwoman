@@ -252,6 +252,7 @@ pub fn current() -> Option<Arc<EgressPlan>> {
 /// One class request, apart from its URL.
 #[derive(Debug, Clone, Copy)]
 pub struct Request<'a> {
+    authorized_api: Option<crate::AuthorizedApi<'a>>,
     web_push: Option<crate::WebPushHeaders<'a>>,
     authorized_dav: Option<crate::AuthorizedDav<'a>>,
     class: TrafficClass,
@@ -267,6 +268,7 @@ impl<'a> Request<'a> {
     /// `User-Agent` and no account.
     pub fn get(class: TrafficClass) -> Request<'a> {
         Request {
+            authorized_api: None,
             authorized_dav: None,
             web_push: None,
             class,
@@ -303,6 +305,30 @@ impl<'a> Request<'a> {
         })
     }
 
+    /// Fixed AfterShip API credential; only HTTPS on the approved versioned origin.
+    pub fn package_api(
+        method: crate::ApiMethod,
+        key: &'a str,
+        body: Option<OutBody<'a>>,
+    ) -> Result<Self, Refusal> {
+        let auth = crate::AuthorizedApi { method, key };
+        auth.validate()?;
+        if body.is_some_and(|b| b.bytes.len() > 1024 * 1024 || b.content_type != "application/json")
+        {
+            return Err(Refusal::BadRequest("invalid package API body"));
+        }
+        if method != crate::ApiMethod::Post && body.is_some() {
+            return Err(Refusal::BadRequest("package API body requires POST"));
+        }
+        Ok(Self {
+            authorized_api: Some(auth),
+            body,
+            ..Self::get(TrafficClass::PackageTracking)
+                .accept("application/json")
+                .response_limit(1024 * 1024)
+        })
+    }
+
     /// Credential-bearing DAV/OCS requests never follow redirects or retry auth.
     pub fn dav(auth: crate::AuthorizedDav<'a>, body: Option<OutBody<'a>>) -> Result<Self, Refusal> {
         auth.validate()?;
@@ -332,7 +358,11 @@ impl<'a> Request<'a> {
 
     /// Lower the response cap for every hop, including tunneled requests.
     pub fn response_limit(mut self, bytes: usize) -> Request<'a> {
-        self.response_limit = bytes.min(crate::MAX_IMAGE_BYTES);
+        self.response_limit = bytes.min(if self.authorized_api.is_some() {
+            1024 * 1024
+        } else {
+            crate::MAX_IMAGE_BYTES
+        });
         self
     }
 
@@ -349,6 +379,7 @@ impl<'a> Request<'a> {
 
     fn outgoing(&self) -> Outgoing<'a> {
         Outgoing {
+            authorized_api: self.authorized_api,
             authorized_dav: self.authorized_dav,
             web_push: self.web_push,
             accept: self.accept,
@@ -399,8 +430,10 @@ pub async fn fetch_class(
 /// picks, fail-closed, or directly under the class's address policy.
 pub async fn send_with(plan: &EgressPlan, url: reqwest::Url, req: &Request<'_>) -> RoutedFetch {
     let started = Instant::now();
-    if req.class == TrafficClass::Push && url.scheme() != "https" {
-        let outcome = Err(Refusal::BadRequest("push endpoints require HTTPS"));
+    if let Some(api) = req.authorized_api
+        && let Err(error) = api.validate_target(&url)
+    {
+        let outcome = Err(error);
         record(req.class, &outcome, started);
         return RoutedFetch {
             traversed_proxy: false,
@@ -408,13 +441,28 @@ pub async fn send_with(plan: &EgressPlan, url: reqwest::Url, req: &Request<'_>) 
             outcome,
         };
     }
-    if req.class == TrafficClass::Push
-        && plan
-            .selected_route(req.class, req.domain)
-            .is_some_and(|route| route.scheme == proxy::ProxyScheme::Socks5h)
+    if matches!(
+        req.class,
+        TrafficClass::Push | TrafficClass::PackageTracking
+    ) && url.scheme() != "https"
+    {
+        let outcome = Err(Refusal::BadRequest("this traffic class requires HTTPS"));
+        record(req.class, &outcome, started);
+        return RoutedFetch {
+            traversed_proxy: false,
+            content_type: None,
+            outcome,
+        };
+    }
+    if matches!(
+        req.class,
+        TrafficClass::Push | TrafficClass::PackageTracking
+    ) && plan
+        .selected_route(req.class, req.domain)
+        .is_some_and(|route| route.scheme == proxy::ProxyScheme::Socks5h)
     {
         let outcome = Err(Refusal::BadRequest(
-            "push requires locally verified destination addresses",
+            "this traffic class requires locally verified destination addresses",
         ));
         record(req.class, &outcome, started);
         return RoutedFetch {
@@ -467,7 +515,11 @@ async fn send_direct(
         let target = resolve_gated(url.clone(), gate).await?;
         match send_hop_typed(&target, out).await? {
             (Hop::Body(bytes), content_type) => return Ok((bytes, content_type)),
-            (Hop::Redirect(_), _) if out.body.is_some() || out.authorized_dav.is_some() => {
+            (Hop::Redirect(_), _)
+                if out.body.is_some()
+                    || out.authorized_dav.is_some()
+                    || out.authorized_api.is_some() =>
+            {
                 return Err(Refusal::Upstream);
             }
             (Hop::Redirect(loc), _) => url = url.join(&loc).map_err(|_| Refusal::Upstream)?,
@@ -577,6 +629,14 @@ mod tests {
         }
     }
 
+    #[test]
+    fn package_response_limit_cannot_be_raised_by_later_builder_calls() {
+        let req = Request::package_api(crate::ApiMethod::Get, "fixture-key", None)
+            .unwrap()
+            .response_limit(usize::MAX);
+        assert_eq!(req.response_limit, 1024 * 1024);
+        assert_eq!(req.class(), TrafficClass::PackageTracking);
+    }
     #[test]
     fn scope_spellings_round_trip_and_refuse_junk() {
         assert_eq!(RouteScope::parse("global"), Some(RouteScope::Global));

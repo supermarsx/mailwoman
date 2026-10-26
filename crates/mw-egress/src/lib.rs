@@ -51,6 +51,8 @@
 /// tunnels the fetch above through an HTTP `CONNECT` or SOCKS5 proxy **without ever
 /// handing the proxy a hostname to resolve** — see the module docs for the threat
 /// model, the residual it cannot close, and the deliberate origin/proxy asymmetry.
+mod api;
+pub use api::{ApiMethod, AuthorizedApi};
 pub mod proxy;
 
 /// Traffic classes (t32 e31b): what an outbound request is for, which decides the
@@ -571,6 +573,7 @@ pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Re
     send_hop(
         target,
         &Outgoing {
+            authorized_api: None,
             authorized_dav: None,
             web_push: None,
             accept,
@@ -591,6 +594,7 @@ pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Re
 /// a reader's request (no cookie, referrer, authorization or browser UA).
 #[derive(Clone, Copy)]
 pub struct Outgoing<'a> {
+    pub authorized_api: Option<AuthorizedApi<'a>>,
     pub web_push: Option<WebPushHeaders<'a>>,
     /// Explicit credential-bearing DAV operation; redirects are always refused.
     pub authorized_dav: Option<AuthorizedDav<'a>>,
@@ -762,7 +766,25 @@ pub(crate) async fn send_hop_typed(
         .build()
         .map_err(|_| Refusal::Upstream)?;
 
-    let request = if let Some(dav) = out.authorized_dav {
+    let request = if let Some(api) = out.authorized_api {
+        api.validate_target(&target.url)?;
+        if out.authorized_dav.is_some() || out.web_push.is_some() {
+            return Err(Refusal::BadRequest("mixed authorization refused"));
+        }
+        let mut request = client
+            .request(
+                reqwest::Method::from_bytes(api.method.as_str().as_bytes())
+                    .map_err(|_| Refusal::BadRequest("invalid API method"))?,
+                target.url.clone(),
+            )
+            .header("as-api-key", api.key);
+        if let Some(body) = out.body {
+            request = request
+                .header(header::CONTENT_TYPE, body.content_type)
+                .body(body.bytes.to_vec());
+        }
+        request
+    } else if let Some(dav) = out.authorized_dav {
         dav.validate()?;
         let mut request = client
             .request(
