@@ -28,7 +28,7 @@ test.describe('Sign-in without a server field (engine mode)', () => {
   test('the form is the address and the password, with no server, URL or manual entry', async ({ page }) => {
     await openLogin(page);
     const form = page.getByRole('form', { name: 'Sign in' });
-    await expect(form.getByLabel('Email address')).toBeVisible();
+    await expect(form.getByLabel('Email or username')).toBeVisible();
     await expect(form.getByLabel('Password', { exact: true })).toBeVisible();
     await expect(form.locator('input')).toHaveCount(2);
     await expect(form.locator('input[type=url]')).toHaveCount(0);
@@ -48,7 +48,7 @@ test.describe('Sign-in without a server field (engine mode)', () => {
       if (path.endsWith('/api/discover')) discoverCalls.push(path);
     });
     await openLogin(page);
-    await page.getByLabel('Email address').fill(ENGINE_CREDS.username);
+    await page.getByLabel('Email or username').fill(ENGINE_CREDS.username);
     await page.getByLabel('Password', { exact: true }).fill(ENGINE_CREDS.password);
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     // The real IMAP session: the sidebar's Inbox comes from Greenmail's LIST.
@@ -66,7 +66,7 @@ test.describe('Sign-in without a server field (engine mode)', () => {
       }),
     );
     await openLogin(page);
-    await page.getByLabel('Email address').fill('ada@nowhere.invalid');
+    await page.getByLabel('Email or username').fill('ada@nowhere.invalid');
     await page.getByLabel('Password', { exact: true }).fill('pw');
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(page.getByRole('alert')).toHaveText(

@@ -308,7 +308,7 @@ export const SCREENS: Screen[] = [
       container('login.card', (p) => p.getByRole('form', { name: 'Sign in' })),
       text('login.title', (p) => p.getByRole('heading', { level: 1 })),
       text('login.label', (p) => p.getByRole('form', { name: 'Sign in' }).locator('label'), 2),
-      control('login.email', (p) => p.getByRole('textbox', { name: 'Email address' })),
+      control('login.email', (p) => p.getByRole('textbox', { name: 'Email or username' })),
       control('login.password', (p) => p.getByRole('textbox', { name: 'Password' })),
       control('login.submit', (p) => btn(p, 'Sign in')),
     ],

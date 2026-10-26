@@ -6,6 +6,7 @@ export interface PublicConfig {
   theme: string;
   accent: string;
   loginNotice: string | null;
+  showDomainHint?: boolean;
   usernameDomainHint: string | null;
 }
 

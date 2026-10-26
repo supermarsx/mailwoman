@@ -22,7 +22,7 @@ test('the sign-in request carries X-Mailwoman-Client: browser/<version>', async 
   await page.goto('/');
   const form = page.getByRole('form', { name: 'Sign in' });
   await expect(form).toBeVisible();
-  await form.getByLabel('Email address').fill('ada@example.org');
+  await form.getByLabel('Email or username').fill('ada@example.org');
   await form.getByLabel('Password', { exact: true }).fill('not-the-password');
 
   const signIn = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname.endsWith('/api/login'));

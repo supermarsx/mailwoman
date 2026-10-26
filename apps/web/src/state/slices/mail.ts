@@ -1,3 +1,4 @@
+import { rememberSuccessfulSignin } from '../../api/rememberedSignins.ts';
 import { activateAccountPreferences, suspendAccountPreferences } from '../../api/accountPreferenceLifecycle.ts';
 import { createMessageView, type MessageView } from './messageView.ts';
 import { toastTarget } from '../../components/toast/context.ts';
@@ -1583,6 +1584,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     for (const view of readerViews) view.closeMessage();
     try {
       const user = await client.me();
+      rememberSuccessfulSignin(user.username);
       setMe(user);
       setAccountId(user.accountId);
       activateAccountPreferences(user.accountId);
@@ -1602,6 +1604,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     suspendAccountPreferences();
     for (const view of readerViews) view.closeMessage();
     const user = await client.login(input);
+    rememberSuccessfulSignin(user.username);
     setMe(user);
     setAccountId(user.accountId);
     activateAccountPreferences(user.accountId);

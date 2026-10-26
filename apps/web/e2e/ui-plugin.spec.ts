@@ -348,7 +348,7 @@ test.describe('Baseline renders unchanged in the real SPA (additive invariant)',
     await page.goto('/');
     // Baseline login controls render exactly as before the tail landed.
     await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
-    await expect(page.getByLabel('Email address')).toBeVisible();
+    await expect(page.getByLabel('Email or username')).toBeVisible();
     // No UI-plugin surface bleeds into the unauthenticated baseline.
     await expect(page.getByTestId('ui-plugin-tier')).toHaveCount(0);
     await expect(page.getByTestId('ui-plugin-unsigned-banner')).toHaveCount(0);

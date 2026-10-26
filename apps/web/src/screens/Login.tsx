@@ -1,4 +1,8 @@
-import { createSignal, onMount, For, Show, type JSX } from 'solid-js';
+import { LoginTimeoutError } from '../api/loginTimeout.ts';
+import { rememberedSignins, forgetSignin } from '../api/rememberedSignins.ts';
+import { Icon } from '../components/Icon.tsx';
+import * as rememberedCss from './rememberedSignins.css.ts';
+import { createSignal, onMount, onCleanup, For, Show, type JSX } from 'solid-js';
 import { ApiError, TwoFactorRequired, type LoginChallenge } from '../api/client.ts';
 import { isNativeAuth } from '../api/serverAddress.ts';
 import { basePath } from '../api/basePath.ts';
@@ -37,6 +41,8 @@ export function Login(): JSX.Element {
   const [config, setConfig] = createSignal<PublicConfig | null>(null);
   onMount(() => { void publicConfig().then(setConfig).catch(() => undefined); });
   const [email, setEmail] = createSignal('');
+  const [remembered, setRemembered] = createSignal(rememberedSignins());
+  onMount(() => { const update = (): void => { setRemembered(rememberedSignins()); }; window.addEventListener('storage', update); onCleanup(() => window.removeEventListener('storage', update)); });
   const [password, setPassword] = createSignal('');
   const [error, setError] = createSignal<string | null>(ssoErrorReturn() ? t('auth-sso-error') : null);
   const [busy, setBusy] = createSignal(false);
@@ -80,6 +86,7 @@ export function Login(): JSX.Element {
 
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
+    if (busy()) return;
     setError(null);
     setRefused(false);
     setReference(null);
@@ -88,7 +95,9 @@ export function Login(): JSX.Element {
       await app.login({ username: email().trim(), password: password() });
     } catch (err) {
       if (err instanceof ApiError) setReference(err.requestId ?? null);
-      if (err instanceof TwoFactorRequired) {
+      if (err instanceof LoginTimeoutError || (err instanceof ApiError && err.status === 504)) {
+        setError(t('auth-login-timeout'));
+      } else if (err instanceof TwoFactorRequired) {
         // Not an error: swap the credential form for the second-factor challenge.
         setChallenge(err.challenge);
       } else if (err instanceof ApiError && err.status === 401) {
@@ -141,6 +150,7 @@ export function Login(): JSX.Element {
       <form class={`login__card ${authCard}`} onSubmit={(e) => void onSubmit(e)} aria-label={t('auth-sign-in')}>
         <h1 class="login__title">{config()?.brandName || t('auth-app-name')}</h1>
         <Show when={config()?.loginNotice}>{(notice) => <p class="login__hint" dir="auto">{notice()}</p>}</Show>
+        <Show when={remembered().length}><details class={rememberedCss.container}><summary>{t('auth-remembered')}</summary><p class="login__hint">{t('auth-remembered-help')}</p><ul class={rememberedCss.list}><For each={remembered()}>{address => <li class={rememberedCss.row}><button type="button" class={`btn btn--ghost ${rememberedCss.address}`} disabled={busy()} onClick={() => { setEmail(address); setPassword(''); }}><Icon name="mail" /><span>{address}</span></button><button type="button" class="btn btn--ghost" disabled={busy()} aria-label={t('auth-forget-address', {address})} title={t('auth-forget-address', {address})} onClick={() => { forgetSignin(address); setRemembered(rememberedSignins()); }}><Icon name="delete" /></button></li>}</For></ul></details></Show>
         <label class="field">
           <span>{t('auth-email')}</span>
           {/* Text, not `type=email`: a deployment may sign in with a bare user name. */}
@@ -151,12 +161,12 @@ export function Login(): JSX.Element {
             autocomplete="username"
             autocapitalize="none"
             spellcheck={false}
-            aria-describedby={config()?.usernameDomainHint ? 'login-domain-hint' : undefined}
+            aria-describedby={config()?.showDomainHint === true && config()?.usernameDomainHint ? 'login-domain-hint' : undefined}
             value={email()}
             onInput={(e) => setEmail(e.currentTarget.value)}
           />
         </label>
-        <Show when={config()?.usernameDomainHint}>{(domain) => <p id="login-domain-hint" class="login__hint">{t('auth-domain-hint', { domain: domain() })}</p>}</Show>
+        <Show when={config()?.showDomainHint === true ? config()?.usernameDomainHint : null}>{(domain) => <p id="login-domain-hint" class="login__hint">{t('auth-domain-hint', { domain: domain() })}</p>}</Show>
         <label class="field">
           <span>{t('auth-password')}</span>
           <PasswordInput

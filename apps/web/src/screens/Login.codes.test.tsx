@@ -35,7 +35,7 @@ function renderLogin(c: Client) {
 }
 
 async function signIn(): Promise<void> {
-  fireEvent.input(screen.getByLabelText('Email address'), { target: { value: 'ada@example.org' } });
+  fireEvent.input(screen.getByLabelText('Email or username'), { target: { value: 'ada@example.org' } });
   fireEvent.input(screen.getByLabelText('Password', { exact: true }), { target: { value: 'pw' } });
   fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 }

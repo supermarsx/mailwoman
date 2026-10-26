@@ -43,7 +43,7 @@ function renderLogin(client: Client) {
 }
 
 function signIn(address: string): void {
-  fireEvent.input(screen.getByLabelText('Email address'), { target: { value: address } });
+  fireEvent.input(screen.getByLabelText('Email or username'), { target: { value: address } });
   fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'pw' } });
   fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 }
@@ -67,7 +67,7 @@ describe('Login › no server entry (t32-h9)', () => {
     expect(screen.queryByRole('button', { name: /server|manual/i })).toBeNull();
     const inputs = [...document.querySelectorAll('form input')] as HTMLInputElement[];
     expect(inputs.map((el) => el.type).sort()).toEqual(['password', 'text']);
-    expect(screen.getByLabelText('Email address')).toBeInTheDocument();
+    expect(screen.getByLabelText('Email or username')).toBeInTheDocument();
   });
 
   it('sends the address and the password only, without asking the server for a lookup', async () => {

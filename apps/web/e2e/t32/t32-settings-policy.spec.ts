@@ -38,7 +38,7 @@ async function release(request: APIRequestContext, key: string): Promise<void> {
 async function expectNoServerField(page: Page): Promise<void> {
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
-  await expect(page.getByLabel('Email address', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Email or username', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
   const form = page.getByRole('form', { name: 'Sign in' });
   // One text field (the address) and one password field; nothing for a server.

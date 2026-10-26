@@ -1,3 +1,4 @@
+import { withLoginTimeout } from './loginTimeout.ts';
 // HTTP client for the mw-server contract (plan §2).
 //
 // BROWSER (default): same-origin, cookie-authed (`credentials: 'same-origin'`);
@@ -259,6 +260,7 @@ let keepaliveInFlight = 0;
  * fail as unreachable.
  */
 export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): Client {
+  let loginPending = false;
   const listeners = new Set<NetworkListener>();
   const gateListeners = new Set<PasswordChangeRequiredListener>();
   const unauthListeners = new Set<UnauthenticatedListener>();
@@ -335,11 +337,14 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
 
   return {
     login(input) {
-      return guarded(async () => {
+      if (loginPending) return Promise.reject(new Error('Sign-in is already in progress'));
+      loginPending = true;
+      return guarded(() => withLoginTimeout(async signal => {
         // Only these fields: the server refuses a body that names a mail server.
         const body: LoginInput = { username: input.username, password: input.password };
         if (auth) body.clientType = 'native';
         const res = await req(`/api/login`, {
+          signal,
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(body),
@@ -348,6 +353,7 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
           throw new ApiError(401, 'invalid credentials', await errorDetails(res));
         }
         const answer = await jsonOrThrow<LoginResponse>(res);
+        signal.throwIfAborted();
         // A 2FA-gated response is a SUCCESSFUL request that is not yet an
         // authenticated session: surface the challenge (no session cookie was
         // set) rather than mistaking the body for a `Me`.
@@ -359,7 +365,7 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
         const { token, ...me } = answer as Me & { token?: unknown };
         if (auth?.setToken && typeof token === 'string' && token !== '') await auth.setToken(token);
         return me;
-      });
+      })).finally(() => { loginPending = false; });
     },
     logout() {
       return guarded(async () => {

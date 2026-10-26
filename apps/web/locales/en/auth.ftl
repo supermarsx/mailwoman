@@ -7,7 +7,7 @@
 # server decides which mail server the address signs in to; the user never
 # enters or sees one.
 auth-app-name = Mailwoman
-auth-email = Email address
+auth-email = Email or username
 auth-password = Password
 auth-sign-in = Sign in
 auth-signing-in = Signing in…
@@ -53,3 +53,8 @@ auth-consent-error = could not record your decision
 auth-domain-hint = You can sign in with just your username for { $domain }.
 auth-passkey-sign-in = Sign in with a passkey
 auth-passkey-failed = The passkey could not sign you in. Try again or use your password.
+
+auth-remembered = Previous sign-ins
+auth-remembered-help = Addresses used successfully on this device. Choosing one fills the address only.
+auth-forget-address = Forget { $address } on this device
+auth-login-timeout = Sign-in timed out. No automatic retry was made. Check the connection and try again when ready.

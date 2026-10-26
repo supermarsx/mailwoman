@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { rememberedSignins, rememberSuccessfulSignin } from '../api/rememberedSignins.ts';
+import { LoginTimeoutError } from '../api/loginTimeout.ts';
+import { suspendAccountPreferences } from '../api/accountPreferenceLifecycle.ts';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, fireEvent, screen } from '@solidjs/testing-library';
 import { Login } from './Login.tsx';
 import { AppContext } from '../state/context.ts';
@@ -39,11 +42,13 @@ function renderLogin(client: Client) {
   return render(() => <AppContext.Provider value={app}>{<Login />}</AppContext.Provider>);
 }
 
+beforeEach(() => { suspendAccountPreferences(); localStorage.clear(); });
+
 describe('Login', () => {
   it('shows the public brand, notice and accessible domain hint without expanding typed input', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => new Response(
       String(input).endsWith('/api/public-config')
-        ? JSON.stringify({ brandName: 'Example Mail', loginNotice: 'Staff sign-in', usernameDomainHint: 'example.org', theme: 'dark', accent: 'blue' })
+        ? JSON.stringify({ brandName: 'Example Mail', loginNotice: 'Staff sign-in', usernameDomainHint: 'example.org', showDomainHint: true, theme: 'dark', accent: 'blue' })
         : '[]', { status: 200, headers: { 'content-type': 'application/json' } },
     )));
     try {
@@ -51,7 +56,7 @@ describe('Login', () => {
       renderLogin(client);
       expect(await screen.findByRole('heading', { name: 'Example Mail' })).toBeInTheDocument();
       expect(screen.getByText('Staff sign-in')).toBeInTheDocument();
-      const address = screen.getByLabelText('Email address');
+      const address = screen.getByLabelText('Email or username');
       expect(address).toHaveAttribute('aria-describedby', 'login-domain-hint');
       expect(document.getElementById('login-domain-hint')).toHaveTextContent('example.org');
       fireEvent.input(address, { target: { value: 'alice' } });
@@ -62,9 +67,18 @@ describe('Login', () => {
       vi.unstubAllGlobals();
     }
   });
+  it('hides a preferred domain unless the administrator explicitly enables it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ brandName: 'Hidden hint', usernameDomainHint: 'example.org' }), { status: 200 })));
+    try {
+      renderLogin(fakeClient());
+      await screen.findByRole('heading', { name: 'Hidden hint' });
+      expect(document.getElementById('login-domain-hint')).toBeNull();
+      expect(screen.getByLabelText('Email or username')).not.toHaveAttribute('aria-describedby');
+    } finally { vi.unstubAllGlobals(); }
+  });
   it('renders the address and password fields', () => {
     renderLogin(fakeClient());
-    expect(screen.getByText('Email address')).toBeInTheDocument();
+    expect(screen.getByText('Email or username')).toBeInTheDocument();
     expect(screen.getByText('Password')).toBeInTheDocument();
   });
 
@@ -80,7 +94,7 @@ describe('Login', () => {
     const client = fakeClient();
     renderLogin(client);
 
-    fireEvent.input(screen.getByLabelText('Email address'), { target: { value: 'testuser@example.org' } });
+    fireEvent.input(screen.getByLabelText('Email or username'), { target: { value: 'testuser@example.org' } });
     fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'testpass' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -100,7 +114,7 @@ describe('Login', () => {
     });
     renderLogin(client);
 
-    fireEvent.input(screen.getByLabelText('Email address'), { target: { value: 'x' } });
+    fireEvent.input(screen.getByLabelText('Email or username'), { target: { value: 'x' } });
     fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'y' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -121,7 +135,7 @@ describe('Login', () => {
     // Control: the note is not part of the form before a refusal.
     expect(screen.queryByTestId('login-refused-note')).toBeNull();
 
-    fireEvent.input(screen.getByLabelText('Email address'), { target: { value: 'x' } });
+    fireEvent.input(screen.getByLabelText('Email or username'), { target: { value: 'x' } });
     fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'y' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -137,7 +151,7 @@ describe('Login', () => {
     });
     renderLogin(client);
 
-    fireEvent.input(screen.getByLabelText('Email address'), { target: { value: 'x' } });
+    fireEvent.input(screen.getByLabelText('Email or username'), { target: { value: 'x' } });
     fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'y' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -158,7 +172,7 @@ describe('Login', () => {
     const app = createAppState(client);
     render(() => <AppContext.Provider value={app}>{<Login />}</AppContext.Provider>);
 
-    fireEvent.input(screen.getByLabelText('Email address'), { target: { value: 'testuser@example.org' } });
+    fireEvent.input(screen.getByLabelText('Email or username'), { target: { value: 'testuser@example.org' } });
     fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'testpass' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -172,7 +186,7 @@ describe('Login', () => {
     const app = createAppState(client);
     render(() => <AppContext.Provider value={app}>{<Login />}</AppContext.Provider>);
 
-    fireEvent.input(screen.getByLabelText('Email address'), { target: { value: 'testuser@example.org' } });
+    fireEvent.input(screen.getByLabelText('Email or username'), { target: { value: 'testuser@example.org' } });
     fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'testpass' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -186,7 +200,7 @@ describe('Login › 2FA', () => {
   });
 
   function submitCreds(): void {
-    fireEvent.input(screen.getByLabelText('Email address'), { target: { value: 'u@example.org' } });
+    fireEvent.input(screen.getByLabelText('Email or username'), { target: { value: 'u@example.org' } });
     fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'pw' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
   }
@@ -352,7 +366,7 @@ describe('Login › native shell', () => {
     const inputs = [...document.querySelectorAll('form input')].map((el) => (el as HTMLInputElement).type);
     expect(inputs.sort()).toEqual(['password', 'text']);
 
-    fireEvent.input(screen.getByLabelText('Email address'), { target: { value: 'u' } });
+    fireEvent.input(screen.getByLabelText('Email or username'), { target: { value: 'u' } });
     fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'p' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
     await vi.waitFor(() => expect(client.login).toHaveBeenCalled());
@@ -369,5 +383,39 @@ describe('Login › native shell', () => {
     await Promise.resolve();
     expect(fetchMock).toHaveBeenCalledWith('https://mail.example.org/api/public-config', { cache: 'no-store' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe('Successful sign-in addresses and timeout feedback', () => {
+  it('remembers the server-confirmed address only after success', async () => {
+    renderLogin(fakeClient());
+    fireEvent.input(screen.getByLabelText('Email or username'), {target:{value:'typed@example.org'}});
+    fireEvent.input(screen.getByLabelText('Password'), {target:{value:'private-password'}});
+    fireEvent.click(screen.getByRole('button',{name:'Sign in'}));
+    await vi.waitFor(() => expect(rememberedSignins()).toEqual(['testuser@example.org']));
+    expect(JSON.stringify(localStorage)).not.toContain('private-password');
+  });
+  it('does not remember failed credentials and explains timeouts without retrying', async () => {
+    const login = vi.fn(async () => {throw new LoginTimeoutError();});
+    renderLogin(fakeClient({login}));
+    fireEvent.input(screen.getByLabelText('Email or username'), {target:{value:'unknown@example.org'}});
+    fireEvent.input(screen.getByLabelText('Password'), {target:{value:'wrong'}});
+    fireEvent.click(screen.getByRole('button',{name:'Sign in'}));
+    expect(await screen.findByRole('alert')).toHaveTextContent('No automatic retry');
+    expect(rememberedSignins()).toEqual([]);
+    expect(login).toHaveBeenCalledOnce();
+  });
+  it('fills only the remembered address and lets the user forget it', () => {
+    rememberSuccessfulSignin('alice@example.test');
+    renderLogin(fakeClient());
+    fireEvent.input(screen.getByLabelText('Password'), {target:{value:'old-password'}});
+    fireEvent.click(screen.getByText('Previous sign-ins'));
+    fireEvent.click(screen.getByRole('button',{name:'alice@example.test'}));
+    expect(screen.getByLabelText('Email or username')).toHaveValue('alice@example.test');
+    expect(screen.getByLabelText('Password')).toHaveValue('');
+    fireEvent.click(screen.getByRole('button',{name:/Forget.*alice@example.test/}));
+    expect(rememberedSignins()).toEqual([]);
+    expect(screen.queryByText('Previous sign-ins')).not.toBeInTheDocument();
   });
 });

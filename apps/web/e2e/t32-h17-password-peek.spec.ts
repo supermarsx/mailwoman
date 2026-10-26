@@ -44,7 +44,7 @@ const SCREENS: Screen[] = [
     path: '/',
     form: 'Sign in',
     loginRoute: '**/api/login',
-    prefill: (form) => form.getByLabel('Email address').fill('ada@example.org'),
+    prefill: (form) => form.getByLabel('Email or username').fill('ada@example.org'),
     next: (form) => form.getByRole('button', { name: 'Sign in', exact: true }),
   },
   {

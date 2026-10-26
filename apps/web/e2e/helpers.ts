@@ -36,7 +36,7 @@ export async function signInManually(
   await page.goto('/');
   // The app boots (checks /api/me) before rendering the login form.
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
-  await page.getByLabel('Email address', { exact: true }).fill(creds.username);
+  await page.getByLabel('Email or username', { exact: true }).fill(creds.username);
   await page.getByLabel('Password', { exact: true }).fill(creds.password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 }
