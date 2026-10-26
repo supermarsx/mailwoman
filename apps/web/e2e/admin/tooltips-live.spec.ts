@@ -8,9 +8,13 @@ test('app tooltips follow keyboard focus, theme, viewport and reduced motion wit
   const button = page.locator(testInfo.project.name === 'phone' ? 'button[aria-controls="admin-drawer"]' : 'button[aria-controls="admin-sidebar"]');
   await expect(button).toBeVisible();
   const before = await button.boundingBox();
+  // Switch from sign-in pointer activation to actual keyboard navigation.
+  await page.keyboard.press('Tab');
   await button.focus();
   const tooltip = page.getByRole('tooltip');
   await expect(tooltip).toBeVisible();
+  expect(await tooltip.evaluate(node => getComputedStyle(node).animationName)).toBe('none');
+  await expect(button).not.toHaveAttribute('title');
   expect(await button.boundingBox()).toEqual(before);
   await expect(button).toHaveAttribute('aria-describedby', /tooltip-/);
   const geometry = await tooltip.evaluate(node => {

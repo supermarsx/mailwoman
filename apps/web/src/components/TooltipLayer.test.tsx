@@ -22,20 +22,46 @@ it('adopts titles on focus, preserves existing descriptions and accessible names
   expect(button).toHaveAccessibleName('Reset');
   expect(button).not.toHaveAttribute('title');
   fireEvent.pointerOut(button, { relatedTarget: document.body });
-  expect(button).toHaveAttribute('title', 'Restore the inherited value');
+  expect(button).not.toHaveAttribute('title');
+  expect(button).toHaveAttribute('data-tooltip-title', 'Restore the inherited value');
 });
 
-it('waits for hover, prefers informative explicit descriptions, and cleans up removed targets', async () => {
+it('shows hover immediately, prefers explicit descriptions, and cleans up removed targets', async () => {
   render(() => <><button title="Refresh" data-tooltip="Fetch the latest messages from this account">Refresh</button><TooltipLayer /></>);
   const button = screen.getByRole('button', { name: 'Refresh' });
   fireEvent.pointerOver(button, { pointerType: 'mouse' });
-  await settle(200);
-  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
-  await settle(150);
   expect(screen.getByRole('tooltip')).toHaveTextContent('Fetch the latest messages from this account');
   button.remove();
   await settle(200);
   expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+});
+
+it('adopts non-control and newly added titles without native duplicates and updates visible text',async()=>{
+  render(()=><><span title="Unread messages">12</span><TooltipLayer/></>);
+  const badge=screen.getByText('12');
+  expect(badge).not.toHaveAttribute('title');
+  fireEvent.pointerOver(badge,{pointerType:'mouse'});
+  expect(screen.getByRole('tooltip')).toHaveTextContent('Unread messages');
+  badge.setAttribute('title','Updated unread count');await settle();
+  expect(screen.getByRole('tooltip')).toHaveTextContent('Updated unread count');expect(badge).not.toHaveAttribute('title');
+  const disabled=document.createElement('button');disabled.disabled=true;disabled.title='Unavailable until connected';document.body.append(disabled);await settle();
+  fireEvent.pointerOver(disabled,{pointerType:'mouse'});
+  expect(screen.getByRole('tooltip')).toHaveTextContent('Unavailable until connected');expect(disabled).not.toHaveAttribute('title');disabled.remove();
+});
+
+it('shows a different hovered control immediately after pointer activation',()=>{
+  render(()=><><button aria-label="First"/><button aria-label="Second"/><TooltipLayer/></>);
+  const first=screen.getByRole('button',{name:'First'}),second=screen.getByRole('button',{name:'Second'});
+  fireEvent.pointerOver(first,{pointerType:'mouse'});fireEvent.pointerDown(first,{pointerType:'mouse'});fireEvent.focusIn(first);
+  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  fireEvent.pointerOver(second,{pointerType:'mouse'});expect(screen.getByRole('tooltip')).toHaveTextContent('Second');
+});
+
+it('retains the accessible name of title-only icon controls',()=>{
+  render(()=><><button title="Restore defaults"><svg aria-hidden="true"/></button><TooltipLayer/></>);
+  const button=screen.getByRole('button',{name:'Restore defaults'});
+  expect(button).not.toHaveAttribute('title');fireEvent.pointerOver(button,{pointerType:'mouse'});
+  expect(screen.getByRole('tooltip')).toHaveTextContent('Restore defaults');
 });
 
 it('keeps touch activation unobstructed and ignores editable user content', async () => {

@@ -2,14 +2,15 @@ import { createSignal, createUniqueId, onCleanup, onMount, Show, type JSX } from
 import { Portal } from 'solid-js/web';
 import * as css from './tooltip.css.ts';
 
-const controls = 'button,a[href],input,select,textarea,[role="button"],[role="tab"],[role="switch"],[role="checkbox"],[role="separator"]';
+const controls = 'button,a[href],input,select,textarea,[role="button"],[role="tab"],[role="switch"],[role="checkbox"],[role="separator"],[title],[data-tooltip],[data-tooltip-title]';
+const excluded = '[contenteditable]:not([contenteditable="false"]),[data-tooltip="off"]';
 
 /** App chrome only. Explicit descriptions take precedence over adopted native titles. */
 export function tooltipDescription(element: HTMLElement): string | null {
-  if (element.closest('[contenteditable]:not([contenteditable="false"]),[data-tooltip="off"]')) return null;
+  if (element.closest(excluded)) return null;
   const explicit = element.getAttribute('data-tooltip');
   if (explicit?.trim()) return explicit.trim();
-  const title = element.getAttribute('title');
+  const title = element.getAttribute('title') ?? element.getAttribute('data-tooltip-title');
   if (title?.trim()) return title.trim();
   if (!element.textContent?.trim()) return element.getAttribute('aria-label')?.trim() || null;
   // Existing icon controls also use a visually hidden span as their accessible name.
@@ -29,7 +30,6 @@ export function TooltipLayer(): JSX.Element {
   let target: HTMLElement | null = null;
   let bubble: HTMLDivElement | undefined;
   let nativeTitle: string | null = null;
-  let showTimer: ReturnType<typeof setTimeout> | undefined;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   let checkTimer: ReturnType<typeof setInterval> | undefined;
   let frame = 0;
@@ -43,7 +43,7 @@ export function TooltipLayer(): JSX.Element {
     dismissed = null; dismissedTitle = null;
   };
   const hide = (keepNativeSuppressed = false) => {
-    clearTimeout(showTimer); clearHide(); clearInterval(checkTimer);
+    clearHide(); clearInterval(checkTimer);
     cancelAnimationFrame(frame);
     if (target) {
       const described = (target.getAttribute('aria-describedby') ?? '').split(/\s+/).filter((part) => part && part !== id);
@@ -72,7 +72,7 @@ export function TooltipLayer(): JSX.Element {
   };
   const schedulePosition = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(position); };
   const find = (event: Event) => event.target instanceof Element ? event.target.closest<HTMLElement>(controls) : null;
-  const show = (element: HTMLElement | null, immediate: boolean) => {
+  const show = (element: HTMLElement | null) => {
     if (!element || Date.now() < pointerUntil) return;
     if (element === dismissed) return;
     restoreDismissed();
@@ -82,37 +82,66 @@ export function TooltipLayer(): JSX.Element {
     if (!description) return;
     target = element; nativeTitle = element.getAttribute('title');
     element.removeAttribute('title');
-    showTimer = setTimeout(() => {
+    {
       if (!element.isConnected || target !== element) { hide(); return; }
       const existing = element.getAttribute('aria-describedby');
       element.setAttribute('aria-describedby', [existing, id].filter(Boolean).join(' '));
       setText(description);
       queueMicrotask(position);
       checkTimer = setInterval(() => { if (!element.isConnected) hide(); }, 200);
-    }, immediate ? 0 : 350);
+    }
   };
   onMount(() => {
-    const over = (event: PointerEvent) => { if (event.pointerType !== 'touch') show(find(event), false); };
+    // Adopt titles before hover, including non-control badges and disabled
+    // controls. Keeping native title attributes causes duplicate browser hints.
+    const adopt = (root: ParentNode) => {
+      const elements = [...root.querySelectorAll<HTMLElement>('[title]')];
+      if (root instanceof HTMLElement && root.hasAttribute('title')) elements.push(root);
+      for (const element of elements) {
+        if (!(element instanceof HTMLElement) || element.closest(excluded)) continue;
+        const title = element.getAttribute('title') ?? '';
+        // A title-only icon control must retain its accessible name after the
+        // native tooltip attribute is removed. Do not override visible labels.
+        if (title && element.matches('button,a[href],[role="button"]') && !element.textContent?.trim() && !element.hasAttribute('aria-label') && !element.hasAttribute('aria-labelledby')) element.setAttribute('aria-label', title);
+        element.setAttribute('data-tooltip-title', title);
+        element.removeAttribute('title');
+      }
+    };
+    adopt(document);
+    const observer = new MutationObserver(records => {
+      for (const record of records) {
+        if (record.type === 'attributes' && record.target instanceof HTMLElement) adopt(record.target);
+        for (const node of record.addedNodes) if (node instanceof HTMLElement) adopt(node);
+      }
+      if (target) {
+        if (!target.isConnected) hide();
+        else { const description = tooltipDescription(target); if (description) { setText(description); schedulePosition(); } else hide(); }
+      }
+    });
+    observer.observe(document.body, {subtree:true,childList:true,attributes:true,attributeFilter:['title','data-tooltip','aria-label']});
+    const over = (event: PointerEvent) => { if (event.pointerType !== 'touch') { const element=find(event); if (element!==dismissed) pointerUntil=0; show(element); } };
     const out = (event: PointerEvent) => {
       if (dismissed && !(event.relatedTarget instanceof Node && dismissed.contains(event.relatedTarget))) restoreDismissed();
       if (event.relatedTarget instanceof Node && (target?.contains(event.relatedTarget) || bubble?.contains(event.relatedTarget))) return;
       if (target !== document.activeElement) hideTimer = setTimeout(hide, 100);
     };
-    const focus = (event: FocusEvent) => show(find(event), true);
+    const focus = (event: FocusEvent) => show(find(event));
     const blur = () => { restoreDismissed(); hide(); };
     const key = (event: KeyboardEvent) => { pointerUntil = 0; if (event.key === 'Escape') hide(true); };
     // Pointer activation can focus a button after pointerdown. Do not reopen
     // its tooltip over the new page/tab as a side effect of that focus.
     const down = () => { pointerUntil = Date.now() + 1000; hide(true); };
-    document.addEventListener('pointerover', over); document.addEventListener('pointerout', out);
+    document.addEventListener('pointerover', over, true); document.addEventListener('pointerout', out, true);
     document.addEventListener('focusin', focus); document.addEventListener('focusout', blur);
     document.addEventListener('keydown', key); document.addEventListener('pointerdown', down, true);
     document.addEventListener('scroll', schedulePosition, true); window.addEventListener('resize', schedulePosition);
     window.visualViewport?.addEventListener('resize', schedulePosition);
     window.visualViewport?.addEventListener('scroll', schedulePosition);
     onCleanup(() => {
+      observer.disconnect();
       restoreDismissed(); hide();
-      document.removeEventListener('pointerover', over); document.removeEventListener('pointerout', out);
+      for (const element of document.querySelectorAll<HTMLElement>('[data-tooltip-title]')) { if (!element.hasAttribute('title')) element.setAttribute('title', element.getAttribute('data-tooltip-title') ?? ''); element.removeAttribute('data-tooltip-title'); }
+      document.removeEventListener('pointerover', over, true); document.removeEventListener('pointerout', out, true);
       document.removeEventListener('focusin', focus); document.removeEventListener('focusout', blur);
       document.removeEventListener('keydown', key); document.removeEventListener('pointerdown', down, true);
       document.removeEventListener('scroll', schedulePosition, true); window.removeEventListener('resize', schedulePosition);
