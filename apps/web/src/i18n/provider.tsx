@@ -28,7 +28,7 @@ import {
 } from './locales.ts';
 import { t, activeLocaleSignal, setActiveLocale, type TArgs } from './registry.ts';
 import { reloadForActiveChain } from './catalog.ts';
-import { syncRootLangDir, watchReducedMotion } from '../shell/rootAttributes.ts';
+import { syncRootLangDir, watchReducedMotion, watchReducedTexture } from '../shell/rootAttributes.ts';
 
 export interface I18nContext {
   /** Format a message id with optional args (the same `t` exported globally). */
@@ -81,6 +81,7 @@ export function LocaleProvider(props: LocaleProviderProps): JSX.Element {
   // Mirror prefers-reduced-motion onto the root for the lifetime of the app.
   const stop = watchReducedMotion();
   onCleanup(stop);
+  onCleanup(watchReducedTexture());
 
   const value: I18nContext = { t, locale, dir, setLocale };
   return <Ctx.Provider value={value}>{props.children}</Ctx.Provider>;

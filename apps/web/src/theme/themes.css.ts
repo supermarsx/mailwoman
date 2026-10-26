@@ -155,18 +155,19 @@ globalStyle(':root:lang(ar), :root:lang(ja), :root:lang(zh)', {
 
 // ── Texture gating (plan §3 e4) ──────────────────────────────────────────────
 // Grove is the only theme with non-`none` textures; force them off under
-// reduced-transparency, high-contrast (forced-colors), and data-saver. Uses
+// reduced-transparency, high-contrast (forced-colors), and data-saver. Runtime
+// preference detection supplies data-reduced-texture for media features that
+// some browsers cannot parse in stylesheets. Uses
 // `:root[data-theme]` (same specificity as the theme selectors) placed LAST so
 // it overrides on ties — a lower-specificity `:root` would lose to the grove
 // theme's own `:root[data-theme="grove-…"]` texture assignment.
 const NONE = { [vars.texture.grain]: 'none', [vars.texture.paper]: 'none' } as const;
 globalStyle(':root[data-theme]', {
   '@media': {
-    '(prefers-reduced-transparency: reduce)': { vars: NONE },
-    '(prefers-reduced-data: reduce)': { vars: NONE },
     '(forced-colors: active)': { vars: NONE },
   },
 });
+globalStyle(':root[data-theme][data-reduced-texture]', { vars: NONE });
 
 // ── Reduced motion (plan §6 e0; SPEC §24 — real gap: was ZERO handling) ───────
 // Collapse the shared motion-duration tokens to ~0 so every transition/animation

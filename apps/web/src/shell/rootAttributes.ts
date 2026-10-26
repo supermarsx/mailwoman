@@ -1,7 +1,7 @@
-// Root `<html>` attribute wiring for i18n, reduced-motion, and colour scheme
+// Root `<html>` attribute wiring for i18n, accessibility preferences, and colour scheme
 // (plan §6 e0, SPEC §17.1/§24).
 //
-// Three concerns, all driven onto `document.documentElement`:
+// Preferences driven onto `document.documentElement`:
 //   • `lang` + `dir` — the active locale and its writing direction, so the whole
 //     document (and the browser's own bidi handling, spellcheck, form controls)
 //     reads correctly and mirrors under RTL.
@@ -9,6 +9,8 @@
 //     both CSS (`:root[data-reduced-motion] …`) and JS (feature checks) can gate
 //     animations. The theme layer ALSO switches motion tokens purely via the
 //     media query (themes.css.ts); this flag is the JS-observable companion.
+//   • `data-reduced-texture` — optional reduced-transparency/data preferences,
+//     with the browser's Save-Data setting as an additional data-saver signal.
 //   • `data-appearance` + the `color-scheme` style — whether the active theme
 //     paints a light or a dark page, so the UA themes its own surfaces
 //     (scrollbars, form controls, the canvas behind the app) to match.
@@ -66,6 +68,36 @@ export function watchReducedMotion(): () => void {
     return () => mq.removeEventListener('change', apply);
   }
   return () => undefined;
+}
+
+/** Optional preferences stay out of static CSS so unsupported media features
+ * do not produce stylesheet parse warnings. Unknown queries simply do not match. */
+export function watchReducedTexture(): () => void {
+  if (!hasDoc()) return () => undefined;
+  const root = document.documentElement;
+  const queries = ['(prefers-reduced-transparency: reduce)', '(prefers-reduced-data: reduce)']
+    .map(mediaQuery).filter((query): query is MediaQueryList => query !== null);
+  type Connection = {readonly saveData?: boolean; addEventListener?: EventTarget['addEventListener']; removeEventListener?: EventTarget['removeEventListener']};
+  const connection = typeof navigator === 'undefined' ? undefined : (navigator as Navigator & {connection?: Connection}).connection;
+  const apply = (): void => {
+    root.toggleAttribute('data-reduced-texture', connection?.saveData === true || queries.some(query => query.matches === true));
+  };
+  const cleanup: (() => void)[] = [];
+  for (const query of queries) {
+    if (typeof query.addEventListener === 'function' && typeof query.removeEventListener === 'function') {
+      query.addEventListener('change', apply);
+      cleanup.push(() => query.removeEventListener('change', apply));
+    } else if (typeof query.addListener === 'function' && typeof query.removeListener === 'function') {
+      query.addListener(apply);
+      cleanup.push(() => query.removeListener(apply));
+    }
+  }
+  if (typeof connection?.addEventListener === 'function' && typeof connection.removeEventListener === 'function') {
+    connection.addEventListener('change', apply);
+    cleanup.push(() => connection.removeEventListener?.('change', apply));
+  }
+  apply();
+  return () => {for (const stop of cleanup) stop(); root.removeAttribute('data-reduced-texture');};
 }
 
 /**
