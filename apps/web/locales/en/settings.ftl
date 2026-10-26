@@ -418,16 +418,15 @@ settings-nav-keyboard-display = Keyboard & display
 
 settings-2fa-passkey-policy-disabled = Your administrator has disabled passkey sign-in and enrollment for this account. Existing credentials remain listed so you can manage or remove them.
 
-settings-search-sections = Search settings
-settings-search-no-sections = No matching settings sections.
-settings-time-local = Local device time zone
-settings-time-none = No comparison time zone
-
 settings-mail-interactions = Message selection and moving
 settings-mail-modifier-selection = Select messages with modifier keys
 settings-mail-modifier-selection-help = Ctrl or Command toggles separate messages. Shift selects a range, and Shift with arrow keys extends it. The visible selection button remains available when this is off.
 settings-mail-drag-folder = Drag messages to folders
 settings-mail-drag-folder-help = Drag a selected message to move the selection, or an unselected message to move just that message. Only folders in this account are accepted. Touch and keyboard users can use the selection toolbar instead.
+settings-search-sections = Search settings
+settings-search-no-sections = No matching settings sections.
+settings-time-local = Local device time zone
+settings-time-none = No comparison time zone
 
 settings-folder-counts = Folder counts
 settings-folder-counts-none = Hide counts
@@ -437,10 +436,8 @@ settings-folder-counts-both = Unread and total messages
 settings-folder-counts-compact = Smaller badges outside Inbox
 settings-folder-counts-reset = Inherit folder counts
 settings-folder-counts-reset-size = Inherit badge size
-
 settings-mail-resume-tabs = Resume my open tabs
 settings-mail-resume-tabs-help = Restore account-owned tab references after reopening Mailwoman. Message bodies and attachment URLs are not saved in the workspace record.
-settings-permissions-push-other-registration = This browser has a subscription that is not registered to this account. Remove it before registering again.
 
 settings-draft-save = Account drafts
 settings-draft-save-help = Save to your account’s Drafts folder for access on another device. Saving is quiet; only failures show a notification. Unsupported accounts and protected decrypted content are never silently uploaded.
@@ -450,6 +447,7 @@ settings-draft-periodic = At regular intervals
 settings-draft-manual = Only when I choose Save
 settings-draft-debounce = Typing pause (milliseconds)
 settings-draft-interval = Save interval (seconds)
+settings-permissions-push-other-registration = This browser has a subscription that is not registered to this account. Remove it before registering again.
 
 settings-show-from = Show From when composing
 settings-show-from-help = Start with the From field visible. You can also show it for one message from the ribbon. Only authorized sending addresses are accepted.

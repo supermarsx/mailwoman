@@ -966,6 +966,16 @@ Global switch, disabled by default. Scripts run in a time-limited worker inside 
 
 Global boolean, default `false`. The final enabled, unscoped Super admin is protected from deletion, disablement, role removal, deny overrides, and removal of its final passwordless sign-in credential. Built-in role definitions remain immutable. A full Super admin may explicitly enable loss of this access, with fresh authentication and consequence confirmation. The setting does not remove any access itself. Policy writes and destructive account mutations share one database lock across instances; deleting the policy restores protection. Losing all Super admin access requires local deployment administration to recover; it is never repaired by silently granting browser users privileges. With the deployment database and server key available locally, use `mailwoman admin admins create recovery-admin` (password from standard input), then `mailwoman admin admins grant-role recovery-admin super_admin`. Do not put the password in command-line arguments.
 
+<a id="privacy.remoteImageDownloads"></a>
+### Manual remote image downloads (`privacy.remoteImageDownloads`)
+
+Global/domain/user boolean, default false. Allows an explicit image download through the privacy proxy without granting automatic image display. Signing and redemption both verify the current policy, session and exact image reference in the owned message. Existing image address, route, type, size and tracker protections apply; SVG is refused. Accepted images are decoded and served as PNG attachments, not original remote bytes. There is no direct external-link fallback. The server inspects at most 32 MiB of cached MIME and 1 MiB of HTML across 64 parts and 4,096 references. Missing, truncated, oversized or client-only decrypted bodies are unavailable for this action; client-provided HTML and reference markers are never trusted. Linked-file downloads also require an exact accepted link in the owned message. Manual image signing requires the expected account header, and redemption requires the same currently authenticated signing session and account.
+
+<a id="mail.resumeTabs"></a>
+### Resume workspace tabs
+
+`mail.resumeTabs` defaults to true and supports global, domain and user values with administrator locks. The browser stores bounded tab references, order, pins and active tab under both the wire account ID and verified storage authority, never message bodies or attachment URLs. Reopening resolves references under current authorization. Missing storage authority disables private persistence and automatic restoration; legacy raw-account-only records are not migrated automatically. Disabling the setting clears this workspace record without deleting the separate account-owned draft store.
+
 <a id="mail.folderCounts"></a>
 ### Folder count display (`mail.folderCounts`)
 
@@ -976,15 +986,15 @@ Global/domain/user choice, default `"both"`. Select `none`, `unread`, `total`, o
 
 Global/domain/user boolean, default `true`. Uses smaller badges outside Inbox. Users can inherit or override this in Settings > Folders unless locked by an administrator. Folder names remain left-aligned and long names truncate without displacing the count.
 
-<a id="mail.resumeTabs"></a>
-### Resume workspace tabs
+<a id="metrics.defaultRangeSeconds"></a>
+### Default request history range (`metrics.defaultRangeSeconds`)
 
-`mail.resumeTabs` defaults to true and supports global, domain and user values with administrator locks. The browser stores bounded tab references, order, pins and active tab under both the wire account ID and verified storage authority, never message bodies or attachment URLs. Reopening resolves references under current authorization. Missing storage authority disables private persistence and automatic restoration; legacy raw-account-only records are not migrated automatically. Disabling the setting clears this workspace record without deleting the separate account-owned draft store.
+Global seconds, default 3,600; bounded from 60 to 34,560,000. Applies when both history endpoints are omitted. Effective default is capped by the maximum range and retention.
 
-<a id="privacy.remoteImageDownloads"></a>
-### Manual remote image downloads (`privacy.remoteImageDownloads`)
+<a id="metrics.maxRangeSeconds"></a>
+### Maximum request history range (`metrics.maxRangeSeconds`)
 
-Global/domain/user boolean, default false. Allows an explicit image download through the privacy proxy without granting automatic image display. Signing and redemption both verify the current policy, session and exact image reference in the owned message. Existing image address, route, type, size and tracker protections apply; SVG is refused. Accepted images are decoded and served as PNG attachments, not original remote bytes. There is no direct external-link fallback. The server inspects at most 32 MiB of cached MIME and 1 MiB of HTML across 64 parts and 4,096 references. Missing, truncated, oversized or client-only decrypted bodies are unavailable for this action; client-provided HTML and reference markers are never trusted. Linked-file downloads also require an exact accepted link in the owned message. Manual image signing requires the expected account header, and redemption requires the same currently authenticated signing session and account.
+Global seconds, default 2,592,000 (30 days); bounded from 3,600 to 34,560,000. The effective limit also respects `metrics.rollupDays` (1–400 days). Request history records response-ready latency for requests that reach application middleware, not full streamed transfers or transport-parser rejections. Aggregate snapshots flush every 15 seconds; a sudden process loss can lose the unflushed tail. Minute snapshots are retained for 48 hours, hourly snapshots for the configured retention. Percentiles combine histogram counts across replicas, with no request paths, addresses or identities stored. Missing periods remain unavailable, not zero. Queries return at most 1,000 points and refuse scans exceeding 20,000 stored buckets; reduce the range if the deployment has too many replica snapshots. Only unscoped Dashboard read or Observability read access can see this server-wide history.
 
 <a id="contacts.senderIcons"></a>
 ### Bundled sender icons (`contacts.senderIcons`)
@@ -996,16 +1006,6 @@ contact photos take priority when contact-photo mode is selected; hiding avatars
 also hides domain icons. Government domains use a generic civic icon, not an
 identity seal. Domain matching is an appearance hint, never authentication
 verification. It does not request favicons, remote logos, or external profiles.
-
-<a id="metrics.defaultRangeSeconds"></a>
-### Default request history range (`metrics.defaultRangeSeconds`)
-
-Global seconds, default 3,600; bounded from 60 to 34,560,000. Applies when both history endpoints are omitted. Effective default is capped by the maximum range and retention.
-
-<a id="metrics.maxRangeSeconds"></a>
-### Maximum request history range (`metrics.maxRangeSeconds`)
-
-Global seconds, default 2,592,000 (30 days); bounded from 3,600 to 34,560,000. The effective limit also respects `metrics.rollupDays` (1–400 days). Request history records response-ready latency for requests that reach application middleware, not full streamed transfers or transport-parser rejections. Aggregate snapshots flush every 15 seconds; a sudden process loss can lose the unflushed tail. Minute snapshots are retained for 48 hours, hourly snapshots for the configured retention. Percentiles combine histogram counts across replicas, with no request paths, addresses or identities stored. Missing periods remain unavailable, not zero. Queries return at most 1,000 points and refuse scans exceeding 20,000 stored buckets; reduce the range if the deployment has too many replica snapshots. Only unscoped Dashboard read or Observability read access can see this server-wide history.
 
 <a id="mail.draftSaveMode"></a>
 <a id="mail.draftDebounceMs"></a>

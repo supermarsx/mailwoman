@@ -593,6 +593,8 @@ mail-context-search-sender = Search this sender
 mail-context-search-subject = Search the same subject
 mail-drag-too-many = Drag up to { $count } messages at a time. Select a smaller group before moving.
 
+mail-subtab-reorder-help = Drag to reorder tabs, or press Ctrl+Shift+Left or Right on the active tab.
+
 mail-compose-ribbon = Editor ribbon
 mail-compose-ribbon-format = Format text
 mail-compose-ribbon-insert = Insert
@@ -601,8 +603,6 @@ mail-compose-font-size = Font size
 mail-compose-font-inherit = Default
 mail-compose-undo = Undo
 mail-compose-redo = Redo
-
-mail-subtab-reorder-help = Drag to reorder tabs, or press Ctrl+Shift+Left or Right on the active tab.
 mail-workspace-limit = Close a tab before opening another. Up to 32 tabs can be retained.
 mail-compose-private-storage-unavailable = Local draft recovery is unavailable for this session. Keep this editor open until you send or copy your message.
 mail-offline-storage-unavailable = Offline changes are unavailable until this session has verified storage authority. Reconnect and sign in again.
@@ -642,6 +642,7 @@ mail-workspace-masonry-stack-help = Tile all open views in staggered rows. Small
 mail-workspace-view-first = First view
 mail-workspace-view-second = Second view
 mail-workspace-view-empty = Drag an open tab here to choose this view.
+
 mail-popup-blocked = Allow pop-up windows for Mailwoman to detach this tab. Your tab remains here.
 mail-popup-reattach = Reattach to main window
 mail-popup-action-reattached = Returned to the main window to complete this action.

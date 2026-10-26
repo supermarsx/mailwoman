@@ -730,12 +730,6 @@ admin-deployment-limit-configured-worker-not-executed = The configured document 
 admin-deployment-limit-not-a-security-certification = A reported setting is evidence of configuration, not a guarantee of complete protection.
 admin-egress-destination-note-help = Describe why this private service is approved. This note is for administrators and is never sent upstream.
 
-admin-deployment-check-connectionNegotiation = Inbound connection negotiation limits
-admin-deployment-value-connectionNegotiation = Built-in listener startup configuration: TLS deadline { $tlsTimeoutMs } ms, up to { $tlsMaximum } handshakes; PROXY header deadline { $proxyTimeoutMs } ms, up to { $proxyMaximum } negotiations. Changes require restart. External proxy limits are not measured here.
-
-admin-personal-dashboard-keep-checklist = Keep the completed setup checklist prominent
-admin-personal-dashboard-keep-checklist-help = Otherwise, completing every item collapses the checklist below the other dashboard widgets. An incomplete item restores its usual position.
-
 admin-session-select = Select
 admin-session-select-account = Select session for { $account }
 admin-session-select-visible = Select all visible sessions
@@ -745,8 +739,15 @@ admin-session-batch-current = Your current administrator session is selected. It
 admin-session-batch-confirm-button = Confirm selected revocations
 admin-session-batch-result = Revoked: { $revoked }. Already ended: { $unchanged }. Could not confirm: { $failed }. Not attempted: { $skipped }.
 admin-session-refresh-failed = The session list could not be refreshed. Reload it before selecting more sessions.
+
+admin-deployment-check-connectionNegotiation = Inbound connection negotiation limits
+admin-deployment-value-connectionNegotiation = Built-in listener startup configuration: TLS deadline { $tlsTimeoutMs } ms, up to { $tlsMaximum } handshakes; PROXY header deadline { $proxyTimeoutMs } ms, up to { $proxyMaximum } negotiations. Changes require restart. External proxy limits are not measured here.
+
 admin-deployment-check-httpAdmission = HTTP admission and request limits
 admin-deployment-value-httpAdmission = Built-in listener startup configuration: { $connections } connections, { $requests } requests through response completion, { $headerBytes } header bytes and { $headers } headers. HTTP opening and HTTP/1 header deadline { $headerTimeoutMs } ms; request-body deadline { $bodyTimeoutMs } ms; { $http2Streams } HTTP/2 streams per connection; graceful drain { $shutdownTimeoutMs } ms. Fixed limits require restart. Response streams are not subject to the request-body deadline.
+
+admin-personal-dashboard-keep-checklist = Keep the completed setup checklist prominent
+admin-personal-dashboard-keep-checklist-help = Otherwise, completing every item collapses the checklist below the other dashboard widgets. An incomplete item restores its usual position.
 
 admin-protection-title = Aggregate and adaptive protection
 admin-protection-back = Back to observability
@@ -821,9 +822,9 @@ admin-history-error-invalid = Enter valid start and end dates.
 admin-history-error-order = The end must be later than the start.
 admin-history-error-future = The period cannot end in the future.
 admin-history-error-limit = This period exceeds the administrator's configured limit.
+
 admin-history-refresh = Refresh request history
 admin-history-errors = Server errors (5xx) per bucket
-
 admin-users-legacy-alias = This account signs in through a domain alias. Existing administrative record: { $address }. Its settings and history are preserved; the records have not been merged or renamed.
 
 admin-history-latency-resolution = New latency samples retain integer milliseconds through 1 second; slower timings use wider bounded bins. Percentiles describe response-ready timing, not the full transfer.
@@ -846,6 +847,7 @@ admin-users-lifecycle-delete-body = This keeps a deleted access record to preven
 admin-users-lifecycle-block-confirm = Block login
 admin-users-lifecycle-unblock-confirm = Unblock login
 admin-users-lifecycle-delete-confirm = Delete local access
+
 admin-users-lifecycle-unblock-body = Remove the local directory login block. Other security restrictions still apply; this does not restore deleted access.
 admin-users-legacy-clear = Clear legacy login block
 admin-users-legacy-block-help = A legacy login flag also blocks this user. Clear it explicitly before changing the directory block. Other flags and security restrictions remain in effect.

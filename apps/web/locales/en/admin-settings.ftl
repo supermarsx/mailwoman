@@ -600,35 +600,29 @@ admin-settings-help-mail-modifier-selection = Allow Ctrl, Command and Shift rang
 admin-settings-key-mail-drag-to-folder = Drag messages to folders
 admin-settings-help-mail-drag-to-folder = Allow account-bound message dragging to real folders. This does not grant mailbox write permission; the server still authorizes each move.
 
-admin-settings-key-mail-folder-counts = Folder counts
-admin-settings-help-mail-folder-counts = Choose hidden, unread, total, or both counts beside folders. Set global, domain, or user defaults, and lock the choice when required.
-admin-settings-key-mail-compact-folder-badges = Compact secondary folder badges
-admin-settings-help-mail-compact-folder-badges = Show smaller badges outside Inbox. Users can choose their own size unless this setting is locked.
-
 admin-settings-key-admin-allow-last-superadmin-loss = Allow losing the last Super admin
 admin-settings-help-admin-allow-last-superadmin-loss = Off by default. Enabling this permits later changes to remove the final Super admin access. A full Super admin must confirm the consequence with fresh authentication.
 admin-settings-last-superadmin-title = Allow losing all Super admin access?
 admin-settings-last-superadmin-body = Later account changes may leave nobody able to administer this deployment. Recovery would require local deployment administration. Type ALLOW LAST SUPERADMIN LOSS to enable this exception.
 admin-settings-last-superadmin-confirm = Allow loss of access
 
-admin-settings-key-mail-resume-tabs = Resume workspace tabs
-admin-settings-help-mail-resume-tabs = Restore account-owned tab references after reload. Disabling this clears the local workspace record without deleting drafts.
+admin-settings-key-mail-folder-counts = Folder counts
+admin-settings-help-mail-folder-counts = Choose hidden, unread, total, or both counts beside folders. Set global, domain, or user defaults, and lock the choice when required.
+admin-settings-key-mail-compact-folder-badges = Compact secondary folder badges
+admin-settings-help-mail-compact-folder-badges = Show smaller badges outside Inbox. Users can choose their own size unless this setting is locked.
 
 admin-settings-key-privacy-remote-image-downloads = Manual remote image downloads
 admin-settings-help-privacy-remote-image-downloads = Allow an explicit download of an image referenced by the owned message through the guarded privacy proxy. Disabled by default; this never opens the external URL directly.
-
-admin-settings-key-contacts-sender-icons = Bundled sender icons
-admin-settings-help-contacts-sender-icons = Show locally bundled icons for recognised sender domains, with generated initials for others. Contact pictures take priority. Icons do not verify a sender's identity. No external logo service is contacted; user and domain overrides can be locked.
+admin-settings-key-mail-resume-tabs = Resume workspace tabs
+admin-settings-help-mail-resume-tabs = Restore account-owned tab references after reload. Disabling this clears the local workspace record without deleting drafts.
 
 admin-settings-key-metrics-default-range-seconds = Default request history range
 admin-settings-help-metrics-default-range-seconds = Seconds shown when a history request does not specify a range. Limited by retention and the maximum range.
 admin-settings-key-metrics-max-range-seconds = Maximum request history range
 admin-settings-help-metrics-max-range-seconds = Maximum seconds per history query. Retention remains an additional limit.
 
-admin-settings-key-login-remember-signins = Remember successful sign-in addresses
-admin-settings-help-login-remember-signins = Keep up to ten successfully used usernames or email addresses on this device for the sign-in dropdown. Never saves passwords or sessions. Disabling removes this server's saved addresses when a device next loads the sign-in page or completes sign-in; it does not control the browser's own autofill.
-admin-settings-key-login-show-remembered-hint = Show saved-address explanation
-admin-settings-help-login-show-remembered-hint = Show explanatory text in the previous-sign-ins dropdown. Hidden by default. Only applies when remembering successful sign-ins is enabled.
+admin-settings-key-contacts-sender-icons = Bundled sender icons
+admin-settings-help-contacts-sender-icons = Show locally bundled icons for recognised sender domains, with generated initials for others. Contact pictures take priority. Icons do not verify a sender's identity. No external logo service is contacted; user and domain overrides can be locked.
 
 admin-settings-key-mail-draft-save-mode = Account draft save mode
 admin-settings-help-mail-draft-save-mode = Save after a typing pause, periodically, or only on demand. Saves require a supported upstream Drafts folder; uncertain writes are never automatically retried.
@@ -636,6 +630,11 @@ admin-settings-key-mail-draft-debounce-ms = Draft typing pause (milliseconds)
 admin-settings-help-mail-draft-debounce-ms = Wait 500 to 10000 milliseconds after editing before saving in realtime mode.
 admin-settings-key-mail-draft-interval-secs = Draft save interval (seconds)
 admin-settings-help-mail-draft-interval-secs = Save edited drafts every 5 to 3600 seconds in periodic mode. Unchanged drafts are not written again.
+
+admin-settings-key-login-remember-signins = Remember successful sign-in addresses
+admin-settings-help-login-remember-signins = Keep up to ten successfully used usernames or email addresses on this device for the sign-in dropdown. Never saves passwords or sessions. Disabling removes this server's saved addresses when a device next loads the sign-in page or completes sign-in; it does not control the browser's own autofill.
+admin-settings-key-login-show-remembered-hint = Show saved-address explanation
+admin-settings-help-login-show-remembered-hint = Show explanatory text in the previous-sign-ins dropdown. Hidden by default. Only applies when remembering successful sign-ins is enabled.
 
 admin-settings-key-mail-show-from = Show the composer From field
 admin-settings-help-mail-show-from = Show From by default in new composers. Users can reveal it for one message; only authorized addresses can send.
