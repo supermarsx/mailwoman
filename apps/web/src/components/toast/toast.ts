@@ -41,6 +41,8 @@ export type ToastCloseReason = 'timeout' | 'dismiss' | 'action' | 'evicted' | 'c
 export interface ToastOptions {
   /** Showing the same id again replaces the toast on screen instead of adding one. */
   id?: string;
+  /** Reserve the single background-job slot; ordinary notifications cannot evict it. */
+  persistent?: boolean;
   action?: ToastAction;
   /** Milliseconds on screen. Defaults by tone (TOAST_DURATIONS); `Infinity` stays until closed. */
   duration?: number;
@@ -56,6 +58,7 @@ export interface ToastOptions {
 
 export interface ToastItem {
   readonly id: string;
+  readonly persistent: boolean;
   readonly tone: ToastTone;
   readonly message: string;
   readonly action: ToastAction | undefined;
@@ -127,6 +130,7 @@ function show(tone: ToastTone, message: string, opts: ToastOptions = {}): string
     opts.id ?? list.find((i) => i.id.startsWith('auto:') && i.tone === tone && i.message === message)?.id ?? `auto:${++seq}`;
   const item: ToastItem = {
     id,
+    persistent: opts.persistent === true,
     tone,
     message,
     action: opts.action,
@@ -144,8 +148,11 @@ function show(tone: ToastTone, message: string, opts: ToastOptions = {}): string
     setItems(list.map((i) => (i.id === id ? item : i)));
   } else {
     const next = [...list, item];
-    evicted = next.slice(0, Math.max(0, next.length - TOAST_LIMIT));
-    setItems(next.slice(evicted.length));
+    const ordinary = next.filter(entry => !entry.persistent);
+    const jobs = next.filter(entry => entry.persistent);
+    evicted = [...ordinary.slice(0, Math.max(0, ordinary.length - TOAST_LIMIT)), ...jobs.slice(0, Math.max(0, jobs.length - 1))];
+    const removed = new Set(evicted.map(entry => entry.id));
+    setItems(next.filter(entry => !removed.has(entry.id)));
   }
   if (!item.pausable || pauses.size === 0) startClock(id);
   for (const e of evicted) close(e.id, 'evicted');

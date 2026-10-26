@@ -540,7 +540,7 @@ mail-trash-limit = This operation includes up to { $count } messages. More remai
 mail-trash-permanent = Delete permanently
 mail-trash-stop = Stop after the current request
 mail-trash-progress = Deleted { $deleted }; skipped { $skipped } messages no longer in Trash; { $remaining } still in this preview.
-mail-trash-stopped = Deletion stopped. Confirmed deleted: { $deleted }; skipped: { $skipped }; not deleted or not confirmed: { $remaining }. Check Trash before starting another operation.
+mail-trash-stopped = Deletion stopped. Confirmed deleted: { $deleted }; skipped: { $skipped }; remaining: { $remaining }; outcome unknown: { $uncertain }. Check Trash before starting another operation.
 mail-links-title = Message links
 mail-links-review = Review links ({ $count })
 mail-links-help = Message links open only after you review their destination here. No destination is fetched automatically.
@@ -585,3 +585,6 @@ mail-context-refresh = Refresh folder
 mail-context-folder-settings = Folder settings
 mail-context-failed = The action could not be completed. Try again.
 mail-sharing-unavailable = Folder sharing is unavailable or you no longer have permission to manage it.
+
+mail-trash-cancelling = Stopping after the current request. Confirmed deleted: { $deleted }; skipped: { $skipped }; remaining: { $remaining }. Deletions already accepted cannot be undone.
+mail-trash-already-running = Trash deletion is already running. Use its progress notification to stop future batches.

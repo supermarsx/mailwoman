@@ -1,0 +1,32 @@
+import {afterEach,expect,it,vi} from 'vitest';
+import {startTrashJob} from './emptyTrashJob.ts';
+import {toast,toasts,resetToasts} from './toast/toast.ts';
+import {activateAccountPreferences,preferenceAccount,preferenceAccountIsCurrent,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
+import type {TrashResult} from '../api/emptyTrash.ts';
+const run=vi.hoisted(()=>vi.fn());
+vi.mock('../api/emptyTrash.ts',()=>({emptyTrash:run}));
+afterEach(()=>{suspendAccountPreferences();resetToasts();vi.clearAllMocks();});
+it('permits one job and removes its notification when authentication changes',async()=>{
+ activateAccountPreferences('a');const owner=preferenceAccount()!;
+ let finish:((value:TrashResult)=>void)|undefined;
+ run.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+ const hooks={current:()=>preferenceAccountIsCurrent(owner),refresh:vi.fn(async()=>{}),clearSelection:vi.fn()};
+ const client={jmap:vi.fn()},snapshot={accountId:'a',mailboxId:'trash',ids:['one'],more:false};
+ expect(startTrashJob(client,snapshot,hooks)).toBe(true);expect(startTrashJob(client,snapshot,hooks)).toBe(false);expect(run).toHaveBeenCalledTimes(1);
+ const authority=run.mock.calls[0]?.[2] as {signal:AbortSignal};
+ suspendAccountPreferences();activateAccountPreferences('a');expect(authority.signal.aborted).toBe(true);
+ expect(toasts().some(item=>item.testId==='empty-trash-progress')).toBe(false);
+ finish!({deleted:1,skipped:0,remaining:0,uncertain:0,stopped:false});await Promise.resolve();await Promise.resolve();
+ expect(hooks.refresh).not.toHaveBeenCalled();expect(hooks.clearSelection).not.toHaveBeenCalled();expect(toasts().some(item=>item.testId==='empty-trash-result')).toBe(false);
+});
+it('dismissing progress stops future batches without aborting the active request',async()=>{
+ activateAccountPreferences('a');const owner=preferenceAccount()!;
+ let finish:((value:TrashResult)=>void)|undefined;
+ run.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+ startTrashJob({jmap:vi.fn()},{accountId:'a',mailboxId:'trash',ids:['one'],more:false},{current:()=>preferenceAccountIsCurrent(owner),refresh:async()=>{},clearSelection:()=>{}});
+ const authority=run.mock.calls[0]?.[2] as {signal:AbortSignal;stopRequested:()=>boolean};
+ const item=toasts().find(value=>value.testId==='empty-trash-progress')!;toast.dismiss(item.id);
+ expect(authority.stopRequested()).toBe(true);expect(authority.signal.aborted).toBe(false);
+ finish!({deleted:0,skipped:0,remaining:1,uncertain:0,stopped:true});
+ await vi.waitFor(()=>expect(toasts().some(value=>value.testId==='empty-trash-result')).toBe(true));
+});

@@ -303,3 +303,12 @@ describe('ToastRegion', () => {
     expect(result.violations.map((v) => v.id)).toEqual([]);
   });
 });
+
+it('reserves one persistent job slot without increasing the ordinary notification limit',()=>{
+ const closed=vi.fn();toast.info('Job',{id:'job',persistent:true,duration:Infinity,onClose:closed});
+ for(let i=0;i<6;i++)toast.info(`Ordinary ${i}`);
+ expect(toasts().filter(item=>!item.persistent)).toHaveLength(TOAST_LIMIT);
+ expect(toasts().find(item=>item.id==='job')).toBeDefined();expect(closed).not.toHaveBeenCalled();
+ toast.info('Replacement job',{id:'replacement',persistent:true,duration:Infinity});
+ expect(toasts().filter(item=>item.persistent)).toHaveLength(1);expect(closed).toHaveBeenCalledWith('evicted');
+});
