@@ -504,7 +504,9 @@ async fn put_global(
         updated_by: ctx.username.clone(),
         updated_at: now(),
     };
-    state.store.put_setting_policy(&row).await?;
+    if !state.store.compare_setting_policy(&key, current.as_ref(), Some(&row)).await? {
+        return Err(AdminApiError::stale(None, None));
+    }
     audit(
         &state,
         &ctx,
@@ -534,8 +536,10 @@ async fn delete_global(
         current.as_ref().map(|p| p.updated_by.as_str()),
         current.as_ref().map(|p| p.updated_at),
     )?;
+    if !state.store.compare_setting_policy(&key, current.as_ref(), None).await? {
+        return Err(AdminApiError::stale(None, None));
+    }
     if current.is_some() {
-        state.store.delete_setting_policy(&key).await?;
         audit(
             &state,
             &ctx,

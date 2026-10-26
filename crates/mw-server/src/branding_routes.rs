@@ -36,7 +36,7 @@ pub(crate) fn image_urls(images: &BrandImages) -> Value {
     let url = |id: &Option<String>| id.as_ref().map(|id| format!("/api/assets/{id}"));
     json!({"logoUrl":url(&images.logo_id),"faviconUrl":url(&images.icon_master_id),"loginBackgroundUrl":url(&images.login_background_id)})
 }
-fn view(s: &BrandingSnapshot) -> Value {
+pub(crate) fn view(s: &BrandingSnapshot) -> Value {
     json!({"brandName":s.name_json.as_deref().and_then(|v| serde_json::from_str::<Value>(v).ok()).filter(|v| !v.is_null()).unwrap_or(json!("Mailwoman")),
         "loginNotice":s.notice_json.as_deref().and_then(|v| serde_json::from_str::<Value>(v).ok()),
         "images":s.images,"assets":image_urls(&s.images)})

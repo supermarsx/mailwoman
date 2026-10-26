@@ -30,7 +30,7 @@
 //!
 //! Timestamps are unix seconds and booleans are 0/1 (0033 wire contract).
 
-use crate::backend::{Row, q};
+use crate::backend::{Row, Tx, q};
 use crate::{Store, StoreError};
 
 /// Shared IDNA domain normalization for login configuration and policy lookup.
@@ -157,6 +157,27 @@ fn value_from_row(r: &Row) -> Result<SettingValueRow, StoreError> {
     })
 }
 
+async fn write_policy_tx(tx: &mut Tx, row: &SettingPolicyRow) -> Result<(), StoreError> {
+    q("INSERT INTO setting_policy
+           (key, global_value, allow_user_override, global_locked, updated_by, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT(key) DO UPDATE SET
+           global_value = excluded.global_value,
+           allow_user_override = excluded.allow_user_override,
+           global_locked = excluded.global_locked,
+           updated_by = excluded.updated_by,
+           updated_at = excluded.updated_at")
+    .bind(&row.key)
+    .bind(row.global_value.clone())
+    .bind(i64::from(row.allow_user_override))
+    .bind(i64::from(row.global_locked))
+    .bind(&row.updated_by)
+    .bind(row.updated_at)
+    .execute_tx(tx)
+    .await?;
+    Ok(())
+}
+
 impl Store {
     /// Resolve only explicit domain aliases for policy. This deliberately never
     /// consults the preferred domain: an existing bare login has no domain.
@@ -245,29 +266,44 @@ impl Store {
         Ok(rows.iter().map(policy_from_row).collect())
     }
 
+    /// Atomically compare the validated row before inserting, updating or deleting it.
+    /// Unconditional policy writes and multi-field branding writes use the same lock.
+    pub async fn compare_setting_policy(
+        &self,
+        key: &str,
+        expected: Option<&SettingPolicyRow>,
+        replacement: Option<&SettingPolicyRow>,
+    ) -> Result<bool, StoreError> {
+        if replacement.is_some_and(|row| row.key != key) {
+            return Err(StoreError::Corrupt(
+                "conditional policy key mismatch".into(),
+            ));
+        }
+        let mut tx = self.backend.begin().await?;
+        crate::branding::lock(&mut tx).await?;
+        let rows = q("SELECT key,global_value,allow_user_override,global_locked,updated_by,updated_at FROM setting_policy WHERE key=?1")
+            .bind(key).fetch_all_tx(&mut tx).await?;
+        let current = rows.first().map(policy_from_row);
+        if current.as_ref() != expected {
+            return Ok(false);
+        }
+        if let Some(row) = replacement {
+            write_policy_tx(&mut tx, row).await?;
+        } else {
+            q("DELETE FROM setting_policy WHERE key=?1")
+                .bind(key)
+                .execute_tx(&mut tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(true)
+    }
+
     /// Insert or replace the policy row of `row.key`.
     pub async fn put_setting_policy(&self, row: &SettingPolicyRow) -> Result<(), StoreError> {
         let mut tx = self.backend.begin().await?;
-        if matches!(row.key.as_str(), "appearance.brandName" | "login.notice") {
-            crate::branding::lock(&mut tx).await?;
-        }
-        q("INSERT INTO setting_policy
-               (key, global_value, allow_user_override, global_locked, updated_by, updated_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-           ON CONFLICT(key) DO UPDATE SET
-               global_value = excluded.global_value,
-               allow_user_override = excluded.allow_user_override,
-               global_locked = excluded.global_locked,
-               updated_by = excluded.updated_by,
-               updated_at = excluded.updated_at")
-        .bind(&row.key)
-        .bind(row.global_value.clone())
-        .bind(i64::from(row.allow_user_override))
-        .bind(i64::from(row.global_locked))
-        .bind(&row.updated_by)
-        .bind(row.updated_at)
-        .execute_tx(&mut tx)
-        .await?;
+        crate::branding::lock(&mut tx).await?;
+        write_policy_tx(&mut tx, row).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -276,9 +312,7 @@ impl Store {
     /// defaults). `true` when a row was removed.
     pub async fn delete_setting_policy(&self, key: &str) -> Result<bool, StoreError> {
         let mut tx = self.backend.begin().await?;
-        if matches!(key, "appearance.brandName" | "login.notice") {
-            crate::branding::lock(&mut tx).await?;
-        }
+        crate::branding::lock(&mut tx).await?;
         let n = q("DELETE FROM setting_policy WHERE key = ?1")
             .bind(key)
             .execute_tx(&mut tx)
