@@ -119,6 +119,7 @@ export function savePrefs(prefs: SettingsPrefs): void {
  */
 export const PRESET_BINDINGS: Record<KeyboardPreset, ReadonlyArray<{ action: string; keys: string }>> = {
   default: [
+    { action: 'trash', keys: 'Delete' },
     { action: 'compose', keys: 'c' },
     { action: 'archive', keys: 'e' },
     { action: 'reply', keys: 'r' },
@@ -127,6 +128,7 @@ export const PRESET_BINDINGS: Record<KeyboardPreset, ReadonlyArray<{ action: str
     { action: 'search', keys: '/' },
   ],
   gmail: [
+    { action: 'trash', keys: 'Delete' },
     { action: 'compose', keys: 'c' },
     { action: 'archive', keys: 'e' },
     { action: 'reply', keys: 'r' },
@@ -135,6 +137,7 @@ export const PRESET_BINDINGS: Record<KeyboardPreset, ReadonlyArray<{ action: str
     { action: 'search', keys: '/' },
   ],
   outlook: [
+    { action: 'trash', keys: 'Delete' },
     { action: 'compose', keys: 'Ctrl+N' },
     { action: 'archive', keys: 'Backspace' },
     { action: 'reply', keys: 'Ctrl+R' },
@@ -143,6 +146,7 @@ export const PRESET_BINDINGS: Record<KeyboardPreset, ReadonlyArray<{ action: str
     { action: 'search', keys: 'Ctrl+E' },
   ],
   vim: [
+    { action: 'trash', keys: 'Delete' },
     { action: 'compose', keys: 'o' },
     { action: 'archive', keys: 'x' },
     { action: 'reply', keys: 'r' },

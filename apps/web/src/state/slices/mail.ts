@@ -558,7 +558,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     setMessages((msgs) => {
       const out = [...msgs];
       for (const item of [...taken].sort((a, b) => a.index - b.index)) {
-        out.splice(Math.min(item.index, out.length), 0, item.email);
+        if (!out.some(email => email.id === item.email.id)) out.splice(Math.min(item.index, out.length), 0, item.email);
       }
       return out;
     });
@@ -574,20 +574,80 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     });
   }
 
-  /** Take the folder counts from the `Mailbox/get` an `updateEmails` request
-   *  carries. Only the counts: the folder list itself is what was loaded. A
-   *  response without that call (an old server, a test double) changes nothing. */
-  function applyCounts(res: JmapResponse): void {
-    const found = res.methodResponses.find((m) => m[0] === 'Mailbox/get' && m[2] === COUNTS_CALL_ID);
-    const list = (found?.[1] as Partial<MailboxGetResponse> | undefined)?.list;
-    if (!Array.isArray(list)) return;
-    const byId = new Map(list.map((b) => [b.id, b]));
-    setMailboxes((boxes) =>
-      boxes.map((b) => {
-        const fresh = byId.get(b.id);
-        return fresh === undefined ? b : { ...b, unreadEmails: fresh.unreadEmails, totalEmails: fresh.totalEmails };
-      }),
-    );
+  function captureMailAuthority(): () => boolean {
+    const acct = accountId();
+    const authority = preferenceAccount();
+    return () => acct !== null && accountId() === acct && authority !== null && preferenceAccountIsCurrent(authority);
+  }
+
+  // Overlapping writes cannot order their piggyback snapshots. Once the last
+  // write settles, fetch a fresh snapshot instead of applying an older reply.
+  let countGeneration = -1;
+  let countWrites = 0;
+  let countVersion = 0;
+  let countsDirty = false;
+  let countRead: Promise<void> | null = null;
+  function countScope(): void {
+    const generation = preferenceAccount()?.generation ?? -1;
+    if (generation !== countGeneration) {
+      countGeneration = generation;
+      countWrites = 0;
+      countVersion++;
+      countsDirty = false;
+      countRead = null;
+    }
+  }
+  function applyCounts(res: JmapResponse, callId = COUNTS_CALL_ID): boolean {
+    const found = res.methodResponses.find(m => m[0] === 'Mailbox/get' && m[2] === callId);
+    const value = found?.[1] as Partial<MailboxGetResponse> | undefined;
+    const list = value?.list;
+    if (value?.accountId !== accountId() || !Array.isArray(list) || list.some(b =>
+      !b || typeof b.id !== 'string' || !Number.isSafeInteger(b.unreadEmails) || b.unreadEmails < 0 ||
+      !Number.isSafeInteger(b.totalEmails) || b.totalEmails < 0)) return false;
+    const byId = new Map(list.map(b => [b.id, b]));
+    setMailboxes(boxes => boxes.map(b => {
+      const fresh = byId.get(b.id);
+      return !fresh || (fresh.unreadEmails === b.unreadEmails && fresh.totalEmails === b.totalEmails)
+        ? b : { ...b, unreadEmails: fresh.unreadEmails, totalEmails: fresh.totalEmails };
+    }));
+    return true;
+  }
+  async function reconcileCounts(): Promise<void> {
+    countScope();
+    countsDirty = true;
+    if (countWrites > 0) return;
+    if (countRead) return countRead;
+    const current = captureMailAuthority();
+    const acct = accountId();
+    if (!current() || acct === null || isOffline()) return;
+    const read = (async () => {
+      while (current() && countsDirty && countWrites === 0) {
+        countsDirty = false;
+        const version = countVersion;
+        try {
+          const response = await client.jmap(mailboxGet(acct));
+          if (!current()) return;
+          if (version === countVersion && countWrites === 0) applyCounts(response, 'c0');
+          else countsDirty = true;
+        } catch { return; } // Retain visible counts during transient failures.
+      }
+    })();
+    countRead = read;
+    try { await read; } finally { if (countRead === read) countRead = null; }
+  }
+  function beginCountWrite(): (response?: JmapResponse) => Promise<void> {
+    countScope();
+    const current = captureMailAuthority();
+    if (countWrites > 0) countsDirty = true;
+    countWrites++;
+    countVersion++;
+    return async response => {
+      if (!current()) return;
+      countWrites--;
+      if (!countsDirty && response && applyCounts(response)) return;
+      countsDirty = true;
+      if (countWrites === 0) await reconcileCounts();
+    };
   }
 
   /** Move the unread badges as if each message in `emails` became `seen`, before
@@ -674,7 +734,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     opts: { quiet?: boolean } = {},
   ): Promise<number> {
     const acct = accountId();
-    if (acct === null) return 0;
+    const current = captureMailAuthority();
+    if (acct === null || !current()) return 0;
     const touched: { before: Email; on: boolean }[] = [];
     for (const [id, on] of changes) {
       const before = findEmail(id);
@@ -703,30 +764,35 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
 
     if (isOffline() && ctx.enqueueOffline) {
       for (const { before, on } of touched) {
+        if (!current()) return 0;
         await ctx.enqueueOffline('flag', { accountId: acct, emailId: before.id, keyword, value: on });
       }
-      return touched.length;
+      return current() ? touched.length : 0;
     }
 
     const ids = touched.map((x) => x.before.id);
     const patches: Record<Id, Record<string, unknown>> = {};
     for (const { before, on } of touched) patches[before.id] = { [`keywords/${keyword}`]: on ? true : null };
+    const finishCounts = beginCountWrite();
     let res: JmapResponse;
     try {
       res = await client.jmap(updateEmails(acct, patches));
     } catch {
-      if(accountId()!==acct)return 0;
+      if(!current())return 0;
       putBack(touched);
+      await finishCounts();
+      if (!current()) return 0;
       if (opts.quiet !== true) showToast('error', t('mail-toast-update-failed'));
       return 0;
     }
-    if(accountId()!==acct)return 0;
+    if(!current())return 0;
     const refused = refusedUpdates(res, ids);
     if (refused.size > 0) {
       putBack(touched.filter((x) => refused.has(x.before.id)));
       if (opts.quiet !== true) showToast('error', t('mail-toast-update-refused', { count: refused.size }));
     }
-    applyCounts(res);
+    await finishCounts(res);
+    if (!current()) return 0;
     ctx.broadcastChange?.();
     return touched.length - refused.size;
   }
@@ -748,12 +814,12 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     on: boolean,
     label: (count: number) => string,
   ): Promise<void> {
-    const owner=accountId();
+    const current = captureMailAuthority();
     const prior = keywordSnapshot(ids, keyword);
     const written = await writeKeyword(keyword, new Map(ids.map((id) => [id, on])));
-    if (written === 0 || accountId()!==owner) return;
+    if (written === 0 || !current()) return;
     showUndo(label(written), async () => {
-      if(accountId()!==owner)return;
+      if(!current())return;
       await writeKeyword(keyword, prior);
     });
   }
@@ -880,7 +946,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     label: (count: number) => string,
   ): Promise<void> {
     const acct = accountId();
-    if (acct === null) return;
+    const current = captureMailAuthority();
+    const source = pageSource();
+    const restore = (items: readonly Taken[]) => { if (current() && pageSource() === source) restoreToList(items); };
+    if (acct === null || !current()) return;
     let taken = takeFromList(ids);
     if (taken.length === 0) return;
     const queue = ctx;
@@ -889,6 +958,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const queuedIds = new Map<Id, string>();
     if (isOffline() && queue.enqueueOffline) {
       for (const { email } of taken) {
+        if (!current()) return;
         const queued = await queue.enqueueOffline('move', {
           accountId: acct,
           emailId: email.id,
@@ -899,31 +969,40 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     } else {
       const patches: Record<Id, Record<string, unknown>> = {};
       for (const { email } of taken) patches[email.id] = { mailboxIds: { [targetMailboxId]: true } };
+      const finishCounts = beginCountWrite();
       let res: JmapResponse;
       try {
         res = await client.jmap(updateEmails(acct, patches));
       } catch {
-        restoreToList(taken);
+        if (!current()) return;
+        restore(taken);
+        await finishCounts();
+        if (!current()) return;
         showToast('error', t('mail-toast-move-failed'));
         return;
       }
+      if (!current()) return;
       const refused = refusedUpdates(res, Object.keys(patches));
       if (refused.size > 0) {
-        restoreToList(taken.filter((x) => refused.has(x.email.id)));
+        restore(taken.filter((x) => refused.has(x.email.id)));
         taken = taken.filter((x) => !refused.has(x.email.id));
         showToast('error', t('mail-toast-update-refused', { count: refused.size }));
       }
-      applyCounts(res);
+      await finishCounts(res);
+      if (!current()) return;
       ctx.broadcastChange?.();
       if (taken.length === 0) return;
     }
+    if (!current()) return;
     const moved = taken;
     showUndo(label(moved.length), async () => {
+      if (!current()) return;
       // Still waiting in the offline queue: take it out, and the server never
       // hears of the move.
       const back: Taken[] = [];
       const reverse: Taken[] = [];
       for (const item of moved) {
+        if (!current()) return;
         const queuedId = queuedIds.get(item.email.id);
         if (queuedId !== undefined && queue.dequeueOffline && (await queue.dequeueOffline(queuedId))) back.push(item);
         else reverse.push(item);
@@ -931,19 +1010,30 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       // The rest reached the server, or are queued where they cannot be taken
       // back: move each message to where it was. Offline, that goes into the
       // queue too, behind the original, so the pair nets out on reconnect.
+      if (!current()) return;
       if (reverse.length > 0) {
         if (isOffline() && queue.enqueueOffline) {
           for (const { email } of reverse) {
+            if (!current()) return;
             await queue.enqueueOffline('move', { accountId: acct, emailId: email.id, mailboxIds: email.mailboxIds });
           }
         } else {
           const patches: Record<Id, Record<string, unknown>> = {};
           for (const { email } of reverse) patches[email.id] = { mailboxIds: email.mailboxIds };
-          applyCounts(await client.jmap(updateEmails(acct, patches)));
+          const finishCounts = beginCountWrite();
+          let response: JmapResponse;
+          try { response = await client.jmap(updateEmails(acct, patches)); }
+          catch { await finishCounts(); throw new Error(t('mail-toast-move-failed')); }
+          if (!current()) return;
+          const refused = refusedUpdates(response, Object.keys(patches));
+          await finishCounts(response);
+          if (!current()) return;
+          for (let i = reverse.length - 1; i >= 0; i--) if (refused.has(reverse[i]!.email.id)) reverse.splice(i, 1);
+          if (refused.size > 0) showToast('error', t('mail-toast-update-refused', { count: refused.size }));
           ctx.broadcastChange?.();
         }
       }
-      restoreToList([...back, ...reverse]);
+      restore([...back, ...reverse]);
     });
   }
   async function archiveMessage(ids: Id | readonly Id[]): Promise<void> {
@@ -1103,9 +1193,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   // ── V1 session + mail behaviour (unchanged) ───────────────────────────────
   async function refreshFolders(): Promise<void> {
     const acct = accountId();
-    if (acct === null) return;
+    const current = captureMailAuthority();
+    if (acct === null || !current()) return;
     const res = await client.jmap(mailboxGet(acct));
-    if (accountId() !== acct) return;
+    if (!current()) return;
     const boxes = sortMailboxes(responseFor<MailboxGetResponse>(res, 'c0').list);
     setMailboxes(boxes);
     const selected = selectedMailboxId();
@@ -1322,6 +1413,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
 
   // ── V2 integration: push/peer refetch, search, attachments, export ────────
   async function refreshCurrentMailbox(): Promise<void> {
+    const current = captureMailAuthority();
+    await reconcileCounts();
+    if (!current()) return;
     const acct = accountId();
     const src = pageSource();
     if (acct === null || searchActive()) return;

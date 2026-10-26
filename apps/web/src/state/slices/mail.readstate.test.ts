@@ -372,3 +372,56 @@ describe('selection', () => {
     });
   });
 });
+
+
+describe('authoritative folder count reconciliation',()=>{
+  it('refreshes counts after another device changes read state',async()=>{
+    await withSlice([msg('a'),msg('b')],async(mail,server)=>{
+      server.stored('a').keywords={$seen:true};await mail.refreshCurrentMailbox();
+      expect(inboxUnread(mail)).toBe(1);
+    });
+  });
+  it('rejects a foreign-account counts payload and reconciles from the server',async()=>{
+    await withSlice([msg('a')],async(mail,server)=>{
+      const original=server.jmap.getMockImplementation() as (body:JmapRequest)=>Promise<JmapResponse>;
+      server.jmap.mockImplementation(async(body:JmapRequest)=>{const response=await original(body);if(body.methodCalls.some(call=>call[0]==='Email/set'))for(const call of response.methodResponses)if(call[0]==='Mailbox/get'){call[1]['accountId']='foreign';for(const box of call[1]['list'] as Mailbox[])box.unreadEmails=999;}return response;});
+      await mail.markRead('a',true);expect(inboxUnread(mail)).toBe(0);
+    });
+  });
+  it('does not let an older completed mutation replace newer authoritative counts',async()=>{
+    await withSlice([msg('a'),msg('b')],async(mail,server)=>{
+      const original=server.jmap.getMockImplementation() as (body:JmapRequest)=>Promise<JmapResponse>;let release:(()=>void)|undefined,held=false;
+      server.jmap.mockImplementation(async(body:JmapRequest)=>{const response=await original(body);if(!held&&body.methodCalls.some(call=>call[0]==='Email/set')){held=true;await new Promise<void>(resolve=>{release=resolve;});}return response;});
+      const first=mail.markRead('a',true);await vi.waitFor(()=>expect(release).toBeDefined());await mail.markRead('b',true);release!();await first;expect(inboxUnread(mail)).toBe(0);
+    });
+  });
+  it('does not restore a refused move undo or fabricate its counts',async()=>{
+    await withSlice([msg('a'),msg('b')],async(mail,server)=>{
+      await mail.archiveMessage(['a','b']);server.refuse.add('a');await mail.undoNow();
+      expect(mail.messages().map(message=>message.id)).toEqual(['b']);
+      expect(mail.mailboxes().find(box=>box.id==='inbox')?.totalEmails).toBe(1);
+      expect(mail.mailboxes().find(box=>box.id==='archive')?.totalEmails).toBe(1);
+    });
+  });
+  it('coalesces refresh count reads while retaining authoritative results',async()=>{
+    await withSlice([msg('a')],async(mail,server)=>{
+      const original=server.jmap.getMockImplementation() as (body:JmapRequest)=>Promise<JmapResponse>;
+      let release:(()=>void)|undefined,reads=0;
+      server.jmap.mockImplementation(async(body:JmapRequest)=>{
+        if(body.methodCalls.length===1&&body.methodCalls[0]?.[0]==='Mailbox/get'){
+          reads++;if(reads===1)await new Promise<void>(resolve=>{release=resolve;});
+        }return original(body);
+      });
+      const first=mail.refreshCurrentMailbox();await vi.waitFor(()=>expect(release).toBeDefined());
+      const second=mail.refreshCurrentMailbox();server.stored('a').keywords={$seen:true};release!();await Promise.all([first,second]);
+      expect(inboxUnread(mail)).toBe(0);expect(reads).toBeLessThanOrEqual(2);
+    });
+  });
+  it('does not publish an old move undo into a later sign-in of the same account',async()=>{
+    await withSlice([msg('a')],async(mail,server)=>{
+      const original=server.jmap.getMockImplementation() as (body:JmapRequest)=>Promise<JmapResponse>;let release:(()=>void)|undefined,held=false;
+      server.jmap.mockImplementation(async(body:JmapRequest)=>{const response=await original(body);if(!held&&body.methodCalls.some(call=>call[0]==='Email/set')){held=true;await new Promise<void>(resolve=>{release=resolve;});}return response;});
+      const moved=mail.archiveMessage('a');await vi.waitFor(()=>expect(release).toBeDefined());await mail.logout();await mail.login({username:'me@example.org',password:'p'});release!();await moved;expect(mail.pendingUndo()).toBeNull();
+    });
+  });
+});

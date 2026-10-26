@@ -100,6 +100,7 @@ export function createKeymap(opts: KeymapOptions = {}): Keymap {
     if (isTypingTarget(e.target) || insideModal(e.target)) return false;
     const action = bindings().get(chordId(chordOf(e)));
     if (action === undefined) return false;
+    if (action === 'trash' && e.repeat) return false;
     const stack = handlers.get(action);
     // Retained workspace tabs stay mounted. An inactive tab declines so the
     // active reader's earlier registration can handle the action.

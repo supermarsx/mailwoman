@@ -636,7 +636,19 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
     if (row !== undefined && row.email.id !== openId) void (props.onOpenMessage ? props.onOpenMessage(row.email.id) : app.openMessage(row.email.id));
     return true;
   }
-  useActions({ next: () => step(1), previous: () => step(-1) });
+  useActions({
+    next: () => step(1), previous: () => step(-1),
+    trash: () => {
+      const focused = document.activeElement;
+      const row = rows().find(item => rowEls.get(item) === focused);
+      if (!row) return false;
+      if (app.listLoading()) return true;
+      const selected = app.selectedIds();
+      const targets = selected.size > 0 ? [...selected] : idsOf(row);
+      void app.trashMessage(targets);
+      return true;
+    },
+  });
 
   // No wrapper objects: `<For>` keys on reference, and a fresh `{row, index}`
   // wrapper per render made every mounted row unmount and remount on each

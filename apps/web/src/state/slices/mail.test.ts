@@ -65,7 +65,9 @@ function makeClient(
   const jmap = vi.fn(async (body: JmapRequest): Promise<JmapResponse> => {
     const names = body.methodCalls.map((c) => c[0]);
     if (names.includes('Mailbox/get')) {
-      return { methodResponses: [['Mailbox/get', { accountId: 'acct1', state: 's', list: boxes, notFound: [] }, 'c0']], sessionState: 's' };
+      return { methodResponses: body.methodCalls.map(call => call[0] === 'Mailbox/get'
+        ? ['Mailbox/get', { accountId: 'acct1', state: 's', list: boxes, notFound: [] }, call[2]]
+        : [call[0], { accountId: 'acct1' }, call[2]]), sessionState: 's' };
     }
     if (names.includes('EmailSubmission/set')) {
       return {
