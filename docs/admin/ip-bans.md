@@ -1,5 +1,7 @@
 # IP bans
 
+Open **Security centre → IP ban list** in the administrator console.
+
 An active ban refuses application requests from that client IP, including requests
 using an existing mailbox or administrator session. This is application admission,
 not a TCP firewall. Existing connections are not forcibly disconnected; the next

@@ -29,7 +29,7 @@ export function AutomaticLocks(props:{api?:AutomaticLocksApi}):JSX.Element {
  ];
  return <section class={css.section} aria-label={t('admin-obs-locks-title')}>
  <div class={ux.pageHead}><h2 class={css.heading}>{t('admin-obs-locks-title')}</h2><div class={ux.pageActions}>
- <button class="btn btn--ghost" onClick={()=>void shell?.router.navigate(sectionPath('observability'))}>{t('admin-obs-locks-back')}</button>
+ <button class="btn btn--ghost" onClick={()=>void shell?.router.navigate(sectionPath('security'))}>{t('admin-security-center-title')}</button>
  <button class="btn" disabled={loading()} onClick={()=>void reload()}>{t('admin-obs-locks-refresh')}</button></div></div>
  <p class={css.note}>{t('admin-obs-locks-note')}</p>
  <Show when={shell?.can.can('settings.read')}><button class="btn btn--ghost" onClick={()=>void shell?.router.navigate(sectionPath('settings',['security.signin.adminFailureLimit']))}>{t('admin-obs-locks-configure')}</button></Show>

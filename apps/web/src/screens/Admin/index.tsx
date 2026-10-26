@@ -25,7 +25,7 @@ import { AdminContext, useAdmin } from './context.ts';
 import { AdminLogin } from './AdminLogin.tsx';
 import { AdminShell } from './shell/AdminShell.tsx';
 import { RouteTransition } from './shell/RouteTransition.tsx';
-import { SECTIONS, findSection, type SectionDef } from './shell/sections.ts';
+import { SECTIONS, findSection, canOpenSection, type SectionDef } from './shell/sections.ts';
 import { createAdminRouter, hrefFor, sectionPath, type AdminRouter } from './shell/router.ts';
 import { createLeaveCheck } from './shell/useDirtyGuard.ts';
 import { createAdminMeLoader, createLoadedCan, type AdminMeLoader } from './shell/can.ts';
@@ -141,7 +141,7 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
 
   const section = (): SectionDef | undefined => {
     const s = findSection(router.route().section, sections);
-    return s && (s.capability === undefined || can.can(s.capability)) ? s : undefined;
+    return s && canOpenSection(s, can) ? s : undefined;
   };
 
   createEffect(() => {

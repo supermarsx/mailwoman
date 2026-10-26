@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, screen } from '@solidjs/testing-library';
 import { Observability } from './Observability.tsx';
 import { mockAdminApi, renderWithAdmin } from './testkit.tsx';
-import type { AuditLogEntry, BanEntry } from '../../state/slices/admin.ts';
+import type { AuditLogEntry } from '../../state/slices/admin.ts';
 
 const AUDIT: AuditLogEntry = {
   id: '1',
@@ -15,7 +15,6 @@ const AUDIT: AuditLogEntry = {
   ip: null,
 };
 
-const BAN: BanEntry = { ip: '198.51.100.9', reason: 'brute-force', bannedAt: '2026-07-14T00:00:00Z', expiresAt: null };
 
 describe('Admin › Observability', () => {
   it('renders the audit log', async () => {
@@ -59,21 +58,9 @@ describe('Admin › Observability', () => {
     expect(region).toHaveTextContent('MW_METRICS_TOKEN');
   });
 
-  it('explains active bans, trusted source addresses and health exemptions', async () => {
-    renderWithAdmin(() => <Observability />);
-    const note = await screen.findByTestId('admin-obs-bans-note');
-    expect(note).toHaveTextContent('block application requests');
-    expect(note).toHaveTextContent('Expired entries no longer block');
-    expect(note).toHaveTextContent('Health checks remain available');
-    expect(note).toHaveTextContent('configured proxies');
+  it('does not fetch security data when opening audit',async()=>{
+    const api=mockAdminApi();renderWithAdmin(()=><Observability/>,api);
+    await screen.findByText('No audit entries.');expect(api.listBans).not.toHaveBeenCalled();
   });
 
-  it('lists bans and can unban', async () => {
-    const removeBan = vi.fn(async () => undefined);
-    renderWithAdmin(() => <Observability />, mockAdminApi({ listBans: vi.fn(async () => [BAN]), removeBan }));
-    expect(await screen.findByText('198.51.100.9')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Unban 198.51.100.9' }));
-    await Promise.resolve();
-    expect(removeBan).toHaveBeenCalledWith('198.51.100.9');
-  });
 });

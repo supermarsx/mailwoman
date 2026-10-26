@@ -28,8 +28,8 @@ describe('AdminScreen (gate + shell)', () => {
     for (const [group, labels] of [
       ['My account', ['My preferences']],
       ['Overview', ['Dashboard']],
-      ['People', ['Users', 'Domains', 'Security centre']],
-      ['Security', ['Single sign-on', 'Sessions', 'Privacy']],
+      ['People', ['Users', 'Domains']],
+      ['Security', ['Security centre', 'Single sign-on', 'Privacy']],
       ['Configuration', ['Settings', 'Effective configuration', 'AI assistant', 'Integrations', 'Plugins', 'UI plugins', 'Outbound connections']],
       ['Operations', ['Logs', 'Diagnostics', 'Observability', 'Maintenance', 'Server metadata']],
     ] as const) {
@@ -61,7 +61,8 @@ describe('AdminScreen (gate + shell)', () => {
     const api = mockAdminApi();
     render(() => <AdminScreen api={api} {...offlineShell()} />);
     await findRegion('Dashboard');
-    expect(within(nav()).getByRole('link', { name: 'Security policy' })).toBeInTheDocument();
+    expect(within(nav()).getByRole('link', { name: 'Security centre' })).toBeInTheDocument();
+    expect(within(nav()).queryByRole('link', { name: 'Security policy' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Appearance' })).toBeNull();
     for (const a of within(nav()).getAllByRole('link')) fireEvent.click(a);
     await Promise.resolve();

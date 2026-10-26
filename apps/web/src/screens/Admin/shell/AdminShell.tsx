@@ -21,7 +21,7 @@ import { createFocusTrap, createRovingTabindex } from '../../../components/a11y'
 import type { Can } from './can.ts';
 import { useBranding, brandAssetUrl } from '../../../branding.ts';
 import * as brandCss from '../branding.css.ts';
-import { GROUPS, type SectionDef } from './sections.ts';
+import { GROUPS, canOpenSection, type SectionDef } from './sections.ts';
 import { fieldPath, hrefFor, sectionPath, type AdminRoute } from './router.ts';
 import { Icon } from './icons.tsx';
 import { Breadcrumbs, type Crumb } from './Breadcrumbs.tsx';
@@ -75,7 +75,7 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
   const [navEl, setNavEl] = createSignal<HTMLElement>();
   const [drawerEl, setDrawerEl] = createSignal<HTMLElement>();
 
-  const visible = createMemo(() => props.sections.filter((s) => (s.capability === undefined || props.can.can(s.capability))));
+  const visible = createMemo(() => props.sections.filter((s) => canOpenSection(s, props.can)));
   const groups = createMemo(() =>
     GROUPS.map((g) => ({ ...g, items: visible().filter((s) => s.group === g.id) })).filter((g) => g.items.length > 0),
   );

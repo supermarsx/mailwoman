@@ -18,7 +18,7 @@ export function SigninGeographyPage(props:{load?:()=>Promise<SigninGeography>}):
  {id:'countries',value:r.countries.join(', ')||t('admin-obs-geo-value-empty')},{id:'unknown',value:label(r.unknown)},
  {id:'admin',value:label(r.administratorDecision)},{id:'mailbox',value:label(r.mailboxDecision)}]:[];};
  return <section class={css.section} aria-label={t('admin-obs-geo-title')}>
- <div class={ux.pageHead}><h2 class={css.heading}>{t('admin-obs-geo-title')}</h2><div class={ux.pageActions}><button class="btn btn--ghost" onClick={()=>void shell?.router.navigate(sectionPath('observability'))}>{t('admin-obs-locks-back')}</button><button class="btn" disabled={busy()} onClick={()=>void reload()}>{t('admin-obs-geo-refresh')}</button></div></div>
+ <div class={ux.pageHead}><h2 class={css.heading}>{t('admin-obs-geo-title')}</h2><div class={ux.pageActions}><button class="btn btn--ghost" onClick={()=>void shell?.router.navigate(sectionPath('security'))}>{t('admin-security-center-title')}</button><button class="btn" disabled={busy()} onClick={()=>void reload()}>{t('admin-obs-geo-refresh')}</button></div></div>
  <p class={css.note}>{t(report()?.enforceSessions?'admin-obs-geo-session-note':'admin-obs-geo-note')}</p>
  <Show when={report()?.database==='unavailable'}><Feedback kind="info" message={t('admin-obs-geo-unavailable')}/></Show>
  <Show when={shell?.can.can('settings.read')}><div class={ux.pageActions}><button class="btn" onClick={()=>void shell?.router.navigate(sectionPath('settings',['security.signin.geoScope']))}>{t('admin-obs-geo-configure')}</button><button class="btn" onClick={()=>void shell?.router.navigate(sectionPath('settings',['security.signin.geoEnforceSessions']))}>{t('admin-obs-geo-configure-sessions')}</button></div></Show>

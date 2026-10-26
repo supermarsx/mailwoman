@@ -18,7 +18,7 @@ export function BanEditor(props: { onSaved?: () => void }): JSX.Element {
   const [error, setError] = createSignal('');
   const [saved, setSaved] = createSignal(false);
   useDirtyGuard(() => !saved() && Boolean(ip() || reason() || expiry()));
-  const leave = (): void => { void shell?.router.navigate(sectionPath('observability')); };
+  const leave = (): void => { void shell?.router.navigate(sectionPath('security', ['bans'])); };
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     if (busy()) return;

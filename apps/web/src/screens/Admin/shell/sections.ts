@@ -19,7 +19,7 @@
 import { createComponent, lazy, type Component } from 'solid-js';
 import { t } from '../../../i18n';
 import type { AdminApi } from '../../../state/slices/admin.ts';
-import type { Capability } from './can.ts';
+import type { Capability, Can } from './can.ts';
 import type { IconName } from './icons.tsx';
 import type { AdminRoute } from './router.ts';
 
@@ -46,6 +46,7 @@ export interface SectionDef {
   icon: IconName;
   label: () => string;
   capability?: Capability;
+  anyCapabilities?: readonly Capability[];
   component: Component<SectionProps>;
 }
 
@@ -62,7 +63,6 @@ function screen<P extends object>(load: () => Promise<Component<P>>, passApi: bo
 }
 
 export const SECTIONS: readonly SectionDef[] = [
-  { id: 'inbound-allowlist', group: 'security', icon: 'shield', label: () => t('admin-inbound-title'), capability: 'security.read', component: screen(() => import('../InboundAllowlist.tsx').then(m => m.InboundAllowlist), false) },
   { id: 'configuration-transfer', group: 'configuration', icon: 'restore', label: () => t('admin-transfer-title'), capability: 'config.read', component: screen(() => import('../ConfigurationTransfer.tsx').then(m => m.ConfigurationTransfer), false) },
   { id: 'package-tracking', group: 'configuration', icon: 'archive', label: () => t('admin-nav-package-tracking'), capability: 'integrations.read', component: screen(() => import('../PackageTracking.tsx').then(m => m.PackageTracking), false) },
   { id: 'identity-provider', group: 'security', icon: 'identityProvider', label: () => t('admin-identity-title'), capability: 'integrations.read', component: screen(() => import('../IdentityProvider/index.tsx').then(m => m.default), false) },
@@ -79,14 +79,6 @@ export const SECTIONS: readonly SectionDef[] = [
     label: () => t('admin-diag-title'),
     capability: 'diagnostics.read',
     component: screen(() => import('../Diagnostics.tsx').then((m) => m.Diagnostics), false),
-  },
-  {
-    id: 'sessions',
-    group: 'security',
-    icon: 'sessions',
-    label: () => t('admin-nav-sessions'),
-    capability: 'sessions.read',
-    component: screen(() => import('../Sessions.tsx').then((m) => m.AdminSessions), false),
   },
   {
     id: 'dashboard',
@@ -113,11 +105,11 @@ export const SECTIONS: readonly SectionDef[] = [
     component: screen(() => import('../Domains.tsx').then((m) => m.Domains), false),
   },
   {
-    id: 'two-factor',
-    group: 'people',
+    id: 'security',
+    group: 'security',
     icon: 'twofactor',
     label: () => t('admin-security-center-title'),
-    capability: 'security.read',
+    anyCapabilities: ['security.read','bans.read','diagnostics.read','sessions.read'],
     component: screen(() => import('../SecurityCenter.tsx').then((m) => m.AdminSecurityCenter), true),
   },
   {
@@ -143,14 +135,6 @@ export const SECTIONS: readonly SectionDef[] = [
     label: () => t('admin-accounts-roles'),
     capability: 'admins.read',
     component: screen(() => import('../Roles/index.tsx').then((m) => m.AdminRoles), false),
-  },
-  {
-    id: 'security-policy',
-    group: 'security',
-    icon: 'policy',
-    label: () => t('admin-nav-security-policy'),
-    capability: 'security.read',
-    component: screen(() => import('../SecurityPolicy/index.tsx').then((m) => m.AdminSecurityPolicy), false),
   },
   {
     id: 'oauth-clients',
@@ -229,7 +213,7 @@ export const SECTIONS: readonly SectionDef[] = [
     group: 'operations',
     icon: 'observability',
     label: () => t('admin-nav-observability'),
-    capability: 'diagnostics.read',
+    anyCapabilities: ['audit.read','observability.read'],
     component: screen(() => import('../Observability.tsx').then((m) => m.Observability), false),
   },
   {
@@ -253,4 +237,9 @@ export const SECTIONS: readonly SectionDef[] = [
 /** The section for an id, or undefined. */
 export function findSection(id: string, sections: readonly SectionDef[] = SECTIONS): SectionDef | undefined {
   return sections.find((s) => s.id === id);
+}
+
+/** Shared sidebar and route admission; child screens retain their own gates. */
+export function canOpenSection(section: SectionDef, can: Can): boolean {
+  return (section.capability === undefined || can.can(section.capability)) && (section.anyCapabilities === undefined || section.anyCapabilities.some(cap => can.can(cap)));
 }

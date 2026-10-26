@@ -6,6 +6,21 @@ client metadata and opaque handles, never authentication tokens or passwords.
 Country labels use only the operator's local `MW_GEOIP_DB`; without it no country
 is displayed. Exporting sign-in history requires recent verification.
 
+## Administrator navigation
+
+The administrator **Security centre** (`#/security`) groups overview and factor
+policy, IP bans, temporary sign-in locks, sign-in country policy, aggregate and
+adaptive protection, security policy, inbound access, deployment checks and sessions.
+Only authorized pages mount or fetch data. Shared source-IP controls require
+unscoped grants; mailbox-session listings retain their domain-scoped permissions.
+Each write still uses its existing capability, fresh verification and confirmation.
+
+Old `#/two-factor`, `#/sessions`, `#/security-policy`, `#/inbound-allowlist` and
+`#/observability/bans`, `/locks`, `/geography`, `/protection` bookmarks resolve to
+the corresponding Security centre page, including the ban editor and field query.
+Observability contains audit, request statistics and telemetry. Audit and ban lists
+load independently, so lacking one capability does not break the other page.
+
 ## Passwordless sign-in
 
 Browser passkeys support engine-mode sign-in using required user verification

@@ -25,6 +25,7 @@
 // it does not ask the dirty-state guard.
 
 import { createSignal, type Accessor } from 'solid-js';
+import { securityRouteAlias } from './securityNavigation.ts';
 import { basePath, stripBase } from '../../../api/basePath.ts';
 import { consolePath } from '../../../api/adminPath.ts';
 
@@ -70,7 +71,7 @@ export function parseAdminPath(location: string): AdminRoute {
     const field = query['field'];
     if (field !== undefined && field !== '') route.field = field;
   }
-  return route;
+  return securityRouteAlias(route);
 }
 
 /** The app location of a section (`dashboard` is the plain console page), with an
