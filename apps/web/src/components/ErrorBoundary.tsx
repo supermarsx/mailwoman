@@ -69,6 +69,10 @@ export function AsyncBoundary(props: {
 /** What a dynamic `import()` of a route module resolves to. */
 export type RouteModule = { default: Component };
 
+function isModuleDownloadFailure(error: unknown): boolean {
+  return error instanceof Error && /dynamically imported module|loading chunk|loading css chunk|importing a module script|unable to preload css/i.test(error.message);
+}
+
 /**
  * A lazily-imported route with a bounded pending state and a retry that really
  * re-imports.
@@ -114,7 +118,7 @@ export function LazyRoute(props: {
         // Resolve to a VIEW rather than rejecting: a rejected lazy is the path
         // that produced the permanent spinner.
         if (props.failSoft === true) return { default: () => null };
-        return { default: () => <AsyncError error={error} message={t('common-error-page')} detail={t('common-error-page-help')} onRetry={retry} onReload={attempt()>0?()=>void reload():undefined} /> };
+        return { default: () => <AsyncError error={error} message={t('common-error-page')} detail={t('common-error-page-help')} onRetry={retry} onReload={attempt()>0||isModuleDownloadFailure(error)?()=>void reload():undefined} /> };
       }
     });
   });

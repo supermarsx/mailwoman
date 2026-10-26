@@ -110,6 +110,16 @@ describe('a failed surface says what kind of failure it was', () => {
 });
 
 describe('a lazy route that fails to import', () => {
+  it('offers guarded reload immediately for a browser module-download failure', async () => {
+    const guard = vi.fn(() => false);
+    const remove = registerNavigationGuard(guard);
+    try {
+      render(() => <LazyRoute load={async () => { throw new TypeError('error loading dynamically imported module: /assets/missing.js'); }} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Reload application' }));
+      await waitFor(() => expect(guard).toHaveBeenCalledOnce());
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    } finally { remove(); }
+  });
   it('offers application reload after repeated import failure and consults unsaved-change guards',async()=>{
     const guard=vi.fn(()=>false);const remove=registerNavigationGuard(guard);
     try {
