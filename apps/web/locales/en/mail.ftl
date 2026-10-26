@@ -132,6 +132,7 @@ mail-attachment-unnamed = (unnamed)
 mail-attachment-open = Attachment { $name }
 mail-attachment-close = Close attachment
 mail-attachment-loading = Loading attachment…
+mail-attachment-failed = This attachment could not be downloaded. Try again when the connection is available.
 
 # -- Reader: decrypt ---------------------------------------------------------
 mail-encrypted-region = Encrypted message
@@ -455,15 +456,6 @@ mail-folder-counts = { $unread } unread, { $total } messages
 mail-print = Print / Save as PDF
 mail-print-help = Print this message or choose Save as PDF in the print dialog. External images stay blocked.
 
-mail-spam-score = Spam analysis
-mail-spam-score-loading = Checking spam headers…
-mail-spam-score-unavailable = Spam score unavailable
-mail-spam-score-unverified = Reported by message headers, not independently verified. Sender-supplied headers can be forged.
-mail-spam-score-positive = The header reports spam.
-mail-spam-score-negative = The header reports a non-spam result.
-mail-spam-score-unknown = No verdict was supplied with this score.
-
-mail-attachment-failed = This attachment could not be downloaded. Try again when the connection is available.
 mail-file-details = File details and fingerprint
 mail-file-type = File type
 mail-file-extension = Extension
@@ -484,6 +476,14 @@ mail-quote-header-sent = Sent:
 mail-quote-header-to = To:
 mail-quote-header-cc = Cc:
 mail-quote-header-subject = Subject:
+
+mail-spam-score = Spam analysis
+mail-spam-score-loading = Checking spam headers…
+mail-spam-score-unavailable = Spam score unavailable
+mail-spam-score-unverified = Reported by message headers, not independently verified. Sender-supplied headers can be forged.
+mail-spam-score-positive = The header reports spam.
+mail-spam-score-negative = The header reports a non-spam result.
+mail-spam-score-unknown = No verdict was supplied with this score.
 
 mail-external-recipients = External recipients
 mail-external-count = { $count } recipient(s) outside trusted domains

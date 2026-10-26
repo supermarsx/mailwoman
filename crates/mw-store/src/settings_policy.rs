@@ -575,8 +575,10 @@ impl Store {
             .bind(&domain).bind(account_id).fetch_all(&self.backend).await?;
         let mut profiles = Vec::new();
         for row in rows {
-            let id=row.get_string("profile_id");
-            if !profiles.contains(&id) { profiles.push(id); }
+            let id = row.get_string("profile_id");
+            if !profiles.contains(&id) {
+                profiles.push(id);
+            }
         }
         Ok((profiles, groups))
     }

@@ -49,7 +49,9 @@ const NOTIFY_ORDER: [&str; 4] = ["NEVER", "SUCCESS", "FAILURE", "DELAY"];
 impl DsnRequest {
     /// Read the DSN parameters of an RFC 8621 envelope. `Ok(None)` when it asks
     /// for none; `Err` names what is wrong (for `invalidProperties`).
-    pub fn from_envelope(envelope: &Map<String, Value>) -> std::result::Result<Option<Self>, String> {
+    pub fn from_envelope(
+        envelope: &Map<String, Value>,
+    ) -> std::result::Result<Option<Self>, String> {
         let mut req = DsnRequest::default();
         if let Some(params) = parameters(envelope.get("mailFrom"))? {
             if let Some(ret) = param(params, "RET")? {
@@ -80,19 +82,26 @@ impl DsnRequest {
         let mut orcpt_seen = false;
         let mut orcpt_all = true;
         for rcpt in rcpts {
-            let email = rcpt.get("email").and_then(Value::as_str).unwrap_or_default();
+            let email = rcpt
+                .get("email")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             let params = parameters(Some(rcpt))?;
-            notifies.push(match params.map(|p| param(p, "NOTIFY")).transpose()?.flatten() {
-                Some(n) => Some(parse_notify(n)?),
-                None => None,
-            });
+            notifies.push(
+                match params.map(|p| param(p, "NOTIFY")).transpose()?.flatten() {
+                    Some(n) => Some(parse_notify(n)?),
+                    None => None,
+                },
+            );
             match params.map(|p| param(p, "ORCPT")).transpose()?.flatten() {
                 Some(o) => {
                     let addr = o
                         .split_once(';')
                         .filter(|(kind, _)| kind.eq_ignore_ascii_case("rfc822"))
                         .map(|(_, a)| a)
-                        .ok_or_else(|| "rcptTo.parameters.ORCPT must be rfc822;<address>".to_string())?;
+                        .ok_or_else(|| {
+                            "rcptTo.parameters.ORCPT must be rfc822;<address>".to_string()
+                        })?;
                     if !addr.eq_ignore_ascii_case(email) {
                         return Err(
                             "rcptTo.parameters.ORCPT must name the recipient's own address".into(),
@@ -177,7 +186,10 @@ fn parameters(addr: Option<&Value>) -> std::result::Result<Option<&Map<String, V
 
 /// One parameter by name (case-insensitive), as a string. A parameter given
 /// without a value (`null`) reads as absent.
-fn param<'a>(params: &'a Map<String, Value>, name: &str) -> std::result::Result<Option<&'a str>, String> {
+fn param<'a>(
+    params: &'a Map<String, Value>,
+    name: &str,
+) -> std::result::Result<Option<&'a str>, String> {
     match params
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case(name))
@@ -196,7 +208,9 @@ fn parse_notify(raw: &str) -> std::result::Result<Vec<String>, String> {
         .filter(|w| !w.is_empty())
         .collect();
     if words.is_empty() || words.iter().any(|w| !NOTIFY_ORDER.contains(&w.as_str())) {
-        return Err("rcptTo.parameters.NOTIFY must be NEVER, or any of SUCCESS, FAILURE, DELAY".into());
+        return Err(
+            "rcptTo.parameters.NOTIFY must be NEVER, or any of SUCCESS, FAILURE, DELAY".into(),
+        );
     }
     if words.iter().any(|w| w == "NEVER") && words.len() > 1 {
         return Err("rcptTo.parameters.NOTIFY: NEVER cannot be combined".into());
@@ -226,7 +240,10 @@ impl Engine {
         }
         if let Err(e) = self
             .store()
-            .set_setting(&Self::dsn_support_key(account_id), if offered { "true" } else { "false" })
+            .set_setting(
+                &Self::dsn_support_key(account_id),
+                if offered { "true" } else { "false" },
+            )
             .await
         {
             tracing::warn!("account {account_id}: could not record DSN support: {e}");
@@ -262,7 +279,11 @@ impl Engine {
             .lock()
             .map(|r| r.contains(account_id))
             .unwrap_or(false);
-        if refused { json!({}) } else { json!({ "DSN": [] }) }
+        if refused {
+            json!({})
+        } else {
+            json!({ "DSN": [] })
+        }
     }
 
     /// Whether an administrator allows asking for delivery status
@@ -298,7 +319,8 @@ mod tests {
 
     #[test]
     fn no_parameters_is_no_request() {
-        let e = env(json!({ "mailFrom": { "email": "a@x.org" }, "rcptTo": [{ "email": "b@y.org" }] }));
+        let e =
+            env(json!({ "mailFrom": { "email": "a@x.org" }, "rcptTo": [{ "email": "b@y.org" }] }));
         assert_eq!(DsnRequest::from_envelope(&e), Ok(None));
     }
 
@@ -327,8 +349,14 @@ mod tests {
     #[test]
     fn refuses_what_cannot_be_sent_as_asked() {
         for (e, why) in [
-            (json!({ "rcptTo": [{ "email": "b@y.org", "parameters": { "NOTIFY": "SOMETIMES" } }] }), "NOTIFY"),
-            (json!({ "rcptTo": [{ "email": "b@y.org", "parameters": { "NOTIFY": "NEVER,SUCCESS" } }] }), "NEVER"),
+            (
+                json!({ "rcptTo": [{ "email": "b@y.org", "parameters": { "NOTIFY": "SOMETIMES" } }] }),
+                "NOTIFY",
+            ),
+            (
+                json!({ "rcptTo": [{ "email": "b@y.org", "parameters": { "NOTIFY": "NEVER,SUCCESS" } }] }),
+                "NEVER",
+            ),
             (
                 json!({ "rcptTo": [
                     { "email": "b@y.org", "parameters": { "NOTIFY": "SUCCESS" } },
@@ -347,7 +375,10 @@ mod tests {
                 json!({ "rcptTo": [{ "email": "b@y.org", "parameters": { "ORCPT": "rfc822;other@y.org" } }] }),
                 "own address",
             ),
-            (json!({ "mailFrom": { "email": "a@x.org", "parameters": { "RET": "ALL" } }, "rcptTo": [] }), "RET"),
+            (
+                json!({ "mailFrom": { "email": "a@x.org", "parameters": { "RET": "ALL" } }, "rcptTo": [] }),
+                "RET",
+            ),
             (
                 json!({ "mailFrom": { "email": "a@x.org", "parameters": { "ENVID": "has space" } }, "rcptTo": [] }),
                 "ENVID",
@@ -360,8 +391,10 @@ mod tests {
 
     #[test]
     fn other_parameters_are_ignored() {
-        let e = env(json!({ "mailFrom": { "email": "a@x.org", "parameters": { "SIZE": "1000" } },
-                            "rcptTo": [{ "email": "b@y.org", "parameters": { "X-FOO": "bar" } }] }));
+        let e = env(
+            json!({ "mailFrom": { "email": "a@x.org", "parameters": { "SIZE": "1000" } },
+                            "rcptTo": [{ "email": "b@y.org", "parameters": { "X-FOO": "bar" } }] }),
+        );
         assert_eq!(DsnRequest::from_envelope(&e), Ok(None));
     }
 
@@ -374,7 +407,10 @@ mod tests {
             orcpt: false,
         }
         .to_smtp();
-        assert_eq!(d.notify, vec![mw_smtp::DsnNotify::Success, mw_smtp::DsnNotify::Delay]);
+        assert_eq!(
+            d.notify,
+            vec![mw_smtp::DsnNotify::Success, mw_smtp::DsnNotify::Delay]
+        );
         assert_eq!(d.ret, Some(mw_smtp::DsnRet::Full));
     }
 }
