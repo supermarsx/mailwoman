@@ -451,7 +451,7 @@ Oldest sessions are revoked when a successful sign-in exceeds the cap.
 <a id="session.idleSecs"></a>
 `session.idleSecs` is 60–86400 seconds (default 1800).
 <a id="session.absoluteSecs"></a>
-`session.absoluteSecs` is 300–2592000 seconds (default 43200).
+`session.absoluteSecs` is 300–1296000 seconds (default 1296000: 15 days).
 Deployment timeout limits also apply; persisted timestamps survive restarts.
 <a id="twofa.rememberDays"></a>
 `twofa.rememberDays` is 0–90 days (default 0, disabled).

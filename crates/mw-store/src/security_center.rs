@@ -21,6 +21,7 @@ pub struct SecuritySession {
     pub username: String,
     pub created_at: String,
     pub last_seen: String,
+    pub last_activity: String,
     #[serde(flatten)]
     pub device: SessionDevice,
 }
@@ -80,7 +81,13 @@ impl Store {
         &self,
         account: &str,
     ) -> Result<Option<String>, StoreError> {
-        Ok(q("SELECT address AS username_attempted FROM signin_identity WHERE account_id=?1").bind(account).fetch_optional(&self.backend).await?.map(|row|row.get_string("username_attempted")))
+        Ok(
+            q("SELECT address AS username_attempted FROM signin_identity WHERE account_id=?1")
+                .bind(account)
+                .fetch_optional(&self.backend)
+                .await?
+                .map(|row| row.get_string("username_attempted")),
+        )
     }
     /// Preserve the original authentication lifetime and device while rotating a cookie.
     /// A concurrently revoked old session cannot be resurrected by the replacement.
@@ -104,14 +111,18 @@ impl Store {
         {
             return Ok(false);
         }
-        let changed = q("UPDATE sessions SET (created_at,last_seen,user_agent,ip,client_type,device_label,client_version,authentication_method)=(SELECT created_at,last_seen,user_agent,ip,client_type,device_label,client_version,authentication_method FROM sessions WHERE id=?1) WHERE id=?2 AND account_id=(SELECT account_id FROM sessions WHERE id=?1)")
+        let changed = q("UPDATE sessions SET (created_at,last_seen,activity_at,user_agent,ip,client_type,device_label,client_version,authentication_method)=(SELECT created_at,last_seen,activity_at,user_agent,ip,client_type,device_label,client_version,authentication_method FROM sessions WHERE id=?1) WHERE id=?2 AND account_id=(SELECT account_id FROM sessions WHERE id=?1)")
             .bind(old).bind(new).execute_tx(&mut tx).await?;
         if changed != 1 {
             return Ok(false);
         }
         // A rotation cannot replace an independently authenticated identity.
         if !q("SELECT session_id FROM session_principal WHERE session_id=?1")
-            .bind(new).fetch_all_tx(&mut tx).await?.is_empty() {
+            .bind(new)
+            .fetch_all_tx(&mut tx)
+            .await?
+            .is_empty()
+        {
             return Ok(false);
         }
         q("INSERT INTO session_principal(session_id,principal_id,binding_id,primary_account_id,auth_time,authentication_method) SELECT ?2,principal_id,binding_id,primary_account_id,auth_time,authentication_method FROM session_principal WHERE session_id=?1")
@@ -178,6 +189,27 @@ impl Store {
             .map(|r| (r.get_string("created_at"), r.get_string("last_seen"))))
     }
 
+    /// Original sign-in and genuine user activity, independent of background traffic.
+    pub async fn session_activity_clock(
+        &self,
+        id: &str,
+    ) -> Result<Option<(String, String)>, StoreError> {
+        Ok(q("SELECT created_at,COALESCE(activity_at,created_at) AS activity_at FROM sessions WHERE id=?1")
+            .bind(id).fetch_optional(&self.backend).await?
+            .map(|row| (row.get_string("created_at"), row.get_string("activity_at"))))
+    }
+
+    /// Only an already-authenticated foreground activity request may call this.
+    /// UPDATE never recreates a concurrently revoked or rotated credential.
+    pub async fn record_session_activity(&self, id: &str, at: &str) -> Result<bool, StoreError> {
+        Ok(q("UPDATE sessions SET activity_at=?2 WHERE id=?1")
+            .bind(id)
+            .bind(at)
+            .execute(&self.backend)
+            .await?
+            == 1)
+    }
+
     /// Persist device metadata and cap concurrent sessions under an account write
     /// lock. The current login always survives; revoked native markers go too.
     pub async fn record_session_device(
@@ -232,7 +264,7 @@ impl Store {
         account: Option<&str>,
         limit: u32,
     ) -> Result<Vec<SecuritySession>, StoreError> {
-        let rows=q("SELECT id,account_id,username,created_at,last_seen,user_agent,ip,client_type,device_label,client_version FROM sessions WHERE (?1 IS NULL OR account_id=?1) ORDER BY last_seen DESC,id LIMIT ?2")
+        let rows=q("SELECT id,account_id,username,created_at,last_seen,COALESCE(activity_at,created_at) AS last_activity,user_agent,ip,client_type,device_label,client_version FROM sessions WHERE (?1 IS NULL OR account_id=?1) ORDER BY last_seen DESC,id LIMIT ?2")
             .bind(account).bind(i64::from(limit.clamp(1,1000))).fetch_all(&self.backend).await?;
         Ok(rows
             .iter()
@@ -242,6 +274,7 @@ impl Store {
                 username: r.get_string("username"),
                 created_at: r.get_string("created_at"),
                 last_seen: r.get_string("last_seen"),
+                last_activity: r.get_string("last_activity"),
                 device: SessionDevice {
                     user_agent: r.get_opt_string("user_agent").unwrap_or_default(),
                     ip: r.get_opt_string("ip").unwrap_or_default(),
@@ -255,7 +288,13 @@ impl Store {
             .collect())
     }
     pub async fn record_signin_event(&self, event: &SigninEvent) -> Result<(), StoreError> {
-        self.record_auth_event(event, crate::AuthSurface::Webmail, None, crate::AuthLogLimits::default()).await
+        self.record_auth_event(
+            event,
+            crate::AuthSurface::Webmail,
+            None,
+            crate::AuthLogLimits::default(),
+        )
+        .await
     }
     pub async fn signin_history(
         &self,
@@ -351,6 +390,72 @@ impl Store {
 mod tests {
     use super::*;
     use crate::{Credentials, ServerKey};
+    #[tokio::test]
+    async fn activity_migration_keeps_old_baseline_and_rotation_cannot_extend_it() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql("CREATE TABLE sessions(id TEXT,created_at TEXT,last_seen TEXT); INSERT INTO sessions VALUES('old','2020-01-01T00:00:00Z','2020-01-02T00:00:00Z');").execute(&pool).await.unwrap();
+        sqlx::raw_sql(include_str!(
+            "../migrations/0045_mailbox_session_activity.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let baseline: String =
+            sqlx::query_scalar("SELECT activity_at FROM sessions WHERE id='old'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(baseline, "2020-01-02T00:00:00Z");
+
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let creds = Credentials {
+            username: "alice".into(),
+            password: "fixture".into(),
+        };
+        let old = store
+            .create_session("alice", "alice", "engine", "engine", &creds)
+            .await
+            .unwrap();
+        q("UPDATE sessions SET created_at='2020-01-01T00:00:00Z',activity_at='2020-01-02T00:00:00Z' WHERE id=?1").bind(&old).execute(&store.backend).await.unwrap();
+        store.touch_session(&old).await.unwrap(); // background request telemetry
+        assert_eq!(
+            store.session_activity_clock(&old).await.unwrap().unwrap(),
+            ("2020-01-01T00:00:00Z".into(), baseline)
+        );
+        assert!(
+            store
+                .record_session_activity(&old, "2020-01-03T00:00:00Z")
+                .await
+                .unwrap()
+        );
+        let new = store
+            .create_session("alice", "alice", "engine", "engine", &creds)
+            .await
+            .unwrap();
+        assert!(store.rotate_session_security(&old, &new).await.unwrap());
+        assert_eq!(
+            store.session_activity_clock(&new).await.unwrap().unwrap(),
+            ("2020-01-01T00:00:00Z".into(), "2020-01-03T00:00:00Z".into())
+        );
+        assert!(
+            !store
+                .record_session_activity(&old, "2020-01-04T00:00:00Z")
+                .await
+                .unwrap()
+        );
+        store.delete_session(&new).await.unwrap();
+        assert!(
+            !store
+                .record_session_activity(&new, "2020-01-04T00:00:00Z")
+                .await
+                .unwrap()
+        );
+    }
+
     #[tokio::test]
     async fn upgrade_revokes_legacy_mail_sessions_but_preserves_accounts_and_admin_sessions() {
         let pool = sqlx::sqlite::SqlitePoolOptions::new()

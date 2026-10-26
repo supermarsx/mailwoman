@@ -6,12 +6,14 @@ it('keeps the current session safe and targets the selected device handle', asyn
   const service = new SettingsService();
   vi.spyOn(service, 'sessions').mockResolvedValue([
     { handle: 'current', username: 'alice@example.org', createdAt: 'today', lastSeen: 'now', current: true, deviceLabel: 'This laptop' },
-    { handle: 'other', username: 'alice@example.org', createdAt: 'yesterday', lastSeen: 'then', current: false, deviceLabel: 'Phone', ip: '192.0.2.1', country: 'GB' },
+    { handle: 'other', username: 'alice@example.org', createdAt: 'yesterday', lastSeen: 'background poll', lastActivity: 'user interaction', current: false, deviceLabel: 'Phone', ip: '192.0.2.1', country: 'GB' },
   ]);
   const revoke = vi.spyOn(service, 'revokeSession').mockResolvedValue(undefined);
   render(() => <Sessions service={service} />);
   await screen.findByText('This laptop');
   expect(screen.getByRole('table', { name: 'Active sessions' })).toBeInTheDocument();
+  expect(screen.getByText('Last active user interaction')).toBeInTheDocument();
+  expect(screen.queryByText('Last active background poll')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Sign out This laptop' })).not.toBeInTheDocument();
   fireEvent.input(screen.getByRole('searchbox'), { target: { value: '192.0.2.1' } });
   expect(screen.queryByText('This laptop')).not.toBeInTheDocument();

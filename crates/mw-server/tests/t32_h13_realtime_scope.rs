@@ -598,6 +598,14 @@ async fn an_api_key_opens_no_stream() {
     let srv = spawn(HardeningConfig::default()).await;
     let a = cookie_login(&srv, A_USER, A_PASS).await;
     let (name, value) = a.auth.header();
+    let proof = client()
+        .post(format!("{}/api/security/step-up", srv.base))
+        .header(name, value.clone())
+        .json(&json!({"password": A_PASS}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(proof.status(), 200, "{}", proof.text().await.unwrap());
     let mint: Value = client()
         .post(format!("{}/api/keys", srv.base))
         .header(name, value)
@@ -696,5 +704,30 @@ async fn a_session_past_its_idle_timeout_ends_its_streams() {
     // break demo); `SessionGuard::expired` only reads.
     for s in streams.iter_mut() {
         s.assert_ends("the idle timeout passed").await;
+    }
+}
+
+#[tokio::test]
+async fn recent_request_telemetry_cannot_extend_persisted_idle_deadline_of_streams() {
+    let _g = serial().await;
+    let srv = spawn(HardeningConfig::default()).await;
+    let user = cookie_login(&srv, A_USER, A_PASS).await;
+    let mut streams = open_both(&srv, &user).await;
+    assert_alive(&srv, &mut streams, &user, "before-idle").await;
+    let raw =
+        sqlx::SqlitePool::connect_with(sqlx::sqlite::SqliteConnectOptions::new().filename(&srv.db))
+            .await
+            .unwrap();
+    let now = chrono::Utc::now();
+    sqlx::query("UPDATE sessions SET activity_at=?1,last_seen=?2")
+        .bind((now - chrono::Duration::minutes(31)).to_rfc3339())
+        .bind(now.to_rfc3339())
+        .execute(&raw)
+        .await
+        .unwrap();
+    for stream in &mut streams {
+        stream
+            .assert_ends("persisted user activity expired despite recent background requests")
+            .await;
     }
 }

@@ -855,7 +855,7 @@ pub static CATALOGUE: &[Knob] = &[
         Gr::Signin,
         Plain,
         PBoot,
-        "43200",
+        "1296000",
         "mailbox session absolute limit (upper bound for the stored policy)",
         "Admin → Sessions",
     ),

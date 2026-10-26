@@ -406,7 +406,7 @@ struct ServeArgs {
     #[arg(long, env = "MW_SESSION_IDLE_SECS", default_value_t = 1800)]
     session_idle_secs: u64,
     /// Absolute session lifetime in seconds (env: MW_SESSION_ABSOLUTE_SECS).
-    #[arg(long, env = "MW_SESSION_ABSOLUTE_SECS", default_value_t = 43200)]
+    #[arg(long, env = "MW_SESSION_ABSOLUTE_SECS", default_value_t = 1_296_000)]
     session_absolute_secs: u64,
 }
 

@@ -65,6 +65,8 @@ export interface SessionMeta {
   readonly username: string;
   readonly createdAt: string;
   readonly lastSeen: string;
+  /** Genuine foreground interaction, separate from background request telemetry. */
+  readonly lastActivity?: string;
   /** True for the session making the request (never revocable from here). */
   readonly current: boolean;
 }

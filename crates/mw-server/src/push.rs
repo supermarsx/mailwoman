@@ -289,6 +289,11 @@ async fn recheck(state: &AppState, session: &Session, bearer: bool) -> Result<()
     {
         return Err("session expired");
     }
+    // Request telemetry and a process-local clock cannot extend the persisted
+    // foreground-activity deadline, including after restarts or policy changes.
+    crate::security_center::enforce_session(state, &current)
+        .await
+        .map_err(|_| "session expired or policy unavailable")?;
     let gate = account_gate::for_session(&state.store, &current)
         .await
         .map_err(|_| UNREADABLE)?;

@@ -32,6 +32,9 @@ const PERMISSIONS_POLICY: &str = "accelerometer=(), autoplay=(), camera=(), \
     gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), \
     picture-in-picture=(), usb=(), interest-cohort=()";
 
+/// Mailbox sessions may never outlive fifteen days from their original sign-in.
+pub const MAILBOX_ABSOLUTE_CAP_SECS: u64 = 15 * 24 * 60 * 60;
+
 /// Tunable hardening knobs (populated from the CLI/env).
 #[derive(Debug, Clone)]
 pub struct HardeningConfig {
@@ -52,7 +55,7 @@ impl Default for HardeningConfig {
             coep: true,
             csrf_strict: false,
             idle_timeout: Duration::from_secs(30 * 60),
-            absolute_timeout: Duration::from_secs(12 * 60 * 60),
+            absolute_timeout: Duration::from_secs(MAILBOX_ABSOLUTE_CAP_SECS),
         }
     }
 }

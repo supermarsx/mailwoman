@@ -1,3 +1,4 @@
+import { startMailboxSessionActivity } from '../api/sessionActivity.ts';
 import { startAccountUiPreferences } from '../api/accountPreferences.ts';
 // Store composition root (plan §3 e0 store-slices refactor).
 //
@@ -150,6 +151,7 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
   // account. Both transports suspend before any cookie-changing request.
   bindAppearanceToAccount(theme);
   startAccountUiPreferences();
+  startMailboxSessionActivity();
   const offline = createOfflineSlice(ctx);
   const outbox = createOutboxSlice(ctx);
 

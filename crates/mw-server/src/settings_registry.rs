@@ -462,8 +462,8 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "session.absoluteSecs",
-        int(300, 2592000),
-        "43200",
+        int(300, 1296000),
+        "1296000",
         GDA,
         "signin",
         "Mailbox session absolute timeout, bounded by the deployment cap"

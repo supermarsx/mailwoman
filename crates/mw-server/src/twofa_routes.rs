@@ -1547,6 +1547,7 @@ async fn sessions_list_route(State(state): State<AppState>, headers: HeaderMap) 
                 "username": m.username,
                 "createdAt": m.created_at,
                 "lastSeen": m.last_seen,
+                "lastActivity": m.last_activity,
                 "current": m.handle == current,
                 "country": m.device.ip.parse().ok().and_then(mw_engine::security::country_for_ip),
                 "userAgent":m.device.user_agent,"ip":m.device.ip,"clientType":m.device.client_type,"clientVersion":m.device.client_version,"deviceLabel":m.device.device_label,

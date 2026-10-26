@@ -60,11 +60,17 @@ pub(crate) async fn policy(
             .as_u64()
             .unwrap_or(1800)
             .min(state.hardening.idle_timeout.as_secs()),
-        absolute_secs: value(state, "session.absoluteSecs", &subject, json!(43200))
-            .await?
-            .as_u64()
-            .unwrap_or(43200)
-            .min(state.hardening.absolute_timeout.as_secs()),
+        absolute_secs: value(
+            state,
+            "session.absoluteSecs",
+            &subject,
+            json!(crate::hardening::MAILBOX_ABSOLUTE_CAP_SECS),
+        )
+        .await?
+        .as_u64()
+        .unwrap_or(crate::hardening::MAILBOX_ABSOLUTE_CAP_SECS)
+        .min(state.hardening.absolute_timeout.as_secs())
+        .min(crate::hardening::MAILBOX_ABSOLUTE_CAP_SECS),
         remember_days: value(state, "twofa.rememberDays", &subject, json!(0))
             .await?
             .as_u64()
@@ -216,7 +222,17 @@ pub(crate) async fn record_login(
         geo_country: country,
         reason: String::new(),
     };
-    crate::auth_logs::record(state, &event, mw_store::AuthSurface::Webmail, Some(if state.engine.is_some() {"engine"} else {"jmap"})).await;
+    crate::auth_logs::record(
+        state,
+        &event,
+        mw_store::AuthSurface::Webmail,
+        Some(if state.engine.is_some() {
+            "engine"
+        } else {
+            "jmap"
+        }),
+    )
+    .await;
     if new_device {
         crate::alerts::emit(
             state,
@@ -237,29 +253,28 @@ pub(crate) async fn record_login(
     }
     Ok(())
 }
-/// Called before touching persisted last_seen, so restarts do not reset either clock.
+/// Persisted activity is separate from last_seen: polling cannot extend idle life.
+/// Neither restarts nor token rotation reset the original sign-in clock.
 pub(crate) async fn enforce_session(
     state: &AppState,
     session: &mw_store::Session,
 ) -> Result<(), Response> {
     let policy = policy(state, &session.account_id, &session.username).await?;
-    let Some((created, last_seen)) = state
+    let Some((created, activity)) = state
         .store
-        .session_clock(&session.id)
+        .session_activity_clock(&session.id)
         .await
         .map_err(|e| error("session clock", e))?
     else {
         return Err(crate::unauthorized());
     };
-    let now = chrono::Utc::now();
-    let elapsed = |value: &str| {
-        chrono::DateTime::parse_from_rfc3339(value)
-            .ok()
-            .map(|t| (now - t.with_timezone(&chrono::Utc)).num_seconds().max(0) as u64)
-    };
-    if elapsed(&created).is_none_or(|age| age > policy.absolute_secs)
-        || elapsed(&last_seen).is_none_or(|age| age > policy.idle_secs)
-    {
+    if session_deadline_passed(
+        &created,
+        &activity,
+        chrono::Utc::now(),
+        policy.idle_secs,
+        policy.absolute_secs,
+    ) {
         let _ = state.store.delete_session(&session.id).await;
         let _ = state
             .store
@@ -271,8 +286,52 @@ pub(crate) async fn enforce_session(
     }
     Ok(())
 }
+fn session_deadline_passed(
+    created: &str,
+    activity: &str,
+    now: chrono::DateTime<chrono::Utc>,
+    idle_secs: u64,
+    absolute_secs: u64,
+) -> bool {
+    let elapsed = |value: &str| {
+        chrono::DateTime::parse_from_rfc3339(value)
+            .ok()
+            .map(|time| {
+                (now - time.with_timezone(&chrono::Utc))
+                    .num_seconds()
+                    .max(0) as u64
+            })
+    };
+    elapsed(created)
+        .is_none_or(|age| age >= absolute_secs.min(crate::hardening::MAILBOX_ABSOLUTE_CAP_SECS))
+        || elapsed(activity).is_none_or(|age| age >= idle_secs)
+}
+
+/// Explicit foreground interaction only; normal authenticated requests update
+/// request telemetry but never this idle clock. No account or timestamp input.
+async fn renew_activity(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let session = match crate::authed(&state, &headers).await {
+        Ok(session) => session,
+        Err(response) => return response,
+    };
+    match state
+        .store
+        .record_session_activity(&session.id, &chrono::Utc::now().to_rfc3339())
+        .await
+    {
+        Ok(true) => (
+            [(header::CACHE_CONTROL, "private, no-store")],
+            Json(json!({"ok":true})),
+        )
+            .into_response(),
+        Ok(false) => crate::unauthorized(),
+        Err(error) => self::error("session activity", error),
+    }
+}
+
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
+        .route("/api/account/session/activity", post(renew_activity))
         .route("/api/account/security/history", get(history))
         .route("/api/account/security/activity", get(activity))
         .route(
@@ -675,7 +734,9 @@ pub(crate) async fn record_failure_backend(
     reason: &str,
     backend: Option<&str>,
 ) {
-    if let Some(line)=webmail_fail2ban_line(address,&device.ip,reason) {tracing::warn!("{line}");}
+    if let Some(line) = webmail_fail2ban_line(address, &device.ip, reason) {
+        tracing::warn!("{line}");
+    }
     let known = if account.is_none() {
         state
             .store
@@ -706,19 +767,85 @@ pub(crate) async fn record_failure_backend(
     crate::auth_logs::record(state, &event, mw_store::AuthSurface::Webmail, backend).await;
 }
 
-fn webmail_fail2ban_line(address:&str,ip:&str,reason:&str)->Option<String>{
-    if !matches!(reason,"auth-rejected"|"factor_refused"){return None;}
-    let ip:std::net::IpAddr=ip.parse().ok()?;
-    Some(mw_admin::fail2ban_line(chrono::Utc::now(),address,ip))
+fn webmail_fail2ban_line(address: &str, ip: &str, reason: &str) -> Option<String> {
+    if !matches!(reason, "auth-rejected" | "factor_refused") {
+        return None;
+    }
+    let ip: std::net::IpAddr = ip.parse().ok()?;
+    Some(mw_admin::fail2ban_line(chrono::Utc::now(), address, ip))
 }
 #[cfg(test)]
 mod auth_log_failure_tests {
-    use super::webmail_fail2ban_line;
+    use super::{session_deadline_passed, webmail_fail2ban_line};
+    #[test]
+    fn mailbox_activity_has_fixed_absolute_cap_and_separate_idle_clock() {
+        let start = chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let created = start.to_rfc3339();
+        let cap = crate::hardening::MAILBOX_ABSOLUTE_CAP_SECS;
+        for day in [1, 7, 14] {
+            let active = start + chrono::Duration::days(day);
+            assert!(!session_deadline_passed(
+                &created,
+                &active.to_rfc3339(),
+                active,
+                1800,
+                cap
+            ));
+        }
+        let deadline = start + chrono::Duration::seconds(cap as i64);
+        assert!(session_deadline_passed(
+            &created,
+            &deadline.to_rfc3339(),
+            deadline,
+            1800,
+            cap * 2
+        ));
+        assert!(session_deadline_passed(
+            &created,
+            &created,
+            start + chrono::Duration::seconds(1800),
+            1800,
+            cap
+        ));
+        let short = start + chrono::Duration::hours(12);
+        assert!(session_deadline_passed(
+            &created,
+            &short.to_rfc3339(),
+            short,
+            1800,
+            43200
+        ));
+        assert!(session_deadline_passed(
+            "invalid", &created, start, 1800, cap
+        ));
+    }
+
     #[test]
     fn bans_only_known_credential_failures_with_resolved_source() {
-        for reason in ["timeout","tls","certificate","dns","connect","transport","backend-failure","not-configured","domain-denied","account-disabled","directory-rejected"] {assert!(webmail_fail2ban_line("user","192.0.2.1",reason).is_none());}
-        assert!(webmail_fail2ban_line("user","unknown","auth-rejected").is_none());
-        for reason in ["auth-rejected","factor_refused"] {let line=webmail_fail2ban_line("attacker\nrhost=198.51.100.2","192.0.2.1",reason).unwrap();assert_eq!(line.lines().count(),1);assert!(line.ends_with("rhost=192.0.2.1"));}
+        for reason in [
+            "timeout",
+            "tls",
+            "certificate",
+            "dns",
+            "connect",
+            "transport",
+            "backend-failure",
+            "not-configured",
+            "domain-denied",
+            "account-disabled",
+            "directory-rejected",
+        ] {
+            assert!(webmail_fail2ban_line("user", "192.0.2.1", reason).is_none());
+        }
+        assert!(webmail_fail2ban_line("user", "unknown", "auth-rejected").is_none());
+        for reason in ["auth-rejected", "factor_refused"] {
+            let line =
+                webmail_fail2ban_line("attacker\nrhost=198.51.100.2", "192.0.2.1", reason).unwrap();
+            assert_eq!(line.lines().count(), 1);
+            assert!(line.ends_with("rhost=192.0.2.1"));
+        }
     }
 }
 
@@ -745,6 +872,7 @@ mod session_scope_tests {
             username: "user@example.org".into(),
             created_at: String::new(),
             last_seen: String::new(),
+            last_activity: String::new(),
             device: SessionDevice::default(),
         };
         assert!(matches_session(&ctx, &SessionFilter::default(), &row));

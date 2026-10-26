@@ -70,7 +70,7 @@ export function Sessions(props: SessionsProps): JSX.Element {
           <tbody><For each={loaded().filter((row) => [row.username, row.ip, row.deviceLabel, row.userAgent].some((value) => value?.toLowerCase().includes(query().trim().toLowerCase())))}>{(s) => <tr>
             <td>{isolate(s.username)}</td><td>{s.deviceLabel || s.clientType || '—'} {s.clientVersion}<p class={css.meta}>{s.userAgent || '—'}</p></td>
             <td>{s.ip || '—'}<p class={css.meta}>{s.country || t('settings-sessions-location-unavailable')}</p></td>
-            <td>{t('settings-sessions-last-seen', { when: s.lastSeen })}<p class={css.meta}>{t('security-center-first-seen', { when: s.createdAt })}</p></td>
+            <td>{t('settings-sessions-last-seen', { when: s.lastActivity ?? s.lastSeen })}<p class={css.meta}>{t('security-center-first-seen', { when: s.createdAt })}</p></td>
             <td><Show when={s.current} fallback={<button type="button" class={css.danger} disabled={busy()} aria-label={t('settings-sessions-revoke-device', { device: s.deviceLabel || s.clientType || s.username })} title={t('settings-sessions-revoke-device', { device: s.deviceLabel || s.clientType || s.username })} onClick={() => void revoke(s.handle)}><Icon name="close" /></button>}><span class={css.badge}>{t('settings-sessions-current')}</span></Show></td>
           </tr>}</For></tbody>
         </table>

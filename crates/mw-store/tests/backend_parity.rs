@@ -2778,6 +2778,7 @@ mod admin_controls_0033 {
         ]),
         ("sessions", &[
             ("authentication_method", 'T', "=legacy"),
+            ("activity_at", 'T', "~"),
             ("user_agent", 'T', "~"),
             ("ip", 'T', "~"),
             ("client_type", 'T', "~"),

@@ -7,7 +7,7 @@ import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import * as sessionCss from './sessions.css.ts';
 import { ShellContext } from './shell/context.ts';
-type Session = { handle: string; accountId: string; username: string; lastSeen: string; clientType: string; userAgent: string; ip: string; createdAt?: string; deviceLabel?: string; clientVersion?: string };
+type Session = { handle: string; accountId: string; username: string; lastSeen: string; lastActivity?: string; clientType: string; userAgent: string; ip: string; createdAt?: string; deviceLabel?: string; clientVersion?: string };
 type Listing = { sessions: Session[]; truncated: boolean };
 export function AdminSessions(): JSX.Element {
   const shell = useContext(ShellContext);
@@ -44,7 +44,7 @@ export function AdminSessions(): JSX.Element {
     { id: 'account', header: t('admin-session-account'), cell: (row) => <span class={sessionCss.cell}><strong>{row.username}</strong><p>{row.accountId}</p></span> },
     { id: 'device', header: t('admin-session-device'), cell: (row) => <span class={sessionCss.cell}>{row.deviceLabel || row.clientType || '—'} {row.clientVersion}<p>{row.userAgent || '—'}</p></span> },
     { id: 'ip', header: t('admin-session-ip'), cell: (row) => row.ip || '—' },
-    { id: 'activity', header: t('admin-session-activity'), cell: (row) => date(row.lastSeen) },
+    { id: 'activity', header: t('admin-session-activity'), cell: (row) => date(row.lastActivity ?? row.lastSeen) },
     { id: 'created', header: t('admin-session-created'), cell: (row) => date(row.createdAt) },
   ];
   return <section class={css.section}>

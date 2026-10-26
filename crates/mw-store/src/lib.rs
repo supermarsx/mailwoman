@@ -419,8 +419,8 @@ impl Store {
         let sealed = self.key.seal(&encode_creds(creds))?;
         let now = Utc::now().to_rfc3339();
         q(
-            "INSERT INTO sessions (id, account_id, username, jmap_url, api_url, sealed_creds, created_at, last_seen)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+            "INSERT INTO sessions (id, account_id, username, jmap_url, api_url, sealed_creds, created_at, last_seen, activity_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7)",
         )
         .bind(&id)
         .bind(account_id)

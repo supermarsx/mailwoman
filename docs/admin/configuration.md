@@ -93,7 +93,7 @@ nothing is stored; **boot** = read once at start, a change needs a restart.
 | <a id="mw-webauthn-origin"></a>`MW_WEBAUTHN_ORIGIN` | readOnly | url | derived from the public URL | boot | WebAuthn relying-party origin | a root of trust, or a protection a stolen admin session could switch off |
 | <a id="mw-webauthn-rp-id"></a>`MW_WEBAUTHN_RP_ID` | readOnly | plain | derived from the public URL | boot | WebAuthn relying-party id | a root of trust, or a protection a stolen admin session could switch off |
 | <a id="mw-session-idle-secs"></a>`MW_SESSION_IDLE_SECS` | ui | plain | 1800 | boot | mailbox session idle limit (upper bound for the stored policy) | Admin → Sessions |
-| <a id="mw-session-absolute-secs"></a>`MW_SESSION_ABSOLUTE_SECS` | ui | plain | 43200 | boot | mailbox session absolute limit (upper bound for the stored policy) | Admin → Sessions |
+| <a id="mw-session-absolute-secs"></a>`MW_SESSION_ABSOLUTE_SECS` | ui | plain | 1296000 | boot | mailbox session absolute limit (upper bound for the stored policy) | Admin → Sessions |
 
 ## Integrations
 
@@ -304,7 +304,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="cap.remote-content.direct"></a>`cap.remote_content.direct` | privacy | global+domain+admin_user | false | plain |  | yes | Permit this account to load remote images directly |
 | <a id="session.maxconcurrent"></a>`session.maxConcurrent` | signin | global+domain+admin_user | 10 | plain |  | yes | Maximum concurrent mailbox sessions |
 | <a id="session.idlesecs"></a>`session.idleSecs` | signin | global+domain+admin_user | 1800 | plain |  | yes | Mailbox session idle timeout, bounded by the deployment cap |
-| <a id="session.absolutesecs"></a>`session.absoluteSecs` | signin | global+domain+admin_user | 43200 | plain |  | yes | Mailbox session absolute timeout, bounded by the deployment cap |
+| <a id="session.absolutesecs"></a>`session.absoluteSecs` | signin | global+domain+admin_user | 1296000 | plain |  | yes | Mailbox session absolute timeout, bounded by the deployment cap |
 | <a id="twofa.rememberdays"></a>`twofa.rememberDays` | signin | global+domain+admin_user | 0 | plain |  | yes | Remembered-device lifetime; zero disables remembered devices |
 | <a id="twofa.passkeysenabled"></a>`twofa.passkeysEnabled` | signin | global+domain+admin_user | true | plain |  | yes | Allow passkey authentication |
 | <a id="twofa.required"></a>`twofa.required` | signin | global+domain+admin_user | false | plain |  | yes | Require a second authentication factor |
