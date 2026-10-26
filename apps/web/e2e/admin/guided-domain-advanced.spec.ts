@@ -37,4 +37,3 @@ test('guided advanced domain persists real backend policies with bounded forms @
   await page.screenshot({path:info.outputPath('guided-advanced-persisted.png'),fullPage:true});
  }finally{const read=await page.request.get(`/admin/domains/${name}`);if(read.ok())expect((await page.request.delete(`/admin/domains/${name}`,{headers:{'if-match':read.headers()['etag']!}})).ok()).toBe(true);}
 });
-
