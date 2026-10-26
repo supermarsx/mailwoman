@@ -77,18 +77,25 @@ fn part_blob_decodes_a_base64_attachment() {
     assert_eq!(blob.bytes, b"%PDF-1.4\n");
 }
 
-/// A container — the multipart root, or a nested `message/rfc822` — is not a
-/// downloadable blob and must resolve to `None` rather than to its raw frame.
+/// Multipart containers remain invalid while attached messages retain their
+/// decoded RFC822 contents for download and isolated previews.
 #[test]
 fn part_blob_refuses_containers() {
     assert_eq!(part_blob(MIXED, 0), None, "multipart root is not a blob");
 
-    // The nested message: find it by walking ids until one reports the embedded
-    // message's own type, then confirm it does not resolve.
-    let container = (0u32..12)
-        .find(|&id| part_blob(MIXED, id).is_none() && id != 0)
-        .expect("a non-leaf part exists");
-    assert_eq!(part_blob(MIXED, container), None);
+    let nested = (1u32..12).filter_map(|id| part_blob(MIXED, id))
+        .find(|part| part.content_type == "message/rfc822").expect("attached message resolves");
+    assert!(nested.bytes.starts_with(b"From: inner@example.org\r\n"));
+    assert!(nested.bytes.ends_with(b"inner body"));
+    assert!(!nested.bytes.windows(3).any(|part| part == b"--B"));
+}
+
+#[test]
+fn part_blob_decodes_base64_encapsulated_message() {
+    let raw = b"Content-Type: message/rfc822\r\nContent-Transfer-Encoding: base64\r\n\r\nU3ViamVjdDogaW5uZXINCg0KYm9keQ==\r\n";
+    let part = part_blob(raw, 0).expect("encoded attached message");
+    assert_eq!(part.content_type, "message/rfc822");
+    assert_eq!(part.bytes, b"Subject: inner\r\n\r\nbody");
 }
 
 /// An out-of-range part id is `None`, not a panic — the id comes from a client

@@ -241,8 +241,8 @@ pub struct PartBlob {
 
 /// Extract one MIME part's decoded bytes by its `mail-parser` part index.
 ///
-/// Returns `None` when `part_id` names no leaf part or names a container
-/// (multipart / nested message), neither of which is a downloadable blob. Runs
+/// Returns `None` for unknown parts and multipart containers. Encapsulated
+/// messages are downloadable RFC822 bytes, after transfer decoding. Runs
 /// over untrusted bytes inside the render jail and never panics.
 #[must_use]
 pub fn part_blob(raw: &[u8], part_id: u32) -> Option<PartBlob> {
@@ -252,7 +252,8 @@ pub fn part_blob(raw: &[u8], part_id: u32) -> Option<PartBlob> {
     let bytes = match &part.body {
         PartType::Text(t) | PartType::Html(t) => t.as_bytes().to_vec(),
         PartType::Binary(b) | PartType::InlineBinary(b) => b.as_ref().to_vec(),
-        PartType::Message(_) | PartType::Multipart(_) => return None,
+        PartType::Message(_) => part.contents().to_vec(),
+        PartType::Multipart(_) => return None,
     };
     Some(PartBlob {
         content_type,
