@@ -1,6 +1,10 @@
-import { style } from '@vanilla-extract/css';
+import { style, globalStyle } from '@vanilla-extract/css';
 import { vars } from '../theme/contract.css.ts';
-export const container = style({ border: `${vars.border.rule} solid ${vars.color.borderStrong}`, padding: vars.space[3], minInlineSize: 0 });
+export const field = style({ position: 'relative', display: 'flex', flexDirection: 'column', gap: vars.space[2], minInlineSize: 0 });
+export const inputRow = style({ display: 'flex', minInlineSize: 0 });
+globalStyle(`${inputRow} > input`, { flex: '1 1 auto', inlineSize: 0, minInlineSize: 0 });
+export const toggle = style({ flex: '0 0 auto', display: 'grid', placeItems: 'center', minInlineSize: vars.a11y.touchTarget, background: vars.color.surface, color: vars.color.text, border: `1px solid ${vars.color.borderStrong}`, cursor: 'pointer', selectors: { '&:focus-visible': { outline: `2px solid ${vars.a11y.focusRingColor}`, outlineOffset: 2 } } });
+export const container = style({ position: 'absolute', insetInline: 0, top: '100%', zIndex: 10, marginBlockStart: vars.space[1], maxBlockSize: 'min(18rem, 45dvh)', overflowY: 'auto', background: vars.color.surface, boxShadow: vars.elevation[2], border: `${vars.border.rule} solid ${vars.color.borderStrong}`, padding: vars.space[3], minInlineSize: 0 });
 export const list = style({ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: vars.space[2] });
 export const row = style({ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: vars.space[2], minInlineSize: 0 });
 export const address = style({ display: 'flex', gap: vars.space[2], minInlineSize: 0, overflowWrap: 'anywhere', textAlign: 'start' });

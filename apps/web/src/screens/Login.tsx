@@ -46,6 +46,8 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
   const needsVerification = () => config()?.antiBot?.mailbox === true;
   onMount(() => { void publicConfig().then(value => { setConfig(value); applyBranding(value); }).catch(() => undefined); });
   const [email, setEmail] = createSignal('');
+  const [rememberedOpen, setRememberedOpen] = createSignal(false);
+  let usernameInput: HTMLInputElement | undefined;
   const [remembered, setRemembered] = createSignal(rememberedSignins());
   onMount(() => { const update = (): void => { setRemembered(rememberedSignins()); }; window.addEventListener('storage', update); onCleanup(() => window.removeEventListener('storage', update)); });
   const [password, setPassword] = createSignal('');
@@ -179,22 +181,20 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
         <Show when={brandAssetUrl(config()?.logoUrl)}>{url=><img src={url()} alt={config()?.brandName||'Mailwoman'} style={{'max-width':'12rem','max-height':'6rem','object-fit':'contain'}}/>}</Show>
         <h1 class="login__title">{config()?.brandName || t('auth-app-name')}</h1>
         <Show when={config()?.loginNotice}>{(notice) => <p class="login__hint" dir="auto">{notice()}</p>}</Show>
-        <Show when={remembered().length}><details class={rememberedCss.container}><summary>{t('auth-remembered')}</summary><p class="login__hint">{t('auth-remembered-help')}</p><ul class={rememberedCss.list}><For each={remembered()}>{address => <li class={rememberedCss.row}><button type="button" class={`btn btn--ghost ${rememberedCss.address}`} disabled={busy()} onClick={() => { setEmail(address); setPassword(''); }}><Icon name="mail" /><span>{address}</span></button><button type="button" class="btn btn--ghost" disabled={busy()} aria-label={t('auth-forget-address', {address})} title={t('auth-forget-address', {address})} onClick={() => { forgetSignin(address); setRemembered(rememberedSignins()); }}><Icon name="delete" /></button></li>}</For></ul></details></Show>
-        <label class="field">
-          <span>{t('auth-email')}</span>
-          {/* Text, not `type=email`: a deployment may sign in with a bare user name. */}
-          <input
-            type="text"
-            inputmode="email"
-            required
-            autocomplete="username"
-            autocapitalize="none"
-            spellcheck={false}
+        <div class={rememberedCss.field} onFocusOut={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setRememberedOpen(false); }} onKeyDown={event => { if (event.key === 'Escape') { setRememberedOpen(false); usernameInput?.focus(); event.stopPropagation(); } }}>
+          <label for="login-username">{t('auth-email')}</label>
+          <div class={rememberedCss.inputRow}>
+          <input id="login-username" ref={usernameInput} type="text" inputmode="email" required autocomplete="username" autocapitalize="none" spellcheck={false}
             aria-describedby={config()?.showDomainHint === true && config()?.usernameDomainHint ? 'login-domain-hint' : undefined}
-            value={email()}
-            onInput={(e) => setEmail(e.currentTarget.value)}
-          />
-        </label>
+            value={email()} onInput={event => setEmail(event.currentTarget.value)}
+            onKeyDown={event => { if (event.key === 'ArrowDown' && remembered().length) { event.preventDefault(); setRememberedOpen(true); queueMicrotask(() => document.querySelector<HTMLButtonElement>('#remembered-signins button')?.focus()); } }} />
+          <Show when={remembered().length}><button type="button" class={rememberedCss.toggle} disabled={busy()} aria-label={t('auth-remembered')} aria-expanded={rememberedOpen()} aria-controls="remembered-signins" onClick={() => setRememberedOpen(value => !value)}><Icon name="chevronDown" /></button></Show>
+          </div>
+          <Show when={rememberedOpen() && remembered().length}><div id="remembered-signins" class={rememberedCss.container}>
+            <p class="login__hint">{t('auth-remembered-help')}</p>
+            <ul class={rememberedCss.list}><For each={remembered()}>{address => <li class={rememberedCss.row}><button type="button" class={`btn btn--ghost ${rememberedCss.address}`} disabled={busy()} onClick={() => { setEmail(address); setPassword(''); setRememberedOpen(false); usernameInput?.focus(); }}><Icon name="mail" /><span>{address}</span></button><button type="button" class="btn btn--ghost" disabled={busy()} aria-label={t('auth-forget-address', {address})} onClick={() => { forgetSignin(address); setRemembered(rememberedSignins()); usernameInput?.focus(); }}><Icon name="delete" /></button></li>}</For></ul>
+          </div></Show>
+        </div>
         <Show when={config()?.showDomainHint === true ? config()?.usernameDomainHint : null}>{(domain) => <p id="login-domain-hint" class="login__hint">{t('auth-domain-hint', { domain: domain() })}</p>}</Show>
         <label class="field">
           <span>{t('auth-password')}</span>

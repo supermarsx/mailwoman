@@ -446,10 +446,12 @@ describe('Successful sign-in addresses and timeout feedback', () => {
     rememberSuccessfulSignin('alice@example.test');
     renderLogin(fakeClient());
     fireEvent.input(screen.getByLabelText('Password'), {target:{value:'old-password'}});
-    fireEvent.click(screen.getByText('Previous sign-ins'));
+    fireEvent.click(screen.getByRole('button', {name:'Previous sign-ins'}));
     fireEvent.click(screen.getByRole('button',{name:'alice@example.test'}));
     expect(screen.getByLabelText('Email or username')).toHaveValue('alice@example.test');
     expect(screen.getByLabelText('Password')).toHaveValue('');
+    expect(screen.queryByRole('button', {name:'alice@example.test'})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name:'Previous sign-ins'}));
     fireEvent.click(screen.getByRole('button',{name:/Forget.*alice@example.test/}));
     expect(rememberedSignins()).toEqual([]);
     expect(screen.queryByText('Previous sign-ins')).not.toBeInTheDocument();
