@@ -89,6 +89,21 @@ fn row(name: &str, mail: &MockPop3) -> DomainConfigRow {
 }
 
 async fn server(store_path: &str, fallback: &MockPop3) -> String {
+    // These cases exercise domain routing and authentication, not retry timing.
+    let store = Store::open(store_path, ServerKey::from_hex(KEY).unwrap())
+        .await
+        .unwrap();
+    store
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "signin.retryCooldownSecs".into(),
+            global_value: Some("0".into()),
+            allow_user_override: false,
+            global_locked: false,
+            updated_by: "domain-fixture".into(),
+            updated_at: 0,
+        })
+        .await
+        .unwrap();
     let config = AppConfig {
         db_path: store_path.into(),
         server_key_hex: Some(KEY.into()),
@@ -267,8 +282,56 @@ async fn host_mapping_expands_bare_name_and_untrusted_forwarded_host_is_ignored(
     assert_eq!(public.status(), 200);
     assert_eq!(public.headers()["cache-control"], "no-store");
     let public: Value = public.json().await.unwrap();
-    assert_eq!(public["usernameDomainHint"], "mapped.test");
-    assert_eq!(public.as_object().unwrap().len(), 5);
+    assert!(public["usernameDomainHint"].is_null());
+    assert_eq!(public["showDomainHint"], false);
+    let allowed = [
+        "brandName",
+        "theme",
+        "accent",
+        "loginNotice",
+        "usernameDomainHint",
+        "showDomainHint",
+        "retryCooldownSecs",
+        "logoUrl",
+        "faviconUrl",
+        "loginBackgroundUrl",
+        "antiBot",
+    ];
+    assert!(
+        public
+            .as_object()
+            .unwrap()
+            .keys()
+            .all(|key| allowed.contains(&key.as_str())),
+        "public config must not disclose deployment inventory or secrets"
+    );
+    assert_eq!(public["retryCooldownSecs"], 0);
+    assert!(public["brandName"].is_string());
+    for key in ["logoUrl", "faviconUrl", "loginBackgroundUrl"] {
+        assert!(public[key].is_null());
+    }
+    store
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "login.showDomainHint".into(),
+            global_value: Some("true".into()),
+            allow_user_override: false,
+            global_locked: false,
+            updated_by: "test".into(),
+            updated_at: 1,
+        })
+        .await
+        .unwrap();
+    let opted_in: Value = client
+        .get(format!("{base}/api/public-config"))
+        .header("host", "mail.test")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(opted_in["usernameDomainHint"], "mapped.test");
+    assert_eq!(opted_in["showDomainHint"], true);
     let response = client
         .post(format!("{base}/api/login"))
         .header("host", "mail.test")

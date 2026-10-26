@@ -299,7 +299,7 @@ impl SettingDef {
 }
 
 /// Global-only keys a signed-in user may still read (branding the client shows).
-const PUBLIC_KEYS: &[&str] = &["appearance.brandName", "login.notice"];
+const PUBLIC_KEYS: &[&str] = &["appearance.brandName", "login.notice", "login.showDomainHint"];
 
 /// The admin route (console-path suffix) that owns `signin.newUsers`,
 /// `signin.domainMode` and `signin.refusalDetail` (e66): those writes need
@@ -601,6 +601,14 @@ pub static REGISTRY: &[SettingDef] = &[
         G,
         "appearance",
         "public config brand name"
+    ),
+    def!(
+        "login.showDomainHint",
+        Kind::Bool,
+        "false",
+        G,
+        "appearance",
+        "public config preferred-domain hint visibility"
     ),
     nullable(def!(
         "login.notice",

@@ -26,7 +26,7 @@ pub(crate) async fn public_config(
     let values = match settings_registry::effective_all(&state.store, &subject, |def| {
         matches!(
             def.key,
-            "appearance.brandName" | "appearance.theme" | "appearance.accent" | "login.notice" | "signin.retryCooldownSecs"
+            "appearance.brandName" | "appearance.theme" | "appearance.accent" | "login.notice" | "login.showDomainHint" | "signin.retryCooldownSecs"
         )
     })
     .await
@@ -41,7 +41,7 @@ pub(crate) async fn public_config(
             .map(|v| v.value.clone())
             .unwrap_or(serde_json::Value::Null)
     };
-    let hint = if identity.domain.is_empty() {
+    let hint = if value("login.showDomainHint") != json!(true) || identity.domain.is_empty() {
         None
     } else {
         match state.store.domain_signin_state(&identity.domain).await {
@@ -58,7 +58,7 @@ pub(crate) async fn public_config(
         "retryCooldownSecs":value("signin.retryCooldownSecs"),
         "brandName":value("appearance.brandName"), "theme":value("appearance.theme"),
         "accent":value("appearance.accent"), "loginNotice":value("login.notice"),
-        "usernameDomainHint":hint,
+        "usernameDomainHint":hint, "showDomainHint":value("login.showDomainHint"),
         "logoUrl":branding["logoUrl"], "faviconUrl":branding["faviconUrl"],
         "loginBackgroundUrl":branding["loginBackgroundUrl"],
     }))

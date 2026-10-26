@@ -183,7 +183,8 @@ body {
   color: var(--danger);
 }
 .login__hint {
-  margin: 0.8rem 0 0;
+  margin: 0.65rem 0 1rem;
+  line-height: 1.5;
   font-size: 0.75rem;
   color: var(--text-dim);
   text-align: center;
@@ -194,7 +195,7 @@ body {
 }
 /* The "Enter server details manually" / "Look up my server" toggle under the
    submit button, and the single-sign-on links, which share the class. */
-.login__card .btn--ghost {
+.login__card > .btn--ghost {
   width: 100%;
   margin-top: 0.5rem;
 }
@@ -949,3 +950,6 @@ body {
 @keyframes mail-progress-enter { to { opacity:1; } }
 @media(prefers-reduced-motion:reduce) { .list__loading { animation:none; opacity:1; } }
 :root[data-reduced-motion] .list__loading { animation:none; opacity:1; }
+
+.login__card > .field { margin-block: 0 1rem; }
+#login-domain-hint { margin-block: -.35rem 1rem; text-align: start; }

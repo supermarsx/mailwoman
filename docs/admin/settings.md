@@ -623,3 +623,8 @@ Global/domain/user composer safeguard: `off`, `warn` (default), or `confirm`. Ch
 <a id="mail.trustedRecipientDomains"></a>
 ### `mail.trustedRecipientDomains`
 Global/domain/user list of up to 100 exact domains, each at most 253 characters. DNS case and IDNA are normalized; invalid entries grant no trust. Subdomains are not implicitly trusted. The selected sending identity's domain is trusted automatically. Administrators can lock both settings to prevent user overrides; an unlocked user list replaces the inherited list.
+
+<a id="login.showDomainHint"></a>
+### `login.showDomainHint`
+
+Global boolean, default `false`. Shows the preferred-domain hint below Email or username on the sign-in page when enabled. Hiding this hint does not change username routing or authentication.

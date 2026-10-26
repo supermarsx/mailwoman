@@ -403,3 +403,6 @@ admin-settings-key-mail-external-recipient-warning = External recipient warning
 admin-settings-help-mail-external-recipient-warning = Off, warn, or require confirmation in the composer. Covers To, Cc and Bcc. This is a composer safeguard, not a server delivery restriction.
 admin-settings-key-mail-trusted-recipient-domains = Trusted recipient domains
 admin-settings-help-mail-trusted-recipient-domains = Up to 100 exact recipient domains. The selected sending identity's domain is also trusted. Invalid entries never grant trust. Lock this setting to prevent user overrides.
+
+admin-settings-key-login-show-domain-hint = Show preferred domain on sign-in
+admin-settings-help-login-show-domain-hint = Show which domain accepts a username without an email suffix. Hidden by default. This only changes the hint; signing in with a username still works.
