@@ -42,6 +42,23 @@ function Density(): JSX.Element {
 describe('useSetting + LockNote', () => {
   beforeEach(() => clearSettings());
 
+  it('keeps saving active and ignores an obsolete failure while a newer edit is queued', async () => {
+    const replies: Array<(response:Response)=>void> = [];
+    await loadSettings({fetcher:async (_url,init)=>init?.method
+      ? new Promise<Response>(resolve=>replies.push(resolve))
+      : json(200,{settings:{'appearance.density':{value:'cozy',source:'default',locked:false}}})});
+    render(()=><Density/>);
+    fireEvent.click(screen.getByText('force'));
+    fireEvent.click(screen.getByText('force'));
+    replies.shift()!(json(503,{}));
+    await waitFor(()=>expect(replies).toHaveLength(1));
+    expect(screen.getByLabelText('Density')).toBeDisabled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    replies.shift()!(json(200,{value:'compact',source:'user',locked:false}));
+    await waitFor(()=>expect(screen.getByLabelText('Density')).toBeEnabled());
+    expect(screen.getByLabelText('Density')).toHaveValue('compact');
+  });
+
   it('falls back to the given value and stays free before the map loads', () => {
     render(() => <Density />);
     expect(screen.getByLabelText('Density')).toHaveValue('cozy');

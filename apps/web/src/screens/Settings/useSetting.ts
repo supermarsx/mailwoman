@@ -54,21 +54,23 @@ export function useSetting<T>(
 ): SettingHandle<T> {
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal('');
+  let operation = 0;
   onMount(() => void loadSettings());
 
   const entry = (): SettingEntry | undefined => settings()[key];
 
   async function run(op: () => Promise<SettingEntry>): Promise<boolean> {
+    const current = ++operation;
     setSaving(true);
     setError('');
     try {
       await op();
       return true;
     } catch (e) {
-      setError(settingErrorMessage(e));
+      if (current === operation) setError(settingErrorMessage(e));
       return false;
     } finally {
-      setSaving(false);
+      if (current === operation) setSaving(false);
     }
   }
 

@@ -169,6 +169,8 @@ let inflight: Promise<void> | null = null;
 let activeFetcher: Fetcher = defaultFetcher;
 let generation = 0;
 let loadSequence = 0;
+const mutations = new Map<string, Promise<SettingEntry>>();
+const revisions = new Map<string, number>();
 
 /** The shared map (reactive). Empty until `loadSettings` settles. */
 export function settings(): SettingsMap {
@@ -190,16 +192,26 @@ export function loadSettings(opts: { refresh?: boolean; fetcher?: Fetcher } = {}
   if (settingsStatus() === 'ready' && opts.refresh !== true) return Promise.resolve();
   const current = generation;
   const sequence = ++loadSequence;
-  setSettingsStatus('loading');
+  const loadedRevisions = new Map(revisions);
+  const pendingKeys = new Set(mutations.keys());
+  if (settingsStatus() !== 'ready') setSettingsStatus('loading');
   const run = fetchSettings(activeFetcher)
     .then((map) => {
       if (current !== generation || sequence !== loadSequence) return;
-      setSettingsMap(map);
+      const merged = { ...map };
+      for (const [key, revision] of revisions) {
+        if (pendingKeys.has(key) || loadedRevisions.get(key) !== revision || mutations.has(key)) {
+          const entry = settingsMap()[key];
+          if (entry) merged[key] = entry;
+          else delete merged[key];
+        }
+      }
+      setSettingsMap(merged);
       setSettingsStatus('ready');
     })
     .catch((e: unknown) => {
       if (current !== generation || sequence !== loadSequence) return;
-      setSettingsMap({});
+      if (e instanceof SettingsApiError && e.status === 401) setSettingsMap({});
       setSettingsStatus(e instanceof SettingsApiError && e.status === 401 ? 'signed-out' : 'error');
     })
     .finally(() => {
@@ -219,29 +231,49 @@ function store(key: string, entry: SettingEntry): void {
  * `setting_locked` refreshes the map (the administrator changed something since
  * it loaded) before rethrowing.
  */
-export async function writeSetting(key: string, value: unknown): Promise<SettingEntry> {
+function mutateSetting(key: string, operation: (fetcher: Fetcher) => Promise<SettingEntry>): Promise<SettingEntry> {
   const current = generation;
-  try {
-    const entry = await putSetting(key, value, activeFetcher);
-    if (current === generation) store(key, entry);
-    return entry;
-  } catch (e) {
-    if (current === generation && e instanceof SettingsApiError && e.code === 'setting_locked') void loadSettings({ refresh: true });
-    throw e;
-  }
+  const fetcher = activeFetcher;
+  const revision = (revisions.get(key) ?? 0) + 1;
+  revisions.set(key, revision);
+  const previous = mutations.get(key);
+  const execute = async (): Promise<SettingEntry> => {
+    // A queued request must never run with another account's session cookie.
+    if (current !== generation) throw new SettingsApiError(401, 'account_changed', null);
+    try {
+      const entry = await operation(fetcher);
+      if (current === generation && revisions.get(key) === revision) store(key, entry);
+      return entry;
+    } catch (e) {
+      if (current === generation && revisions.get(key) === revision && e instanceof SettingsApiError && e.code === 'setting_locked') {
+        mutations.delete(key);
+        void loadSettings({ refresh: true });
+      }
+      throw e;
+    }
+  };
+  // Preserve user intent on the server too: same-key writes/resets run in order.
+  const run = (previous ? previous.catch(() => undefined).then(execute) : execute()).finally(() => {
+    if (mutations.get(key) === run) mutations.delete(key);
+  });
+  mutations.set(key, run);
+  return run;
+}
+
+export function writeSetting(key: string, value: unknown): Promise<SettingEntry> {
+  return mutateSetting(key, fetcher => putSetting(key, value, fetcher));
 }
 
 /** Remove the user's value for `key` and update the shared map. */
-export async function resetSetting(key: string): Promise<SettingEntry> {
-  const current = generation;
-  const entry = await deleteSetting(key, activeFetcher);
-  if (current === generation) store(key, entry);
-  return entry;
+export function resetSetting(key: string): Promise<SettingEntry> {
+  return mutateSetting(key, fetcher => deleteSetting(key, fetcher));
 }
 
 /** Forget the shared map (sign-out, tests). */
 export function clearSettings(): void {
   generation++;
+  mutations.clear();
+  revisions.clear();
   inflight = null;
   activeFetcher = defaultFetcher;
   setSettingsMap({});

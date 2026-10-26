@@ -27,6 +27,63 @@ const FREE = { value: 'cozy', source: 'default', locked: false };
 describe('api/settings', () => {
   beforeEach(() => clearSettings());
 
+  it('serializes rapid same-key edits and does not flash intermediate acknowledgements', async () => {
+    const replies: Array<(response: Response) => void> = [];
+    const methods: string[] = [];
+    await loadSettings({fetcher: async (_url, init) => {
+      if (!init?.method) return json(200, {settings: {density: FREE}});
+      methods.push(init.method);
+      return new Promise<Response>(resolve => replies.push(resolve));
+    }});
+    const first = writeSetting('density', 'compact');
+    const second = resetSetting('density');
+    expect(methods).toEqual(['PUT']);
+    replies.shift()!(json(200, {...FREE, value:'compact'}));
+    await first;
+    await vi.waitFor(() => expect(methods).toEqual(['PUT', 'DELETE']));
+    expect(settings().density?.value).toBe('cozy');
+    replies.shift()!(json(200, {...FREE, value:'relaxed'}));
+    await second;
+    expect(settings().density?.value).toBe('relaxed');
+  });
+
+  it('does not replace a saved choice with an older background load', async () => {
+    let finish!: (response: Response) => void;
+    let loads = 0;
+    await loadSettings({fetcher: async (_url, init) => {
+      if (init?.method) return json(200, {...FREE, value:'compact'});
+      if (++loads === 1) return json(200, {settings:{density:FREE}});
+      return new Promise<Response>(resolve => {finish=resolve;});
+    }});
+    const refresh=loadSettings({refresh:true});
+    expect(settingsLoadStatus()).toBe('ready');
+    await writeSetting('density','compact');
+    finish(json(200,{settings:{density:FREE}}));await refresh;
+    expect(settings().density?.value).toBe('compact');
+  });
+
+  it('retains loaded values on a failed refresh but clears them on sign-out', async () => {
+    await loadSettings({fetcher: async()=>json(200,{settings:{density:FREE}})});
+    await loadSettings({refresh:true,fetcher:async()=>json(503,{})});
+    expect(settings().density).toEqual(FREE);
+    expect(settingsLoadStatus()).toBe('error');
+    await loadSettings({refresh:true,fetcher:async()=>json(401,{})});
+    expect(settings()).toEqual({});
+  });
+
+  it('never sends a queued edit after the account changes', async () => {
+    let finish!: (response: Response)=>void;
+    const fetcher=vi.fn<Fetcher>(async (_url,init)=>init?.method
+      ? new Promise<Response>(resolve=>{finish=resolve;}) : json(200,{settings:{}}));
+    await loadSettings({fetcher});
+    const first=writeSetting('density','compact');
+    const queued=writeSetting('density','relaxed');
+    const rejected=expect(queued).rejects.toMatchObject({code:'account_changed'});
+    clearSettings();finish(json(200,FREE));await first;await rejected;
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(settings()).toEqual({});
+  });
+
   it('ignores an old account load after switching accounts', async () => {
     let resolve!: (response: Response) => void;
     const old = loadSettings({ fetcher: () => new Promise<Response>(r => { resolve = r; }) });
