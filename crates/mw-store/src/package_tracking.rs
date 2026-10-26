@@ -60,7 +60,7 @@ impl Store {
         let revision = seal::random_token();
         let affected = match expected {
             Some(old) => q("UPDATE package_account SET state=?1,revision=?2 WHERE account_id=?3 AND revision=?4").bind(state).bind(&revision).bind(account).bind(old).execute(&self.backend).await?,
-            None => q("INSERT INTO package_account(account_id,state,revision) VALUES(?1,?2,?3) ON CONFLICT(account_id) DO NOTHING").bind(account).bind(state).bind(&revision).execute(&self.backend).await?,
+            None => q("INSERT INTO package_account(account_id,state,revision,native_account_id) VALUES(?1,?2,?3,(SELECT id FROM accounts WHERE id=?1)) ON CONFLICT(account_id) DO NOTHING").bind(account).bind(state).bind(&revision).execute(&self.backend).await?,
         };
         Ok((affected > 0).then_some(revision))
     }
@@ -83,6 +83,9 @@ mod tests {
         assert_ne!(left.unwrap().is_some(),right.unwrap().is_some());
         q("DELETE FROM accounts WHERE id=?1").bind(&ids[0]).execute(&store.backend).await.unwrap();
         assert!(store.package_account(&ids[0]).await.unwrap().is_none());
+        // Proxy account IDs are authenticated by the session, not native storage.
+        assert!(store.put_package_account("proxy:authority:one","proxy state",None).await.unwrap().is_some());
+        assert!(store.package_account("proxy:authority:two").await.unwrap().is_none());
     }
     #[tokio::test]
     async fn provider_key_is_sealed_bound_and_revoked_on_change() {

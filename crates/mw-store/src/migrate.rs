@@ -1112,9 +1112,9 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "package_account",
-        select: "SELECT account_id,state,revision FROM package_account",
-        insert: "INSERT INTO package_account(account_id,state,revision) VALUES(?1,?2,?3)",
-        map: |r| vec![t(r,"account_id"),t(r,"state"),t(r,"revision")],
+        select: "SELECT account_id,state,revision,native_account_id FROM package_account",
+        insert: "INSERT INTO package_account(account_id,state,revision,native_account_id) VALUES(?1,?2,?3,?4)",
+        map: |r| vec![t(r,"account_id"),t(r,"state"),t(r,"revision"),ot(r,"native_account_id")],
     },
     // `audit_log` and `twofa_policy` reference nothing and are referenced by
     // nothing, so their position is unconstrained; they go last rather than being
