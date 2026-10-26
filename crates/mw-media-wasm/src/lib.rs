@@ -216,10 +216,18 @@ fn reencode_image(bytes: &[u8]) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("format guess failed: {e}"))?;
     let img = reader.decode().map_err(|e| format!("decode failed: {e}"))?;
 
-    let mut out = Cursor::new(Vec::new());
-    img.write_to(&mut out, image::ImageFormat::Png)
+    // A fixed scanline filter avoids trying every PNG predictor for every row
+    // inside the interpreter. Keep the jail deadline and output limits intact.
+    use image::ImageEncoder as _;
+    let mut out = Vec::new();
+    image::codecs::png::PngEncoder::new_with_quality(
+        &mut out,
+        image::codecs::png::CompressionType::Fast,
+        image::codecs::png::FilterType::Sub,
+    )
+        .write_image(img.as_bytes(), img.width(), img.height(), img.color().into())
         .map_err(|e| format!("re-encode failed: {e}"))?;
-    Ok(out.into_inner())
+    Ok(out)
 }
 
 // ── tests ──────────────────────────────────────────────────────────────────────

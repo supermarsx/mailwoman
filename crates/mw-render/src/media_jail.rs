@@ -92,8 +92,8 @@ fn module() -> &'static Module {
     MODULE.get_or_init(|| Module::new(engine(), MEDIA_WASM).expect("compile media.wasm"))
 }
 
-/// Epoch ticker: advances the engine epoch so the per-store wall-clock deadline
-/// fires. Scoped to one invocation; stopped + joined on drop (no thread leak).
+/// One ticker per shared engine: concurrent requests must not multiply the clock
+/// and shorten each other's deadlines. It lives for the process lifetime.
 struct Ticker {
     stop: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
@@ -141,6 +141,9 @@ fn call(entry: &str, input: &[u8]) -> Result<Vec<u8>, String> {
         return Err("media-jail: input exceeds limit".into());
     }
     let engine = engine();
+    let compiled = module();
+    static TICKER: OnceLock<Ticker> = OnceLock::new();
+    TICKER.get_or_init(|| Ticker::spawn(engine.clone()));
     let mut store = Store::new(engine, Limiter);
     store.limiter(|s| s);
     store.set_epoch_deadline(Ticker::deadline_ticks());
@@ -149,7 +152,7 @@ fn call(entry: &str, input: &[u8]) -> Result<Vec<u8>, String> {
     // Empty linker: the guest imports nothing, so nothing is granted.
     let linker: Linker<Limiter> = Linker::new(engine);
     let instance = linker
-        .instantiate(&mut store, module())
+        .instantiate(&mut store, compiled)
         .map_err(|e| format!("media-jail instantiate: {e}"))?;
 
     let memory = instance
@@ -164,8 +167,10 @@ fn call(entry: &str, input: &[u8]) -> Result<Vec<u8>, String> {
 
     let in_len = u32::try_from(input.len()).map_err(|_| "media-jail: input too large")?;
 
-    // The ticker only needs to run while guest code executes.
-    let ticker = Ticker::spawn(engine.clone());
+    // Compilation/instantiation may be cold. Start this request's execution
+    // budget immediately before entering guest code, on the single shared clock.
+    store.set_epoch_deadline(Ticker::deadline_ticks());
+    store.epoch_deadline_trap();
     let ptr = alloc
         .call(&mut store, in_len)
         .map_err(|e| format!("media-jail: alloc trapped: {e}"))?;
@@ -174,8 +179,7 @@ fn call(entry: &str, input: &[u8]) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("media-jail: write input: {e}"))?;
     let packed = func
         .call(&mut store, (ptr, in_len))
-        .map_err(|e| format!("media-jail: {entry} trapped: {e}"))?;
-    drop(ticker);
+        .map_err(|e| format!("media-jail: {entry} trapped: {e:#}"))?;
 
     let out_ptr = (packed >> 32) as usize;
     let out_len = (packed & 0xffff_ffff) as usize;
@@ -261,6 +265,16 @@ fn read_field<'a>(buf: &'a [u8], off: &mut usize) -> Result<&'a [u8], String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn installed_app_icons_fit_the_image_jail() {
+        for (name, bytes) in [
+            ("192px", include_bytes!("../../../apps/web/public/icons/icon-192.png").as_slice()),
+            ("512px", include_bytes!("../../../apps/web/public/icons/icon-512.png").as_slice()),
+        ] {
+            let image = super::reencode_image(bytes).unwrap_or_else(|error| panic!("{name} installed app icon: {error}"));
+            assert!(image.starts_with(b"\x89PNG"));
+        }
+    }
     use super::*;
 
     #[test]

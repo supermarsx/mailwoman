@@ -419,6 +419,11 @@ debug = false
 # opt-level 0) buys that back, and the artifacts are cached across rebuilds so the
 # cost is paid once. Scope is deliberately narrow: hashing/AEAD/bignum/curve/PQC
 # primitives and the compressors, not "*".
+# The no-JIT media sandbox must meet the same wall-clock deadline in debug builds.
+# Optimize its cached interpreter, not workspace code or the sandbox limits.
+[profile.dev.package.pulley-interpreter]
+opt-level = 3
+
 [profile.dev.package.argon2]      # password + API-key hashing (mw-oauth/mw-admin/mw-passwd)
 opt-level = 3
 [profile.dev.package.pbkdf2]
