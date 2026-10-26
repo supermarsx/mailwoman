@@ -19,11 +19,12 @@ import { DataTable, type Column } from './shell/DataTable.tsx';
 import { Feedback } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 
+const AutomaticLocks = lazy(() => import('./AutomaticLocks.tsx').then(module => ({ default: module.AutomaticLocks })));
 const BanEditor = lazy(() => import('./BanEditor.tsx').then(module => ({ default: module.BanEditor })));
 const Telemetry = lazy(() => import('./Telemetry.tsx').then(module => ({ default: module.Telemetry })));
 export function Observability(): JSX.Element {
   const shell = useContext(ShellContext);
-  return <Show when={shell?.router.route().rest[0] === 'telemetry'} fallback={<Show when={shell?.router.route().rest[0] === 'bans' && shell?.router.route().rest[1] === 'new'} fallback={<ObservabilityAudit/>}><BanEditor/></Show>}><Telemetry/></Show>;
+  return <Show when={shell?.router.route().rest[0] === 'locks'} fallback={<Show when={shell?.router.route().rest[0] === 'telemetry'} fallback={<Show when={shell?.router.route().rest[0] === 'bans' && shell?.router.route().rest[1] === 'new'} fallback={<ObservabilityAudit/>}><BanEditor/></Show>}><Telemetry/></Show>}><AutomaticLocks/></Show>;
 }
 function ObservabilityAudit(): JSX.Element {
   const shell = useContext(ShellContext);
@@ -94,6 +95,7 @@ function ObservabilityAudit(): JSX.Element {
         </p>
       </Show>
       <Feedback kind="error" as="toast" message={failure()} />
+      <Show when={shell?.can.can('bans.read')}><div class={css.card}><p class={css.note}>{t('admin-obs-locks-note')}</p><button class="btn" onClick={()=>void shell?.router.navigate(sectionPath('observability',['locks']))}>{t('admin-obs-locks-title')}</button></div></Show>
 
       <div class={css.card}>
         <p class={css.note}>{t('admin-obs-telemetry-note')}</p>

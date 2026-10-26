@@ -736,6 +736,10 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("signin.antiBotMode", Kind::Enum(&["off", "mailbox", "admin", "all"]), "\"off\"", G, "signin", "initial sign-in proof-of-work policy"),
     def!("signin.antiBotDifficulty", int(100, 20000), "2000", G, "signin", "maximum proof-of-work solver counter"),
     def!("signin.antiBotExpirySecs", int(60, 600), "180", G, "signin", "single-use challenge lifetime"),
+    def!("security.signin.mailboxFailureLimit", int(1, 100), "10", G, "security", "rejected mailbox credentials per source before a temporary lock"),
+    def!("security.signin.adminFailureLimit", int(1, 100), "5", G, "security", "rejected admin credentials per source before a temporary lock"),
+    def!("security.signin.failureWindowSecs", int(30, 86400), "900", G, "security", "rolling failed-credential counting window"),
+    def!("security.signin.lockSecs", int(30, 86400), "900", G, "security", "fixed temporary source lock duration; rejected retries never extend it"),
     def!("signin.retryCooldownSecs", int(0, 300), "3", G, "signin", "initial sign-in retry cooldown"),
     // ── Sign-in (e66, e70b) ──────────────────────────────────────────────────
     dedicated(

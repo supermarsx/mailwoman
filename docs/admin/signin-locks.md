@@ -1,0 +1,11 @@
+# Temporary sign-in locks
+
+Failed credentials create a durable, temporary lock for the trusted source IP and sign-in surface. Administrator and mailbox counters are separate. The default limits are five administrator failures or ten mailbox failures in fifteen minutes, followed by a fifteen-minute lock. Configure `security.signin.adminFailureLimit`, `security.signin.mailboxFailureLimit`, `security.signin.failureWindowSecs`, and `security.signin.lockSecs` in Admin Settings.
+
+This is separate from the configurable retry cooldown. Incorrect passwords, verified credential rejections and second-factor rejections count. Expired challenges, disabled accounts, storage failures, upstream outages and session creation failures do not count. Successful sign-in clears the matching source/surface counter. Requests refused by an active lock do not extend its expiry. Administrator session idle/absolute limits and fresh security proofs remain unchanged.
+
+The server resolves source IPs using the existing trusted-proxy policy; client-supplied forwarding headers from an untrusted peer cannot change the source. Shared NAT users can share a counter. A lock applies to new sign-in, including SSO; it does not revoke existing sessions. Manual global IP bans remain separate and continue to apply after an automatic lock is cleared.
+
+Observability → Temporary sign-in locks lists active locks, with source/surface filtering and bounded pages. Reading requires unscoped `bans.read`. Unlocking requires unscoped `bans.write`, a fresh security proof, and the exact revision returned by the list. A stale unlock is refused rather than clearing a newer lock. The response is private and non-cacheable.
+
+Migration 0052 stores counters and deadlines in the shared database, including migration between SQLite and PostgreSQL. Writes serialize threshold transitions; retries cannot extend an existing deadline. Expired entries are pruned on writes. At most 10,000 source/surface records remain live; capacity exhaustion refuses untracked sign-ins instead of evicting active protection. Database/policy lookup failures refuse admission. A failed post-authentication counter write emits a bounded operational warning; it does not turn an invalid credential into a successful login.

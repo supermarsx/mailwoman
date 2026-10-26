@@ -862,6 +862,15 @@ impl Admin {
         })
     }
 
+    /// Record the audit/fail2ban event without a second process-local auto-ban.
+    /// The server's durable credential-failure guard owns its lockout decision.
+    pub async fn record_login_failure_without_monitor(&self, account:&str, ip:Option<IpAddr>) -> Result<LoginFailureOutcome,AdminError> {
+        let ip=ip.map(|address|address.to_canonical());
+        let now=chrono::Utc::now();
+        self.emit_from(account,ActorKind::User,AuditKind::LoginFailed,Some(account.to_string()),serde_json::json!({}),ip).await?;
+        Ok(LoginFailureOutcome{verdict:None,log_line:ip.map(|ip|fail2ban_line(now,account,ip)),banned:false})
+    }
+
     pub async fn ban_ip(
         &self,
         actor: &str,

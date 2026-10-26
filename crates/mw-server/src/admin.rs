@@ -1019,24 +1019,25 @@ mod tests {
             .unwrap();
         assert_eq!(
             response.status(),
-            403,
-            "an active source ban also blocks a correct password"
+            429,
+            "an active credential lock also blocks a correct password"
         );
     }
 
-    async fn bans(_c: &reqwest::Client, base: &str, cookie: &str) -> Vec<serde_json::Value> {
-        // Observe from a distinct real source; the banned existing session's
-        // original source must now be refused too.
+    async fn automatic_locks(_c: &reqwest::Client, base: &str, cookie: &str) -> Vec<serde_json::Value> {
+        // An already authenticated observer can review the temporary sign-in lock.
+        // Manual global source bans have separate middleware acceptance tests.
         let observer = reqwest::Client::builder().no_proxy()
             .local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127,0,0,2))).build().unwrap();
         let resp = observer
-            .get(format!("{base}/admin/bans"))
+            .get(format!("{base}/admin/bans/automatic"))
             .header(reqwest::header::COOKIE, cookie)
             .send()
             .await
             .unwrap();
         assert_eq!(resp.status(), 200);
-        resp.json().await.unwrap()
+        let body:serde_json::Value=resp.json().await.unwrap();
+        body["locks"].as_array().unwrap().clone()
     }
 
     async fn audit(c: &reqwest::Client, base: &str, cookie: &str) -> Vec<serde_json::Value> {
@@ -1066,7 +1067,7 @@ mod tests {
             bad_login(&c, &base, None).await;
         }
         correct_password_is_blocked(&c, &base).await;
-        let list = bans(&c, &base, &cookie).await;
+        let list = automatic_locks(&c, &base, &cookie).await;
 
         assert_eq!(list.len(), 1, "one source, one ban: {list:?}");
         let ip = list[0]["ip"].as_str().unwrap();
@@ -1078,7 +1079,8 @@ mod tests {
         // unban-by-IP route depend on, and the one `admin-panel` never had.
         assert!(ip.parse::<std::net::IpAddr>().is_ok());
         assert!(
-            list[0]["reason"].as_str().unwrap().contains("brute-force"),
+            list[0]["lockedUntil"].as_i64().unwrap() > chrono::Utc::now().timestamp()
+                && list[0]["failures"].as_u64() == Some(5),
             "{list:?}"
         );
     }
@@ -1099,7 +1101,7 @@ mod tests {
             bad_login(&c, &base, Some(("x-forwarded-for", "203.0.113.99"))).await;
         }
         correct_password_is_blocked(&c, &base).await;
-        let list = bans(&c, &base, &cookie).await;
+        let list = automatic_locks(&c, &base, &cookie).await;
 
         assert_eq!(list.len(), 1, "{list:?}");
         assert_eq!(
@@ -1129,13 +1131,13 @@ mod tests {
             bad_login(&c, &base, None).await;
         }
         let cookie = good_login(&c, &base).await;
-        assert!(bans(&c, &base, &cookie).await.is_empty(), "four is under 5");
+        assert!(automatic_locks(&c, &base, &cookie).await.is_empty(), "four is under 5");
 
         // Four more failures after the success must not trip the threshold either.
         for _ in 0..4 {
             bad_login(&c, &base, None).await;
         }
-        let list = bans(&c, &base, &cookie).await;
+        let list = automatic_locks(&c, &base, &cookie).await;
         assert!(list.is_empty(), "the success reset the window: {list:?}");
     }
 
@@ -1156,7 +1158,7 @@ mod tests {
             bad_login(&c, &base, None).await;
         }
         let cookie = good_login(&c, &base).await;
-        let list = bans(&c, &base, &cookie).await;
+        let list = automatic_locks(&c, &base, &cookie).await;
         assert!(
             list.is_empty(),
             "no address ⇒ no ban row, not a placeholder one: {list:?}"

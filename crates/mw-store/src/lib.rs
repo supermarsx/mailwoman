@@ -10,6 +10,7 @@ pub mod branding;
 pub mod identity_principal;
 mod signin_challenges;
 mod auth_logs;
+pub mod auth_failures;
 mod hosting_connections;
 pub use hosting_connections::{HostingConnectionRow, HostingCredentialChange, HostingMutation};
 pub use auth_logs::{AuthLogEvent, AuthLogLimits, AuthLogQuery, AuthSurface};

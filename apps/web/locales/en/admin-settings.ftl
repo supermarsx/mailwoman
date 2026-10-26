@@ -492,3 +492,12 @@ admin-settings-key-notifications-push-allowed = Background push notifications al
 admin-settings-help-notifications-push-allowed = Permit this account's enabled notifications to register and receive background push. Browser permission is still required.
 admin-settings-key-offline-persistent-storage-allowed = Persistent browser storage requests allowed
 admin-settings-help-offline-persistent-storage-allowed = Allow an explicit request to protect local cached data from automatic browser eviction. The browser may refuse; this does not grant permission automatically.
+
+admin-settings-key-security-signin-mailbox-failure-limit = Mailbox failed-credential limit
+admin-settings-help-security-signin-mailbox-failure-limit = Rejected credentials from one source IP within the counting window trigger a temporary mailbox sign-in lock. Network and configuration failures do not count.
+admin-settings-key-security-signin-admin-failure-limit = Administrator failed-credential limit
+admin-settings-help-security-signin-admin-failure-limit = Rejected administrator credentials from one source IP trigger a separate temporary admin sign-in lock. Short admin session and fresh-proof requirements stay unchanged.
+admin-settings-key-security-signin-failure-window-secs = Failed-credential counting window
+admin-settings-help-security-signin-failure-window-secs = Rolling window in seconds for credential and MFA rejections. Successful completed sign-in resets that source and surface.
+admin-settings-key-security-signin-lock-secs = Temporary sign-in lock duration
+admin-settings-help-security-signin-lock-secs = Lock duration in seconds. Repeated attempts while locked do not extend its original expiry. Manual global IP bans are separate.

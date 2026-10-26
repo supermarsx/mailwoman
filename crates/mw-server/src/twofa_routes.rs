@@ -599,6 +599,8 @@ async fn passwordless_begin(
     headers: HeaderMap,
     ext: axum::http::Extensions,
 ) -> Response {
+    if let Err(error)=crate::signin_guard::check(&state,mw_store::AuthSurface::Webmail,crate::scope_mw::proxy::client_ip(&headers,&ext)).await { return error.into_response(); }
+
     if state.engine.is_none() {
         return (
             StatusCode::NOT_IMPLEMENTED,
@@ -658,6 +660,8 @@ async fn passwordless_finish(
     ext: axum::http::Extensions,
     Json(body): Json<PasswordlessFinish>,
 ) -> Response {
+    if let Err(error)=crate::signin_guard::check(&state,mw_store::AuthSurface::Webmail,crate::scope_mw::proxy::client_ip(&headers,&ext)).await { return error.into_response(); }
+
     let Some(engine) = &state.engine else {
         return (
             StatusCode::NOT_IMPLEMENTED,
@@ -827,6 +831,8 @@ async fn verify_2fa(
     ext: axum::http::Extensions,
     Json(body): Json<VerifyReq>,
 ) -> Response {
+    if let Err(error)=crate::signin_guard::check(&state,mw_store::AuthSurface::Webmail,crate::scope_mw::proxy::client_ip(&headers,&ext)).await { return error.into_response(); }
+
     let device = crate::security_center::device(&headers, &ext, None);
     let Some(pending) = state.twofa.peek_pending(&body.pending_token) else {
         crate::security_center::record_failure(
@@ -1072,8 +1078,12 @@ struct PendingPasskeyFinishReq {
 /// Begin forced TOTP enrolment for an Enroll-state pending login.
 async fn login_enroll_totp_begin(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    ext: axum::http::Extensions,
     Json(body): Json<PendingTokenReq>,
 ) -> Response {
+    if let Err(error)=crate::signin_guard::check(&state,mw_store::AuthSurface::Webmail,crate::scope_mw::proxy::client_ip(&headers,&ext)).await { return error.into_response(); }
+
     let Some(p) = enroll_pending(&state, &body.pending_token) else {
         return twofa_unauthorized();
     };
@@ -1083,8 +1093,12 @@ async fn login_enroll_totp_begin(
 /// Confirm forced TOTP enrolment; on success issue recovery codes AND the session.
 async fn login_enroll_totp_confirm(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    ext: axum::http::Extensions,
     Json(body): Json<PendingTotpConfirmReq>,
 ) -> Response {
+    if let Err(error)=crate::signin_guard::check(&state,mw_store::AuthSurface::Webmail,crate::scope_mw::proxy::client_ip(&headers,&ext)).await { return error.into_response(); }
+
     let Some(p) = enroll_pending(&state, &body.pending_token) else {
         return twofa_unauthorized();
     };
@@ -1119,6 +1133,8 @@ async fn login_enroll_passkey_begin(
     ext: axum::http::Extensions,
     Json(body): Json<PendingTokenReq>,
 ) -> Response {
+    if let Err(error)=crate::signin_guard::check(&state,mw_store::AuthSurface::Webmail,crate::scope_mw::proxy::client_ip(&headers,&ext)).await { return error.into_response(); }
+
     let Some(p) = enroll_pending(&state, &body.pending_token) else {
         return twofa_unauthorized();
     };
@@ -1139,8 +1155,12 @@ async fn login_enroll_passkey_begin(
 /// Finish forced passkey enrolment; on success issue recovery codes AND the session.
 async fn login_enroll_passkey_finish(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    ext: axum::http::Extensions,
     Json(body): Json<PendingPasskeyFinishReq>,
 ) -> Response {
+    if let Err(error)=crate::signin_guard::check(&state,mw_store::AuthSurface::Webmail,crate::scope_mw::proxy::client_ip(&headers,&ext)).await { return error.into_response(); }
+
     let Some(p) = enroll_pending(&state, &body.pending_token) else {
         return twofa_unauthorized();
     };

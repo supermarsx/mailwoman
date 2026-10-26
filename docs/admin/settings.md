@@ -747,3 +747,19 @@ Administrator ceiling (global/domain, default true) for account-authorized backg
 <a id="offline.persistentStorageAllowed"></a>
 ### `offline.persistentStorageAllowed`
 Administrator ceiling (global/domain, default false) for an explicit browser persistent-storage request. The browser decides whether to grant the request; this setting cannot silently grant permission.
+
+<a id="security.signin.mailboxFailureLimit"></a>
+<a id="security.signin.adminFailureLimit"></a>
+<a id="security.signin.failureWindowSecs"></a>
+<a id="security.signin.lockSecs"></a>
+### Temporary credential-failure locks
+
+Global limits default to 10 rejected mailbox credentials and 5 rejected admin credentials per
+trusted source IP in a rolling 900-second window. `security.signin.mailboxFailureLimit` and
+`security.signin.adminFailureLimit` accept 1–100. `security.signin.failureWindowSecs` and
+`security.signin.lockSecs` accept 30–86400 seconds and default to 900. These locks are distinct
+from `signin.retryCooldownSecs` (initial attempt pacing) and manual global IP bans. Source counters
+are durable across replicas; rejection while locked does not extend expiry. Admin and mailbox
+counters are separate. A successful completed login resets its matching source/surface counter;
+issuing an MFA challenge is not success. Typed network, configuration and unknown-challenge errors
+do not count as rejected credentials. Existing permanent bans remain until an operator removes them.

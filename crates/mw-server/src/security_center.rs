@@ -768,7 +768,7 @@ pub(crate) async fn record_failure_backend(
 }
 
 fn webmail_fail2ban_line(address: &str, ip: &str, reason: &str) -> Option<String> {
-    if !matches!(reason, "auth-rejected" | "factor_refused") {
+    if !crate::signin_guard::credential_rejection(reason) {
         return None;
     }
     let ip: std::net::IpAddr = ip.parse().ok()?;
@@ -840,7 +840,7 @@ mod auth_log_failure_tests {
             assert!(webmail_fail2ban_line("user", "192.0.2.1", reason).is_none());
         }
         assert!(webmail_fail2ban_line("user", "unknown", "auth-rejected").is_none());
-        for reason in ["auth-rejected", "factor_refused"] {
+        for reason in ["auth-rejected", "credential-rejected", "factor_refused"] {
             let line =
                 webmail_fail2ban_line("attacker\nrhost=198.51.100.2", "192.0.2.1", reason).unwrap();
             assert_eq!(line.lines().count(), 1);

@@ -432,6 +432,7 @@ enum Checked {
         password_hash: Option<String>,
     },
     Refused,
+    Disabled,
 }
 
 async fn check_credentials(
@@ -444,12 +445,10 @@ async fn check_credentials(
         && let Some(phc) = &acc.password_hash
     {
         // A database account with its own password: only that password signs in.
-        if acc.disabled
-            || (acc.source == "env-bootstrap" && !env_login_enabled())
-            || !verify_password(password, phc).await
-        {
-            return Ok(Checked::Refused);
+        if acc.disabled || (acc.source == "env-bootstrap" && !env_login_enabled()) {
+            return Ok(Checked::Disabled);
         }
+        if !verify_password(password, phc).await { return Ok(Checked::Refused); }
         return totp_step(state, acc).await;
     }
     if !env_login_enabled() || !env_credential_matches(state, username, password) {
@@ -457,7 +456,7 @@ async fn check_credentials(
     }
     bootstrap(state, username, password).await?;
     match state.store.get_admin_account_by_username(username).await? {
-        Some(acc) if acc.disabled => Ok(Checked::Refused),
+        Some(acc) if acc.disabled => Ok(Checked::Disabled),
         Some(acc) => totp_step(state, &acc).await,
         // Accounts exist, none for the environment admin (it was deleted): the
         // credential still signs in while env sign-in is on, holding nothing.
@@ -514,9 +513,10 @@ async fn login(
     }
     match check_credentials(&state, &body.username, &body.password).await {
         Ok(Checked::Ok(username)) => {
-            record_login_success(&state, &username, source).await;
-            crate::auth_logs::record_admin(&state, &username, source, "password", true).await;
-            start_session(&state, &username).await
+            let response=start_session(&state, &username).await;
+            if response.status().is_success() { record_login_success(&state, &username, source).await; }
+            crate::auth_logs::record_admin_reason(&state, &username, source, "password", response.status().is_success(), if response.status().is_success() { "" } else { "session-refused" }).await;
+            response
         }
         Ok(Checked::NeedsTotp {
             username,
@@ -562,6 +562,10 @@ async fn login(
                 "factors": factors,
             }))
             .into_response()
+        }
+        Ok(Checked::Disabled) => {
+            crate::auth_logs::record_admin_reason(&state, &body.username, source, "password", false, "account-disabled").await;
+            AdminApiError::unauthenticated().into_response()
         }
         Ok(Checked::Refused) => {
             record_admin_login_failure(&state, &body.username, source).await;
@@ -640,9 +644,10 @@ async fn login_totp(
                 _ => return AdminApiError::unauthenticated().into_response(),
             }
             lock(&PENDING).remove(&body.pending_token);
-            record_login_success(&state, &username, source).await;
-            crate::auth_logs::record_admin(&state, &username, source, "password+totp", true).await;
-            start_session(&state, &username).await
+            let response=start_session(&state, &username).await;
+            if response.status().is_success() { record_login_success(&state, &username, source).await; }
+            crate::auth_logs::record_admin_reason(&state, &username, source, "password+totp", response.status().is_success(), if response.status().is_success() { "" } else { "session-refused" }).await;
+            response
         }
         Ok(false) => {
             challenge.attempts += 1;
@@ -686,6 +691,7 @@ pub(crate) async fn check_login_source(
     state: &AppState,
     source: Option<std::net::IpAddr>,
 ) -> Result<(), AdminApiError> {
+    crate::signin_guard::check(state,mw_store::AuthSurface::Admin,source).await?;
     if let Some(ip) = source {
         match state.v6.admin.is_banned(&ip.to_string()).await {
             Ok(true) => return Err(AdminApiError::unauthenticated()),
@@ -719,7 +725,7 @@ pub(crate) async fn record_admin_login_failure(
     if source.is_none() {
         warn_no_source_once();
     }
-    match state.v6.admin.record_login_failure(username, source).await {
+    match state.v6.admin.record_login_failure_without_monitor(username, source).await {
         Ok(outcome) => {
             if let Some(line) = outcome.log_line {
                 // Deliberately the raw line, unstructured: a jail reads it verbatim.

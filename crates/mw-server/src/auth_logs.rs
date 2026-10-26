@@ -48,6 +48,7 @@ pub(crate) async fn record(
     surface: AuthSurface,
     backend: Option<&str>,
 ) {
+    crate::signin_guard::observe(state,event,surface).await;
     if state
         .store
         .record_auth_event(event, surface, backend, limits(&state.store).await)

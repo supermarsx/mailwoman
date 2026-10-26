@@ -66,7 +66,7 @@ const ALL_TABLES: &str = "identity_principal, identity_binding, session_principa
     open_events, setting_policy, setting_value, auth_failure, ip_block, ip_allow, \
     admin_account, admin_totp, admin_role, admin_role_capability, admin_account_role, \
     admin_capability_override, admin_saved_query, audit_chain_head, audit_checkpoint, \
-    audit_retention, audit_sink, alert_rule, alert_event, signin_event, signin_identity, remembered_device, \
+    audit_retention, audit_sink, alert_rule, alert_event, signin_event, signin_identity, auth_source_failure, remembered_device, \
     branding, brand_asset, custom_css, custom_theme, custom_accent, sieve_script, \
     smime_trust_root, pki_revocation_cache, identity_signature_default, \
     domain_signature_template, domain_disclaimer, mdn_sender_rule, receipt_status, \
@@ -2280,6 +2280,14 @@ mod admin_controls_0033 {
             ("address", 'T', "!", "alice@example.test"),
             ("seen_at", 'I', "!", TS),
             ("event_id", 'T', "!", "success-1"),
+        ]},
+        NewTable { name: "auth_source_failure", copied: true, cols: &[
+            ("surface", 'T', "!", "admin"),
+            ("source_ip", 'T', "!", "192.0.2.21"),
+            ("attempts_json", 'T', "!", "[100,110,120]"),
+            ("locked_until", 'I', "=0", "240"),
+            ("expires_at", 'I', "!", "240"),
+            ("revision", 'T', "!", "failure-revision"),
         ]},
         NewTable { name: "remembered_device", copied: true, cols: &[
             ("id", 'T', "!", "rd-1"),

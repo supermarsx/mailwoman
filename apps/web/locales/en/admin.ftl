@@ -620,3 +620,21 @@ admin-obs-ban-search = Search IP bans
 admin-obs-ban-active-only = Active bans only
 
 admin-egress-class-package_tracking = Optional package tracking provider
+
+admin-obs-locks-title = Temporary sign-in locks
+admin-obs-locks-note = Failed credentials can temporarily lock sign-in from one source IP. Administrator and mailbox counters are separate. These locks expire automatically; repeated attempts do not extend them. Manual global IP bans are managed separately.
+admin-obs-locks-back = Back to observability
+admin-obs-locks-refresh = Refresh locks
+admin-obs-locks-configure = Configure sign-in limits
+admin-obs-lock-surface = Sign-in surface
+admin-obs-lock-surface-all = All sign-in surfaces
+admin-obs-lock-surface-admin = Administrator
+admin-obs-lock-surface-webmail = Mailbox
+admin-obs-lock-failures = Rejected credentials
+admin-obs-lock-until = Locked until
+admin-obs-locks-empty = No temporary sign-in locks.
+admin-obs-locks-search = Search temporary sign-in locks
+admin-obs-lock-unlock = Unlock
+admin-obs-lock-unlock-target = Unlock { $surface } sign-in for { $ip }
+admin-obs-lock-confirm = Reset the failed-credential counter and permit another sign-in attempt for this source. Manual global IP bans still apply. A fresh security check is required.
+admin-obs-lock-unlocked = Unlocked { $surface } sign-in for { $ip }.

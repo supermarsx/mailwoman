@@ -181,7 +181,15 @@ impl IntoResponse for AdminApiError {
         if let Some(field) = self.field {
             body.insert("field".into(), Value::String(field));
         }
-        (self.status, Json(Value::Object(body))).into_response()
+        let retry = if self.status == StatusCode::TOO_MANY_REQUESTS {
+            body.get("retryAfterSecs").and_then(Value::as_u64).filter(|n|*n<=86400)
+        } else { None };
+        let mut response=(self.status, Json(Value::Object(body))).into_response();
+        if let Some(seconds)=retry {
+            response.headers_mut().insert(axum::http::header::RETRY_AFTER,seconds.to_string().parse().expect("numeric header"));
+            response.headers_mut().insert(axum::http::header::CACHE_CONTROL,"no-store".parse().expect("static header"));
+        }
+        response
     }
 }
 

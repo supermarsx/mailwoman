@@ -116,6 +116,7 @@ pub(crate) mod alerts;
 pub(crate) mod step_up;
 mod security_center;
 mod signin_cooldown;
+mod signin_guard;
 mod signin_challenge;
 mod server_text;
 // t16 (26.16, e10 chain link 3) MOUNT: the anonymizing image proxy + remote-image
@@ -2131,6 +2132,7 @@ async fn login(
     if body.names_a_server() {
         return client_server_refused();
     }
+    if let Err(error)=signin_guard::check(&state,mw_store::AuthSurface::Webmail,scope_mw::proxy::client_ip(&headers,&ext)).await { return error.into_response(); }
     if let Some(response) = signin_cooldown::check(&state, &headers, &ext).await {
         return response;
     }

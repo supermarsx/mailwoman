@@ -1560,6 +1560,12 @@ const TABLES: &[TableSpec] = &[
         map: |r| vec![t(r,"account_id"),t(r,"address"),i(r,"seen_at"),t(r,"event_id")],
     },
     TableSpec {
+        name: "auth_source_failure",
+        select: "SELECT surface,source_ip,attempts_json,locked_until,expires_at,revision FROM auth_source_failure",
+        insert: "INSERT INTO auth_source_failure(surface,source_ip,attempts_json,locked_until,expires_at,revision) VALUES(?1,?2,?3,?4,?5,?6)",
+        map: |r| vec![t(r,"surface"),t(r,"source_ip"),t(r,"attempts_json"),i(r,"locked_until"),i(r,"expires_at"),t(r,"revision")],
+    },
+    TableSpec {
         name: "remembered_device",
         select: "SELECT id, account_id, token_hash, label, created_at, expires_at, last_used_at FROM remembered_device",
         insert: "INSERT INTO remembered_device (id, account_id, token_hash, label, created_at, expires_at, last_used_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",

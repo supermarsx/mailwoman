@@ -420,23 +420,33 @@ async fn login_finish(
     AdminJson(body): AdminJson<LoginFinish>,
 ) -> Result<Response, AdminApiError> {
     let source = crate::scope_mw::proxy::client_ip(&headers, &ext);
+    let mut failure_reason = "source-blocked";
     let result: Result<(mw_store::AdminAccountRow, mw_store::AdminPasskey), AdminApiError> =
         async {
             if !state.v6.admin_enabled {
                 return Err(AdminApiError::unauthenticated());
             }
             crate::admin_accounts::check_login_source(&state, source).await?;
+            failure_reason = "challenge-rejected";
             let c = take(&body.pending_token)
                 .filter(|c| c.account.is_none())
                 .ok_or_else(AdminApiError::unauthenticated)?;
-            let key = verify(&state, c, &body.assertion, true)
-                .await?
-                .ok_or_else(AdminApiError::unauthenticated)?;
+            failure_reason = "auth-rejected";
+            let key = match verify(&state, c, &body.assertion, true).await {
+                Ok(Some(key)) => key,
+                Ok(None) => return Err(AdminApiError::unauthenticated()),
+                Err(error) => {
+                    if error.status.is_server_error() { failure_reason = "storage"; }
+                    return Err(error);
+                }
+            };
+            failure_reason = "storage";
             let account = state
                 .store
                 .get_admin_account(&key.credential.account_id)
-                .await?
-                .filter(|a| {
+                .await?;
+            failure_reason = "account-disabled";
+            let account = account.filter(|a| {
                     !a.disabled
                         && (a.source != "env-bootstrap"
                             || crate::admin_accounts::env_login_enabled())
@@ -448,8 +458,10 @@ async fn login_finish(
     let (acc, key) = match result {
         Ok(account) => account,
         Err(error) => {
-            crate::admin_accounts::record_admin_login_failure(&state, "passkey", source).await;
-            crate::auth_logs::record_admin(&state, "", source, "passkey", false).await;
+            if crate::signin_guard::credential_rejection(failure_reason) {
+                crate::admin_accounts::record_admin_login_failure(&state, "passkey", source).await;
+            }
+            crate::auth_logs::record_admin_reason(&state, "", source, "passkey", false, failure_reason).await;
             return Err(error);
         }
     };
@@ -462,12 +474,13 @@ async fn login_finish(
     if response.status().is_success() {
         crate::admin_accounts::record_login_success(&state, &acc.username, source).await;
     }
-    crate::auth_logs::record_admin(
+    crate::auth_logs::record_admin_reason(
         &state,
         &acc.username,
         source,
         "passkey",
         response.status().is_success(),
+        if response.status().is_success() { "" } else { "session-refused" },
     )
     .await;
     Ok(response)
@@ -519,15 +532,15 @@ async fn login_recovery(
     AdminJson(body): AdminJson<RecoveryLogin>,
 ) -> Result<Response, AdminApiError> {
     let source = crate::scope_mw::proxy::client_ip(&headers, &ext);
+    crate::admin_accounts::check_login_source(&state, source).await?;
     let pending = async {
-        crate::admin_accounts::check_login_source(&state, source).await?;
         crate::admin_accounts::take_password_pending(&state, &body.pending_token).await
     }
     .await;
     let account = match pending {
         Ok(account) => account,
         Err(error) => {
-            crate::auth_logs::record_admin(&state, "", source, "password+recovery", false).await;
+            crate::auth_logs::record_admin_reason(&state, "", source, "password+recovery", false, "challenge-rejected").await;
             return Err(error);
         }
     };
@@ -552,12 +565,13 @@ async fn login_recovery(
                 crate::admin_accounts::record_login_success(&state, &account.username, source)
                     .await;
             }
-            crate::auth_logs::record_admin(
+            crate::auth_logs::record_admin_reason(
                 &state,
                 &account.username,
                 source,
                 "password+recovery",
                 response.status().is_success(),
+                if response.status().is_success() { "" } else { "session-refused" },
             )
             .await;
             return Ok(response);

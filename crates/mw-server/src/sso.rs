@@ -323,7 +323,16 @@ async fn begin(
     Extension(pending): Extension<Arc<PendingFlows>>,
     UrlPath(id): UrlPath<String>,
     Query(q): Query<BeginQuery>,
+    headers: HeaderMap,
+    ext: axum::http::Extensions,
 ) -> Response {
+    if let Err(error) = crate::signin_guard::check(
+        &state,
+        mw_store::AuthSurface::Webmail,
+        crate::scope_mw::proxy::client_ip(&headers, &ext),
+    ).await {
+        return error.into_response();
+    }
     let Some(entry) = source.resolve(&state.store, &id).await else {
         return sso_unauthorized();
     };
@@ -388,6 +397,13 @@ async fn complete_flow(
     request: (&HeaderMap, &axum::http::Extensions),
 ) -> Response {
     let (headers, ext) = request;
+    if let Err(error) = crate::signin_guard::check(
+        state,
+        mw_store::AuthSurface::Webmail,
+        crate::scope_mw::proxy::client_ip(headers, ext),
+    ).await {
+        return error.into_response();
+    }
     let Some(entry) = source.resolve(&state.store, id).await else {
         return sso_unauthorized();
     };
