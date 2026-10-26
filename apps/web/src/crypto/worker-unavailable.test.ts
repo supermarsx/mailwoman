@@ -23,8 +23,8 @@
 //      / `setDecryptedText`, the only signals that render it.
 //
 // In particular decrypted plaintext was NOT routed to the server-side sanitizer.
-// The app has exactly one `client.sanitize()` call (state/slices/mail.ts), and it
-// is fed `extractHtmlBody(email)` — the body as fetched FROM the server, which the
+// Both reader paths call `client.sanitize()` (state/slices/mail.ts), each fed
+// `extractHtmlBody(email)` — the body as fetched FROM the server, which the
 // server already holds. The decrypt path never touches `client`.
 //
 // The tests below pin all of that, so a future CSP, policy or refactor change
@@ -104,13 +104,17 @@ describe('decrypted plaintext never reaches the server sanitizer', () => {
     expect(catchBody).not.toContain('onDecrypted');
   });
 
-  it('the one client.sanitize() call is fed SERVER-fetched body HTML, not plaintext', () => {
+  it('both reader sanitizer calls receive SERVER-fetched body HTML, not plaintext', () => {
     const mail = src('src/state/slices/mail.ts');
     const calls = [...mail.matchAll(/client\s*\.\s*sanitize\(([^)]*)\)/g)];
-    expect(calls, 'exactly one server-sanitize call site in the app').toHaveLength(1);
+    expect(calls, 'tabbed and legacy reader sanitizer calls').toHaveLength(2);
+    expect(calls[0]?.[1]).toBe('extractHtmlBody(email');
+    const tabbed = mail.slice(Math.max(0, (calls[0]?.index ?? 0) - 400), calls[0]?.index);
+    expect(tabbed).toContain('await client.jmap(emailGetFull(account,id))');
+    expect(tabbed).toContain("responseFor<EmailGetResponse>(response,'g').list[0]");
     // Its argument is the body extracted from the JMAP Email the server returned.
-    expect(calls[0]?.[1]).toBe('raw');
-    const ctx = mail.slice(Math.max(0, (calls[0]?.index ?? 0) - 400), calls[0]?.index);
+    expect(calls[1]?.[1]).toBe('raw');
+    const ctx = mail.slice(Math.max(0, (calls[1]?.index ?? 0) - 400), calls[1]?.index);
     expect(ctx).toContain('extractHtmlBody(email)');
     expect(ctx).toContain('client.jmap(');
   });
