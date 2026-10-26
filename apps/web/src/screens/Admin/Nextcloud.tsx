@@ -1,4 +1,4 @@
-import {For,Show,createSignal,onMount,type JSX} from 'solid-js';
+import {Show,createSignal,onMount,type JSX} from 'solid-js';
 import {nextcloudAccountsApi,type NextcloudAccountsApi,type CloudInstance,type CloudWrite} from '../../api/nextcloudAccounts.ts';
 import {loadCatalog,t} from '../../i18n';
 import {AsyncPending} from '../../components/AsyncState.tsx';
@@ -6,6 +6,9 @@ import {useShell} from './shell/context.ts';
 import {sectionPath} from './shell/router.ts';
 import {useDirtyGuard} from './shell/useDirtyGuard.ts';
 import {describeAdminError} from './shell/Feedback.tsx';
+import {Icon} from '../../components/Icon.tsx';
+import {DataTable} from './shell/DataTable.tsx';
+import * as layout from './integrationList.css.ts';
 import {AdminSubsection} from './AdminSubsection.tsx';
 import * as css from './admin.css.ts';
 import * as ux from './shell/ux.css.ts';
@@ -24,7 +27,9 @@ export function AdminNextcloud(props:{api?:NextcloudAccountsApi}):JSX.Element {
       <Show when={editing()} fallback={<>
         <h2 class={css.heading}>{t('nextcloud-admin-title')}</h2><p class={css.note}>{t('nextcloud-admin-help')}</p>
         <div class={ux.pageActions}><button class="btn btn--primary" disabled={!writable()||busy()||(rows()?.length??0)>=64} onClick={()=>go('new')}>{t('nextcloud-admin-add')}</button><button class="btn" disabled={busy()} onClick={()=>void reload()}>{t('nextcloud-account-reload')}</button></div>
-        <ul><For each={rows()}>{row=><li><button class="btn" onClick={()=>go(row.id)}>{row.name}</button> — {row.baseUrl} — {t(row.enabled?'nextcloud-admin-enabled':'nextcloud-admin-disabled')}</li>}</For></ul>
+        <DataTable caption={t('nextcloud-admin-title')} rows={rows()??[]} rowKey={row=>row.id} state={busy()?'loading':'ready'} emptyText={t('nextcloud-admin-empty')}
+          columns={[{id:'name',header:t('nextcloud-admin-name'),cell:row=><span class={layout.value} title={row.name}>{row.name}</span>},{id:'url',header:t('nextcloud-admin-url'),cell:row=><span class={layout.value} title={row.baseUrl}>{row.baseUrl}</span>},{id:'status',header:t('nextcloud-admin-status'),cell:row=>t(row.enabled?'nextcloud-admin-enabled':'nextcloud-admin-disabled')}]}
+          rowActions={row=><button type="button" class={ux.iconAction} aria-label={t('nextcloud-admin-open',{name:row.name})} data-tooltip={t('nextcloud-admin-edit')} onClick={()=>go(row.id)}><Icon name="edit"/></button>}/>
         <p>{t('nextcloud-admin-private-help')}</p>
       </>}>
         <Show when={editing()==='new'} fallback={<Show when={selected()} keyed fallback={<p role="alert">{t('nextcloud-admin-missing')}</p>}>{row=><InstanceEditor initial={row} writable={writable()} api={api()} onDone={async()=>{await reload();go();}} onCancel={()=>go()}/>}</Show>}>

@@ -123,3 +123,6 @@ nextcloud-pim-back = Back to Nextcloud accounts
 nextcloud-pim-interval = Automatic refresh interval (seconds)
 nextcloud-pim-interval-help = Zero uses manual refresh only. Positive intervals have a 60-second minimum. Connected accounts refresh in the background; failures back off and rejected credentials stop further requests until you relink.
 nextcloud-pim-interval-reset = Use administrator default
+nextcloud-admin-empty = No approved instances yet. Add an instance to make it available for account linking.
+nextcloud-admin-status = Status
+nextcloud-admin-open = Open { $name }

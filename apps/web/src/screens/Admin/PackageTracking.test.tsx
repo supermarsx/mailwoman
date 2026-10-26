@@ -18,3 +18,5 @@ it('retains an existing key and sends conditional provider changes',async()=>{
   fireEvent.click(screen.getByRole('button',{name:'Save provider configuration'}));
   await waitFor(()=>expect(fixture.request).toHaveBeenCalledWith('/package-tracking',{method:'PUT',ifMatch:'"r1"',body:{enabled:true,refreshSecs:900}}));
 });
+
+it('shows shared pending feedback during the first request, then a retry on refusal',async()=>{let reject!:(error:Error)=>void;fixture.request.mockReturnValueOnce(new Promise((_resolve,no)=>{reject=no;}));renderInShell(()=><PackageTracking/>);expect(await screen.findByTestId('async-pending')).toBeInTheDocument();expect(screen.queryByRole('button',{name:'Reload saved packages'})).not.toBeInTheDocument();reject(new Error('Unavailable'));await screen.findByRole('alert');expect(screen.queryByTestId('async-pending')).not.toBeInTheDocument();expect(screen.getByRole('button',{name:'Reload saved packages'})).toBeEnabled();});

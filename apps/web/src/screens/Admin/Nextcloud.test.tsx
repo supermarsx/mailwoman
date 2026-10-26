@@ -19,3 +19,6 @@ describe('approved Nextcloud instances',()=>{
     await screen.findByRole('alert');expect(api.save).toHaveBeenCalledWith('cloud',{name:'Renamed cloud',baseUrl:'https://cloud.test/',enabled:true,caPem:'test-ca-pem'},'"revision"');expect(input).toHaveValue('Renamed cloud');
   });
 });
+
+it('renders approved instances as an accessible table with named row actions',async()=>{renderInShell(()=><AdminNextcloud api={service()}/>);expect(await screen.findByRole('table',{name:'Nextcloud instances'})).toBeInTheDocument();expect(screen.getByRole('button',{name:'Open Company cloud'})).toBeEnabled();expect(screen.getByText('https://cloud.test/')).toBeInTheDocument();});
+it('explains an empty approved instance list',async()=>{const api=service();vi.mocked(api.instances).mockResolvedValue({instances:[],maxInstances:64,maxFileBytes:8388608});renderInShell(()=><AdminNextcloud api={api}/>);await screen.findByText(/No approved instances yet/);expect(screen.getByRole('button',{name:'Add Nextcloud instance'})).toBeInTheDocument();});

@@ -42,6 +42,8 @@ export const section = style({
 });
 // Data tables need the available pane width; text-only forms retain a readable measure.
 globalStyle(`${section}:has(table)`, { maxInlineSize: 'none' });
+// Flex gaps provide section rhythm; browser prose margins must not add a second gap.
+globalStyle(`${section} > h2, ${section} > h3, ${section} > h4, ${section} > p, ${section} > dl`, { margin: 0 });
 
 export const heading = style({
   fontSize: '1.25rem',
