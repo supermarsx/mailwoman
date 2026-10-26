@@ -55,6 +55,7 @@ impl Context {
         }
     }
     fn key(self, owner: &str) -> String {
+        if matches!(self, Self::Mailbox) { return crate::prefs_routes::personal_storage::key("customization", owner); }
         format!(
             "appearance-customization:{}:{owner}",
             match self {
@@ -138,9 +139,10 @@ async fn response(
     state: &AppState,
     context: Context,
     owner: &str,
+    storage_owner: &str,
     locks: Vec<String>,
 ) -> Result<Response, AdminApiError> {
-    let (_, document) = stored(state, &context.key(owner)).await?;
+    let (_, document) = stored(state, &context.key(storage_owner)).await?;
     let compiled = validate(&document, context)?;
     let (css_allowed, script_allowed) = flags(state).await?;
     let css_enabled = css_allowed && locks.is_empty();
@@ -149,7 +151,7 @@ async fn response(
         (
             [("cache-control", "private, no-store")],
             Json(json!({
-                "ownerId":owner,"document":document,"compiledCss":if css_enabled { compiled } else { String::new() },
+                "ownerId":owner,"storageAuthority":if matches!(context, Context::Mailbox) { Some(storage_owner) } else { None },"document":document,"compiledCss":if css_enabled { compiled } else { String::new() },
                 "cssEnabled":css_enabled,"scriptEnabled":script_allowed,"cssAllowed":css_allowed,
                 "lockedFields":locks,"scopeClass":context.scope().class()
             })),
@@ -161,6 +163,7 @@ async fn save(
     state: &AppState,
     context: Context,
     owner: &str,
+    storage_owner: &str,
     headers: &HeaderMap,
     mutation: Mutation,
 ) -> Result<(), AdminApiError> {
@@ -175,7 +178,7 @@ async fn save(
             "Reload the appearance document before saving.",
         ));
     }
-    let key = context.key(owner);
+    let key = context.key(storage_owner);
     let (raw, previous) = stored(state, &key).await?;
     check_if_match(headers, &etag_of(&json!(previous)), None, None)?;
     let text = serde_json::to_string(&mutation.document).expect("appearance document");
@@ -220,7 +223,8 @@ async fn user_read(
         Ok(value) => value,
         Err(response) => return response,
     };
-    response(&state, Context::Mailbox, &session.account_id, locks)
+    let storage_owner = match crate::prefs_routes::personal_storage::owner(&state, &session, &headers, false).await { Ok(owner) => owner, Err(response) => return response };
+    response(&state, Context::Mailbox, &session.account_id, &storage_owner, locks)
         .await
         .unwrap_or_else(IntoResponse::into_response)
 }
@@ -234,10 +238,12 @@ async fn user_write(
         Ok(value) => value,
         Err(response) => return response,
     };
+    let storage_owner = match crate::prefs_routes::personal_storage::owner(&state, &session, &headers, true).await { Ok(owner) => owner, Err(response) => return response };
     if let Err(error) = save(
         &state,
         Context::Mailbox,
         &session.account_id,
+        &storage_owner,
         &headers,
         mutation,
     )
@@ -245,7 +251,7 @@ async fn user_write(
     {
         return error.into_response();
     }
-    response(&state, Context::Mailbox, &session.account_id, locks)
+    response(&state, Context::Mailbox, &session.account_id, &storage_owner, locks)
         .await
         .unwrap_or_else(IntoResponse::into_response)
 }
@@ -264,7 +270,7 @@ async fn admin_read(
     Query(expected): Query<Expected>,
 ) -> Result<Response, AdminApiError> {
     let owner = admin_owner(&ctx, &expected)?;
-    response(&state, Context::Admin, &owner, Vec::new()).await
+    response(&state, Context::Admin, &owner, &owner, Vec::new()).await
 }
 async fn admin_write(
     State(state): State<AppState>,
@@ -274,8 +280,8 @@ async fn admin_write(
     AdminJson(mutation): AdminJson<Mutation>,
 ) -> Result<Response, AdminApiError> {
     let owner = admin_owner(&ctx, &expected)?;
-    save(&state, Context::Admin, &owner, &headers, mutation).await?;
-    response(&state, Context::Admin, &owner, Vec::new()).await
+    save(&state, Context::Admin, &owner, &owner, &headers, mutation).await?;
+    response(&state, Context::Admin, &owner, &owner, Vec::new()).await
 }
 
 /// Only the fixed public sandbox response may replace the shell CSP.

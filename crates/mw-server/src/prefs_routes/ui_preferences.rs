@@ -78,7 +78,7 @@ struct Stored {
 }
 
 fn key(account: &str) -> String {
-    format!("ui-preferences:{account}")
+    personal_storage::key("ui-preferences", account)
 }
 fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control)
@@ -148,10 +148,11 @@ fn response(document: Document, revision: &str) -> Response {
 }
 
 pub(super) async fn load(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let account = match account_id(&state, &headers).await {
+    let session = match session_of(&state, &headers).await {
         Ok(v) => v,
         Err(r) => return r,
     };
+    let account = match personal_storage::owner(&state, &session, &headers, false).await { Ok(owner) => owner, Err(response) => return response };
     match state.store.get_setting(&key(&account)).await {
         Ok(Some(raw)) => match serde_json::from_str::<Stored>(&raw) {
             Ok(stored) => response(stored.document, &stored.revision),
@@ -173,10 +174,11 @@ pub(super) async fn save(
     headers: HeaderMap,
     Json(document): Json<Document>,
 ) -> Response {
-    let account = match account_id(&state, &headers).await {
+    let session = match session_of(&state, &headers).await {
         Ok(v) => v,
         Err(r) => return r,
     };
+    let account = match personal_storage::owner(&state, &session, &headers, true).await { Ok(owner) => owner, Err(response) => return response };
     if !valid(&document) {
         return bad_request("invalid UI preferences");
     }

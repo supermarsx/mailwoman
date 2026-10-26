@@ -1,3 +1,4 @@
+import { observePreferenceAccount, preferenceAccount } from '../api/accountPreferenceLifecycle.ts';
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount, type Accessor } from 'solid-js';
 import { loadCatalog, t } from '../i18n';
 import { loadCustomization, saveCustomization, type AppearanceOwner, type CustomizationSnapshot } from '../api/appearanceCustomization.ts';
@@ -7,6 +8,8 @@ import { registerNavigationGuard } from '../shell/navigationGuard.ts';
 import * as css from '../screens/Settings/styles.css.ts';
 
 export function AppearanceCustomization(props: {owner: Accessor<AppearanceOwner | null>} ) {
+  const [currentAccount, setCurrentAccount] = createSignal(preferenceAccount());
+  onCleanup(observePreferenceAccount(setCurrentAccount));
   const [snapshot, setSnapshot] = createSignal<CustomizationSnapshot>();
   const [cssDraft, setCss] = createSignal('');
   const [script, setScript] = createSignal('');
@@ -28,7 +31,7 @@ export function AppearanceCustomization(props: {owner: Accessor<AppearanceOwner 
     } catch (cause) { if (mine === generation) setError(cause instanceof Error ? cause.message : t('appearance-custom-error')); }
     finally { if (mine === generation) setLoading(false); }
   }
-  createEffect(() => { const owner = props.owner(); if (owner) void load(owner); else {++generation; lifetime.abort(); setSnapshot(undefined); setCss(''); setScript('');} });
+  createEffect(() => { let owner = props.owner(); if (owner?.kind === 'mailbox' && (!currentAccount()?.storageAuthority || currentAccount()?.id !== owner.accountId)) owner = null; if (owner) void load(owner); else {++generation; lifetime.abort(); setSnapshot(undefined); setCss(''); setScript('');} });
   onCleanup(() => {++generation; lifetime.abort();});
   const dirty = createMemo(() => {const current = snapshot(); return !!current && (current.value.document.css !== cssDraft() || current.value.document.script !== script());});
   const guard = useEditorGuard(dirty, saving);

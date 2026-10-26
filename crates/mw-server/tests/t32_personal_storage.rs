@@ -1,0 +1,65 @@
+use mw_server::{AppConfig, HardeningConfig, SecurityConfig, ServerMode, V6Config, build_app_full};
+use mw_store::{Credentials, ServerKey, Store, identity_principal::VerifiedPrimary};
+use serde_json::{Value,json};
+mod common;
+const KEY:&str="00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+#[tokio::test]
+async fn personal_documents_are_realm_bound_and_legacy_values_remain_inert() {
+    let db=common::test_db::unique_db_path("personal-storage-realms");
+    let store=Store::open(db.to_str().unwrap(),ServerKey::from_hex(KEY).unwrap()).await.unwrap();
+    let legacy=json!({"revision":"legacy","document":{"version":1,"preferences":{"folderPinned":["private-old-folder"],"analyticsConsent":true}}}).to_string();
+    store.set_setting("ui-preferences:1",&legacy).await.unwrap();
+    let old_appearance=json!({"v":1,"updated_at":1,"prefs":{"theme":"private-old-theme"}}).to_string();
+    let old_customization=json!({"version":1,"css":"body{color:red}","script":"private-old-code"}).to_string();
+    store.set_setting("appearance:1",&old_appearance).await.unwrap();
+    store.set_setting("appearance-customization:mailbox:1",&old_customization).await.unwrap();
+    let (router,_)=build_app_full(AppConfig {db_path:db.to_string_lossy().into(),server_key_hex:Some(KEY.into()),web_dir:None,cookie_secure:false,mode:ServerMode::Proxy,hardening:HardeningConfig::default(),security:SecurityConfig::default()},V6Config::default()).await.unwrap();
+    let socket=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base=format!("http://{}",socket.local_addr().unwrap());
+    tokio::spawn(async move {axum::serve(socket,router.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();});
+    let mut clients=Vec::new(); let mut authorities=Vec::new(); let mut sessions=Vec::new();
+    for path in ["first","second"] {
+        let service=format!("https://mail.example.test/{path}/session");
+        let username=format!("alice@{path}.example.test");
+        store.put_domain_config(&mw_store::DomainConfigRow{name:format!("{path}.example.test"),upstream_json:json!({"jmap":{"sessionUrl":service}}).to_string(),allowlist_json:"[]".into(),blocklist_json:"[]".into(),enabled:true,preferred:false,settings_json:"{}".into(),updated_at:0}).await.unwrap();
+        let id=store.create_session("1",&username,&service,&format!("https://mail.example.test/{path}/api"),&Credentials{username:username.clone(),password:"synthetic".into()}).await.unwrap();
+        store.set_session_authentication(&id,"header-auth").await.unwrap();
+        store.bind_verified_primary(&id,VerifiedPrimary{account_id:"1",kind:"header",authority:"deployment:trusted-header",subject:"alice"},100).await.unwrap().unwrap();
+        let authority=store.session_storage_authority(&id).await.unwrap().unwrap();
+        let mut headers=reqwest::header::HeaderMap::new();
+        headers.insert("cookie",format!("mw_session={id}").parse().unwrap());
+        headers.insert("x-mailwoman-storage-authority",authority.parse().unwrap());
+        clients.push(reqwest::Client::builder().no_proxy().default_headers(headers).build().unwrap()); authorities.push(authority); sessions.push(id);
+    }
+    let endpoint=format!("{base}/api/account/preferences");
+    for client in &clients {
+        let response=client.get(&endpoint).send().await.unwrap(); assert_eq!(response.status(),200);
+        let body:Value=response.json().await.unwrap(); assert_eq!(body["preferences"],json!({}),"ambiguous legacy data must not be attributed to either realm");
+    }
+    let missing=reqwest::Client::new().put(&endpoint).header("cookie",format!("mw_session={}",sessions[0])).header("if-match","\"0\"").json(&json!({"version":1,"preferences":{}})).send().await.unwrap();
+    assert_eq!(missing.status(),428);
+    let saved=clients[0].put(&endpoint).header("if-match","\"0\"").json(&json!({"version":1,"preferences":{"folderPinned":["realm-one"],"analyticsConsent":true}})).send().await.unwrap();
+    assert_eq!(saved.status(),200,"{}",saved.text().await.unwrap());
+    let other:Value=clients[1].get(&endpoint).send().await.unwrap().json().await.unwrap(); assert_eq!(other["preferences"],json!({}));
+    let denied=clients[1].put(&endpoint).header("x-mailwoman-storage-authority",&authorities[0]).header("if-match","\"0\"").json(&json!({"version":1,"preferences":{}})).send().await.unwrap(); assert_eq!(denied.status(),409);
+    for (index, client) in clients.iter().enumerate() {
+        let status:Value=client.get(format!("{base}/api/analytics/status")).send().await.unwrap().json().await.unwrap();
+        assert_eq!(status["consent"],index==0);
+        let appearance:Value=client.get(format!("{base}/api/account/appearance")).send().await.unwrap().json().await.unwrap();
+        assert_eq!(appearance["appearance"],Value::Null);
+        let custom:Value=client.get(format!("{base}/api/account/appearance/customization?accountId=1")).send().await.unwrap().json().await.unwrap();
+        assert_eq!(custom["document"]["css"],""); assert_eq!(custom["document"]["script"],"");
+        assert_eq!(custom["storageAuthority"],authorities[index]);
+    }
+    let appearance_url=format!("{base}/api/account/appearance");
+    assert_eq!(clients[0].put(&appearance_url).json(&json!({"appearance":{"mode":"fixed","theme":"light"}})).send().await.unwrap().status(),200);
+    let own:Value=clients[0].get(&appearance_url).send().await.unwrap().json().await.unwrap();assert!(own["appearance"].is_object());
+    let other:Value=clients[1].get(&appearance_url).send().await.unwrap().json().await.unwrap();assert_eq!(other["appearance"],Value::Null);
+    let custom_url=format!("{base}/api/account/appearance/customization?accountId=1");
+    let current=clients[0].get(&custom_url).send().await.unwrap();let tag=current.headers()["etag"].clone();
+    assert_eq!(clients[0].put(&custom_url).header("if-match",tag).json(&json!({"ownerId":"1","document":{"version":1,"css":"body{color:red}","script":""}})).send().await.unwrap().status(),200);
+    let other:Value=clients[1].get(&custom_url).send().await.unwrap().json().await.unwrap();assert_eq!(other["document"]["css"],"");
+    assert_eq!(store.get_setting("appearance:1").await.unwrap(),Some(old_appearance));
+    assert_eq!(store.get_setting("appearance-customization:mailbox:1").await.unwrap(),Some(old_customization));
+    assert_eq!(store.get_setting("ui-preferences:1").await.unwrap(),Some(legacy));
+}

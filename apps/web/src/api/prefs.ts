@@ -1,3 +1,4 @@
+import { storageAuthorityHeaders } from './storageAuthority.ts';
 // Per-user appearance sync (t19 e13, SPEC §17.3 — "all synced server-side per
 // user"). Until now theme/density/accent lived in `localStorage` only, and the
 // theme slice said so in a comment; this module is the transport that closes it.
@@ -148,19 +149,19 @@ function parseStored(body: unknown): StoredAppearance {
 export function createAppearancePrefsApi(fetcher: Fetcher = defaultFetcher): AppearancePrefsApi {
   return {
     async load() {
-      return parseStored(await jsonOrThrow<unknown>(await fetcher(withBase(ENDPOINT))));
+      return parseStored(await jsonOrThrow<unknown>(await fetcher(withBase(ENDPOINT), {headers:storageAuthorityHeaders()})));
     },
     async save(prefs) {
       const res = await fetcher(withBase(ENDPOINT), {
         method: 'PUT',
-        headers: { 'content-type': 'application/json' },
+        headers: { ...storageAuthorityHeaders(), 'content-type': 'application/json' },
         body: JSON.stringify({ appearance: prefs }),
       });
       const body = await jsonOrThrow<{ updatedAt?: number }>(res);
       return typeof body.updatedAt === 'number' ? body.updatedAt : null;
     },
     async reset() {
-      await jsonOrThrow<unknown>(await fetcher(withBase(ENDPOINT), { method: 'DELETE' }));
+      await jsonOrThrow<unknown>(await fetcher(withBase(ENDPOINT), { method: 'DELETE', headers:storageAuthorityHeaders() }));
     },
   };
 }

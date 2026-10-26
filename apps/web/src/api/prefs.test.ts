@@ -1,3 +1,5 @@
+import { activateAccountPreferences } from './accountPreferenceLifecycle.ts';
+beforeEach(() => activateAccountPreferences('one', 'msa1_test_authority_one'));
 // Per-user appearance sync (t19 e13, SPEC §17.3).
 //
 // Driven through the REAL theme slice rather than a stand-in seam: the thing
@@ -101,7 +103,7 @@ describe('appearance prefs API', () => {
     );
     const got = await createAppearancePrefsApi(fetcher).load();
 
-    expect(fetcher).toHaveBeenCalledWith('/api/account/appearance');
+    expect(fetcher).toHaveBeenCalledWith('/api/account/appearance', {headers:{'x-mailwoman-storage-authority':'msa1_test_authority_one'}});
     expect(got.appearance).toEqual({ mode: 'fixed', theme: 'ocean-dark' });
     expect(got.updatedAt).toBe(42);
     expect(got.deploymentDefault.brandName).toBe('Acme');

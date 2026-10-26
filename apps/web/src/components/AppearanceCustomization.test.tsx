@@ -1,3 +1,4 @@
+import { activateAccountPreferences } from '../api/accountPreferenceLifecycle.ts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
@@ -6,7 +7,7 @@ import { renderInShell } from '../screens/Admin/shell/testkit.tsx';
 import { loadCustomization, saveCustomization, type AppearanceOwner, type CustomizationSnapshot } from '../api/appearanceCustomization.ts';
 vi.mock('../api/appearanceCustomization.ts', () => ({loadCustomization: vi.fn(), saveCustomization: vi.fn()}));
 const snapshot = (ownerId = 'one'): CustomizationSnapshot => ({etag: '"one"', value: {ownerId, document: {version: 1, css: '', script: ''}, compiledCss: '', cssEnabled: false, scriptEnabled: false, cssAllowed: false, lockedFields: [], scopeClass: 'mw-custom-mail'}});
-beforeEach(() => {vi.mocked(loadCustomization).mockReset(); vi.mocked(saveCustomization).mockReset();});
+beforeEach(() => {activateAccountPreferences('one', 'msa1_test_authority_one');vi.mocked(loadCustomization).mockReset(); vi.mocked(saveCustomization).mockReset();});
 describe('owner appearance editor', () => {
   it('keeps a rejected concurrent draft and sends the original owner and revision', async () => {
     vi.mocked(loadCustomization).mockResolvedValue(snapshot());
@@ -28,6 +29,7 @@ describe('owner appearance editor', () => {
     const [owner, setOwner] = createSignal<AppearanceOwner>({kind:'mailbox', accountId:'one'});
     renderInShell(() => <AppearanceCustomization owner={owner} />);
     await waitFor(() => expect(loadCustomization).toHaveBeenCalled());
+    activateAccountPreferences('two', 'msa1_test_authority_two');
     setOwner({kind:'mailbox',accountId:'two'});
     const css = await screen.findByLabelText('Restricted CSS');
     resolveOld({...snapshot(), value:{...snapshot().value, document:{version:1, css:'private-old-draft', script:''}}});

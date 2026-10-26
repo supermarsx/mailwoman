@@ -56,10 +56,11 @@ async fn user_status(State(state): State<AppState>, headers: HeaderMap) -> Respo
         Ok(session) => session,
         Err(response) => return response,
     };
+    let storage_owner = match crate::prefs_routes::personal_storage::owner(&state, &session, &headers, false).await { Ok(owner) => owner, Err(response) => return response };
     let enabled = analytics_config::load(&state.store)
         .await
         .is_ok_and(|config| config.enabled);
-    ([("cache-control", "private, no-store")], Json(json!({"enabled":enabled,"consent":analytics_runtime::consent(&state.store,&session.account_id).await,"privacySignal":analytics_runtime::privacy_signal(&headers),"mode":"event-counts"}))).into_response()
+    ([("cache-control", "private, no-store")], Json(json!({"enabled":enabled,"consent":analytics_runtime::consent(&state.store,&storage_owner).await,"privacySignal":analytics_runtime::privacy_signal(&headers),"mode":"event-counts"}))).into_response()
 }
 async fn event(
     State(state): State<AppState>,
@@ -70,8 +71,9 @@ async fn event(
         Ok(session) => session,
         Err(response) => return response,
     };
+    let storage_owner = match crate::prefs_routes::personal_storage::owner(&state, &session, &headers, false).await { Ok(owner) => owner, Err(response) => return response };
     if analytics_runtime::privacy_signal(&headers)
-        || !analytics_runtime::consent(&state.store, &session.account_id).await
+        || !analytics_runtime::consent(&state.store, &storage_owner).await
     {
         return StatusCode::NO_CONTENT.into_response();
     }
@@ -94,7 +96,7 @@ async fn event(
     }
     if state
         .analytics
-        .enqueue(state.clone(), session, config, event.screen)
+        .enqueue(state.clone(), session, storage_owner, config, event.screen)
     {
         StatusCode::ACCEPTED
     } else {

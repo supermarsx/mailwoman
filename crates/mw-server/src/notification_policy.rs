@@ -186,6 +186,7 @@ pub(crate) async fn account_subject(
     };
     let canonical = store.canonical_setting_subject(&subject).await?;
     Ok(Some(crate::settings_routes::UserSubject {
+        personal_owner: None,
         account_id: canonical.account_id,
         address: canonical.address,
         domain: canonical.domain,

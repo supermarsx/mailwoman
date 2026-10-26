@@ -1,3 +1,4 @@
+import { storageAuthorityHeaders } from './storageAuthority.ts';
 import { apiFetch } from './http.ts';
 import { withBase } from './basePath.ts';
 import { adminUrl } from './adminPath.ts';
@@ -5,6 +6,7 @@ import { adminUrl } from './adminPath.ts';
 export interface AppearanceDocument {version: 1; css: string; script: string}
 export interface AppearanceCustomization {
   ownerId: string;
+  storageAuthority?: string;
   document: AppearanceDocument;
   compiledCss: string;
   cssEnabled: boolean;
@@ -33,8 +35,11 @@ async function snapshot(response: Response): Promise<CustomizationSnapshot> {
   return {value, etag};
 }
 export async function loadCustomization(owner: AppearanceOwner, signal: AbortSignal): Promise<CustomizationSnapshot> {
-  return snapshot(await apiFetch(endpoint(owner), {signal}));
+  const headers = owner.kind === 'mailbox' ? storageAuthorityHeaders() : {};
+  const result = await snapshot(await apiFetch(endpoint(owner), {signal, headers}));
+  if (owner.kind === 'mailbox' && result.value.storageAuthority !== headers['x-mailwoman-storage-authority']) throw new Error('The signed-in account changed.');
+  return result;
 }
 export async function saveCustomization(owner: AppearanceOwner, previous: CustomizationSnapshot, document: AppearanceDocument, signal: AbortSignal): Promise<CustomizationSnapshot> {
-  return snapshot(await apiFetch(endpoint(owner), {method: 'PUT', signal, headers: {'content-type': 'application/json', 'if-match': previous.etag}, body: JSON.stringify({ownerId: previous.value.ownerId, document})}));
+  return snapshot(await apiFetch(endpoint(owner), {method: 'PUT', signal, headers: {...(owner.kind === 'mailbox' ? storageAuthorityHeaders(previous.value.storageAuthority ?? '') : {}), 'content-type': 'application/json', 'if-match': previous.etag}, body: JSON.stringify({ownerId: previous.value.ownerId, document})}));
 }

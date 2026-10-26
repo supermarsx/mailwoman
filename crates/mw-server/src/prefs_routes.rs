@@ -59,6 +59,7 @@ use mw_store::{
 use crate::AppState;
 
 mod ui_preferences;
+pub(crate) mod personal_storage;
 mod receipt_preferences;
 mod contact_photo;
 
@@ -427,7 +428,7 @@ const MAX_APPEARANCE_BYTES: usize = 8 * 1024;
 
 /// `settings` key holding one account's appearance object.
 fn appearance_key(account: &str) -> String {
-    format!("appearance:{account}")
+    personal_storage::key("appearance", account)
 }
 
 /// The stored envelope, as READ back. `prefs` is the client's opaque object, or
@@ -489,6 +490,7 @@ async fn appearance_get(State(state): State<AppState>, headers: HeaderMap) -> Re
         Ok(s) => s,
         Err(r) => return r,
     };
+    let owner = match personal_storage::owner(&state, &session, &headers, false).await { Ok(owner) => owner, Err(response) => return response };
     let locks = match appearance_locks(&state, &session).await {
         Ok(l) => l,
         Err(r) => return r,
@@ -497,7 +499,7 @@ async fn appearance_get(State(state): State<AppState>, headers: HeaderMap) -> Re
         Ok(d) => d,
         Err(e) => return server_error("get appearance default", e),
     };
-    match do_get_appearance(&state.store, &session.account_id).await {
+    match do_get_appearance(&state.store, &owner).await {
         Ok(stored) => {
             let mut appearance = stored.as_ref().and_then(|e| e.prefs.clone());
             let locked_fields = match appearance.as_mut() {
@@ -532,6 +534,7 @@ async fn appearance_put(
     if serialized_len(&prefs) > MAX_APPEARANCE_BYTES {
         return payload_too_large("appearance preferences are too large");
     }
+    let owner = match personal_storage::owner(&state, &session, &headers, true).await { Ok(owner) => owner, Err(response) => return response };
     let locks = match appearance_locks(&state, &session).await {
         Ok(l) => l,
         Err(r) => return r,
@@ -539,7 +542,7 @@ async fn appearance_put(
     // Held fields are replaced, not refused: the object is one value and the
     // rest of it is the user's to save (t32-admin §2.4).
     let locked_fields = apply_appearance_locks(&mut prefs, &locks);
-    match do_put_appearance(&state.store, &session.account_id, Some(prefs), now_ms()).await {
+    match do_put_appearance(&state.store, &owner, Some(prefs), now_ms()).await {
         Ok(updated_at) => Json(json!({
             "ok": true,
             "updatedAt": updated_at,
@@ -554,10 +557,11 @@ async fn appearance_put(
 /// client falls back to the deployment default. Stores a `prefs: null` envelope
 /// rather than removing the key (see the section note on `updatedAt`).
 async fn appearance_delete(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let account = match account_id(&state, &headers).await {
+    let session = match session_of(&state, &headers).await {
         Ok(a) => a,
         Err(r) => return r,
     };
+    let account = match personal_storage::owner(&state, &session, &headers, true).await { Ok(owner) => owner, Err(response) => return response };
     match do_put_appearance(&state.store, &account, None, now_ms()).await {
         Ok(updated_at) => Json(json!({ "ok": true, "updatedAt": updated_at })).into_response(),
         Err(e) => server_error("delete appearance", e),

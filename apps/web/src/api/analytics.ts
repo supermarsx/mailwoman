@@ -1,3 +1,4 @@
+import { storageAuthorityHeaders } from './storageAuthority.ts';
 import { apiFetch } from './http.ts';
 import { withBase } from './basePath.ts';
 
@@ -15,13 +16,13 @@ export interface AnalyticsTransport {
 }
 const transport: AnalyticsTransport = {
   async enabled(signal) {
-    const response = await apiFetch(withBase('/api/analytics/status'), {signal});
+    const response = await apiFetch(withBase('/api/analytics/status'), {signal, headers:storageAuthorityHeaders()});
     if (!response.ok) return false;
     const body = await response.json() as {enabled?: boolean; consent?: boolean; privacySignal?: boolean};
     return body.enabled === true && body.consent === true && body.privacySignal === false;
   },
   async send(screen, signal) {
-    await apiFetch(withBase('/api/analytics/events'), {method:'POST', signal, headers:{'content-type':'application/json'}, body:JSON.stringify({screen})});
+    await apiFetch(withBase('/api/analytics/events'), {method:'POST', signal, headers:{...storageAuthorityHeaders(),'content-type':'application/json'}, body:JSON.stringify({screen})});
   },
 };
 

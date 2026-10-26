@@ -3,7 +3,8 @@ import {signInManually, drawerButton} from '../helpers.ts';
 async function request(page: Page, path: string, data?: unknown, etag?: string) {
   return page.evaluate(async ({path,data,etag}) => {
     const token = document.cookie.split('; ').find(item => item.startsWith('mw_csrf='))?.slice(8);
-    const response = await fetch(path, {method: data === undefined ? 'GET' : 'PUT', headers: {...(data === undefined ? {} : {'content-type':'application/json'}), ...(token ? {'x-csrf-token':decodeURIComponent(token)} : {}), ...(etag ? {'if-match':etag} : {})}, body:data === undefined ? null : JSON.stringify(data)});
+    const authority = data !== undefined && path.startsWith('/api/account/') ? (await (await fetch('/api/me')).json()).storageAuthority as string : undefined;
+    const response = await fetch(path, {method: data === undefined ? 'GET' : 'PUT', headers: {...(authority ? {'x-mailwoman-storage-authority':authority} : {}), ...(data === undefined ? {} : {'content-type':'application/json'}), ...(token ? {'x-csrf-token':decodeURIComponent(token)} : {}), ...(etag ? {'if-match':etag} : {})}, body:data === undefined ? null : JSON.stringify(data)});
     const text = await response.text();
     return {status:response.status,etag:response.headers.get('etag'),body:text ? JSON.parse(text) : null};
   }, {path,data,etag});

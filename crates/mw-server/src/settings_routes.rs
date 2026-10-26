@@ -980,6 +980,7 @@ async fn delete_user(
 /// The resolution subject of a signed-in user: the domain and canonical address
 /// from the session's sign-in name, and the account id.
 pub(crate) struct UserSubject {
+    pub personal_owner: Option<String>,
     pub domain: String,
     pub account_id: String,
     pub address: String,
@@ -993,6 +994,7 @@ impl UserSubject {
             _ => (String::new(), String::new()),
         };
         UserSubject {
+            personal_owner: None,
             domain,
             account_id: session.account_id.clone(),
             address,
@@ -1006,6 +1008,7 @@ impl UserSubject {
         let raw = Self::of(session);
         let canonical = store.canonical_setting_subject(&raw.as_subject()).await?;
         Ok(Self {
+            personal_owner: store.session_storage_authority(&session.id).await?,
             domain: canonical.domain,
             account_id: canonical.account_id,
             address: canonical.address,
@@ -1065,7 +1068,7 @@ async fn user_entry(
     subject: &UserSubject,
     key: &str,
 ) -> Result<Effective, Response> {
-    let extra = user_layer_rows(state, &subject.account_id)
+    let extra = user_layer_rows(state, &subject.account_id, subject.personal_owner.as_deref())
         .await
         .map_err(server_error)?;
     match registry::effective_for_with(&state.store, key, &subject.as_subject(), &extra).await {
@@ -1126,14 +1129,16 @@ fn user_row(account_id: &str, key: &str, value: Value) -> SettingValueRow {
 pub(crate) async fn user_layer_rows(
     state: &AppState,
     account_id: &str,
+    personal_owner: Option<&str>,
 ) -> Result<Vec<SettingValueRow>, mw_store::StoreError> {
     let mut rows = Vec::new();
     if account_id.is_empty() {
         return Ok(rows);
     }
-    if let Some(prefs) = state
+    if let Some(owner) = personal_owner
+        && let Some(prefs) = state
         .store
-        .get_setting(&format!("appearance:{account_id}"))
+        .get_setting(&crate::prefs_routes::personal_storage::key("appearance", owner))
         .await?
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
         .and_then(|env| env.get("prefs").cloned())
@@ -1181,7 +1186,7 @@ pub(crate) async fn effective_for_session(
     key: &str,
 ) -> Result<Option<Effective>, mw_store::StoreError> {
     let subject = UserSubject::resolved(&state.store, session).await?;
-    let extra = user_layer_rows(state, &subject.account_id).await?;
+    let extra = user_layer_rows(state, &subject.account_id, subject.personal_owner.as_deref()).await?;
     registry::effective_for_with(&state.store, key, &subject.as_subject(), &extra).await
 }
 
@@ -1194,7 +1199,7 @@ async fn user_list(State(state): State<AppState>, headers: HeaderMap) -> Respons
         Ok(s) => s,
         Err(e) => return server_error(e),
     };
-    let extra = match user_layer_rows(&state, &subject.account_id).await {
+    let extra = match user_layer_rows(&state, &subject.account_id, subject.personal_owner.as_deref()).await {
         Ok(rows) => rows,
         Err(e) => return server_error(e),
     };

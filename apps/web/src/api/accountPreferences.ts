@@ -1,3 +1,4 @@
+import { storageAuthorityHeaders } from './storageAuthority.ts';
 import { createSignal } from 'solid-js';
 import { apiFetch } from './http.ts';
 import { withBase } from './basePath.ts';
@@ -46,9 +47,9 @@ async function snapshot(response: Response): Promise<Snapshot> {
   return {preferences: body.preferences, etag};
 }
 const api: AccountPreferencesApi = {
-  async load() { return snapshot(await apiFetch(withBase(endpoint))); },
+  async load() { return snapshot(await apiFetch(withBase(endpoint), {headers:storageAuthorityHeaders()})); },
   async save(preferences, etag) {
-    return snapshot(await apiFetch(withBase(endpoint), {method:'PUT', headers:{'content-type':'application/json','if-match':etag}, body:JSON.stringify({version:1,preferences})}));
+    return snapshot(await apiFetch(withBase(endpoint), {method:'PUT', headers:{...storageAuthorityHeaders(),'content-type':'application/json','if-match':etag}, body:JSON.stringify({version:1,preferences})}));
   },
 };
 

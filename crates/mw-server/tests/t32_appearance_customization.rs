@@ -100,6 +100,8 @@ async fn customization_is_owner_bound_cas_gated_and_independently_sandboxed() {
         .await
         .unwrap();
     assert_eq!(login.status(), 200);
+    let me: Value = user.get(format!("{base}/api/me")).send().await.unwrap().json().await.unwrap();
+    let authority = me["storageAuthority"].as_str().unwrap();
     let account = login.json::<Value>().await.unwrap()["accountId"]
         .as_str()
         .unwrap()
@@ -111,7 +113,7 @@ async fn customization_is_owner_bound_cas_gated_and_independently_sandboxed() {
     let document = json!({"version":1,"css":"body{color:red}","script":"appearance.set({density:'compact'});"});
     let mutation = json!({"ownerId":account,"document":document});
     assert_eq!(
-        user.put(&endpoint)
+        user.put(&endpoint).header("x-mailwoman-storage-authority", authority)
             .json(&mutation)
             .send()
             .await
@@ -120,7 +122,7 @@ async fn customization_is_owner_bound_cas_gated_and_independently_sandboxed() {
         428
     );
     let saved = user
-        .put(&endpoint)
+        .put(&endpoint).header("x-mailwoman-storage-authority", authority)
         .header("if-match", &tag)
         .json(&mutation)
         .send()
@@ -131,7 +133,7 @@ async fn customization_is_owner_bound_cas_gated_and_independently_sandboxed() {
     assert_eq!(saved["document"], document);
     assert_eq!(saved["compiledCss"], "");
     assert_eq!(
-        user.put(&endpoint)
+        user.put(&endpoint).header("x-mailwoman-storage-authority", authority)
             .header("if-match", &tag)
             .json(&mutation)
             .send()
@@ -152,7 +154,7 @@ async fn customization_is_owner_bound_cas_gated_and_independently_sandboxed() {
     );
     let (_, tag) = read(&user, &endpoint).await;
     assert_eq!(
-        user.put(&endpoint)
+        user.put(&endpoint).header("x-mailwoman-storage-authority", authority)
             .header("if-match", &tag)
             .json(&json!({"ownerId":"foreign","document":document}))
             .send()
@@ -161,7 +163,7 @@ async fn customization_is_owner_bound_cas_gated_and_independently_sandboxed() {
             .status(),
         409
     );
-    assert_eq!(user.put(&endpoint).header("if-match",&tag).json(&json!({"ownerId":account,"document":{"version":1,"css":"@import 'https://evil.test/x';","script":""}})).send().await.unwrap().status(),422);
+    assert_eq!(user.put(&endpoint).header("x-mailwoman-storage-authority", authority).header("if-match",&tag).json(&json!({"ownerId":account,"document":{"version":1,"css":"@import 'https://evil.test/x';","script":""}})).send().await.unwrap().status(),422);
     policy(
         &admin,
         &base,
@@ -185,10 +187,10 @@ async fn customization_is_owner_bound_cas_gated_and_independently_sandboxed() {
             .unwrap()
             .starts_with(".mw-custom-mail{")
     );
-    let left = user.put(&endpoint).header("if-match", &tag).json(
+    let left = user.put(&endpoint).header("if-match", &tag).header("x-mailwoman-storage-authority", authority).json(
         &json!({"ownerId":account,"document":{"version":1,"css":"body{color:blue}","script":""}}),
     );
-    let right = user.put(&endpoint).header("if-match", &tag).json(
+    let right = user.put(&endpoint).header("if-match", &tag).header("x-mailwoman-storage-authority", authority).json(
         &json!({"ownerId":account,"document":{"version":1,"css":"body{color:green}","script":""}}),
     );
     let (left, right) = tokio::join!(left.send(), right.send());
@@ -206,7 +208,7 @@ async fn customization_is_owner_bound_cas_gated_and_independently_sandboxed() {
     )
     .await;
     let held_accent = user
-        .put(format!("{base}/api/account/appearance"))
+        .put(format!("{base}/api/account/appearance")).header("x-mailwoman-storage-authority", authority)
         .json(
             &json!({"appearance":{"accentId":"red","customAccent":"#ff0000","density":"compact"}}),
         )

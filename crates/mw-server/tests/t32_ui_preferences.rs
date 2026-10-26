@@ -53,6 +53,8 @@ async fn authenticated_preferences_use_cas_and_reject_foreign_authority_fields()
         .await
         .unwrap();
     assert_eq!(login.status(), 200, "{}", login.text().await.unwrap());
+    let me: Value = client.get(format!("{base}/api/me")).send().await.unwrap().json().await.unwrap();
+    let authority = me["storageAuthority"].as_str().unwrap();
     let initial = client.get(&endpoint).send().await.unwrap();
     assert_eq!(initial.status(), 200);
     assert_eq!(initial.headers()["cache-control"], "private, no-store");
@@ -60,7 +62,7 @@ async fn authenticated_preferences_use_cas_and_reject_foreign_authority_fields()
     let document = json!({"version":1,"preferences":{"markRead":"never","folderPinned":["inbox"],"folderIcons":{"inbox":"star"},"tags":{"work":{"name":"Trabalho","color":"#112233","icon":"tag"}},"folderLabels":{"inbox":["work"]}}});
     assert_eq!(
         client
-            .put(&endpoint)
+            .put(&endpoint).header("x-mailwoman-storage-authority", authority)
             .json(&document)
             .send()
             .await
@@ -69,7 +71,7 @@ async fn authenticated_preferences_use_cas_and_reject_foreign_authority_fields()
         428
     );
     let saved = client
-        .put(&endpoint)
+        .put(&endpoint).header("x-mailwoman-storage-authority", authority)
         .header("if-match", "\"0\"")
         .json(&document)
         .send()
@@ -81,7 +83,7 @@ async fn authenticated_preferences_use_cas_and_reject_foreign_authority_fields()
     assert_eq!(client.get(&endpoint).send().await.unwrap().json::<Value>().await.unwrap(),document);
     assert_eq!(
         client
-            .put(&endpoint)
+            .put(&endpoint).header("x-mailwoman-storage-authority", authority)
             .header("if-match", "\"0\"")
             .json(&document)
             .send()
@@ -93,7 +95,7 @@ async fn authenticated_preferences_use_cas_and_reject_foreign_authority_fields()
     let invalid = json!({"version":1,"preferences":{"accountId":"victim","password":"secret"}});
     assert_eq!(
         client
-            .put(&endpoint)
+            .put(&endpoint).header("x-mailwoman-storage-authority", authority)
             .header("if-match", revision.clone())
             .json(&invalid)
             .send()
@@ -122,7 +124,7 @@ async fn authenticated_preferences_use_cas_and_reject_foreign_authority_fields()
     ] {
         assert_eq!(
             client
-                .put(&endpoint)
+                .put(&endpoint).header("x-mailwoman-storage-authority", authority)
                 .header("if-match", revision.clone())
                 .json(&json!({"version":1,"preferences":preferences}))
                 .send()
@@ -133,11 +135,11 @@ async fn authenticated_preferences_use_cas_and_reject_foreign_authority_fields()
         );
     }
     let first = client
-        .put(&endpoint)
+        .put(&endpoint).header("x-mailwoman-storage-authority", authority)
         .header("if-match", revision.clone())
         .json(&json!({"version":1,"preferences":{"direction":"rtl"}}));
     let second = client
-        .put(&endpoint)
+        .put(&endpoint).header("x-mailwoman-storage-authority", authority)
         .header("if-match", revision)
         .json(&json!({"version":1,"preferences":{"markRead":"on-open"}}));
     let (first, second) = tokio::join!(first.send(), second.send());

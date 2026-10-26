@@ -1,4 +1,5 @@
-import { createEffect, onCleanup, type Accessor } from 'solid-js';
+import { observePreferenceAccount, preferenceAccount } from '../api/accountPreferenceLifecycle.ts';
+import { createEffect, createSignal, onCleanup, type Accessor } from 'solid-js';
 import { loadCustomization, type AppearanceOwner } from '../api/appearanceCustomization.ts';
 import { mountAppearanceCss, runAppearanceScript, type AppearanceUpdate } from '../theme/appearanceSandbox.ts';
 import { appearanceScriptProperties } from '../theme/appearanceScriptPolicy.ts';
@@ -6,8 +7,11 @@ import { isThemeName } from '../theme/registry.ts';
 
 export const CUSTOMIZATION_CHANGED = 'mw-appearance-customization-changed';
 export function AppearanceCustomizationRuntime(props: {owner: Accessor<AppearanceOwner | null>}): null {
+  const [currentAccount, setCurrentAccount] = createSignal(preferenceAccount());
+  onCleanup(observePreferenceAccount(setCurrentAccount));
   createEffect(() => {
     const owner = props.owner();
+    if (owner?.kind === 'mailbox' && (!currentAccount()?.storageAuthority || currentAccount()?.id !== owner.accountId)) return;
     if (!owner || new URLSearchParams(location.search).get('appearanceSafe') === '1') return;
     const lifetime = new AbortController();
     let execution = new AbortController();
