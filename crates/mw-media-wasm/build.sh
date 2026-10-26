@@ -67,5 +67,5 @@ export CARGO_ENCODED_RUSTFLAGS
 # minor release of `image` or `cfb` would change the bytes with nothing in the
 # repository recording that it had.
 cargo build --locked --target wasm32-unknown-unknown --release
-cp target/wasm32-unknown-unknown/release/mw_media_wasm.wasm media.wasm
+cp "${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/release/mw_media_wasm.wasm" media.wasm
 echo "refreshed crates/mw-media-wasm/media.wasm"

@@ -21,6 +21,11 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+base64 = "=0.22.1"
+mail-parser = { version = "=0.11.5", features = ["full_encoding"] }
+encoding_rs = "=0.8.35"
 # CFB / OLE2 compound-file reader — the hostile MS-OXMSG (.msg/.oft) container
 # parse. Same crate + version `mw-export` uses on the host; pure-Rust, no C.
 cfb = "0.10"

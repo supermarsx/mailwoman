@@ -23,6 +23,7 @@
 //! store, so the entire linear memory is reclaimed when the host drops the store.
 
 use std::io::Cursor;
+mod preview;
 
 /// Whole-container / whole-stream read ceiling — mirrors the render child's
 /// `MAX_INPUT_BYTES`. A corrupt length field can never drive an unbounded read.
@@ -102,6 +103,28 @@ pub extern "C" fn mw_reencode_image(ptr: u32, len: u32) -> u64 {
     emit(out)
 }
 
+/// Preview an RFC822 message inside the no-import guest. HTML is untrusted here.
+#[unsafe(no_mangle)]
+pub extern "C" fn mw_preview_eml(ptr: u32, len: u32) -> u64 {
+    emit(match preview::parse_eml(input(ptr, len)) {
+        Ok(p) => match serde_json::to_vec(&p) {
+            Ok(v) => ok_frame(v),
+            Err(_) => err_frame("preview serialization failed"),
+        },
+        Err(e) => err_frame(&e),
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn mw_preview_tnef(ptr: u32, len: u32) -> u64 {
+    emit(match preview::parse_tnef(input(ptr, len)) {
+        Ok(p) => match serde_json::to_vec(&p) {
+            Ok(v) => ok_frame(v),
+            Err(_) => err_frame("preview serialization failed"),
+        },
+        Err(e) => err_frame(&e),
+    })
+}
+
 // ── CFB / MS-OXMSG parse (hostile) ──────────────────────────────────────────────
 
 /// Parse the untrusted `.msg`/`.oft` compound file and return the framed
@@ -151,7 +174,9 @@ fn read_unicode(
     let path = paths.iter().find(|p| p.as_str() == target)?;
     let bytes = read_stream_bytes(comp, path)?;
     let mut units: Vec<u16> = bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect();
     while units.last() == Some(&0) {
@@ -313,7 +338,7 @@ mod tests {
         let bytes = cfb_with(&[("/Unrelated", b"hello".to_vec())]);
         assert_eq!(
             fields(&parse_cfb(&bytes).unwrap()),
-            vec![Vec::new(), Vec::new()]
+            vec![Vec::<u8>::new(), Vec::<u8>::new()]
         );
     }
 
@@ -331,7 +356,7 @@ mod tests {
 
         assert_eq!(
             fields(&parse_cfb(&bytes).unwrap()),
-            vec![Vec::new(), Vec::new()]
+            vec![Vec::<u8>::new(), Vec::<u8>::new()]
         );
     }
 

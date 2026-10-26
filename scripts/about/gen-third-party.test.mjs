@@ -415,3 +415,38 @@ test('bundle recorder: package roots from module ids, and the record written by 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test('only declared Fontsource packages with matching licences become font assets', () => {
+  withFixture((f) => {
+    const name = '@fontsource-variable/inter';
+    f.input.bundled.packages.push({ name, version: '5.3.0', dir: f.npm(name, { version: '5.3.0', license: 'OFL-1.1' }) });
+    write(join(f.root, 'apps/web/public/fonts/licenses/inter.txt'), 'Copyright Inter. SIL OPEN FONT LICENSE Version 1.1');
+    let out = f.run();
+    assert.deepEqual(out.problems, []);
+    assert.ok(!out.doc.web.some((e) => e.name === name));
+    const font = out.doc.assets.find((e) => e.name === 'Inter');
+    assert.equal(font.version, '5.3.0');
+    assert.equal(font.note, 'bundled');
+    assert.equal(font.licence, 'OFL-1.1');
+    assert.equal(font.texts[0].file, 'inter.txt');
+    assert.match(out.texts[font.texts[0].id], /Copyright Inter/);
+    f.npm(name, { version: '5.3.0', license: 'GPL-3.0-only' });
+    out = f.run();
+    assert.ok(out.problems.some((p) => p.includes(name) && p.includes('outside deny.toml')));
+    assert.ok(out.doc.web.some((e) => e.name === name));
+  });
+});
+
+test('unknown OFL packages remain subject to code policy; declared fonts require licence copies', () => {
+  withFixture((f) => {
+    for (const name of ['unrelated-code', '@fontsource-variable/undeclared']) {
+      f.input.bundled.packages.push({ name, version: '1.0.0', dir: f.npm(name, { version: '1.0.0', license: 'OFL-1.1' }) });
+    }
+    const name = '@fontsource-variable/roboto';
+    f.input.bundled.packages.push({ name, version: '5.3.0', dir: f.npm(name, { version: '5.3.0', license: 'OFL-1.1' }) });
+    const out = f.run();
+    assert.equal(out.problems.filter((p) => p.includes('outside deny.toml')).length, 2);
+    assert.ok(out.problems.some((p) => p.includes('Roboto: bundled font licence copy missing')));
+  });
+});

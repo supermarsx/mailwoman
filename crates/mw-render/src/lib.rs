@@ -9,11 +9,13 @@
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
+pub mod attachment;
 /// Second-layer WASM media jail (SPEC §7.5, plan t16 S5): the hostile CFB/MS-OXMSG
 /// parse and remote-image re-encode run inside a wasmtime sandbox, not native Rust.
 /// `media_jail::reencode_image` is the entry the image proxy (t16-e6) consumes.
 pub mod media_jail;
 
+pub const MAX_FRAME_BYTES: usize = 6 * 1024 * 1024;
 pub const MAX_INPUT_BYTES: usize = 4 * 1024 * 1024; // parser resource limit (SPEC §7.2)
 
 /// Confine THIS render-child process before it reads any hostile input (SPEC §7.5,
@@ -45,6 +47,11 @@ pub fn enter_render_jail() -> Result<mw_sandbox::SandboxReport, String> {
 pub enum Job {
     /// Sanitize untrusted message HTML (the V2 path — unchanged).
     Html { html: String },
+    Preview {
+        format: attachment::PreviewFormat,
+        #[serde(rename = "bytesBase64")]
+        bytes_base64: String,
+    },
     /// Import an untrusted `.oft`/`.msg` CFB template: parse it in this child and
     /// return the sanitized body + subject. The hostile CFB parse runs inside the
     /// WASM media jail (`media_jail::parse_cfb`, §7.5) — never native Rust, and the
@@ -61,19 +68,41 @@ pub struct Output {
     /// The imported template's subject (CFB jobs only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subject: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<attachment::AttachmentPreview>,
 }
 
 /// Process one job line: parse, enforce limits, sanitize (HTML) or import (CFB).
 pub fn process_line(line: &str) -> Result<String, String> {
-    if line.len() > MAX_INPUT_BYTES {
+    if line.len() > MAX_FRAME_BYTES {
         return Err("input exceeds size limit".to_string());
     }
     let job: Job = serde_json::from_str(line).map_err(|e| format!("bad job frame: {e}"))?;
     let output = match job {
-        Job::Html { html } => Output {
-            html: mw_sanitize::sanitize_email_html(&html),
-            subject: None,
-        },
+        Job::Html { html } => {
+            if html.len() > MAX_INPUT_BYTES {
+                return Err("html exceeds size limit".into());
+            }
+            Output {
+                html: mw_sanitize::sanitize_email_html(&html),
+                subject: None,
+                preview: None,
+            }
+        }
+        Job::Preview {
+            format,
+            bytes_base64,
+        } => {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(bytes_base64)
+                .map_err(|_| "invalid attachment base64")?;
+            let preview = attachment::preview(format, &bytes)?;
+            Output {
+                html: preview.html.clone(),
+                subject: preview.subject.clone(),
+                preview: Some(preview),
+            }
+        }
         Job::Cfb { cfb_base64 } => {
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(cfb_base64.as_bytes())
@@ -88,6 +117,7 @@ pub fn process_line(line: &str) -> Result<String, String> {
             Output {
                 html: mw_sanitize::sanitize_email_html(&parsed.body),
                 subject: parsed.subject,
+                preview: None,
             }
         }
     };

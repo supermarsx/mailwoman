@@ -68,6 +68,10 @@ fn engine() -> &'static Engine {
     ENGINE.get_or_init(|| {
         let mut cfg = Config::new();
         cfg.epoch_interruption(true);
+        // A disposable child recompiles this already optimized guest per job.
+        // Skip optimizing the Pulley lowering again: cold-start must fit the
+        // parent's bounded worker lifetime, not only a warm in-process test.
+        cfg.cranelift_opt_level(wasmtime::OptLevel::None);
         // No copy-on-write memory images. On Linux wasmtime backs them with
         // `memfd_create`, which the render child's seccomp allowlist does not
         // permit, so every CFB job was SIGSYS-killed inside the kernel jail from
@@ -133,6 +137,9 @@ impl Drop for Ticker {
 /// fresh disposable store, and return the entry's payload (status byte stripped).
 /// An error frame from the guest, or any trap, becomes an `Err`.
 fn call(entry: &str, input: &[u8]) -> Result<Vec<u8>, String> {
+    if input.len() > crate::MAX_INPUT_BYTES {
+        return Err("media-jail: input exceeds limit".into());
+    }
     let engine = engine();
     let mut store = Store::new(engine, Limiter);
     store.limiter(|s| s);
@@ -219,6 +226,20 @@ pub fn reencode_image(bytes: &[u8]) -> Result<Vec<u8>, String> {
     call("mw_reencode_image", bytes)
 }
 
+/// Guest JSON remains untrusted; attachment::preview validates and sanitizes it.
+pub(crate) fn preview_payload(
+    format: crate::attachment::PreviewFormat,
+    bytes: &[u8],
+) -> Result<Vec<u8>, String> {
+    call(
+        match format {
+            crate::attachment::PreviewFormat::Tnef => "mw_preview_tnef",
+            crate::attachment::PreviewFormat::Eml => "mw_preview_eml",
+        },
+        bytes,
+    )
+}
+
 /// Read one `[u32 len LE][bytes]` field from the framed CFB payload.
 fn read_field<'a>(buf: &'a [u8], off: &mut usize) -> Result<&'a [u8], String> {
     let hdr_end = off
@@ -241,6 +262,11 @@ fn read_field<'a>(buf: &'a [u8], off: &mut usize) -> Result<&'a [u8], String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_media_guest_has_no_host_imports() {
+        assert_eq!(module().imports().count(), 0);
+    }
 
     /// A real `.oft` (written by `mw-export`) round-trips THROUGH the wasm jail —
     /// the CFB parse ran in the sandbox, not native Rust.

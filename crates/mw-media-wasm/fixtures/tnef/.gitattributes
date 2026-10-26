@@ -1,0 +1,5 @@
+# Preserve independent corpus bytes, including original whitespace.
+* -text -whitespace
+.gitattributes text eol=lf whitespace
+README.md text eol=lf whitespace
+SHA256.json text eol=lf whitespace

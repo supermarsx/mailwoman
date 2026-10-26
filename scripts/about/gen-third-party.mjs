@@ -101,9 +101,36 @@ export const ASSETS = [
     covers: ['apps/web/src/assets/fonts/jost/'],
     note: 'bundled',
   },
-  { kind: 'font', name: 'Inter', licence: 'OFL-1.1', repository: 'https://github.com/rsms/inter', homepage: 'https://fonts.google.com/specimen/Inter', note: 'fonts-pull' },
-  { kind: 'font', name: 'Newsreader', licence: 'OFL-1.1', repository: 'https://github.com/productiontype/Newsreader', homepage: 'https://fonts.google.com/specimen/Newsreader', note: 'fonts-pull' },
-  { kind: 'font', name: 'JetBrains Mono', licence: 'OFL-1.1', repository: 'https://github.com/JetBrains/JetBrainsMono', homepage: 'https://fonts.google.com/specimen/JetBrains+Mono', note: 'fonts-pull' },
+  {
+    kind: 'font', name: 'Inter', package: '@fontsource-variable/inter', licence: 'OFL-1.1',
+    repository: 'https://github.com/rsms/inter', homepage: 'https://fonts.google.com/specimen/Inter',
+    files: ['apps/web/public/fonts/licenses/inter.txt'],
+    covers: ['apps/web/public/fonts/licenses/inter.txt'], note: 'bundled',
+  },
+  {
+    kind: 'font', name: 'Newsreader', package: '@fontsource-variable/newsreader', licence: 'OFL-1.1',
+    repository: 'https://github.com/productiontype/Newsreader', homepage: 'https://fonts.google.com/specimen/Newsreader',
+    files: ['apps/web/public/fonts/licenses/newsreader.txt'],
+    covers: ['apps/web/public/fonts/licenses/newsreader.txt'], note: 'bundled',
+  },
+  {
+    kind: 'font', name: 'JetBrains Mono', package: '@fontsource-variable/jetbrains-mono', licence: 'OFL-1.1',
+    repository: 'https://github.com/JetBrains/JetBrainsMono', homepage: 'https://fonts.google.com/specimen/JetBrains+Mono',
+    files: ['apps/web/public/fonts/licenses/jetbrains-mono.txt'],
+    covers: ['apps/web/public/fonts/licenses/jetbrains-mono.txt'], note: 'bundled',
+  },
+  {
+    kind: 'font', name: 'Roboto', package: '@fontsource-variable/roboto', licence: 'OFL-1.1',
+    repository: 'https://github.com/googlefonts/roboto', homepage: 'https://fonts.google.com/specimen/Roboto',
+    files: ['apps/web/public/fonts/licenses/roboto.txt'],
+    covers: ['apps/web/public/fonts/licenses/roboto.txt'], note: 'bundled',
+  },
+  {
+    kind: 'font', name: 'Open Sans', package: '@fontsource-variable/open-sans', licence: 'OFL-1.1',
+    repository: 'https://github.com/googlefonts/opensans', homepage: 'https://fonts.google.com/specimen/Open+Sans',
+    files: ['apps/web/public/fonts/licenses/open-sans.txt'],
+    covers: ['apps/web/public/fonts/licenses/open-sans.txt'], note: 'bundled',
+  },
   {
     kind: 'icons',
     name: 'Mailwoman icons',
@@ -548,13 +575,27 @@ export function collectWeb({ root, bundled, texts, flags, problems }) {
   return entries.sort(sortEntries);
 }
 
-export function collectAssets({ root, texts, flags }) {
+/** Only explicitly declared font packages with their exact declared licence are
+ * assets. An OFL code package, unknown font package or changed licence still
+ * passes through the ordinary code-licence policy and can fail it. */
+export function declaredFontAsset(entry) {
+  return ASSETS.find((asset) => asset.kind === 'font' && asset.package === entry.name && asset.licence === entry.licence);
+}
+
+export function collectAssets({ root, texts, flags, packages = [], problems = [] }) {
   return ASSETS.map((a) => {
     const e = { kind: a.kind, name: a.name };
     if (a.versionFrom) {
       const m = readFileSync(join(root, a.versionFrom), 'utf8').match(/^Package:\s+\S+\s+(\d[\w.+-]*)/m);
       if (m) e.version = m[1];
       else flags.push(`${a.name}: no "Package: <name> <version>" line in ${a.versionFrom}`);
+    }
+    const bundled = packages.find((entry) => declaredFontAsset(entry) === a);
+    if (bundled) {
+      e.version = bundled.version;
+      for (const file of a.files ?? []) {
+        if (!existsSync(join(root, file))) problems.push(`${a.name}: bundled font licence copy missing: ${file}`);
+      }
     }
     licenceField(e, a.licence, flags);
     linkFields(e, a.repository, a.homepage, flags);
@@ -667,8 +708,9 @@ export function build({ root, cargo, bundled, cargoHome, image = null, previous 
   const flags = [];
   const problems = [];
   const { rust, shells, buildTools } = collectCrates({ cargo, cargoHome, texts, flags });
-  const web = collectWeb({ root, bundled, texts, flags, problems });
-  const assets = collectAssets({ root, texts, flags });
+  const bundledPackages = collectWeb({ root, bundled, texts, flags, problems });
+  const web = bundledPackages.filter((entry) => !declaredFontAsset(entry));
+  const assets = collectAssets({ root, texts, flags, packages: bundledPackages, problems });
   const { images, runtimeImage } = collectRuntimeImage({ root, image, previous, texts, flags, problems });
   const generatedFrom = Object.fromEntries(
     Object.entries(LOCKFILES).map(([k, f]) => [k, existsSync(join(root, f)) ? sha256File(join(root, f)) : null]),

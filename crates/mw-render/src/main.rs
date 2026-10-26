@@ -3,7 +3,7 @@
 //! reads a single JSON line from stdin, writes a single JSON line to
 //! stdout, exits. Errors go to stderr with a non-zero exit code.
 
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 
 fn main() -> std::process::ExitCode {
     // SPEC §7.5: confine this disposable child BEFORE reading any hostile input. On
@@ -25,8 +25,16 @@ fn main() -> std::process::ExitCode {
 
     let stdin = std::io::stdin();
     let mut line = String::new();
-    if let Err(e) = stdin.lock().read_line(&mut line) {
+    if let Err(e) = stdin
+        .lock()
+        .take((mw_render::MAX_FRAME_BYTES + 1) as u64)
+        .read_line(&mut line)
+    {
         eprintln!("mw-render: read error: {e}");
+        return std::process::ExitCode::FAILURE;
+    }
+    if line.len() > mw_render::MAX_FRAME_BYTES {
+        eprintln!("mw-render: input exceeds frame limit");
         return std::process::ExitCode::FAILURE;
     }
     match mw_render::process_line(line.trim_end()) {
