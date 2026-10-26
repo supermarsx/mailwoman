@@ -35,3 +35,16 @@ it('offers retry for a failed history request rather than an unthemed error boun
  await screen.findByText(/History covers/);
  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
+
+it('labels legacy precision without fabricating finer measurements',async()=>{
+ render(()=><RequestHistory/>);
+ expect(await screen.findByText(/original measurement precision cannot be recovered/)).toBeInTheDocument();
+});
+it('shows fine integer-ms values and omits the legacy warning for current rows',async()=>{
+ const value=sample();value.series[0]={...value.series[0]!,p50Ms:37,p95Ms:83,legacyLatencyEstimate:false,p50ResolutionMs:1,p95ResolutionMs:1};
+ vi.mocked(loadRequestHistory).mockResolvedValue(value);
+ render(()=><RequestHistory/>);
+ await screen.findByText(/History covers/);
+ expect(screen.queryByText(/original measurement precision cannot be recovered/)).not.toBeInTheDocument();
+ expect(screen.getByRole('region',{name:'Response time, 95th percentile'})).toHaveTextContent('83');
+});

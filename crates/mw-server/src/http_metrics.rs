@@ -18,7 +18,7 @@
 //! address, account, query text or token ever becomes a label.
 //!
 //! **Percentiles** are the upper bound of the latency bucket that holds the rank
-//! (buckets in [`BUCKETS_MS`]), so a p95 of `250` means "at most 250 ms". A minute
+//! (buckets in [`BUCKETS_MS`]); samples through one second retain their integer-ms value. Resolution metadata distinguishes wider slow bins. A minute
 //! with no requests reports `0`.
 
 use std::sync::Mutex;
@@ -112,68 +112,41 @@ pub fn classify(path: &str) -> RouteClass {
     RouteClass::Static
 }
 
-/// Upper bounds (ms) of the latency buckets; the last bucket is unbounded and
-/// reports the largest observed latency, preserving an upper bound.
-pub const BUCKETS_MS: [u64; 13] = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
-const NBUCKETS: usize = BUCKETS_MS.len() + 1;
-/// Minutes kept in the ring.
+/// Integer-ms samples through one second; bounded wider bins above that.
+pub use mw_store::request_metrics::PRECISE_LATENCY_BOUNDS_MS as BUCKETS_MS;
 pub const WINDOW_MINS: usize = 60;
 const NCLASSES: usize = RouteClass::ALL.len();
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct Cell {
     requests: u64,
     errors4xx: u64,
     errors5xx: u64,
-    hist: [u64; NBUCKETS],
-    max_elapsed_ms: u64,
+    hist: mw_store::request_metrics::Counts,
 }
-
 impl Cell {
     fn add(&mut self, status: u16, ms: u64) {
-        self.requests += 1;
-        self.max_elapsed_ms = self.max_elapsed_ms.max(ms);
-        if (400..500).contains(&status) {
-            self.errors4xx += 1;
-        } else if status >= 500 {
-            self.errors5xx += 1;
-        }
-        let b = BUCKETS_MS
-            .iter()
-            .position(|&ub| ms <= ub)
-            .unwrap_or(NBUCKETS - 1);
-        self.hist[b] += 1;
+        self.requests = self.requests.saturating_add(1);
+        self.errors4xx = self
+            .errors4xx
+            .saturating_add(u64::from((400..500).contains(&status)));
+        self.errors5xx = self.errors5xx.saturating_add(u64::from(status >= 500));
+        self.hist.record(status, ms);
     }
-
-    fn merge(&mut self, o: &Cell) {
-        self.requests += o.requests;
-        self.max_elapsed_ms = self.max_elapsed_ms.max(o.max_elapsed_ms);
-        self.errors4xx += o.errors4xx;
-        self.errors5xx += o.errors5xx;
-        for (a, b) in self.hist.iter_mut().zip(o.hist.iter()) {
-            *a += b;
-        }
+    fn merge(&mut self, other: &Self) {
+        self.requests = self.requests.saturating_add(other.requests);
+        self.errors4xx = self.errors4xx.saturating_add(other.errors4xx);
+        self.errors5xx = self.errors5xx.saturating_add(other.errors5xx);
+        self.hist.merge(&other.hist);
     }
-
-    /// The bucket bound holding the `q` quantile (0 when empty).
     fn quantile_ms(&self, q: f64) -> u64 {
-        let total: u64 = self.hist.iter().sum();
-        if total == 0 {
-            return 0;
-        }
-        let rank = ((total as f64) * q).ceil().max(1.0) as u64;
-        let mut seen = 0;
-        for (i, n) in self.hist.iter().enumerate() {
-            seen += n;
-            if seen >= rank {
-                return BUCKETS_MS.get(i).copied().unwrap_or(self.max_elapsed_ms);
-            }
-        }
-        self.max_elapsed_ms
+        self.hist
+            .percentile((q * 100.0).round() as u64)
+            .unwrap_or(0)
     }
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct Slot {
     /// Unix minute this slot holds; a slot from an older minute reads as empty.
     minute: u64,
@@ -201,8 +174,8 @@ fn with_metrics<R>(f: impl FnOnce(&mut Metrics) -> R) -> R {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let m = g.get_or_insert_with(|| Metrics {
         started_at: now_secs(),
-        totals: [Cell::default(); NCLASSES],
-        ring: [Slot::default(); WINDOW_MINS],
+        totals: std::array::from_fn(|_| Cell::default()),
+        ring: std::array::from_fn(|_| Slot::default()),
     });
     f(m)
 }
@@ -232,7 +205,7 @@ fn record_at(now: u64, class: RouteClass, status: u16, elapsed_ms: u64) {
         if slot.minute != minute {
             *slot = Slot {
                 minute,
-                cells: [Cell::default(); NCLASSES],
+                cells: std::array::from_fn(|_| Cell::default()),
             };
         }
         slot.cells[class.index()].add(status, elapsed_ms);
@@ -240,11 +213,19 @@ fn record_at(now: u64, class: RouteClass, status: u16, elapsed_ms: u64) {
 }
 
 /// The middleware: times the request and records it under its class.
-pub(crate) async fn layer(axum::extract::State(state): axum::extract::State<crate::AppState>, req: Request, next: Next) -> Response {
+pub(crate) async fn layer(
+    axum::extract::State(state): axum::extract::State<crate::AppState>,
+    req: Request,
+    next: Next,
+) -> Response {
     let class = classify(req.uri().path());
     let start = Instant::now();
     use tracing::Instrument as _;
-    let span = tracing::info_span!("mailwoman.http.request", route_class = class.as_str(), status = tracing::field::Empty);
+    let span = tracing::info_span!(
+        "mailwoman.http.request",
+        route_class = class.as_str(),
+        status = tracing::field::Empty
+    );
     let resp = next.run(req).instrument(span.clone()).await;
     span.record("status", resp.status().as_u16());
     let ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
@@ -272,6 +253,9 @@ pub struct Point {
     pub errors5xx: u64,
     pub p50_ms: u64,
     pub p95_ms: u64,
+    pub legacy_latency_estimate: bool,
+    pub p50_resolution_ms: Option<u64>,
+    pub p95_resolution_ms: Option<u64>,
 }
 
 impl From<&Cell> for Point {
@@ -282,6 +266,9 @@ impl From<&Cell> for Point {
             errors5xx: c.errors5xx,
             p50_ms: c.quantile_ms(0.50),
             p95_ms: c.quantile_ms(0.95),
+            legacy_latency_estimate: c.hist.legacy_estimate(),
+            p50_resolution_ms: c.hist.percentile_resolution_ms(50),
+            p95_resolution_ms: c.hist.percentile_resolution_ms(95),
         }
     }
 }
@@ -338,7 +325,7 @@ fn summary_at(now: u64) -> Summary {
                 continue;
             };
             let slot = &m.ring[(minute % WINDOW_MINS as u64) as usize];
-            let empty = [Cell::default(); NCLASSES];
+            let empty = std::array::from_fn(|_| Cell::default());
             let cells = if slot.minute == minute {
                 &slot.cells
             } else {
@@ -370,7 +357,12 @@ fn summary_at(now: u64) -> Summary {
 
 /// Register `GET /admin/metrics/summary` (mini-slot `t32-admin-registry`).
 pub(crate) fn register(r: &mut impl crate::admin_router::AdminRegistrar) {
-    r.admin_endpoint(axum::http::Method::GET, "/metrics/history", crate::admin_router::Access::SignedIn, crate::request_history::history);
+    r.admin_endpoint(
+        axum::http::Method::GET,
+        "/metrics/history",
+        crate::admin_router::Access::SignedIn,
+        crate::request_history::history,
+    );
     r.admin_endpoint(
         axum::http::Method::GET,
         "/metrics/summary",
@@ -381,7 +373,10 @@ pub(crate) fn register(r: &mut impl crate::admin_router::AdminRegistrar) {
 
 /// `GET /admin/metrics/summary` — [`summary`] as JSON.
 async fn summary_route(_ctx: crate::admin_ctx::AdminCtx) -> impl axum::response::IntoResponse {
-    ([(axum::http::header::CACHE_CONTROL, "no-store")], axum::Json(summary()))
+    (
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        axum::Json(summary()),
+    )
 }
 
 /// The dashboard's `traffic.series`: `{t, requests, errors5xx, p50Ms, p95Ms}` per
@@ -397,6 +392,9 @@ pub fn traffic_series() -> Vec<serde_json::Value> {
                 "errors5xx": m.all.errors5xx,
                 "p50Ms": m.all.p50_ms,
                 "p95Ms": m.all.p95_ms,
+                "legacyLatencyEstimate":m.all.legacy_latency_estimate,
+                "p50ResolutionMs":m.all.p50_resolution_ms,
+                "p95ResolutionMs":m.all.p95_resolution_ms,
             })
         })
         .collect()
@@ -425,16 +423,30 @@ mod tests {
     }
 
     #[test]
-    fn quantiles_read_the_bucket_bound() {
+    fn live_percentiles_preserve_37_and_83_millisecond_samples() {
+        let mut cell = Cell::default();
+        for _ in 0..50 {
+            cell.add(200, 37);
+            cell.add(200, 83);
+        }
+        let point = Point::from(&cell);
+        assert_eq!(point.p50_ms, 37);
+        assert_eq!(point.p95_ms, 83);
+        assert_eq!(point.p95_resolution_ms, Some(1));
+        assert!(!point.legacy_latency_estimate);
+    }
+
+    #[test]
+    fn quantiles_use_integer_millisecond_samples_and_bounded_slow_bins() {
         let mut c = Cell::default();
         for _ in 0..90 {
-            c.add(200, 3); // bucket <= 5
+            c.add(200, 3); // exact integer-ms sample
         }
         for _ in 0..10 {
-            c.add(500, 400); // bucket <= 500
+            c.add(500, 400); // exact integer-ms sample
         }
-        assert_eq!(c.quantile_ms(0.5), 5);
-        assert_eq!(c.quantile_ms(0.95), 500);
+        assert_eq!(c.quantile_ms(0.5), 3);
+        assert_eq!(c.quantile_ms(0.95), 400);
         assert_eq!(c.errors5xx, 10);
         assert_eq!(Cell::default().quantile_ms(0.95), 0);
         let mut slow = Cell::default();
@@ -462,7 +474,7 @@ mod tests {
         assert_eq!(last.by_class["jmap"].requests, 1);
         assert_eq!(prev.by_class["admin"].requests, 2);
         assert_eq!(prev.by_class["admin"].errors5xx, 1);
-        assert_eq!(prev.all.p95_ms, 50);
+        assert_eq!(prev.all.p95_ms, 30);
         // 60 minutes later the first minute has left the window.
         let later = summary_at(base + 60 * 60);
         assert!(later.series.iter().all(|m| m.t != base / 60 * 60));

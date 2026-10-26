@@ -98,8 +98,8 @@ async fn summary_requires_admin_and_counts_real_requests_without_paths() {
     let current = chrono::Utc::now().timestamp();
     let start = current / 60 * 60 - 600;
     let mut counts = mw_store::request_metrics::Counts::default();
-    counts.record(200, 2);
-    counts.record(500, 400);
+    counts.record(200, 37);
+    counts.record(500, 83);
     let bucket = mw_store::request_metrics::Bucket {
         seconds: 60,
         start,
@@ -128,11 +128,34 @@ async fn summary_requires_admin_and_counts_real_requests_without_paths() {
     let body: Value = response.json().await.unwrap();
     assert_eq!(body["series"][0]["requests"], 2);
     assert_eq!(body["series"][0]["errors5xx"], 1);
-    assert_eq!(body["series"][0]["p95Ms"], 500);
+    assert_eq!(body["series"][0]["p50Ms"], 37);
+    assert_eq!(body["series"][0]["p95Ms"], 83);
+    assert_eq!(body["series"][0]["p95ResolutionMs"], 1);
+    assert_eq!(body["series"][0]["legacyLatencyEstimate"], false);
     assert_eq!(body["series"][0]["coverage"], "complete");
     assert!(body["series"][1]["requests"].is_null());
     assert_eq!(body["series"][1]["coverage"], "unavailable");
     assert_eq!(body["coverage"]["observedSeconds"], 60);
+    let legacy=mw_store::request_metrics::Bucket{seconds:60,start:start-60,observed_from:start-60,observed_to:start,counts:serde_json::from_value(json!({"requests":2,"errors5xx":0,"histogram":[0,0,0,0,0,1,1,0,0,0,0,0,0,0],"max_ms":83})).unwrap()};
+    store
+        .save_request_metrics("legacy-fixture", &[legacy], current, 30)
+        .await
+        .unwrap();
+    let mixed: Value = client
+        .get(format!(
+            "{history}?from={}&to={}&maxPoints=1",
+            start - 60,
+            start + 60
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(mixed["series"][0]["p95Ms"], 100);
+    assert_eq!(mixed["series"][0]["legacyLatencyEstimate"], true);
+    assert!(mixed["series"][0]["p95ResolutionMs"].is_null());
     assert_eq!(
         client
             .get(format!("{history}?from={start}"))

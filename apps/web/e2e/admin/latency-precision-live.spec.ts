@@ -1,0 +1,30 @@
+import {expect,test} from '@playwright/test';
+import {adminLogin} from './admin-login.ts';
+
+test('durable latency keeps measured milliseconds and labels legacy estimates @phone',async({page},info)=>{
+ const start=Number(process.env['MW_LATENCY_FIXTURE_START']);
+ test.skip(!Number.isSafeInteger(start)||start<=0,'Requires the isolated precision fixture rows');
+ await adminLogin(page);
+ const history=await page.request.get(`/admin/metrics/history?from=${start}&to=${start+60}&maxPoints=1`);
+ expect(history.status()).toBe(200);
+ const data=await history.json() as {series:{p50Ms:number;p95Ms:number;legacyLatencyEstimate:boolean;p95ResolutionMs:number}[]};
+ expect(data.series).toHaveLength(1);
+ expect(data.series[0]).toMatchObject({p50Ms:37,p95Ms:83,legacyLatencyEstimate:false,p95ResolutionMs:1});
+ await page.goto('/admin#/observability/statistics');
+ const section=page.getByRole('region',{name:'Request history',exact:true});
+ await expect(section).toBeVisible();
+ await section.getByLabel('Period',{exact:true}).selectOption('custom');
+ const local=(seconds:number)=>new Date(seconds*1000).toISOString().slice(0,16);
+ await section.getByLabel('From (local time)').fill(local(start));
+ await section.getByLabel('To (local time)').fill(local(start+60));
+ await section.getByRole('button',{name:'Refresh request history',exact:true}).click();
+ await expect(section).toHaveAttribute('aria-busy','false');
+ await expect(section.getByText(/older or mixed coarse latency estimates/)).toHaveCount(0);
+ await expect(section.locator('[data-testid="spark-p95"]')).toContainText('83');
+ await page.screenshot({path:info.outputPath('latency-measured-milliseconds.png'),fullPage:true});
+ await section.getByLabel('From (local time)').fill(local(start-60));
+ await section.getByRole('button',{name:'Refresh request history',exact:true}).click();
+ await expect(section.getByText(/older or mixed coarse latency estimates/)).toBeVisible();
+ await page.screenshot({path:info.outputPath('latency-legacy-estimate.png'),fullPage:true});
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+});

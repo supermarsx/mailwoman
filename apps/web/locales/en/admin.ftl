@@ -825,3 +825,6 @@ admin-history-refresh = Refresh request history
 admin-history-errors = Server errors (5xx) per bucket
 
 admin-users-legacy-alias = This account signs in through a domain alias. Existing administrative record: { $address }. Its settings and history are preserved; the records have not been merged or renamed.
+
+admin-history-latency-resolution = New latency samples retain integer milliseconds through 1 second; slower timings use wider bounded bins. Percentiles describe response-ready timing, not the full transfer.
+admin-history-latency-legacy = This range includes older or mixed coarse latency estimates. Their original measurement precision cannot be recovered.

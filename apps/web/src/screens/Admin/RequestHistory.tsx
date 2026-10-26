@@ -57,6 +57,8 @@ export function RequestHistory(props:{refreshToken?:unknown}={}):JSX.Element {
   <Show when={data()} fallback={<Show when={result.loading}><AsyncPending variant="page"/></Show>}>{value=><>
    <p class={admin.note}>{t('admin-history-range',{from:timestamp(value().from),to:timestamp(value().to),seconds:value().bucketSeconds})}</p>
    <Show when={value().coverage.observedSeconds<value().coverage.requestedSeconds}><p role="status">{t('admin-history-partial',{observed:Math.floor(value().coverage.observedSeconds/60),requested:Math.ceil(value().coverage.requestedSeconds/60)})}</p></Show>
+   <p class={admin.note}>{t('admin-history-latency-resolution')}</p>
+   <Show when={value().series.some(point=>point.legacyLatencyEstimate!==false && point.requests!==null && point.requests>0)}><p role="status" class={admin.note}>{t('admin-history-latency-legacy')}</p></Show>
    <div class={charts.charts}>
     <Sparkline title={t('admin-history-requests')} testId="spark-requests" points={value().series.map(p=>({t:p.t,value:p.requests}))} format={formatCount} formatTime={timestamp}/>
     <Sparkline title={t('admin-history-errors')} testId="spark-errors" points={value().series.map(p=>({t:p.t,value:p.errors5xx}))} tone="danger" format={formatCount} formatTime={timestamp}/>
