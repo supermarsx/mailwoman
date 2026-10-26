@@ -17,6 +17,7 @@ pub mod dispatcher;
 pub mod engine;
 pub mod folder_roles;
 pub mod identity;
+mod initial_sync;
 pub mod jmap;
 pub mod maintenance;
 pub mod mapping;

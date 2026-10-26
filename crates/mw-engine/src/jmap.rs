@@ -488,6 +488,7 @@ impl Engine {
             "state": role_view.state(&self.type_state(account_id, ChangeType::Mailbox).await.unwrap_or_default()),
             "mailwomanRoleMappingProblems": role_view.problems,
             "mailwomanFolderRoleGuard": true,
+            "mailwomanInitialSync": self.initial_sync_status(account_id),
             "list": list,
             "notFound": not_found
         })

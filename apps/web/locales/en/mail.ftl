@@ -568,3 +568,7 @@ mail-conversation-missing = { $count } message(s) are no longer available.
 mail-conversation-error = The conversation could not be loaded. Try again.
 mail-conversation-more = Load more messages
 mail-conversation-limit = This view is limited to { $count } messages.
+
+mail-initial-sync-running = Signed in. Synchronizing your messages in the background…
+mail-initial-sync-retrying = Message synchronization was interrupted. Reconnecting in the background…
+mail-initial-sync-failed = Message synchronization could not finish. Some messages may not be available yet. Sign in again to retry, or ask your administrator to check the connection logs.

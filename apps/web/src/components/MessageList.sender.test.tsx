@@ -51,7 +51,7 @@ describe('MessageList — the sender cell', () => {
     await app.login({ username: 'me@example.org', password: 'p' });
     await waitFor(() => expect(app.messages().length).toBe(2));
     const cells = [...result.container.querySelectorAll('.list__sender')].map((el) =>
-      stripIsolates(el.textContent ?? ''),
+      stripIsolates([...el.childNodes].filter(node=>node.nodeType===Node.TEXT_NODE).map(node=>node.textContent??'').join('')),
     );
     expect(cells).toEqual(['Your Bank <x@evil.example>', 'y@evil.example (security@bank.example)']);
   });

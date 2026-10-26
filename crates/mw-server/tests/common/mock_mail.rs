@@ -33,6 +33,11 @@ impl MockPop3 {
     /// address in to its one configured upstream (t32-h9), so tests with two
     /// mailbox users give both accounts to the same mock.
     pub async fn start_accounts(accounts: &[(&str, &str)]) -> MockPop3 {
+        Self::start_accounts_with_index_gate(accounts, None).await
+    }
+
+    /// Keep message enumeration pending while authentication and STAT remain usable.
+    pub async fn start_accounts_with_index_gate(accounts: &[(&str, &str)], gate: Option<Arc<tokio::sync::Semaphore>>) -> MockPop3 {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let accepted = Arc::new(AtomicUsize::new(0));
@@ -50,9 +55,10 @@ impl MockPop3 {
                     return;
                 };
                 let accounts = accounts.clone();
+                let gate = gate.clone();
                 let (acc, refd) = (acc.clone(), refd.clone());
                 tokio::spawn(async move {
-                    let _ = serve(sock, &accounts, &acc, &refd).await;
+                    let _ = serve(sock, &accounts, &acc, &refd, gate.as_deref()).await;
                 });
             }
         });
@@ -84,6 +90,7 @@ async fn serve(
     accounts: &[(String, String)],
     accepted: &AtomicUsize,
     refused: &AtomicUsize,
+    index_gate: Option<&tokio::sync::Semaphore>,
 ) -> std::io::Result<()> {
     let (read, mut write) = sock.into_split();
     let mut lines = BufReader::new(read).lines();
@@ -115,7 +122,12 @@ async fn serve(
                 }
             }
             "STAT" if authed => b"+OK 0 0\r\n",
-            "UIDL" | "LIST" if authed => b"+OK\r\n.\r\n",
+            "UIDL" | "LIST" if authed => {
+                if let Some(gate) = index_gate {
+                    let _permit = gate.acquire().await.unwrap();
+                }
+                b"+OK\r\n.\r\n"
+            },
             "NOOP" if authed => b"+OK\r\n",
             "QUIT" => {
                 write.write_all(b"+OK bye\r\n").await?;

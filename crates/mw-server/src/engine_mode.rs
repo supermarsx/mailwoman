@@ -17,7 +17,7 @@ use std::time::Duration;
 pub use crate::login_failure::{LoginFailure, LoginFailureReason};
 use mw_engine::Engine;
 use mw_engine::account::{AccountPolicy, AccountRuntime, MailSubmitter};
-use mw_engine::backend::AccountBackend;
+use mw_engine::backend::{AccountBackend, RawMailbox};
 use mw_store::{AccountKind, Credentials, NewAccount};
 
 /// Which upstream the server presents on `/jmap/*`.
@@ -375,22 +375,21 @@ async fn register_one(
 
 /// One lock per account id. Whoever connects an account ([`ensure_account`], the
 /// login in [`engine_login`]) holds it from before the backend is registered with
-/// the engine until the account's first sync has finished
+/// the engine until authenticated mailbox metadata is ready
 /// ([`register_and_sync`]), and whoever asks whether an account is connected
 /// takes it before looking. That gives two things:
 ///
 /// * two callers for the same account (a request and the start-up registration,
 ///   a request and a login, or two requests) do not both register a backend and
 ///   both start a watch loop, and
-/// * a caller never finds an account registered while its first sync is still in
-///   flight: it waits for the lock, and by then the sync has either finished or
-///   failed and taken the registration with it.
+/// * a caller never uses an account before its authenticated mailbox metadata
+///   is available. Message indexing continues in a runtime-owned background job.
 ///
 /// ## Why a request cannot deadlock against the start-up registration
 ///
 /// This is the only lock either of them waits for while connecting, and nothing
-/// that runs under it (the flag read, the dial, the sync, starting the watch
-/// loop) calls back into [`ensure_account`]. The start-up task also holds one
+/// that runs under it (the flag read, the dial, the mailbox metadata read)
+/// calls back into [`ensure_account`]. The start-up task also holds one
 /// of its own concurrency slots, which no request ever takes. So there is no
 /// second lock to form a cycle with: a request can only wait for the holder to
 /// finish, and the holder always lets go — on success, on an error, and when
@@ -741,8 +740,7 @@ async fn register(
     engine.register_backend(account_id.to_string(), runtime);
 }
 
-/// Takes an account's registration back out of the engine unless its first sync
-/// finished: on a sync error, and when the future running the sync is dropped.
+/// Removes registration if authenticated mailbox metadata could not be cached.
 struct FirstSync<'a> {
     engine: &'a Engine,
     account_id: &'a str,
@@ -757,16 +755,9 @@ impl Drop for FirstSync<'_> {
     }
 }
 
-/// Register a connected backend for `account_id`, run the account's first sync
-/// and start its watch loop. The caller holds the account's [`connect_lock`].
-///
-/// The account stays registered only if the sync finished. The first sync is
-/// what writes the account's mailboxes, so an account left registered without
-/// it would answer every later request from a cache nothing has filled, and
-/// nothing would dial the mail server again: [`ensure_account`] returns early
-/// for a registered account. Unregistered, the next request or login connects
-/// it again, and the start-up registration retries it
-/// ([`BOOT_REGISTER_RETRY`]).
+/// Publish authenticated mailbox metadata under the connect lock, then index
+/// messages in a cancelable background job. Large mailboxes must not consume
+/// the credential-authentication deadline. Progress is exposed by Mailbox/get.
 async fn register_and_sync(
     engine: &Arc<Engine>,
     account_id: &str,
@@ -774,6 +765,7 @@ async fn register_and_sync(
     submitter: mw_smtp::Submitter,
     identity: &str,
     credential_revision: Option<Vec<u8>>,
+    authenticated_mailboxes: Option<Vec<RawMailbox>>,
 ) -> Result<(), String> {
     register(
         engine,
@@ -789,29 +781,26 @@ async fn register_and_sync(
         account_id,
         finished: false,
     };
-    if let Err(error) = engine.resync(account_id).await {
-        if matches!(error, mw_engine::backend::EngineError::Auth(_)) {
-            engine
-                .reject_runtime_credentials(account_id, &backend)
-                .await;
-        }
-        return Err(error.to_string());
-    }
-    // Change ingestion keeps the cache fresh for the next browser poll.
-    if let Err(error) = engine.start_watch(account_id).await
-        && matches!(error, mw_engine::backend::EngineError::Auth(_))
-    {
-        engine
-            .reject_runtime_credentials(account_id, &backend)
-            .await;
-        return Err("authentication rejected; fresh sign-in required".into());
-    }
+    let mailboxes = match authenticated_mailboxes {
+        Some(mailboxes) => mailboxes,
+        None => match backend.list_mailboxes().await {
+            Ok(mailboxes) => mailboxes,
+            Err(error) => {
+                if matches!(error, mw_engine::backend::EngineError::Auth(_)) {
+                    engine.reject_runtime_credentials(account_id, &backend).await;
+                }
+                return Err(error.to_string());
+            }
+        },
+    };
+    engine.cache_mailbox_list(account_id, mailboxes).await.map_err(|error|error.to_string())?;
+    engine.start_initial_sync(account_id);
     first_sync.finished = true;
     Ok(())
 }
 
 /// Log in an IMAP/POP3 account: parse the URL, dial and authenticate the
-/// backend, find or create the account, register it, and run an initial sync. Returns `(account_id,
+/// backend, find or create the account, cache mailbox metadata and start indexing. Returns `(account_id,
 /// username)` for the session cookie. Any failure is a uniform login error.
 pub async fn engine_login(
     engine: &Arc<Engine>,
@@ -926,7 +915,7 @@ async fn engine_login_inner(
         },
     )
     .await?;
-    backend.list_mailboxes().await.map_err(|e| {
+    let authenticated_mailboxes = backend.list_mailboxes().await.map_err(|e| {
         LoginFailure::from_backend(
             e,
             *observation
@@ -1019,6 +1008,12 @@ async fn engine_login_inner(
         .account_credential_revision(&account_id)
         .await
         .map_err(|_| LoginFailure::new(LoginFailureReason::Storage))?;
+    let current_gate = crate::account_gate::for_account(engine.store(), &account_id)
+        .await.map_err(|_| LoginFailure::new(LoginFailureReason::Storage))?;
+    if current_gate.disabled { return Err(LoginFailure::new(LoginFailureReason::Disabled)); }
+    let current_binding = crate::domain_config::upstream_for(engine.store(), username).await?
+        .as_ref().map(|configuration|configuration.binding()).transpose()?.flatten();
+    if current_binding != policy.domain_binding { return Err("account authentication policy changed; sign in again".into()); }
     register_and_sync(
         engine,
         &account_id,
@@ -1026,6 +1021,7 @@ async fn engine_login_inner(
         submitter,
         username,
         Some(revision),
+        Some(authenticated_mailboxes),
     )
     .await
     .map_err(|_| LoginFailure::new(LoginFailureReason::Sync))?;
@@ -1038,7 +1034,8 @@ async fn engine_login_inner(
 /// restart). Idempotent. A disabled account is refused and not dialled.
 ///
 /// `Ok` means the account is registered and, for an account connected by this
-/// module, that its first sync has finished. A caller that arrives while
+/// module, that authenticated mailbox metadata is ready. Message indexing may
+/// continue in the background. A caller that arrives while
 /// another one is connecting the account (the start-up registration, a login,
 /// another request) waits for it; see `connect_lock` for why that wait cannot
 /// deadlock.
@@ -1200,6 +1197,7 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
         submitter,
         &account.username,
         Some(credential_revision),
+        None,
     )
     .await
 }

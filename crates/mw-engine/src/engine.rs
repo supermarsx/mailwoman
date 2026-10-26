@@ -261,7 +261,9 @@ impl Engine {
             }
             controls.insert(account_id.clone(), Arc::downgrade(&runtime.pim_sync));
         }
-        self.accounts.lock().expect("accounts lock").insert(account_id, runtime);
+        if let Some(previous) = self.accounts.lock().expect("accounts lock").insert(account_id, runtime) {
+            previous.initial_sync.cancel();
+        }
     }
 
     /// Install a guarded transport without replacing mailbox state or watch handles.
@@ -308,8 +310,9 @@ impl Engine {
             if accounts
                 .get(account_id)
                 .is_some_and(|rt| Arc::ptr_eq(&rt.backend, backend))
+                && let Some(previous) = accounts.remove(account_id)
             {
-                accounts.remove(account_id);
+                previous.initial_sync.cancel();
             }
         }
     }
@@ -341,10 +344,12 @@ impl Engine {
 
     /// Drop an account's runtime (stopping any watch loop on the last `Arc`).
     pub fn unregister(&self, account_id: &str) -> Option<AccountRuntime> {
-        self.accounts
+        let previous = self.accounts
             .lock()
             .expect("accounts lock")
-            .remove(account_id)
+            .remove(account_id);
+        if let Some(runtime) = &previous { runtime.initial_sync.cancel(); }
+        previous
     }
 
     /// Snapshot an account's runtime out of the registry (cheap `Arc` clone) so
@@ -389,14 +394,44 @@ impl Engine {
     /// Full sync: enumerate mailboxes, upsert them, then incrementally sync each
     /// from its persisted cursor. Idempotent — safe to call on every change tick.
     pub async fn resync(&self, account_id: &str) -> Result<()> {
-        self.ensure_cached_date_upgrade(account_id).await?;
         let rt = self.require_runtime(account_id)?;
+        self.resync_runtime(account_id, &rt).await
+    }
+
+    pub(crate) async fn resync_runtime(&self, account_id: &str, rt: &AccountRuntime) -> Result<()> {
+        self.require_runtime_generation(account_id, rt)?;
+        self.ensure_cached_date_upgrade(account_id).await?;
         let mailboxes = rt.backend.list_mailboxes().await?;
+        self.require_runtime_generation(account_id, rt)?;
+        let pairs = self.reconcile_mailbox_list(account_id, rt, mailboxes).await?;
+        for (rm, mailbox_id) in &pairs {
+            self.require_runtime_generation(account_id, rt)?;
+            self.sync_one(account_id, rt, rm, mailbox_id).await?;
+        }
+        Ok(())
+    }
+
+    fn require_runtime_generation(&self, account: &str, expected: &AccountRuntime) -> Result<()> {
+        if expected.initial_sync.cancelled() || !self.runtime(account).is_some_and(|current| Arc::ptr_eq(&current.initial_sync, &expected.initial_sync)) {
+            return Err(EngineError::Transport("account runtime was replaced".into()));
+        }
+        Ok(())
+    }
+
+    /// Cache the authenticated LIST result without downloading message bodies.
+    pub async fn cache_mailbox_list(&self, account_id: &str, mailboxes: Vec<RawMailbox>) -> Result<()> {
+        let rt = self.require_runtime(account_id)?;
+        self.reconcile_mailbox_list(account_id, &rt, mailboxes).await?;
+        Ok(())
+    }
+
+    async fn reconcile_mailbox_list(&self, account_id: &str, rt: &AccountRuntime, mailboxes: Vec<RawMailbox>) -> Result<Vec<(RawMailbox, String)>> {
         let cached_mailboxes = self.store.list_mailboxes(account_id).await?;
         // Upsert every mailbox first so ingest-time rules (plan §0.6) can target
         // any folder even when it sorts after the inbox in the backend's list.
         let mut pairs = Vec::with_capacity(mailboxes.len());
         for mut rm in mailboxes {
+            self.require_runtime_generation(account_id, rt)?;
             if let Some(cached) = cached_mailboxes
                 .iter()
                 .find(|cached| {
@@ -418,13 +453,11 @@ impl Engine {
                         .await?;
                 }
             }
+            self.require_runtime_generation(account_id, rt)?;
             let mailbox_id = self.upsert_mailbox(account_id, &rm).await?;
             pairs.push((rm, mailbox_id));
         }
-        for (rm, mailbox_id) in &pairs {
-            self.sync_one(account_id, &rt, rm, mailbox_id).await?;
-        }
-        Ok(())
+        Ok(pairs)
     }
 
     /// Upsert a backend-enumerated mailbox into the store, returning its id.
@@ -463,6 +496,7 @@ impl Engine {
             .and_then(|json| cursor_from_json(&json))
             .unwrap_or_else(|| self.initial_cursor_for(account_id));
         let mut delta: MailboxDelta = rt.backend.sync_mailbox(&rm.mailbox_ref, &cursor).await?;
+        self.require_runtime_generation(account_id, rt)?;
         let validity = |cursor: &SyncCursor| match cursor {
             SyncCursor::Qresync { uidvalidity, .. }
             | SyncCursor::Condstore { uidvalidity, .. }
@@ -475,6 +509,7 @@ impl Engine {
             && self.store.get_mailbox(mailbox_id).await?.uidvalidity != next
         {
             // SELECT is authoritative when LIST had no status or raced a reset.
+            self.require_runtime_generation(account_id, rt)?;
             self.store.revalidate_mailbox(mailbox_id, next).await?;
         }
         // Older UID-window cursors contain no membership set. On their first
@@ -513,6 +548,7 @@ impl Engine {
         if !delta.added.is_empty() {
             let raws = rt.backend.fetch_raw(&delta.added).await?;
             for raw in &raws {
+                self.require_runtime_generation(account_id, rt)?;
                 self.ingest(account_id, mailbox_id, raw).await?;
             }
         }
@@ -525,6 +561,7 @@ impl Engine {
                 Some(sid) => {
                     let next_flags = flags_to_json(flags);
                     let cached = self.store.get_message(&sid).await?;
+                    self.require_runtime_generation(account_id, rt)?;
                     if cached.flags_json != next_flags {
                         self.store.set_flags(&sid, &next_flags).await?;
                         self.invalidate_message_cache(&sid).await;
@@ -549,6 +586,7 @@ impl Engine {
                 None => {
                     let raws = rt.backend.fetch_raw(std::slice::from_ref(mref)).await?;
                     for raw in &raws {
+                        self.require_runtime_generation(account_id, rt)?;
                         self.ingest(account_id, mailbox_id, raw).await?;
                     }
                 }
@@ -584,6 +622,7 @@ impl Engine {
         }
         for mref in &delta.removed {
             if let Some(sid) = self.resolve_ref(account_id, mailbox_id, mref).await? {
+                self.require_runtime_generation(account_id, rt)?;
                 self.store.delete_message(&sid).await?;
                 self.invalidate_message_cache(&sid).await;
                 let _ = self.search.delete(&sid);
@@ -604,6 +643,7 @@ impl Engine {
             }
         }
 
+        self.require_runtime_generation(account_id, rt)?;
         self.store
             .save_cursor(account_id, mailbox_id, &cursor_to_json(&delta.next_cursor))
             .await?;
@@ -1352,18 +1392,19 @@ impl Engine {
         let engine = Arc::clone(self);
         let backend = Arc::clone(&rt.backend);
         let acct = account_id.to_string();
+        {
+            let mut accounts = self.accounts.lock().expect("accounts lock");
+            let Some(current) = accounts.get_mut(account_id).filter(|current| {
+                Arc::ptr_eq(&current.initial_sync, &rt.initial_sync) && !rt.initial_sync.cancelled()
+            }) else {
+                handle.stop();
+                return Err(EngineError::Transport("account runtime was replaced".into()));
+            };
+            current.watch = Some(Arc::new(WatchHandle::new(stop_tx)));
+        }
         tokio::spawn(async move {
             watch_loop(engine, acct, backend, handle, rx, stop_rx).await;
         });
-
-        if let Some(rt) = self
-            .accounts
-            .lock()
-            .expect("accounts lock")
-            .get_mut(account_id)
-        {
-            rt.watch = Some(Arc::new(WatchHandle::new(stop_tx)));
-        }
         Ok(())
     }
 }

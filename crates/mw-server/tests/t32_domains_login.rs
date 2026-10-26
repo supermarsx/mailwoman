@@ -8,6 +8,24 @@ use common::{mock_mail::MockPop3, test_db};
 const KEY: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 
 #[tokio::test]
+async fn authenticated_login_returns_before_slow_message_enumeration() {
+    use std::{sync::Arc, time::Duration};
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let mail = MockPop3::start_accounts_with_index_gate(&[("alice@example.org", "testpass")], Some(gate.clone())).await;
+    let db = test_db::unique_dir("slow-index-login").join("mw.db").to_string_lossy().into_owned();
+    let store = Store::open(&db, ServerKey::from_hex(KEY).unwrap()).await.unwrap();
+    store.put_domain_config(&row("example.org", &mail)).await.unwrap();
+    let base = server(&db, &mail).await;
+    let client = reqwest::Client::builder().no_proxy().cookie_store(true).build().unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(5), login(&client, &base, "alice@example.org")).await.expect("login must not wait for UIDL");
+    assert_eq!(response.status(), 200);
+    assert_eq!(client.get(format!("{base}/api/me")).send().await.unwrap().status(), 200);
+    let account = store.list_accounts().await.unwrap().remove(0);
+    assert!(!store.list_mailboxes(&account.id).await.unwrap().is_empty(), "authenticated folder metadata must already exist");
+    gate.add_permits(1);
+}
+
+#[tokio::test]
 async fn domain_password_policy_uses_capabilities_and_changes_revoke_existing_authority() {
     let mail = MockPop3::start("alice@example.org", "testpass").await;
     let fallback = MockPop3::start("unused", "unused").await;

@@ -1,5 +1,6 @@
 import {PersonAvatar} from './PersonAvatar.tsx';
 import {EmptyTrash} from './EmptyTrash.tsx';
+import {InitialSyncNotice} from './InitialSyncNotice.tsx';
 import { Icon } from './Icon.tsx';
 import {downloadMessages,forwardMessages} from '../api/mailBulk.ts';
 import {preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
@@ -649,6 +650,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
         <BulkBar onCompose={props.onCompose} onClear={()=>{app.clearSelection();setSelecting(false);}}/>
       </Show>
       <OfflineQueueNotice />
+      <InitialSyncNotice />
       <Show when={app.listLoading()}><div class="list__loading" role="status">{t('mail-loading')}</div></Show>
         <Show when={rows().length > 0} fallback={<p class="list__empty">{app.listLoading() ? t('mail-loading') : t('mail-empty')}</p>}>
           <div
