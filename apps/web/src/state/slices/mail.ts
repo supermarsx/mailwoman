@@ -1499,7 +1499,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const acct = accountId();
     if (acct === null) return {items: [], position, nextPosition: null};
     const page = await loadAttachmentPage(client, acct, position);
-    if (accountId() !== acct) throw new Error('Account changed while loading attachments');
+    if (accountId() !== acct) throw new Error(t('common-attach-account-changed'));
     return page;
   }
 
