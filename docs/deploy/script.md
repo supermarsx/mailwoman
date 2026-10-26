@@ -24,6 +24,23 @@ rebuild Rust, reusing Cargo's registry and target caches where possible.
 The first build still compiles the dependencies; changing the toolchain or
 pruning the builder cache can require another expensive build.
 
+Docker Rust builds enable incremental compilation for workspace/path crates in
+its persistent target cache. Optimization remains release level3 with16 codegen
+units, overflow checks and stripping unchanged. The first build after enabling
+this has to create incremental state; benefits apply to subsequent Rust changes,
+not a cold build. Cache storage grows. Keep the same builder and avoid pruning
+its cache between deploys. Use `--no-incremental` to disable this for a build;
+switching modes can itself require recompilation.
+
+`sh deploy.sh deploy --build-jobs 4` limits Cargo's concurrent jobs if compilation
+exhausts memory or causes swapping. Without it Cargo chooses concurrency from
+available CPUs. This is separate from `CPU_LIMIT`/`MEMORY_LIMIT`, which limit the
+running app. The corresponding direct Docker build arguments are
+`MW_BUILD_JOBS=4` and `MW_CARGO_INCREMENTAL=0` (default1).
+No build-time reduction is promised without measuring on the deployment host.
+For the shortest deployment, build a trusted image elsewhere and use the existing
+`--image`/`--pull` path so the deployment host does not compile Rust.
+
 `--no-build` reuses an existing application image. It applies deployment
 configuration but does not put newly pulled application code into that image.
 

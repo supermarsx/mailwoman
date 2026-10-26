@@ -54,12 +54,19 @@ COPY apps/web/dist/.gitkeep /src/apps/web/dist/.gitkeep
 # Bump both together.
 FROM rust:1.98.1-bookworm@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288a37b5a285fc83971e AS build
 WORKDIR /src
+# Keep optimized workspace intermediates in the existing persistent target cache.
+# Explicit 16 units preserves the release profile's previous codegen partitioning.
+ARG MW_CARGO_INCREMENTAL=1
+ARG MW_BUILD_JOBS=
+ENV CARGO_INCREMENTAL=${MW_CARGO_INCREMENTAL} \
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 COPY --from=rust-source /src/ /src/
 # Cache the cargo registry and target dir across builds; copy the finished
 # binaries OUT of the (non-persisted) cache mount so later stages can COPY them.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target,sharing=locked \
-    cargo build --locked --release --bin mailwoman --bin mw-render --bin mw-mock-jmap \
+    if [ -n "$MW_BUILD_JOBS" ]; then export CARGO_BUILD_JOBS="$MW_BUILD_JOBS"; fi \
+    && cargo build --locked --release --bin mailwoman --bin mw-render --bin mw-mock-jmap \
     && mkdir -p /out /data-empty \
     && cp target/release/mailwoman target/release/mw-render target/release/mw-mock-jmap /out/
 
@@ -124,7 +131,11 @@ FROM rust:1.98.1-alpine@sha256:7cc1c22d77d9432f7fe012a70e6d3e555af54c2a6832700ed
 # root bundle copied into the scratch image for rustls upstream TLS.
 RUN apk add --no-cache build-base ca-certificates
 WORKDIR /src
-ENV RUSTFLAGS="-C target-feature=+crt-static"
+ARG MW_CARGO_INCREMENTAL=1
+ARG MW_BUILD_JOBS=
+ENV RUSTFLAGS="-C target-feature=+crt-static" \
+    CARGO_INCREMENTAL=${MW_CARGO_INCREMENTAL} \
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 COPY --from=rust-source /src/ /src/
 # Build a nonroot passwd/group and an empty data dir to carry into scratch.
 RUN printf 'nonroot:x:65532:65532:nonroot:/data:/sbin/nologin\n' > /etc/mw-passwd \
@@ -132,7 +143,8 @@ RUN printf 'nonroot:x:65532:65532:nonroot:/data:/sbin/nologin\n' > /etc/mw-passw
     && mkdir -p /data-empty /tmp-empty
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target,sharing=locked \
-    cargo build --locked --release --target x86_64-unknown-linux-musl \
+    if [ -n "$MW_BUILD_JOBS" ]; then export CARGO_BUILD_JOBS="$MW_BUILD_JOBS"; fi \
+    && cargo build --locked --release --target x86_64-unknown-linux-musl \
         --bin mailwoman --bin mw-render \
     && mkdir -p /out-musl \
     && cp target/x86_64-unknown-linux-musl/release/mailwoman \

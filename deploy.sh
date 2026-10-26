@@ -51,6 +51,8 @@ DEFAULT_SIGNATURE_ISSUER=https://token.actions.githubusercontent.com
 IMAGE=
 PULL=false
 NO_BUILD=false
+BUILD_JOBS=
+BUILD_INCREMENTAL=1
 AUTO_ROLLBACK=true
 REQUIRE_SIGNATURE=false
 DRY_RUN=false
@@ -123,6 +125,8 @@ Options:
                     Refuse an --image whose signature cannot be checked (no
                     cosign, or used from the local image store without --pull)
   --no-build        Reuse the last applied app image (configuration-only deploy)
+  --build-jobs N    Limit concurrent Cargo jobs (default: Cargo auto-detects CPUs)
+  --no-incremental Disable cached incremental Rust compilation for this build
   --no-pull         Deploy the current checkout without updating Git
   --no-auto-rollback
                     Leave a failed update in place instead of restoring the
@@ -236,6 +240,8 @@ while (($#)); do
         --pull) PULL=true ;;
         --require-signature) REQUIRE_SIGNATURE=true ;;
         --no-build) NO_BUILD=true ;;
+        --build-jobs) need_value "$@"; BUILD_JOBS=$2; shift ;;
+        --no-incremental) BUILD_INCREMENTAL=0 ;;
         --no-pull) GIT_PULL=false ;;
         --no-auto-rollback) AUTO_ROLLBACK=false ;;
         --replaced) PRUNE_REPLACED=true ;;
@@ -248,6 +254,9 @@ while (($#)); do
     shift
 done
 
+if [[ -n $BUILD_JOBS ]]; then
+    [[ $BUILD_JOBS =~ ^[1-9][0-9]{0,2}$ ]] || die "--build-jobs must be an integer from 1 to 999"
+fi
 if [[ ! $TIMEOUT =~ ^[0-9]{2,4}$ ]] || ((10#$TIMEOUT < 10 || 10#$TIMEOUT > 3600)); then die "Invalid timeout"; fi
 TIMEOUT=$((10#$TIMEOUT))
 [[ -z $IMAGE || $IMAGE != -* && $IMAGE != *[[:space:]]* ]] || die "Invalid image reference"
@@ -1437,7 +1446,10 @@ case "$ACTION" in
                 # runtime-static is the target CI scans, signs and publishes
                 # (.github/workflows/supply-chain.yml), so a built installation runs
                 # the same shape as the published image.
-                docker build --target runtime-static --tag "$IMAGE" "$ROOT"
+                log "Rust build: optimized release, incremental=$BUILD_INCREMENTAL, jobs=${BUILD_JOBS:-automatic}; cache retained between builds"
+                docker build --target runtime-static \
+                    --build-arg "MW_CARGO_INCREMENTAL=$BUILD_INCREMENTAL" \
+                    --build-arg "MW_BUILD_JOBS=$BUILD_JOBS" --tag "$IMAGE" "$ROOT"
                 built=true
             fi
             IMAGE_ID=$(docker image inspect --format '{{.Id}}' "$IMAGE")

@@ -43,7 +43,7 @@ reject() {
     [[ ! -e $FIXTURE/$checkout/reached && ! -e $FIXTURE/$checkout/reached-new ]] || fail "$checkout crossed update boundary"
     [[ ! -d $FIXTURE/$checkout/.deploy.local ]] || fail "$checkout created deployment state"
 }
-run clean --state-dir "$FIXTURE/state with spaces"
+run clean --state-dir "$FIXTURE/state with spaces" --build-jobs 4 --no-incremental
 [[ $(git -C "$FIXTURE/clean" rev-parse HEAD) == "$LATEST" ]] || fail 'did not pull'
 [[ $(cat "$FIXTURE/clean/reached-new") == "$FIXTURE/state with spaces" ]] || fail 'did not re-exec with original arguments'
 [[ $(grep -c 'Mailwoman deployment' "$FIXTURE/clean.log") == 1 ]] || fail 're-exec duplicated deployment banner'
@@ -119,6 +119,13 @@ grep -q 'Source archive:' "$FIXTURE/plain.log" || fail 'archive source informati
 grep -Eq 'Started: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]+ UTC' "$FIXTURE/plain.log" || fail 'start time missing'
 grep -q '\[2/6\] Validate configuration' "$FIXTURE/plain.log" || fail 'phase numbering did not advance'
 [[ ! -e $FIXTURE/archive/.deploy.local ]] || fail 'dry-run wrote state'
+for jobs in 0 -1 abc 1000; do
+    if bash "$FIXTURE/archive/deploy.sh" --no-pull --dry-run --build-jobs "$jobs" > "$FIXTURE/jobs.log" 2>&1; then
+        fail "invalid build job count accepted: $jobs"
+    fi
+done
+bash "$FIXTURE/archive/deploy.sh" --no-pull --dry-run --build-jobs 4 --no-incremental > "$FIXTURE/jobs.log" 2>&1
+
 if grep -q $'\033' "$FIXTURE/plain.log"; then fail 'redirected progress has color'; fi
 # Exercise the real presentation helpers without contacting Docker or sleeping.
 awk '/^LOG_ACCENT=/{copy=1} /^need_value\(\)/{copy=0} copy' "$ROOT/deploy.sh" > "$FIXTURE/progress.sh"
