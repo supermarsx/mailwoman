@@ -33,7 +33,7 @@ export function DetachedWorkspacePane(props:{title:()=>string;register:(handle:D
     if(!popup){toast.error(t('mail-popup-blocked'));return;}
     child=popup;
     let initialized=false;
-    let pendingTimer:ReturnType<typeof setTimeout>;
+
     const initialize=():void=>{
       if(initialized)return;
       try {if(popup.location.href!==popupUrl)return;}catch{return;}
@@ -100,7 +100,7 @@ export function DetachedWorkspacePane(props:{title:()=>string;register:(handle:D
     }catch{reattach();toast.error(t('mail-popup-blocked'));}
     };
     popup.addEventListener('load',initialize);
-    pendingTimer=setTimeout(()=>{if(!initialized){reattach();toast.error(t('mail-popup-blocked'));}},10000);
+    const pendingTimer=setTimeout(()=>{if(!initialized){reattach();toast.error(t('mail-popup-blocked'));}},10000);
     cleanupChild=()=>{clearTimeout(pendingTimer);popup.removeEventListener('load',initialize);};
     initialize();
   }
