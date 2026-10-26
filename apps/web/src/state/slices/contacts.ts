@@ -151,8 +151,8 @@ export interface ContactsSlice {
 
   // ── groups / distribution lists ──
   createGroup(name: string, addressBookId?: Id, memberIds?: Id[]): Promise<Id | null>;
-  updateGroup(id: Id, patch: Partial<ContactGroup>): Promise<void>;
-  deleteGroup(id: Id): Promise<void>;
+  updateGroup(id: Id, patch: Partial<ContactGroup>): Promise<boolean>;
+  deleteGroup(id: Id): Promise<boolean>;
   /** Add/remove a contact to/from a group (updates both the group and the card). */
   setGroupMembership(contactId: Id, groupId: Id, member: boolean): Promise<void>;
 }
@@ -406,25 +406,39 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
     } catch { return null; }
   }
 
-  async function updateGroup(id: Id, patch: Partial<ContactGroup>): Promise<void> {
+  async function updateGroup(id: Id, patch: Partial<ContactGroup>): Promise<boolean> {
+    const version = authority;
     const acct = await resolveAccount();
-    if (acct === null) return;
+    if (acct === null || version !== authority) return false;
+    try {
+    const response = await client.jmap(contactGroupSet(acct, { update: { [id]: { ...patch } } }));
+    if (version !== authority) return false;
+    const result = responseFor<ContactGroupSetResponse>(response, 'set');
+    if (result.accountId !== acct || result.notUpdated?.[id] || !Object.hasOwn(result.updated ?? {}, id)) return false;
     setContactGroups((gs) => gs.map((g) => (g.id === id ? { ...g, ...patch } : g)));
-    await client.jmap(contactGroupSet(acct, { update: { [id]: { ...patch } } }));
     ctx.broadcastChange?.();
+    return true;
+    } catch { return false; }
   }
 
-  async function deleteGroup(id: Id): Promise<void> {
+  async function deleteGroup(id: Id): Promise<boolean> {
+    const version = authority;
     const acct = await resolveAccount();
-    if (acct === null) return;
+    if (acct === null || version !== authority) return false;
+    try {
+    const response = await client.jmap(contactGroupSet(acct, { destroy: [id] }));
+    if (version !== authority) return false;
+    const result = responseFor<ContactGroupSetResponse>(response, 'set');
+    if (result.accountId !== acct || result.notDestroyed?.[id] || !result.destroyed?.includes(id)) return false;
     batch(() => {
       setContactGroups((gs) => gs.filter((g) => g.id !== id));
       if (selectedGroupId() === id) setSelectedGroupId(null);
       // A card's `groupIds` back-reference is dropped too.
       setContacts((cs) => cs.map((c) => (c.groupIds.includes(id) ? { ...c, groupIds: c.groupIds.filter((x) => x !== id) } : c)));
     });
-    await client.jmap(contactGroupSet(acct, { destroy: [id] }));
     ctx.broadcastChange?.();
+    return true;
+    } catch { return false; }
   }
 
   async function setGroupMembership(contactId: Id, groupId: Id, member: boolean): Promise<void> {
@@ -437,13 +451,10 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
     const groupIds = member
       ? card.groupIds.includes(groupId) ? card.groupIds : [...card.groupIds, groupId]
       : card.groupIds.filter((g) => g !== groupId);
-    // Keep the card's back-reference in sync locally, then persist both edges.
-    patchCard(contactId, { groupIds });
-    await updateGroup(groupId, { memberIds: members });
-    const acct = currentAccount;
-    if (acct !== null) {
-      await client.jmap(contactSet(acct, { update: { [contactId]: { groupIds } } }));
-    }
+    // Never apply an unconfirmed group mutation or cross an account replacement.
+    const version = authority;
+    if (!await updateGroup(groupId, { memberIds: members }) || version !== authority) return;
+    await updateContact(contactId, { groupIds });
   }
 
   return {

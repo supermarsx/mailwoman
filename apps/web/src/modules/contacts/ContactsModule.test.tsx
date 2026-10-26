@@ -161,5 +161,11 @@ describe('ContactsModule', () => {
     fireEvent.click(await screen.findByLabelText('Friends membership'));
     await waitFor(() => expect(app.contactGroups().find((g) => g.id === gid)!.memberIds).toContain('c1'));
   });
+  it('renames an existing group in its exclusive editor',async()=>{
+    const {app}=renderModule();await screen.findByText('Ada Lovelace');fireEvent.click(screen.getByRole('button',{name:'Edit group Colleagues'}));
+    expect(screen.queryByRole('searchbox',{name:'Search contacts'})).not.toBeInTheDocument();expect(screen.getByRole('heading',{name:'Edit contact group'})).toBeInTheDocument();
+    fireEvent.input(screen.getByLabelText('Group name'),{target:{value:'Team'}});expect(screen.getByLabelText('Address books')).toBeDisabled();fireEvent.click(screen.getByRole('button',{name:'Save'}));
+    await waitFor(()=>expect(app.contactGroups().find(group=>group.id==='g1')?.name).toBe('Team'));expect(app.contactGroups().find(group=>group.id==='g1')?.memberIds).toEqual(['c1']);
+  });
 });
 

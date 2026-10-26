@@ -59,6 +59,8 @@ export interface ContactGroupSetResponse {
   updated: Record<Id, unknown> | null;
   destroyed: Id[] | null;
   notCreated: Record<string, { type: string; description?: string | null }> | null;
+  notUpdated?: Record<Id, { type: string; description?: string | null }> | null;
+  notDestroyed?: Record<Id, { type: string; description?: string | null }> | null;
 }
 
 /**

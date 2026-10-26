@@ -60,6 +60,7 @@ export function ContactsModule(): JSX.Element {
   });
 
   const [panel, setPanel] = createSignal<'view' | 'edit' | 'create' | 'group'>('view');
+  const [editingGroup,setEditingGroup] = createSignal<string|null>(null);
   onCleanup(observePreferenceAccount(() => setPanel('view')));
   const [showImport, setShowImport] = createSignal(false);
   const [showDuplicates, setShowDuplicates] = createSignal(false);
@@ -75,7 +76,7 @@ export function ContactsModule(): JSX.Element {
 
   return (
     <section aria-label={t('contacts-title')} data-module="contacts" class={panel() === 'view' ? css.layout : css.editorPage}>
-        <Show when={panel() === 'group'}><GroupEditor books={app.addressBooks()} initialBook={app.selectedAddressBookId()??app.addressBooks()[0]?.id??''} onSave={(name,book)=>app.createGroup(name,book)} onSaved={()=>setPanel('view')} onCancel={()=>setPanel('view')}/></Show>
+        <Show when={panel() === 'group'}><GroupEditor books={app.addressBooks()} editing={editingGroup()!==null} initialName={app.contactGroups().find(group=>group.id===editingGroup())?.name??''} initialBook={app.contactGroups().find(group=>group.id===editingGroup())?.addressBookId??app.selectedAddressBookId()??app.addressBooks()[0]?.id??''} onSave={async(name,book)=>{const id=editingGroup();return id?(await app.updateGroup(id,{name})?id:null):app.createGroup(name,book);}} onSaved={()=>setPanel('view')} onCancel={()=>setPanel('view')}/></Show>
         <Show when={panel() === 'create'}>
           <ContactEditor
             mode="create"
@@ -102,7 +103,8 @@ export function ContactsModule(): JSX.Element {
       <Show when={panel() === 'view'}>
       <Sidebar
         isAll={isAll()}
-        onNewGroup={() => setPanel('group')}
+        onNewGroup={() => {setEditingGroup(null);setPanel('group');}}
+        onEditGroup={id=>{setEditingGroup(id);setPanel('group');}}
         onImport={() => setShowImport(true)}
       />
 
@@ -203,6 +205,7 @@ export function ContactsModule(): JSX.Element {
 function Sidebar(props: {
   isAll: boolean;
   onNewGroup: () => void;
+  onEditGroup: (id:string) => void;
   onImport: () => void;
 }): JSX.Element {
   const app = useApp();
@@ -252,6 +255,7 @@ function Sidebar(props: {
       </h2>
       <For each={app.contactGroups()}>
         {(group) => (
+          <div class={css.groupNavigation}>
           <button
             type="button"
             class={css.navButton}
@@ -261,6 +265,8 @@ function Sidebar(props: {
             <span><bdi>{group.name}</bdi></span>
             <span class={css.count}>{memberCount(group.id)}</span>
           </button>
+          <button type="button" class={css.buttonGhost} aria-label={t('contacts-edit-named-group',{name:group.name})} onClick={()=>props.onEditGroup(group.id)}><Icon name="edit"/></button>
+          </div>
         )}
       </For>
 

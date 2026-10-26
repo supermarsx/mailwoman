@@ -91,6 +91,7 @@ export function makeContactsClient(seed: ContactsSeed = {}): Client {
       }
       case 'ContactGroup/set': {
         const created: Record<string, { id: string }> = {};
+        const updated: Record<string, null> = {};
         for (const [key, payload] of Object.entries((args['create'] as Record<string, Record<string, unknown>>) ?? {})) {
           const id = gen('grp');
           groups.push({ id, addressBookId: (payload['addressBookId'] as string) ?? books[0]?.id ?? 'default', name: (payload['name'] as string) ?? '', memberIds: (payload['memberIds'] as string[]) ?? [] });
@@ -98,13 +99,13 @@ export function makeContactsClient(seed: ContactsSeed = {}): Client {
         }
         for (const [id, patch] of Object.entries((args['update'] as Record<string, Record<string, unknown>>) ?? {})) {
           const idx = groups.findIndex((g) => g.id === id);
-          if (idx >= 0) groups[idx] = { ...groups[idx]!, ...(patch as Partial<ContactGroup>) };
+          if (idx >= 0) { groups[idx] = { ...groups[idx]!, ...(patch as Partial<ContactGroup>) }; updated[id] = null; }
         }
         for (const id of (args['destroy'] as string[]) ?? []) {
           const idx = groups.findIndex((g) => g.id === id);
           if (idx >= 0) groups.splice(idx, 1);
         }
-        return ['ContactGroup/set', { accountId: 'acct1', created, updated: {}, destroyed: (args['destroy'] as string[]) ?? [], notCreated: null }, callId];
+        return ['ContactGroup/set', { accountId: 'acct1', created, updated, destroyed: (args['destroy'] as string[]) ?? [], notCreated: null }, callId];
       }
       case 'ContactCard/merge': {
         // The slice merges client-side; the mock just tombstones the sources.

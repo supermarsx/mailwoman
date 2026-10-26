@@ -20,7 +20,7 @@ function setup(mode: 'reject' | 'missing' | 'delay', method = 'ContactCard/set')
       if (mode === 'delay') { reached(); await held; }
       else for (const call of response.methodResponses) {
         if (call[0] !== method) continue;
-        Object.assign(call[1], {created: null, updated: null,
+        Object.assign(call[1], {created: null, updated: null, destroyed: null,
           notUpdated: mode === 'reject' ? {c1: {type: 'forbidden'}} : null,
           notCreated: mode === 'reject' ? {new: {type: 'forbidden'}} : null});
       }
@@ -32,6 +32,15 @@ function setup(mode: 'reject' | 'missing' | 'delay', method = 'ContactCard/set')
   return {slice, broadcast, release, waiting};
 }
 describe('contact save acknowledgement and account fence', () => {
+  for (const mode of ['reject', 'missing'] as const) it(`preserves groups on ${mode} update and delete acknowledgement`,async()=>{
+    const {slice,broadcast}=setup(mode,'ContactGroup/set');await slice.loadContacts();const before=structuredClone(slice.contactGroups());
+    await slice.updateGroup('g1',{name:'Unconfirmed'});expect(slice.contactGroups()).toEqual(before);
+    await slice.deleteGroup('g1');expect(slice.contactGroups()).toEqual(before);expect(broadcast).not.toHaveBeenCalled();
+  });
+  it('ignores group update acknowledgements after account replacement',async()=>{
+    const {slice,broadcast,release,waiting}=setup('delay','ContactGroup/set');await slice.loadContacts();const save=slice.updateGroup('g1',{name:'Old account'});await waiting;
+    suspendAccountPreferences();activateAccountPreferences('acct2');release();await save;expect(slice.contactGroups()).toEqual([]);expect(broadcast).not.toHaveBeenCalled();
+  });
   for (const mode of ['reject', 'missing'] as const) it(`does not invent a group on ${mode} acknowledgement`, async () => {
     const {slice,broadcast}=setup(mode,'ContactGroup/set');await slice.loadContacts();const before=slice.contactGroups();
     expect(await slice.createGroup('Unconfirmed')).toBeNull();expect(slice.contactGroups()).toEqual(before);expect(broadcast).not.toHaveBeenCalled();

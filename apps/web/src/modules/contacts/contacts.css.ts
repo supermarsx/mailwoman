@@ -23,6 +23,8 @@ const rule = `${vars.border.rule} solid ${vars.color.borderStrong}`;
 const startBar = `inset 4px 0 0 ${vars.color.accent}`;
 const startBarRtl = `inset -4px 0 0 ${vars.color.accent}`;
 
+export const groupNavigation = style({display:'grid',gridTemplateColumns:'minmax(0,1fr) auto',alignItems:'center',gap:vars.space[2]});
+
 export const layout = style({
   display: 'grid',
   gridTemplateColumns: 'minmax(160px, 220px) minmax(220px, 340px) 1fr',

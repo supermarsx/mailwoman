@@ -110,3 +110,8 @@ contacts-editor-save-error = The contact could not be saved. Your changes are st
 contacts-group-editor-help = Create a group in an address book, then add members from their contact cards.
 contacts-group-details = Group details
 contacts-group-save-error = The group could not be saved. Your changes are still here. Try again.
+
+contacts-edit-group = Edit contact group
+contacts-edit-named-group = Edit group { $name }
+contacts-group-name = Group name
+contacts-group-edit-help = Update this group's name. Its address book and membership remain unchanged.
