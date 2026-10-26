@@ -252,6 +252,7 @@ pub fn current() -> Option<Arc<EgressPlan>> {
 /// One class request, apart from its URL.
 #[derive(Debug, Clone, Copy)]
 pub struct Request<'a> {
+    authorized_dav: Option<crate::AuthorizedDav<'a>>,
     class: TrafficClass,
     domain: Option<&'a str>,
     accept: &'a str,
@@ -265,6 +266,7 @@ impl<'a> Request<'a> {
     /// `User-Agent` and no account.
     pub fn get(class: TrafficClass) -> Request<'a> {
         Request {
+            authorized_dav: None,
             class,
             domain: None,
             accept: "*/*",
@@ -284,6 +286,19 @@ impl<'a> Request<'a> {
             }),
             ..Request::get(class)
         }
+    }
+
+    /// Credential-bearing DAV/OCS requests never follow redirects or retry auth.
+    pub fn dav(auth: crate::AuthorizedDav<'a>, body: Option<OutBody<'a>>) -> Result<Self, Refusal> {
+        auth.validate()?;
+        if body.is_some_and(|body| body.bytes.len() > crate::MAX_IMAGE_BYTES) {
+            return Err(Refusal::TooLarge);
+        }
+        Ok(Self {
+            authorized_dav: Some(auth),
+            body,
+            ..Self::get(TrafficClass::Nextcloud)
+        })
     }
 
     /// Made for an account of this mail domain, so a route scoped to the domain
@@ -319,6 +334,7 @@ impl<'a> Request<'a> {
 
     fn outgoing(&self) -> Outgoing<'a> {
         Outgoing {
+            authorized_dav: self.authorized_dav,
             accept: self.accept,
             user_agent: self
                 .user_agent
@@ -411,7 +427,9 @@ async fn send_direct(
         let target = resolve_gated(url.clone(), gate).await?;
         match send_hop_typed(&target, out).await? {
             (Hop::Body(bytes), content_type) => return Ok((bytes, content_type)),
-            (Hop::Redirect(_), _) if out.body.is_some() => return Err(Refusal::Upstream),
+            (Hop::Redirect(_), _) if out.body.is_some() || out.authorized_dav.is_some() => {
+                return Err(Refusal::Upstream);
+            }
             (Hop::Redirect(loc), _) => url = url.join(&loc).map_err(|_| Refusal::Upstream)?,
         }
     }
@@ -833,7 +851,14 @@ mod sieve_tests {
         ] {
             assert!(!sieve_ip_allowed(&ip.parse().unwrap(), true), "{ip}");
         }
-        for ip in ["10.1.2.3", "192.168.1.2", "fd00::1", "127.0.0.1", "::1", "::ffff:127.0.0.1"] {
+        for ip in [
+            "10.1.2.3",
+            "192.168.1.2",
+            "fd00::1",
+            "127.0.0.1",
+            "::1",
+            "::ffff:127.0.0.1",
+        ] {
             assert!(!sieve_ip_allowed(&ip.parse().unwrap(), false));
             assert!(sieve_ip_allowed(&ip.parse().unwrap(), true));
         }

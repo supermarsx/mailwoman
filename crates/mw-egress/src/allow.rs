@@ -8,7 +8,7 @@
 //!
 //! # What an entry can never do
 //! * **Widen another class.** Only [`TrafficClass::Webhooks`],
-//!   [`TrafficClass::Siem`] and [`TrafficClass::Analytics`] are eligible ([`TrafficClass::internal_allow_eligible`]);
+//!   [`TrafficClass::Siem`], [`TrafficClass::Analytics`] and [`TrafficClass::Nextcloud`] are eligible ([`TrafficClass::internal_allow_eligible`]);
 //!   [`AllowEntry::new`] refuses the rest, and [`InternalAllowList::permits`] checks
 //!   again, so a list built some other way cannot widen remote content either.
 //! * **Reach loopback, link-local or the cloud-metadata address.** A match is
@@ -189,7 +189,7 @@ impl AllowEntry {
     ) -> Result<AllowEntry, &'static str> {
         if !class.internal_allow_eligible() {
             return Err(
-                "only the webhooks, siem and analytics classes may reach internal destinations",
+                "only the webhooks, siem, analytics and nextcloud classes may reach internal destinations",
             );
         }
         Ok(AllowEntry { class, destination })
@@ -484,6 +484,47 @@ mod tests {
         assert!(!l.permits(
             TrafficClass::Analytics,
             "collector.corp.example",
+            80,
+            &ip("10.20.9.9")
+        ));
+    }
+
+    #[test]
+    fn nextcloud_permission_is_scoped_and_cannot_admit_metadata_or_loopback() {
+        let l = list(&[(TrafficClass::Nextcloud, "cloud.corp.example:443")]);
+        assert!(l.permits(
+            TrafficClass::Nextcloud,
+            "cloud.corp.example",
+            443,
+            &ip("10.20.9.9")
+        ));
+        for class in TrafficClass::ALL {
+            if class != TrafficClass::Nextcloud {
+                assert!(!l.permits(class, "cloud.corp.example", 443, &ip("10.20.9.9")));
+            }
+        }
+        for address in [
+            "127.0.0.1",
+            "::1",
+            "169.254.169.254",
+            "::ffff:169.254.169.254",
+        ] {
+            assert!(!l.permits(
+                TrafficClass::Nextcloud,
+                "cloud.corp.example",
+                443,
+                &ip(address)
+            ));
+        }
+        assert!(!l.permits(
+            TrafficClass::Nextcloud,
+            "other.corp.example",
+            443,
+            &ip("10.20.9.9")
+        ));
+        assert!(!l.permits(
+            TrafficClass::Nextcloud,
+            "cloud.corp.example",
             80,
             &ip("10.20.9.9")
         ));

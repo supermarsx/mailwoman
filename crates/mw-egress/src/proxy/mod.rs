@@ -554,6 +554,7 @@ pub async fn tunnel_fetch_hop(target: &Target, route: &ProxyRoute, accept: &str)
         target,
         route,
         &Outgoing {
+            authorized_dav: None,
             accept,
             user_agent: PROXY_UA,
             body: None,
@@ -643,6 +644,7 @@ pub async fn fetch_via_proxy(start: reqwest::Url, route: &ProxyRoute, accept: &s
         start,
         route,
         &Outgoing {
+            authorized_dav: None,
             accept,
             user_agent: PROXY_UA,
             body: None,
@@ -702,7 +704,7 @@ async fn send_via_proxy_with(
                     outcome: Ok(bytes),
                 };
             }
-            Ok(Hop::Redirect(_)) if out.body.is_some() => {
+            Ok(Hop::Redirect(_)) if out.body.is_some() || out.authorized_dav.is_some() => {
                 return ProxyFetch {
                     traversed_proxy,
                     content_type: None,

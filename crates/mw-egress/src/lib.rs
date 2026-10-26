@@ -369,16 +369,25 @@ fn on_prem_v4_allowed(v4: &Ipv4Addr) -> bool {
 /// An exact, privileged operator-configured mail endpoint may explicitly opt in
 /// to private LAN or same-host addresses. Metadata and reserved targets stay denied.
 pub fn operator_mail_ip_allowed(ip: &IpAddr, allow_private: bool) -> bool {
-    if ip_allowed(ip) { return true; }
-    if !allow_private { return false; }
-    if let IpAddr::V6(v6)=ip && let Some(v4)=v6.to_ipv4_mapped() {
-        return operator_mail_ip_allowed(&IpAddr::V4(v4),true);
+    if ip_allowed(ip) {
+        return true;
     }
-    if ip.is_loopback() { return true; }
-    on_prem_allowed(ip) && match ip {
-        IpAddr::V4(v4)=>v4.is_private(),
-        IpAddr::V6(v6)=>v6.is_unique_local(),
+    if !allow_private {
+        return false;
     }
+    if let IpAddr::V6(v6) = ip
+        && let Some(v4) = v6.to_ipv4_mapped()
+    {
+        return operator_mail_ip_allowed(&IpAddr::V4(v4), true);
+    }
+    if ip.is_loopback() {
+        return true;
+    }
+    on_prem_allowed(ip)
+        && match ip {
+            IpAddr::V4(v4) => v4.is_private(),
+            IpAddr::V6(v6) => v6.is_unique_local(),
+        }
 }
 
 /// Reassemble an IPv4 address from the two 16-bit v6 segments that carry it.
@@ -562,6 +571,7 @@ pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Re
     send_hop(
         target,
         &Outgoing {
+            authorized_dav: None,
             accept,
             user_agent,
             body: None,
@@ -580,6 +590,8 @@ pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Re
 /// a reader's request (no cookie, referrer, authorization or browser UA).
 #[derive(Clone, Copy)]
 pub struct Outgoing<'a> {
+    /// Explicit credential-bearing DAV operation; redirects are always refused.
+    pub authorized_dav: Option<AuthorizedDav<'a>>,
     /// Maximum response bytes; always bounded by the hard transport ceiling.
     pub response_limit: usize,
     /// The `Accept` header.
@@ -588,6 +600,64 @@ pub struct Outgoing<'a> {
     pub user_agent: &'a str,
     /// The request body; `None` for `GET`.
     pub body: Option<OutBody<'a>>,
+}
+
+/// Deliberately restricted methods for account-owned DAV/OCS calls.
+#[derive(Clone, Copy, Debug)]
+pub enum DavMethod {
+    Get,
+    Propfind,
+    Put,
+    Post,
+    Report,
+    Delete,
+}
+impl DavMethod {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Get => "GET",
+            Self::Propfind => "PROPFIND",
+            Self::Put => "PUT",
+            Self::Post => "POST",
+            Self::Report => "REPORT",
+            Self::Delete => "DELETE",
+        }
+    }
+}
+/// No arbitrary headers, Host override, cookies or proxy credentials.
+#[derive(Clone, Copy)]
+pub struct AuthorizedDav<'a> {
+    pub method: DavMethod,
+    pub authorization: &'a str,
+    pub depth: Option<u8>,
+    pub ocs: bool,
+    pub if_match: Option<&'a str>,
+}
+impl fmt::Debug for AuthorizedDav<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthorizedDav")
+            .field("method", &self.method)
+            .finish_non_exhaustive()
+    }
+}
+impl AuthorizedDav<'_> {
+    pub fn validate(&self) -> Result<(), Refusal> {
+        if !self.authorization.starts_with("Basic ")
+            || self.authorization.len() > 16384
+            || self.depth.is_some_and(|depth| depth > 1)
+        {
+            return Err(Refusal::BadRequest("invalid DAV authorization or depth"));
+        }
+        for value in [Some(self.authorization), self.if_match]
+            .into_iter()
+            .flatten()
+        {
+            if value.len() > 16384 || reqwest::header::HeaderValue::from_str(value).is_err() {
+                return Err(Refusal::BadRequest("invalid DAV header"));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// A `POST` body.
@@ -645,12 +715,38 @@ pub(crate) async fn send_hop_typed(
         .build()
         .map_err(|_| Refusal::Upstream)?;
 
-    let request = match out.body {
-        None => client.get(target.url.clone()),
-        Some(b) => client
-            .post(target.url.clone())
-            .header(header::CONTENT_TYPE, b.content_type)
-            .body(b.bytes.to_vec()),
+    let request = if let Some(dav) = out.authorized_dav {
+        dav.validate()?;
+        let mut request = client
+            .request(
+                reqwest::Method::from_bytes(dav.method.as_str().as_bytes())
+                    .map_err(|_| Refusal::BadRequest("invalid DAV method"))?,
+                target.url.clone(),
+            )
+            .header(header::AUTHORIZATION, dav.authorization);
+        if let Some(depth) = dav.depth {
+            request = request.header("Depth", depth.to_string());
+        }
+        if dav.ocs {
+            request = request.header("OCS-APIRequest", "true");
+        }
+        if let Some(tag) = dav.if_match {
+            request = request.header(header::IF_MATCH, tag);
+        }
+        if let Some(body) = out.body {
+            request = request
+                .header(header::CONTENT_TYPE, body.content_type)
+                .body(body.bytes.to_vec());
+        }
+        request
+    } else {
+        match out.body {
+            None => client.get(target.url.clone()),
+            Some(b) => client
+                .post(target.url.clone())
+                .header(header::CONTENT_TYPE, b.content_type)
+                .body(b.bytes.to_vec()),
+        }
     };
     let resp = request
         .header(header::USER_AGENT, out.user_agent)
@@ -693,7 +789,10 @@ pub(crate) async fn send_hop_typed(
             .get(header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok()),
     );
-    Ok((Hop::Body(read_capped(resp, out.response_limit.min(MAX_IMAGE_BYTES)).await?), media_type))
+    Ok((
+        Hop::Body(read_capped(resp, out.response_limit.min(MAX_IMAGE_BYTES)).await?),
+        media_type,
+    ))
 }
 
 /// Stream a response body, refusing once it exceeds [`MAX_IMAGE_BYTES`]. Uses

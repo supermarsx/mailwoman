@@ -60,6 +60,7 @@ where
         stream,
         url,
         &Outgoing {
+            authorized_dav: None,
             accept,
             user_agent: PROXY_UA,
             body: None,
@@ -98,11 +99,17 @@ where
     // The connection future must be driven for the exchange to make progress. It is
     // aborted when this hop ends — there is no pooling, so each hop (and each
     // redirect) gets a fresh tunnel, matching the direct path's per-hop isolation.
-    let pump = tokio::spawn(async move {
+    struct AbortOnDrop(tokio::task::JoinHandle<()>);
+    impl Drop for AbortOnDrop {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+    let pump = AbortOnDrop(tokio::spawn(async move {
         let _ = conn.await;
-    });
+    }));
     let result = exchange_inner(&mut sender, url, out).await;
-    pump.abort();
+    drop(pump);
     result
 }
 
@@ -118,14 +125,36 @@ async fn exchange_inner(
         .header(header::ACCEPT, out.accept)
         // One less decompression-bomb surface, identical to the direct path.
         .header(header::ACCEPT_ENCODING, "identity");
-    let request = match out.body {
-        None => builder
-            .method(hyper::Method::GET)
-            .body(Either::Left(Empty::<Bytes>::new())),
-        Some(b) => builder
-            .method(hyper::Method::POST)
-            .header(header::CONTENT_TYPE, b.content_type)
-            .body(Either::Right(Full::new(Bytes::copy_from_slice(b.bytes)))),
+    let request = if let Some(dav) = out.authorized_dav {
+        dav.validate().map_err(ProxyRefusal::Origin)?;
+        let mut builder = builder
+            .method(dav.method.as_str())
+            .header(header::AUTHORIZATION, dav.authorization);
+        if let Some(depth) = dav.depth {
+            builder = builder.header("Depth", depth.to_string());
+        }
+        if dav.ocs {
+            builder = builder.header("OCS-APIRequest", "true");
+        }
+        if let Some(tag) = dav.if_match {
+            builder = builder.header(header::IF_MATCH, tag);
+        }
+        match out.body {
+            None => builder.body(Either::Left(Empty::<Bytes>::new())),
+            Some(body) => builder
+                .header(header::CONTENT_TYPE, body.content_type)
+                .body(Either::Right(Full::new(Bytes::copy_from_slice(body.bytes)))),
+        }
+    } else {
+        match out.body {
+            None => builder
+                .method(hyper::Method::GET)
+                .body(Either::Left(Empty::<Bytes>::new())),
+            Some(b) => builder
+                .method(hyper::Method::POST)
+                .header(header::CONTENT_TYPE, b.content_type)
+                .body(Either::Right(Full::new(Bytes::copy_from_slice(b.bytes)))),
+        }
     }
     .map_err(|e| ProxyRefusal::OriginHttp(format!("request could not be built: {e}")))?;
 
@@ -199,15 +228,29 @@ mod tests {
                 loop {
                     let byte = server.read_u8().await.unwrap();
                     request.push(byte);
-                    if request.ends_with(b"\r\n\r\n") { break; }
+                    if request.ends_with(b"\r\n\r\n") {
+                        break;
+                    }
                 }
                 server.write_all(reply.as_bytes()).await.unwrap();
                 server.shutdown().await.unwrap();
             });
-            let result = exchange_with(client, &url("http://example.test/image"), &Outgoing {
-                accept: "*/*", user_agent: PROXY_UA, body: None, response_limit: 4,
-            }).await;
-            assert!(matches!(result, Err(ProxyRefusal::Origin(Refusal::TooLarge))), "{result:?}");
+            let result = exchange_with(
+                client,
+                &url("http://example.test/image"),
+                &Outgoing {
+                    authorized_dav: None,
+                    accept: "*/*",
+                    user_agent: PROXY_UA,
+                    body: None,
+                    response_limit: 4,
+                },
+            )
+            .await;
+            assert!(
+                matches!(result, Err(ProxyRefusal::Origin(Refusal::TooLarge))),
+                "{result:?}"
+            );
         }
     }
 

@@ -6,8 +6,8 @@
 //!     carries (`egress_proxy.traffic_classes_json`), and a class no live route
 //!     lists goes direct ([`crate::plan::EgressPlan::selected_route`]);
 //!   * **whether the internal-destination allowlist applies** — only
-//!     [`TrafficClass::Webhooks`] and [`TrafficClass::Siem`] may reach an
-//!     admin-listed private destination (an on-prem collector); every other class
+//!     explicitly eligible webhook, collector and Nextcloud classes may reach an
+//!     admin-listed private destination; every other class
 //!     is held to [`crate::ip_allowed`] without exception.
 //!
 //! The class is a constant at the call site. It never comes from a request, a
@@ -47,6 +47,8 @@ pub enum TrafficClass {
     Siem,
     /// Explicitly opted-in application event counts for a configured collector.
     Analytics,
+    /// Account-owned Nextcloud DAV and OCS requests to an admin-approved authority.
+    Nextcloud,
     /// OAuth token and device-code endpoints of mail providers.
     Oauth,
     /// The release feed polled by the optional update check.
@@ -61,7 +63,7 @@ pub const CLASS_UA: &str = "Mailwoman";
 
 impl TrafficClass {
     /// Every class, in declaration order.
-    pub const ALL: [TrafficClass; 13] = [
+    pub const ALL: [TrafficClass; 14] = [
         TrafficClass::RemoteContent,
         TrafficClass::IcsFeeds,
         TrafficClass::Keyservers,
@@ -72,6 +74,7 @@ impl TrafficClass {
         TrafficClass::Unsubscribe,
         TrafficClass::Siem,
         TrafficClass::Analytics,
+        TrafficClass::Nextcloud,
         TrafficClass::Oauth,
         TrafficClass::UpdateCheck,
         TrafficClass::Sieve,
@@ -96,6 +99,7 @@ impl TrafficClass {
             TrafficClass::Unsubscribe => "unsubscribe",
             TrafficClass::Siem => "siem",
             TrafficClass::Analytics => "analytics",
+            TrafficClass::Nextcloud => "nextcloud",
             TrafficClass::Oauth => "oauth",
             TrafficClass::UpdateCheck => "update_check",
             TrafficClass::Sieve => "sieve",
@@ -114,7 +118,10 @@ impl TrafficClass {
     pub const fn internal_allow_eligible(self) -> bool {
         matches!(
             self,
-            TrafficClass::Webhooks | TrafficClass::Siem | TrafficClass::Analytics
+            TrafficClass::Webhooks
+                | TrafficClass::Siem
+                | TrafficClass::Analytics
+                | TrafficClass::Nextcloud
         )
     }
 
@@ -175,6 +182,7 @@ mod tests {
                 "unsubscribe",
                 "siem",
                 "analytics",
+                "nextcloud",
                 "oauth",
                 "update_check",
                 "sieve",
@@ -197,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn only_explicit_collector_classes_may_use_the_internal_allowlist() {
+    fn only_explicit_internal_classes_may_use_the_internal_allowlist() {
         let eligible: Vec<_> = TrafficClass::ALL
             .into_iter()
             .filter(|c| c.internal_allow_eligible())
@@ -207,7 +215,8 @@ mod tests {
             [
                 TrafficClass::Webhooks,
                 TrafficClass::Siem,
-                TrafficClass::Analytics
+                TrafficClass::Analytics,
+                TrafficClass::Nextcloud
             ]
         );
     }

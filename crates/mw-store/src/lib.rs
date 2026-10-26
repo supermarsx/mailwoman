@@ -25,6 +25,7 @@ mod admin_accounts;
 mod admin_passkeys;
 pub use admin_passkeys::{AdminPasskey, AdminSessionFactor};
 mod ssh_tunnels;
+pub mod nextcloud_links;
 pub use ssh_tunnels::{SshCredentialChange, SshTunnelDelete, SshTunnelMutation, SshTunnelRow};
 mod domain_config;
 pub use domain_config::{

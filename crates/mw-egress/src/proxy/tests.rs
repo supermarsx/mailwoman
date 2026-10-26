@@ -37,6 +37,7 @@ async fn hop(
     accept: &str,
 ) -> (bool, Result<Hop, ProxyRefusal>) {
     let out = Outgoing {
+        authorized_dav: None,
         accept,
         user_agent: PROXY_UA,
         body: None,
