@@ -4,6 +4,7 @@ import { Compose } from './Compose.tsx';
 import { makeClient } from './appHarness.tsx';
 import { createAppState } from '../state/store.ts';
 import { AppContext } from '../state/context.ts';
+import {listDrafts} from './compose/drafts-store.ts';
 
 // The rich editor's chunk never arrives in this file: the dynamic import stays
 // pending for the life of the test, which is what a slow or stalled network
@@ -65,11 +66,8 @@ describe('Compose — the rich editor chunk has not arrived', () => {
         </AppContext.Provider>
       ));
       fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'draft text' } });
-      vi.advanceTimersByTime(1000);
-      const stored = JSON.parse(localStorage.getItem('mw.compose.drafts.v1') ?? '[]') as {
-        bodyHtml: string;
-        bodyText: string;
-      }[];
+      await vi.advanceTimersByTimeAsync(1000);
+      const stored = listDrafts('acct1','test-storage-authority-acct1');
       expect(stored).toHaveLength(1);
       expect({ bodyHtml: stored[0]!.bodyHtml, bodyText: stored[0]!.bodyText }).toEqual({
         bodyHtml: '<p>draft text</p>',

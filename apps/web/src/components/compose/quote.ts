@@ -5,10 +5,10 @@
 // the crypto worker), or its plain text. It is parsed into a document that has
 // no browsing context, stripped of everything that embeds or loads, and then
 // reduced to the composer's quote schema (`quoteSchema` in `richtext.ts`) —
-// paragraphs, headings, lists, blockquotes, code, and http/https/mailto links.
-// That schema has no image node and keeps no `style`, `class` or event
-// attribute, so no remote reference of the original is carried into the
-// outgoing body.
+// paragraphs, headings, lists, bounded tables, blockquotes, code, and
+// http/https/mailto links. It keeps only schema-validated formatting styles,
+// with no image node, arbitrary CSS, class or event attributes. Remote embeds
+// from the original cannot be carried into the outgoing body.
 //
 // ProseMirror is imported on demand: this module is reached from the reader,
 // which is on the entry chunk, and the schema's libraries are not.

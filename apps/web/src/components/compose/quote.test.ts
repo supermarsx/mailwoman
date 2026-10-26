@@ -24,14 +24,15 @@ const HOSTILE = [
   '<blockquote>earlier quote</blockquote>',
   '</body></html>',
 ].join('');
+const SAFE_TABLE='<table style="border-collapse: collapse; width: 100%;"><tbody><tr><td colspan="1" rowspan="1" style="border: 1px solid rgb(128, 128, 128); padding: 4px; vertical-align: top;"><p>cell text</p></td></tr></tbody></table>';
 
 describe('the quote of a hostile original', () => {
-  it('is exactly the inert markup below: text, bold, one http link, a blockquote', async () => {
+  it('retains inert text, bold, one http link, a bounded table and a blockquote', async () => {
     const quote = await quoteForReply({ html: HOSTILE }, 'On 1 Jan 2026, Mallory wrote:');
     expect(quote.html).toBe(
       '<p></p><p>On 1 Jan 2026, Mallory wrote:</p><blockquote>' +
         '<p>Hello <strong>bold</strong> js-link <a href="https://ok.example/page">ok-link</a> data-link</p>' +
-        '<p>cell text</p>' +
+        SAFE_TABLE +
         '<blockquote><p>earlier quote</p></blockquote>' +
         '</blockquote>',
     );
@@ -41,11 +42,11 @@ describe('the quote of a hostile original', () => {
     const { html } = await quoteForReply({ html: HOSTILE }, 'A wrote:');
     const body = inertBody(html);
     const tags = new Set(Array.from(body.querySelectorAll('*')).map((el) => el.tagName.toLowerCase()));
-    expect([...tags].sort()).toEqual(['a', 'blockquote', 'p', 'strong']);
+    expect([...tags].sort()).toEqual(['a', 'blockquote', 'p', 'strong','table','tbody','td','tr']);
     const attrs = Array.from(body.querySelectorAll('*')).flatMap((el) =>
       Array.from(el.attributes).map((a) => `${el.tagName.toLowerCase()}[${a.name}=${a.value}]`),
     );
-    expect(attrs).toEqual(['a[href=https://ok.example/page]']);
+    expect(attrs).toEqual(['a[href=https://ok.example/page]','table[style=border-collapse: collapse; width: 100%;]','td[colspan=1]','td[rowspan=1]','td[style=border: 1px solid rgb(128, 128, 128); padding: 4px; vertical-align: top;]']);
     expect(html).not.toMatch(/evil\.example|tracker\.example|javascript:|data:|cid:|url\(|<img|<script|<style|<link|<iframe|\son\w+=/i);
     // Content of the removed elements is gone with them, not left behind as text.
     expect(html).not.toMatch(/S-SCRIPT|S-STYLE|T-TITLE|F-FALLBACK|O-FALLBACK|S-SVG|I-VALUE|B-LABEL|V-FALLBACK/);
@@ -74,7 +75,7 @@ describe('the quote of a hostile original', () => {
         'From: Mallory &lt;img src=x onerror=steal()&gt; &lt;m@evil.example&gt;<br>' +
         'Subject: &lt;script&gt;alert(1)&lt;/script&gt;</p>' +
         '<p>Hello <strong>bold</strong> js-link <a href="https://ok.example/page">ok-link</a> data-link</p>' +
-        '<p>cell text</p>' +
+        SAFE_TABLE +
         '<blockquote><p>earlier quote</p></blockquote>',
     );
     expect(inertBody(quote.html).querySelectorAll('img, script').length).toBe(0);

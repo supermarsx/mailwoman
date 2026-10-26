@@ -55,12 +55,12 @@ async function open(initial?: ComposeInitial) {
   const client = makeClient();
   const app = createAppState(client);
   const onClose = vi.fn();
+  await app.login({ username: 'me@example.org', password: 'p' });
   render(() => (
     <AppContext.Provider value={app}>
       <Compose onClose={onClose} {...(initial !== undefined ? { initial } : {})} />
     </AppContext.Provider>
   ));
-  await app.login({ username: 'me@example.org', password: 'p' });
   return { client, app, onClose };
 }
 
@@ -124,7 +124,7 @@ describe('Compose opened as a reply or a forward', () => {
     expect(screen.queryByLabelText('Cc')).toBeNull();
     expect(screen.queryByLabelText('Bcc')).toBeNull();
     expect(screen.getByRole('heading', { name: 'New message' })).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('format-toggle')); // plain text
+    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'plain'}});
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
     fireEvent.input(screen.getByLabelText('Subject'), { target: { value: 'Hi' } });
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'b' } });
@@ -142,7 +142,7 @@ describe('Compose opened as a reply or a forward', () => {
   it('typed Cc and Bcc go on the draft and into the envelope', async () => {
     const { client, onClose } = await open();
     fireEvent.click(screen.getByTestId('compose-show-cc-bcc'));
-    fireEvent.click(screen.getByTestId('format-toggle'));
+    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'plain'}});
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
     fireEvent.input(screen.getByLabelText('Cc'), { target: { value: 'Carol <carol@example.org>' } });
     fireEvent.input(screen.getByLabelText('Bcc'), { target: { value: 'dave@example.org; you@example.org' } });
@@ -170,7 +170,7 @@ describe('Compose opened as a reply or a forward', () => {
   it('a Bcc-only message is sent: To is not required', async () => {
     const { client, onClose } = await open();
     fireEvent.click(screen.getByTestId('compose-show-cc-bcc'));
-    fireEvent.click(screen.getByTestId('format-toggle'));
+    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'plain'}});
     fireEvent.input(screen.getByLabelText('Bcc'), { target: { value: 'dave@example.org' } });
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'b' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -242,7 +242,7 @@ describe('Compose opened as a reply or a forward', () => {
     cleanup();
 
     const fresh = await open();
-    fireEvent.click(screen.getByTestId('format-toggle'));
+    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'plain'}});
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(fresh.onClose).toHaveBeenCalledTimes(1));
