@@ -4,6 +4,17 @@ Updated 2026-10-26. This ledger covers the requests made in this session. Assign
 
 States: **Verified** means the bounded behavior listed has passing local acceptance evidence; **Partial** means implementation or acceptance remains; **Audit** means existing code must be checked against the full request before a completion claim. Live provider/deployment acceptance is separate from mock/local tests.
 
+## Latest reviewed checkpoints (2026-10-26)
+
+- `990ab94`: admin expiry now returns to sign-in with an explicit reason and safe return location. Late successful responses cannot revive an expired session. UI67 and actual Chromium/Firefox/phone expiry/reload/reauthentication checks pass; 403 does not masquerade as expiry.
+- `f3e024d`: plugin HTTP uses current account-bound egress policy, explicit hostname/capability grants and approved internal destinations. No ambient credential/direct-network fallback. Native transport/admission, real HTTP, direct account lookup, strict checks and browser3 pass. Domain provider activation is still pending.
+- `16bc419`: actual sender addresses and identities are authorized both at queue time and dispatch; foreign identity ownership conflicts cannot overwrite or delete another account's identity. Real SMTP finality21, HTTP1, SQLite/live PostgreSQL ownership/concurrency2 and strict checks pass.
+- `fed39a3`: plain composition produces actual plain MIME; Cc/Bcc use SMTP recipients with Bcc excluded from transmitted headers. Drafts retain account, identity and format with stale-account fences; native literal signature templates resolve current content. UI201, native resolver/preservation, controlled SMTP browser3 and strict checks pass. Explicit HTML/plain signature authoring is the next separate checkpoint.
+- `91d152a`: bounded TLS/PROXY handshake concurrency and deadlines prevent a silent TLS peer from blocking the listener. Real TLS wire4/floor2, transport31, assessment HTTP1, catalogue3, UI5 and strict checks pass. HTTP header/body/connection admission and actual HTTP/2/3 acceptance remain separate work.
+- `a9933ae`, `e07eb23`, `c908dae`: bounded load and literal HTTP framing harnesses now report latency, application failures, throttles and missed fixed arrivals. An earlier isolated binary completed166253 public reads and7442 mixed malformed/control requests without unexpected failures; authenticated JMAP admission deliberately produced separately counted429 responses. Fixed-arrival100/s failed the zero-drop gate because the generator missed253 arrivals;20/s control passed. See `docs/deploy/load-baseline-2026-10-26.md`. This is not final release capacity evidence. The96KiB header gate remains RED until explicit HTTP bounds land.
+- Bulk session revocation has passing native-browser/UI evidence but is **not yet committed**: review found an additional authority-change race during awaited CSRF/step-up work, now being fixed before acceptance.
+- Adaptive protection remains **under implementation and disabled by default**. The latest requirement includes long-window abnormal counts relative to normal traffic, independent absolute thresholds to resist dilution, configurable observation/enforcement and recovery. Existing malformed-request rejection and transport limits are separate basic safeguards. No adaptive runtime-completion claim is made.
+
 ## Verified bounded deliveries
 
 | Request | State and evidence | Remaining limits |
