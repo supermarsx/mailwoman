@@ -26,6 +26,14 @@ pub struct PrimaryPrincipal {
     pub authentication_method: String,
 }
 
+/// Verified policy identity. Native compatibility is explicit, never inferred
+/// from an upstream account ID that happens to exist in the local account table.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedPolicySubject {
+    pub personal_subject: String,
+    pub native_account: Option<String>,
+}
+
 fn row(value: &Row) -> PrimaryPrincipal {
     PrimaryPrincipal {
         principal_id: value.get_string("principal_id"),
@@ -93,6 +101,13 @@ impl Store {
     /// copies the verified tuple; this identifier is never an authorization credential.
     pub async fn session_personal_subject(&self, session: &str) -> Result<Option<String>, StoreError> {
         Ok(self.verified_personal_parts(session).await?.map(personal_subject))
+    }
+
+    pub async fn session_policy_subject(&self, session: &str) -> Result<Option<VerifiedPolicySubject>, StoreError> {
+        let Some(parts) = self.verified_personal_parts(session).await? else { return Ok(None) };
+        let native_account = (parts.first().map(String::as_str) == Some("native"))
+            .then(|| parts[1].clone());
+        Ok(Some(VerifiedPolicySubject { personal_subject: personal_subject(parts), native_account }))
     }
 
     /// Only native engine/background callers with authoritative account access
@@ -239,6 +254,11 @@ mod tests {
         let owner_a = store.session_personal_subject(&ids[0]).await.unwrap().unwrap();
         let owner_b = store.session_personal_subject(&ids[1]).await.unwrap().unwrap();
         assert_ne!(owner_a,owner_b);
+        let policy_a = store.session_policy_subject(&ids[0]).await.unwrap().unwrap();
+        let policy_b = store.session_policy_subject(&ids[1]).await.unwrap().unwrap();
+        assert_eq!(policy_a.personal_subject, owner_a);
+        assert_eq!(policy_b.personal_subject, owner_b);
+        assert!(policy_a.native_account.is_none() && policy_b.native_account.is_none());
         assert_eq!(Some(owner_a.clone()),store.session_personal_subject(&ids[2]).await.unwrap());
         // Even a legacy raw upstream ID equal to the new typed subject cannot be adopted.
         let signature = crate::SignatureRow { account_id:owner_a.clone(),name:"work".into(),body:"legacy secret".into(),html:Some("<b>rich</b>".into()),text:Some("plain".into()),text_edited:true,is_default:true,rule_json:String::new(),updated_at:String::new() };
@@ -282,6 +302,8 @@ mod tests {
         let native = session(&store, "1").await;
         store.bind_verified_primary(&native, proof("1", "imap:native.test:993"), 100).await.unwrap().unwrap();
         assert_eq!(store.native_personal_subject("1").await.unwrap(),store.session_personal_subject(&native).await.unwrap());
+        assert_eq!(store.session_policy_subject(&native).await.unwrap().unwrap().native_account.as_deref(), Some("1"));
+        assert!(store.session_policy_subject(&replacement).await.unwrap().unwrap().native_account.is_none());
         assert_ne!(store.native_personal_subject("1").await.unwrap(),store.session_personal_subject(&replacement).await.unwrap());
         let native_key = store.session_storage_authority(&native).await.unwrap().unwrap();
         assert_ne!(Some(native_key.clone()), store.session_storage_authority(&replacement).await.unwrap());
