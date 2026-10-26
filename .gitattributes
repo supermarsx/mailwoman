@@ -22,3 +22,6 @@ scripts/radicale/users            text eol=lf
 # Crypto fixtures are signed, hashed and compared byte for byte (detached
 # signatures over the .txt files): no line-ending conversion on checkout.
 fixtures/crypto/** -text
+# Applied migration bytes are immutable (SQLx checksums include CRLF).
+crates/mw-store/migrations/0058_plugin_egress.sql -text whitespace=cr-at-eol
+crates/mw-store/migrations_pg/0058_plugin_egress.sql -text whitespace=cr-at-eol

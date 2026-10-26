@@ -27,6 +27,8 @@ use std::fmt;
 /// `egress_proxy.traffic_classes_json` and `egress_internal_allow.traffic_class`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TrafficClass {
+    /// Approved plugin HTTP requests, scoped to the bound account when present.
+    Plugins,
     /// Explicitly enabled fixed-provider parcel tracking; public destinations only.
     PackageTracking,
     /// Public HTTPS Web Push and UnifiedPush endpoints supplied by clients.
@@ -67,7 +69,8 @@ pub const CLASS_UA: &str = "Mailwoman";
 
 impl TrafficClass {
     /// Every class, in declaration order.
-    pub const ALL: [TrafficClass; 16] = [
+    pub const ALL: [TrafficClass; 17] = [
+        TrafficClass::Plugins,
         TrafficClass::PackageTracking,
         TrafficClass::Push,
         TrafficClass::RemoteContent,
@@ -95,6 +98,7 @@ impl TrafficClass {
     /// The storage and wire spelling.
     pub const fn as_str(self) -> &'static str {
         match self {
+            TrafficClass::Plugins => "plugins",
             TrafficClass::PackageTracking => "package_tracking",
             TrafficClass::Push => "push",
             TrafficClass::RemoteContent => "remote_content",
@@ -121,12 +125,13 @@ impl TrafficClass {
     }
 
     /// Whether the admin's internal-destination allowlist may widen this class's
-    /// address policy. Matches the classes in migration 0047's CHECK constraint on
+    /// address policy. Matches the classes in migration 0058's CHECK constraint on
     /// `egress_internal_allow.traffic_class`.
     pub const fn internal_allow_eligible(self) -> bool {
         matches!(
             self,
-            TrafficClass::Webhooks
+            TrafficClass::Plugins
+                | TrafficClass::Webhooks
                 | TrafficClass::Siem
                 | TrafficClass::Analytics
                 | TrafficClass::Nextcloud
@@ -180,6 +185,7 @@ mod tests {
         assert_eq!(
             names,
             [
+                "plugins",
                 "package_tracking",
                 "push",
                 "remote_content",
@@ -223,6 +229,7 @@ mod tests {
         assert_eq!(
             eligible,
             [
+                TrafficClass::Plugins,
                 TrafficClass::Webhooks,
                 TrafficClass::Siem,
                 TrafficClass::Analytics,
