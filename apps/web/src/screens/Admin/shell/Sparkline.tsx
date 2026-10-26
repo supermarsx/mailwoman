@@ -54,8 +54,8 @@ export function Sparkline(props: SparklineProps): JSX.Element {
     const svg = e.currentTarget as SVGSVGElement;
     const box = svg.getBoundingClientRect();
     if (box.width === 0 || props.points.length === 0) return;
-    let frac = (e.clientX - box.left) / box.width;
-    if (document.documentElement.dir === 'rtl') frac = 1 - frac;
+    // SVG coordinates remain left-to-right even when surrounding text is RTL.
+    const frac = (e.clientX - box.left) / box.width;
     const i = Math.round(frac * (props.points.length - 1));
     setHover(Math.min(props.points.length - 1, Math.max(0, i)));
   }
@@ -90,7 +90,7 @@ export function Sparkline(props: SparklineProps): JSX.Element {
         </svg>
         <p class={css.chartTip} aria-hidden="true">
           <Show when={hover() !== null && props.points[hover()!]}>
-            {(p) => t('admin-shell-chart-point', { time: fmtTime(p().t), value: fmt(p().value) })}
+            {(p) => <span>{t('admin-shell-chart-point', { time: fmtTime(p().t), value: fmt(p().value) })}</span>}
           </Show>
         </p>
         <p class={css.chartSummary}>

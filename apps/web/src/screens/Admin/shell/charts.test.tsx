@@ -41,6 +41,14 @@ describe('Sparkline', () => {
     // jsdom has no PointerEvent; a MouseEvent of the same type carries clientX.
     svg.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 199 }));
     expect(screen.getByTestId('s')).toHaveTextContent('t120: 5');
+    svg.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 100 }));
+    expect(screen.getByTestId('s')).toHaveTextContent('t60: 25');
+    expect(screen.getByTestId('s')).not.toHaveTextContent('t120: 5');
+    document.documentElement.dir = 'rtl';
+    try {
+      svg.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 0 }));
+      expect(screen.getByTestId('s')).toHaveTextContent('t0: 10');
+    } finally { document.documentElement.dir = ''; }
     svg.dispatchEvent(new MouseEvent('pointerleave', { bubbles: false }));
     expect(screen.getByTestId('s')).not.toHaveTextContent('t120: 5');
   });
