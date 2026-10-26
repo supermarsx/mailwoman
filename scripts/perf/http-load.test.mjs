@@ -19,3 +19,16 @@ test('explicitly accepted throttling remains visible rather than counting as suc
  const server=createServer((_req,res)=>{res.writeHead(429,{'content-type':'application/json'});res.end('{"error":"limit"}');});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  try{const result=await measure({base:`http://127.0.0.1:${server.address().port}`,concurrency:2,seconds:1,requests:[{name:'bounded',path:'/',statuses:[200,429],validate:()=>false}]});assert.ok(result.throttled>0);assert.equal(result.throttled,result.requests);assert.equal(result.errors,0);}finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
+
+test('fixed arrivals report missed capacity instead of reducing the offered rate',async()=>{
+ let active=0,peak=0;
+ const server=createServer((_req,res)=>{active++;peak=Math.max(peak,active);setTimeout(()=>{active--;res.end('ok');},120);});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ try{
+  const result=await measure({base:`http://127.0.0.1:${server.address().port}`,concurrency:2,seconds:1,arrivalRate:100,requests:[{name:'slow',path:'/'}]});
+  assert.equal(result.offered,100);
+  assert.equal(result.requests+result.droppedCapacity+result.droppedScheduler,100);
+  assert.ok(result.droppedCapacity>0);assert.ok(result.requests>0);
+  assert.ok(peak<=2);assert.equal(result.peakOutstanding,2);assert.equal(result.errors,0);
+ }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+});

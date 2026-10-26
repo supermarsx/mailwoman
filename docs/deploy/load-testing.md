@@ -37,8 +37,17 @@ them into successful mail operations: inspect the per-method status counts and
 accepted traffic as well as total throughput. Never infer throughput from a
 campaign dominated by refused work.
 
-This is a **closed-loop concurrency test**, not an open-loop arrival-rate or
-production capacity measurement. Record the exact server binary/image digest,
+The default is a **closed-loop concurrency test**. Add `--arrival-rate=100`
+for fixed arrivals independent of response speed; `--concurrency=32` then caps
+outstanding requests rather than generating new requests after each response.
+The report separates `droppedCapacity` (outstanding cap reached) from
+`droppedScheduler` (the generator missed a scheduled arrival). It never catches
+up by sending a burst. Both fail the run unless an explicit `--max-drop-rate`
+budget allows them. Latency measures dispatched requests only, so always read
+drop counts alongside percentiles. A saturated generator is not proof of server
+capacity. Each stage's `offered` equals completed requests plus both drop counts.
+
+Neither mode alone establishes production capacity. Record the exact server binary/image digest,
 build profile, CPU/memory limits, database, mailbox population, proxy/TLS path and
 concurrent host activity with results. Debug binaries on a shared build machine
 are useful for functional stress acceptance, not capacity promises. Compare

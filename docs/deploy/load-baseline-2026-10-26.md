@@ -57,14 +57,26 @@ This is a bounded smoke run, not a coverage-guided fuzz campaign.
 
 ## Reproduction and remaining gates
 
+A subsequent fixed-arrival run on the same fixture offered 2,000 public reads
+at 100/s for 20 seconds, with 32 maximum outstanding requests. It dispatched
+1,747 (all HTTP 200, p95 9 ms, no timeouts), but missed 253 scheduled arrivals
+on this Windows generator. No arrivals were dropped for outstanding capacity.
+The zero-drop acceptance gate correctly **failed**: this measures a generator
+timing limitation and cannot establish server capacity at 100/s. The bounded
+arrival runner reports these misses rather than hiding them behind fast latency.
+A lower-rate control offered 200 requests at 20/s over ten seconds: all 200
+returned HTTP 200, with p95 12 ms, no dropped arrivals, no timeouts and a healthy
+post-run probe. This is a scheduling control, not a maximum-throughput result.
+
 Use [load-testing.md](load-testing.md). Raw reports from this run are in the
 ignored local `.orchestration/reports/codex-http-load-*.json` artifacts. The
-harness's three own tests verify percentiles, application-level errors under
-HTTP 200 and separately visible expected throttling.
+harness's four own tests verify percentiles, application-level errors under
+HTTP 200, separately visible expected throttling, and fixed offered arrivals
+with bounded outstanding requests and explicit drops against a slow real server.
 
 Repeat against the final integrated **release** image, with a populated mailbox
 matrix, multiple accounts, SQLite/PostgreSQL and the real HTTP/2/HTTP/3 proxy
-paths. Add long soaks, open-loop arrival-rate tests, resource measurements and
+paths. Add long soaks, higher-rate campaigns with a suitable load generator, resource measurements and
 transport framing/slow-client acceptance. Compare protective policies off/on
 without changing production settings. TLS/PROXY handshake and HTTP header/body
 bounds were identified as separate runtime work; adaptive protection remains a
