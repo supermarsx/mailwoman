@@ -65,14 +65,20 @@ async fn populated_copy(destination: Store, key: ServerKey) {
         .retire_principal(&retired.principal_id, 125)
         .await
         .unwrap();
+    let personal_session=source.create_session("1","same@example.test","https://mail.test/a/session","https://mail.test/a/api",&Credentials{username:"same".into(),password:"synthetic".into()}).await.unwrap();
+    source.set_session_authentication(&personal_session,"header-auth").await.unwrap();
+    source.bind_verified_primary(&personal_session,VerifiedPrimary{account_id:"1",kind:"header",authority:"trusted-header",subject:"same"},123).await.unwrap().unwrap();
+    let owner=source.session_personal_subject(&personal_session).await.unwrap().unwrap();
+    source.upsert_personal_signature(&mw_store::SignatureRow{account_id:owner.clone(),name:"copy".into(),body:"plain".into(),html:Some("<b>rich</b>".into()),text:Some("independent plain".into()),text_edited:true,is_default:true,rule_json:"{}".into(),updated_at:String::new()}).await.unwrap();
+    source.upsert_personal_saved_search(&mw_store::SavedSearchRow{id:"copied-search".into(),user:owner.clone(),name:"Copied".into(),query_json:"{}".into(),as_folder:true}).await.unwrap();
     let report = destination
         .migrate_from_sqlite(path.to_str().unwrap())
         .await
         .unwrap();
     for (table, count) in [
-        ("identity_principal", 2),
-        ("identity_binding", 2),
-        ("session_principal", 1),
+        ("identity_principal", 3),
+        ("identity_binding", 3),
+        ("session_principal", 2),
     ] {
         assert_eq!(
             report
@@ -97,6 +103,9 @@ async fn populated_copy(destination: Store, key: ServerKey) {
             .password,
         "synthetic"
     );
+    assert_eq!(Some(owner.clone()),destination.session_personal_subject(&personal_session).await.unwrap());
+    let signatures=destination.list_personal_signatures(&owner).await.unwrap();assert_eq!(signatures.len(),1);assert_eq!(signatures[0].html.as_deref(),Some("<b>rich</b>"));assert_eq!(signatures[0].text.as_deref(),Some("independent plain"));assert!(signatures[0].text_edited);
+    let searches=destination.list_personal_saved_searches(&owner).await.unwrap();assert_eq!(searches.len(),1);assert!(searches[0].as_folder);assert_eq!(searches[0].id,"copied-search");
     let fresh = destination
         .create_session(
             "verified-account",

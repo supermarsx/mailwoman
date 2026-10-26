@@ -444,11 +444,8 @@ impl Engine {
         }
         // Saved searches surface as virtual folders (role:null +
         // mailwomanSearchQuery). Querying one runs its stored filter (§2.1).
-        let saved = self
-            .store()
-            .list_saved_searches(account_id)
-            .await
-            .unwrap_or_default();
+        let owner = match self.store().native_personal_subject(account_id).await { Ok(Some(owner)) => owner, Ok(None) => return json!({"type":"serverFail","description":"Personal owner unavailable"}), Err(error) => return server_fail(&error) };
+        let saved = match self.store().list_personal_saved_searches(&owner).await { Ok(saved) => saved, Err(error) => return server_fail(&error) };
         for s in &saved {
             if !s.as_folder {
                 continue;
@@ -594,8 +591,9 @@ impl Engine {
                     });
                 }
                 Err(mw_store::StoreError::NotFound) => {
-                    match self.store().get_saved_search(&mailbox).await? {
-                        Some(saved) if saved.user == account_id && saved.as_folder => {
+                    let owner = self.store().native_personal_subject(account_id).await?;
+                    match self.store().get_personal_saved_search(&mailbox).await? {
+                        Some(saved) if owner.as_deref() == Some(saved.user.as_str()) && saved.as_folder => {
                             let stored = EmailFilter::parse_saved_json(&saved.query_json)
                                 .map_err(QueryFail::InvalidFilter)?;
                             filter.in_mailbox = None;
@@ -2783,7 +2781,8 @@ impl Engine {
             Err(e) => return server_fail(&e),
         };
         if rows.iter().any(|row| row.signature_name.is_some()) {
-            let templates = match self.store().list_signatures(account_id).await {
+            let owner = match self.store().native_personal_subject(account_id).await { Ok(Some(owner)) => owner, Ok(None) => return json!({"type":"serverFail","description":"Personal owner unavailable"}), Err(error) => return server_fail(&error) };
+            let templates = match self.store().list_personal_signatures(&owner).await {
                 Ok(templates) => templates,
                 Err(error) => return server_fail(&error),
             };
@@ -5532,7 +5531,7 @@ mod query_paging_tests {
             .await;
         assert_eq!(ids_of(&resp).len(), 10);
         assert_eq!(
-            stmts.matching("saved_searches").len(),
+            stmts.matching("personal_saved_search").len(),
             0,
             "master runs get_saved_search on every query, including this one, \
              where it can only miss; got {stmts:#?}"
@@ -5542,9 +5541,9 @@ mod query_paging_tests {
         // expands to its stored filter, and there it costs the lookup, because
         // there the lookup is the only thing that can resolve the id.
         f.store()
-            .upsert_saved_search(&SavedSearchRow {
+            .upsert_personal_saved_search(&SavedSearchRow {
                 id: "ss-folder".into(),
-                user: f.account.clone(),
+                user: f.store().native_personal_subject(&f.account).await.unwrap().unwrap(),
                 name: "Seen".into(),
                 query_json: json!({ "hasKeyword": "$seen" }).to_string(),
                 as_folder: true,
@@ -5555,7 +5554,7 @@ mod query_paging_tests {
             .counted_query(json!({ "filter": { "inMailbox": "ss-folder" }, "limit": 10 }))
             .await;
         assert_eq!(
-            stmts.matching("saved_searches").len(),
+            stmts.matching("personal_saved_search").len(),
             1,
             "an id with no messages is exactly the case the lookup exists for; \
              got {stmts:#?}"

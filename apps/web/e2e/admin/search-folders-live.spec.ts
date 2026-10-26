@@ -35,7 +35,7 @@ test('search folders save, appear in the sidebar, and edit on a dedicated page @
   await page.getByRole('navigation',{name:'Mailboxes'}).getByRole('button',{name,exact:true}).click();
   await expect(messageRow(page,name)).toBeVisible();await expect(messageRow(page,other)).toHaveCount(0);
   await expect(page.locator('.list__row')).toHaveCount(1);
-  await page.reload();if(test.info().project.name==='phone')await drawerButton(page).click();
+  await page.reload();await page.getByRole('button',{name:'Close Settings',exact:true}).click();if(test.info().project.name==='phone')await drawerButton(page).click();
   await page.getByRole('navigation',{name:'Mailboxes'}).getByRole('button',{name,exact:true}).click();await expect(messageRow(page,name)).toBeVisible();await expect(page.locator('.list__row')).toHaveCount(1);
   if(test.info().project.name==='phone')await drawerButton(page).click();await page.locator('.sidebar__settings').click();await sections.getByRole('button',{name:/Saved searches|Search folders/}).click();
   await row.getByRole('button', { name: 'Delete', exact: true }).click();

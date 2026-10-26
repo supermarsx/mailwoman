@@ -819,18 +819,21 @@ async fn signature_formats_http_sanitizes_and_fences_account_switch() {
     let imap=MockImap::start(ENGINE_USER,ENGINE_PASS).await;
     let server=spawn(ServerMode::Engine,imap.url()).await;
     let client=browser();let account=engine_login(&client,&server.base,&imap).await;
+    let me:Value=client.get(format!("{}/api/me",server.base)).send().await.unwrap().json().await.unwrap();
+    let authority=me["storageAuthority"].as_str().unwrap();
+    let owner=server.store().await.native_personal_subject(&account).await.unwrap().unwrap();
     let url=format!("{}/api/account/signatures",server.base);
     let dto=json!({"name":"format-test","body":"Legacy plain","html":"<p onclick=evil()>Rich <strong>signature</strong><script>evil()</script></p>","text":"Independent <plain> & text","textEdited":true,"isDefault":false});
     let denied=client.post(&url).header("X-Mailwoman-Account","other-account").json(&dto).send().await.unwrap();
     assert_eq!(denied.status(),403);
-    assert!(server.store().await.list_signatures(&account).await.unwrap().is_empty());
+    assert!(server.store().await.list_personal_signatures(&owner).await.unwrap().is_empty());
     let mut too_large=dto.clone();too_large["html"]=json!("x".repeat(32*1024+1));
-    assert_eq!(client.post(&url).header("X-Mailwoman-Account",&account).json(&too_large).send().await.unwrap().status(),400);
-    let saved=client.post(&url).header("X-Mailwoman-Account",&account).json(&dto).send().await.unwrap();assert_eq!(saved.status(),200);
-    let response=client.get(&url).header("X-Mailwoman-Account",&account).send().await.unwrap();assert_eq!(response.status(),200);
+    assert_eq!(client.post(&url).header("X-Mailwoman-Account",&account).header("x-mailwoman-storage-authority",authority).json(&too_large).send().await.unwrap().status(),400);
+    let saved=client.post(&url).header("X-Mailwoman-Account",&account).header("x-mailwoman-storage-authority",authority).json(&dto).send().await.unwrap();assert_eq!(saved.status(),200);
+    let response=client.get(&url).header("X-Mailwoman-Account",&account).header("x-mailwoman-storage-authority",authority).send().await.unwrap();assert_eq!(response.status(),200);
     let body=response.json::<Value>().await.unwrap();
     assert_eq!(body["signatures"][0]["html"],"<p>Rich <strong>signature</strong></p>");
     assert_eq!(body["signatures"][0]["text"],"Independent <plain> & text");
     let denied=client.delete(format!("{url}/format-test")).header("X-Mailwoman-Account","other-account").send().await.unwrap();assert_eq!(denied.status(),403);
-    assert_eq!(server.store().await.list_signatures(&account).await.unwrap().len(),1);
+    assert_eq!(server.store().await.list_personal_signatures(&owner).await.unwrap().len(),1);
 }

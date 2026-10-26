@@ -333,6 +333,28 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "personal_signature",
+        // User-authored content. The `identities.signature_*` columns beside it were
+        // always copied, so leaving these behind lost half of one feature.
+        // 0033 (26.20): the HTML/text pair, the edited flag and the images.
+        select: "SELECT owner_subject, name, body, is_default, rule_json, updated_at, html, text, text_edited, images_json FROM personal_signature",
+        insert: "INSERT INTO personal_signature (owner_subject, name, body, is_default, rule_json, updated_at, html, text, text_edited, images_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        map: |r| {
+            vec![
+                t(r, "owner_subject"),
+                t(r, "name"),
+                t(r, "body"),
+                i(r, "is_default"),
+                t(r, "rule_json"),
+                t(r, "updated_at"),
+                ot(r, "html"),
+                ot(r, "text"),
+                i(r, "text_edited"),
+                t(r, "images_json"),
+            ]
+        },
+    },
+    TableSpec {
         name: "signatures",
         // User-authored content. The `identities.signature_*` columns beside it were
         // always copied, so leaving these behind lost half of one feature.
@@ -629,6 +651,32 @@ const TABLES: &[TableSpec] = &[
                 t(r, "name"),
                 t(r, "color"),
                 ot(r, "icon"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "personal_saved_search",
+        // 0033 (26.20): the view columns (query text, builder, accounts,
+        // settings, order, icon, accent, start page, source, org view link).
+        select: "SELECT id, owner_subject, name, query_json, as_folder, query_text, builder_json, accounts_json, settings_json, position, icon, accent_id, start_page, source, org_view_id FROM personal_saved_search",
+        insert: "INSERT INTO personal_saved_search (id, owner_subject, name, query_json, as_folder, query_text, builder_json, accounts_json, settings_json, position, icon, accent_id, start_page, source, org_view_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "owner_subject"),
+                t(r, "name"),
+                t(r, "query_json"),
+                i(r, "as_folder"),
+                ot(r, "query_text"),
+                ot(r, "builder_json"),
+                ot(r, "accounts_json"),
+                t(r, "settings_json"),
+                i(r, "position"),
+                ot(r, "icon"),
+                ot(r, "accent_id"),
+                i(r, "start_page"),
+                t(r, "source"),
+                ot(r, "org_view_id"),
             ]
         },
     },

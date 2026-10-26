@@ -24,7 +24,20 @@ Analytics consent starts unset in each new namespace. Event admission and the
 queued export recheck the same verified authority and its saved consent; another
 realm with the same raw account ID cannot grant consent for that export.
 
-This change covers these personal KV documents. Table-backed identities,
-signatures, saved searches and notification rules, and the separate feature
-assignment/settings subject model require their own ownership audit. It does
-not claim that those older raw-ID consumers have been migrated.
+Signatures and saved searches use separate `personal_signature` and
+`personal_saved_search` tables from migration 0062. Their `po1_` owner derives
+from the same verified realm tuple, independently of the server encryption key;
+the browser still supplies its session-bound `msa1_` authority on writes.
+The native engine derives its owner only from an actual native account. Proxy
+sessions cannot enter that namespace merely by returning a matching account ID.
+Named signatures and virtual search folders read the new tables. Legacy
+`signatures` and `saved_searches` rows remain intact and are never implicitly
+attributed, even if a raw legacy ID happens to equal a new owner string.
+
+Database migration copies both new tables and their explicit HTML/plain formats.
+The existing migration tool copies sealed credentials without resealing: use the
+same server key as required by that tool. A key-independent personal owner is
+not a claim that arbitrary encryption-key rotation is supported automatically.
+
+Table-backed identities and notification rules, and the separate feature
+assignment/settings subject model still require their own ownership audit.

@@ -9,6 +9,7 @@ mod security_center;
 pub mod analytics_secret;
 pub mod branding;
 pub mod identity_principal;
+pub mod personal_records;
 pub mod oidc_provider;
 mod signin_challenges;
 pub mod request_protection_model;

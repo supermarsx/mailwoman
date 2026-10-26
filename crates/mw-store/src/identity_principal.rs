@@ -36,10 +36,19 @@ fn row(value: &Row) -> PrimaryPrincipal {
     }
 }
 
+fn personal_subject(parts: Vec<String>) -> String {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    digest.update(b"mailwoman-personal-subject-v1\0");
+    for part in parts { digest.update((part.len() as u64).to_be_bytes()); digest.update(part.as_bytes()); }
+    let encoded: String = digest.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+    format!("po1_{encoded}")
+}
+
 impl Store {
     /// Opaque browser-storage namespace. Raw upstream account IDs are not globally
     /// unique and must never serve as an authority for persisted private data.
-    pub async fn session_storage_authority(&self, session: &str) -> Result<Option<String>, StoreError> {
+    async fn verified_personal_parts(&self, session: &str) -> Result<Option<Vec<String>>, StoreError> {
         let Some(value) = q("SELECT sp.binding_id,sp.primary_account_id,s.jmap_url,s.api_url,b.kind,CAST(CASE WHEN a.id IS NULL THEN 0 ELSE 1 END AS BIGINT) AS native_account FROM session_principal sp JOIN sessions s ON s.id=sp.session_id AND s.account_id=sp.primary_account_id JOIN identity_principal p ON p.id=sp.principal_id JOIN identity_binding b ON b.id=sp.binding_id AND b.principal_id=p.id LEFT JOIN accounts a ON a.id=sp.primary_account_id WHERE sp.session_id=?1 AND p.state='active' AND b.retired_at IS NULL")
             .bind(session).fetch_optional(&self.backend).await? else { return Ok(None) };
         let account = value.get_string("primary_account_id");
@@ -63,6 +72,11 @@ impl Store {
             }
             parts
         };
+        Ok(Some(parts))
+    }
+
+    pub async fn session_storage_authority(&self, session: &str) -> Result<Option<String>, StoreError> {
+        let Some(parts) = self.verified_personal_parts(session).await? else { return Ok(None) };
         // Length-prefixed fields prevent delimiter ambiguity. Neither realm URLs
         // nor external subjects are exposed to the browser.
         let mut message = Vec::new();
@@ -73,6 +87,19 @@ impl Store {
         let digest: String = crate::seal::hmac_sha256(&self.key.derive("mw-client-storage-authority-v1"), &message)
             .iter().map(|byte| format!("{byte:02x}")).collect();
         Ok(Some(format!("msa1_{digest}")))
+    }
+
+    /// Durable database subject independent of the encryption key. Migration
+    /// copies the verified tuple; this identifier is never an authorization credential.
+    pub async fn session_personal_subject(&self, session: &str) -> Result<Option<String>, StoreError> {
+        Ok(self.verified_personal_parts(session).await?.map(personal_subject))
+    }
+
+    /// Only native engine/background callers with authoritative account access
+    /// may use this adapter. Session routes must use session_personal_subject.
+    pub async fn native_personal_subject(&self, account: &str) -> Result<Option<String>, StoreError> {
+        if q("SELECT id FROM accounts WHERE id=?1").bind(account).fetch_optional(&self.backend).await?.is_none() { return Ok(None); }
+        Ok(Some(personal_subject(vec!["native".into(), account.into()])))
     }
 
     /// Atomically attach a verified primary identity, or refuse stale, retired,
@@ -209,6 +236,29 @@ mod tests {
             store.bind_verified_primary(&id, VerifiedPrimary { account_id: "1", kind: "header", authority: "trusted-header", subject: "verified" }, 100).await.unwrap().unwrap();
             ids.push(id);
         }
+        let owner_a = store.session_personal_subject(&ids[0]).await.unwrap().unwrap();
+        let owner_b = store.session_personal_subject(&ids[1]).await.unwrap().unwrap();
+        assert_ne!(owner_a,owner_b);
+        assert_eq!(Some(owner_a.clone()),store.session_personal_subject(&ids[2]).await.unwrap());
+        // Even a legacy raw upstream ID equal to the new typed subject cannot be adopted.
+        let signature = crate::SignatureRow { account_id:owner_a.clone(),name:"work".into(),body:"legacy secret".into(),html:Some("<b>rich</b>".into()),text:Some("plain".into()),text_edited:true,is_default:true,rule_json:String::new(),updated_at:String::new() };
+        store.upsert_signature(&signature).await.unwrap();
+        assert!(store.list_personal_signatures(&owner_a).await.unwrap().is_empty());
+        store.upsert_personal_signature(&signature).await.unwrap();
+        assert!(store.list_personal_signatures(&owner_b).await.unwrap().is_empty());
+        store.delete_personal_signature(&owner_b,"work").await.unwrap();
+        let typed=store.list_personal_signatures(&owner_a).await.unwrap();
+        assert_eq!(typed[0].html,signature.html); assert_eq!(typed[0].text,signature.text); assert!(typed[0].text_edited);
+        let mut search=crate::SavedSearchRow{id:"personal-test-search".into(),user:owner_a.clone(),name:"Private".into(),query_json:"{}".into(),as_folder:true};
+        store.upsert_saved_search(&search).await.unwrap();
+        assert!(store.list_personal_saved_searches(&owner_a).await.unwrap().is_empty());
+        assert!(store.upsert_personal_saved_search(&search).await.unwrap());
+        search.user=owner_b.clone(); search.name="Hijacked".into();
+        assert!(!store.upsert_personal_saved_search(&search).await.unwrap());
+        assert!(!store.delete_personal_saved_search(&owner_b,&search.id).await.unwrap());
+        assert_eq!(store.get_personal_saved_search(&search.id).await.unwrap().unwrap().name,"Private");
+        assert!(store.delete_personal_saved_search(&owner_a,&search.id).await.unwrap());
+        assert!(store.get_saved_search(&search.id).await.unwrap().is_some(),"legacy bytes remain intact");
         let a = store.session_storage_authority(&ids[0]).await.unwrap().unwrap();
         assert!(a.starts_with("msa1_") && a.len() == 69);
         assert_ne!(Some(a.clone()), store.session_storage_authority(&ids[1]).await.unwrap());
@@ -231,6 +281,8 @@ mod tests {
         assert_eq!(Some(a), store.session_storage_authority(&replacement).await.unwrap());
         let native = session(&store, "1").await;
         store.bind_verified_primary(&native, proof("1", "imap:native.test:993"), 100).await.unwrap().unwrap();
+        assert_eq!(store.native_personal_subject("1").await.unwrap(),store.session_personal_subject(&native).await.unwrap());
+        assert_ne!(store.native_personal_subject("1").await.unwrap(),store.session_personal_subject(&replacement).await.unwrap());
         let native_key = store.session_storage_authority(&native).await.unwrap().unwrap();
         assert_ne!(Some(native_key.clone()), store.session_storage_authority(&replacement).await.unwrap());
         let sso = store.create_session("1", "same@example.test", "sso", "sso",

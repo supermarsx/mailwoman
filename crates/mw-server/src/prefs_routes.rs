@@ -122,16 +122,20 @@ struct IdentityDto {
 // Signatures (W12)
 // ─────────────────────────────────────────────────────────────────────────────
 
-async fn signature_account_id(state: &AppState, headers: &HeaderMap) -> Result<String, Response> {
-    let account = account_id(state, headers).await?;
-    if headers.get("x-mailwoman-account").is_some_and(|expected| expected.to_str().ok() != Some(account.as_str())) {
+async fn personal_record_owner(state: &AppState, headers: &HeaderMap, mutation: bool) -> Result<String, Response> {
+    let session = session_of(state, headers).await?;
+    if headers.get("x-mailwoman-account").is_some_and(|expected| expected.to_str().ok() != Some(session.account_id.as_str())) {
         return Err((StatusCode::FORBIDDEN, Json(json!({"error":"The authenticated account changed", "code":"accountChanged"}))).into_response());
     }
-    Ok(account)
+    personal_storage::owner(state, &session, headers, mutation).await?;
+    match state.store.session_personal_subject(&session.id).await {
+        Ok(Some(owner)) => Ok(owner),
+        _ => Err(StatusCode::SERVICE_UNAVAILABLE.into_response()),
+    }
 }
 
 async fn signatures_list(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let account = match signature_account_id(&state, &headers).await {
+    let account = match personal_record_owner(&state, &headers, false).await {
         Ok(a) => a,
         Err(r) => return r,
     };
@@ -146,7 +150,7 @@ async fn signatures_upsert(
     headers: HeaderMap,
     Json(body): Json<SignatureDto>,
 ) -> Response {
-    let account = match signature_account_id(&state, &headers).await {
+    let account = match personal_record_owner(&state, &headers, true).await {
         Ok(a) => a,
         Err(r) => return r,
     };
@@ -167,11 +171,11 @@ async fn signatures_delete(
     headers: HeaderMap,
     UrlPath(name): UrlPath<String>,
 ) -> Response {
-    let account = match signature_account_id(&state, &headers).await {
+    let account = match personal_record_owner(&state, &headers, true).await {
         Ok(a) => a,
         Err(r) => return r,
     };
-    match state.store.delete_signature(&account, &name).await {
+    match state.store.delete_personal_signature(&account, &name).await {
         Ok(()) => ok(),
         Err(e) => server_error("delete signature", e),
     }
@@ -263,7 +267,7 @@ async fn notifications_put(
 // ─────────────────────────────────────────────────────────────────────────────
 
 async fn saved_searches_list(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let account = match account_id(&state, &headers).await {
+    let account = match personal_record_owner(&state, &headers, false).await {
         Ok(a) => a,
         Err(r) => return r,
     };
@@ -278,7 +282,7 @@ async fn saved_searches_put(
     headers: HeaderMap,
     Json(body): Json<SavedSearchDto>,
 ) -> Response {
-    let account = match account_id(&state, &headers).await {
+    let account = match personal_record_owner(&state, &headers, true).await {
         Ok(a) => a,
         Err(r) => return r,
     };
@@ -303,7 +307,7 @@ async fn saved_searches_delete(
     headers: HeaderMap,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    let account = match account_id(&state, &headers).await {
+    let account = match personal_record_owner(&state, &headers, true).await {
         Ok(a) => a,
         Err(r) => return r,
     };
@@ -706,7 +710,7 @@ async fn do_put_appearance(
 
 async fn do_list_signatures(store: &Store, account: &str) -> Result<Vec<SignatureDto>, StoreError> {
     Ok(store
-        .list_signatures(account)
+        .list_personal_signatures(account)
         .await?
         .iter()
         .map(signature_to_dto)
@@ -719,7 +723,7 @@ async fn do_upsert_signature(
     dto: &SignatureDto,
 ) -> Result<(), StoreError> {
     store
-        .upsert_signature(&signature_from_dto(account, dto))
+        .upsert_personal_signature(&signature_from_dto(account, dto))
         .await
 }
 
@@ -750,7 +754,7 @@ async fn do_list_saved_searches(
     account: &str,
 ) -> Result<Vec<SavedSearchDto>, StoreError> {
     Ok(store
-        .list_saved_searches(account)
+        .list_personal_saved_searches(account)
         .await?
         .iter()
         .map(saved_search_to_dto)
@@ -769,15 +773,15 @@ async fn do_upsert_saved_search(
         new_id()
     } else {
         // Reject an id that already belongs to someone else.
-        if let Some(existing) = store.get_saved_search(&dto.id).await?
+        if let Some(existing) = store.get_personal_saved_search(&dto.id).await?
             && existing.user != account
         {
             return Ok(None);
         }
         dto.id.clone()
     };
-    store
-        .upsert_saved_search(&SavedSearchRow {
+    let written = store
+        .upsert_personal_saved_search(&SavedSearchRow {
             id: id.clone(),
             user: account.to_string(),
             name: dto.name.clone(),
@@ -785,7 +789,7 @@ async fn do_upsert_saved_search(
             as_folder: dto.as_folder,
         })
         .await?;
-    Ok(Some(id))
+    Ok(written.then_some(id))
 }
 
 /// Delete a saved search iff it belongs to `account`. `Ok(false)` = absent or owned
@@ -795,13 +799,7 @@ async fn do_delete_saved_search(
     account: &str,
     id: &str,
 ) -> Result<bool, StoreError> {
-    match store.get_saved_search(id).await? {
-        Some(row) if row.user == account => {
-            store.delete_saved_search(id).await?;
-            Ok(true)
-        }
-        _ => Ok(false),
-    }
+    store.delete_personal_saved_search(account, id).await
 }
 
 async fn do_list_identities(store: &Store, account: &str) -> Result<Vec<IdentityDto>, StoreError> {
@@ -1209,7 +1207,7 @@ mod tests {
         let personal = list.iter().find(|x| x.name == "personal").unwrap();
         assert_eq!(personal.rule, None);
 
-        s.delete_signature("a1", "personal").await.unwrap();
+        s.delete_personal_signature("a1", "personal").await.unwrap();
         assert_eq!(do_list_signatures(&s, "a1").await.unwrap().len(), 1);
     }
 

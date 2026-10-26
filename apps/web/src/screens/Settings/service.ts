@@ -1,3 +1,4 @@
+import { storageAuthorityHeaders } from '../../api/storageAuthority.ts';
 import { preferenceAccount, preferenceAccountIsCurrent, observePreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
 // Settings-surface server I/O (t16 e15). One service over an injectable `Fetcher`
 // so every component unit-tests without a live server. Same-origin cookie auth,
@@ -208,6 +209,7 @@ export class SettingsService {
     const account=preferenceAccount();
     const headers=new Headers(init?.headers);
     if(account)headers.set('X-Mailwoman-Account',account.id);
+    for (const [name, value] of Object.entries(storageAuthorityHeaders(account?.storageAuthority))) headers.set(name,value);
     const response=await this.fetcher(input,{...init,headers});
     if(account&&!preferenceAccountIsCurrent(account))throw new SettingsError(403,t('settings-sig-account-changed'));
     return response;
@@ -267,14 +269,14 @@ export class SettingsService {
 
   async listSavedSearches(): Promise<SavedSearch[]> {
     const out = await jsonOrThrow<{ savedSearches: SavedSearch[] }>(
-      await this.fetcher(withBase('/api/account/saved-searches')),
+      await this.signatureFetch(withBase('/api/account/saved-searches')),
     );
     return out.savedSearches;
   }
 
   async upsertSavedSearch(search: SavedSearch): Promise<void> {
     await okOrThrow(
-      await this.fetcher(withBase('/api/account/saved-searches'), {
+      await this.signatureFetch(withBase('/api/account/saved-searches'), {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(search),
@@ -284,7 +286,7 @@ export class SettingsService {
 
   async deleteSavedSearch(id: string): Promise<void> {
     await okOrThrow(
-      await this.fetcher(withBase(`/api/account/saved-searches/${encodeURIComponent(id)}`), { method: 'DELETE' }),
+      await this.signatureFetch(withBase(`/api/account/saved-searches/${encodeURIComponent(id)}`), { method: 'DELETE' }),
     );
   }
 }

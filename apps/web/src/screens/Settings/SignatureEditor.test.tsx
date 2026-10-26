@@ -55,11 +55,11 @@ describe('dedicated signature formats',()=>{
   expect(done).not.toHaveBeenCalled();expect(screen.getByLabelText('Plain-text alternative')).toHaveValue('Later local edit');
  });
  it('sends captured account authority and rejects stale acknowledgements',async()=>{
-  activateAccountPreferences('owner');let resolve!:(response:Response)=>void;
+  activateAccountPreferences('owner','msa1_owner_verified_authority');let resolve!:(response:Response)=>void;
   const fetcher=vi.fn(async(_input:string,_init?:RequestInit)=>new Promise<Response>(done=>{resolve=done;}));
   const service=new SettingsService(fetcher);const pending=service.upsertSignature({name:'Work',body:'text',isDefault:false});
   expect(new Headers(fetcher.mock.calls[0]?.[1]?.headers).get('X-Mailwoman-Account')).toBe('owner');
-  const rejected=expect(pending).rejects.toThrow('signed-in account changed');suspendAccountPreferences();activateAccountPreferences('other');resolve(new Response('{"ok":true}'));
+  const rejected=expect(pending).rejects.toThrow('signed-in account changed');suspendAccountPreferences();activateAccountPreferences('other','msa1_other_verified_authority');resolve(new Response('{"ok":true}'));
   await rejected;
  });
 });

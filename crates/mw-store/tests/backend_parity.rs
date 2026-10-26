@@ -52,7 +52,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Every store table, for TRUNCATE between Postgres runs.
-const ALL_TABLES: &str = "oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
+const ALL_TABLES: &str = "personal_signature, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
@@ -2094,6 +2094,17 @@ mod admin_controls_0033 {
     /// Every table 0033 creates, FK parents before their children.
     #[rustfmt::skip]
     const NEW_TABLES: &[NewTable] = &[
+        NewTable {name:"personal_signature",copied:true,cols:&[
+            ("owner_subject",'T',"!","po1-owner"),("name",'T',"!","Professional"),("body",'T',"=","plain"),
+            ("is_default",'I',"=0","1"),("rule_json",'T',"=","{}"),("updated_at",'T',"!",TS),
+            ("html",'T',"~","<p>Rich</p>"),("text",'T',"~","Plain"),("text_edited",'I',"=0","1"),("images_json",'T',"=[]","[]"),
+        ]},
+        NewTable {name:"personal_saved_search",copied:true,cols:&[
+            ("id",'T',"!","owned-search"),("owner_subject",'T',"!","po1-owner"),("name",'T',"!","Work"),("query_json",'T',"!","{}"),
+            ("as_folder",'I',"=0","1"),("query_text",'T',"~","work"),("builder_json",'T',"~","{}"),("accounts_json",'T',"~","[]"),
+            ("settings_json",'T',"={}","{}"),("position",'I',"=0","2"),("icon",'T',"~","search"),("accent_id",'T',"~","blue"),
+            ("start_page",'I',"=0","1"),("source",'T',"=user","user"),("org_view_id",'T',"~","org-view"),
+        ]},
         // C/AG settings
         NewTable { name: "setting_policy", copied: true, cols: &[
             ("key", 'T', "!", "signin.newUsers"),

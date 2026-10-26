@@ -31,6 +31,28 @@ async fn personal_documents_are_realm_bound_and_legacy_values_remain_inert() {
         headers.insert("x-mailwoman-storage-authority",authority.parse().unwrap());
         clients.push(reqwest::Client::builder().no_proxy().default_headers(headers).build().unwrap()); authorities.push(authority); sessions.push(id);
     }
+    let legacy_signature=mw_store::SignatureRow{account_id:"1".into(),name:"legacy".into(),body:"private legacy signature".into(),html:None,text:None,text_edited:false,is_default:false,rule_json:String::new(),updated_at:String::new()};
+    store.upsert_signature(&legacy_signature).await.unwrap();
+    store.upsert_saved_search(&mw_store::SavedSearchRow{id:"legacy-search".into(),user:"1".into(),name:"Private legacy".into(),query_json:"{}".into(),as_folder:true}).await.unwrap();
+    for client in &clients {
+        for (route,key) in [("signatures","signatures"),("saved-searches","savedSearches")] {
+            let response=client.get(format!("{base}/api/account/{route}")).send().await.unwrap();assert_eq!(response.status(),200);
+            let body:Value=response.json().await.unwrap();assert_eq!(body[key],json!([]));
+        }
+    }
+    let signature_url=format!("{base}/api/account/signatures");
+    let signature=json!({"name":"work","body":"plain","html":"<b>rich</b>","text":"plain","textEdited":true,"isDefault":true});
+    assert_eq!(clients[0].post(&signature_url).json(&signature).send().await.unwrap().status(),200);
+    let other:Value=clients[1].get(&signature_url).send().await.unwrap().json().await.unwrap();assert_eq!(other["signatures"],json!([]));
+    assert_eq!(clients[1].post(&signature_url).header("x-mailwoman-storage-authority",&authorities[0]).json(&signature).send().await.unwrap().status(),409);
+    let search_url=format!("{base}/api/account/saved-searches");
+    let response=clients[0].put(&search_url).json(&json!({"name":"Private","queryJson":"{}","asFolder":true})).send().await.unwrap();
+    assert_eq!(response.status(),200);let created:Value=response.json().await.unwrap();let search_id=created["id"].as_str().unwrap();
+    assert_eq!(clients[1].delete(format!("{search_url}/{search_id}")).send().await.unwrap().status(),404);
+    assert_eq!(clients[1].put(&search_url).json(&json!({"id":search_id,"name":"Hijacked","queryJson":"{}","asFolder":true})).send().await.unwrap().status(),404);
+    let own:Value=clients[0].get(&search_url).send().await.unwrap().json().await.unwrap();assert_eq!(own["savedSearches"][0]["name"],"Private");
+    assert_eq!(store.list_signatures("1").await.unwrap().len(),1);
+    assert!(store.get_saved_search("legacy-search").await.unwrap().is_some());
     let endpoint=format!("{base}/api/account/preferences");
     for client in &clients {
         let response=client.get(&endpoint).send().await.unwrap(); assert_eq!(response.status(),200);

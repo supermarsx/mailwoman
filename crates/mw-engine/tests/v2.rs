@@ -762,12 +762,13 @@ async fn saved_search_folder_runs_its_filter() {
     let h = setup().await;
     h.engine.resync(&h.account_id).await.unwrap();
 
+    let owner = h.engine.store().native_personal_subject(&h.account_id).await.unwrap().unwrap();
     // Register a saved search "attachments" as a folder, then query it.
     h.engine
         .store()
-        .upsert_saved_search(&mw_store::SavedSearchRow {
+        .upsert_personal_saved_search(&mw_store::SavedSearchRow {
             id: "ss-att".into(),
-            user: h.account_id.clone(),
+            user: owner.clone(),
             name: "Attachments".into(),
             query_json: json!({ "hasAttachment": true }).to_string(),
             as_folder: true,
@@ -812,16 +813,16 @@ async fn saved_search_folder_runs_its_filter() {
             json!({"subject":"Invoice"}).to_string(),
         ),
         (
-            h.account_id.clone(),
+            owner.clone(),
             false,
             json!({"subject":"Invoice"}).to_string(),
         ),
     ] {
         h.engine
             .store()
-            .upsert_saved_search(&mw_store::SavedSearchRow {
+            .upsert_personal_saved_search(&mw_store::SavedSearchRow {
                 id: "ss-private".into(),
-                user,
+                user: user.clone(),
                 name: "Private".into(),
                 query_json: query,
                 as_folder,
@@ -837,15 +838,15 @@ async fn saved_search_folder_runs_its_filter() {
         }
         h.engine
             .store()
-            .delete_saved_search("ss-private")
+            .delete_personal_saved_search(&user,"ss-private")
             .await
             .unwrap();
     }
     h.engine
         .store()
-        .upsert_saved_search(&mw_store::SavedSearchRow {
+        .upsert_personal_saved_search(&mw_store::SavedSearchRow {
             id: "ss-invalid".into(),
-            user: h.account_id.clone(),
+            user: owner.clone(),
             name: "Corrupt".into(),
             query_json: "broken".into(),
             as_folder: true,
@@ -860,9 +861,9 @@ async fn saved_search_folder_runs_its_filter() {
     assert_eq!(result(&response, "q")["type"], "invalidArguments");
     h.engine
         .store()
-        .upsert_saved_search(&mw_store::SavedSearchRow {
+        .upsert_personal_saved_search(&mw_store::SavedSearchRow {
             id: "ss-subject".into(),
-            user: h.account_id.clone(),
+            user: owner.clone(),
             name: "Subject".into(),
             query_json: json!({"subject":"Invoice"}).to_string(),
             as_folder: true,
