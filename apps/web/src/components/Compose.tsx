@@ -1,4 +1,5 @@
 import { settings } from '../api/settings.ts';
+import { externalRecipients } from './compose/recipientTrust.ts';
 import { Icon } from './Icon.tsx';
 import {
   createEffect,
@@ -388,6 +389,13 @@ export function Compose(props: {
   }
 
   const identity = createMemo(() => app.identities().find((i) => i.id === identityId()) ?? null);
+  const externalMode = () => settings()['mail.externalRecipientWarning']?.value ?? 'warn';
+  const outside = createMemo(() => {
+    const trusted=settings()['mail.trustedRecipientDomains']?.value;
+    return externalRecipients([to(),cc(),bcc()],identity()?.email ?? app.identities()[0]?.email ?? app.me()?.username ?? '',Array.isArray(trusted)?trusted.filter((domain):domain is string=>typeof domain==='string'):[]);
+  });
+  const recipientReviewKey=()=>JSON.stringify([outside(),identity()?.email,externalMode()]);
+  const [reviewedRecipients,setReviewedRecipients]=createSignal('');
 
   /** Plain text → the same minimal HTML the plain-text send path has always
    *  produced (escaped, newlines as `<br>`). Used to seed the rich editor when
@@ -744,6 +752,9 @@ export function Compose(props: {
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
     setError(null);
+    if(externalMode()==='confirm' && outside().length && reviewedRecipients()!==recipientReviewKey()){
+      setError(t('mail-external-confirm-required'));return;
+    }
     const cs = cryptoState();
     // DLP gate (plan §1.8 / §2.2): a `block` verdict stops the send before it
     // reaches the engine. The blocking rule is already surfaced inline by
@@ -997,6 +1008,7 @@ export function Compose(props: {
           </label>
         </Show>
 
+        <Show when={externalMode()!=='off' && outside().length>0}><section class="compose-external" aria-label={t('mail-external-recipients')}><details><summary><Icon name="alert"/> {t('mail-external-count',{count:outside().length})}</summary><p>{t('mail-external-help')}</p><ul><For each={outside()}>{address=><li>{address}</li>}</For></ul></details><Show when={externalMode()==='confirm'}><label><input type="checkbox" checked={reviewedRecipients()===recipientReviewKey()} onChange={event=>setReviewedRecipients(event.currentTarget.checked?recipientReviewKey():'')}/>{t('mail-external-reviewed')}</label></Show></section></Show>
         <label class="field">
           <span>{t('mail-compose-subject')}</span>
           <input type="text" value={subject()} onInput={(e) => setSubject(e.currentTarget.value)} />

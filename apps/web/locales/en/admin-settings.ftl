@@ -398,3 +398,8 @@ admin-settings-help-mail-quote-style = Use classic quoted replies or Outlook-sty
 
 admin-settings-key-signin-retry-cooldown-secs = Sign-in retry cooldown
 admin-settings-help-signin-retry-cooldown-secs = Minimum seconds between password sign-in attempts from one client network. Default 3; 0 disables the cooldown. Existing failure bans still apply.
+
+admin-settings-key-mail-external-recipient-warning = External recipient warning
+admin-settings-help-mail-external-recipient-warning = Off, warn, or require confirmation in the composer. Covers To, Cc and Bcc. This is a composer safeguard, not a server delivery restriction.
+admin-settings-key-mail-trusted-recipient-domains = Trusted recipient domains
+admin-settings-help-mail-trusted-recipient-domains = Up to 100 exact recipient domains. The selected sending identity's domain is also trusted. Invalid entries never grant trust. Lock this setting to prevent user overrides.

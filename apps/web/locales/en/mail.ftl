@@ -484,3 +484,9 @@ mail-quote-header-sent = Sent:
 mail-quote-header-to = To:
 mail-quote-header-cc = Cc:
 mail-quote-header-subject = Subject:
+
+mail-external-recipients = External recipients
+mail-external-count = { $count } recipient(s) outside trusted domains
+mail-external-help = Check the To, Cc and Bcc recipients before sending confidential information. Trust is based on the selected sending identity and your effective domain policy.
+mail-external-reviewed = I have checked these external recipients.
+mail-external-confirm-required = Review and confirm the external recipients before sending.

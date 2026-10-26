@@ -551,6 +551,8 @@ pub static REGISTRY: &[SettingDef] = &[
         "sieve",
         "Sieve forwarding outside the account domain"
     ),
+    def!("mail.externalRecipientWarning", Kind::Enum(&["off", "warn", "confirm"]), "\"warn\"", GDU, "mail", "external recipient composer warning"),
+    def!("mail.trustedRecipientDomains", Kind::StringList { max_len: 100, max_item: 253 }, "[]", GDU, "mail", "exact trusted recipient domains for composer warnings"),
     def!("mail.quoteStyle", Kind::Enum(&["classic", "outlook"]), "\"classic\"", GDU, "mail", "reply and forward header style"),
     // ── Interface (user-facing) ──────────────────────────────────────────────
     def!("mail.requestReadReceipt", Kind::Bool, "false", GDU, "mail", "request a read receipt by default when composing supported mail"),

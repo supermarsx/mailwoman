@@ -20,6 +20,8 @@ export function settingAnchorId(key: string): string {
 export const KNOWN_KEYS: readonly string[] = [
   'signin.retryCooldownSecs',
   'mail.quoteStyle',
+  'mail.externalRecipientWarning',
+  'mail.trustedRecipientDomains',
   'mail.requestReadReceipt',
   'reader.colorMode', 'reader.fontSize', 'reader.lineHeight',
   'reader.contentWidth', 'reader.loading', 'reader.loadingDelayMs',

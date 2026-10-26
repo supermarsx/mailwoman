@@ -9,6 +9,7 @@ import { AssistService } from '../modules/assist/index.ts';
 import { isolate } from '../i18n/index.ts';
 import type { Identity, JmapRequest } from '../api/jmap-types.ts';
 import { resetClientPolicy } from '../api/policy.ts';
+import { clearSettings, loadSettings } from '../api/settings.ts';
 
 // ── V7 (e14b) integration doubles ────────────────────────────────────────────
 function json(body: unknown, status = 200): Response {
@@ -87,6 +88,7 @@ const IDENTITIES: Identity[] = [
 
 describe('Compose', () => {
   beforeEach(() => localStorage.clear());
+  afterEach(() => clearSettings());
 
   /**
    * Pay for the rich editor's chunk HERE, not inside a `findBy` (t22-e10 flake).
@@ -356,6 +358,27 @@ describe('Compose', () => {
   }
 
   /** The body the one send carried. */
+  it('requires renewed confirmation when external recipients change before sending', async () => {
+    const { client, app } = await composeWithClient({ identities: IDENTITIES });
+    await app.loadIdentities();
+    await loadSettings({ refresh: true, fetcher: async () => json({ settings: {
+      'mail.externalRecipientWarning': { value: 'confirm', source: 'global', locked: true },
+      'mail.trustedRecipientDomains': { value: ['partner.test'], source: 'global', locked: true },
+    } }) });
+    fillPlain('Hello', 'recipient@outside.test');
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(sendCount(client)).toBe(0);
+    expect(screen.getByText('Review and confirm the external recipients before sending.')).toBeVisible();
+    fireEvent.click(screen.getByLabelText('I have checked these external recipients.'));
+    fireEvent.input(screen.getByLabelText('To'), { target: { value: 'different@outside.test' } });
+    expect(screen.getByLabelText('I have checked these external recipients.')).not.toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(sendCount(client)).toBe(0);
+    fireEvent.click(screen.getByLabelText('I have checked these external recipients.'));
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(sendCount(client)).toBe(1));
+  });
+
   function sentBody(client: ReturnType<typeof makeClient>): unknown {
     const create = sentRequest(client).methodCalls[0]![1]['create'] as Record<string, Record<string, unknown>>;
     return create['draft']!['bodyValues'];

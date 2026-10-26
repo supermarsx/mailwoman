@@ -615,3 +615,11 @@ Default `classic`; choose `outlook` for structured From, Sent, To, Cc and Subjec
 <a id="signin.retryCooldownSecs"></a>
 ### `signin.retryCooldownSecs`
 Global initial password sign-in cooldown, 0–300 seconds, default 3. Applies to mailbox/native and administrator login using the trusted client IP (IPv6 /64). MFA continuation and administrator session expiry are unchanged. Refusals return 429 with Retry-After. Bounded process-local state resets on restart and is independent per replica. Existing failure bans remain in force.
+
+<a id="mail.externalRecipientWarning"></a>
+### `mail.externalRecipientWarning`
+Global/domain/user composer safeguard: `off`, `warn` (default), or `confirm`. Checks To, Cc and Bcc. Confirmation is invalidated when the external recipient set or sending identity changes. This is not a server-side delivery block and does not restrict other mail clients or direct API submissions.
+
+<a id="mail.trustedRecipientDomains"></a>
+### `mail.trustedRecipientDomains`
+Global/domain/user list of up to 100 exact domains, each at most 253 characters. DNS case and IDNA are normalized; invalid entries grant no trust. Subdomains are not implicitly trusted. The selected sending identity's domain is trusted automatically. Administrators can lock both settings to prevent user overrides; an unlocked user list replaces the inherited list.
