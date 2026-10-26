@@ -124,3 +124,7 @@ label.compose-rt__btn:focus-within:has(:focus-visible) {
 .compose-rt__toolbar { align-items:end; gap:.3rem; min-block-size:3.8rem; }
 .compose-rt__field { display:flex; flex-direction:column; gap:.15rem; width:auto; font-size:.7rem; margin-inline:.2rem; }
 .compose-rt__field select { width:auto; max-inline-size:12rem; padding:.2rem .35rem; font-size:.8rem; }
+
+.compose-rt__field { flex:0 1 auto; min-inline-size:0; max-inline-size:100%; box-sizing:border-box; }
+.compose-rt__field select { min-inline-size:0; max-inline-size:100%; }
+@media(max-width:600px) { .compose-rt__field { flex:0 1 8rem; } }

@@ -115,7 +115,13 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   const [linkOpen, setLinkOpen] = createSignal(false);
   const [linkUrl, setLinkUrl] = createSignal('');
   const [ribbonTab,setRibbonTab]=createSignal<'format'|'insert'>('format');
-  function fontValue(name:string):string {const state=activeState();return String(state?.storedMarks?.find(mark=>mark.type.name===name)?.attrs['value']??state?.selection.$from.marks().find(mark=>mark.type.name===name)?.attrs['value']??'');}
+  function fontValue(name:string):string {
+    const state=activeState();if(!state)return '';
+    if(state.selection.empty)return String((state.storedMarks??state.selection.$from.marks()).find(mark=>mark.type.name===name)?.attrs['value']??'');
+    let value:string|undefined;let mixed=false;
+    state.doc.nodesBetween(state.selection.from,state.selection.to,node=>{if(!node.isText)return;const found=String(node.marks.find(mark=>mark.type.name===name)?.attrs['value']??'');if(value!==undefined&&value!==found)mixed=true;value=found;});
+    return mixed?'':value??'';
+  }
   function setTextStyle(name:string,value:string):void {if(!view)return;const mark=richSchema.marks[name];if(!mark)return;const {from,to,empty}=view.state.selection;let tr=view.state.tr;if(empty)tr=value?tr.addStoredMark(mark.create({value})):tr.removeStoredMark(mark);else{tr=tr.removeMark(from,to,mark);if(value)tr=tr.addMark(from,to,mark.create({value}));}view.dispatch(tr);view.focus();}
 
   const owned = (): ReadonlySet<string> | undefined => props.inline?.owned();
