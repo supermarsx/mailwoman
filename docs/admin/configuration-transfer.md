@@ -57,3 +57,15 @@ python3 scripts/backup-destinations.py fetch \
 ```
 
 Fetch does not modify running services. Use the existing `deploy.sh restore` command with the retrieved archive and the appropriate decryption identity when intentionally restoring. Keep the adjacent `.release.env` file. SHA-256 detects transfer corruption; trust in the completion manifest depends on access control of the destination. Test recovery before relying on a backup policy.
+
+## Verification
+
+`python3 scripts/test_backup_destinations.py` checks local copies, manifests, bounds and failure handling. `bash scripts/test-deploy-backup-targets.sh` exercises deployment ordering and retention on failure. Optional transport tests run disposable loopback servers and never contact configured storage accounts:
+
+```sh
+python3 scripts/test-backup-transports.py --rclone /absolute/path/to/rclone --method s3
+python3 scripts/test-backup-transports.py --rclone /absolute/path/to/rclone --method webdav
+python3 scripts/test-backup-transports.py --rclone /absolute/path/to/rclone --method sftp
+```
+
+These require rclone with the relevant `serve` command, OpenSSL, and `ssh-keygen` for SFTP. They check publication, retrieval and tamper rejection; SFTP also checks host-key mismatch rejection. They do not replace acceptance against the operator's storage provider, SMB server, NFS mount or SSH jump-host configuration.
