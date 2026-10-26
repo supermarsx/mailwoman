@@ -62,7 +62,7 @@ function Thumb(props: {
       onClick={() => props.onSelect?.(props.item)}
     >
       <span class="mw-thumb__preview" data-category={category()}>
-        <Show when={preview()} fallback={<span class="mw-thumb__icon">{ICON[category()]}</span>}>
+        <Show when={!preview.loading ? preview() : undefined} fallback={<span class="mw-thumb__icon">{ICON[category()]}</span>}>
           {(url) => (
             <img
               class="mw-thumb__img"

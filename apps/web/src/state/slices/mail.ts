@@ -631,6 +631,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     setSelectionRaw(new Set(ids));
   }
   function toggleSelection(ids: readonly Id[]): void {
+    if (listLoading()) return;
     if (ids.length === 0) return;
     const current = selectedIds();
     const next = new Set(current);
@@ -642,6 +643,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (selection().size > 0) setSelectionRaw(new Set<Id>());
   }
   function selectAllInView(): void {
+    if (listLoading()) return;
     setSelection(listMessages().map((m) => m.id));
   }
   function actionTargets(): Id[] {
@@ -1188,6 +1190,11 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       // A superseded request's failure is not the user's problem: the request
       // that replaced it owns the outcome, including the error surface.
       if (!isCurrent(req)) return;
+      // Retained rows belong to the previous folder and must not become active
+      // under the newly selected folder after a failed request.
+      setMessages([]);
+      setTotal(null);
+      setExhausted(true);
       throw err;
     } finally {
       if (isCurrent(req)) setListLoading(false);

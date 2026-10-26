@@ -47,7 +47,9 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
   const [query, setQuery] = createSignal('');
   const [cat, setCat] = createSignal<TypeCategory | 'all'>('all');
 
-  const all = (): AttachmentItem[] => data() ?? props.items ?? [];
+  // The module owns its loading state. Reading a pending resource here would
+  // suspend the enclosing mailbox route and replace the entire app with Loading.
+  const all = (): AttachmentItem[] => data.loading ? (props.items ?? []) : data() ?? props.items ?? [];
 
   const filtered = createMemo<AttachmentItem[]>(() => {
     const base = parseAttachmentQuery(query());

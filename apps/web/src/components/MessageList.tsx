@@ -1,5 +1,5 @@
 import { Icon } from './Icon.tsx';
-import { createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js';
+import { createMemo, createSignal, createEffect, on, For, onCleanup, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t, isolate } from '../i18n/index.ts';
 import { formatDateWith } from '../i18n/format.ts';
@@ -450,6 +450,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void } = {}
     app.setSelection(add ? [...app.selectedIds(), ...ids] : ids);
   }
   function onRowClick(e: MouseEvent, index: number, row: ThreadVisualRow): void {
+    if (app.listLoading()) return;
     setCursor(index);
     if (e.shiftKey) {
       selectRange(anchor() ?? index, index, e.ctrlKey || e.metaKey);
@@ -465,6 +466,12 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void } = {}
   }
 
   let scroller: HTMLDivElement | undefined;
+  createEffect(on(app.listLoading, (busy, previous) => {
+    if (!busy && previous) {
+      setScrollTop(0); setCursor(0);
+      if (scroller) scroller.scrollTop = 0;
+    }
+  }));
   // Keyed by ROW IDENTITY, not index. Two reasons: `<For>` is reference-keyed,
   // so a reused row object keeps its DOM node and its entry; and once paging
   // prepends rows every index shifts under an index-keyed map, resolving focus
@@ -550,6 +557,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void } = {}
   }
 
   function onKeyDown(e: KeyboardEvent): void {
+    if (app.listLoading()) return;
     const count = rows().length;
     if (count === 0) return;
     // Selection keys act on a row, not on the thread toggle or a row's action
@@ -608,15 +616,16 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void } = {}
   });
 
   return (
-    <section class="list" aria-label={t('mail-list-label')}>
+    <section class="list" aria-label={t('mail-list-label')} aria-busy={app.listLoading()}>
       <Show when={app.selectedIds().size > 0} fallback={<ListToolbar />}>
         <BulkBar />
       </Show>
       <OfflineQueueNotice />
-      <Show when={!app.listLoading()} fallback={<p class="list__empty">{t('mail-loading')}</p>}>
-        <Show when={rows().length > 0} fallback={<p class="list__empty">{t('mail-empty')}</p>}>
+      <Show when={app.listLoading()}><div class="list__loading" role="status">{t('mail-loading')}</div></Show>
+        <Show when={rows().length > 0} fallback={<p class="list__empty">{app.listLoading() ? t('mail-loading') : t('mail-empty')}</p>}>
           <div
             class="list__scroll"
+            inert={app.listLoading()}
             ref={scroller}
             onScroll={onScroll}
             onKeyDown={onKeyDown}
@@ -684,7 +693,6 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void } = {}
             </ul>
           </div>
         </Show>
-      </Show>
     </section>
   );
 }

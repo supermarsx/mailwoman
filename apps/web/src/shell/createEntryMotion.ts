@@ -7,16 +7,10 @@ export function createEntryMotion(key: Accessor<unknown>): Accessor<boolean> {
     setEntering(false);
     if (typeof document === 'undefined' || typeof requestAnimationFrame !== 'function') return;
     if (document.documentElement.hasAttribute('data-reduced-motion') || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-    // Leave one painted frame without the animation so repeat navigation really
-    // restarts it, even when the browser coalesces DOM writes before a frame.
-    let nextFrame: number | undefined;
-    const frame = requestAnimationFrame(() => {
-      nextFrame = requestAnimationFrame(() => setEntering(true));
-    });
-    onCleanup(() => {
-      cancelAnimationFrame(frame);
-      if (nextFrame !== undefined) cancelAnimationFrame(nextFrame);
-    });
+    // Schedule before the next paint; a second frame used to reveal content and
+    // then fade it out, creating a visible flash on fast navigation.
+    const frame = requestAnimationFrame(() => setEntering(true));
+    onCleanup(() => cancelAnimationFrame(frame));
   }));
   return entering;
 }

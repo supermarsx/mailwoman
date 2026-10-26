@@ -392,12 +392,10 @@ describe('MessageList paging trigger (t22-e5b)', () => {
     await waitFor(() => expect(app.messages().length).toBe(50));
     const before = pageRequests(queries).length;
 
-    // `listLoading` swaps the whole scroller for the loading fallback, so the
-    // node captured at mount is detached by now — events on it reach nothing.
-    // Re-acquiring it is also what a real user gets: a replaced list starts at
-    // scrollTop 0, which is why nothing pages until they scroll again.
+    // Folder changes retain the viewport, reset its position, and still page.
     const live = container.querySelector('.list__scroll') as HTMLElement;
-    expect(live).not.toBe(scroller);
+    expect(live).toBe(scroller);
+    expect(live.scrollTop).toBe(0);
     makeScrollable(live);
 
     scrollTo(live, 45 * ROW);
@@ -465,4 +463,34 @@ describe('MessageList describes the folder, not the page (t22-e5b, L4)', () => {
     const first = container.querySelector('.list__slot') as HTMLElement;
     expect(first.getAttribute('aria-setsize')).toBe('200');
   }, 20_000);
+});
+
+
+it('retains list DOM during a folder request and prevents stale-row actions', async () => {
+  const base = refetchingClient([mkEmail('old', {subject:'Previous folder message'})]);
+  let release: (() => void) | undefined;
+  let hold = false;
+  const client: Client = {...base, jmap: async body => {
+    if (hold && body.methodCalls.some(call => call[0] === 'Email/query')) await new Promise<void>(resolve => { release = resolve; });
+    return base.jmap(body);
+  }};
+  const app = createAppState(client);
+  const {container} = render(() => <AppContext.Provider value={app}><MessageList /></AppContext.Provider>);
+  await app.login(CREDS);
+  const viewport = container.querySelector('.list__scroll');
+  const row = container.querySelector<HTMLButtonElement>('.list__row');
+  expect(viewport).not.toBeNull();
+  hold = true;
+  const pending = app.selectMailbox('archive');
+  await waitFor(() => expect(app.listLoading()).toBe(true));
+  expect(container.querySelector('.list__scroll')).toBe(viewport);
+  expect(viewport).toHaveProperty('inert', true);
+  expect(container.querySelector('.list')).toHaveAttribute('aria-busy','true');
+  app.selectAllInView();
+  expect(app.selectedIds().size).toBe(0);
+  if (row) fireEvent.click(row);
+  expect(app.openEmail()).toBeNull();
+  hold = false; release?.(); await pending;
+  expect(container.querySelector('.list__scroll')).toBe(viewport);
+  expect(viewport).toHaveProperty('inert', false);
 });

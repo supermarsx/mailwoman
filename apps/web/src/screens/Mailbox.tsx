@@ -179,7 +179,7 @@ export function MailboxScreen(): JSX.Element {
     void loadCatalog('errors').then(() => app.showToast('info', t('errors-mail-route-not-found')));
   });
   const surface = (): ShellSurface => router.route().surface;
-  const mailEntering = createEntryMotion(() => `${surface()}:${app.selectedMailboxId() ?? ''}:${app.inboxTab()}:${app.search()}`);
+  const mailEntering = createEntryMotion(surface);
 
   // Narrow-viewport shell (t28-e6). At phone width the sidebar is an off-canvas
   // drawer opened from a top bar (styles/app.css); `navOpen` is that drawer's

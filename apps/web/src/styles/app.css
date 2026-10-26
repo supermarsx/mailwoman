@@ -343,6 +343,7 @@ body {
 /* `display`, `flex-direction` (on .list) and `position` (on .list__items) were
    static inline styles the shell CSP drops (t32-h12). */
 .list {
+  position: relative;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -942,3 +943,9 @@ body {
     transition: none;
   }
 }
+
+/* Folder changes retain the viewport; only a delayed progress badge appears. */
+.list__loading { position:absolute; z-index:2; inset-block-start:4rem; inset-inline-end:1rem; padding:.35rem .65rem; background:var(--bg); color:var(--text); border:var(--border-rule) solid var(--border-strong); pointer-events:none; opacity:0; animation:mail-progress-enter .12s ease-out .15s forwards; }
+@keyframes mail-progress-enter { to { opacity:1; } }
+@media(prefers-reduced-motion:reduce) { .list__loading { animation:none; opacity:1; } }
+:root[data-reduced-motion] .list__loading { animation:none; opacity:1; }
