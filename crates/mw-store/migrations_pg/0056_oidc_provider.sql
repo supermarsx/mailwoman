@@ -76,3 +76,4 @@ CREATE TABLE oidc_token (
     consumed_at BIGINT
 );
 CREATE INDEX oidc_token_expiry ON oidc_token(expires_at);
+
