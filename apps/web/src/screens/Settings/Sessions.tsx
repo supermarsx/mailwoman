@@ -10,7 +10,7 @@ import { t, loadCatalog, isolate } from '../../i18n';
 import { SettingsService } from './service.ts';
 import type { SessionMeta } from './types.ts';
 import { toast } from '../../components/toast/index.ts';
-import { AsyncPending } from '../../components/AsyncState.tsx';
+import { AsyncPending, AsyncError } from '../../components/AsyncState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import {revokeSessionBatch} from '../../api/sessionRevocation.ts';
 import {SessionRevokeConfirm} from './SessionRevokeConfirm.tsx';
@@ -90,7 +90,7 @@ export function Sessions(props: SessionsProps): JSX.Element {
       <p class={css.prose}>{t('settings-sessions-current-protected')}</p>
       <div class={css.actions}><label><input type="checkbox" aria-label={t('settings-sessions-select-visible')} checked={eligible().length>0&&chosen().length===eligible().length} disabled={busy()||eligible().length===0} onChange={event=>setSelected(event.currentTarget.checked?new Set(eligible().map(row=>row.handle)):new Set<string>())}/>{t('settings-sessions-select-visible')}</label><button class={css.danger} disabled={busy()||chosen().length===0} onClick={()=>setBatch(chosen())}>{t('settings-sessions-selected-title',{count:chosen().length})}</button></div>
       <Show when={result()}>{value=><p role={value().problem?'alert':'status'}>{value().text}</p>}</Show>
-      <Show when={sessions.error}><p role="alert">{t('settings-sessions-error')}</p></Show>
+      <Show when={sessions.error}><AsyncError message={t('settings-sessions-error')} onRetry={()=>{void refetch();}}/></Show>
       <Show when={sessions.loading}><AsyncPending variant={loaded().length?'status':'table'}/></Show>
       <div class={table.wrap} aria-busy={sessions.loading} role="region" aria-label={t('settings-sessions-table')} tabIndex={0}>
         <table class={table.table} data-testid="session-list"><caption>{t('settings-sessions-title')}</caption>

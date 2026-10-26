@@ -135,7 +135,7 @@ label.compose-rt__btn:focus-within:has(:focus-visible) {
 .compose-rt__group,.compose-rt__options {display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;}
 .compose-rt__group {border-inline-end:var(--border-hair) solid var(--border);padding-inline-end:.35rem;}
 .compose-rt__advanced label,.compose-rt__history label,.compose-rt__footer label {display:flex;align-items:center;gap:.25rem;font-size:.75rem;}
-.compose-rt__advanced select,.compose-rt__advanced input,.compose-rt__footer select,.compose-rt__history select {max-width:14rem;min-height:1.75rem;color:var(--text);background:var(--bg);border:var(--border-hair) solid var(--border);font:inherit;}
+.compose-rt__advanced select,.compose-rt__advanced input:not([type=checkbox], [type=radio]),.compose-rt__footer select,.compose-rt__history select {max-width:14rem;min-height:1.75rem;color:var(--text);background:var(--bg);border:var(--border-hair) solid var(--border);font:inherit;}
 .compose-rt__advanced input[type=number] {width:3.5rem;}
 .compose-rt__advanced input[type=color] {width:2rem;padding:.1rem;}
 .compose-rt__advanced summary {cursor:pointer;font-size:.8rem;padding:.3rem;}

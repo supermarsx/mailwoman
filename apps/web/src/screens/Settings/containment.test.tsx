@@ -4,10 +4,11 @@
 // resource on read, so one failed `/api/account/*` load used to escape to the
 // app's error boundary and replace the whole mailbox.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { ErrorBoundary } from 'solid-js';
 import { AccountSettings } from './AccountSettings.tsx';
+import {activateAccountPreferences,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
 import type { SettingsService } from './service.ts';
 
 function service(sessions: () => Promise<unknown>): SettingsService {
@@ -22,7 +23,8 @@ function service(sessions: () => Promise<unknown>): SettingsService {
 }
 
 describe('AccountSettings — a failing section is contained (t32-h6)', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {localStorage.clear();activateAccountPreferences('a1');});
+  afterEach(()=>suspendAccountPreferences());
 
   it('shows the failure and a retry in place of that section; the rest and the mailbox stay', async () => {
     let n = 0;
@@ -42,10 +44,13 @@ describe('AccountSettings — a failing section is contained (t32-h6)', () => {
     expect(screen.queryByTestId('app-boundary')).not.toBeInTheDocument();
     expect(screen.getByTestId('mailbox')).toBeInTheDocument();
     expect(screen.getByLabelText('Two-factor authentication')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Active sessions')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Active sessions')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
 
     fireEvent.click(retry);
-    await waitFor(() => expect(screen.getByLabelText('Active sessions')).toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId('async-retry')).not.toBeInTheDocument());
+    expect(screen.getByLabelText('Active sessions')).toBeInTheDocument();
+    expect(n).toBe(2);
     expect(screen.queryByTestId('async-retry')).not.toBeInTheDocument();
   });
 });

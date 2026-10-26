@@ -23,6 +23,9 @@ import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
+import {AVATAR_COLORS} from '../components/senderIcons/palette.ts';
+import {contrastRatio} from '../theme/contrast.ts';
+
 type Rule = 'gradient' | 'blurred-shadow' | 'radius' | 'colour' | 'physical';
 
 interface Finding {
@@ -42,6 +45,7 @@ interface Allowed {
 
 // Each entry needs a reason; an entry that matches nothing fails the test (no stale exemptions).
 const ALLOWLIST: Allowed[] = [
+  ...AVATAR_COLORS.map((text):Allowed=>({file:'components/senderIcons/palette.css',rule:'colour',text,reason:'stable sender identity colour; generated palette paired with white initials at AA contrast'})),
   {
     file: 'modules/calendar/calendar.css.ts',
     rule: 'colour',
@@ -61,10 +65,10 @@ const ALLOWLIST: Allowed[] = [
     reason: 'QR code frame: a QR code needs dark modules on a light field to scan, in every theme',
   },
   {
-    file: 'styles/app.css',
+    file: 'components/person-avatar.css',
     rule: 'colour',
-    text: '#ffffff',
-    reason: 'message body frame stays white paper (t32 decision D3: HTML mail is written for white)',
+    text: '#fff',
+    reason: 'white avatar initials pair with the contrast-checked identity palette, not the interface theme',
   },
 ];
 
@@ -333,4 +337,10 @@ describe('style rules: each check finds a seeded defect', () => {
     expect(radiusOk('vars.radius.md vars.radius.md 0 0')).toBe(true);
     expect(radiusOk('4px')).toBe(false);
   });
+});
+
+it('avatar palette exceptions remain exact generated identity colours with readable ink',()=>{
+ const css=readFileSync(join(SRC,'components/senderIcons/palette.css'),'utf8');
+ expect([...css.matchAll(/background-color:(#[a-f0-9]{6})/g)].map(match=>match[1])).toEqual([...AVATAR_COLORS]);
+ for(const color of AVATAR_COLORS) expect(contrastRatio(color,'#ffffff'),color).toBeGreaterThanOrEqual(4.5);
 });

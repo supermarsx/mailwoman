@@ -21,7 +21,7 @@ function json(status: number, body: unknown): Response {
 
 function renderSettings() {
   const ctx = { client: {}, showToast: vi.fn() } as unknown as SliceContext;
-  const app = createThemeSlice(ctx) as unknown as AppState;
+  const app = {...createThemeSlice(ctx),accountId:()=>null} as unknown as AppState;
   render(() => (
     <AppContext.Provider value={app}>
       <Settings onClose={vi.fn()} />

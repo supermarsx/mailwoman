@@ -11,7 +11,7 @@ import { clearSettings, loadSettings } from '../api/settings.ts';
 // the test stays isolated from the other executors' slices.
 function renderSettings(onClose = vi.fn()) {
   const ctx = { client: {}, showToast: vi.fn() } as unknown as SliceContext;
-  const app = createThemeSlice(ctx) as unknown as AppState;
+  const app = {...createThemeSlice(ctx), accountId:()=>null} as unknown as AppState;
   const utils = render(() => (
     <AppContext.Provider value={app}>
       <Settings onClose={onClose} />

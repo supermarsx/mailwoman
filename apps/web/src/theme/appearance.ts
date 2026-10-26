@@ -114,6 +114,7 @@ export function defaultAppearance(): AppearancePrefs {
     schedule: DEFAULT_SCHEDULE,
     density: 'cozy',
     accentId: '',
+    customAccent: '',
     font: 'default',
     layout: 'default',
     ribbonCollapsed: false,

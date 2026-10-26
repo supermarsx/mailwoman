@@ -12,6 +12,7 @@ import { AppContext } from '../state/context.ts';
 import { createThemeSlice } from '../state/slices/theme.ts';
 import { stopAppearanceSync } from '../api/prefs.ts';
 import { t } from '../i18n';
+import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 import { ACCENT_LIST, THEME_LIST, accentShade, themeEntry } from '../theme/registry.ts';
 import type { SliceContext } from '../state/slices/context.ts';
 import type { AppState } from '../state/store.ts';
@@ -32,9 +33,11 @@ vi.mock('../modules/rules/index.ts', () => ({ RulesSettings: () => <p>rules sect
 vi.mock('../modules/servermeta/index.ts', () => ({ MetadataView: () => <p>metadata section</p> }));
 
 function renderSettings(signedIn = false) {
+  if(signedIn)activateAccountPreferences('a1');else suspendAccountPreferences();
   const ctx = { client: {}, showToast: vi.fn() } as unknown as SliceContext;
   const slice = createThemeSlice(ctx);
-  const app = (signedIn ? { ...slice, me: () => ({ accountId: 'a1' }) } : slice) as unknown as AppState;
+  const base = {...slice,accountId:()=>signedIn?'a1':null,mailboxes:()=>[],tags:()=>[],refreshFolders:vi.fn()};
+  const app = (signedIn ? { ...base, me: () => ({ accountId: 'a1' }) } : base) as unknown as AppState;
   const utils = render(() => (
     <AppContext.Provider value={app}>
       <Settings onClose={vi.fn()} />
@@ -54,7 +57,7 @@ describe('theme gallery', () => {
     document.documentElement.removeAttribute('data-theme');
     stopAppearanceSync();
   });
-  afterEach(() => stopAppearanceSync());
+  afterEach(() => {stopAppearanceSync();suspendAccountPreferences();});
 
   it('renders one card per registered theme', async () => {
     renderSettings();
@@ -128,7 +131,7 @@ describe('theme mode tri-state', () => {
     localStorage.clear();
     stopAppearanceSync();
   });
-  afterEach(() => stopAppearanceSync());
+  afterEach(() => {stopAppearanceSync();suspendAccountPreferences();});
 
   it('offers the three modes and switches between them', async () => {
     const { app } = renderSettings();
@@ -206,7 +209,7 @@ describe('appearance sync status', () => {
     localStorage.clear();
     stopAppearanceSync();
   });
-  afterEach(() => stopAppearanceSync());
+  afterEach(() => {stopAppearanceSync();suspendAccountPreferences();});
 
   it('states where the appearance is saved', async () => {
     renderSettings();
@@ -248,7 +251,7 @@ describe('the Bauhaus packs', () => {
     document.documentElement.removeAttribute('data-theme');
     stopAppearanceSync();
   });
-  afterEach(() => stopAppearanceSync());
+  afterEach(() => {stopAppearanceSync();suspendAccountPreferences();});
 
   it('are one group of five cards', async () => {
     renderSettings();
@@ -286,7 +289,7 @@ describe('the accent picker', () => {
     document.documentElement.removeAttribute('data-accent');
     stopAppearanceSync();
   });
-  afterEach(() => stopAppearanceSync());
+  afterEach(() => {stopAppearanceSync();suspendAccountPreferences();});
 
   it('offers the theme default and the ten named accents, default chosen', async () => {
     renderSettings();
@@ -325,7 +328,7 @@ describe('the accent picker', () => {
     expect(document.documentElement.getAttribute('data-accent')).toBe('violet');
     expect(violet).toHaveAttribute('aria-pressed', 'true');
     // A check mark in the accent's ink, beside the ring.
-    expect(violet.textContent).toBe('✓');
+    expect(violet.querySelector('[aria-hidden="true"] svg')).not.toBeNull();
     expect(violet.style.color).toBe(rgb(accentShade('dark', 'violet').accentText));
 
     fireEvent.click(within(accentGroup()).getByRole('button', { name: 'Theme default' }));
@@ -352,7 +355,7 @@ describe('the signed-in sections', () => {
     localStorage.clear();
     stopAppearanceSync();
   });
-  afterEach(() => stopAppearanceSync());
+  afterEach(() => {stopAppearanceSync();suspendAccountPreferences();});
 
   it('a section that fails to load shows its own error and leaves the rest of the dialog', async () => {
     renderSettings(true);
