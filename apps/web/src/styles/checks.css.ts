@@ -70,6 +70,15 @@ globalStyle('input[type="checkbox"]:disabled, input[type="radio"]:disabled', {
 
 // A `.field` label (app.css: a column with the field name above the input) that holds a
 // checkbox or radio is an option, not a field: box and text on one line.
+// Bare labels need the same spacing; JSX whitespace alone leaves text touching
+// the themed box. Low specificity preserves component-specific label layouts.
+globalStyle(':where(label:has(> input[type="checkbox"]), label:has(> input[type="radio"]))', {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: vars.space[2],
+  maxInlineSize: '100%',
+  lineHeight: 1.5,
+});
 globalStyle('.field:has(> input[type="checkbox"]), .field:has(> input[type="radio"])', {
   flexDirection: 'row',
   alignItems: 'center',

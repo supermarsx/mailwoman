@@ -27,6 +27,13 @@ test('dedicated telemetry editor persists bounded configuration and distinguishe
     const saved=await api(page,'GET');expect(saved.data.config.environment).toBe('browser-acceptance');
     expect(saved.data.active.environment).toBe(previous.data.active.environment);
     expect(saved.data.restartRequired).toBe(true);
+    const checkboxGap=await page.getByLabel('Enable OTLP export',{exact:true}).evaluate(input=>{
+      const text=[...input.closest('label')!.childNodes].find(node=>node.nodeType===Node.TEXT_NODE&&node.textContent?.trim());
+      if(!text)return -1;
+      const range=document.createRange();range.selectNodeContents(text);
+      return range.getBoundingClientRect().left-input.getBoundingClientRect().right;
+    });
+    expect(checkboxGap).toBeGreaterThanOrEqual(4);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
     await page.screenshot({path:info.outputPath('telemetry-editor.png'),fullPage:true});
   } finally {
