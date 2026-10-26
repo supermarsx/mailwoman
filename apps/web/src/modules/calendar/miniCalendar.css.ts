@@ -1,0 +1,13 @@
+import {style,globalStyle} from '@vanilla-extract/css';
+import {vars} from '../../theme/contract.css.ts';
+export const root=style({minInlineSize:0,border:`1px solid ${vars.color.border}`,padding:vars.space[2],background:vars.color.surface});
+export const header=style({display:'flex',alignItems:'center',justifyContent:'space-between',gap:vars.space[1],fontSize:'.8rem'});
+export const grid=style({inlineSize:'100%',tableLayout:'fixed',borderCollapse:'collapse',marginBlock:vars.space[2],fontSize:'.72rem'});
+export const today=style({fontSize:'.75rem'});
+globalStyle(`${grid} th, ${grid} td`,{padding:0,textAlign:'center'});
+globalStyle(`${grid} th`,{color:vars.color.textDim,fontWeight:vars.weight.medium});
+globalStyle(`${grid} button`,{inlineSize:'100%',minInlineSize:0,minBlockSize:'1.65rem',padding:'2px',border:'1px solid transparent',background:'transparent',color:vars.color.text,font:'inherit',cursor:'pointer'});
+globalStyle(`${grid} button:hover`,{background:vars.color.bgAlt});
+globalStyle(`${grid} button[data-outside="true"]`,{color:vars.color.textDim});
+globalStyle(`${grid} button[aria-pressed="true"]`,{borderColor:vars.color.accent,background:vars.color.bgAlt,fontWeight:vars.weight.bold});
+globalStyle(`${grid} button[aria-current="date"]`,{textDecoration:'underline'});

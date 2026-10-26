@@ -5,6 +5,7 @@
 
 # -- Toolbar / chrome --------------------------------------------------------
 calendar-title = Calendar
+calendar-mini = Date navigator
 calendar-prev = Previous
 calendar-next = Next
 calendar-today = Today
@@ -283,3 +284,6 @@ calendar-invite-retry = Retry
 calendar-field-time-zone = Event time zone
 calendar-field-time-zone-help = Use an IANA name such as Europe/Lisbon. The event keeps this zone when viewed elsewhere.
 calendar-time-invalid = Enter a valid time zone and local time. Some local times do not exist when clocks move forward.
+
+calendar-mini-prev = Previous month
+calendar-mini-next = Next month

@@ -1,4 +1,5 @@
 import { Icon } from '../../components/Icon.tsx';
+import {MiniCalendar} from './MiniCalendar.tsx';
 // Calendar module (plan §2.5, §3 e4): the mounted shell that composes the view
 // switcher, the multi-calendar overlay sidebar, all nine views, the event
 // create/edit dialog (recurrence + reminders + attendees + free/busy + invite
@@ -277,6 +278,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
 
       <div class={css.body}>
         <aside class={css.sidebar} aria-label={t('calendar-calendars-heading')}>
+          <MiniCalendar date={c.focusDate()} select={c.goToDate}/>
           <div>
             <h3 class={css.sideHeading}>{t('calendar-calendars-heading')}</h3>
             <ul class={css.calList}>
