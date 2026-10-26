@@ -78,8 +78,7 @@ Shared static assets, health/readiness, public WKD discovery, `/metrics`, and
 error-report ingestion are outside these two route groups and retain their own
 controls. The policy does not secure SMTP/IMAP listener ports or firewall rules.
 The legacy `ip_allow` table and its domain/account scope columns are not used by
-this global policy. Domain/account-specific hostname policies and a dedicated
-visual editor are not part of this backend slice.
+this global policy. Domain/account-specific hostname policies are not supported.
 
 Forwarded headers are considered only through the existing trusted-proxy
 configuration. Supplying `X-Forwarded-For` without a trusted transport peer never
@@ -87,3 +86,14 @@ substitutes for the actual client IP. If all rescue sources are removed by an
 operator, recovery requires a controlled deployment-side restoration of the
 `security.inbound-allowlist.v1` setting; ordinary authentication cannot bypass
 the network policy.
+
+## Admin editor
+
+Admin → Inbound access presents separate admin and webmail rules, bounded DNS
+controls, and the current per-host resolution status. Status refresh preserves
+unsaved edits; if the saved revision changes, reset and refresh before editing
+again. The validity column is a snapshot, not a live countdown. Every save
+requires an explicit typed confirmation, the current ETag and the server
+BanManage fresh-proof flow. No configuration is saved optimistically. Rescue
+addresses must be checked against the operator's real trusted source before
+enabling a policy. The UI does not test or guarantee that recovery access works.

@@ -62,7 +62,8 @@ function screen<P extends object>(load: () => Promise<Component<P>>, passApi: bo
 }
 
 export const SECTIONS: readonly SectionDef[] = [
-  { id: 'configuration-transfer', group: 'configuration', icon: 'configuration', label: () => t('admin-transfer-title'), capability: 'config.read', component: screen(() => import('../ConfigurationTransfer.tsx').then(m => m.ConfigurationTransfer), false) },
+  { id: 'inbound-allowlist', group: 'security', icon: 'shield', label: () => t('admin-inbound-title'), capability: 'security.read', component: screen(() => import('../InboundAllowlist.tsx').then(m => m.InboundAllowlist), false) },
+  { id: 'configuration-transfer', group: 'configuration', icon: 'restore', label: () => t('admin-transfer-title'), capability: 'config.read', component: screen(() => import('../ConfigurationTransfer.tsx').then(m => m.ConfigurationTransfer), false) },
   { id: 'package-tracking', group: 'configuration', icon: 'archive', label: () => t('admin-nav-package-tracking'), capability: 'integrations.read', component: screen(() => import('../PackageTracking.tsx').then(m => m.PackageTracking), false) },
   { id: 'identity-provider', group: 'security', icon: 'identityProvider', label: () => t('admin-identity-title'), capability: 'integrations.read', component: screen(() => import('../IdentityProvider/index.tsx').then(m => m.default), false) },
   { id: 'attachments', group: 'security', icon: 'attachment', label: () => t('admin-attachments-title'), capability: 'settings.read', component: screen(() => import('../AttachmentPolicy.tsx').then(m => m.AdminAttachmentPolicy), false) },
