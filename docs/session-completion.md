@@ -52,8 +52,8 @@ States: **Verified** means the bounded behavior listed has passing local accepta
 | CalDAV discovery, PWA/offline, browser storage permissions | Integrations + Security | Audit discovery, offline boundaries, permission UX and sync recovery |
 | Extensive HTTP/2 and HTTP/3/QUIC deployment support | Integrations | Audit server/proxy configuration and real negotiated protocols |
 | Open-source telemetry, extensive controls, off by default | Root | Partial, 542acd3; typed draft unwired; actual collector acceptance pending |
-| Optional open-source analytics, off by default | Integrations | Partial, 40b827b; native checks pass, browser harness acceptance in progress |
-| Quick replies, off by default and user/admin configurable | Root | Partial, 3032a58; preference exists, compact composer unwired |
+| Optional open-source analytics, off by default | Integrations | Verified local runtime, 40b827b/74a8d0b; native, store and three browser layouts pass. Real provider ingestion remains deployment-specific. |
+| Quick replies, off by default and user/admin configurable | Root | Verified compact reply tabs, af880dc; 52 tests, TypeScript/lint and Chromium/Firefox/phone acceptance passed. Reuses full composer protections. |
 | IMAP quota/usage/folder item and unread indicators | Integrations + Root UI | Audit real capabilities and per-user/admin toggles |
 | Contact photos/profile lookup or generated avatars with privacy controls | Root | Audit local/default behavior and opt-in external access |
 | Suspicious/external link protection and trusted-domain controls | Security + Root UI | Audit navigation interception, URL parsing and isolated previews |
