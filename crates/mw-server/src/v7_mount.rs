@@ -2620,8 +2620,17 @@ impl mw_engine::account::MailSubmitter for BridgeSubmitter {
         if let Err(e) = self.backend.append(&placeholder, &msg.raw, &[]).await {
             // Surface the failure (never silently drop). Content-free: bridge id + the
             // coarse backend error only.
-            tracing::warn!("bridge '{}' send failed: {e}", self.bridge_id);
-            return Err(e);
+            tracing::warn!("bridge '{}' send did not confirm acceptance: {e}", self.bridge_id);
+            // The opaque submit export does not expose an HTTP/transport phase.
+            // Only explicit authentication/capability refusals establish no send;
+            // all other failures may follow acceptance and must not be retried.
+            return Err(match e {
+                e @ (mw_engine::backend::EngineError::Auth(_)
+                    | mw_engine::backend::EngineError::Unsupported(_)
+                    | mw_engine::backend::EngineError::SubmissionUncertain(_)) => e,
+                _ => mw_engine::backend::EngineError::SubmissionUncertain(
+                    "the connected provider did not confirm the send outcome".into()),
+            });
         }
         // The provider transmits to every recipient atomically and reports fatal
         // failures as the error above; report the envelope recipients accepted.
@@ -2648,6 +2657,7 @@ mod bridge_submitter_tests {
     #[derive(Default)]
     struct RecordingBridge {
         sent: Mutex<Vec<Vec<u8>>>,
+        failure: Mutex<Option<EngineError>>,
     }
 
     #[async_trait]
@@ -2671,7 +2681,12 @@ mod bridge_submitter_tests {
             Err(EngineError::Unsupported("recording bridge".into()))
         }
         async fn append(&self, _: &RawMailboxRef, raw: &[u8], _: &[Flag]) -> Result<MessageRef> {
+            let failure = self.failure.lock().unwrap().take();
+            if matches!(failure, Some(EngineError::Auth(_) | EngineError::Unsupported(_))) {
+                return Err(failure.unwrap());
+            }
             self.sent.lock().unwrap().push(raw.to_vec());
+            if let Some(error) = failure { return Err(error); }
             Ok(MessageRef::Pop3 {
                 uidl: "sent".into(),
             })
@@ -2707,6 +2722,28 @@ mod bridge_submitter_tests {
             .unwrap();
         assert_eq!(out.accepted, vec!["bob@example.test".to_string()]);
         assert_eq!(bridge.sent.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn opaque_provider_failures_after_submit_are_uncertain() {
+        for error in [EngineError::Transport("reply lost".into()), EngineError::Protocol("guest trapped".into())] {
+            let (bridge, submitter) = submitter();
+            *bridge.failure.lock().unwrap() = Some(error);
+            let outcome = submitter.submit(outgoing("alice@example.test", &["bob@example.test"])).await;
+            assert!(matches!(outcome, Err(EngineError::SubmissionUncertain(_))));
+            assert_eq!(bridge.sent.lock().unwrap().len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_provider_auth_and_capability_refusals_remain_definite() {
+        for error in [EngineError::Auth("refused".into()), EngineError::Unsupported("submit".into())] {
+            let (bridge, submitter) = submitter();
+            *bridge.failure.lock().unwrap() = Some(error);
+            let outcome = submitter.submit(outgoing("alice@example.test", &["bob@example.test"])).await;
+            assert!(matches!(outcome, Err(EngineError::Auth(_) | EngineError::Unsupported(_))));
+            assert!(bridge.sent.lock().unwrap().is_empty());
+        }
     }
 
     #[tokio::test]

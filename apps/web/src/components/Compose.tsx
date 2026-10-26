@@ -1,4 +1,5 @@
 import { settings } from '../api/settings.ts';
+import { supportsDeliveryReceipts } from '../api/deliveryReceipts.ts';
 import { externalRecipients } from './compose/recipientTrust.ts';
 import { Icon } from './Icon.tsx';
 import {
@@ -213,13 +214,19 @@ export function Compose(props: {
   const [inlineError, setInlineError] = createSignal<string | null>(null);
   const ownedCids = createMemo<ReadonlySet<string>>(() => new Set(inlineImages().map((i) => i.cid)));
   const [downloadUrl, setDownloadUrl] = createSignal<string | null>(null);
-  // Send options (t29-e12). Off for every new message; never remembered for the
-  // next one. The receipt option needs the engine (see ENGINE_CAP).
+  // Receipt preferences supply initial choices; drafts keep their own choices.
+  // Read-receipt headers need the engine; DSN needs this account's capability.
   const [receiptAvailable, setReceiptAvailable] = createSignal(false);
   const [requestReceipt, setRequestReceiptValue] = createSignal(settings()['mail.requestReadReceipt']?.value===true);
   let receiptInitialized=settings()['mail.requestReadReceipt']!==undefined;
   const setRequestReceipt=(value:boolean):void=>{receiptInitialized=true;setRequestReceiptValue(value);};
   createEffect(()=>{const entry=settings()['mail.requestReadReceipt'];if(!receiptInitialized && entry){receiptInitialized=true;setRequestReceiptValue(entry.value===true);}});
+  const [deliveryCapable,setDeliveryCapable]=createSignal(false);
+  const deliveryAvailable=()=>deliveryCapable() && settings()['receipts.dsnAllowed']?.value===true;
+  const [requestDelivery,setRequestDeliveryValue]=createSignal(false);
+  let deliveryEdited=false;let deliveryDisposed=false;
+  const setRequestDelivery=(value:boolean):void=>{deliveryEdited=true;setRequestDeliveryValue(value);};
+  createEffect(()=>{const entry=settings()['mail.requestDeliveryReceipt'];if(!deliveryEdited&&entry&&deliveryAvailable())setRequestDeliveryValue(entry.value===true);});
   const [trackOpens, setTrackOpens] = createSignal(false);
   // Crypto/DLP state reported up by <ComposeCrypto> (encrypt/sign toggles, the
   // E2EE/TLS/mixed capability, the DLP `canSend` gate, and the WASM-encrypted
@@ -326,9 +333,21 @@ export function Compose(props: {
     // the local-file picker can POST bytes to the per-account endpoint and guard
     // the size client-side. A failed probe (offline / no session) simply leaves
     // the picker disabled; the rest of the composer is unchanged.
+    // Whether this server records opens (`openTracking`); read once per session.
+    void loadClientPolicy();
+  });
+
+  let sessionEpoch=0;
+  createEffect(()=>{
+    const deliveryAccount=app.accountId();
+    const epoch=++sessionEpoch;
+    setDeliveryCapable(false);setReceiptAvailable(false);setUploadUrl(null);setDownloadUrl(null);
+    if(deliveryAccount===null)return;
     void jmapClient
       .session()
       .then((s) => {
+        if(deliveryDisposed || epoch!==sessionEpoch || app.accountId()!==deliveryAccount)return;
+        setDeliveryCapable(deliveryAccount!==null && supportsDeliveryReceipts(s,deliveryAccount));
         setUploadUrl(s.uploadUrl);
         setDownloadUrl(s.downloadUrl);
         setReceiptAvailable(s.capabilities[ENGINE_CAP] !== undefined);
@@ -338,8 +357,6 @@ export function Compose(props: {
         }
       })
       .catch(() => undefined);
-    // Whether this server records opens (`openTracking`); read once per session.
-    void loadClientPolicy();
   });
 
   // A reply is answered above the quote: once the editor is there, the caret
@@ -356,6 +373,7 @@ export function Compose(props: {
   }
 
   onCleanup(() => {
+    deliveryDisposed=true;
     if (!props.embedded) previouslyFocused?.focus();
     for (const img of inlineImages()) if (img.previewUrl !== null) URL.revokeObjectURL(img.previewUrl);
     // Drop the cached signing key from the worker session when the composer closes
@@ -504,6 +522,7 @@ export function Compose(props: {
     setThreading({ inReplyTo: d.inReplyTo ?? [], references: d.references ?? [] });
     setSubject(d.subject);
     setRequestReceipt(d.requestReceipt === true);
+    setRequestDelivery(d.requestDeliveryReceipt === true);
     setTrackOpens(d.openTracking === true);
     const images = (d.inline ?? []).map((i) => ({ ...i, previewUrl: null }));
     setInlineImages(images);
@@ -625,6 +644,7 @@ export function Compose(props: {
       bodyText: body(),
       savedAt: Date.now(),
       ...(requestReceipt() ? { requestReceipt: true } : {}),
+      ...(requestDelivery() ? { requestDeliveryReceipt: true } : {}),
       ...(trackOpens() ? { openTracking: true } : {}),
       ...(inlineImages().length > 0 ? { inline: inlineImages().map(storedImage) } : {}),
     };
@@ -836,6 +856,7 @@ export function Compose(props: {
       // Only the images the body still shows go out (none for ciphertext or a
       // clear-signed body, which carry no `cid:` reference).
       const inline = inlineAttachments(inlineImages(), referencedCids(htmlBody));
+      if(requestDelivery()&&!deliveryAvailable())throw new Error(t('mail-compose-delivery-unavailable'));
       await app.sendMessage({
         to: to(),
         cc: cc(),
@@ -861,6 +882,7 @@ export function Compose(props: {
           : {}),
         ...(inline.length > 0 ? { inline } : {}),
         ...(receiptAvailable() && requestReceipt() ? { requestReadReceipt: true } : {}),
+        ...(requestDelivery() ? { requestDeliveryReceipt: true } : {}),
         ...(trackingAvailable() && trackOpens() ? { openTracking: true } : {}),
       });
       // W9: the composition was sent — drop its auto-saved draft.
@@ -1277,6 +1299,9 @@ export function Compose(props: {
         </Show>
 
         <SendOptions
+          deliveryAvailable={deliveryAvailable()}
+          requestDelivery={requestDelivery()}
+          onRequestDelivery={setRequestDelivery}
           receiptAvailable={receiptAvailable()}
           requestReceipt={requestReceipt()}
           onRequestReceipt={setRequestReceipt}

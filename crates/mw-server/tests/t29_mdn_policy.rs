@@ -766,3 +766,30 @@ async fn dsn_http_capability_probe_is_truthful_and_changed_support_never_sends_p
     assert_eq!(session["accounts"][&account]["accountCapabilities"]["urn:ietf:params:jmap:submission"]["submissionExtensions"],json!({}));
     unsafe {std::env::remove_var("MW_SMTP_HOST");std::env::remove_var("MW_SMTP_PORT");std::env::remove_var("MW_SMTP_SECURITY");}
 }
+
+#[tokio::test]
+async fn dsn_default_is_account_preference_with_admin_lock_and_readonly_permission() {
+    let _guard=serial().await;
+    let imap=MockImap::start(ENGINE_USER,ENGINE_PASS).await;
+    let server=spawn(ServerMode::Engine,imap.url()).await;
+    let client=browser();let _account=engine_login(&client,&server.base,&imap).await;
+    let url=format!("{}/api/settings",server.base);
+    let initial:Value=client.get(&url).send().await.unwrap().json().await.unwrap();
+    assert_eq!(initial["settings"]["mail.requestDeliveryReceipt"]["value"],false);
+    assert_eq!(initial["settings"]["receipts.dsnAllowed"]["value"],true);
+    let own=format!("{url}/mail.requestDeliveryReceipt");
+    assert_eq!(client.put(&own).json(&json!({"value":true})).send().await.unwrap().status(),200);
+    let saved:Value=client.get(&url).send().await.unwrap().json().await.unwrap();
+    assert_eq!(saved["settings"]["mail.requestDeliveryReceipt"]["value"],true);
+    let forbidden=client.put(format!("{url}/receipts.dsnAllowed")).json(&json!({"value":true})).send().await.unwrap();
+    assert_eq!(forbidden.status(),403);
+    assert_eq!(forbidden.json::<Value>().await.unwrap()["code"],"setting_locked");
+    server.store().await.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow{
+        key:"mail.requestDeliveryReceipt".into(),global_value:Some("false".into()),
+        allow_user_override:false,global_locked:true,updated_by:"fixture".into(),updated_at:0,
+    }).await.unwrap();
+    let locked:Value=client.get(&url).send().await.unwrap().json().await.unwrap();
+    assert_eq!(locked["settings"]["mail.requestDeliveryReceipt"]["value"],false);
+    assert_eq!(locked["settings"]["mail.requestDeliveryReceipt"]["locked"],true);
+    assert_eq!(client.put(&own).json(&json!({"value":true})).send().await.unwrap().status(),403);
+}

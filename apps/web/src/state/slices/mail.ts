@@ -134,6 +134,7 @@ export interface SendInput {
   inline?: { blobId: Id; cid: string; disposition: 'inline'; type: string; name: string }[];
   /** Ask the recipient's mail program for a read receipt (t29-e12). */
   requestReadReceipt?: boolean;
+  requestDeliveryReceipt?: boolean;
   /** Record when the message is opened (t29-e12): a token is minted and its
    *  image appended to the body just before the send — at replay time for a
    *  send queued offline. If no token can be minted the send is refused, never
@@ -1487,6 +1488,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         : {}),
       ...(input.inline !== undefined && input.inline.length > 0 ? { inline: input.inline } : {}),
       ...(input.requestReadReceipt === true ? { requestReadReceipt: true } : {}),
+      ...(input.requestDeliveryReceipt === true ? { requestDeliveryReceipt: true } : {}),
     };
     const track = input.openTracking === true;
 

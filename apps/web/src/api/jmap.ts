@@ -229,6 +229,8 @@ export interface DraftInput {
    *  writes `Disposition-Notification-To` with the validated From mailbox; no
    *  other address can be named. */
   requestReadReceipt?: boolean;
+  /** Request SMTP DSN success/failure/delay notifications; never a read receipt. */
+  requestDeliveryReceipt?: boolean;
   /**
    * V2 undo-send: engine-held delay before SMTP dispatch, in seconds. The
    * client shows a Cancel toast for this window; the engine only dials SMTP
@@ -317,8 +319,8 @@ export function sendEnvelope(accountId: Id, input: DraftInput): JmapRequest {
   const sendCreate: Record<string, unknown> = {
     emailId: '#draft',
     envelope: {
-      mailFrom: { email: input.from.email },
-      rcptTo: envelopeRecipients(input),
+      mailFrom: { email: input.from.email, ...(input.requestDeliveryReceipt ? {parameters:{RET:'HDRS'}} : {}) },
+      rcptTo: envelopeRecipients(input).map(recipient => ({...recipient,...(input.requestDeliveryReceipt ? {parameters:{NOTIFY:'SUCCESS,FAILURE,DELAY'}} : {})})),
     },
   };
   if (input.identityId !== undefined) sendCreate['identityId'] = input.identityId;

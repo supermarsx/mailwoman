@@ -264,7 +264,7 @@ impl SettingDef {
 
     /// Whether the value is returned by `GET /api/settings` to the user.
     pub fn user_visible(&self) -> bool {
-        self.scopes == Scopes::GlobalDomainUser || PUBLIC_KEYS.contains(&self.key)
+        self.scopes == Scopes::GlobalDomainUser || PUBLIC_KEYS.contains(&self.key) || self.key == "receipts.dsnAllowed"
     }
 
     /// Whether a value is re-read at the point of use (R-CFG 6).
@@ -589,6 +589,7 @@ pub static REGISTRY: &[SettingDef] = &[
     // ── Interface (user-facing) ──────────────────────────────────────────────
     def!("mail.quickReply", Kind::Bool, "false", GDU, "mail", "enable the compact message reply composer"),
     def!("mail.requestReadReceipt", Kind::Bool, "false", GDU, "mail", "request a read receipt by default when composing supported mail"),
+    def!("mail.requestDeliveryReceipt", Kind::Bool, "false", GDU, "mail", "request delivery status notifications by default when the account supports DSN"),
     def!("contacts.avatarMode", Kind::Enum(&["off", "initials", "contacts"]), "\"initials\"", GDU, "contacts", "local generated avatars or embedded photos from this account contacts; never remote photo requests"),
     def!("reader.actionStyle", Kind::Enum(&["icons", "labels"]), "\"icons\"", GDU, "reader", "compact reader actions or icons with visible labels"),
     def!("reader.colorMode", Kind::Enum(&["auto", "original", "adaptive", "invert"]), "\"auto\"", GDU, "reader", "message color adaptation inside the isolated reader"),

@@ -530,3 +530,6 @@ admin-settings-key-mail-folder-role-junk = Junk folder mapping
 admin-settings-help-mail-folder-role-junk = Null uses automatic discovery. Use an exact path object for shared defaults or an owned mailbox ID object for one account. Missing or conflicting targets disable this role; administrator locks apply.
 admin-settings-key-mail-folder-role-archive = Archive folder mapping
 admin-settings-help-mail-folder-role-archive = Null uses automatic discovery. Use an exact path object for shared defaults or an owned mailbox ID object for one account. Missing or conflicting targets disable this role; administrator locks apply.
+
+admin-settings-key-mail-request-delivery-receipt = Request delivery notifications by default
+admin-settings-help-mail-request-delivery-receipt = Select delivery notifications for new messages when the account supports SMTP DSN. Locking controls this saved default; receipts.dsnAllowed separately governs whether requests are permitted. Delivery does not prove reading.

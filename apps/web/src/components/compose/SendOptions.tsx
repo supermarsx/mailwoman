@@ -1,8 +1,7 @@
-// Per-message send options (t29-e12): ask for a read receipt, record opens.
+// Per-message send options: read receipts, delivery notifications, and open tracking.
 //
-// Both start off for every message and are not remembered for the next one (a
-// stored draft keeps them for that draft only). Each option says what it does
-// and what it cannot do, next to the checkbox.
+// Receipt defaults come from account settings; a stored draft keeps its own
+// choices. Each option explains its scope beside the checkbox.
 
 import { Show, type JSX } from 'solid-js';
 import { t } from '../../i18n/index.ts';
@@ -11,6 +10,9 @@ import './compose-extras.css';
 export function SendOptions(props: {
   /** The server can ask for a receipt (the engine builds the header). */
   receiptAvailable: boolean;
+  deliveryAvailable?: boolean;
+  requestDelivery?: boolean;
+  onRequestDelivery?: (on:boolean)=>void;
   requestReceipt: boolean;
   onRequestReceipt: (on: boolean) => void;
   /** Open tracking is on at this server and the message is neither encrypted
@@ -20,7 +22,7 @@ export function SendOptions(props: {
   onTracking: (on: boolean) => void;
 }): JSX.Element {
   return (
-    <Show when={props.receiptAvailable || props.trackingAvailable}>
+    <Show when={props.receiptAvailable || props.trackingAvailable || props.deliveryAvailable !== undefined}>
       <fieldset class="compose-options" data-testid="compose-send-options">
         <legend class="compose-options__legend">{t('mail-compose-options')}</legend>
         <Show when={props.receiptAvailable}>
@@ -37,6 +39,12 @@ export function SendOptions(props: {
           <p id="compose-receipt-hint" class="compose-options__hint">
             {t('mail-compose-request-receipt-hint')}
           </p>
+        </Show>
+        <Show when={props.deliveryAvailable !== undefined}>
+          <label class="compose-options__toggle"><input type="checkbox" checked={props.requestDelivery === true}
+            disabled={!props.deliveryAvailable} data-testid="compose-request-delivery" aria-describedby="compose-delivery-hint"
+            onChange={event=>props.onRequestDelivery?.(event.currentTarget.checked)}/><span>{t('mail-compose-request-delivery')}</span></label>
+          <p id="compose-delivery-hint" class="compose-options__hint">{t(props.deliveryAvailable?'mail-compose-request-delivery-hint':'mail-compose-delivery-unavailable')}</p>
         </Show>
         <Show when={props.trackingAvailable}>
           <label class="compose-options__toggle">

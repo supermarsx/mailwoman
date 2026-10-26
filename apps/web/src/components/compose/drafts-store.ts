@@ -35,6 +35,7 @@ export interface StoredDraft {
   savedAt: number;
   /** This message's send options (t29-e12); absent = off. */
   requestReceipt?: boolean;
+  requestDeliveryReceipt?: boolean;
   openTracking?: boolean;
   /** Images placed in the body; absent = none. */
   inline?: StoredInlineImage[];
@@ -79,6 +80,7 @@ function isDraft(d: unknown): d is StoredDraft {
     optional(r.inReplyTo, isStringList) &&
     optional(r.references, isStringList) &&
     optional(r.requestReceipt, isBool) &&
+    optional(r.requestDeliveryReceipt, isBool) &&
     optional(r.openTracking, isBool) &&
     optional(r.inline, isInlineList)
   );

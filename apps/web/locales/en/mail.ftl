@@ -572,3 +572,7 @@ mail-conversation-limit = This view is limited to { $count } messages.
 mail-initial-sync-running = Signed in. Synchronizing your messages in the background…
 mail-initial-sync-retrying = Message synchronization was interrupted. Reconnecting in the background…
 mail-initial-sync-failed = Message synchronization could not finish. Some messages may not be available yet. Sign in again to retry, or ask your administrator to check the connection logs.
+
+mail-compose-request-delivery = Request delivery notifications
+mail-compose-request-delivery-hint = Ask receiving mail servers to report delivery, failure, or delay. This does not request or prove that anyone read the message. Returned reports include headers, not the full body.
+mail-compose-delivery-unavailable = Delivery notifications are unavailable or disabled by your administrator for this account. An explicitly requested notification will not be silently removed.

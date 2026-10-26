@@ -491,3 +491,19 @@ describe('responseFor', () => {
     expect(() => responseFor(res, 'missing')).toThrow(/no method response/);
   });
 });
+
+describe('outgoing delivery notifications',()=>{
+ it('requests header-only reports for every To/Cc/Bcc envelope recipient without adding DSN headers',()=>{
+  const request=sendEnvelope('a',{from:{name:null,email:'me@example.org'},to:'to@example.org',cc:'cc@example.org',bcc:'hidden@example.org',subject:'Delivery',htmlBody:'<p>hello</p>',draftMailboxId:'drafts',requestDeliveryReceipt:true});
+  const draft=(request.methodCalls[0]![1]['create'] as Record<string,Record<string,unknown>>)['draft']!;
+  const send=(request.methodCalls[1]![1]['create'] as Record<string,Record<string,unknown>>)['send']!;
+  expect(send['envelope']).toEqual({mailFrom:{email:'me@example.org',parameters:{RET:'HDRS'}},rcptTo:['to@example.org','cc@example.org','hidden@example.org'].map(email=>({email,parameters:{NOTIFY:'SUCCESS,FAILURE,DELAY'}}))});
+  expect(draft['mailwomanRequestReadReceipt']).toBeUndefined();
+  expect(Object.keys(draft).some(key=>key.includes('NOTIFY')||key.includes('RET'))).toBe(false);
+ });
+ it('omits all DSN parameters unless explicitly requested',()=>{
+  const request=sendEnvelope('a',{from:{name:null,email:'me@example.org'},to:'to@example.org',subject:'Ordinary',htmlBody:'hello',draftMailboxId:'drafts'});
+  const send=(request.methodCalls[1]![1]['create'] as Record<string,Record<string,unknown>>)['send']!;
+  expect(send['envelope']).toEqual({mailFrom:{email:'me@example.org'},rcptTo:[{email:'to@example.org'}]});
+ });
+});

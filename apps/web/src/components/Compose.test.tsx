@@ -424,7 +424,8 @@ describe('Compose', () => {
   // server's engine nor has open tracking on gets no send options at all.
   it('offers no receipt or tracking control where the server can do neither, and sends exactly the typed body', async () => {
     const { client, app } = await composeWithClient({ identities: IDENTITIES });
-    expect(screen.queryByTestId('compose-send-options')).toBeNull();
+    expect(screen.queryByTestId('compose-request-receipt')).toBeNull();
+    expect(screen.getByTestId('compose-request-delivery')).toBeDisabled();
     expect(screen.queryByTestId('opt-tracking')).toBeNull();
     expect(screen.queryByTestId('opt-receipt')).toBeNull();
 

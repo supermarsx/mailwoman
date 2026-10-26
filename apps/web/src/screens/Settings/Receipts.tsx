@@ -5,6 +5,7 @@ import {AsyncPending} from '../../components/AsyncState.tsx';
 import {useEditorGuard,useEntityNavigation} from './entityEditor.tsx';
 import {LockNote} from './LockNote.tsx';
 import {ReceiptSenders} from './ReceiptSenders.tsx';
+import {DeliveryReceiptPreferences} from './DeliveryReceiptPreferences.tsx';
 import * as css from './styles.css.ts';
 import * as layout from './MailTransfer.css.ts';
 export function Receipts(props:{accountId:string;api?:ReceiptPolicyApi}):JSX.Element {
@@ -15,10 +16,12 @@ export function Receipts(props:{accountId:string;api?:ReceiptPolicyApi}):JSX.Ele
   void (props.api??receiptPolicyApi).load(controller.signal).then(value=>{if(epoch===version)setPolicy(value);}).catch(reason=>{if(epoch===version)setError(reason instanceof ReceiptPolicyError&&(reason.status===404||reason.status===501)?'receipts-unavailable':'receipts-load-error');});});
  onCleanup(()=>{version++;controller?.abort();});
  return <section class={layout.section} aria-label={t('receipts-title')}>
+ <Show when={!nav.route().editor || nav.route().editor?.id==='delivery'}><DeliveryReceiptPreferences accountId={props.accountId}/></Show>
+ <Show when={nav.route().editor?.id!=='delivery'}>
  <Show when={error()}><p role="alert">{t(error())}</p></Show><Show when={!policy()&&!error()}><AsyncPending/></Show>
  <Show when={policy()}>{current=><><Show when={!nav.route().editor?.id?.startsWith('sender:')}><Show when={nav.route().editor} fallback={<><h2 class={css.heading}>{t('receipts-title')}</h2><p>{t('receipts-description')}</p><p>{t(`receipts-mode-${current().policy}`)}</p><LockNote locked={current().locked}/><button class={css.button} onClick={()=>void nav.navigate({section:'receipts',editor:{kind:'edit',id:'response'}})}>{t('receipts-edit')}</button></>}>
   <ReceiptPolicyEditor accountId={props.accountId} value={current()} api={props.api??receiptPolicyApi} onSaved={setPolicy} onBack={()=>nav.navigate({section:'receipts'}).then(()=>undefined)}/>
- </Show></Show><Show when={!nav.route().editor||nav.route().editor?.id?.startsWith('sender:')}><ReceiptSenders accountId={props.accountId} locked={current().locked}/></Show></>}</Show></section>;
+ </Show></Show><Show when={!nav.route().editor||nav.route().editor?.id?.startsWith('sender:')}><ReceiptSenders accountId={props.accountId} locked={current().locked}/></Show></>}</Show></Show></section>;
 }
 export function ReceiptPolicyEditor(props:{accountId:string;value:ReceiptPolicy;api:ReceiptPolicyApi;onSaved:(value:ReceiptPolicy)=>void;onBack:()=>Promise<void>}):JSX.Element {
  onMount(()=>{void loadCatalog('receipts');});

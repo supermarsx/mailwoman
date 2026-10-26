@@ -127,9 +127,9 @@ export function createOutboxSlice(ctx: SliceContext): OutboxSlice {
     return cachedAccount;
   }
 
-  /** Subject and recipients for the waiting rows: what "Release" would send. */
+  /** Subject and recipients for waiting or uncertain rows: identify the affected message. */
   async function loadMessages(acct: Id, subs: OutboxSubmission[]): Promise<void> {
-    const ids = [...new Set(subs.filter(isWaiting).map((s) => s.emailId))];
+    const ids = [...new Set(subs.filter((s) => isWaiting(s) || outboxStateOf(s) === 'uncertain').map((s) => s.emailId))];
     if (ids.length === 0) {
       setMessages({});
       return;

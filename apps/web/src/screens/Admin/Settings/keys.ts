@@ -72,7 +72,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'signin.antiBotMode',
   'signin.antiBotDifficulty',
   'signin.antiBotExpirySecs',
-  'mail.quickReply', 'mail.requestReadReceipt',
+  'mail.quickReply', 'mail.requestReadReceipt', 'mail.requestDeliveryReceipt',
   'reader.colorMode', 'reader.fontSize', 'reader.lineHeight',
   'reader.contentWidth', 'reader.loading', 'reader.loadingDelayMs',
   'cap.integration.nextcloud',

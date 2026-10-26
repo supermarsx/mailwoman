@@ -131,9 +131,17 @@ FULL/HDRS, and ORCPT restricted to each recipient's own address. Proxy sessions
 retain their upstream capability authority; Mailwoman still enforces its own
 administrative DSN restriction at admission.
 
-At this backend checkpoint the outgoing web compose DSN control and personal
-default remain pending. Incoming DSN display is implemented separately and
-always identifies reports as unverified mail content.
+Compose offers a separate delivery-notification checkbox only as an available
+choice when the selected account advertises DSN and effective policy permits it.
+The dedicated Read receipts settings editor saves `mail.requestDeliveryReceipt`
+(default false) per account; administrators can supply and lock this default.
+Locking the default does not prohibit a per-message choice: use
+`receipts.dsnAllowed=false` to prohibit requests. Drafts retain their explicit
+choice; losing capability or permission produces an error rather than silently
+removing the request. The web control requests RET=HDRS and
+NOTIFY=SUCCESS,FAILURE,DELAY for every envelope recipient, including Bcc.
+Incoming DSN display is separate and always identifies reports as unverified
+mail content.
 
 ## Uncertain SMTP acceptance
 
@@ -157,3 +165,9 @@ acceptance. Mailwoman cannot recall an upstream-accepted message. This provides
 per-submission retry safety, not global deduplication of separately created
 messages or a complete SMTP relay retry implementation. Proxy submissions remain
 subject to their upstream implementation's queue and outcome semantics.
+
+Connected-provider adapters cannot infer the transport phase from opaque provider
+errors. They therefore retain explicit authentication/unsupported-operation
+refusals, but classify other send failures as uncertain rather than automatically
+retrying a possibly accepted message. This does not provide provider-side
+idempotency or recall.

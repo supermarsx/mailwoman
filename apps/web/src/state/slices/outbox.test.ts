@@ -270,6 +270,14 @@ describe('outbox slice', () => {
     );
   });
 
+  it('identifies an uncertain message without making it cancelable', async () => {
+    await withOutbox([sub('unknown', {undoStatus: 'final', mailwomanDeliveryUncertain: true})], async (o) => {
+      await o.refreshOutbox();
+      expect(o.outboxMessages()['e-unknown']?.subject).toBe('Subject of e-unknown');
+      expect(outboxStateOf(o.outbox()[0]!)).toBe('uncertain');
+    });
+  });
+
   it('loads sending identities', async () => {
     await withOutbox([], async (o) => {
       await o.loadIdentities();

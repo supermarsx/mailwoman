@@ -33,8 +33,8 @@ describe('drafts-store (W9)', () => {
   // t29-e12: a draft keeps its send options and inline images for itself.
   it('keeps the send options and inline images of a draft', () => {
     const inline = [{ cid: 'c1@mailwoman', blobId: 'b1', type: 'image/png', name: 'a.png', size: 3 }];
-    saveDraft(draft('d1', { requestReceipt: true, openTracking: true, inline }));
-    expect(listDrafts()).toEqual([draft('d1', { requestReceipt: true, openTracking: true, inline })]);
+    saveDraft(draft('d1', { requestReceipt: true, requestDeliveryReceipt: true, openTracking: true, inline }));
+    expect(listDrafts()).toEqual([draft('d1', { requestReceipt: true, requestDeliveryReceipt: true, openTracking: true, inline })]);
   });
 
   it('ignores a stored draft whose options or images are malformed', () => {
@@ -42,6 +42,7 @@ describe('drafts-store (W9)', () => {
       'mw.compose.drafts.v1',
       JSON.stringify([
         draft('bad-flag', { requestReceipt: 'yes' as unknown as boolean }),
+        draft('bad-dsn', { requestDeliveryReceipt: 'yes' as unknown as boolean }),
         draft('bad-inline', { inline: [{ cid: 'c', blobId: 'b' }] as unknown as StoredInlineImage[] }),
         draft('ok'),
       ]),
