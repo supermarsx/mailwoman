@@ -70,6 +70,7 @@ BACKUP_KEEP=
 BACKUP_KEEP_DAYS=
 BACKUP_RECIPIENT=
 BACKUP_HOOK=
+BACKUP_TARGETS_FILE=
 ALERT_HOOK=
 IDENTITY=
 EXTRACT=
@@ -93,7 +94,7 @@ Commands (default: deploy):
   restart           Restart the last applied configuration and verify health
   backup            Stop the app briefly; snapshot data, uploads, config and key
                     (one encrypted archive when BACKUP_RECIPIENT is set), then
-                    run BACKUP_HOOK with its path
+                    publish to BACKUP_TARGETS_FILE destinations and run BACKUP_HOOK
   restore PATH      Restore a snapshot directory or encrypted archive into a NEW
                     volume, then verify health
   rollback          Restore the snapshot taken immediately before the last deploy
@@ -344,7 +345,7 @@ read_config() {
     # empty unless this file sets them, never left over from a file read earlier.
     if [[ ${file##*/} == deploy.env ]]; then
         PROXY_NETWORK=; ACME_CA=; ACME_CA_ROOT=; MEMORY_LIMIT=; CPU_LIMIT=; SIGNATURE_IDENTITY=; SIGNATURE_ISSUER=; UPSTREAM_DEFAULT=; IMAGE_REPOSITORY=
-        BACKUP_KEEP=; BACKUP_KEEP_DAYS=; BACKUP_RECIPIENT=; BACKUP_HOOK=; ALERT_HOOK=
+        BACKUP_KEEP=; BACKUP_KEEP_DAYS=; BACKUP_RECIPIENT=; BACKUP_HOOK=; BACKUP_TARGETS_FILE=; ALERT_HOOK=
     elif [[ ${file##*/} == release.env ]]; then
         # Written before the image digest was recorded: render falls back to IMAGE_ID.
         IMAGE_DIGEST=
@@ -356,7 +357,7 @@ read_config() {
         [[ $seen != *"|$key|"* ]] || die "Duplicate $key in $file"
         seen+="$key|"
         case "$key" in
-            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|CADDY_PROTOCOLS|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|UPSTREAM_DEFAULT|IMAGE_REPOSITORY|BACKUP_KEEP|BACKUP_KEEP_DAYS|BACKUP_RECIPIENT|BACKUP_HOOK|ALERT_HOOK|IMAGE_ID|IMAGE_DIGEST|DATA_VOLUME|CADDY_ID)
+            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|CADDY_PROTOCOLS|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|UPSTREAM_DEFAULT|IMAGE_REPOSITORY|BACKUP_KEEP|BACKUP_KEEP_DAYS|BACKUP_RECIPIENT|BACKUP_HOOK|BACKUP_TARGETS_FILE|ALERT_HOOK|IMAGE_ID|IMAGE_DIGEST|DATA_VOLUME|CADDY_ID)
                 printf -v "$key" '%s' "$value" ;;
             *) die "Unknown setting $key in $file" ;;
         esac
@@ -415,6 +416,7 @@ validate_config() {
     # age: an age1 recipient or an SSH public key. gpg: a full key fingerprint, so
     # that exactly one key in the keyring can match.
     [[ -z $BACKUP_HOOK || $BACKUP_HOOK =~ ^/[a-zA-Z0-9._/+@-]+$ ]] || die "BACKUP_HOOK must be the absolute path of an executable (letters, digits and ._/+@- only), or empty"
+    [[ -z $BACKUP_TARGETS_FILE || $BACKUP_TARGETS_FILE =~ ^/[a-zA-Z0-9._/+@-]+$ ]] || die "BACKUP_TARGETS_FILE must be an absolute JSON configuration path"
     [[ -z $ALERT_HOOK || $ALERT_HOOK =~ ^/[a-zA-Z0-9._/+@-]+$ ]] || die "ALERT_HOOK must be the absolute path of an executable (letters, digits and ._/+@- only), or empty"
     [[ -z $BACKUP_RECIPIENT || $BACKUP_RECIPIENT =~ ^(age1[02-9ac-hj-np-z]{58}|ssh-(ed25519|rsa)\ [A-Za-z0-9+/]+={0,2}|[0-9A-Fa-f]{40}|[0-9A-Fa-f]{64})$ ]] || die "BACKUP_RECIPIENT must be an age recipient (age1...), an SSH public key (ssh-ed25519 AAAA...) or a full gpg key fingerprint (40 hex digits), or empty"
 }
@@ -444,6 +446,7 @@ BACKUP_KEEP=$BACKUP_KEEP
 BACKUP_KEEP_DAYS=$BACKUP_KEEP_DAYS
 BACKUP_RECIPIENT=$BACKUP_RECIPIENT
 BACKUP_HOOK=$BACKUP_HOOK
+BACKUP_TARGETS_FILE=$BACKUP_TARGETS_FILE
 ALERT_HOOK=$ALERT_HOOK
 EOF
 }
@@ -701,7 +704,7 @@ check_signature() {
 
 # Keys that steer backup, prune and check rather than the running app. They take
 # effect as soon as deploy.env is saved, so they are not taken from the applied copy.
-OPERATION_KEYS=(BACKUP_KEEP BACKUP_KEEP_DAYS BACKUP_RECIPIENT BACKUP_HOOK ALERT_HOOK)
+OPERATION_KEYS=(BACKUP_KEEP BACKUP_KEEP_DAYS BACKUP_RECIPIENT BACKUP_HOOK BACKUP_TARGETS_FILE ALERT_HOOK)
 
 # image_digest: set IMAGE_DIGEST to repository@sha256:... when the local image
 # IMAGE has a registry digest for the repository it is named by.
@@ -1370,6 +1373,12 @@ case "$ACTION" in
             [[ -f $BACKUP_HOOK && -x $BACKUP_HOOK ]] || die "BACKUP_HOOK $BACKUP_HOOK is not an executable file"
             log "After each backup, BACKUP_HOOK runs: $BACKUP_HOOK <backup path>"
         fi
+        if [[ -n $BACKUP_TARGETS_FILE ]]; then
+            [[ -n $BACKUP_RECIPIENT ]] || die "BACKUP_TARGETS_FILE requires BACKUP_RECIPIENT encryption"
+            command -v python3 >/dev/null || die "python3 is required for configured backup destinations"
+            python3 "$ROOT/scripts/backup-destinations.py" check --config "$BACKUP_TARGETS_FILE"
+            log "Backup destination configuration checked; connectivity is verified when copying"
+        fi
         log "Prerequisites and configuration OK. App mode: $MODE; URL: $PUBLIC_URL" ;;
     status)
         load_active
@@ -1384,9 +1393,17 @@ case "$ACTION" in
     restart) load_active; require_free_ports; ensure_proxy_network; compose "$ACTIVE" restart; compose "$ACTIVE" up -d --no-recreate --wait --wait-timeout "$TIMEOUT"; verify ;;
     backup)
         load_active
+        if [[ -n $BACKUP_TARGETS_FILE ]]; then
+            [[ -n $BACKUP_RECIPIENT ]] || die "BACKUP_TARGETS_FILE requires BACKUP_RECIPIENT encryption"
+            command -v python3 >/dev/null || die "python3 is required for configured backup destinations"
+            python3 "$ROOT/scripts/backup-destinations.py" check --config "$BACKUP_TARGETS_FILE"
+        fi
         snapshot
         if [[ -n $BACKUP_RECIPIENT ]]; then encrypt_snapshot "$LAST_BACKUP"; fi
         record_snapshot backup "$LAST_BACKUP"
+        if [[ -n $BACKUP_TARGETS_FILE ]]; then
+            python3 "$ROOT/scripts/backup-destinations.py" publish --config "$BACKUP_TARGETS_FILE" --source "$LAST_BACKUP" || die "Destination copy failed; local backup retained and retention skipped"
+        fi
         if [[ -n $BACKUP_HOOK ]]; then run_backup_hook; fi
         # Retention runs after a backup only when deploy.env asks for it.
         if [[ -n $BACKUP_KEEP$BACKUP_KEEP_DAYS ]]; then prune_snapshots; fi
