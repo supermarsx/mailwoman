@@ -729,3 +729,6 @@ admin-deployment-limit-no-upstream-authentication = Upstream authentication and 
 admin-deployment-limit-configured-worker-not-executed = The configured document worker is not executed by this assessment.
 admin-deployment-limit-not-a-security-certification = A reported setting is evidence of configuration, not a guarantee of complete protection.
 admin-egress-destination-note-help = Describe why this private service is approved. This note is for administrators and is never sent upstream.
+
+admin-deployment-check-connectionNegotiation = Inbound connection negotiation limits
+admin-deployment-value-connectionNegotiation = Built-in listener startup configuration: TLS deadline { $tlsTimeoutMs } ms, up to { $tlsMaximum } handshakes; PROXY header deadline { $proxyTimeoutMs } ms, up to { $proxyMaximum } negotiations. Changes require restart. External proxy limits are not measured here.

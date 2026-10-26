@@ -89,6 +89,15 @@ async fn assessment_reports_actual_policy_without_secrets_and_requires_global_di
         "untrusted header must not promote transport"
     );
     assert_eq!(value("secureCookies"), false);
+    assert_eq!(value("connectionNegotiation")["requiresRestart"], true);
+    assert_eq!(
+        value("connectionNegotiation")["source"],
+        "built-in-listener-startup-configuration"
+    );
+    assert_eq!(value("connectionNegotiation")["tlsMaximum"], 128);
+    assert_eq!(value("connectionNegotiation")["tlsTimeoutMs"], 10000);
+    assert_eq!(value("connectionNegotiation")["proxyTimeoutMs"], 5000);
+
     assert_eq!(
         value("adminSessions")["idleSeconds"],
         7200,

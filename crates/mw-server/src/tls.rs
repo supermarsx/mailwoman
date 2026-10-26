@@ -25,6 +25,7 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, anyhow};
 use base64::Engine as _;
+use futures_util::{StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use rustls::ServerConfig;
 use rustls::pki_types::{
     CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer,
@@ -41,6 +42,10 @@ use tokio_rustls_acme::{AcmeAcceptor, AcmeConfig};
 /// rather than in `lib.rs` (whose owner is a different lane this wave); the file
 /// itself lives at `crates/mw-server/src/proxy_protocol.rs` and a later `lib.rs`
 /// change can promote it to a top-level `pub mod proxy_protocol;` unchanged.
+#[path = "inbound_limits.rs"]
+pub mod inbound_limits;
+use inbound_limits::InboundLimits;
+
 #[path = "proxy_protocol.rs"]
 pub mod proxy_protocol;
 
@@ -273,6 +278,7 @@ fn pem_blocks(pem: &str, tag: &str) -> Vec<Vec<u8>> {
 // The TLS listener (implements axum's Listener trait)
 // ---------------------------------------------------------------------------
 
+#[derive(Clone)]
 enum Acceptor {
     External,
     Acme(AcmeAcceptor),
@@ -288,7 +294,11 @@ enum Acceptor {
 ///
 /// The rustls configuration is rebuilt when the floor ([`set_min_tls`]) differs
 /// from the one it was built for, which is checked before each handshake.
+type PendingHandshake = BoxFuture<'static, Option<(TlsStream<TcpStream>, SocketAddr)>>;
+
 pub struct TlsListener {
+    pending: FuturesUnordered<PendingHandshake>,
+    limits: InboundLimits,
     tcp: ProxyAcceptor,
     acceptor: Acceptor,
     /// Where certificates come from; kept so the configuration can be rebuilt.
@@ -312,6 +322,16 @@ impl TlsListener {
         addr: &str,
         tls: &TlsConfig,
     ) -> anyhow::Result<(Self, Option<Arc<ReloadableResolver>>)> {
+        Self::bind_with_limits(addr, tls, InboundLimits::from_env()?).await
+    }
+
+    /// Bind with explicit validated startup limits, also used by transport tests.
+    pub async fn bind_with_limits(
+        addr: &str,
+        tls: &TlsConfig,
+        limits: InboundLimits,
+    ) -> anyhow::Result<(Self, Option<Arc<ReloadableResolver>>)> {
+        limits.validate()?;
         // Refuse an ACME domain list that cannot be one before anything is bound:
         // `--acme off` would otherwise start an HTTPS listener and ask Let's
         // Encrypt for a certificate for a host named `off`.
@@ -326,7 +346,7 @@ impl TlsListener {
         let tcp = TcpListener::bind(addr)
             .await
             .with_context(|| format!("binding {addr}"))?;
-        let tcp = ProxyAcceptor::new(tcp, proxy_protocol::Config::from_env())
+        let tcp = ProxyAcceptor::with_limits(tcp, proxy_protocol::Config::from_env(), limits)
             .with_context(|| format!("reading the bound address of {addr}"))?;
         match tls {
             TlsConfig::External { cert, key } => {
@@ -335,6 +355,8 @@ impl TlsListener {
                 let config = server_config(resolver.clone(), floor);
                 Ok((
                     Self {
+                        pending: FuturesUnordered::new(),
+                        limits,
                         tcp,
                         acceptor: Acceptor::External,
                         resolver: resolver.clone(),
@@ -374,6 +396,8 @@ impl TlsListener {
                 });
                 Ok((
                     Self {
+                        pending: FuturesUnordered::new(),
+                        limits,
                         tcp,
                         acceptor: Acceptor::Acme(acceptor),
                         resolver,
@@ -507,36 +531,43 @@ impl axum::serve::Listener for TlsListener {
 
     async fn accept(&mut self) -> (Self::Io, Self::Addr) {
         loop {
-            // `addr` is the client address the PROXY header named when one was read
-            // and believed, and the socket peer otherwise. Transient accept errors
-            // are handled inside the acceptor (contract: this method cannot fail).
-            let (tcp, addr) = self.tcp.next_conn().await;
-            // Read the floor once per connection: a change made by `set_min_tls`
-            // takes effect here, for this and every later handshake.
-            let config = self.current_config();
-            let floor = self.config.0;
-            match &self.acceptor {
-                Acceptor::External => {
-                    match tokio_rustls::TlsAcceptor::from(config).accept(tcp).await {
-                        Ok(tls) => return (tls, addr),
-                        Err(e) => tracing::debug!(
-                            "tls handshake from {addr} failed: {}",
-                            describe_handshake_failure(&e, floor)
-                        ),
-                    }
+            tokio::select! {
+                // Drain ready results first. Completed/failed handshakes release
+                // their slot before another accepted socket is admitted.
+                biased;
+                completed = self.pending.next(), if !self.pending.is_empty() => {
+                    if let Some(Some(connection)) = completed { return connection; }
                 }
-                Acceptor::Acme(acceptor) => match acceptor.accept(tcp).await {
-                    Ok(Some(start)) => match start.into_stream(config).await {
-                        Ok(tls) => return (tls, addr),
-                        Err(e) => tracing::debug!(
-                            "acme handshake from {addr} failed: {}",
-                            describe_handshake_failure(&e, floor)
-                        ),
-                    },
-                    // tls-alpn-01 validation request: served internally, no app stream.
-                    Ok(None) => {}
-                    Err(e) => tracing::debug!("acme accept from {addr} failed: {e}"),
-                },
+                (tcp, addr) = self.tcp.next_conn(), if self.pending.len() < self.limits.tls_handshakes => {
+                    let config = self.current_config();
+                    let floor = self.config.0;
+                    let acceptor = self.acceptor.clone();
+                    let deadline = self.limits.tls_timeout;
+                    self.pending.push(Box::pin(async move {
+                        let handshake = async {
+                            match acceptor {
+                                Acceptor::External => tokio_rustls::TlsAcceptor::from(config)
+                                    .accept(tcp).await.map(Some),
+                                Acceptor::Acme(acceptor) => match acceptor.accept(tcp).await? {
+                                    Some(start) => start.into_stream(config).await.map(Some),
+                                    None => Ok(None),
+                                },
+                            }
+                        };
+                        match tokio::time::timeout(deadline, handshake).await {
+                            Ok(Ok(Some(tls))) => Some((tls, addr)),
+                            Ok(Ok(None)) => None,
+                            Ok(Err(error)) => {
+                                tracing::debug!("tls handshake from {addr} failed: {}", describe_handshake_failure(&error, floor));
+                                None
+                            }
+                            Err(_) => {
+                                tracing::debug!("tls handshake from {addr} timed out");
+                                None
+                            }
+                        }
+                    }));
+                }
             }
         }
     }

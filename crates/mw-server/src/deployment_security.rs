@@ -66,7 +66,22 @@ async fn assessment(
         mw_engine::security::country_lookup(None),
         mw_engine::security::CountryLookup::DatabaseUnavailable
     );
+    let limits = crate::tls::inbound_limits::InboundLimits::from_env()
+        .map_err(|_| AdminApiError::internal("invalid startup connection limits"))?;
     let checks = vec![
+        row(
+            "connectionNegotiation",
+            "info",
+            json!({
+                "tlsTimeoutMs": limits.tls_timeout.as_millis(),
+                "tlsMaximum": limits.tls_handshakes,
+                "proxyTimeoutMs": limits.proxy_timeout.as_millis(),
+                "proxyMaximum": limits.proxy_handshakes,
+                "requiresRestart": true,
+                "source": "built-in-listener-startup-configuration",
+            }),
+            &[],
+        ),
         row(
             "https",
             if https { "pass" } else { "warning" },

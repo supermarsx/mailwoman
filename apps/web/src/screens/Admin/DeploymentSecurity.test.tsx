@@ -4,6 +4,13 @@ import { DeploymentSecurity,type DeploymentAssessment } from './DeploymentSecuri
 import { renderInShell,holding } from './shell/testkit.tsx';
 const report:DeploymentAssessment={generatedAt:'2026-10-26T09:00:00Z',scope:'current-process-and-request',checks:[{id:'adminFactors',status:'warning',value:2,settings:[]},{id:'adminSessions',status:'info',value:{idleSeconds:1800,absoluteSeconds:43200},settings:['admin.session.idleSecs']},{id:'csrf',status:'pass',value:true,settings:[]}],limitations:['no-external-tls-or-firewall-probe','configured-worker-not-executed']};
 describe('deployment assessment',()=>{
+ it('describes startup connection limits without claiming an external TLS probe',async()=>{
+  const snapshot={...report,checks:[{id:'connectionNegotiation',status:'info' as const,value:{tlsTimeoutMs:10000,tlsMaximum:128,proxyTimeoutMs:5000,proxyMaximum:128,requiresRestart:true},settings:[]}]};
+  renderInShell(()=><DeploymentSecurity load={async()=>snapshot}/>);
+  expect(await screen.findByText('Inbound connection negotiation limits')).toBeInTheDocument();
+  expect(screen.getByText(/Changes require restart/)).toHaveTextContent('External proxy limits are not measured here');
+ });
+
  it('does not offer policy editor links without settings-read permission',async()=>{
   renderInShell(()=><DeploymentSecurity load={async()=>report}/>,{loadMe:holding(['diagnostics.read'])});
   await screen.findByText('Enabled administrators without a second factor');

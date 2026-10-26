@@ -140,3 +140,104 @@ async fn external_cert_listener_serves_and_hot_reloads() {
         "hot reload must change the served certificate"
     );
 }
+
+#[tokio::test]
+async fn silent_tls_peer_does_not_block_a_second_valid_handshake() {
+    let (listener, _) = TlsListener::bind(
+        "127.0.0.1:0",
+        &TlsConfig::External {
+            cert: fixture("cert1.pem"),
+            key: fixture("key1.pem"),
+        },
+    )
+    .await
+    .unwrap();
+    let addr = axum::serve::Listener::local_addr(&listener).unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, Router::new()).await.unwrap();
+    });
+    let stalled = TcpStream::connect(addr).await.unwrap();
+    // Ensure the first accepted connection has reached the handshake path.
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let result =
+        tokio::time::timeout(std::time::Duration::from_secs(2), handshake_leaf(addr)).await;
+    server.abort();
+    drop(stalled);
+    assert!(
+        result.is_ok(),
+        "a silent first TLS peer must not block other handshakes"
+    );
+}
+
+#[tokio::test]
+async fn saturated_tls_handshake_slots_recover_after_deadline() {
+    let limits = mw_server::tls::inbound_limits::InboundLimits {
+        tls_timeout: std::time::Duration::from_secs(1),
+        tls_handshakes: 1,
+        ..Default::default()
+    };
+    let (listener, _) = TlsListener::bind_with_limits(
+        "127.0.0.1:0",
+        &TlsConfig::External {
+            cert: fixture("cert1.pem"),
+            key: fixture("key1.pem"),
+        },
+        limits,
+    )
+    .await
+    .unwrap();
+    let addr = axum::serve::Listener::local_addr(&listener).unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, Router::new()).await.unwrap();
+    });
+    let mut stalled = TcpStream::connect(addr).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let started = std::time::Instant::now();
+    let result =
+        tokio::time::timeout(std::time::Duration::from_secs(3), handshake_leaf(addr)).await;
+    assert!(
+        started.elapsed() >= std::time::Duration::from_millis(600),
+        "one configured slot must bound concurrent handshakes"
+    );
+    server.abort();
+    assert!(result.is_ok(), "expired handshake must free the sole slot");
+    use tokio::io::AsyncReadExt;
+    let mut byte = [0];
+    assert_eq!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), stalled.read(&mut byte))
+            .await
+            .unwrap()
+            .unwrap(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn dropping_tls_listener_closes_pending_handshake_sockets() {
+    let (listener, _) = TlsListener::bind(
+        "127.0.0.1:0",
+        &TlsConfig::External {
+            cert: fixture("cert1.pem"),
+            key: fixture("key1.pem"),
+        },
+    )
+    .await
+    .unwrap();
+    let addr = axum::serve::Listener::local_addr(&listener).unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, Router::new()).await.unwrap();
+    });
+    let mut stalled = TcpStream::connect(addr).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    server.abort();
+    let _ = server.await;
+    use tokio::io::AsyncReadExt;
+    let mut byte = [0];
+    assert_eq!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), stalled.read(&mut byte))
+            .await
+            .unwrap()
+            .unwrap(),
+        0
+    );
+}

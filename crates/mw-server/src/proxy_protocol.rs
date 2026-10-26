@@ -483,9 +483,18 @@ impl ProxyAcceptor {
     /// Take over `tcp` and start negotiating connections. Must be called from within
     /// a tokio runtime.
     pub fn new(tcp: TcpListener, cfg: Config) -> io::Result<Self> {
+        Self::with_limits(tcp, cfg, super::inbound_limits::InboundLimits::from_env()?)
+    }
+
+    pub(crate) fn with_limits(
+        tcp: TcpListener,
+        cfg: Config,
+        limits: super::inbound_limits::InboundLimits,
+    ) -> io::Result<Self> {
+        limits.validate()?;
         let local = tcp.local_addr()?;
         let (tx, conns) = mpsc::channel(ACCEPT_BACKLOG);
-        let task = tokio::spawn(accept_loop(tcp, cfg, tx));
+        let task = tokio::spawn(accept_loop(tcp, cfg, tx, limits));
         Ok(Self { conns, local, task })
     }
 
@@ -529,13 +538,24 @@ impl axum::serve::Listener for ProxyAcceptor {
 }
 
 /// Accept forever, negotiating each connection off the accept path.
-async fn accept_loop(tcp: TcpListener, cfg: Config, tx: mpsc::Sender<(TcpStream, SocketAddr)>) {
+async fn accept_loop(
+    tcp: TcpListener,
+    cfg: Config,
+    tx: mpsc::Sender<(TcpStream, SocketAddr)>,
+    limits: super::inbound_limits::InboundLimits,
+) {
+    // The set owns every negotiating socket; dropping the acceptor aborts this
+    // loop and the set aborts its children. The completed queue is also bounded.
+    let mut pending = tokio::task::JoinSet::new();
     loop {
-        let (stream, peer) = match tcp.accept().await {
+        let accepted = tokio::select! {
+            biased;
+            _ = pending.join_next(), if !pending.is_empty() => { continue; }
+            accepted = tcp.accept(), if pending.len() < limits.proxy_handshakes => accepted,
+        };
+        let (stream, peer) = match accepted {
             Ok(pair) => pair,
             Err(e) => {
-                // Transient (fd exhaustion, a connection reset between the SYN and
-                // the accept). Back off briefly rather than spinning on the error.
                 tracing::debug!("tcp accept error: {e}");
                 tokio::time::sleep(Duration::from_millis(50)).await;
                 continue;
@@ -549,17 +569,16 @@ async fn accept_loop(tcp: TcpListener, cfg: Config, tx: mpsc::Sender<(TcpStream,
         }
         let cfg = cfg.clone();
         let tx = tx.clone();
-        tokio::spawn(async move {
+        pending.spawn(async move {
             let mut stream = stream;
-            match negotiate(&cfg, &mut stream, peer).await {
-                Ok(client) => {
+            match tokio::time::timeout(limits.proxy_timeout, negotiate(&cfg, &mut stream, peer))
+                .await
+            {
+                Ok(Ok(client)) => {
                     let _ = tx.send((stream, client)).await;
                 }
-                Err(refusal) => {
-                    // Dropping the stream closes the connection. The peer address is
-                    // logged because it is the only address here that is not a claim.
-                    tracing::warn!("{}: peer {peer}", refusal.reason());
-                }
+                Ok(Err(refusal)) => tracing::warn!("{}: peer {peer}", refusal.reason()),
+                Err(_) => tracing::debug!("proxy header from {peer} timed out"),
             }
         });
     }
@@ -1050,5 +1069,65 @@ mod tests {
             .expect("the talking peer must arrive without waiting for the silent one");
         assert_eq!(client, sa("198.51.100.7:51234"));
         drop(silent);
+    }
+    #[tokio::test]
+    async fn complete_proxy_header_deadline_releases_bounded_negotiation_slot() {
+        use tokio::io::AsyncReadExt;
+        let tcp = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let limits = super::super::inbound_limits::InboundLimits {
+            proxy_timeout: Duration::from_secs(1),
+            proxy_handshakes: 1,
+            ..Default::default()
+        };
+        let mut acceptor =
+            ProxyAcceptor::with_limits(tcp, Config::new(Mode::Require, "127.0.0.1/32"), limits)
+                .unwrap();
+        let addr = acceptor.local_addr().unwrap();
+        let mut partial = TcpStream::connect(addr).await.unwrap();
+        partial.write_all(b"PROXY TCP4 ").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let started = std::time::Instant::now();
+        let mut valid = TcpStream::connect(addr).await.unwrap();
+        valid
+            .write_all(b"PROXY TCP4 192.0.2.1 127.0.0.1 1234 443\r\n")
+            .await
+            .unwrap();
+        let (_, peer) = tokio::time::timeout(Duration::from_secs(3), acceptor.next_conn())
+            .await
+            .unwrap();
+        assert_eq!(peer, sa("192.0.2.1:1234"));
+        assert!(
+            started.elapsed() >= Duration::from_millis(600),
+            "negotiation task count must respect the one-slot limit"
+        );
+        let mut byte = [0];
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), partial.read(&mut byte))
+                .await
+                .unwrap()
+                .unwrap(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn dropping_proxy_acceptor_aborts_partial_header_tasks() {
+        use tokio::io::AsyncReadExt;
+        let tcp = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let acceptor = ProxyAcceptor::new(tcp, Config::new(Mode::Require, "127.0.0.1/32")).unwrap();
+        let mut partial = TcpStream::connect(acceptor.local_addr().unwrap())
+            .await
+            .unwrap();
+        partial.write_all(b"PROXY TCP4 ").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        drop(acceptor);
+        let mut byte = [0];
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), partial.read(&mut byte))
+                .await
+                .unwrap()
+                .unwrap(),
+            0
+        );
     }
 }
