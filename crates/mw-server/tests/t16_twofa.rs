@@ -741,3 +741,26 @@ impl Es256Authenticator {
         }
     }
 }
+
+#[tokio::test]
+async fn passkey_status_defaults_enabled_and_reports_explicit_effective_policy() {
+    let db = temp_db("passkey-availability");
+    let mock = spawn_mock().await;
+    let address = spawn_server(&db).await;
+    let base = format!("http://{address}");
+    let browser = client();
+    let login = post(&browser, format!("{base}/api/login"), login_body(&mock)).await;
+    assert_eq!(login.status(), 200);
+    assert!(set_session_cookie(&login));
+    let status: Value = browser.get(format!("{base}/api/account/2fa")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(status["passkeysEnabled"], true);
+    let store = seed_store(&db).await;
+    for enabled in [false, true] {
+        store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "twofa.passkeysEnabled".into(), global_value: Some(enabled.to_string()),
+            allow_user_override: false, global_locked: true, updated_by: "fixture".into(), updated_at: 1,
+        }).await.unwrap();
+        let status: Value = browser.get(format!("{base}/api/account/2fa")).send().await.unwrap().json().await.unwrap();
+        assert_eq!(status["passkeysEnabled"], enabled);
+    }
+}

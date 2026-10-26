@@ -25,6 +25,8 @@ export interface TwofaStatus {
   readonly recoveryRemaining: number;
   /** An admin policy (global/domain) requires a second factor for this account. */
   readonly policyRequired: boolean;
+  /** Effective mailbox passkey policy; omitted by older servers. */
+  readonly passkeysEnabled?: boolean;
 }
 
 /** `POST /api/account/2fa/totp/begin` — an unconfirmed TOTP secret to display. */

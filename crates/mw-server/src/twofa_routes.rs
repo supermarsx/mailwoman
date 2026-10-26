@@ -1237,6 +1237,10 @@ async fn twofa_status(State(state): State<AppState>, headers: HeaderMap) -> Resp
         Ok(r) => r,
         Err(e) => return server_error("read policy", e),
     };
+    let effective_policy = match crate::security_center::policy(&state, &session.account_id, &session.username).await {
+        Ok(policy) => policy,
+        Err(response) => return response,
+    };
     let passkey_json: Vec<_> = passkeys
         .iter()
         .map(|c| json!({ "handle": credential_handle(&c.credential_id), "label": c.label, "createdAt": c.created_at }))
@@ -1246,6 +1250,7 @@ async fn twofa_status(State(state): State<AppState>, headers: HeaderMap) -> Resp
         "passkeys": passkey_json,
         "recoveryRemaining": recovery_remaining,
         "policyRequired": required,
+        "passkeysEnabled": effective_policy.passkeys_enabled,
     }))
     .into_response()
 }

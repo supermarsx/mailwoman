@@ -415,3 +415,5 @@ settings-folder-icon-bank = Bank
 settings-folder-icon-book = Book
 
 settings-nav-keyboard-display = Keyboard & display
+
+settings-2fa-passkey-policy-disabled = Your administrator has disabled passkey sign-in and enrollment for this account. Existing credentials remain listed so you can manage or remove them.

@@ -240,9 +240,12 @@ export function TwoFactor(props: TwoFactorProps): JSX.Element {
             </For>
           </ul>
         </Show>
+        <Show when={status()?.passkeysEnabled === false}>
+          <p class={css.meta}>{t('settings-2fa-passkey-policy-disabled')}</p>
+        </Show>
         <Show
-          when={passkeySupported()}
-          fallback={<p class={css.meta}>{t('settings-2fa-passkey-unsupported')}</p>}
+          when={status() && status()?.passkeysEnabled !== false && passkeySupported()}
+          fallback={<Show when={status() && status()?.passkeysEnabled !== false}><p class={css.meta}>{t('settings-2fa-passkey-unsupported')}</p></Show>}
         >
           <div class={css.row}>
             <input
