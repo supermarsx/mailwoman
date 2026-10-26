@@ -649,6 +649,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "public config sign-in notice"
     )),
     def!(
+        "receipts.dsnAllowed",
+        Kind::Bool,
+        "true",
+        GDA,
+        "mail",
+        "Allow delivery status notification requests at SMTP submission"
+    ),
+    def!(
         "mail.readReceipts",
         Kind::Enum(&["ask", "never", "always"]),
         "\"ask\"",

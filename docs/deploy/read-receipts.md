@@ -1,0 +1,48 @@
+# Read-receipt authority and delivery outcomes
+
+`mail.readReceipts` currently accepts `ask`, `never`, and `always`. A personal
+preference controls automatic responses. An administrator-held `never` also
+forbids manual `MDN/send` calls and raw disposition-notification submissions.
+The native engine checks that authority before queueing and again immediately
+before transmission, including delayed submissions. Policy read failures do
+not grant permission.
+
+An SMTP outcome can be uncertain after message data has left the client. In
+that case the receipt claim remains consumed and a retry is refused. A definite
+pre-transmission authentication or capability refusal releases the claim. This
+favors avoiding duplicate receipts over silently retrying an uncertain send.
+
+In proxy mode the whole JMAP request is checked before forwarding any mutation.
+A held prohibition refuses explicit `MDN/send` and uninspectable submissions.
+Normal immediate `Email/set` composition followed by a creation-reference
+`EmailSubmission/set` is admitted only with explicit safe MIME structure. Opaque
+raw imports, existing mutable upstream drafts, custom MIME header overrides,
+creation-ID aliases, ambiguous patches, and deferred sends are refused under
+that prohibition. Attachment-only convenience composition is also refused;
+attachments require an explicit ordinary text/HTML body. Explicit `bodyStructure`
+cannot be combined with convenience body or attachment fields. This follows the
+unambiguous creation constraints in [RFC 8621, section 4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6)
+without assuming the MIME root an upstream would generate from attachments alone.
+MIME-changing `Email/set` writes through this gateway are
+checked independently, preventing another gateway request from replacing the
+checked composition with a receipt. Ordinary typed draft edits, keyword changes,
+and cancellation remain available. Clients connected directly to the upstream
+service are outside this gateway's authority. These checks cannot recall a
+message or scheduled send already accepted by an upstream service, and are not
+a claim that the upstream server executes a JMAP batch transactionally.
+
+`receipts.dsnAllowed` independently controls requests for SMTP delivery-status
+notifications. Administrators may set it globally, by domain, or by address.
+The engine checks it both when queueing and when dispatching; malformed held
+values and lookup failures deny DSN requests. Proxy mode checks SMTP envelope
+parameters before forwarding any batch operation. It refuses opaque result
+references and release of existing upstream submissions when DSN is prohibited,
+since the gateway cannot recheck those submissions at their transmission boundary.
+Parameter-free composition and cancellation remain available.
+
+The current custom `MDN/send` method is not yet a complete implementation of
+RFC 9007, so this work does not advertise its standard capability. Additional
+response modes, sender exceptions, read-time prompts, and standard MDN parsing
+remain separate work. A received delivery report does not establish that a
+person read a message; a disposition notification reports another mail
+program's claim rather than independently proving human reading.

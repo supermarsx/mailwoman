@@ -2210,6 +2210,12 @@ impl Engine {
                 "description": format!("email {email_id} not found"),
             }));
         }
+        if !self.mdn_sending_allowed(account_id).await.map_err(|_|json!({"type":"serverFail","description":"receipt policy could not be checked"}))? {
+            let raw=self.fetch_blob(account_id,email_id).await.map_err(|_|json!({"type":"serverFail","description":"message could not be checked"}))?;
+            if raw.as_ref().is_some_and(|blob|mail_ext::mdn::is_mdn_report(&blob.bytes)) {
+                return Err(json!({"type":"forbidden","description":"read receipts are disabled by administrator policy"}));
+            }
+        }
         // `envelope` (RFC 8621 §7.5). Its recipients are kept on the row and
         // are who the message goes to, in place of the To/Cc/Bcc of the
         // message. Its sender is not taken: the engine has no record of which
@@ -3271,6 +3277,13 @@ impl Engine {
             .ok_or_else(|| {
                 NotSent::permanent(EngineError::Protocol("draft body missing".into()))
             })?;
+
+        if mail_ext::mdn::is_mdn_report(&raw) && !self.mdn_sending_allowed(account_id).await.map_err(NotSent::transient)? {
+            return Err(NotSent::permanent(EngineError::Unsupported("read receipts forbidden by policy".into())));
+        }
+        if dsn.is_some() && !self.dsn_allowed(account_id).await {
+            return Err(NotSent::permanent(EngineError::Unsupported("delivery reports forbidden by policy".into())));
+        }
 
         // Envelope addresses drive MAIL FROM / RCPT TO.
         let email: mw_jmap::Email = match self

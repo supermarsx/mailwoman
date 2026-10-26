@@ -5,6 +5,9 @@ use axum::response::{IntoResponse, Response};
 use serde_json::Value;
 use std::collections::BTreeSet;
 
+#[path = "receipt_proxy.rs"]
+pub(crate) mod receipt_proxy;
+
 fn required_features(request: &Value) -> BTreeSet<&'static str> {
     let mut required = BTreeSet::new();
     for call in request
@@ -52,8 +55,46 @@ pub(crate) async fn admit(
     request: &Value,
 ) -> Result<(), Response> {
     let required = required_features(request);
-    if required.is_empty() {
+    let receipt_send = request
+        .get("methodCalls")
+        .and_then(Value::as_array)
+        .is_some_and(|calls| {
+            calls
+                .iter()
+                .any(|call| call.get(0).and_then(Value::as_str) == Some("MDN/send"))
+        });
+    let proxy_submission = state.engine.is_none() && receipt_proxy::has_submission(request);
+    let proxy_email_write = state.engine.is_none() && receipt_proxy::has_email_write(request);
+    if required.is_empty() && !receipt_send && !proxy_submission && !proxy_email_write {
         return Ok(());
+    }
+    if proxy_submission {
+        let dsn = crate::settings_routes::effective_for_session(state, session, "receipts.dsnAllowed")
+            .await.map_err(|_| axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response())?
+            .ok_or_else(|| axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response())?;
+        if dsn.value.as_bool()!=Some(true) && !receipt_proxy::allows_without_dsn(request,&session.account_id) {
+            return Err((axum::http::StatusCode::FORBIDDEN,axum::Json(serde_json::json!({"error":"delivery status requests are disabled by administrator policy"}))).into_response());
+        }
+    }
+    if receipt_send || proxy_submission || proxy_email_write {
+        let policy =
+            crate::settings_routes::effective_for_session(state, session, "mail.readReceipts")
+                .await
+                .map_err(|_| axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response())?
+                .ok_or_else(|| axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response())?;
+        if policy.locked()
+            && !policy.value.as_str().is_some_and(|mode| {
+                matches!(
+                    mode,
+                    "ask" | "always" | "contactsOnly" | "orgOnly" | "orgAlwaysAskOthers"
+                )
+            })
+            && (receipt_send
+                || !receipt_proxy::allows_email_writes(request, &session.account_id)
+                || (proxy_submission && !receipt_proxy::allows(request, &session.account_id)))
+        {
+            return Err((axum::http::StatusCode::FORBIDDEN,axum::Json(serde_json::json!({"error":"read receipt policy requires a verifiable immediate composition"}))).into_response());
+        }
     }
     let subject = UserSubject::resolved(&state.store, session)
         .await

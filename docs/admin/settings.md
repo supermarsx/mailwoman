@@ -69,6 +69,13 @@ The name shown on the sign-in page and in the browser tab.
 
 A short text shown on the sign-in page, for example a support contact. Leave empty for none.
 
+<a id="receipts.dsnAllowed"></a>
+### Delivery status requests (`receipts.dsnAllowed`)
+
+Allow SMTP delivery-status requests, globally, by domain, or by address. The
+default is true. This administrator-only permission is checked before queueing
+and at transmission; it does not request or establish that a person read mail.
+
 <a id="mail.readReceipts"></a>
 ### Read receipts (`mail.readReceipts`)
 

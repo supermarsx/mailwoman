@@ -16,7 +16,9 @@
 //!   Sent, Junk or Trash, or one carrying `$draft`, is not answered.
 //! - **At most once.** A claim is written to the `settings` table before
 //!   anything is built and `$mdnsent` is set on the message before the
-//!   submitter is called; a failed submission releases both. A claim that was
+//!   submitter is called; only definitive pre-transmission refusal releases
+//!   both. An uncertain SMTP result retains the claim to prevent duplicates.
+//!   A claim that was
 //!   neither completed nor released (the process stopped in between) stays:
 //!   the receipt is then never sent, not sent twice.
 //! - **Automatic only under three conditions together** (RFC 8098 §2.1): the
@@ -30,9 +32,9 @@
 //!   a blind copy names no such address and is not answered, so a receipt
 //!   never tells the sender an address they did not write to.
 //!
-//! The policy `never` does not stop a manual `MDN/send`: it is what the
-//! first-party client reads to show no prompt, and with `ask` it refuses every
-//! automatic one.
+//! A personal `never` preference suppresses automatic receipts and prompts.
+//! An administrator-held `never` also forbids manual sends and hand-built
+//! notification submissions, rechecked at the actual transmission boundary.
 //!
 //! The report goes out with the null reverse path (RFC 8098 §3) through the
 //! account's submitter, the same one ordinary mail uses.
@@ -137,6 +139,25 @@ fn is_report(raw: &[u8]) -> bool {
     })
 }
 
+/// Detect an explicit disposition-notification container before raw SMTP submission.
+pub(crate) fn is_mdn_report(raw: &[u8]) -> bool {
+    MessageParser::default().parse(raw).is_some_and(|message| {
+        message.root_part().content_type().is_some_and(|kind| {
+            (kind.ctype().eq_ignore_ascii_case("multipart")
+                && kind
+                    .subtype()
+                    .is_some_and(|sub| sub.eq_ignore_ascii_case("report"))
+                && kind
+                    .attribute("report-type")
+                    .is_some_and(|value| value.eq_ignore_ascii_case("disposition-notification")))
+                || (kind.ctype().eq_ignore_ascii_case("message")
+                    && kind
+                        .subtype()
+                        .is_some_and(|sub| sub.eq_ignore_ascii_case("disposition-notification")))
+        })
+    })
+}
+
 /// Whether two addresses name the same mailbox: the local parts are equal and
 /// the domains are equal without regard to ASCII case.
 fn same_mailbox(a: &str, b: &str) -> bool {
@@ -218,6 +239,26 @@ fn refusal(kind: &str, description: impl Into<String>) -> Value {
 }
 
 impl Engine {
+    /// Administrator authority applies to explicit sends and raw submissions too.
+    pub(crate) async fn mdn_sending_allowed(&self, account_id: &str) -> Result<bool> {
+        Ok(
+            match self
+                .held_setting_for(account_id, "mail.readReceipts", "\"ask\"")
+                .await?
+            {
+                None => true,
+                Some(value) => serde_json::from_str::<String>(&value)
+                    .ok()
+                    .is_some_and(|mode| {
+                        matches!(
+                            mode.as_str(),
+                            "ask" | "always" | "contactsOnly" | "orgOnly" | "orgAlwaysAskOthers"
+                        )
+                    }),
+            },
+        )
+    }
+
     /// The values the read-receipt policy can take. `ask` is the default.
     pub const MDN_POLICIES: [&'static str; 3] = ["ask", "never", "always"];
 
@@ -321,6 +362,16 @@ impl Engine {
     /// `mdnAutomaticRefused`, `mdnNoRecipientAddress`, `mdnNotSent`,
     /// `accountNotFound`, `serverFail`.
     pub(crate) async fn mdn_send(&self, account_id: &str, args: &Value) -> Value {
+        match self.mdn_sending_allowed(account_id).await {
+            Ok(true) => {}
+            Ok(false) => {
+                return refusal(
+                    "forbidden",
+                    "read receipts are disabled by administrator policy",
+                );
+            }
+            Err(_) => return refusal("serverFail", "receipt policy could not be checked"),
+        }
         let Some(email_id) = args.get("emailId").and_then(Value::as_str) else {
             return refusal("invalidArguments", "emailId must be the id of an Email");
         };
@@ -445,6 +496,14 @@ impl Engine {
                 })
             }
             Err(e) => {
+                if !matches!(e, EngineError::Auth(_) | EngineError::Unsupported(_)) {
+                    // An I/O/protocol error may occur after DATA was accepted.
+                    // Keep both suppression mechanisms: replay is not safe.
+                    return refusal(
+                        "serverFail",
+                        "receipt delivery could not be confirmed; it will not be retried automatically",
+                    );
+                }
                 if let Err(why) = self
                     .set_sent_keyword(account_id, email_id, Value::Null)
                     .await
@@ -454,7 +513,7 @@ impl Engine {
                 if let Err(e) = self.store().set_setting(&ledger, RELEASED).await {
                     tracing::warn!("could not release the receipt claim for {email_id}: {e}");
                 }
-                refusal("mdnNotSent", format!("the receipt was not sent: {e}"))
+                refusal("mdnNotSent", "the receipt was refused before sending")
             }
         }
     }
@@ -578,6 +637,11 @@ impl Engine {
         outgoing
             .validate()
             .map_err(|e| EngineError::Protocol(e.to_string()))?;
+        if !self.mdn_sending_allowed(&msg.account_id).await? {
+            return Err(EngineError::Unsupported(
+                "read receipts forbidden by policy".into(),
+            ));
+        }
         let result = rt.submitter.submit(outgoing).await?;
         if result.accepted.is_empty() {
             return Err(EngineError::Protocol(format!(

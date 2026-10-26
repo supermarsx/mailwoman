@@ -293,11 +293,11 @@ impl Engine {
             .held_setting_for(account_id, "receipts.dsnAllowed", "true")
             .await
         {
-            Ok(Some(v)) => v.trim() != "false",
+            Ok(Some(v)) => serde_json::from_str::<bool>(&v).unwrap_or(false),
             Ok(None) => true,
             Err(e) => {
                 tracing::warn!("account {account_id}: could not read receipts.dsnAllowed: {e}");
-                true
+                false
             }
         }
     }
@@ -312,6 +312,45 @@ fn dsn_refused() -> &'static Mutex<HashSet<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn malformed_held_dsn_permission_is_not_permission() {
+        let store = mw_store::Store::open_in_memory(mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        let account = store
+            .create_account(
+                &mw_store::NewAccount {
+                    kind: mw_store::AccountKind::Imap,
+                    host: "imap.example.org",
+                    port: 993,
+                    tls: "implicit",
+                    username: "a@example.org",
+                    sync_policy_json: "{}",
+                },
+                &mw_store::Credentials {
+                    username: "a@example.org".into(),
+                    password: "test".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let engine = crate::Engine::new(store.clone());
+        for value in ["\"true\"", "null", "{}", "not-json", "false"] {
+            store
+                .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+                    key: "receipts.dsnAllowed".into(),
+                    global_value: Some(value.into()),
+                    allow_user_override: false,
+                    global_locked: true,
+                    updated_by: "admin".into(),
+                    updated_at: 1,
+                })
+                .await
+                .unwrap();
+            assert!(!engine.dsn_allowed(&account).await, "{value}");
+        }
+    }
 
     fn env(v: Value) -> Map<String, Value> {
         v.as_object().unwrap().clone()
