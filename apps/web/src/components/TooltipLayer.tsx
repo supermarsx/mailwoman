@@ -33,7 +33,7 @@ export function TooltipLayer(): JSX.Element {
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   let checkTimer: ReturnType<typeof setInterval> | undefined;
   let frame = 0;
-  let touchUntil = 0;
+  let pointerUntil = 0;
   let dismissed: HTMLElement | null = null;
   let dismissedTitle: string | null = null;
 
@@ -73,7 +73,7 @@ export function TooltipLayer(): JSX.Element {
   const schedulePosition = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(position); };
   const find = (event: Event) => event.target instanceof Element ? event.target.closest<HTMLElement>(controls) : null;
   const show = (element: HTMLElement | null, immediate: boolean) => {
-    if (!element || Date.now() < touchUntil) return;
+    if (!element || Date.now() < pointerUntil) return;
     if (element === dismissed) return;
     restoreDismissed();
     if (target === element) { clearHide(); return; }
@@ -100,8 +100,10 @@ export function TooltipLayer(): JSX.Element {
     };
     const focus = (event: FocusEvent) => show(find(event), true);
     const blur = () => { restoreDismissed(); hide(); };
-    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') hide(true); };
-    const down = (event: PointerEvent) => { if (event.pointerType === 'touch') touchUntil = Date.now() + 1000; hide(true); };
+    const key = (event: KeyboardEvent) => { pointerUntil = 0; if (event.key === 'Escape') hide(true); };
+    // Pointer activation can focus a button after pointerdown. Do not reopen
+    // its tooltip over the new page/tab as a side effect of that focus.
+    const down = () => { pointerUntil = Date.now() + 1000; hide(true); };
     document.addEventListener('pointerover', over); document.addEventListener('pointerout', out);
     document.addEventListener('focusin', focus); document.addEventListener('focusout', blur);
     document.addEventListener('keydown', key); document.addEventListener('pointerdown', down, true);

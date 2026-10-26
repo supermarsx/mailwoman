@@ -63,3 +63,16 @@ it('clamps placement and dismisses an anchor scrolled out of the viewport', asyn
   fireEvent.scroll(document); await settle(20);
   expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
 });
+
+it('does not reopen over navigation after mouse activation, but retains keyboard help', async () => {
+  render(() => <><button aria-label="Open folders and apps" /><button aria-label="Compose" /><TooltipLayer /></>);
+  const drawer = screen.getByRole('button', { name: 'Open folders and apps' });
+  fireEvent.pointerDown(drawer, { pointerType: 'mouse' });
+  fireEvent.focusIn(drawer);
+  await settle(400);
+  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  fireEvent.keyDown(drawer, { key: 'Tab' });
+  fireEvent.focusIn(screen.getByRole('button', { name: 'Compose' }));
+  await settle();
+  expect(screen.getByRole('tooltip')).toHaveTextContent('Compose');
+});
