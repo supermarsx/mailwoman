@@ -277,6 +277,9 @@ describe('Preferences — keyboard preset, offline purge, direction', () => {
   it('switches the keyboard preset and previews its bindings', async () => {
     const { prefs, onChange } = harness();
     render(() => <Preferences prefs={prefs} onChange={onChange} />);
+    expect(screen.getByTestId('kbd-preview')).not.toBeVisible();
+    fireEvent.click(screen.getByText('View preset bindings'));
+    expect(screen.getByTestId('kbd-preview')).toBeVisible();
     fireEvent.click(screen.getByText('Vim'));
     expect(onChange).toHaveBeenCalled();
     expect(onChange.mock.calls.at(-1)?.[0]).toMatchObject({ keyboardPreset: 'vim' });

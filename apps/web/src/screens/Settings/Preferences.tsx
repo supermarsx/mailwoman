@@ -94,6 +94,7 @@ export function Preferences(props: PreferencesProps): JSX.Element {
             )}
           </For>
         </div>
+        <details><summary>{t('settings-kbd-reference')}</summary><p class={css.meta}>{t('settings-kbd-reference-help')}</p>
         <table class="settings-shortcut-table" data-testid="kbd-preview"><thead><tr><th>{t('settings-shortcuts-action')}</th><th>{t('settings-shortcuts-binding')}</th></tr></thead><tbody>
           <For each={PRESET_BINDINGS[props.prefs().keyboardPreset]}>
             {(binding) => (
@@ -103,7 +104,7 @@ export function Preferences(props: PreferencesProps): JSX.Element {
               </tr>
             )}
           </For>
-        </tbody></table>
+        </tbody></table></details>
       </section>
 
       {/* W16 — offline cache eviction policy */}

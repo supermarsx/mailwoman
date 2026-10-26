@@ -10,6 +10,7 @@ import { t, loadCatalog, isolate } from '../../i18n';
 import { SettingsService } from './service.ts';
 import type { SessionMeta } from './types.ts';
 import { toast } from '../../components/toast/index.ts';
+import { AsyncPending } from '../../components/AsyncState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import {revokeSessionBatch} from '../../api/sessionRevocation.ts';
 import {SessionRevokeConfirm} from './SessionRevokeConfirm.tsx';
@@ -90,12 +91,13 @@ export function Sessions(props: SessionsProps): JSX.Element {
       <div class={css.actions}><label><input type="checkbox" aria-label={t('settings-sessions-select-visible')} checked={eligible().length>0&&chosen().length===eligible().length} disabled={busy()||eligible().length===0} onChange={event=>setSelected(event.currentTarget.checked?new Set(eligible().map(row=>row.handle)):new Set<string>())}/>{t('settings-sessions-select-visible')}</label><button class={css.danger} disabled={busy()||chosen().length===0} onClick={()=>setBatch(chosen())}>{t('settings-sessions-selected-title',{count:chosen().length})}</button></div>
       <Show when={result()}>{value=><p role={value().problem?'alert':'status'}>{value().text}</p>}</Show>
       <Show when={sessions.error}><p role="alert">{t('settings-sessions-error')}</p></Show>
-      <div class={table.wrap} aria-busy={sessions.loading}>
+      <Show when={sessions.loading}><AsyncPending variant={loaded().length?'status':'table'}/></Show>
+      <div class={table.wrap} aria-busy={sessions.loading} role="region" aria-label={t('settings-sessions-table')} tabIndex={0}>
         <table class={table.table} data-testid="session-list"><caption>{t('settings-sessions-title')}</caption>
           <thead><tr><th aria-label={t('settings-sessions-select')}/><th>{t('settings-sessions-account')}</th><th>{t('settings-sessions-device')}</th><th>{t('settings-sessions-location')}</th><th>{t('settings-sessions-activity')}</th><th>{t('settings-sessions-actions')}</th></tr></thead>
           <tbody><For each={shown()}>{(s) => <tr>
             <td><input type="checkbox" aria-label={t('settings-sessions-select-device',{device:s.deviceLabel||s.clientType||s.username})} checked={selected().has(s.handle)} disabled={busy()||s.current} onChange={event=>setSelected(previous=>{const next=new Set(previous);if(event.currentTarget.checked)next.add(s.handle);else next.delete(s.handle);return next;})}/></td>
-            <td>{isolate(s.username)}</td><td>{s.deviceLabel || s.clientType || '—'} {s.clientVersion}<p class={css.meta}>{s.userAgent || '—'}</p></td>
+            <td>{isolate(s.username)}</td><td>{s.deviceLabel || s.clientType || '—'} {s.clientVersion}<Show when={s.userAgent}><details><summary>{t('settings-sessions-client-details')}</summary><p class={css.meta}>{s.userAgent}</p></details></Show></td>
             <td>{s.ip || '—'}<p class={css.meta}>{s.country || t('settings-sessions-location-unavailable')}</p></td>
             <td>{t('settings-sessions-last-seen', { when: s.lastActivity ?? s.lastSeen })}<p class={css.meta}>{t('security-center-first-seen', { when: s.createdAt })}</p></td>
             <td><Show when={s.current} fallback={<button type="button" class={css.danger} disabled={busy()} aria-label={t('settings-sessions-revoke-device', { device: s.deviceLabel || s.clientType || s.username })} title={t('settings-sessions-revoke-device', { device: s.deviceLabel || s.clientType || s.username })} onClick={() => void revoke(s.handle)}><Icon name="close" /></button>}><span class={css.badge}>{t('settings-sessions-current')}</span></Show></td>

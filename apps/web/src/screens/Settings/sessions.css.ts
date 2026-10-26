@@ -6,3 +6,5 @@ globalStyle(`${table} th, ${table} td`, { padding: vars.space[5], borderBlockEnd
 globalStyle(`${table} caption`, { textAlign: 'start', padding: vars.space[5], fontWeight: 700 });
 globalStyle(`${table} td:last-child`, { textAlign: 'end' });
 globalStyle(`${table} th:first-child, ${table} td:first-child`, { minInlineSize:'3rem',inlineSize:'3rem',maxInlineSize:'3rem' });
+
+globalStyle(`${wrap}:focus-visible`,{outline:`${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`,outlineOffset:'-2px'});

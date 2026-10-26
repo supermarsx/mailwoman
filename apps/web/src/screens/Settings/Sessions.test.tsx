@@ -6,12 +6,13 @@ import { activateAccountPreferences, suspendAccountPreferences } from '../../api
 it('keeps the current session safe and targets the selected device handle', async () => {
   const service = new SettingsService();
   vi.spyOn(service, 'sessions').mockResolvedValue([
-    { handle: 'current', username: 'alice@example.org', createdAt: 'today', lastSeen: 'now', current: true, deviceLabel: 'This laptop' },
+    { handle: 'current', username: 'alice@example.org', createdAt: 'today', lastSeen: 'now', current: true, deviceLabel: 'This laptop', userAgent:'Full browser technical details' },
     { handle: 'other', username: 'alice@example.org', createdAt: 'yesterday', lastSeen: 'background poll', lastActivity: 'user interaction', current: false, deviceLabel: 'Phone', ip: '192.0.2.1', country: 'GB' },
   ]);
   const revoke = vi.spyOn(service, 'revokeSession').mockResolvedValue(undefined);
   render(() => <Sessions service={service} />);
   await screen.findByText('This laptop');
+  expect(screen.getByText('Full browser technical details')).not.toBeVisible();fireEvent.click(screen.getByText('Client details'));expect(screen.getByText('Full browser technical details')).toBeVisible();
   expect(screen.getByRole('table', { name: 'Active sessions' })).toBeInTheDocument();
   expect(screen.getByText('Last active user interaction')).toBeInTheDocument();
   expect(screen.queryByText('Last active background poll')).not.toBeInTheDocument();
@@ -56,4 +57,10 @@ it('does not continue or publish an old batch after the account changes',async()
  await waitFor(()=>expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
  expect(revoke).toHaveBeenCalledOnce();expect(screen.queryByText(/Signed out:/)).not.toBeInTheDocument();
  suspendAccountPreferences();
+});
+
+it('announces the initial session load and exposes a named keyboard scroll region',async()=>{
+ const service=new SettingsService();let release!:(value:[])=>void;vi.spyOn(service,'sessions').mockImplementation(()=>new Promise(resolve=>{release=resolve;}));
+ render(()=><Sessions service={service}/>);expect(screen.getByTestId('async-pending')).toBeVisible();expect(screen.getByRole('region',{name:'Active sessions table'})).toHaveAttribute('tabindex','0');
+ release([]);await waitFor(()=>expect(screen.queryByTestId('async-pending')).not.toBeInTheDocument());
 });

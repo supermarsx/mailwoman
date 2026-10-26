@@ -453,3 +453,8 @@ settings-draft-interval = Save interval (seconds)
 
 settings-show-from = Show From when composing
 settings-show-from-help = Start with the From field visible. You can also show it for one message from the ribbon. Only authorized sending addresses are accepted.
+settings-sessions-table = Active sessions table
+settings-folders-table = Folder list
+settings-kbd-reference = View preset bindings
+settings-kbd-reference-help = Preset reference only. Custom bindings and administrator policy can change the active shortcuts.
+settings-sessions-client-details = Client details

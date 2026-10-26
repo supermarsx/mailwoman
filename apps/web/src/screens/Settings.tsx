@@ -1,3 +1,4 @@
+import {useSettingsScroll} from './Settings/useSettingsScroll.ts';
 import {RetainedSettingsSection} from './Settings/RetainedSettingsSection.tsx';
 import * as customizationCss from './Settings/styles.css.ts';
 import { AppearanceCustomization } from '../components/AppearanceCustomization.tsx';
@@ -58,8 +59,8 @@ import { IdentityGrants } from './Settings/IdentityGrants.tsx';
 import { SecurityCenter } from './Settings/SecurityCenter.tsx';
 import { Privacy } from './Settings/Privacy.tsx';
 import { AnalyticsConsent } from './Settings/AnalyticsConsent.tsx';
-import { ComposePreferences } from './Settings/ComposePreferences.tsx';
 import {DraftSavePreferences} from './Settings/DraftSavePreferences.tsx';
+import { ComposePreferences } from './Settings/ComposePreferences.tsx';
 import {MailInteractionPreferences} from './Settings/MailInteractionPreferences.tsx';
 import { KeyboardShortcuts } from './Settings/KeyboardShortcuts.tsx';
 import { TimeZones } from './Settings/TimeZones.tsx';
@@ -136,6 +137,8 @@ export interface SettingsProps {
 export function Settings(props: SettingsProps): JSX.Element {
   const app = useApp();
   const navigation=props.navigation ?? createSettingsNavigation();
+  let settingsContent:HTMLDivElement|undefined;
+  useSettingsScroll(navigation.route,()=>settingsContent);
   const [sectionQuery,setSectionQuery]=createSignal('');
   const sectionTerms:Record<string,string>={appearance:'theme dark light color accent css javascript font density branding',reader:'message reading images layout dark mode',compose:'editor reply quote font signature recipients cc bcc',shortcuts:'keyboard display key hotkey drag selection',time:'timezone date clock iana',security:'password passkey totp two factor authentication sessions api keys',privacy:'remote images tracking telemetry',folders:'sidebar mappings count pin order icons spam trash',notifications:'push alerts sound browser', 'mail-transfer':'import export download eml mbox',receipts:'read receipt delivery dsn',nextcloud:'files contacts calendar cloud',rules:'filter automation',access:'sharing permissions acl'};
   const visible=(section:string):boolean=>!props.embedded || navigation.route().section===section;
@@ -207,7 +210,7 @@ export function Settings(props: SettingsProps): JSX.Element {
 
         <div class={props.embedded ? workspace.body : workspace.legacy}>
           <Show when={props.embedded}><nav class={workspace.nav} aria-label={t('settings-sections')}><For each={sections.filter(([id,label])=>sectionQuery().trim().toLocaleLowerCase().split(/\s+/).every(term=>`${t(label)} ${sectionTerms[id]??''}`.toLocaleLowerCase().includes(term)))} fallback={<p role="status">{t('settings-search-no-sections')}</p>}>{([id,label])=><button type="button" aria-current={navigation.route().section===id ? "page" : undefined} onClick={()=>void navigation.navigate({section:id})}><Icon name={sectionIcons[id]??'settings'}/><span>{t(label)}</span></button>}</For></nav></Show>
-          <div class={workspace.content}>
+          <div class={workspace.content} ref={settingsContent}>
           <RetainedSettingsSection name="appearance" active={visible('appearance')} accountBound={false}>{()=> <div class={workspace.appearance}>
         <ThemeMode locked={themeHold.locked()} />
         <ThemeGallery locked={themeHold.locked()} />
@@ -483,7 +486,6 @@ function ThemeGallery(props: { locked: boolean }): JSX.Element {
                       // decorative and the description/appearance are supporting
                       // detail, not part of what the control is called.
                       aria-label={t(entry.labelId)}
-                      data-tooltip={t(entry.descriptionId)}
                       data-tooltip={t(entry.descriptionId)}
                       aria-pressed={app.theme() === entry.id}
                       aria-describedby={props.locked ? 'settings-theme-lock' : undefined}
