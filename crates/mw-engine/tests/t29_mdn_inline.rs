@@ -95,6 +95,7 @@ fn report_asking_for_a_receipt() -> Vec<u8> {
 fn scripted_mail() -> HashMap<String, Vec<Vec<u8>>> {
     let ask = request_header(ANN);
     let inbox = vec![
+        b"From: daemon@example.org\r\nTo: me@example.org\r\nSubject: Delivery failure fixture\r\nContent-Type: multipart/report; report-type=delivery-status; boundary=dsn\r\n\r\n--dsn\r\nContent-Type: text/plain\r\n\r\nFailed\r\n--dsn\r\nContent-Type: message/delivery-status\r\n\r\nReporting-MTA: dns; mx.example.org\r\n\r\nFinal-Recipient: rfc822; missing@example.org\r\nAction: failed\r\nStatus: 5.1.1\r\nDiagnostic-Code: smtp; 550 no such user\r\n\r\n--dsn--\r\n".to_vec(),
         received("request", Some(ANN), ME, &ask),
         received("plain", Some(ANN), ME, ""),
         received(
@@ -1330,4 +1331,21 @@ fn the_mime_and_smtp_mailbox_validators_agree() {
     }
     assert_eq!(longest_accepted.len(), 320);
     assert_eq!(accepted, 9, "the vectors exercise both outcomes");
+}
+
+#[tokio::test]
+async fn incoming_dsn_is_explicit_read_only_and_account_scoped() {
+    let h = setup().await;
+    let id = find(&h, "Delivery failure fixture").await;
+    let request = json!([["Email/get", {"ids":[id], "properties":["id","mailwomanDsnReport"]}, "dsn"]]);
+    let response = jmap(&h, request.clone()).await;
+    let report = &result(&response, "dsn")["list"][0]["mailwomanDsnReport"];
+    assert_eq!(report["recipients"][0]["action"], "failed");
+    assert_eq!(report["recipients"][0]["status"], "5.1.1");
+    let ordinary = jmap(&h, json!([["Email/get", {"ids":[id]}, "plain"]])).await;
+    assert!(result(&ordinary, "plain")["list"][0].get("mailwomanDsnReport").is_none());
+    let stranger = new_account(&h.store, "stranger@example.org").await;
+    let denied = h.engine.handle_jmap(&stranger, &json!({"methodCalls":request})).await;
+    assert!(result(&denied, "dsn")["list"].as_array().is_none_or(|list| list.is_empty()), "{denied}");
+    assert!(h.submitter.handed().is_empty());
 }

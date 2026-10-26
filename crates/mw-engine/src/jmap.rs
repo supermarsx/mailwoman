@@ -1204,6 +1204,7 @@ impl Engine {
                     None => Value::Null,
                 };
                 email["mailwomanMdnReport"] = report;
+                email["mailwomanDsnReport"] = dsn_report_json(&raw);
                 email["mailwomanInlineParts"] = inline_parts_json(&raw, id);
             }
             built.push(Some(patch_engine_fields(
@@ -4106,6 +4107,19 @@ fn check_compose_extras(spec: &Value, identity: &str) -> std::result::Result<(),
     Ok(())
 }
 
+/// Received delivery reports are sender claims, never verified delivery/read state.
+pub fn dsn_report_json(raw: &[u8]) -> Value {
+    let Some(report) = mw_mime::parse_dsn(raw) else { return Value::Null; };
+    let recipients: Vec<_> = report.recipients.into_iter().map(|r| json!({
+        "finalRecipient": r.final_recipient, "addressType": r.address_type,
+        "originalRecipient": r.original_recipient, "action": r.action,
+        "status": r.status, "diagnostic": r.diagnostic, "remoteMta": r.remote_mta,
+        "lastAttempt": r.last_attempt, "retryUntil": r.retry_until,
+    })).collect();
+    json!({"reportingMta": report.reporting_mta, "envelopeId": report.envelope_id,
+        "arrivalDate": report.arrival_date, "recipients": recipients})
+}
+
 /// Most entries `mailwomanInlineParts` lists for one message.
 const MAX_INLINE_PARTS: usize = 100;
 
@@ -4438,8 +4452,8 @@ const THREADING_PROPERTIES: [&str; 3] = ["messageId", "inReplyTo", "references"]
 
 /// The `Email/get` properties read from the stored raw message on request:
 /// the receipt request, a received receipt, and the inline parts (t29-e9).
-const RAW_DERIVED_PROPERTIES: [&str; 3] =
-    ["mailwomanMdn", "mailwomanMdnReport", "mailwomanInlineParts"];
+const RAW_DERIVED_PROPERTIES: [&str; 4] =
+    ["mailwomanMdn", "mailwomanMdnReport", "mailwomanDsnReport", "mailwomanInlineParts"];
 
 /// What [`Engine::build_emails`] adds to the stored envelope.
 #[derive(Debug, Clone, Copy)]

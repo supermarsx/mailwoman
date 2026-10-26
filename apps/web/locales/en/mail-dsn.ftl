@@ -1,0 +1,12 @@
+dsn-title = Delivery status report
+dsn-unverified = This report describes the sender's delivery attempt. Its claims are not independently verified. Delivery does not mean the message was read.
+dsn-reporting-mta = Reporting server:
+dsn-original-recipient = Original recipient:
+dsn-remote-mta = Remote server:
+dsn-last-attempt = Last attempt:
+dsn-retry-until = Sender plans to retry until:
+dsn-action-failed = Reported failure
+dsn-action-delayed = Reported delay
+dsn-action-delivered = Reported delivery
+dsn-action-relayed = Reported relay
+dsn-action-expanded = Reported list expansion

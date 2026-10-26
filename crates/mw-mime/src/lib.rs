@@ -26,6 +26,7 @@
 
 mod build;
 mod check;
+mod dsn;
 mod mdn;
 mod parse;
 
@@ -33,6 +34,7 @@ pub use build::{
     Attachment, ComposeExtras, ComposeRequest, InlinePart, build, build_with, html_cid_references,
 };
 pub use check::{generate_content_id, validate_content_id, validate_mailbox};
+pub use dsn::{DsnRecipient, DsnReport, parse_dsn};
 pub use mdn::{
     MdnActionMode, MdnDisposition, MdnInput, MdnReport, MdnSendingMode, build_mdn, parse_mdn,
 };
