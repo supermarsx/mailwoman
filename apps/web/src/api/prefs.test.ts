@@ -148,6 +148,28 @@ describe('appearance prefs API', () => {
   });
 });
 
+describe('administrator font defaults', () => {
+  beforeEach(() => localStorage.clear());
+
+  it.each([null, { theme: 'light', chosen: true }])('hydrates accounts with no stored font (%j)', async appearance => {
+    const app = slice();
+    const fixture = fakeApi({ ...stored(appearance, null), deploymentDefault: { ...DEPLOYMENT, font: 'inter' } });
+    const sync = createAppearanceSync(app, { api: fixture.api });
+    await sync.start();
+    expect(app.uiFont()).toBe('inter');
+    sync.stop();
+  });
+
+  it('preserves the account font on another device', async () => {
+    const app = slice();
+    const fixture = fakeApi({ ...stored({ font: 'mono' }, 100), deploymentDefault: { ...DEPLOYMENT, font: 'inter' } });
+    const sync = createAppearanceSync(app, { api: fixture.api });
+    await sync.start();
+    expect(app.uiFont()).toBe('mono');
+    sync.stop();
+  });
+});
+
 describe('appearance sync — the reconcile at start', () => {
   beforeEach(() => {
     localStorage.clear();

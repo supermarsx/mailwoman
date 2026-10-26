@@ -5,6 +5,7 @@ import { AppContext } from '../state/context.ts';
 import { createThemeSlice } from '../state/slices/theme.ts';
 import type { SliceContext } from '../state/slices/context.ts';
 import type { AppState } from '../state/store.ts';
+import { clearSettings, loadSettings } from '../api/settings.ts';
 
 // Settings only touches the theme slice; provide just that (cast to AppState) so
 // the test stays isolated from the other executors' slices.
@@ -21,6 +22,7 @@ function renderSettings(onClose = vi.fn()) {
 
 describe('Settings', () => {
   beforeEach(() => {
+    clearSettings();
     localStorage.clear();
     document.documentElement.removeAttribute('data-theme');
   });
@@ -53,6 +55,16 @@ describe('Settings', () => {
     const { app } = renderSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Green' }));
     expect(app.accentId()).toBe('green');
+  });
+
+  it('applies an administrator font and disables every font choice', async () => {
+    await loadSettings({fetcher: async () => new Response(JSON.stringify({settings:{'appearance.font':{value:'inter',source:'domain',locked:true,lockedBy:'domain'}}}), {status:200})});
+    const { app } = renderSettings();
+    await vi.waitFor(() => expect(app.uiFont()).toBe('inter'));
+    const group = screen.getByRole('group', {name:'Interface font'});
+    expect(group.querySelectorAll('button')).toHaveLength(8);
+    for (const button of group.querySelectorAll('button')) expect(button).toBeDisabled();
+    expect(group).toHaveAttribute('aria-describedby','settings-font-lock');
   });
 
   it('the close button and backdrop click both invoke onClose', () => {

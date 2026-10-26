@@ -520,6 +520,32 @@ async fn a_held_appearance_field_is_replaced_in_the_object_and_reported() {
 }
 
 #[tokio::test]
+async fn font_defaults_and_locks_apply_to_the_account_blob() {
+    let s = proxy_server("mw-font-policy").await;
+    let a = admin(&s.base).await;
+    // Admin and mailbox logins intentionally share a client-address cooldown.
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    let (u, _) = user(&s.base).await;
+    let base = &s.base;
+    assert_eq!(put_global(&a, base, "appearance.font", json!({"globalValue":"inter","locked":false})).await.0, 200);
+    let (_, initial) = send(u.get(format!("{base}/api/account/appearance"))).await;
+    assert_eq!(initial["deploymentDefault"]["font"], "inter");
+    assert_eq!(send(u.put(format!("{base}/api/account/appearance")).json(&json!({"appearance":{"font":"mono"}}))).await.0, 200);
+    let all = user_settings(&u, base).await;
+    assert_eq!(all["appearance.font"]["value"], "mono");
+    assert_eq!(all["appearance.font"]["source"], "user");
+    assert_eq!(put_global(&a, base, "appearance.font", json!({"globalValue":"external-font-url","locked":true})).await.0, 422);
+    assert_eq!(put_global(&a, base, "appearance.font", json!({"globalValue":"roboto","locked":true})).await.0, 200);
+    let (status, saved) = send(u.put(format!("{base}/api/account/appearance")).json(&json!({"appearance":{"font":"jost"}}))).await;
+    assert_eq!(status, 200);
+    assert_eq!(saved["lockedFields"], json!(["font"]));
+    let (_, got) = send(u.get(format!("{base}/api/account/appearance"))).await;
+    assert_eq!(got["appearance"]["font"], "roboto");
+    assert_eq!(got["lockedFields"], json!(["font"]));
+    assert_eq!(send(u.put(format!("{base}/api/settings/appearance.font")).json(&json!({"value":"mono"}))).await.0, 409);
+}
+
+#[tokio::test]
 async fn a_held_notifications_switch_refuses_a_change() {
     let s = proxy_server("mw-t32-f01-notify").await;
     let a = admin(&s.base).await;

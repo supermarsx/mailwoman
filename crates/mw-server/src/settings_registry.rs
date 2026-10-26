@@ -617,6 +617,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "appearance blob density"
     ),
     def!(
+        "appearance.font",
+        Kind::Enum(&["default", "system", "serif", "mono", "inter", "roboto", "open-sans", "jost"]),
+        "\"default\"",
+        GDU,
+        "appearance",
+        "self-hosted interface font; account choice or administrator default/lock"
+    ),
+    def!(
         "appearance.brandName",
         text(Text::Plain, 64),
         "\"Mailwoman\"",

@@ -426,6 +426,7 @@ struct AppearanceResponse {
 #[serde(rename_all = "camelCase")]
 struct DeploymentAppearanceDto {
     theme: String,
+    font: String,
     brand_name: String,
     #[serde(default)]
     accent: Option<String>,
@@ -967,13 +968,14 @@ async fn held(
 }
 
 /// The appearance keys and the fields of the appearance object each one holds.
-const APPEARANCE_FIELDS: [(&str, &[&str]); 3] = [
+const APPEARANCE_FIELDS: [(&str, &[&str]); 4] = [
     (
         "appearance.theme",
         &["mode", "theme", "lightTheme", "darkTheme"],
     ),
     ("appearance.accent", &["accentId"]),
     ("appearance.density", &["density"]),
+    ("appearance.font", &["font"]),
 ];
 
 /// The held appearance keys and their values, for this user.
@@ -1023,6 +1025,9 @@ fn apply_appearance_locks(
             "appearance.density" => {
                 obj.insert("density".into(), value.clone());
             }
+            "appearance.font" => {
+                obj.insert("font".into(), value.clone());
+            }
             _ => {}
         }
     }
@@ -1049,8 +1054,10 @@ async fn deployment_default(
     let accent =
         value(crate::settings_registry::effective_for(store, "appearance.accent", &s).await?);
     let fallback = mw_admin::Appearance::default();
+    let font = value(crate::settings_registry::effective_for(store, "appearance.font", &s).await?);
     Ok(DeploymentAppearanceDto {
         theme: theme.unwrap_or(fallback.theme),
+        font: font.unwrap_or_else(|| "default".into()),
         brand_name: brand.unwrap_or(fallback.brand_name),
         accent: accent.filter(|a| !a.is_empty()),
     })

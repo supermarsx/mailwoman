@@ -1055,6 +1055,7 @@ pub(crate) const USER_LAYER_ELSEWHERE: &[(&str, &str)] = &[
     ("appearance.theme", "/api/account/appearance"),
     ("appearance.accent", "/api/account/appearance"),
     ("appearance.density", "/api/account/appearance"),
+    ("appearance.font", "/api/account/appearance"),
     ("mail.readReceipts", "/api/account/mdn-policy"),
     ("notifications.enabled", "/api/account/notifications"),
 ];
@@ -1118,6 +1119,9 @@ pub(crate) async fn user_layer_rows(
         }
         if let Some(density) = prefs.get("density").and_then(Value::as_str) {
             rows.push(user_row(account_id, "appearance.density", json!(density)));
+        }
+        if let Some(font) = prefs.get("font").and_then(Value::as_str) {
+            rows.push(user_row(account_id, "appearance.font", json!(font)));
         }
     }
     if let Some(policy) = state

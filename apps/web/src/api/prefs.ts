@@ -51,7 +51,7 @@
 
 import { withBase } from './basePath.ts';
 import { apiFetch } from './http.ts';
-import { defaultAppearance, type AppearancePrefs } from '../theme/appearance.ts';
+import { defaultAppearance, FONT_STACKS, type AppearancePrefs, type UiFont } from '../theme/appearance.ts';
 import { observePreferenceAccount, preferenceAccount } from './accountPreferenceLifecycle.ts';
 
 /** The subset of the theme slice this module drives (t19-e6's sync seam). */
@@ -64,6 +64,7 @@ export interface AppearancePrefsSeam {
 /** The deployment-wide default (admin › Appearance). A DEFAULT, not a policy. */
 export interface DeploymentAppearance {
   theme: string;
+  font?: UiFont;
   brandName: string;
   accent: string | null;
 }
@@ -137,6 +138,7 @@ function parseStored(body: unknown): StoredAppearance {
     updatedAt: typeof b.updatedAt === 'number' && Number.isFinite(b.updatedAt) ? b.updatedAt : null,
     deploymentDefault: {
       theme: typeof d.theme === 'string' ? d.theme : DEFAULT_DEPLOYMENT.theme,
+      font: typeof d.font === 'string' && Object.hasOwn(FONT_STACKS, d.font) ? d.font as UiFont : 'default',
       brandName: typeof d.brandName === 'string' ? d.brandName : DEFAULT_DEPLOYMENT.brandName,
       accent: typeof d.accent === 'string' && d.accent !== '' ? d.accent : null,
     },
@@ -345,6 +347,17 @@ export function createAppearanceSync(
     }
     loaded = true;
     deployment = stored.deploymentDefault;
+
+    // Older account blobs have no font field. Adopt the admin default only if
+    // the user has not changed the font while this request was in flight.
+    const storedFont = (stored.appearance as Partial<AppearancePrefs> | null)?.font;
+    if (storedFont === undefined && initial.font === 'default' && prefs.appearancePrefs().font === initial.font && deployment.font) {
+      if (stored.appearance !== null) {
+        stored = { ...stored, appearance: { ...stored.appearance as Partial<AppearancePrefs>, font: deployment.font } };
+      } else {
+        prefs.setAppearancePrefs({ font: deployment.font });
+      }
+    }
 
     const local = prefs.appearancePrefs();
     const editedDuringLoad = localEdits > 0;

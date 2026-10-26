@@ -140,6 +140,13 @@ export function Settings(props: SettingsProps): JSX.Element {
   const themeHold = useSetting('appearance.theme', '');
   const accentHold = useSetting('appearance.accent', '');
   const densityHold = useSetting('appearance.density', '');
+  const fontHold = useSetting('appearance.font', 'default');
+  createEffect(() => {
+    const value = fontHold.value();
+    if (fontHold.locked() && app.uiFont() !== value && FONT_OPTIONS.some(option => option.value === value)) {
+      app.setUiFont(value as UiFont);
+    }
+  });
   // A held value is the one in force: apply it to this device as well.
   createEffect(() => {
     const v = themeHold.value();
@@ -222,13 +229,14 @@ export function Settings(props: SettingsProps): JSX.Element {
           <span class={css.label} id="settings-font">
             {t('settings-font')}
           </span>
-          <div class={css.options} role="group" aria-labelledby="settings-font">
+          <div class={css.options} role="group" aria-labelledby="settings-font" aria-describedby={fontHold.locked() ? 'settings-font-lock' : undefined}>
             <For each={FONT_OPTIONS}>
               {(o) => (
                 <button
                   type="button"
                   class={css.option}
                   aria-pressed={app.uiFont() === o.value}
+                  disabled={fontHold.locked()}
                   onClick={() => app.setUiFont(o.value)}
                 >
                   {t(o.label)}
@@ -236,6 +244,7 @@ export function Settings(props: SettingsProps): JSX.Element {
               )}
             </For>
           </div>
+          <LockNote id="settings-font-lock" locked={fontHold.locked()} />
         </div>
 
         <div class={css.row}>

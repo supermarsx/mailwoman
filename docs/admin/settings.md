@@ -54,6 +54,11 @@ The accent colour of the theme. Empty means the theme's own accent.
 
 How much space lists and controls take: compact, cozy or relaxed.
 
+<a id="appearance.font"></a>
+### Interface font (`appearance.font`)
+
+Sets the font for accounts without a saved choice. A lock overrides the account choice and disables the font buttons in user Appearance settings. Available values are `default` (theme font), `system`, `serif` (Newsreader), `mono` (JetBrains Mono), `inter`, `roboto`, `open-sans`, and `jost`. Font assets are bundled and served locally; the app does not contact Google Fonts. Account font choices synchronize through the account appearance endpoint.
+
 <a id="appearance.brandName"></a>
 ### Product name (`appearance.brandName`)
 
