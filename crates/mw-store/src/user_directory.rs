@@ -69,6 +69,19 @@ impl Store {
         &self,
         s: SuccessfulSignin<'_>,
     ) -> Result<bool, StoreError> {
+        let policy_address = s.address;
+        self.register_successful_signin_with_policy(s, policy_address)
+            .await
+    }
+
+    /// Preserve the authenticated spelling for new directory identities while
+    /// checking the parent policy identity. Historical parent bindings are kept
+    /// unchanged: authentication is not authority to merge directory records.
+    pub async fn register_successful_signin_with_policy(
+        &self,
+        s: SuccessfulSignin<'_>,
+        policy_address: &str,
+    ) -> Result<bool, StoreError> {
         if s.account_id.is_empty()
             || s.address.is_empty()
             || !["engine", "proxy", "header", "sso", "child"].contains(&s.mode)
@@ -78,6 +91,35 @@ impl Store {
             ));
         }
         let mut tx = self.backend.begin().await?;
+        // Lock an existing parent row and preserve its hold/expiry restrictions.
+        for checked_address in [policy_address, s.address] {
+            let active = q("UPDATE mail_user SET last_signin_at=last_signin_at WHERE address=?1 AND status='active' AND (expires_at IS NULL OR expires_at>?2)")
+                .bind(checked_address).bind(s.now).execute_tx(&mut tx).await?;
+            if active == 0
+                && q("SELECT address FROM mail_user WHERE address=?1")
+                    .bind(checked_address)
+                    .fetch_opt_scalar_string_tx(&mut tx)
+                    .await?
+                    .is_some()
+            {
+                return Ok(false);
+            }
+        }
+        let prior = q("SELECT address FROM mail_user_account WHERE account_id=?1")
+            .bind(s.account_id)
+            .fetch_opt_scalar_string_tx(&mut tx)
+            .await?;
+        let retained = prior
+            .as_deref()
+            .filter(|prior| *prior == policy_address && *prior != s.address);
+        let address = retained.unwrap_or(s.address);
+        let (local_part, domain) = address.rsplit_once('@').unwrap_or((address, ""));
+        let s = SuccessfulSignin {
+            address,
+            local_part,
+            domain,
+            ..s
+        };
         q("INSERT INTO mail_user(address,domain,local_part,origin,status,created_at,first_signin_at,last_signin_at) VALUES(?1,?2,?3,?4,'active',?5,?5,?5) ON CONFLICT(address) DO NOTHING")
             .bind(s.address).bind(s.domain).bind(s.local_part).bind(if s.mode=="sso" {"sso"} else {"signin"}).bind(s.now).execute_tx(&mut tx).await?;
         let n=q("UPDATE mail_user SET first_signin_at=COALESCE(first_signin_at,?2),last_signin_at=?2 WHERE address=?1 AND status='active' AND (expires_at IS NULL OR expires_at>?2)")
@@ -147,7 +189,107 @@ mod tests {
             .unwrap();
         result.unwrap();
     }
+    async fn exercise_aliases(store: &Store) {
+        let alias = "alias-user@alias.test";
+        let parent = "alias-user@parent.test";
+        assert!(
+            store
+                .register_successful_signin_with_policy(signin("alias-new", alias, 1), parent)
+                .await
+                .unwrap()
+        );
+        let rows = store.directory_accounts().await.unwrap();
+        assert_eq!(
+            rows.iter()
+                .find(|row| row.account_id == "alias-new")
+                .unwrap()
+                .address,
+            alias
+        );
+        assert!(
+            store
+                .register_successful_signin_with_policy(signin("alias-new", alias, 2), parent)
+                .await
+                .unwrap()
+        );
+        // Previously collapsed records are neither rebound nor duplicated.
+        assert!(
+            store
+                .register_successful_signin(signin("alias-old", parent, 1))
+                .await
+                .unwrap()
+        );
+        assert!(
+            store
+                .register_successful_signin_with_policy(signin("alias-old", alias, 3), parent)
+                .await
+                .unwrap()
+        );
+        let rows = store.directory_accounts().await.unwrap();
+        assert_eq!(
+            rows.iter()
+                .find(|row| row.account_id == "alias-old")
+                .unwrap()
+                .address,
+            parent
+        );
+        for held in [parent, alias] {
+            q("UPDATE mail_user SET status='disabled' WHERE address=?1")
+                .bind(held)
+                .execute(&store.backend)
+                .await
+                .unwrap();
+            assert!(
+                !store
+                    .register_successful_signin_with_policy(signin("alias-new", alias, 4), parent)
+                    .await
+                    .unwrap()
+            );
+            assert!(
+                !store
+                    .register_successful_signin_with_policy(signin("alias-old", alias, 4), parent)
+                    .await
+                    .unwrap()
+            );
+            q("UPDATE mail_user SET status='active',expires_at=4 WHERE address=?1")
+                .bind(held)
+                .execute(&store.backend)
+                .await
+                .unwrap();
+            assert!(
+                !store
+                    .register_successful_signin_with_policy(signin("alias-new", alias, 4), parent)
+                    .await
+                    .unwrap()
+            );
+            q("UPDATE mail_user SET expires_at=NULL WHERE address=?1")
+                .bind(held)
+                .execute(&store.backend)
+                .await
+                .unwrap();
+        }
+        assert!(
+            !store
+                .register_successful_signin_with_policy(
+                    signin("alias-old", "unrelated@other.test", 5),
+                    "unrelated@other.test"
+                )
+                .await
+                .unwrap()
+        );
+        q("DELETE FROM mail_user_account WHERE account_id IN ('alias-new','alias-old')")
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        q("DELETE FROM mail_user WHERE address IN (?1,?2)")
+            .bind(alias)
+            .bind(parent)
+            .execute(&store.backend)
+            .await
+            .unwrap();
+    }
     async fn exercise(store: Store) {
+        exercise_aliases(&store).await;
         assert!(
             store
                 .register_successful_signin(signin("opaque", "alice@example.test", 10))

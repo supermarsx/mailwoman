@@ -149,15 +149,16 @@ async fn list_users(State(state): State<AppState>, ctx: AdminCtx) -> Response {
     let mut out = Vec::new();
     for u in users {
         let account_id = u.account_id;
-        let address = match state.store.canonical_policy_address(&u.address).await {
+        let policy_address = match state.store.canonical_policy_address(&u.address).await {
             Ok(value) => value,
             Err(e) => return err500(e),
         };
         if let Some(scope) = scope
-            && !scope.contains(&crate::admin_ctx::domain_of(&address))
+            && !scope.contains(&crate::admin_ctx::domain_of(&policy_address))
         {
             continue;
         }
+        let address = u.address;
         let (username, domain) = match address.rsplit_once('@') {
             Some((a, b)) => (a.to_string(), b.to_string()),
             None => (address.clone(), String::new()),

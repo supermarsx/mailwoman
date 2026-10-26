@@ -715,7 +715,7 @@ async fn formatted_login_uses_endpoint_ca_and_server_name_in_the_real_engine_pat
 
 #[tokio::test]
 async fn only_successful_domain_login_enrolls_the_real_account_in_admin_users() {
-    let mail = MockPop3::start("alice@example.org", "testpass").await;
+    let mail = MockPop3::start("alice@alias.test", "testpass").await;
     let db = test_db::unique_dir("domain-user-directory")
         .join("mw.db")
         .to_string_lossy()
@@ -725,6 +725,10 @@ async fn only_successful_domain_login_enrolls_the_real_account_in_admin_users() 
         .unwrap();
     store
         .put_domain_config(&row("example.org", &mail))
+        .await
+        .unwrap();
+    store
+        .put_domain_alias("alias.test", "example.org")
         .await
         .unwrap();
     let config = AppConfig {
@@ -776,12 +780,12 @@ async fn only_successful_domain_login_enrolls_the_real_account_in_admin_users() 
         .build()
         .unwrap();
     assert_eq!(
-        login(&client, &base, "failed@example.org").await.status(),
+        login(&client, &base, "failed@alias.test").await.status(),
         401
     );
     assert!(store.directory_accounts().await.unwrap().is_empty());
     assert_eq!(
-        login(&client, &base, "alice@example.org").await.status(),
+        login(&client, &base, "alice@alias.test").await.status(),
         200
     );
     let users: Value = admin
@@ -796,7 +800,7 @@ async fn only_successful_domain_login_enrolls_the_real_account_in_admin_users() 
     let account = store.list_accounts().await.unwrap().remove(0);
     assert_eq!(users[0]["accountId"], account.id);
     assert_eq!(users[0]["username"], "alice");
-    assert_eq!(users[0]["domain"], "example.org");
+    assert_eq!(users[0]["domain"], "alias.test");
     assert!(users[0]["lastSigninAt"].as_i64().unwrap() > 0);
     let identity: Value = admin
         .get(format!("{base}/admin/users/{}/identity", account.id))
@@ -806,9 +810,9 @@ async fn only_successful_domain_login_enrolls_the_real_account_in_admin_users() 
         .json()
         .await
         .unwrap();
-    assert_eq!(identity["address"], "alice@example.org");
+    assert_eq!(identity["address"], "alice@alias.test");
     assert_eq!(
-        login(&client, &base, "alice@example.org").await.status(),
+        login(&client, &base, "alice@alias.test").await.status(),
         200
     );
     assert_eq!(store.directory_accounts().await.unwrap().len(), 1);

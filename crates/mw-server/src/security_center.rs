@@ -140,25 +140,39 @@ pub(crate) async fn record_login(
         .canonical_policy_address(address)
         .await
         .map_err(|e| error("directory identity", e))?;
-    let (local, domain) = canonical.rsplit_once('@').unwrap_or((&canonical, ""));
+    // Alias resolution selects policy and transport, not the user's identity.
+    let normalized = address.trim().to_lowercase();
+    let identity = if let Some((local, domain)) = normalized.rsplit_once('@') {
+        format!(
+            "{local}@{}",
+            crate::domain_config::normalize_domain(domain)
+                .map_err(|e| error("directory identity", e))?
+        )
+    } else {
+        normalized
+    };
+    let (local, domain) = identity.rsplit_once('@').unwrap_or((&identity, ""));
     let registered = state
         .store
-        .register_successful_signin(mw_store::user_directory::SuccessfulSignin {
-            account_id: account,
-            address: &canonical,
-            domain,
-            local_part: local,
-            mode: if method == "sso" {
-                "sso"
-            } else if method == "header" {
-                "header"
-            } else if state.engine.is_some() {
-                "engine"
-            } else {
-                "proxy"
+        .register_successful_signin_with_policy(
+            mw_store::user_directory::SuccessfulSignin {
+                account_id: account,
+                address: &identity,
+                domain,
+                local_part: local,
+                mode: if method == "sso" {
+                    "sso"
+                } else if method == "header" {
+                    "header"
+                } else if state.engine.is_some() {
+                    "engine"
+                } else {
+                    "proxy"
+                },
+                now: chrono::Utc::now().timestamp(),
             },
-            now: chrono::Utc::now().timestamp(),
-        })
+            &canonical,
+        )
         .await
         .map_err(|e| error("directory registration", e))?;
     if !registered {
