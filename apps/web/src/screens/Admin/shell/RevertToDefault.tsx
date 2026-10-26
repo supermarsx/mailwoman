@@ -58,6 +58,7 @@ export function RevertToDefault(props: RevertToDefaultProps): JSX.Element {
           disabled={busy() || Boolean(props.disabledReason)}
           aria-describedby={`${id}-default`}
           title={props.disabledReason ?? `${t('admin-ux-revert')} (${props.label})`}
+          data-tooltip={props.disabledReason ?? `${t('admin-ux-revert')} (${props.label}). ${t('admin-ux-revert-default-is', { value: isolate(props.defaultDisplay) })}`}
           onClick={() => void revert()}
         >
           <Icon name="restore" />

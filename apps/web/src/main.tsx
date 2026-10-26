@@ -1,5 +1,6 @@
 import { render } from 'solid-js/web';
 import { App } from './App.tsx';
+import { TooltipLayer } from './components/TooltipLayer.tsx';
 import { LocaleProvider } from './i18n/index.ts';
 import { installTrustedTypesPolicy } from './security/trustedTypes.ts';
 import { bootLocale } from './screens/Settings/language.ts';
@@ -30,6 +31,7 @@ render(
   () => (
     <LocaleProvider {...(startLocale !== null ? { locale: startLocale } : {})}>
       <App />
+      <TooltipLayer />
     </LocaleProvider>
   ),
   root,
