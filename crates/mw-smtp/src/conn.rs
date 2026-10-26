@@ -632,11 +632,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
         let mut payload = Vec::with_capacity(raw.len() + 32);
         data_lines(raw, true, &mut payload);
         payload.extend_from_slice(b".\r\n");
-        self.write_all(&payload).await?;
+        self.write_all(&payload).await.map_err(|e| SmtpError::DeliveryUncertain(e.to_string()))?;
 
-        let reply = self.read_reply().await?;
+        let reply = self.read_reply().await.map_err(|e| SmtpError::DeliveryUncertain(e.to_string()))?;
         if reply.is_positive() {
             Ok(())
+        } else if !(400..600).contains(&reply.code) {
+            Err(SmtpError::DeliveryUncertain("unexpected final reply".into()))
         } else {
             Err(SmtpError::Protocol(format!(
                 "message rejected after DATA: {} {}",
@@ -661,11 +663,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
         data_lines(raw, false, &mut body);
         let mut payload = format!("BDAT {} LAST\r\n", body.len()).into_bytes();
         payload.extend_from_slice(&body);
-        self.write_all(&payload).await?;
+        self.write_all(&payload).await.map_err(|e| SmtpError::DeliveryUncertain(e.to_string()))?;
 
-        let reply = self.read_reply().await?;
+        let reply = self.read_reply().await.map_err(|e| SmtpError::DeliveryUncertain(e.to_string()))?;
         if reply.is_positive() {
             Ok(())
+        } else if !(400..600).contains(&reply.code) {
+            Err(SmtpError::DeliveryUncertain("unexpected final reply".into()))
         } else {
             Err(SmtpError::Protocol(format!(
                 "message rejected after BDAT: {} {}",

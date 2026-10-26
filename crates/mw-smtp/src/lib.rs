@@ -75,6 +75,10 @@ pub enum SmtpError {
     /// Transport-level failure (connect / TLS / socket I/O).
     #[error("smtp transport error: {0}")]
     Transport(String),
+    /// Content transmission began, but no definitive acceptance or refusal arrived.
+    /// Retrying can deliver a duplicate.
+    #[error("delivery status unknown; check Sent before sending again: {0}")]
+    DeliveryUncertain(String),
     /// SASL authentication was rejected.
     #[error("smtp authentication failed: {0}")]
     Auth(String),

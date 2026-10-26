@@ -52,10 +52,11 @@ export interface OutboxMessage {
 }
 
 /** A submission's user-facing lifecycle state (derived from the raw row). */
-export type OutboxState = 'held' | 'scheduled' | 'holding' | 'sent' | 'canceled' | 'failed';
+export type OutboxState = 'held' | 'scheduled' | 'holding' | 'sent' | 'canceled' | 'failed' | 'uncertain';
 
 /** Classify a submission for the Outbox UI (§1.3). */
 export function outboxStateOf(sub: OutboxSubmission, now = Date.now()): OutboxState {
+  if (sub.mailwomanDeliveryUncertain === true) return 'uncertain';
   if (sub.undoStatus === 'canceled') return sub.mailwomanFailed === true ? 'failed' : 'canceled';
   if (sub.undoStatus === 'final') return 'sent';
   // pending: held until released, scheduled for a future time (send-later), or

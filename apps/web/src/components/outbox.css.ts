@@ -97,6 +97,7 @@ export const state = style({
 
 export const stateOf = styleVariants({
   held: { borderColor: vars.color.accent, color: vars.color.accent },
+  uncertain: { borderColor: vars.color.accent, color: vars.color.accent },
   scheduled: {},
   holding: {},
   sent: { borderColor: vars.color.success, color: vars.color.success },

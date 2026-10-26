@@ -295,6 +295,8 @@ export interface EmailSubmission {
   mailwomanOrigin?: SubmissionOrigin | null;
   /** The engine stopped trying; nothing was delivered. Reported with `canceled`. */
   mailwomanFailed?: boolean;
+  /** The attempt may have delivered; never automatically retry. */
+  mailwomanDeliveryUncertain?: boolean;
   /** Attempts in which the mail server accepted nothing. */
   mailwomanAttempts?: number;
   /** The latest failure. On a sent row: what went wrong filing the copy. */

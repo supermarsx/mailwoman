@@ -73,6 +73,7 @@ impl MailSubmitter for Submitter {
                 mw_smtp::SmtpError::Protocol(m) if m == DSN_NOT_OFFERED => {
                     EngineError::Unsupported(m)
                 }
+                mw_smtp::SmtpError::DeliveryUncertain(m) => EngineError::SubmissionUncertain(m),
                 mw_smtp::SmtpError::Transport(m) => EngineError::Transport(m),
                 mw_smtp::SmtpError::Protocol(m) => EngineError::Protocol(m),
                 e @ mw_smtp::SmtpError::InvalidAddress(_) => EngineError::Protocol(e.to_string()),

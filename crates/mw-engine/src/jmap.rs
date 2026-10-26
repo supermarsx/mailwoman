@@ -2457,7 +2457,7 @@ impl Engine {
         // what SMTP did: `send_submission` has already recorded `final` if the
         // message was accepted, whatever happened to the Sent copy afterwards.
         let sent = self
-            .send_submission(&sub_id, account_id, rt, new.email_id)
+            .send_submission(&row, rt, None)
             .await;
         drop(claim);
         match sent {
@@ -2468,17 +2468,14 @@ impl Engine {
                 filed: Some(filed),
             }),
             Err(not_sent) => {
-                // Nothing was delivered. The caller is told synchronously and
-                // can send again, so this path does not also retry on its own —
-                // two independent retries of one message is how copies multiply.
-                self.store()
-                    .record_submission_failure(
-                        &sub_id,
-                        &not_sent.error.to_string(),
-                        None,
-                        SUBMISSION_FAILED,
-                    )
-                    .await?;
+                // An uncertain attempt is terminal and must not invite an
+                // automatic retry. Only this attempt's durable owner records it.
+                if let Some(claim) = &not_sent.claim {
+                    self.store().finish_submission_attempt(
+                        &sub_id, claim, &not_sent.error.to_string(), None,
+                        if not_sent.uncertain() { "uncertain" } else { SUBMISSION_FAILED },
+                    ).await?;
+                }
                 self.record_change(
                     account_id,
                     ChangeType::EmailSubmission,
@@ -2486,11 +2483,13 @@ impl Engine {
                     ChangeOp::Updated,
                 )
                 .await?;
-                self.emit_event(
-                    crate::change::EventKind::SubmissionFailed,
-                    account_id,
-                    std::slice::from_ref(&sub_id),
-                );
+                if !not_sent.uncertain() && not_sent.claim.is_some() {
+                    self.emit_event(
+                        crate::change::EventKind::SubmissionFailed,
+                        account_id,
+                        std::slice::from_ref(&sub_id),
+                    );
+                }
                 Err(not_sent.error)
             }
         }
@@ -2648,6 +2647,7 @@ impl Engine {
                 "mailwomanHoldSeconds": 0,
                 "mailwomanHold": null,
                 "mailwomanFailed": status == SUBMISSION_FAILED,
+                "mailwomanDeliveryUncertain": status == "uncertain" || status.starts_with("sending:"),
                 "mailwomanAttempts": attempts.attempts,
                 "mailwomanLastError": attempts.last_error,
                 "mailwomanNextAttemptAt": attempts.next_attempt_at,
@@ -2879,23 +2879,25 @@ impl Engine {
     ///    submission's `onSuccess*` instructions if it has any, else file a
     ///    copy into Sent and remove the draft.
     ///
-    /// `Err` means SMTP accepted nothing, so sending again cannot duplicate the
-    /// message; the caller decides whether to retry. `Ok` means it was delivered,
+    /// `Err` distinguishes a definite refusal from `SubmissionUncertain`, which
+    /// must never be retried automatically. `Ok` means it was delivered,
     /// and says what step 3 did. Step 3 is best-effort: a failure there is logged
     /// and kept on the row as `last_error`, and never reaches the caller as an
     /// error, because the only thing a caller could do with it — treat the
     /// submission as unsent — is what used to send the message again on every
     /// dispatcher pass.
     ///
-    /// A caller must hold the submission's [`claim_send`] claim, so that the
-    /// inline path, a release and the dispatcher cannot each transmit one row.
+    /// A caller holds the local [`claim_send`] guard. The durable unique claim
+    /// below also excludes other processes and survives a crash during SMTP.
     pub(crate) async fn send_submission(
         &self,
-        sub_id: &str,
-        account_id: &str,
+        row: &SubmissionRow,
         rt: &AccountRuntime,
-        email_id: &str,
+        next_attempt_at: Option<&str>,
     ) -> std::result::Result<Filed, NotSent> {
+        let sub_id = row.id.as_str();
+        let account_id = row.account_id.as_str();
+        let email_id = row.email_id.as_str();
         // What the submission's create asked for at send time: its envelope
         // recipients, and its `onSuccess*` instructions. Read before anything
         // is sent, because the recipients decide who it is sent to: a read
@@ -2909,10 +2911,15 @@ impl Engine {
         let rcpt_to = stored.as_deref().and_then(stored_rcpt_to);
         let dsn = stored.as_deref().and_then(stored_dsn);
         let on_success = stored.as_deref().and_then(OnSuccess::from_json);
+        let claim = format!("sending:{}", gen_token());
+        if !self.store().claim_submission_attempt(row, stored.as_deref(), next_attempt_at, &claim)
+            .await.map_err(|e| NotSent::transient(e.into()))? {
+            return Err(NotSent::permanent(EngineError::Protocol("submission is no longer available for sending".into())));
+        }
         let sent = self
             .transmit_draft(account_id, rt, email_id, rcpt_to, dsn)
-            .await?;
-        self.record_delivered(sub_id).await;
+            .await.map_err(|mut error| { error.claim = Some(claim.clone()); error })?;
+        self.record_delivered(sub_id, &claim).await;
         self.emit_event(
             crate::change::EventKind::SubmissionSent,
             account_id,
@@ -3305,34 +3312,20 @@ impl Engine {
 
     /// Record `final` for a submission SMTP has accepted.
     ///
-    /// A store write can fail, and a row left `pending` is a row the dispatcher
-    /// sends again. So the write is retried briefly; if it still fails, the id is
-    /// remembered in-process ([`accepted_unrecorded`]) and the dispatcher, which
-    /// checks that set before it transmits anything, keeps retrying the write
-    /// instead of the send. What this cannot cover is a store that is still
-    /// unwritable when the process restarts: the set is in memory, so the new
-    /// process finds the row `pending` and sends it again.
-    async fn record_delivered(&self, sub_id: &str) {
+    /// Persist acceptance before filing. A failed write retains the exact claim
+    /// in this Engine only; restart leaves the durable sending claim excluded
+    /// from retries even when this in-memory recovery hint is gone.
+    async fn record_delivered(&self, sub_id: &str, claim: &str) {
         const DELAYS_MS: [u64; 3] = [0, 50, 250];
-        let mut last = None;
         for delay in DELAYS_MS {
-            if delay > 0 {
-                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-            }
-            match self.store().mark_submission_sent(sub_id).await {
-                Ok(()) => return,
-                Err(e) => last = Some(e),
+            if delay > 0 { tokio::time::sleep(std::time::Duration::from_millis(delay)).await; }
+            match self.store().accept_submission_attempt(sub_id, claim).await {
+                Ok(_) => return, // A replaced/removed claim cannot authorize another row.
+                Err(error) => tracing::warn!("recording accepted submission {sub_id} failed: {error}"),
             }
         }
-        tracing::error!(
-            "submission {sub_id} was accepted by SMTP but could not be recorded as sent \
-             ({}); it will not be transmitted again by this process",
-            last.map(|e| e.to_string()).unwrap_or_default()
-        );
-        accepted_unrecorded()
-            .lock()
-            .expect("accepted-unrecorded lock")
-            .insert(sub_id.to_string());
+        self.accepted_submissions.lock().expect("accepted submissions lock")
+            .insert(sub_id.to_string(), claim.to_string());
     }
 
     /// Load a draft and hand it to the account submitter. Returns what filing
@@ -4502,6 +4495,7 @@ fn set_error(e: &EngineError) -> Value {
             tracing::warn!("JMAP set error: {e}");
             SERVER_FAIL_TEXT.to_string()
         }
+        EngineError::SubmissionUncertain(_) => "Delivery status unknown. Do not resend automatically; check Sent or confirm with the recipient before sending again.".into(),
         _ => e.to_string(),
     };
     json!({ "type": "serverFail", "description": description })
@@ -4897,21 +4891,26 @@ fn submission_update_action(patch: &Value) -> std::result::Result<SubmissionUpda
     ))
 }
 
-/// Why a dispatch attempt delivered nothing. Only this outcome may lead to the
-/// message being handed to SMTP again.
+/// A dispatch attempt without confirmed acceptance. Only definite, transient
+/// failures may be retried; uncertain delivery is terminal.
 #[derive(Debug)]
 pub(crate) struct NotSent {
     pub(crate) error: EngineError,
     /// Retrying cannot succeed (no recipients, every recipient refused, the
     /// draft is gone): go straight to `failed`.
     pub(crate) permanent: bool,
+    pub(crate) claim: Option<String>,
 }
 
 impl NotSent {
+    pub(crate) fn uncertain(&self) -> bool {
+        matches!(self.error, EngineError::SubmissionUncertain(_))
+    }
     fn permanent(error: EngineError) -> Self {
         Self {
             error,
             permanent: true,
+            claim: None,
         }
     }
 
@@ -4919,6 +4918,7 @@ impl NotSent {
         Self {
             error,
             permanent: false,
+            claim: None,
         }
     }
 }
@@ -4928,16 +4928,6 @@ struct Transmitted {
     raw: Vec<u8>,
     message_id: Option<String>,
     draft_mailbox: String,
-}
-
-/// Submissions this process knows SMTP accepted but could not record as `final`
-/// (see [`Engine::record_delivered`]). The dispatcher consults it before
-/// transmitting anything. Keyed by submission id, which is random per row.
-pub(crate) fn accepted_unrecorded() -> &'static std::sync::Mutex<std::collections::HashSet<String>>
-{
-    static SET: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
-        std::sync::OnceLock::new();
-    SET.get_or_init(Default::default)
 }
 
 /// The right to hand one submission to SMTP, held for as long as the value
@@ -4965,7 +4955,7 @@ fn sends_in_flight() -> &'static std::sync::Mutex<std::collections::HashSet<Stri
 /// `pending` for as long as SMTP is in flight, so the status alone cannot keep
 /// two of them apart. Each claims first; the loser skips, and finds the row
 /// `final` (or backed off) when it next looks. Keyed by submission id, which is
-/// random per row. In-process only, like [`accepted_unrecorded`].
+/// random per row. This is only a local optimization; durable claims enforce authority.
 pub(crate) fn claim_send(id: &str) -> Option<SendClaim> {
     sends_in_flight()
         .lock()
@@ -5115,8 +5105,11 @@ fn submission_json(
         "mailwomanHold": hold.filter(|_| row.undo_status == SUBMISSION_PENDING),
         "mailwomanOrigin": origin.and_then(|o| serde_json::from_str::<Value>(o).ok()),
         "mailwomanFailed": row.undo_status == SUBMISSION_FAILED,
+        "mailwomanDeliveryUncertain": row.undo_status == "uncertain" || row.undo_status.starts_with("sending:"),
         "mailwomanAttempts": attempts,
-        "mailwomanLastError": last_error,
+        "mailwomanLastError": if row.undo_status == "uncertain" || row.undo_status.starts_with("sending:") {
+            Some("Delivery status unknown. Check Sent or confirm with the recipient before sending again.")
+        } else { last_error },
         "mailwomanNextAttemptAt": next_attempt_at,
     })
 }
@@ -5126,6 +5119,8 @@ fn submission_json(
 fn public_undo_status(stored: &str) -> &str {
     if stored == SUBMISSION_FAILED {
         "canceled"
+    } else if stored == "uncertain" || stored.starts_with("sending:") {
+        "final"
     } else {
         stored
     }

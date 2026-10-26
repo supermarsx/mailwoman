@@ -87,6 +87,8 @@ pub struct Engine {
     search: Arc<mw_search::Index>,
     /// Guards the single delayed dispatcher task (undo-send + snooze, §1.3/§1.5).
     dispatcher_started: AtomicBool,
+    /// Confirmed SMTP acceptances awaiting persistence, scoped to this store/runtime.
+    pub(crate) accepted_submissions: Mutex<HashMap<String, String>>,
     /// V6 additive hooks (plan §3 e10): the layered cache used for cache-aside
     /// on the read paths, the zero-access posture source, and the audit/webhook
     /// feed. Inert (no cache, standard posture, no feed) until e11 (MOUNT) calls
@@ -165,6 +167,7 @@ impl Engine {
             index_rebuild: IndexRebuild::default(),
             default_collections: tokio::sync::Mutex::new(()),
             dispatcher_started: AtomicBool::new(false),
+            accepted_submissions: Mutex::new(HashMap::new()),
             v6: std::sync::RwLock::new(crate::v6::V6Hooks::default()),
             v7: std::sync::RwLock::new(crate::v7::V7Hooks::default()),
             embeddings: std::sync::RwLock::new(None),

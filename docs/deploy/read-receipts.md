@@ -134,3 +134,26 @@ administrative DSN restriction at admission.
 At this backend checkpoint the outgoing web compose DSN control and personal
 default remain pending. Incoming DSN display is implemented separately and
 always identifies reports as unverified mail content.
+
+## Uncertain SMTP acceptance
+
+If DATA/BDAT content transmission begins but the server's final acceptance or
+refusal is lost, Mailwoman records delivery as unknown. It does not automatically
+resend that attempt. This addresses the duplicate-delivery risk described in
+[RFC 5321 section 4.5.3.2.6](https://www.rfc-editor.org/rfc/rfc5321.html#section-4.5.3.2.6).
+An explicit negative final reply remains a refusal; a confirmed acceptance is
+recorded before filing the Sent copy.
+
+Each queued attempt acquires a durable unique claim before SMTP. Competing
+processes cannot claim the same row, stale workers cannot record another
+attempt's result, and a crash leaves a claim excluded from the retry queue.
+The Outbox conservatively labels both active/unreconciled claims and lost replies
+as “Delivery status unknown”, with no release/resend action. Ordinary failures
+known to precede acceptance retain the bounded retry behavior.
+
+Check Sent or contact the recipient before deliberately creating a new send.
+A missing Sent copy does not prove non-delivery: filing is separate from SMTP
+acceptance. Mailwoman cannot recall an upstream-accepted message. This provides
+per-submission retry safety, not global deduplication of separately created
+messages or a complete SMTP relay retry implementation. Proxy submissions remain
+subject to their upstream implementation's queue and outcome semantics.

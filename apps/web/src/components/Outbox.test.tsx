@@ -38,6 +38,13 @@ function row(state: string): HTMLElement {
 const text = (el: HTMLElement): string => stripIsolates(el.textContent ?? '');
 
 describe('Outbox', () => {
+  it('warns about unknown delivery without offering resend or cancellation', () => {
+    renderOutbox([sub('unknown', { undoStatus: 'final', mailwomanDeliveryUncertain: true })]);
+    const unknown = row('uncertain');
+    expect(text(unknown)).toContain('Delivery status unknown');
+    expect(text(unknown)).toContain('will not be resent automatically');
+    expect(within(unknown).queryByRole('button')).toBeNull();
+  });
   it('shows a held row with who created it and what it would send, and offers Release and Discard', () => {
     const calls = renderOutbox(
       [sub('h1', { mailwomanHold: 'manual', mailwomanOrigin: { kind: 'apiKey', name: 'abcd1234' } })],

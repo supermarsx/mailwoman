@@ -489,6 +489,47 @@ impl Store {
         Ok(affected == 1)
     }
 
+    /// Durably own one attempt before any message bytes leave the process.
+    /// The expected scheduling snapshot prevents stale cancellation/release reads
+    /// from authorizing a send. Orphaned claims are deliberately never retried.
+    pub async fn claim_submission_attempt(
+        &self, row: &SubmissionRow, on_success: Option<&str>,
+        next_attempt_at: Option<&str>, claim: &str,
+    ) -> Result<bool, StoreError> {
+        let affected = q("UPDATE submissions SET undo_status = ?2
+            WHERE id = ?1 AND account_id = ?3 AND email_id = ?4
+              AND undo_status = 'pending' AND hold IS NULL
+              AND (send_at = ?5 OR (send_at IS NULL AND ?5 IS NULL))
+              AND hold_seconds = ?6 AND created_at = ?7
+              AND (on_success = ?8 OR (on_success IS NULL AND ?8 IS NULL))
+              AND (next_attempt_at = ?9 OR (next_attempt_at IS NULL AND ?9 IS NULL))")
+            .bind(&row.id).bind(claim).bind(&row.account_id).bind(&row.email_id)
+            .bind(row.send_at.as_deref()).bind(row.hold_seconds as i64).bind(&row.created_at)
+            .bind(on_success).bind(next_attempt_at).execute(&self.backend).await?;
+        Ok(affected == 1)
+    }
+
+    /// Only the owner of this exact attempt may record its result.
+    pub async fn finish_submission_attempt(
+        &self, id: &str, claim: &str, error: &str,
+        next_attempt_at: Option<&str>, status: &str,
+    ) -> Result<bool, StoreError> {
+        let affected = q("UPDATE submissions SET attempts = attempts + 1,
+            last_error = ?3, next_attempt_at = ?4, undo_status = ?5
+            WHERE id = ?1 AND undo_status = ?2")
+            .bind(id).bind(claim).bind(error).bind(next_attempt_at).bind(status)
+            .execute(&self.backend).await?;
+        Ok(affected == 1)
+    }
+
+    /// Persist confirmed SMTP acceptance only for the exact durable attempt.
+    pub async fn accept_submission_attempt(&self, id: &str, claim: &str) -> Result<bool, StoreError> {
+        let affected = q("UPDATE submissions SET undo_status = 'final',
+            last_error = NULL, next_attempt_at = NULL WHERE id = ?1 AND undo_status = ?2")
+            .bind(id).bind(claim).execute(&self.backend).await?;
+        Ok(affected == 1)
+    }
+
     /// Record that SMTP accepted the submission's message: `final`, from
     /// whatever state the row is in, with any earlier retry error and backoff
     /// cleared.
@@ -1620,6 +1661,46 @@ mod tests {
             .await
             .expect("DATABASE_URL_PG is set but Postgres is not reachable");
         assert_submission_hold(&s).await;
+    }
+
+    async fn assert_durable_submission_claim(s: &Store) {
+        let (account_id, _, email_id) = seed_msg(s).await;
+        let row = SubmissionRow {
+            id: format!("claim-{account_id}"), account_id, email_id,
+            identity_id: None, send_at: None, undo_status: "pending".into(),
+            hold_seconds: 0, created_at: "2026-07-01T10:00:00Z".into(),
+        };
+        s.insert_submission(&row).await.unwrap();
+        let mut foreign = row.clone(); foreign.account_id = "other-account".into();
+        assert!(!s.claim_submission_attempt(&foreign, None, None, "sending:foreign").await.unwrap());
+        let mut stale = row.clone(); stale.hold_seconds = 99;
+        assert!(!s.claim_submission_attempt(&stale,None,None,"sending:stale").await.unwrap());
+        assert!(!s.claim_submission_attempt(&row,Some("changed-envelope"),None,"sending:stale").await.unwrap());
+        assert!(!s.claim_submission_attempt(&row,None,Some("2999-01-01T00:00:00Z"),"sending:stale").await.unwrap());
+        let (a,b) = tokio::join!(
+            s.claim_submission_attempt(&row, None, None, "sending:a"),
+            s.claim_submission_attempt(&row, None, None, "sending:b"),
+        );
+        let a = a.unwrap(); let b = b.unwrap(); assert_ne!(a,b);
+        let winner = if a { "sending:a" } else { "sending:b" };
+        let loser = if a { "sending:b" } else { "sending:a" };
+        assert!(!s.pending_submissions().await.unwrap().iter().any(|r| r.id == row.id));
+        assert!(!s.transition_submission(&row.id,"pending","canceled").await.unwrap());
+        assert!(!s.finish_submission_attempt(&row.id,loser,"stale",None,"failed").await.unwrap());
+        assert!(s.finish_submission_attempt(&row.id,winner,"delivery status unknown",None,"uncertain").await.unwrap());
+        assert!(!s.claim_submission_attempt(&row,None,None,"sending:retry").await.unwrap());
+        assert!(!s.pending_submissions().await.unwrap().iter().any(|r| r.id == row.id));
+        assert_eq!(s.get_submission(&row.id).await.unwrap().unwrap().undo_status,"uncertain");
+    }
+
+    #[tokio::test]
+    async fn durable_submission_claim() { assert_durable_submission_claim(&store().await).await; }
+
+    #[tokio::test]
+    async fn postgres_durable_submission_claim() {
+        let Some(dsn) = pg_dsn() else { skip("durable SMTP claim: Postgres"); return; };
+        let s=Store::open_postgres(&dsn,crate::ServerKey::generate()).await.unwrap();
+        assert_durable_submission_claim(&s).await;
     }
 
     #[tokio::test]

@@ -155,6 +155,7 @@ impl AccountBackend for FakeBackend {
 /// What the fake SMTP server does with each message it is handed.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Smtp {
+    DeliveryUncertain,
     /// Every recipient accepted, DATA accepted: the message is delivered.
     Deliver,
     /// Every `RCPT TO` refused: nothing is delivered, and retrying cannot help.
@@ -215,6 +216,10 @@ impl MailSubmitter for CountingSubmitter {
                     .map(|r| (r, "550 5.1.1 no such user".to_string()))
                     .collect(),
             }),
+            Smtp::DeliveryUncertain => {
+                self.delivered.fetch_add(1, Ordering::SeqCst);
+                Err(EngineError::SubmissionUncertain("final reply lost".into()))
+            }
             Smtp::TransportError => Err(EngineError::Transport("connection refused".into())),
             Smtp::AuthRejected => Err(EngineError::Auth("credentials rejected".into())),
         }
@@ -732,4 +737,76 @@ async fn smtp_auth_rejection_stops_queued_credential_replay() {
     }
     assert_eq!(h.submitter.calls(), 1);
     assert_eq!(h.submitter.delivered(), 0);
+}
+
+#[tokio::test]
+async fn uncertain_delivery_is_terminal_and_restart_does_not_resend() {
+    let h = setup(SentAppend::Accept, Smtp::DeliveryUncertain).await;
+    let draft = create_draft(&h).await;
+    enqueue_due(&h, "sub-uncertain", &draft).await;
+    h.engine.dispatch_tick().await.unwrap();
+    assert_eq!(h.submitter.calls(),1);
+    let row = submission(&h,"sub-uncertain").await;
+    assert_eq!(row["mailwomanDeliveryUncertain"],true,"{row}");
+    assert_eq!(row["mailwomanFailed"],false);
+    assert!(row["mailwomanNextAttemptAt"].is_null());
+    let restarted = Arc::new(Engine::new(h.engine.store().clone()));
+    let submitter = CountingSubmitter::new(Smtp::Deliver);
+    restarted.register_backend(h.account_id.clone(),AccountRuntime::new(
+        Arc::new(FakeBackend::new(SentAppend::Accept)),submitter.clone(),"me@example.org"));
+    for day in 1..4 {
+        restarted.dispatch_tick_at(Utc::now()+chrono::Duration::days(day)).await.unwrap();
+    }
+    assert_eq!(submitter.calls(),0);
+}
+
+#[tokio::test]
+async fn abandoned_sending_claim_is_never_retried_after_restart() {
+    let h=setup(SentAppend::Accept,Smtp::Deliver).await;
+    let draft=create_draft(&h).await;
+    enqueue_due(&h,"sub-abandoned",&draft).await;
+    let row=h.engine.store().get_submission("sub-abandoned").await.unwrap().unwrap();
+    assert!(h.engine.store().claim_submission_attempt(&row,None,None,"sending:dead-process").await.unwrap());
+    h.engine.dispatch_tick_at(Utc::now()+chrono::Duration::days(10)).await.unwrap();
+    assert_eq!(h.submitter.calls(),0);
+    let projected=submission(&h,"sub-abandoned").await;
+    assert_eq!(projected["mailwomanDeliveryUncertain"],true,"{projected}");
+}
+
+#[tokio::test]
+async fn actual_smtp_lost_acceptance_is_not_retransmitted() {
+    use tokio::io::{AsyncBufReadExt,AsyncWriteExt,BufReader};
+    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr=listener.local_addr().unwrap();
+    let server=tokio::spawn(async move {
+        let (socket,_)=listener.accept().await.unwrap();
+        let mut socket=BufReader::new(socket);
+        socket.get_mut().write_all(b"220 test\r\n").await.unwrap();
+        loop {
+            let mut line=String::new();
+            assert_ne!(socket.read_line(&mut line).await.unwrap(),0);
+            if line == "DATA\r\n" {
+                socket.get_mut().write_all(b"354 content\r\n").await.unwrap();
+                loop {
+                    line.clear(); assert_ne!(socket.read_line(&mut line).await.unwrap(),0);
+                    if line == ".\r\n" { return; }
+                }
+            }
+            socket.get_mut().write_all(b"250 OK\r\n").await.unwrap();
+        }
+    });
+    let h=setup(SentAppend::Accept,Smtp::Deliver).await;
+    let draft=create_draft(&h).await;
+    h.engine.register_backend(h.account_id.clone(),AccountRuntime::new(
+        Arc::new(FakeBackend::new(SentAppend::Accept)),
+        Arc::new(mw_smtp::Submitter::new(mw_smtp::SubmitConfig {
+            host:addr.ip().to_string(),port:addr.port(),security:mw_smtp::Security::Plaintext,
+            credentials:mw_smtp::Credentials::None,ehlo_name:"client.test".into(),
+        })),"me@example.org"));
+    enqueue_due(&h,"sub-real-unknown",&draft).await;
+    tokio::time::timeout(std::time::Duration::from_secs(5),h.engine.dispatch_tick()).await.unwrap().unwrap();
+    server.await.unwrap();
+    assert_eq!(submission(&h,"sub-real-unknown").await["mailwomanDeliveryUncertain"],true);
+    h.engine.dispatch_tick_at(Utc::now()+chrono::Duration::days(365)).await.unwrap();
+    assert_eq!(h.engine.store().get_submission_attempts("sub-real-unknown").await.unwrap().unwrap().attempts,1);
 }

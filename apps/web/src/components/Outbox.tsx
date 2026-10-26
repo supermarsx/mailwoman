@@ -27,6 +27,7 @@ const STATE_LABEL: Record<OutboxState, string> = {
   sent: 'mail-outbox-sent',
   canceled: 'mail-outbox-canceled',
   failed: 'mail-outbox-failed',
+  uncertain: 'mail-outbox-uncertain',
 };
 
 function whenText(sub: OutboxSubmission): string {
@@ -53,6 +54,7 @@ function originText(origin: SubmissionOrigin): string {
 
 /** The engine's last error for a row, with the attempt count when it retried. */
 function errorText(sub: OutboxSubmission): string {
+  if (sub.mailwomanDeliveryUncertain === true) return t('mail-outbox-uncertain-note');
   const error = sub.mailwomanLastError ?? '';
   if (error === '') return '';
   const count = sub.mailwomanAttempts ?? 0;

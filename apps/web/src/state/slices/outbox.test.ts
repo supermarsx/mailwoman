@@ -117,6 +117,9 @@ function withOutbox(
 }
 
 describe('outboxStateOf', () => {
+  it('does not report an uncertain attempt as sent or waiting', () => {
+    expect(outboxStateOf(sub('unknown', { undoStatus: 'final', mailwomanDeliveryUncertain: true }))).toBe('uncertain');
+  });
   const now = Date.UTC(2026, 0, 1);
   it('classifies canceled / final / scheduled / holding', () => {
     expect(outboxStateOf(sub('a', { undoStatus: 'canceled' }), now)).toBe('canceled');

@@ -555,3 +555,6 @@ mail-links-warning-address = This destination uses an IP address instead of a do
 mail-links-warning-international = This domain contains an internationalized name. Check its ASCII spelling carefully.
 mail-links-warning-mismatch = The visible web address names a different host from the actual destination.
 mail-links-warning-direction = The link text contains direction-changing characters that may disguise its address.
+
+mail-outbox-uncertain = Delivery status unknown
+mail-outbox-uncertain-note = Sending began, but delivery could not be confirmed. This message will not be resent automatically. Check Sent or confirm with the recipient before sending again.

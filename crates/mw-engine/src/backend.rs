@@ -38,6 +38,9 @@ pub enum EngineError {
     /// Transport-level failure (connect/TLS/socket).
     #[error("transport error: {0}")]
     Transport(String),
+    /// Submission content may have been accepted; automatic retry is unsafe.
+    #[error("delivery status unknown; check Sent before sending again: {0}")]
+    SubmissionUncertain(String),
     /// The requested capability is not advertised by this server.
     #[error("capability not supported: {0}")]
     Unsupported(String),
