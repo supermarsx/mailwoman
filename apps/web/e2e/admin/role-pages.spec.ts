@@ -12,12 +12,14 @@ test('roles use dedicated guided create and edit pages with compact controls @ph
   await expect(page).toHaveURL(/#\/roles\/new$/);
   const name = `Guided support ${Date.now()}`;
   await page.getByRole('textbox', { name: 'Display name' }).fill(name);
+  await page.getByRole('textbox', { name: 'Purpose and responsibilities' }).fill('Read user information for support without changing accounts.');
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.locator('summary').filter({ hasText: 'Users and mail' }).click();
   const checkbox = page.getByRole('checkbox', { name: 'Read users.read', exact: true });
   await checkbox.check();
   const inputBox = await checkbox.boundingBox();
-  const labelBox = await checkbox.locator('..').locator('span').boundingBox();
+  await expect(checkbox).toHaveAccessibleDescription(/View information in this area\./);
+  const labelBox = await checkbox.locator('..').locator(':scope > span').boundingBox();
   expect(inputBox!.width).toBeLessThanOrEqual(26);
   expect(labelBox!.x).toBeGreaterThan(inputBox!.x + inputBox!.width);
   await page.screenshot({ path: test.info().outputPath('role-permissions.png'), fullPage: true });
@@ -35,6 +37,7 @@ test('roles use dedicated guided create and edit pages with compact controls @ph
   await expect(page).toHaveURL(/#\/roles\/[^/]+\/edit$/);
   await page.reload();
   await expect(page.getByRole('textbox', { name: 'Display name' })).toHaveValue(name);
+  await expect(page.getByRole('textbox', { name: 'Purpose and responsibilities' })).toHaveValue('Read user information for support without changing accounts.');
   await page.getByRole('textbox', { name: 'Display name' }).fill(`${name} edited`);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();

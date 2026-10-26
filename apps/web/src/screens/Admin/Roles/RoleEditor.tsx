@@ -69,8 +69,8 @@ export function RoleEditor(props: {
           <For each={groups()}>{group => <details class={layout.group} open={query().length > 0 || caps().some(cap => category(cap) === group)}>
             <summary>{t(`admin-roles-category-${group}`)} ({matching().filter(cap => category(cap) === group).length})</summary>
             <div class={layout.permissions}><For each={matching().filter(cap => category(cap) === group)}>{cap => <label class={layout.permission}>
-              <input type="checkbox" checked={caps().includes(cap)} disabled={!props.available.includes(cap) && !caps().includes(cap)} onChange={e => setCaps(e.currentTarget.checked ? [...caps(), cap] : caps().filter(c => c !== cap))} />
-              <span>{title(cap.split('.').slice(1).join('.') || cap)}<code class={layout.capability}>{cap}</code><span class={layout.capability}>{permissionPurpose(cap)}</span></span>
+              <input type="checkbox" aria-label={`${title(cap.split('.').slice(1).join('.') || cap)} ${cap}`} aria-describedby={`role-permission-${cap}`} checked={caps().includes(cap)} disabled={!props.available.includes(cap) && !caps().includes(cap)} onChange={e => setCaps(e.currentTarget.checked ? [...caps(), cap] : caps().filter(c => c !== cap))} />
+              <span>{title(cap.split('.').slice(1).join('.') || cap)}<code class={layout.capability}>{cap}</code><span id={`role-permission-${cap}`} class={layout.capability}>{permissionPurpose(cap)}</span></span>
             </label>}</For></div>
           </details>}</For>
           <Show when={groups().length === 0}><p>{t('admin-roles-no-matches')}</p></Show>
