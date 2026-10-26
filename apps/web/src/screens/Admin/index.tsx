@@ -17,9 +17,10 @@
 import { Show, Suspense, createEffect, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { createAdminSlice, createHttpAdminApi, type AdminApi } from '../../state/slices/admin.ts';
+import { onAdminSessionEnded,adminSessionGeneration,adminResponseIsCurrent } from '../../api/adminSession.ts';
 import { t, loadCatalog } from '../../i18n';
 import {useBranding} from '../../branding.ts';
-import { AsyncPending } from '../../components/AsyncState.tsx';
+import { AsyncPending, AsyncError } from '../../components/AsyncState.tsx';
 import { AdminContext, useAdmin } from './context.ts';
 import { AdminLogin } from './AdminLogin.tsx';
 import { AdminShell } from './shell/AdminShell.tsx';
@@ -57,6 +58,7 @@ export interface AdminScreenProps {
 
 export function AdminScreen(props: AdminScreenProps): JSX.Element {
   const admin = createAdminSlice(withTotpGate(props.api ?? createHttpAdminApi()));
+  onCleanup(onAdminSessionEnded(()=>admin.api.onSessionEnded?.()));
   onMount(() => void admin.loadSession());
   onMount(() => void loadCatalog('admin'));
   onMount(() => void loadCatalog('admin-shell'));
@@ -85,7 +87,16 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
   const admin = useAdmin();
   const sections = props.sections ?? SECTIONS;
   const can = createLoadedCan(props.loadMe ?? createAdminMeLoader());
-  onMount(() => void can.reload());
+  const [capabilityError,setCapabilityError]=createSignal<unknown>();
+  async function loadCapabilities():Promise<void>{
+    const epoch=adminSessionGeneration();
+    setCapabilityError(undefined);
+    try{await can.reload();}catch(error){
+      if(typeof error==='object'&&error!==null&&'status' in error&&error.status===401){if(adminResponseIsCurrent(epoch))admin.api.onSessionEnded?.();return;}
+      setCapabilityError(error);
+    }
+  }
+  onMount(() => void loadCapabilities());
 
   // The "leave with unsaved changes?" question: the router awaits the answer.
   const [leaveOpen, setLeaveOpen] = createSignal(false);
@@ -180,7 +191,7 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
         username: () => props.username,
       }}
     >
-      <Show when={can.loaded()} fallback={<div class={css.gate}><AsyncPending /></div>}>
+      <Show when={can.loaded()} fallback={<div class={css.gate}><Show when={capabilityError()} fallback={<AsyncPending/>}>{error=><AsyncError error={error()} onRetry={()=>void loadCapabilities()}/>}</Show></div>}>
         <AdminShell
           sections={sections}
           route={router.route()}

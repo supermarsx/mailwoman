@@ -37,6 +37,7 @@
 
 import { basePath, stripBase } from './basePath.ts';
 import { consolePath } from './adminPath.ts';
+import { adminSessionGeneration,observeAdminResponse } from './adminSession.ts';
 
 /** The readable cookie holding the token (`hardening::CSRF_COOKIE`). */
 const CSRF_COOKIE = 'mw_csrf';
@@ -199,8 +200,10 @@ function refreshToken(source: string): Promise<string | null> {
   const running = refreshing.get(source);
   if (running !== undefined) return running;
   const next = (async () => {
+    const epoch=adminSessionGeneration();
     try {
       const res = await fetch(source, { credentials: 'same-origin' });
+      observeAdminResponse(source,res.status,epoch,true);
       if (!res.ok) return null;
       const body = (await res.json().catch(() => null)) as { csrfToken?: unknown } | null;
       // The cookie is what the server compares against, so it wins; the body
@@ -233,6 +236,12 @@ function refreshToken(source: string): Promise<string | null> {
  * `X-Mailwoman-Client` is added where `setClientHeader` says so.
  */
 async function rawApiFetch(input: string, given?: RequestInit): Promise<Response> {
+  const epoch=adminSessionGeneration();
+  const response=await sendApiFetch(input,given);
+  observeAdminResponse(input,response.status,epoch);
+  return response;
+}
+async function sendApiFetch(input: string, given?: RequestInit): Promise<Response> {
   const init = withClientHeader(input, given);
   if (native !== null && isRootRelative(input)) return sendNative(native, input, init);
   const method = (init?.method ?? 'GET').toUpperCase();

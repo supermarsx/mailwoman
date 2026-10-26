@@ -15,6 +15,7 @@ import { createSignal, type Accessor } from 'solid-js';
 import { basePath } from '../../api/basePath.ts';
 import { adminUrl } from '../../api/adminPath.ts';
 import { apiFetch } from '../../api/http.ts';
+import { adminSessionGeneration,adminResponseIsCurrent,hadAdminSession,markAdminSessionActive,markAdminSessionEnded,forgetAdminSession } from '../../api/adminSession.ts';
 import type { DlpRule } from '../../api/crypto-types.ts';
 
 // ── Wire DTOs (the frozen `/admin/*` JSON contract e11 satisfies) ──────────────
@@ -291,10 +292,11 @@ export class AdminApiError extends Error {
  */
 export function createHttpAdminApi(base = basePath()): AdminApi {
   async function raw(path: string, init?: RequestInit): Promise<Response> {
+    const epoch=adminSessionGeneration();
     const res = await apiFetch(adminUrl(path, base), { credentials: 'same-origin', ...init });
     // `/session` answers 401 for "not signed in" and `/login` for a wrong password;
     // on every other route a 401 means a session that existed has ended.
-    if (res.status === 401 && path !== '/session' && path !== '/login') api.onSessionEnded?.();
+    if (res.status === 401 && path !== '/session' && path !== '/login' && !path.startsWith('/login/') && path !== '/logout' && adminResponseIsCurrent(epoch)) api.onSessionEnded?.();
     return res;
   }
   async function getJson<T>(path: string): Promise<T> {
@@ -474,26 +476,38 @@ export function createAdminSlice(api: AdminApi): AdminSlice {
   // ordinary signed-out state and gets no message.
   api.onSessionEnded = () => {
     if (session() === null) return;
+    markAdminSessionEnded();
     setSession(null);
     setSessionEnded(true);
   };
 
   async function loadSession(): Promise<void> {
+    const epoch=adminSessionGeneration();
+    const previous=hadAdminSession();
     try {
-      setSession(await api.session());
+      const value=await api.session();
+      // A successful old probe must never resurrect a session invalidated by
+      // another request while this probe was in flight.
+      if(epoch!==adminSessionGeneration())return;
+      if(value!==null){markAdminSessionActive();setSessionEnded(false);}
+      else if(previous){markAdminSessionEnded();setSessionEnded(true);}
+      setSession(value);
     } finally {
       setSessionChecked(true);
     }
   }
 
   async function login(username: string, password: string, altcha?: string): Promise<void> {
-    setSession(await api.login(username, password, altcha));
+    const value=await api.login(username, password, altcha);
+    markAdminSessionActive();
+    setSession(value);
     setSessionEnded(false);
   }
 
   async function logout(): Promise<void> {
-    await api.logout();
-    setSession(null);
+    forgetAdminSession();
+    try{await api.logout();}catch(error){if(!(error instanceof AdminApiError&&error.status===401))throw error;}
+    finally{setSession(null);setSessionEnded(false);}
   }
 
   return {
