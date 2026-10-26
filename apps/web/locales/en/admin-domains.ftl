@@ -110,3 +110,14 @@ domain-list-no-match = No domains match this search.
 domain-list-status = Status
 domain-list-connections = Connections
 domain-list-actions = Actions
+
+domain-policy-how-title = How these rules decide access
+domain-policy-how = These rules control mailbox sign-in for this domain. The mail service must accept the credentials first. A disabled domain refuses sign-in; otherwise, any matching blocklist rule wins, even if an allowlist rule also matches.
+domain-policy-pattern-title = Address patterns and examples
+domain-policy-patterns = Enter one email address or pattern per line. Matching ignores letter case. Use * for any sequence of characters: alice@example.com matches one address, *@example.com matches that domain, and sales*@example.com matches addresses beginning with sales. These are simple wildcard patterns, not regular expressions; ? has no special meaning.
+domain-policy-empty-title = What empty lists mean
+domain-policy-empty = An empty allowlist adds no address restriction. Once it contains a rule, an address must match at least one allowlist rule. An empty blocklist blocks no additional addresses. These lists never bypass disabled accounts or other sign-in protections.
+domain-policy-alias-title = Aliases and bare usernames
+domain-policy-alias = Alias addresses are matched using their parent domain: alice@alias.example is checked as alice@parent.example. Bare usernames are expanded using the configured login-host mapping or preferred domain. These policy checks do not change the authentication-name format configured for the mail backend.
+domain-policy-limits-title = Scope, saving and troubleshooting
+domain-policy-limits = These are address rules, not IP or hostname allowlists, and they do not grant administrator access. Review and apply changes to save them. A refusal can still appear as invalid credentials when detailed refusal messages are disabled. Use the sign-in logs to distinguish policy rejection from provider, network or authentication failures. Country policy, source-IP restrictions, retry pacing and additional authentication remain separate controls.
