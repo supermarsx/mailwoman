@@ -1,4 +1,3 @@
-import { DashboardReorder, reorderDashboard } from './Reorder.tsx';
 import * as ux from '../shell/ux.css.ts';
 import { AuditActor } from '../shell/AuditActor.tsx';
 import * as auditCss from '../shell/audit.css.ts';
@@ -157,9 +156,7 @@ interface BodyProps {
 }
 
 function Widget(props: { id: DashboardWidgetId; layout: DashboardPreferences; deprioritized?: boolean; children: JSX.Element }): JSX.Element {
-  const preferences=useOptionalPersonalPreferences();
-  const move=(source:DashboardWidgetId,target:DashboardWidgetId)=>preferences?.patch({dashboard:{...props.layout,order:reorderDashboard(props.layout.order,source,target),...(source==='checklist'?{keepCompletedChecklistProminent:true}:{})}});
-  return <Show when={!props.layout.hidden.includes(props.id)}><div data-dashboard-widget={props.id} data-reorder-id={props.id} data-deprioritized={props.deprioritized ? 'true' : undefined} class={`${css.draggableWidget} ${props.deprioritized ? css.completedWidget : css.widgetOrder[props.layout.order.indexOf(props.id) as keyof typeof css.widgetOrder]}`}><Show when={preferences}><DashboardReorder id={props.id} order={props.layout.order} selector="[data-dashboard-widget]" disabled={preferences?.loading()||!!preferences?.error()} move={move}/></Show>{props.children}</div></Show>;
+  return <Show when={!props.layout.hidden.includes(props.id)}><div data-dashboard-widget={props.id} data-deprioritized={props.deprioritized ? 'true' : undefined} class={props.deprioritized ? css.completedWidget : css.widgetOrder[props.layout.order.indexOf(props.id) as keyof typeof css.widgetOrder]}>{props.children}</div></Show>;
 }
 
 function DashboardBody(props: BodyProps): JSX.Element {
