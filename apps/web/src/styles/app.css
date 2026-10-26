@@ -734,6 +734,7 @@ body {
    components/readerPane.css.ts, so the reading-pane position setting does not
    apply here. Every phone size here is unchanged by t32: touch targets keep
    44px. */
+.list-reading-pane-controls { display: contents; }
 @media (max-width: 760px) {
   .shell {
     display: flex;
@@ -847,7 +848,7 @@ body {
   }
   /* The reading-pane position control (right / bottom / off) changes nothing
      at this width, so it is not offered. */
-  .mail-pane > .list > [role='group'] {
+  .mail-pane > .list .list-reading-pane-controls {
     display: none;
   }
   .module-pane,

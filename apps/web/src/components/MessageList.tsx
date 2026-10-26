@@ -298,7 +298,7 @@ function ListToolbar(props:{selecting:boolean;toggleSelection:()=>void}): JSX.El
   return (
     <div class={thread.toolbar} role="group" aria-label={t('mail-view-options')}>
       <button type="button" class={`${thread.segBtn} ${a11y.focusable}`} aria-label={t('mail-select-messages')} aria-pressed={props.selecting} onClick={props.toggleSelection}><Icon name="check"/></button>
-      <span class={thread.toolbarLabel}>{t('mail-reading-pane')}</span>
+      <div class="list-reading-pane-controls"><span class={thread.toolbarLabel}>{t('mail-reading-pane')}</span>
       <For each={READING_PANE_OPTIONS}>
         {(opt) => (
           <button
@@ -312,6 +312,7 @@ function ListToolbar(props:{selecting:boolean;toggleSelection:()=>void}): JSX.El
           </button>
         )}
       </For>
+      </div>
     </div>
   );
 }
