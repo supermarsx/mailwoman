@@ -63,6 +63,23 @@ const MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
 /// `/jmap/upload` reports `maxSizeUpload` for its own cap.
 const MESSAGE_LIMIT_NAME: &str = "maxMessageBytes";
 
+// Admit work before Bytes extraction: at most two bounded archives occupy memory.
+async fn import_admission(
+    capacity: &tokio::sync::Semaphore,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let Ok(_permit) = capacity.try_acquire() else {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            [("retry-after", "5")],
+            Json(json!({"error":"Import capacity is busy. Retry later."})),
+        )
+            .into_response();
+    };
+    next.run(request).await
+}
+
 /// The mailbox-import + webcal sync-driver routes (mounted by `lib.rs`/e10).
 ///
 /// The three body-carrying import routes each carry an explicit
@@ -72,18 +89,29 @@ const MESSAGE_LIMIT_NAME: &str = "maxMessageBytes";
 /// declared here — a body limit is applied by the extractor, so a handler can
 /// never raise one it was not given.
 pub(crate) fn import_router() -> Router<AppState> {
+    let capacity = std::sync::Arc::new(tokio::sync::Semaphore::new(2));
+    let admission = axum::middleware::from_fn(move |request, next| {
+        let capacity = capacity.clone();
+        async move { import_admission(&capacity, request, next).await }
+    });
     Router::new()
         .route(
             "/api/import/mbox",
-            post(import_mbox).layer(DefaultBodyLimit::max(MAX_MESSAGE_BYTES)),
+            post(import_mbox)
+                .layer(DefaultBodyLimit::max(MAX_MESSAGE_BYTES))
+                .layer(admission.clone()),
         )
         .route(
             "/api/import/eml",
-            post(import_eml).layer(DefaultBodyLimit::max(MAX_MESSAGE_BYTES)),
+            post(import_eml)
+                .layer(DefaultBodyLimit::max(MAX_MESSAGE_BYTES))
+                .layer(admission.clone()),
         )
         .route(
             "/api/import/maildir",
-            post(import_maildir).layer(DefaultBodyLimit::max(MAX_MESSAGE_BYTES)),
+            post(import_maildir)
+                .layer(DefaultBodyLimit::max(MAX_MESSAGE_BYTES))
+                .layer(admission.clone()),
         )
         .route("/api/import/formats", get(import_formats))
         .route("/api/calendar/subscribe", post(calendar_subscribe))
@@ -94,8 +122,9 @@ pub(crate) fn import_router() -> Router<AppState> {
 
 /// Optional target-mailbox selector; absent → the account's inbox.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ImportQuery {
-    #[serde(default)]
+    #[serde(default, rename = "mailboxId", alias = "mailbox_id")]
     mailbox_id: Option<String>,
 }
 
@@ -103,14 +132,23 @@ struct ImportQuery {
 /// server accepts and how each body is expected. Session-authed so the wizard is
 /// only reachable to a logged-in user, and so it doubles as an engine-mode probe.
 async fn import_formats(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = crate::user_router::feature_session(&state, &headers, "import").await {
-        return r;
-    }
+    let session = match crate::user_router::feature_session(&state, &headers, "import").await {
+        Ok(session) => session,
+        Err(response) => return response,
+    };
     let engine_ready = state.engine.is_some();
+    let available = match &state.engine {
+        Some(engine) => match engine.import_available(&session.account_id).await {
+            Ok(available) => available,
+            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        },
+        None => false,
+    };
     Json(json!({
         "engineMode": engine_ready,
+        "available": available && state.store.uploads_configured(),
         "note": if engine_ready {
-            "Import requires a configured upload backend (MW_UPLOAD_DIR)."
+            "Import requires a writable IMAP connection with UIDPLUS or IMAP4rev2 and a configured upload backend (MW_UPLOAD_DIR)."
         } else {
             "Import is unavailable: the server is in proxy mode."
         },
@@ -214,6 +252,11 @@ async fn ingest_messages(
         )
             .into_response();
     };
+    match engine.import_available(&session.account_id).await {
+        Ok(true) => {},
+        Ok(false) => return (StatusCode::NOT_IMPLEMENTED, Json(json!({"code":"importUnavailable","error":"this connection cannot import messages durably"}))).into_response(),
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
     if messages.is_empty() {
         return bad_request("no messages to import");
     }
@@ -675,6 +718,61 @@ fn upstream(msg: &str) -> Response {
 
 #[cfg(test)]
 mod tests {
+
+    #[tokio::test]
+    async fn exhausted_import_capacity_refuses_before_body_extraction() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        let capacity = std::sync::Arc::new(tokio::sync::Semaphore::new(2));
+        let _first = capacity.clone().acquire_owned().await.unwrap();
+        let _second = capacity.clone().acquire_owned().await.unwrap();
+        let app = axum::Router::new()
+            .route(
+                "/",
+                axum::routing::post(|_: axum::body::Bytes| async { "unexpected" }),
+            )
+            .layer(axum::middleware::from_fn(move |request, next| {
+                let capacity = capacity.clone();
+                async move { super::import_admission(&capacity, request, next).await }
+            }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let mut connection = tokio::net::TcpStream::connect(address).await.unwrap();
+        // Deliberately send no body; any attempt to extract it would hang.
+        connection
+            .write_all(b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1000000\r\n\r\n")
+            .await
+            .unwrap();
+        let mut reader = tokio::io::BufReader::new(connection);
+        let mut status = String::new();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            reader.read_line(&mut status),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(status.contains("429"), "{status}");
+        server.abort();
+    }
+    #[test]
+    fn import_target_accepts_documented_name_and_legacy_alias_without_ambiguity() {
+        for name in ["mailboxId", "mailbox_id"] {
+            let query: super::ImportQuery =
+                serde_json::from_value(serde_json::json!({name:"chosen"})).unwrap();
+            assert_eq!(query.mailbox_id.as_deref(), Some("chosen"));
+        }
+        assert!(
+            serde_json::from_value::<super::ImportQuery>(
+                serde_json::json!({"mailboxId":"a","mailbox_id":"b"})
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<super::ImportQuery>(serde_json::json!({"mailbox":"typo"}))
+                .is_err()
+        );
+    }
     use super::*;
 
     #[tokio::test]

@@ -344,6 +344,7 @@ impl Engine {
     /// Full sync: enumerate mailboxes, upsert them, then incrementally sync each
     /// from its persisted cursor. Idempotent — safe to call on every change tick.
     pub async fn resync(&self, account_id: &str) -> Result<()> {
+        self.store.normalize_cached_imap_dates(account_id).await?;
         let rt = self.require_runtime(account_id)?;
         let mailboxes = rt.backend.list_mailboxes().await?;
         let cached_mailboxes = self.store.list_mailboxes(account_id).await?;
@@ -598,6 +599,28 @@ impl Engine {
         mailbox_id: &str,
         raw: &RawMessage,
     ) -> Result<String> {
+        self.ingest_message(account_id, mailbox_id, raw, true).await
+    }
+
+    /// Historical imports update the cache and change state, but are not new
+    /// deliveries: never run vacation, forwarding, filtering or new-mail alerts.
+    pub(crate) async fn ingest_import(
+        &self,
+        account_id: &str,
+        mailbox_id: &str,
+        raw: &RawMessage,
+    ) -> Result<String> {
+        self.ingest_message(account_id, mailbox_id, raw, false)
+            .await
+    }
+
+    async fn ingest_message(
+        &self,
+        account_id: &str,
+        mailbox_id: &str,
+        raw: &RawMessage,
+        arrival: bool,
+    ) -> Result<String> {
         // Resolve the immutable mailbox owner before threading, sealing body
         // bytes, indexing or applying ingest rules. The store rechecks inside
         // the message-write transaction to fence concurrent deletion.
@@ -616,6 +639,17 @@ impl Engine {
         let received_at = raw
             .internaldate
             .clone()
+            .map(|date| {
+                // IMAP FETCH uses a quoted date-time, while JMAP requires
+                // RFC3339. Preserve dates after an imported message is synced
+                // again from the authoritative server.
+                chrono::DateTime::parse_from_str(&date, "%d-%b-%Y %H:%M:%S %z")
+                    .map(|date| {
+                        date.with_timezone(&chrono::Utc)
+                            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+                    })
+                    .unwrap_or(date)
+            })
             .or_else(|| email.received_at.clone())
             .or_else(|| email.sent_at.clone());
         email.received_at = received_at.clone();
@@ -687,7 +721,7 @@ impl Engine {
 
         // Rules run once, on genuinely new inbox arrivals (never on our own
         // drafts/sent, never on historical re-sync).
-        if !existed {
+        if !existed && arrival {
             if !self
                 .apply_local_sieve_at_ingest(account_id, mailbox_id, &sid, &email, &raw.raw)
                 .await?
@@ -722,7 +756,7 @@ impl Engine {
             ChangeOp::Updated,
         )
         .await?;
-        if !existed {
+        if !existed && arrival {
             self.emit_event(
                 crate::change::EventKind::MessageReceived,
                 account_id,

@@ -1,0 +1,22 @@
+import {test,expect} from '../csrf.ts';
+import {messageRow} from '../helpers.ts';
+import fs from 'node:fs/promises';
+test('imports upstream and exports the same message through security verification',async({page},info)=>{
+  const subject=`Imported ${info.project.name} ${Date.now()}`;
+  const raw=`Message-ID: <${Date.now()}-${info.project.name}@fixture.invalid>\r\nFrom: sender@example.org\r\nTo: owner@example.org\r\nSubject: ${subject}\r\n\r\nDurable browser import body.\r\n`;
+  await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill(process.env['MW_TRANSFER_USER']??'owner@example.org');await page.getByLabel('Password',{exact:true}).fill(process.env['MW_TRANSFER_PASSWORD']??'test-password');await page.getByRole('button',{name:'Sign in',exact:true}).click();
+  if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  await page.getByRole('button',{name:'Import and export mail',exact:true}).click();await page.getByRole('button',{name:'Import mail',exact:true}).click();
+  await page.getByLabel('Destination folder').selectOption({label:'Inbox'});
+  await page.getByLabel('Mail file',{exact:true}).setInputFiles({name:'message.eml',mimeType:'message/rfc822',buffer:Buffer.from(raw)});
+  await page.getByRole('button',{name:'Import into selected folder'}).click();await expect(page.getByRole('status')).toContainText('Imported 1 of 1');
+  await page.screenshot({path:info.outputPath('import-complete.png'),fullPage:true});
+  await page.reload();const row=messageRow(page,subject);await expect(row).toBeVisible({timeout:90000});await row.click();await page.getByTestId('reader-export').click();
+  await expect(page.getByRole('heading',{name:'Export message'})).toBeVisible();
+  const download=page.waitForEvent('download');await page.getByRole('button',{name:'Download selected format'}).click();
+  const dialog=page.getByRole('dialog');await dialog.getByLabel('Password',{exact:true}).fill(process.env['MW_TRANSFER_PASSWORD']??'test-password');await dialog.getByRole('button',{name:'Confirm and continue',exact:true}).click();
+  const saved=await download;expect(await fs.readFile((await saved.path())!,'utf8')).toBe(raw);
+  await expect(page.getByText('The download was handed to your browser.')).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath('export-complete.png'),fullPage:true});
+});

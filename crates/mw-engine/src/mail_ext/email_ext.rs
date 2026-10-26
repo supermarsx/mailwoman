@@ -5,10 +5,9 @@
 //! - `parse` fetches each blob ([`Engine::fetch_blob`], stored-message or
 //!   uploaded-`U` namespaces) and parses it with `mw-mime`, returning the `Email`
 //!   without importing it.
-//! - `import` re-ingests a blob into a target mailbox via [`Engine::ingest`] —
-//!   the same path sync uses, so threading, sealing, and indexing all happen.
-//!   Imports land in the local cache (queryable immediately); no upstream APPEND
-//!   is attempted, mirroring the draft/sent local-ingest path.
+//! - `import` appends to the connected backend with the received date, then
+//!   caches acknowledged server coordinates. Historical imports do not trigger
+//!   arrival rules, vacation replies or new-mail alerts.
 //! - `copy` fetches a source email's raw bytes from `fromAccountId`'s sealed
 //!   cache and ingests them into this account, optionally destroying the source.
 
@@ -26,6 +25,18 @@ use crate::mapping::keywords_to_flags;
 use super::server_fail;
 
 impl Engine {
+    /// Whether this connected backend can preserve imported dates and return
+    /// durable message coordinates. POP3 and unsupported bridges stay read-only.
+    pub async fn import_available(&self, account_id: &str) -> Result<bool> {
+        let Some(runtime) = self.runtime(account_id) else {
+            return Ok(false);
+        };
+        if !runtime.backend.supports_dated_import() {
+            return Ok(false);
+        }
+        let caps = runtime.backend.capabilities().await?;
+        Ok(caps.uidplus || caps.imap4rev2)
+    }
     /// `Email/parse` (RFC 8621 §4.9): parse each blob as a message and return its
     /// `Email` object without importing it.
     pub(crate) async fn email_parse(&self, account_id: &str, args: &Value) -> Value {
@@ -65,12 +76,24 @@ impl Engine {
     }
 
     /// `Email/import` (RFC 8621 §4.8): ingest each referenced blob into its target
-    /// mailbox as a new local message.
+    /// mailbox as a durable upstream message.
     pub(crate) async fn email_import(&self, account_id: &str, args: &Value) -> Value {
         let old_state = self
             .type_state(account_id, ChangeType::Email)
             .await
             .unwrap_or_default();
+        match args.get("ifInState") {
+            Some(Value::String(state)) if state != &old_state => {
+                return json!({"type":"stateMismatch"});
+            }
+            None | Some(Value::Null) | Some(Value::String(_)) => {}
+            _ => {
+                return json!({"type":"invalidArguments","description":"ifInState must be a string or null"});
+            }
+        }
+        if !args.get("emails").is_some_and(Value::is_object) {
+            return json!({"type":"invalidArguments","description":"emails must be an object"});
+        }
         let mut created = Map::new();
         let mut not_created = Map::new();
 
@@ -85,6 +108,10 @@ impl Engine {
                     }
                 }
             }
+        }
+        if !created.is_empty() && self.resync(account_id).await.is_err() {
+            // APPEND was acknowledged: a later refresh failure cannot undo success.
+            tracing::warn!("import completed; mailbox refresh deferred");
         }
         let new_state = self
             .type_state(account_id, ChangeType::Email)
@@ -172,13 +199,16 @@ impl Engine {
             .ok_or_else(|| EngineError::Protocol("import entry missing blobId".into()))?;
         let mailbox_id = target_mailbox(spec)?;
         let mailbox = self.owned_import_mailbox(account_id, &mailbox_id).await?;
-        let blob = self.fetch_blob(account_id, blob_id).await?.ok_or_else(|| {
-            EngineError::Protocol(format!("blobId {blob_id:?} does not resolve to a blob"))
-        })?;
+        let blob = self
+            .fetch_blob(account_id, blob_id)
+            .await?
+            .ok_or(EngineError::Store(mw_store::StoreError::NotFound))?;
         let sid = self
-            .ingest_blob_into(account_id, &mailbox, blob.bytes, spec)
+            .append_import(account_id, &mailbox, blob.bytes, spec)
             .await?;
-        self.created_entry(&sid).await
+        self.created_entry(&sid)
+            .await
+            .map_err(|_| EngineError::Transport("import cache confirmation failed".into()))
     }
 
     async fn copy_one(
@@ -240,6 +270,99 @@ impl Engine {
         Ok(mailbox)
     }
 
+    async fn append_import(
+        &self,
+        account_id: &str,
+        mailbox: &mw_store::Mailbox,
+        raw: Vec<u8>,
+        spec: &Value,
+    ) -> Result<String> {
+        let parsed = mw_mime::parse(&raw)
+            .map_err(|_| EngineError::Protocol("invalid import message".into()))?;
+        let mut keywords = HashMap::new();
+        match spec.get("keywords") {
+            None => {}
+            Some(Value::Object(values)) => {
+                for (key, value) in values {
+                    if value != &Value::Bool(true) || !valid_import_keyword(key) {
+                        return Err(EngineError::Protocol("invalid import keywords".into()));
+                    }
+                    keywords.insert(key.clone(), true);
+                }
+            }
+            _ => return Err(EngineError::Protocol("keywords must be an object".into())),
+        }
+        let date = match spec.get("receivedAt") {
+            Some(Value::String(date)) => date.clone(),
+            None => parsed
+                .email
+                .received_at
+                .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+            _ => {
+                return Err(EngineError::Protocol(
+                    "receivedAt must be a UTC timestamp".into(),
+                ));
+            }
+        };
+        let date = chrono::DateTime::parse_from_rfc3339(&date)
+            .map_err(|_| EngineError::Protocol("invalid receivedAt".into()))?;
+        if date.offset().local_minus_utc() != 0 {
+            return Err(EngineError::Protocol("receivedAt must be UTC".into()));
+        }
+        let received_at = date.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let runtime = self
+            .runtime(account_id)
+            .ok_or_else(|| EngineError::Unsupported("account is not connected".into()))?;
+        if !runtime.backend.supports_dated_import() {
+            return Err(EngineError::Unsupported(
+                "backend does not support durable import".into(),
+            ));
+        }
+        let caps = runtime.backend.capabilities().await?;
+        if !caps.uidplus && !caps.imap4rev2 {
+            return Err(EngineError::Unsupported(
+                "import requires UIDPLUS or IMAP4rev2".into(),
+            ));
+        }
+        let flags = keywords_to_flags(&keywords);
+        let reference = runtime
+            .backend
+            .append_with_date(
+                &RawMailboxRef {
+                    name: mailbox.name.clone(),
+                    uidvalidity: mailbox.uidvalidity,
+                },
+                &raw,
+                &flags,
+                &received_at,
+            )
+            .await?;
+        if !matches!(
+            reference,
+            MessageRef::Imap {
+                uid: 1..,
+                uidvalidity: 1..,
+                ..
+            }
+        ) {
+            return Err(EngineError::Protocol(
+                "import completed without durable coordinates; refresh before retrying".into(),
+            ));
+        }
+        self.ingest_import(
+            account_id,
+            &mailbox.id,
+            &RawMessage {
+                message_ref: reference,
+                raw,
+                flags,
+                internaldate: Some(received_at),
+            },
+        )
+        .await
+        .map_err(|_| EngineError::Transport("import cache confirmation failed".into()))
+    }
+
     /// Ingest raw message bytes into a target mailbox as a new engine-local
     /// message (uidvalidity 0), honoring the create spec's `keywords`/`receivedAt`.
     async fn ingest_blob_into(
@@ -299,26 +422,59 @@ impl Engine {
 
 /// The single `mailboxIds` target of a copy/import create spec.
 fn target_mailbox(spec: &Value) -> Result<String> {
-    spec.get("mailboxIds")
+    let ids = spec
+        .get("mailboxIds")
         .and_then(Value::as_object)
-        .and_then(|m| {
-            m.iter()
-                .find(|(_, v)| v.as_bool() == Some(true))
-                .map(|(k, _)| k.clone())
-        })
-        .ok_or_else(|| EngineError::Protocol("entry missing a target mailboxId".into()))
+        .ok_or_else(|| EngineError::Protocol("entry missing a target mailboxId".into()))?;
+    if ids.len() != 1 || ids.values().any(|value| value != &Value::Bool(true)) {
+        return Err(EngineError::Protocol(
+            "exactly one true target mailboxId is supported".into(),
+        ));
+    }
+    Ok(ids.keys().next().expect("one target").clone())
+}
+
+fn valid_import_keyword(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= 255
+        && !key.eq_ignore_ascii_case("$recent")
+        && !key.eq_ignore_ascii_case("$deleted")
+        && key
+            .bytes()
+            .all(|byte| (b'!'..=b'~').contains(&byte) && !b"(){]%*\"\\".contains(&byte))
 }
 
 /// A structured `notCreated` error (RFC 8621 uses `invalidProperties` for a
 /// malformed create; a missing blob is surfaced as `notFound`).
 fn import_error(e: &EngineError) -> Value {
-    let msg = e.to_string();
-    let kind = if msg.contains("does not resolve") || msg.contains("not found") {
-        "notFound"
-    } else {
-        "invalidProperties"
-    };
-    json!({ "type": kind, "description": msg })
+    match e {
+        EngineError::Unsupported(_) => {
+            json!({"type":"forbidden","description":"This backend does not support durable import."})
+        }
+        EngineError::Store(mw_store::StoreError::NotFound) | EngineError::MailboxNotFound(_) => {
+            json!({"type":"notFound","description":"The requested item is unavailable in this account."})
+        }
+        EngineError::Protocol(message)
+            if matches!(
+                message.as_str(),
+                "import entry missing blobId"
+                    | "copy entry missing source email id"
+                    | "entry missing a target mailboxId"
+                    | "exactly one true target mailboxId is supported"
+                    | "invalid import message"
+                    | "invalid import keywords"
+                    | "keywords must be an object"
+                    | "receivedAt must be a UTC timestamp"
+                    | "invalid receivedAt"
+                    | "receivedAt must be UTC"
+            ) =>
+        {
+            json!({"type":"invalidProperties","description":message})
+        }
+        _ => {
+            json!({"type":"serverFail","description":"The import could not be confirmed. Refresh the destination before retrying; some messages may already be saved."})
+        }
+    }
 }
 
 /// A deterministic non-zero pseudo-UID from the message bytes, so the engine's
@@ -328,4 +484,30 @@ fn content_pseudo_uid(raw: &[u8]) -> u32 {
     let mut h = DefaultHasher::new();
     raw.hash(&mut h);
     (h.finish() as u32) | 1
+}
+
+#[cfg(test)]
+mod import_error_tests {
+    use super::*;
+    #[test]
+    fn unexpected_backend_errors_are_uncertain_and_redacted() {
+        for error in [
+            EngineError::Protocol("secret upstream reply".into()),
+            EngineError::Transport("private host".into()),
+        ] {
+            let result = import_error(&error);
+            assert_eq!(result["type"], "serverFail");
+            assert!(!result.to_string().contains(&error.to_string()));
+            assert!(
+                result["description"]
+                    .as_str()
+                    .unwrap()
+                    .contains("before retrying")
+            );
+        }
+        assert_eq!(
+            import_error(&EngineError::Protocol("invalid import keywords".into()))["type"],
+            "invalidProperties"
+        );
+    }
 }

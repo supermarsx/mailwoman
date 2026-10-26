@@ -282,3 +282,36 @@ async fn folder_ops_are_unsupported_and_store_flags_is_noop() {
         Err(mw_engine::backend::EngineError::Unsupported(_))
     ));
 }
+
+#[tokio::test]
+async fn dated_import_is_refused_by_pop3_without_opening_a_socket() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let backend = Pop3Backend::new(mock_config(
+        listener.local_addr().unwrap(),
+        Pop3Auth::UserPass,
+        "u",
+        "p",
+        LeavePolicy::Keep,
+    ));
+    assert!(!backend.supports_dated_import());
+    let mailbox = mw_engine::backend::RawMailboxRef {
+        name: "INBOX".into(),
+        uidvalidity: 0,
+    };
+    assert!(matches!(
+        backend
+            .append_with_date(
+                &mailbox,
+                b"Subject: historical\r\n\r\nbody",
+                &[],
+                "2020-02-03T04:05:06Z"
+            )
+            .await,
+        Err(mw_engine::backend::EngineError::Unsupported(_))
+    ));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(25), listener.accept())
+            .await
+            .is_err()
+    );
+}

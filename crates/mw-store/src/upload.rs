@@ -220,6 +220,12 @@ pub struct Upload {
 }
 
 impl Store {
+    /// Whether upload storage was injected at startup. This is configuration
+    /// readiness, not a promise that the filesystem will accept a future write.
+    pub fn uploads_configured(&self) -> bool {
+        self.uploads.kind() != "unconfigured"
+    }
+
     /// Seal `bytes`, write the sealed object to the storage backend, record the 0012
     /// metadata row, and return the minted `U`+64-hex `blob_id`.
     pub async fn put_upload(

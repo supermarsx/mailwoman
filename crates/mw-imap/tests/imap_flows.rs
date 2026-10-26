@@ -1012,3 +1012,106 @@ async fn condstore_snapshot_reports_expunges_and_uses_changed_since_after_reconn
         }
     ));
 }
+
+#[tokio::test]
+async fn dated_import_sends_internaldate_and_requires_acknowledged_coordinates() {
+    let (addr, log) = spawn_mock(vec![dovecot_script(vec![Ex::Literal {
+        expect: "APPEND",
+        respond: "{tag} OK [APPENDUID 55 9] saved\r\n".into(),
+    }])])
+    .await;
+    let backend = connect_dovecot(addr, vec![]).await;
+    let target = RawMailboxRef {
+        name: "Archive".into(),
+        uidvalidity: 55,
+    };
+    let result = backend
+        .append_with_date(
+            &target,
+            b"Subject: historical\r\n\r\nbody",
+            &[Flag::Seen],
+            "2020-02-03T04:05:06Z",
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        result,
+        MessageRef::Imap {
+            uid: 9,
+            uidvalidity: 55,
+            ..
+        }
+    ));
+    assert!(log.lock().unwrap().iter().any(|line|line.contains("APPEND \"Archive\" (\\Seen) \"03-Feb-2020 04:05:06 +0000\"")));
+    for response in [
+        "{tag} NO [OVERQUOTA] full\r\n",
+        "{tag} OK saved without UID\r\n",
+    ] {
+        let (addr, _) = spawn_mock(vec![dovecot_script(vec![Ex::Literal {
+            expect: "APPEND",
+            respond: response.into(),
+        }])])
+        .await;
+        let backend = connect_dovecot(addr, vec![]).await;
+        assert!(
+            backend
+                .append_with_date(
+                    &target,
+                    b"Subject: old\r\n\r\nbody",
+                    &[],
+                    "2020-02-03T04:05:06Z"
+                )
+                .await
+                .is_err()
+        );
+    }
+}
+
+#[tokio::test]
+async fn dated_import_without_uidplus_or_with_bad_date_never_sends_append() {
+    let caps = "IMAP4rev1 AUTH=PLAIN";
+    let (addr, log) = spawn_mock(vec![Script {
+        greeting: format!("* OK [CAPABILITY {caps}] ready\r\n"),
+        steps: vec![Ex::Auth {
+            expect: "AUTHENTICATE PLAIN",
+            respond: format!("{{tag}} OK [CAPABILITY {caps}] logged in\r\n"),
+        }],
+    }])
+    .await;
+    let backend = connect_dovecot(addr, vec![]).await;
+    let target = RawMailboxRef {
+        name: "INBOX".into(),
+        uidvalidity: 55,
+    };
+    assert!(
+        backend
+            .append_with_date(
+                &target,
+                b"Subject: test\r\n\r\nbody",
+                &[],
+                "2020-02-03T04:05:06Z"
+            )
+            .await
+            .is_err()
+    );
+    assert!(
+        !log.lock()
+            .unwrap()
+            .iter()
+            .any(|line| line.contains("APPEND"))
+    );
+    let (addr, log) = spawn_mock(vec![dovecot_script(vec![])]).await;
+    let backend = connect_dovecot(addr, vec![]).await;
+    assert!(
+        backend
+            .append_with_date(&target, b"Subject: test\r\n\r\nbody", &[], "2020\r\nLOGOUT")
+            .await
+            .is_err()
+    );
+    assert!(
+        !log.lock()
+            .unwrap()
+            .iter()
+            .any(|line| line.contains("APPEND"))
+    );
+}

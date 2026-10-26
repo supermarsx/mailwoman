@@ -62,6 +62,24 @@ async fn profile_group_and_global_lock_drive_live_feature_admission() {
             ..Default::default()
         },
     };
+    // This fixture exercises feature admission, not the shared sign-in delay.
+    let store = mw_store::Store::open(
+        &config.db_path,
+        mw_store::ServerKey::from_hex(config.server_key_hex.as_ref().unwrap()).unwrap(),
+    )
+    .await
+    .unwrap();
+    store
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "signin.retryCooldownSecs".into(),
+            global_value: Some("0".into()),
+            allow_user_override: false,
+            global_locked: false,
+            updated_by: "feature-fixture".into(),
+            updated_at: 0,
+        })
+        .await
+        .unwrap();
     let base = serve(
         build_app_full(
             config,
@@ -143,6 +161,7 @@ async fn profile_group_and_global_lock_drive_live_feature_admission() {
 
     // No call in a mixed batch may reach the upstream when one feature is off.
     for (key, method, feature) in [
+        ("cap.import", "Email/import", "import"),
         ("cap.pim.calendar", "CalendarEvent/set", "calendar"),
         ("cap.pim.contacts", "ContactGroup/get", "contacts"),
         ("cap.pim.tasks", "Task/set", "tasks"),
@@ -234,7 +253,7 @@ async fn profile_group_and_global_lock_drive_live_feature_admission() {
     assert!(body["assignments"].as_array().unwrap().is_empty());
     assert_eq!(
         send(user.get(format!("{base}/api/nextcloud/list"))).await.0,
-        501
+        409
     );
     assert_eq!(
         send(

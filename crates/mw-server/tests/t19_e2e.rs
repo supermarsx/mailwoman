@@ -93,7 +93,6 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::routing::post;
 use futures_util::StreamExt as _;
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use mw_server::{AppConfig, HardeningConfig, SecurityConfig, ServerMode, build_app};
 use mw_store::{AccountKind, AssistConfigRow, Credentials, NewAccount, ServerKey, Store};
@@ -313,7 +312,7 @@ async fn spawn_assist_mock() -> String {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// A minimal POP3 maildrop, so engine mode can register an account.
+// A writable IMAP mailbox, so engine mode can register an account.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Every HTTP route into `Engine::handle_jmap` calls `engine_mode::ensure_account`
@@ -321,54 +320,12 @@ async fn spawn_assist_mock() -> String {
 /// Without an upstream, `/jmap` answers `502` and no amount of correct search wiring
 /// is observable over HTTP.
 ///
-/// POP3 is the cheap upstream: an empty maildrop resyncs to an empty INBOX (which is
-/// also how the account's inbox gets created), and an empty `UIDL` listing means the
-/// delta has nothing added and — because the cursor starts empty — nothing removed,
-/// so the messages this suite imports afterwards are never touched. The account's
-/// poll interval is the 300 s default, so the watcher cannot tick inside a test.
-async fn spawn_pop3_mock() -> SocketAddr {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        loop {
-            let Ok((sock, _)) = listener.accept().await else {
-                break;
-            };
-            tokio::spawn(async move {
-                let (r, mut w) = sock.into_split();
-                let mut lines = BufReader::new(r).lines();
-                if w.write_all(b"+OK mailwoman t19 mock POP3 ready\r\n")
-                    .await
-                    .is_err()
-                {
-                    return;
-                }
-                while let Ok(Some(line)) = lines.next_line().await {
-                    let verb = line
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or_default()
-                        .to_ascii_uppercase();
-                    let reply: &[u8] = match verb.as_str() {
-                        "CAPA" => b"+OK capability list follows\r\nUIDL\r\nTOP\r\nUSER\r\n.\r\n",
-                        "USER" | "PASS" | "NOOP" | "RSET" => b"+OK\r\n",
-                        "STAT" => b"+OK 0 0\r\n",
-                        // Empty multi-line listings: no messages in the maildrop.
-                        "UIDL" | "LIST" => b"+OK 0 messages\r\n.\r\n",
-                        "QUIT" => b"+OK bye\r\n",
-                        _ => b"-ERR unsupported in the t19 mock\r\n",
-                    };
-                    if w.write_all(reply).await.is_err() {
-                        return;
-                    }
-                    if verb == "QUIT" {
-                        return;
-                    }
-                }
-            });
-        }
-    });
-    addr
+/// The writable IMAP fixture retains imported messages and returns real APPENDUID
+/// coordinates. Later synchronization therefore reads the same durable corpus.
+async fn spawn_imap_mock() -> SocketAddr {
+    common::mock_imap::MockImap::start("reader@example.org", "pw")
+        .await
+        .addr
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -411,16 +368,17 @@ impl Corpus {
 
 /// Seed a store (account + session + optional Assist config), then boot a real
 /// engine-mode server over it and return everything a leg needs to drive HTTP.
-async fn fixture(db_path: &str, pop3: SocketAddr, assist: Option<AssistWiring>) -> Fixture {
+async fn fixture(db_path: &str, assist: Option<AssistWiring>) -> Fixture {
+    let imap = spawn_imap_mock().await;
     let key = ServerKey::from_hex(KEY_HEX).unwrap();
     let store = Store::open(db_path, key).await.expect("store opens");
 
     let account = store
         .create_account(
             &NewAccount {
-                kind: AccountKind::Pop3,
-                host: &pop3.ip().to_string(),
-                port: pop3.port(),
+                kind: AccountKind::Imap,
+                host: &imap.ip().to_string(),
+                port: imap.port(),
                 tls: "plaintext",
                 username: "reader@example.org",
                 sync_policy_json: "{}",
@@ -541,7 +499,7 @@ impl Fixture {
         assert_eq!(
             status, 200,
             "POST /jmap/api must reach the engine (502 means ensure_account could not \
-             register the POP3 upstream): {body}"
+             register the IMAP upstream): {body}"
         );
         // Decoding failures are reported with the body: an empty 200 is what a
         // mis-addressed route looks like, and "expected value at line 1 column 1"
@@ -551,7 +509,7 @@ impl Fixture {
     }
 
     /// One `/jmap` round-trip, which is what drives `engine_mode::ensure_account`:
-    /// the POP3 upstream is connected and resynced, and that resync is what creates
+    /// the IMAP upstream is connected and resynced, and that resync is what creates
     /// the account's INBOX. The import route resolves its target mailbox through
     /// `Mailbox/get` WITHOUT calling `ensure_account`, so importing before this has
     /// happened answers `400 no target mailbox` — which is a genuine ordering
@@ -709,10 +667,8 @@ impl Fixture {
 /// Drive the whole A8 chain over HTTP on one dialect. Returns the reranked order so
 /// the caller can assert dialect-specific things about it.
 async fn drive_semantic(db_path: &str, dialect: &str, api_root: String) -> Vec<String> {
-    let pop3 = spawn_pop3_mock().await;
     let f = fixture(
         db_path,
-        pop3,
         Some(AssistWiring {
             api_root,
             grants: vec!["search-semantic"],
@@ -873,9 +829,8 @@ async fn the_default_search_path_matches_a_server_without_the_feature() {
         None => spawn_assist_mock().await,
     };
 
-    let pop3 = spawn_pop3_mock().await;
     let plain_db = test_db::unique_db_path("mw-t19-plain");
-    let plain = fixture(&plain_db.to_string_lossy(), pop3, None).await;
+    let plain = fixture(&plain_db.to_string_lossy(), None).await;
     let plain_ids = plain.seed_corpus().await;
     let baseline = plain.query(None).await;
     let baseline_positions: Vec<usize> = baseline
@@ -892,7 +847,6 @@ async fn the_default_search_path_matches_a_server_without_the_feature() {
     let feat_db = test_db::unique_db_path("mw-t19-feat");
     let feat = fixture(
         &feat_db.to_string_lossy(),
-        pop3,
         Some(AssistWiring {
             api_root,
             grants: vec!["search-semantic"],
@@ -936,11 +890,9 @@ async fn a_dimension_mismatch_degrades_to_lexical_live() {
         }
         None => spawn_assist_mock().await,
     };
-    let pop3 = spawn_pop3_mock().await;
     let db = test_db::unique_db_path("mw-t19-dim");
     let f = fixture(
         &db.to_string_lossy(),
-        pop3,
         Some(AssistWiring {
             api_root,
             grants: vec!["search-semantic"],
@@ -1171,11 +1123,9 @@ async fn invoke_sse(f: &Fixture, capability: &str) -> Vec<(Option<String>, Strin
 #[tokio::test]
 async fn assist_invoke_streams_disclosure_then_deltas_then_a_proposal() {
     let api_root = spawn_assist_mock().await;
-    let pop3 = spawn_pop3_mock().await;
     let db = test_db::unique_db_path("mw-t19-invoke");
     let f = fixture(
         &db.to_string_lossy(),
-        pop3,
         Some(AssistWiring {
             api_root,
             grants: vec!["assistant"],
@@ -1264,11 +1214,9 @@ async fn assist_invoke_streams_disclosure_then_deltas_then_a_proposal() {
 #[tokio::test]
 async fn assist_invoke_for_a_non_assistant_capability_proposes_nothing() {
     let api_root = spawn_assist_mock().await;
-    let pop3 = spawn_pop3_mock().await;
     let db = test_db::unique_db_path("mw-t19-noprop");
     let f = fixture(
         &db.to_string_lossy(),
-        pop3,
         Some(AssistWiring {
             api_root,
             grants: vec!["summarize"],
@@ -1319,11 +1267,9 @@ async fn assist_invoke_against_the_shipped_mock() {
         return;
     };
     require_shipped_assist(&url).await;
-    let pop3 = spawn_pop3_mock().await;
     let db = test_db::unique_db_path("mw-t19-shipped");
     let f = fixture(
         &db.to_string_lossy(),
-        pop3,
         Some(AssistWiring {
             api_root: format!("{url}/v1"),
             grants: vec!["assistant"],
@@ -1358,8 +1304,7 @@ async fn assist_invoke_against_the_shipped_mock() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async fn drive_appearance(db_path: &str, dialect: &str) {
-    let pop3 = spawn_pop3_mock().await;
-    let f = fixture(db_path, pop3, None).await;
+    let f = fixture(db_path, None).await;
     let c = f.client();
     let cookie = format!("mw_session={}", f.cookie);
     let url = format!("{}/api/account/appearance", f.base);

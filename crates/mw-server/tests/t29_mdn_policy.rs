@@ -32,13 +32,13 @@ use mw_server::{AppConfig, HardeningConfig, SecurityConfig, ServerMode, V6Config
 use mw_store::{ServerKey, Store};
 
 mod common;
-use common::mock_mail::MockPop3;
+use common::mock_imap::MockImap;
 use common::test_db;
 
 const KEY_HEX: &str = "29e9a1b2c3d4e5f60718293a4b5c6d7e29e9a1b2c3d4e5f60718293a4b5c6d7e";
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW_T29</div>";
 
-/// The engine-mode mailbox the scripted POP3 server accepts.
+/// The engine-mode mailbox the scripted IMAP server accepts.
 const ENGINE_USER: &str = "owner@example.org";
 const ENGINE_PASS: &str = "Old-Passw0rd!";
 
@@ -95,7 +95,7 @@ impl Server {
 }
 
 /// A server in `mode` whose configured upstream (`MW_UPSTREAM_DEFAULT`) is
-/// `upstream`: the JMAP mock in proxy mode, the POP3 mock in engine mode. A login
+/// `upstream`: the JMAP mock in proxy mode, the IMAP mock in engine mode. A login
 /// no longer names one (t32-h9).
 async fn spawn(mode: ServerMode, upstream: String) -> Server {
     let dir = test_db::unique_dir("mw-t29-e9");
@@ -103,6 +103,20 @@ async fn spawn(mode: ServerMode, upstream: String) -> Server {
     std::fs::create_dir_all(&web).unwrap();
     std::fs::write(web.join("index.html"), INDEX_HTML).unwrap();
     let db = dir.join("mw.db").to_string_lossy().into_owned();
+    let fixture_store = Store::open(&db, ServerKey::from_hex(KEY_HEX).unwrap())
+        .await
+        .unwrap();
+    fixture_store
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "signin.retryCooldownSecs".into(),
+            global_value: Some("0".into()),
+            allow_user_override: false,
+            global_locked: false,
+            updated_by: "mdn-fixture".into(),
+            updated_at: 0,
+        })
+        .await
+        .unwrap();
     let config = AppConfig {
         db_path: db.clone(),
         server_key_hex: Some(KEY_HEX.to_string()),
@@ -151,7 +165,7 @@ fn browser() -> reqwest::Client {
 
 /// Log in to an engine-mode server; returns the session's account id. `_pop` is
 /// the server's configured upstream; the login does not name it.
-async fn engine_login(c: &reqwest::Client, base: &str, _pop: &MockPop3) -> String {
+async fn engine_login(c: &reqwest::Client, base: &str, _pop: &MockImap) -> String {
     let r = c
         .post(format!("{base}/api/login"))
         .json(&json!({ "username": ENGINE_USER, "password": ENGINE_PASS }))
@@ -302,7 +316,7 @@ async fn receipt_state(c: &reqwest::Client, base: &str, id: &str) -> Value {
 #[tokio::test]
 async fn the_engine_reads_the_policy_the_route_stores() {
     let _g = serial().await;
-    let pop = MockPop3::start(ENGINE_USER, ENGINE_PASS).await;
+    let pop = MockImap::start(ENGINE_USER, ENGINE_PASS).await;
     let srv = spawn(ServerMode::Engine, pop.url()).await;
     let base = &srv.base;
     let store = srv.store().await;
@@ -311,7 +325,10 @@ async fn the_engine_reads_the_policy_the_route_stores() {
     let key = mw_engine::Engine::mdn_policy_key(&account);
 
     // Default: nothing stored reads as `ask`.
-    assert_eq!(policy(&c, base).await, json!({ "policy": "ask" }));
+    assert_eq!(
+        policy(&c, base).await,
+        json!({ "policy": "ask", "locked": false })
+    );
     assert_eq!(store.get_setting(&key).await.unwrap(), None);
 
     let id = import_asking(&c, base, &account).await;
@@ -344,7 +361,10 @@ async fn the_engine_reads_the_policy_the_route_stores() {
     // `never` is stored, and is not `always`.
     let r = put_policy(&c, base, json!({ "policy": "never" })).await;
     assert_eq!(r.status(), 200);
-    assert_eq!(policy(&c, base).await, json!({ "policy": "never" }));
+    assert_eq!(
+        policy(&c, base).await,
+        json!({ "policy": "never", "locked": false })
+    );
     let refused = jmap(&c, base, "MDN/send", automatic.clone()).await;
     assert_eq!(
         refused["type"], "mdnAutomaticRefused",
@@ -357,7 +377,10 @@ async fn the_engine_reads_the_policy_the_route_stores() {
         r.json::<Value>().await.unwrap(),
         json!({ "ok": true, "policy": "always" })
     );
-    assert_eq!(policy(&c, base).await, json!({ "policy": "always" }));
+    assert_eq!(
+        policy(&c, base).await,
+        json!({ "policy": "always", "locked": false })
+    );
     assert_eq!(
         store.get_setting(&key).await.unwrap().as_deref(),
         Some("always"),
@@ -432,7 +455,7 @@ async fn the_policy_route_is_not_offered_in_proxy_mode() {
 #[tokio::test]
 async fn a_disabled_account_cannot_set_the_policy_or_send_a_receipt() {
     let _g = serial().await;
-    let pop = MockPop3::start(ENGINE_USER, ENGINE_PASS).await;
+    let pop = MockImap::start(ENGINE_USER, ENGINE_PASS).await;
     let srv = spawn(ServerMode::Engine, pop.url()).await;
     let base = &srv.base;
     let admin = admin(base).await;
@@ -444,7 +467,10 @@ async fn a_disabled_account_cannot_set_the_policy_or_send_a_receipt() {
     // Controls: both are answered for this session.
     let r = put_policy(&c, base, json!({ "policy": "never" })).await;
     assert_eq!(r.status(), 200, "control: PUT");
-    assert_eq!(policy(&c, base).await, json!({ "policy": "never" }));
+    assert_eq!(
+        policy(&c, base).await,
+        json!({ "policy": "never", "locked": false })
+    );
     let refused = jmap(&c, base, "MDN/send", send.clone()).await;
     assert_eq!(refused["type"], "mdnAutomaticRefused", "control: {refused}");
 
@@ -471,7 +497,7 @@ async fn a_disabled_account_cannot_set_the_policy_or_send_a_receipt() {
 #[tokio::test]
 async fn a_held_account_cannot_set_the_policy_or_send_a_receipt() {
     let _g = serial().await;
-    let pop = MockPop3::start(ENGINE_USER, ENGINE_PASS).await;
+    let pop = MockImap::start(ENGINE_USER, ENGINE_PASS).await;
     let srv = spawn(ServerMode::Engine, pop.url()).await;
     let base = &srv.base;
     let admin = admin(base).await;

@@ -39,6 +39,7 @@
 #![allow(dead_code)] // No single test binary uses every helper.
 
 pub mod gate;
+pub mod mock_imap;
 pub mod mock_mail;
 
 #[path = "../../../mw-store/src/test_db.rs"]

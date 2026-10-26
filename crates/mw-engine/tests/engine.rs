@@ -40,6 +40,7 @@ struct FakeBackend {
     store_flags_calls: AtomicUsize,
     move_calls: AtomicUsize,
     append_calls: AtomicUsize,
+    import_supported: AtomicBool,
 }
 
 impl FakeBackend {
@@ -72,6 +73,7 @@ impl FakeBackend {
             store_flags_calls: AtomicUsize::new(0),
             move_calls: AtomicUsize::new(0),
             append_calls: AtomicUsize::new(0),
+            import_supported: AtomicBool::new(true),
         }
     }
 }
@@ -80,7 +82,7 @@ impl FakeBackend {
 impl AccountBackend for FakeBackend {
     async fn capabilities(&self) -> Result<BackendCaps> {
         Ok(BackendCaps {
-            uidplus: true,
+            uidplus: self.import_supported.load(Ordering::SeqCst),
             r#move: true,
             special_use: true,
             ..BackendCaps::default()
@@ -227,6 +229,33 @@ impl AccountBackend for FakeBackend {
             uidvalidity: self.uidvalidity.load(Ordering::SeqCst),
             uid,
         })
+    }
+
+    fn supports_dated_import(&self) -> bool {
+        self.import_supported.load(Ordering::SeqCst)
+    }
+
+    async fn append_with_date(
+        &self,
+        mbox: &RawMailboxRef,
+        raw: &[u8],
+        flags: &[Flag],
+        received_at: &str,
+    ) -> Result<MessageRef> {
+        let reference = self.append(mbox, raw, flags).await?;
+        let MessageRef::Imap { uid, .. } = reference else {
+            unreachable!()
+        };
+        let mut state = self.state.lock().unwrap();
+        state
+            .messages
+            .get_mut(&mbox.name)
+            .unwrap()
+            .iter_mut()
+            .find(|message| message.0 == uid)
+            .unwrap()
+            .3 = received_at.to_string();
+        Ok(reference)
     }
 
     async fn watch(&self, _sink: ChangeSink) -> Result<WatchHandle> {
@@ -1212,4 +1241,112 @@ async fn rejected_revision_stays_blocked_when_durable_marker_cannot_be_written()
     assert!(engine.credential_revision_rejected("missing-store-row", &[1, 2, 3]));
     assert!(!engine.credential_revision_rejected("missing-store-row", &[4, 5, 6]));
     assert!(!engine.is_registered("missing-store-row"));
+}
+
+#[tokio::test]
+async fn import_persists_upstream_date_flags_without_replaying_arrival_rules() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let boxes = jmap(&h, json!([["Mailbox/get", {}, "mb"]])).await;
+    let inbox = mailbox_id(&boxes, "inbox");
+    let query = jmap(
+        &h,
+        json!([["Email/query", {"filter":{"inMailbox":inbox}}, "q"]]),
+    )
+    .await;
+    let source = method_result(&query, "q")["ids"][0].as_str().unwrap();
+    h.engine
+        .put_local_sieve_script(
+            &h.account_id,
+            "discard-import",
+            "discard;",
+            true,
+            &mw_sieve::policy::Policy {
+                raw_edit: true,
+                ..Default::default()
+            },
+            mw_sieve::policy::EditKind::Raw,
+        )
+        .await
+        .unwrap();
+    let response=jmap(&h,json!([["Email/import",{"emails":{"new":{"blobId":source,"mailboxIds":{inbox.clone():true},"keywords":{"$seen":true},"receivedAt":"2020-02-03T04:05:06Z"}}},"i"]])).await;
+    let imported = method_result(&response, "i")["created"]["new"]["id"]
+        .as_str()
+        .expect("durable import")
+        .to_string();
+    assert_ne!(imported, source);
+    let saved = h.engine.store().get_message(&imported).await.unwrap();
+    assert_eq!(saved.uidvalidity, UIDVALIDITY);
+    assert!(saved.uid > 0);
+    assert_eq!(saved.internaldate.as_deref(), Some("2020-02-03T04:05:06Z"));
+    assert_eq!(saved.mailbox_id, inbox);
+    let server = h.backend.state.lock().unwrap().messages["INBOX"].clone();
+    let appended = server.last().unwrap();
+    assert_eq!(appended.3, "2020-02-03T04:05:06Z");
+    assert_eq!(appended.2, vec![Flag::Seen]);
+    assert_eq!(h.backend.append_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 0);
+    h.backend
+        .state
+        .lock()
+        .unwrap()
+        .messages
+        .get_mut("INBOX")
+        .unwrap()
+        .last_mut()
+        .unwrap()
+        .3 = "03-Feb-2020 04:05:06 +0000".into();
+    h.engine.resync(&h.account_id).await.unwrap();
+    assert!(
+        h.engine.store().get_message(&imported).await.is_ok(),
+        "later sync must not run discard for an already imported message"
+    );
+    assert_eq!(
+        h.engine
+            .store()
+            .get_message(&imported)
+            .await
+            .unwrap()
+            .internaldate
+            .as_deref(),
+        Some("2020-02-03T04:05:06Z")
+    );
+}
+
+#[tokio::test]
+async fn import_refuses_unsupported_or_invalid_specs_before_upstream_mutation() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let boxes = jmap(&h, json!([["Mailbox/get", {}, "mb"]])).await;
+    let inbox = mailbox_id(&boxes, "inbox");
+    let archive = mailbox_id(&boxes, "archive");
+    let query = jmap(
+        &h,
+        json!([["Email/query", {"filter":{"inMailbox":inbox}}, "q"]]),
+    )
+    .await;
+    let source = method_result(&query, "q")["ids"][0].as_str().unwrap();
+    for spec in [
+        json!({"blobId":source,"mailboxIds":{inbox.clone():true,archive:true}}),
+        json!({"blobId":source,"mailboxIds":{inbox.clone():false}}),
+        json!({"blobId":source,"mailboxIds":{inbox.clone():true},"keywords":{"evil\r\nLOGOUT":true}}),
+        json!({"blobId":source,"mailboxIds":{inbox.clone():true},"keywords":{"$seen":false}}),
+        json!({"blobId":source,"mailboxIds":{inbox.clone():true},"receivedAt":"not-a-date"}),
+    ] {
+        let response = jmap(&h, json!([["Email/import",{"emails":{"new":spec}},"i"]])).await;
+        assert!(
+            method_result(&response, "i")["created"]
+                .as_object()
+                .unwrap()
+                .is_empty(),
+            "{response}"
+        );
+    }
+    h.backend.import_supported.store(false, Ordering::SeqCst);
+    let response=jmap(&h,json!([["Email/import",{"emails":{"new":{"blobId":source,"mailboxIds":{inbox:true}}}},"i"]])).await;
+    assert_eq!(
+        method_result(&response, "i")["notCreated"]["new"]["type"],
+        "forbidden"
+    );
+    assert_eq!(h.backend.append_calls.load(Ordering::SeqCst), 0);
 }

@@ -767,6 +767,50 @@ impl Session {
         raw: &[u8],
         flags: &[Flag],
     ) -> ImapResult<MessageRef> {
+        self.append_inner(mailbox, raw, flags, None).await
+    }
+
+    /// Historical import requires APPENDUID: refusing before APPEND is safer
+    /// than guessing which concurrent new message belongs to this request.
+    pub async fn append_with_date(
+        &mut self,
+        mailbox: &str,
+        raw: &[u8],
+        flags: &[Flag],
+        received_at: &str,
+    ) -> ImapResult<MessageRef> {
+        if !self.caps.has("UIDPLUS") && !self.caps.has("IMAP4REV2") {
+            return Err(ImapError::Unsupported(
+                "import requires UIDPLUS or IMAP4rev2".into(),
+            ));
+        }
+        let date = chrono::DateTime::parse_from_rfc3339(received_at)
+            .map_err(|_| ImapError::Protocol("invalid import receivedAt".into()))?;
+        let date = date.format("%d-%b-%Y %H:%M:%S %z").to_string();
+        let reference = self.append_inner(mailbox, raw, flags, Some(&date)).await?;
+        if matches!(
+            reference,
+            MessageRef::Imap {
+                uid: 1..,
+                uidvalidity: 1..,
+                ..
+            }
+        ) {
+            Ok(reference)
+        } else {
+            Err(ImapError::Protocol(
+                "APPEND completed without usable APPENDUID; refresh before retrying".into(),
+            ))
+        }
+    }
+
+    async fn append_inner(
+        &mut self,
+        mailbox: &str,
+        raw: &[u8],
+        flags: &[Flag],
+        date: Option<&str>,
+    ) -> ImapResult<MessageRef> {
         let flag_str = if flags.is_empty() {
             String::new()
         } else {
@@ -775,7 +819,10 @@ impl Session {
                 flags.iter().map(flag_to_imap).collect::<Vec<_>>().join(" ")
             )
         };
-        let head = format!("APPEND {}{flag_str}", quote(mailbox));
+        let date = date
+            .map(|date| format!(" {}", quote(date)))
+            .unwrap_or_default();
+        let head = format!("APPEND {}{flag_str}{date}", quote(mailbox));
         let tagged = self.conn.execute_with_literal(&head, raw).await?.ok()?;
         // A new message invalidates the selected-mailbox message counts.
         self.selected = None;

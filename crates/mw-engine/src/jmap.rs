@@ -481,6 +481,7 @@ impl Engine {
         account_id: &str,
         args: &Value,
     ) -> std::result::Result<QueryPage, QueryFail> {
+        self.store().normalize_cached_imap_dates(account_id).await?;
         let want_total = args
             .get("calculateTotal")
             .and_then(Value::as_bool)

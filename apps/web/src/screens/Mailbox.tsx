@@ -150,6 +150,12 @@ export function MailboxScreen(): JSX.Element {
     if(!panes().some(pane=>pane.id===id)) setPanes(old=>[...old,{id,kind:'settings',title:t('mail-nav-settings'),navigation:createSettingsNavigation()}]);
     subTabs.open({id,kind:'settings',title:t('mail-nav-settings')});
   }
+  async function openExport(messageId:string):Promise<void> {
+    const account=app.accountId();
+    openSettings();
+    const pane=panes().find(item=>item.id===`settings:${account ?? ''}`);
+    if(account===app.accountId()) await pane?.navigation?.navigate({section:'mail-transfer',editor:{kind:'edit',id:messageId}});
+  }
   function openMessageTab(messageId:string):void {
     router.navigate('mail');
     const id=`message:${app.accountId() ?? ''}:${messageId}`;
@@ -521,7 +527,7 @@ export function MailboxScreen(): JSX.Element {
               hidden={subTabs.activeId()==='mail' || ((narrow() || workspaceLayout()==='tabs') && subTabs.activeId()!==pane.id)}
               inert={subTabs.activeId()==='mail' || ((narrow() || workspaceLayout()==='tabs') && subTabs.activeId()!==pane.id)}
               onFocusIn={()=>subTabs.activate(pane.id)} onPointerDown={()=>subTabs.activate(pane.id)}>
-              <Show when={pane.kind==='messages' && pane.view}>{view=><><Show when={view().error()}><p role="alert">{t('mail-workspace-load-error')}</p></Show><Reader view={view()} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} onCompose={openReply} onOpenAttachment={openAttachmentTab}/></>}</Show>
+              <Show when={pane.kind==='messages' && pane.view}>{view=><><Show when={view().error()}><p role="alert">{t('mail-workspace-load-error')}</p></Show><Reader view={view()} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} onCompose={openReply} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)}/></>}</Show>
               <Show when={pane.kind==='attachment' && pane.attachment}>{item=><AttachmentTab item={item()}/>}</Show>
               <Show when={pane.kind==='composer'}><Compose embedded active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
               <Show when={pane.kind==='settings' && pane.navigation}>{navigation=><Settings embedded navigation={navigation()} onClose={()=>void closePane(pane.id)}/>}</Show>

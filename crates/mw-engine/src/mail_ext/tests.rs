@@ -387,7 +387,7 @@ async fn email_parse_returns_email_without_importing() {
 }
 
 #[tokio::test]
-async fn email_import_ingests_blob_into_target_mailbox() {
+async fn email_import_refuses_disconnected_accounts_instead_of_local_only_success() {
     let e = engine().await;
     let acct = account(&e).await;
     let acct = acct.as_str();
@@ -411,11 +411,8 @@ async fn email_import_ingests_blob_into_target_mailbox() {
             }),
         )
         .await;
-    let new_id = resp["created"]["c1"]["id"].as_str().unwrap();
-    assert!(resp["created"]["c1"]["threadId"].is_string());
-    let imported = e.store().get_message(new_id).await.unwrap();
-    assert_eq!(imported.mailbox_id, dst);
-    assert_eq!(imported.account_id, acct);
+    assert!(resp["created"].as_object().unwrap().is_empty());
+    assert_eq!(resp["notCreated"]["c1"]["type"], "forbidden");
 }
 
 #[tokio::test]

@@ -19,6 +19,14 @@ function mount(attachment=false) {
   return {app,realtime,...result};
 }
 describe('retained mailbox workspace',()=>{
+  it('opens the selected message export editor in Settings and retains its reader',async()=>{
+    const {app}=mount();await app.login({username:'me@example.org',password:'p'});
+    fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}));
+    fireEvent.click(await screen.findByTestId('reader-export'));
+    expect(await screen.findByRole('heading',{name:'Export message'})).toBeInTheDocument();
+    expect(screen.getByRole('tab',{name:'Subject a'})).toBeInTheDocument();
+    expect(screen.getByRole('tab',{name:'Settings'})).toHaveAttribute('aria-selected','true');
+  });
   it('opens attachments in their own reusable tab without replacing the message reader',async()=>{
     const {app,realtime}=mount(true);await app.login({username:'me@example.org',password:'p'});
     fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}));

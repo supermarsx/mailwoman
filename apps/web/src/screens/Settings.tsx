@@ -1,4 +1,5 @@
 import { NextcloudAccounts } from './Settings/NextcloudAccounts.tsx';
+import { MailTransfer } from './Settings/MailTransfer.tsx';
 import { FolderPreferences } from './Settings/FolderPreferences.tsx';
 import { createSettingsNavigation, SettingsNavigationContext, type SettingsNavigation } from './Settings/navigation.tsx';
 import * as workspace from './Settings/workspace.css.ts';
@@ -126,11 +127,12 @@ export function Settings(props: SettingsProps): JSX.Element {
   const app = useApp();
   const navigation=props.navigation ?? createSettingsNavigation();
   const visible=(section:string):boolean=>!props.embedded || navigation.route().section===section;
-  const sections=[['appearance','settings-appearance'],['reader','reader-settings-title'],['compose','settings-compose-title'],['shortcuts','settings-kbd-title'],['time','settings-time-title'],['security','security-center-title'],['privacy','privacy-title'],['signatures','settings-sig-title'],['identities','settings-ident-title'],['notifications','settings-notif-title'],['searches','settings-search-title'],['folders','settings-folders-title'],['nextcloud','nextcloud-account-title'],['preferences','settings-nav-preferences'],['rules','settings-nav-rules'],['access','settings-nav-access'],['metadata','settings-nav-metadata']] as const;
+  const sections=[['appearance','settings-appearance'],['reader','reader-settings-title'],['compose','settings-compose-title'],['shortcuts','settings-kbd-title'],['time','settings-time-title'],['security','security-center-title'],['privacy','privacy-title'],['signatures','settings-sig-title'],['identities','settings-ident-title'],['notifications','settings-notif-title'],['searches','settings-search-title'],['folders','settings-folders-title'],['mail-transfer','mail-transfer-title'],['nextcloud','nextcloud-account-title'],['preferences','settings-nav-preferences'],['rules','settings-nav-rules'],['access','settings-nav-access'],['metadata','settings-nav-metadata']] as const;
 
   let panel!: HTMLElement;
   onMount(() => {
     void loadCatalog('settings');
+    void loadCatalog('mail-transfer');
     void loadCatalog('appearance');
     void loadCatalog('settings-policy');
     void loadCatalog('nextcloud'); void loadCatalog('reader'); void loadCatalog('privacy'); void loadCatalog('security');
@@ -274,7 +276,8 @@ export function Settings(props: SettingsProps): JSX.Element {
               <Show when={visible('security')}><AsyncBoundary><SecurityCenter /></AsyncBoundary></Show>
               <Show when={visible('privacy')}><AsyncBoundary><Privacy /><AnalyticsConsent /></AsyncBoundary></Show>
               <Show when={visible('nextcloud')}><AsyncBoundary><NextcloudAccounts /></AsyncBoundary></Show>
-              <Show when={visible('folders')}><AsyncBoundary><FolderPreferences folders={app.mailboxes}/></AsyncBoundary></Show>
+              <Show when={visible('folders')}><AsyncBoundary><FolderPreferences folders={app.mailboxes} navigation={navigation}/></AsyncBoundary></Show>
+              <Show when={visible('mail-transfer')}><AsyncBoundary><MailTransfer accountId={accountId()} mailboxes={app.mailboxes()} onImported={()=>void app.refreshFolders()}/></AsyncBoundary></Show>
               <Show when={visible('compose')}><AsyncBoundary><ComposePreferences /></AsyncBoundary></Show>
               <Show when={visible('shortcuts')}><AsyncBoundary><KeyboardShortcuts navigation={navigation}/></AsyncBoundary></Show>
               <Show when={visible('time')}><AsyncBoundary><TimeZones navigation={navigation}/></AsyncBoundary></Show>

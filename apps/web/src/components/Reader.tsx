@@ -614,6 +614,7 @@ function RemoteFileDownloads(props: { emailId: string; scope: string; urls: stri
 }
 
 interface ReaderProps {
+  onExport?: (messageId: string) => void;
   onOpenAttachment?: (item: StripItem) => void;
   onCompose?: (initial: ComposeInitial) => void;
   view?: MessageView;
@@ -628,7 +629,7 @@ export function Reader(props: ReaderProps): JSX.Element {
     readLoading:()=>props.view ? props.view.readLoading() : app.readLoading(),
     openMessage:(id:string)=>props.view ? props.view.openMessage(id) : app.openMessage(id),
     closeMessage:()=>props.onClose ? props.onClose() : props.view ? props.view.closeMessage() : app.closeMessage(),
-    exportMessage:(id?:string)=>{const selected=id ?? (props.view ? props.view.openEmail()?.id : app.openEmail()?.id);return selected ? app.exportMessage(selected) : Promise.resolve();},
+    exportMessage:(id?:string)=>{const selected=id ?? (props.view ? props.view.openEmail()?.id : app.openEmail()?.id);if(selected && props.onExport){props.onExport(selected);return Promise.resolve();}return selected ? app.exportMessage(selected) : Promise.resolve();},
   };
   return <AppContext.Provider value={scoped}><ReaderBody {...props} /></AppContext.Provider>;
 }

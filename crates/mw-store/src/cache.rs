@@ -234,6 +234,25 @@ fn u64_from(row: &Row, col: &str) -> u64 {
 }
 
 impl Store {
+    /// Repair historical raw IMAP INTERNALDATE values before SQL's lexical ordering.
+    /// Each batch is bounded and updates compare the original value, so concurrent sync wins.
+    pub async fn normalize_cached_imap_dates(&self, account_id: &str) -> Result<u64, StoreError> {
+        let mut after=String::new(); let mut changed=0;
+        loop {
+            let rows=q("SELECT stable_id, internaldate FROM messages WHERE account_id = ?1 AND stable_id > ?2 AND internaldate LIKE '%-%-% %:%:% %' ORDER BY stable_id LIMIT 256")
+                .bind(account_id).bind(&after).fetch_all(&self.backend).await?;
+            if rows.is_empty(){break;}
+            for row in rows {
+                let id=row.get_string("stable_id"); let original=row.get_string("internaldate"); after=id.clone();
+                let Ok(date)=chrono::DateTime::parse_from_str(original.trim(),"%d-%b-%Y %H:%M:%S %z") else {continue};
+                let normalized=date.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Secs,true);
+                changed+=q("UPDATE messages SET internaldate = ?1 WHERE stable_id = ?2 AND account_id = ?3 AND internaldate = ?4")
+                    .bind(&normalized).bind(&id).bind(account_id).bind(&original).execute(&self.backend).await?;
+            }
+        }
+        Ok(changed)
+    }
+
     // ---- accounts -------------------------------------------------------
 
     /// Create a configured account, sealing its credentials. Returns the new id.

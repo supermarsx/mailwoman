@@ -171,6 +171,23 @@ impl AccountBackend for ImapBackend {
         Ok(session.append(&mbox.name, raw, flags).await?)
     }
 
+    fn supports_dated_import(&self) -> bool {
+        true
+    }
+
+    async fn append_with_date(
+        &self,
+        mbox: &RawMailboxRef,
+        raw: &[u8],
+        flags: &[Flag],
+        received_at: &str,
+    ) -> Result<MessageRef> {
+        let mut session = self.session.lock().await;
+        Ok(session
+            .append_with_date(&mbox.name, raw, flags, received_at)
+            .await?)
+    }
+
     async fn watch(&self, sink: ChangeSink) -> Result<WatchHandle> {
         let (stop_tx, stop_rx) = watch::channel(false);
         let config = self.config.clone();

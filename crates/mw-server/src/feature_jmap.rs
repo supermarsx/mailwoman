@@ -20,6 +20,11 @@ fn required_features(request: &Value) -> BTreeSet<&'static str> {
         else {
             continue;
         };
+        // Email has no whole-family feature gate: ordinary read/copy calls
+        // remain available, but import must obey the same policy as REST.
+        if family == "Email" && operation == "import" {
+            required.insert("import");
+        }
         let feature = match family {
             "Calendar" | "CalendarEvent" => Some("calendar"),
             "AddressBook" | "ContactCard" | "ContactGroup" | "Contact" => Some("contacts"),
@@ -63,6 +68,13 @@ pub(crate) async fn admit(
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn email_import_requires_import_before_any_batch_member_runs() {
+        let request = json!({"methodCalls":[["Email/set",{},"1"],["Email/import",{},"2"]]});
+        assert_eq!(required_features(&request), BTreeSet::from(["import"]));
+        let ordinary = json!({"methodCalls":[["Email/parse",{},"1"],["Email/copy",{},"2"],["Email/imported",{},"3"]]});
+        assert!(required_features(&ordinary).is_empty());
+    }
     #[test]
     fn all_pim_families_and_import_export_require_their_own_capabilities() {
         let request = json!({"methodCalls":[

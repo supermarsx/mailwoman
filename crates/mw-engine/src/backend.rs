@@ -80,6 +80,25 @@ pub trait AccountBackend: Send + Sync {
     /// Append a message (e.g. save-to-Sent after SMTP submission).
     async fn append(&self, mbox: &RawMailboxRef, raw: &[u8], flags: &[Flag]) -> Result<MessageRef>;
 
+    /// Import a historical message with its RFC3339 received date. Implementors
+    /// must return acknowledged durable coordinates, or refuse before mutation
+    /// when that guarantee is unsupported. Never silently discard the date.
+    fn supports_dated_import(&self) -> bool {
+        false
+    }
+
+    /// Append historical mail only when [`Self::supports_dated_import`] is true.
+    async fn append_with_date(
+        &self,
+        mbox: &RawMailboxRef,
+        raw: &[u8],
+        flags: &[Flag],
+        received_at: &str,
+    ) -> Result<MessageRef> {
+        let _ = (mbox, raw, flags, received_at);
+        Err(EngineError::Unsupported("durable dated import".into()))
+    }
+
     /// Optional: begin an idle/poll loop feeding a change channel
     /// (IMAP IDLE / POP3 poll). Returns a handle whose drop stops the loop.
     async fn watch(&self, sink: ChangeSink) -> Result<WatchHandle>;

@@ -40,7 +40,7 @@ use tokio::sync::{Mutex, MutexGuard};
 use mw_server::{AppConfig, HardeningConfig, SecurityConfig, ServerMode, build_app};
 
 mod common;
-use common::mock_mail::MockPop3;
+use common::mock_imap::MockImap;
 use common::test_db;
 
 /// The policy every download response must carry.
@@ -260,7 +260,7 @@ async fn sandboxed_download(c: &reqwest::Client, url: &str, served: &str) {
 #[tokio::test]
 async fn engine_mode_parts_are_typed_safely_and_sandboxed() {
     let _g = serial().await;
-    let pop = MockPop3::start(ENGINE_USER, ENGINE_PASS).await;
+    let pop = MockImap::start(ENGINE_USER, ENGINE_PASS).await;
     let base = &spawn(
         ServerMode::Engine,
         SecurityConfig {
@@ -328,6 +328,13 @@ async fn engine_mode_parts_are_typed_safely_and_sandboxed() {
         "message/rfc822",
     )
     .await;
+    let proof = c
+        .post(format!("{base}/api/security/step-up"))
+        .json(&json!({"password":ENGINE_PASS}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(proof.status(), 200, "{}", proof.text().await.unwrap());
     sandboxed_download(
         &c,
         &format!("{base}/api/export/{id}?format=eml"),
