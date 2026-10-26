@@ -501,3 +501,11 @@ mail-attachment-policy-blocked = Your administrator has blocked this attachment 
 mail-attachment-policy-warning = Your administrator recommends caution with this attachment. Only continue if you trust its source.
 mail-attachment-policy-acknowledge = I understand — continue
 mail-attachment-policy-no-preview = Attachment previews are disabled by your administrator. Original downloads may still be available.
+
+mail-time-sent = Sent
+mail-time-received = Received
+mail-time-unknown = Not provided
+mail-time-comparison = Time in { $zone }
+mail-time-privacy = The comparison zone is your selection. Message timestamps do not identify anyone's location.
+mail-time-event-comparison = Event time comparison
+mail-time-ambiguous = This local time occurs twice when clocks change. Both possible instants are shown; check the event's intended offset before saving.

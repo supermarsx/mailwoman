@@ -66,7 +66,7 @@ States: **Verified** means the bounded behavior listed has passing local accepta
 | Attachment policies, suspicious types, isolated image/text/audio/video/PDF tabs, admin extension controls | Security | Verified bounded policy, 35b5ebc; stored metadata authority, hot CID policy, preview/download and whole-message export guards; native/HTTP and browser3 pass. Nextcloud export integration remains in its lane. |
 | Notifications, push permission and per-user/admin controls | Security | Audit browser/native delivery, click actions, privacy and persistence |
 | Package tracking, disabled by default, user/admin controls | Root | Pending implementation and privacy-aware provider policy |
-| Sender/receiver timezone helpers for mail and events | Root | Pending implementation/verification; do not invent missing sender zones |
+| Sender/receiver timezone helpers for mail and events | Root | Verified bounded helpers: persisted user/admin display and comparison zones, message timestamp details, event zone editing, DST gap rejection and repeated-time comparison. Native registry12, UI/core8, calendar104, Chromium/Firefox/phone3 pass. Zones are explicitly selected; no sender location is inferred. |
 | Native consistent icons, 15 selectable folder icons, self-hosted fonts, extensive shortcuts and controls | Root | Keyboard bindings verified, fcbe710: 14 actions, dedicated editors, account persistence/admin locks, conflict prevention and retained-tab dispatch. Unit/native registry and browser3 pass. Icon/font inventory audit remains. |
 | Custom CSS/user-directory drafts | Root | Partial, 3032a58; inherited modules remain unwired and not accepted |
 

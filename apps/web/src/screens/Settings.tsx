@@ -54,6 +54,7 @@ import { Privacy } from './Settings/Privacy.tsx';
 import { AnalyticsConsent } from './Settings/AnalyticsConsent.tsx';
 import { ComposePreferences } from './Settings/ComposePreferences.tsx';
 import { KeyboardShortcuts } from './Settings/KeyboardShortcuts.tsx';
+import { TimeZones } from './Settings/TimeZones.tsx';
 import { ReaderAppearanceSettings } from './Settings/ReaderAppearance.tsx';
 import { LockNote } from './Settings/LockNote.tsx';
 import { useSetting } from './Settings/useSetting.ts';
@@ -125,7 +126,7 @@ export function Settings(props: SettingsProps): JSX.Element {
   const app = useApp();
   const navigation=props.navigation ?? createSettingsNavigation();
   const visible=(section:string):boolean=>!props.embedded || navigation.route().section===section;
-  const sections=[['appearance','settings-appearance'],['reader','reader-settings-title'],['compose','settings-compose-title'],['shortcuts','settings-kbd-title'],['security','security-center-title'],['privacy','privacy-title'],['signatures','settings-sig-title'],['identities','settings-ident-title'],['notifications','settings-notif-title'],['searches','settings-search-title'],['folders','settings-folders-title'],['nextcloud','nextcloud-account-title'],['preferences','settings-nav-preferences'],['rules','settings-nav-rules'],['access','settings-nav-access'],['metadata','settings-nav-metadata']] as const;
+  const sections=[['appearance','settings-appearance'],['reader','reader-settings-title'],['compose','settings-compose-title'],['shortcuts','settings-kbd-title'],['time','settings-time-title'],['security','security-center-title'],['privacy','privacy-title'],['signatures','settings-sig-title'],['identities','settings-ident-title'],['notifications','settings-notif-title'],['searches','settings-search-title'],['folders','settings-folders-title'],['nextcloud','nextcloud-account-title'],['preferences','settings-nav-preferences'],['rules','settings-nav-rules'],['access','settings-nav-access'],['metadata','settings-nav-metadata']] as const;
 
   let panel!: HTMLElement;
   onMount(() => {
@@ -276,6 +277,7 @@ export function Settings(props: SettingsProps): JSX.Element {
               <Show when={visible('folders')}><AsyncBoundary><FolderPreferences folders={app.mailboxes}/></AsyncBoundary></Show>
               <Show when={visible('compose')}><AsyncBoundary><ComposePreferences /></AsyncBoundary></Show>
               <Show when={visible('shortcuts')}><AsyncBoundary><KeyboardShortcuts navigation={navigation}/></AsyncBoundary></Show>
+              <Show when={visible('time')}><AsyncBoundary><TimeZones navigation={navigation}/></AsyncBoundary></Show>
               <Show when={visible('reader')}><AsyncBoundary><ReaderAppearanceSettings /></AsyncBoundary></Show>
               <Show when={visible('rules')}>              <AsyncBoundary>
                 <RulesSettings accountId={accountId()} />

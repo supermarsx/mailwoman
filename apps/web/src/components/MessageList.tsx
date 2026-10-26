@@ -3,6 +3,7 @@ import { createMemo, createSignal, createEffect, on, For, onCleanup, Show, type 
 import { useApp } from '../state/context.ts';
 import { t, isolate } from '../i18n/index.ts';
 import { formatDateWith } from '../i18n/format.ts';
+import { messageTimeZone } from './TimeHelpers.tsx';
 import { useActions } from '../keymap/index.ts';
 import { computeWindow, projectedRowCount, sameWindow, splitWindow } from './virtual.ts';
 import { TagChips } from './TagChips.tsx';
@@ -91,7 +92,7 @@ export function senderLabel(from: EmailAddress[] | null): string {
 }
 
 function formatDate(iso: string): string {
-  return formatDateWith(iso, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return formatDateWith(iso, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: messageTimeZone() });
 }
 
 /** What a click did to the row, for the list to act on. */

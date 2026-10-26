@@ -66,6 +66,7 @@ import { settings } from '../api/settings.ts';
 import { themeCssVars } from '../theme/themeCssVars.ts';
 import { MessageLoading } from './MessageLoading.tsx';
 import { Icon } from './Icon.tsx';
+import { MessageTimes } from './TimeHelpers.tsx';
 import type { ReaderAppearance } from '../viewers/readerAppearance.ts';
 import { isNativeAuth } from '../api/serverAddress.ts';
 import {
@@ -1019,6 +1020,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   <span>{t('mail-reader-cc', { addr: isolate(addressList(email().cc ?? null)) })}</span>
                 </Show>
               </div>
+              <MessageTimes sent={email().sentAt} received={email().receivedAt}/>
               {/* Security chip → expandable panel (plan §7.3): server verdict merged
                   with the client decrypt/verify result. */}
               <Show when={verdict()}>

@@ -157,6 +157,23 @@ function recurringInvite(): CalendarEvent {
 }
 
 describe('EventEditor', () => {
+  it('persists the selected event zone and refuses a nonexistent wall time', async () => {
+    const store = createMockStore();
+    const controller = makeController(store);
+    await controller.load();
+    render(() => <EventEditor controller={controller} event={null} onClose={() => {}} />);
+    fireEvent.input(screen.getByLabelText('Title'), { target: { value: 'Zone-aware meeting' } });
+    fireEvent.input(screen.getByLabelText('Event time zone'), { target: { value: 'Europe/London' } });
+    fireEvent.input(screen.getByLabelText('Start'), { target: { value: '2026-03-29T01:30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(store.events.some(event => event.title === 'Zone-aware meeting')).toBe(false);
+    expect(screen.getByText(/Some local times do not exist/)).toBeVisible();
+    fireEvent.input(screen.getByLabelText('Start'), { target: { value: '2026-03-29T03:30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(store.events.find(event => event.title === 'Zone-aware meeting')?.timeZone).toBe('Europe/London'));
+    expect(store.events.find(event => event.title === 'Zone-aware meeting')?.start).toBe('2026-03-29T03:30:00');
+  });
+
   it('shows the recurrence editor prefilled from a recurring master', async () => {
     const store = createMockStore();
     const controller = makeController(store);

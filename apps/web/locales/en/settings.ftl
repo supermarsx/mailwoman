@@ -286,3 +286,14 @@ settings-kbd-action-trash = Move to trash
 settings-kbd-action-markRead = Mark read
 settings-kbd-action-markUnread = Mark unread
 settings-kbd-action-spam = Mark as spam
+
+settings-time-title = Time zones
+settings-time-help = Choose how message times appear and an optional comparison zone for scheduling. Locations are never inferred from email addresses.
+settings-time-displayZone = Display time zone
+settings-time-displayZone-help = Use local for this device, or an IANA name such as Europe/Lisbon.
+settings-time-comparisonZone = Comparison time zone
+settings-time-comparisonZone-help = Enter an IANA name such as America/New_York, or leave empty to hide comparisons.
+settings-time-helpers = Show time zone helpers
+settings-time-save = Save time zone
+settings-time-invalid = Enter a valid IANA time zone. Use local only for the display zone, or leave the comparison zone empty.
+settings-time-discard = Discard unsaved time zone changes?

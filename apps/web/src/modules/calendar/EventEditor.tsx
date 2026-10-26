@@ -1,4 +1,6 @@
 import { Icon } from '../../components/Icon.tsx';
+import { EventTimeComparison } from '../../components/TimeHelpers.tsx';
+import { localTimeZone, validTimeZone, wallTimeCandidates } from '../../i18n/timezones.ts';
 // Event create/edit dialog (plan §3 e4): title / calendar / start / duration /
 // all-day / location / description, a recurrence editor (common set), reminders
 // (VALARM offsets), attendees, a free/busy status picker + a free/busy peek, and
@@ -83,6 +85,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
   const [description, setDescription] = createSignal(ev?.description ?? '');
   const [location, setLocation] = createSignal(ev?.locations[0]?.name ?? '');
   const [allDay, setAllDay] = createSignal(ev?.showWithoutTime ?? false);
+  const [timeZone, setTimeZone] = createSignal(ev?.timeZone ?? localTimeZone());
   const [start, setStart] = createSignal(ev !== null ? ev.start : dateToLocal(startDate));
   const [durationMin, setDurationMin] = createSignal(
     ev !== null ? Math.max(15, Math.round(parseDuration(ev.duration) / 60000)) : 60,
@@ -263,7 +266,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
       title: title() === '' ? t('calendar-untitled') : title(),
       description: description(),
       start: s,
-      timeZone: allDay() ? null : (ev?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone),
+      timeZone: allDay() ? null : timeZone(),
       duration,
       showWithoutTime: allDay(),
       locations: location() === '' ? [] : [{ name: location() }],
@@ -280,6 +283,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
 
   async function save(): Promise<void> {
     setSaveFailed(false);
+    if (!allDay() && (!validTimeZone(timeZone()) || wallTimeCandidates(start(),timeZone()).length === 0)) { setSaveFailed(true); return; }
     try {
       await persist();
     } catch {
@@ -407,6 +411,9 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
           </label>
         </div>
 
+        <Show when={!allDay()}>
+          <div class={css.field}><label class={css.label} for="ev-time-zone">{t('calendar-field-time-zone')}</label><input id="ev-time-zone" class={css.input} value={timeZone()} maxlength={64} onInput={event=>setTimeZone(event.currentTarget.value.trim())} aria-describedby="event-time-zone-help"/><p id="event-time-zone-help">{t('calendar-field-time-zone-help')}</p></div>
+        </Show>
         <div class={css.row}>
           <div class={`${css.field} ${css.grow}`}>
             <label class={css.label} for="ev-start">{t('calendar-field-start')}</label>
@@ -670,6 +677,8 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
           <textarea id="ev-desc" class={css.input} rows="3" value={description()} onInput={(e) => setDescription(e.currentTarget.value)} />
         </div>
 
+        <Show when={!allDay()}><EventTimeComparison wallTime={start()} zone={timeZone()}/></Show>
+        <Show when={!allDay() && (!validTimeZone(timeZone()) || wallTimeCandidates(start(),timeZone()).length===0)}><p role="alert">{t('calendar-time-invalid')}</p></Show>
         <Show when={saveFailed()}>
           <p class={css.dangerText} role="alert" data-testid="event-save-failed">{t('calendar-save-failed')}</p>
         </Show>

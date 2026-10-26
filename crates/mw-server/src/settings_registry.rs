@@ -556,6 +556,9 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!("mail.externalRecipientWarning", Kind::Enum(&["off", "warn", "confirm"]), "\"warn\"", GDU, "mail", "external recipient composer warning"),
     def!("mail.trustedRecipientDomains", Kind::StringList { max_len: 100, max_item: 253 }, "[]", GDU, "mail", "exact trusted recipient domains for composer warnings"),
+    def!("time.displayZone", text(Text::Plain, 64), "\"local\"", GDU, "time", "preferred message display time zone"),
+    def!("time.comparisonZone", text(Text::Plain, 64), "\"\"", GDU, "time", "optional second time zone for message and event helpers"),
+    def!("time.showHelpers", Kind::Bool, "true", GDU, "time", "show message and event time zone comparisons"),
     def!("shortcuts.enabled", Kind::Bool, "true", GDU, "shortcuts", "enable application keyboard shortcuts"),
     def!("shortcuts.compose", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for compose"),
     def!("shortcuts.archive", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for archive"),
@@ -1437,6 +1440,10 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
         };
     }
     let bad = |detail: String| Err(Refusal::invalid(field, detail));
+    if matches!(def.key, "time.displayZone" | "time.comparisonZone") && !value.as_str().is_some_and(|zone|
+        (def.key == "time.displayZone" && zone == "local") || (def.key == "time.comparisonZone" && zone.is_empty()) || zone.parse::<chrono_tz::Tz>().is_ok()) {
+        return bad("must be a valid IANA time zone; displayZone also accepts local, comparisonZone also accepts an empty value".into());
+    }
     if def.key.starts_with("shortcuts.") && def.key != "shortcuts.enabled"
         && !value.as_str().is_some_and(valid_shortcut) {
         return bad("must be inherit, disabled, or one key with Ctrl, Alt and Shift modifiers".into());
@@ -2637,5 +2644,23 @@ mod shortcut_validation_tests {
         for value in ["inherit", "disabled", "Ctrl+Shift+K", "Cmd+ArrowDown", "Space", "Ctrl++", "+", "↓"] { assert!(valid_shortcut(value), "{value}"); }
         for value in ["", "Hyper+x", "UnknownKey", "Ctrl+", "Ctrl+Shift+", "\n"] { assert!(!valid_shortcut(value), "{value:?}"); }
         assert!(!valid_shortcut(&"x".repeat(65)));
+    }
+}
+
+#[cfg(test)]
+mod time_zone_validation_tests {
+    use super::*;
+    #[test]
+    fn accepts_only_supported_zones_and_explicit_sentinels() {
+        let display = REGISTRY.iter().find(|def| def.key == "time.displayZone").unwrap();
+        let comparison = REGISTRY.iter().find(|def| def.key == "time.comparisonZone").unwrap();
+        for zone in ["Europe/Lisbon", "America/New_York", "UTC", "local"] {
+            assert!(validate(display, &serde_json::json!(zone), "/value").is_ok());
+        }
+        assert!(validate(comparison, &serde_json::json!(""), "/value").is_ok());
+        for zone in ["", "someone@example.org", "+01:00", "Mars/Olympus"] {
+            assert!(validate(display, &serde_json::json!(zone), "/value").is_err());
+        }
+        assert!(validate(comparison, &serde_json::json!("local"), "/value").is_err());
     }
 }

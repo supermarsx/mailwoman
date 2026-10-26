@@ -473,3 +473,11 @@ admin-settings-key-shortcuts-mark-unread = Mark unread shortcut
 admin-settings-help-shortcuts-mark-unread = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
 admin-settings-key-shortcuts-spam = Mark as spam shortcut
 admin-settings-help-shortcuts-spam = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+
+admin-settings-cat-time = Time zones
+admin-settings-key-time-display-zone = Display time zone
+admin-settings-help-time-display-zone = IANA time zone such as Europe/Lisbon, or local to follow the current device. Message timestamps remain stored as their original instants.
+admin-settings-key-time-comparison-zone = Comparison time zone
+admin-settings-help-time-comparison-zone = Optional second IANA time zone for message and calendar helpers. Leave empty to hide the comparison; no location is inferred from an email address.
+admin-settings-key-time-show-helpers = Show time zone helpers
+admin-settings-help-time-show-helpers = Show local and selected-zone comparisons for message timestamps and calendar events. Admin locks can enforce this choice.

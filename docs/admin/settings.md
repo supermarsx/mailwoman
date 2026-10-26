@@ -693,6 +693,14 @@ JSON array of lowercase types or top-level wildcards. Blocked rules take precede
 
 JSON array of lowercase types or top-level wildcards requiring acknowledgement. MIME metadata is not malware detection.
 
+## Time zone helpers
+
+<a id="time.displayZone"></a>`time.displayZone` is global/domain/user text, default `local`. Use a supported IANA zone such as `Europe/Lisbon`, or `local` for the device zone. This changes display, not stored message instants.
+
+<a id="time.comparisonZone"></a>`time.comparisonZone` is global/domain/user text, default empty. A second explicit IANA zone supports sender/recipient scheduling comparisons; no person's location is inferred from their address.
+
+<a id="time.showHelpers"></a>`time.showHelpers` is global/domain/user boolean, default true. It controls time comparison helpers. Calendar event zones remain part of each event's actual timezone-aware data.
+
 ## Keyboard shortcuts
 
 <a id="shortcuts.enabled"></a>
