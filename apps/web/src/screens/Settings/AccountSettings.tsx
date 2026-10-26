@@ -1,3 +1,4 @@
+import {RetainedSettingsSection} from './RetainedSettingsSection.tsx';
 // Account settings surface (t16 e15) — the aggregator mounted into the settings
 // panel for an authenticated account. Composes the 2FA, session, signature,
 // identity, notification, saved-search, and device-preference screens. Owns the
@@ -13,7 +14,7 @@
 // mailbox. Now it replaces only that screen, with an error and a retry that
 // mounts it again (which reloads it).
 
-import { createEffect, createSignal, Show, type JSX } from 'solid-js';
+import { createEffect, createSignal, type JSX } from 'solid-js';
 import { useI18n } from '../../i18n';
 import { AsyncBoundary } from '../../components/ErrorBoundary.tsx';
 import { SettingsService } from './service.ts';
@@ -65,35 +66,35 @@ export function AccountSettings(props: AccountSettingsProps): JSX.Element {
 
   return (
     <div class={css.stack} dir={effectiveDir()} data-testid="account-settings">
-      <Show when={!props.hideSecurity && selected('security')}>
+      <RetainedSettingsSection name="security" active={!props.hideSecurity && selected('security')} retain={false}>{()=> <>
         <AsyncBoundary><TwoFactor service={service} /></AsyncBoundary>
         <AsyncBoundary><Sessions service={service} /></AsyncBoundary>
-      </Show>
-      <Show when={selected('signatures')}>
+      </>}</RetainedSettingsSection>
+      <RetainedSettingsSection name="signatures" active={selected('signatures')}>{()=> <>
       <AsyncBoundary>
         <Signatures service={service} />
       </AsyncBoundary>
-      </Show>
-      <Show when={selected('identities')}>
+      </>}</RetainedSettingsSection>
+      <RetainedSettingsSection name="identities" active={selected('identities')}>{()=> <>
       <AsyncBoundary>
         <Identities service={service} />
       </AsyncBoundary>
-      </Show>
-      <Show when={selected('notifications')}>
+      </>}</RetainedSettingsSection>
+      <RetainedSettingsSection name="notifications" active={selected('notifications')}>{()=> <>
       <AsyncBoundary>
         <Notifications service={service} />
       </AsyncBoundary>
-      </Show>
-      <Show when={selected('searches')}>
+      </>}</RetainedSettingsSection>
+      <RetainedSettingsSection name="searches" active={selected('searches')}>{()=> <>
       <AsyncBoundary>
         <SavedSearches service={service} {...(props.onSearchFoldersChanged ? {onChanged: props.onSearchFoldersChanged} : {})} />
       </AsyncBoundary>
-      </Show>
-      <Show when={selected('preferences') || selected('shortcuts')}>
+      </>}</RetainedSettingsSection>
+      <RetainedSettingsSection name="preferences" active={selected('preferences') || selected('shortcuts')}>{()=> <>
       <AsyncBoundary>
         <Preferences prefs={prefs} onChange={onPrefsChange} />
       </AsyncBoundary>
-      </Show>
+      </>}</RetainedSettingsSection>
     </div>
   );
 }

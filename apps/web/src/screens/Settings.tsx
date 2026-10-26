@@ -1,3 +1,4 @@
+import {RetainedSettingsSection} from './Settings/RetainedSettingsSection.tsx';
 import * as customizationCss from './Settings/styles.css.ts';
 import { AppearanceCustomization } from '../components/AppearanceCustomization.tsx';
 import { NextcloudAccounts } from './Settings/NextcloudAccounts.tsx';
@@ -206,7 +207,7 @@ export function Settings(props: SettingsProps): JSX.Element {
         <div class={props.embedded ? workspace.body : workspace.legacy}>
           <Show when={props.embedded}><nav class={workspace.nav} aria-label={t('settings-sections')}><For each={sections.filter(([id,label])=>sectionQuery().trim().toLocaleLowerCase().split(/\s+/).every(term=>`${t(label)} ${sectionTerms[id]??''}`.toLocaleLowerCase().includes(term)))} fallback={<p role="status">{t('settings-search-no-sections')}</p>}>{([id,label])=><button type="button" aria-current={navigation.route().section===id ? "page" : undefined} onClick={()=>void navigation.navigate({section:id})}><Icon name={sectionIcons[id]??'settings'}/><span>{t(label)}</span></button>}</For></nav></Show>
           <div class={workspace.content}>
-          <div hidden={!visible('appearance')} class={workspace.appearance}>
+          <RetainedSettingsSection name="appearance" active={visible('appearance')} accountBound={false}>{()=> <div class={workspace.appearance}>
         <ThemeMode locked={themeHold.locked()} />
         <ThemeGallery locked={themeHold.locked()} />
         <AppearanceSyncStatus />
@@ -286,7 +287,7 @@ export function Settings(props: SettingsProps): JSX.Element {
         </div>
 
         <Language />
-        </div>
+        </div>}</RetainedSettingsSection>
 
         {/* V6 security & integrations — only for an authenticated account. The
             `app.me` optional call keeps this inert in the theme-only unit test.
@@ -299,30 +300,30 @@ export function Settings(props: SettingsProps): JSX.Element {
               <AsyncBoundary>
                 <AccountSettings hideSecurity onSearchFoldersChanged={() => app.refreshFolders()} {...(props.embedded ? {section:()=>navigation.route().section} : {})} />
               </AsyncBoundary>
-              <Show when={visible('security')}><AsyncBoundary><SecurityCenter password={<AsyncBoundary><PasswordChange accountId={accountId()} /></AsyncBoundary>} grants={<AsyncBoundary><IdentityGrants /></AsyncBoundary>} encryption={<AsyncBoundary><ZeroAccessBlock /></AsyncBoundary>} /></AsyncBoundary></Show>
-              <Show when={visible('privacy')}><AsyncBoundary><Privacy /><AnalyticsConsent /></AsyncBoundary></Show>
-              <Show when={visible('nextcloud')}><AsyncBoundary><NextcloudAccounts /></AsyncBoundary></Show>
-              <Show when={visible('folders')}><AsyncBoundary><FolderPreferences folders={app.mailboxes} tags={app.tags} navigation={navigation} onRolesSaved={app.refreshFolders}/></AsyncBoundary></Show>
-              <Show when={visible('mail-transfer')}><AsyncBoundary><MailTransfer accountId={accountId()} mailboxes={app.mailboxes()} onImported={()=>void app.refreshFolders()}/></AsyncBoundary></Show>
-              <Show when={visible('receipts')}><AsyncBoundary><Receipts accountId={accountId()}/></AsyncBoundary></Show>
-              <Show when={visible('compose')}><AsyncBoundary><ComposePreferences /></AsyncBoundary></Show>
-              <Show when={visible('shortcuts')}><AsyncBoundary><KeyboardShortcuts navigation={navigation}/><MailInteractionPreferences/></AsyncBoundary></Show>
-              <Show when={visible('time')}><AsyncBoundary><TimeZones navigation={navigation}/></AsyncBoundary></Show>
-              <Show when={visible('packages')}><AsyncBoundary><Packages accountId={accountId()} navigation={navigation}/></AsyncBoundary></Show>
-              <Show when={visible('labels')}><AsyncBoundary><Labels navigation={navigation}/></AsyncBoundary></Show>
-              <Show when={visible('reader')}><AsyncBoundary><ReaderAppearanceSettings /><ContactAppearance /></AsyncBoundary></Show>
-              <Show when={visible('rules')}>              <AsyncBoundary>
+              <RetainedSettingsSection name="security" active={visible('security')} retain={false}>{()=><AsyncBoundary><SecurityCenter password={<AsyncBoundary><PasswordChange accountId={accountId()} /></AsyncBoundary>} grants={<AsyncBoundary><IdentityGrants /></AsyncBoundary>} encryption={<AsyncBoundary><ZeroAccessBlock /></AsyncBoundary>} /></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="privacy" active={visible('privacy')}>{()=><AsyncBoundary><Privacy /><AnalyticsConsent /></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="nextcloud" active={visible('nextcloud')}>{()=><AsyncBoundary><NextcloudAccounts /></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="folders" active={visible('folders')}>{()=><AsyncBoundary><FolderPreferences folders={app.mailboxes} tags={app.tags} navigation={navigation} onRolesSaved={app.refreshFolders}/></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="mail-transfer" active={visible('mail-transfer')}>{()=><AsyncBoundary><MailTransfer accountId={accountId()} mailboxes={app.mailboxes()} onImported={()=>void app.refreshFolders()}/></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="receipts" active={visible('receipts')}>{()=><AsyncBoundary><Receipts accountId={accountId()}/></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="compose" active={visible('compose')}>{()=><AsyncBoundary><ComposePreferences /></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="shortcuts" active={visible('shortcuts')}>{()=><AsyncBoundary><KeyboardShortcuts navigation={navigation}/><MailInteractionPreferences/></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="time" active={visible('time')}>{()=><AsyncBoundary><TimeZones navigation={navigation}/></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="packages" active={visible('packages')}>{()=><AsyncBoundary><Packages accountId={accountId()} navigation={navigation}/></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="labels" active={visible('labels')}>{()=><AsyncBoundary><Labels navigation={navigation}/></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="reader" active={visible('reader')}>{()=><AsyncBoundary><ReaderAppearanceSettings /><ContactAppearance /></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="rules" active={visible('rules')}>{()=>              <AsyncBoundary>
                 <RulesSettings accountId={accountId()} />
-              </AsyncBoundary></Show>
-              <Show when={visible('access')}>              <AsyncBoundary>
+              </AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="access" active={visible('access')} retain={false}>{()=>              <AsyncBoundary>
                 <ApiKeys accountId={accountId()} />
-              </AsyncBoundary></Show>
-              <Show when={visible('access')}>              <AsyncBoundary>
+              </AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="access" active={visible('access')} retain={false}>{()=>              <AsyncBoundary>
                 <McpKeys accountId={accountId()} />
-              </AsyncBoundary></Show>
-              <Show when={visible('metadata')}>              <AsyncBoundary>
+              </AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="metadata" active={visible('metadata')}>{()=>              <AsyncBoundary>
                 <ServerMetadataSection accountId={accountId()} />
-              </AsyncBoundary></Show>
+              </AsyncBoundary>}</RetainedSettingsSection>
             </>
           )}
         </Show>
@@ -481,6 +482,7 @@ function ThemeGallery(props: { locked: boolean }): JSX.Element {
                       // decorative and the description/appearance are supporting
                       // detail, not part of what the control is called.
                       aria-label={t(entry.labelId)}
+                      data-tooltip={t(entry.descriptionId)}
                       aria-pressed={app.theme() === entry.id}
                       aria-describedby={props.locked ? 'settings-theme-lock' : undefined}
                       disabled={props.locked}

@@ -1,3 +1,5 @@
+import {activateAccountPreferences,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
+import {startAccountUiPreferences} from '../../api/accountPreferences.ts';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { FluentBundle, FluentResource } from '@fluent/bundle';
@@ -451,14 +453,18 @@ describe('AccountSettings — composition + direction', () => {
     expect(twofa).not.toHaveBeenCalled();
     setSection('identities');
     await waitFor(() => expect(identities).toHaveBeenCalledOnce());
-    expect(screen.queryByTestId('signature-list')).not.toBeInTheDocument();
+    expect(screen.getByTestId('signature-list')).not.toBeVisible();
+    setSection('signatures');
+    await waitFor(()=>expect(screen.getByTestId('signature-list')).toBeVisible());
+    expect(signatures).toHaveBeenCalledOnce();
     setSection('security');
     expect(twofa).not.toHaveBeenCalled();
   });
 
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {localStorage.clear();suspendAccountPreferences();activateAccountPreferences('account','msa1_retained_settings_authority');});
 
   it('renders all sections and mirrors when the direction pref is RTL', async () => {
+    const stopPreferences=startAccountUiPreferences();
     const service = fakeService({
       twofaStatus: vi.fn(async () => ({ totp: false, passkeys: [], recoveryRemaining: 0, policyRequired: false })),
       sessions: vi.fn(async () => []),
@@ -473,6 +479,7 @@ describe('AccountSettings — composition + direction', () => {
     expect(root).toHaveAttribute('dir', 'rtl');
     expect(screen.getByLabelText('Two-factor authentication')).toBeInTheDocument();
     expect(screen.getByLabelText('Active sessions')).toBeInTheDocument();
+    stopPreferences();
   });
 });
 
