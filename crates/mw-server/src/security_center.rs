@@ -300,7 +300,7 @@ pub(crate) async fn enforce_session(
     }
     Ok(())
 }
-fn session_deadline_passed(
+pub(crate) fn session_deadline_passed(
     created: &str,
     activity: &str,
     now: chrono::DateTime<chrono::Utc>,
