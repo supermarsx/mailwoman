@@ -994,3 +994,14 @@ body {
 
 .sidebar__box-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .sidebar__badge { flex-shrink:0; white-space:nowrap; }
+
+/* Fixed layout belongs in the stylesheet under the shell's strict CSP. */
+.login { background-size:cover; background-position:center; }
+.login__brand-logo { max-inline-size:12rem; max-block-size:6rem; object-fit:contain; }
+.sidebar__brand-logo { max-inline-size:3rem; max-block-size:2rem; object-fit:contain; }
+.reader__list-destination { overflow-wrap:anywhere; }
+label.settings-binding-field > input.settings-binding-input { max-inline-size:24rem; }
+.settings-table-scroll { overflow-x:auto; min-inline-size:0; }
+table.settings-label-table { min-inline-size:24rem; }
+table.settings-package-table { min-inline-size:38rem; }
+.settings-label-color { padding-inline-start:.5rem; }

@@ -176,9 +176,9 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
 
   function credentialForm(): JSX.Element {
     return (
-    <main class={`login ${authPage}`} data-mw-surface style={{'background-image':brandAssetUrl(config()?.loginBackgroundUrl)?`url("${brandAssetUrl(config()?.loginBackgroundUrl)}")`:undefined,'background-size':'cover','background-position':'center'}}>
+    <main class={`login ${authPage}`} data-mw-surface style={{'background-image':brandAssetUrl(config()?.loginBackgroundUrl)?`url("${brandAssetUrl(config()?.loginBackgroundUrl)}")`:undefined}}>
       <form class={`login__card ${authCard}`} onSubmit={(e) => void onSubmit(e)} aria-label={t('auth-sign-in')}>
-        <Show when={brandAssetUrl(config()?.logoUrl)}>{url=><img src={url()} alt={config()?.brandName||'Mailwoman'} style={{'max-width':'12rem','max-height':'6rem','object-fit':'contain'}}/>}</Show>
+        <Show when={brandAssetUrl(config()?.logoUrl)}>{url=><img src={url()} alt={config()?.brandName||'Mailwoman'} class="login__brand-logo"/>}</Show>
         <h1 class="login__title">{config()?.brandName || t('auth-app-name')}</h1>
         <Show when={config()?.loginNotice}>{(notice) => <p class="login__hint" dir="auto">{notice()}</p>}</Show>
         <div class={rememberedCss.field} onFocusOut={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setRememberedOpen(false); }} onKeyDown={event => { if (event.key === 'Escape') { setRememberedOpen(false); usernameInput?.focus(); event.stopPropagation(); } }}>

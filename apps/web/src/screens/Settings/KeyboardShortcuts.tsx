@@ -29,7 +29,7 @@ function BindingEditor(props: { action: ShortcutAction; navigation: SettingsNavi
   }
   return <section class={css.section} aria-label={t('settings-shortcuts-edit')}>
     <h3 class={css.heading}>{t(`settings-kbd-action-${props.action}`)}</h3>
-    <label class={css.field}><span>{t('settings-shortcuts-binding')}</span><input class={css.input} style={{'max-width':'24rem'}} value={value()} disabled={disabled()} onInput={event => setValue(event.currentTarget.value)} aria-describedby="shortcut-binding-help"/></label>
+    <label class={`${css.field} settings-binding-field`}><span>{t('settings-shortcuts-binding')}</span><input class={`${css.input} settings-binding-input`} value={value()} disabled={disabled()} onInput={event => setValue(event.currentTarget.value)} aria-describedby="shortcut-binding-help"/></label>
     <p id="shortcut-binding-help" class={css.meta}>{t('settings-shortcuts-help')}</p><LockNote locked={binding.locked()}/>
     <Show when={error() || binding.error()}><p role="alert">{error() || binding.error()}</p></Show>
     <div class={css.actions}><button type="button" class={css.button} disabled={disabled()} onClick={() => void save()}>{t('settings-shortcuts-save')}</button><button type="button" class={css.ghost} onClick={() => void props.navigation.navigate({ section: 'shortcuts' })}>{t('settings-shortcuts-back')}</button></div>

@@ -15,7 +15,7 @@ export function MailingListActions(props:{headers:string;scope:string;active:boo
  return <Show when={props.active&&(Object.keys(commands().actions).length>0||commands().postingForbidden)}><details class="reader__list-actions"><summary>{t('mailing-list-title')}</summary>
   <p>{t('mailing-list-unverified')}</p><Show when={commands().postingForbidden}><p>{t('mailing-list-no-post')}</p></Show>
   <For each={listActions}>{action=><Show when={commands().actions[action]}>{links=><div><strong>{t(`mailing-list-${action}`)}</strong><ol><For each={links()}>{link=><li><button type="button" class="btn btn--ghost" onClick={()=>setSelected({action,link,scope:props.scope})}>{link.host}</button></li>}</For></ol></div>}</Show>}</For>
-  <Show when={current()}>{value=><section aria-label={t('mailing-list-review')}><h3>{t(`mailing-list-${value().action}`)}</h3><p style={{'overflow-wrap':'anywhere'}}>{value().link.href}</p>
+  <Show when={current()}>{value=><section aria-label={t('mailing-list-review')}><h3>{t(`mailing-list-${value().action}`)}</h3><p class="reader__list-destination">{value().link.href}</p>
    <Show when={value().link.kind==='web'} fallback={<button type="button" class="btn" disabled={!props.onCompose} onClick={compose}>{t('mailing-list-compose')}</button>}><p>{t('mailing-list-external')}</p><a class="btn" href={value().link.href} target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">{t('mailing-list-open')}</a></Show>
    <button type="button" class="btn btn--ghost" onClick={()=>setSelected(null)}>{t('mailing-list-cancel')}</button>
   </section>}</Show>

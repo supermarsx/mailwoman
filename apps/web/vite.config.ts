@@ -48,6 +48,9 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: false,
+    // Small font subsets must remain same-origin files: the shell deliberately
+    // permits font-src 'self', never data: font payloads in generated CSS.
+    assetsInlineLimit: (filePath) => /\.(?:woff2?|ttf|otf)(?:\?|$)/i.test(filePath) ? false : undefined,
   },
   test: {
     // ── FLAKE POLICY (t22-e10) — there is deliberately NO `retry` here ────────
