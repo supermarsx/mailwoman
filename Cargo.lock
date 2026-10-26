@@ -5277,6 +5277,7 @@ dependencies = [
  "mw-jmap",
  "mw-mime",
  "mw-mock-jmap",
+ "mw-sanitize",
  "mw-search",
  "mw-sieve",
  "mw-smtp",

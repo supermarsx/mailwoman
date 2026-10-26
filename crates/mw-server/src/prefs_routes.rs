@@ -72,6 +72,12 @@ mod contact_photo;
 struct SignatureDto {
     name: String,
     body: String,
+    #[serde(default)]
+    html: Option<String>,
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    text_edited: bool,
     is_default: bool,
     /// Optional opaque JSON auto-apply rule; omitted when empty.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -115,8 +121,16 @@ struct IdentityDto {
 // Signatures (W12)
 // ─────────────────────────────────────────────────────────────────────────────
 
+async fn signature_account_id(state: &AppState, headers: &HeaderMap) -> Result<String, Response> {
+    let account = account_id(state, headers).await?;
+    if headers.get("x-mailwoman-account").is_some_and(|expected| expected.to_str().ok() != Some(account.as_str())) {
+        return Err((StatusCode::FORBIDDEN, Json(json!({"error":"The authenticated account changed", "code":"accountChanged"}))).into_response());
+    }
+    Ok(account)
+}
+
 async fn signatures_list(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let account = match account_id(&state, &headers).await {
+    let account = match signature_account_id(&state, &headers).await {
         Ok(a) => a,
         Err(r) => return r,
     };
@@ -131,12 +145,15 @@ async fn signatures_upsert(
     headers: HeaderMap,
     Json(body): Json<SignatureDto>,
 ) -> Response {
-    let account = match account_id(&state, &headers).await {
+    let account = match signature_account_id(&state, &headers).await {
         Ok(a) => a,
         Err(r) => return r,
     };
-    if body.name.trim().is_empty() {
-        return bad_request("a signature needs a name");
+    if body.name.trim().is_empty() || body.name.len() > 200 || body.name.chars().any(char::is_control) {
+        return bad_request("a signature needs a valid name of at most 200 bytes");
+    }
+    if body.body.len() > 64 * 1024 || body.html.as_ref().is_some_and(|value| value.len() > 32 * 1024) || body.text.as_ref().is_some_and(|value| value.len() > 64 * 1024) {
+        return bad_request("a signature must not exceed 32 KiB HTML or 64 KiB plain text");
     }
     match do_upsert_signature(&state.store, &account, &body).await {
         Ok(()) => ok(),
@@ -149,7 +166,7 @@ async fn signatures_delete(
     headers: HeaderMap,
     UrlPath(name): UrlPath<String>,
 ) -> Response {
-    let account = match account_id(&state, &headers).await {
+    let account = match signature_account_id(&state, &headers).await {
         Ok(a) => a,
         Err(r) => return r,
     };
@@ -836,6 +853,7 @@ async fn do_delete_identity(store: &Store, account: &str, id: &str) -> Result<bo
 
 fn signature_to_dto(row: &SignatureRow) -> SignatureDto {
     SignatureDto {
+        html: row.html.clone(), text: row.text.clone(), text_edited: row.text_edited,
         name: row.name.clone(),
         body: row.body.clone(),
         is_default: row.is_default,
@@ -849,6 +867,8 @@ fn signature_to_dto(row: &SignatureRow) -> SignatureDto {
 
 fn signature_from_dto(account: &str, dto: &SignatureDto) -> SignatureRow {
     SignatureRow {
+        html: dto.html.as_deref().map(mw_sanitize::sanitize_email_html),
+        text: dto.text.clone(), text_edited: dto.text_edited,
         account_id: account.to_string(),
         name: dto.name.clone(),
         body: dto.body.clone(),
@@ -1153,7 +1173,7 @@ mod tests {
         do_upsert_signature(
             &s,
             "a1",
-            &SignatureDto {
+            &SignatureDto { html: None, text: None, text_edited: false,
                 name: "work".into(),
                 body: "Regards".into(),
                 is_default: true,
@@ -1165,7 +1185,7 @@ mod tests {
         do_upsert_signature(
             &s,
             "a1",
-            &SignatureDto {
+            &SignatureDto { html: None, text: None, text_edited: false,
                 name: "personal".into(),
                 body: "Cheers".into(),
                 is_default: false,
@@ -1194,7 +1214,7 @@ mod tests {
         do_upsert_signature(
             &s,
             "a1",
-            &SignatureDto {
+            &SignatureDto { html: None, text: None, text_edited: false,
                 name: "work".into(),
                 body: "b".into(),
                 is_default: false,
@@ -1369,6 +1389,18 @@ mod tests {
 
         assert!(do_delete_identity(&s, &a1, &id).await.unwrap());
         assert!(do_list_identities(&s, &a1).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn signature_formats_sanitize_html_preserve_plain_and_scope() {
+        let store=store().await;
+        let dto=SignatureDto{name:"work".into(),body:"Legacy plain".into(),is_default:false,rule:None,
+            html:Some("<p onclick=evil()>Hello <strong>team</strong><script>evil()</script></p>".into()),text:Some("Independent <plain> & team".into()),text_edited:true};
+        do_upsert_signature(&store,"owner",&dto).await.unwrap();
+        assert!(do_list_signatures(&store,"other").await.unwrap().is_empty());
+        let saved=do_list_signatures(&store,"owner").await.unwrap().remove(0);
+        assert_eq!(saved.text.as_deref(),Some("Independent <plain> & team"));assert!(saved.text_edited);
+        assert_eq!(saved.html.as_deref(),Some("<p>Hello <strong>team</strong></p>"));
     }
 
     #[tokio::test]

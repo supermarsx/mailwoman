@@ -1,4 +1,4 @@
-import { preferenceAccount, observePreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
+import { preferenceAccount, preferenceAccountIsCurrent, observePreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
 // Settings-surface server I/O (t16 e15). One service over an injectable `Fetcher`
 // so every component unit-tests without a live server. Same-origin cookie auth,
 // byte-identical to the passwd/apikeys services (SPEC §7.4/§19, W12/W13/W15).
@@ -204,20 +204,29 @@ export class SettingsService {
     }finally{unsubscribe();}
   }
 
+  private async signatureFetch(input:string,init?:RequestInit):Promise<Response> {
+    const account=preferenceAccount();
+    const headers=new Headers(init?.headers);
+    if(account)headers.set('X-Mailwoman-Account',account.id);
+    const response=await this.fetcher(input,{...init,headers});
+    if(account&&!preferenceAccountIsCurrent(account))throw new SettingsError(403,t('settings-sig-account-changed'));
+    return response;
+  }
+
   // ── Signatures (W12) ─────────────────────────────────────────────────────
 
   async listSignatures(): Promise<Signature[]> {
-    const out = await jsonOrThrow<{ signatures: Signature[] }>(await this.fetcher(withBase('/api/account/signatures')));
+    const out = await jsonOrThrow<{ signatures: Signature[] }>(await this.signatureFetch.bind(this)(withBase('/api/account/signatures')));
     return out.signatures;
   }
 
   async upsertSignature(sig: Signature): Promise<void> {
-    await okOrThrow(await postJson(this.fetcher, withBase('/api/account/signatures'), sig));
+    await okOrThrow(await postJson(this.signatureFetch.bind(this), withBase('/api/account/signatures'), sig));
   }
 
   async deleteSignature(name: string): Promise<void> {
     await okOrThrow(
-      await this.fetcher(withBase(`/api/account/signatures/${encodeURIComponent(name)}`), { method: 'DELETE' }),
+      await this.signatureFetch.bind(this)(withBase(`/api/account/signatures/${encodeURIComponent(name)}`), { method: 'DELETE' }),
     );
   }
 

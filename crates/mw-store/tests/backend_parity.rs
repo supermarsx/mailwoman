@@ -66,7 +66,7 @@ const ALL_TABLES: &str = "oidc_browser_flow, oidc_provider_config, oidc_client, 
     open_events, setting_policy, setting_value, auth_failure, ip_block, ip_allow, \
     admin_account, admin_totp, admin_role, admin_role_capability, admin_account_role, \
     admin_capability_override, admin_saved_query, audit_chain_head, audit_checkpoint, \
-    audit_retention, audit_sink, alert_rule, alert_event, signin_event, signin_identity, auth_source_failure, remembered_device, \
+    audit_retention, audit_sink, alert_rule, alert_event, signin_event, signin_identity, auth_source_failure, request_protection_subject, request_protection_event, remembered_device, \
     branding, brand_asset, custom_css, custom_theme, custom_accent, sieve_script, \
     smime_trust_root, pki_revocation_cache, identity_signature_default, \
     domain_signature_template, domain_disclaimer, mdn_sender_rule, receipt_status, \
@@ -649,7 +649,7 @@ async fn run_ops(s: &Store) -> Vec<String> {
             .map(|c| c.force_change)
     ));
 
-    s.upsert_signature(&SignatureRow {
+    s.upsert_signature(&SignatureRow { html: Some("<p>Rich signature</p>".into()), text: Some("Independent plain signature".into()), text_edited: true,
         account_id: account.clone(),
         name: "work".into(),
         body: "-- \nSent from Mailwoman".into(),
@@ -1789,7 +1789,9 @@ async fn assert_carried_surfaces(dest: &Store, account: &str, stable_id: &str, r
     let sigs = dest.list_signatures(account).await.unwrap();
     if !sigs
         .iter()
-        .any(|s| s.name == "work" && s.body.contains("Sent from Mailwoman") && s.is_default)
+        .any(|s| s.name == "work" && s.body.contains("Sent from Mailwoman") && s.is_default
+            && s.html.as_deref() == Some("<p>Rich signature</p>")
+            && s.text.as_deref() == Some("Independent plain signature") && s.text_edited)
     {
         lost.push(format!(
             "signatures: the user's authored signature is gone ({} row(s) present)",
@@ -2297,6 +2299,15 @@ mod admin_controls_0033 {
             ("locked_until", 'I', "=0", "240"),
             ("expires_at", 'I', "!", "240"),
             ("revision", 'T', "!", "failure-revision"),
+        ]},
+        NewTable {name:"request_protection_subject",copied:true,cols:&[
+            ("subject_key",'T',"!","subject-hmac"),("subject_kind",'T',"!","client"),
+            ("state_json",'T',"!","{}"),("updated_at",'I',"!",TS),("expires_at",'I',"!",TS),("revision",'T',"!","state-revision"),
+        ]},
+        NewTable {name:"request_protection_event",copied:true,cols:&[
+            ("id",'T',"!","decision-1"),("subject_key",'T',"!","subject-hmac"),("subject_kind",'T',"!","client"),
+            ("observed_at",'I',"!",TS),("reason",'T',"!","long-absolute"),("action",'T',"!","throttle"),
+            ("enforced",'I',"!","1"),("retry_after_secs",'I',"!","3"),("counts_json",'T',"!","{}"),
         ]},
         NewTable { name: "remembered_device", copied: true, cols: &[
             ("id", 'T', "!", "rd-1"),

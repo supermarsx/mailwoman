@@ -33,6 +33,7 @@ mw-directory = { workspace = true }
 # mw-imap / mw-pop3 depend on THIS crate for the frozen trait, so mw-engine must
 # NOT depend on them — backend *construction* lives in mw-server (plan §3 e6).
 mw-mime = { workspace = true }
+mw-sanitize = { workspace = true }
 mw-smtp = { workspace = true }
 # V2 (plan §3 e9): the engine-side full-text index and the rules evaluator.
 # Both are leaf crates (DTO-only seams) so no dependency cycle is introduced.

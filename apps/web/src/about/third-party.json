@@ -2,9 +2,9 @@
   "schema": "mailwoman-third-party/2",
   "generator": "scripts/about/gen-third-party.mjs",
   "generatedFrom": {
-    "cargoLock": "a9c51dfc4c6d3504156c74b4b9d721e741e4c033b53706e2899a98aa0b58b9b7",
+    "cargoLock": "47152d2cff09e411bffa68a48354eb228597b14a6d22233bf97c1f2c1f8c552f",
     "mediaWasmLock": "ca63d9934f59dc33721e6adee7e152ebff91a84e6738315c3ec9e64c05582494",
-    "pnpmLock": "7db7703df919c61405d8c08ec402d366f2f41cccf632f3d270159050c2b1d3b2"
+    "pnpmLock": "8b6c1fb220e087d5a214a0bd3908b16adcdbafa2ac490c79a6f3aae2a33a25a8"
   },
   "images": {
     "runtime": {
@@ -275,6 +275,22 @@
         {
           "file": "LICENSE-MIT",
           "id": "30fefc3a7d6a0041"
+        }
+      ],
+      "artifacts": [
+        "server"
+      ]
+    },
+    {
+      "kind": "crate",
+      "name": "altcha",
+      "version": "1.1.0",
+      "licence": "MIT",
+      "repository": "https://github.com/altcha-org/altcha-lib-rs",
+      "texts": [
+        {
+          "file": "LICENSE.txt",
+          "id": "7bae0d21c9416cfc"
         }
       ],
       "artifacts": [
@@ -7350,6 +7366,26 @@
         {
           "file": "LICENSE-MIT",
           "id": "167a0e9bab100a32"
+        }
+      ],
+      "artifacts": [
+        "server"
+      ]
+    },
+    {
+      "kind": "crate",
+      "name": "pbkdf2",
+      "version": "0.12.2",
+      "licence": "MIT OR Apache-2.0",
+      "repository": "https://github.com/RustCrypto/password-hashes/tree/master/pbkdf2",
+      "texts": [
+        {
+          "file": "LICENSE-APACHE",
+          "id": "e8541ea93f027a6c"
+        },
+        {
+          "file": "LICENSE-MIT",
+          "id": "d1fd0ccf6437209a"
         }
       ],
       "artifacts": [
@@ -17382,6 +17418,20 @@
         {
           "standard": "Apache-2.0",
           "id": "6dc0e068dcf3a5bc"
+        }
+      ]
+    },
+    {
+      "kind": "npm",
+      "name": "altcha",
+      "version": "3.5.0",
+      "licence": "MIT",
+      "repository": "https://github.com/altcha-org/altcha",
+      "homepage": "https://altcha.org",
+      "texts": [
+        {
+          "file": "LICENSE.txt",
+          "id": "bee1fb9d9c97d42c"
         }
       ]
     },

@@ -94,6 +94,9 @@ export interface LoginChallenge {
 export interface Signature {
   readonly name: string;
   readonly body: string;
+  readonly html?: string | null;
+  readonly text?: string | null;
+  readonly textEdited?: boolean;
   readonly isDefault: boolean;
   /** Optional JSON rule (e.g. per-identity / per-recipient selection). */
   readonly rule?: string;

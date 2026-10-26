@@ -2789,10 +2789,11 @@ impl Engine {
             };
             for row in &mut rows {
                 if let Some(name) = &row.signature_name {
-                    // Named templates are literal text, never trusted HTML. A
-                    // removed template must not resurrect an old provider value.
-                    row.signature_text = templates.iter().find(|template| &template.name == name).map(|template| template.body.clone());
-                    row.signature_html = None;
+                    // The owning account's explicit formats only. A removed
+                    // template must not resurrect an old provider signature.
+                    let template = templates.iter().find(|template| &template.name == name);
+                    row.signature_text = template.map(|template| template.text.clone().unwrap_or_else(|| template.body.clone()));
+                    row.signature_html = template.and_then(|template| template.html.as_deref()).map(mw_sanitize::sanitize_email_html);
                 }
             }
         }

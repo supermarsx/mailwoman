@@ -20,6 +20,9 @@ pub struct SignatureRow {
     pub account_id: String,
     pub name: String,
     pub body: String,
+    pub html: Option<String>,
+    pub text: Option<String>,
+    pub text_edited: bool,
     pub is_default: bool,
     pub rule_json: String,
     pub updated_at: String,
@@ -43,11 +46,11 @@ impl Store {
     pub async fn upsert_signature(&self, sig: &SignatureRow) -> Result<(), StoreError> {
         let now = Utc::now().to_rfc3339();
         q(
-            "INSERT INTO signatures (account_id, name, body, is_default, rule_json, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO signatures (account_id, name, body, is_default, rule_json, updated_at, html, text, text_edited)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(account_id, name) DO UPDATE SET
                  body = excluded.body, is_default = excluded.is_default,
-                 rule_json = excluded.rule_json, updated_at = excluded.updated_at",
+                 rule_json = excluded.rule_json, updated_at = excluded.updated_at, html = excluded.html, text = excluded.text, text_edited = excluded.text_edited",
         )
         .bind(&sig.account_id)
         .bind(&sig.name)
@@ -55,6 +58,9 @@ impl Store {
         .bind(i64::from(sig.is_default))
         .bind(&sig.rule_json)
         .bind(&now)
+        .bind(sig.html.as_deref())
+        .bind(sig.text.as_deref())
+        .bind(i64::from(sig.text_edited))
         .execute(&self.backend)
         .await?;
         Ok(())
@@ -63,7 +69,7 @@ impl Store {
     /// A user's signature templates (name-ordered).
     pub async fn list_signatures(&self, account_id: &str) -> Result<Vec<SignatureRow>, StoreError> {
         let rows = q(
-            "SELECT account_id, name, body, is_default, rule_json, updated_at
+            "SELECT account_id, name, body, is_default, rule_json, updated_at, html, text, text_edited
                       FROM signatures WHERE account_id = ?1 ORDER BY name",
         )
         .bind(account_id)
@@ -126,6 +132,9 @@ fn signature_from_row(r: &crate::backend::Row) -> SignatureRow {
         account_id: r.get_string("account_id"),
         name: r.get_string("name"),
         body: r.get_string("body"),
+        html: r.get_opt_string("html"),
+        text: r.get_opt_string("text"),
+        text_edited: r.get_i64("text_edited") != 0,
         is_default: r.get_i64("is_default") != 0,
         rule_json: r.get_string("rule_json"),
         updated_at: r.get_string("updated_at"),
@@ -151,12 +160,30 @@ mod tests {
         Store::open_in_memory(ServerKey::generate()).await.unwrap()
     }
 
+    async fn assert_signature_formats(store: &Store) {
+        let owner=format!("signature-{}",crate::seal::random_token());
+        let row=SignatureRow{account_id:owner.clone(),name:"work".into(),body:"legacy".into(),html:Some("<p>Rich</p>".into()),text:Some("Plain alternative".into()),text_edited:true,is_default:false,rule_json:String::new(),updated_at:String::new()};
+        store.upsert_signature(&row).await.unwrap();
+        let saved=store.list_signatures(&owner).await.unwrap().remove(0);
+        assert_eq!(saved.html,row.html);assert_eq!(saved.text,row.text);assert!(saved.text_edited);
+        assert!(store.list_signatures(&format!("{owner}-foreign")).await.unwrap().is_empty());
+        let mut plain=row;plain.html=None;plain.text=Some("Revised plain".into());store.upsert_signature(&plain).await.unwrap();
+        let saved=store.list_signatures(&owner).await.unwrap().remove(0);assert!(saved.html.is_none());assert_eq!(saved.text.as_deref(),Some("Revised plain"));
+    }
+    #[tokio::test]
+    async fn signature_formats_sqlite() {assert_signature_formats(&store().await).await;}
+    #[tokio::test]
+    async fn signature_formats_postgres() {
+        let Ok(dsn)=std::env::var("MW_TEST_PG_DSN") else {return;};
+        let store=Store::open_postgres(&dsn,ServerKey::generate()).await.unwrap();assert_signature_formats(&store).await;
+    }
+
     #[tokio::test]
     async fn signatures_crud() {
         let s = store().await;
         assert!(s.list_signatures("a1").await.unwrap().is_empty());
 
-        s.upsert_signature(&SignatureRow {
+        s.upsert_signature(&SignatureRow { html: None, text: None, text_edited: false,
             account_id: "a1".into(),
             name: "work".into(),
             body: "Regards".into(),
@@ -166,7 +193,7 @@ mod tests {
         })
         .await
         .unwrap();
-        s.upsert_signature(&SignatureRow {
+        s.upsert_signature(&SignatureRow { html: None, text: None, text_edited: false,
             account_id: "a1".into(),
             name: "personal".into(),
             body: "Cheers".into(),
@@ -184,7 +211,7 @@ mod tests {
         assert!(!work.updated_at.is_empty());
 
         // Upsert updates in place.
-        s.upsert_signature(&SignatureRow {
+        s.upsert_signature(&SignatureRow { html: None, text: None, text_edited: false,
             account_id: "a1".into(),
             name: "work".into(),
             body: "Best".into(),
