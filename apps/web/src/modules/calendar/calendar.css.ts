@@ -570,3 +570,10 @@ export const fbUnknown = style({
   fontStyle: 'italic',
   textAlign: 'start',
 });
+
+// Narrow screens keep the calendar usable; all sidebar controls remain reachable.
+export const mobileSidebarToggle=style([button,{display:'none','@media':{'screen and (max-width: 40rem)':{display:'inline-flex',alignSelf:'flex-start',margin:vars.space[2]}}}]);
+export const mobileSidebarClosed=style({'@media':{'screen and (max-width: 40rem)':{display:'none'}}});
+globalStyle(body,{'@media':{'screen and (max-width: 40rem)':{flexDirection:'column'}}});
+globalStyle(sidebar,{'@media':{'screen and (max-width: 40rem)':{width:'auto',maxHeight:'40%',borderInlineEnd:0,borderBlockEnd:rule}}});
+globalStyle(main,{'@media':{'screen and (max-width: 40rem)':{minHeight:0}}});

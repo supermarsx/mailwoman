@@ -1,3 +1,4 @@
+import {AsyncPending} from '../../components/AsyncState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 // Notes module (plan §2.5, §3 e6). A two-pane personal-notes surface mounted into
 // the app shell beside Mail: a searchable/filterable list (pinned first, color
@@ -126,7 +127,7 @@ function NotesList(props: {
       </Show>
 
       <ul class="notes__items" role="listbox" aria-label={t('notes-listbox')}>
-        <For each={app.filteredNotes()} fallback={<li class="notes__none">{t('notes-none')}</li>}>
+        <For each={app.filteredNotes()} fallback={<li class="notes__none"><Show when={app.notesLoading()} fallback={t('notes-none')}><AsyncPending variant="list"/></Show></li>}>
           {(note) => (
             <li>
               <button

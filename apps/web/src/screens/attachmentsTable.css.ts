@@ -11,3 +11,5 @@ export const name=style({display:'inline-flex',alignItems:'center',gap:vars.spac
 globalStyle(`${name} svg`,{flexShrink:0});
 export const paging=style({display:'flex',alignItems:'center',flexWrap:'wrap',gap:vars.space[3],padding:vars.space[3],flexShrink:0});
 export const warning=style({display:'inline-flex',verticalAlign:'middle',marginInlineStart:vars.space[2],color:vars.color.text});
+
+globalStyle(`${wrap}:focus-visible`,{outline:`${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`,outlineOffset:'-2px'});

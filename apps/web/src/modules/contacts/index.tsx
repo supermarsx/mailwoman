@@ -1,3 +1,4 @@
+import {AsyncPending} from '../../components/AsyncState.tsx';
 import {PersonAvatar} from '../../components/PersonAvatar.tsx';
 import { Icon } from '../../components/Icon.tsx';
 // Contacts module (plan §2.5, §3 e7). Address books, the contact list
@@ -128,7 +129,7 @@ export function ContactsModule(): JSX.Element {
 
         <Show
           when={app.filteredContacts().length > 0}
-          fallback={<p class={css.empty}>{app.contactsLoading() ? t('contacts-loading') : t('contacts-none')}</p>}
+          fallback={<Show when={app.contactsLoading()} fallback={<p class={css.empty}>{t('contacts-none')}</p>}><AsyncPending variant="list" message={t('contacts-loading')}/></Show>}
         >
           <ul class={css.contactList} aria-label={t('contacts-list')}>
             <For each={app.filteredContacts()}>

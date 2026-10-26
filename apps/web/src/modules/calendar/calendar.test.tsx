@@ -25,6 +25,7 @@ async function renderApp(store = createMockStore()): Promise<{ store: MockStore;
 }
 
 describe('CalendarApp', () => {
+  it('exposes retained loading and an accessible narrow-screen calendar disclosure',()=>{const controller={...makeController(createMockStore()),loading:()=>true};render(()=><CalendarApp controller={controller}/>);expect(screen.getByRole('main')).toHaveAttribute('aria-busy','true');expect(screen.getByTestId('async-pending')).toBeInTheDocument();const toggle=screen.getByRole('button',{name:'Calendars'});expect(toggle).toHaveAttribute('aria-expanded','false');fireEvent.click(toggle);expect(toggle).toHaveAttribute('aria-expanded','true');expect(document.getElementById(toggle.getAttribute('aria-controls')!)).not.toBeNull();});
   it('renders the seeded week with events and flags overlaps as conflicts', async () => {
     await renderApp();
     expect(screen.getByTitle('Lunch')).toBeInTheDocument();

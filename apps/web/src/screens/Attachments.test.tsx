@@ -14,6 +14,7 @@ describe('Attachments module', () => {
   it('sorts numeric sizes and exposes filename warnings without downloading files', async () => {
     render(()=><Attachments items={[...items,{...items[0]!,name:'invoice.pdf.exe',blobId:'exe'}]}/>);
     await screen.findByText('invoice.pdf.exe');
+    expect(screen.getByRole('table',{name:'Attachments'}).parentElement).toHaveAttribute('tabindex','0');
     fireEvent.click(screen.getByRole('button',{name:'Size'}));
     expect(screen.getByRole('columnheader',{name:'Size'})).toHaveAttribute('aria-sort','ascending');
     expect(screen.getAllByRole('row')[1]).toHaveTextContent('logo.png');

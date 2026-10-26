@@ -114,6 +114,7 @@ async function selectFirst(): Promise<void> {
 describe('NotesModule', () => {
   it('loads notes and lists pinned first', async () => {
     setup([mkNote('a', { title: 'Alpha' }), mkNote('b', { title: 'Bravo', pinned: true })]);
+    expect(document.querySelector('[data-skeleton="list"]')).not.toBeNull();
     const options = await screen.findAllByRole('option');
     // Bravo is pinned, so it sorts ahead of Alpha.
     expect(options[0]).toHaveTextContent('Bravo');

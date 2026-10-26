@@ -1,3 +1,4 @@
+import {AsyncPending} from '../../components/AsyncState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import {MiniCalendar} from './MiniCalendar.tsx';
 // Calendar module (plan §2.5, §3 e4): the mounted shell that composes the view
@@ -10,7 +11,7 @@ import {MiniCalendar} from './MiniCalendar.tsx';
 // engine-backed controller from `state/slices/calendar.ts`; `CalendarModule`
 // below is the mock-backed variant.
 
-import { For, Index, Show, createSignal, onMount, type JSX } from 'solid-js';
+import { For, Index, Show, createSignal, createUniqueId, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
 import { toast } from '../../components/toast/index.ts';
 import type { Calendar, CalendarEvent } from '../../api/pim-types.ts';
@@ -70,6 +71,8 @@ export interface CalendarAppProps {
 
 export function CalendarApp(props: CalendarAppProps): JSX.Element {
   const c = props.controller;
+  const [mobileCalendars,setMobileCalendars]=createSignal(false);
+  const calendarSidebarId=createUniqueId();
   const [editorOpen, setEditorOpen] = createSignal(false);
   const [editing, setEditing] = createSignal<CalendarEvent | null>(null);
   const [defaultStart, setDefaultStart] = createSignal<Date | undefined>(undefined);
@@ -276,8 +279,9 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
         />
       </div>
 
+      <button type="button" class={css.mobileSidebarToggle} aria-expanded={mobileCalendars()} aria-controls={calendarSidebarId} onClick={()=>setMobileCalendars(!mobileCalendars())}>{t('calendar-calendars-heading')}</button>
       <div class={css.body}>
-        <aside class={css.sidebar} aria-label={t('calendar-calendars-heading')}>
+        <aside id={calendarSidebarId} class={`${css.sidebar} ${mobileCalendars()?'':css.mobileSidebarClosed}`} aria-label={t('calendar-calendars-heading')}>
           <MiniCalendar date={c.focusDate()} select={c.goToDate}/>
           <div>
             <h3 class={css.sideHeading}>{t('calendar-calendars-heading')}</h3>
@@ -373,7 +377,8 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
           </Show>
         </aside>
 
-        <main class={css.main}>
+        <main class={css.main} aria-busy={c.loading()}>
+          <Show when={c.loading()}><AsyncPending variant="status"/></Show>
           <ActiveView controller={c} onOpenEvent={(inst) => openEvent(inst.event.id)} onNewAt={(day) => openNewAt(day)} />
         </main>
       </div>

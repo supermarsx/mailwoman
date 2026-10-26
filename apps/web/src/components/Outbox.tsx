@@ -1,3 +1,4 @@
+import {AsyncPending} from './AsyncState.tsx';
 import { For, Show, onMount, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { formatDateTime, isolate, t } from '../i18n/index.ts';
@@ -69,11 +70,11 @@ export function Outbox(): JSX.Element {
     <section class={`outbox ${css.root}`} data-mw-surface aria-label={t('mail-outbox-label')}>
       <header class={`outbox__header ${css.header}`}>
         <h2 class={css.title}>{t('mail-outbox-label')}</h2>
-        <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => void app.refreshOutbox()}>
+        <button type="button" class={`btn btn--ghost ${a11y.focusable}`} disabled={app.outboxLoading()} onClick={() => void app.refreshOutbox()}>
           {t('mail-outbox-refresh')}
         </button>
       </header>
-      <Show when={app.outbox().length > 0} fallback={<p class={`outbox__empty ${css.empty}`}>{t('mail-outbox-empty')}</p>}>
+      <Show when={app.outbox().length > 0} fallback={<Show when={app.outboxLoading()} fallback={<p class={`outbox__empty ${css.empty}`}>{t('mail-outbox-empty')}</p>}><AsyncPending variant="list"/></Show>}>
         <ul class={`outbox__items ${css.items}`}>
           <For each={app.outbox()}>
             {(sub) => {

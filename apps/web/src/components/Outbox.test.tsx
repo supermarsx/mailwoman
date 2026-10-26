@@ -14,13 +14,13 @@ function sub(id: string, over: Partial<OutboxSubmission> = {}): OutboxSubmission
   return { id, emailId: `e-${id}`, identityId: null, sendAt: null, undoStatus: 'pending', mailwomanHoldSeconds: 0, ...over };
 }
 
-function renderOutbox(subs: OutboxSubmission[], messages: Record<string, OutboxMessage> = {}) {
+function renderOutbox(subs: OutboxSubmission[], messages: Record<string, OutboxMessage> = {}, loading = false) {
   const calls = {
     refreshOutbox: vi.fn(async () => undefined),
     sendOutboxNow: vi.fn(async (_id: string) => undefined),
     cancelOutbox: vi.fn(async (_id: string) => undefined),
   };
-  const app = { outbox: () => subs, outboxMessages: () => messages, ...calls } as unknown as AppState;
+  const app = { outbox: () => subs, outboxLoading: () => loading, outboxMessages: () => messages, ...calls } as unknown as AppState;
   render(() => (
     <AppContext.Provider value={app}>
       <Outbox />
@@ -38,6 +38,9 @@ function row(state: string): HTMLElement {
 const text = (el: HTMLElement): string => stripIsolates(el.textContent ?? '');
 
 describe('Outbox', () => {
+  it('shows pending instead of false empty during initial load', () => {
+    renderOutbox([],{},true);expect(screen.getByTestId('async-pending')).toBeInTheDocument();expect(screen.getByRole('button',{name:'Refresh'})).toBeDisabled();
+  });
   it('warns about unknown delivery without offering resend or cancellation', () => {
     renderOutbox([sub('unknown', { undoStatus: 'final', mailwomanDeliveryUncertain: true })]);
     const unknown = row('uncertain');

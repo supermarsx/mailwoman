@@ -16,6 +16,7 @@ function renderModule(seed: ContactsSeed = defaultSeed()): { app: AppState } {
 }
 
 describe('ContactsModule', () => {
+  it('shows an initial loading skeleton rather than an empty contact list',()=>{const app={...createAppState(makeContactsClient(defaultSeed())),contactsLoading:()=>true,loadContacts:async()=>undefined};render(()=><AppContext.Provider value={app}><ContactsModule/></AppContext.Provider>);expect(document.querySelector('[data-skeleton="list"]')).not.toBeNull();});
   beforeEach(() => localStorage.clear());
 
   it('lists the account contacts after load', async () => {
@@ -168,4 +169,3 @@ describe('ContactsModule', () => {
     await waitFor(()=>expect(app.contactGroups().find(group=>group.id==='g1')?.name).toBe('Team'));expect(app.contactGroups().find(group=>group.id==='g1')?.memberIds).toEqual(['c1']);
   });
 });
-

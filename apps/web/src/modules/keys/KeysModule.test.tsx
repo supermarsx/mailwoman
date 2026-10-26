@@ -55,6 +55,7 @@ describe('KeysModule', () => {
 
   it('lists the account own keys after load', async () => {
     renderModule();
+    expect(document.querySelector('[data-skeleton="list"]')).not.toBeNull();
     const ownList = await screen.findByRole('list', { name: 'Your keys' });
     expect(within(ownList).getByText('me@example.org')).toBeInTheDocument();
   });

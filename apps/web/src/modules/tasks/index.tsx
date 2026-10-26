@@ -1,3 +1,4 @@
+import {AsyncPending} from '../../components/AsyncState.tsx';
 // Tasks module (plan §2.5, §3 e5) — mounted into the app shell via the frozen
 // `AppModule` registry (`shell/modules.ts`). Task lists (CalDAV VTODO
 // collections), a create form, root tasks with nested subtasks, the My Day /
@@ -162,7 +163,7 @@ export function TasksModule(): JSX.Element {
           </button>
 
           <h2 class={css.sidebarHeading}>{t('tasks-lists-heading')}</h2>
-          <For each={app.taskLists()} fallback={<p class={css.meta}>{t('tasks-no-lists')}</p>}>
+          <For each={app.taskLists()} fallback={<Show when={app.tasksLoading()} fallback={<p class={css.meta}>{t('tasks-no-lists')}</p>}><AsyncPending variant="list"/></Show>}>
             {(list) => (
               <button
                 type="button"
@@ -208,7 +209,7 @@ export function TasksModule(): JSX.Element {
             <ol class={css.taskList} aria-label={t('tasks-my-day')}>
               <ForTasks
                 each={app.myDayTasks()}
-                fallback={<li class={css.empty}>{t('tasks-my-day-empty')}</li>}
+                fallback={<li class={css.empty}><Show when={app.tasksLoading()} fallback={t('tasks-my-day-empty')}><AsyncPending variant="list"/></Show></li>}
               >
                 {(task) => (
                   <li
@@ -258,9 +259,10 @@ export function TasksModule(): JSX.Element {
 
 /** The root task list of the focused list, each with its subtasks nested. */
 function TaskTree(props: { roots: Task[] }): JSX.Element {
+  const app=useApp();
   return (
     <ul class={css.taskList} aria-label={t('tasks-list-label')}>
-      <ForTasks each={props.roots} fallback={<li class={css.empty}>{t('tasks-empty-list')}</li>}>
+      <ForTasks each={props.roots} fallback={<li class={css.empty}><Show when={app.tasksLoading()} fallback={t('tasks-empty-list')}><AsyncPending variant="list"/></Show></li>}>
         {(task) => (
           <li data-task-id={task().id}>
             <TaskItem task={task()} />

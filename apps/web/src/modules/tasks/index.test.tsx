@@ -91,6 +91,7 @@ function renderTasks(tasks: Task[], onJmap?: (body: JmapRequest) => void): AppSt
 // ── tests ───────────────────────────────────────────────────────────────────
 
 describe('TasksModule', () => {
+  it('shows initial list loading rather than an empty task result',()=>{const app={...createAppState(mockClient([])),tasksLoading:()=>true,loadTasks:async()=>undefined};render(()=><AppContext.Provider value={app}><TasksModule/></AppContext.Provider>);expect(document.querySelector('[data-skeleton="list"]')).not.toBeNull();});
   it('renders the loaded task list and its lists in the sidebar', async () => {
     renderTasks([mkTask({ id: 't1', title: 'Write the report' }), mkTask({ id: 't2', title: 'Book the room' })]);
     expect(await screen.findByText('Write the report')).toBeInTheDocument();

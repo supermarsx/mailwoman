@@ -138,7 +138,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
           when={filtered().length > 0}
           fallback={<p class="mw-attach__status">{t('common-attach-empty')}</p>}
         >
-          <div class={table.wrap}><table class={table.table} aria-label={t('common-attach-title')} aria-busy={data.loading||searching()}><thead><tr><For each={COLUMNS}>{key=><th scope="col" aria-sort={sort().column===key?(sort().ascending?'ascending':'descending'):'none'}><button type="button" class={table.name} onClick={()=>setSort(old=>({column:key,ascending:old.column===key?!old.ascending:true}))}>{t(`common-attach-column-${key}`)}<Show when={sort().column===key}><Icon name={sort().ascending?'chevronUp':'chevronDown'}/></Show></button></th>}</For></tr></thead><tbody>
+          <div class={table.wrap} role="region" aria-label={t('common-attach-title')} tabIndex={0}><table class={table.table} aria-label={t('common-attach-title')} aria-busy={data.loading||searching()}><thead><tr><For each={COLUMNS}>{key=><th scope="col" aria-sort={sort().column===key?(sort().ascending?'ascending':'descending'):'none'}><button type="button" class={table.name} onClick={()=>setSort(old=>({column:key,ascending:old.column===key?!old.ascending:true}))}>{t(`common-attach-column-${key}`)}<Show when={sort().column===key}><Icon name={sort().ascending?'chevronUp':'chevronDown'}/></Show></button></th>}</For></tr></thead><tbody>
             <For each={filtered()}>
               {(item) => (
                 <tr>

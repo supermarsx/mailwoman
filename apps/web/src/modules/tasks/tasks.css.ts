@@ -5,7 +5,7 @@
 // `borderStrong` with 1px less padding wherever a border got thicker, focus as
 // an outline, the current list marked by a 4px bar.
 
-import { style } from '@vanilla-extract/css';
+import { style, globalStyle } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
 
 /** The focus outline (forced-colours mode keeps outlines and drops box-shadows). */
@@ -228,3 +228,8 @@ export const empty = style({
   fontStyle: 'italic',
   padding: vars.space[4],
 });
+
+// Phone-sized panes must not leave the task editor in a narrow second column.
+globalStyle(layout,{'@media':{'screen and (max-width: 40rem)':{gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'minmax(6rem,30%) minmax(0,1fr)',gap:vars.space[3],padding:vars.space[3],minHeight:0}}});
+globalStyle(sidebar,{'@media':{'screen and (max-width: 40rem)':{minHeight:0,overflow:'auto',borderInlineEnd:0,borderBlockEnd:rule,paddingInlineEnd:0}}});
+globalStyle(main,{'@media':{'screen and (max-width: 40rem)':{minWidth:0,minHeight:0,overflow:'auto'}}});
