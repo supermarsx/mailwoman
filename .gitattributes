@@ -25,3 +25,8 @@ fixtures/crypto/** -text
 # Applied migration bytes are immutable (SQLx checksums include CRLF).
 crates/mw-store/migrations/0058_plugin_egress.sql -text whitespace=cr-at-eol
 crates/mw-store/migrations_pg/0058_plugin_egress.sql -text whitespace=cr-at-eol
+# Request-protection migrations are authored and frozen with exact LF bytes.
+crates/mw-store/migrations/0059_request_protection.sql -text
+crates/mw-store/migrations_pg/0059_request_protection.sql -text
+crates/mw-store/migrations/0061_request_protection_keys.sql -text
+crates/mw-store/migrations_pg/0061_request_protection_keys.sql -text

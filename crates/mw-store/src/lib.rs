@@ -11,6 +11,8 @@ pub mod branding;
 pub mod identity_principal;
 pub mod oidc_provider;
 mod signin_challenges;
+pub mod request_protection_model;
+pub mod request_protection;
 mod auth_logs;
 pub mod auth_failures;
 mod hosting_connections;

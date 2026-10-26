@@ -159,7 +159,7 @@ impl ServerKey {
 /// HMAC-SHA256 (RFC 2104) over `sha2`, which this crate already links; `mw-store`
 /// has no `hmac` dependency and this is the only MAC it needs. Checked against the
 /// RFC 4231 vectors below.
-fn hmac_sha256(key: &[u8], msg: &[u8]) -> [u8; 32] {
+pub(crate) fn hmac_sha256(key: &[u8], msg: &[u8]) -> [u8; 32] {
     use sha2::{Digest, Sha256};
     const BLOCK: usize = 64;
     let mut k = [0u8; BLOCK];

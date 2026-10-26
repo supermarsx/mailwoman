@@ -1569,6 +1569,18 @@ const TABLES: &[TableSpec] = &[
         map: |r| vec![t(r,"surface"),t(r,"source_ip"),t(r,"attempts_json"),i(r,"locked_until"),i(r,"expires_at"),t(r,"revision")],
     },
     TableSpec {
+        name:"request_protection_subject",
+        select:"SELECT subject_key,subject_kind,state_json,updated_at,expires_at,revision FROM request_protection_subject",
+        insert:"INSERT INTO request_protection_subject(subject_key,subject_kind,state_json,updated_at,expires_at,revision) VALUES(?1,?2,?3,?4,?5,?6)",
+        map:|r|vec![t(r,"subject_key"),t(r,"subject_kind"),t(r,"state_json"),i(r,"updated_at"),i(r,"expires_at"),t(r,"revision")],
+    },
+    TableSpec {
+        name:"request_protection_event",
+        select:"SELECT id,subject_key,subject_kind,observed_at,reason,action,enforced,retry_after_secs,counts_json FROM request_protection_event",
+        insert:"INSERT INTO request_protection_event(id,subject_key,subject_kind,observed_at,reason,action,enforced,retry_after_secs,counts_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        map:|r|vec![t(r,"id"),t(r,"subject_key"),t(r,"subject_kind"),i(r,"observed_at"),t(r,"reason"),t(r,"action"),i(r,"enforced"),i(r,"retry_after_secs"),t(r,"counts_json")],
+    },
+    TableSpec {
         name: "remembered_device",
         select: "SELECT id, account_id, token_hash, label, created_at, expires_at, last_used_at FROM remembered_device",
         insert: "INSERT INTO remembered_device (id, account_id, token_hash, label, created_at, expires_at, last_used_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
