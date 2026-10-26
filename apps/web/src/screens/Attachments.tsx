@@ -104,7 +104,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
     <section class="mw-attach" data-mw-surface aria-label={t('common-attach-title')}>
       <header class="mw-attach__bar">
         <h2 class="mw-attach__title">{t('common-attach-title')}</h2>
-        <button type="button" class={table.name} aria-label={t('common-attach-refresh')} title={t('common-attach-refresh')} disabled={data.loading} onClick={()=>void refetch()}><Icon name="refresh"/></button>
+        <button type="button" class={table.name} aria-label={t('common-attach-refresh')} title={t('common-attach-refresh')} disabled={data.loading||searching()} onClick={()=>{if(search())void searchAccount();else void refetch();}}><Icon name="refresh"/></button>
         <input
           class="mw-attach__search"
           type="search"

@@ -29,6 +29,10 @@ describe('Attachments module', () => {
     await screen.findByText('logo.png');
     await screen.findByText(/Search complete/);
     expect(screen.queryByRole('navigation',{name:'Attachment pages'})).not.toBeInTheDocument();
+    load.mockClear();
+    fireEvent.click(screen.getByRole('button',{name:'Refresh attachments'}));
+    await screen.findByText(/Search complete/);
+    expect(load.mock.calls.map(call=>call[0])).toEqual([0,50]);
     fireEvent.input(screen.getByLabelText('Search attachments'),{target:{value:'report'}});
     await screen.findByText('Q3-report.pdf');
     expect(screen.queryByText(/Search complete/)).not.toBeInTheDocument();
