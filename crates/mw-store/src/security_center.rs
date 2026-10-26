@@ -65,7 +65,7 @@ impl Store {
         stale_before: &str,
     ) -> Result<serde_json::Value, StoreError> {
         let coverage=q("WITH known AS (SELECT id AS account_id FROM accounts UNION SELECT account_id FROM sessions UNION SELECT account_id FROM signin_identity) SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN EXISTS(SELECT 1 FROM totp_secrets t WHERE t.account_id=known.account_id AND t.confirmed=1) OR EXISTS(SELECT 1 FROM webauthn_credentials w WHERE w.account_id=known.account_id) THEN 1 ELSE 0 END),0) AS enrolled FROM known").fetch_optional(&self.backend).await?.ok_or(StoreError::NotFound)?;
-        let admins=q("SELECT COUNT(*) AS n FROM admin_account a WHERE disabled=0 AND password_hash IS NOT NULL AND NOT EXISTS(SELECT 1 FROM admin_totp t WHERE t.account_id=a.id)").fetch_optional(&self.backend).await?.ok_or(StoreError::NotFound)?.get_i64("n");
+        let admins=q("SELECT COUNT(*) AS n FROM admin_account a WHERE disabled=0 AND NOT EXISTS(SELECT 1 FROM admin_totp t WHERE t.account_id=a.id) AND NOT EXISTS(SELECT 1 FROM admin_webauthn_credentials w WHERE w.account_id=a.id)").fetch_optional(&self.backend).await?.ok_or(StoreError::NotFound)?.get_i64("n");
         let keys=q("SELECT COUNT(*) AS n FROM api_keys WHERE revoked_at IS NULL AND COALESCE(last_used_at,created_at)<?1").bind(stale_before).fetch_optional(&self.backend).await?.ok_or(StoreError::NotFound)?.get_i64("n");
         Ok(
             serde_json::json!({"knownAccounts":coverage.get_i64("total"),"accountsWithFactor":coverage.get_i64("enrolled"),"adminsWithoutFactor":admins,"staleApiKeys":keys}),
@@ -390,6 +390,40 @@ impl Store {
 mod tests {
     use super::*;
     use crate::{Credentials, ServerKey};
+    #[tokio::test]
+    async fn posture_counts_password_and_environment_admin_factors_accurately() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        for (id, source, password, disabled) in [
+            ("db", "db", Some("hash"), 0_i64),
+            ("env", "env-bootstrap", None, 0),
+            ("disabled", "db", Some("hash"), 1),
+        ] {
+            q("INSERT INTO admin_account(id,username,display_name,password_hash,disabled,source,created_at,updated_at) VALUES(?1,?1,?1,?2,?3,?4,0,0)").bind(id).bind(password).bind(disabled).bind(source).execute(&store.backend).await.unwrap();
+        }
+        assert_eq!(
+            store
+                .security_posture_counts("2000-01-01T00:00:00Z")
+                .await
+                .unwrap()["adminsWithoutFactor"],
+            2
+        );
+        q("INSERT INTO admin_webauthn_credentials(credential_id,account_id,cose_public_key,sign_count,transports,label,created_at,backup_eligible,backup_state,uv_initialized) VALUES('key','db',?1,0,'[]','fixture','2026-01-01',0,0,1)").bind(vec![1u8]).execute(&store.backend).await.unwrap();
+        assert_eq!(
+            store
+                .security_posture_counts("2000-01-01T00:00:00Z")
+                .await
+                .unwrap()["adminsWithoutFactor"],
+            1
+        );
+        q("INSERT INTO admin_totp(account_id,sealed_secret,last_step,enrolled_at) VALUES('env',?1,0,0)").bind(vec![1u8]).execute(&store.backend).await.unwrap();
+        assert_eq!(
+            store
+                .security_posture_counts("2000-01-01T00:00:00Z")
+                .await
+                .unwrap()["adminsWithoutFactor"],
+            0
+        );
+    }
     #[tokio::test]
     async fn activity_migration_keeps_old_baseline_and_rotation_cannot_extend_it() {
         let pool = sqlx::sqlite::SqlitePoolOptions::new()

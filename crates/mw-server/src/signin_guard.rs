@@ -28,7 +28,10 @@ fn unavailable() -> AdminApiError {
         "Sign-in protection is temporarily unavailable",
     )
 }
-async fn policy(state: &AppState, surface: AuthSurface) -> Result<FailurePolicy, AdminApiError> {
+pub(crate) async fn policy(
+    state: &AppState,
+    surface: AuthSurface,
+) -> Result<FailurePolicy, AdminApiError> {
     async fn number(state: &AppState, key: &str, default: u64) -> Result<u64, AdminApiError> {
         let value = crate::settings_registry::effective_for(&state.store, key, &Default::default())
             .await

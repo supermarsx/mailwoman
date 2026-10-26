@@ -1,0 +1,22 @@
+import { test,expect } from '../csrf.ts';
+test('deployment assessment reports actual runtime and makes limits visible @phone',async({page})=>{
+ await new Promise(resolve=>setTimeout(resolve,3100));
+ await page.goto('/admin');await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await expect.poll(async()=>(await page.request.get('/admin/session')).status()).toBe(200);
+ await page.goto('/admin#/diagnostics');
+ const loaded=page.waitForResponse(r=>r.url().endsWith('/admin/security/deployment')&&r.request().method()==='GET');
+ await page.getByRole('link',{name:'Deployment security assessment',exact:true}).click();
+ const response=await loaded;expect(response.status()).toBe(200);expect(response.headers()['cache-control']).toBe('private, no-store');
+ const body=await response.json();expect(body.scope).toBe('current-process-and-request');expect(body.checks.length).toBe(11);
+ await expect(page.getByRole('table',{name:'Deployment security assessment'})).toBeVisible();
+ await expect(page.getByText(/Public TLS certificates, reverse-proxy configuration/)).toBeVisible();
+ await page.getByLabel('Find a check').fill('Administrator session');
+ await expect(page.getByRole('table').getByText('Administrator session limits',{exact:true})).toBeVisible();
+ await expect(page.getByRole('table').getByText('HTTPS request',{exact:true})).toHaveCount(0);
+ await page.getByLabel('Find a check').fill('');
+ await page.getByRole('combobox',{name:'Status',exact:true}).selectOption('warning');
+ await expect(page.getByRole('table').getByText('Review needed').first()).toBeVisible();
+ await page.getByRole('combobox',{name:'Status',exact:true}).selectOption('all');
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ await page.screenshot({path:test.info().outputPath('deployment-security-assessment.png'),fullPage:true});
+});

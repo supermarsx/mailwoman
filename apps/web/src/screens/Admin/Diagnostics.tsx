@@ -6,6 +6,7 @@ import { useShell } from './shell/context.ts';
 import * as css from './admin.css.ts';
 import * as ux from './shell/ux.css.ts';
 import { AsyncPending } from '../../components/AsyncState.tsx';
+import { DeploymentSecurity } from './DeploymentSecurity.tsx';
 
 interface Check { id: string; status: string; durationMs: number; summary: string; domain?: string; backendId?: string; protocol?: string; fixId?: string }
 interface Run { id: string; suite: string; startedAt: number; status: string; results: Check[] }
@@ -32,6 +33,10 @@ const httpApi: DiagnosticsApi = {
 };
 
 export function Diagnostics(props: { api?: DiagnosticsApi }): JSX.Element {
+  const shell=useShell();
+  return <Show when={shell.router.route().rest[0]==='security'} fallback={<DiagnosticRuns {...props}/>}><DeploymentSecurity/></Show>;
+}
+function DiagnosticRuns(props: { api?: DiagnosticsApi }): JSX.Element {
   const shell = useShell();
   const api = (): DiagnosticsApi => props.api ?? httpApi;
   const [runs, setRuns] = createSignal<Run[]>([]);
@@ -84,6 +89,7 @@ export function Diagnostics(props: { api?: DiagnosticsApi }): JSX.Element {
     <h2 class={css.heading}>{t('admin-diag-title')}</h2>
     <p class={css.note}>{t('admin-diag-description')}</p>
     <div class={ux.pageActions}>
+      <a class="btn" href="#/diagnostics/security">{t('admin-deployment-title')}</a>
       <button class="btn btn--primary" type="button" disabled={busy() || !shell.can.can('diagnostics.run')} onClick={() => void run()}>{t('admin-diag-run')}</button>
       <button class="btn" type="button" disabled={busy()} onClick={() => void history()}>{t('admin-diag-refresh')}</button>
       <Show when={api().start}><button class="btn" type="button" disabled={busy() || !shell.can.can('diagnostics.run') || (!!api().catalogue && catalogue()?.canRunBackends!==true)} title={t('admin-diag-backends-permission')} onClick={()=>void startBackends()}>{t('admin-diag-backends')}</button></Show>
