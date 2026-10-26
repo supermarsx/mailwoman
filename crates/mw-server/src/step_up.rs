@@ -87,12 +87,14 @@ pub enum StepUpAction {
     ConfigImport,
     /// Configure an integration or mutate its remote managed resources.
     IntegrationManage,
+    /// An admin changes deployment-wide source IP admission.
+    BanManage,
     /// An admin exports a user's data.
     AdminDataExport,
 }
 
 impl StepUpAction {
-    pub const ALL: [StepUpAction; 11] = [
+    pub const ALL: [StepUpAction; 12] = [
         StepUpAction::DataExport,
         StepUpAction::DelegationGrant,
         StepUpAction::ApiKeyCreate,
@@ -103,6 +105,7 @@ impl StepUpAction {
         StepUpAction::UpdatesApply,
         StepUpAction::ConfigImport,
         StepUpAction::IntegrationManage,
+        StepUpAction::BanManage,
         StepUpAction::AdminDataExport,
     ];
 
@@ -119,6 +122,7 @@ impl StepUpAction {
             StepUpAction::UpdatesApply => "updatesApply",
             StepUpAction::ConfigImport => "configImport",
             StepUpAction::IntegrationManage => "integrationManage",
+            StepUpAction::BanManage => "banManage",
             StepUpAction::AdminDataExport => "adminDataExport",
         }
     }
@@ -154,6 +158,7 @@ pub mod action {
         UpdatesApply,
         ConfigImport,
         IntegrationManage,
+        BanManage,
         AdminDataExport,
     );
 }

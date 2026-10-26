@@ -7,8 +7,7 @@ import * as auditCss from './shell/audit.css.ts';
 // Telemetry has a dedicated editor under /observability/telemetry. Its typed
 // configuration is applied at server startup, with explicit environment pins.
 //
-// The ban list is a record, and the screen says so: no request path refuses a
-// listed address (`mw_admin::BanEntry`, `crates/mw-admin/src/lib.rs`).
+// Active bans are enforced against the trusted client IP on application requests.
 
 import { createSignal, For, Show, onMount, useContext, lazy, type JSX } from 'solid-js';
 import { ShellContext } from './shell/context.ts';
@@ -16,19 +15,31 @@ import { sectionPath } from './shell/router.ts';
 import { useAdmin } from './context.ts';
 import type { AuditLogEntry, BanEntry } from '../../state/slices/admin.ts';
 import { t } from '../../i18n';
+import { DataTable, type Column } from './shell/DataTable.tsx';
 import { Feedback } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 
+const BanEditor = lazy(() => import('./BanEditor.tsx').then(module => ({ default: module.BanEditor })));
 const Telemetry = lazy(() => import('./Telemetry.tsx').then(module => ({ default: module.Telemetry })));
 export function Observability(): JSX.Element {
   const shell = useContext(ShellContext);
-  return <Show when={shell?.router.route().rest[0] === 'telemetry'} fallback={<ObservabilityAudit/>}><Telemetry/></Show>;
+  return <Show when={shell?.router.route().rest[0] === 'telemetry'} fallback={<Show when={shell?.router.route().rest[0] === 'bans' && shell?.router.route().rest[1] === 'new'} fallback={<ObservabilityAudit/>}><BanEditor/></Show>}><Telemetry/></Show>;
 }
 function ObservabilityAudit(): JSX.Element {
   const shell = useContext(ShellContext);
   const { api } = useAdmin();
   const [audit, setAudit] = createSignal<AuditLogEntry[]>([]);
   const [bans, setBans] = createSignal<BanEntry[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [query, setQuery] = createSignal('');
+  const [onlyActive, setOnlyActive] = createSignal(false);
+  const expired = (ban: BanEntry): boolean => !!ban.expiresAt && Number.isFinite(Date.parse(ban.expiresAt)) && Date.parse(ban.expiresAt) <= Date.now();
+  const visibleBans = (): BanEntry[] => bans().filter(ban => (!onlyActive() || !expired(ban)) && `${ban.ip} ${ban.reason}`.toLowerCase().includes(query().trim().toLowerCase()));
+  const banColumns = (): Column<BanEntry>[] => [
+    { id: 'ip', header: t('admin-obs-ban-ip'), cell: ban => <span class={css.mono}>{ban.ip}</span> },
+    { id: 'reason', header: t('admin-obs-ban-reason'), cell: ban => <span dir="auto">{ban.reason}</span> },
+    { id: 'expiry', header: t('admin-obs-ban-status'), cell: ban => <span>{ban.expiresAt && Number.isFinite(Date.parse(ban.expiresAt)) ? `${t(expired(ban) ? 'admin-obs-ban-expired' : 'admin-obs-ban-until')} ${formatDateTime(ban.expiresAt)}` : t('admin-obs-ban-permanent')}</span> },
+  ];
   const [error, setError] = createSignal<string | null>(null);
   // An action's failure is a toast (t32 f39); a load failure stays on the page.
   const [failure, setFailure] = createSignal<string | null>(null);
@@ -36,10 +47,9 @@ function ObservabilityAudit(): JSX.Element {
     setFailure(null);
     setFailure(message);
   }
-  const [banIp, setBanIp] = createSignal('');
-  const [banReason, setBanReason] = createSignal('');
 
   async function reload(): Promise<void> {
+    setLoading(true);
     try {
       const [a, b] = await Promise.all([api.listAudit(100), api.listBans()]);
       setAudit(a);
@@ -47,7 +57,7 @@ function ObservabilityAudit(): JSX.Element {
       setError(null);
     } catch {
       setError(t('admin-obs-load-error'));
-    }
+    } finally { setLoading(false); }
   }
   onMount(() => void reload());
 
@@ -63,19 +73,6 @@ function ObservabilityAudit(): JSX.Element {
       URL.revokeObjectURL(url);
     } catch {
       fail(t('admin-obs-export-error'));
-    }
-  }
-
-  async function onAddBan(e: Event): Promise<void> {
-    e.preventDefault();
-    if (banIp().trim() === '') return;
-    try {
-      await api.addBan({ ip: banIp().trim(), reason: banReason().trim(), expiresAt: null });
-      setBanIp('');
-      setBanReason('');
-      await reload();
-    } catch {
-      fail(t('admin-obs-ban-add-error'));
     }
   }
 
@@ -145,43 +142,12 @@ function ObservabilityAudit(): JSX.Element {
         <p class={css.note} data-testid="admin-obs-bans-note">
           {t('admin-obs-bans-note')}
         </p>
-        <form onSubmit={(e) => void onAddBan(e)} aria-label={t('admin-obs-ban-add')} class={css.grid}>
-          <label class="field">
-            <span>{t('admin-obs-ban-ip')}</span>
-            <input type="text" value={banIp()} onInput={(e) => setBanIp(e.currentTarget.value)} />
-          </label>
-          <label class="field">
-            <span>{t('admin-obs-ban-reason')}</span>
-            <input type="text" value={banReason()} onInput={(e) => setBanReason(e.currentTarget.value)} />
-          </label>
-          <button type="submit" class="btn btn--primary">
-            {t('admin-obs-ban-btn')}
-          </button>
-        </form>
-        <Show when={bans().length > 0} fallback={<p class={css.note}>{t('admin-obs-bans-empty')}</p>}>
-          <For each={bans()}>
-            {(b) => (
-              <div class={css.listRow}>
-                <div>
-                  <span class={css.mono} dir="auto">
-                    {b.ip}
-                  </span>{' '}
-                  <span class={css.note} dir="auto">
-                    {b.reason}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  class="btn btn--ghost"
-                  aria-label={t('admin-obs-unban-for', { ip: b.ip })}
-                  onClick={() => void onUnban(b.ip)}
-                >
-                  {t('admin-obs-unban-btn')}
-                </button>
-              </div>
-            )}
-          </For>
-        </Show>
+        <button type="button" class="btn btn--primary" onClick={() => void shell?.router.navigate(sectionPath('observability', ['bans', 'new']))}>{t('admin-obs-ban-add')}</button>
+        <DataTable<BanEntry> caption={t('admin-obs-bans')} columns={banColumns()} rows={visibleBans()} rowKey={ban => ban.ip} state={loading() ? 'loading' : error() ? 'error' : 'ready'} errorText={error() ?? ''} onRetry={() => void reload()} emptyText={t('admin-obs-bans-empty')}
+          search={{ label: t('admin-obs-ban-search'), value: query(), onSearch: setQuery }}
+          filters={[{ id: 'active', label: t('admin-obs-ban-active-only'), active: onlyActive() }]} onToggleFilter={() => setOnlyActive(value => !value)}
+          rowActions={ban => <button type="button" class="btn btn--ghost" aria-label={t('admin-obs-unban-for', { ip: ban.ip })} onClick={() => void onUnban(ban.ip)}>{t('admin-obs-unban-btn')}</button>}
+        />
       </div>
     </section>
   );

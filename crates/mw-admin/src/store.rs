@@ -287,7 +287,7 @@ impl AdminBackend for InMemoryBackend {
     }
 
     async fn remove_ban(&self, ip: &str) -> Result<(), AdminError> {
-        self.lock().bans.remove(ip);
+        self.lock().bans.retain(|_, ban| !ban.matches_ip(ip));
         Ok(())
     }
 
@@ -298,7 +298,7 @@ impl AdminBackend for InMemoryBackend {
     }
 
     async fn is_banned(&self, ip: &str) -> Result<bool, AdminError> {
-        Ok(self.lock().bans.contains_key(ip))
+        Ok(self.lock().bans.values().any(|ban| ban.matches_ip(ip) && ban.active_at(chrono::Utc::now())))
     }
 
     async fn get_deployment_appearance(&self) -> Result<Option<Appearance>, AdminError> {

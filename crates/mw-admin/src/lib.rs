@@ -105,15 +105,30 @@ pub struct AuditLogEntry {
 }
 
 /// A ban-list entry (login-monitor / ban-list, fail2ban-compatible; see
-/// [`banlist`]). A record only: no request path consults the list, and
-/// `expires_at` is stored without being acted on. Blocking is done by a fail2ban
-/// jail reading the log line the login monitor emits.
+/// [`banlist`]). The server enforces active entries against trusted client IPs.
+/// Fail2ban may independently consume the login monitor log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BanEntry {
     pub ip: String,
     pub reason: String,
     pub banned_at: String,
     pub expires_at: Option<String>,
+}
+
+impl BanEntry {
+    /// Match legacy textual IPv6 spellings using the same canonical address.
+    pub fn matches_ip(&self, ip: &str) -> bool {
+        match (self.ip.parse::<std::net::IpAddr>(), ip.parse::<std::net::IpAddr>()) {
+            (Ok(stored), Ok(candidate)) => stored.to_canonical() == candidate.to_canonical(),
+            _ => self.ip == ip,
+        }
+    }
+    /// Invalid legacy expiry fails closed; valid expiry releases the address.
+    pub fn active_at(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
+        self.expires_at.as_ref().is_none_or(|value| {
+            chrono::DateTime::parse_from_rfc3339(value).map_or(true, |until| until > now)
+        })
+    }
 }
 
 /// The admin-configurable cache scope matrix row (`cache_scope` table, 0007;
@@ -854,6 +869,18 @@ impl Admin {
         reason: &str,
         expires_at: Option<String>,
     ) -> Result<(), AdminError> {
+        let ip = ip.parse::<std::net::IpAddr>()
+            .map_err(|_| AdminError::Invalid("invalid IP address".into()))?.to_canonical().to_string();
+        if reason.len() > 512 || reason.chars().any(char::is_control) {
+            return Err(AdminError::Invalid("invalid ban reason".into()));
+        }
+        if let Some(expiry) = expires_at.as_ref() {
+            let until = chrono::DateTime::parse_from_rfc3339(expiry)
+                .map_err(|_| AdminError::Invalid("invalid ban expiry".into()))?;
+            if until <= chrono::Utc::now() {
+                return Err(AdminError::Invalid("ban expiry must be in the future".into()));
+            }
+        }
         self.backend
             .add_ban(BanEntry {
                 ip: ip.to_string(),
@@ -878,7 +905,14 @@ impl Admin {
     }
 
     pub async fn unban_ip(&self, actor: &str, ip: &str) -> Result<(), AdminError> {
-        self.backend.remove_ban(ip).await?;
+        if ip.is_empty() || ip.len() > 128 || ip.chars().any(char::is_control) {
+            return Err(AdminError::Invalid("invalid ban identifier".into()));
+        }
+        // Permit exact deletion of bounded historical non-address rows, while
+        // creation still requires a real address.
+        let ip = ip.parse::<std::net::IpAddr>()
+            .map(|ip| ip.to_canonical().to_string()).unwrap_or_else(|_| ip.to_owned());
+        self.backend.remove_ban(&ip).await?;
         self.emit(
             actor,
             ActorKind::Admin,
@@ -893,8 +927,7 @@ impl Admin {
         self.backend.list_bans().await
     }
 
-    /// Whether `ip` is on the ban list. No request path calls this — see
-    /// [`BanEntry`].
+    /// Whether `ip` currently has an active ban.
     pub async fn is_banned(&self, ip: &str) -> Result<bool, AdminError> {
         self.backend.is_banned(ip).await
     }
@@ -1217,5 +1250,37 @@ mod tests {
                 disabled: true,
             }
         );
+    }
+}
+
+#[cfg(test)]
+mod ban_validation_tests {
+    use super::*;
+    #[tokio::test]
+    async fn validates_canonical_addresses_and_expiry() {
+        let admin=Admin::in_memory();
+        assert!(admin.ban_ip("root","not-an-ip","test",None).await.is_err());
+        assert!(admin.ban_ip("root","192.0.2.1","test",Some("bad".into())).await.is_err());
+        assert!(admin.ban_ip("root","192.0.2.1","test",Some("2000-01-01T00:00:00Z".into())).await.is_err());
+        admin.ban_ip("root","::ffff:192.0.2.1","test",None).await.unwrap();
+        assert!(admin.is_banned("192.0.2.1").await.unwrap());
+        admin.unban_ip("root","::ffff:192.0.2.1").await.unwrap();
+        assert!(!admin.is_banned("192.0.2.1").await.unwrap());
+        admin.backend.add_ban(BanEntry {
+            ip: "admin-panel".into(), reason: "legacy".into(),
+            banned_at: chrono::Utc::now().to_rfc3339(), expires_at: None,
+        }).await.unwrap();
+        assert!(admin.list_bans().await.unwrap().iter().any(|ban| ban.ip == "admin-panel"));
+        admin.unban_ip("root", "admin-panel").await.unwrap();
+        assert!(!admin.list_bans().await.unwrap().iter().any(|ban| ban.ip == "admin-panel"));
+    }
+    #[test]
+    fn expiry_is_exclusive_at_the_exact_deadline() {
+        let now=chrono::DateTime::parse_from_rfc3339("2026-01-01T12:00:00Z").unwrap().with_timezone(&chrono::Utc);
+        let mut ban=BanEntry{ip:"192.0.2.1".into(),reason:"test".into(),banned_at:now.to_rfc3339(),expires_at:Some(now.to_rfc3339())};
+        assert!(!ban.active_at(now));
+        assert!(ban.active_at(now-chrono::Duration::seconds(1)));
+        ban.expires_at=None; assert!(ban.active_at(now));
+        ban.expires_at=Some("malformed".into()); assert!(ban.active_at(now));
     }
 }

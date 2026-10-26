@@ -59,12 +59,13 @@ describe('Admin › Observability', () => {
     expect(region).toHaveTextContent('MW_METRICS_TOKEN');
   });
 
-  it('says the ban list is a record that blocks nothing', async () => {
+  it('explains active bans, trusted source addresses and health exemptions', async () => {
     renderWithAdmin(() => <Observability />);
     const note = await screen.findByTestId('admin-obs-bans-note');
-    expect(note).toHaveTextContent('This list is a record');
-    expect(note).toHaveTextContent('does not refuse connections');
-    expect(note).toHaveTextContent('fail2ban');
+    expect(note).toHaveTextContent('block application requests');
+    expect(note).toHaveTextContent('Expired entries no longer block');
+    expect(note).toHaveTextContent('Health checks remain available');
+    expect(note).toHaveTextContent('configured proxies');
   });
 
   it('lists bans and can unban', async () => {

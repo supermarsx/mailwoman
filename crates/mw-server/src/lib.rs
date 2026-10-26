@@ -39,6 +39,7 @@ pub mod engine_mode;
 mod attachment_preview;
 mod attachment_policy;
 mod notification_policy;
+mod source_bans;
 mod delivery_status;
 mod branding_routes;
 mod analytics_adapter;
@@ -1518,6 +1519,7 @@ fn router(
             state.clone(),
             state_change_guard,
         ))
+        .layer(middleware::from_fn_with_state(state.clone(), source_bans::guard))
         // V5 (plan §2.2; t31 D10): CORS/preflight for the native shell origins
         // (the Tauri origins plus `MW_NATIVE_ORIGINS`). Any other origin passes
         // through untouched, so the browser path emits no `Access-Control-*` headers.

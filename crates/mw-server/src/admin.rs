@@ -664,7 +664,8 @@ async fn export_audit(
     }
 }
 
-async fn list_bans(State(state): State<AppState>, _ctx: AdminCtx) -> Response {
+async fn list_bans(State(state): State<AppState>, ctx: AdminCtx) -> Response {
+    if let Err(error) = ctx.require_unscoped(Capability::BansRead) { return error.into_response(); }
     match state.v6.admin.list_bans().await {
         Ok(list) => Json(
             list.into_iter()
@@ -696,6 +697,8 @@ async fn add_ban(
     ctx: AdminCtx,
     Json(body): Json<BanReq>,
 ) -> Response {
+    if let Err(error) = ctx.require_unscoped(Capability::BansWrite) { return error.into_response(); }
+    if let Err(error) = crate::step_up::require_admin(&state, &ctx, crate::step_up::StepUpAction::BanManage).await { return error.into_response(); }
     let actor = ctx.username.clone();
     match state
         .v6
@@ -704,6 +707,7 @@ async fn add_ban(
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(AdminError::Invalid(reason)) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"code":"invalidBan","error":reason}))).into_response(),
         Err(e) => err500(e),
     }
 }
@@ -713,9 +717,12 @@ async fn remove_ban(
     ctx: AdminCtx,
     UrlPath(ip): UrlPath<String>,
 ) -> Response {
+    if let Err(error) = ctx.require_unscoped(Capability::BansWrite) { return error.into_response(); }
+    if let Err(error) = crate::step_up::require_admin(&state, &ctx, crate::step_up::StepUpAction::BanManage).await { return error.into_response(); }
     let actor = ctx.username.clone();
     match state.v6.admin.unban_ip(&actor, &ip).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(AdminError::Invalid(reason)) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"code":"invalidBan","error":reason}))).into_response(),
         Err(e) => err500(e),
     }
 }
@@ -938,7 +945,12 @@ mod tests {
             admin_password: Some(ADMIN_PASS.into()),
             redis_url: None,
         };
-        build_app_full(config, v6).await.expect("server boots").0
+        let app = build_app_full(config, v6).await.expect("server boots").0;
+        // These cases isolate the failed-credential monitor; initial-attempt
+        // pacing has its own real HTTP suite.
+        let pool = sqlx::SqlitePool::connect(&format!("sqlite:{}", db.display())).await.unwrap();
+        sqlx::query("INSERT INTO setting_policy(key,global_value,updated_by,updated_at) VALUES('signin.retryCooldownSecs','0','test',0)").execute(&pool).await.unwrap();
+        app
     }
 
     /// A server whose requests carry a peer address — what `main.rs` serves in
@@ -1007,13 +1019,17 @@ mod tests {
             .unwrap();
         assert_eq!(
             response.status(),
-            401,
+            403,
             "an active source ban also blocks a correct password"
         );
     }
 
-    async fn bans(c: &reqwest::Client, base: &str, cookie: &str) -> Vec<serde_json::Value> {
-        let resp = c
+    async fn bans(_c: &reqwest::Client, base: &str, cookie: &str) -> Vec<serde_json::Value> {
+        // Observe from a distinct real source; the banned existing session's
+        // original source must now be refused too.
+        let observer = reqwest::Client::builder().no_proxy()
+            .local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127,0,0,2))).build().unwrap();
+        let resp = observer
             .get(format!("{base}/admin/bans"))
             .header(reqwest::header::COOKIE, cookie)
             .send()

@@ -628,3 +628,38 @@ async fn managed_passkey_reset_requires_authority_and_revokes_target_sessions() 
         200
     );
 }
+
+#[tokio::test]
+async fn domain_scoped_ban_grants_cannot_manage_deployment_sources() {
+    let base=server().await;
+    let root=root(&base).await;
+    let role:Value=root.post(format!("{base}/admin/roles"))
+        .json(&json!({"name":"Scoped ban operator","capabilities":["bans.read","bans.write"]}))
+        .send().await.unwrap().json().await.unwrap();
+    create(&root,&base,"scoped-bans",json!([{"roleId":role["id"],"domains":["allowed.example"]}])).await;
+    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+    let limited=client();
+    assert_eq!(login(&limited,&base,"scoped-bans","long test password").await.status(),200);
+    confirm(&limited,&base,"long test password").await;
+    assert_eq!(limited.get(format!("{base}/admin/bans")).send().await.unwrap().status(),403);
+    assert_eq!(limited.post(format!("{base}/admin/bans")).json(&json!({"ip":"192.0.2.1","reason":"test","expiresAt":null})).send().await.unwrap().status(),403);
+    assert_eq!(limited.delete(format!("{base}/admin/bans/192.0.2.1")).send().await.unwrap().status(),403);
+    assert_eq!(root.post(format!("{base}/admin/bans")).json(&json!({"ip":"invalid","reason":"test","expiresAt":null})).send().await.unwrap().status(),422);
+}
+
+#[tokio::test]
+async fn source_ban_mutations_require_fresh_proof_and_allow_legacy_cleanup() {
+    let base=server().await;
+    let admin=client();
+    assert_eq!(login(&admin,&base,"root","hunter2").await.status(),200);
+    let payload=json!({"ip":"192.0.2.45","reason":"test","expiresAt":null});
+    let denied=admin.post(format!("{base}/admin/bans")).json(&payload).send().await.unwrap();
+    assert_eq!(denied.status(),403);
+    assert_eq!(denied.json::<Value>().await.unwrap()["action"],"banManage");
+    confirm(&admin,&base,"hunter2").await;
+    assert_eq!(admin.post(format!("{base}/admin/bans")).json(&payload).send().await.unwrap().status(),204);
+    assert_eq!(admin.delete(format!("{base}/admin/bans/192.0.2.45")).send().await.unwrap().status(),204);
+    // Historical non-address identifiers remain removable, but never creatable.
+    assert_eq!(admin.delete(format!("{base}/admin/bans/admin-panel")).send().await.unwrap().status(),204);
+    assert_eq!(admin.post(format!("{base}/admin/bans")).json(&json!({"ip":"admin-panel","reason":"test","expiresAt":null})).send().await.unwrap().status(),422);
+}
