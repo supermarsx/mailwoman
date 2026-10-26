@@ -5,7 +5,8 @@ export const panel=style({maxWidth:'none',maxHeight:'none',height:'100%',padding
 export const body=style({display:'grid',gridTemplateColumns:'minmax(9rem,12rem) minmax(0,1fr)',gap:vars.space[5],minHeight:0,flex:1,overflow:'hidden','@container':{'settings-workspace (max-width: 760px)':{gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'auto minmax(0,1fr)'}}});
 export const legacy=style({display:'contents'});
 export const nav=style({display:'flex',flexDirection:'column',gap:vars.space[1],overflow:'auto',alignItems:'stretch','@container':{'settings-workspace (max-width: 760px)':{flexDirection:'row',maxHeight:'3.5rem'}}});
-globalStyle(`${nav} button`,{textAlign:'start',padding:vars.space[2],whiteSpace:'nowrap',background:'transparent',color:vars.color.text,border:`1px solid transparent`});
+globalStyle(`${nav} button`,{display:'flex',alignItems:'center',gap:vars.space[2],textAlign:'start',padding:vars.space[2],whiteSpace:'nowrap',background:'transparent',color:vars.color.text,border:`1px solid transparent`});
+globalStyle(`${nav} button svg`,{flex:'0 0 auto',inlineSize:'16px',blockSize:'16px'});
 globalStyle(`${nav} button[aria-current="page"]`,{borderColor:vars.color.borderStrong,background:vars.color.surface});
 export const content=style({minWidth:0,minHeight:0,overflow:'auto',display:'flex',flexDirection:'column',gap:vars.space[5]});
 export const appearance=style({selectors:{'&:not([hidden])':{display:'flex',flexDirection:'column',gap:vars.space[6]}}});

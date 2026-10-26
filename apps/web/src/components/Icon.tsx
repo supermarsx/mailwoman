@@ -10,6 +10,7 @@
 import type { JSX } from 'solid-js';
 
 export type IconName =
+  | 'home' | 'briefcase' | 'heart' | 'shopping' | 'education' | 'travel' | 'coffee' | 'gift' | 'bank' | 'book'
   | 'identityProvider'
   | 'shield'
   | 'fileAudio' | 'fileVideo' | 'filePdf' | 'fileCode'
@@ -111,6 +112,16 @@ const S = { fill: 'none', stroke: 'currentColor', 'stroke-width': '2' } as const
 const F = { fill: 'currentColor' } as const;
 
 const PATHS: Record<IconName, () => JSX.Element> = {
+  home: () => <><path d="M1 7l7-6 7 6M3 6v9h10V6M6 15v-5h4v5" {...S}/></>,
+  briefcase: () => <><rect x="1" y="5" width="14" height="10" {...S}/><path d="M5 5V2h6v3M1 9h14M7 8v3h2V8" {...S}/></>,
+  heart: () => <path d="M8 14L2 8C-2 3 5-1 8 4c3-5 10-1 6 4z" {...S}/>,
+  shopping: () => <><path d="M3 5h10l1 10H2zM5 6V4a3 3 0 016 0v2" {...S}/></>,
+  education: () => <><path d="M1 5l7-4 7 4-7 4zM4 7v5c3 3 5 3 8 0V7M15 5v7" {...S}/></>,
+  travel: () => <><path d="M1 8l5-1 3-6h2L9 7l6 2v2l-6-1-1 5H6l-1-5-4-1z" {...S}/></>,
+  coffee: () => <><path d="M2 5h9v5a4 4 0 01-8 0V5M11 6h2a2 2 0 010 4h-2M1 15h13M4 1v2M8 1v2" {...S}/></>,
+  gift: () => <><rect x="1" y="6" width="14" height="3" {...S}/><path d="M2 9v6h12V9M8 6v9M8 6C0 6 3-2 8 4c5-6 8 2 0 2z" {...S}/></>,
+  bank: () => <><path d="M1 5l7-4 7 4zM3 7v5M8 7v5M13 7v5M1 15h14" {...S}/></>,
+  book: () => <><path d="M8 3C5 1 2 1 1 2v12c2-1 5-1 7 1 2-2 5-2 7-1V2c-1-1-4-1-7 1zM8 3v12" {...S}/></>,
   identityProvider: () => <><rect x="1" y="2" width="14" height="12" {...S}/><circle cx="5" cy="6" r="2" {...S}/><path d="M2 12v-1a3 3 0 016 0v1M10 6h3M10 9h3" {...S}/></>,
   replyAll: () => <><path d="M6 3L2 7l4 4M10 3L6 7l4 4M6 7h5c3 0 4 2 4 6" {...S}/></>,
   mailRead: () => <><path d="M1 6l7-5 7 5v9H1zM1 6l7 5 7-5" {...S}/></>,

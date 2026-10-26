@@ -89,7 +89,7 @@ export function AccountSettings(props: AccountSettingsProps): JSX.Element {
         <SavedSearches service={service} {...(props.onSearchFoldersChanged ? {onChanged: props.onSearchFoldersChanged} : {})} />
       </AsyncBoundary>
       </Show>
-      <Show when={selected('preferences')}>
+      <Show when={selected('preferences') || selected('shortcuts')}>
       <AsyncBoundary>
         <Preferences prefs={prefs} onChange={onPrefsChange} />
       </AsyncBoundary>

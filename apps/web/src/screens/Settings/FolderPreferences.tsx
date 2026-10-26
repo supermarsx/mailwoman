@@ -8,6 +8,7 @@ import {t, loadCatalog} from '../../i18n';
 import {createSettingsNavigation, type SettingsNavigation} from './navigation.tsx';
 import {folderIcon, moveFolder, orderedFolders, type PreferenceFolder} from './folderPreferenceModel.ts';
 import * as css from './styles.css.ts';
+import * as folderCss from './FolderPreferences.css.ts';
 export interface FolderPreferencesProps {
  folders: Accessor<readonly PreferenceFolder[]>;
  preferences?: Accessor<AccountUiPreferences>;
@@ -61,9 +62,9 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   <h2 class={css.heading}>{t('settings-folders-title')}</h2><p class={css.prose}>{t('settings-folders-help')}</p>
   <p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>
   <Show when={!props.onChange}><FolderRoles folders={props.folders} {...(props.onRolesSaved?{onSaved:props.onRolesSaved}:{})}/></Show>
-  <div style={{'overflow-x':'auto'}}><table class="settings-shortcut-table"><thead><tr><th>{t('settings-folders-name')}</th><th>{t('settings-folders-actions')}</th></tr></thead><tbody>
+  <div class={folderCss.wrap}><table class={folderCss.table}><thead><tr><th>{t('settings-folders-name')}</th><th>{t('settings-folders-actions')}</th></tr></thead><tbody>
    <For each={folders()}>{(folder,index)=><tr onDragOver={event=>{if(dragging()&&canMove(dragging()!,folder.id))event.preventDefault();}} onDrop={event=>{event.preventDefault();const id=dragging();if(id)move(id,folder.id);setDragging(null);}}>
-    <td><Icon name={folderIcon(folder,prefs())}/> {folder.name}<Show when={prefs().folderLabels?.[folder.id]?.length}><small class={css.meta}>{prefs().folderLabels?.[folder.id]?.map(id=>props.tags?.().find(tag=>tag.id===id)?.name??id).join(', ')}</small></Show></td><td><div class={css.actions}>
+    <td><Icon name={folderIcon(folder,prefs())}/> {folder.name}<Show when={prefs().folderLabels?.[folder.id]?.length}><small class={css.meta}>{prefs().folderLabels?.[folder.id]?.map(id=>props.tags?.().find(tag=>tag.id===id)?.name??id).join(', ')}</small></Show></td><td><div class={folderCss.actions}>
      <button type="button" class={css.ghost} aria-label={t('settings-folders-edit',{name:folder.name})} onClick={()=>void navigation.navigate({section:'folders',editor:{kind:'edit',id:folder.id}})}><Icon name="edit"/></button>
      <button type="button" class={css.ghost} aria-label={t('settings-folders-pin',{name:folder.name})} aria-pressed={pinned(folder.id)} onClick={()=>pin(folder.id)}><Icon name="star"/></button>
      <button type="button" class={css.ghost} draggable="true" aria-label={t('settings-folders-drag',{name:folder.name})} onDragStart={event=>{setDragging(folder.id);event.dataTransfer?.setData('text/plain',folder.id);}} onDragEnd={()=>setDragging(null)}><Icon name="sort"/></button>

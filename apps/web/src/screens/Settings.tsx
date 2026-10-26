@@ -4,7 +4,7 @@ import { Receipts } from './Settings/Receipts.tsx';
 import { FolderPreferences } from './Settings/FolderPreferences.tsx';
 import { createSettingsNavigation, SettingsNavigationContext, type SettingsNavigation } from './Settings/navigation.tsx';
 import * as workspace from './Settings/workspace.css.ts';
-import { Icon } from '../components/Icon.tsx';
+import { Icon, type IconName } from '../components/Icon.tsx';
 // Settings panel (plan §3 e4): the user-facing theme / density / accent / font /
 // layout controls that drive the theme slice. Rendered as a dismissible dialog;
 // every control writes straight through the slice, which reflects onto :root and
@@ -132,7 +132,8 @@ export function Settings(props: SettingsProps): JSX.Element {
   const app = useApp();
   const navigation=props.navigation ?? createSettingsNavigation();
   const visible=(section:string):boolean=>!props.embedded || navigation.route().section===section;
-  const sections=[['appearance','settings-appearance'],['reader','reader-settings-title'],['compose','settings-compose-title'],['shortcuts','settings-kbd-title'],['time','settings-time-title'],['packages','packages-title'],['labels','labels-title'],['security','security-center-title'],['privacy','privacy-title'],['signatures','settings-sig-title'],['identities','settings-ident-title'],['notifications','settings-notif-title'],['searches','settings-search-title'],['folders','settings-folders-title'],['mail-transfer','mail-transfer-title'],['receipts','receipts-title'],['nextcloud','nextcloud-account-title'],['preferences','settings-nav-preferences'],['rules','settings-nav-rules'],['access','settings-nav-access'],['metadata','settings-nav-metadata']] as const;
+  const sectionIcons:Record<string,IconName>={appearance:'branding',reader:'eye',compose:'edit',shortcuts:'configuration',time:'clock',packages:'gift',labels:'tag',security:'shield',privacy:'privacy',signatures:'file',identities:'users',notifications:'alert',searches:'search',folders:'folder','mail-transfer':'download',receipts:'check',nextcloud:'nextcloud',preferences:'preferences',rules:'policy',access:'lock',metadata:'info'};
+  const sections=[['appearance','settings-appearance'],['reader','reader-settings-title'],['compose','settings-compose-title'],['shortcuts','settings-nav-keyboard-display'],['time','settings-time-title'],['packages','packages-title'],['labels','labels-title'],['security','security-center-title'],['privacy','privacy-title'],['signatures','settings-sig-title'],['identities','settings-ident-title'],['notifications','settings-notif-title'],['searches','settings-search-title'],['folders','settings-folders-title'],['mail-transfer','mail-transfer-title'],['receipts','receipts-title'],['nextcloud','nextcloud-account-title'],['rules','settings-nav-rules'],['access','settings-nav-access'],['metadata','settings-nav-metadata']] as const;
 
   let panel!: HTMLElement;
   onMount(() => {
@@ -197,7 +198,7 @@ export function Settings(props: SettingsProps): JSX.Element {
         </header>
 
         <div class={props.embedded ? workspace.body : workspace.legacy}>
-          <Show when={props.embedded}><nav class={workspace.nav} aria-label={t('settings-sections')}><For each={sections}>{([id,label])=><button type="button" aria-current={navigation.route().section===id ? "page" : undefined} onClick={()=>void navigation.navigate({section:id})}>{t(label)}</button>}</For></nav></Show>
+          <Show when={props.embedded}><nav class={workspace.nav} aria-label={t('settings-sections')}><For each={sections}>{([id,label])=><button type="button" aria-current={navigation.route().section===id ? "page" : undefined} onClick={()=>void navigation.navigate({section:id})}><Icon name={sectionIcons[id]??'settings'}/><span>{t(label)}</span></button>}</For></nav></Show>
           <div class={workspace.content}>
           <div hidden={!visible('appearance')} class={workspace.appearance}>
         <ThemeMode locked={themeHold.locked()} />
@@ -286,11 +287,10 @@ export function Settings(props: SettingsProps): JSX.Element {
         <Show when={app.me?.()?.accountId ?? null}>
           {(accountId) => (
             <>
-              <Show when={visible('security')}><AsyncBoundary><PasswordChange accountId={accountId()} /></AsyncBoundary></Show>
               <AsyncBoundary>
                 <AccountSettings hideSecurity onSearchFoldersChanged={() => app.refreshFolders()} {...(props.embedded ? {section:()=>navigation.route().section} : {})} />
               </AsyncBoundary>
-              <Show when={visible('security')}><AsyncBoundary><SecurityCenter /></AsyncBoundary><AsyncBoundary><IdentityGrants /></AsyncBoundary></Show>
+              <Show when={visible('security')}><AsyncBoundary><SecurityCenter password={<AsyncBoundary><PasswordChange accountId={accountId()} /></AsyncBoundary>} grants={<AsyncBoundary><IdentityGrants /></AsyncBoundary>} encryption={<AsyncBoundary><ZeroAccessBlock /></AsyncBoundary>} /></AsyncBoundary></Show>
               <Show when={visible('privacy')}><AsyncBoundary><Privacy /><AnalyticsConsent /></AsyncBoundary></Show>
               <Show when={visible('nextcloud')}><AsyncBoundary><NextcloudAccounts /></AsyncBoundary></Show>
               <Show when={visible('folders')}><AsyncBoundary><FolderPreferences folders={app.mailboxes} tags={app.tags} navigation={navigation} onRolesSaved={app.refreshFolders}/></AsyncBoundary></Show>
@@ -304,9 +304,6 @@ export function Settings(props: SettingsProps): JSX.Element {
               <Show when={visible('reader')}><AsyncBoundary><ReaderAppearanceSettings /><ContactAppearance /></AsyncBoundary></Show>
               <Show when={visible('rules')}>              <AsyncBoundary>
                 <RulesSettings accountId={accountId()} />
-              </AsyncBoundary></Show>
-              <Show when={visible('security')}>              <AsyncBoundary>
-                <ZeroAccessBlock />
               </AsyncBoundary></Show>
               <Show when={visible('access')}>              <AsyncBoundary>
                 <ApiKeys accountId={accountId()} />

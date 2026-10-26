@@ -4,7 +4,8 @@
 // `borderStrong` with 1px less padding so no box grows (P1), focus is the
 // outline ring, headings heavy, labels small tracked capitals.
 
-import { style } from '@vanilla-extract/css';
+import { style, globalStyle } from '@vanilla-extract/css';
+import { registerFieldLayout, registerFieldGrid } from '../../styles/formLayout.css.ts';
 import { vars } from '../../theme/contract.css.ts';
 
 /** The outline ring (forced colours keep it; they drop a box-shadow ring). */
@@ -207,3 +208,9 @@ export const statusRevoked = style({ ...statusBase, color: vars.color.danger });
 // The "copied to clipboard" confirmation (announced via an aria-live region and
 // visible — not colour-only).
 export const copiedNote = style({ fontSize: '0.8rem', color: vars.color.success, margin: 0 });
+
+registerFieldLayout(`.${field}`);
+registerFieldGrid(`.${section}`, `.${field}`);
+globalStyle(`.${section} > button`, { justifySelf: 'start', inlineSize: 'fit-content' });
+globalStyle(`.${row} > button`, { flex: '0 0 auto' });
+globalStyle(`.${grid}`, { gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 14rem), 1fr))', maxInlineSize: '52rem' });

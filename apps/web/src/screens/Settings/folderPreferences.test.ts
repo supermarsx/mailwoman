@@ -1,8 +1,8 @@
 import {expect,it} from 'vitest';
 import {FOLDER_ICONS} from '../../api/accountPreferences.ts';
 import {folderIcon,moveFolder,orderedFolders} from './folderPreferenceModel.ts';
-it('offers fifteen native custom icons and role-specific defaults',()=>{
- expect(new Set(FOLDER_ICONS).size).toBe(15);
+it('offers fifty native custom icons and role-specific defaults',()=>{
+ expect(new Set(FOLDER_ICONS).size).toBe(50);
  expect(folderIcon({id:'a',name:'Inbox',role:'inbox'},{})).toBe('inbox');
  expect(folderIcon({id:'b',name:'Sent',role:'sent'},{})).toBe('sent');
  expect(folderIcon({id:'b',name:'Sent',role:'sent'},{folderIcons:{b:'star'}})).toBe('star');

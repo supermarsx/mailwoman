@@ -94,16 +94,16 @@ export function Preferences(props: PreferencesProps): JSX.Element {
             )}
           </For>
         </div>
-        <ul class={css.list} data-testid="kbd-preview">
+        <table class="settings-shortcut-table" data-testid="kbd-preview"><thead><tr><th>{t('settings-shortcuts-action')}</th><th>{t('settings-shortcuts-binding')}</th></tr></thead><tbody>
           <For each={PRESET_BINDINGS[props.prefs().keyboardPreset]}>
             {(binding) => (
-              <li class={css.row}>
-                <span class={css.meta}>{t(`settings-kbd-action-${binding.action}`)}</span>
-                <kbd class={css.badge}>{binding.keys}</kbd>
-              </li>
+              <tr>
+                <td>{t(`settings-kbd-action-${binding.action}`)}</td>
+                <td><kbd class={css.badge}>{binding.keys}</kbd></td>
+              </tr>
             )}
           </For>
-        </ul>
+        </tbody></table>
       </section>
 
       {/* W16 — offline cache eviction policy */}

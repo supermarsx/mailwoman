@@ -3,7 +3,7 @@ import { apiFetch } from './http.ts';
 import { withBase } from './basePath.ts';
 import { observePreferenceAccount, preferenceAccount, preferenceAccountIsCurrent, type PreferenceAccount } from './accountPreferenceLifecycle.ts';
 
-export const FOLDER_ICONS = ['folder', 'star', 'flag', 'tag', 'clock', 'calendar', 'file', 'image', 'lock', 'users', 'archive', 'mail', 'attachment', 'check', 'alert'] as const;
+export const FOLDER_ICONS = ['folder', 'star', 'flag', 'tag', 'clock', 'calendar', 'file', 'image', 'lock', 'users', 'archive', 'mail', 'attachment', 'check', 'alert', 'inbox', 'sent', 'edit', 'delete', 'spam', 'search', 'pin', 'link', 'shield', 'unlock', 'fileAudio', 'fileVideo', 'filePdf', 'fileCode', 'print', 'download', 'preferences', 'dashboard', 'analytics', 'nextcloud', 'domains', 'twofactor', 'assistant', 'integrations', 'logs', 'home', 'briefcase', 'heart', 'shopping', 'education', 'travel', 'coffee', 'gift', 'bank', 'book'] as const;
 export type FolderIcon = typeof FOLDER_ICONS[number];
 export interface AccountTag {name:string;color:string;icon:FolderIcon}
 export interface AccountUiPreferences {

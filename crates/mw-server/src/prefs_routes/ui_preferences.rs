@@ -3,6 +3,8 @@
 use super::*;
 use std::collections::{BTreeMap, HashSet};
 
+const FOLDER_ICONS: &[&str] = &["folder","star","flag","tag","clock","calendar","file","image","lock","users","archive","mail","attachment","check","alert","inbox","sent","edit","delete","spam","search","pin","link","shield","unlock","fileAudio","fileVideo","filePdf","fileCode","print","download","preferences","dashboard","analytics","nextcloud","domains","twofactor","assistant","integrations","logs","home","briefcase","heart","shopping","education","travel","coffee","gift","bank","book"];
+
 const MAX_BYTES: usize = 65_536;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -122,29 +124,13 @@ fn valid(document: &Document) -> bool {
             !id.is_empty() && id.len()<=255 && id.bytes().all(|byte|byte.is_ascii_alphanumeric()||b"_-".contains(&byte))
             && !tag.name.trim().is_empty() && tag.name.chars().count()<=128 && !tag.name.chars().any(char::is_control)
             && tag.color.len()==7 && tag.color.starts_with('#') && tag.color[1..].bytes().all(|byte|byte.is_ascii_hexdigit())
-            && ["folder","star","flag","tag","clock","calendar","file","image","lock","users","archive","mail","attachment","check","alert"].contains(&tag.icon.as_str())
+            && FOLDER_ICONS.contains(&tag.icon.as_str())
         }))
         && p.folder_icons.as_ref().is_none_or(|icons| {
             icons.len() <= 500
                 && icons.iter().all(|(id, icon)| {
                     valid_id(id)
-                        && [
-                            "folder",
-                            "star",
-                            "flag",
-                            "tag",
-                            "clock",
-                            "calendar",
-                            "file",
-                            "image",
-                            "lock",
-                            "users",
-                            "archive",
-                            "mail",
-                            "attachment",
-                            "check",
-                            "alert",
-                        ]
+                        && FOLDER_ICONS
                         .contains(&icon.as_str())
                 })
         })
@@ -234,6 +220,14 @@ pub(super) async fn save(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn all_fifty_native_icons_are_valid_account_preferences() {
+        assert_eq!(super::FOLDER_ICONS.len(), 50);
+        for icon in super::FOLDER_ICONS {
+            let document: super::Document = serde_json::from_value(serde_json::json!({"version":1,"preferences":{"folderIcons":{"inbox":icon},"tags":{"work":{"name":"Work","color":"#112233","icon":icon}}}})).unwrap();
+            assert!(super::valid(&document), "{icon}");
+        }
+    }
     use super::*;
     #[test]
     fn refuses_unknown_authority_secret_and_invalid_fields() {

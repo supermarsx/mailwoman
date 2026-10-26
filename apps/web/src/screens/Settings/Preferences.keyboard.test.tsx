@@ -15,12 +15,12 @@ describe('Preferences: keyboard shortcuts off', () => {
 
     const preview = screen.getByTestId('kbd-preview');
     // Precondition: the Gmail preset lists its bindings.
-    expect(preview.querySelectorAll('li').length).toBeGreaterThan(0);
+    expect(preview.querySelectorAll('tbody tr').length).toBeGreaterThan(0);
 
     const off = await screen.findByRole('button', { name: 'Off (no shortcuts)' });
     fireEvent.click(off);
     expect(onChange.mock.calls.at(-1)?.[0]).toMatchObject({ keyboardPreset: 'off' });
     expect(off.getAttribute('aria-pressed')).toBe('true');
-    await waitFor(() => expect(preview.querySelectorAll('li').length).toBe(0));
+    await waitFor(() => expect(preview.querySelectorAll('tbody tr').length).toBe(0));
   });
 });

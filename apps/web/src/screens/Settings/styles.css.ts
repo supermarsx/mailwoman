@@ -289,3 +289,7 @@ export const previewFrame = style({
 registerFieldLayout(field);
 registerFieldGrid(`${section}:has(> ${field})`, field);
 globalStyle(`${section} > button`, { alignSelf: 'flex-start', maxInlineSize: '100%' });
+
+// Column sections stretch content surfaces, but actions retain their natural size.
+globalStyle(`.${section} > button, .${section} > form > button`, { alignSelf: 'flex-start', inlineSize: 'fit-content', maxInlineSize: '100%' });
+globalStyle(`.${section} > form`, { display: 'flex', flexDirection: 'column', gap: vars.space[4] });
