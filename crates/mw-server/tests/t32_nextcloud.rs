@@ -633,6 +633,27 @@ async fn cloud_pim_discovery_sync_writes_conflicts_and_revocation_use_guarded_ht
             .unwrap();
         assert_eq!(applied.status(), 200, "{}", applied.text().await.unwrap());
     }
+    // The periodic worker must pull newly connected collections without a manual
+    // refresh or another mailbox login. Its production scan cadence is 15 seconds.
+    tokio::time::timeout(std::time::Duration::from_secs(35), async {
+        loop {
+            let calendars = store.list_calendars(account).await.unwrap();
+            let mut loaded = false;
+            for calendar in calendars {
+                if calendar.caldav_url.is_some()
+                    && !store.list_events(&calendar.id).await.unwrap().is_empty()
+                {
+                    loaded = true;
+                }
+            }
+            if loaded {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("periodic PIM worker did not pull the connected calendar");
     let synced = user
         .post(format!("{base}/api/account/nextcloud/pim/sync"))
         .json(&json!({"accountId":account}))

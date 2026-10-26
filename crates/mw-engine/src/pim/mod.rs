@@ -32,6 +32,7 @@ mod itip_ingest;
 pub mod notes;
 pub mod quickadd;
 pub mod sync;
+pub(crate) mod schedule;
 pub mod tasks;
 pub mod types;
 

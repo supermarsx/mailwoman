@@ -778,3 +778,27 @@ async fn rejected_remote_mutations_preserve_events_and_contacts() {
         assert_eq!(calls[4].kind, Some("contacts"));
     }
 }
+
+#[tokio::test]
+async fn replacing_a_runtime_does_not_reset_the_pim_refresh_deadline() {
+    let h = harness(true).await;
+    assert!(
+        h.engine
+            .pim_sync_due(&h.account, std::time::Duration::from_secs(300))
+    );
+    h.engine.sync_current_pim(&h.account).await.unwrap();
+    assert!(
+        !h.engine
+            .pim_sync_due(&h.account, std::time::Duration::from_secs(300))
+    );
+    let replacement = AccountRuntime::new(
+        Arc::new(NoopBackend),
+        Arc::new(NullSubmitter),
+        "me@example.org",
+    );
+    h.engine.register_backend(h.account.clone(), replacement);
+    assert!(
+        !h.engine
+            .pim_sync_due(&h.account, std::time::Duration::from_secs(300))
+    );
+}

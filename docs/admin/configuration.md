@@ -275,6 +275,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 
 | Key | Category | Scopes | Default | Value | Environment | Hot | Read by |
 |---|---|---|---|---|---|---|---|
+| <a id="nextcloud.syncintervalsecs"></a>`nextcloud.syncIntervalSecs` | integrations | global+domain+user | 300 | plain |  | yes | Nextcloud collection refresh interval; zero is manual only, positive values have a sixty-second minimum |
 | <a id="cap.integration.nextcloud"></a>`cap.integration.nextcloud` | integrations | global+domain+admin_user | true | plain |  | yes | Nextcloud integration |
 | <a id="cap.integration.google"></a>`cap.integration.google` | integrations | global+domain+admin_user | true | plain |  | yes | Google OAuth bridge |
 | <a id="cap.integration.microsoft"></a>`cap.integration.microsoft` | integrations | global+domain+admin_user | true | plain |  | yes | Microsoft OAuth bridge |

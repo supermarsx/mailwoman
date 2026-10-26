@@ -118,7 +118,7 @@ admin-settings-cat-plugins = Plugins
 admin-settings-cat-features = Feature permissions
 admin-settings-cat-integrations = Integration permissions
 admin-settings-key-cap-integration-nextcloud = Nextcloud
-admin-settings-help-cap-integration-nextcloud = Allow Nextcloud file and share-link operations.
+admin-settings-help-cap-integration-nextcloud = Allow account-linked Nextcloud files, sharing and calendar/contact/task operations.
 admin-settings-key-cap-integration-google = Google bridge
 admin-settings-help-cap-integration-google = Allow Google bridge operations, including token acquisition and refresh.
 admin-settings-key-cap-integration-microsoft = Microsoft bridge
@@ -514,3 +514,6 @@ admin-settings-help-security-signin-geo-unknown = Allow or deny addresses absent
 admin-settings-key-contacts-avatar-mode = Contact pictures and generated avatars
 admin-settings-help-contacts-avatar-mode = Generate initials locally, hide avatars, or use embedded photos from each account own address books. No remote photo URLs or external avatar service is contacted. User and domain policy can be held by an administrator.
 admin-settings-cat-contacts = Contact pictures
+
+admin-settings-key-nextcloud-sync-interval-secs = Nextcloud automatic refresh interval
+admin-settings-help-nextcloud-sync-interval-secs = Seconds between background collection refreshes for connected native-engine accounts. Zero is manual only; positive values have a sixty-second minimum. Failures back off. No background sign-in is attempted.

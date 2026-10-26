@@ -45,7 +45,7 @@ async function cloudFixture(){
 
 test('Nextcloud collections require discovery and explicit connection before real synchronization @phone',async({page,playwright,baseURL},info)=>{
   const admin=await playwright.request.newContext({...baseURL?{baseURL}:{}});
-  const cloud=await cloudFixture();const id=`browser-pim-${info.project.name}`;const route=`browser-pim-route-${Date.now()}`;let active:string|undefined;let etag:string|undefined;
+  const cloud=await cloudFixture();const id=`browser-pim-${info.project.name}`;const route=`browser-pim-route-${Date.now()}`;let active:string|undefined;let etag:string|undefined;let priorRefresh:unknown;let havePreferences=false;
   const value={name:`Browser PIM ${info.project.name}`,baseUrl:'https://8.8.8.8/nextcloud/',enabled:true,caPem:cloud.cert};
   try{
     await page.waitForTimeout(4000);await admin.get('/admin');
@@ -73,6 +73,12 @@ test('Nextcloud collections require discovery and explicit connection before rea
     await page.getByRole('button',{name:'Verify and link',exact:true}).click();
     await expect(instance.getByText('Linked and ready',{exact:true})).toBeVisible();
     await instance.getByRole('button',{name:'Contacts and calendars',exact:true}).click();
+    const preferences=(await (await page.request.get('/api/settings')).json()).settings;
+    priorRefresh=preferences['nextcloud.syncIntervalSecs']?.userValue;havePreferences=true;
+    const refresh=page.getByRole('spinbutton',{name:'Automatic refresh interval (seconds)',exact:true});
+    await refresh.fill('0');await refresh.press('Tab');
+    await expect.poll(async()=>((await (await page.request.get('/api/settings')).json()).settings['nextcloud.syncIntervalSecs']?.value)).toBe(0);
+
     for(const [kind,name] of [['calendar','Browser calendar'],['contacts','Browser contacts']] as const){
       await page.getByRole('combobox',{name:'Collection category',exact:true}).selectOption(kind);
       await page.getByRole('button',{name:'Discover collections',exact:true}).click();
@@ -87,6 +93,7 @@ test('Nextcloud collections require discovery and explicit connection before rea
     await page.screenshot({path:info.outputPath('nextcloud-pim-actual-sync.png'),fullPage:true});
 
   }finally{try{
+    if(havePreferences){const response=priorRefresh===undefined?await page.request.delete('/api/settings/nextcloud.syncIntervalSecs'):await page.request.put('/api/settings/nextcloud.syncIntervalSecs',{data:{value:priorRefresh}});expect(response.ok(),await response.text()).toBe(true);}
     const accountResponse=await page.request.get('/api/account/nextcloud');
     if(accountResponse.ok()){const account=await accountResponse.json() as {accountId:string;links:Array<{instanceId:string;etag:string}>};const pim=await page.request.get(`/api/account/nextcloud/pim?accountId=${encodeURIComponent(account.accountId)}`);if(pim.ok()){const view=await pim.json() as {collections:Array<{id:string;instanceId:string}>};for(const collection of view.collections.filter(row=>row.instanceId===id))await page.request.delete(`/api/account/nextcloud/pim/collections/${encodeURIComponent(collection.id)}`,{data:{accountId:account.accountId}});}const link=account.links.find(item=>item.instanceId===id);if(link)expect((await page.request.delete(`/api/account/nextcloud/links/${id}`,{data:{accountId:account.accountId},headers:{'if-match':link.etag}})).ok()).toBe(true);}
     if(etag)expect((await admin.put(`/admin/nextcloud/instances/${id}`,{data:{...value,enabled:false},headers:{'if-match':etag}})).ok()).toBe(true);

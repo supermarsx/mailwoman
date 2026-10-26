@@ -100,6 +100,7 @@ pub struct AccountRuntime {
     pub dav: Option<mw_dav::DavConfig>,
     /// Per-operation account authority; never falls back to direct networking.
     pub dav_transport: Option<Arc<dyn mw_dav::DavTransport>>,
+    pub(crate) pim_sync: Arc<crate::pim::schedule::SyncControl>,
 }
 
 impl AccountRuntime {
@@ -117,6 +118,7 @@ impl AccountRuntime {
             credential_revision: None,
             dav: None,
             dav_transport: None,
+            pim_sync: Arc::default(),
         }
     }
 

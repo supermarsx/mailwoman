@@ -74,6 +74,7 @@ impl IndexPatch {
 pub struct Engine {
     store: Store,
     accounts: Mutex<HashMap<String, AccountRuntime>>,
+    pim_controls: Mutex<HashMap<String, std::sync::Weak<crate::pim::schedule::SyncControl>>>,
     rejected_credential_revisions: Mutex<HashMap<String, Vec<u8>>>,
     cached_date_upgrade: date_upgrade::DateUpgrade,
     /// Realtime change fan-out (plan §1.2, §2.2). `start_watch` broadcasts a
@@ -155,6 +156,7 @@ impl Engine {
         Self {
             store,
             accounts: Mutex::new(HashMap::new()),
+            pim_controls: Mutex::new(HashMap::new()),
             rejected_credential_revisions: Mutex::new(HashMap::new()),
             cached_date_upgrade: date_upgrade::DateUpgrade::default(),
             changes,
@@ -246,11 +248,17 @@ impl Engine {
     }
 
     /// Register (or replace) a connected account's runtime.
-    pub fn register_backend(&self, account_id: impl Into<String>, runtime: AccountRuntime) {
-        self.accounts
-            .lock()
-            .expect("accounts lock")
-            .insert(account_id.into(), runtime);
+    pub fn register_backend(&self, account_id: impl Into<String>, mut runtime: AccountRuntime) {
+        let account_id = account_id.into();
+        {
+            let mut controls = self.pim_controls.lock().expect("PIM controls");
+            controls.retain(|_, control| control.strong_count() > 0);
+            if let Some(control) = controls.get(&account_id).and_then(std::sync::Weak::upgrade) {
+                runtime.pim_sync = control;
+            }
+            controls.insert(account_id.clone(), Arc::downgrade(&runtime.pim_sync));
+        }
+        self.accounts.lock().expect("accounts lock").insert(account_id, runtime);
     }
 
     /// Install a guarded transport without replacing mailbox state or watch handles.
@@ -262,11 +270,18 @@ impl Engine {
     }
 
     /// Explicit bounded caller-driven refresh of all configured PIM collections.
+    pub fn pim_sync_due(&self, account: &str, interval: Duration) -> bool {
+        self.runtime(account).is_some_and(|rt| rt.pim_sync.due(interval))
+    }
+
     pub async fn sync_current_pim(&self, account: &str) -> Result<()> {
         let runtime = self.require_runtime(account)?;
+        let mut run = runtime.pim_sync.begin().await;
         let selected = self.store().active_nextcloud_pim_bindings(account).await?
             .into_iter().map(|binding|binding.collection_id).collect();
-        self.sync_pim_selected(account, &runtime, Some(&selected)).await
+        self.sync_pim_selected(account, &runtime, Some(&selected)).await?;
+        run.succeeded();
+        Ok(())
     }
 
     /// Reject only the worker and credential revision that actually failed.

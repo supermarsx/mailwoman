@@ -363,6 +363,7 @@ use Scopes::{
 
 /// Every registered key. Order is the admin screen's order within a category.
 pub static REGISTRY: &[SettingDef] = &[
+    def!("nextcloud.syncIntervalSecs", int(0,86400), "300", GDU, "integrations", "Nextcloud collection refresh interval; zero is manual only, positive values have a sixty-second minimum"),
     def!("packages.allowed", Kind::Bool, "true", GDA, "integrations", "Allow package tracking; provider activation and separate account opt-in are still required"),
     def!("cap.integration.nextcloud", Kind::Bool, "true", GDA, "integrations", "Nextcloud integration"),
     def!("cap.integration.google", Kind::Bool, "true", GDA, "integrations", "Google OAuth bridge"),

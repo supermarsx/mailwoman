@@ -86,6 +86,7 @@ mod nextcloud_gateway;
 mod nextcloud_transport;
 mod nextcloud_pim;
 mod nextcloud_pim_transport;
+mod nextcloud_pim_scheduler;
 mod nextcloud_xml;
 pub mod passwd;
 pub mod plugins;
@@ -1093,6 +1094,7 @@ async fn build_app_inner(
     let push = PushHandle::new();
     if let Some(engine) = &engine {
         tokio::spawn(push::bridge_engine(engine.subscribe(), push.clone()));
+        nextcloud_pim_scheduler::spawn(engine, store.clone());
     }
 
     // ── C6 (t16 26.16): PQC-hybrid wrap of the mw-store seal key at rest ────────

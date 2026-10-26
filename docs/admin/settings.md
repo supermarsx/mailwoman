@@ -527,7 +527,7 @@ account; a guest cannot request another account's credentials. Account-aware
 spam classification applies the recipient account's domain and profile policy.
 
 <a id="cap.integration.nextcloud"></a>
-`cap.integration.nextcloud` — Allow Nextcloud file and share-link operations.
+`cap.integration.nextcloud` — Allow account-linked Nextcloud files, sharing and calendar/contact/task operations.
 
 <a id="cap.integration.google"></a>
 `cap.integration.google` — Allow acquisition and refresh of Google bridge tokens.
@@ -785,3 +785,7 @@ not governed by this initial sign-in policy; broader session geofencing is not i
 Generated initials are the default and stay on the device. `off` hides avatars; `contacts` uses only embedded PNG/JPEG photos from the signed-in account address books, with initials as fallback. This global/domain/user setting supports administrator locks. No remote PHOTO URL, external avatar service, or inferred profile lookup is requested.
 
 The server requires an authenticated account and exact contact email, reads at most 16 cards of 256 KiB each, and accepts embedded photos up to 128 KiB and 512 by 512 pixels. Images are re-encoded in the existing media jail and returned privately without caching. Unavailable or malformed pictures use initials. Imported or synchronized vCards can supply embedded photos; editing/uploading a profile photograph is a separate capability.
+
+<a id="nextcloud.syncIntervalSecs"></a>
+### Nextcloud refresh interval (`nextcloud.syncIntervalSecs`)
+Global/domain/user integer, default 300 seconds, range 0–86400. Zero disables periodic refresh. Positive values have a 60-second runtime minimum. Only already connected native-engine accounts with active collection bindings are considered; the scheduler never logs into mailbox accounts. Two account refreshes run concurrently with a 30-second deadline and exponential failure backoff capped at one day. Manual and scheduled refreshes share the same account lock. Current capability, source route and linked credentials are checked again for each DAV operation.

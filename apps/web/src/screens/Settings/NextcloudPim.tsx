@@ -1,5 +1,6 @@
 import {For,Show,createSignal,onMount,onCleanup,type JSX} from 'solid-js';
 import {nextcloudPimApi,type NextcloudPimApi,type CloudPimView,type CloudDiscovery,type CloudPimKind} from '../../api/nextcloudPim.ts';
+import {NextcloudSyncSettings} from './NextcloudSyncSettings.tsx';
 import {AsyncPending} from '../../components/AsyncState.tsx';
 import {t} from '../../i18n';
 import * as css from './styles.css.ts';
@@ -20,6 +21,7 @@ export function NextcloudPim(props:{accountId:string;instanceId:string;instanceN
     <Show when={error()}><p role="alert">{error()}</p><button class={css.button} disabled={busy()} onClick={()=>void run(load)}>{t('nextcloud-account-reload')}</button></Show>
     <Show when={notice()}><p role="status">{notice()}</p></Show>
     <Show when={view()}>{data=><Show when={data().supported} fallback={<p>{t('nextcloud-pim-native-required')}</p>}>
+      <NextcloudSyncSettings/>
       <label class={css.label}>{t('nextcloud-pim-category')}<select class={css.input} value={kind()} disabled={busy()} onChange={e=>{setKind(e.currentTarget.value as CloudPimKind);setItems(undefined);}}><option value="calendar">{t('nextcloud-pim-calendar')}</option><option value="contacts">{t('nextcloud-pim-contacts')}</option><option value="tasks">{t('nextcloud-pim-tasks')}</option></select></label>
       <div class={css.actions}><button class={css.button} disabled={busy()} onClick={()=>void run(discover)}>{t('nextcloud-pim-discover')}</button><button class={css.button} disabled={busy()||!configured().some(row=>row.enabled)} onClick={()=>void run(async()=>{await api().sync(props.accountId);if(alive)setNotice(t('nextcloud-pim-synced'));})}>{t('nextcloud-pim-sync')}</button></div>
       <Show when={items()}>{found=><section class={css.section}><h3>{t('nextcloud-pim-discovered')}</h3><Show when={found().length===0}><p>{t('nextcloud-pim-empty')}</p></Show><For each={found()}>{item=><div class={css.actions}><span>{item.name||t('nextcloud-pim-unnamed')}</span><button class={css.button} disabled={busy()} aria-label={`${t('nextcloud-pim-connect')} ${item.name}`} onClick={()=>void run(()=>connect(item))}>{t('nextcloud-pim-connect')}</button></div>}</For></section>}</Show>

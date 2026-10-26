@@ -8,7 +8,7 @@ V7 (release 26.8.0) adds a Nextcloud integration: a small first-party plugin
 - **share large attachments as links** — create a Nextcloud share link (with optional
   password and expiry) instead of attaching bytes to the message.
 
-Current account linking and DAV operations use the server-managed integration described in [Nextcloud account links](../admin/nextcloud.md). Native-engine users explicitly discover and connect calendar, task and address-book collections, then synchronize them on demand. The historical guest plugin does not automatically enroll these collections.
+Current account linking and DAV operations use the server-managed integration described in [Nextcloud account links](../admin/nextcloud.md). Native-engine users explicitly discover and connect calendar, task and address-book collections, then synchronize them on demand or at their configured background interval. The historical guest plugin does not automatically enroll these collections.
 
 ## Historical guest plugin
 
@@ -23,7 +23,7 @@ plugin never holds the user's Nextcloud secret.
 ## Setup
 
 1. An administrator approves an HTTPS instance; each mailbox user links their own Nextcloud username and app password.
-2. For native PIM, discover and explicitly connect collections under that account link, then synchronize on demand.
+2. For native PIM, discover and explicitly connect collections under that account link, then synchronize on demand or enable periodic refresh.
 3. Attach-from and save-to actions appear in the compose and read UI. **Share-link
    actions do not** — see "Share links" below; the component exists but nothing
    mounts it.
