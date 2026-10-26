@@ -1,3 +1,6 @@
+import {createSharingAccess} from '../api/mailboxSharing.ts';
+import {createConfiguredClient} from '../api/transport.ts';
+import {FolderContextMenu} from '../components/FolderContextMenu.tsx';
 import { ResizeHandle } from '../components/ResizeHandle.tsx';
 import { accountUiPreferences, setAccountUiPreferences } from '../api/accountPreferences.ts';
 import { readingPane } from '../components/readingPane.ts';
@@ -184,9 +187,12 @@ export function MailboxScreen(): JSX.Element {
   // context. Open for the currently-selected mailbox; only meaningful once a
   // mailbox + account are resolved.
   const [sharingOpen, setSharingOpen] = createSignal(false);
+  const sharingAccess=createSharingAccess(app.accountId,createConfiguredClient());
+  createEffect(()=>{const id=app.selectedMailboxId(),account=app.accountId();setSharingOpen(false);if(id&&account)untrack(()=>{const box=app.mailboxes().find(value=>value.id===id);if(box&&box.mailwomanSearchQuery===undefined)void sharingAccess.probe(id,true);});});
+  async function openSharing(id:string):Promise<void>{if(await sharingAccess.probe(id,true)){if(app.selectedMailboxId()===id&&sharingAccess.canShare(id))setSharingOpen(true);}else app.showToast('error',t('mail-sharing-unavailable'));}
   const shareMailbox = createMemo(() => {
     const id = app.selectedMailboxId();
-    if (id === null) return null;
+    if (id === null || !sharingAccess.canShare(id)) return null;
     const box = app.mailboxes().find((m) => m.id === id);
     return box ? { id: box.id, name: box.name } : null;
   });
@@ -419,23 +425,25 @@ export function MailboxScreen(): JSX.Element {
           <Icon name="edit"/><span class="sidebar__box-name">{t('mail-compose')}</span>
         </button>
         <nav class="sidebar__nav" aria-label={t('mail-nav-mailboxes')}>
-          <For each={orderedFolders(app.mailboxes(),accountUiPreferences())}>
-            {(box) => (
+          <For each={orderedFolders(app.mailboxes(),accountUiPreferences()).map(box=>box.id)}>
+            {(id) => {const box=createMemo(()=>app.mailboxes().find(value=>value.id===id)!);return (
+              <FolderContextMenu box={box()} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
               <button
                 type="button"
                 class={`sidebar__box ${a11y.focusable}`}
-                classList={{ 'sidebar__box--active': surface() === 'mail' && app.selectedMailboxId() === box.id }}
-                aria-label={box.name} title={[box.name,...(accountUiPreferences().folderLabels?.[box.id]??[]).map(id=>app.tagByKeyword(id)?.name??id)].join(' · ')}
+                classList={{ 'sidebar__box--active': surface() === 'mail' && app.selectedMailboxId() === box().id }}
+                aria-label={box().name} title={[box().name,...(accountUiPreferences().folderLabels?.[box().id]??[]).map(id=>app.tagByKeyword(id)?.name??id)].join(' · ')}
                 onClick={() => {
                   router.navigate('mail');
                   subTabs.activate('mail');
-                  void app.selectMailbox(box.id);
+                  void app.selectMailbox(box().id);
                 }}
               >
-                <Icon name={folderIcon(box,accountUiPreferences())}/><span class="sidebar__box-name">{box.name}</span>
-                <Show when={Number.isFinite(box.totalEmails)}><span class="sidebar__badge" title={t('mail-folder-counts',{unread:box.unreadEmails,total:box.totalEmails})} aria-label={t('mail-folder-counts',{unread:box.unreadEmails,total:box.totalEmails})}>{box.unreadEmails}<span class="sidebar__total"> / {box.totalEmails}</span></span></Show>
+                <Icon name={folderIcon(box(),accountUiPreferences())}/><span class="sidebar__box-name">{box().name}</span>
+                <Show when={Number.isFinite(box().totalEmails)}><span class="sidebar__badge" title={t('mail-folder-counts',{unread:box().unreadEmails,total:box().totalEmails})} aria-label={t('mail-folder-counts',{unread:box().unreadEmails,total:box().totalEmails})}>{box().unreadEmails}<span class="sidebar__total"> / {box().totalEmails}</span></span></Show>
               </button>
-            )}
+              </FolderContextMenu>
+            );}}
           </For>
           <button
             type="button"
@@ -467,7 +475,7 @@ export function MailboxScreen(): JSX.Element {
               type="button"
               class={`sidebar__box ${a11y.focusable}`}
               data-testid="nav-sharing" aria-label={t('mail-nav-sharing')} title={t('mail-nav-sharing')}
-              onClick={() => setSharingOpen(true)}
+              onClick={() => {const id=app.selectedMailboxId();if(id)void openSharing(id);}}
             >
               <Icon name="users"/><span class="sidebar__box-name">{t('mail-nav-sharing')}</span>
             </button>

@@ -578,3 +578,10 @@ mail-compose-request-delivery-hint = Ask receiving mail servers to report delive
 mail-compose-delivery-unavailable = Delivery notifications are unavailable or disabled by your administrator for this account. An explicitly requested notification will not be silently removed.
 
 mail-compose-account-changed = This composition belongs to a different sign-in. Sign in to the correct account and reopen the draft.
+mail-context-open-message = Open message
+mail-context-open-folder = Open folder
+mail-context-download = Download message
+mail-context-refresh = Refresh folder
+mail-context-folder-settings = Folder settings
+mail-context-failed = The action could not be completed. Try again.
+mail-sharing-unavailable = Folder sharing is unavailable or you no longer have permission to manage it.

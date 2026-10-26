@@ -1,3 +1,5 @@
+import {AsyncPending} from './AsyncState.tsx';
+import {createMessageContextMenu} from './MessageContextMenu.tsx';
 import {PersonAvatar} from './PersonAvatar.tsx';
 import {EmptyTrash} from './EmptyTrash.tsx';
 import {InitialSyncNotice} from './InitialSyncNotice.tsx';
@@ -116,7 +118,10 @@ function SelectedMark(props: { selected: boolean }): JSX.Element {
   );
 }
 
+type MessageMenu = {open:(event:MouseEvent,email:Email)=>void;keydown:(event:KeyboardEvent,email:Email)=>void;isOpen:(id:string)=>boolean};
+
 function MessageRow(props: {
+  contextMenu:MessageMenu;
   email: Email;
   top: number;
   height: number;
@@ -156,6 +161,7 @@ function MessageRow(props: {
         aria-current={app.openEmail()?.id === email().id ? 'true' : undefined}
         data-index={props.index}
         onClick={(e) => props.onClick(e)}
+        data-email-id={email().id} onContextMenu={e=>props.contextMenu.open(e,email())} onKeyDown={e=>props.contextMenu.keydown(e,email())}
       >
         <Show when={unread()}>
           <span class={a11y.srOnly}>{t('mail-unread')}</span>
@@ -189,7 +195,7 @@ function MessageRow(props: {
         <span class={`list__preview ${rowCss.preview}`}>{email().preview}</span>
         <TagChips email={email()} />
       </button>
-      <MessageActions email={email()} />
+      <MessageActions email={email()} onMore={e=>props.contextMenu.open(e,email())} contextOpen={props.contextMenu.isOpen(email().id)}/>
     </li>
   );
 }
@@ -222,6 +228,7 @@ function PlaceholderRow(props: { top: number; height: number; index: number; tot
  *  primary row; the primary row opens the latest message (like any message row),
  *  the toggle expands/collapses the members in place. */
 function ThreadHeadRow(props: {
+  contextMenu:MessageMenu;
   row: ThreadVisualRow;
   top: number;
   height: number;
@@ -274,6 +281,7 @@ function ThreadHeadRow(props: {
         data-index={props.index}
         data-testid="thread-head"
         onClick={(e) => props.onClick(e)}
+        data-email-id={rep().id} onContextMenu={e=>props.contextMenu.open(e,rep())} onKeyDown={e=>props.contextMenu.keydown(e,rep())}
       >
         <Show when={props.row.unread}>
           <span class={a11y.srOnly}>{t('mail-unread')}</span>
@@ -293,6 +301,7 @@ function ThreadHeadRow(props: {
         <span class="list__subject">{rep().subject ?? t('mail-no-subject')}</span>
         <span class={`list__preview ${rowCss.preview}`}>{rep().preview}</span>
       </button>
+      <MessageActions email={rep()} onMore={e=>props.contextMenu.open(e,rep())} contextOpen={props.contextMenu.isOpen(rep().id)}/>
     </li>
   );
 }
@@ -415,6 +424,9 @@ export function rowRefCount(): number {
 
 export function MessageList(props: { onOpenMessage?: (id: string) => void; onCompose?: (initial:ComposeInitial)=>void } = {}): JSX.Element {
   const app = useApp();
+  const [contextEmail,setContextEmail]=createSignal<Email>();
+  const contextMenu=createMessageContextMenu(contextEmail);
+  const messageMenu:MessageMenu={open:(event,email)=>{setContextEmail(email);contextMenu.open(event);},keydown:(event,email)=>{if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')){setContextEmail(email);contextMenu.keydown(event);}},isOpen:id=>contextMenu.isOpen()&&contextEmail()?.id===id};
   const [selecting,setSelecting]=createSignal(false);
   createEffect(()=>{app.accountId();app.selectedMailboxId();setSelecting(false);});
   const [scrollTop, setScrollTop] = createSignal(0);
@@ -651,8 +663,8 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
       </Show>
       <OfflineQueueNotice />
       <InitialSyncNotice />
-      <Show when={app.listLoading()}><div class="list__loading" role="status">{t('mail-loading')}</div></Show>
-        <Show when={rows().length > 0} fallback={<p class="list__empty">{app.listLoading() ? t('mail-loading') : t('mail-empty')}</p>}>
+      <Show when={app.listLoading() && rows().length > 0}><div class="list__loading" role="status">{t('mail-loading')}</div></Show>
+        <Show when={rows().length > 0} fallback={<Show when={app.listLoading()} fallback={<p class="list__empty">{t('mail-empty')}</p>}><AsyncPending variant="list" message={t('mail-loading')} onRetry={()=>void app.refreshCurrentMailbox()}/></Show>}>
           <div
             class="list__scroll"
             inert={app.listLoading()}
@@ -690,7 +702,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
                     <Show
                       when={row.kind === 'head'}
                       fallback={
-                        <MessageRow
+                        <MessageRow contextMenu={messageMenu}
                           email={row.email}
                           top={index() * rowHeight()}
                           height={rowHeight()}
@@ -704,7 +716,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
                         />
                       }
                     >
-                      <ThreadHeadRow
+                      <ThreadHeadRow contextMenu={messageMenu}
                         row={row}
                         top={index() * rowHeight()}
                         height={rowHeight()}
@@ -723,6 +735,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
             </ul>
           </div>
         </Show>
+      {contextMenu.menu()}
     </section>
   );
 }

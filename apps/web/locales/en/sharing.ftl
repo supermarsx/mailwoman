@@ -54,3 +54,5 @@ sharing-right-e-label = Expunge
 sharing-right-e-desc = Permanently remove messages that are marked as deleted.
 sharing-right-a-label = Administer
 sharing-right-a-desc = Change who has access to this mailbox.
+sharing-unsupported = This mail server does not support folder sharing.
+sharing-forbidden = You are not allowed to manage sharing for this folder. Ask its owner or administrator.

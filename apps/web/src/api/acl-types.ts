@@ -167,8 +167,12 @@ export function serverMetadataSet(
 
 // ── response shapes ──────────────────────────────────────────────────────────
 
+export class MailboxSharingError extends Error {constructor(readonly code:string){super('Mailbox sharing request was refused');}}
+function checkedSharingResponse<T>(res:JmapResponse,callId:string):T {const tuple=res.methodResponses.find(item=>item[2]===callId);if(!tuple)throw new MailboxSharingError('invalidResponse');const value=tuple[1] as {type?:string};if(tuple[0]==='error'||typeof value.type==='string')throw new MailboxSharingError(value.type??'unknown');if(tuple[0]!== (callId==='mr'?'MailboxRights/get':'MailboxRights/set'))throw new MailboxSharingError('invalidResponse');return value as T;}
+
 interface MailboxRightsGetResponse {
   accountId: Id;
+  mailboxId:Id;
   myRights: string;
   acl: AclEntry[];
 }
@@ -208,18 +212,25 @@ export function createAclClient(accountId: Id, jmap: JmapFn): AclClient {
   return {
     async getMailboxRights(mailboxId) {
       const res = await jmap(mailboxRightsGet(accountId, mailboxId));
-      const out = responseFor<MailboxRightsGetResponse>(res, 'mr');
-      return { myRights: out.myRights ?? '', acl: out.acl ?? [] };
+      const out = checkedSharingResponse<MailboxRightsGetResponse>(res, 'mr');
+      if(out.accountId!==accountId||out.mailboxId!==mailboxId||typeof out.myRights!=='string'||out.myRights.length>128||!Array.isArray(out.acl)||out.acl.length>1024||out.acl.some(entry=>!entry||typeof entry.identifier!=='string'||typeof entry.rights!=='string'))throw new MailboxSharingError('invalidResponse');
+      return { myRights: out.myRights, acl: out.acl };
     },
     async grant(mailboxId, identifier, rights) {
       const res = await jmap(mailboxRightsSet(accountId, mailboxId, identifier, rights));
-      responseFor<unknown>(res, 'mrs');
+      const out=checkedSharingResponse<{accountId:string;mailboxId:string;updated?:Record<string,unknown>;notUpdated?:Record<string,{type?:string}>}>(res,'mrs');
+      if(out.accountId!==accountId||out.mailboxId!==mailboxId)throw new MailboxSharingError('invalidResponse');
+      if(out.notUpdated?.[identifier])throw new MailboxSharingError(out.notUpdated[identifier]?.type??'forbidden');
+      if(!out.updated||!Object.hasOwn(out.updated,identifier))throw new MailboxSharingError('invalidResponse');
     },
     async revoke(mailboxId, identifier) {
       // `null` (not '') → E7's DELETEACL arm; an empty string would be a SETACL to
       // empty rights, leaving a zero-rights entry rather than removing it.
       const res = await jmap(mailboxRightsSet(accountId, mailboxId, identifier, null));
-      responseFor<unknown>(res, 'mrs');
+      const out=checkedSharingResponse<{accountId:string;mailboxId:string;updated?:Record<string,unknown>;notUpdated?:Record<string,{type?:string}>}>(res,'mrs');
+      if(out.accountId!==accountId||out.mailboxId!==mailboxId)throw new MailboxSharingError('invalidResponse');
+      if(out.notUpdated?.[identifier])throw new MailboxSharingError(out.notUpdated[identifier]?.type??'forbidden');
+      if(!out.updated||!Object.hasOwn(out.updated,identifier))throw new MailboxSharingError('invalidResponse');
     },
     async getServerMetadata(mailboxId) {
       const res = await jmap(serverMetadataGet(accountId, mailboxId));

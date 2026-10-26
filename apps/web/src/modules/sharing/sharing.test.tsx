@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { AclEditor } from './AclEditor.tsx';
 import {
+  MailboxSharingError,
   parseRights,
   serializeRights,
   toggleRight,
@@ -167,4 +168,9 @@ describe('ACL editor — toggle / add / remove grant flows', () => {
 
     await waitFor(() => expect(revoke).toHaveBeenCalledWith('mbx1', 'bob'));
   });
+});
+
+it('renders unsupported sharing as a specific state instead of throwing a resource error',async()=>{
+ const noop=async()=>{};const client:AclClient={getMailboxRights:async()=>{throw new MailboxSharingError('unsupported');},grant:noop,revoke:noop,getServerMetadata:async()=>[],setServerMetadata:noop,removeServerMetadata:noop};
+ render(()=><AclEditor mailboxId="box" client={client}/>);await waitFor(()=>expect(screen.getByRole('alert')).toHaveTextContent('This mail server does not support folder sharing.'));expect(screen.queryByText('Something went wrong')).toBeNull();
 });

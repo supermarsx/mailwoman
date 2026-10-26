@@ -13,6 +13,7 @@
 import { createResource, createSignal, For, Show, onMount, createMemo, type JSX } from 'solid-js';
 import { t, loadCatalog, isolate } from '../../i18n';
 import {
+  MailboxSharingError,
   ACL_RIGHTS,
   canAdminister,
   hasRight,
@@ -69,15 +70,17 @@ function RightCheckbox(props: {
 export function AclEditor(props: AclEditorProps): JSX.Element {
   onMount(() => void loadCatalog('sharing'));
 
-  const [rights, { refetch }] = createResource<MailboxRights, Id>(
+  const [loadError,setLoadError]=createSignal<string|null>(null);
+  const sharingError=(error:unknown):string=>t(error instanceof MailboxSharingError&&['unsupported','unknownMethod'].includes(error.code)?'sharing-unsupported':error instanceof MailboxSharingError&&['forbidden','notFound','accountNotFound'].includes(error.code)?'sharing-forbidden':'sharing-load-failed');
+  const [rights, { refetch }] = createResource<MailboxRights|undefined, Id>(
     () => props.mailboxId,
-    (mailboxId) => props.client.getMailboxRights(mailboxId),
+    async (mailboxId) => {setLoadError(null);try{return await props.client.getMailboxRights(mailboxId);}catch(error){setLoadError(sharingError(error));return undefined;}},
   );
 
   const [busy, setBusy] = createSignal(false);
   const [opError, setOpError] = createSignal<string | null>(null);
 
-  const canEdit = createMemo(() => canAdminister(rights()?.myRights ?? ''));
+  const canEdit = createMemo(() => !rights.loading && !loadError() && canAdminister(rights()?.myRights ?? ''));
 
   /** Run a mutation, then refetch; surface a failure without wedging the view. */
   async function run(op: () => Promise<void>): Promise<void> {
@@ -86,8 +89,8 @@ export function AclEditor(props: AclEditorProps): JSX.Element {
     try {
       await op();
       await refetch();
-    } catch {
-      setOpError(t('sharing-op-failed'));
+    } catch(error) {
+      setOpError(error instanceof MailboxSharingError?sharingError(error):t('sharing-op-failed'));
     } finally {
       setBusy(false);
     }
@@ -141,13 +144,13 @@ export function AclEditor(props: AclEditorProps): JSX.Element {
       <Show when={rights.loading}>
         <p class={css.meta}>{t('sharing-loading')}</p>
       </Show>
-      <Show when={rights.error as unknown}>
+      <Show when={loadError()}>
         <p class={css.error} role="alert">
-          {t('sharing-load-failed')}
+          {loadError()}
         </p>
       </Show>
 
-      <Show when={rights()}>
+      <Show when={!rights.loading && rights()}>
         {(data) => (
           <>
             {/* MYRIGHTS for the current user */}

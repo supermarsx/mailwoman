@@ -9,7 +9,7 @@ import {t} from '../i18n';
 import {Icon} from './Icon.tsx';
 import './sweepDialog.css.ts';
 
-function EmptyTrashDialog(props:{mailboxId:string;onClose:()=>void}):JSX.Element {
+export function EmptyTrashDialog(props:{mailboxId:string;onClose:()=>void}):JSX.Element {
  const app=useApp(),owner=preferenceAccount(),accountId=app.accountId();const controller=new AbortController();const client=createConfiguredClient();
  const current=()=>!!owner&&preferenceAccountIsCurrent(owner)&&app.accountId()===accountId;
  const [preview,setPreview]=createSignal<TrashSnapshot>();const [error,setError]=createSignal(false);const [busy,setBusy]=createSignal(false);const [result,setResult]=createSignal<TrashResult>();const [finished,setFinished]=createSignal(false);

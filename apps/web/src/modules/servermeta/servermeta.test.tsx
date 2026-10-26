@@ -182,13 +182,13 @@ describe('createAclClient wires the JMAP method surface', () => {
     const calls: JmapRequest[] = [];
     const jmap = vi.fn(async (body: JmapRequest): Promise<JmapResponse> => {
       calls.push(body);
-      const [name, , callId] = body.methodCalls[0]!;
+      const [name, args, callId] = body.methodCalls[0]!;
       const arg =
         name === 'MailboxRights/get'
-          ? { accountId: 'acc', myRights: 'lra', acl: [{ identifier: 'bob', rights: 'lr' }] }
+          ? { accountId: 'acc', mailboxId:(args as {mailboxId:string}).mailboxId, myRights: 'lra', acl: [{ identifier: 'bob', rights: 'lr' }] }
           : name === 'ServerMetadata/get'
             ? { accountId: 'acc', list: [{ entry: '/shared/comment', value: 'hi' }] }
-            : { accountId: 'acc' };
+            : { accountId: 'acc',mailboxId:(args as {mailboxId:string}).mailboxId,updated:{[(args as {identifier:string}).identifier]:null} };
       return { methodResponses: [[name, arg, callId]], sessionState: 's0' };
     });
     return { jmap, calls };
@@ -251,11 +251,11 @@ describe('admin server-metadata mount — write-capable behind an account picker
     const calls: JmapRequest[] = [];
     const jmap = vi.fn(async (body: JmapRequest): Promise<JmapResponse> => {
       calls.push(body);
-      const [name, , callId] = body.methodCalls[0]!;
+      const [name, args, callId] = body.methodCalls[0]!;
       const arg =
         name === 'ServerMetadata/get'
           ? { accountId: 'acc', list: [{ entry: '/shared/comment', value: 'hi' }] }
-          : { accountId: 'acc' };
+          : { accountId: 'acc',mailboxId:(args as {mailboxId:string}).mailboxId,updated:{[(args as {identifier:string}).identifier]:null} };
       return { methodResponses: [[name, arg, callId]], sessionState: 's0' };
     });
     return { jmap, calls };

@@ -38,7 +38,7 @@ export function snoozePresets(now = new Date()): { labelId: string; at: string }
   ];
 }
 
-export function MessageActions(props: { email: Email }): JSX.Element {
+export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)=>void; contextOpen?:boolean }): JSX.Element {
   const app = useApp();
   const [menu, setMenu] = createSignal<'none' | 'snooze' | 'tag'>('none');
   // Whether the "More actions" toggle has the cluster open (touch / phone).
@@ -115,9 +115,10 @@ export function MessageActions(props: { email: Email }): JSX.Element {
         ref={toggleEl}
         class={`msg-more__toggle ${css.moreToggle} ${a11y.focusable}`}
         aria-label={t('mail-more-actions')}
-        aria-expanded={open()}
+        aria-expanded={props.onMore?props.contextOpen:open()}
+        aria-haspopup={props.onMore?'menu':undefined}
         data-testid="msg-more-toggle"
-        onClick={() => (open() ? closeAll() : openFromToggle())}
+        onClick={event => props.onMore ? props.onMore(event) : (open() ? closeAll() : openFromToggle())}
       >
         <Icon name={open() ? 'close' : 'more'} />
       </button>

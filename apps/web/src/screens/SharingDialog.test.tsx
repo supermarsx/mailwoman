@@ -8,11 +8,11 @@ import type { JmapRequest, JmapResponse } from '../api/jmap-types.ts';
 // capability (no invented ACL URN). The transport is mocked to a controllable fake.
 const { jmap } = vi.hoisted(() => {
   const jmap = vi.fn(async (body: JmapRequest): Promise<JmapResponse> => {
-    const [name, , callId] = body.methodCalls[0]!;
+    const [name, args, callId] = body.methodCalls[0]!;
     const arg =
       name === 'MailboxRights/get'
-        ? { accountId: 'acc', myRights: 'lra', acl: [{ identifier: 'bob', rights: 'lr' }] }
-        : { accountId: 'acc' };
+        ? { accountId: 'acc', mailboxId:(args as {mailboxId:string}).mailboxId, myRights: 'lra', acl: [{ identifier: 'bob', rights: 'lr' }] }
+        : { accountId: 'acc',mailboxId:(args as {mailboxId:string}).mailboxId,updated:{[(args as {identifier:string}).identifier]:null} };
     return { methodResponses: [[name, arg, callId]], sessionState: 's0' };
   });
   return { jmap };
