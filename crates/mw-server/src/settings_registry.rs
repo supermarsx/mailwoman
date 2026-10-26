@@ -1332,6 +1332,8 @@ pub static REGISTRY: &[SettingDef] = &[
         "observability",
         "metrics drill-down rows"
     ),
+    def!("metrics.defaultRangeSeconds", int(60, 34560000), "3600", G, "observability", "default request history range"),
+    def!("metrics.maxRangeSeconds", int(3600, 34560000), "2592000", G, "observability", "maximum request history range"),
     def!(
         "metrics.rollupDays",
         int(1, 400),

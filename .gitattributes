@@ -34,3 +34,7 @@ crates/mw-store/migrations_pg/0061_request_protection_keys.sql -text
 # Verified personal ownership migrations are immutable LF bytes.
 crates/mw-store/migrations/0062_personal_ownership.sql -text
 crates/mw-store/migrations_pg/0062_personal_ownership.sql -text
+
+# Durable metrics migrations use immutable LF bytes.
+crates/mw-store/migrations/0064_request_metrics.sql -text
+crates/mw-store/migrations_pg/0064_request_metrics.sql -text

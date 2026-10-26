@@ -22,13 +22,13 @@ import { findSection, SECTIONS } from '../shell/sections.ts';
 import { hrefFor, sectionPath } from '../shell/router.ts';
 import { isConsoleLocation } from '../../../api/adminPath.ts';
 import { StatTile } from '../shell/StatTile.tsx';
-import { Sparkline } from '../shell/Sparkline.tsx';
+import { RequestHistory } from '../RequestHistory.tsx';
 import { BarChart } from '../shell/BarChart.tsx';
 import { Feedback } from '../shell/Feedback.tsx';
 import { Icon } from '../shell/icons.tsx';
 import type { Capability } from '../shell/can.ts';
 import type { ChecklistItem, Dashboard as DashboardData, DashboardHealth } from '../../../api/admin/dashboard.ts';
-import { formatBytes, formatCount, formatDateTime, formatDuration, formatMs, formatTime } from './format.ts';
+import { formatBytes, formatCount, formatDateTime, formatDuration, formatMs } from './format.ts';
 import * as shell from '../shell/shell.css.ts';
 import * as admin from '../admin.css.ts';
 import * as css from './dashboard.css.ts';
@@ -264,43 +264,11 @@ function DashboardBody(props: BodyProps): JSX.Element {
       </Widget>
       )}</Show>
 
-      <Show when={d().traffic}>{traffic => (
+      <Show when={d().traffic}>
       <Widget id="traffic" layout={props.layout}>
-      <section class={css.panel} aria-labelledby="admin-dash-traffic">
-        <h3 id="admin-dash-traffic" class={css.panelTitle}>
-          {t('admin-dash-traffic', { mins: traffic().windowMins })}
-        </h3>
-        <p class={admin.note}>{t('admin-dash-traffic-note')}</p>
-        <div class={css.charts}>
-          <Sparkline
-            testId="spark-requests"
-            title={t('admin-dash-requests')}
-            points={traffic().series.map((p) => ({ t: p.t, value: p.requests }))}
-            format={formatCount}
-            formatTime={formatTime}
-            emptyText={t('admin-dash-traffic-empty')}
-          />
-          <Sparkline
-            testId="spark-errors"
-            title={t('admin-dash-errors')}
-            tone="danger"
-            points={traffic().series.map((p) => ({ t: p.t, value: p.errors5xx }))}
-            format={formatCount}
-            formatTime={formatTime}
-            emptyText={t('admin-dash-traffic-empty')}
-          />
-          <Sparkline
-            testId="spark-p95"
-            title={t('admin-dash-p95')}
-            points={traffic().series.map((p) => ({ t: p.t, value: p.p95Ms }))}
-            format={formatMs}
-            formatTime={formatTime}
-            emptyText={t('admin-dash-traffic-empty')}
-          />
-        </div>
-      </section>
+        <RequestHistory refreshToken={d()}/>
       </Widget>
-      )}</Show>
+      </Show>
 
       <Show when={d().health}>{health => <Widget id="health" layout={props.layout}><Health health={health()} reasonProxy={reasonProxy()} /></Widget>}</Show>
 

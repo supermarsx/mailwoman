@@ -11,6 +11,17 @@ const pts = [
 const time = (s: number): string => `t${s}`;
 
 describe('Sparkline', () => {
+  it('breaks the line at unavailable history and preserves measured zeros', () => {
+    render(() => <Sparkline testId="gaps" title="History" points={[{t:0,value:4},{t:60,value:null},{t:120,value:0}]} formatTime={time}/>);
+    const region=screen.getByTestId('gaps');
+    expect(region.querySelectorAll('polyline')).toHaveLength(2);
+    expect(within(region).getByRole('table')).toHaveTextContent('t60Not available');
+    const svg=region.querySelector('svg')!;
+    svg.getBoundingClientRect=()=>({left:0,width:200,top:0,height:48,right:200,bottom:48,x:0,y:0,toJSON:()=>({})});
+    svg.dispatchEvent(new MouseEvent('pointermove',{bubbles:true,clientX:100}));
+    expect(region).toHaveTextContent('t60: Not available');
+    expect(region).toHaveTextContent('Latest 0, highest 4');
+  });
   it('is a region named by its title, with a summary and a hidden table of every point', () => {
     render(() => <Sparkline testId="s" title="Requests per minute" points={pts} formatTime={time} />);
     const region = screen.getByRole('region', { name: 'Requests per minute' });

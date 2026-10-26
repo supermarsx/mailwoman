@@ -240,7 +240,7 @@ fn record_at(now: u64, class: RouteClass, status: u16, elapsed_ms: u64) {
 }
 
 /// The middleware: times the request and records it under its class.
-pub async fn layer(req: Request, next: Next) -> Response {
+pub(crate) async fn layer(axum::extract::State(state): axum::extract::State<crate::AppState>, req: Request, next: Next) -> Response {
     let class = classify(req.uri().path());
     let start = Instant::now();
     use tracing::Instrument as _;
@@ -249,6 +249,7 @@ pub async fn layer(req: Request, next: Next) -> Response {
     span.record("status", resp.status().as_u16());
     let ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
     record(class, resp.status().as_u16(), ms);
+    state.request_history.record(resp.status().as_u16(), ms);
     resp
 }
 
@@ -369,6 +370,7 @@ fn summary_at(now: u64) -> Summary {
 
 /// Register `GET /admin/metrics/summary` (mini-slot `t32-admin-registry`).
 pub(crate) fn register(r: &mut impl crate::admin_router::AdminRegistrar) {
+    r.admin_endpoint(axum::http::Method::GET, "/metrics/history", crate::admin_router::Access::SignedIn, crate::request_history::history);
     r.admin_endpoint(
         axum::http::Method::GET,
         "/metrics/summary",

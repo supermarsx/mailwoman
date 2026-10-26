@@ -25,6 +25,7 @@ pub mod diagnostics;
 pub mod diag;
 pub mod audit_identity;
 pub mod user_directory;
+pub mod request_metrics;
 pub mod jobs;
 pub use security_center::{SessionDevice, SecuritySession, SigninEvent, RememberedDevice};
 mod admin_accounts;

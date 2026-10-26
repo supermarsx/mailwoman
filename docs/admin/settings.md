@@ -986,3 +986,13 @@ contact photos take priority when contact-photo mode is selected; hiding avatars
 also hides domain icons. Government domains use a generic civic icon, not an
 identity seal. Domain matching is an appearance hint, never authentication
 verification. It does not request favicons, remote logos, or external profiles.
+
+<a id="metrics.defaultRangeSeconds"></a>
+### Default request history range (`metrics.defaultRangeSeconds`)
+
+Global seconds, default 3,600; bounded from 60 to 34,560,000. Applies when both history endpoints are omitted. Effective default is capped by the maximum range and retention.
+
+<a id="metrics.maxRangeSeconds"></a>
+### Maximum request history range (`metrics.maxRangeSeconds`)
+
+Global seconds, default 2,592,000 (30 days); bounded from 3,600 to 34,560,000. The effective limit also respects `metrics.rollupDays` (1–400 days). Request history records response-ready latency for requests that reach application middleware, not full streamed transfers or transport-parser rejections. Aggregate snapshots flush every 15 seconds; a sudden process loss can lose the unflushed tail. Minute snapshots are retained for 48 hours, hourly snapshots for the configured retention. Percentiles combine histogram counts across replicas, with no request paths, addresses or identities stored. Missing periods remain unavailable, not zero. Queries return at most 1,000 points and refuse scans exceeding 20,000 stored buckets; reduce the range if the deployment has too many replica snapshots. Only unscoped Dashboard read or Observability read access can see this server-wide history.

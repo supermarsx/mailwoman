@@ -29,8 +29,8 @@ const Telemetry = lazy(() => import('./Telemetry.tsx').then(module => ({ default
 export function Observability(): JSX.Element {
   const shell = useContext(ShellContext);
   const selected=()=>shell?.router.route().rest[0]??'audit';
-  const tabs=()=>[['audit','admin-obs-audit'],...(shell?.can.can('dashboard.read')?[['statistics','admin-obs-statistics']]:[]),['telemetry','admin-obs-telemetry-open'],...(shell?.can.can('bans.read')?[['locks','admin-obs-locks-title'],['geography','admin-obs-geo-title'],['protection','admin-protection-title']]:[])].map(([id,label])=>({id:id!,label:t(label!),path:sectionPath('observability',id==='audit'?[]:[id!])}));
-  return <><SectionTabs label={t('admin-obs-title')} items={tabs()} selected={selected()} navigate={path=>void shell?.router.navigate(path)}/><Show when={selected()==='statistics' && shell?.can.can('dashboard.read')} fallback={<Show when={selected() === 'protection'} fallback={<ObservabilityRoutes/>}><RequestProtection/></Show>}><ObservabilityStats/></Show></>;
+  const tabs=()=>[['audit','admin-obs-audit'],...(shell?.can.can('observability.read')?[['statistics','admin-obs-statistics']]:[]),['telemetry','admin-obs-telemetry-open'],...(shell?.can.can('bans.read')?[['locks','admin-obs-locks-title'],['geography','admin-obs-geo-title'],['protection','admin-protection-title']]:[])].map(([id,label])=>({id:id!,label:t(label!),path:sectionPath('observability',id==='audit'?[]:[id!])}));
+  return <><SectionTabs label={t('admin-obs-title')} items={tabs()} selected={selected()} navigate={path=>void shell?.router.navigate(path)}/><Show when={selected()==='statistics' && shell?.can.can('observability.read')} fallback={<Show when={selected() === 'protection'} fallback={<ObservabilityRoutes/>}><RequestProtection/></Show>}><ObservabilityStats/></Show></>;
 }
 function ObservabilityRoutes(): JSX.Element {
   const shell = useContext(ShellContext);

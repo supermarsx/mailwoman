@@ -226,6 +226,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'observability.otlpMetrics',
   'metrics.drilldownTopN',
   'metrics.rollupDays',
+  'metrics.defaultRangeSeconds',
+  'metrics.maxRangeSeconds',
   'diagnostics.retentionDays',
   'logs.auth.retentionDays',
   'logs.auth.maxEntries',

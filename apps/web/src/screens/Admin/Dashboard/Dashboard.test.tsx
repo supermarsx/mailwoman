@@ -6,10 +6,15 @@ import { engineDashboard, proxyDashboard } from './fixtures.ts';
 import { dashboardReturning, holding, renderInShell } from '../shell/testkit.tsx';
 import type { DashboardResult } from '../../../api/admin/dashboard.ts';
 import { PersonalPreferencesProvider } from '../shell/personalPreferences.tsx';
+import {loadRequestHistory} from '../../../api/admin/requestHistory.ts';
+vi.mock('../../../api/admin/requestHistory.ts',()=>({loadRequestHistory:vi.fn()}));
 
 const ok = (data = engineDashboard()): DashboardResult => ({ kind: 'ok', data });
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+ localStorage.clear();
+ vi.mocked(loadRequestHistory).mockResolvedValue({from:1790000000,to:1790003600,bucketSeconds:60,series:engineDashboard().traffic!.series.map(p=>({...p,coverage:'complete' as const})),coverage:{observedSeconds:3600,requestedSeconds:3600,gaps:[]},policy:{defaultRangeSeconds:3600,maxRangeSeconds:2592000,retentionDays:30},scope:'server',timing:'response-ready'});
+});
 
 describe('Dashboard — before the endpoint exists', () => {
   it('a 404 says the figures are not available yet and shows no numbers', async () => {
@@ -119,13 +124,13 @@ describe('Dashboard — with data', () => {
     expect(await screen.findByTestId('dash-health')).toHaveTextContent('31 of 33 applied');
   });
 
-  it('traffic charts: one series each, from the server ring, with a per-process note', async () => {
+  it('traffic charts use persistent history with selectable periods', async () => {
     renderInShell(() => <Dashboard />, { loadDashboard: dashboardReturning(ok()) });
     const req = await screen.findByTestId('spark-requests');
     expect(req).toHaveTextContent('Latest 18, highest 25');
     expect(screen.getByTestId('spark-errors')).toHaveTextContent('Latest 0, highest 1');
     expect(screen.getByTestId('spark-p95')).toHaveTextContent('Latest 22 ms, highest 31 ms');
-    expect(screen.getByText(/Counted by this server process since it started/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Period')).toBeInTheDocument();
   });
 
   it('recent audit lists the actions; an empty audit says so', async () => {

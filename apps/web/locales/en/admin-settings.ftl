@@ -619,3 +619,8 @@ admin-settings-help-privacy-remote-image-downloads = Allow an explicit download 
 
 admin-settings-key-contacts-sender-icons = Bundled sender icons
 admin-settings-help-contacts-sender-icons = Show locally bundled icons for recognised sender domains, with generated initials for others. Contact pictures take priority. Icons do not verify a sender's identity. No external logo service is contacted; user and domain overrides can be locked.
+
+admin-settings-key-metrics-default-range-seconds = Default request history range
+admin-settings-help-metrics-default-range-seconds = Seconds shown when a history request does not specify a range. Limited by retention and the maximum range.
+admin-settings-key-metrics-max-range-seconds = Maximum request history range
+admin-settings-help-metrics-max-range-seconds = Maximum seconds per history query. Retention remains an additional limit.

@@ -1156,6 +1156,12 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "request_metrics_bucket",
+        select: "SELECT instance_id,bucket_seconds,bucket_start,observed_from,observed_to,counts_json FROM request_metrics_bucket",
+        insert: "INSERT INTO request_metrics_bucket(instance_id,bucket_seconds,bucket_start,observed_from,observed_to,counts_json) VALUES(?1,?2,?3,?4,?5,?6)",
+        map: |r| vec![t(r,"instance_id"),i(r,"bucket_seconds"),i(r,"bucket_start"),i(r,"observed_from"),i(r,"observed_to"),t(r,"counts_json")],
+    },
+    TableSpec {
         name: "package_provider",
         select: "SELECT id,enabled,refresh_secs,sealed_key,revision FROM package_provider",
         insert: "INSERT INTO package_provider(id,enabled,refresh_secs,sealed_key,revision) VALUES(?1,?2,?3,?4,?5)",

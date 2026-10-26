@@ -13,7 +13,8 @@ import * as css from './shell.css.ts';
 export interface SparkPoint {
   /** Bucket start (Unix seconds). */
   t: number;
-  value: number;
+  /** Null marks unavailable history, rather than a measured zero. */
+  value: number | null;
 }
 
 export interface SparklineProps {
@@ -34,19 +35,27 @@ const H = 48;
 
 export function Sparkline(props: SparklineProps): JSX.Element {
   const id = createUniqueId();
-  const fmt = (n: number): string => (props.format ? props.format(n) : formatNumber(n));
+  const fmt = (n: number | null): string => n === null ? t('admin-shell-not-available') : (props.format ? props.format(n) : formatNumber(n));
   const fmtTime = (s: number): string =>
     props.formatTime ? props.formatTime(s) : formatTime(s * 1000);
 
   const geom = createMemo(() => {
     const pts = props.points;
-    const max = Math.max(0, ...pts.map((p) => p.value));
+    const known = pts.flatMap(p => p.value === null ? [] : [p.value]);
+    const max = Math.max(0, ...known);
     const step = pts.length > 1 ? W / (pts.length - 1) : 0;
-    const xy = pts.map((p, i) => ({
+    const xy = pts.map((p, i) => p.value === null ? null : ({
       x: pts.length > 1 ? i * step : W / 2,
       y: max > 0 ? H - (p.value / max) * (H - 2) - 1 : H - 1,
     }));
-    return { max, step, xy };
+    const segments: string[][] = [];
+    let segment: string[] = [];
+    for (const point of xy) {
+      if (point === null) { if (segment.length) segments.push(segment); segment = []; }
+      else segment.push(`${point.x},${point.y}`);
+    }
+    if (segment.length) segments.push(segment);
+    return { max: known.length ? max : null, step, xy, segments };
   });
   const [hover, setHover] = createSignal<number | null>(null);
 
@@ -77,12 +86,10 @@ export function Sparkline(props: SparklineProps): JSX.Element {
           onPointerLeave={() => setHover(null)}
         >
           <line class={css.chartBase} x1="0" y1={H - 0.5} x2={W} y2={H - 0.5} />
-          <polyline
+          <For each={geom().segments}>{segment => <polyline
             class={[css.chartLine, props.tone === 'danger' ? css.chartLineDanger : ''].join(' ')}
-            points={geom()
-              .xy.map((p) => `${p.x},${p.y}`)
-              .join(' ')}
-          />
+            points={segment.join(' ')}
+          />}</For>
           <rect class={css.chartHit} x="0" y="0" width={W} height={H} />
           <Show when={hover() !== null && geom().xy[hover()!]}>
             {(p) => <rect class={css.chartDot} x={p().x - 1} y={p().y - 3} width="2" height="6" />}
@@ -95,7 +102,7 @@ export function Sparkline(props: SparklineProps): JSX.Element {
         </p>
         <p class={css.chartSummary}>
           {t('admin-shell-chart-summary', {
-            latest: fmt(latest()?.value ?? 0),
+            latest: fmt(latest()?.value ?? null),
             max: fmt(geom().max),
           })}
         </p>

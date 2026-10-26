@@ -52,7 +52,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Every store table, for TRUNCATE between Postgres runs.
-const ALL_TABLES: &str = "personal_signature, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
+const ALL_TABLES: &str = "request_metrics_bucket, personal_signature, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
@@ -2310,6 +2310,10 @@ mod admin_controls_0033 {
             ("locked_until", 'I', "=0", "240"),
             ("expires_at", 'I', "!", "240"),
             ("revision", 'T', "!", "failure-revision"),
+        ]},
+        NewTable {name:"request_metrics_bucket",copied:true,cols:&[
+            ("instance_id",'T',"!","replica-one"),("bucket_seconds",'I',"!","60"),
+            ("bucket_start",'I',"!","60"),("observed_from",'I',"!","60"),("observed_to",'I',"!","120"),("counts_json",'T',"!","{}"),
         ]},
         NewTable {name:"request_protection_subject",copied:true,cols:&[
             ("subject_key",'T',"!","subject-hmac"),("subject_kind",'T',"!","client"),

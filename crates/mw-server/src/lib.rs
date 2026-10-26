@@ -51,6 +51,7 @@ mod login_failure;
 pub mod fonts;
 pub mod hardening;
 pub mod http_metrics;
+mod request_history;
 pub mod inbound_http;
 pub mod knobs;
 mod config_routes;
@@ -866,6 +867,7 @@ pub(crate) struct AppState {
     started_at: std::time::SystemTime,
     started: std::time::Instant,
     config_snapshot: config_routes::BootConfigSnapshot,
+    request_history: Arc<request_history::Recorder>,
     store: Store,
     pub(crate) scheduler: Arc<jobs::Scheduler>,
     render_bin: Option<PathBuf>,
@@ -1311,6 +1313,7 @@ async fn build_app_inner(
         started_at: std::time::SystemTime::now(),
         started: std::time::Instant::now(),
         config_snapshot,
+        request_history: request_history::Recorder::start(store.clone()),
         store,
         scheduler: jobs::new_scheduler(),
         render_bin,
@@ -1559,7 +1562,7 @@ fn router(
             state.clone(),
             security_headers,
         ))
-        .layer(middleware::from_fn(http_metrics::layer))
+        .layer(middleware::from_fn_with_state(state.clone(), http_metrics::layer))
         .with_state(state.clone());
     // t20 B4: also serve the whole thing under `MW_BASE_PATH`. No-op when unset.
     mount_under_base_path(app, &state.base_path)
