@@ -451,3 +451,6 @@ mail-toggle-list = Show or hide message list
 mail-toggle-reader = Show or hide reading pane
 
 mail-folder-counts = { $unread } unread, { $total } messages
+
+mail-print = Print / Save as PDF
+mail-print-help = Print this message or choose Save as PDF in the print dialog. External images stay blocked.

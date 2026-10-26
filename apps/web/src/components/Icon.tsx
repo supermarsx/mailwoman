@@ -10,6 +10,7 @@
 import type { JSX } from 'solid-js';
 
 export type IconName =
+  | 'print'
   | 'preferences'
   | 'dashboard'
   | 'sessions'
@@ -153,6 +154,7 @@ const PATHS: Record<IconName, () => JSX.Element> = {
 
   restore: () => <><path d="M3 5 A6 6 0 1 1 2 10 M3 1 V5 H7" {...S} /></>,
   edit: () => <><path d="M2 11 L11 2 L14 5 L5 14 H2 Z M9 4 L12 7" {...S} /></>,
+  print: () => <g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 5V1h8v4M4 11H2V5h12v6h-2" /><path d="M4 9h8v6H4z" /><path d="M11 7h1" /></g>,
   preferences: () => <><circle cx="5" cy="4" r="2" {...S} /><path d="M1 14 V11 A4 4 0 0 1 9 11 V14 M11 3 H15 M11 8 H15 M11 13 H15" {...S} /></>,
   diagnostics: () => <><path d="M1 8 H4 L6 2 L10 14 L12 8 H15" {...S} /></>,
   configuration: () => <><rect x="2" y="1" width="12" height="14" {...S} /><path d="M5 5 H11 M5 8 H11 M5 11 H8" {...S} /></>,

@@ -11,6 +11,7 @@ import {
   type JSX,
   type Resource,
 } from 'solid-js';
+import { printMessage } from '../viewers/printMessage.ts';
 import { AppContext, useApp } from '../state/context.ts';
 import type { MessageView } from '../state/slices/messageView.ts';
 import { createEntryMotion } from '../shell/createEntryMotion.ts';
@@ -179,6 +180,7 @@ function ReaderToolbar(props: {
   onReply: (mode: ReplyMode) => void;
   /** True while a reply is being prepared; the three buttons are disabled. */
   preparing: boolean;
+  onPrint: () => void;
 }): JSX.Element {
   const app = useApp();
   const [sweeping, setSweeping] = createSignal(false);
@@ -261,6 +263,7 @@ function ReaderToolbar(props: {
       >
         {t('mail-export')}
       </button>
+      <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={props.onPrint} title={t('mail-print-help')}><Icon name="print" />{t('mail-print')}</button>
       <Show when={sender() !== ''}>
         <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => setSweeping(true)}>
           {t('mail-sweep-sender')}
@@ -997,7 +1000,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   );
                 }}
               </Show>
-              <ReaderToolbar email={email()} onReply={(mode) => void startReply(mode)} preparing={preparing()} />
+              <ReaderToolbar email={email()} onReply={(mode) => void startReply(mode)} preparing={preparing()} onPrint={() => printMessage(email(), displayedContent(email()).source)} />
               <AutoTagSection email={email()} />
             </header>
             <AttachmentsPane email={email()} />
