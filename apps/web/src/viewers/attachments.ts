@@ -116,6 +116,46 @@ export interface AttachmentPage {
   nextPosition: number | null;
 }
 
+export interface AttachmentSearchProgress {
+  items: AttachmentItem[];
+  pages: number;
+  limited: boolean;
+}
+
+/** Search message pages sequentially; never download attachment content. */
+export async function searchAttachmentPages(
+  load: (position: number) => Promise<AttachmentPage>,
+  filters: AttachmentFilters,
+  signal: AbortSignal,
+  progress: (value: AttachmentSearchProgress) => void,
+): Promise<AttachmentSearchProgress> {
+  const items: AttachmentItem[] = [];
+  const seen = new Set<string>();
+  let position = 0;
+  let pages = 0;
+  while (!signal.aborted) {
+    const page = await load(position);
+    signal.throwIfAborted();
+    if (page.position !== position || (page.nextPosition !== null && (!Number.isSafeInteger(page.nextPosition) || page.nextPosition <= position))) {
+      throw new Error('Invalid attachment search page');
+    }
+    pages++;
+    for (const item of filterAttachments(page.items, filters)) {
+      const key = JSON.stringify([item.emailId, item.blobId, item.name]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push(item);
+      if (items.length >= 1000) break;
+    }
+    const result = {items: [...items], pages, limited: items.length >= 1000};
+    progress(result);
+    if (result.limited || page.nextPosition === null) return result;
+    position = page.nextPosition;
+  }
+  signal.throwIfAborted();
+  return {items, pages, limited: false};
+}
+
 /** Page by messages, not flattened files: one message can contain many files. */
 export async function loadAttachmentPage(client: Client, accountId: Id, position = 0): Promise<AttachmentPage> {
   const limit = 50;
@@ -225,6 +265,10 @@ function normalizeCategory(v: string): TypeCategory | 'all' {
     case 'text':
     case 'txt':
       return 'text';
+    case 'message':
+    case 'eml':
+    case 'tnef':
+      return 'message';
     case 'all':
     case 'any':
       return 'all';

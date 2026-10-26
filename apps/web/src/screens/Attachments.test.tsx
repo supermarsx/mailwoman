@@ -11,6 +11,28 @@ const items: AttachmentItem[] = [
 ];
 
 describe('Attachments module', () => {
+  it('sorts numeric sizes and exposes filename warnings without downloading files', async () => {
+    render(()=><Attachments items={[...items,{...items[0]!,name:'invoice.pdf.exe',blobId:'exe'}]}/>);
+    await screen.findByText('invoice.pdf.exe');
+    fireEvent.click(screen.getByRole('button',{name:'Size'}));
+    expect(screen.getByRole('columnheader',{name:'Size'})).toHaveAttribute('aria-sort','ascending');
+    expect(screen.getAllByRole('row')[1]).toHaveTextContent('logo.png');
+    expect(screen.getByLabelText(/may execute programs/i)).toBeInTheDocument();
+  });
+  it('searches older pages explicitly and clears account results when filters change', async () => {
+    const load = vi.fn(async (position:number) => ({items:position===0?[items[0]!]:[items[1]!],position,nextPosition:position===0?50:null}));
+    render(()=><Attachments loadPage={load}/>);
+    await screen.findByText('Q3-report.pdf');
+    fireEvent.input(screen.getByLabelText('Search attachments'),{target:{value:'logo'}});
+    expect(screen.queryByText('logo.png')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Search entire account'}));
+    await screen.findByText('logo.png');
+    await screen.findByText(/Search complete/);
+    expect(screen.queryByRole('navigation',{name:'Attachment pages'})).not.toBeInTheDocument();
+    fireEvent.input(screen.getByLabelText('Search attachments'),{target:{value:'report'}});
+    await screen.findByText('Q3-report.pdf');
+    expect(screen.queryByText(/Search complete/)).not.toBeInTheDocument();
+  });
   it('opens the file independently from its parent message', async () => {
     const open = vi.fn(), parent = vi.fn();
     render(() => <Attachments items={items} onOpen={open} onOpenMessage={parent}/>);

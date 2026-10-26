@@ -5,6 +5,7 @@ import { viewerKindFor } from '../contracts/viewer.ts';
 import {
   attachmentsQuery,
   loadAttachmentPage,
+  searchAttachmentPages,
   buildDownloadUrl,
   categoryOf,
   filterAttachments,
@@ -14,6 +15,31 @@ import {
   parseSize,
   type AttachmentItem,
 } from './attachments.ts';
+
+describe('account attachment search', () => {
+  const file: AttachmentItem = {emailId:'old',blobId:'blob',name:'older-report.pdf',mime:'application/pdf',size:42,from:'a@example.org',subject:'Report',receivedAt:'2020-01-01T00:00:00Z'};
+  it('finds older files beyond empty matching pages and deduplicates repeated entries', async () => {
+    const load = vi.fn(async (position:number) => ({position,items:position===0?[]:[file,file],nextPosition:position===0?50:null}));
+    const result = await searchAttachmentPages(load,{text:'report'},new AbortController().signal,vi.fn());
+    expect(result.items).toEqual([file]);
+    expect(result.pages).toBe(2);
+    expect(load.mock.calls.map(call=>call[0])).toEqual([0,50]);
+  });
+  it('discards an in-flight page after cancellation', async () => {
+    const controller = new AbortController(); const progress = vi.fn();
+    const load = vi.fn(async()=>{controller.abort();return {position:0,items:[file],nextPosition:50};});
+    await expect(searchAttachmentPages(load,{},controller.signal,progress)).rejects.toMatchObject({name:'AbortError'});
+    expect(progress).not.toHaveBeenCalled(); expect(load).toHaveBeenCalledTimes(1);
+  });
+  it('rejects a nonadvancing page instead of repeatedly querying it', async () => {
+    await expect(searchAttachmentPages(async()=>({position:0,items:[],nextPosition:0}),{},new AbortController().signal,vi.fn())).rejects.toThrow('Invalid attachment search page');
+  });
+  it('bounds retained results and reports the limit instead of claiming a complete search', async () => {
+    const load = vi.fn(async()=>({position:0,items:Array.from({length:1100},(_,i)=>({...file,blobId:String(i)})),nextPosition:50}));
+    const result = await searchAttachmentPages(load,{},new AbortController().signal,vi.fn());
+    expect(result.items).toHaveLength(1000); expect(result.limited).toBe(true); expect(load).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('viewerKindFor — MIME dispatch (frozen §2.4)', () => {
   it('routes each family to its viewer', () => {

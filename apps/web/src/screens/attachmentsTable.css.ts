@@ -1,11 +1,13 @@
 import { style, globalStyle } from '@vanilla-extract/css';
 import {vars} from '../theme/contract.css.ts';
 export const wrap=style({overflow:'auto',minInlineSize:0,flex:'1 1 auto'});
-export const table=style({inlineSize:'100%',borderCollapse:'collapse',tableLayout:'auto',fontSize:'.875rem'});
+export const table=style({inlineSize:'100%',minInlineSize:'52rem',borderCollapse:'collapse',tableLayout:'auto',fontSize:'.875rem'});
 globalStyle(`${table} th, ${table} td`,{padding:`${vars.space[3]} ${vars.space[4]}`,textAlign:'start',borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}`,verticalAlign:'middle',overflowWrap:'anywhere'});
 globalStyle(`${table} th`,{color:vars.color.textDim,fontWeight:vars.weight.bold,background:vars.color.bgAlt});
+globalStyle(`${table} th`,{whiteSpace:'nowrap'});
 globalStyle(`${table} td:first-child`,{minInlineSize:'12rem',maxInlineSize:'28rem'});
 globalStyle(`${table} td:nth-child(3), ${table} td:last-child`,{whiteSpace:'nowrap',fontVariantNumeric:'tabular-nums'});
 export const name=style({display:'inline-flex',alignItems:'center',gap:vars.space[2],maxInlineSize:'100%',border:0,background:'transparent',color:vars.color.link,textAlign:'start',font:'inherit',cursor:'pointer',padding:vars.space[1],':hover':{textDecoration:'underline'},':focus-visible':{outline:`${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`,outlineOffset:'2px'}});
 globalStyle(`${name} svg`,{flexShrink:0});
-export const paging=style({display:'flex',alignItems:'center',gap:vars.space[3],padding:vars.space[3],flexShrink:0});
+export const paging=style({display:'flex',alignItems:'center',flexWrap:'wrap',gap:vars.space[3],padding:vars.space[3],flexShrink:0});
+export const warning=style({display:'inline-flex',verticalAlign:'middle',marginInlineStart:vars.space[2],color:vars.color.text});

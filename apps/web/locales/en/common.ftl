@@ -151,3 +151,11 @@ common-error-page-help = A page resource could not be downloaded. Try again. If 
 common-reload-app = Reload application
 
 common-attach-account-changed = The account changed while loading attachments. Reopen Attachments for the current account.
+common-attach-search-account = Search entire account
+common-attach-scanning = Searching… { $pages } message pages checked · { $count } files found
+common-attach-scan-cancelled = Search cancelled · { $count } files found in { $pages } pages. Results are incomplete.
+common-attach-scan-incomplete = Search interrupted · { $count } files found. Retry to search the entire account.
+common-attach-scan-limited = Showing the first 1,000 matching files. Narrow your filters to find more specific files.
+common-attach-scan-complete = Search complete · { $count } files found across { $pages } message pages
+common-attach-browse-pages = Browse pages
+common-attach-cancel-search = Cancel search
