@@ -24,6 +24,7 @@
 
 use std::io::Cursor;
 mod preview;
+mod rtf;
 
 /// Whole-container / whole-stream read ceiling — mirrors the render child's
 /// `MAX_INPUT_BYTES`. A corrupt length field can never drive an unbounded read.

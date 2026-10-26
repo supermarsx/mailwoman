@@ -106,6 +106,19 @@ mod tests {
         );
     }
     #[test]
+    fn compressed_rtf_body_is_plain_text_through_actual_wasm() {
+        let p = preview(
+            PreviewFormat::Tnef,
+            include_bytes!("../../mw-media-wasm/fixtures/tnef/rtf.tnef"),
+        )
+        .unwrap();
+        assert!(p.text.contains("aafg"));
+        assert!(!p.text.contains("fonttbl"));
+        assert!(p.html.is_empty());
+        assert!(p.warnings.iter().any(|w| w.contains("plain text")));
+    }
+
+    #[test]
     fn invalid_and_oversize_inputs_fail_closed() {
         assert!(preview(PreviewFormat::Tnef, b"corrupt").is_err());
         assert!(preview(PreviewFormat::Eml, &vec![0; crate::MAX_INPUT_BYTES + 1]).is_err());

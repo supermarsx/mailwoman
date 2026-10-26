@@ -24,6 +24,8 @@ pub struct Preview {
     warnings: Vec<String>,
     #[serde(skip)]
     attachment_bytes: usize,
+    #[serde(skip)]
+    rtf_data: Option<Vec<u8>>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -338,9 +340,7 @@ fn apply_property(
             0x1013 if matches!(ty, 0x102 | 0x1e | 0x1f) => {
                 out.html = checked_body(decode(data, ty == 0x1f, *codepage)?)?
             }
-            0x1009 => out.warn(
-                "Compressed RTF body is not rendered; available plain text or HTML is shown.",
-            ),
+            0x1009 if ty == 0x102 => out.rtf_data = Some(data.to_vec()),
             _ => {}
         }
     }
@@ -490,6 +490,16 @@ pub fn parse_tnef(bytes: &[u8]) -> Result<Preview, String> {
     }
     if records == 0 {
         return Err("empty TNEF stream".into());
+    }
+    if let Some(rtf) = out
+        .rtf_data
+        .as_deref()
+        .filter(|_| out.text.is_empty() && out.html.is_empty())
+    {
+        match crate::rtf::decompress(rtf).and_then(|raw|crate::rtf::plain_text(&raw)) {
+            Ok(text)=>{out.text=text;out.warn("RTF body is shown as plain text; rich formatting and embedded objects are omitted.");},
+            Err(_)=>out.warn("The RTF body is corrupt, unsupported, or exceeds preview limits; attachments remain available."),
+        }
     }
     Ok(out)
 }
@@ -686,6 +696,60 @@ mod tests {
             parse_tnef(&decoded).unwrap().subject.as_deref(),
             Some("Nested")
         );
+    }
+
+    #[test]
+    fn independent_compressed_rtf_body_is_decoded_and_projected() {
+        let p = parse_tnef(include_bytes!("../fixtures/tnef/rtf.tnef")).unwrap();
+        let raw =
+            crate::rtf::decompress(p.rtf_data.as_deref().expect("independent compressed body"))
+                .unwrap();
+        let expected = include_bytes!("../fixtures/tnef/rtf/message.rtf");
+        let normalize = |bytes: &[u8]| {
+            bytes
+                .iter()
+                .enumerate()
+                .filter_map(|(i, b)| {
+                    if *b == b'\r' && bytes.get(i + 1) == Some(&b'\n') {
+                        None
+                    } else {
+                        Some(*b)
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            normalize(&raw) == normalize(expected),
+            "independent RTF decompression differs"
+        );
+        assert!(
+            p.text.contains("aafg"),
+            "plain body missing: {:?}",
+            p.warnings
+        );
+        assert!(!p.text.contains("fonttbl"));
+        assert!(p.html.is_empty());
+        let html = parse_tnef(include_bytes!("../fixtures/tnef/body.tnef")).unwrap();
+        assert!(
+            html.text.contains("Amendment") || html.html.contains("Amendment"),
+            "encapsulated body lost"
+        );
+    }
+
+    #[test]
+    fn corrupt_rtf_body_does_not_hide_valid_attachments() {
+        let mut properties = 1u32.to_le_bytes().to_vec();
+        properties.extend(0x10090102u32.to_le_bytes());
+        properties.extend(1u32.to_le_bytes());
+        properties.extend(16u32.to_le_bytes());
+        properties.extend([0; 16]);
+        let mut bytes = stream(attribute(1, 0x00069003, &properties));
+        bytes.extend(attribute(2, 0x00069002, &[0; 14]));
+        bytes.extend(attribute(2, 0x0006800f, b"attachment data"));
+        let p = parse_tnef(&bytes).unwrap();
+        assert_eq!(p.attachments.len(), 1);
+        assert!(p.text.is_empty());
+        assert!(p.warnings.iter().any(|w| w.contains("RTF body is corrupt")));
     }
 
     #[test]
