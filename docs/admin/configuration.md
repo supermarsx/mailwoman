@@ -276,6 +276,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | Key | Category | Scopes | Default | Value | Environment | Hot | Read by |
 |---|---|---|---|---|---|---|---|
 | <a id="nextcloud.syncintervalsecs"></a>`nextcloud.syncIntervalSecs` | integrations | global+domain+user | 300 | plain |  | yes | Nextcloud collection refresh interval; zero is manual only, positive values have a sixty-second minimum |
+| <a id="packages.allowed"></a>`packages.allowed` | integrations | global+domain+admin_user | true | plain |  | yes | Allow package tracking; provider activation and separate account opt-in are still required |
 | <a id="cap.integration.nextcloud"></a>`cap.integration.nextcloud` | integrations | global+domain+admin_user | true | plain |  | yes | Nextcloud integration |
 | <a id="cap.integration.google"></a>`cap.integration.google` | integrations | global+domain+admin_user | true | plain |  | yes | Google OAuth bridge |
 | <a id="cap.integration.microsoft"></a>`cap.integration.microsoft` | integrations | global+domain+admin_user | true | plain |  | yes | Microsoft OAuth bridge |
@@ -340,6 +341,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.quotestyle"></a>`mail.quoteStyle` | mail | global+domain+user | "classic" | plain |  | yes | reply and forward header style |
 | <a id="mail.quickreply"></a>`mail.quickReply` | mail | global+domain+user | false | plain |  | yes | enable the compact message reply composer |
 | <a id="mail.requestreadreceipt"></a>`mail.requestReadReceipt` | mail | global+domain+user | false | plain |  | yes | request a read receipt by default when composing supported mail |
+| <a id="contacts.avatarmode"></a>`contacts.avatarMode` | contacts | global+domain+user | "initials" | plain |  | yes | local generated avatars or embedded photos from this account contacts; never remote photo requests |
+| <a id="reader.actionstyle"></a>`reader.actionStyle` | reader | global+domain+user | "icons" | plain |  | yes | compact reader actions or icons with visible labels |
 | <a id="reader.colormode"></a>`reader.colorMode` | reader | global+domain+user | "auto" | plain |  | yes | message color adaptation inside the isolated reader |
 | <a id="reader.fontsize"></a>`reader.fontSize` | reader | global+domain+user | 14 | plain |  | yes | message reading font size in pixels |
 | <a id="reader.lineheight"></a>`reader.lineHeight` | reader | global+domain+user | 1.6 | plain |  | yes | message reading line height |
@@ -354,6 +357,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="appearance.brandname"></a>`appearance.brandName` | appearance | global | "Mailwoman" | plain |  | yes | public config brand name |
 | <a id="login.showdomainhint"></a>`login.showDomainHint` | appearance | global | false | plain |  | yes | public config preferred-domain hint visibility |
 | <a id="login.notice"></a>`login.notice` | appearance | global | null | plain |  | yes | public config sign-in notice |
+| <a id="receipts.dsnallowed"></a>`receipts.dsnAllowed` | mail | global+domain+admin_user | true | plain |  | yes | Allow delivery status notification requests at SMTP submission |
 | <a id="mail.readreceipts"></a>`mail.readReceipts` | mail | global+domain+user | "ask" | plain |  | yes | mdn_policy:<account> (MDN/send) |
 | <a id="notifications.pushallowed"></a>`notifications.pushAllowed` | notifications | global+domain | true | plain |  | yes | account-authorized push registration and delivery |
 | <a id="offline.persistentstorageallowed"></a>`offline.persistentStorageAllowed` | offline | global+domain | false | plain |  | yes | explicit browser persistent-storage permission request |
@@ -366,6 +370,14 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="signin.antibotmode"></a>`signin.antiBotMode` | signin | global | "off" | plain |  | yes | initial sign-in proof-of-work policy |
 | <a id="signin.antibotdifficulty"></a>`signin.antiBotDifficulty` | signin | global | 2000 | plain |  | yes | maximum proof-of-work solver counter |
 | <a id="signin.antibotexpirysecs"></a>`signin.antiBotExpirySecs` | signin | global | 180 | plain |  | yes | single-use challenge lifetime |
+| <a id="security.signin.geoscope"></a>`security.signin.geoScope` | security | global | "off" | plain |  | yes | country policy applies only to new sign-ins |
+| <a id="security.signin.geomode"></a>`security.signin.geoMode` | security | global | "allow" | plain |  | yes | allow only listed countries or deny listed countries |
+| <a id="security.signin.geocountries"></a>`security.signin.geoCountries` | security | global | [] | plain |  | yes | uppercase two-letter country codes |
+| <a id="security.signin.geounknown"></a>`security.signin.geoUnknown` | security | global | "deny" | plain |  | yes | decision for unmapped addresses in a readable local database |
+| <a id="security.signin.mailboxfailurelimit"></a>`security.signin.mailboxFailureLimit` | security | global | 10 | plain |  | yes | rejected mailbox credentials per source before a temporary lock |
+| <a id="security.signin.adminfailurelimit"></a>`security.signin.adminFailureLimit` | security | global | 5 | plain |  | yes | rejected admin credentials per source before a temporary lock |
+| <a id="security.signin.failurewindowsecs"></a>`security.signin.failureWindowSecs` | security | global | 900 | plain |  | yes | rolling failed-credential counting window |
+| <a id="security.signin.locksecs"></a>`security.signin.lockSecs` | security | global | 900 | plain |  | yes | fixed temporary source lock duration; rejected retries never extend it |
 | <a id="signin.retrycooldownsecs"></a>`signin.retryCooldownSecs` | signin | global | 3 | plain |  | yes | initial sign-in retry cooldown |
 | <a id="signin.newusers"></a>`signin.newUsers` | signin | global+domain | "open" | plain |  | yes | signin_policy::admit new-user rule |
 | <a id="signin.domainmode"></a>`signin.domainMode` | signin | global | "any" | plain |  | yes | domain gate mode (e12) |

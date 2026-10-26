@@ -449,6 +449,13 @@ admin-settings-key-attachments-warn-mime-types = Warn for MIME types
 admin-settings-help-attachments-warn-mime-types = JSON array of lowercase types or top-level wildcards requiring acknowledgement. MIME metadata is not malware detection.
 
 admin-settings-cat-shortcuts = Keyboard shortcuts
+admin-settings-cat-time = Time zones
+admin-settings-key-time-display-zone = Display time zone
+admin-settings-help-time-display-zone = IANA time zone such as Europe/Lisbon, or local to follow the current device. Message timestamps remain stored as their original instants.
+admin-settings-key-time-comparison-zone = Comparison time zone
+admin-settings-help-time-comparison-zone = Optional second IANA time zone for message and calendar helpers. Leave empty to hide the comparison; no location is inferred from an email address.
+admin-settings-key-time-show-helpers = Show time zone helpers
+admin-settings-help-time-show-helpers = Show local and selected-zone comparisons for message timestamps and calendar events. Admin locks can enforce this choice.
 admin-settings-key-shortcuts-enabled = Enable keyboard shortcuts
 admin-settings-help-shortcuts-enabled = Allow application shortcuts. Locks can disable them globally or for a domain. Typing fields and modal dialogs retain their normal keyboard handling.
 admin-settings-key-shortcuts-compose = Compose shortcut
@@ -480,14 +487,6 @@ admin-settings-help-shortcuts-mark-unread = Use inherit for the selected preset,
 admin-settings-key-shortcuts-spam = Mark as spam shortcut
 admin-settings-help-shortcuts-spam = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
 
-admin-settings-cat-time = Time zones
-admin-settings-key-time-display-zone = Display time zone
-admin-settings-help-time-display-zone = IANA time zone such as Europe/Lisbon, or local to follow the current device. Message timestamps remain stored as their original instants.
-admin-settings-key-time-comparison-zone = Comparison time zone
-admin-settings-help-time-comparison-zone = Optional second IANA time zone for message and calendar helpers. Leave empty to hide the comparison; no location is inferred from an email address.
-admin-settings-key-time-show-helpers = Show time zone helpers
-admin-settings-help-time-show-helpers = Show local and selected-zone comparisons for message timestamps and calendar events. Admin locks can enforce this choice.
-
 admin-settings-key-notifications-push-allowed = Background push notifications allowed
 admin-settings-help-notifications-push-allowed = Permit this account's enabled notifications to register and receive background push. Browser permission is still required.
 admin-settings-key-offline-persistent-storage-allowed = Persistent browser storage requests allowed
@@ -515,8 +514,7 @@ admin-settings-key-contacts-avatar-mode = Contact pictures and generated avatars
 admin-settings-help-contacts-avatar-mode = Generate initials locally, hide avatars, or use embedded photos from each account own address books. No remote photo URLs or external avatar service is contacted. User and domain policy can be held by an administrator.
 admin-settings-cat-contacts = Contact pictures
 
-admin-settings-key-nextcloud-sync-interval-secs = Nextcloud automatic refresh interval
-admin-settings-help-nextcloud-sync-interval-secs = Seconds between background collection refreshes for connected native-engine accounts. Zero is manual only; positive values have a sixty-second minimum. Failures back off. No background sign-in is attempted.
-
 admin-settings-key-reader-action-style = Message action ribbon
 admin-settings-help-reader-action-style = Compact icons are the default. Choose labels for icons with visible text; both retain action names and themed tooltips. Supports global, domain and user policy locks.
+admin-settings-key-nextcloud-sync-interval-secs = Nextcloud automatic refresh interval
+admin-settings-help-nextcloud-sync-interval-secs = Seconds between background collection refreshes for connected native-engine accounts. Zero is manual only; positive values have a sixty-second minimum. Failures back off. No background sign-in is attempted.
