@@ -1,7 +1,8 @@
+import {ewsBackendProblem,ewsSelectionProblem} from './ewsBackendModel.ts';
 import type {DomainBackend,DomainStatus} from '../../../api/admin/domains.ts';
 
 export function newGuidedBackend(protocol:DomainBackend['protocol'],id:string):DomainBackend {
-  return {id,protocol,role:protocol==='smtp'?'submission':protocol==='sieve'?'rules':'mail',enabled:true,preferred:false,priority:100,username:{format:'fullEmail'},...(protocol==='jmap'?{sessionUrl:''}:{endpoint:{host:'',port:protocol==='smtp'?465:protocol==='pop3'?995:protocol==='sieve'?4190:993,tls:protocol==='sieve'?'starttls' as const:'implicit' as const,auth:'password' as const,allowPrivate:false}})};
+  return {id,protocol,role:protocol==='smtp'?'submission':protocol==='sieve'?'rules':'mail',enabled:true,preferred:false,priority:100,username:{format:'fullEmail'},...(protocol==='ews'?{ews:{endpointUrl:'',authentication:'basic' as const}}:protocol==='jmap'?{sessionUrl:''}:{endpoint:{host:'',port:protocol==='smtp'?465:protocol==='pop3'?995:protocol==='sieve'?4190:993,tls:protocol==='sieve'?'starttls' as const:'implicit' as const,auth:'password' as const,allowPrivate:false}})};
 }
 export function guidedHost(value:string):boolean {
   if(!value||value!==value.trim()||/[\s/@?#\\]/u.test(value))return false;
@@ -21,6 +22,7 @@ export function guidedBackendProblem(rows:readonly DomainBackend[],status:Domain
     if(!Number.isInteger(row.priority??100)||(row.priority??100)<0||(row.priority??100)>65535)return 'admin-domain-guided-backend-priority';
     if(row.preferred){if(row.enabled===false||preferred.has(row.role))return 'admin-domain-guided-backend-preferred';preferred.add(row.role);}
     if(row.protocol==='jmap'){if(!guidedSessionUrl(row.sessionUrl??''))return 'admin-domain-guided-invalid-url';}
+    else if(row.protocol==='ews'){const problem=ewsBackendProblem(row);if(problem)return problem;}
     else {
       const wire=row.endpoint;
       if(!wire||!guidedHost(wire.host)||!Number.isInteger(wire.port)||wire.port<1||wire.port>65535)return 'admin-domain-guided-invalid-endpoint';
@@ -32,5 +34,5 @@ export function guidedBackendProblem(rows:readonly DomainBackend[],status:Domain
     const username=row.username;
     if(username?.format==='domainUser'&&!username.domain.trim()||username?.format==='userRealm'&&!username.realm.trim()||username?.format==='custom'&&!username.template.trim())return 'admin-domain-guided-backend-username';
   }
-  return null;
+  return ewsSelectionProblem(rows);
 }

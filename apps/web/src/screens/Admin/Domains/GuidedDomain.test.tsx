@@ -121,3 +121,20 @@ it('keeps discovery proposals unsaved and requires explicit review, including OA
  fireEvent.click(screen.getByRole('button',{name:'Review discovered endpoints'}));next();fireEvent.click(screen.getByRole('button',{name:'Create domain'}));
  await waitFor(()=>expect(save).toHaveBeenCalledWith('example.org',{enabled:true,upstream:{version:2,backends:[expect.objectContaining({protocol:'jmap',sessionUrl:'https://remote.example.org/session'})]}},null));
 });
+
+it('creates EWS from advanced setup without stale socket fields or unsupported provider choices',async()=>{
+ const {save}=setup();await identity();
+ fireEvent.change(screen.getByLabelText('Connection'),{target:{value:'advanced'}});
+ fireEvent.click(screen.getByRole('button',{name:'Add backend'}));
+ fireEvent.change(screen.getByLabelText(/^Protocol and service/),{target:{value:'ews'}});
+ fireEvent.input(screen.getByLabelText(/^Exchange Web Services endpoint/),{target:{value:'https://exchange.example.org/EWS/Exchange.asmx'}});
+ expect(screen.queryByLabelText('Hostname or IP address')).toBeNull();
+ for(const name of ['GMAIL','GRAPH','NTLM','MAPI'])expect(screen.queryByRole('option',{name})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Back to backend list'}));next();
+ expect(screen.getByText(/https:\/\/exchange.example.org\/EWS\/Exchange.asmx/)).toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'Create domain'}));
+ await waitFor(()=>expect(save).toHaveBeenCalledOnce());
+ const row=save.mock.calls[0]![1].upstream?.backends?.[0];
+ expect(row).toMatchObject({protocol:'ews',role:'mail',ews:{endpointUrl:'https://exchange.example.org/EWS/Exchange.asmx',authentication:'basic'}});
+ expect(row).not.toHaveProperty('endpoint');expect(row).not.toHaveProperty('sessionUrl');
+});

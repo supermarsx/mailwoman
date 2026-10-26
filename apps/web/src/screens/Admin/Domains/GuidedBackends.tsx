@@ -1,3 +1,4 @@
+import { EwsFields } from './EwsFields.tsx';
 import {For,Show,createSignal,type JSX} from 'solid-js';
 import {domainsApi,type DomainBackend,type DomainEndpoint,type DomainStatus,type DomainsApi,type UsernameFormat} from '../../../api/admin/domains.ts';
 import {t} from '../../../i18n';
@@ -12,11 +13,12 @@ import * as layout from './guidedDomain.css.ts';
 /** Every edit remains in the parent wizard draft until its final create request. */
 export function GuidedBackends(props:{value:readonly DomainBackend[];change:(rows:DomainBackend[])=>void;status:DomainStatus;domain:string;api:DomainsApi}):JSX.Element {
   const [selected,setSelected]=createSignal(-1),[preview,setPreview]=createSignal(''),[error,setError]=createSignal(''),[busy,setBusy]=createSignal(false);
-  const protocols=()=>props.status.mode==='proxy'?['jmap'] as const:['imap','pop3','smtp','sieve'] as const;
+  const protocols=()=>props.status.mode==='proxy'?['jmap'] as const:['imap','pop3','smtp','sieve','ews'] as const;
   const row=()=>props.value[selected()];
   function patch(value:Partial<DomainBackend>):void {
     const index=selected(),current=row();if(!current)return;
     const next={...current,...value};
+    if(value.protocol){delete next.endpoint;delete next.sessionUrl;delete next.ews;if(value.endpoint)next.endpoint=value.endpoint;if(value.sessionUrl!==undefined)next.sessionUrl=value.sessionUrl;if(value.ews)next.ews=value.ews;}
     props.change(props.value.map((entry,i)=>i===index?next:next.preferred&&entry.role===next.role?{...entry,preferred:false}:entry));
     setPreview('');setError('');
   }
@@ -42,16 +44,16 @@ export function GuidedBackends(props:{value:readonly DomainBackend[];change:(row
         <label class={css.field}>{t('backend-editor-priority')}<input class={css.input} type="number" min="0" max="65535" value={current().priority??100} onInput={e=>patch({priority:e.currentTarget.valueAsNumber})}/><small>{t('backend-editor-priority-help')}</small></label>
       </div><label class={layout.check}><input type="checkbox" checked={current().enabled!==false} onChange={e=>patch({enabled:e.currentTarget.checked,...(!e.currentTarget.checked?{preferred:false}:{})})}/>{t('backend-editor-enabled')}</label><label class={layout.check}><input type="checkbox" checked={current().preferred??false} disabled={current().enabled===false} onChange={e=>patch({preferred:e.currentTarget.checked})}/>{t('backend-editor-preferred')}</label><p class={css.meta}>{t('backend-editor-preferred-help')}</p></fieldset>
       <fieldset class={css.section}><legend class={css.heading}>{t('backend-editor-connection')}</legend>
-        <Show when={current().protocol==='jmap'} fallback={<><div class={layout.grid}>
+        <Show when={current().protocol==='ews'} fallback={<Show when={current().protocol==='jmap'} fallback={<><div class={layout.grid}>
           <label class={css.field}>{t('backend-editor-host')}<input class={css.input} value={wire().host} onInput={e=>endpoint({host:e.currentTarget.value})}/></label>
           <label class={css.field}>{t('backend-editor-port')}<input class={css.input} type="number" min="1" max="65535" value={wire().port} onInput={e=>endpoint({port:e.currentTarget.valueAsNumber})}/></label>
           <label class={css.field}>{t('backend-editor-security')}<select class={css.select} value={wire().tls} onChange={e=>endpoint({tls:e.currentTarget.value as DomainEndpoint['tls']})}><option value="implicit">TLS</option><option value="starttls">STARTTLS</option><option value="none">{t('backend-editor-plaintext')}</option></select></label>
         </div><Show when={wire().tls==='none'}><p role="alert">{t('backend-editor-plaintext-warning')}</p></Show><label class={layout.check}><input type="checkbox" checked={wire().allowPrivate??false} onChange={e=>endpoint({allowPrivate:e.currentTarget.checked})}/>{t('backend-editor-private')}</label><p class={css.meta}>{t('backend-editor-private-help')}</p>
         <TransportFields value={wire()} ready={props.status.transportSecurity?.runtimeReady===true} update={value=>patch({endpoint:value})}/>
-        </>}><label class={css.field}>{t('backend-editor-session-url')}<input class={css.input} type="url" value={current().sessionUrl??''} onInput={e=>patch({sessionUrl:e.currentTarget.value})}/><small>{t('backend-editor-session-help')}</small></label></Show>
+        </>}><label class={css.field}>{t('backend-editor-session-url')}<input class={css.input} type="url" value={current().sessionUrl??''} onInput={e=>patch({sessionUrl:e.currentTarget.value})}/><small>{t('backend-editor-session-help')}</small></label></Show>}><EwsFields value={current().ews!} change={ews=>patch({ews})}/></Show>
       </fieldset>
       <Show when={current().protocol!=='jmap'}><fieldset class={css.section}><legend class={css.heading}>{t('backend-editor-auth')}</legend><p class={css.meta}>{t('backend-editor-auth-help')}</p>
-        <AuthFields value={wire().authentication} supported={props.status.authentication?.runtimeReady?props.status.authentication.protocols[current().protocol]:undefined} change={value=>{const next={...wire()};if(value)next.authentication=value;else delete next.authentication;patch({endpoint:next});}}/>
+        <Show when={current().protocol!=='ews'}><AuthFields value={wire().authentication} supported={props.status.authentication?.runtimeReady?props.status.authentication.protocols[current().protocol]:undefined} change={value=>{const next={...wire()};if(value)next.authentication=value;else delete next.authentication;patch({endpoint:next});}}/></Show>
         <label class={css.field}>{t('backend-editor-username-format')}<select class={css.select} value={username().format} onChange={e=>format(e.currentTarget.value as UsernameFormat['format'])}><For each={['fullEmail','localUser','domainUser','userRealm','custom'] as const}>{f=><option value={f}>{t(`backend-editor-format-${f}`)}</option>}</For></select><small>{t('backend-editor-username-help')}</small></label>
         <Show when={username().format==='domainUser'}><label class={css.field}>{t('backend-editor-auth-domain')}<input class={css.input} value={(username() as {domain:string}).domain} onInput={e=>patch({username:{format:'domainUser',domain:e.currentTarget.value}})}/></label></Show>
         <Show when={username().format==='userRealm'||username().format==='custom'}><label class={css.field}>{t('backend-editor-realm')}<input class={css.input} value={(username() as {realm?:string}).realm??''} onInput={e=>patch({username:{...username(),realm:e.currentTarget.value} as UsernameFormat})}/></label></Show>

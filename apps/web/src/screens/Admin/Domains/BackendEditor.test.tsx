@@ -69,3 +69,34 @@ it('saves ordered authentication methods and only offers the server protocol mat
   expect(screen.queryByRole('option', { name: /^SCRAM-SHA-256-PLUS$/ })).toBeNull();
   expect(screen.queryByRole('option', { name: /^IMAP LOGIN command$/ })).toBeNull();
 });
+
+it('roundtrips EWS endpoint, Basic authentication, origin CA and username without socket fields', async () => {
+  const ews = {id:'exchange',role:'mail' as const,protocol:'ews' as const,enabled:true,priority:4,ews:{endpointUrl:'https://exchange.example.org/EWS/Exchange.asmx',authentication:'basic' as const,caPem:'-----BEGIN CERTIFICATE-----\nYWJj\n-----END CERTIFICATE-----'},username:{format:'domainUser' as const,domain:'CORP'}};
+  const source = {...domain,upstream:{version:2 as const,backends:[ews]}};
+  const save=vi.fn<typeof domainsApi.save>(async()=>source);
+  const {container}=renderInShell(()=><BackendEditor domain={source} backend={ews} api={{...domainsApi,save}} advancedReady={true} onSaved={async()=>{}} onBack={()=>{}}/>);
+  expect(await screen.findByLabelText(/^Exchange Web Services endpoint/)).toHaveValue(ews.ews.endpointUrl);
+  expect(screen.queryByLabelText(/^Hostname or IP address/)).toBeNull();
+  expect(screen.queryByLabelText('Customize authentication methods')).toBeNull();
+  fireEvent.input(screen.getByLabelText(/^Priority/),{target:{value:'7'}});
+  fireEvent.submit(screen.getByRole('button',{name:'Save backend'}).closest('form')!);
+  await waitFor(()=>expect(save).toHaveBeenCalledOnce());
+  expect(save.mock.calls[0]![1].upstream?.backends).toEqual([{...ews,priority:7}]);
+  expect(save.mock.calls[0]![2]).toBe('v1');
+  await expectNoAxeViolations(container);
+  fireEvent.change(screen.getByLabelText(/^Protocol and service/),{target:{value:'imap'}});
+  fireEvent.input(screen.getByLabelText(/^Hostname or IP address/),{target:{value:'mail.example.org'}});
+  fireEvent.submit(screen.getByRole('button',{name:'Save backend'}).closest('form')!);
+  await waitFor(()=>expect(save).toHaveBeenCalledTimes(2));
+  expect(save.mock.calls[1]![1].upstream?.backends?.[0]).not.toHaveProperty('ews');
+});
+
+it('refuses selected EWS with active SMTP before any save', async()=>{
+ const save=vi.fn<typeof domainsApi.save>(async()=>domain);
+ renderInShell(()=><BackendEditor domain={domain} backend={domainBackends(domain.upstream)[0]} api={{...domainsApi,save}} advancedReady={true} onSaved={async()=>{}} onBack={()=>{}}/>);
+ fireEvent.change(await screen.findByLabelText(/^Protocol and service/),{target:{value:'ews'}});
+ fireEvent.input(screen.getByLabelText(/^Exchange Web Services endpoint/),{target:{value:'https://exchange.test/EWS/Exchange.asmx'}});
+ fireEvent.submit(screen.getByRole('button',{name:'Save backend'}).closest('form')!);
+ await screen.findByText(/The selected EWS backend supplies submission/);
+ expect(save).not.toHaveBeenCalled();
+});

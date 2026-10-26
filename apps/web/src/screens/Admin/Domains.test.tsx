@@ -269,3 +269,15 @@ describe('Admin Domains editor', () => {
   });
 
 });
+
+it('explains why an EWS-only domain has no unauthenticated probe results',async()=>{
+ const ewsDomain:DomainDetail={...domain,upstream:{version:2,backends:[{id:'exchange',role:'mail',protocol:'ews',ews:{endpointUrl:'https://exchange.example.test/EWS/Exchange.asmx',authentication:'basic'}}]}};
+ const api=service({list:vi.fn(async()=>[ewsDomain]),detail:vi.fn(async()=>ewsDomain)});
+ renderDomains(api);fireEvent.click(await screen.findByRole('button',{name:domain.name}));
+ await screen.findByRole('link',{name:'Diagnostics'});
+ await page('Diagnostics');
+ expect(await screen.findByRole('note')).toHaveTextContent('Unauthenticated diagnostics cannot test EWS');
+ fireEvent.click(screen.getByRole('button',{name:'Test saved connections'}));
+ await waitFor(()=>expect(api.probe).toHaveBeenCalledOnce());
+ expect(screen.queryByText('No domain-specific endpoints are configured. This check does not test the server default.')).toBeNull();
+});
