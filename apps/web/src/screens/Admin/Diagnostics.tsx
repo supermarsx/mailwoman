@@ -6,6 +6,8 @@ import { useShell } from './shell/context.ts';
 import * as css from './admin.css.ts';
 import * as ux from './shell/ux.css.ts';
 import { AsyncPending } from '../../components/AsyncState.tsx';
+import { DataTable } from './shell/DataTable.tsx';
+import { Icon } from '../../components/Icon.tsx';
 import { DeploymentSecurity } from './DeploymentSecurity.tsx';
 
 interface Check { id: string; status: string; durationMs: number; summary: string; domain?: string; backendId?: string; protocol?: string; fixId?: string }
@@ -110,9 +112,16 @@ function DiagnosticRuns(props: { api?: DiagnosticsApi }): JSX.Element {
       </table></div>
     </div>}</Show>
     <h3>{t('admin-diag-history')}</h3>
-    <Show when={runs().length > 0} fallback={<p>{t('admin-diag-empty')}</p>}>
-      <ul><For each={runs()}>{(entry) => <li><button type="button" class="btn" onClick={() => setSelected(entry)}>{new Date(entry.startedAt * 1000).toLocaleString()} · {entry.suite} · {entry.status}</button></li>}</For></ul>
-    </Show>
+    <DataTable<Run> caption={t('admin-diag-history')} rows={runs()} rowKey={entry => entry.id} state={busy() ? 'loading' : 'ready'} emptyText={t('admin-diag-empty')}
+      columns={[
+        {id:'started',header:t('admin-diag-started'),cell:entry=><time dateTime={new Date(entry.startedAt*1000).toISOString()}>{new Date(entry.startedAt*1000).toLocaleString()}</time>},
+        {id:'suite',header:t('admin-diag-suite'),cell:entry=>entry.suite},
+        {id:'status',header:t('admin-diag-status'),cell:entry=><span class={css.badge}>{entry.status}</span>},
+        {id:'checks',header:t('admin-diag-checks'),cell:entry=>entry.results.length},
+        {id:'failed',header:t('admin-diag-failed'),cell:entry=>entry.results.filter(check=>check.status==='fail').length},
+      ]}
+      rowActions={entry=><button type="button" class="btn btn--ghost" aria-label={t('admin-diag-open-run',{date:new Date(entry.startedAt*1000).toLocaleString()})} aria-pressed={selected()?.id===entry.id} onClick={()=>setSelected(entry)}><Icon name="eye"/></button>}
+    />
     <Show when={cursor()}><button class="btn" type="button" disabled={busy()} onClick={() => void history(true)}>{t('admin-diag-more')}</button></Show>
   </section>;
 }

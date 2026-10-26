@@ -9,7 +9,7 @@ it('persists visibility, ordering and refresh with other personal preferences in
   await waitFor(() => expect(screen.getByRole('checkbox', { name: 'HTTP traffic' })).toBeEnabled());
   fireEvent.click(screen.getByRole('checkbox', { name: 'HTTP traffic' }));
   await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ unrelated: 'preserved', dashboard: expect.objectContaining({ hidden: ['traffic'] }) }), expect.anything()));
-  fireEvent.click(screen.getByRole('button', { name: 'Move HTTP traffic up' }));
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Reorder HTTP traffic' }),{key:'ArrowUp'});
   await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ dashboard: expect.objectContaining({ order: ['checklist', 'overview', 'traffic', 'security', 'health', 'storage', 'audit', 'server'] }) }), expect.anything()));
   fireEvent.change(screen.getByLabelText('Automatic refresh'), { target: { value: '60' } });
   await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ dashboard: expect.objectContaining({ refreshSecs: 60 }) }), expect.anything()));

@@ -7,7 +7,7 @@ import { vars } from '../../../theme/contract.css.ts';
 
 export const page = style({ display: 'flex', flexDirection: 'column', gap: vars.space[5], maxWidth: '1100px' });
 
-export const head = style({ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: vars.space[3], flexWrap: 'wrap' });
+export const head = style({ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: vars.space[3], flexWrap: 'wrap' });
 
 export const panel = style({ display: 'flex', flexDirection: 'column', gap: vars.space[3], minWidth: 0 });
 
@@ -85,3 +85,7 @@ export const widgetOrder = styleVariants({ 0: { order: 1 }, 1: { order: 2 }, 2: 
 export const completedWidget = style({ order: 9 });
 export const checkSummary = style({ cursor: 'pointer', ':focus-visible': { outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`, outlineOffset: '2px' } });
 export const checkTitle = style([panelTitle, { display: 'inline', margin: 0 }]);
+
+export const dragHandle=style({display:'inline-grid',placeItems:'center',width:vars.a11y.touchTarget,height:vars.a11y.touchTarget,flex:'0 0 auto',touchAction:'none',cursor:'grab',border:'1px solid transparent',background:'transparent',color:vars.color.textDim,selectors:{'&:hover':{background:vars.color.bgAlt,color:vars.color.text},'&[aria-pressed="true"]':{cursor:'grabbing',background:vars.color.bgAlt},'&:focus-visible':{outline:`2px solid ${vars.a11y.focusRingColor}`,outlineOffset:2}}});
+export const draggableWidget=style({position:'relative',paddingInlineStart:vars.space[5]});
+globalStyle(`${draggableWidget} > button`,{position:'absolute',insetInlineStart:0,insetBlockStart:0,transform:'translateX(-50%)'});

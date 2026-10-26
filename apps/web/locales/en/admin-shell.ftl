@@ -225,3 +225,29 @@ admin-attachments-refresh = Refresh rules
 
 admin-nav-nextcloud = Nextcloud
 admin-nav-package-tracking = Package tracking
+
+admin-diag-started = Started
+admin-diag-suite = Suite
+admin-diag-failed = Failed checks
+admin-diag-open-run = View run from { $date }
+
+admin-integrations-tab-webhooks = Webhooks
+
+admin-obs-statistics = Statistics
+admin-obs-p50 = Response time, median
+admin-obs-accounts = Accounts and sessions
+admin-obs-count-provisionedUsers = Provisioned users
+admin-obs-count-accountsSignedIn24h = Accounts signed in, last 24 hours
+admin-obs-count-accountsSignedIn7d = Accounts signed in, last 7 days
+admin-obs-count-domains = Domains
+admin-obs-count-activeSessions = Active webmail sessions
+admin-obs-count-activeAdminSessions = Active admin sessions
+admin-obs-db-latency = Database query time
+admin-obs-outbox-pending = Pending outbox messages
+admin-obs-outbox-failed = Failed sends, last 24 hours
+
+admin-users-configure = Configure
+admin-users-configure-for = Configure { $account }
+
+admin-dash-reorder = Reorder { $name }
+admin-dash-reorder-help = Drag to move this section. With keyboard focus, use Up or Down to change its position.

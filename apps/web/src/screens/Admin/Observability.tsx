@@ -15,6 +15,8 @@ import { sectionPath } from './shell/router.ts';
 import { useAdmin } from './context.ts';
 import type { AuditLogEntry, BanEntry } from '../../state/slices/admin.ts';
 import { t } from '../../i18n';
+import { SectionTabs } from './shell/SectionTabs.tsx';
+import { ObservabilityStats } from './ObservabilityStats.tsx';
 import { DataTable, type Column } from './shell/DataTable.tsx';
 import { Feedback } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
@@ -26,7 +28,13 @@ const BanEditor = lazy(() => import('./BanEditor.tsx').then(module => ({ default
 const Telemetry = lazy(() => import('./Telemetry.tsx').then(module => ({ default: module.Telemetry })));
 export function Observability(): JSX.Element {
   const shell = useContext(ShellContext);
-  return <Show when={shell?.router.route().rest[0] === 'protection'} fallback={<><Show when={shell?.router.route().rest[0] === 'geography'} fallback={<Show when={shell?.router.route().rest[0] === 'locks'} fallback={<Show when={shell?.router.route().rest[0] === 'telemetry'} fallback={<Show when={shell?.router.route().rest[0] === 'bans' && shell?.router.route().rest[1] === 'new'} fallback={<ObservabilityAudit/>}><BanEditor/></Show>}><Telemetry/></Show>}><AutomaticLocks/></Show>}><SigninGeographyPage/></Show></>}><RequestProtection/></Show>;
+  const selected=()=>shell?.router.route().rest[0]??'audit';
+  const tabs=()=>[['audit','admin-obs-audit'],...(shell?.can.can('dashboard.read')?[['statistics','admin-obs-statistics']]:[]),['telemetry','admin-obs-telemetry-open'],...(shell?.can.can('bans.read')?[['locks','admin-obs-locks-title'],['geography','admin-obs-geo-title'],['protection','admin-protection-title']]:[])].map(([id,label])=>({id:id!,label:t(label!),path:sectionPath('observability',id==='audit'?[]:[id!])}));
+  return <><SectionTabs label={t('admin-obs-title')} items={tabs()} selected={selected()} navigate={path=>void shell?.router.navigate(path)}/><Show when={selected()==='statistics' && shell?.can.can('dashboard.read')} fallback={<Show when={selected() === 'protection'} fallback={<ObservabilityRoutes/>}><RequestProtection/></Show>}><ObservabilityStats/></Show></>;
+}
+function ObservabilityRoutes(): JSX.Element {
+  const shell = useContext(ShellContext);
+  return <Show when={shell?.router.route().rest[0] === 'geography'} fallback={<Show when={shell?.router.route().rest[0] === 'locks'} fallback={<Show when={shell?.router.route().rest[0] === 'telemetry'} fallback={<Show when={shell?.router.route().rest[0] === 'bans' && shell?.router.route().rest[1] === 'new'} fallback={<ObservabilityAudit/>}><BanEditor/></Show>}><Telemetry/></Show>}><AutomaticLocks/></Show>}><SigninGeographyPage/></Show>;
 }
 function ObservabilityAudit(): JSX.Element {
   const shell = useContext(ShellContext);

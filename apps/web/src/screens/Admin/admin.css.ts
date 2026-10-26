@@ -239,7 +239,7 @@ export const confirmDialog = style({
 /** The buttons at the foot of a confirmation dialog, at the end of the row. */
 export const confirmActions = style({ display: 'flex', gap: vars.space[3], justifyContent: 'flex-end' });
 /** A card's heading row with an action at the other end. */
-export const headingRow = style({ display: 'flex', justifyContent: 'space-between', alignItems: 'center' });
+export const headingRow = style({ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', flexWrap: 'wrap', gap: vars.space[4] });
 /** A sub-heading inside a card. */
 export const subHeading = style({ fontSize: '1rem' });
 

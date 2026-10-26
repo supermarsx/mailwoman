@@ -1,3 +1,5 @@
+import { DashboardReorder, reorderDashboard } from './Reorder.tsx';
+import * as ux from '../shell/ux.css.ts';
 import { AuditActor } from '../shell/AuditActor.tsx';
 import * as auditCss from '../shell/audit.css.ts';
 // Admin › Dashboard, the console's landing page (t32-admin.md §2.2, t32-ext.md §K).
@@ -108,9 +110,9 @@ export function Dashboard(): JSX.Element {
         <h2 id="admin-dash-title" class={admin.heading}>
           {t('admin-shell-nav-dashboard')}
         </h2>
-        <a class="btn btn--ghost" href={hrefFor(sectionPath('preferences'))} onClick={e => inPlace(e, () => open(sectionPath('preferences')))}>{t('admin-dash-customize')}</a>
-        <button type="button" class="btn btn--ghost" onClick={() => void refetch()} disabled={data.loading}>
-          {t('admin-dash-refresh')}
+        <a class={`btn btn--ghost ${ux.iconAction}`} aria-label={t('admin-dash-customize')} title={t('admin-dash-customize')} href={hrefFor(sectionPath('preferences'))} onClick={e => inPlace(e, () => open(sectionPath('preferences')))}><Icon name="settings"/></a>
+        <button type="button" class={`btn btn--ghost ${ux.iconAction}`} aria-label={t('admin-dash-refresh')} title={t('admin-dash-refresh')} onClick={() => void refetch()} disabled={data.loading}>
+          <Icon name="refresh"/>
         </button>
       </div>
       <Switch>
@@ -155,7 +157,9 @@ interface BodyProps {
 }
 
 function Widget(props: { id: DashboardWidgetId; layout: DashboardPreferences; deprioritized?: boolean; children: JSX.Element }): JSX.Element {
-  return <Show when={!props.layout.hidden.includes(props.id)}><div data-dashboard-widget={props.id} data-deprioritized={props.deprioritized ? 'true' : undefined} class={props.deprioritized ? css.completedWidget : css.widgetOrder[props.layout.order.indexOf(props.id) as keyof typeof css.widgetOrder]}>{props.children}</div></Show>;
+  const preferences=useOptionalPersonalPreferences();
+  const move=(source:DashboardWidgetId,target:DashboardWidgetId)=>preferences?.patch({dashboard:{...props.layout,order:reorderDashboard(props.layout.order,source,target),...(source==='checklist'?{keepCompletedChecklistProminent:true}:{})}});
+  return <Show when={!props.layout.hidden.includes(props.id)}><div data-dashboard-widget={props.id} data-reorder-id={props.id} data-deprioritized={props.deprioritized ? 'true' : undefined} class={`${css.draggableWidget} ${props.deprioritized ? css.completedWidget : css.widgetOrder[props.layout.order.indexOf(props.id) as keyof typeof css.widgetOrder]}`}><Show when={preferences}><DashboardReorder id={props.id} order={props.layout.order} selector="[data-dashboard-widget]" disabled={preferences?.loading()||!!preferences?.error()} move={move}/></Show>{props.children}</div></Show>;
 }
 
 function DashboardBody(props: BodyProps): JSX.Element {

@@ -1,4 +1,4 @@
-import { Icon } from '../../../components/Icon.tsx';
+import { DashboardReorder, reorderDashboard } from './Reorder.tsx';
 import { For } from 'solid-js';
 import { t } from '../../../i18n';
 import { usePersonalPreferences } from '../shell/personalPreferences.tsx';
@@ -8,12 +8,7 @@ import * as css from '../../Settings/styles.css.ts';
 export function DashboardPreferencesFields() {
   const prefs = usePersonalPreferences();
   const value = () => dashboardPreferences(prefs.data()['dashboard']);
-  function move(id: DashboardWidgetId, direction: number) {
-    const current = value(); const order = [...current.order]; const index = order.indexOf(id); const target = index + direction;
-    if (target < 0 || target >= order.length) return;
-    [order[index], order[target]] = [order[target]!, order[index]!];
-    prefs.patch({ dashboard: { ...current, order } });
-  }
+  function move(source:DashboardWidgetId,target:DashboardWidgetId){const current=value();prefs.patch({dashboard:{...current,order:reorderDashboard(current.order,source,target)}});}
   return <fieldset id="dashboard-preferences" class={css.section} disabled={prefs.loading() || !!prefs.error()}>
     <legend class={css.heading}>{t('admin-personal-dashboard')}</legend>
     <p class={css.prose}>{t('admin-personal-dashboard-help')}</p>
@@ -23,10 +18,10 @@ export function DashboardPreferencesFields() {
     <p class={css.prose}>{t('admin-personal-dashboard-refresh-help')}</p>
     <label><input type="checkbox" checked={value().keepCompletedChecklistProminent} onChange={e => prefs.patch({ dashboard: { ...value(), keepCompletedChecklistProminent: e.currentTarget.checked } })} /> {t('admin-personal-dashboard-keep-checklist')}</label>
     <p class={css.prose}>{t('admin-personal-dashboard-keep-checklist-help')}</p>
-    <For each={value().order}>{(id, index) => <div class={css.actions}>
+    <For each={value().order}>{id => <div class={css.actions} data-dashboard-preference data-reorder-id={id}>
       <label><input type="checkbox" checked={!value().hidden.includes(id)} onChange={e => prefs.patch({ dashboard: { ...value(), hidden: e.currentTarget.checked ? value().hidden.filter(v => v !== id) : [...value().hidden, id] } })} /> {t(`admin-personal-dashboard-${id}`)}</label>
-      <button type="button" class={css.button} aria-label={t('admin-personal-dashboard-move-up', { name: t(`admin-personal-dashboard-${id}`) })} disabled={index() === 0} onClick={() => move(id, -1)}><Icon name="chevronUp" /></button>
-      <button type="button" class={css.button} aria-label={t('admin-personal-dashboard-move-down', { name: t(`admin-personal-dashboard-${id}`) })} disabled={index() === value().order.length - 1} onClick={() => move(id, 1)}><Icon name="chevronDown" /></button>
+      <DashboardReorder id={id} order={value().order} selector="[data-dashboard-preference]" move={move}/>
+
     </div>}</For>
   </fieldset>;
 }

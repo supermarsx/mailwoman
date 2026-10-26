@@ -74,7 +74,8 @@ describe('ListDetailPage', () => {
     expect(within(detail).getByText('Detail of example.net')).toBeInTheDocument();
     const heading = within(detail).getByRole('heading', { level: 3, name: 'example.net' });
     await waitFor(() => expect(document.activeElement).toBe(heading));
-    expect(screen.getByRole('link', { name: 'Open example.net' })).toHaveAttribute('aria-current', 'true');
+    expect(screen.queryByRole('link', { name: 'Open example.net' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(detail.parentElement).toHaveAttribute('data-detail-open');
     fireEvent.click(within(detail).getByRole('link', { name: 'Back to the list' }));
     expect(navigate).toHaveBeenCalledWith('/admin#/domains');

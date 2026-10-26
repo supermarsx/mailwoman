@@ -365,7 +365,8 @@ export const stateError = style({ boxShadow: `inset 4px 0 0 ${vars.color.danger}
 // ── Data table ─────────────────────────────────────────────────────────────────
 // Tables are page content, not labelled controls: never inherit field max width.
 export const tableContainer = style({ display: 'flex', flexDirection: 'column', gap: vars.space[3], minInlineSize: 0, inlineSize: '100%' });
-export const tableToolbar = style({ display: 'flex', flexWrap: 'wrap', gap: vars.space[3], alignItems: 'flex-end' });
+export const tableToolbar = style({ display: 'flex', flexWrap: 'wrap', gap: vars.space[2], alignItems: 'flex-end', justifyContent: 'flex-start' });
+globalStyle(`${tableToolbar} > form`, { flex: '0 1 22rem', maxInlineSize: '100%', margin: 0 });
 export const chips = style({ display: 'flex', flexWrap: 'wrap', gap: vars.space[2] });
 export const chip = style({
   appearance: 'none',

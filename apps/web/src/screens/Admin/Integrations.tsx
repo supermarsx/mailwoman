@@ -93,7 +93,8 @@ interface PendingUnattended {
   approve: boolean;
 }
 
-export function Integrations(): JSX.Element {
+export function Integrations(props:{category?:string} = {}): JSX.Element {
+  const visible=(category:string)=>!props.category||props.category===category;
   const shell = useContext(ShellContext);
   const { api } = useAdmin();
   const [integrations, setIntegrations] = createSignal<IntegrationsConfig>(UNKNOWN_INTEGRATIONS);
@@ -180,7 +181,7 @@ export function Integrations(): JSX.Element {
         </p>
       </Show>
 
-      <div class={css.card}>
+      <Show when={visible('overview')}><div class={css.card}>
         <div class={css.listRow}>
           <span>{t('admin-integrations-ldap')}</span>
           <span class={css.badge} data-testid="integration-ldap" data-status={integrations().ldap}>
@@ -196,10 +197,10 @@ export function Integrations(): JSX.Element {
         <p class={css.note}>{t('admin-integrations-config-note')}</p>
       </div>
 
-      <Show when={shell?.can.can('integrations.read')}><DirectoryIntegration canWrite={shell?.can.can('integrations.write') ?? false} /></Show>
-      <Webhooks />
+      </Show><Show when={visible('directory') && shell?.can.can('integrations.read')}><DirectoryIntegration canWrite={shell?.can.can('integrations.write') ?? false} /></Show>
+      <Show when={visible('webhooks')}><Webhooks /></Show>
 
-      <div class={css.card}>
+      <Show when={visible('keys')}><div class={css.card}>
         <h3 class={css.heading}>
           {t('admin-integrations-keys')}{' '}
           <span class={css.badge}>{statusLabel(integrations().apiKeyOversight)}</span>
@@ -279,7 +280,7 @@ export function Integrations(): JSX.Element {
         </Show>
       </div>
 
-      <Show when={pending()}>
+      </Show><Show when={pending()}>
         {(change) => (
           <div class={modalOverlay}>
             <div

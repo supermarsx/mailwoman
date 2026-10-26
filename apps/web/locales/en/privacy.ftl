@@ -56,3 +56,5 @@ privacy-analytics-consent = Allow optional screen usage counts for this account
 privacy-analytics-signal = Your browser privacy signal prevents analytics, even when consent is saved.
 privacy-analytics-save-error = Consent could not be synchronized. This browser pauses new analytics requests until the change is saved.
 privacy-analytics-saving = Saving consent…
+
+privacy-back-policies = Back to privacy policies

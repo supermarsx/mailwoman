@@ -13,17 +13,17 @@ import { AsyncPending } from '../../components/AsyncState.tsx';
 // and expects it (`FlagsDto`, `crates/mw-server/src/admin.rs`), and is passed
 // through unchanged when another flag is saved.
 
-import { createSignal, createResource, useContext, Index, Show, onMount, type JSX } from 'solid-js';
+import { createSignal, createResource, useContext, For, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import type { UserFeatureFlags, UserSummary } from '../../state/slices/admin.ts';
 import { t } from '../../i18n';
 import { Feedback } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 
-export function Users(): JSX.Element {
+export function Users(props: { accountId?: string; provision?: boolean } = {}): JSX.Element {
   const shell = useContext(ShellContext);
-  const identity = () => shell?.router.route().rest[0];
-  return <Show when={identity()} fallback={<UserList />}>{id => <UserIdentity id={id()} />}</Show>;
+  const identity = () => props.accountId ?? shell?.router.route().rest[0];
+  return <Show when={props.provision || identity()==='+new'} fallback={<Show when={identity()} keyed fallback={<UserList/>}>{id=><UserIdentity id={id}/>}</Show>}><UserList provision/></Show>;
 }
 function UserIdentity(props: { id: string }): JSX.Element {
   const [identity] = createResource(() => props.id, async id => (await adminRequest<{accountId:string;label:string;address:string}>(`/users/${encodeURIComponent(id)}/identity`)).data);
@@ -32,10 +32,11 @@ function UserIdentity(props: { id: string }): JSX.Element {
     <h2 class={css.heading}>{t('admin-users-identity')}</h2>
     <Show when={identity.loading}><AsyncPending variant="status" /></Show>
     <Show when={identity.error}><p role="alert">{t('admin-users-load-error')}</p></Show>
-    <Show when={identity()}>{value => <div class={css.card}><h3 dir="auto">{value().label}</h3><p dir="auto">{value().address}</p><p class={css.note}>{t('admin-users-id')}: <code class={auditCss.actor}>{value().accountId}</code></p></div>}</Show>
+    <Show when={!identity.error && identity.state === 'ready' ? identity.latest : undefined}>{value => <div class={css.card}><h3 dir="auto">{value().label}</h3><p dir="auto">{value().address}</p><p class={css.note}>{t('admin-users-id')}: <code class={auditCss.actor}>{value().accountId}</code></p></div>}</Show>
+    <UserList accountId={props.id}/>
   </section>;
 }
-function UserList(): JSX.Element {
+function UserList(props: { accountId?: string; provision?: boolean }): JSX.Element {
   const { api } = useAdmin();
   const [users, setUsers] = createSignal<UserSummary[]>([]);
   const [error, setError] = createSignal<string | null>(null);
@@ -108,7 +109,8 @@ function UserList(): JSX.Element {
 
   return (
     <section class={css.section} aria-label={t('admin-users-title')}>
-      <h2 class={css.heading}>{t('admin-users-title')}</h2>
+      <Show when={!props.accountId}><h2 class={css.heading}>{t(props.provision?'admin-users-provision':'admin-users-title')}</h2></Show>
+      <Show when={!props.accountId&&!props.provision}><a class="btn btn--primary" href={hrefFor(sectionPath('users',['+new']))}>{t('admin-users-provision')}</a></Show>
       <Show when={error()}>
         <p class={css.error} role="alert">
           {error()}
@@ -116,7 +118,7 @@ function UserList(): JSX.Element {
       </Show>
       <Feedback kind="error" as="toast" message={failure()} />
 
-      <form class={css.card} onSubmit={(e) => void onProvision(e)} aria-label={t('admin-users-provision')}>
+      <Show when={props.provision}><a href={hrefFor(sectionPath('users'))}>{t('admin-users-back')}</a><form class={css.card} onSubmit={(e) => void onProvision(e)} aria-label={t('admin-users-provision')}>
         <div class={css.grid}>
           <label class="field">
             <span>{t('admin-users-username')}</span>
@@ -143,87 +145,18 @@ function UserList(): JSX.Element {
         <button type="submit" class="btn btn--primary">
           {t('admin-users-provision')}
         </button>
-      </form>
+      </form></Show>
 
-      <div class={css.card}>
-        <Show when={users().length > 0} fallback={<p class={css.note}>{t('admin-users-empty')}</p>}>
-          <div class={css.tableWrap}>
-            <table class={css.table}>
-              <thead>
-                <tr>
-                  <th>{t('admin-users-col-account')}</th>
-                  <th>{t('admin-users-col-quota')}</th>
-                  <th>{t('admin-users-col-zeroaccess')}</th>
-                  <th>{t('admin-users-col-flags')}</th>
-                  <th>{t('admin-users-col-sessions')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <Index each={users()}>
-                  {(u, i) => (
-                    <tr>
-                      <td dir="auto"><a href={hrefFor(sectionPath('users', [u().accountId]))}>{u().domain ? `${u().username}@${u().domain}` : u().username}</a><Show when={u().lastSigninAt}><p class={css.note}>{t('admin-users-last-signin')}: {new Date(u().lastSigninAt! * 1000).toLocaleString()}</p></Show></td>
-                      <td>{u().quota ? `${u().quota?.bytesLimit} / ${u().quota?.msgLimit}` : '—'}</td>
-                      <td>
-                        <label class="field">
-                          <input
-                            type="checkbox"
-                            aria-label={t('admin-users-zeroaccess-for', { account: u().accountId })}
-                            aria-describedby={`admin-users-zeroaccess-help-${i}`}
-                            checked={u().flags.zeroAccess}
-                            onChange={(e) => void patchFlag(u(), 'zeroAccess', e.currentTarget)}
-                          />
-                        </label>
-                        <p class={css.note} id={`admin-users-zeroaccess-help-${i}`}>
-                          {t('admin-users-zeroaccess-help')}
-                        </p>
-                      </td>
-                      <td>
-                        <label class="field">
-                          <input
-                            type="checkbox"
-                            aria-label={t('admin-users-disable-for', { account: u().accountId })}
-                            aria-describedby={`admin-users-disabled-help-${i}`}
-                            checked={u().flags.disabled}
-                            onChange={(e) => void patchFlag(u(), 'disabled', e.currentTarget)}
-                          />{' '}
-                          {t('admin-users-disabled')}
-                        </label>
-                        <p class={css.note} id={`admin-users-disabled-help-${i}`}>
-                          {t('admin-users-disabled-help')}
-                        </p>
-                        <label class="field">
-                          <input
-                            type="checkbox"
-                            aria-label={t('admin-users-force-change-for', { account: u().accountId })}
-                            aria-describedby={`admin-users-force-change-help-${i}`}
-                            checked={u().flags.forcePasswordChange}
-                            onChange={(e) => void patchFlag(u(), 'forcePasswordChange', e.currentTarget)}
-                          />{' '}
-                          {t('admin-users-force-change')}
-                        </label>
-                        <p class={css.note} id={`admin-users-force-change-help-${i}`}>
-                          {t('admin-users-force-change-help')}
-                        </p>
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          class="btn btn--ghost"
-                          aria-label={t('admin-users-revoke-for', { account: u().accountId })}
-                          onClick={() => void onRevoke(u())}
-                        >
-                          {t('admin-revoke')}
-                        </button>
-                      </td>
-                    </tr>
-                  )}
-                </Index>
-              </tbody>
-            </table>
-          </div>
-        </Show>
-      </div>
+      <Show when={props.accountId}><For each={users().filter(u=>u.accountId===props.accountId)}>{u=><>
+        <section class={css.card}><h3>{t('admin-users-col-flags')}</h3><For each={[
+          ['disabled','admin-users-disable-for','admin-users-disabled-help'],
+          ['forcePasswordChange','admin-users-force-change-for','admin-users-force-change-help'],
+          ['zeroAccess','admin-users-zeroaccess-for','admin-users-zeroaccess-help'],
+        ] as const}>{([key,label,help])=><div class="field"><label class="field"><input type="checkbox" checked={u.flags[key]} aria-describedby={`user-${key}-help`} onChange={event=>void patchFlag(u,key,event.currentTarget)}/>{t(label,{account:u.domain?`${u.username}@${u.domain}`:u.username})}</label><p class={css.note} id={`user-${key}-help`}>{t(help)}</p></div>}</For></section>
+        <section class={css.card}><h3>{t('admin-users-col-quota')}</h3><p>{u.quota?`${u.quota.bytesLimit} / ${u.quota.msgLimit}`:'—'}</p></section>
+        <section class={css.card}><h3>{t('admin-users-col-sessions')}</h3><button type="button" class="btn btn--ghost" aria-label={t('admin-users-revoke-for',{account:u.accountId})} onClick={()=>void onRevoke(u)}>{t('admin-revoke')}</button></section>
+      </>}</For></Show>
+      <Show when={!props.accountId&&!props.provision}><div class={css.card}><Show when={users().length>0} fallback={<p class={css.note}>{t('admin-users-empty')}</p>}><div class={css.tableWrap}><table class={css.table} aria-label={t('admin-users-title')}><thead><tr><th>{t('admin-users-col-account')}</th><th>{t('admin-users-col-quota')}</th><th>{t('admin-users-col-flags')}</th><th>{t('admin-users-configure')}</th></tr></thead><tbody><For each={users()}>{u=><tr><td dir="auto"><a href={hrefFor(sectionPath('users',[u.accountId]))}>{u.domain?`${u.username}@${u.domain}`:u.username}</a><Show when={u.lastSigninAt}><p class={css.note}>{t('admin-users-last-signin')}: {new Date(u.lastSigninAt!*1000).toLocaleString()}</p></Show></td><td>{u.quota?`${u.quota.bytesLimit} / ${u.quota.msgLimit}`:'—'}</td><td><Show when={u.flags.disabled}><span class={css.badge}>{t('admin-users-disabled')}</span></Show><Show when={u.flags.forcePasswordChange}><span class={css.badge}>{t('admin-users-force-change')}</span></Show></td><td><a class="btn btn--ghost" href={hrefFor(sectionPath('users',[u.accountId]))} aria-label={t('admin-users-configure-for',{account:u.username})}>{t('admin-users-configure')}</a></td></tr>}</For></tbody></table></div></Show></div></Show>
     </section>
   );
 }

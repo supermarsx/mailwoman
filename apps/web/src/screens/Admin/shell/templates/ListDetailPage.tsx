@@ -2,10 +2,9 @@
 //
 // The list is the shell's `DataTable` (search, filter chips, cursor paging, the
 // loading / error / empty states). Each row has an Open link to its detail at
-// `#/<section>/<id>`, so a detail is linkable and Back works. On a wide screen
-// list and detail sit side by side; below 1200 px the detail follows the list;
-// on a phone (< 761 px) one is shown at a time, and the detail starts with a
-// "Back to the list" link. When a detail opens, focus moves to its heading.
+// `#/<section>/<id>`, so a detail is linkable and Back works.
+// Details and registration forms occupy an exclusive page at every viewport.
+// Back restores the list; opening a detail focuses its heading.
 
 import { Show, createEffect, on, useContext, type JSX } from 'solid-js';
 import { t } from '../../../../i18n';
@@ -89,13 +88,13 @@ export function ListDetailPage<R>(props: ListDetailPageProps<R>): JSX.Element {
       title={props.title}
       titleId={`${props.section}-page-title`}
       {...(props.description ? { description: props.description } : {})}
-      actions={props.actions}
+      actions={selected() ? undefined : props.actions}
       testId={props.testId}
     >
       <div class={ux.listDetail} data-detail-open={selected() !== undefined ? '' : undefined}>
-        <div class={ux.listPane}>
+        <Show when={!selected()}><div class={ux.listPane}>
           <DataTable {...props.table} rowActions={rowActions} />
-        </div>
+        </div></Show>
         <Show when={selected()}>
           {(id) => (
             <section class={ux.detailPane} aria-labelledby={`${props.section}-detail-title`} data-testid="list-detail">

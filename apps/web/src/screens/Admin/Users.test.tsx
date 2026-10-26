@@ -21,7 +21,7 @@ describe('Admin › Users', () => {
 
   it('provisions a user', async () => {
     const provisionUser = vi.fn(async () => undefined);
-    renderWithAdmin(() => <Users />, mockAdminApi({ provisionUser }));
+    renderWithAdmin(() => <Users provision />, mockAdminApi({ provisionUser }));
     const form = screen.getByRole('form', { name: 'Provision user' });
     fireEvent.input(screen.getByPlaceholderText('example.com'), { target: { value: 'example.com' } });
     const inputs = form.querySelectorAll('input');
@@ -37,7 +37,7 @@ describe('Admin › Users', () => {
     const toggleZeroAccess = vi.fn(async () => undefined);
     const setFlags = vi.fn(async () => undefined);
     renderWithAdmin(
-      () => <Users />,
+      () => <Users accountId={U.accountId} />,
       mockAdminApi({ listUsers: vi.fn(async () => [U]), toggleZeroAccess, setFlags }),
     );
     const box = await screen.findByLabelText('Zero-access for alice@example.com');
@@ -48,7 +48,7 @@ describe('Admin › Users', () => {
   });
 
   it('says what "disabled" and "force change" do, and ties each note to its checkbox', async () => {
-    renderWithAdmin(() => <Users />, mockAdminApi({ listUsers: vi.fn(async () => [U]) }));
+    renderWithAdmin(() => <Users accountId={U.accountId} />, mockAdminApi({ listUsers: vi.fn(async () => [U]) }));
 
     const disabled = await screen.findByLabelText('Disable alice@example.com');
     const disabledHelp = document.getElementById(disabled.getAttribute('aria-describedby') ?? '');
@@ -65,7 +65,7 @@ describe('Admin › Users', () => {
 
   it('setting "disabled" sends the flag through setFlags', async () => {
     const setFlags = vi.fn(async () => undefined);
-    renderWithAdmin(() => <Users />, mockAdminApi({ listUsers: vi.fn(async () => [U]), setFlags }));
+    renderWithAdmin(() => <Users accountId={U.accountId} />, mockAdminApi({ listUsers: vi.fn(async () => [U]), setFlags }));
     fireEvent.change(await screen.findByLabelText('Disable alice@example.com'), { target: { checked: true } });
     await Promise.resolve();
     expect(setFlags).toHaveBeenCalledWith('alice@example.com', { ...U.flags, disabled: true });
@@ -73,7 +73,7 @@ describe('Admin › Users', () => {
 
   it('revokes sessions', async () => {
     const revokeSessions = vi.fn(async () => 3);
-    renderWithAdmin(() => <Users />, mockAdminApi({ listUsers: vi.fn(async () => [U]), revokeSessions }));
+    renderWithAdmin(() => <Users accountId={U.accountId} />, mockAdminApi({ listUsers: vi.fn(async () => [U]), revokeSessions }));
     fireEvent.click(await screen.findByRole('button', { name: 'Revoke sessions for alice@example.com' }));
     await Promise.resolve();
     expect(revokeSessions).toHaveBeenCalledWith('alice@example.com');

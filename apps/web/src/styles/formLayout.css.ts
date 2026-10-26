@@ -8,7 +8,7 @@ export const fieldLayout = {
 } as const;
 export const fieldsLayout = {
   display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 16rem), 1fr))',
-  gap: vars.space[5], alignItems: 'start', minInlineSize: 0,
+  gap: vars.space[4], alignItems: 'end', minInlineSize: 0,
   '@media': { 'screen and (max-width: 760px)': { gridTemplateColumns: 'minmax(0, 1fr)' } },
 } as const;
 

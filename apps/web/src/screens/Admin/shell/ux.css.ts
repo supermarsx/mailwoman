@@ -38,13 +38,16 @@ export const pageHead = style({
   display: 'flex',
   flexWrap: 'wrap',
   alignItems: 'flex-start',
-  justifyContent: 'space-between',
+  justifyContent: 'flex-start',
   gap: vars.space[5],
 });
 export const pageTitleBlock = style({ display: 'flex', flexDirection: 'column', gap: vars.space[3], minInlineSize: 0 });
 export const pageTitle = style({ margin: 0, fontSize: '1.25rem', fontWeight: vars.weight.heavy });
 export const pageDescription = style({ margin: 0, color: vars.color.textDim, maxInlineSize: '72ch', lineHeight: 1.5 });
-export const pageActions = style({ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: vars.space[4], minInlineSize: 0 });
+export const pageActions = style({ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'flex-start', gap: vars.space[3], minInlineSize: 0 });
+globalStyle(`${pageActions} > label, ${pageActions} > .field`, { display: 'flex', flexDirection: 'column', gap: vars.space[2], margin: 0, maxInlineSize: 'min(100%, 22rem)' });
+globalStyle(`${pageActions} > label > input, ${pageActions} > label > select`, { maxInlineSize: '100%', minInlineSize: 0 });
+globalStyle(`${pageActions} > button`, { flex: '0 0 auto', alignSelf: 'flex-end' });
 export const iconAction = style({
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
   inlineSize: vars.a11y.touchTarget, blockSize: vars.a11y.touchTarget,
@@ -72,9 +75,6 @@ export const listDetail = style({
   display: 'grid',
   gridTemplateColumns: 'minmax(0, 1fr)',
   gap: vars.space[4],
-  '@media': {
-    'screen and (min-width: 1200px)': { selectors: { '&[data-detail-open]': { gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)' } } },
-  },
 });
 export const listPane = style({
   minWidth: 0,
@@ -93,11 +93,6 @@ export const detailPane = style({
   background: vars.color.surface,
   '@media': {
     [PHONE]: { padding: `calc(${vars.space[5]} - ${vars.border.rule})` },
-    'screen and (min-width: 1200px)': {
-      position: 'sticky', insetBlockStart: vars.space[4],
-      maxBlockSize: `calc(100dvh - ${vars.space[6]} * 2 - ${vars.space[4]} * 2)`,
-      overflowY: 'auto', overscrollBehavior: 'contain', scrollbarGutter: 'stable',
-    },
   },
   selectors: { '&:focus-visible': focusRing },
 });
@@ -107,7 +102,7 @@ export const detailClose = style({ marginInlineStart: 'auto' });
 export const detailTitle = style({ margin: 0, fontSize: '1.05rem', fontWeight: vars.weight.heavy, overflowWrap: 'anywhere' });
 /** "Back to the list" link: shown on phones only, where list and detail are one at a time. */
 export const backLink = style({
-  display: 'none',
+  display: 'inline-flex',
   alignItems: 'center',
   gap: vars.space[2],
   minHeight: vars.a11y.touchTarget,
@@ -178,7 +173,7 @@ export const saveBar = style({
   display: 'flex',
   flexWrap: 'wrap',
   alignItems: 'center',
-  justifyContent: 'space-between',
+  justifyContent: 'flex-start',
   gap: vars.space[3],
   padding: `${vars.space[3]} ${vars.space[4]}`,
   background: vars.color.bgAlt,
