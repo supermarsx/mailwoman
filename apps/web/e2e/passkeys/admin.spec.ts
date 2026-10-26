@@ -6,7 +6,9 @@ test('administrator passkeys use real browser UI, require factors and support on
   await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',ctap2Version:'ctap2_1',transport:'internal',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true,defaultBackupEligibility:true,defaultBackupState:true}});
   await page.goto('/admin');
   await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');await page.getByRole('button',{name:'Sign in',exact:true}).click();
-  await expect(page.getByRole('button',{name:'Sign in',exact:true})).toHaveCount(0);
+  await expect.poll(async()=> (await page.request.get('/admin/session')).status()).toBe(200);
+  const cooldown=await page.request.get('/admin/settings/signin.retryCooldownSecs');expect(cooldown.ok()).toBe(true);
+  expect((await page.request.put('/admin/settings/signin.retryCooldownSecs',{headers:{'if-match':cooldown.headers()['etag']!},data:{globalValue:0}})).ok()).toBe(true);
   await page.goto('/admin#/preferences');
   const section=page.getByRole('region',{name:'Administrator passkeys',exact:true});
   await section.getByLabel('Passkey name').fill('Real browser admin key');
