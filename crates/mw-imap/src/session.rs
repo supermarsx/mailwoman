@@ -776,7 +776,7 @@ impl Session {
             )
         };
         let head = format!("APPEND {}{flag_str}", quote(mailbox));
-        let tagged = self.conn.execute_with_literal(&head, raw).await?;
+        let tagged = self.conn.execute_with_literal(&head, raw).await?.ok()?;
         // A new message invalidates the selected-mailbox message counts.
         self.selected = None;
         if let Some(ResponseCode::AppendUid(uidvalidity, uidset)) = &tagged.code {

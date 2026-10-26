@@ -646,6 +646,26 @@ async fn append_captures_appenduid() {
 }
 
 #[tokio::test]
+async fn append_refuses_server_no_instead_of_reporting_a_fake_uid() {
+    let steps = vec![Ex::Literal {
+        expect: "APPEND",
+        respond: "{tag} NO [OVERQUOTA] mailbox is full\r\n".into(),
+    }];
+    let (addr, _) = spawn_mock(vec![dovecot_script(steps)]).await;
+    let backend = connect_dovecot(addr, vec![]).await;
+    let dest = RawMailboxRef {
+        name: "INBOX".into(),
+        uidvalidity: 55,
+    };
+    assert!(
+        backend
+            .append(&dest, b"Subject: test\r\n\r\nbody", &[])
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
 async fn store_flags_issues_uid_store() {
     let steps = vec![
         Ex::Cmd {
