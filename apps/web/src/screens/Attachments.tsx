@@ -32,6 +32,7 @@ const CATEGORIES: Array<TypeCategory | 'all'> = [
   'text',
   'audio',
   'video',
+  'message',
   'other',
 ];
 

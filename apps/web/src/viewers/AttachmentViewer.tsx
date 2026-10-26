@@ -9,6 +9,7 @@ import { lazy, Match, Suspense, Switch, type JSX } from 'solid-js';
 import { viewerKindFor, type ViewerProps } from '../contracts/viewer.ts';
 import { t } from '../i18n/index.ts';
 
+const MessageAttachmentViewer = lazy(() => import('./MessageAttachmentViewer.tsx'));
 const ImageViewer = lazy(() => import('./ImageViewer.tsx'));
 const PdfViewer = lazy(() => import('./PdfViewer.tsx'));
 const TextViewer = lazy(() => import('./TextViewer.tsx'));
@@ -17,11 +18,12 @@ const VideoViewer = lazy(() => import('./VideoViewer.tsx'));
 const UnsupportedViewer = lazy(() => import('./UnsupportedViewer.tsx'));
 
 export function AttachmentViewer(props: ViewerProps): JSX.Element {
-  const kind = (): ReturnType<typeof viewerKindFor> => viewerKindFor(props.mime);
+  const kind = (): ReturnType<typeof viewerKindFor> => viewerKindFor(props.mime, props.name);
   return (
     <div class="mw-viewer" data-viewer-kind={kind()}>
       <Suspense fallback={<p class="mw-viewer__loading">{t('common-viewer-loading')}</p>}>
         <Switch fallback={<UnsupportedViewer {...props} />}>
+          <Match when={kind() === 'message'}><MessageAttachmentViewer {...props} /></Match>
           <Match when={kind() === 'image'}>
             <ImageViewer {...props} />
           </Match>

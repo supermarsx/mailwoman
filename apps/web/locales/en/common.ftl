@@ -123,3 +123,9 @@ common-viewer-no-preview = No inline preview for this file type.
 common-viewer-unknown-type = unknown type
 common-viewer-download = Download
 common-viewer-attachments = Attachments
+
+common-message-preview-too-large = Message attachment previews are limited to 4 MiB. You can still download the original attachment.
+common-message-preview-failed = This message attachment could not be previewed. The file may be unsupported, damaged, or the preview worker unavailable. You can still download the original.
+common-message-preview-attachments = Files inside this message
+common-message-preview-download = Download file
+common-attach-cat-message = Messages / Outlook attachments

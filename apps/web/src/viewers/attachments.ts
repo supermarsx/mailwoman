@@ -134,7 +134,7 @@ export async function fetchObjectUrl(url: string): Promise<string> {
 
 // ── Filtering + operator search ─────────────────────────────────────────────
 
-export type TypeCategory = 'image' | 'pdf' | 'audio' | 'video' | 'text' | 'other';
+export type TypeCategory = 'image' | 'pdf' | 'audio' | 'video' | 'text' | 'message' | 'other';
 
 /** Group a MIME type using the very same routing as the viewers (`viewerKindFor`). */
 export function categoryOf(mime: string): TypeCategory {

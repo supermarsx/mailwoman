@@ -33,6 +33,7 @@ const ICON: Record<TypeCategory, string> = {
   audio: 'AUD',
   video: 'VID',
   text: 'TXT',
+  message: 'MSG',
   other: 'FILE',
 };
 

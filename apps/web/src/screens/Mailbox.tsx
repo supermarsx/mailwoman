@@ -6,6 +6,9 @@ import type { MessageView } from '../state/slices/messageView.ts';
 import { createSettingsNavigation, type SettingsNavigation } from './Settings/navigation.tsx';
 import '../styles/workspace.css.ts';
 import { Icon } from '../components/Icon.tsx';
+import { AttachmentTab, type AttachmentTabItem } from '../viewers/AttachmentTab.tsx';
+import { buildDownloadUrl } from '../viewers/attachments.ts';
+import type { StripItem } from '../viewers/ThumbnailStrip.tsx';
 import { createEffect, createMemo, createSignal, untrack, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { useApp } from '../state/context.ts';
@@ -98,7 +101,7 @@ function refetchPim(app: ReturnType<typeof useApp>, surface: ShellSurface): void
 export function MailboxScreen(): JSX.Element {
   const app = useApp();
   const { subTabs } = useRealtime();
-  interface Pane { id:string; kind:'messages'|'composer'|'settings'; title:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation }
+  interface Pane { id:string; kind:'messages'|'composer'|'settings'|'attachment'; title:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
   const [panes,setPanes]=createSignal<Pane[]>([]);
   const workspaceLayout=()=>accountUiPreferences().workspaceLayout ?? 'tabs';
   const setWorkspaceLayout=(value:'tabs'|'side-by-side'|'stack'):void=>setAccountUiPreferences({workspaceLayout:value});
@@ -130,6 +133,14 @@ export function MailboxScreen(): JSX.Element {
     setPanes(old=>[...old,{id,kind:'composer',title,...(initial ? {initial} : {})}]);
   }
   function openNewMessage():void {openComposer();}
+  function openAttachmentTab(item:StripItem):void {
+    const accountId=app.accountId();const template=app.downloadUrl();
+    if(!accountId || !template)return;
+    router.navigate('mail');
+    const id=`attachment:${accountId}:${item.blobId}`;
+    if(!panes().some(pane=>pane.id===id))setPanes(old=>[...old,{id,kind:'attachment',title:item.name,attachment:{...item,downloadUrl:buildDownloadUrl(template,{accountId,blobId:item.blobId,name:item.name,mime:item.mime})}}]);
+    subTabs.open({id,kind:'attachment',title:item.name});
+  }
   function openReply(initial:ComposeInitial):void {openComposer(initial);}
   function openSettings():void {
     router.navigate('mail');
@@ -490,7 +501,8 @@ export function MailboxScreen(): JSX.Element {
               hidden={subTabs.activeId()==='mail' || ((narrow() || workspaceLayout()==='tabs') && subTabs.activeId()!==pane.id)}
               inert={subTabs.activeId()==='mail' || ((narrow() || workspaceLayout()==='tabs') && subTabs.activeId()!==pane.id)}
               onFocusIn={()=>subTabs.activate(pane.id)} onPointerDown={()=>subTabs.activate(pane.id)}>
-              <Show when={pane.kind==='messages' && pane.view}>{view=><><Show when={view().error()}><p role="alert">{t('mail-workspace-load-error')}</p></Show><Reader view={view()} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} onCompose={openReply}/></>}</Show>
+              <Show when={pane.kind==='messages' && pane.view}>{view=><><Show when={view().error()}><p role="alert">{t('mail-workspace-load-error')}</p></Show><Reader view={view()} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} onCompose={openReply} onOpenAttachment={openAttachmentTab}/></>}</Show>
+              <Show when={pane.kind==='attachment' && pane.attachment}>{item=><AttachmentTab item={item()}/>}</Show>
               <Show when={pane.kind==='composer'}><Compose embedded active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
               <Show when={pane.kind==='settings' && pane.navigation}>{navigation=><Settings embedded navigation={navigation()} onClose={()=>void closePane(pane.id)}/>}</Show>
             </section><Show when={index()===0 && panes().length===2 && !narrow() && workspaceLayout()!=='tabs'}><ResizeHandle label={t('mail-resize-tiles')} orientation={workspaceLayout()==='stack'?'horizontal':'vertical'} value={tileFirst()} min={tileExtent()*0.2} max={tileExtent()*0.8} onChange={setTileDrag} onCommit={value=>{setAccountUiPreferences({workspaceSplitRatio:Math.max(0.2,Math.min(0.8,value/tileExtent()))});setTileDrag(null);}}/></Show></>}</For>

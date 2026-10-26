@@ -1,0 +1,11 @@
+.attachment-tab { display:flex; flex-direction:column; gap:1rem; min-width:0; min-height:0; height:100%; overflow:auto; padding:1rem; }
+.attachment-tab__header { display:flex; align-items:center; gap:.75rem; }
+.attachment-tab__header h2 { margin:0; overflow-wrap:anywhere; font-size:1.1rem; }
+.attachment-tab__details { padding:.75rem 1rem; border:var(--border-rule) solid var(--border); background:var(--surface); }
+.attachment-tab__details summary { cursor:pointer; font-weight:var(--weight-heavy); }
+.attachment-tab__details dl { display:grid; grid-template-columns:minmax(6rem,auto) minmax(0,1fr); gap:.5rem 1rem; margin-block:1rem; }
+.attachment-tab__details dd { margin:0; overflow-wrap:anywhere; }
+.attachment-tab__details p { margin-block:.75rem 0; color:var(--text-dim); }
+.attachment-tab__warning { display:flex; gap:.5rem; align-items:flex-start; padding:.75rem; border-inline-start:var(--border-heavy) solid var(--danger); margin:0; background:var(--surface); }
+.attachment-tab__download { align-self:flex-start; }
+.attachment-tab__viewer { flex:1 1 auto; min-height:20rem; min-width:0; }

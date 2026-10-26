@@ -289,7 +289,7 @@ function ReaderToolbar(props: {
  *  the sandboxed message iframe. Each viewer keeps its own sandbox (§2.4). In a
  *  locked-down max-security mode attachments open ONLY through this re-encode
  *  preview jail (the AttachmentViewer sandbox), never as original bytes (§7.2). */
-export function AttachmentsPane(props: { email: Email }): JSX.Element {
+export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item: StripItem) => void }): JSX.Element {
   const app = useApp();
   const [openItem, setOpenItem] = createSignal<StripItem | null>(null);
 
@@ -323,7 +323,7 @@ export function AttachmentsPane(props: { email: Email }): JSX.Element {
    *  it is superseded rather than banked until the pane unmounts. */
   let shownUrl: string | null = null;
 
-  const [blobUrl] = createResource(openItem, async (item) => {
+  const [blobUrl, { refetch: retryAttachment }] = createResource(openItem, async (item) => {
     if (shownUrl !== null) {
       urls.release(shownUrl);
       shownUrl = null;
@@ -354,7 +354,7 @@ export function AttachmentsPane(props: { email: Email }): JSX.Element {
         <ThumbnailStrip
           items={items()}
           selectedBlobId={openItem()?.blobId ?? ''}
-          onSelect={(it) => setOpenItem(it)}
+          onSelect={(it) => props.onOpenAttachment ? props.onOpenAttachment(it) : setOpenItem(it)}
           resolveThumb={blobUrlFor}
         />
         <Show when={openItem()}>
@@ -377,7 +377,7 @@ export function AttachmentsPane(props: { email: Email }): JSX.Element {
                   <Icon name="close" />
                 </button>
               </div>
-              <Show when={settled(blobUrl)} fallback={<p class="attachment-modal__loading">{t('mail-attachment-loading')}</p>}>
+              <Show when={settled(blobUrl)} fallback={<Show when={blobUrl.state === 'errored'} fallback={<p class="attachment-modal__loading">{t('mail-attachment-loading')}</p>}><p role="alert">{t('mail-attachment-failed')}</p><button type="button" class="btn" onClick={() => void retryAttachment()}>{t('common-retry')}</button></Show>}>
                 {(url) => (
                   <AttachmentViewer
                     part={{ partId: null, blobId: item().blobId, size: item().size, type: item().mime }}
@@ -598,6 +598,7 @@ function RemoteFileDownloads(props: { emailId: string; scope: string; urls: stri
 
 interface ReaderProps {
   onCompose?: (initial: ComposeInitial) => void;
+  onOpenAttachment?: (item: StripItem) => void;
   view?: MessageView;
   onClose?: () => void;
   active?: boolean;
@@ -1005,7 +1006,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <ReaderToolbar email={email()} onReply={(mode) => void startReply(mode)} preparing={preparing()} onPrint={() => printMessage(email(), displayedContent(email()).source)} />
               <AutoTagSection email={email()} />
             </header>
-            <AttachmentsPane email={email()} />
+            <AttachmentsPane email={email()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} />
             <Show when={hasCalendarPart(email()) && app.accountId()}>{(accountId) => (
               <InviteCard accountId={accountId()} emailId={email().id} />
             )}</Show>

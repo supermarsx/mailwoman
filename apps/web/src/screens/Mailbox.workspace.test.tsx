@@ -8,8 +8,10 @@ import { RealtimeContext } from '../realtime/context.ts';
 import { createRealtimeController } from '../realtime/controller.ts';
 import type { EmailGetResponse, JmapRequest } from '../api/jmap-types.ts';
 
-function mount() {
-  const emails=[mkEmail('a'),mkEmail('b')];const client=makeClient({emails});
+function mount(attachment=false) {
+  const first=mkEmail('a');
+  if(attachment)Object.assign(first,{attachments:[{partId:'2',blobId:'file-a',name:'report.txt',type:'text/plain',size:4}]});
+  const emails=[first,mkEmail('b')];const client=makeClient({emails});
   const original=client.jmap;
   client.jmap=vi.fn(async (request:JmapRequest)=>{const response=await original(request);const ids=request.methodCalls.find(call=>call[0]==='Email/get')?.[1]['ids'];if(Array.isArray(ids)){for(const call of response.methodResponses)if(call[0]==='Email/get')(call[1] as unknown as EmailGetResponse).list=emails.filter(email=>ids.includes(email.id));}return response;});
   const app=createAppState(client);const realtime=createRealtimeController();
@@ -17,6 +19,17 @@ function mount() {
   return {app,realtime,...result};
 }
 describe('retained mailbox workspace',()=>{
+  it('opens attachments in their own reusable tab without replacing the message reader',async()=>{
+    const {app,realtime}=mount(true);await app.login({username:'me@example.org',password:'p'});
+    fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}));
+    const item=await screen.findByRole('option',{name:/report.txt/});fireEvent.click(item);
+    expect(screen.getByRole('tab',{name:'report.txt'})).toHaveAttribute('aria-selected','true');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab',{name:'Subject a'}));
+    fireEvent.click(screen.getByRole('option',{name:/report.txt/}));
+    expect(realtime.subTabs.tabs().filter(tab=>tab.kind==='attachment')).toHaveLength(1);
+    expect(screen.getByRole('tab',{name:'Subject a'})).toBeInTheDocument();
+  });
   it('opens independent message tabs and restores each reader without another load',async()=>{
     const {app,realtime,container}=mount();await app.login({username:'me@example.org',password:'p'});
     fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}));

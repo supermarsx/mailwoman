@@ -11,6 +11,7 @@ import type { JSX } from 'solid-js';
 
 export type IconName =
   | 'shield'
+  | 'fileAudio' | 'fileVideo' | 'filePdf' | 'fileCode'
   | 'print'
   | 'preferences'
   | 'dashboard'
@@ -106,6 +107,10 @@ const F = { fill: 'currentColor' } as const;
 
 const PATHS: Record<IconName, () => JSX.Element> = {
   shield: () => <><path d="M8 1L2 3v5c0 3 3 5 6 7 3-2 6-4 6-7V3z" {...S}/><path d="M5 8l2 2 4-4" {...S}/></>,
+  fileAudio: () => <><path d="M6 12V3l7-2v9M6 6l7-2" {...S}/><ellipse cx="3.5" cy="12" rx="2.5" ry="2" {...S}/><ellipse cx="10.5" cy="10" rx="2.5" ry="2" {...S}/></>,
+  fileVideo: () => <><rect x="1" y="3" width="10" height="10" {...S}/><path d="M11 6l4-2v8l-4-2M5 6l3 2-3 2z" {...S}/></>,
+  filePdf: () => <><path d="M3 1h7l3 3v11H3zM10 1v4h3M5 8h6M5 11h5" {...S}/></>,
+  fileCode: () => <><path d="M5 4L1 8l4 4M11 4l4 4-4 4M9 2L7 14" {...S}/></>,
   refresh: () => <path d="M13 6 A5.5 5.5 0 1 0 13 11 M13 2 V6 H9" {...S} />,
   microphone: () => <path d="M5 4 A3 3 0 0 1 11 4 V7 A3 3 0 0 1 5 7 Z M2 6 V7 A6 6 0 0 0 14 7 V6 M8 13 V15 M5 15 H11" {...S} />,
   back: () => <path d="M7 2 L1 8 L7 14 M1 8 H15" {...S} />,
