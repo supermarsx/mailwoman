@@ -22,7 +22,7 @@
 //!   neither completed nor released (the process stopped in between) stays:
 //!   the receipt is then never sent, not sent twice.
 //! - **Automatic only under three conditions together** (RFC 8098 §2.1): the
-//!   stored policy is `always`, the request address equals the message's
+//!   effective policy permits this sender, the request address equals the message's
 //!   `Return-Path`, and the message is not list or bulk mail. Without a
 //!   `Return-Path` header the comparison fails.
 //! - **From an address the message was sent to.** `Final-Recipient` and the
@@ -51,6 +51,9 @@ use crate::engine::Engine;
 use crate::mapping::flags_from_json;
 
 use super::server_fail;
+
+#[path = "mdn_policy.rs"]
+mod policy;
 
 /// The keyword that records a receipt was sent for a message (RFC 8621 §4.1.1,
 /// IMAP `$MDNSent`).
@@ -260,7 +263,9 @@ impl Engine {
     }
 
     /// The values the read-receipt policy can take. `ask` is the default.
-    pub const MDN_POLICIES: [&'static str; 3] = ["ask", "never", "always"];
+    pub const MDN_POLICIES: [&'static str; 6] = [
+        "ask", "never", "always", "contactsOnly", "orgOnly", "orgAlwaysAskOthers",
+    ];
 
     /// The `settings` key holding one account's read-receipt policy.
     pub fn mdn_policy_key(account_id: &str) -> String {
@@ -293,9 +298,12 @@ impl Engine {
         let held = self
             .held_setting_for(account_id, "mail.readReceipts", "\"ask\"")
             .await?;
-        Ok(held
-            .and_then(|json| serde_json::from_str::<String>(&json).ok())
-            .and_then(|word| Self::MDN_POLICIES.into_iter().find(|p| *p == word)))
+        Ok(held.map(|json| {
+            serde_json::from_str::<String>(&json)
+                .ok()
+                .and_then(|word| Self::MDN_POLICIES.into_iter().find(|p| *p == word))
+                .unwrap_or("never")
+        }))
     }
 
     /// The value an administrator holds a settings-model `key` at for this
@@ -312,9 +320,9 @@ impl Engine {
         let address = self
             .store()
             .get_account(account_id)
-            .await
-            .map(|a| a.username.to_ascii_lowercase())
-            .unwrap_or_default();
+            .await?
+            .username
+            .to_ascii_lowercase();
         let domain = address
             .rsplit_once('@')
             .map(|(_, d)| d.to_string())
@@ -424,12 +432,12 @@ impl Engine {
         }
 
         if automatic {
-            let policy = match self.mdn_policy(account_id).await {
+            let action = match self.receipt_policy_action(account_id, &request).await {
                 Ok(p) => p,
                 Err(e) => return server_fail(e),
             };
-            let why = if policy != "always" {
-                Some("the account's read-receipt policy is not \"always\"")
+            let why = if action != policy::Action::Automatic {
+                Some("the account's read-receipt policy requires confirmation or suppresses this response")
             } else if !request.same_as_sender {
                 Some("the request address is not the message's return path")
             } else if request.from_list {
@@ -640,6 +648,14 @@ impl Engine {
         if !self.mdn_sending_allowed(&msg.account_id).await? {
             return Err(EngineError::Unsupported(
                 "read receipts forbidden by policy".into(),
+            ));
+        }
+        if automatic
+            && self.receipt_policy_action(&msg.account_id, request).await?
+                != policy::Action::Automatic
+        {
+            return Err(EngineError::Unsupported(
+                "automatic read receipt no longer permitted by policy".into(),
             ));
         }
         let result = rt.submitter.submit(outgoing).await?;

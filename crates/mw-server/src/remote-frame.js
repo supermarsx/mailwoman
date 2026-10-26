@@ -7,7 +7,7 @@
   // origin is opaque. Never let a fragment opt into another parent origin.
   if (!token || !/^[a-zA-Z0-9_-]{16,128}$/.test(token) || origin !== location.origin) return;
   if (document.referrer && new URL(document.referrer).origin !== origin) return;
-  const content = document.createElement('iframe');
+  let content = document.createElement('iframe');
   content.setAttribute('sandbox', '');
   content.setAttribute('referrerpolicy', 'no-referrer');
   content.setAttribute('title', 'Message content');
@@ -20,7 +20,15 @@
         typeof data.html !== 'string' || data.html.length > 8 * 1024 * 1024) return;
     // Sender supplies a sanitized document. The nested sandbox independently
     // forbids scripts, same-origin access, forms, popups and top navigation.
-    content.srcdoc = data.html;
+    const next = content.cloneNode(false);
+    const revision = data.revision;
+    next.addEventListener('load', () => {
+      if (content === next && Number.isSafeInteger(revision) && revision > 0)
+        parent.postMessage({ type: 'mw-reader-displayed', token, revision }, origin);
+    }, { once: true });
+    next.srcdoc = data.html;
+    content.replaceWith(next);
+    content = next;
   });
   parent.postMessage({ type: 'mw-reader-ready', token }, origin);
 })();

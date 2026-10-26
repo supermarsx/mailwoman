@@ -659,7 +659,7 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "mail.readReceipts",
-        Kind::Enum(&["ask", "never", "always"]),
+        Kind::Enum(&["ask", "never", "always", "contactsOnly", "orgOnly", "orgAlwaysAskOthers"]),
         "\"ask\"",
         GDU,
         "mail",

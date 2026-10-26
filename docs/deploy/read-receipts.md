@@ -40,9 +40,29 @@ references and release of existing upstream submissions when DSN is prohibited,
 since the gateway cannot recheck those submissions at their transmission boundary.
 Parameter-free composition and cancellation remain available.
 
+Engine accounts support `never`, `ask`, `always`, `contactsOnly`, `orgOnly`, and
+`orgAlwaysAskOthers`. Contacts are matched against parsed email addresses in
+the same account's address books (at most64 candidate cards of64KiB each).
+Organisation matching uses the signed-in account domain and administrator-defined
+domain aliases, not a message-supplied identity. A return-path mismatch or list
+message always requires confirmation, even when its sender otherwise qualifies
+for automatic handling.
+
+The Read receipts settings section has a dedicated policy editor and exact-address
+sender exceptions. Sender edits require the current ETag and have an atomic500-row
+account quota. A personal `never` suppresses prompts and automatic responses even
+when an older `always` exception exists; any administrator-held policy ignores
+personal exceptions. Explicit manual sends remain subject to administrator authority.
+
+The Reader requests eligibility only after its body frame reports displaying the
+current message. Automatic sending additionally requires a visible, active full
+message view and a1.5-second dwell. Preview panes never automatically answer.
+Background tabs, failed display acknowledgement and unavailable policy evidence
+do not send. Uncertain outcomes have no automatic client retry. Proxy accounts
+do not expose these engine-specific controls.
+
 The current custom `MDN/send` method is not yet a complete implementation of
-RFC 9007, so this work does not advertise its standard capability. Additional
-response modes, sender exceptions, read-time prompts, and standard MDN parsing
-remain separate work. A received delivery report does not establish that a
+RFC 9007, so this work does not advertise its standard capability. Standard
+MDN parsing and send-map arguments remain separate work. A received delivery report does not establish that a
 person read a message; a disposition notification reports another mail
 program's claim rather than independently proving human reading.

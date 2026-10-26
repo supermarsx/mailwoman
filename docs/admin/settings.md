@@ -84,7 +84,7 @@ and at transmission; it does not request or establish that a person read mail.
 <a id="mail.readReceipts"></a>
 ### Read receipts (`mail.readReceipts`)
 
-What happens when an opened message asks for a read receipt: ask the user, never send, or always send.
+What happens when a displayed message requests a read receipt: ask, never, automatic when safe, contacts only, organisation only, or automatic inside the organisation and ask elsewhere. Administrator-held modes override personal sender exceptions.
 
 <a id="notifications.enabled"></a>
 ### New-mail notifications (`notifications.enabled`)
@@ -613,7 +613,7 @@ It supports global/domain defaults, administrator locks and user overrides.
 `mail.requestReadReceipt` defaults to `false` and sets the composing default for
 requesting a receipt on supported outgoing mail. It does not compel a recipient
 to return a receipt. Incoming receipt responses remain governed separately by
-`mail.readReceipts` (`ask`, `never`, `always`).
+`mail.readReceipts` (`ask`, `never`, `always`, `contactsOnly`, `orgOnly`, `orgAlwaysAskOthers`).
 
 These keys support global and domain defaults, administrator locks and user overrides. The settings apply inside the isolated message renderer, without changing its content security policy or remote-image permissions.
 

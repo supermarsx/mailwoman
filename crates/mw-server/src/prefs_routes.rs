@@ -59,6 +59,7 @@ use mw_store::{
 use crate::AppState;
 
 mod ui_preferences;
+mod receipt_preferences;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Wire shapes (mirror apps/web/src/screens/Settings/types.ts exactly)
@@ -577,10 +578,10 @@ async fn mdn_policy_get(State(state): State<AppState>, headers: HeaderMap) -> Re
         Err(r) => return r,
     };
     if let Some(policy) = held.as_ref().and_then(|e| e.value.as_str()) {
-        return Json(json!({ "policy": policy, "locked": true })).into_response();
+        return Json(json!({ "policy": policy, "locked": true, "allowedModes": mw_engine::Engine::MDN_POLICIES })).into_response();
     }
     match engine.mdn_policy(&session.account_id).await {
-        Ok(policy) => Json(json!({ "policy": policy, "locked": false })).into_response(),
+        Ok(policy) => Json(json!({ "policy": policy, "locked": false, "allowedModes": mw_engine::Engine::MDN_POLICIES })).into_response(),
         Err(e) => {
             tracing::error!("prefs: get mdn policy failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response()
@@ -602,7 +603,7 @@ async fn mdn_policy_put(
         return no_mdn_policy();
     }
     if !mw_engine::Engine::MDN_POLICIES.contains(&body.policy.as_str()) {
-        return bad_request("policy must be one of: ask, never, always");
+        return bad_request("policy must be one of: ask, never, always, contactsOnly, orgOnly, orgAlwaysAskOthers");
     }
     match held(&state, &session, "mail.readReceipts").await {
         Ok(Some(e)) if e.value.as_str() != Some(body.policy.as_str()) => {
@@ -926,6 +927,7 @@ pub(crate) fn prefs_router() -> Router<AppState> {
             "/api/account/mdn-policy",
             get(mdn_policy_get).put(mdn_policy_put),
         )
+        .merge(receipt_preferences::router())
         // t32-e10b (f01): the settings model C, user side.
         .merge(crate::settings_routes::user_router())
 }

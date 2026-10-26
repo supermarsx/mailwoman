@@ -34,6 +34,7 @@ import { buildDownloadUrl, fetchObjectUrl, type AttachmentPart } from '../viewer
 import { SecurityPanel } from './SecurityPanel.tsx';
 import { SpamScore } from './security/SpamScore.tsx';
 import { DeliveryStatus } from './security/DeliveryStatus.tsx';
+import { ReadReceipt } from './ReadReceipt.tsx';
 import { InviteCard, hasCalendarPart } from './InviteCard.tsx';
 // V7 auto-tag (SPEC §14.3, e14b): model-suggested labels for the open message.
 // Gated on the `auto-tag` Assist capability, so a Disabled gateway renders nothing.
@@ -740,6 +741,11 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   });
 
   const [frameLoads, setFrameLoads] = createSignal(0);
+  const [receiptDisplayed,setReceiptDisplayed]=createSignal<{key:string;html:string}|null>(null);
+  const receiptDocumentKey=()=>JSON.stringify([app.accountId(),emailId()]);
+  function receiptDidDisplay(html:string,key:string|undefined):void {
+    if(key===receiptDocumentKey()&&html===bodySrcdoc())setReceiptDisplayed({key,html});
+  }
   const [privacy] = createResource(
     () => app.accountId() && emailId() ? { account: app.accountId(), email: emailId(), values: ['privacy.remoteContent', 'privacy.trackers', 'privacy.cleanLinks'].map(key => settings()[key]?.value) } : null,
     async () => { try { const p = await remotePolicy(); return isNativeAuth() && p.mode === 'direct' ? { ...p, mode: 'ask' as const, allowDirect: false } : p; } catch { return BLOCKED_POLICY; } },
@@ -800,6 +806,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     const body = currentBody(); if (!body || body.emailId !== email.id || body.account !== app.accountId()) return null;
     return bodyFrameDoc('full-sanitized', { html: body.html }, { ...frameOptions(), direct: body.policy.mode === 'direct' && body.policy.allowDirect, serverBase: remoteServerBase() });
   });
+
+  const receiptDocument=createMemo(()=>({key:receiptDocumentKey(),html:bodySrcdoc()}));
 
   // ── Reply / Reply all / Forward ────────────────────────────────────────────
   /** What the reader is showing of the open message, which is all a quote may
@@ -1048,6 +1056,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                 }}
               </Show>
               <Show when={app.accountId()}><DeliveryStatus accountId={app.accountId()!} emailId={email().id} enabled={policy().inlineParts === true} proxyUrl={privacy.state === 'ready' && policy().inlineParts !== true && email().blobId && app.downloadUrl() ? buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'}) : undefined}/></Show>
+              <Show when={app.accountId()&&policy().inlineParts===true}><ReadReceipt accountId={app.accountId()!} emailId={email().id} active={props.active!==false} fullView={props.view!==undefined} displayed={receiptDisplayed()?.key===receiptDocumentKey()&&receiptDisplayed()?.html===bodySrcdoc()&&!showDecrypt()}/></Show>
               <Show when={email().blobId && app.downloadUrl() && app.accountId()}><SpamScore url={buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'})}/></Show>
               <ReaderToolbar email={email()} onReply={(mode) => void startReply(mode)} preparing={preparing()} onPrint={() => printMessage(email(), displayedContent(email()).source)} />
               <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
@@ -1087,8 +1096,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                     missed something, scripts cannot run and the frame has an
                     opaque origin with no access to the parent.
                   */}
-                  <Show when={!isNativeAuth() && fullMode()} fallback={<iframe onLoad={() => setFrameLoads(n => n + 1)} class="reader__frame" title={t('mail-message-body')} sandbox="" srcdoc={bodySrcdoc() ?? ''} />}>
-                    <DirectReaderFrame html={bodySrcdoc() ?? ''} title={t('mail-message-body')} />
+                  <Show when={!isNativeAuth() && fullMode()} fallback={<Show when={receiptDocument()} keyed>{doc=><iframe onLoad={() => {setFrameLoads(n => n + 1);if(doc.html!==null)receiptDidDisplay(doc.html,doc.key);}} class="reader__frame" title={t('mail-message-body')} sandbox="" srcdoc={doc.html ?? ''} />}</Show>}>
+                    <DirectReaderFrame html={bodySrcdoc() ?? ''} title={t('mail-message-body')} documentKey={receiptDocumentKey()} onDisplayed={receiptDidDisplay}/>
                   </Show>
                 </Show>
               }

@@ -1184,7 +1184,7 @@ impl Engine {
             .collect())
     }
 
-    async fn stored_raw_limited(
+    pub(crate) async fn stored_raw_limited(
         &self,
         account_id: &str,
         stable_id: &str,

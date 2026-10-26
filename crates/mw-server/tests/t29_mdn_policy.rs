@@ -327,7 +327,7 @@ async fn the_engine_reads_the_policy_the_route_stores() {
     // Default: nothing stored reads as `ask`.
     assert_eq!(
         policy(&c, base).await,
-        json!({ "policy": "ask", "locked": false })
+        json!({ "policy": "ask", "locked": false, "allowedModes": mw_engine::Engine::MDN_POLICIES })
     );
     assert_eq!(store.get_setting(&key).await.unwrap(), None);
 
@@ -363,7 +363,7 @@ async fn the_engine_reads_the_policy_the_route_stores() {
     assert_eq!(r.status(), 200);
     assert_eq!(
         policy(&c, base).await,
-        json!({ "policy": "never", "locked": false })
+        json!({ "policy": "never", "locked": false, "allowedModes": mw_engine::Engine::MDN_POLICIES })
     );
     let refused = jmap(&c, base, "MDN/send", automatic.clone()).await;
     assert_eq!(
@@ -379,7 +379,7 @@ async fn the_engine_reads_the_policy_the_route_stores() {
     );
     assert_eq!(
         policy(&c, base).await,
-        json!({ "policy": "always", "locked": false })
+        json!({ "policy": "always", "locked": false, "allowedModes": mw_engine::Engine::MDN_POLICIES })
     );
     assert_eq!(
         store.get_setting(&key).await.unwrap().as_deref(),
@@ -389,10 +389,12 @@ async fn the_engine_reads_the_policy_the_route_stores() {
 
     // The engine now lets the automatic receipt through to the submitter. This
     // account has no reachable SMTP server, so the submission itself fails —
-    // which is past the policy check, and leaves the message unanswered.
-    let attempted = jmap(&c, base, "MDN/send", automatic).await;
-    assert_eq!(attempted["type"], "mdnNotSent", "under always: {attempted}");
-    assert_eq!(receipt_state(&c, base, &id).await["sent"], false);
+    // which is past the policy check. Transport errors conservatively retain
+    // the once-only claim because this interface cannot prove non-delivery.
+    let attempted = jmap(&c, base, "MDN/send", automatic.clone()).await;
+    assert_eq!(attempted["type"], "serverFail", "under always: {attempted}");
+    assert_eq!(receipt_state(&c, base, &id).await["sent"], true);
+    assert_eq!(jmap(&c, base, "MDN/send", automatic).await["type"], "mdnAlreadySent");
 
     // Without a session neither verb is answered, and nothing changes.
     let anonymous = browser();
@@ -469,7 +471,7 @@ async fn a_disabled_account_cannot_set_the_policy_or_send_a_receipt() {
     assert_eq!(r.status(), 200, "control: PUT");
     assert_eq!(
         policy(&c, base).await,
-        json!({ "policy": "never", "locked": false })
+        json!({ "policy": "never", "locked": false, "allowedModes": mw_engine::Engine::MDN_POLICIES })
     );
     let refused = jmap(&c, base, "MDN/send", send.clone()).await;
     assert_eq!(refused["type"], "mdnAutomaticRefused", "control: {refused}");
@@ -536,4 +538,29 @@ async fn a_held_account_cannot_set_the_policy_or_send_a_receipt() {
         Some("never"),
         "the held PUT stored nothing"
     );
+}
+
+#[tokio::test]
+async fn sender_rules_require_authority_current_revision_and_real_account() {
+    let _g = serial().await;
+    let imap = MockImap::start(ENGINE_USER, ENGINE_PASS).await;
+    let srv = spawn(ServerMode::Engine, imap.url()).await;
+    let client = browser();
+    let account = engine_login(&client, &srv.base, &imap).await;
+    let url = format!("{}/api/account/mdn-senders", srv.base);
+    assert_eq!(browser().get(&url).send().await.unwrap().status(),401);
+    let first=client.get(&url).send().await.unwrap();assert_eq!(first.status(),200);
+    let etag=first.headers()["etag"].to_str().unwrap().to_owned();
+    assert_eq!(first.json::<Value>().await.unwrap()["rules"],json!([]));
+    let body=json!({"address":ANN,"decision":"always"});
+    assert_eq!(client.put(&url).json(&body).send().await.unwrap().status(),428);
+    let response=client.put(&url).header("if-match",&etag).json(&body).send().await.unwrap();assert_eq!(response.status(),200);
+    assert_eq!(client.put(&url).header("if-match",&etag).json(&json!({"address":ANN,"decision":null})).send().await.unwrap().status(),412);
+    let current=client.get(&url).send().await.unwrap();let etag=current.headers()["etag"].to_str().unwrap().to_owned();
+    assert_eq!(current.json::<Value>().await.unwrap()["rules"][0]["address"],ANN);
+    let store=srv.store().await;
+    assert_eq!(store.receipt_sender_decision(&account,ANN).await.unwrap(),Some(mw_store::receipts::SenderDecision::Always));
+    store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow{key:"mail.readReceipts".into(),global_value:Some("\"ask\"".into()),allow_user_override:false,global_locked:true,updated_by:"fixture".into(),updated_at:0}).await.unwrap();
+    assert_eq!(client.put(&url).header("if-match",&etag).json(&body).send().await.unwrap().status(),403);
+    assert_eq!(client.get(format!("{}/api/account/mdn-decision/unknown",srv.base)).send().await.unwrap().status(),404);
 }

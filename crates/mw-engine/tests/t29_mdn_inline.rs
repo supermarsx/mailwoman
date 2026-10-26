@@ -1421,3 +1421,50 @@ async fn read_receipt_policy_is_rechecked_when_delayed_raw_report_dispatches() {
     h.engine.dispatch_tick_at(chrono::Utc::now()+chrono::Duration::days(1)).await.unwrap();
     assert!(h.submitter.handed().is_empty(),"a queued raw report must obey the new held policy");
 }
+
+#[tokio::test]
+async fn receipt_sender_exception_is_account_owned_and_rechecked_for_automatic_send() {
+    use mw_store::receipts::{SenderDecision, SenderRuleWrite};
+    let h = setup().await;
+    let id = find(&h, "request").await;
+    h.engine.fetch_blob(&h.account_id, &id).await.unwrap().unwrap();
+    set_policy(&h, "ask").await;
+    let revision = h.store.receipt_sender_rules(&h.account_id).await.unwrap().revision;
+    assert!(matches!(h.store.write_receipt_sender_rule(&h.account_id, ANN, Some(SenderDecision::Always), &revision).await.unwrap(), SenderRuleWrite::Applied(_)));
+    let decision = h.engine.receipt_response_decision(&h.account_id, &id).await.unwrap().unwrap();
+    assert_eq!(decision["action"], "automatic");
+    assert!(h.engine.receipt_response_decision("another-account", &id).await.unwrap().is_none());
+    set_policy(&h, "never").await;
+    assert_eq!(h.engine.receipt_response_decision(&h.account_id, &id).await.unwrap().unwrap()["action"], "none");
+    assert_eq!(mdn_send(&h, &id, Some(true)).await["type"], "mdnAutomaticRefused");
+    set_policy(&h, "ask").await;
+    let revision = h.store.receipt_sender_rules(&h.account_id).await.unwrap().revision;
+    h.store.write_receipt_sender_rule(&h.account_id, ANN, Some(SenderDecision::Never), &revision).await.unwrap();
+    assert_eq!(h.engine.receipt_response_decision(&h.account_id, &id).await.unwrap().unwrap()["action"], "none");
+    assert!(h.submitter.handed().is_empty());
+}
+
+#[tokio::test]
+async fn receipt_contact_mode_uses_owned_vcards_and_organisation_mode_uses_login_domain() {
+    let h = setup().await;
+    let id = find(&h, "request").await;
+    h.engine.fetch_blob(&h.account_id, &id).await.unwrap().unwrap();
+    set_policy(&h, "contactsOnly").await;
+    let action = |value: Value| value["action"].as_str().unwrap().to_owned();
+    assert_eq!(action(h.engine.receipt_response_decision(&h.account_id, &id).await.unwrap().unwrap()), "none");
+    let foreign = new_account(&h.store, "other@elsewhere.example").await;
+    h.store.upsert_address_book(&mw_store::AddressBookRow {id:"receipt-other-book".into(),account_id:foreign,name:"Other".into(),is_default:true,carddav_url:None,sync_token:None,ctag:None}).await.unwrap();
+    let mut card = mw_store::ContactRow {id:"receipt-card".into(),address_book_id:"receipt-other-book".into(),uid:"receipt-card".into(),etag:None,vcard_raw:format!("BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ann\r\nEMAIL:{ANN}\r\nEND:VCARD\r\n"),json:None,full_name:"Ann".into(),is_favorite:false,photo_blob_id:None,pgp_key:None,smime_cert:None};
+    h.store.upsert_contact(&card).await.unwrap();
+    assert_eq!(action(h.engine.receipt_response_decision(&h.account_id, &id).await.unwrap().unwrap()), "none");
+    h.store.upsert_address_book(&mw_store::AddressBookRow {id:"receipt-own-book".into(),account_id:h.account_id.clone(),name:"Own".into(),is_default:true,carddav_url:None,sync_token:None,ctag:None}).await.unwrap();
+    card.id="receipt-own-card".into(); card.uid=card.id.clone();card.address_book_id="receipt-own-book".into();
+    h.store.upsert_contact(&card).await.unwrap();
+    assert_eq!(action(h.engine.receipt_response_decision(&h.account_id, &id).await.unwrap().unwrap()), "automatic");
+    set_policy(&h, "orgOnly").await;
+    assert_eq!(action(h.engine.receipt_response_decision(&h.account_id, &id).await.unwrap().unwrap()), "automatic");
+    let list = find(&h, "list mail").await;
+    h.engine.fetch_blob(&h.account_id, &list).await.unwrap().unwrap();
+    assert_eq!(action(h.engine.receipt_response_decision(&h.account_id, &list).await.unwrap().unwrap()), "ask");
+    assert!(h.submitter.handed().is_empty(), "eligibility alone never sends");
+}

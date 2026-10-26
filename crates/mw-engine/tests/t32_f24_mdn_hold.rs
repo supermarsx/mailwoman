@@ -55,6 +55,14 @@ async fn without_a_hold_the_stored_policy_applies() {
 }
 
 #[tokio::test]
+async fn unknown_account_and_invalid_held_policy_fail_closed() {
+    let (engine, account) = setup().await;
+    assert!(engine.mdn_policy("missing-account").await.is_err());
+    engine.store().put_setting_policy(&policy("\"invalid-mode\"", true, false)).await.unwrap();
+    assert_eq!(engine.mdn_policy(&account).await.unwrap(), "never");
+}
+
+#[tokio::test]
 async fn a_global_lock_at_never_overrides_a_stored_always() {
     let (engine, account) = setup().await;
     engine

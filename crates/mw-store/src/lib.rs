@@ -29,6 +29,7 @@ mod ssh_tunnels;
 pub mod nextcloud_links;
 pub mod nextcloud_pim;
 pub mod package_tracking;
+pub mod receipts;
 pub use ssh_tunnels::{SshCredentialChange, SshTunnelDelete, SshTunnelMutation, SshTunnelRow};
 mod domain_config;
 pub use domain_config::{
