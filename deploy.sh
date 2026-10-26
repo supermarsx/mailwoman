@@ -157,13 +157,19 @@ See docs/deploy/script.md for operations, recovery, and optional integrations.
 HELP
 }
 
-LOG_ACCENT= LOG_RESET=
+LOG_ACCENT= LOG_RESET= LOG_BOLD= LOG_SUCCESS= LOG_ERROR= LOG_WARNING= LOG_DETAIL=
+PHASE_COLORS=("" "" "" "" "" "")
 if [[ -t 2 && ${TERM:-dumb} != dumb && ! ${NO_COLOR+x} ]]; then
     LOG_ACCENT=$'\033[36m'; LOG_RESET=$'\033[0m'
+    LOG_BOLD=$'\033[1m'; LOG_SUCCESS=$'\033[32m'; LOG_ERROR=$'\033[31m'
+    LOG_WARNING=$'\033[33m'; LOG_DETAIL=$'\033[36m'
+    PHASE_COLORS=($'\033[36m' $'\033[34m' $'\033[35m' $'\033[33m' $'\033[32m' $'\033[96m')
 fi
+colored_log() { local color=$1; shift; printf '%s[deploy] %s%s\n' "$color" "$*" "$LOG_RESET" >&2; }
 log() { printf '%s[deploy]%s %s\n' "$LOG_ACCENT" "$LOG_RESET" "$*" >&2; }
 # Git subjects/ref names are data, not terminal commands. Bound displayed labels
 # and remove control/non-ASCII bytes (including escape sequences and bidi marks).
+git_subject() { LC_ALL=C tr -cd ' -~'; }
 git_label() { LC_ALL=C tr -cd ' -~' | cut -c 1-180; }
 git_diagnostic() { LC_ALL=C tr -cd '\12\40-\176' | awk 'NR <= 12 { print substr($0, 1, 180) }' >&2; }
 PROGRESS_STEP=0 PROGRESS_STARTED=0 PHASE_STARTED=0
@@ -179,24 +185,28 @@ phase() {
     now=$(date +%s)
     if ((PHASE_STARTED > 0)); then
         elapsed=$((now - PHASE_STARTED)); ((elapsed >= 0)) || elapsed=0
-        log "  Step $PROGRESS_STEP finished in ${elapsed}s"
+        colored_log "$LOG_SUCCESS" "  Step $PROGRESS_STEP finished in ${elapsed}s"
     fi
     PROGRESS_STEP=$((PROGRESS_STEP + 1)); PHASE_STARTED=$now
-    log "[$PROGRESS_STEP/6] $*"
+    printf '\n' >&2
+    colored_log "$LOG_BOLD${PHASE_COLORS[$((PROGRESS_STEP - 1))]}" "[$PROGRESS_STEP/6] $*"
 }
 progress_start() {
     if ((PROGRESS_STEP == 0)); then
         PROGRESS_STARTED=$(date +%s)
-        log "Mailwoman deployment"
+        colored_log "$LOG_BOLD$LOG_ACCENT" "Mailwoman deployment"
+        log "Started: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
         phase "Prepare source checkout"
     fi
 }
 progress_finish() {
     local now elapsed
     now=$(date +%s); elapsed=$((now - PROGRESS_STARTED)); ((elapsed >= 0)) || elapsed=0
-    log "Deployment complete in ${elapsed}s"
+    colored_log "$LOG_SUCCESS" "  Step $PROGRESS_STEP finished in $((now - PHASE_STARTED))s"
+    log "Finished: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    colored_log "$LOG_BOLD$LOG_SUCCESS" "Deployment complete in ${elapsed}s ($((elapsed / 3600))h $((elapsed % 3600 / 60))m $((elapsed % 60))s)"
 }
-die() { log "ERROR: $*"; exit 1; }
+die() { colored_log "$LOG_BOLD$LOG_ERROR" "ERROR: $*"; exit 1; }
 need_value() { [[ $# -ge 2 && -n $2 && $2 != --* ]] || die "$1 needs a value"; }
 need() { command -v "$1" >/dev/null 2>&1 || die "Required command missing: $1"; }
 # True when something on this host accepts connections on the given TCP port.
@@ -293,11 +303,11 @@ update_checkout() {
     status=0
     git -c core.safecrlf=false -C "$ROOT" diff --quiet || status=$?
     [[ $status == 0 || $status == 1 ]] || die "Cannot read the Git working tree"
-    [[ $status == 0 ]] || log "Local tracked edits detected; Git will preserve them or refuse an overlapping update"
+    [[ $status == 0 ]] || colored_log "$LOG_WARNING" "Local tracked edits detected; Git will preserve them or refuse an overlapping update"
     status=0
     git -c core.safecrlf=false -C "$ROOT" diff --cached --quiet || status=$?
     [[ $status == 0 || $status == 1 ]] || die "Cannot read the Git index"
-    [[ $status == 0 ]] || log "Staged edits detected; Git will preserve them or refuse an overlapping update"
+    [[ $status == 0 ]] || colored_log "$LOG_WARNING" "Staged edits detected; Git will preserve them or refuse an overlapping update"
     log "Updating $(printf '%s' "$branch" | git_label) from $(printf '%s' "$upstream" | git_label) (${before:0:12})"
     status=0
     pull_output=$(git -C "$ROOT" -c color.ui=false -c rebase.autoStash=false -c merge.autoStash=false pull --quiet --ff-only --no-rebase 2>&1) || status=$?
@@ -310,9 +320,8 @@ update_checkout() {
     incoming=$(git -C "$ROOT" rev-list --count "$before..$after" --)
     log "$(printf '%s' "$branch" | git_label): ${before:0:12} -> ${after:0:12} ($incoming incoming commit(s))"
     while IFS= read -r subject; do
-        [[ -z $subject ]] || log "  $(printf '%s' "$subject" | git_label)"
-    done < <(git -C "$ROOT" -c log.showSignature=false log --no-decorate --format='%h %s' -n 5 "$before..$after" --)
-    if ((incoming > 5)); then log "  ... $((incoming - 5)) more commit(s)"; fi
+        [[ -z $subject ]] || colored_log "$LOG_DETAIL" "  $(printf '%s' "$subject" | git_subject)"
+    done < <(git -C "$ROOT" -c log.showSignature=false log --no-decorate --format='%h %s' --reverse "$before..$after" --)
     export MW_DEPLOY_PROGRESS_STEP=$PROGRESS_STEP MW_DEPLOY_PROGRESS_STARTED=$PROGRESS_STARTED MW_DEPLOY_PHASE_STARTED=$PHASE_STARTED
     exec bash "$ROOT/deploy.sh" "${ORIGINAL_ARGS[@]}"
 }
@@ -467,7 +476,12 @@ cleanup() {
         rm -rf -- "$WORK"
     fi
     if $LOCKED; then rmdir -- "$STATE/.lock" 2>/dev/null || true; fi
-    if ((result != 0)) && [[ $ACTION != check ]]; then log "Command failed. Data volumes have been retained. See 'status' and 'logs'."; fi
+    if ((result != 0)) && [[ $ACTION != check ]]; then
+        colored_log "$LOG_ERROR" "Command failed. Data volumes have been retained. See 'status' and 'logs'."
+        if ((PROGRESS_STARTED > 0)); then
+            log "Stopped: $(date -u '+%Y-%m-%d %H:%M:%S UTC'); elapsed $(($(date +%s) - PROGRESS_STARTED))s"
+        fi
+    fi
     exit "$result"
 }
 trap cleanup EXIT

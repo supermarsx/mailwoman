@@ -95,7 +95,7 @@ git -C "$FIXTURE/offline" branch --unset-upstream
 reject offline
 run detached --no-pull
 run staged status
-# A batch of hostile/long subjects remains bounded data, never terminal control
+# A complete batch of hostile/long subjects remains data, never terminal control
 # or a printf format. Use a fresh clone so precisely seven commits are incoming.
 clone subjects
 for n in {1..7}; do
@@ -106,24 +106,41 @@ done
 git -C "$AUTHOR" push -q
 run subjects
 grep -q '(7 incoming commit(s))' "$FIXTURE/subjects.log" || fail 'incoming count missing'
-[[ $(grep -c 'subject-' "$FIXTURE/subjects.log") == 5 ]] || fail 'incoming subjects not bounded to five'
-grep -q '2 more commit(s)' "$FIXTURE/subjects.log" || fail 'omitted subject count missing'
+[[ $(grep -c 'subject-' "$FIXTURE/subjects.log") == 7 ]] || fail 'incoming subjects were omitted'
+if grep -q 'more commit(s)' "$FIXTURE/subjects.log"; then fail 'commit list truncated'; fi
 grep -q '%s %n' "$FIXTURE/subjects.log" || fail 'subject interpreted as printf format'
 if grep -q $'\033' "$FIXTURE/subjects.log"; then fail 'Git metadata injected terminal escape'; fi
-awk 'length($0)>200 {exit 1}' "$FIXTURE/subjects.log" || fail 'subject line unbounded'
+grep -Eq 'subject-7.*0{250}' "$FIXTURE/subjects.log" || fail 'long subject truncated'
 mkdir "$FIXTURE/archive"
 cp "$ROOT/deploy.sh" "$FIXTURE/archive/deploy.sh"
 bash "$FIXTURE/archive/deploy.sh" --no-pull --dry-run > "$FIXTURE/plain.out" 2> "$FIXTURE/plain.log"
 [[ ! -s $FIXTURE/plain.out ]] || fail 'progress changed stdout'
 grep -q 'Source archive:' "$FIXTURE/plain.log" || fail 'archive source information missing'
+grep -Eq 'Started: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]+ UTC' "$FIXTURE/plain.log" || fail 'start time missing'
 grep -q '\[2/6\] Validate configuration' "$FIXTURE/plain.log" || fail 'phase numbering did not advance'
 [[ ! -e $FIXTURE/archive/.deploy.local ]] || fail 'dry-run wrote state'
 if grep -q $'\033' "$FIXTURE/plain.log"; then fail 'redirected progress has color'; fi
+# Exercise the real presentation helpers without contacting Docker or sleeping.
+awk '/^LOG_ACCENT=/{copy=1} /^need_value\(\)/{copy=0} copy' "$ROOT/deploy.sh" > "$FIXTURE/progress.sh"
+(
+    unset MW_DEPLOY_GIT_SYNCED
+    ACTION=deploy
+    source "$FIXTURE/progress.sh"
+    progress_start
+    for label in configuration image backup health finalize; do phase "$label"; done
+    PROGRESS_STARTED=$(($(date +%s) - 3661))
+    progress_finish
+) > "$FIXTURE/timing.out" 2> "$FIXTURE/timing.log"
+[[ ! -s $FIXTURE/timing.out ]] || fail 'timing changed stdout'
+grep -Eq 'Finished: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]+ UTC' "$FIXTURE/timing.log" || fail 'finish time missing'
+grep -Eq 'Deployment complete in 366[12]s \(1h 1m [12]s\)' "$FIXTURE/timing.log" || fail 'elapsed duration missing'
+grep -q 'Step 6 finished in' "$FIXTURE/timing.log" || fail 'final phase duration missing'
 # util-linux script provides a real pseudo-terminal; Git Bash lacks it, so the
 # same suite is also run in a Linux helper for these terminal-only assertions.
 if command -v script >/dev/null 2>&1 && script --version >/dev/null 2>&1; then
     env -u NO_COLOR TERM=xterm script -q -e -c "bash '$FIXTURE/archive/deploy.sh' --no-pull --dry-run" "$FIXTURE/tty.log" >/dev/null
     grep -q $'\033\[36m' "$FIXTURE/tty.log" || fail 'interactive progress has no accent'
+    grep -q $'\033\[34m' "$FIXTURE/tty.log" || fail 'configuration phase has no distinct color'
     NO_COLOR=1 TERM=xterm script -q -e -c "bash '$FIXTURE/archive/deploy.sh' --no-pull --dry-run" "$FIXTURE/no-color.log" >/dev/null
     if grep -q $'\033' "$FIXTURE/no-color.log"; then fail 'NO_COLOR ignored'; fi
     TERM=dumb script -q -e -c "bash '$FIXTURE/archive/deploy.sh' --no-pull --dry-run" "$FIXTURE/dumb.log" >/dev/null
