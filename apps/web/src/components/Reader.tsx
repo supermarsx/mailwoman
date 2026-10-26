@@ -37,6 +37,8 @@ import { SpamScore } from './security/SpamScore.tsx';
 import { DeliveryStatus } from './security/DeliveryStatus.tsx';
 import { ReadReceipt } from './ReadReceipt.tsx';
 import { MailingListActions } from './MailingListActions.tsx';
+import {MessageLinks} from './MessageLinks.tsx';
+import {reviewMessageLinks} from '../viewers/messageLinks.ts';
 import { InviteCard, hasCalendarPart } from './InviteCard.tsx';
 // V7 auto-tag (SPEC §14.3, e14b): model-suggested labels for the open message.
 // Gated on the `auto-tag` Assist capability, so a Disabled gateway renders nothing.
@@ -744,7 +746,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   };
   const frameOptions = () => ({ appearance: readerAppearance(), themeVars: readerAppearance().colorMode === 'adaptive' ? themeCssVars(app.theme(), { density: app.density() }) : '' });
   const messageLoading = () => <MessageLoading variant={String(settings()['reader.loading']?.value ?? 'skeleton')} delayMs={Number(settings()['reader.loadingDelayMs']?.value ?? 120)} />;
-  const bodySrcdoc = createMemo<string | null>(() => {
+  const unreviewedBodySrcdoc = createMemo<string | null>(() => {
     const email = app.openEmail(); if (!email) return null;
     const mode = maxsec.effectiveMode(sender());
     const text = decryptedText(); if (text !== null) return bodyFrameDoc('plain-text', { text }, frameOptions());
@@ -754,6 +756,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     return bodyFrameDoc('full-sanitized', { html: body.html }, { ...frameOptions(), direct: body.policy.mode === 'direct' && body.policy.allowDirect, serverBase: remoteServerBase() });
   });
 
+  const reviewedBody=createMemo(()=>{const html=unreviewedBodySrcdoc();return html===null?null:reviewMessageLinks(html,t('mail-links-inert'));});
+  const bodySrcdoc=()=>reviewedBody()?.html??null;
   const receiptDocument=createMemo(()=>({key:receiptDocumentKey(),html:bodySrcdoc()}));
 
   // ── Reply / Reply all / Forward ────────────────────────────────────────────
@@ -1007,6 +1011,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <Show when={email().blobId && app.downloadUrl() && app.accountId()}><SpamScore url={buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'})} onHeaders={collectListHeaders}/></Show>
               <MailingListActions headers={listHeaders()?.scope===receiptDocumentKey()&&listHeaders()?.url===messageHeaderUrl()?listHeaders()!.raw:''} scope={receiptDocumentKey()} active={props.active!==false} {...(props.onCompose?{onCompose:props.onCompose}:{})}/>
               <ReaderToolbar email={email()} onReply={(mode) => void startReply(mode)} preparing={preparing()} onPrint={() => printMessage(email(), displayedContent(email()).source)} />
+              <MessageLinks links={reviewedBody()?.links??[]} truncated={reviewedBody()?.truncated??false} scope={receiptDocumentKey()} active={props.active!==false} {...(props.onCompose?{onCompose:props.onCompose}:{})}/>
               <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
               <AutoTagSection email={email()} />
             </header>

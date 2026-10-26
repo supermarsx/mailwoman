@@ -14,3 +14,8 @@ globalStyle('.sweep__preview',{listStyle:'none',padding:0,margin:0,maxBlockSize:
 globalStyle('.sweep__row',{display:'flex',justifyContent:'space-between',gap:vars.space[3],paddingBlock:vars.space[2],borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}`});
 globalStyle('.sweep__subject',{minInlineSize:0});
 globalStyle('.sweep__date',{flexShrink:0,color:vars.color.textDim});
+globalStyle('.message-links__row',{display:'grid',gridTemplateColumns:'minmax(0, 1fr)',gap:vars.space[2]});
+globalStyle('.message-links__row button',{whiteSpace:'normal',overflowWrap:'anywhere',justifySelf:'start'});
+globalStyle('.message-links__destination',{display:'flex',flexDirection:'column',gap:vars.space[3]});
+globalStyle('.message-links__destination h3, .message-links__destination ul',{marginBlock:0});
+globalStyle('.message-links__destination > .btn',{alignSelf:'flex-start'});
