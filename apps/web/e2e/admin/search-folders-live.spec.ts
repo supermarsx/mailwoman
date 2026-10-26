@@ -1,7 +1,11 @@
 import { test, expect } from '../csrf.ts';
-import { signInManually } from '../helpers.ts';
+import { signInManually, messageRow, drawerButton } from '../helpers.ts';
+import {sendRawSmtp} from '../crypto-helpers.ts';
 
 test('search folders save, appear in the sidebar, and edit on a dedicated page @phone', async ({ page }) => {
+  const name = `Invoices-${test.info().project.name}-${Date.now()}`;
+  const other = `Other-${Date.now()}`;
+  for(const subject of [name,other])await sendRawSmtp({from:'saved-search@example.org',message:`From: saved-search@example.org\r\nTo: testuser@example.org\r\nSubject: ${subject}\r\nMessage-ID: <${subject}@example.org>\r\n\r\nSaved-search acceptance.\r\n`});
   await page.goto('/');
   await signInManually(page, { username: 'testuser', password: 'testpass' });
   const show = page.getByRole('button', { name: 'Show folders sidebar' });
@@ -12,7 +16,6 @@ test('search folders save, appear in the sidebar, and edit on a dedicated page @
   await sections.getByRole('button', { name: /Saved searches|Search folders/ }).click();
   await page.getByRole('button', { name: 'New search folder' }).click();
   await expect(page.getByTestId('saved-search-list')).toHaveCount(0);
-  const name = `Invoices-${test.info().project.name}-${Date.now()}`;
   await page.getByLabel('Folder name', { exact: true }).fill(name);
   await page.getByLabel('Subject contains').fill(name);
   await page.getByLabel('Unread messages only').check();
@@ -27,6 +30,14 @@ test('search folders save, appear in the sidebar, and edit on a dedicated page @
   await page.screenshot({ path: test.info().outputPath('search-folder-editor.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('tab',{name:'Mail',exact:true}).click();
+  if(test.info().project.name==='phone')await drawerButton(page).click();
+  await page.getByRole('navigation',{name:'Mailboxes'}).getByRole('button',{name,exact:true}).click();
+  await expect(messageRow(page,name)).toBeVisible();await expect(messageRow(page,other)).toHaveCount(0);
+  await expect(page.locator('.list__row')).toHaveCount(1);
+  await page.reload();if(test.info().project.name==='phone')await drawerButton(page).click();
+  await page.getByRole('navigation',{name:'Mailboxes'}).getByRole('button',{name,exact:true}).click();await expect(messageRow(page,name)).toBeVisible();await expect(page.locator('.list__row')).toHaveCount(1);
+  if(test.info().project.name==='phone')await drawerButton(page).click();await page.locator('.sidebar__settings').click();await sections.getByRole('button',{name:/Saved searches|Search folders/}).click();
   await row.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(row).toHaveCount(0);
   await expect(page.locator('.sidebar__box-name').filter({ hasText: name })).toHaveCount(0);
