@@ -347,6 +347,7 @@ admin() { curl --silent --output "$STATE/admin.body" --write-out '%{http_code}' 
 admin_json() { admin --header 'content-type: application/json' "$@"; }
 CODE=$(admin_json --data "{\"username\":\"$ADMIN_USER\",\"password\":\"not-$ADMIN_PASSWORD\"}" "$ADMIN_URL/login")
 [[ $CODE == 401 ]] || fail "a wrong admin password answered $CODE, expected 401"
+sleep 3 # Distinct intentional sign-ins respect the default per-client cooldown.
 CODE=$(admin_json --data "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASSWORD\"}" "$ADMIN_URL/login")
 [[ $CODE == 200 ]] || fail "admin login with the generated password answered $CODE: $(cat "$STATE/admin.body")"
 CSRF=$(awk '$6 == "mw_csrf" {print $7}' "$JAR")
@@ -363,6 +364,7 @@ CODE=$(admin --request DELETE --header "x-csrf-token: $CSRF" "$ADMIN_URL/bans/20
 # (apps/web/e2e/deploy-admin.spec.ts). Playwright's own summary is printed.
 BROWSER='admin panel in a browser'
 if ((${#PLAYWRIGHT[@]})); then
+    sleep 3 # The browser performs a separate sign-in after the curl checks.
     (cd "$WEB" && MW_DEPLOY_BASE_URL="http://localhost:$PORT" MW_ADMIN_USER="$ADMIN_USER" MW_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
         "${PLAYWRIGHT[@]}" test --project=deploy --reporter=list --output "$STATE/playwright" > "$STATE/playwright.log" 2>&1) \
         || { cat "$STATE/playwright.log" >&2; fail 'the admin panel browser test failed'; }

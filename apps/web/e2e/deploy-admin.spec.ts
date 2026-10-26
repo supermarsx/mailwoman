@@ -51,7 +51,7 @@ test.describe('admin panel on a deployed installation', () => {
     await expect(loginForm).toBeVisible();
     await loginForm.getByLabel('Admin username').fill(ADMIN_USER);
     await loginForm.getByLabel('Password', { exact: true }).fill(ADMIN_PASSWORD);
-    await loginForm.getByRole('button', { name: 'Sign in' }).click();
+    await loginForm.getByRole('button', { name: 'Sign in', exact: true }).click();
 
     const nav = page.getByRole('navigation', { name: 'Admin sections' });
     await expect(nav, 'the generated password signs in').toBeVisible();
