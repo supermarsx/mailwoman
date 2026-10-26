@@ -12,6 +12,7 @@ import {
   type Resource,
 } from 'solid-js';
 import { printMessage } from '../viewers/printMessage.ts';
+import { settings as effectiveSettings } from '../api/settings.ts';
 import { AppContext, useApp } from '../state/context.ts';
 import type { MessageView } from '../state/slices/messageView.ts';
 import { createEntryMotion } from '../shell/createEntryMotion.ts';
@@ -597,8 +598,8 @@ function RemoteFileDownloads(props: { emailId: string; scope: string; urls: stri
 }
 
 interface ReaderProps {
-  onCompose?: (initial: ComposeInitial) => void;
   onOpenAttachment?: (item: StripItem) => void;
+  onCompose?: (initial: ComposeInitial) => void;
   view?: MessageView;
   onClose?: () => void;
   active?: boolean;
@@ -820,11 +821,19 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   const [preparing, setPreparing] = createSignal(false);
 
   async function composeFrom(email: Email, mode: ReplyMode): Promise<ComposeInitial> {
-    const { quoteForReply, quoteForForward } = await import('./compose/quote.ts');
+    const { quoteForReply, quoteForForward, quoteForOutlook } = await import('./compose/quote.ts');
     const shown = displayedContent(email);
     const author = email.from?.[0];
     const authorName = stripIsolates((author?.name ?? '').trim() !== '' ? author!.name! : (author?.email ?? ''));
     const date = quoteDate(email.sentAt ?? email.receivedAt);
+    const outlook = effectiveSettings()['mail.quoteStyle']?.value === 'outlook';
+    const outlookFields = [
+      { label: t('mail-quote-header-from'), value: stripIsolates(addressList(email.from)) },
+      ...(date ? [{ label: t('mail-quote-header-sent'), value: date }] : []),
+      { label: t('mail-quote-header-to'), value: stripIsolates(addressList(email.to)) },
+      ...((email.cc ?? []).length ? [{ label: t('mail-quote-header-cc'), value: stripIsolates(addressList(email.cc ?? null)) }] : []),
+      { label: t('mail-quote-header-subject'), value: stripIsolates(email.subject ?? '') },
+    ];
 
     if (mode === 'forward') {
       const lines = [
@@ -837,7 +846,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
           ? [t('mail-forward-cc', { addr: stripIsolates(addressList(email.cc ?? null)) })]
           : []),
       ];
-      const quote = await quoteForForward(shown.source, lines);
+      const quote = outlook ? await quoteForOutlook(shown.source, outlookFields) : await quoteForForward(shown.source, lines);
       const parts = (email as { attachments?: AttachmentPart[] }).attachments ?? [];
       return {
         mode,
@@ -871,7 +880,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       date !== ''
         ? t('mail-quote-attribution', { date, name: authorName })
         : t('mail-quote-attribution-undated', { name: authorName });
-    const quote = await quoteForReply(shown.source, attribution);
+    const quote = outlook ? await quoteForOutlook(shown.source, outlookFields) : await quoteForReply(shown.source, attribution);
     return {
       mode,
       to: formatAddressList(recipients.to),

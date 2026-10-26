@@ -92,3 +92,13 @@ export async function quoteForForward(source: QuoteSource, headerLines: string[]
     text: `\n\n${headerLines.join('\n')}\n\n${original.text}`,
   };
 }
+
+/** Outlook-style metadata header; originals still pass through the inert quote schema. */
+export async function quoteForOutlook(source: QuoteSource, fields: { label: string; value: string }[]): Promise<Quote> {
+  const original = await reduce(source);
+  const header = fields.map(field => `<strong>${escapeHtml(field.label)}</strong> ${escapeHtml(field.value)}`).join('<br>');
+  return {
+    html: `<p></p><hr><p>${header}</p>${original.html}`,
+    text: `\n\n________________________________\n${fields.map(field => `${field.label} ${field.value}`).join('\n')}\n\n${original.text}`,
+  };
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { quoteForForward, quoteForReply } from './quote.ts';
+import { quoteForForward, quoteForReply, quoteForOutlook } from './quote.ts';
 import { docFromHtml, htmlFromDoc, inertBody } from './richtext.ts';
 
 /** A message body holding everything a quote must not carry out. The quote is
@@ -105,6 +105,19 @@ describe('quote sources', () => {
 });
 
 describe('inert parsing', () => {
+  it('builds Outlook headers in both formats without retaining active content or exposing Bcc', async () => {
+    const quote = await quoteForOutlook({html:HOSTILE}, [
+      {label:'From:',value:'Alice <alice@example.test>'},
+      {label:'Sent:',value:'26 October 2026 10:00 UTC'},
+      {label:'Subject:',value:'<script>Invoice</script>'},
+    ]);
+    expect(quote.html).toContain('<strong>From:</strong> Alice &lt;alice@example.test&gt;');
+    expect(quote.html).toContain('<strong>Subject:</strong> &lt;script&gt;Invoice&lt;/script&gt;');
+    expect(quote.html).not.toContain('<script>');
+    expect(quote.html).not.toContain('<img');
+    expect(quote.text).toContain('From: Alice <alice@example.test>\nSent:');
+    expect(quote.text).not.toContain('Bcc:');
+  });
   it('parses into a document that has no browsing context', () => {
     const body = inertBody('<img src="http://tracker.example/pixel.gif"><p>x</p>');
     expect(body.ownerDocument).not.toBe(document);

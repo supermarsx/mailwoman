@@ -250,3 +250,9 @@ settings-font-inter = Inter
 settings-font-roboto = Roboto
 settings-font-open-sans = Open Sans
 settings-font-jost = Jost
+
+settings-compose-title = Composing and replies
+settings-quote-style = Reply and forward header style
+settings-quote-classic = Classic quoted reply
+settings-quote-outlook = Outlook-style header
+settings-quote-help = Outlook style adds From, Sent, To, Cc and Subject above the original message in rich text and plain text. Existing drafts are unchanged.

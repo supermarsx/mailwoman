@@ -392,3 +392,6 @@ admin-settings-key-reader-loading = Message loading appearance
 admin-settings-help-reader-loading = Placeholder lines, a text indicator or no visual indicator. Accessibility announcements remain available.
 admin-settings-key-reader-loading-delay-ms = Message loading delay
 admin-settings-help-reader-loading-delay-ms = Delay only the loading indicator, between 0 and 1000 milliseconds. Message delivery is never delayed.
+
+admin-settings-key-mail-quote-style = Reply and forward header style
+admin-settings-help-mail-quote-style = Use classic quoted replies or Outlook-style message headers. This sets the user default; lock it to enforce the style. Existing drafts are unchanged.

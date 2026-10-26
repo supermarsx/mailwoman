@@ -551,6 +551,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "sieve",
         "Sieve forwarding outside the account domain"
     ),
+    def!("mail.quoteStyle", Kind::Enum(&["classic", "outlook"]), "\"classic\"", GDU, "mail", "reply and forward header style"),
     // ── Interface (user-facing) ──────────────────────────────────────────────
     def!("mail.requestReadReceipt", Kind::Bool, "false", GDU, "mail", "request a read receipt by default when composing supported mail"),
     def!("reader.colorMode", Kind::Enum(&["auto", "original", "adaptive", "invert"]), "\"auto\"", GDU, "reader", "message color adaptation inside the isolated reader"),

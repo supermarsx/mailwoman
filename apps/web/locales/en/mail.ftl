@@ -478,3 +478,9 @@ mail-file-warning-disguisedName = The filename may disguise its real extension. 
 mail-file-warning-typeMismatch = The detected file signature does not match its declared type. The automatic preview has been blocked.
 mail-file-warning-activeDocument = This format can contain active content. Its preview is isolated; opening a downloaded copy may behave differently.
 mail-file-preview-blocked = Automatic preview is disabled for this file type or type mismatch.
+
+mail-quote-header-from = From:
+mail-quote-header-sent = Sent:
+mail-quote-header-to = To:
+mail-quote-header-cc = Cc:
+mail-quote-header-subject = Subject:
