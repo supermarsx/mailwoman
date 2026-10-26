@@ -1,3 +1,4 @@
+import {COMPOSER_FONTS,normalizeComposerFont} from './fontCatalog.ts';
 // Rich-text (ProseMirror) schema + serialization for the composer (W1).
 //
 // This module is DOM-serializer-based (ProseMirror `DOMSerializer`/`DOMParser`),
@@ -73,13 +74,13 @@ const link: MarkSpec = {
   ],
 };
 
-export const COMPOSE_FONTS=['Arial','Verdana','Tahoma','Trebuchet MS','Georgia','Times New Roman','Courier New','Inter'] as const;
+export const COMPOSE_FONTS=COMPOSER_FONTS.map(font=>font.label);
 export const COMPOSE_FONT_SIZES=[8,9,10,11,12,14,16,18,20,24,28,32,36,48,72] as const;
 function textStyle(property:'font-family'|'font-size'):MarkSpec {
  const valid=(value:unknown):string|false=>{
   if(typeof value!=='string')return false;
   const clean=value.replace(/^["']|["']$/g,'').trim();
-  return property==='font-family' ? COMPOSE_FONTS.find(font=>font.toLowerCase()===clean.toLowerCase())??false : COMPOSE_FONT_SIZES.some(size=>clean===`${size}pt`)?clean:false;
+  return property==='font-family' ? normalizeComposerFont(value)??normalizeComposerFont(clean)??false : COMPOSE_FONT_SIZES.some(size=>clean===`${size}pt`)?clean:false;
  };
  return {attrs:{value:{}},parseDOM:[{style:property,getAttrs:value=>{const checked=valid(value);return checked?{value:checked}:false;}}],toDOM:mark=>{
   const span=document.createElement('span'),value=valid(mark.attrs['value']);

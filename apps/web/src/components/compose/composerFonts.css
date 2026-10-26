@@ -1,0 +1,13 @@
+/* Composer-only additions. Vite emits same-origin assets; no remote CSS/font URLs. */
+@import '@fontsource-variable/source-sans-3/wght.css';
+@import '@fontsource-variable/source-sans-3/wght-italic.css';
+@import '@fontsource-variable/source-serif-4/wght.css';
+@import '@fontsource-variable/source-serif-4/wght-italic.css';
+@import '@fontsource-variable/lora/wght.css';
+@import '@fontsource-variable/lora/wght-italic.css';
+@import '@fontsource-variable/montserrat/wght.css';
+@import '@fontsource-variable/montserrat/wght-italic.css';
+@import '@fontsource-variable/nunito-sans/wght.css';
+@import '@fontsource-variable/nunito-sans/wght-italic.css';
+@import '@fontsource-variable/merriweather/wght.css';
+@import '@fontsource-variable/merriweather/wght-italic.css';

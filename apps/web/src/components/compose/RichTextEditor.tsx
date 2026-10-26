@@ -1,3 +1,5 @@
+import {COMPOSER_FONTS} from './fontCatalog.ts';
+import './composerFonts.css';
 import { Icon, type IconName } from '../Icon.tsx';
 // ProseMirror rich-text editor for the composer (W1). Statically imports the
 // ProseMirror packages; Compose pulls THIS module via `lazy()` so the editor +
@@ -18,7 +20,7 @@ import { keymap } from 'prosemirror-keymap';
 import { history, undo, redo } from 'prosemirror-history';
 import { wrapInList, splitListItem } from 'prosemirror-schema-list';
 import type { NodeType } from 'prosemirror-model';
-import { richSchema, docFromHtml, docFromText, htmlFromDoc, textFromDoc, COMPOSE_FONTS, COMPOSE_FONT_SIZES } from './richtext.ts';
+import { richSchema, docFromHtml, docFromText, htmlFromDoc, textFromDoc, COMPOSE_FONT_SIZES } from './richtext.ts';
 import { imageFiles } from './inlineImages.ts';
 import { t } from '../../i18n/index.ts';
 import * as a11y from '../mailA11y.css.ts';
@@ -283,7 +285,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
         <button type="button" class="compose-rt__btn" aria-label={t('mail-compose-undo')} title={t('mail-compose-undo')} onMouseDown={event=>{event.preventDefault();run(undo);}}><Icon name="back"/></button>
         <button type="button" class="compose-rt__btn" aria-label={t('mail-compose-redo')} title={t('mail-compose-redo')} onMouseDown={event=>{event.preventDefault();run(redo);}}><Icon name="forward"/></button>
         <Show when={ribbonTab()==='format'}>
-        <label class="compose-rt__field"><span>{t('mail-compose-font')}</span><select aria-label={t('mail-compose-font')} value={fontValue('fontFamily')} onChange={event=>setTextStyle('fontFamily',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSE_FONTS}>{font=><option value={font}>{font}</option>}</For></select></label>
+        <label class="compose-rt__field"><span>{t('mail-compose-font')}</span><select aria-label={t('mail-compose-font')} value={fontValue('fontFamily')} onChange={event=>setTextStyle('fontFamily',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSER_FONTS}>{font=><option value={font.stack}>{font.label}</option>}</For></select></label>
         <label class="compose-rt__field"><span>{t('mail-compose-font-size')}</span><select aria-label={t('mail-compose-font-size')} value={fontValue('fontSize')} onChange={event=>setTextStyle('fontSize',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSE_FONT_SIZES}>{size=><option value={`${size}pt`}>{size} pt</option>}</For></select></label>
         <For each={BUTTONS}>
           {(btn) => {
