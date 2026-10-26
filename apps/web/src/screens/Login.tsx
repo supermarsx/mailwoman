@@ -13,6 +13,7 @@ import { TwoFactorChallenge } from './Settings/index.ts';
 import { authCard, authPage } from '../styles/authCard.css.ts';
 import { PasswordInput } from '../components/PasswordInput.tsx';
 import { publicConfig, type PublicConfig } from '../api/publicConfig.ts';
+import { applyBranding, brandAssetUrl } from '../branding.ts';
 import { passwordlessAvailable, signInWithPasskey } from '../api/passwordless.ts';
 
 /**
@@ -39,7 +40,7 @@ export function Login(): JSX.Element {
   const [passkeyAvailable, setPasskeyAvailable] = createSignal(false);
   onMount(() => { if (!native) void passwordlessAvailable().then(setPasskeyAvailable).catch(() => undefined); });
   const [config, setConfig] = createSignal<PublicConfig | null>(null);
-  onMount(() => { void publicConfig().then(setConfig).catch(() => undefined); });
+  onMount(() => { void publicConfig().then(value => { setConfig(value); applyBranding(value); }).catch(() => undefined); });
   const [email, setEmail] = createSignal('');
   const [remembered, setRemembered] = createSignal(rememberedSignins());
   onMount(() => { const update = (): void => { setRemembered(rememberedSignins()); }; window.addEventListener('storage', update); onCleanup(() => window.removeEventListener('storage', update)); });
@@ -165,8 +166,9 @@ export function Login(): JSX.Element {
 
   function credentialForm(): JSX.Element {
     return (
-    <main class={`login ${authPage}`} data-mw-surface>
+    <main class={`login ${authPage}`} data-mw-surface style={{'background-image':brandAssetUrl(config()?.loginBackgroundUrl)?`url("${brandAssetUrl(config()?.loginBackgroundUrl)}")`:undefined,'background-size':'cover','background-position':'center'}}>
       <form class={`login__card ${authCard}`} onSubmit={(e) => void onSubmit(e)} aria-label={t('auth-sign-in')}>
+        <Show when={brandAssetUrl(config()?.logoUrl)}>{url=><img src={url()} alt={config()?.brandName||'Mailwoman'} style={{'max-width':'12rem','max-height':'6rem','object-fit':'contain'}}/>}</Show>
         <h1 class="login__title">{config()?.brandName || t('auth-app-name')}</h1>
         <Show when={config()?.loginNotice}>{(notice) => <p class="login__hint" dir="auto">{notice()}</p>}</Show>
         <Show when={remembered().length}><details class={rememberedCss.container}><summary>{t('auth-remembered')}</summary><p class="login__hint">{t('auth-remembered-help')}</p><ul class={rememberedCss.list}><For each={remembered()}>{address => <li class={rememberedCss.row}><button type="button" class={`btn btn--ghost ${rememberedCss.address}`} disabled={busy()} onClick={() => { setEmail(address); setPassword(''); }}><Icon name="mail" /><span>{address}</span></button><button type="button" class="btn btn--ghost" disabled={busy()} aria-label={t('auth-forget-address', {address})} title={t('auth-forget-address', {address})} onClick={() => { forgetSignin(address); setRemembered(rememberedSignins()); }}><Icon name="delete" /></button></li>}</For></ul></details></Show>

@@ -22,6 +22,7 @@ import { passkeySupported } from '../Settings/webauthn.ts';
 import * as css from './admin.css.ts';
 import { authCard, authPage } from '../../styles/authCard.css.ts';
 import { PasswordInput } from '../../components/PasswordInput.tsx';
+import {useBranding,brandAssetUrl} from '../../branding.ts';
 
 export interface AdminLoginProps {
   /** Second-step client. Defaults to the same-origin HTTP client; tests mock it. */
@@ -29,6 +30,7 @@ export interface AdminLoginProps {
 }
 
 export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
+  const branding=useBranding();
   const admin = useAdmin();
   const verify = props.verifyTotp ?? createAdminTotpVerifier();
   const [username, setUsername] = createSignal('');
@@ -114,13 +116,15 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
   }
 
   return (
-    <main class={`${css.gate} ${authPage}`}>
+    <main class={`${css.gate} ${authPage}`} style={{'background-image':brandAssetUrl(branding()?.loginBackgroundUrl)?`url("${brandAssetUrl(branding()?.loginBackgroundUrl)}")`:undefined,'background-size':'cover','background-position':'center'}}>
       <Show
         when={pending() !== null}
         fallback={
           <form class={`${css.loginCard} ${authCard}`} onSubmit={(e) => void onSubmit(e)} aria-label={t('admin-login-form')}>
-            <h1 class={css.heading}>{t('admin-brand')}</h1>
+            <Show when={brandAssetUrl(branding()?.logoUrl)}>{url=><img src={url()} alt={branding()?.brandName||'Mailwoman'} style={{'max-width':'12rem','max-height':'6rem','object-fit':'contain'}}/>}</Show>
+            <h1 class={css.heading}>{branding()?.brandName||t('admin-brand')}</h1>
             <p class={css.note}>{t('admin-login-note')}</p>
+            <Show when={branding()?.loginNotice}>{notice=><p class={css.note} dir="auto">{notice()}</p>}</Show>
             <Show when={admin.sessionEnded()}>
               <p class={css.error} role="status" data-testid="admin-session-ended">
                 {t('admin-login-session-ended')}
@@ -159,7 +163,7 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
         }
       >
         <form class={`${css.loginCard} ${authCard}`} onSubmit={(e) => void onSubmitCode(e)} aria-label={t('admin-shell-totp-form')}>
-          <h1 class={css.heading}>{t('admin-brand')}</h1>
+          <h1 class={css.heading}>{branding()?.brandName||t('admin-brand')}</h1>
           <p class={css.note}>{factors().includes('totp') ? t('admin-shell-totp-note', { name: isolate(username()) }) : t('admin-passkeys-factor-note')}</p>
           <Show when={factors().includes('webauthn') && passkeySupported()}><button class="btn" type="button" disabled={busy()} onClick={()=>void passkeyLogin()}>{t('admin-passkeys-use')}</button></Show>
           <Show when={factors().includes('recovery')}><label class="field"><input type="checkbox" checked={recovery()} onChange={e=>{setRecovery(e.currentTarget.checked);setCode('');}}/>{t('admin-passkeys-recovery-use')}</label></Show>

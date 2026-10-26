@@ -1,0 +1,16 @@
+admin-branding-title = Branding
+admin-branding-description = Set the global identity shown on sign-in, mailbox and administration screens. Images stay on this server.
+admin-branding-text = Name and sign-in notice
+admin-branding-name = Product name
+admin-branding-notice = Sign-in notice
+admin-branding-logo = Logo
+admin-branding-icon_master = Browser icon
+admin-branding-background = Sign-in background
+admin-branding-image-help = PNG or JPEG, up to 1 MB and { $pixels } pixels on each side. SVG is not accepted. Images are stripped of metadata.
+admin-branding-upload = Choose a local image
+admin-branding-remove = Restore default
+admin-branding-image-pending = Image uploaded privately. Save branding to publish it.
+admin-branding-save = Save branding
+admin-branding-reload = Reload saved branding
+admin-branding-saved = Branding saved.
+admin-branding-loading = Loading branding…

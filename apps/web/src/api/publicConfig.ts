@@ -3,6 +3,9 @@ import { transportBase } from './transport.ts';
 
 export interface PublicConfig {
   brandName: string;
+  logoUrl?: string | null;
+  faviconUrl?: string | null;
+  loginBackgroundUrl?: string | null;
   theme: string;
   accent: string;
   loginNotice: string | null;

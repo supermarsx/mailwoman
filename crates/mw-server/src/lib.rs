@@ -37,6 +37,7 @@ pub mod arf;
 pub mod dlp;
 pub mod engine_mode;
 mod attachment_preview;
+mod branding_routes;
 mod login_failure;
 pub mod fonts;
 pub mod hardening;
@@ -1446,6 +1447,7 @@ fn router(
         .route("/api/sanitize", post(sanitize))
         .route("/api/import/oft", post(import_oft))
         .merge(attachment_preview::router())
+        .merge(branding_routes::router())
         .route("/jmap/session", get(jmap_session))
         .route("/jmap/api", post(jmap_api).route_layer(middleware::from_fn_with_state(state.clone(), scope_mw::jmap_sieve_scope_guard)))
         .route(

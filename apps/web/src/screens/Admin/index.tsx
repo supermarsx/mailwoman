@@ -18,6 +18,7 @@ import { Show, Suspense, createEffect, createSignal, onCleanup, onMount, type JS
 import { Dynamic } from 'solid-js/web';
 import { createAdminSlice, createHttpAdminApi, type AdminApi } from '../../state/slices/admin.ts';
 import { t, loadCatalog } from '../../i18n';
+import {useBranding} from '../../branding.ts';
 import { AsyncPending } from '../../components/AsyncState.tsx';
 import { AdminContext, useAdmin } from './context.ts';
 import { AdminLogin } from './AdminLogin.tsx';
@@ -79,6 +80,7 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
 }
 
 function Console(props: AdminScreenProps & { username: string }): JSX.Element {
+  const branding=useBranding();
   const admin = useAdmin();
   const sections = props.sections ?? SECTIONS;
   const can = createLoadedCan(props.loadMe ?? createAdminMeLoader());
@@ -124,7 +126,8 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
 
   createEffect(() => {
     const s = section();
-    document.title = s ? `${s.label()} · ${t('admin-brand')}` : t('admin-brand');
+    const product=branding()?.brandName||t('admin-brand');
+    document.title = s ? `${s.label()} · ${product}` : product;
   });
 
   // An address naming no section this admin can open (`/admin#/bogus`, or one

@@ -247,6 +247,10 @@ impl Store {
 
     /// Insert or replace the policy row of `row.key`.
     pub async fn put_setting_policy(&self, row: &SettingPolicyRow) -> Result<(), StoreError> {
+        let mut tx = self.backend.begin().await?;
+        if matches!(row.key.as_str(), "appearance.brandName" | "login.notice") {
+            crate::branding::lock(&mut tx).await?;
+        }
         q("INSERT INTO setting_policy
                (key, global_value, allow_user_override, global_locked, updated_by, updated_at)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -262,18 +266,24 @@ impl Store {
         .bind(i64::from(row.global_locked))
         .bind(&row.updated_by)
         .bind(row.updated_at)
-        .execute(&self.backend)
+        .execute_tx(&mut tx)
         .await?;
+        tx.commit().await?;
         Ok(())
     }
 
     /// Delete the policy row of `key` (value and flags back to the built-in
     /// defaults). `true` when a row was removed.
     pub async fn delete_setting_policy(&self, key: &str) -> Result<bool, StoreError> {
+        let mut tx = self.backend.begin().await?;
+        if matches!(key, "appearance.brandName" | "login.notice") {
+            crate::branding::lock(&mut tx).await?;
+        }
         let n = q("DELETE FROM setting_policy WHERE key = ?1")
             .bind(key)
-            .execute(&self.backend)
+            .execute_tx(&mut tx)
             .await?;
+        tx.commit().await?;
         Ok(n > 0)
     }
 

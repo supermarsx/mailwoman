@@ -18,6 +18,7 @@ import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMou
 import { isolate, loadCatalog, t } from '../../../i18n';
 import { createFocusTrap, createRovingTabindex } from '../../../components/a11y';
 import type { Can } from './can.ts';
+import { useBranding, brandAssetUrl } from '../../../branding.ts';
 import { GROUPS, type SectionDef } from './sections.ts';
 import { fieldPath, hrefFor, sectionPath, type AdminRoute } from './router.ts';
 import { Icon } from './icons.tsx';
@@ -53,6 +54,7 @@ function inPlace(e: MouseEvent, go: () => void): void {
 }
 
 export function AdminShell(props: AdminShellProps): JSX.Element {
+  const branding=useBranding();
   const preferences = useOptionalPersonalPreferences();
   const [sidebarWidth, setSidebarWidth] = createSignal(220);
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
@@ -78,6 +80,7 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
   const current = (): SectionDef | undefined => visible().find((s) => s.id === props.route.section);
 
   onMount(() => void loadCatalog('admin-ux'));
+  onMount(() => void loadCatalog('admin-branding'));
 
   // Fields of the sections this admin may open, for the palette (UX10).
   const fields = createMemo<PaletteField[]>(() => {
@@ -177,12 +180,12 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
 
   const Brand = (): JSX.Element => (
     <span class={css.brand}>
-      <span class={css.brandMark} aria-hidden="true">
+      <Show when={brandAssetUrl(branding()?.logoUrl)} fallback={<span class={css.brandMark} aria-hidden="true">
         <span />
         <span />
         <span />
-      </span>
-      {t('admin-brand')}
+      </span>}>{url=><img src={url()} alt={branding()?.brandName||'Mailwoman'} style={{'max-width':'3rem','max-height':'2rem','object-fit':'contain'}}/>}</Show>
+      {branding()?.brandName || t('admin-brand')}
     </span>
   );
 

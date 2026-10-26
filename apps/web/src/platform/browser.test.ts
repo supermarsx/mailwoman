@@ -94,6 +94,11 @@ describe('setBadgeCount() — App Badging with a tab-title fallback', () => {
     expect(document.title).toBe('(3) Mailwoman');
     await p.setBadgeCount(0);
     expect(document.title).toBe('Mailwoman');
+    document.title='Team Mail';
+    await p.setBadgeCount(2);
+    expect(document.title).toBe('(2) Team Mail');
+    await p.setBadgeCount(0);
+    expect(document.title).toBe('Team Mail');
   });
 });
 

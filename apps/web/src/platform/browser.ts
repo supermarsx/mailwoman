@@ -135,7 +135,6 @@ export function createBrowserPlatform(): Platform {
   const vault = makeVault();
 
   // Tab-title badge state: remember the untouched title to restore on clear.
-  let baseTitle: string | null = null;
 
   return {
     platform(): PlatformInfo {
@@ -213,7 +212,7 @@ export function createBrowserPlatform(): Platform {
         /* Badging API present but refused: fall through to the title badge. */
       }
       if (typeof document === 'undefined') return;
-      baseTitle ??= document.title.replace(/^\(\d+\)\s+/, '');
+      const baseTitle = document.title.replace(/^\(\d+\)\s+/, '');
       document.title = n > 0 ? `(${n}) ${baseTitle}` : baseTitle;
     },
 

@@ -62,6 +62,7 @@ function screen<P extends object>(load: () => Promise<Component<P>>, passApi: bo
 }
 
 export const SECTIONS: readonly SectionDef[] = [
+  { id: 'branding', group: 'configuration', icon: 'branding', label: () => t('admin-branding-title'), capability: 'branding.read', component: screen(() => import('../Branding/index.tsx').then(m => m.BrandingSettings), false) },
   { id: 'logs', group: 'operations', icon: 'logs', label: () => t('admin-logs-title'), capability: 'logs.read', component: screen(() => import('../Logs.tsx').then((m) => m.Logs), false) },
   { id: 'preferences', group: 'personal', icon: 'preferences', label: () => t('admin-personal-title'), component: screen(() => import('../PersonalPreferences.tsx').then((m) => m.PersonalPreferences), false) },
   {

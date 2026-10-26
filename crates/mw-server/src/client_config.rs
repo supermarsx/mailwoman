@@ -50,11 +50,17 @@ pub(crate) async fn public_config(
             Err(_) => return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response(),
         }
     };
+    let branding = match state.store.branding_snapshot().await {
+        Ok(branding) => crate::branding_routes::image_urls(&branding.images),
+        Err(_) => return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     let mut response = Json(json!({
         "retryCooldownSecs":value("signin.retryCooldownSecs"),
         "brandName":value("appearance.brandName"), "theme":value("appearance.theme"),
         "accent":value("appearance.accent"), "loginNotice":value("login.notice"),
         "usernameDomainHint":hint,
+        "logoUrl":branding["logoUrl"], "faviconUrl":branding["faviconUrl"],
+        "loginBackgroundUrl":branding["loginBackgroundUrl"],
     }))
     .into_response();
     response.headers_mut().insert(

@@ -6,6 +6,7 @@ import type { MessageView } from '../state/slices/messageView.ts';
 import { createSettingsNavigation, type SettingsNavigation } from './Settings/navigation.tsx';
 import '../styles/workspace.css.ts';
 import { Icon } from '../components/Icon.tsx';
+import { useBranding, brandAssetUrl } from '../branding.ts';
 import { AttachmentTab, type AttachmentTabItem } from '../viewers/AttachmentTab.tsx';
 import { buildDownloadUrl } from '../viewers/attachments.ts';
 import type { StripItem } from '../viewers/ThumbnailStrip.tsx';
@@ -99,6 +100,7 @@ function refetchPim(app: ReturnType<typeof useApp>, surface: ShellSurface): void
 }
 
 export function MailboxScreen(): JSX.Element {
+  const branding=useBranding();
   const app = useApp();
   const { subTabs } = useRealtime();
   interface Pane { id:string; kind:'messages'|'composer'|'settings'|'attachment'; title:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
@@ -378,7 +380,7 @@ export function MailboxScreen(): JSX.Element {
         }}
       >
         <div class="sidebar__head">
-          <span class="sidebar__brand">{t('mail-brand')}</span>
+          <span class="sidebar__brand"><Show when={brandAssetUrl(branding()?.logoUrl)}>{url=><img src={url()} alt={branding()?.brandName||'Mailwoman'} style={{'max-width':'3rem','max-height':'2rem','object-fit':'contain'}}/>}</Show>{branding()?.brandName || t('mail-brand')}</span>
           <Show when={app.me()}>{(m) => <span class="sidebar__user">{isolate(m().username)}</span>}</Show>
           <button
             type="button"
