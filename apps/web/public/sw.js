@@ -303,13 +303,13 @@ function respond(request, strategy) {
 self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
-      const cache = await caches.open(CACHE_NAME);
+      const cache = await openCache();
       // Precache the app shell entries individually so one 404 can't fail install.
       await Promise.all(
         SHELL_URLS.map(async (url) => {
           try {
             const res = await fetch(url);
-            if (res.status === 200) await store(cache, url, res);
+            if (cache && res.status === 200) await store(cache, url, res);
           } catch {
             // Offline at install: the shell is stored on the next navigation.
           }
@@ -324,16 +324,19 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       // Drop superseded shell caches (mw-shell-v{older}).
-      const names = await caches.keys();
-      await Promise.all(
-        names
-          .filter((name) => name.startsWith('mw-shell-v') && name !== CACHE_NAME)
-          .map((name) => caches.delete(name)),
-      );
+      try {
+        const names = await caches.keys();
+        await Promise.all(
+          names
+            .filter((name) => name.startsWith('mw-shell-v') && name !== CACHE_NAME)
+            .map((name) => caches.delete(name)),
+        );
+      } catch { /* Storage is optional; network operation must remain available. */ }
       // The current cache keeps its name across worker versions, so an upgrade
       // must also drop whatever the previous worker stored that this one would
       // not (see sweep()).
-      await sweep(await caches.open(CACHE_NAME));
+      const cache = await openCache();
+      if (cache) { try { await sweep(cache); } catch { /* Retry on a later store. */ } }
       await self.clients.claim();
     })(),
   );

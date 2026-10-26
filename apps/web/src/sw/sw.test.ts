@@ -39,6 +39,14 @@ function boot(scriptUrl?: string): Worker {
 }
 
 describe('cache name', () => {
+  it('can install and activate when browser storage is unavailable', async () => {
+    const sw = boot();
+    vi.spyOn(sw.caches, 'open').mockRejectedValue(new Error('Storage denied'));
+    vi.spyOn(sw.caches, 'keys').mockRejectedValue(new Error('Storage denied'));
+    await expect(sw.install()).resolves.toBeUndefined();
+    await expect(sw.activate()).resolves.toBeUndefined();
+    expect(await (await sw.fetch(ASSET)).response?.text()).toBe('export{}');
+  });
   it('installs into the cache the offline contract names', async () => {
     const sw = boot();
     sw.network.fetch = async () => reply('<!doctype html>', 'text/html');
