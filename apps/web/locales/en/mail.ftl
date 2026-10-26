@@ -510,6 +510,7 @@ mail-time-privacy = The comparison zone is your selection. Message timestamps do
 mail-time-event-comparison = Event time comparison
 mail-time-ambiguous = This local time occurs twice when clocks change. Both possible instants are shown; check the event's intended offset before saving.
 mail-bulk-add-label = Add label
+mail-select-messages = Select messages
 mail-bulk-remove-label = Remove label
 mail-mark-spam = Mark as spam
 mail-bulk-forward = Forward selected messages as attachments

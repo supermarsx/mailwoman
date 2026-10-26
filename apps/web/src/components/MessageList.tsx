@@ -293,10 +293,11 @@ function ThreadHeadRow(props: {
 }
 
 /** The always-visible view toolbar: the reading-pane position control (W3). */
-function ListToolbar(): JSX.Element {
+function ListToolbar(props:{selecting:boolean;toggleSelection:()=>void}): JSX.Element {
   const label = (opt: ReadingPane): string => t(`mail-reading-pane-${opt}`);
   return (
     <div class={thread.toolbar} role="group" aria-label={t('mail-view-options')}>
+      <button type="button" class={`${thread.segBtn} ${a11y.focusable}`} aria-label={t('mail-select-messages')} aria-pressed={props.selecting} onClick={props.toggleSelection}><Icon name="check"/></button>
       <span class={thread.toolbarLabel}>{t('mail-reading-pane')}</span>
       <For each={READING_PANE_OPTIONS}>
         {(opt) => (
@@ -321,7 +322,7 @@ function ListToolbar(): JSX.Element {
  * and raises the shared undo. Flag reads "Remove flag" when every selected
  * message is already flagged.
  */
-function BulkBar(props:{onCompose?:((initial:ComposeInitial)=>void)|undefined}): JSX.Element {
+function BulkBar(props:{onCompose?:((initial:ComposeInitial)=>void)|undefined;onClear:()=>void}): JSX.Element {
   const app = useApp();
   const [busy,setBusy]=createSignal(false);const [error,setError]=createSignal('');
   const controller=new AbortController();onCleanup(()=>controller.abort());
@@ -388,7 +389,7 @@ function BulkBar(props:{onCompose?:((initial:ComposeInitial)=>void)|undefined}):
       <button type="button" class={btn} onClick={() => app.selectAllInView()}>
         {t('mail-select-all')}
       </button>
-      <button type="button" class={btn} aria-label={t('mail-clear-selection')} onClick={() => app.clearSelection()}>
+      <button type="button" class={btn} aria-label={t('mail-clear-selection')} onClick={props.onClear}>
         <Icon name="close" />
       </button>
     </div>
@@ -408,6 +409,8 @@ export function rowRefCount(): number {
 
 export function MessageList(props: { onOpenMessage?: (id: string) => void; onCompose?: (initial:ComposeInitial)=>void } = {}): JSX.Element {
   const app = useApp();
+  const [selecting,setSelecting]=createSignal(false);
+  createEffect(()=>{app.accountId();app.selectedMailboxId();setSelecting(false);});
   const [scrollTop, setScrollTop] = createSignal(0);
   // jsdom reports 0 for clientHeight; fall back to a sane viewport so tests
   // (and first paint before layout) still mount a window of rows.
@@ -477,7 +480,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
       return;
     }
     setAnchor(index);
-    if (e.ctrlKey || e.metaKey) {
+    if (e.ctrlKey || e.metaKey || selecting()) {
       app.toggleSelection(idsOf(row));
       return;
     }
@@ -637,8 +640,8 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
 
   return (
     <section class="list" aria-label={t('mail-list-label')} aria-busy={app.listLoading()}>
-      <Show when={app.selectedIds().size > 0} fallback={<ListToolbar />}>
-        <BulkBar onCompose={props.onCompose}/>
+      <Show when={app.selectedIds().size > 0} fallback={<ListToolbar selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>}>
+        <BulkBar onCompose={props.onCompose} onClear={()=>{app.clearSelection();setSelecting(false);}}/>
       </Show>
       <OfflineQueueNotice />
       <Show when={app.listLoading()}><div class="list__loading" role="status">{t('mail-loading')}</div></Show>

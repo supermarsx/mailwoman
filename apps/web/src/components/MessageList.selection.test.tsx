@@ -41,6 +41,12 @@ afterEach(() => {
 });
 
 describe('MessageList selection', () => {
+  it('selects by ordinary taps in explicit selection mode and clears back to opening messages',async()=>{
+    const {app}=await setup();const open=vi.spyOn(app,'openMessage');
+    fireEvent.click(screen.getByRole('button',{name:'Select messages'}));fireEvent.click(row('Subject a'));fireEvent.click(row('Subject b'));
+    expect([...app.selectedIds()]).toEqual(['a','b']);expect(open).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button',{name:'Clear selection'}));fireEvent.click(row('Subject c'));expect(open).toHaveBeenCalledWith('c');
+  });
   it('Ctrl+click toggles rows without opening them; a plain click opens and clears', async () => {
     const { app } = await setup();
     const open = vi.spyOn(app, 'openMessage');
