@@ -8,6 +8,35 @@ use common::{mock_mail::MockPop3, test_db};
 const KEY: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 
 #[tokio::test]
+async fn login_and_me_publish_verified_storage_authority_for_browser_and_native() {
+    let mail = MockPop3::start("alice@example.org", "testpass").await;
+    let db = test_db::unique_dir("storage-authority-http").join("mw.db").to_string_lossy().into_owned();
+    let store = Store::open(&db, ServerKey::from_hex(KEY).unwrap()).await.unwrap();
+    store.put_domain_config(&row("example.org", &mail)).await.unwrap();
+    let base = server(&db, &mail).await;
+    let browser = reqwest::Client::builder().no_proxy().cookie_store(true).build().unwrap();
+    let response = login(&browser, &base, "alice@example.org").await;
+    assert_eq!(response.status(), 200);
+    let login_body: Value = response.json().await.unwrap();
+    let authority = login_body["storageAuthority"].as_str().unwrap();
+    assert!(authority.starts_with("msa1_") && authority.len() == 69);
+    let me: Value = browser.get(format!("{base}/api/me")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(me["storageAuthority"], authority);
+    assert_eq!(me["accountId"], login_body["accountId"]);
+    let native = reqwest::Client::builder().no_proxy().build().unwrap();
+    let response = native.post(format!("{base}/api/login"))
+        .json(&json!({"username":"alice@example.org","password":"testpass","clientType":"native"}))
+        .send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["storageAuthority"], authority);
+    assert_eq!(body["accountId"], login_body["accountId"]);
+    let token = body["token"].as_str().unwrap();
+    let me: Value = native.get(format!("{base}/api/me")).bearer_auth(token).send().await.unwrap().json().await.unwrap();
+    assert_eq!(me["storageAuthority"], authority);
+}
+
+#[tokio::test]
 async fn authenticated_login_returns_before_slow_message_enumeration() {
     use std::{sync::Arc, time::Duration};
     let gate = Arc::new(tokio::sync::Semaphore::new(0));

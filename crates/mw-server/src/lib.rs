@@ -2511,6 +2511,10 @@ pub(crate) async fn finish_login_ext(
     client_type: Option<&str>,
     extra: serde_json::Value,
 ) -> Response {
+    let storage_authority = match state.store.session_storage_authority(id).await {
+        Ok(value) => value,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     if client_type == Some("native") {
         let now = push_relay::now_rfc3339();
         let row = NativeSessionRow {
@@ -2533,6 +2537,7 @@ pub(crate) async fn finish_login_ext(
             "token": id,
         });
         merge_body(&mut body, extra);
+        if let Some(authority) = storage_authority { body["storageAuthority"] = json!(authority); }
         return Json(body).into_response();
     }
     let mut body = json!({
@@ -2541,6 +2546,7 @@ pub(crate) async fn finish_login_ext(
         "username": username,
     });
     merge_body(&mut body, extra);
+    if let Some(authority) = storage_authority { body["storageAuthority"] = json!(authority); }
     authenticated_response(state, id, body)
 }
 
@@ -2668,6 +2674,11 @@ async fn me(State(state): State<AppState>, headers: HeaderMap) -> Response {
         "username": session.username,
         "accountId": session.account_id,
     });
+    match state.store.session_storage_authority(&session.id).await {
+        Ok(Some(authority)) => body["storageAuthority"] = json!(authority),
+        Ok(None) => {}
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
     if gate.password_change_required
         && let Some(obj) = body.as_object_mut()
     {
