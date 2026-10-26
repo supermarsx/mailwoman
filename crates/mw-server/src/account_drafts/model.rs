@@ -7,6 +7,11 @@ pub struct EditorState {
     pub version: u8,
     #[serde(default)]
     pub identity_id: String,
+    /// Editable intent only; never grants sender authority or enters draft MIME.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_override: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub importance: Option<String>,
     #[serde(default)]
     pub to: String,
     #[serde(default)]
@@ -72,6 +77,14 @@ impl EditorState {
             || !matches!(self.body_format.as_str(), "plain" | "html")
             || !header(&self.subject, 4096)
             || !header(&self.identity_id, 512)
+            || self
+                .importance
+                .as_deref()
+                .is_some_and(|value| !matches!(value, "high" | "normal" | "low"))
+            || self
+                .from_override
+                .as_ref()
+                .is_some_and(|value| !header(value, 254))
             || [&self.to, &self.cc, &self.bcc]
                 .iter()
                 .any(|s| s.len() > 16384)
@@ -108,6 +121,13 @@ impl EditorState {
     }
     pub fn compose_spec(&self) -> Value {
         let mut spec = json!({"keywords":{"$draft":true,"$seen":true},"to":recipients(&self.to),"cc":recipients(&self.cc),"bcc":recipients(&self.bcc),"subject":self.subject,"inReplyTo":self.in_reply_to,"references":self.references});
+        let importance = self.importance.as_deref().unwrap_or("normal");
+        spec["header:Importance:asText"] = json!(importance);
+        spec["header:X-Priority:asText"] = json!(match importance {
+            "high" => "1",
+            "low" => "5",
+            _ => "3",
+        });
         let plain = self.body_format == "plain";
         spec[if plain { "textBody" } else { "htmlBody" }] =
             json!([{"partId":"body","type":if plain{"text/plain"}else{"text/html"}}]);
@@ -167,6 +187,43 @@ mod tests {
         assert_eq!(state.validate(), Err("protectedDraftUnsupported"));
         state.protected_content = false;
         state.subject = "draft\r\nBcc: victim@example.test".into();
+        assert_eq!(state.validate(), Err("invalidDraftState"));
+    }
+    #[test]
+    fn from_override_roundtrips_as_editor_intent_without_mime_authority() {
+        let mut state: EditorState = serde_json::from_value(
+            json!({"version":1,"bodyFormat":"plain","fromOverride":"alias@example.test"}),
+        )
+        .unwrap();
+        state.validate().unwrap();
+        assert_eq!(
+            serde_json::to_value(&state).unwrap()["fromOverride"],
+            "alias@example.test"
+        );
+        assert!(state.compose_spec().get("from").is_none());
+        state.from_override = Some(String::new());
+        state.validate().unwrap();
+        for invalid in [
+            "x".repeat(255),
+            "alias@example.test\r\nBcc: victim@example.test".into(),
+        ] {
+            state.from_override = Some(invalid);
+            assert_eq!(state.validate(), Err("invalidDraftState"));
+        }
+    }
+    #[test]
+    fn draft_importance_is_bounded_and_uses_matching_headers() {
+        let mut state: EditorState =
+            serde_json::from_value(json!({"version":1,"bodyFormat":"plain"})).unwrap();
+        assert_eq!(state.compose_spec()["header:X-Priority:asText"], "3");
+        for (importance, priority) in [("high", "1"), ("normal", "3"), ("low", "5")] {
+            state.importance = Some(importance.into());
+            state.validate().unwrap();
+            let spec = state.compose_spec();
+            assert_eq!(spec["header:Importance:asText"], importance);
+            assert_eq!(spec["header:X-Priority:asText"], priority);
+        }
+        state.importance = Some("high\r\nBcc: victim@example.test".into());
         assert_eq!(state.validate(), Err("invalidDraftState"));
     }
 }

@@ -4004,7 +4004,10 @@ fn compose_base_from_spec(spec: &Value, identity: &str, message_id: &str) -> Com
                     .collect()
             })
             .unwrap_or_default(),
-        headers: Vec::new(),
+        headers: match importance_pair(spec) {
+            Ok(Some((importance, priority))) => vec![("Importance".into(), importance.into()), ("X-Priority".into(), priority.into())],
+            _ => Vec::new(), // Every public composition entry validates the spec first.
+        },
         attachments: Vec::new(),
     }
 }
@@ -4086,6 +4089,7 @@ fn has_control(s: &str) -> bool {
 /// [`compose_base_from_spec`] and [`Engine::compose_from_spec`] remove control
 /// characters from it instead.
 fn check_compose_spec(spec: &Value) -> std::result::Result<(), InvalidProperty> {
+    importance_pair(spec)?;
     let invalid = |property: &'static str, why: String| InvalidProperty { property, why };
     for field in ["to", "cc", "bcc", "replyTo"] {
         for addr in parse_addrs(spec.get(field)) {
@@ -4127,6 +4131,33 @@ fn check_compose_spec(spec: &Value) -> std::result::Result<(), InvalidProperty> 
         return Err(invalid("attachments", control()));
     }
     Ok(())
+}
+
+/// Only the explicit matching pair is supported. Header names follow JMAP's
+/// case-insensitive matching; duplicate forms never produce ambiguous MIME.
+fn importance_pair(spec: &Value) -> std::result::Result<Option<(&'static str, &'static str)>, InvalidProperty> {
+    const IMPORTANCE: &str = "header:Importance:asText";
+    const PRIORITY: &str = "header:X-Priority:asText";
+    let invalid = |property| InvalidProperty { property, why: "requires matching high/1, normal/3 or low/5 text headers".into() };
+    let mut importance = None;
+    let mut priority = None;
+    if let Some(properties) = spec.as_object() {
+        for (key, value) in properties {
+            let Some(header) = key.strip_prefix("header:") else { continue; };
+            let (name, form) = header.split_once(':').unwrap_or((header, ""));
+            let (slot, property) = if name.eq_ignore_ascii_case("Importance") { (&mut importance, IMPORTANCE) }
+                else if name.eq_ignore_ascii_case("X-Priority") { (&mut priority, PRIORITY) } else { continue; };
+            if form != "asText" || slot.is_some() { return Err(invalid(property)); }
+            *slot = Some(value.as_str().ok_or_else(|| invalid(property))?);
+        }
+    }
+    match (importance, priority) {
+        (None, None) => Ok(None),
+        (Some("high"), Some("1")) => Ok(Some(("high", "1"))),
+        (Some("normal"), Some("3")) => Ok(Some(("normal", "3"))),
+        (Some("low"), Some("5")) => Ok(Some(("low", "5"))),
+        _ => Err(invalid(IMPORTANCE)),
+    }
 }
 
 /// The `Email/set` create property that asks for a read receipt.

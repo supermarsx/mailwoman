@@ -171,6 +171,7 @@ struct CountingSubmitter {
     calls: AtomicUsize,
     /// Messages SMTP accepted — deliveries.
     delivered: AtomicUsize,
+    raw_messages: Mutex<Vec<Vec<u8>>>,
 }
 
 impl CountingSubmitter {
@@ -179,6 +180,7 @@ impl CountingSubmitter {
             mode: Mutex::new(mode),
             calls: AtomicUsize::new(0),
             delivered: AtomicUsize::new(0),
+            raw_messages: Mutex::new(Vec::new()),
         })
     }
 
@@ -199,6 +201,7 @@ impl CountingSubmitter {
 impl MailSubmitter for CountingSubmitter {
     async fn submit(&self, msg: Outgoing) -> Result<SubmissionResult> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        self.raw_messages.lock().unwrap().push(msg.raw.clone());
         let mode = *self.mode.lock().unwrap();
         match mode {
             Smtp::Deliver => {
@@ -985,4 +988,44 @@ async fn sender_authority_one_shot_owned_alias_sends_without_saved_identity() {
     assert!(result(&response,"send")["created"]["s1"].is_object(),"{response}");
     assert_eq!(h.submitter.calls(),1);
     assert!(h.engine.store().list_native_personal_identities(&h.account_id).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn importance_headers_reach_smtp_as_a_matching_pair() {
+    for selection in [None,Some(("high","1")),Some(("normal","3")),Some(("low","5"))] {
+        let h=setup(SentAppend::Accept,Smtp::Deliver).await;
+        let mut draft=draft_create();
+        if let Some((importance,priority))=selection {
+            draft[1]["create"]["draft"]["header:Importance:asText"]=json!(importance);
+            draft[1]["create"]["draft"]["header:X-Priority:asText"]=json!(priority);
+        }
+        let response=jmap(&h,json!([draft,["EmailSubmission/set",{"create":{"s1":{"emailId":"#draft","mailwomanHoldSeconds":0}}},"send"]])).await;
+        assert!(result(&response,"send")["created"]["s1"].is_object(),"{response}");
+        let messages=h.submitter.raw_messages.lock().unwrap();
+        assert_eq!(messages.len(),1);
+        let raw=String::from_utf8_lossy(&messages[0]);
+        let headers=raw.split("\r\n\r\n").next().unwrap();
+        if let Some((importance,priority))=selection {
+            assert!(headers.lines().any(|line|line==format!("Importance: {importance}")),"{headers}");
+            assert!(headers.lines().any(|line|line==format!("X-Priority: {priority}")),"{headers}");
+        } else { assert!(!headers.contains("Importance:")); assert!(!headers.contains("X-Priority:")); }
+    }
+}
+
+#[tokio::test]
+async fn importance_headers_refuse_injection_duplicates_and_conflicting_pairs_before_smtp() {
+    for extra in [
+        json!({"header:Importance:asText":"high\r\nBcc:other@example.org","header:X-Priority:asText":"1"}),
+        json!({"header:Importance:asText":"high","header:X-Priority:asText":"5"}),
+        json!({"header:Importance:asText":"high"}),
+        json!({"header:Importance:asText":["high"],"header:X-Priority:asText":"1"}),
+        json!({"header:Importance:asText":"high","header:importance:asText":"low","header:X-Priority:asText":"1"}),
+        json!({"header:Importance":"high","header:X-Priority:asText":"1"}),
+    ] {
+        let h=setup(SentAppend::Accept,Smtp::Deliver).await;
+        let mut draft=draft_create(); draft[1]["create"]["draft"].as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let response=jmap(&h,json!([draft])).await;
+        assert_eq!(result(&response,"c1")["notCreated"]["draft"]["type"],"invalidProperties","{response}");
+        assert_eq!(h.submitter.calls(),0);
+    }
 }
