@@ -44,6 +44,7 @@ test('self-hosted verification is solved locally, consumed and reset before anot
   await expect(submit).toBeEnabled({timeout:30_000});
   const second=page.waitForResponse(response=>new URL(response.url()).pathname==='/admin/login'&&response.request().method()==='POST');
   await submit.click();expect((await second).status()).toBe(200);
+  if(testInfo.project.name==='phone')await page.getByRole('button',{name:'Menu',exact:true}).click();
   await expect(page.getByRole('navigation',{name:'Admin sections'})).toBeVisible();
   expect(workers.length).toBeGreaterThan(0);
   expect(external).toEqual([]);
