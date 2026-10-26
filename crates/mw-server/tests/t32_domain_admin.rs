@@ -129,7 +129,14 @@ async fn domain_editor_validates_previews_versions_and_protects_preference() {
     );
     let detail: Value = c.get(&path).send().await.unwrap().json().await.unwrap();
     assert_eq!(detail["aliases"], json!(["alias.test"]));
-    let listed: Value = c.get(format!("{base}/admin/domains")).send().await.unwrap().json().await.unwrap();
+    let listed: Value = c
+        .get(format!("{base}/admin/domains"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(listed[0]["aliases"], json!(["alias.test"]));
     assert_eq!(
         c.delete(format!("{path}?force=true"))
@@ -305,4 +312,64 @@ async fn mappings_and_global_preference_have_independent_cas_and_previews() {
             .status(),
         204
     );
+}
+
+#[tokio::test]
+async fn alias_rename_checks_snapshot_and_preserves_parent() {
+    let (base, c) = server().await;
+    let path = format!("{base}/admin/domains/parent.test");
+    assert_eq!(
+        c.put(&path)
+            .json(&json!({"name":"parent.test","upstreamJson":"{}"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+    let detail: Value = c.get(&path).send().await.unwrap().json().await.unwrap();
+    assert_eq!(
+        c.put(format!("{path}/aliases/old.test"))
+            .header("if-match", detail["mappingEtag"].as_str().unwrap())
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+    let detail: Value = c.get(&path).send().await.unwrap().json().await.unwrap();
+    let version = detail["mappingEtag"].as_str().unwrap();
+    let rename = format!("{path}/aliases/old.test");
+    assert_eq!(
+        c.patch(&rename)
+            .json(&json!({"name":"new.test"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        428
+    );
+    assert_eq!(
+        c.patch(&rename)
+            .header("if-match", version)
+            .json(&json!({"name":"new.test"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+    assert_eq!(
+        c.patch(&rename)
+            .header("if-match", version)
+            .json(&json!({"name":"late.test"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        412
+    );
+    let fresh: Value = c.get(&path).send().await.unwrap().json().await.unwrap();
+    assert_eq!(fresh["aliases"], json!(["new.test"]));
+    assert_eq!(fresh["upstream"], detail["upstream"]);
 }

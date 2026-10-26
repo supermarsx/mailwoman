@@ -99,6 +99,12 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
         alias_delete,
     );
     r.admin_endpoint(
+        Method::PATCH,
+        "/domains/{name}/aliases/{alias}",
+        C::DomainsWrite,
+        alias_rename,
+    );
+    r.admin_endpoint(
         Method::PUT,
         "/domains/{name}/hosts/{host}",
         C::DomainsWrite,
@@ -657,6 +663,54 @@ async fn alias_delete(
     Query(query): Query<Mutation>,
 ) -> Result<Response, AdminApiError> {
     mapping(s, c, v, false, true, h, query.dry_run).await
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RenameAlias {
+    name: String,
+}
+async fn alias_rename(
+    State(state): State<AppState>,
+    ctx: AdminCtx,
+    Path(values): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(input): Json<RenameAlias>,
+) -> Result<Response, AdminApiError> {
+    ctx.require_unscoped(C::DomainsUpstreamWrite)?;
+    if !headers.contains_key("if-match") {
+        return Err(AdminApiError::new(
+            StatusCode::PRECONDITION_REQUIRED,
+            "preconditionRequired",
+            "Reload the alias before renaming it.",
+        ));
+    }
+    let row = read(&state, &ctx, &values.0).await?;
+    let old = name(&values.1)?;
+    let new = name(&input.name)?;
+    let aliases = state.store.domain_aliases(&row.name).await?;
+    let hosts = state.store.domain_hosts(&row.name).await?;
+    check_if_match(
+        &headers,
+        &mapping_etag(&row, &json!(aliases), &json!(hosts)),
+        None,
+        Some(row.updated_at),
+    )?;
+    mutation_result(
+        state
+            .store
+            .compare_and_rename_domain_alias(&row, &aliases, &hosts, &old, &new)
+            .await?,
+    )?;
+    crate::admin_accounts::audit(
+        &state,
+        &ctx,
+        "domain-alias-renamed",
+        &format!("domain:{}", row.name),
+        Some(json!({"alias":old})),
+        Some(json!({"alias":new})),
+    )
+    .await;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 async fn host_put(
     State(s): State<AppState>,

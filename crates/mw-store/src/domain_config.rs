@@ -204,6 +204,53 @@ impl Store {
         tx.commit().await?;
         Ok(DomainMutation::Applied)
     }
+    /// Rename an alias under the same lock and snapshot check as other mappings.
+    pub async fn compare_and_rename_domain_alias(
+        &self,
+        previous: &DomainConfigRow,
+        aliases: &[String],
+        hosts: &[String],
+        old: &str,
+        new: &str,
+    ) -> Result<DomainMutation, StoreError> {
+        let mut tx = self.backend.begin().await?;
+        lock_domains(&mut tx).await?;
+        q("UPDATE domains SET name=name WHERE name=?1")
+            .bind(&previous.name)
+            .execute_tx(&mut tx)
+            .await?;
+        if row_tx(&mut tx, &previous.name).await?.as_ref() != Some(previous)
+            || mappings_tx(&mut tx, &previous.name, false).await? != aliases
+            || mappings_tx(&mut tx, &previous.name, true).await? != hosts
+            || !aliases.iter().any(|alias| alias == old)
+        {
+            return Ok(DomainMutation::Stale);
+        }
+        if old == new {
+            tx.commit().await?;
+            return Ok(DomainMutation::Applied);
+        }
+        if row_tx(&mut tx, new).await?.is_some() {
+            return Ok(DomainMutation::Shadow);
+        }
+        if q("SELECT domain FROM domain_alias WHERE alias=?1")
+            .bind(new)
+            .fetch_opt_scalar_string_tx(&mut tx)
+            .await?
+            .is_some()
+        {
+            return Ok(DomainMutation::Conflict);
+        }
+        q("UPDATE domain_alias SET alias=?1 WHERE alias=?2 AND domain=?3")
+            .bind(new)
+            .bind(old)
+            .bind(&previous.name)
+            .execute_tx(&mut tx)
+            .await?;
+        tx.commit().await?;
+        Ok(DomainMutation::Applied)
+    }
+
     /// Operator inventory survives session revocation through remembered names.
     pub async fn domain_account_inventory(&self) -> Result<Vec<DomainAccount>, StoreError> {
         let mut accounts = std::collections::BTreeMap::new();
@@ -299,16 +346,24 @@ impl Store {
     }
 
     /// Bounded inventory for diagnostics; callers fetch one extra row to report truncation.
-    pub async fn list_domain_configs_limited(&self, limit: u32) -> Result<Vec<DomainConfigRow>, StoreError> {
+    pub async fn list_domain_configs_limited(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<DomainConfigRow>, StoreError> {
         Ok(q("SELECT name, upstream_json, allowlist, blocklist, enabled, preferred, settings_json, updated_at FROM domains ORDER BY name LIMIT ?1")
             .bind(i64::from(limit.min(1000))).fetch_all(&self.backend).await?.iter().map(domain).collect())
     }
 
     /// Batch alias projection for domain lists, avoiding a query per domain.
     pub async fn list_domain_aliases(&self) -> Result<Vec<(String, String)>, StoreError> {
-        Ok(q("SELECT domain, alias FROM domain_alias ORDER BY domain, alias")
-            .fetch_all(&self.backend).await?.iter()
-            .map(|row| (row.get_string("domain"), row.get_string("alias"))).collect())
+        Ok(
+            q("SELECT domain, alias FROM domain_alias ORDER BY domain, alias")
+                .fetch_all(&self.backend)
+                .await?
+                .iter()
+                .map(|row| (row.get_string("domain"), row.get_string("alias")))
+                .collect(),
+        )
     }
 
     /// Preference is managed separately, so an ordinary edit cannot accidentally
@@ -527,6 +582,70 @@ mod tests {
             settings_json: "{}".into(),
             updated_at: 1,
         }
+    }
+
+    #[tokio::test]
+    async fn alias_rename_is_atomic_and_checks_mapping_snapshot() {
+        let store = Store::open_in_memory(crate::ServerKey::generate())
+            .await
+            .unwrap();
+        let parent = row("parent.test");
+        store.put_domain_config(&parent).await.unwrap();
+        store.put_domain_config(&row("other.test")).await.unwrap();
+        store
+            .put_domain_alias("old.test", "parent.test")
+            .await
+            .unwrap();
+        store
+            .put_domain_alias("taken.test", "other.test")
+            .await
+            .unwrap();
+        let aliases = store.domain_aliases("parent.test").await.unwrap();
+        assert_eq!(
+            store
+                .compare_and_rename_domain_alias(&parent, &aliases, &[], "old.test", "taken.test")
+                .await
+                .unwrap(),
+            DomainMutation::Conflict
+        );
+        assert_eq!(
+            store
+                .domain_alias_target("old.test")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("parent.test")
+        );
+        assert_eq!(
+            store
+                .compare_and_rename_domain_alias(&parent, &aliases, &[], "old.test", "other.test")
+                .await
+                .unwrap(),
+            DomainMutation::Shadow
+        );
+        assert_eq!(
+            store
+                .compare_and_rename_domain_alias(&parent, &aliases, &[], "old.test", "new.test")
+                .await
+                .unwrap(),
+            DomainMutation::Applied
+        );
+        assert_eq!(store.domain_alias_target("old.test").await.unwrap(), None);
+        assert_eq!(
+            store
+                .domain_alias_target("new.test")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("parent.test")
+        );
+        assert_eq!(
+            store
+                .compare_and_rename_domain_alias(&parent, &aliases, &[], "old.test", "late.test")
+                .await
+                .unwrap(),
+            DomainMutation::Stale
+        );
     }
 
     #[tokio::test]

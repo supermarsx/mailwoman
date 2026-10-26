@@ -121,3 +121,10 @@ domain-policy-alias-title = Aliases and bare usernames
 domain-policy-alias = Alias addresses are matched using their parent domain: alice@alias.example is checked as alice@parent.example. Bare usernames are expanded using the configured login-host mapping or preferred domain. These policy checks do not change the authentication-name format configured for the mail backend.
 domain-policy-limits-title = Scope, saving and troubleshooting
 domain-policy-limits = These are address rules, not IP or hostname allowlists, and they do not grant administrator access. Review and apply changes to save them. A refusal can still appear as invalid credentials when detailed refusal messages are disabled. Use the sign-in logs to distinguish policy rejection from provider, network or authentication failures. Country policy, source-IP restrictions, retry pacing and additional authentication remain separate controls.
+
+domain-alias-new = Add alias
+domain-alias-edit = Edit alias
+domain-alias-clone = Clone alias
+domain-alias-name = Alias domain
+domain-alias-editor-help = Aliases inherit the parent domain configuration. Enter the full alias domain name. Editing renames the alias atomically; cloning creates another alias for the same parent.
+domain-alias-forbidden = You do not have permission to change domain aliases.

@@ -15,7 +15,7 @@ function service(overrides: Partial<DomainsApi> = {}): DomainsApi {
     list: vi.fn(async () => [domain]), detail: vi.fn(async () => structuredClone(domain)),
     capabilities: vi.fn(async () => ['domains.read', 'domains.write', 'domains.delete', 'domains.upstream_write', 'domains.signin_policy', 'diagnostics.run']),
     save: vi.fn(async (_name: string, changes: DomainChange) => changes.dryRun ? { dryRun: true, before: domain, after: { ...domain, ...changes } } : domain),
-    remove: vi.fn(async () => {}), enable: vi.fn(async () => {}), prefer: vi.fn(async () => {}), clearPreferred: vi.fn(async () => {}), mapping: vi.fn(async () => {}),
+    remove: vi.fn(async () => {}), enable: vi.fn(async () => {}), prefer: vi.fn(async () => {}), clearPreferred: vi.fn(async () => {}), mapping: vi.fn(async () => {}), renameAlias: vi.fn(async () => {}),
     detect: vi.fn(async () => ({ name: domain.name, upstream: { imap: { host: 'detected.example.com', port: 993, tls: 'implicit' as const, auth: 'password' as const } }, source: 'ISPDB', requiresOAuth: false, saved: false as const })),
     ...overrides,
   };
@@ -25,6 +25,16 @@ async function page(name: string) { fireEvent.click(screen.getByRole('link', { n
 async function open(api: DomainsApi) { const result = renderDomains(api); fireEvent.click(await screen.findByRole('button', { name: domain.name })); await screen.findByRole('link', { name: 'Connections and discovery' }); await page('Connections and discovery'); await screen.findByRole('textbox', { name: 'IMAP Host' }); await waitFor(() => expect(screen.getByRole('button', { name: 'Reload server version' })).toBeEnabled()); return result; }
 
 describe('Admin Domains editor', () => {
+  it('edits an alias on its own page using the atomic rename API', async () => {
+    const api=service({detail:vi.fn(async()=>({...domain,aliases:['old.example.net']}))});
+    await open(api);await page('Domain aliases');
+    fireEvent.click(screen.getByRole('button',{name:'Edit alias'}));
+    expect(screen.queryByRole('button',{name:'Remove old.example.net'})).toBeNull();
+    const input=screen.getByRole('textbox',{name:'Alias domain'});
+    fireEvent.input(input,{target:{value:'new.example.net'}});fireEvent.submit(input.closest('form')!);
+    await waitFor(()=>expect(api.renameAlias).toHaveBeenCalledWith(domain.name,'old.example.net','new.example.net','"m1"'));
+    expect(api.mapping).not.toHaveBeenCalled();
+  });
   it('shows aliases in a searchable domain table and keeps actions within their row', async () => {
     const api = service({ list: vi.fn(async () => [{ ...domain, aliases: ['brand.example.net'] }]) });
     renderDomains(api);
@@ -122,8 +132,9 @@ describe('Admin Domains editor', () => {
     fireEvent.input(screen.getByRole('textbox', { name: 'IMAP Host' }), { target: { value: 'draft.example.com' } });
     vi.mocked(api.detail).mockResolvedValueOnce({ ...domain, aliases: ['alias.example.com'], etag: '"v2"' });
     await page('Domain aliases');
-    fireEvent.input(screen.getByRole('textbox', { name: 'New domain alias' }), { target: { value: 'alias.example.com' } });
-    fireEvent.submit(screen.getByRole('textbox', { name: 'New domain alias' }).closest('form')!);
+    fireEvent.click(screen.getByRole('button',{name:'Add alias'}));
+    fireEvent.input(screen.getByRole('textbox', { name: 'Alias domain' }), { target: { value: 'alias.example.com' } });
+    fireEvent.submit(screen.getByRole('textbox', { name: 'Alias domain' }).closest('form')!);
     await waitFor(() => expect(api.mapping).toHaveBeenCalledWith(domain.name, 'aliases', 'alias.example.com', false, '"m1"'));
     await screen.findByText('alias.example.com');
     await page('Connections and discovery');
@@ -149,8 +160,9 @@ describe('Admin Domains editor', () => {
     const api = service(); await open(api);
     vi.mocked(api.detail).mockResolvedValue({ ...domain, aliases: ['alias.example.com'], mappingEtag: '"m2"' });
     await page('Domain aliases');
-    fireEvent.input(screen.getByRole('textbox', { name: 'New domain alias' }), { target: { value: 'alias.example.com' } });
-    fireEvent.submit(screen.getByRole('textbox', { name: 'New domain alias' }).closest('form')!);
+    fireEvent.click(screen.getByRole('button',{name:'Add alias'}));
+    fireEvent.input(screen.getByRole('textbox', { name: 'Alias domain' }), { target: { value: 'alias.example.com' } });
+    fireEvent.submit(screen.getByRole('textbox', { name: 'Alias domain' }).closest('form')!);
     await screen.findByText('alias.example.com');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Remove alias.example.com' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Remove alias.example.com' }));
@@ -233,7 +245,7 @@ describe('Admin Domains editor', () => {
     await page('Sign-in policy');
     expect(screen.getByRole('textbox', { name: 'Allowlist' })).toBeVisible();
     expect(screen.queryByRole('textbox', { name: 'IMAP Host' })).toBeNull();
-    expect(screen.queryByRole('textbox', { name: 'New domain alias' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Alias domain' })).toBeNull();
   });
 
 });

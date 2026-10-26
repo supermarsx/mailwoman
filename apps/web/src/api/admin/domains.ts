@@ -30,6 +30,7 @@ export const domainsApi = {
   async prefer(name: string, etag: string | null): Promise<void> { await adminRequest(`${path(name)}/preferred`, { method: 'PUT', ifMatch: etag }); },
   async clearPreferred(etag: string | null): Promise<void> { await adminRequest('/preferred-domain', { method: 'DELETE', ifMatch: etag }); },
   async mapping(name: string, kind: 'aliases' | 'hosts', value: string, remove: boolean, etag: string | null): Promise<void> { await adminRequest(`${path(name)}/${kind}/${encodeURIComponent(value)}`, { method: remove ? 'DELETE' : 'PUT', ifMatch: etag }); },
+  async renameAlias(domain: string, oldName: string, newName: string, etag: string | null): Promise<void> { await adminRequest(`${path(domain)}/aliases/${encodeURIComponent(oldName)}`, {method:'PATCH',ifMatch:etag,body:{name:newName}}); },
 };
 export type DomainsApi = Omit<typeof domainsApi, 'usernamePreview'> & { usernamePreview?: typeof domainsApi.usernamePreview };
 
