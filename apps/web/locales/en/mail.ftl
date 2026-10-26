@@ -644,6 +644,7 @@ mail-workspace-view-second = Second view
 mail-workspace-view-empty = Drag an open tab here to choose this view.
 
 mail-popup-blocked = Allow pop-up windows for Mailwoman to detach this tab. Your tab remains here.
+mail-popup-unavailable = The detached window could not be loaded. Your tab and unsaved changes remain in the main window. Try again after refreshing the app.
 mail-popup-reattach = Reattach to main window
 mail-popup-action-reattached = Returned to the main window to complete this action.
 mail-popup-detached = This tab is open in a separate window. Closing that window returns it here.

@@ -37,8 +37,14 @@ export function DetachedWorkspacePane(props:{title:()=>string;register:(handle:D
     const initialize=():void=>{
       if(initialized)return;
       try {if(popup.location.href!==popupUrl)return;}catch{return;}
+      if(popup.document.readyState!=='complete')return;
       initialized=true;clearTimeout(pendingTimer);popup.removeEventListener('load',initialize);
       if(disposed||!preferenceAccountIsCurrent(owner)){reattach();return;}
+      // A matching URL can still contain a server/proxy error page. Never move
+      // the live editor into that document or initialize before navigation ends.
+      if(popup.document.documentElement.getAttribute('data-mailwoman-workspace-popup')!=='1'){
+        reattach();toast.error(t('mail-popup-unavailable'));return;
+      }
     try {
       const doc=popup.document;doc.title=props.title();
       const syncTheme=():void=>{
@@ -97,10 +103,10 @@ export function DetachedWorkspacePane(props:{title:()=>string;register:(handle:D
       const poll=window.setInterval(()=>{if(popup.closed)reattach();},500);
       cleanupChild=()=>{window.clearInterval(poll);theme.disconnect();popup.removeEventListener('pagehide',leave);doc.removeEventListener('click',action,true);doc.removeEventListener('submit',submit,true);doc.removeEventListener('change',change,true);clearDelegatedEvents(doc);};
       child=popup;setMount(body);setDetached(true);popup.focus();
-    }catch{reattach();toast.error(t('mail-popup-blocked'));}
+    }catch{reattach();toast.error(t('mail-popup-unavailable'));}
     };
     popup.addEventListener('load',initialize);
-    const pendingTimer=setTimeout(()=>{if(!initialized){reattach();toast.error(t('mail-popup-blocked'));}},10000);
+    const pendingTimer=setTimeout(()=>{if(!initialized){reattach();toast.error(t('mail-popup-unavailable'));}},10000);
     cleanupChild=()=>{clearTimeout(pendingTimer);popup.removeEventListener('load',initialize);};
     initialize();
   }
