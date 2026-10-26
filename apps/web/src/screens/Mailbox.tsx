@@ -1,4 +1,10 @@
+import {resolveWorkspaceAttachment} from '../realtime/workspaceAttachment.ts';
+import { settings, settingsLoadStatus } from '../api/settings.ts';
+import { MAX_WORKSPACE_TABS, readWorkspace, saveWorkspace, clearWorkspace, type WorkspaceReference } from '../realtime/workspaceStorage.ts';
+import { listDrafts } from '../components/compose/drafts-store.ts';
 import { FolderCountBadge } from '../components/FolderCountBadge.tsx';
+import { PaneNavigationContext, confirmShellNavigation } from '../shell/navigationGuard.ts';
+import { preferenceAccount, preferenceAccountIsCurrent, observePreferenceAccount } from '../api/accountPreferenceLifecycle.ts';
 import { AppearanceCustomizationRuntime } from '../components/AppearanceCustomizationRuntime.tsx';
 import {createSharingAccess} from '../api/mailboxSharing.ts';
 import {createConfiguredClient} from '../api/transport.ts';
@@ -110,8 +116,11 @@ export function MailboxScreen(): JSX.Element {
   const branding=useBranding();
   const app = useApp();
   const { subTabs } = useRealtime();
-  interface Pane { id:string; kind:'messages'|'composer'|'settings'|'attachment'; title:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
+  interface Pane { id:string; kind:'messages'|'composer'|'settings'|'attachment'|'module'|'outbox'|'attachments'|'sharing'; title:string; surface?:ShellSurface; reference?:string; draftId?:string; accountId?:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
   const [panes,setPanes]=createSignal<Pane[]>([]);
+  const [workspaceReady,setWorkspaceReady]=createSignal(false);
+  const [draftRevision,setDraftRevision]=createSignal(0);
+  const [workspaceOwner,setWorkspaceOwner]=createSignal(preferenceAccount());
   const workspaceLayout=()=>accountUiPreferences().workspaceLayout ?? 'tabs';
   const setWorkspaceLayout=(value:'tabs'|'side-by-side'|'stack'):void=>setAccountUiPreferences({workspaceLayout:value});
   const folderMode=()=>accountUiPreferences().folderSidebarMode ?? 'expanded';
@@ -146,30 +155,38 @@ export function MailboxScreen(): JSX.Element {
   const tileFirst=()=>tileDrag() ?? tileExtent()*(accountUiPreferences().workspaceSplitRatio ?? 0.5);
   onMount(()=>{const update=():void=>{setViewport({width:window.innerWidth,height:window.innerHeight});if(bodyElement?.clientWidth)setBodySize({width:bodyElement.clientWidth,height:bodyElement.clientHeight});if(tilesElement?.clientWidth)setTileSize({width:tilesElement.clientWidth,height:tilesElement.clientHeight});};update();window.addEventListener('resize',update);const observer=typeof ResizeObserver==='undefined'?null:new ResizeObserver(update);if(bodyElement)observer?.observe(bodyElement);if(tilesElement)observer?.observe(tilesElement);onCleanup(()=>{window.removeEventListener('resize',update);observer?.disconnect();});});
   createEffect(()=>{shellElement?.style.setProperty('--folder-width',`${folderWidth()}px`);shellElement?.style.setProperty('--folder-handle',folderMode()==='expanded'?'6px':'0px');bodyElement?.style.setProperty('--list-size',`${listSize()}px`);tilesElement?.style.setProperty('--tile-first',`${tileFirst()}px`);});
+  const orderedPanes=createMemo(()=>{const order=subTabs.tabs().map(tab=>tab.id);return [...panes()].sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id));});
   const activePane=createMemo(()=>panes().find(pane=>pane.id===subTabs.activeId()));
   const composing=()=>activePane()?.kind==='composer';
   const listVisible=()=>!activePane() || (activePane()?.kind==='messages' && (accountUiPreferences().readerCollapsed || (!narrow() && readingPane()!=='off' && !accountUiPreferences().messageListCollapsed)));
   const readersVisible=()=>!!activePane() && !(activePane()?.kind==='messages' && accountUiPreferences().readerCollapsed);
   const splitVisible=()=>listVisible() && readersVisible();
-  function openComposer(initial?:ComposeInitial):void {
+  let restoreIntent=0;
+  function noteWorkspaceIntent():void {restoreIntent+=1;}
+  function canOpenPane(id?:string):boolean {if(id&&panes().some(pane=>pane.id===id))return true;if(panes().length<MAX_WORKSPACE_TABS-1)return true;app.showToast('info',t('mail-workspace-limit'));return false;}
+  function openComposer(initial?:ComposeInitial,resumeDraftId?:string,restoredId?:string):void {
+    if(!restoredId)noteWorkspaceIntent();
+    if(!canOpenPane(restoredId))return;
     router.navigate('mail');
     const title=initial?.subject || t('mail-compose');
-    const id=subTabs.open({kind:'composer',title});
-    setPanes(old=>[...old,{id,kind:'composer',title,...(initial ? {initial} : {})}]);
+    const id=subTabs.open({kind:'composer',title,...(restoredId?{id:restoredId}:{})});
+    setPanes(old=>[...old,{id,kind:'composer',title,...(resumeDraftId?{draftId:resumeDraftId}:{}),...(initial ? {initial} : {})}]);
   }
   function openNewMessage():void {openComposer();}
-  function openAttachmentTab(item:StripItem):void {
+  function openAttachmentTab(item:StripItem,restoring=false):void {
+    if(!restoring)noteWorkspaceIntent();
     const accountId=app.accountId();const template=app.downloadUrl();
     if(!accountId || !template)return;
     router.navigate('mail');
-    const id=`attachment:${accountId}:${item.blobId}`;
+    const id=`attachment:${accountId}:${item.blobId}`;if(!canOpenPane(id))return;
     if(!panes().some(pane=>pane.id===id))setPanes(old=>[...old,{id,kind:'attachment',title:item.name,attachment:{...item,downloadUrl:buildDownloadUrl(template,{accountId,blobId:item.blobId,name:item.name,mime:item.mime})}}]);
     subTabs.open({id,kind:'attachment',title:item.name});
   }
   function openReply(initial:ComposeInitial):void {openComposer(initial);}
-  function openSettings():void {
+  function openSettings(restoring=false):void {
+    if(!restoring)noteWorkspaceIntent();
     router.navigate('mail');
-    const id=`settings:${app.accountId() ?? ''}`;
+    const id=`settings:${app.accountId() ?? ''}`;if(!canOpenPane(id))return;
     if(!panes().some(pane=>pane.id===id)) setPanes(old=>[...old,{id,kind:'settings',title:t('mail-nav-settings'),navigation:createSettingsNavigation()}]);
     subTabs.open({id,kind:'settings',title:t('mail-nav-settings')});
   }
@@ -179,51 +196,117 @@ export function MailboxScreen(): JSX.Element {
     const pane=panes().find(item=>item.id===`settings:${account ?? ''}`);
     if(account===app.accountId()) await pane?.navigation?.navigate({section:'mail-transfer',editor:{kind:'edit',id:messageId}});
   }
-  function openMessageTab(messageId:string):void {
+  function openMessageTab(messageId:string,restoring=false):void {
+    if(!restoring)noteWorkspaceIntent();
     router.navigate('mail');
-    const id=`message:${app.accountId() ?? ''}:${messageId}`;
+    const id=`message:${app.accountId() ?? ''}:${messageId}`;if(!canOpenPane(id))return;
     const existing=panes().find(pane=>pane.id===id);
     if(existing) {subTabs.activate(id);return;}
     const title=app.messages().find(message=>message.id===messageId)?.subject || t('mail-workspace-message');
     const view=app.createReaderView();
-    setPanes(old=>[...old,{id,kind:'messages',title,view}]);
+    setPanes(old=>[...old,{id,kind:'messages',title,view,reference:messageId}]);
     subTabs.open({id,kind:'messages',title});
     void view.openMessage(messageId);
   }
   async function closePane(id:string):Promise<void> {
     if(id==='mail') return;
-    const pane=panes().find(item=>item.id===id);
+    noteWorkspaceIntent();
+    const pane=panes().find(item=>item.id===id),owner=preferenceAccount();
     if(pane?.navigation && !await pane.navigation.canLeave()) return;
+    if(!await confirmShellNavigation(id)) return;
+    if((owner&&!preferenceAccountIsCurrent(owner))||panes().find(item=>item.id===id)!==pane)return;
     const wasActive=subTabs.activeId()===id;
     pane?.view?.dispose();setPanes(old=>old.filter(item=>item.id!==id));subTabs.close(id);
     if(wasActive) queueMicrotask(()=>document.getElementById(`subtab-tab-${subTabs.activeId()}`)?.focus());
   }
   createEffect(()=>{app.setActiveReader(surface()==='mail' && readersVisible() ? activePane()?.view ?? null : null);});
-  let workspaceAccount=app.accountId();
-  createEffect(()=>{const account=app.accountId();if(account!==workspaceAccount){for(const pane of untrack(panes)){pane.view?.dispose();subTabs.close(pane.id);}setPanes([]);workspaceAccount=account;subTabs.activate('mail');}});
+  let workspaceGeneration:number|undefined;
+  onCleanup(observePreferenceAccount(owner=>{if(owner?.generation===workspaceGeneration)return;workspaceGeneration=owner?.generation;restoreIntent=0;setWorkspaceReady(false);for(const pane of untrack(panes)){pane.view?.dispose();subTabs.close(pane.id);}setPanes([]);subTabs.activate('mail');setWorkspaceOwner(owner);}));
 
   onCleanup(()=>{for(const pane of panes()) {pane.view?.dispose();subTabs.close(pane.id);}app.setActiveReader(null);});
   // t13 26.13 (E9 mount): the mailbox ACL editor, reachable from the mailbox
   // context. Open for the currently-selected mailbox; only meaningful once a
   // mailbox + account are resolved.
-  const [sharingOpen, setSharingOpen] = createSignal(false);
   const sharingAccess=createSharingAccess(app.accountId,createConfiguredClient());
-  createEffect(()=>{const id=app.selectedMailboxId(),account=app.accountId();setSharingOpen(false);if(id&&account)untrack(()=>{const box=app.mailboxes().find(value=>value.id===id);if(box&&box.mailwomanSearchQuery===undefined)void sharingAccess.probe(id,true);});});
-  async function openSharing(id:string):Promise<void>{if(await sharingAccess.probe(id,true)){if(app.selectedMailboxId()===id&&sharingAccess.canShare(id))setSharingOpen(true);}else app.showToast('error',t('mail-sharing-unavailable'));}
-  const shareMailbox = createMemo(() => {
-    const id = app.selectedMailboxId();
-    if (id === null || !sharingAccess.canShare(id)) return null;
-    const box = app.mailboxes().find((m) => m.id === id);
-    return box ? { id: box.id, name: box.name } : null;
-  });
+  createEffect(()=>{const id=app.selectedMailboxId(),account=app.accountId();if(id&&account)untrack(()=>{const box=app.mailboxes().find(value=>value.id===id);if(box&&box.mailwomanSearchQuery===undefined)void sharingAccess.probe(id,true);});});
+  async function openSharing(mailboxId:string,stillCurrent:()=>boolean=()=>true,restoring=false):Promise<void>{
+    if(!restoring)noteWorkspaceIntent();
+    const accountId=app.accountId();
+    if(!accountId||!await sharingAccess.probe(mailboxId,true)||accountId!==app.accountId()||!sharingAccess.canShare(mailboxId)){if(!stillCurrent())return;app.showToast('error',t('mail-sharing-unavailable'));return;}
+    if(!stillCurrent())return;
+    const box=app.mailboxes().find(value=>value.id===mailboxId);if(!box)return;
+    const id=`sharing:${accountId}:${mailboxId}`;if(!canOpenPane(id))return;router.navigate('mail');
+    if(!panes().some(pane=>pane.id===id))setPanes(old=>[...old,{id,kind:'sharing',title:box.name,reference:mailboxId,accountId}]);
+    subTabs.open({id,kind:'sharing',title:box.name});
+  }
 
   // The shell router (plan §2.5): Mail/Outbox/Attachments + the four PIM modules
   // are hash-routed surfaces, so each PIM module is reachable + deep-linkable.
   // An unknown address (`#/bogus`) is replaced by the inbox; say why (t32-h10).
   const router = createShellRouter(() => {
     void loadCatalog('errors').then(() => app.showToast('info', t('errors-mail-route-not-found')));
-  });
+  },{retainedSurfaces:true,onExternalNavigation:()=>noteWorkspaceIntent()});
   const surface = (): ShellSurface => router.route().surface;
+  createEffect(()=>{const destination=surface();untrack(()=>{
+    if(destination==='mail'){if(activePane()?.surface)subTabs.activate('mail');return;}
+    const accountId=app.accountId();if(!accountId)return;
+    const module=APP_NAV_MODULES.find(item=>item.id===destination);
+    const kind=destination==='attachments'?'attachments':destination==='outbox'?'outbox':'module';
+    const title=module?.label??t(destination==='attachments'?'mail-nav-attachments':'mail-nav-outbox');
+    const id=`surface:${accountId}:${destination}`;if(!canOpenPane(id)){router.navigate(activePane()?.surface??'mail');return;}
+    if(!panes().some(pane=>pane.id===id))setPanes(old=>[...old,{id,kind,title,surface:destination,reference:destination}]);
+    subTabs.open({id,kind,title});
+  });});
+  createEffect(()=>{const id=subTabs.activeId();untrack(()=>{const destination=panes().find(pane=>pane.id===id)?.surface??'mail';if(surface()!==destination)router.navigate(destination);});});
+  let restoringGeneration:number|undefined;
+  createEffect(()=>{
+    const owner=workspaceOwner(),status=settingsLoadStatus();const enabled=settings()['mail.resumeTabs']?.value!==false;
+    if(!enabled){clearWorkspace();setWorkspaceReady(true);return;}
+    if(!owner?.storageAuthority||owner.id!==app.accountId()||status!=='ready'||restoringGeneration===owner.generation)return;
+    restoringGeneration=owner.generation;
+    const intent=restoreIntent;
+    const restoreCurrent=()=>preferenceAccountIsCurrent(owner)&&restoreIntent===intent&&settings()['mail.resumeTabs']?.value!==false;
+    const saved=readWorkspace(owner.id,owner.storageAuthority);
+    void (async()=>{
+      try {
+        if(!saved||intent>0)return;
+        for(const tab of saved.tabs){
+          if(!restoreCurrent())return;
+          if(tab.id==='mail')continue;
+          try {
+          if(tab.kind==='messages'&&tab.reference)openMessageTab(tab.reference,true);
+          else if(tab.kind==='settings')openSettings(true);
+          else if(tab.kind==='composer'&&tab.reference&&listDrafts(owner.id,owner.storageAuthority).some(draft=>draft.id===tab.reference))openComposer(undefined,tab.reference,tab.id);
+          else if(tab.kind==='sharing'&&tab.reference)await openSharing(tab.reference,restoreCurrent,true);
+          else if(tab.kind==='module'||tab.kind==='outbox'||tab.kind==='attachments'){
+            router.navigate((tab.kind==='module'?tab.reference:tab.kind) as ShellSurface);
+            await Promise.resolve();
+          } else if(tab.kind==='attachment'&&tab.reference&&tab.messageId){
+            const item=await resolveWorkspaceAttachment(createConfiguredClient(),owner.id,tab.messageId,tab.reference);
+            if(!restoreCurrent())return;
+            if(item)openAttachmentTab(item,true);
+          }
+
+          const current=subTabs.tabs().find(value=>value.id===tab.id);
+          if(current&&current.pinned!==tab.pinned)subTabs.togglePin(current.id);
+          }catch{/* Removed or unauthorized references are omitted. */}
+        }
+        if(!restoreCurrent())return;
+        saved.tabs.forEach((tab,index)=>subTabs.move(tab.id,index));
+        subTabs.activate(saved.activeId);
+      } finally {if(preferenceAccountIsCurrent(owner))setWorkspaceReady(true);}
+    })().catch(()=>{/* A stale/denied reference is never replaced by cached content. */});
+  });
+  createEffect(()=>{
+    const owner=workspaceOwner();draftRevision();const tabs=subTabs.tabs(),activeId=subTabs.activeId();const currentPanes=panes();
+    if(!workspaceReady()||!owner?.storageAuthority||!preferenceAccountIsCurrent(owner)||settingsLoadStatus()!=='ready'||settings()['mail.resumeTabs']?.value===false)return;
+    const references:WorkspaceReference[]=tabs.slice(0,32).map(tab=>{
+      const pane=currentPanes.find(value=>value.id===tab.id);
+      const reference=pane?.kind==='composer'?pane.draftId:pane?.attachment?.blobId??pane?.reference;
+      return {id:tab.id,kind:tab.kind,pinned:tab.pinned,...(reference?{reference}:{}),...(pane?.attachment?.emailId?{messageId:pane.attachment.emailId}:{})};
+    });
+    saveWorkspace({version:2,accountId:owner.id,storageAuthority:owner.storageAuthority,tabs:references,activeId:activeId??'mail',layout:workspaceLayout()});
+  });
   const mailEntering = createEntryMotion(surface);
 
   // Narrow-viewport shell (t28-e6). At phone width the sidebar is an off-canvas
@@ -382,7 +465,7 @@ export function MailboxScreen(): JSX.Element {
   });
 
   return (
-    <div class="shell workspace-shell mw-custom-mail" ref={shellElement} data-folder-mode={folderMode()}>
+    <div class="shell workspace-shell mw-custom-mail" onPointerDown={noteWorkspaceIntent} onClick={noteWorkspaceIntent} onKeyDown={noteWorkspaceIntent} ref={shellElement} data-folder-mode={folderMode()}>
       <AppearanceCustomizationRuntime owner={() => {const accountId = app.accountId(); return accountId ? {kind: 'mailbox', accountId} : null;}} />
 
       <Show when={narrow()}>
@@ -437,7 +520,7 @@ export function MailboxScreen(): JSX.Element {
             type="button"
             class={`btn btn--ghost sidebar__settings ${a11y.iconButton}`}
             aria-label={t('mail-nav-settings')}
-            onClick={openSettings}
+            onClick={()=>openSettings()}
           >
             <Icon name="settings" />
           </button>
@@ -493,7 +576,7 @@ export function MailboxScreen(): JSX.Element {
           {/* Share the selected folder (t13 ACL editor). Only offered once a
               mailbox + account are resolved; the editor self-gates writes on the
               caller's administer right. */}
-          <Show when={shareMailbox() !== null && app.accountId() !== null}>
+          <Show when={sharingAccess.canShare(app.selectedMailboxId()??'') && app.accountId() !== null}>
             <button
               type="button"
               class={`sidebar__box ${a11y.focusable}`}
@@ -536,7 +619,7 @@ export function MailboxScreen(): JSX.Element {
 
       <Show when={!narrow() && folderMode()==='expanded'}><ResizeHandle label={t('mail-resize-folders')} controls="shell-nav" value={folderWidth()} min={160} max={folderMax()} onChange={setFolderDrag} onCommit={value=>{setAccountUiPreferences({folderSidebarWidth:value});setFolderDrag(null);}} /></Show>
       <Show when={!narrow() && folderMode()==='hidden' && surface()!=='mail'}><button type="button" class={`btn workspace-show-folders ${a11y.iconButton}`} aria-label={t('mail-show-folders')} title={t('mail-show-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:'expanded'})}><Icon name="folder"/></button></Show>
-      <div class="mail-workspace" hidden={surface()!=='mail'}>
+      <div class="mail-workspace">
         <SubTabStrip onClose={id=>void closePane(id)} canClose={id=>id!=='mail'} allowTearOff={false} />
         <div class="workspace-bar" role="toolbar" aria-label={t('mail-workspace-layout')}>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t(folderMode()==='hidden'?'mail-show-folders':'mail-hide-folders')} title={t(folderMode()==='hidden'?'mail-show-folders':'mail-hide-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='hidden'?'expanded':'hidden'})}><Icon name="folder"/></button>
@@ -554,69 +637,24 @@ export function MailboxScreen(): JSX.Element {
           </div>
           <Show when={splitVisible()}><ResizeHandle label={t('mail-resize-list')} orientation={readingPane()==='bottom'?'horizontal':'vertical'} value={listSize()} min={readingPane()==='bottom'?160:240} max={listMax()} onChange={setListDrag} onCommit={value=>{setAccountUiPreferences(readingPane()==='bottom'?{messageListHeight:value}:{messageListWidth:value});setListDrag(null);}}/></Show>
           <div class="workspace-panes" ref={tilesElement} data-layout={narrow() ? 'tabs' : workspaceLayout()} data-pair={panes().length===2} hidden={!readersVisible()}>
-            <For each={panes()}>{(pane,index)=><><section class="workspace-pane" role="tabpanel" aria-label={pane.title}
+            <For each={orderedPanes()}>{(pane,index)=><PaneNavigationContext.Provider value={pane.id}><section class="workspace-pane" role="tabpanel" aria-label={subTabs.tabs().find(tab=>tab.id===pane.id)?.title??pane.title}
               hidden={subTabs.activeId()==='mail' || ((narrow() || workspaceLayout()==='tabs') && subTabs.activeId()!==pane.id)}
               inert={subTabs.activeId()==='mail' || ((narrow() || workspaceLayout()==='tabs') && subTabs.activeId()!==pane.id)}
               onFocusIn={()=>subTabs.activate(pane.id)} onPointerDown={()=>subTabs.activate(pane.id)}>
               <Show when={pane.kind==='messages' && pane.view}>{view=><><Show when={view().error()}><p role="alert">{t('mail-workspace-load-error')}</p></Show><Reader view={view()} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} onCompose={openReply} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)}/></>}</Show>
               <Show when={pane.kind==='attachment' && pane.attachment}>{item=><AttachmentTab item={item()}/>}</Show>
-              <Show when={pane.kind==='composer'}><Compose embedded active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
+              <Show when={pane.kind==='composer'}><Compose embedded onSubjectChange={subject=>subTabs.rename(pane.id,subject.trim()||t('mail-compose'))} onDraftIdChange={id=>{if(pane.draftId!==id){pane.draftId=id;setDraftRevision(value=>value+1);}}} {...(pane.draftId?{resumeDraftId:pane.draftId}:{})} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
+              <Show when={pane.kind==='outbox'}><Outbox/></Show>
+              <Show when={pane.kind==='attachments'}><Attachments loadPage={position=>app.listAttachmentsPage(position)} onOpen={openAttachmentTab} onOpenMessage={item=>openMessageTab(item.emailId)}/></Show>
+              <Show when={pane.kind==='sharing'&&pane.reference&&pane.accountId}><SharingDialog embedded mailboxId={pane.reference!} accountId={pane.accountId!} mailboxName={pane.title} onClose={()=>void closePane(pane.id)}/></Show>
+              <Show when={pane.kind==='module'&&APP_NAV_MODULES.find(module=>module.id===pane.surface)}>{module=><main class="module-pane" data-surface={module().id} data-mw-surface><AsyncBoundary><Suspense fallback={<AsyncPending message={t('mail-module-loading',{module:module().label})}/>}><Dynamic component={module().mount()}/></Suspense></AsyncBoundary></main>}</Show>
               <Show when={pane.kind==='settings' && pane.navigation}>{navigation=><Settings embedded navigation={navigation()} onClose={()=>void closePane(pane.id)}/>}</Show>
-            </section><Show when={index()===0 && panes().length===2 && !narrow() && workspaceLayout()!=='tabs'}><ResizeHandle label={t('mail-resize-tiles')} orientation={workspaceLayout()==='stack'?'horizontal':'vertical'} value={tileFirst()} min={tileExtent()*0.2} max={tileExtent()*0.8} onChange={setTileDrag} onCommit={value=>{setAccountUiPreferences({workspaceSplitRatio:Math.max(0.2,Math.min(0.8,value/tileExtent()))});setTileDrag(null);}}/></Show></>}</For>
+            </section><Show when={index()===0 && panes().length===2 && !narrow() && workspaceLayout()!=='tabs'}><ResizeHandle label={t('mail-resize-tiles')} orientation={workspaceLayout()==='stack'?'horizontal':'vertical'} value={tileFirst()} min={tileExtent()*0.2} max={tileExtent()*0.8} onChange={setTileDrag} onCommit={value=>{setAccountUiPreferences({workspaceSplitRatio:Math.max(0.2,Math.min(0.8,value/tileExtent()))});setTileDrag(null);}}/></Show></PaneNavigationContext.Provider>}</For>
           </div>
         </div>
         <AssistPanel config={app.assist.config()} service={app.assist.service} context={assistContext()} onReviewAction={openNewMessage}/>
       </div>
-      <Show when={surface() === 'outbox'}>
-        <Outbox />
-      </Show>
-      <Show when={surface() === 'attachments'}>
-        <Attachments
-          loadPage={(position) => app.listAttachmentsPage(position)}
-          onOpen={openAttachmentTab}
-          onOpenMessage={(item) => {
-            router.navigate('mail');
-            openMessageTab(item.emailId);
-          }}
-        />
-      </Show>
 
-      {/* Engine-backed PIM + key-management module surfaces, mounted (lazily)
-          from the frozen registry — reachable from the nav rail above. */}
-      <For each={APP_NAV_MODULES}>
-        {(m) => (
-          <Show when={surface() === m.id}>
-            <main class="module-pane" data-surface={m.id} data-mw-surface>
-              {/* Each module is a dynamic import. Its `Suspense` had no boundary
-                  and no ceiling, so a chunk that failed to arrive left this
-                  fallback on screen for the life of the tab — the nav rail said
-                  Calendar, and Calendar never came. The boundary also contains a
-                  module that loads and then throws, which previously took the
-                  whole mailbox down with it. Retry re-renders the module; the
-                  registry holds one `lazy()` per module, so a chunk failure is
-                  recovered by reloading rather than by this button — which is
-                  why the pending state times out into an error instead of
-                  promising a retry that would replay the memoised rejection. */}
-              <AsyncBoundary>
-                <Suspense
-                  fallback={<AsyncPending message={t('mail-module-loading', { module: m.label })} />}
-                >
-                  <Dynamic component={m.mount()} />
-                </Suspense>
-              </AsyncBoundary>
-            </main>
-          </Show>
-        )}
-      </For>
-
-      <Show when={sharingOpen() && shareMailbox() !== null && app.accountId() !== null}>
-        <SharingDialog
-          mailboxId={shareMailbox()!.id}
-          accountId={app.accountId()!}
-          mailboxName={shareMailbox()!.name}
-          onClose={() => setSharingOpen(false)}
-        />
-      </Show>
     </div>
   );
 }

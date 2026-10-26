@@ -56,7 +56,7 @@ describe('RecallPanel (W10)', () => {
 describe('DraftsDrawer (W9)', () => {
   const d = (id: string, over: Partial<StoredDraft> = {}): StoredDraft => ({
     id,
-    accountId: 'account-a',
+    accountId: 'account-a',storageAuthority:'test-storage-authority-a',
     to: 'a@b.c',
     subject: `subject-${id}`,
     bodyHtml: '<p>h</p>',

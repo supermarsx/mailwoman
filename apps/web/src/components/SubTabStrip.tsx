@@ -8,7 +8,8 @@ import { Icon } from './Icon.tsx';
 // Ctrl+[Shift+]Tab) cycles focus. Reads `useRealtime()` so it resolves the app
 // singleton or a test-provided controller.
 
-import { For, Show, type JSX } from 'solid-js';
+import { For, Show, createEffect, createSignal, type JSX } from 'solid-js';
+import {preferenceAccount,preferenceAccountIsCurrent,type PreferenceAccount} from '../api/accountPreferenceLifecycle.ts';
 import { useRealtime } from '../realtime/context.ts';
 import { t } from '../i18n/index.ts';
 import * as a11y from './mailA11y.css.ts';
@@ -21,8 +22,24 @@ function tabDomId(id: string): string {
 
 export function SubTabStrip(props: { onClose?: (id:string)=>void; allowTearOff?: boolean; canClose?: (id:string)=>boolean } = {}): JSX.Element {
   const { subTabs } = useRealtime();
+  const [dragging,setDragging]=createSignal<{id:string;token:string;owner:PreferenceAccount}|null>(null);
+  const dragType='application/x-mailwoman-workspace-tab';
+  function beginDrag(event:DragEvent,id:string):void {
+    const owner=preferenceAccount();if(!owner||!event.dataTransfer){event.preventDefault();return;}
+    const token=crypto.randomUUID();setDragging({id,token,owner});event.dataTransfer.effectAllowed='move';event.dataTransfer.setData(dragType,token);
+  }
+  function canDrop(event:DragEvent):boolean {const drag=dragging();return !!drag&&preferenceAccountIsCurrent(drag.owner)&&subTabs.tabs().some(tab=>tab.id===drag.id)&&event.dataTransfer?.types.includes(dragType)===true;}
+  function drop(event:DragEvent,id:string):void {
+    const drag=dragging();if(!drag||!canDrop(event)||event.dataTransfer?.getData(dragType)!==drag.token)return;
+    event.preventDefault();const index=subTabs.tabs().findIndex(tab=>tab.id===id);if(index>=0)subTabs.move(drag.id,index);setDragging(null);
+  }
 
   function onKeyDown(e: KeyboardEvent): void {
+    if(e.ctrlKey&&e.shiftKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){
+      const active=subTabs.activeId();const index=subTabs.tabs().findIndex(tab=>tab.id===active);
+      if(active&&index>=0){subTabs.move(active,index+(e.key==='ArrowRight'?1:-1));queueMicrotask(()=>document.getElementById(tabDomId(active))?.focus());e.preventDefault();}
+      return;
+    }
     const next = e.key === 'ArrowRight' || (e.ctrlKey && e.key === 'Tab' && !e.shiftKey);
     const prev = e.key === 'ArrowLeft' || (e.ctrlKey && e.key === 'Tab' && e.shiftKey);
     if (next) {
@@ -51,30 +68,38 @@ export function SubTabStrip(props: { onClose?: (id:string)=>void; allowTearOff?:
           aria-owns={subTabs.tabs().map((tab) => tabDomId(tab.id)).join(' ')}
         />
         <For each={subTabs.tabs()}>
-          {(tab) => <SubTabButton tab={tab} active={subTabs.activeId() === tab.id} {...props} />}
+          {(tab) => <SubTabButton tab={tab} active={subTabs.activeId() === tab.id} {...props}
+            onDragStart={event=>beginDrag(event,tab.id)} onDragEnd={()=>setDragging(null)}
+            onDragOver={event=>{if(canDrop(event)){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move';}}}
+            onDrop={event=>drop(event,tab.id)}/>}
         </For>
       </div>
     </Show>
   );
 }
 
-function SubTabButton(props: { tab: SubTab; active: boolean; onClose?: (id:string)=>void; allowTearOff?: boolean; canClose?: (id:string)=>boolean }): JSX.Element {
+function SubTabButton(props: { tab: SubTab; active: boolean; onClose?: (id:string)=>void; allowTearOff?: boolean; canClose?: (id:string)=>boolean;onDragStart:(event:DragEvent)=>void;onDragEnd:()=>void;onDragOver:(event:DragEvent)=>void;onDrop:(event:DragEvent)=>void }): JSX.Element {
   const { subTabs } = useRealtime();
   const id = (): string => props.tab.id;
+  let label:HTMLButtonElement|undefined;
+  createEffect(()=>{if(props.active)queueMicrotask(()=>{if(props.active)label?.scrollIntoView?.({block:'nearest',inline:'nearest'});});});
   const close=():void=>{if(props.canClose?.(id())===false) return;if(props.onClose) props.onClose(id());else subTabs.close(id());};
   return (
     <div
       class="subtab"
       classList={{ 'subtab--active': props.active, 'subtab--pinned': props.tab.pinned }}
       data-kind={props.tab.kind}
+      onDragOver={props.onDragOver} onDrop={props.onDrop}
     >
       <button
         type="button"
-        id={tabDomId(props.tab.id)}
+        ref={label} id={tabDomId(props.tab.id)}
         role="tab"
         class={`subtab__label ${a11y.focusable}`}
         aria-selected={props.active}
         tabindex={props.active ? 0 : -1}
+        draggable onDragStart={props.onDragStart} onDragEnd={props.onDragEnd}
+        title={t('mail-subtab-reorder-help')}
         onClick={() => subTabs.activate(id())}
         onAuxClick={(e) => {
           // Middle-click closes, matching browser tab convention.

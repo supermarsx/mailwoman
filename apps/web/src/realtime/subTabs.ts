@@ -8,7 +8,7 @@
 
 import { createSignal, type Accessor } from 'solid-js';
 
-export type SubTabKind = 'messages' | 'composer' | 'settings' | 'attachment';
+export type SubTabKind = 'messages' | 'composer' | 'settings' | 'attachment' | 'module' | 'attachments' | 'outbox' | 'sharing';
 
 export interface SubTab {
   id: string;
@@ -35,6 +35,9 @@ export interface SubTabsModel {
   activate(id: string): void;
   close(id: string): void;
   togglePin(id: string): void;
+  rename(id:string,title:string):void;
+  /** Reorder without changing active tab, payload, pin state or identity. */
+  move(id:string,index:number):void;
   /** Move focus by `dir` (+1 next / -1 prev), wrapping. Returns the new id. */
   cycle(dir: 1 | -1): string | null;
   /** Pop a tab into its own window (best-effort) and close it locally. */
@@ -105,6 +108,21 @@ export function createSubTabs(opts: SubTabsOptions = {}): SubTabsModel {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, pinned: !t.pinned } : t)));
   }
 
+  function rename(id:string,title:string):void {
+    const bounded=title.slice(0,512);
+    setTabs(previous=>previous.map(tab=>tab.id===id&&tab.title!==bounded?{...tab,title:bounded}:tab));
+  }
+
+  function move(id:string,index:number):void {
+    if(!Number.isFinite(index))return;
+    setTabs(previous=>{
+      const from=previous.findIndex(tab=>tab.id===id);
+      const to=Math.max(0,Math.min(previous.length-1,Math.trunc(index)));
+      if(from<0||from===to)return previous;
+      const next=[...previous];const [tab]=next.splice(from,1);next.splice(to,0,tab!);return next;
+    });
+  }
+
   function cycle(dir: 1 | -1): string | null {
     const list = tabs();
     if (list.length === 0) return null;
@@ -124,5 +142,5 @@ export function createSubTabs(opts: SubTabsOptions = {}): SubTabsModel {
     close(id);
   }
 
-  return { tabs, activeId, open, activate, close, togglePin, cycle, tearOff };
+  return { tabs, activeId, open, activate, close, togglePin, rename, move, cycle, tearOff };
 }

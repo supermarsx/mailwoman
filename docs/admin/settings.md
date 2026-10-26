@@ -965,3 +965,8 @@ Global/domain/user choice, default `"both"`. Select `none`, `unread`, `total`, o
 ### Secondary folder badge size (`mail.compactFolderBadges`)
 
 Global/domain/user boolean, default `true`. Uses smaller badges outside Inbox. Users can inherit or override this in Settings > Folders unless locked by an administrator. Folder names remain left-aligned and long names truncate without displacing the count.
+
+<a id="mail.resumeTabs"></a>
+### Resume workspace tabs
+
+`mail.resumeTabs` defaults to true and supports global, domain and user values with administrator locks. The browser stores bounded tab references, order, pins and active tab under both the wire account ID and verified storage authority, never message bodies or attachment URLs. Reopening resolves references under current authorization. Missing storage authority disables private persistence and automatic restoration; legacy raw-account-only records are not migrated automatically. Disabling the setting clears this workspace record without deleting the separate account-owned draft store.

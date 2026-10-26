@@ -302,10 +302,11 @@ export function drainOutbox(
   client: Client,
   tracking: DrainTracking = defaultTracking,
   active: () => boolean = () => true,
+  signal?: AbortSignal,
 ): Promise<DrainResult> {
   const running = draining.get(store);
   if (running !== undefined) return running;
-  const run = withQueueLock(() => drainOnce(store, client, tracking, active)).finally(() => draining.delete(store));
+  const run = withQueueLock(() => drainOnce(store, client, tracking, active, signal)).finally(() => draining.delete(store));
   draining.set(store, run);
   return run;
 }
@@ -341,7 +342,7 @@ const defaultTracking: DrainTracking = {
   bind: (token, emailId) => bindTrackingToken(token, emailId),
 };
 
-async function drainOnce(store: OutboxStore, client: Client, tracking: DrainTracking, active: () => boolean): Promise<DrainResult> {
+async function drainOnce(store: OutboxStore, client: Client, tracking: DrainTracking, active: () => boolean, signal?: AbortSignal): Promise<DrainResult> {
   const pending = ((await store.all()) as QueuedItem[]).filter((i) => i.state === 'queued');
   let sent = 0;
   let failed = 0;
@@ -361,7 +362,7 @@ async function drainOnce(store: OutboxStore, client: Client, tracking: DrainTrac
         request = outboundToRequest(item);
       }
       if (!active()) break;
-      const res = await client.jmap(request);
+      const res = await client.jmap(request, signal ? { signal } : undefined);
       if (outboundApplied(item, res)) {
         await store.delete(item.id);
         sent += 1;

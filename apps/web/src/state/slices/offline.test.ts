@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { activateAccountPreferences, suspendAccountPreferences } from '../../api/accountPreferenceLifecycle.ts';
-beforeEach(() => activateAccountPreferences('acct1'));
+beforeEach(() => activateAccountPreferences('acct1','test-storage-authority-acct1'));
 afterEach(() => suspendAccountPreferences());
 import { createRoot } from 'solid-js';
 import { createOfflineSlice, type OfflineSlice } from './offline.ts';
@@ -83,14 +83,33 @@ describe('offline slice — queue and undo', () => {
       suspendAccountPreferences();
       expect(offline.offlineQueuePending()).toBe(0);
       expect(await offline.replayOffline()).toEqual({ sent: 0, failed: 0 });
-      activateAccountPreferences('other');
+      activateAccountPreferences('other','test-storage-authority-other');
       expect(await offline.dequeueOffline(id)).toBe(false);
       await offline.replayOffline();
       expect(jmap).not.toHaveBeenCalled();
       expect(await store.all()).toHaveLength(1);
       await expect(offline.enqueueOffline('move', move)).rejects.toThrow('active account');
-      activateAccountPreferences('acct1');
+      activateAccountPreferences('acct1','test-storage-authority-acct1');
       await vi.waitFor(() => expect(offline.offlineQueuePending()).toBe(1));
+    });
+  });
+
+  it('aborts a pending replay when the same raw account moves to another verified realm',async()=>{
+    await withSlice(async({offline,store,jmap})=>{
+      await offline.enqueueOffline('move',move);
+      jmap.mockImplementationOnce((_request,options)=>new Promise((_resolve,reject)=>{
+        options?.signal?.addEventListener('abort',()=>reject(new DOMException('Authority changed','AbortError')),{once:true});
+      }));
+      const draining=offline.replayOffline();
+      await vi.waitFor(()=>expect(jmap).toHaveBeenCalledTimes(1));
+      const signal=jmap.mock.calls[0]?.[1]?.signal;
+      expect(signal?.aborted).toBe(false);
+      activateAccountPreferences('acct1','test-storage-authority-different-realm');
+      expect(signal?.aborted).toBe(true);
+      expect(await draining).toEqual({sent:0,failed:0});
+      expect(await store.all()).toHaveLength(1);
+      expect(await offline.replayOffline()).toEqual({sent:0,failed:0});
+      expect(jmap).toHaveBeenCalledTimes(1);
     });
   });
 

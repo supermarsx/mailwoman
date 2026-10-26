@@ -1,4 +1,4 @@
-import {preferenceAccount, preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
+import {observePreferenceAccount,preferenceAccount, preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import { settings } from '../api/settings.ts';
 import { supportsDeliveryReceipts } from '../api/deliveryReceipts.ts';
 import { externalRecipients } from './compose/recipientTrust.ts';
@@ -123,11 +123,18 @@ export function Compose(props: {
   onClose: () => void;
   embedded?: boolean;
   active?: boolean;
+  /** Workspace metadata contains only this account-owned local draft ID. */
+  resumeDraftId?: string;
+  onDraftIdChange?: (id:string)=>void;
+  onSubjectChange?: (subject:string)=>void;
   /** Reply / Reply all / Forward: what the composer starts with. Read once,
    *  when the composer mounts. */
   initial?: ComposeInitial;
 }): JSX.Element {
   const app = useApp();
+  const [composerAuthority,setComposerAuthority]=createSignal(preferenceAccount());
+  onCleanup(observePreferenceAccount(setComposerAuthority));
+  function localDraftAuthority():string|undefined {const owner=composerAuthority();return owner?.id===app.accountId()?owner.storageAuthority:undefined;}
   const composeId=createUniqueId();
   const initial = props.initial;
   const [expanded, setExpanded] = createSignal(false);
@@ -524,8 +531,10 @@ export function Compose(props: {
 
   /** Resume a locally auto-saved draft (W9) into this composer. */
   function resumeDraft(d: StoredDraft): void {
-    if (d.accountId !== app.accountId()) return;
+    const owner=preferenceAccount();
+    if (d.accountId !== app.accountId() || !owner || owner.id!==d.accountId || !preferenceAccountIsCurrent(owner) || !owner.storageAuthority || d.storageAuthority!==owner.storageAuthority) return;
     draftId = d.id;
+    props.onDraftIdChange?.(draftId);
     setExpanded(true);
     setIdentityId(d.identityId ?? '');
     setInsertedSignatures(new Set(d.insertedSignatures ?? []));
@@ -618,13 +627,13 @@ export function Compose(props: {
 
   /** Discard a stored draft and refresh the list (W9). */
   function discardDraft(id: string): void {
-    deleteDraft(id, app.accountId());
-    setDrafts(listDrafts(app.accountId()));
+    deleteDraft(id, app.accountId(),localDraftAuthority());
+    setDrafts(listDrafts(app.accountId(),localDraftAuthority()));
   }
 
   /** Open the Drafts drawer, refreshing the list from storage first (W9). */
   function openDrafts(): void {
-    setDrafts(listDrafts(app.accountId()));
+    setDrafts(listDrafts(app.accountId(),localDraftAuthority()));
     setDraftsOpen(true);
   }
 
@@ -643,17 +652,28 @@ export function Compose(props: {
   // closed / refreshed composer can be resumed. Empty compositions are skipped
   // (see `draftHasContent`). A composition quoting decrypted text is never
   // saved: local storage is plaintext, and the original was not.
-  onMount(() => setDrafts(listDrafts(app.accountId())));
+  onMount(() => setDrafts(listDrafts(app.accountId(),localDraftAuthority())));
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingDraft:StoredDraft | undefined;
   let sent=false;
   let draftAccount=app.accountId();
-  let draftAuthority=preferenceAccount();
+  let draftAuthority=app.accountId()===composerAuthority()?.id?composerAuthority():null;
   let draftDisposed=false;
   const ownsDraft=()=>!draftDisposed && app.accountId()===draftAccount && (draftAuthority===null || preferenceAccountIsCurrent(draftAuthority));
+  let resumedWorkspaceDraft=false;
+  createEffect(()=>{
+    const account=app.accountId(),owner=composerAuthority();
+    if(resumedWorkspaceDraft||!account||!owner||owner.id!==account||!preferenceAccountIsCurrent(owner))return;
+    resumedWorkspaceDraft=true;
+    const saved=props.resumeDraftId?listDrafts(account,localDraftAuthority()).find(draft=>draft.id===props.resumeDraftId):undefined;
+    if(saved)resumeDraft(saved);
+    props.onDraftIdChange?.(draftId);
+  });
+  createEffect(()=>{const value=subject();if(ownsDraft()&&draftAccount)props.onSubjectChange?.(value);});
   createEffect(() => {
-    const account = app.accountId();
-    if (draftAccount === null && account !== null) { draftAccount = account; draftAuthority=preferenceAccount(); setDrafts(listDrafts(account)); }
+    const account = app.accountId(),owner=composerAuthority();
+    if(!draftAuthority&&owner?.id===account){draftAuthority=owner;setDrafts(listDrafts(account,owner.storageAuthority));}
+    if (draftAccount === null && account !== null) { draftAccount = account; draftAuthority=owner; setDrafts(listDrafts(account,localDraftAuthority())); }
     if (account !== draftAccount) {
       clearTimeout(saveTimer); pendingDraft=undefined;
       setTo('');setCc('');setBcc('');setSubject('');setBody('');setBodyHtml('');setIdentityId('');
@@ -663,10 +683,12 @@ export function Compose(props: {
   });
   createEffect(() => {
     const account = app.accountId();
-    if (quotesDecrypted || account === null || account !== draftAccount) return;
+    composerAuthority();
+    if (quotesDecrypted || account === null || account !== draftAccount || !draftAuthority?.storageAuthority) return;
     const snapshot: StoredDraft = {
       id: draftId,
       accountId: account,
+      storageAuthority:draftAuthority.storageAuthority,
       identityId: identityId(),
       bodyFormat: richMode() ? 'html' : 'plain',
       insertedSignatures: [...insertedSignatures()],
@@ -936,7 +958,7 @@ export function Compose(props: {
       if (!ownsDraft()) return;
       // W9: the composition was sent — drop its auto-saved draft.
       sent=true;clearTimeout(saveTimer);pendingDraft=undefined;
-      deleteDraft(draftId, draftAccount);
+      deleteDraft(draftId, draftAccount,draftAuthority?.storageAuthority);
       props.onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('mail-compose-send-failed'));
@@ -993,6 +1015,7 @@ export function Compose(props: {
           <RecallPanel submissions={app.cancelableOutbox} onRecall={recallSubmission} />
         </Show>
 
+        <Show when={!localDraftAuthority()}><p role="status" class="compose__sign-unlock-note">{t('mail-compose-private-storage-unavailable')}</p></Show>
         <Show when={compact()}><section class="compose__quick-summary" aria-label={t('mail-quick-reply')}><p><strong>{t('mail-compose-to')}:</strong> {to()}<Show when={cc()}> · Cc: {cc()}</Show><Show when={bcc()}> · Bcc: {bcc()}</Show></p><p>{subject()}</p><button type="button" class="btn btn--ghost" onClick={() => setExpanded(true)}>{t('mail-quick-reply-expand')}</button></section></Show>
         <Show when={!compact()}>
         <Show when={app.identities().length > 0}>

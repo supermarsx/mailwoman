@@ -185,7 +185,7 @@ interface SyncMark {
 const MARK_KEY = 'mw.theme.sync';
 
 function readMark(key = MARK_KEY): SyncMark | null {
-  if (typeof localStorage === 'undefined') return null;
+  if (!key || typeof localStorage === 'undefined') return null;
   try {
     const raw = localStorage.getItem(key);
     if (raw === null) return null;
@@ -198,7 +198,7 @@ function readMark(key = MARK_KEY): SyncMark | null {
 }
 
 function writeMark(mark: SyncMark, key = MARK_KEY): void {
-  if (typeof localStorage === 'undefined') return;
+  if (!key || typeof localStorage === 'undefined') return;
   try {
     localStorage.setItem(key, JSON.stringify(mark));
   } catch {
@@ -208,7 +208,7 @@ function writeMark(mark: SyncMark, key = MARK_KEY): void {
 
 /** Drop the mark, so the next `start()` reconciles as a device that never synced. */
 export function clearSyncMark(key = MARK_KEY): void {
-  if (typeof localStorage === 'undefined') return;
+  if (!key || typeof localStorage === 'undefined') return;
   try {
     localStorage.removeItem(key);
   } catch {
@@ -483,7 +483,7 @@ export function bindAppearanceToAccount(prefs: AppearancePrefsSeam): () => void 
   accountBindingDispose?.();
   stopAppearanceSync();
   const sync = createAppearanceSync(prefs, {
-    markKey: () => `${MARK_KEY}:${encodeURIComponent(preferenceAccount()?.id ?? '')}`,
+    markKey: () => preferenceAccount()?.storageAuthority?`${MARK_KEY}:v2:${encodeURIComponent(preferenceAccount()!.storageAuthority!)}`:'',
     allowed: () => preferenceAccount() !== null,
     serverWins: true,
   });

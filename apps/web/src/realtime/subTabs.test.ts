@@ -2,6 +2,17 @@ import { describe, it, expect, vi } from 'vitest';
 import { createSubTabs } from './subTabs.ts';
 
 describe('createSubTabs', () => {
+  it('reorders stable tab identities without activating or losing pin and payload state',()=>{
+    const model=createSubTabs();model.open({id:'a',kind:'module',title:'Contacts',pinned:true,data:{surface:'contacts'}});model.open({id:'b',kind:'messages',title:'Message'});
+    const original=model.tabs()[0];model.move('a',1);
+    expect(model.tabs().map(tab=>tab.id)).toEqual(['b','a']);expect(model.activeId()).toBe('b');expect(model.tabs()[1]).toBe(original);
+    model.move('missing',0);model.move('a',Number.NaN);expect(model.tabs().map(tab=>tab.id)).toEqual(['b','a']);
+    model.move('a',-50);expect(model.tabs()[0]?.id).toBe('a');
+  });
+  it('renames only the indicated tab and bounds labels',()=>{
+    const model=createSubTabs();model.open({id:'a',kind:'composer',title:'New message'});model.rename('a','Subject');expect(model.tabs()[0]?.title).toBe('Subject');
+    model.rename('a','x'.repeat(1000));expect(model.tabs()[0]?.title).toHaveLength(512);
+  });
   it('opens a tab, makes it active, and returns its id', () => {
     const s = createSubTabs();
     const id = s.open({ kind: 'messages', title: 'Inbox' });

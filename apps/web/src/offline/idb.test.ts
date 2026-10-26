@@ -150,3 +150,8 @@ describe('idbOutboxStore', () => {
     expect(spy.getAll).toHaveBeenCalledTimes(1);
   });
 });
+
+it('persists the verified queue authority as part of the IndexedDB record',async()=>{
+ const value={...item('scoped',1),storageAuthority:'verified-storage-authority'};const fake=fakeDb([value]);const queue=idbOutboxStore(fake.db);await queue.add(value);
+ expect(fake.store.get(`${IDB_OUTBOX_STORE}/scoped`)).toEqual(value);expect((await queue.all())[0]?.storageAuthority).toBe(value.storageAuthority);
+});

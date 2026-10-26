@@ -36,6 +36,8 @@ export type OutboundState = 'queued' | 'sent' | 'failed';
 
 /** One queued mutation, replayed FIFO on reconnect and reconciled vs newState. */
 export interface OutboundItem {
+  /** Verified server-issued realm namespace; absent legacy rows cannot replay. */
+  storageAuthority?: string;
   id: string;
   type: OutboundType;
   payload: unknown;

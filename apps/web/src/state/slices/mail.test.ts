@@ -1219,15 +1219,15 @@ describe('mail slice — session lifecycle', () => {
   it('logout removes the composer drafts stored in this browser', async () => {
     localStorage.clear();
     await withInbox([email('a')], async (mail) => {
-      saveDraft({ id: 'd1', accountId: 'account-a', to: 'you@example.org', subject: 'Unsent', bodyHtml: '<p>x</p>', bodyText: 'x', savedAt: 1 });
+      saveDraft({ id: 'd1', accountId: 'account-a',storageAuthority:'test-storage-authority-a', to: 'you@example.org', subject: 'Unsent', bodyHtml: '<p>x</p>', bodyText: 'x', savedAt: 1 });
       // Precondition: the draft is really in storage under the key the composer reads.
-      expect(listDrafts('account-a').map((d) => d.id)).toEqual(['d1']);
-      expect(localStorage.getItem('mw.compose.drafts.v1')).not.toBeNull();
+      expect(listDrafts('account-a','test-storage-authority-a').map((d) => d.id)).toEqual(['d1']);
+      expect(localStorage.getItem('mw.compose.drafts.v2')).not.toBeNull();
 
       await mail.logout();
 
-      expect(listDrafts('account-a')).toEqual([]);
-      expect(localStorage.getItem('mw.compose.drafts.v1')).toBeNull();
+      expect(listDrafts('account-a','test-storage-authority-a')).toEqual([]);
+      expect(localStorage.getItem('mw.compose.drafts.v2')).toBeNull();
     });
   });
 
@@ -1262,11 +1262,11 @@ describe('mail slice — session lifecycle', () => {
       localStorage.clear();
       const cacheStorage = stubCaches();
       await withInbox([email('a')], async (mail, { client }) => {
-        saveDraft({ id: 'd1', accountId: 'account-a', to: '', subject: 'Unsent', bodyHtml: '', bodyText: '', savedAt: 1 });
+        saveDraft({ id: 'd1', accountId: 'account-a',storageAuthority:'test-storage-authority-a', to: '', subject: 'Unsent', bodyHtml: '', bodyText: '', savedAt: 1 });
         vi.mocked(client.logout).mockRejectedValueOnce(new Error('offline'));
         await expect(mail.logout()).rejects.toThrow('offline');
         expect(mail.me()).toBeNull();
-        expect(listDrafts('account-a')).toEqual([]);
+        expect(listDrafts('account-a','test-storage-authority-a')).toEqual([]);
         await vi.waitFor(() => expect(cacheStorage.deleted.sort()).toEqual(['mw-assets-v2', 'mw-shell-v1']));
       });
     });

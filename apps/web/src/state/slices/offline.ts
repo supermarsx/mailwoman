@@ -76,20 +76,20 @@ export function createOfflineSlice(ctx: SliceContext, deps: OfflineSliceDeps = {
 
   const accountStores = new Map<string, OutboxStore>();
   function scoped(account: PreferenceAccount): OutboxStore {
-    let scopedStore = accountStores.get(account.id);
-    if (!scopedStore) { scopedStore = accountOutbox(store, account.id); accountStores.set(account.id, scopedStore); }
+    let scopedStore = accountStores.get(`${account.storageAuthority}:${account.id}`);
+    if (!scopedStore) { scopedStore = accountOutbox(store, account.id,account.storageAuthority!); accountStores.set(`${account.storageAuthority}:${account.id}`, scopedStore); }
     return scopedStore;
   }
   function authority(): PreferenceAccount {
     const account = preferenceAccount();
-    if (!account) throw new Error('Sign in before changing the offline queue');
+    if (!account?.storageAuthority) throw new Error(t('mail-offline-storage-unavailable'));
     return account;
   }
 
   /** Re-read the queue into the two signals the UI shows. */
   async function refresh(): Promise<void> {
     const account = preferenceAccount();
-    if (!account) return;
+    if (!account?.storageAuthority) return;
     const items = (await scoped(account).all()) as QueuedItem[];
     if (!preferenceAccountIsCurrent(account)) return;
     setPending(items.filter((i) => i.state === 'queued').length);
@@ -110,8 +110,12 @@ export function createOfflineSlice(ctx: SliceContext, deps: OfflineSliceDeps = {
 
   async function replayOffline(): Promise<DrainResult> {
     const account = preferenceAccount();
-    if (!account) return { sent: 0, failed: 0 };
-    const result = await drainOutbox(scoped(account), client, undefined, () => preferenceAccountIsCurrent(account));
+    if (!account?.storageAuthority) return { sent: 0, failed: 0 };
+    const controller=new AbortController();
+    const stop=observePreferenceAccount(()=>{if(!preferenceAccountIsCurrent(account))controller.abort();});
+    let result:DrainResult;
+    try {result=await drainOutbox(scoped(account), client, undefined, () => preferenceAccountIsCurrent(account),controller.signal);}
+    finally {stop();}
     if (!preferenceAccountIsCurrent(account)) return result;
     await refresh();
     if (result.sent > 0) showToast('success', t('mail-queue-sent', { count: result.sent }));
@@ -158,7 +162,7 @@ export function createOfflineSlice(ctx: SliceContext, deps: OfflineSliceDeps = {
   if (typeof window !== 'undefined') window.addEventListener('online', online);
   const stopAccount = observePreferenceAccount(account => {
     setPending(0); setFailed([]); setCachedHeaders([]);
-    if (account) void refresh();
+    if (account?.storageAuthority) void refresh();
   });
   if (getOwner()) onCleanup(() => {
     stopAccount(); stopNetwork();

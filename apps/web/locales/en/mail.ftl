@@ -601,3 +601,8 @@ mail-compose-font-size = Font size
 mail-compose-font-inherit = Default
 mail-compose-undo = Undo
 mail-compose-redo = Redo
+
+mail-subtab-reorder-help = Drag to reorder tabs, or press Ctrl+Shift+Left or Right on the active tab.
+mail-workspace-limit = Close a tab before opening another. Up to 32 tabs can be retained.
+mail-compose-private-storage-unavailable = Local draft recovery is unavailable for this session. Keep this editor open until you send or copy your message.
+mail-offline-storage-unavailable = Offline changes are unavailable until this session has verified storage authority. Reconnect and sign in again.

@@ -437,3 +437,6 @@ settings-folder-counts-both = Unread and total messages
 settings-folder-counts-compact = Smaller badges outside Inbox
 settings-folder-counts-reset = Inherit folder counts
 settings-folder-counts-reset-size = Inherit badge size
+
+settings-mail-resume-tabs = Resume my open tabs
+settings-mail-resume-tabs-help = Restore account-owned tab references after reopening Mailwoman. Message bodies and attachment URLs are not saved in the workspace record.

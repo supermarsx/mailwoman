@@ -1,3 +1,4 @@
+import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 import { toasts, resetToasts } from './toast/index.ts';
 import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent, screen } from '@solidjs/testing-library';
@@ -14,6 +15,24 @@ function renderStrip(controller: RealtimeController) {
 }
 
 describe('SubTabStrip', () => {
+  it('accepts only its own current-account drag token',()=>{
+    activateAccountPreferences('tab-owner');
+    const controller=createRealtimeController();const a=controller.subTabs.open({kind:'messages',title:'Inbox'}),b=controller.subTabs.open({kind:'module',title:'Contacts'});renderStrip(controller);
+    const values=new Map<string,string>();const transfer={types:[] as string[],effectAllowed:'',dropEffect:'',setData:(type:string,value:string)=>{values.set(type,value);transfer.types=[type];},getData:(type:string)=>values.get(type)??''};
+    fireEvent.dragStart(screen.getByRole('tab',{name:'Contacts'}),{dataTransfer:transfer});
+    fireEvent.drop(screen.getByRole('tab',{name:'Inbox'}),{dataTransfer:transfer});expect(controller.subTabs.tabs().map(tab=>tab.id)).toEqual([b,a]);
+    fireEvent.dragStart(screen.getByRole('tab',{name:'Contacts'}),{dataTransfer:transfer});suspendAccountPreferences();activateAccountPreferences('different');
+    fireEvent.drop(screen.getByRole('tab',{name:'Inbox'}),{dataTransfer:transfer});expect(controller.subTabs.tabs().map(tab=>tab.id)).toEqual([b,a]);suspendAccountPreferences();
+  });
+  it('moves the active tab with Ctrl+Shift arrows without changing its identity',()=>{
+    const controller=createRealtimeController();
+    const a=controller.subTabs.open({kind:'messages',title:'Inbox'});
+    const b=controller.subTabs.open({kind:'module',title:'Contacts'});
+    renderStrip(controller);
+    fireEvent.keyDown(screen.getByRole('tab',{name:'Contacts'}),{key:'ArrowLeft',ctrlKey:true,shiftKey:true});
+    expect(controller.subTabs.tabs().map(tab=>tab.id)).toEqual([b,a]);
+    expect(controller.subTabs.activeId()).toBe(b);
+  });
   it('renders nothing while there are no tabs', () => {
     const controller = createRealtimeController({ subTabs: { openWindow: vi.fn() } });
     renderStrip(controller);

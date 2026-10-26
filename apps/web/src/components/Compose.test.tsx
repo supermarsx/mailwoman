@@ -667,10 +667,10 @@ describe('Compose', () => {
   });
 
   it('resumes the owned format, identity and attachments without duplicating its signature', async () => {
-    saveDraft({id:'resume-owned',accountId:'acct1',identityId:'id1',bodyFormat:'plain',insertedSignatures:['id1'],
+    saveDraft({id:'resume-owned',accountId:'acct1',storageAuthority:'test-storage-authority-acct1',identityId:'id1',bodyFormat:'plain',insertedSignatures:['id1'],
       to:'you@example.org',subject:'Resumed',bodyText:'Hi\n\n-- \nSent from Mailwoman',bodyHtml:'',savedAt:1,
       attachments:[{name:'saved.pdf',blobId:'saved-upload',size:42,contentType:'application/pdf'}]});
-    saveDraft({id:'foreign',accountId:'other',to:'private@example.org',subject:'Foreign private',bodyText:'private',bodyHtml:'',savedAt:2});
+    saveDraft({id:'foreign',accountId:'other',storageAuthority:'test-storage-authority-other',to:'private@example.org',subject:'Foreign private',bodyText:'private',bodyHtml:'',savedAt:2});
     const {app,client,onClose}=await composeWithClient({identities:IDENTITIES});
     await app.loadIdentities();
     fireEvent.click(screen.getByTestId('open-drafts'));
@@ -685,8 +685,8 @@ describe('Compose', () => {
     const draft=(request.methodCalls[0]![1]['create'] as Record<string,Record<string,unknown>>)['draft']!;
     expect(draft['bodyValues']).toEqual({body:{value:'Hi\n\n-- \nSent from Mailwoman'}});
     expect(draft['attachments']).toEqual([{blobId:'saved-upload',type:'application/pdf',name:'saved.pdf',size:42,disposition:'attachment'}]);
-    expect(listDrafts('acct1')).toEqual([]);
-    expect(listDrafts('other')).toHaveLength(1);
+    expect(listDrafts('acct1','test-storage-authority-acct1')).toEqual([]);
+    expect(listDrafts('other','test-storage-authority-other')).toHaveLength(1);
   });
 
   it('inserts a chosen signature into the plain-text body', async () => {

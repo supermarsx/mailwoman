@@ -610,3 +610,6 @@ admin-settings-help-admin-allow-last-superadmin-loss = Off by default. Enabling 
 admin-settings-last-superadmin-title = Allow losing all Super admin access?
 admin-settings-last-superadmin-body = Later account changes may leave nobody able to administer this deployment. Recovery would require local deployment administration. Type ALLOW LAST SUPERADMIN LOSS to enable this exception.
 admin-settings-last-superadmin-confirm = Allow loss of access
+
+admin-settings-key-mail-resume-tabs = Resume workspace tabs
+admin-settings-help-mail-resume-tabs = Restore account-owned tab references after reload. Disabling this clears the local workspace record without deleting drafts.

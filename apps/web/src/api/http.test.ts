@@ -64,6 +64,15 @@ describe('apiFetch', () => {
     await vi.waitFor(()=>expect(fetchMock).toHaveBeenCalledTimes(2));suspendAccountPreferences();activateAccountPreferences('new');release(json(200,{csrfToken:'new'}));await rejected;
     expect(fetchMock).toHaveBeenCalledTimes(2);suspendAccountPreferences();
   });
+  it('does not retry a mutation when the same raw account ID moves to another verified realm',async()=>{
+    activateAccountPreferences('1','msa1_first_verified_realm');let release:(value:Response)=>void=()=>{};
+    fetchMock.mockResolvedValueOnce(refusal()).mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));
+    const pending=apiFetch('/api/account/signatures',{method:'POST',headers:{'X-Mailwoman-Account':'1'},body:'{}'});
+    const rejected=expect(pending).rejects.toMatchObject({name:'AbortError'});
+    await vi.waitFor(()=>expect(fetchMock).toHaveBeenCalledTimes(2));
+    activateAccountPreferences('1','msa1_second_verified_realm');release(json(200,{csrfToken:'new'}));await rejected;
+    expect(fetchMock).toHaveBeenCalledTimes(2);suspendAccountPreferences();
+  });
   it('does not dispatch a native session mutation after an account change while loading its token',async()=>{
     activateAccountPreferences('native-old');let release:(token:string)=>void=()=>{};
     setNativeTransport({base:()=> 'https://native.example',token:()=>new Promise(resolve=>{release=resolve;}),setToken:async()=>{}});

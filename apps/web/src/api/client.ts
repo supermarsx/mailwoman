@@ -90,6 +90,8 @@ export interface LoginInput {
 }
 
 export interface Me {
+  /** Opaque verified storage namespace; never used as a JMAP account ID. */
+  storageAuthority?: string;
   username: string;
   accountId: string;
   /**

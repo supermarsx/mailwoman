@@ -103,7 +103,7 @@ export interface ShellRouter {
  * the inbox's `#/mail`, so Back does not return to it, and `onUnknown` is told
  * so the shell can say why the page changed (t32-h10).
  */
-export function createShellRouter(onUnknown?: () => void): ShellRouter {
+export function createShellRouter(onUnknown?: () => void,options:{retainedSurfaces?:boolean;onExternalNavigation?:()=>void}={}): ShellRouter {
   /** The current hash, with an unknown route already replaced by the inbox. */
   function settledHash(): string {
     if (typeof location === 'undefined') return '';
@@ -127,7 +127,9 @@ export function createShellRouter(onUnknown?: () => void): ShellRouter {
   function propose(h: string): void {
     if (deciding) return;
     const ticket = ++request;
-    const decision = confirmShellNavigation();
+    // Retained workspace switches keep editors alive. Their close action owns
+    // the scoped discard check; non-workspace callers retain the original guard.
+    const decision = options.retainedSurfaces ? true : confirmShellNavigation();
     if (typeof decision === 'boolean') { if (decision) commit(h); return; }
     deciding = true;
     void decision.then(allowed => { if (allowed && alive && ticket === request) commit(h); }).catch(() => undefined).finally(() => { deciding = false; });
@@ -137,6 +139,7 @@ export function createShellRouter(onUnknown?: () => void): ShellRouter {
       const h = settledHash();
       const current = routeHash(route().surface, route().param);
       if (h === current) return;
+      options.onExternalNavigation?.();
       // Keep the mounted editor and URL together until it permits leaving.
       history.replaceState(history.state, '', `${location.pathname}${location.search}${current}`);
       propose(h);

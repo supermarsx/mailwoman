@@ -593,6 +593,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("mail.requestReadReceipt", Kind::Bool, "false", GDU, "mail", "request a read receipt by default when composing supported mail"),
     def!("mail.requestDeliveryReceipt", Kind::Bool, "false", GDU, "mail", "request delivery status notifications by default when the account supports DSN"),
     def!("mail.modifierSelection", Kind::Bool, "true", GDU, "mail", "select messages with Ctrl, Command, Shift and arrow keys"),
+    def!("mail.resumeTabs", Kind::Bool, "true", GDU, "mail", "restore account-owned workspace tab references after reload"),
     def!("mail.dragToFolder", Kind::Bool, "true", GDU, "mail", "move selected messages by dragging them to a folder"),
     def!("mail.folderCounts", Kind::Enum(&["none", "unread", "total", "both"]), "\"both\"", GDU, "mail", "counts displayed beside mail folders"),
     def!("mail.compactFolderBadges", Kind::Bool, "true", GDU, "mail", "smaller count badges for folders other than Inbox"),

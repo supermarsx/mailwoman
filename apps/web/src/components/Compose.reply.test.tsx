@@ -311,7 +311,7 @@ describe('Compose opened as a reply or a forward', () => {
     } finally {
       vi.useRealTimers();
     }
-    const saved = listDrafts('acct1');
+    const saved = listDrafts('acct1','test-storage-authority-acct1');
     expect(saved).toHaveLength(1);
     expect(saved[0]).toMatchObject({
       to: 'Alice <alice@example.org>',
@@ -341,8 +341,8 @@ describe('Compose quoting the decrypted text of an encrypted message', () => {
     } finally {
       vi.useRealTimers();
     }
-    expect(listDrafts('acct1')).toEqual([]);
-    expect(localStorage.getItem('mw.compose.drafts.v1')).toBeNull();
+    expect(listDrafts('acct1','test-storage-authority-acct1')).toEqual([]);
+    expect(localStorage.getItem('mw.compose.drafts.v2')).toBeNull();
   });
 
   it('asks before sending unencrypted; nothing is sent until the user confirms', async () => {

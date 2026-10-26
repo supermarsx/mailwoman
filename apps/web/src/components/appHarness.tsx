@@ -95,9 +95,9 @@ export function makeClient(opts: HarnessOpts = {}): Client {
     return { methodResponses: body.methodCalls.map((c) => [c[0], {}, c[2]] as JmapResponse['methodResponses'][number]), sessionState: 's' };
   });
   return {
-    login: vi.fn(async (): Promise<Me> => ({ username: 'me@example.org', accountId: 'acct1' })),
+    login: vi.fn(async (): Promise<Me> => ({ username: 'me@example.org', accountId: 'acct1',storageAuthority:'test-storage-authority-acct1' })),
     logout: vi.fn(async () => undefined),
-    me: vi.fn(async (): Promise<Me> => ({ username: 'me@example.org', accountId: 'acct1' })),
+    me: vi.fn(async (): Promise<Me> => ({ username: 'me@example.org', accountId: 'acct1',storageAuthority:'test-storage-authority-acct1' })),
     session: vi.fn(async () => SESSION),
     jmap,
     sanitize: vi.fn(async (h: string) => h),

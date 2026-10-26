@@ -1,4 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import * as workspaceAttachments from '../realtime/workspaceAttachment.ts';
+import {loadSettings} from '../api/settings.ts';
+import {WORKSPACE_STORAGE_KEY} from '../realtime/workspaceStorage.ts';
+import {suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, fireEvent, screen, within, waitFor } from '@solidjs/testing-library';
 import { AppContext } from '../state/context.ts';
 import { createAppState } from '../state/store.ts';
@@ -8,17 +12,66 @@ import { RealtimeContext } from '../realtime/context.ts';
 import { createRealtimeController } from '../realtime/controller.ts';
 import type { EmailGetResponse, JmapRequest } from '../api/jmap-types.ts';
 
+beforeEach(async()=>{suspendAccountPreferences();localStorage.removeItem(WORKSPACE_STORAGE_KEY);history.replaceState(null,'','#/mail');await new Promise(resolve=>setTimeout(resolve,0));});
+
 function mount(attachment=false) {
   const first=mkEmail('a');
   if(attachment)Object.assign(first,{attachments:[{partId:'2',blobId:'file-a',name:'report.txt',type:'text/plain',size:4}]});
   const emails=[first,mkEmail('b')];const client=makeClient({emails});
   const original=client.jmap;
-  client.jmap=vi.fn(async (request:JmapRequest)=>{const response=await original(request);const ids=request.methodCalls.find(call=>call[0]==='Email/get')?.[1]['ids'];if(Array.isArray(ids)){for(const call of response.methodResponses)if(call[0]==='Email/get')(call[1] as unknown as EmailGetResponse).list=emails.filter(email=>ids.includes(email.id));}return response;});
+  client.jmap=vi.fn(async (request:JmapRequest)=>{const response=await original(request);for(const [method,args,id] of request.methodCalls){if(/^(AddressBook|ContactCard|ContactGroup)\//.test(method)){const index=response.methodResponses.findIndex(call=>call[2]===id);if(index>=0)response.methodResponses[index]=[method,{accountId:args['accountId'],state:'s',list:[],ids:[],notFound:[]},id];}}const ids=request.methodCalls.find(call=>call[0]==='Email/get')?.[1]['ids'];if(Array.isArray(ids)){for(const call of response.methodResponses)if(call[0]==='Email/get')(call[1] as unknown as EmailGetResponse).list=emails.filter(email=>ids.includes(email.id));}return response;});
   const app=createAppState(client);const realtime=createRealtimeController();
   const result=render(()=><AppContext.Provider value={app}><RealtimeContext.Provider value={realtime}><MailboxScreen/></RealtimeContext.Provider></AppContext.Provider>);
   return {app,realtime,...result};
 }
 describe('retained mailbox workspace',()=>{
+  it('does not overwrite newer user intent when attachment restoration finishes late',async()=>{
+    let finish!:(value:Awaited<ReturnType<typeof workspaceAttachments.resolveWorkspaceAttachment>>)=>void;
+    const pending=new Promise<Awaited<ReturnType<typeof workspaceAttachments.resolveWorkspaceAttachment>>>(resolve=>{finish=resolve;});
+    const resolve=vi.spyOn(workspaceAttachments,'resolveWorkspaceAttachment').mockReturnValue(pending);
+    const {app,realtime}=mount();
+    localStorage.setItem(WORKSPACE_STORAGE_KEY,JSON.stringify({version:2,accountId:'acct1',storageAuthority:'test-storage-authority-acct1',tabs:[{id:'mail',kind:'messages',pinned:true},{id:'attachment:acct1:file-a',kind:'attachment',reference:'file-a',messageId:'a',pinned:false}],activeId:'attachment:acct1:file-a',layout:'tabs'}));
+    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{}}),{headers:{'Content-Type':'application/json'}})});
+    await app.login({username:'me@example.org',password:'p'});
+    await waitFor(()=>expect(resolve).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole('button',{name:/^Compose$/}));const active=realtime.subTabs.activeId();
+    finish({emailId:'a',blobId:'file-a',name:'late.txt',mime:'text/plain',size:4,subject:'old',from:'',receivedAt:'2026-01-01T00:00:00Z'});
+    await waitFor(()=>expect(localStorage.getItem(WORKSPACE_STORAGE_KEY)).toContain(active!));
+    expect(realtime.subTabs.activeId()).toBe(active);expect(realtime.subTabs.tabs().some(tab=>tab.kind==='attachment')).toBe(false);resolve.mockRestore();
+  });
+  it('restores only account-owned references and clears retained panes on authority suspension',async()=>{
+    const {app,realtime,container}=mount();
+    localStorage.setItem(WORKSPACE_STORAGE_KEY,JSON.stringify({version:2,accountId:'acct1',storageAuthority:'test-storage-authority-acct1',tabs:[{id:'mail',kind:'messages',pinned:true},{id:'surface:acct1:contacts',kind:'module',reference:'contacts',pinned:true}],activeId:'surface:acct1:contacts',layout:'tabs'}));
+    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{}}),{headers:{'Content-Type':'application/json'}})});
+    await app.login({username:'me@example.org',password:'p'});
+    await screen.findByRole('tab',{name:'Contacts'});
+    expect(realtime.subTabs.tabs().find(tab=>tab.title==='Contacts')?.pinned).toBe(true);
+    const stored=localStorage.getItem(WORKSPACE_STORAGE_KEY)!;expect(stored).not.toContain('Subject');
+    suspendAccountPreferences();
+    await waitFor(()=>expect(container.querySelector('[data-surface="contacts"]')).toBeNull());
+    expect(realtime.subTabs.tabs().filter(tab=>tab.id!=='mail')).toHaveLength(0);
+  });
+  it('honors disabled resume policy and removes the saved workspace record',async()=>{
+    const {app,realtime}=mount();await app.login({username:'me@example.org',password:'p'});
+    localStorage.setItem(WORKSPACE_STORAGE_KEY,JSON.stringify({version:2,accountId:'acct1',storageAuthority:'test-storage-authority-acct1',tabs:[{id:'surface:acct1:contacts',kind:'module',reference:'contacts',pinned:false}],activeId:'surface:acct1:contacts',layout:'tabs'}));
+    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.resumeTabs':{value:false,source:'global',locked:true}}}),{headers:{'Content-Type':'application/json'}})});
+    await waitFor(()=>expect(localStorage.getItem(WORKSPACE_STORAGE_KEY)).toBeNull());
+    expect(realtime.subTabs.tabs().some(tab=>tab.title==='Contacts')).toBe(false);
+  });
+  it('retains module panes while routing and closes only the requested tab',async()=>{
+    const {app,realtime,container}=mount();await app.login({username:'me@example.org',password:'p'});
+    fireEvent.click(screen.getByRole('button',{name:'Contacts'}));
+    await screen.findByRole('tab',{name:'Contacts'});
+    const contacts=container.querySelector('[data-surface="contacts"]');expect(contacts).not.toBeNull();
+    fireEvent.click(screen.getByRole('button',{name:'Tasks'}));
+    await screen.findByRole('tab',{name:'Tasks'});
+    expect(container.querySelector('[data-surface="contacts"]')).toBe(contacts);
+    fireEvent.click(screen.getByRole('tab',{name:'Contacts'}));
+    expect(screen.getByRole('tab',{name:'Contacts'})).toHaveAttribute('aria-selected','true');
+    fireEvent.click(screen.getByRole('button',{name:'Close Tasks'}));
+    await waitFor(()=>expect(realtime.subTabs.tabs().some(tab=>tab.title==='Tasks')).toBe(false));
+    expect(container.querySelector('[data-surface="contacts"]')).toBe(contacts);
+  });
   it('opens the selected message export editor in Settings and retains its reader',async()=>{
     const {app}=mount();await app.login({username:'me@example.org',password:'p'});
     fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}));
@@ -57,12 +110,12 @@ describe('retained mailbox workspace',()=>{
     fireEvent.click(screen.getByRole('button',{name:/^Compose$/}));
     fireEvent.input(within(screen.getByRole('tabpanel',{name:'Compose'})).getByLabelText('Subject'),{target:{value:'Draft beta'}});
     fireEvent.click(document.getElementById(`subtab-tab-${first}`)!);
-    expect(within(screen.getByRole('tabpanel',{name:'Compose'})).getByLabelText('Subject')).toHaveValue('Draft alpha');
+    expect(within(screen.getByRole('tabpanel',{name:'Draft alpha'})).getByLabelText('Subject')).toHaveValue('Draft alpha');
     fireEvent.click(screen.getByRole('button',{name:/^Settings$/}));
     const settings=await screen.findByRole('region',{name:'Settings'});
     expect(within(settings).getByRole('navigation',{name:'Settings sections'})).toBeInTheDocument();
     expect(screen.queryByRole('dialog',{name:'Settings'})).not.toBeInTheDocument();
     fireEvent.click(document.getElementById(`subtab-tab-${first}`)!);
-    expect(within(screen.getByRole('tabpanel',{name:'Compose'})).getByLabelText('Subject')).toHaveValue('Draft alpha');
+    expect(within(screen.getByRole('tabpanel',{name:'Draft alpha'})).getByLabelText('Subject')).toHaveValue('Draft alpha');
   });
 });

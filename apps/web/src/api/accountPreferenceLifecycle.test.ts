@@ -28,3 +28,8 @@ it('notifies suspension synchronously and permits disposal', () => {
   activateAccountPreferences('other');
   expect(callback).toHaveBeenCalledTimes(calls);
 });
+
+it('advances authority generation when two realms have the same wire account ID',()=>{
+ activateAccountPreferences('1','verified-storage-authority-a');const first=preferenceAccount()!;
+ activateAccountPreferences('1','verified-storage-authority-b');expect(preferenceAccount()!.id).toBe('1');expect(preferenceAccountIsCurrent(first)).toBe(false);expect(preferenceAccount()!.storageAuthority).toBe('verified-storage-authority-b');
+});

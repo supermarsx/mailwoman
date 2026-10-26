@@ -13,13 +13,16 @@ export function outboundAccount(item: OutboundItem): string | null {
   } catch { return null; }
 }
 
-export function accountOutbox(store: OutboxStore, account: string): OutboxStore {
-  const owns = (item: OutboundItem): boolean => outboundAccount(item) === account;
+export function accountOutbox(store: OutboxStore, account: string, storageAuthority:string): OutboxStore {
+  if(!/^[A-Za-z0-9_-]{16,256}$/.test(storageAuthority))throw new Error('Verified offline storage authority is required');
+  const owns = (item: OutboundItem): boolean => outboundAccount(item) === account && item.storageAuthority===storageAuthority;
   return {
     async all() { return (await store.all()).filter(owns); },
     async add(item) {
-      if (!owns(item)) throw new Error('Queued change does not belong to the active account');
-      await store.add(item);
+      if (outboundAccount(item)!==account||(item.storageAuthority!==undefined&&item.storageAuthority!==storageAuthority))throw new Error('Queued change does not belong to the active account');
+      const old=(await store.all()).find(row=>row.id===item.id);
+      if(old&&!owns(old))throw new Error('Queued change belongs to another account');
+      await store.add({...item,storageAuthority});
     },
     async put(item) {
       if (!owns(item)) throw new Error('Queued change does not belong to the active account');

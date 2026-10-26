@@ -8,7 +8,8 @@
 // called on logout. The drawer is written prop-first so a server list can back
 // it later without a component change.
 
-const KEY = 'mw.compose.drafts.v1';
+const KEY = 'mw.compose.drafts.v2';
+const LEGACY_KEY='mw.compose.drafts.v1';
 const MAX_DRAFTS = 25;
 
 /** An image placed in the body, as a draft keeps it: the uploaded blob and the
@@ -31,6 +32,7 @@ export interface StoredAttachment {
 export interface StoredDraft {
   id: string;
   accountId: string;
+  storageAuthority: string;
   identityId?: string;
   bodyFormat?: 'plain' | 'html';
   insertedSignatures?: string[];
@@ -91,6 +93,7 @@ function isDraft(d: unknown): d is StoredDraft {
   return (
     typeof r.id === 'string' &&
     typeof r.accountId === 'string' && r.accountId.length > 0 &&
+    typeof r.storageAuthority==='string'&&/^[A-Za-z0-9_-]{16,256}$/.test(r.storageAuthority)&&
     optional(r.identityId, isString) &&
     optional(r.bodyFormat, value => value === 'plain' || value === 'html') &&
     optional(r.insertedSignatures, isStringList) &&
@@ -114,8 +117,8 @@ function write(drafts: StoredDraft[]): void {
   try {
     const counts = new Map<string, number>();
     localStorage.setItem(KEY, JSON.stringify(drafts.filter(draft => {
-      const count = counts.get(draft.accountId) ?? 0;
-      counts.set(draft.accountId, count + 1);
+      const count = counts.get(draft.storageAuthority) ?? 0;
+      counts.set(draft.storageAuthority, count + 1);
       return count < MAX_DRAFTS;
     })));
   } catch {
@@ -125,9 +128,9 @@ function write(drafts: StoredDraft[]): void {
 
 /** Only this authenticated account drafts, newest first. Legacy unowned rows
  * are not attributed to whichever account happens to sign in next. */
-export function listDrafts(accountId: string | null): StoredDraft[] {
-  if (!accountId) return [];
-  return read().filter(draft => draft.accountId === accountId).sort((a, b) => b.savedAt - a.savedAt);
+export function listDrafts(accountId: string | null,storageAuthority:string|null|undefined): StoredDraft[] {
+  if (!accountId||!storageAuthority) return [];
+  return read().filter(draft => draft.accountId === accountId && draft.storageAuthority===storageAuthority).sort((a, b) => b.savedAt - a.savedAt);
 }
 
 /** A draft is worth saving only once it has some recipient / subject / body. */
@@ -138,14 +141,14 @@ export function draftHasContent(d: Pick<StoredDraft, 'to' | 'cc' | 'bcc' | 'subj
 /** Insert or update a draft by id (no-op when it has no content yet). */
 export function saveDraft(draft: StoredDraft): void {
   if (!draft.accountId || !isDraft(draft) || !draftHasContent(draft)) return;
-  const rest = read().filter((d) => d.id !== draft.id || d.accountId !== draft.accountId);
+  const rest = read().filter((d) => d.id !== draft.id || d.accountId !== draft.accountId || d.storageAuthority!==draft.storageAuthority);
   write([draft, ...rest]);
 }
 
 /** Remove a draft by id (e.g. after it is sent or discarded). */
-export function deleteDraft(id: string, accountId: string | null): void {
-  if (!accountId) return;
-  write(read().filter((d) => d.id !== id || d.accountId !== accountId));
+export function deleteDraft(id: string, accountId: string | null,storageAuthority:string|null|undefined): void {
+  if (!accountId||!storageAuthority) return;
+  write(read().filter((d) => d.id !== id || d.accountId !== accountId || d.storageAuthority!==storageAuthority));
 }
 
 /** Remove every stored draft (logout: the next person at this browser must not
@@ -153,6 +156,7 @@ export function deleteDraft(id: string, accountId: string | null): void {
 export function clearDrafts(): void {
   try {
     localStorage.removeItem(KEY);
+    localStorage.removeItem(LEGACY_KEY);
   } catch {
     // Storage disabled: nothing was stored.
   }

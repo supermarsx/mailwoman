@@ -5,6 +5,7 @@ import {t} from '../../i18n';
 import * as css from './styles.css.ts';
 export function MailInteractionPreferences():JSX.Element {
  const choices=[
+  {key:'mail.resumeTabs',label:'settings-mail-resume-tabs',help:'settings-mail-resume-tabs-help',handle:useSetting<boolean>('mail.resumeTabs',true)},
   {key:'mail.modifierSelection',label:'settings-mail-modifier-selection',help:'settings-mail-modifier-selection-help',handle:useSetting<boolean>('mail.modifierSelection',true)},
   {key:'mail.dragToFolder',label:'settings-mail-drag-folder',help:'settings-mail-drag-folder-help',handle:useSetting<boolean>('mail.dragToFolder',true)},
  ];

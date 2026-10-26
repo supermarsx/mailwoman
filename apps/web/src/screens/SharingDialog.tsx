@@ -27,11 +27,12 @@ export interface SharingDialogProps {
   /** Display name for the mailbox (untrusted → bidi-isolated in the editor). */
   mailboxName: string;
   onClose: () => void;
+  embedded?:boolean;
 }
 
 export function SharingDialog(props: SharingDialogProps): JSX.Element {
   let panel!: HTMLElement;
-  createFocusTrap(() => panel, { onEscape: () => props.onClose() });
+  createFocusTrap(() => panel, { active:()=>!props.embedded,onEscape: () => props.onClose() });
 
   // Build the production ACL client once: same-origin JMAP transport, bound to the
   // account. `client.jmap` is a plain closure (no `this`), so passing it bare is safe.
@@ -39,12 +40,12 @@ export function SharingDialog(props: SharingDialogProps): JSX.Element {
 
   return (
     <div
-      class="compose__backdrop"
-      role="dialog"
-      aria-modal="true"
+      class={props.embedded?'sharing-workspace':'compose__backdrop'}
+      role={props.embedded?'region':'dialog'}
+      aria-modal={props.embedded?undefined:'true'}
       aria-label={t('mail-nav-sharing')}
       onClick={(e) => {
-        if (e.target === e.currentTarget) props.onClose();
+        if (!props.embedded&&e.target === e.currentTarget) props.onClose();
       }}
     >
       <section ref={panel} class={css.panel} tabindex="-1">

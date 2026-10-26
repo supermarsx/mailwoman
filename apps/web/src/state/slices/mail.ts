@@ -1740,7 +1740,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       rememberSuccessfulSignin(user.username);
       setMe(user);
       setAccountId(user.accountId);
-      activateAccountPreferences(user.accountId);
+      activateAccountPreferences(user.accountId,user.storageAuthority);
       await loadMailFor(user);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
@@ -1760,7 +1760,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     rememberSuccessfulSignin(user.username);
     setMe(user);
     setAccountId(user.accountId);
-    activateAccountPreferences(user.accountId);
+    activateAccountPreferences(user.accountId,user.storageAuthority);
     await loadMailFor(user);
   }
 
