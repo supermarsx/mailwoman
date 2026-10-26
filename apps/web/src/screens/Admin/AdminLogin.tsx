@@ -135,11 +135,6 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
             <h1 class={css.heading}>{branding()?.brandName||t('admin-brand')}</h1>
             <p class={css.note}>{t('admin-login-note')}</p>
             <Show when={branding()?.loginNotice}>{notice=><p class={css.note} dir="auto">{notice()}</p>}</Show>
-            <Show when={admin.sessionEnded()}>
-              <p class={css.error} role="status" data-testid="admin-session-ended">
-                {t('admin-login-session-ended')}
-              </p>
-            </Show>
             <label class="field">
               <span>{t('admin-login-username')}</span>
               <input

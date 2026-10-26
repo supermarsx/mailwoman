@@ -14,7 +14,7 @@
 // Component tests inject mock clients through the props; production uses the
 // same-origin HTTP clients.
 
-import { Show, Suspense, createEffect, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
+import { Show, Suspense, createEffect, createSignal, on, onCleanup, onMount, type JSX } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { createAdminSlice, createHttpAdminApi, type AdminApi } from '../../state/slices/admin.ts';
 import { onAdminSessionEnded,adminSessionGeneration,adminResponseIsCurrent } from '../../api/adminSession.ts';
@@ -35,7 +35,7 @@ import { withTotpGate, type AdminTotpVerifier } from './shell/adminAuth.ts';
 import type { Crumb } from './shell/Breadcrumbs.tsx';
 import { createDashboardLoader, type DashboardLoader } from '../../api/admin/dashboard.ts';
 import { Feedback } from './shell/Feedback.tsx';
-import { ToastRegion } from '../../components/toast/index.ts';
+import { ToastRegion, toast } from '../../components/toast/index.ts';
 import { PersonalPreferencesProvider, type AdminPreferencesApi } from './shell/personalPreferences.tsx';
 import * as css from './admin.css.ts';
 import * as shellCss from './shell/shell.css.ts';
@@ -58,6 +58,12 @@ export interface AdminScreenProps {
 
 export function AdminScreen(props: AdminScreenProps): JSX.Element {
   const admin = createAdminSlice(withTotpGate(props.api ?? createHttpAdminApi()));
+  const expiryToast = 'admin-session-ended';
+  createEffect(on(admin.sessionEnded, ended => {
+    if (ended) toast.warning(t('admin-login-session-ended'), {id: expiryToast, duration: 10_000});
+    else toast.dismiss(expiryToast);
+  }));
+  onCleanup(() => toast.dismiss(expiryToast));
   onCleanup(onAdminSessionEnded(()=>admin.api.onSessionEnded?.()));
   onMount(() => void admin.loadSession());
   onMount(() => void loadCatalog('admin'));

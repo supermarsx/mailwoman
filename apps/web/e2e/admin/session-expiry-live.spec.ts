@@ -10,10 +10,10 @@ test('expired admin session returns to sign in and preserves the safe console ro
  expect((await page.request.post('/admin/logout')).ok()).toBe(true);
  await page.getByRole('button',{name:'Refresh assessment'}).click();
  await expect(page.getByRole('form',{name:'Admin sign in'})).toBeVisible();
- await expect(page.getByTestId('admin-session-ended')).toContainText('Sign in again');
+ await expect(page.getByTestId('toast')).toContainText('Sign in again');
  await expect(page).toHaveURL(/\/admin#\/diagnostics\/security$/);
  await page.reload();
- await expect(page.getByTestId('admin-session-ended')).toBeVisible();
+ await expect(page.getByTestId('toast')).toBeVisible();
  await page.screenshot({path:test.info().outputPath('administrator-session-expired.png'),fullPage:true});
  await new Promise(resolve=>setTimeout(resolve,3100));await signIn();
  await expect(page.getByRole('table',{name:'Deployment security assessment'})).toBeVisible();

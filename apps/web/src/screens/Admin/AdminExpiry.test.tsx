@@ -7,8 +7,8 @@ import { adminRequest } from './shell/adminApi.ts';
 import { forgetAdminSession,markAdminSessionActive } from '../../api/adminSession.ts';
 import { createAdminSlice,type AdminSession } from '../../state/slices/admin.ts';
 describe('administrator expired-session gate',()=>{
- beforeEach(()=>{history.replaceState(null,'','/admin#/settings');forgetAdminSession();});
- afterEach(()=>{vi.restoreAllMocks();forgetAdminSession();});
+ beforeEach(()=>{vi.unstubAllGlobals();history.replaceState(null,'','/admin#/settings');forgetAdminSession();});
+ afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();forgetAdminSession();});
  it('never promotes a delayed successful probe after another request ended the session',async()=>{
   let resolve!:(value:AdminSession)=>void;
   const api=mockAdminApi({session:()=>new Promise<AdminSession>(done=>{resolve=done;})});
@@ -20,13 +20,13 @@ describe('administrator expired-session gate',()=>{
  it('recognizes a prior tab session at initial probe without showing generic failure',async()=>{
   markAdminSessionActive();render(()=><AdminScreen api={mockAdminApi({session:async()=>null})} {...offlineShell()}/>);
   expect(await screen.findByRole('form',{name:'Admin sign in'})).toBeInTheDocument();
-  expect(screen.getByTestId('admin-session-ended')).toHaveTextContent('Sign in again');expect(location.hash).toBe('#/settings');
+  expect(screen.getByTestId('toast')).toHaveTextContent('Sign in again');expect(location.hash).toBe('#/settings');
  });
  it('handles a session expiring between the initial probe and capability loading',async()=>{
   vi.stubGlobal('fetch',vi.fn(async()=>new Response('{"code":"unauthorized"}',{status:401})));
   render(()=><AdminScreen api={mockAdminApi()} {...offlineShell()} loadMe={async()=>(await adminRequest<never>('/me')).data}/>);
   expect(await screen.findByRole('form',{name:'Admin sign in'})).toBeInTheDocument();
-  expect(screen.getByTestId('admin-session-ended')).toBeInTheDocument();
+  expect(screen.getByTestId('toast')).toBeInTheDocument();
  });
  it('moves to sign in when a modern adminRequest returns401 after loading',async()=>{
   history.replaceState(null,'','/admin');
@@ -35,7 +35,7 @@ describe('administrator expired-session gate',()=>{
   vi.stubGlobal('fetch',vi.fn(async()=>new Response('{"code":"unauthorized"}',{status:401})));
   await expect(adminRequest('/settings')).rejects.toMatchObject({status:401});
   await waitFor(()=>expect(screen.getByRole('form',{name:'Admin sign in'})).toBeInTheDocument());
-  expect(screen.getByTestId('admin-session-ended')).toBeInTheDocument();expect(screen.queryByRole('navigation',{name:'Admin sections'})).toBeNull();
+  expect(screen.getByTestId('toast')).toBeInTheDocument();expect(screen.queryByRole('navigation',{name:'Admin sections'})).toBeNull();
  });
  it('keeps an authenticated console mounted when a request is forbidden',async()=>{
   history.replaceState(null,'','/admin');render(()=><AdminScreen api={mockAdminApi()} {...offlineShell()}/>);

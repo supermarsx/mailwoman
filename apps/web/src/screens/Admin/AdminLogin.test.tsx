@@ -16,7 +16,7 @@ describe('Admin sign-in gate — session lifetime', () => {
   it('does not say a session ended when there simply is none', async () => {
     render(() => <AdminScreen api={mockAdminApi({ session: vi.fn(async () => null) })} {...offlineShell()} />);
     await screen.findByRole('form', { name: 'Admin sign in' });
-    expect(screen.queryByTestId('admin-session-ended')).toBeNull();
+    expect(screen.queryByText('Your admin session has ended. Sign in again.')).toBeNull();
   });
 
   it('returns to the gate and says so when the server ends a session in use', async () => {
@@ -31,7 +31,10 @@ describe('Admin sign-in gate — session lifetime', () => {
     api.onSessionEnded!();
 
     expect(await screen.findByRole('form', { name: 'Admin sign in' })).toBeInTheDocument();
-    expect(screen.getByTestId('admin-session-ended')).toHaveTextContent('Your admin session has ended');
+    expect(screen.getByTestId('toast')).toHaveTextContent('Your admin session has ended');
+    expect(screen.getByRole('form', {name:'Admin sign in'})).not.toHaveTextContent('Your admin session has ended');
+    api.onSessionEnded!();
+    expect(screen.getAllByText('Your admin session has ended. Sign in again.')).toHaveLength(1);
     expect(screen.queryByRole('link', { name: 'Domains' })).toBeNull();
   });
 });
