@@ -4,6 +4,11 @@ export function validTimeZone(value: string): boolean {
   try { new Intl.DateTimeFormat('en', { timeZone: value }).format(0); return true; } catch { return false; }
 }
 export function localTimeZone(): string { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+/** Canonical IANA zones from the browser's bundled time-zone database, no network. */
+export function supportedTimeZones(): string[] {
+  const api=Intl as typeof Intl & {supportedValuesOf?:(key:string)=>string[]};
+  return [...new Set(['UTC',localTimeZone(),...(api.supportedValuesOf?.('timeZone')??[])])].sort();
+}
 export function displayTimeZone(value: unknown): string {
   return typeof value === 'string' && value !== 'local' && validTimeZone(value) ? value : localTimeZone();
 }

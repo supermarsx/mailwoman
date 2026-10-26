@@ -417,3 +417,8 @@ settings-folder-icon-book = Book
 settings-nav-keyboard-display = Keyboard & display
 
 settings-2fa-passkey-policy-disabled = Your administrator has disabled passkey sign-in and enrollment for this account. Existing credentials remain listed so you can manage or remove them.
+
+settings-search-sections = Search settings
+settings-search-no-sections = No matching settings sections.
+settings-time-local = Local device time zone
+settings-time-none = No comparison time zone

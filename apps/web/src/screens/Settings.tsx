@@ -131,6 +131,8 @@ export interface SettingsProps {
 export function Settings(props: SettingsProps): JSX.Element {
   const app = useApp();
   const navigation=props.navigation ?? createSettingsNavigation();
+  const [sectionQuery,setSectionQuery]=createSignal('');
+  const sectionTerms:Record<string,string>={appearance:'theme dark light color accent css javascript font density branding',reader:'message reading images layout dark mode',compose:'editor reply quote font signature recipients cc bcc',shortcuts:'keyboard display key hotkey drag selection',time:'timezone date clock iana',security:'password passkey totp two factor authentication sessions api keys',privacy:'remote images tracking telemetry',folders:'sidebar mappings count pin order icons spam trash',notifications:'push alerts sound browser', 'mail-transfer':'import export download eml mbox',receipts:'read receipt delivery dsn',nextcloud:'files contacts calendar cloud',rules:'filter automation',access:'sharing permissions acl'};
   const visible=(section:string):boolean=>!props.embedded || navigation.route().section===section;
   const sectionIcons:Record<string,IconName>={appearance:'branding',reader:'eye',compose:'edit',shortcuts:'configuration',time:'clock',packages:'gift',labels:'tag',security:'shield',privacy:'privacy',signatures:'file',identities:'users',notifications:'alert',searches:'search',folders:'folder','mail-transfer':'download',receipts:'check',nextcloud:'nextcloud',preferences:'preferences',rules:'policy',access:'lock',metadata:'info'};
   const sections=[['appearance','settings-appearance'],['reader','reader-settings-title'],['compose','settings-compose-title'],['shortcuts','settings-nav-keyboard-display'],['time','settings-time-title'],['packages','packages-title'],['labels','labels-title'],['security','security-center-title'],['privacy','privacy-title'],['signatures','settings-sig-title'],['identities','settings-ident-title'],['notifications','settings-notif-title'],['searches','settings-search-title'],['folders','settings-folders-title'],['mail-transfer','mail-transfer-title'],['receipts','receipts-title'],['nextcloud','nextcloud-account-title'],['rules','settings-nav-rules'],['access','settings-nav-access'],['metadata','settings-nav-metadata']] as const;
@@ -192,13 +194,14 @@ export function Settings(props: SettingsProps): JSX.Element {
       <section ref={panel} class={`${css.panel} ${props.embedded ? workspace.panel : ""}`} tabindex="-1">
         <header class={css.header}>
           <h2>{t(props.embedded ? 'settings-title' : 'settings-appearance')}</h2>
+          <Show when={props.embedded}><input class={workspace.search} type="search" aria-label={t('settings-search-sections')} placeholder={t('settings-search-sections')} value={sectionQuery()} onInput={event=>setSectionQuery(event.currentTarget.value)}/></Show>
           <button type="button" class="btn btn--ghost" aria-label={t('settings-close')} onClick={() => props.onClose()}>
             <Icon name="close" />
           </button>
         </header>
 
         <div class={props.embedded ? workspace.body : workspace.legacy}>
-          <Show when={props.embedded}><nav class={workspace.nav} aria-label={t('settings-sections')}><For each={sections}>{([id,label])=><button type="button" aria-current={navigation.route().section===id ? "page" : undefined} onClick={()=>void navigation.navigate({section:id})}><Icon name={sectionIcons[id]??'settings'}/><span>{t(label)}</span></button>}</For></nav></Show>
+          <Show when={props.embedded}><nav class={workspace.nav} aria-label={t('settings-sections')}><For each={sections.filter(([id,label])=>sectionQuery().trim().toLocaleLowerCase().split(/\s+/).every(term=>`${t(label)} ${sectionTerms[id]??''}`.toLocaleLowerCase().includes(term)))} fallback={<p role="status">{t('settings-search-no-sections')}</p>}>{([id,label])=><button type="button" aria-current={navigation.route().section===id ? "page" : undefined} onClick={()=>void navigation.navigate({section:id})}><Icon name={sectionIcons[id]??'settings'}/><span>{t(label)}</span></button>}</For></nav></Show>
           <div class={workspace.content}>
           <div hidden={!visible('appearance')} class={workspace.appearance}>
         <ThemeMode locked={themeHold.locked()} />
