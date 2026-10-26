@@ -664,6 +664,11 @@ impl Store {
     /// no-op.
     pub async fn delete_mailbox(&self, id: &str) -> Result<(), StoreError> {
         let mut tx = self.backend.begin().await?;
+        // Match message-upsert lock order: mailbox first, then its messages.
+        q("UPDATE mailboxes SET id=id WHERE id=?1")
+            .bind(id)
+            .execute_tx(&mut tx)
+            .await?;
         q("DELETE FROM sync_state WHERE mailbox_id = ?1")
             .bind(id)
             .execute_tx(&mut tx)
@@ -730,6 +735,17 @@ impl Store {
         };
         let mut tx = self.backend.begin().await?;
 
+        // Portable row lock and ownership predicate in the write transaction.
+        // A missing and a foreign mailbox have the same public outcome.
+        if q("UPDATE mailboxes SET id=id WHERE id=?1 AND account_id=?2")
+            .bind(m.mailbox_id)
+            .bind(m.account_id)
+            .execute_tx(&mut tx)
+            .await?
+            == 0
+        {
+            return Err(StoreError::NotFound);
+        }
         // (1) exact UID coordinates.
         let existing: Option<String> = q("SELECT stable_id FROM messages
              WHERE account_id = ?1 AND mailbox_id = ?2 AND uidvalidity = ?3 AND uid = ?4")

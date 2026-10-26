@@ -598,6 +598,12 @@ impl Engine {
         mailbox_id: &str,
         raw: &RawMessage,
     ) -> Result<String> {
+        // Resolve the immutable mailbox owner before threading, sealing body
+        // bytes, indexing or applying ingest rules. The store rechecks inside
+        // the message-write transaction to fence concurrent deletion.
+        if self.store.get_mailbox(mailbox_id).await?.account_id != account_id {
+            return Err(EngineError::Store(mw_store::StoreError::NotFound));
+        }
         let parsed = match mw_mime::parse(&raw.raw) {
             Ok(p) => p,
             Err(e) => {

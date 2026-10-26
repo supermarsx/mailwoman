@@ -20,6 +20,10 @@ async fn engine() -> Engine {
 /// Create a connected account and return its store id. Mailboxes carry a foreign
 /// key to `accounts`, so any test that upserts a mailbox must seed one first.
 async fn account(engine: &Engine) -> String {
+    named_account(engine, "me@example.org").await
+}
+
+async fn named_account(engine: &Engine, username: &str) -> String {
     engine
         .store()
         .create_account(
@@ -28,11 +32,11 @@ async fn account(engine: &Engine) -> String {
                 host: "imap.example.org",
                 port: 993,
                 tls: "implicit",
-                username: "me@example.org",
+                username,
                 sync_policy_json: "{}",
             },
             &Credentials {
-                username: "me@example.org".into(),
+                username: username.into(),
                 password: "pw".into(),
             },
         )
@@ -484,6 +488,99 @@ async fn email_copy_requires_from_account() {
     let e = engine().await;
     let resp = e.email_copy("acct-a", &json!({ "create": {} })).await;
     assert_eq!(resp["type"], "invalidArguments");
+}
+
+#[tokio::test]
+async fn import_and_copy_refuse_a_different_accounts_destination() {
+    let e = engine().await;
+    let actor = account(&e).await;
+    let victim = named_account(&e, "victim@example.org").await;
+    assert_ne!(actor, victim);
+    let source = mailbox(&e, &actor, "Source", None).await;
+    let foreign = mailbox(&e, &victim, "Private", None).await;
+    let id = ingest(
+        &e,
+        &actor,
+        &source,
+        raw_msg("<isolation@x>", "owned source", None, &[], "body"),
+        1,
+        "2024-01-01T00:00:00Z",
+    )
+    .await;
+    let before = e.store().current_state(&actor, "Email").await.unwrap();
+    let imported = e
+        .email_import(
+            &actor,
+            &json!({"emails":{"bad":{"blobId":id,"mailboxIds":{foreign.clone():true}}}}),
+        )
+        .await;
+    assert!(
+        imported["created"].as_object().unwrap().is_empty(),
+        "{imported}"
+    );
+    let copied=e.email_copy(&actor,&json!({"fromAccountId":actor,"onSuccessDestroyOriginal":true,"create":{"bad":{"id":id,"mailboxIds":{foreign:true}}}})).await;
+    assert!(
+        copied["created"].as_object().unwrap().is_empty(),
+        "{copied}"
+    );
+    assert!(e.store().get_message(&id).await.is_ok());
+    assert_eq!(
+        e.store().current_state(&actor, "Email").await.unwrap(),
+        before
+    );
+}
+
+#[tokio::test]
+async fn copy_refuses_a_different_accounts_source_without_deleting_it() {
+    let e = engine().await;
+    let actor = account(&e).await;
+    let victim = named_account(&e, "victim@example.org").await;
+    let source = mailbox(&e, &victim, "Private", None).await;
+    let target = mailbox(&e, &actor, "Inbox", Some("inbox")).await;
+    let id = ingest(
+        &e,
+        &victim,
+        &source,
+        raw_msg("<private@x>", "private source", None, &[], "confidential"),
+        1,
+        "2024-01-01T00:00:00Z",
+    )
+    .await;
+    let response=e.email_copy(&actor,&json!({"fromAccountId":victim,"onSuccessDestroyOriginal":true,"create":{"bad":{"id":id,"mailboxIds":{target:true}}}})).await;
+    assert_eq!(response["type"], "fromAccountNotFound", "{response}");
+    assert!(e.store().get_message(&id).await.is_ok());
+}
+
+#[tokio::test]
+async fn core_ingest_refuses_foreign_mailbox_before_changing_state() {
+    let e = engine().await;
+    let actor = account(&e).await;
+    let victim = named_account(&e, "victim@example.org").await;
+    let foreign = mailbox(&e, &victim, "Private", None).await;
+    let message = RawMessage {
+        message_ref: MessageRef::Imap {
+            mailbox: RawMailboxRef {
+                name: "Private".into(),
+                uidvalidity: 1,
+            },
+            uidvalidity: 1,
+            uid: 1,
+        },
+        raw: raw_msg("<blocked@x>", "blocked", None, &[], "body"),
+        flags: Vec::new(),
+        internaldate: None,
+    };
+    assert!(matches!(
+        e.ingest(&actor, &foreign, &message).await,
+        Err(crate::backend::EngineError::Store(
+            mw_store::StoreError::NotFound
+        ))
+    ));
+    assert_eq!(e.store().current_state(&actor, "Email").await.unwrap(), 0);
+    assert_eq!(
+        e.store().count_messages_in_mailbox(&foreign).await.unwrap(),
+        0
+    );
 }
 
 // ---- dispatch guard + capability advertisement --------------------------

@@ -115,6 +115,11 @@ impl Engine {
                 "description": "Email/copy requires fromAccountId"
             });
         }
+        // This engine entrypoint has exactly one authenticated account authority.
+        // A request-supplied account id is not a delegation or linked-account grant.
+        if from_account != account_id {
+            return json!({"type":"fromAccountNotFound"});
+        }
         let old_state = self
             .type_state(account_id, ChangeType::Email)
             .await
@@ -166,11 +171,12 @@ impl Engine {
             .and_then(Value::as_str)
             .ok_or_else(|| EngineError::Protocol("import entry missing blobId".into()))?;
         let mailbox_id = target_mailbox(spec)?;
+        let mailbox = self.owned_import_mailbox(account_id, &mailbox_id).await?;
         let blob = self.fetch_blob(account_id, blob_id).await?.ok_or_else(|| {
             EngineError::Protocol(format!("blobId {blob_id:?} does not resolve to a blob"))
         })?;
         let sid = self
-            .ingest_blob_into(account_id, &mailbox_id, blob.bytes, spec)
+            .ingest_blob_into(account_id, &mailbox, blob.bytes, spec)
             .await?;
         self.created_entry(&sid).await
     }
@@ -187,6 +193,7 @@ impl Engine {
             .and_then(Value::as_str)
             .ok_or_else(|| EngineError::Protocol("copy entry missing source email id".into()))?;
         let mailbox_id = target_mailbox(spec)?;
+        let mailbox = self.owned_import_mailbox(account_id, &mailbox_id).await?;
         // Source raw bytes from the other account's sealed cache (whole message).
         let blob = self
             .fetch_blob(from_account, source_id)
@@ -197,7 +204,7 @@ impl Engine {
                 ))
             })?;
         let sid = self
-            .ingest_blob_into(account_id, &mailbox_id, blob.bytes, spec)
+            .ingest_blob_into(account_id, &mailbox, blob.bytes, spec)
             .await?;
         if destroy_original {
             self.store()
@@ -221,21 +228,27 @@ impl Engine {
         self.created_entry(&sid).await
     }
 
+    async fn owned_import_mailbox(
+        &self,
+        account_id: &str,
+        mailbox_id: &str,
+    ) -> Result<mw_store::Mailbox> {
+        let mailbox = self.store().get_mailbox(mailbox_id).await?;
+        if mailbox.account_id != account_id {
+            return Err(EngineError::Store(mw_store::StoreError::NotFound));
+        }
+        Ok(mailbox)
+    }
+
     /// Ingest raw message bytes into a target mailbox as a new engine-local
     /// message (uidvalidity 0), honoring the create spec's `keywords`/`receivedAt`.
     async fn ingest_blob_into(
         &self,
         account_id: &str,
-        mailbox_id: &str,
+        mb: &mw_store::Mailbox,
         raw: Vec<u8>,
         spec: &Value,
     ) -> Result<String> {
-        // Confirm the mailbox exists (a clean error, never a panic, otherwise).
-        let mb = self
-            .store()
-            .get_mailbox(mailbox_id)
-            .await
-            .map_err(EngineError::Store)?;
         let keywords: HashMap<String, bool> = spec
             .get("keywords")
             .and_then(Value::as_object)
@@ -264,7 +277,7 @@ impl Engine {
             flags,
             internaldate: received_at,
         };
-        self.ingest(account_id, mailbox_id, &msg).await
+        self.ingest(account_id, &mb.id, &msg).await
     }
 
     /// The `created` entry (`{id, blobId, threadId, size}`) for a freshly ingested

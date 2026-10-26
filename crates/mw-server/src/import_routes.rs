@@ -297,46 +297,39 @@ fn import_counts(resp: &Value) -> (usize, usize) {
     (created, failed)
 }
 
-/// Resolve the destination mailbox id: an explicit id is used verbatim; otherwise
+/// Resolve an owned destination before storing uploaded bytes; otherwise
 /// pick the account's `inbox`-role mailbox (falling back to a mailbox literally
-/// named "Inbox") via `Mailbox/get`.
+/// named "Inbox") from the account's physical mailboxes.
 async fn resolve_target_mailbox(
     engine: &mw_engine::Engine,
     account: &str,
     explicit: Option<&str>,
 ) -> Result<Option<String>, String> {
     if let Some(id) = explicit.filter(|s| !s.is_empty()) {
-        return Ok(Some(id.to_string()));
+        return match engine.store().get_mailbox(id).await {
+            Ok(mailbox) => Ok((mailbox.account_id == account).then_some(mailbox.id)),
+            Err(mw_store::StoreError::NotFound) => Ok(None),
+            Err(_) => Err("target mailbox could not be read".into()),
+        };
     }
-    let request = json!({
-        "methodCalls": [["Mailbox/get", { "accountId": account, "ids": null }, "mb0"]]
-    });
-    let resp = engine.handle_jmap(account, &request).await;
-    let list = resp
-        .get("methodResponses")
-        .and_then(Value::as_array)
-        .and_then(|r| r.first())
-        .and_then(|c| c.as_array())
-        .and_then(|c| c.get(1))
-        .and_then(|a| a.get("list"))
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let by_role = list.iter().find(|m| {
-        m.get("role")
-            .and_then(Value::as_str)
-            .is_some_and(|r| r.eq_ignore_ascii_case("inbox"))
-    });
-    let chosen = by_role.or_else(|| {
-        list.iter().find(|m| {
-            m.get("name")
-                .and_then(Value::as_str)
-                .is_some_and(|n| n.eq_ignore_ascii_case("inbox"))
+    let mailboxes = engine
+        .store()
+        .list_mailboxes(account)
+        .await
+        .map_err(|_| "target mailboxes could not be read".to_owned())?;
+    let chosen = mailboxes
+        .iter()
+        .find(|m| {
+            m.role
+                .as_deref()
+                .is_some_and(|role| role.eq_ignore_ascii_case("inbox"))
         })
-    });
-    Ok(chosen
-        .and_then(|m| m.get("id").and_then(Value::as_str))
-        .map(str::to_string))
+        .or_else(|| {
+            mailboxes
+                .iter()
+                .find(|m| m.name.eq_ignore_ascii_case("inbox"))
+        });
+    Ok(chosen.map(|mailbox| mailbox.id.clone()))
 }
 
 // ── uncompressed tar (ustar) reader for maildir import ──────────────────────────
@@ -683,6 +676,75 @@ fn upstream(msg: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn import_target_resolution_refuses_foreign_and_virtual_ids_before_upload() {
+        let store = mw_store::Store::open_in_memory(mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        let mut accounts = Vec::new();
+        for user in ["actor@example.org", "victim@example.org"] {
+            accounts.push(
+                store
+                    .create_account(
+                        &mw_store::NewAccount {
+                            kind: mw_store::AccountKind::Imap,
+                            host: "mail.example.org",
+                            port: 993,
+                            tls: "implicit",
+                            username: user,
+                            sync_policy_json: "{}",
+                        },
+                        &mw_store::Credentials {
+                            username: user.into(),
+                            password: "fixture".into(),
+                        },
+                    )
+                    .await
+                    .unwrap(),
+            );
+        }
+        let mut boxes = Vec::new();
+        for account in &accounts {
+            boxes.push(
+                store
+                    .upsert_mailbox(&mw_store::MailboxUpsert {
+                        account_id: account,
+                        name: "INBOX",
+                        role: Some("inbox"),
+                        uidvalidity: 1,
+                        uidnext: 1,
+                        highestmodseq: 0,
+                        total: 0,
+                        unread: 0,
+                        parent_id: None,
+                    })
+                    .await
+                    .unwrap(),
+            );
+        }
+        let engine = mw_engine::Engine::new(store);
+        assert_eq!(
+            resolve_target_mailbox(&engine, &accounts[0], Some(&boxes[0]))
+                .await
+                .unwrap(),
+            Some(boxes[0].clone())
+        );
+        assert_eq!(
+            resolve_target_mailbox(&engine, &accounts[0], None)
+                .await
+                .unwrap(),
+            Some(boxes[0].clone())
+        );
+        for foreign in [boxes[1].as_str(), "nonexistent", "saved-search:untrusted"] {
+            assert_eq!(
+                resolve_target_mailbox(&engine, &accounts[0], Some(foreign))
+                    .await
+                    .unwrap(),
+                None
+            );
+        }
+    }
 
     /// Build a minimal ustar archive of the given `(name, body)` files.
     fn make_tar(files: &[(&str, &[u8])]) -> Vec<u8> {
