@@ -61,13 +61,13 @@ States: **Verified** means the bounded behavior listed has passing local accepta
 | Word/Outlook-like rich/plain/HTML editor, compact ribbon, Cc/Bcc, identity From and format-appropriate signatures | Root | Audit full compose/send/draft paths; encrypted Bcc limitations must remain explicit |
 | Read receipts and RFC2369/list actions/latest relevant email standards | Mail processing + Integrations | Audit incoming/outgoing interpretation and opt-in/privacy behavior; enumerate standards rather than claim all |
 | All requested JMAP RFC support and tagging aligned with JMAP | Integrations + Root tags | Build explicit RFC/capability matrix and acceptance tests; no blanket conformance claim |
-| Incoming DSN interpretation | Mail processing | Partial, ffccc93; parser6/engine/UI pass, proxy client and full HTTP/browser acceptance pending |
+| Incoming DSN interpretation | Mail processing | Verified bounded engine/proxy support, 961e507; MIME120, account isolation, HTTP authorization/limits, UI30 and six real-browser cases pass. Delivery reports do not imply a recipient read the message. |
 | Email/folder tagging, extensive import/export, printing/PDF | Root + Mail processing | Audit tags/import/export; print dialog exists but dedicated acceptance pending |
-| Attachment policies, suspicious types, isolated image/text/audio/video/PDF tabs, admin extension controls | Security | Partial; enforce metadata authority and preview/download/export bypass boundaries |
+| Attachment policies, suspicious types, isolated image/text/audio/video/PDF tabs, admin extension controls | Security | Verified bounded policy, 35b5ebc; stored metadata authority, hot CID policy, preview/download and whole-message export guards; native/HTTP and browser3 pass. Nextcloud export integration remains in its lane. |
 | Notifications, push permission and per-user/admin controls | Security | Audit browser/native delivery, click actions, privacy and persistence |
 | Package tracking, disabled by default, user/admin controls | Root | Pending implementation and privacy-aware provider policy |
 | Sender/receiver timezone helpers for mail and events | Root | Pending implementation/verification; do not invent missing sender zones |
-| Native consistent icons, 15 selectable folder icons, self-hosted fonts, extensive shortcuts and controls | Root | Audit inventory, accessibility, key conflicts and persistence |
+| Native consistent icons, 15 selectable folder icons, self-hosted fonts, extensive shortcuts and controls | Root | Keyboard bindings verified, fcbe710: 14 actions, dedicated editors, account persistence/admin locks, conflict prevention and retained-tab dispatch. Unit/native registry and browser3 pass. Icon/font inventory audit remains. |
 | Custom CSS/user-directory drafts | Root | Partial, 3032a58; inherited modules remain unwired and not accepted |
 
 ## Completion rule
