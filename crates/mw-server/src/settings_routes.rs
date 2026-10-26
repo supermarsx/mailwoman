@@ -365,6 +365,8 @@ struct GlobalPut {
     locked: Option<bool>,
     #[serde(default)]
     dry_run: bool,
+    #[serde(default)]
+    confirm_last_superadmin_loss: bool,
 }
 
 /// Tells an absent member (`None`) from an explicit `null` (`Some(Null)`).
@@ -420,6 +422,24 @@ fn camel(scope: SettingScope) -> &'static str {
     }
 }
 
+fn require_last_superadmin_match(headers: &HeaderMap, current: &str) -> Result<(), AdminApiError> {
+    match headers.get(axum::http::header::IF_MATCH) {
+        None => Err(AdminApiError::new(StatusCode::PRECONDITION_REQUIRED, "preconditionRequired", "Read this setting and send its exact If-Match version before changing last Super admin protection.")),
+        Some(value) if value.to_str().ok() == Some(current) => Ok(()),
+        Some(_) => Err(AdminApiError::stale(None, None)),
+    }
+}
+
+async fn require_last_superadmin_policy_writer(state: &AppState, ctx: &AdminCtx) -> Result<(), AdminApiError> {
+    let id = ctx.account_id.as_deref().ok_or_else(|| AdminApiError::new(StatusCode::FORBIDDEN, "superAdminRequired", "A full Super admin account is required."))?;
+    let account = state.store.get_admin_account(id).await?
+        .ok_or_else(|| AdminApiError::new(StatusCode::FORBIDDEN, "superAdminRequired", "A full Super admin account is required."))?;
+    if !crate::admin_roles::is_full_super(state, &account).await? {
+        return Err(AdminApiError::new(StatusCode::FORBIDDEN, "superAdminRequired", "A full Super admin account is required."));
+    }
+    crate::step_up::require_admin(state, ctx, crate::step_up::StepUpAction::AdminRoleChange).await
+}
+
 async fn put_global(
     State(state): State<AppState>,
     ctx: AdminCtx,
@@ -432,6 +452,7 @@ async fn put_global(
     registry::refuse_if_dedicated(def).map_err(refusal)?;
     let current = state.store.get_setting_policy(&key).await?;
     let stored = policy_json(current.as_ref());
+    if key == "admin.allowLastSuperadminLoss" && !body.dry_run { require_last_superadmin_match(&headers, &etag_of(&stored))?; }
     check_if_match(
         &headers,
         &etag_of(&stored),
@@ -496,6 +517,12 @@ async fn put_global(
         };
         return Ok(Json(json!({ "dryRun": true, "impact": impact })).into_response());
     }
+    if key == "admin.allowLastSuperadminLoss" {
+        require_last_superadmin_policy_writer(&state, &ctx).await?;
+        if global_value.as_deref() == Some("true") && current.as_ref().and_then(|p| p.global_value.as_deref()) != Some("true") && !body.confirm_last_superadmin_loss {
+            return Err(AdminApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "confirmationRequired", "Confirm that subsequent changes may leave this deployment without any Super admin access."));
+        }
+    }
     let row = SettingPolicyRow {
         key: key.clone(),
         global_value,
@@ -527,10 +554,12 @@ async fn delete_global(
     UrlPath(key): UrlPath<String>,
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::SettingsWrite)?;
+    if key == "admin.allowLastSuperadminLoss" { require_last_superadmin_policy_writer(&state, &ctx).await?; }
     let def = def_of(&key)?;
     registry::refuse_if_dedicated(def).map_err(refusal)?;
     let current = state.store.get_setting_policy(&key).await?;
     let stored = policy_json(current.as_ref());
+    if key == "admin.allowLastSuperadminLoss" { require_last_superadmin_match(&headers, &etag_of(&stored))?; }
     check_if_match(
         &headers,
         &etag_of(&stored),

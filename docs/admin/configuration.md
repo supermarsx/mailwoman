@@ -408,6 +408,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="signin.ldapbindprecheck"></a>`signin.ldapBindPrecheck` | signin | global | false | plain | `MW_LDAP_BIND_AUTH` (pin) | yes | LDAP bind pre-check before the mail credential |
 | <a id="twofa.pendingttlsecs"></a>`twofa.pendingTtlSecs` | signin | global | 300 | plain |  | yes | pending 2FA token life (twofa_routes.rs) |
 | <a id="twofa.maxattempts"></a>`twofa.maxAttempts` | signin | global | 5 | plain |  | yes | pending 2FA attempts (twofa_routes.rs) |
+| <a id="admin.allowlastsuperadminloss"></a>`admin.allowLastSuperadminLoss` | admin | global | false | plain |  | yes | Explicitly allow removing the final Super admin access; requires privileged confirmation |
 | <a id="admin.session.idlesecs"></a>`admin.session.idleSecs` | admin | global | 1800 | plain |  | yes | admin session idle timeout |
 | <a id="admin.session.absolutesecs"></a>`admin.session.absoluteSecs` | admin | global | 43200 | plain |  | yes | admin session absolute cap |
 | <a id="passwd.policy.minlength"></a>`passwd.policy.minLength` | passwords | global+domain | 12 | plain |  | yes | password policy minimum length (every backend) |

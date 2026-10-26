@@ -13,6 +13,7 @@ import { AdminProblemError } from '../shell/adminApi.ts';
 import { ShellContext } from '../shell/context.ts';
 import { adminDocsHref } from '../shell/docsLink.ts';
 import { fieldAnchorAttrs } from '../shell/fieldAnchors.ts';
+import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { Feedback, describeAdminError } from '../shell/Feedback.tsx';
 import { FieldHistory } from '../shell/FieldHistory.tsx';
 import { FormField, type FieldWiring } from '../shell/FormField.tsx';
@@ -80,6 +81,7 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
   const [formError, setFormError] = createSignal<string | null>(null);
   const [done, setDone] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
+  const [lossConfirmation, setLossConfirmation] = createSignal<GlobalWrite | null>(null);
   const [preview, setPreview] = createSignal<GlobalWrite | null>(null);
 
   const setting = (): AdminSetting | undefined => data()?.setting;
@@ -173,6 +175,10 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
     setValueError(null);
     const body = changes(s);
     if (body === null || Object.keys(body).length === 0) return;
+    if (props.settingKey === 'admin.allowLastSuperadminLoss' && body.globalValue === true) {
+      setLossConfirmation(body);
+      return;
+    }
     const narrower = Object.values(s.overrides).reduce((a, b) => a + (b ?? 0), 0);
     const tightening = (body.locked === true && !s.globalLocked) || (body.allowUserOverride === false && s.allowUserOverride);
     if (tightening && narrower > 0) {
@@ -336,6 +342,13 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
             />
           </Show>
 
+          <ConfirmDialog open={lossConfirmation() !== null}
+            title={t('admin-settings-last-superadmin-title')}
+            body={t('admin-settings-last-superadmin-body')}
+            typedConfirmation="ALLOW LAST SUPERADMIN LOSS"
+            confirmLabel={t('admin-settings-last-superadmin-confirm')}
+            onCancel={() => setLossConfirmation(null)}
+            onConfirm={async () => { const body = lossConfirmation(); if (body) await write({ ...body, confirmLastSuperadminLoss: true }); setLossConfirmation(null); }} />
           <ImpactPreview
             open={preview() !== null}
             title={t('admin-settings-lock-title', { setting: isolate(label()) })}

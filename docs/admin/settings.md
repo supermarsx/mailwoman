@@ -950,3 +950,8 @@ Global switch, disabled by default. Scripts run in a time-limited worker inside 
 <a id="mail.dragToFolder"></a>
 
 `mail.modifierSelection` and `mail.dragToFolder` default to true and support global, domain and user values. Administrators can lock either interaction. Disabling modifier selection leaves the explicit selection toolbar available. Disabling drag does not disable the ordinary Move action. Dragging carries only a temporary local token, is fenced to the current account generation, and accepts real loaded folders only; it never grants permission beyond the server-authorized move.
+
+<a id="admin.allowLastSuperadminLoss"></a>
+### Last Super admin protection (`admin.allowLastSuperadminLoss`)
+
+Global boolean, default `false`. The final enabled, unscoped Super admin is protected from deletion, disablement, role removal, deny overrides, and removal of its final passwordless sign-in credential. Built-in role definitions remain immutable. A full Super admin may explicitly enable loss of this access, with fresh authentication and consequence confirmation. The setting does not remove any access itself. Policy writes and destructive account mutations share one database lock across instances; deleting the policy restores protection. Losing all Super admin access requires local deployment administration to recover; it is never repaired by silently granting browser users privileges. With the deployment database and server key available locally, use `mailwoman admin admins create recovery-admin` (password from standard input), then `mailwoman admin admins grant-role recovery-admin super_admin`. Do not put the password in command-line arguments.

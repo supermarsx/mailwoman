@@ -104,15 +104,28 @@ fn account(r: &crate::Row) -> AdminAccountRow {
 // Updating an existing singleton role acquires a write lock on SQLite and a
 // row lock on Postgres until commit. Every guarded mutation takes this lock
 // before reading the invariant, so two servers cannot both remove a survivor.
-async fn lock_admin_accounts(tx: &mut crate::backend::Tx) -> Result<(), StoreError> {
+pub(crate) async fn lock_admin_accounts(tx: &mut crate::backend::Tx) -> Result<(), StoreError> {
     q("UPDATE admin_role SET name = name WHERE id = 'super_admin'")
         .execute_tx(tx)
         .await?;
     Ok(())
 }
 
+pub(crate) const ALLOW_LAST_SUPERADMIN_LOSS: &str = "admin.allowLastSuperadminLoss";
+
+pub(crate) async fn allow_last_superadmin_loss(tx: &mut crate::backend::Tx) -> Result<bool, StoreError> {
+    let rows = q("SELECT global_value FROM setting_policy WHERE key=?1")
+        .bind(ALLOW_LAST_SUPERADMIN_LOSS).fetch_all_tx(tx).await?;
+    Ok(rows.first().and_then(|r| r.get_opt_string("global_value"))
+        .and_then(|v| serde_json::from_str::<bool>(&v).ok()) == Some(true))
+}
+
+pub(crate) async fn last_super_protected(tx: &mut crate::backend::Tx, id: &str) -> Result<bool, StoreError> {
+    Ok(is_last_super(tx, id).await? && !allow_last_superadmin_loss(tx).await?)
+}
+
 async fn is_last_super(tx: &mut crate::backend::Tx, id: &str) -> Result<bool, StoreError> {
-    Ok(q("SELECT a.id FROM admin_account a JOIN admin_account_role r ON r.account_id = a.id WHERE a.id = ?1 AND a.disabled = 0 AND r.role_id = 'super_admin' AND r.domains_json IS NULL AND NOT EXISTS (SELECT 1 FROM admin_account b JOIN admin_account_role s ON s.account_id = b.id WHERE b.id <> ?1 AND b.disabled = 0 AND s.role_id = 'super_admin' AND s.domains_json IS NULL AND NOT EXISTS (SELECT 1 FROM admin_capability_override o WHERE o.account_id = b.id AND o.effect = 'deny'))")
+    Ok(q("SELECT a.id FROM admin_account a JOIN admin_account_role r ON r.account_id = a.id WHERE a.id = ?1 AND a.disabled = 0 AND r.role_id = 'super_admin' AND r.domains_json IS NULL AND NOT EXISTS (SELECT 1 FROM admin_account b JOIN admin_account_role s ON s.account_id = b.id WHERE b.id <> ?1 AND b.disabled = 0 AND s.role_id = 'super_admin' AND s.domains_json IS NULL AND ((b.password_hash IS NOT NULL AND b.password_hash <> '') OR EXISTS (SELECT 1 FROM admin_webauthn_credentials k WHERE k.account_id = b.id)) AND NOT EXISTS (SELECT 1 FROM admin_capability_override o WHERE o.account_id = b.id AND o.effect = 'deny'))")
         .bind(id).fetch_opt_scalar_string_tx(tx).await?.is_some())
 }
 
@@ -142,6 +155,15 @@ async fn write_roles(
 }
 
 impl Store {
+    /// Snapshot for UI affordances only. Mutation guards recheck under this lock.
+    pub async fn admin_superadmin_protection(&self, id: &str) -> Result<(bool, bool), StoreError> {
+        let mut tx = self.backend.begin().await?;
+        lock_admin_accounts(&mut tx).await?;
+        let last = is_last_super(&mut tx, id).await?;
+        let allowed = allow_last_superadmin_loss(&mut tx).await?;
+        tx.commit().await?;
+        Ok((last, allowed))
+    }
     /// Session-bound CSRF token: HMAC-SHA256(server key, "csrf:" || session id).
     pub fn session_csrf_token(&self, session_id: &str) -> String {
         use sha2::{Digest, Sha256};
@@ -331,7 +353,7 @@ impl Store {
                 !gs.iter()
                     .any(|g| g.role_id == "super_admin" && g.domains.is_none())
             });
-        if removes_super && is_last_super(&mut tx, id).await? {
+        if removes_super && last_super_protected(&mut tx, id).await? {
             tx.commit().await?;
             return Ok(false);
         }
@@ -655,7 +677,7 @@ impl Store {
         let mut tx = self.backend.begin().await?;
         lock_admin_accounts(&mut tx).await?;
         if overrides.iter().any(|(_, effect)| effect == "deny")
-            && is_last_super(&mut tx, id).await?
+            && last_super_protected(&mut tx, id).await?
         {
             tx.commit().await?;
             return Ok(false);

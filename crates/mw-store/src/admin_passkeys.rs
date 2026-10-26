@@ -13,6 +13,21 @@ pub enum AdminSessionFactor<'a> {
     Recovery { account: &'a str, hash: &'a str },
 }
 
+// Call after the invariant lock and before any account row lock. Recovery
+// codes and TOTP require a password in the admin login flow; they are not an
+// independent replacement for the last passwordless passkey.
+async fn protects_credential_removal(tx: &mut crate::backend::Tx, account: &str, credential: Option<&str>) -> Result<bool, StoreError> {
+    if !crate::admin_accounts::last_super_protected(tx, account).await? { return Ok(false); }
+    let rows = q("SELECT password_hash FROM admin_account WHERE id=?1").bind(account).fetch_all_tx(tx).await?;
+    if rows.first().and_then(|r| r.get_opt_string("password_hash")).is_some_and(|p| !p.is_empty()) { return Ok(false); }
+    if let Some(credential) = credential {
+        let others = q("SELECT credential_id FROM admin_webauthn_credentials WHERE account_id=?1 AND credential_id<>?2")
+            .bind(account).bind(credential).fetch_all_tx(tx).await?;
+        if !others.is_empty() { return Ok(false); }
+    }
+    Ok(true)
+}
+
 fn row(r: &crate::Row) -> AdminPasskey {
     AdminPasskey {
         credential: WebauthnCredentialRow {
@@ -80,8 +95,10 @@ impl Store {
         Ok(true)
     }
     /// Revoke every administrator passkey, recovery code and active session atomically.
-    pub async fn revoke_admin_passkeys(&self, account: &str) -> Result<(), StoreError> {
+    pub async fn revoke_admin_passkeys(&self, account: &str) -> Result<bool, StoreError> {
         let mut tx = self.backend.begin().await?;
+        crate::admin_accounts::lock_admin_accounts(&mut tx).await?;
+        if protects_credential_removal(&mut tx, account, None).await? { return Ok(false); }
         q("UPDATE admin_account SET updated_at=updated_at WHERE id=?1")
             .bind(account)
             .execute_tx(&mut tx)
@@ -94,7 +111,7 @@ impl Store {
             q(sql).bind(account).execute_tx(&mut tx).await?;
         }
         tx.commit().await?;
-        Ok(())
+        Ok(true)
     }
     pub async fn list_admin_passkeys(
         &self,
@@ -171,19 +188,18 @@ impl Store {
         Ok(q("UPDATE admin_webauthn_credentials SET sign_count=?1,backup_state=?2,state_revision=state_revision+1 WHERE credential_id=?3 AND account_id=?4 AND cose_public_key=?5 AND sign_count=?6 AND state_revision=?7 AND created_at=?8 AND EXISTS(SELECT 1 FROM admin_account WHERE id=?4 AND disabled=0)")
             .bind(sign_count).bind(i64::from(backup_state)).bind(&c.credential_id).bind(&c.account_id).bind(&c.cose_public_key).bind(c.sign_count).bind(old.state.revision).bind(&c.created_at).execute(&self.backend).await? == 1)
     }
-    pub async fn delete_admin_passkey(
-        &self,
-        account: &str,
-        credential: &str,
-    ) -> Result<bool, StoreError> {
-        Ok(
-            q("DELETE FROM admin_webauthn_credentials WHERE account_id=?1 AND credential_id=?2")
-                .bind(account)
-                .bind(credential)
-                .execute(&self.backend)
-                .await?
-                == 1,
-        )
+    /// None means the final superadmin credential is protected; Some(false)
+    /// means no owned credential matched. The decision and delete are atomic.
+    pub async fn delete_admin_passkey(&self, account: &str, credential: &str) -> Result<Option<bool>, StoreError> {
+        let mut tx = self.backend.begin().await?;
+        crate::admin_accounts::lock_admin_accounts(&mut tx).await?;
+        // Serialize with verified-factor session minting, which locks this row.
+        q("UPDATE admin_account SET updated_at=updated_at WHERE id=?1").bind(account).execute_tx(&mut tx).await?;
+        if protects_credential_removal(&mut tx, account, Some(credential)).await? { return Ok(None); }
+        let removed = q("DELETE FROM admin_webauthn_credentials WHERE account_id=?1 AND credential_id=?2")
+            .bind(account).bind(credential).execute_tx(&mut tx).await? == 1;
+        tx.commit().await?;
+        Ok(Some(removed))
     }
     pub async fn admin_recovery_hashes(&self, account: &str) -> Result<Vec<String>, StoreError> {
         Ok(
@@ -330,7 +346,7 @@ mod tests {
             !store
                 .delete_admin_passkey("wrong-account", &key.credential.credential_id)
                 .await
-                .unwrap()
+                .unwrap().unwrap()
         );
         let (a, b) = tokio::join!(
             store.consume_admin_recovery(&id, "recovery-hash"),

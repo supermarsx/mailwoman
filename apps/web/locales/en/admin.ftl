@@ -796,3 +796,7 @@ admin-protection-clear = Clear state
 admin-protection-clear-target = Clear protection state for { $subject }
 admin-protection-clear-body = Clear this subject's counters and temporary action after confirming your identity. This does not change policy or remove manual bans. New observations may trigger protection again. If the state changes first, refresh before retrying.
 admin-protection-cleared = Cleared protection state for { $subject }.
+
+admin-accounts-last-super-protected = This is the last enabled Super admin. Actions that remove this access are disabled. Grant another account unrestricted Super admin access first.
+admin-accounts-last-super-allowed = This is the last enabled Super admin. The explicit deployment policy permits losing this access; local deployment administration would be required to recover.
+admin-accounts-last-super-confirm = This action can leave the deployment without any Super admin access. Recovery requires local deployment administration. Confirm only if you intend to lose this access.

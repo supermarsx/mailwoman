@@ -84,6 +84,21 @@ async fn exercise(store: Store) {
             .await
             .unwrap()
     );
+    // The explicit deployment opt-in is read inside the same transaction as
+    // the destructive mutation; resetting it restores protection immediately.
+    let loss_policy = mw_store::settings_policy::SettingPolicyRow {
+        key: "admin.allowLastSuperadminLoss".into(),
+        global_value: Some("true".into()),
+        allow_user_override: false,
+        global_locked: true,
+        updated_by: "test".into(),
+        updated_at: 4,
+    };
+    store.put_setting_policy(&loss_policy).await.unwrap();
+    assert!(store.set_admin_overrides_guarded(&last.id, &[("admins.manage".into(), "deny".into())]).await.unwrap(), "explicit opt-in permits losing the final full-superadmin grant");
+    store.set_admin_overrides_guarded(&last.id, &[]).await.unwrap();
+    store.delete_setting_policy(&loss_policy.key).await.unwrap();
+    assert!(!store.change_admin_account_guarded(&last.id, None, true, None, false, 5).await.unwrap(), "deleting the opt-in restores the safe default");
     let invalid = row("rollback");
     assert!(
         store
@@ -157,6 +172,29 @@ async fn exercise(store: Store) {
             .unwrap()
             .is_none()
     );
+    let mut passwordless = row("passwordless");
+    passwordless.password_hash = None;
+    store.insert_admin_account_with_roles(&passwordless, &grants, false).await.unwrap();
+    assert!(!store.change_admin_account_guarded(&last.id, None, false, Some(&[]), false, 6).await.unwrap(), "an unusable superadmin is not a replacement");
+    for id in ["key-one", "key-two"] {
+        let key = mw_store::AdminPasskey {
+            credential: mw_store::WebauthnCredentialRow {
+                credential_id: id.into(), account_id: passwordless.id.clone(),
+                cose_public_key: vec![1,2,3], sign_count: 0, transports: "internal".into(),
+                label: id.into(), created_at: String::new(),
+            },
+            state: mw_store::WebauthnState { backup_eligible: Some(false), backup_state: false, uv_initialized: true, revision: 0 },
+        };
+        assert!(store.register_admin_passkey(&key, &[]).await.unwrap().0);
+    }
+    assert!(store.change_admin_account_guarded(&last.id, None, false, Some(&[]), false, 6).await.unwrap());
+    let (one, two) = tokio::join!(store.delete_admin_passkey(&passwordless.id, "key-one"), store.delete_admin_passkey(&passwordless.id, "key-two"));
+    let outcomes = [one.unwrap(), two.unwrap()];
+    assert_eq!(outcomes.iter().filter(|r| **r == Some(true)).count(), 1);
+    assert_eq!(outcomes.iter().filter(|r| r.is_none()).count(), 1, "concurrent removals retain a usable credential");
+    assert!(!store.revoke_admin_passkeys(&passwordless.id).await.unwrap());
+    store.put_setting_policy(&loss_policy).await.unwrap();
+    assert!(store.revoke_admin_passkeys(&passwordless.id).await.unwrap(), "explicit opt-in permits credential loss");
 }
 #[tokio::test]
 async fn sqlite_admin_security() {

@@ -18,3 +18,5 @@ admin-passkeys-recovery-use = Use a recovery code
 admin-passkeys-factor-note = Confirm your administrator sign-in with an enrolled factor.
 admin-passkeys-failed = Passkey sign-in was cancelled or did not verify. Try again or choose another sign-in method.
 admin-passkeys-recovery-failed = Recovery did not verify. Enter your password again to start a new attempt.
+
+admin-passkeys-last-super-protected = This is the last usable sign-in credential for the last Super admin. Add another passkey or configure a password before removing it.

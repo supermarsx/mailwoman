@@ -1136,6 +1136,7 @@ async fn account_view(state: &AppState, acc: &AdminAccountRow) -> Result<Value, 
         .map(|(c, e)| json!({ "capability": c, "effect": e }))
         .collect();
     let totp = state.store.get_admin_totp(&acc.id).await?.is_some();
+    let (last_superadmin, allow_loss) = state.store.admin_superadmin_protection(&acc.id).await?;
     Ok(json!({
         "id": acc.id,
         "username": acc.username,
@@ -1148,6 +1149,10 @@ async fn account_view(state: &AppState, acc: &AdminAccountRow) -> Result<Value, 
         "roles": roles,
         "overrides": overrides,
         "totpEnrolled": totp,
+        "lastSuperadmin": last_superadmin,
+        "lastSuperadminProtected": last_superadmin && !allow_loss,
+        "allowLastSuperadminLoss": allow_loss,
+        "passwordConfigured": acc.password_hash.as_ref().is_some_and(|p| !p.is_empty()),
         "passkeyCount": state.store.list_admin_passkeys(&acc.id).await?.len(),
     }))
 }
@@ -1581,7 +1586,7 @@ async fn admin_passkeys_delete(
         .await?;
     let acc = find(&state, &id).await?;
     require_can_manage(&state, &ctx, &acc).await?;
-    state.store.revoke_admin_passkeys(&id).await?;
+    if !state.store.revoke_admin_passkeys(&id).await? { return Err(last_super_error()); }
     invalidate_pending(&id);
     audit(
         &state,

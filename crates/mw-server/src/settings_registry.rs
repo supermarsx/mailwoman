@@ -855,6 +855,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "signin",
         "pending 2FA attempts (twofa_routes.rs)"
     ),
+    def!("admin.allowLastSuperadminLoss", Kind::Bool, "false", G, "admin", "Explicitly allow removing the final Super admin access; requires privileged confirmation"),
     def!(
         "admin.session.idleSecs",
         int(300, 86_400),

@@ -304,6 +304,9 @@ impl Store {
             ));
         }
         let mut tx = self.backend.begin().await?;
+        if key == crate::admin_accounts::ALLOW_LAST_SUPERADMIN_LOSS {
+            crate::admin_accounts::lock_admin_accounts(&mut tx).await?;
+        }
         crate::branding::lock(&mut tx).await?;
         let rows = q("SELECT key,global_value,allow_user_override,global_locked,updated_by,updated_at FROM setting_policy WHERE key=?1")
             .bind(key).fetch_all_tx(&mut tx).await?;
@@ -326,6 +329,9 @@ impl Store {
     /// Insert or replace the policy row of `row.key`.
     pub async fn put_setting_policy(&self, row: &SettingPolicyRow) -> Result<(), StoreError> {
         let mut tx = self.backend.begin().await?;
+        if row.key.as_str() == crate::admin_accounts::ALLOW_LAST_SUPERADMIN_LOSS {
+            crate::admin_accounts::lock_admin_accounts(&mut tx).await?;
+        }
         crate::branding::lock(&mut tx).await?;
         write_policy_tx(&mut tx, row).await?;
         tx.commit().await?;
@@ -336,6 +342,9 @@ impl Store {
     /// defaults). `true` when a row was removed.
     pub async fn delete_setting_policy(&self, key: &str) -> Result<bool, StoreError> {
         let mut tx = self.backend.begin().await?;
+        if key == crate::admin_accounts::ALLOW_LAST_SUPERADMIN_LOSS {
+            crate::admin_accounts::lock_admin_accounts(&mut tx).await?;
+        }
         crate::branding::lock(&mut tx).await?;
         let n = q("DELETE FROM setting_policy WHERE key = ?1")
             .bind(key)

@@ -157,6 +157,20 @@ describe('Admin › one setting', () => {
     expect(screen.queryByText(t('admin-settings-domains'))).toBeNull();
   });
 
+  it('requires typed consequence confirmation before enabling last-superadmin loss', async () => {
+    const policy = setting({ key: 'admin.allowLastSuperadminLoss', category: 'admin', kind: { type: 'bool' }, default: false, effective: { value: false, source: 'default' }, scopes: 'global', userOverride: false, allowUserOverride: false });
+    const calls = stubFetch(c => c.method === 'PUT' ? json(200, { ...policy, globalValue: true, etag: '"e1"' }, '"e1"') : json(200, { values: [] }));
+    render(() => <SettingDetail settingKey={policy.key} load={async () => ({ setting: policy, etag: '"e0"' })} />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Allow losing the last Super admin/ }));
+    fireEvent.click(screen.getByRole('button', { name: t('admin-settings-save') }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(calls.filter(c => c.method === 'PUT')).toHaveLength(0);
+    expect(within(dialog).getByRole('button', { name: 'Allow loss of access' })).toBeDisabled();
+    fireEvent.input(within(dialog).getByRole('textbox'), { target: { value: 'ALLOW LAST SUPERADMIN LOSS' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Allow loss of access' }));
+    await waitFor(() => expect(calls.find(c => c.method === 'PUT')?.body).toEqual({ globalValue: true, confirmLastSuperadminLoss: true }));
+  });
+
   it('checks the value before any request, then saves with If-Match', async () => {
     const calls = stubFetch((c) => {
       if (c.method === 'PUT') {

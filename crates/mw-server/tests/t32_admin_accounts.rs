@@ -55,6 +55,8 @@ fn client() -> Client {
 }
 
 async fn login(c: &Client, base: &str, username: &str, password: &str) -> Response {
+    // Distinct credential attempts honor the default server cooldown.
+    tokio::time::sleep(std::time::Duration::from_millis(3200)).await;
     c.post(format!("{base}/admin/login"))
         .json(&json!({"username": username, "password": password}))
         .send()
@@ -662,4 +664,79 @@ async fn source_ban_mutations_require_fresh_proof_and_allow_legacy_cleanup() {
     // Historical non-address identifiers remain removable, but never creatable.
     assert_eq!(admin.delete(format!("{base}/admin/bans/admin-panel")).send().await.unwrap().status(),204);
     assert_eq!(admin.post(format!("{base}/admin/bans")).json(&json!({"ip":"admin-panel","reason":"test","expiresAt":null})).send().await.unwrap().status(),422);
+}
+
+#[tokio::test]
+async fn last_superadmin_loss_requires_fresh_proof_and_explicit_opt_in() {
+    let base = server().await;
+    let c = client();
+    assert_eq!(login(&c, &base, "root", "hunter2").await.status(), 200);
+    let url = format!("{base}/admin/settings/admin.allowLastSuperadminLoss");
+    let current = c.get(&url).send().await.unwrap();
+    assert_eq!(current.status(), 200);
+    let etag = current.headers()["etag"].clone();
+    assert_eq!(c.put(&url).json(&json!({"globalValue":true,"confirmLastSuperadminLoss":true})).send().await.unwrap().status(),428);
+    assert_eq!(c.put(&url).header("If-Match","*").json(&json!({"globalValue":true,"confirmLastSuperadminLoss":true})).send().await.unwrap().status(),412);
+
+    let response = c.put(&url).header("If-Match", etag.clone())
+        .json(&json!({"globalValue":true,"confirmLastSuperadminLoss":true})).send().await.unwrap();
+    assert_eq!(response.status(), 403);
+    assert_eq!(response.json::<Value>().await.unwrap()["code"], "step_up_required");
+    confirm(&c, &base, "hunter2").await;
+    let response = c.put(&url).header("If-Match", etag.clone())
+        .json(&json!({"globalValue":true})).send().await.unwrap();
+    assert_eq!(response.status(), 422);
+    assert_eq!(response.json::<Value>().await.unwrap()["code"], "confirmationRequired");
+    let response = c.put(&url).header("If-Match", etag)
+        .json(&json!({"globalValue":true,"confirmLastSuperadminLoss":true})).send().await.unwrap();
+    assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
+    let list: Value = c.get(format!("{base}/admin/admins")).send().await.unwrap().json().await.unwrap();
+    let admin = &list["admins"][0];
+    assert_eq!(admin["lastSuperadmin"], true);
+    assert_eq!(admin["lastSuperadminProtected"], false);
+    let current = c.get(&url).send().await.unwrap();
+    let etag = current.headers()["etag"].clone();
+    assert_eq!(c.delete(&url).send().await.unwrap().status(),428);
+    assert_eq!(c.delete(&url).header("If-Match","*").send().await.unwrap().status(),412);
+    assert_eq!(c.delete(&url).header("If-Match", etag).send().await.unwrap().status(), 200);
+    let list: Value = c.get(format!("{base}/admin/admins")).send().await.unwrap().json().await.unwrap();
+    let admin = &list["admins"][0];
+    assert_eq!(admin["lastSuperadminProtected"], true);
+    let response = c.delete(format!("{base}/admin/admins/{}", admin["id"].as_str().unwrap()))
+        .header("If-Match", admin["etag"].as_str().unwrap()).send().await.unwrap();
+    assert_eq!(response.status(), 409);
+    let current = c.get(&url).send().await.unwrap();
+    let etag = current.headers()["etag"].clone();
+    assert_eq!(c.put(&url).header("If-Match", etag).json(&json!({"globalValue":true,"confirmLastSuperadminLoss":true})).send().await.unwrap().status(),200);
+    let list: Value = c.get(format!("{base}/admin/admins")).send().await.unwrap().json().await.unwrap();
+    let admin = &list["admins"][0];
+    let response = c.delete(format!("{base}/admin/admins/{}", admin["id"].as_str().unwrap()))
+        .header("If-Match", admin["etag"].as_str().unwrap()).send().await.unwrap();
+    assert_eq!(response.status(), 204, "{}", response.text().await.unwrap());
+    assert_eq!(c.get(format!("{base}/admin/session")).send().await.unwrap().status(),401);
+}
+
+#[tokio::test]
+async fn settings_writer_cannot_enable_last_superadmin_loss() {
+    let base = server().await;
+    let admin = root(&base).await;
+    let role: Value = admin.post(format!("{base}/admin/roles"))
+        .json(&json!({"name":"Settings operator", "capabilities":["settings.read","settings.write"]}))
+        .send().await.unwrap().json().await.unwrap();
+    let created = admin.post(format!("{base}/admin/admins"))
+        .json(&json!({"username":"settings-operator", "password":"a sufficiently long password", "roles":[{"roleId":role["id"],"domains":null}]}))
+        .send().await.unwrap();
+    assert_eq!(created.status(),201,"{}",created.text().await.unwrap());
+    tokio::time::sleep(std::time::Duration::from_millis(3200)).await;
+    let operator = client();
+    assert_eq!(login(&operator,&base,"settings-operator","a sufficiently long password").await.status(),200);
+    confirm(&operator,&base,"a sufficiently long password").await;
+    let url=format!("{base}/admin/settings/admin.allowLastSuperadminLoss");
+    let response=operator.get(&url).send().await.unwrap();
+    assert_eq!(response.status(),200);
+    let etag=response.headers()["etag"].clone();
+    let response=operator.put(&url).header("If-Match",etag)
+        .json(&json!({"globalValue":true,"confirmLastSuperadminLoss":true})).send().await.unwrap();
+    assert_eq!(response.status(),403);
+    assert_eq!(response.json::<Value>().await.unwrap()["code"],"superAdminRequired");
 }

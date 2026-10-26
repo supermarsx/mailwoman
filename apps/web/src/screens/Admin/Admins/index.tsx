@@ -43,7 +43,14 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
   const [sessionBatch,setSessionBatch]=createSignal<AdminSession[]>();
   const [loaded, setLoaded] = createSignal(false);
   const [secret, setSecret] = createSignal('');
-  const [confirm, setConfirm] = createSignal<{ name: string; typed?: boolean; action: () => Promise<unknown> }>();
+  const [confirm, setConfirm] = createSignal<{ name: string; typed?: boolean | undefined; losesAccess?: boolean | undefined; action: () => Promise<unknown> }>();
+  function saveAccess(removesAccess: boolean, action: () => Promise<unknown>): void {
+    const target = selected();
+    if (target?.lastSuperadmin && removesAccess) {
+      setConfirm({ name: target.username, typed: true, losesAccess: true, action });
+    } else { void run(action); }
+  }
+
   const canManage = () => me()?.capabilities.includes('admins.manage') === true;
   async function reload(): Promise<void> {
     const [a, r, m, s] = await Promise.all([api.accounts(), api.roles(), api.me(), api.sessions()]);
@@ -124,6 +131,7 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
       <Show when={editing() && !selected()}><p role="alert">{t('admin-accounts-not-found')}</p></Show>
       <Show when={editing()}>
       <Show when={selected()}>{(account) => <section class={layout.section} aria-label={account().username}>
+        <Show when={account().lastSuperadmin}><p role="status">{t(account().lastSuperadminProtected ? 'admin-accounts-last-super-protected' : 'admin-accounts-last-super-allowed')}</p></Show>
         <p class={ux.pageDescription}>{t('admin-accounts-edit-help')}</p><Show when={!canManage()}><p>{t('admin-accounts-readonly')}</p></Show>
         <p>{t(account().totpEnrolled ? 'admin-accounts-totp-on' : 'admin-accounts-totp-off')}</p>
         <fieldset class={ux.fieldset} disabled={busy() || !canManage()}>
@@ -134,22 +142,22 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
         <fieldset class={ux.fieldset} disabled={busy() || !canManage()}><legend>{t('admin-accounts-roles')}</legend>
           <p>{t('admin-accounts-role-help')}</p>
           <For each={roles()}>{(role) => <div>
-            <label class={ux.checkboxRow}><input type="checkbox" checked={grants().some((g) => g.roleId === role.id)} onChange={(e) => setGrants(e.currentTarget.checked ? [...grants(), { roleId: role.id, domains: null }] : grants().filter((g) => g.roleId !== role.id))} />{role.name}</label>
-            <Show when={grants().find((g) => g.roleId === role.id)}>{(grant) => <label class={css.field}>{t('admin-accounts-domains')}<input class={ux.control} aria-label={`${role.name}: ${t('admin-accounts-domains')}`} value={domainText()[grant().roleId] ?? ''} onInput={(e) => setDomainText({ ...domainText(), [role.id]: e.currentTarget.value })} /></label>}</Show>
+            <label class={ux.checkboxRow}><input type="checkbox" disabled={account().lastSuperadminProtected && role.id === 'super_admin'} checked={grants().some((g) => g.roleId === role.id)} onChange={(e) => setGrants(e.currentTarget.checked ? [...grants(), { roleId: role.id, domains: null }] : grants().filter((g) => g.roleId !== role.id))} />{role.name}</label>
+            <Show when={grants().find((g) => g.roleId === role.id)}>{(grant) => <label class={css.field}>{t('admin-accounts-domains')}<input class={ux.control} disabled={account().lastSuperadminProtected && role.id === 'super_admin'} aria-label={`${role.name}: ${t('admin-accounts-domains')}`} value={domainText()[grant().roleId] ?? ''} onInput={(e) => setDomainText({ ...domainText(), [role.id]: e.currentTarget.value })} /></label>}</Show>
           </div>}</For>
-          <button class="btn" type="button" onClick={() => void run(() => api.write(`${path()}/roles`, 'PUT', { roles: grants().map((g) => { const ds = (domainText()[g.roleId] ?? '').split(',').map((d) => d.trim()).filter(Boolean); return { ...g, domains: ds.length ? ds : null }; }) }, account().etag))}>{t('admin-accounts-save-roles')}</button>
+          <button class="btn" type="button" disabled={account().lastSuperadminProtected && (!grants().some(g => g.roleId === 'super_admin') || !!(domainText().super_admin ?? '').trim())} onClick={() => saveAccess(!grants().some(g => g.roleId === 'super_admin') || !!(domainText().super_admin ?? '').trim(), () => api.write(`${path()}/roles`, 'PUT', { roles: grants().map((g) => { const ds = (domainText()[g.roleId] ?? '').split(',').map((d) => d.trim()).filter(Boolean); return { ...g, domains: ds.length ? ds : null }; }) }, account().etag))}>{t('admin-accounts-save-roles')}</button>
         </fieldset>
         <fieldset class={ux.fieldset} disabled={busy() || !canManage()}><legend>{t('admin-accounts-overrides')}</legend>
           <p>{t('admin-accounts-override-help')}</p>
           <ul><For each={overrides()}>{(o) => <li>{o.capability}: {o.effect} <button class="btn" type="button" onClick={() => setOverrides(overrides().filter((v) => v !== o))}>{t('admin-accounts-remove')}</button></li>}</For></ul>
           <label class={css.field}>{t('admin-accounts-capability')}<select class={ux.control} value={overrideCap()} onChange={(e) => setOverrideCap(e.currentTarget.value)}><option value="">{t('admin-accounts-select')}</option><For each={me()?.capabilities ?? []}>{(cap) => <option>{cap}</option>}</For></select></label>
           <label class={css.field}>{t('admin-accounts-effect')}<select class={ux.control} value={overrideEffect()} onChange={(e) => setOverrideEffect(e.currentTarget.value as 'allow' | 'deny')}><option value="deny">{t('admin-accounts-deny')}</option><option value="allow">{t('admin-accounts-allow')}</option></select></label>
-          <button class="btn" type="button" disabled={!overrideCap()} onClick={() => setOverrides([...overrides().filter((o) => o.capability !== overrideCap()), { capability: overrideCap(), effect: overrideEffect() }])}>{t('admin-accounts-add')}</button>
-          <button class="btn" type="button" onClick={() => void run(() => api.write(`${path()}/overrides`, 'PUT', { overrides: overrides() }, account().etag))}>{t('admin-accounts-save-overrides')}</button>
+          <button class="btn" type="button" disabled={!overrideCap() || (account().lastSuperadminProtected && overrideEffect() === 'deny')} onClick={() => setOverrides([...overrides().filter((o) => o.capability !== overrideCap()), { capability: overrideCap(), effect: overrideEffect() }])}>{t('admin-accounts-add')}</button>
+          <button class="btn" type="button" disabled={account().lastSuperadminProtected && overrides().some(o => o.effect === 'deny')} onClick={() => saveAccess(overrides().some(o => o.effect === 'deny'), () => api.write(`${path()}/overrides`, 'PUT', { overrides: overrides() }, account().etag))}>{t('admin-accounts-save-overrides')}</button>
         </fieldset>
         <fieldset class={ux.fieldset} disabled={busy() || !canManage()}><legend>{t('admin-accounts-credentials')}</legend>
           <p>{t('admin-accounts-credentials-help')}</p>
-          <Show when={account().passkeyCount !== undefined}><p>{t('admin-accounts-passkey-count', { count: account().passkeyCount ?? 0 })}</p><button class="btn" type="button" disabled={!account().passkeyCount} onClick={() => setConfirm({ name: account().username, typed: true, action: () => api.write(`${path()}/passkeys`, 'DELETE') })}>{t('admin-accounts-revoke-passkeys')}</button><p>{t('admin-accounts-revoke-passkeys-help')}</p></Show>
+          <Show when={account().passkeyCount !== undefined}><p>{t('admin-accounts-passkey-count', { count: account().passkeyCount ?? 0 })}</p><button class="btn" type="button" disabled={!account().passkeyCount || (account().lastSuperadminProtected && account().passwordConfigured === false)} onClick={() => setConfirm({ name: account().username, typed: true, action: () => api.write(`${path()}/passkeys`, 'DELETE') })}>{t('admin-accounts-revoke-passkeys')}</button><p>{t('admin-accounts-revoke-passkeys-help')}</p></Show>
           <label class={css.field}>{t('admin-accounts-password')}<input class={ux.control} type="password" autocomplete="new-password" minLength={12} value={password()} onInput={(e) => setPassword(e.currentTarget.value)} /></label>
           <button class="btn" type="button" disabled={password().length < 12} onClick={() => setConfirm({ name: account().username, action: async () => { await api.write(`${path()}/reset-password`, 'POST', { password: password() }); setPassword(''); } })}>{t('admin-accounts-reset-password')}</button>
           <button class="btn" type="button" onClick={() => setConfirm({ name: account().username, action: async () => { const result = await api.write<{ secret: string }>(`${path()}/totp`, 'POST'); setSecret(result.secret); } })}>{t('admin-accounts-reset-totp')}</button>
@@ -158,8 +166,8 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
         <Show when={secret()}><p role="status">{t('admin-accounts-secret-once')} <code>{secret()}</code><button class="btn" type="button" onClick={() => setSecret('')}>{t('admin-accounts-dismiss')}</button></p></Show>
         <fieldset class={ux.fieldset} disabled={busy() || !canManage()}><legend>{t('admin-accounts-access-state')}</legend>
           <p>{t('admin-accounts-access-state-help')}</p>
-          <button class="btn" type="button" onClick={() => setConfirm({ name: account().username, action: () => api.write(path(), 'PUT', { displayName: account().displayName, disabled: !account().disabled }, account().etag) })}>{t(account().disabled ? 'admin-accounts-enable' : 'admin-accounts-disable')}</button>
-          <button class="btn" type="button" onClick={() => setConfirm({ name: account().username, action: async () => { await api.write(path(), 'DELETE', undefined, account().etag); setSelected(undefined); go(); } })}>{t('admin-accounts-delete')}</button>
+          <button class="btn" type="button" disabled={account().lastSuperadminProtected && !account().disabled} onClick={() => setConfirm({ name: account().username, losesAccess: account().lastSuperadmin, typed: account().lastSuperadmin, action: () => api.write(path(), 'PUT', { displayName: account().displayName, disabled: !account().disabled }, account().etag) })}>{t(account().disabled ? 'admin-accounts-enable' : 'admin-accounts-disable')}</button>
+          <button class="btn" type="button" disabled={account().lastSuperadminProtected} onClick={() => setConfirm({ name: account().username, losesAccess: account().lastSuperadmin, typed: account().lastSuperadmin, action: async () => { await api.write(path(), 'DELETE', undefined, account().etag); setSelected(undefined); go(); } })}>{t('admin-accounts-delete')}</button>
         </fieldset>
       </section>}</Show></Show>
       <Show when={!creating()}><AdminSessionTable sessions={editing() ? sessions().filter(s => s.adminId === selected()?.id) : sessions()} accounts={accounts()} busy={busy()} canRevoke={canManage()}
@@ -167,6 +175,6 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
         onRevoke={(session) => setConfirm({ name: accounts().find((a) => a.id === session.adminId)?.username ?? session.adminId, action: () => api.write(`/admin-sessions/${encodeURIComponent(session.id)}`, 'DELETE') })} /></Show>
     </Show>
     <ConfirmDialog open={sessionBatch()!==undefined} title={t('admin-session-revoke-selected',{count:sessionBatch()?.length??0})} body={t(sessionBatch()?.some(row=>row.current)?'admin-session-batch-current':'admin-session-batch-confirm')} confirmLabel={t('admin-session-batch-confirm-button')} onCancel={()=>setSessionBatch(undefined)} onConfirm={revokeSelectedSessions}/>
-    <ConfirmDialog {...(confirm()?.typed ? { typedConfirmation: confirm()?.name ?? '' } : {})} open={confirm() !== undefined} title={t('admin-accounts-confirm', { name: confirm()?.name ?? '' })} body={t('admin-accounts-confirm-body')} confirmLabel={t('admin-accounts-confirm-action')} onCancel={() => setConfirm(undefined)} onConfirm={async () => { const action = confirm()?.action; if (action) { await action(); setConfirm(undefined); await run(reload); } }} />
+    <ConfirmDialog {...(confirm()?.typed ? { typedConfirmation: confirm()?.name ?? '' } : {})} open={confirm() !== undefined} title={t('admin-accounts-confirm', { name: confirm()?.name ?? '' })} body={t(confirm()?.losesAccess ? 'admin-accounts-last-super-confirm' : 'admin-accounts-confirm-body')} confirmLabel={t('admin-accounts-confirm-action')} onCancel={() => setConfirm(undefined)} onConfirm={async () => { const action = confirm()?.action; if (action) { await action(); setConfirm(undefined); await run(reload); } }} />
   </section>;
 }

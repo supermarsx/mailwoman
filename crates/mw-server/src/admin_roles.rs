@@ -155,7 +155,7 @@ pub(crate) fn require_can_grant(ctx: &AdminCtx, caps: &[Capability]) -> Result<(
 }
 
 /// Does `account` hold Super admin for all domains, enabled?
-async fn is_full_super(state: &AppState, account: &AdminAccountRow) -> Result<bool, AdminApiError> {
+pub(crate) async fn is_full_super(state: &AppState, account: &AdminAccountRow) -> Result<bool, AdminApiError> {
     if account.disabled
         || state
             .store
@@ -180,14 +180,8 @@ pub(crate) async fn last_super_admin_guard(
     state: &AppState,
     account: &AdminAccountRow,
 ) -> Result<(), AdminApiError> {
-    if !is_full_super(state, account).await? {
-        return Ok(());
-    }
-    for other in state.store.list_admin_accounts().await? {
-        if other.id != account.id && is_full_super(state, &other).await? {
-            return Ok(());
-        }
-    }
+    let (last, allow_loss) = state.store.admin_superadmin_protection(&account.id).await?;
+    if !last || allow_loss { return Ok(()); }
     Err(AdminApiError::conflict(
         "lastSuperAdmin",
         "This is the last enabled Super admin. Give another account Super admin first.",

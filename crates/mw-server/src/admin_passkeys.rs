@@ -156,8 +156,12 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
 }
 async fn list(State(state): State<AppState>, ctx: AdminCtx) -> Result<Json<Value>, AdminApiError> {
     let keys = state.store.list_admin_passkeys(account(&ctx)?).await?;
+    let id = account(&ctx)?;
+    let (last, allowed) = state.store.admin_superadmin_protection(id).await?;
+    let has_password = state.store.get_admin_account(id).await?.is_some_and(|a| a.password_hash.is_some_and(|p| !p.is_empty()));
+    let removal_protected = last && !allowed && !has_password && keys.len() <= 1;
     Ok(Json(
-        json!({"passkeys":keys.iter().map(|k|json!({"credentialId":k.credential.credential_id,"label":k.credential.label,"createdAt":k.credential.created_at,"backupEligible":k.state.backup_eligible,"backedUp":k.state.backup_state})).collect::<Vec<_>>(),"recoveryRemaining":state.store.admin_recovery_hashes(account(&ctx)?).await?.len()}),
+        json!({"removalProtected":removal_protected,"passkeys":keys.iter().map(|k|json!({"credentialId":k.credential.credential_id,"label":k.credential.label,"createdAt":k.credential.created_at,"backupEligible":k.state.backup_eligible,"backedUp":k.state.backup_state})).collect::<Vec<_>>(),"recoveryRemaining":state.store.admin_recovery_hashes(account(&ctx)?).await?.len()}),
     ))
 }
 async fn enroll_begin(
@@ -273,7 +277,7 @@ async fn remove(
     if !state
         .store
         .delete_admin_passkey(account(&ctx)?, &body.credential_id)
-        .await?
+        .await?.ok_or_else(|| AdminApiError::conflict("lastSuperAdmin", "This is the last usable sign-in credential for the last Super admin."))?
     {
         return Err(AdminApiError::new(
             StatusCode::NOT_FOUND,

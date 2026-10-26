@@ -20,6 +20,29 @@ function renderAccounts(api: AdminAccountsApi, initial = '/admin#/admins') {
   return { ...view, route };
 }
 describe('admin accounts and roles', () => {
+  it('disables final superadmin access loss using authoritative metadata', async () => {
+    const api = service();
+    api.accounts = vi.fn(async () => [{ ...account, roles: [{ roleId: 'super_admin', domains: null }], lastSuperadmin: true, lastSuperadminProtected: true, passwordConfigured: false, passkeyCount: 1 }]);
+    api.roles = vi.fn(async () => [{ ...role, id: 'super_admin', name: 'Super admin' }]);
+    renderAccounts(api, '/admin#/admins/alice/edit');
+    expect(await screen.findByRole('button', { name: 'Delete' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Disable account' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Revoke all passkeys' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: 'Super admin' })).toBeDisabled();
+    expect(screen.getByText(/Actions that remove this access are disabled/)).toBeInTheDocument();
+    expect(api.write).not.toHaveBeenCalled();
+  });
+  it('requires an explicit consequence confirmation when last access loss is enabled', async () => {
+    const api = service();
+    api.accounts = vi.fn(async () => [{ ...account, lastSuperadmin: true, lastSuperadminProtected: false, allowLastSuperadminLoss: true }]);
+    renderAccounts(api, '/admin#/admins/alice/edit');
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent('without any Super admin access');
+    expect(within(dialog).getByRole('button', { name: 'Confirm change' })).toBeDisabled();
+    expect(api.write).not.toHaveBeenCalled();
+  });
+
   it('warns before current-session revocation and preserves it after another request fails',async()=>{
     const api=service();api.sessions=vi.fn(async()=>[{id:'mine',adminId:'root',createdAt:'today',current:true},{id:'other',adminId:'alice',createdAt:'today',current:false}]);
     api.write=vi.fn(async()=>{throw{status:503};}) as AdminAccountsApi['write'];renderAccounts(api);

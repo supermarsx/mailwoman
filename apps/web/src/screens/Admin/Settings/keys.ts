@@ -171,6 +171,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'twofa.required',
   'twofa.pendingTtlSecs',
   'twofa.maxAttempts',
+  'admin.allowLastSuperadminLoss',
   'admin.session.idleSecs',
   'admin.session.absoluteSecs',
   'passwd.policy.minLength',

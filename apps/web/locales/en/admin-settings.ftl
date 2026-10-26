@@ -604,3 +604,9 @@ admin-settings-key-mail-folder-counts = Folder counts
 admin-settings-help-mail-folder-counts = Choose hidden, unread, total, or both counts beside folders. Set global, domain, or user defaults, and lock the choice when required.
 admin-settings-key-mail-compact-folder-badges = Compact secondary folder badges
 admin-settings-help-mail-compact-folder-badges = Show smaller badges outside Inbox. Users can choose their own size unless this setting is locked.
+
+admin-settings-key-admin-allow-last-superadmin-loss = Allow losing the last Super admin
+admin-settings-help-admin-allow-last-superadmin-loss = Off by default. Enabling this permits later changes to remove the final Super admin access. A full Super admin must confirm the consequence with fresh authentication.
+admin-settings-last-superadmin-title = Allow losing all Super admin access?
+admin-settings-last-superadmin-body = Later account changes may leave nobody able to administer this deployment. Recovery would require local deployment administration. Type ALLOW LAST SUPERADMIN LOSS to enable this exception.
+admin-settings-last-superadmin-confirm = Allow loss of access

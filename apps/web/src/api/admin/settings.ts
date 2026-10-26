@@ -80,6 +80,7 @@ export interface ScopedValue {
 }
 
 export interface GlobalWrite {
+  confirmLastSuperadminLoss?: boolean;
   /** Leave out to keep; `null` = back to the default. */
   globalValue?: unknown;
   allowUserOverride?: boolean;
