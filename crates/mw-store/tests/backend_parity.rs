@@ -2309,15 +2309,6 @@ mod admin_controls_0033 {
             ("observed_at",'I',"!",TS),("reason",'T',"!","long-absolute"),("action",'T',"!","throttle"),
             ("enforced",'I',"!","1"),("retry_after_secs",'I',"!","3"),("counts_json",'T',"!","{}"),
         ]},
-        NewTable {name:"request_protection_subject",copied:true,cols:&[
-            ("subject_key",'T',"!","subject-hmac"),("subject_kind",'T',"!","client"),
-            ("state_json",'T',"!","{}"),("updated_at",'I',"!",TS),("expires_at",'I',"!",TS),("revision",'T',"!","state-revision"),
-        ]},
-        NewTable {name:"request_protection_event",copied:true,cols:&[
-            ("id",'T',"!","decision-1"),("subject_key",'T',"!","subject-hmac"),("subject_kind",'T',"!","client"),
-            ("observed_at",'I',"!",TS),("reason",'T',"!","long-absolute"),("action",'T',"!","throttle"),
-            ("enforced",'I',"!","1"),("retry_after_secs",'I',"!","3"),("counts_json",'T',"!","{}"),
-        ]},
         NewTable { name: "remembered_device", copied: true, cols: &[
             ("id", 'T', "!", "rd-1"),
             ("account_id", 'T', "!", "acct-1"),
