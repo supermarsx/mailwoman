@@ -1,6 +1,6 @@
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {render,screen,fireEvent,waitFor} from '@solidjs/testing-library';
-import {createSignal,onCleanup} from 'solid-js';
+import {createResource,createSignal,onCleanup,Suspense} from 'solid-js';
 import {activateAccountPreferences,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
 import {RetainedSettingsSection} from './RetainedSettingsSection.tsx';
 import {AccountSettings} from './AccountSettings.tsx';
@@ -9,6 +9,21 @@ import type {SettingsService} from './service.ts';
 
 beforeEach(()=>activateAccountPreferences('same-id','msa1_first_settings_authority'));
 afterEach(()=>suspendAccountPreferences());
+it('keeps the settings shell visible while rapidly switching away from pending sections',async()=>{
+ const [active,setActive]=createSignal('first');
+ let resolve!: (value:string)=>void;
+ function Pending(){const [value]=createResource(()=>new Promise<string>(done=>{resolve=done;}));return <p>{value()}</p>;}
+ render(()=><Suspense fallback={<p>Whole app loading</p>}><nav>Settings navigation</nav>
+  <RetainedSettingsSection name="first" active={active()==='first'}>{()=> <p>First panel</p>}</RetainedSettingsSection>
+  <RetainedSettingsSection name="pending" active={active()==='pending'}>{()=> <Pending/>}</RetainedSettingsSection>
+ </Suspense>);
+ setActive('pending');
+ await waitFor(()=>expect(screen.getByText('Settings navigation')).toBeVisible());
+ expect(screen.queryByText('Whole app loading')).not.toBeInTheDocument();
+ setActive('first');expect(screen.getByText('First panel')).toBeVisible();
+ resolve('Loaded panel');await waitFor(()=>expect(screen.getByText('Loaded panel')).not.toBeVisible());
+ setActive('pending');expect(screen.getByText('Loaded panel')).toBeVisible();
+});
 it('mounts only on first visit and retains the same DOM and unsaved local controls',()=>{
  const mounted=vi.fn(),disposed=vi.fn();const [active,setActive]=createSignal(false);
  function Panel(){mounted();onCleanup(disposed);return <input aria-label="Local filter"/>;}

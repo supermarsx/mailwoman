@@ -29,6 +29,8 @@ vi.mock('../modules/apikeys/index.ts', () => ({
   McpKeys: () => <p>mcp keys section</p>,
 }));
 vi.mock('./Settings/index.ts', () => ({ AccountSettings: () => <p>account section</p> }));
+// Keep this boundary test independent of the security centre's network resources.
+vi.mock('./Settings/SecurityCenter.tsx', () => ({ SecurityCenter: (props: {password: import('solid-js').JSX.Element}) => <>{props.password}</> }));
 vi.mock('../modules/rules/index.ts', () => ({ RulesSettings: () => <p>rules section</p> }));
 vi.mock('../modules/servermeta/index.ts', () => ({ MetadataView: () => <p>metadata section</p> }));
 
