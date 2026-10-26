@@ -70,6 +70,29 @@ pub fn parse_server_identities(value: &str) -> Vec<ServerIdentity> {
         .collect()
 }
 
+/// Current authority, independent of editable identity rows. A configured display
+/// identity never grants permission to use a different address by itself.
+pub async fn sender_address_allowed(
+    store: &mw_store::Store,
+    account_id: &str,
+    primary: &str,
+    address: &str,
+) -> Result<bool, mw_store::StoreError> {
+    if address.is_empty() || address.chars().any(char::is_control) { return Ok(false); }
+    if address.eq_ignore_ascii_case(primary) || load_server_identities().iter()
+        .any(|identity| identity.email.eq_ignore_ascii_case(address)) { return Ok(true); }
+    Ok(store.get_masked_email_by_addr(address).await?.is_some_and(|alias|
+        alias.account_id == account_id && alias.state == "enabled"))
+}
+
+impl crate::Engine {
+    /// Check current sending authority for the account's runtime identity.
+    pub async fn sender_address_allowed(&self, account_id: &str, address: &str) -> crate::backend::Result<bool> {
+        let runtime = self.runtime(account_id).ok_or_else(|| crate::backend::EngineError::Auth("account is not connected".into()))?;
+        Ok(sender_address_allowed(self.store(), account_id, &runtime.identity, address).await?)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -316,18 +316,45 @@ async fn identities_upsert(
     headers: HeaderMap,
     Json(body): Json<IdentityDto>,
 ) -> Response {
-    let account = match account_id(&state, &headers).await {
+    let session = match session_of(&state, &headers).await {
         Ok(a) => a,
         Err(r) => return r,
     };
     if body.name.trim().is_empty() || body.email.trim().is_empty() {
         return bad_request("an identity needs a name and an email");
     }
-    match do_upsert_identity(&state.store, &account, &body).await {
+    let account = &session.account_id;
+    match identity_address_allowed(&state, &session, &body.email).await {
+        Ok(true) => {},
+        Ok(false) => return (StatusCode::FORBIDDEN, Json(json!({"error":"This address is not authorized for sending. Choose your account address or an administrator-approved alias.", "code":"forbiddenFrom"}))).into_response(),
+        Err(()) => return (StatusCode::BAD_GATEWAY, Json(json!({"error":"Sending identity authority could not be verified. Try again.", "code":"identityAuthorityUnavailable"}))).into_response(),
+    }
+    match do_upsert_identity(&state.store, account, &body).await {
         Ok(Some(id)) => Json(json!({ "ok": true, "id": id })).into_response(),
         Ok(None) => not_found("no such identity"),
+        Err(StoreError::NotFound) => not_found("no such identity"),
         Err(e) => server_error("upsert identity", e),
     }
+}
+
+/// Editable profile rows are not permission grants. Proxy identities come from
+/// the current authenticated provider; native identities use runtime authority.
+async fn identity_address_allowed(state: &AppState, session: &mw_store::Session, address: &str) -> Result<bool, ()> {
+    if address.is_empty() || address.trim() != address || address.chars().any(char::is_control) { return Ok(false); }
+    if let Some(engine) = &state.engine {
+        crate::engine_mode::ensure_account(engine, &session.account_id).await.map_err(|_| ())?;
+        return engine.sender_address_allowed(&session.account_id, address).await.map_err(|_| ());
+    }
+    let client = crate::upstream_client(&state.security, &session.jmap_url, &session.api_url, &session.credentials).await.map_err(|_| ())?;
+    let request = json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:submission"],"methodCalls":[["Identity/get",{"accountId":session.account_id,"properties":["id","email"]},"identities"]]});
+    let (status, bytes) = tokio::time::timeout(std::time::Duration::from_secs(10), client.request_raw_limited(&session.api_url, axum::body::Bytes::from(request.to_string()), 256*1024)).await.map_err(|_| ())?.map_err(|_| ())?;
+    if !status.is_success() { return Err(()); }
+    let response: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| ())?;
+    let value = response["methodResponses"].as_array().and_then(|calls|calls.iter().find(|call|call[0]=="Identity/get" && call[2]=="identities")).ok_or(())?;
+    if value[1]["accountId"].as_str()!=Some(session.account_id.as_str()) { return Err(()); }
+    let identities = value[1]["list"].as_array().ok_or(())?;
+    if identities.len()>1024 { return Err(()); }
+    Ok(identities.iter().any(|identity|identity["email"].as_str().is_some_and(|email|email.eq_ignore_ascii_case(address))))
 }
 
 async fn identities_delete(
@@ -803,13 +830,7 @@ async fn do_upsert_identity(
 
 /// Delete an identity iff it belongs to `account`. `Ok(false)` = absent or foreign.
 async fn do_delete_identity(store: &Store, account: &str, id: &str) -> Result<bool, StoreError> {
-    match store.get_identity(id).await? {
-        Some(row) if row.account_id == account => {
-            store.delete_identity(id).await?;
-            Ok(true)
-        }
-        _ => Ok(false),
-    }
+    store.delete_identity(account, id).await
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

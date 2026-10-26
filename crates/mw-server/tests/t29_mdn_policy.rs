@@ -793,3 +793,22 @@ async fn dsn_default_is_account_preference_with_admin_lock_and_readonly_permissi
     assert_eq!(locked["settings"]["mail.requestDeliveryReceipt"]["locked"],true);
     assert_eq!(client.put(&own).json(&json!({"value":true})).send().await.unwrap().status(),403);
 }
+
+#[tokio::test]
+async fn sending_identity_creation_requires_current_address_authority() {
+    let _guard=serial().await;
+    let imap=MockImap::start(ENGINE_USER,ENGINE_PASS).await;
+    let server=spawn(ServerMode::Engine,imap.url()).await;
+    let client=browser();let account=engine_login(&client,&server.base,&imap).await;
+    let url=format!("{}/api/account/identities",server.base);
+    let denied=client.post(&url).json(&json!({"name":"Unverified","email":"unverified@example.net","source":"server"})).send().await.unwrap();
+    assert_eq!(denied.status(),403);
+    assert_eq!(denied.json::<Value>().await.unwrap()["code"],"forbiddenFrom");
+    let saved=client.post(&url).json(&json!({"name":"My identity","email":ENGINE_USER})).send().await.unwrap();
+    assert_eq!(saved.status(),200);
+    let id=saved.json::<Value>().await.unwrap()["id"].as_str().unwrap().to_string();
+    let denied=client.post(&url).json(&json!({"id":id,"name":"Changed","email":"unverified@example.net"})).send().await.unwrap();
+    assert_eq!(denied.status(),403);
+    let row=server.store().await.get_identity(&id).await.unwrap().unwrap();
+    assert_eq!(row.account_id,account);assert_eq!(row.email,ENGINE_USER);
+}

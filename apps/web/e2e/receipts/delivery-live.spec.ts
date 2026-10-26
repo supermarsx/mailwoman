@@ -9,7 +9,7 @@ test('persists the delivery default, sends actual DSN options, and shows uncerta
  await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('testuser');await page.getByLabel('Password',{exact:true}).fill('testpass');
  const login=page.waitForResponse(response=>response.url().endsWith('/api/login')&&response.request().method()==='POST');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  const identity=await (await login).json() as {accountId:string};expect(identity.accountId).toBeTruthy();
- const configured=await page.request.post('/api/account/identities',{data:{name:'DSN fixture',email:'owner@example.org'}});expect(configured.ok()).toBe(true);
+ const configured=await page.request.post('/api/account/identities',{data:{name:'DSN fixture',email:'testuser'}});expect(configured.ok()).toBe(true);
  if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();
  await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByRole('button',{name:'Read receipts',exact:true}).click();
  await page.getByRole('button',{name:'Edit delivery notification default'}).click();

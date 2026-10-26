@@ -810,3 +810,134 @@ async fn actual_smtp_lost_acceptance_is_not_retransmitted() {
     h.engine.dispatch_tick_at(Utc::now()+chrono::Duration::days(365)).await.unwrap();
     assert_eq!(h.engine.store().get_submission_attempts("sub-real-unknown").await.unwrap().unwrap().attempts,1);
 }
+
+#[tokio::test]
+async fn sender_authority_rejects_unknown_identity_before_smtp() {
+    let h = setup(SentAppend::Accept, Smtp::Deliver).await;
+    let response = jmap(&h, json!([
+        draft_create(),
+        ["EmailSubmission/set", {"create":{"s1":{
+            "emailId":"#draft", "identityId":"foreign-or-missing-identity", "mailwomanHoldSeconds":0
+        }}}, "send"]
+    ])).await;
+    assert_eq!(h.submitter.calls(), 0, "an unowned identity reached SMTP: {response}");
+    assert!(result(&response,"send")["notCreated"]["s1"].is_object(), "{response}");
+}
+
+#[tokio::test]
+async fn sender_authority_rejects_unconfigured_from_before_smtp() {
+    let h = setup(SentAppend::Accept, Smtp::Deliver).await;
+    let mut draft = draft_create();
+    draft[1]["create"]["draft"]["from"] = json!([{"email":"unconfigured@example.net"}]);
+    let response = jmap(&h, json!([
+        draft,
+        ["EmailSubmission/set", {"create":{"s1":{"emailId":"#draft", "mailwomanHoldSeconds":0}}}, "send"]
+    ])).await;
+    assert_eq!(h.submitter.calls(), 0, "an unconfigured sender reached SMTP: {response}");
+    assert!(result(&response,"send")["notCreated"]["s1"].is_object(), "{response}");
+}
+
+async fn sender_test_identity(h: &Harness, id: &str, address: &str) {
+    h.engine.store().upsert_identity(&mw_store::IdentityRow {
+        id: id.into(), account_id: h.account_id.clone(), name: "Test".into(), email: address.into(),
+        reply_to: None, signature_html: None, signature_text: None, signature_name: None,
+        sent_mailbox_id: None, source: "configured".into(),
+    }).await.unwrap();
+}
+
+#[tokio::test]
+async fn sender_authority_allows_matching_primary_identity_and_rejects_mismatch() {
+    let h = setup(SentAppend::Accept, Smtp::Deliver).await;
+    sender_test_identity(&h,"primary", "me@example.org").await;
+    let response = jmap(&h,json!([draft_create(),["EmailSubmission/set",{"create":{"s1":{
+        "emailId":"#draft","identityId":"primary","mailwomanHoldSeconds":0
+    }}},"send"]])).await;
+    assert!(result(&response,"send")["created"]["s1"].is_object(), "{response}");
+    assert_eq!(h.submitter.calls(),1);
+    sender_test_identity(&h,"unverified", "other@example.net").await;
+    let response = jmap(&h,json!([draft_create(),["EmailSubmission/set",{"create":{"s1":{
+        "emailId":"#draft","identityId":"unverified","mailwomanHoldSeconds":0
+    }}},"send"]])).await;
+    assert!(result(&response,"send")["notCreated"]["s1"].is_object(), "{response}");
+    assert_eq!(h.submitter.calls(),1);
+}
+
+#[tokio::test]
+async fn sender_authority_editable_identity_does_not_grant_address_permission() {
+    let h = setup(SentAppend::Accept, Smtp::Deliver).await;
+    sender_test_identity(&h,"unverified", "other@example.net").await;
+    let mut draft=draft_create();draft[1]["create"]["draft"]["from"]=json!([{"email":"other@example.net"}]);
+    let response=jmap(&h,json!([draft,["EmailSubmission/set",{"create":{"s1":{
+        "emailId":"#draft","identityId":"unverified","mailwomanHoldSeconds":0
+    }}},"send"]])).await;
+    assert_eq!(result(&response,"send")["notCreated"]["s1"]["type"],"forbiddenFrom", "{response}");
+    assert_eq!(h.submitter.calls(),0);
+}
+
+#[tokio::test]
+async fn sender_authority_revoked_masked_alias_cannot_dispatch_queued_message() {
+    let h=setup(SentAppend::Accept,Smtp::Deliver).await;
+    h.engine.store().put_masked_email(&mw_store::MaskedEmailRow {
+        id:"owned-alias".into(),account_id:h.account_id.clone(),alias_addr:"alias@example.org".into(),
+        target_desc:"me@example.org".into(),state:"enabled".into(),created_at:"2026-01-01T00:00:00Z".into(),last_used_at:None,
+    }).await.unwrap();
+    let mut draft=draft_create();draft[1]["create"]["draft"]["from"]=json!([{"email":"alias@example.org"}]);
+    let response=jmap(&h,json!([draft])).await;
+    let id=result(&response,"c1")["created"]["draft"]["id"].as_str().unwrap();
+    enqueue_due(&h,"revoked-alias",id).await;
+    h.engine.store().set_masked_email_state("owned-alias","disabled").await.unwrap();
+    h.engine.dispatch_tick().await.unwrap();
+    assert_eq!(h.submitter.calls(),0);
+}
+
+#[tokio::test]
+async fn sender_authority_publication_hides_unverified_rows_and_keeps_primary() {
+    let h=setup(SentAppend::Accept,Smtp::Deliver).await;
+    sender_test_identity(&h,"unverified","other@example.net").await;
+    let response=jmap(&h,json!([["Identity/get",{},"get"],["Identity/query",{},"query"]])).await;
+    let list=result(&response,"get")["list"].as_array().unwrap();
+    assert!(list.iter().any(|row|row["email"]=="me@example.org"));
+    assert!(!list.iter().any(|row|row["id"]=="unverified"));
+    assert!(!result(&response,"query")["ids"].as_array().unwrap().iter().any(|id|id=="unverified"));
+}
+
+#[tokio::test]
+async fn sender_authority_foreign_identity_is_indistinguishable_from_missing() {
+    let h=setup(SentAppend::Accept,Smtp::Deliver).await;
+    let foreign=h.engine.store().create_account(&NewAccount {
+        kind:AccountKind::Imap,host:"other.example.org",port:993,tls:"implicit",username:"other@example.org",sync_policy_json:"{}",
+    },&Credentials{username:"other@example.org".into(),password:"pw".into()}).await.unwrap();
+    h.engine.store().upsert_identity(&mw_store::IdentityRow {
+        id:"foreign-identity".into(),account_id:foreign,name:"Private name".into(),email:"me@example.org".into(),
+        reply_to:None,signature_html:None,signature_text:None,signature_name:None,sent_mailbox_id:None,source:"configured".into(),
+    }).await.unwrap();
+    let draft=create_draft(&h).await;
+    let response=jmap(&h,json!([["EmailSubmission/set",{"create":{
+        "missing":{"emailId":draft,"identityId":"missing","mailwomanHoldSeconds":0},
+        "foreign":{"emailId":draft,"identityId":"foreign-identity","mailwomanHoldSeconds":0}
+    }},"send"]])).await;
+    let errors=&result(&response,"send")["notCreated"];
+    assert_eq!(errors["missing"],errors["foreign"]);
+    assert_eq!(errors["foreign"]["type"],"invalidProperties");
+    assert_eq!(h.submitter.calls(),0);
+}
+
+#[tokio::test]
+async fn sender_authority_malformed_actual_from_never_falls_back_to_primary() {
+    for header in ["From:\r\n", "From: undisclosed:;\r\n", "From: invalid <>\r\n"] {
+        let h=setup(SentAppend::Accept,Smtp::Deliver).await;
+        let id=create_draft(&h).await;
+        let row=h.engine.store().get_message(&id).await.unwrap();
+        let raw=format!("{header}To: friend@example.org\r\nSubject: malformed sender\r\n\r\nbody\r\n");
+        let blob=h.engine.store().put_body(&h.account_id,raw.as_bytes()).await.unwrap();
+        let updated=h.engine.store().upsert_message(&mw_store::MessageUpsert {
+            account_id:&row.account_id,mailbox_id:&row.mailbox_id,uid:row.uid,uidvalidity:row.uidvalidity,
+            message_id:row.message_id.as_deref(),thread_id:row.thread_id.as_deref(),internaldate:row.internaldate.as_deref(),
+            size:raw.len() as u64,flags_json:&row.flags_json,envelope:None,blob_ref:Some(&blob),
+        }).await.unwrap();
+        assert_eq!(updated,id);
+        enqueue_due(&h,"malformed-sender",&id).await;
+        h.engine.dispatch_tick().await.unwrap();
+        assert_eq!(h.submitter.calls(),0,"malformed raw header reached SMTP: {header:?}");
+    }
+}

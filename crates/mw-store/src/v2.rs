@@ -635,7 +635,7 @@ impl Store {
 
     /// Insert or replace a sending identity.
     pub async fn upsert_identity(&self, i: &IdentityRow) -> Result<(), StoreError> {
-        q(
+        let affected = q(
             "INSERT INTO identities
                  (id, account_id, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
@@ -643,7 +643,8 @@ impl Store {
                  name = excluded.name, email = excluded.email, reply_to = excluded.reply_to,
                  signature_html = excluded.signature_html, signature_text = excluded.signature_text,
                  signature_name = excluded.signature_name,
-                 sent_mailbox_id = excluded.sent_mailbox_id, source = excluded.source",
+                 sent_mailbox_id = excluded.sent_mailbox_id, source = excluded.source
+             WHERE identities.account_id = excluded.account_id",
         )
         .bind(&i.id)
         .bind(&i.account_id)
@@ -657,6 +658,7 @@ impl Store {
         .bind(&i.source)
         .execute(&self.backend)
         .await?;
+        if affected == 0 { return Err(StoreError::NotFound); }
         Ok(())
     }
 
@@ -684,13 +686,13 @@ impl Store {
         Ok(row.as_ref().map(identity_from_row))
     }
 
-    /// Delete a sending identity by id.
-    pub async fn delete_identity(&self, id: &str) -> Result<(), StoreError> {
-        q("DELETE FROM identities WHERE id = ?1")
-            .bind(id)
+    /// Delete a sending identity only under its current account owner.
+    pub async fn delete_identity(&self, account_id: &str, id: &str) -> Result<bool, StoreError> {
+        let affected = q("DELETE FROM identities WHERE id = ?1 AND account_id = ?2")
+            .bind(id).bind(account_id)
             .execute(&self.backend)
             .await?;
-        Ok(())
+        Ok(affected == 1)
     }
 
     // ---- changes -----------------------------------------------------------
@@ -1947,6 +1949,39 @@ mod tests {
         if let Err(e) = outcome {
             std::panic::resume_unwind(e.into_panic());
         }
+    }
+
+    async fn assert_identity_owner_is_atomic(store: &Store) {
+        let (owner,_,_)=seed_msg(store).await;
+        let (other,_,_)=seed_msg(store).await;
+        let row=IdentityRow {id:format!("identity-{}",crate::seal::random_token()),account_id:owner.clone(),
+            name:"Owner".into(),email:"owner@example.org".into(),reply_to:None,signature_html:None,
+            signature_text:None,signature_name:None,sent_mailbox_id:None,source:"configured".into()};
+        store.upsert_identity(&row).await.unwrap();
+        let mut foreign=row.clone();foreign.account_id=other;foreign.name="Foreign overwrite".into();
+        assert!(matches!(store.upsert_identity(&foreign).await,Err(StoreError::NotFound)));
+        assert_eq!(store.get_identity(&row.id).await.unwrap(),Some(row.clone()));
+        let mut changed=row.clone();changed.name="Owner edit".into();
+        store.upsert_identity(&changed).await.unwrap();
+        assert_eq!(store.get_identity(&row.id).await.unwrap(),Some(changed));
+        assert!(!store.delete_identity(&foreign.account_id,&row.id).await.unwrap());
+        assert!(store.delete_identity(&owner,&row.id).await.unwrap());
+        let mut left=row.clone();left.id=format!("identity-race-{}",crate::seal::random_token());
+        let mut right=foreign.clone();right.id=left.id.clone();
+        let (first,second)=tokio::join!(store.upsert_identity(&left),store.upsert_identity(&right));
+        assert_ne!(first.is_ok(),second.is_ok(), "only one owner may claim an identity ID");
+        let winner=if first.is_ok(){left}else{right};
+        assert_eq!(store.get_identity(&winner.id).await.unwrap(),Some(winner));
+    }
+
+    #[tokio::test]
+    async fn identity_owner_is_atomic() { assert_identity_owner_is_atomic(&store().await).await; }
+
+    #[tokio::test]
+    async fn postgres_identity_owner_is_atomic() {
+        let Some(dsn)=pg_dsn() else {skip("identity atomic ownership: Postgres");return;};
+        let store=Store::open_postgres(&dsn,ServerKey::generate()).await.unwrap();
+        assert_identity_owner_is_atomic(&store).await;
     }
 
     #[tokio::test]

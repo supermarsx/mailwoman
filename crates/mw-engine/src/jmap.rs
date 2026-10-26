@@ -2273,6 +2273,21 @@ impl Engine {
         Ok(sub.id)
     }
 
+    async fn authorize_submission_sender(&self, account_id: &str, rt: &AccountRuntime, email: &mw_jmap::Email, identity_id: Option<&str>) -> std::result::Result<(), Value> {
+        let denied = || json!({"type":"forbiddenFrom", "description":"This sending address is not authorized for this account. Choose an authorized identity."});
+        if email.from.as_ref().is_none_or(|from| from.len() != 1 || from[0].email.is_empty()) { return Err(denied()); }
+        let sender = sender_of(email, rt);
+        if let Some(id) = identity_id {
+            let row = self.store().get_identity(id).await.map_err(|_| json!({"type":"serverFail", "description":"identity authority could not be checked"}))?;
+            if !row.is_some_and(|identity| identity.account_id == account_id && identity.email.eq_ignore_ascii_case(&sender)) {
+                return Err(json!({"type":"invalidProperties", "properties":["identityId"], "description":"The sending identity is unavailable or does not match this message."}));
+            }
+        }
+        if !crate::identity::sender_address_allowed(self.store(), account_id, &rt.identity, &sender).await
+            .map_err(|_| json!({"type":"serverFail", "description":"sender authority could not be checked"}))? { return Err(denied()); }
+        Ok(())
+    }
+
     /// One `EmailSubmission/set` create: check the spec, run the DLP gate, then
     /// enqueue. `Err` is the SetError for the create's `notCreated` entry.
     async fn create_submission(
@@ -2284,10 +2299,27 @@ impl Engine {
         origin: Option<&str>,
         on_success: Option<&OnSuccess>,
     ) -> std::result::Result<CreatedSubmission, Value> {
+        if spec.get("identityId").is_some_and(|value| !value.is_string()) {
+            return Err(json!({"type":"invalidProperties", "properties":["identityId"]}));
+        }
         let identity_id = spec
             .get("identityId")
             .and_then(Value::as_str)
             .map(String::from);
+        let owned_message = self.store().get_message(email_id).await
+            .map_err(|error| match error {
+                mw_store::StoreError::NotFound => json!({"type":"invalidProperties", "properties":["emailId"], "description":"message not found"}),
+                _ => json!({"type":"serverFail", "description":"message ownership could not be checked"}),
+            })?;
+        if owned_message.account_id != account_id {
+            return Err(json!({"type":"invalidProperties", "properties":["emailId"], "description":"message not found"}));
+        }
+        let sender_email = self.store().get_envelope(email_id).await
+            .map_err(|_| json!({"type":"serverFail", "description":"sender authority could not be checked"}))?
+            .ok_or_else(|| json!({"type":"invalidProperties", "properties":["emailId"], "description":"message not found"}))?;
+        let sender_email: mw_jmap::Email = serde_json::from_slice(&sender_email)
+            .map_err(|_| json!({"type":"serverFail", "description":"message metadata could not be checked"}))?;
+        self.authorize_submission_sender(account_id, rt, &sender_email, identity_id.as_deref()).await?;
         // A `sendAt` that is not a time, or is already in the past, fails the
         // create (26.20 t28-e1). Both used to count as "not a future send",
         // which with no hold window meant the message went out at once.
@@ -2297,18 +2329,6 @@ impl Engine {
             .and_then(Value::as_u64)
             .unwrap_or(0) as u32;
         let hold = checked_hold(spec)?;
-        // A message of another account is not this account's to send. A
-        // message that does not exist is left to the send itself, which
-        // reports it as it always has.
-        if let Ok(msg) = self.store().get_message(email_id).await
-            && msg.account_id != account_id
-        {
-            return Err(json!({
-                "type": "invalidProperties",
-                "properties": ["emailId"],
-                "description": format!("email {email_id} not found"),
-            }));
-        }
         if !self.mdn_sending_allowed(account_id).await.map_err(|_|json!({"type":"serverFail","description":"receipt policy could not be checked"}))? {
             let raw=self.fetch_blob(account_id,email_id).await.map_err(|_|json!({"type":"serverFail","description":"message could not be checked"}))?;
             if raw.as_ref().is_some_and(|blob|mail_ext::mdn::is_mdn_report(&blob.bytes)) {
@@ -2742,12 +2762,23 @@ impl Engine {
 
     // ---- Identity ------------------------------------------------------
 
+    async fn authorized_identities(&self, account_id: &str, rt: &AccountRuntime) -> Result<Vec<IdentityRow>> {
+        let rows = self.store().list_identities(account_id).await?;
+        let mut allowed = Vec::new();
+        for row in rows {
+            if crate::identity::sender_address_allowed(self.store(), account_id, &rt.identity, &row.email).await? {
+                allowed.push(row);
+            }
+        }
+        Ok(allowed)
+    }
+
     /// `Identity/get` — configured + server-pulled allowed-froms (§2.1). Seeds a
     /// default identity from the account's own address on first access.
     async fn identity_get(&self, account_id: &str, rt: &AccountRuntime, args: &Value) -> Value {
         self.ensure_default_identity(account_id, rt).await;
         self.ensure_server_identities(account_id).await;
-        let rows = match self.store().list_identities(account_id).await {
+        let rows = match self.authorized_identities(account_id, rt).await {
             Ok(v) => v,
             Err(e) => return server_fail(&e),
         };
@@ -2766,7 +2797,7 @@ impl Engine {
             "accountId": account_id,
             "state": "identity-0",
             "list": list,
-            "notFound": []
+            "notFound": wanted.unwrap_or_default().into_iter().filter(|id| !list.iter().any(|row| row["id"] == *id)).collect::<Vec<_>>()
         })
     }
 
@@ -2774,14 +2805,11 @@ impl Engine {
     async fn identity_query(&self, account_id: &str, rt: &AccountRuntime) -> Value {
         self.ensure_default_identity(account_id, rt).await;
         self.ensure_server_identities(account_id).await;
-        let ids: Vec<String> = self
-            .store()
-            .list_identities(account_id)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|r| r.id)
-            .collect();
+        let rows = match self.authorized_identities(account_id, rt).await {
+            Ok(rows) => rows,
+            Err(error) => return server_fail(&error),
+        };
+        let ids: Vec<String> = rows.into_iter().map(|row| row.id).collect();
         json!({
             "accountId": account_id,
             "queryState": "identity-0",
@@ -2800,7 +2828,7 @@ impl Engine {
             .list_identities(account_id)
             .await
             .unwrap_or_default();
-        if !existing.is_empty() || rt.identity.is_empty() {
+        if existing.iter().any(|row| row.email.eq_ignore_ascii_case(&rt.identity)) || rt.identity.is_empty() {
             return;
         }
         let sent = self
@@ -2918,7 +2946,7 @@ impl Engine {
             return Err(NotSent::permanent(EngineError::Protocol("submission is no longer available for sending".into())));
         }
         let sent = self
-            .transmit_draft(account_id, rt, email_id, rcpt_to, dsn)
+            .transmit_draft(account_id, rt, email_id, row.identity_id.as_deref(), rcpt_to, dsn)
             .await.map_err(|mut error| { error.claim = Some(claim.clone()); error })?;
         self.record_delivered(sub_id, &claim).await;
         self.emit_event(
@@ -3345,6 +3373,7 @@ impl Engine {
         account_id: &str,
         rt: &AccountRuntime,
         email_id: &str,
+        identity_id: Option<&str>,
         envelope_rcpt: Option<Vec<String>>,
         dsn: Option<mail_ext::dsn::DsnRequest>,
     ) -> std::result::Result<Transmitted, NotSent> {
@@ -3387,6 +3416,17 @@ impl Engine {
             Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
             None => mw_mime::parse(&raw).map(|p| p.email).unwrap_or_default(),
         };
+        let parsed_headers = mail_parser::MessageParser::default().parse(&raw)
+            .ok_or_else(|| NotSent::permanent(EngineError::Protocol("message headers could not be checked".into())))?;
+        if parsed_headers.headers().iter().filter(|header| header.name.as_str().eq_ignore_ascii_case("From")).count() != 1 {
+            return Err(NotSent::permanent(EngineError::Unsupported("message must have exactly one From header".into())));
+        }
+        let actual_email = mw_mime::parse(&raw).map_err(|_| NotSent::permanent(EngineError::Protocol("message headers could not be checked".into())))?.email;
+        self.authorize_submission_sender(account_id, rt, &actual_email, identity_id).await
+            .map_err(|error| NotSent::permanent(EngineError::Unsupported(error["description"].as_str().unwrap_or("sender is not authorized").into())))?;
+        if sender_of(&actual_email, rt) != sender_of(&email, rt) {
+            return Err(NotSent::permanent(EngineError::Unsupported("stored sender does not match the message".into())));
+        }
         let mail_from = sender_of(&email, rt);
         let rcpt_to = envelope_rcpt.unwrap_or_else(|| recipients(&email));
         if rcpt_to.is_empty() {
