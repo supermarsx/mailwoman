@@ -82,7 +82,27 @@ async fn branding_publishes_only_committed_safe_assets_and_requires_cas() {
     v["brandName"] = json!("Example Mail");
     v["loginNotice"] = json!("Welcome here");
     v["images"]["logoId"] = json!(id);
+    // An icon with incorrect dimensions is refused before publication.
+    assert_eq!(c.post(format!("{base}/admin/branding/assets")).json(&json!({"kind":"pwa_192","bytesBase64":base64::engine::general_purpose::STANDARD.encode(png)})).send().await.unwrap().status(),422);
+    let app_icon = include_bytes!("../../../apps/web/public/icons/icon-192.png");
+    let uploaded_icon: Value = c.post(format!("{base}/admin/branding/assets")).json(&json!({"kind":"pwa_192","bytesBase64":base64::engine::general_purpose::STANDARD.encode(app_icon)})).send().await.unwrap().error_for_status().unwrap().json().await.unwrap();
+    let icon_id = uploaded_icon["id"].as_str().unwrap();
+    assert_eq!(
+        c.get(format!("{base}/api/assets/{icon_id}"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
+    v["images"]["pwa192Id"] = json!(icon_id);
     v.as_object_mut().unwrap().remove("assets");
+    let mut wrong_size = v.clone();
+    wrong_size["images"]["pwa512Id"] = json!(icon_id);
+    let refused = c.put(format!("{base}/admin/branding"))
+        .header("If-Match", &tag).json(&wrong_size).send().await.unwrap();
+    assert_eq!(refused.status(), 422);
+    assert_eq!(refused.json::<Value>().await.unwrap()["code"], "brandingConflict");
     assert_eq!(
         c.put(format!("{base}/admin/branding"))
             .json(&v)
@@ -120,6 +140,27 @@ async fn branding_publishes_only_committed_safe_assets_and_requires_cas() {
         .unwrap();
     assert_eq!(public["brandName"], "Example Mail");
     assert_eq!(public["logoUrl"], format!("/api/assets/{id}"));
+    let manifest_response = reqwest::get(format!("{base}/manifest.webmanifest"))
+        .await
+        .unwrap();
+    assert_eq!(
+        manifest_response.headers()["content-type"],
+        "application/manifest+json"
+    );
+    assert_eq!(manifest_response.headers()["cache-control"], "no-cache");
+    let manifest: Value = manifest_response.json().await.unwrap();
+    assert_eq!(manifest["name"], "Example Mail");
+    assert_eq!(manifest["start_url"], "./");
+    assert_eq!(manifest["scope"], "./");
+    assert_eq!(manifest["icons"][0]["src"], format!("api/assets/{icon_id}"));
+    assert_eq!(manifest["icons"][2]["purpose"], "maskable");
+    assert_eq!(
+        reqwest::get(format!("{base}/api/assets/{icon_id}"))
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
     let r = reqwest::get(&url).await.unwrap();
     assert_eq!(r.status(), 200);
     assert_eq!(r.headers()["content-type"], "image/png");

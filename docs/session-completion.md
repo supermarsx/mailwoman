@@ -15,7 +15,7 @@ States: **Verified** means the bounded behavior listed has passing local accepta
 | Preferred-domain hint hidden by default, configurable opt-in, Email or username label, spacing | Verified, 3633f19/0abe18c; domain HTTP tests | Production deployment pending |
 | Configurable initial-login cooldown and no automatic credential retries | Verified, d94472d/7bc4b05; native/UI checks | Cooldown is process-local; production alias timeout needs actual deployment diagnosis if still reproducible |
 | Self-hosted anti-bot challenge | Verified local backend and six browser flows, 3533a9e/d5bb7eb | Physical native-shell acceptance unverified; off by default |
-| Global branding editor, name/notice/logo/favicon/background | Verified, 8858770; store/API/browser checks | PWA icon variants, custom CSS and domain branding not included |
+| Global branding editor, name/notice/logo/favicon/background and installed-app icons | Verified locally; 8858770 plus PWA variants, safe dynamic manifest, exact icon dimensions and private-before-publish authority. UI5, native HTTP1, media25/5, artifact checks and browser3 pass. | Custom CSS and domain branding remain separate; OS refresh of already-installed icons is platform-controlled |
 | Atomic conditional settings/branding writes | Verified, 6fe9983; SQLite/PostgreSQL and HTTP concurrency tests | Further settings usability audit below |
 | Themed tooltips and retained mail surfaces/transitions | Verified bounded fixes, 89158d8/ea3af85 | Whole-app UX audit still required |
 | Session activity renewal up to 15 days; strict admin sessions | Verified bounded implementation, 0b7b28e | Final integrated regression still required |

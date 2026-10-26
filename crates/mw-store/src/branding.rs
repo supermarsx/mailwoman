@@ -11,6 +11,9 @@ pub struct BrandImages {
     pub logo_id: Option<String>,
     pub icon_master_id: Option<String>,
     pub login_background_id: Option<String>,
+    pub pwa192_id: Option<String>,
+    pub pwa512_id: Option<String>,
+    pub pwa_maskable_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -94,14 +97,23 @@ impl Store {
         if &snapshot(&mut tx).await? != expected {
             return Ok(false);
         }
-        for (id, kind) in [
-            (&images.logo_id, "logo"),
-            (&images.icon_master_id, "icon_master"),
-            (&images.login_background_id, "background"),
+        for (id, kind, dimension) in [
+            (&images.logo_id, "logo", None),
+            (&images.icon_master_id, "icon_master", None),
+            (&images.login_background_id, "background", None),
+            (&images.pwa192_id, "icon_master", Some(192)),
+            (&images.pwa512_id, "icon_master", Some(512)),
+            (&images.pwa_maskable_id, "icon_master", Some(512)),
         ] {
             if let Some(id) = id {
-                let rows = q("SELECT id FROM brand_asset WHERE id=?1 AND scope='global' AND owner_account IS NULL AND kind=?2").bind(id).bind(kind).fetch_all_tx(&mut tx).await?;
+                let rows = q("SELECT id,width,height FROM brand_asset WHERE id=?1 AND scope='global' AND owner_account IS NULL AND kind=?2").bind(id).bind(kind).fetch_all_tx(&mut tx).await?;
                 if rows.is_empty() {
+                    return Ok(false);
+                }
+                if dimension.is_some_and(|size| {
+                    rows[0].get_opt_i64("width") != Some(size)
+                        || rows[0].get_opt_i64("height") != Some(size)
+                }) {
                     return Ok(false);
                 }
             }
@@ -143,6 +155,9 @@ impl Store {
             images.logo_id,
             images.icon_master_id,
             images.login_background_id,
+            images.pwa192_id,
+            images.pwa512_id,
+            images.pwa_maskable_id,
         ]
         .iter()
         .any(|v| v.as_deref() == Some(id))

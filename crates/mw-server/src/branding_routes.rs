@@ -30,11 +30,45 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
     );
 }
 pub(crate) fn router() -> Router<AppState> {
-    Router::new().route("/api/assets/{id}", get(asset))
+    Router::new()
+        .route("/api/assets/{id}", get(asset))
+        .route("/manifest.webmanifest", get(manifest))
 }
 pub(crate) fn image_urls(images: &BrandImages) -> Value {
     let url = |id: &Option<String>| id.as_ref().map(|id| format!("/api/assets/{id}"));
-    json!({"logoUrl":url(&images.logo_id),"faviconUrl":url(&images.icon_master_id),"loginBackgroundUrl":url(&images.login_background_id)})
+    json!({"logoUrl":url(&images.logo_id),"faviconUrl":url(&images.icon_master_id),"loginBackgroundUrl":url(&images.login_background_id),"pwa192Url":url(&images.pwa192_id),"pwa512Url":url(&images.pwa512_id),"pwaMaskableUrl":url(&images.pwa_maskable_id)})
+}
+/// Relative paths retain the externally mounted application base path. No user
+/// identifiers or authentication state are embedded in an installed app identity.
+async fn manifest(State(state): State<AppState>) -> Response {
+    let snapshot = match state.store.branding_snapshot().await {
+        Ok(snapshot) => snapshot,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let name = view(&snapshot)["brandName"].clone();
+    let images = &snapshot.images;
+    let icon = |id: &Option<String>, fallback: &str| {
+        id.as_ref()
+            .map_or_else(|| fallback.to_owned(), |id| format!("api/assets/{id}"))
+    };
+    let value = json!({
+        "name": name, "short_name": name, "start_url":"./", "scope":"./",
+        "display":"standalone", "theme_color":"#111111", "background_color":"#111111",
+        "icons":[
+            {"src":icon(&images.pwa192_id,"icons/icon-192.png"),"sizes":"192x192","type":"image/png","purpose":"any"},
+            {"src":icon(&images.pwa512_id,"icons/icon-512.png"),"sizes":"512x512","type":"image/png","purpose":"any"},
+            {"src":icon(&images.pwa_maskable_id,"icons/icon-maskable-512.png"),"sizes":"512x512","type":"image/png","purpose":"maskable"}
+        ]
+    });
+    (
+        [
+            (header::CONTENT_TYPE, "application/manifest+json"),
+            (header::CACHE_CONTROL, "no-cache"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        value.to_string(),
+    )
+        .into_response()
 }
 pub(crate) fn view(s: &BrandingSnapshot) -> Value {
     json!({"brandName":s.name_json.as_deref().and_then(|v| serde_json::from_str::<Value>(v).ok()).filter(|v| !v.is_null()).unwrap_or(json!("Mailwoman")),
@@ -68,6 +102,9 @@ async fn save(
         &body.images.logo_id,
         &body.images.icon_master_id,
         &body.images.login_background_id,
+        &body.images.pwa192_id,
+        &body.images.pwa512_id,
+        &body.images.pwa_maskable_id,
     ]
     .into_iter()
     .flatten()
@@ -162,6 +199,8 @@ async fn upload(
         "logo" => 512,
         "icon_master" => 1024,
         "background" => 2560,
+        "pwa_192" => 192,
+        "pwa_512" | "pwa_maskable" => 512,
         _ => return Err(invalid_image()),
     };
     // Keep the JSON request beneath the global 2 MiB request limit as well.
@@ -174,6 +213,13 @@ async fn upload(
     let (width, height) = dimensions(&bytes).ok_or_else(invalid_image)?;
     if width == 0 || height == 0 || width > max || height > max {
         return Err(invalid_image());
+    }
+    if body.kind.starts_with("pwa_") && (width != max || height != max) {
+        return Err(AdminApiError::invalid(
+            "invalidIconSize",
+            "Installed app icons must use the exact square dimensions shown",
+            "/bytesBase64",
+        ));
     }
     let permit = DECODERS.try_acquire().map_err(|_| {
         AdminApiError::new(
@@ -202,7 +248,13 @@ async fn upload(
         .put_brand_asset(
             &BrandAsset {
                 id: id.clone(),
-                kind: body.kind.clone(),
+                // Installed-app variants share the existing icon asset class;
+                // slot-specific dimensions are also enforced when publishing.
+                kind: if body.kind.starts_with("pwa_") {
+                    "icon_master".into()
+                } else {
+                    body.kind.clone()
+                },
                 data: png,
                 width: width.into(),
                 height: height.into(),

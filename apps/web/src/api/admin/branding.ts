@@ -1,8 +1,8 @@
 import { adminRequest } from '../../screens/Admin/shell/adminApi.ts';
-export interface BrandImages {logoId:string|null;iconMasterId:string|null;loginBackgroundId:string|null}
-export interface Branding {brandName:string;loginNotice:string|null;images:BrandImages;assets:{logoUrl:string|null;faviconUrl:string|null;loginBackgroundUrl:string|null}}
+export interface BrandImages {logoId:string|null;iconMasterId:string|null;loginBackgroundId:string|null;pwa192Id?:string|null;pwa512Id?:string|null;pwaMaskableId?:string|null}
+export interface Branding {brandName:string;loginNotice:string|null;images:BrandImages;assets:{logoUrl:string|null;faviconUrl:string|null;loginBackgroundUrl:string|null;pwa192Url?:string|null;pwa512Url?:string|null;pwaMaskableUrl?:string|null}}
 export interface BrandRead {data:Branding;etag:string}
-export type BrandKind='logo'|'icon_master'|'background';
+export type BrandKind='logo'|'icon_master'|'background'|'pwa_192'|'pwa_512'|'pwa_maskable';
 export interface BrandingApi {read:()=>Promise<BrandRead>;save:(value:Branding,etag:string)=>Promise<BrandRead>;upload:(kind:BrandKind,file:File)=>Promise<string>}
 export const brandingApi:BrandingApi={
  async read(){const r=await adminRequest<Branding>('/branding');return {data:r.data,etag:r.etag??''};},

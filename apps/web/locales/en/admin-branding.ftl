@@ -14,3 +14,8 @@ admin-branding-save = Save branding
 admin-branding-reload = Reload saved branding
 admin-branding-saved = Branding saved.
 admin-branding-loading = Loading branding…
+
+admin-branding-pwa_192 = Installed app icon (192 px)
+admin-branding-pwa_512 = Installed app icon (512 px)
+admin-branding-pwa_maskable = Maskable installed app icon (512 px)
+admin-branding-pwa-image-help = PNG or JPEG, up to 1 MB, exactly { $pixels } by { $pixels } pixels. For maskable icons, keep important artwork inside the central 80% circle. Save branding to publish; installed apps may refresh their identity later.
