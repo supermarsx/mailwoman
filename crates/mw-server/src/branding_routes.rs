@@ -293,7 +293,7 @@ async fn asset(State(state): State<AppState>, Path(id): Path<String>) -> Respons
     }
 }
 /// Header-only dimensions, before handing any compressed pixel data to the jail.
-fn dimensions(b: &[u8]) -> Option<(u32, u32)> {
+pub(crate) fn dimensions(b: &[u8]) -> Option<(u32, u32)> {
     if b.starts_with(b"\x89PNG\r\n\x1a\n") && b.get(12..16) == Some(b"IHDR") {
         return Some((
             u32::from_be_bytes(b.get(16..20)?.try_into().ok()?),

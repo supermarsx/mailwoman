@@ -1,3 +1,4 @@
+import {PersonAvatar} from '../../components/PersonAvatar.tsx';
 import { Icon } from '../../components/Icon.tsx';
 // Contacts module (plan §2.5, §3 e7). Address books, the contact list
 // (favorites + groups / distribution lists), a business-card detail + edit view,
@@ -123,7 +124,7 @@ export function ContactsModule(): JSX.Element {
                       <Icon name={card.isFavorite ? 'star' : 'starOutline'} />
                     </button>
                     <span class={css.rowBody}>
-                      <span class={css.rowName}><bdi>{contactDisplayName(card)}</bdi></span>
+                      <span class={css.rowName}><PersonAvatar name={contactDisplayName(card)} address={primaryEmail(card)}/><bdi>{contactDisplayName(card)}</bdi></span>
                       <span class={css.rowMeta}><bdi>{primaryEmail(card) || card.organizations[0] || ''}</bdi></span>
                     </span>
                   </div>
@@ -303,7 +304,7 @@ function BusinessCard(props: { card: ContactCard; onEdit: () => void }): JSX.Ele
     <article class={css.card} aria-label={t('contacts-card', { name: contactDisplayName(card()) })}>
       <div class={`${css.fieldRow} ${css.cardHeader}`}>
         <div>
-          <h1 class={css.cardName}><bdi>{contactDisplayName(card())}</bdi></h1>
+          <h1 class={css.cardName}><PersonAvatar name={contactDisplayName(card())} address={primaryEmail(card())}/><bdi>{contactDisplayName(card())}</bdi></h1>
           <Show when={card().titles.length > 0 || card().organizations.length > 0}>
             <p class={css.cardSub}><bdi>{[card().titles[0], card().organizations[0]].filter(Boolean).join(' · ')}</bdi></p>
           </Show>

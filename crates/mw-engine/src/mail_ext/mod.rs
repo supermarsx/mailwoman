@@ -27,6 +27,7 @@ use crate::backend::{EngineError, Result};
 use crate::engine::Engine;
 
 pub mod dispatch;
+mod contact_photo;
 pub mod dsn;
 pub mod email_ext;
 pub mod mdn;

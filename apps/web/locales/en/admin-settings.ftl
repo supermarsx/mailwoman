@@ -510,3 +510,7 @@ admin-settings-key-security-signin-geo-countries = Sign-in country codes
 admin-settings-help-security-signin-geo-countries = JSON array of uppercase two-letter country codes, for example ["PT", "GB"]. Uses only the operator-supplied MW_GEOIP_DB; no external location service is contacted.
 admin-settings-key-security-signin-geo-unknown = Unmapped source address policy
 admin-settings-help-security-signin-geo-unknown = Allow or deny addresses absent from a readable local database, including private addresses. Missing or unreadable databases always refuse active-policy sign-ins, even when unknown addresses are allowed.
+
+admin-settings-key-contacts-avatar-mode = Contact pictures and generated avatars
+admin-settings-help-contacts-avatar-mode = Generate initials locally, hide avatars, or use embedded photos from each account own address books. No remote photo URLs or external avatar service is contacted. User and domain policy can be held by an administrator.
+admin-settings-cat-contacts = Contact pictures

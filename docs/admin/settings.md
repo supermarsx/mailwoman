@@ -778,3 +778,10 @@ allows or denies unmapped addresses (default deny). An active policy with missin
 is operator supplied and cached until restart; no external lookup occurs. Inspect the current-source
 diagnostic under Observability before enabling. Existing authenticated requests and sessions are
 not governed by this initial sign-in policy; broader session geofencing is not implemented here.
+
+<a id="contacts.avatarMode"></a>
+### Contact pictures (`contacts.avatarMode`)
+
+Generated initials are the default and stay on the device. `off` hides avatars; `contacts` uses only embedded PNG/JPEG photos from the signed-in account address books, with initials as fallback. This global/domain/user setting supports administrator locks. No remote PHOTO URL, external avatar service, or inferred profile lookup is requested.
+
+The server requires an authenticated account and exact contact email, reads at most 16 cards of 256 KiB each, and accepts embedded photos up to 128 KiB and 512 by 512 pixels. Images are re-encoded in the existing media jail and returned privately without caching. Unavailable or malformed pictures use initials. Imported or synchronized vCards can supply embedded photos; editing/uploading a profile photograph is a separate capability.

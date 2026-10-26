@@ -60,6 +60,7 @@ use crate::AppState;
 
 mod ui_preferences;
 mod receipt_preferences;
+mod contact_photo;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Wire shapes (mirror apps/web/src/screens/Settings/types.ts exactly)
@@ -928,6 +929,7 @@ pub(crate) fn prefs_router() -> Router<AppState> {
             get(mdn_policy_get).put(mdn_policy_put),
         )
         .merge(receipt_preferences::router())
+        .merge(contact_photo::router())
         // t32-e10b (f01): the settings model C, user side.
         .merge(crate::settings_routes::user_router())
 }
