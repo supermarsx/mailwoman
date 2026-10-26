@@ -3,6 +3,7 @@ import { analyticsApi, type AnalyticsApi, type AnalyticsConfig, type AnalyticsVi
 import { loadCatalog, t } from '../../i18n';
 import { AsyncPending } from '../../components/AsyncState.tsx';
 import { AdminSubsection } from './AdminSubsection.tsx';
+import { DataTable } from './shell/DataTable.tsx';
 import { ShellContext } from './shell/context.ts';
 import { useDirtyGuard } from './shell/useDirtyGuard.ts';
 import { describeAdminError } from './shell/Feedback.tsx';
@@ -41,7 +42,7 @@ export function Analytics(props:{api?:AnalyticsApi}):JSX.Element {
         <div><button class="btn btn--primary" type="submit" disabled={!writable()||busy()||!dirty()}>{t('admin-analytics-save')}</button> <button class="btn" type="button" disabled={busy()} onClick={()=>void reload()}>{t('admin-analytics-reload')}</button></div>
       </AdminSubsection>
     </form>}</Show>
-    <Show when={view()}>{value=><AdminSubsection title={t('admin-analytics-counts')} description={t('admin-analytics-counts-help')}><dl><dt>{t('admin-analytics-queued')}</dt><dd>{value().status.queued}</dd><dt>{t('admin-analytics-delivered')}</dt><dd>{value().status.delivered}</dd><dt>{t('admin-analytics-dropped')}</dt><dd>{value().status.dropped}</dd></dl></AdminSubsection>}</Show>
+    <Show when={view()}>{value=><AdminSubsection title={t('admin-analytics-counts')} description={t('admin-analytics-counts-help')}><DataTable caption={t('admin-analytics-counts')} state="ready" rowKey={row=>row.id} rows={(['queued','delivered','dropped'] as const).map(id=>({id,count:value().status[id]}))} columns={[{id:'status',header:t('admin-analytics-status-label'),cell:row=>t(`admin-analytics-${row.id}`)},{id:'count',header:t('admin-analytics-status-count'),cell:row=>row.count.toLocaleString()}]} emptyText="" /></AdminSubsection>}</Show>
     <Show when={egress()}><AdminSubsection title={t('admin-analytics-private')} description={t('admin-analytics-private-help')}><For each={view()?.allowlist??[]}>{row=><div>{row.destination} <button class="btn" disabled={busy()} onClick={()=>void permission(()=>api().remove(row.id))}>{t('admin-analytics-remove')}</button></div>}</For><form onSubmit={event=>{event.preventDefault();void permission(()=>api().allow(destination()));}}><label class="field"><span>{t('admin-analytics-destination')}</span><input required maxlength={255} value={destination()} disabled={busy()} onInput={event=>setDestination(event.currentTarget.value)}/></label><button class="btn" disabled={busy()||!destination().trim()}>{t('admin-analytics-allow')}</button></form></AdminSubsection></Show>
   </div>;
 }
