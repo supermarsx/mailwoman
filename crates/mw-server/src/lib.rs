@@ -40,6 +40,7 @@ mod attachment_preview;
 mod attachment_policy;
 mod notification_policy;
 mod source_bans;
+mod inbound_allowlist;
 mod delivery_status;
 mod branding_routes;
 mod analytics_adapter;
@@ -915,6 +916,7 @@ pub(crate) struct AppState {
     pub(crate) twofa: Arc<twofa_routes::TwofaState>,
     pub(crate) step_up: Arc<step_up::StepUpState>,
     pub(crate) analytics: Arc<analytics_runtime::Runtime>,
+    inbound_allowlist: Arc<inbound_allowlist::Runtime>,
     /// t16 (26.16, e3, A1): the GAL/LDAP directory handle, so the login path can add
     /// an LDAP-bind pre-check (§18.3) when `MW_LDAP_BIND_AUTH` is set. Inert (never
     /// consulted) unless that env flag is on — the default login path is unchanged.
@@ -1337,6 +1339,7 @@ async fn build_app_inner(
         twofa: Arc::new(twofa_routes::TwofaState::new()),
         step_up: Arc::new(step_up::StepUpState::new()),
         analytics: Arc::new(analytics_runtime::Runtime::default()),
+        inbound_allowlist: Arc::new(inbound_allowlist::Runtime::default()),
         directory: directory.clone(),
     };
     jobs::start(state.clone());
@@ -1549,6 +1552,7 @@ fn router(
         ))
         .layer(middleware::from_fn_with_state(state.clone(), signin_geography::session_guard))
         .layer(middleware::from_fn_with_state(state.clone(), source_bans::guard))
+        .layer(middleware::from_fn_with_state(state.clone(), inbound_allowlist::guard))
         .layer(middleware::from_fn_with_state(state.clone(), request_protection::guard))
         // V5 (plan §2.2; t31 D10): CORS/preflight for the native shell origins
         // (the Tauri origins plus `MW_NATIVE_ORIGINS`). Any other origin passes

@@ -15,6 +15,7 @@ name = "mailwoman"
 path = "src/main.rs"
 
 [dependencies]
+hickory-resolver = "=0.26.1"
 quick-xml.workspace = true
 altcha = "=1.1.0"
 mw-jmap = { workspace = true }
