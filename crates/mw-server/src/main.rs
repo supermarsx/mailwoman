@@ -453,15 +453,15 @@ struct HealthArgs {
 async fn main() -> std::process::ExitCode {
     use tracing_subscriber::prelude::*;
 
-    // Observability (A6): initialise OTLP export BEFORE composing the subscriber so
-    // the `tracing_opentelemetry` bridge layer binds the just-registered global
-    // tracer provider (the layer captures the provider at construction time). Both
+    // Initialise OTLP export before composing the subscriber and bind its actual
+    // SDK tracer explicitly; the bridge's default tracer does not export. Both
     // are a clean no-op unless `MW_OTLP_ENDPOINT` is set; the guard is held for the
     // process lifetime so the exporters flush + shut down on exit. `build_app` calls
     // `init_otlp` again — that second call is idempotent and returns `None`.
     let obs = mw_server::observability::ObservabilityConfig::from_env();
     let otel_guard = mw_server::observability::init_otlp(&obs).ok().flatten();
-    let otlp_layer = otel_guard.as_ref().map(|_| tracing_opentelemetry::layer());
+    let otlp_layer = otel_guard.as_ref().and_then(|guard| guard.tracer())
+        .map(|tracer| tracing_opentelemetry::layer().with_tracer(tracer));
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()

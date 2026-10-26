@@ -212,6 +212,14 @@ pub struct OtelGuard {
     meter: Option<opentelemetry_sdk::metrics::SdkMeterProvider>,
 }
 
+impl OtelGuard {
+    /// Bind this SDK tracer explicitly: the tracing bridge defaults to a no-op.
+    pub fn tracer(&self) -> Option<opentelemetry_sdk::trace::SdkTracer> {
+        use opentelemetry::trace::TracerProvider as _;
+        self.tracer.as_ref().map(|provider| provider.tracer("mw-server"))
+    }
+}
+
 impl Drop for OtelGuard {
     fn drop(&mut self) {
         if let Some(t) = &self.tracer {
@@ -261,8 +269,8 @@ pub fn init_otlp(config: &ObservabilityConfig) -> anyhow::Result<Option<OtelGuar
         .with_batch_exporter(span_exporter)
         .with_resource(resource.clone())
         .build();
-    // Register a named tracer globally so `tracing_opentelemetry::layer()` picks it
-    // up (it resolves the global provider); keep the provider for shutdown.
+    // Register the provider for direct OTel instrumentation. The tracing bridge
+    // must explicitly use OtelGuard::tracer; its default tracer is a no-op.
     let _tracer = tracer_provider.tracer("mw-server");
     opentelemetry::global::set_tracer_provider(tracer_provider.clone());
 
