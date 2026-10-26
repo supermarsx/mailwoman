@@ -333,6 +333,7 @@ async fn key_account_gate(state: &AppState, account_id: &str) -> Result<(), Resp
     if gate.password_change_required {
         return Err(crate::account_gate::password_change_required());
     }
+    crate::request_protection::account(account_id).await?;
     Ok(())
 }
 

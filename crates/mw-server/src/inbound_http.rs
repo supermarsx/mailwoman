@@ -322,6 +322,7 @@ impl HttpBody for IngressBody {
         if this.deadline.as_mut().poll(cx).is_ready() {
             this.finished = true;
             this.expired.store(true, Ordering::Release);
+            crate::request_protection::observe(mw_store::request_protection_model::Signal::BodyDeadline);
             return Poll::Ready(Some(Err(Box::new(io::Error::new(
                 io::ErrorKind::TimedOut,
                 "request body deadline elapsed",

@@ -71,6 +71,7 @@ describe('describeAdminError', () => {
   it('falls back on the HTTP status', () => {
     expect(describeAdminError(new AdminApiError(403, 'x'))).toMatch(/^Your role does not allow this action/);
     expect(describeAdminError(new AdminApiError(409, 'x'))).toMatch(/changed it in the meantime/);
+    expect(describeAdminError({ status: 412, code: 'stale' })).toMatch(/changed it in the meantime/);
     expect(describeAdminError(new AdminApiError(429, 'x'))).toMatch(/Too many requests/);
     expect(describeAdminError(new AdminApiError(503, 'x'))).toBe(
       'The server answered with an error (503). Try again; if it repeats, check the server log.',

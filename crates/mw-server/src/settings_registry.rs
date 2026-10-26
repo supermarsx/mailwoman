@@ -749,6 +749,32 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("signin.antiBotMode", Kind::Enum(&["off", "mailbox", "admin", "all"]), "\"off\"", G, "signin", "initial sign-in proof-of-work policy"),
     def!("signin.antiBotDifficulty", int(100, 20000), "2000", G, "signin", "maximum proof-of-work solver counter"),
     def!("signin.antiBotExpirySecs", int(60, 600), "180", G, "signin", "single-use challenge lifetime"),
+    def!("security.protection.rateMode", Kind::Enum(&["off", "observe", "enforce"]), "\"off\"", G, "security", "Off by default. Observe records budget exhaustion without refusal; enforce returns a temporary 429. Existing protocol concurrency limits remain independent."),
+    def!("security.protection.adaptiveMode", Kind::Enum(&["off", "observe", "enforce"]), "\"off\"", G, "security", "Off by default. Observe records explainable typed anomalies and proposed actions; enforce applies bounded temporary throttles or blocks. This is a deterministic counter policy, not an AI classifier."),
+    def!("security.protection.clientRequests", int(0, 1000000), "600", G, "security", "Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver."),
+    def!("security.protection.accountRequests", int(0, 1000000), "300", G, "security", "Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver."),
+    def!("security.protection.adminRequests", int(0, 1000000), "120", G, "security", "Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver."),
+    def!("security.protection.rateWindowSecs", int(1, 3600), "60", G, "security", "Fixed request-budget interval. Capacity load shedding and ordinary not-found responses are not adaptive evidence."),
+    def!("security.protection.adaptiveClients", Kind::Bool, "true", G, "security", "Enable this subject dimension when adaptive mode is active. Accounts and administrators are counted only after their identity is verified."),
+    def!("security.protection.adaptiveAccounts", Kind::Bool, "true", G, "security", "Enable this subject dimension when adaptive mode is active. Accounts and administrators are counted only after their identity is verified."),
+    def!("security.protection.adaptiveAdmins", Kind::Bool, "true", G, "security", "Enable this subject dimension when adaptive mode is active. Accounts and administrators are counted only after their identity is verified."),
+    def!("security.protection.shortWindowSecs", int(60, 3600), "300", G, "security", "Rolling observation window. Long windows support hours through thirty days; bucket rounding can retain at most one extra sixty-fourth of a window."),
+    def!("security.protection.shortMinimumSamples", int(1, 1000000), "30", G, "security", "Minimum observed normal plus anomalous requests before the ratio trigger applies. The absolute anomaly threshold is independent of this minimum."),
+    def!("security.protection.shortAbsoluteAnomalies", int(0, 1000000), "20", G, "security", "Trigger when this many selected anomalies accumulate, even when normal requests dilute the ratio. Zero disables this trigger."),
+    def!("security.protection.shortRatioPercent", int(0, 100), "50", G, "security", "Trigger when selected anomalies reach this percentage after the minimum sample count. Either the absolute or ratio trigger suffices. Zero disables this trigger."),
+    def!("security.protection.longWindowSecs", int(3600, 2592000), "604800", G, "security", "Rolling observation window. Long windows support hours through thirty days; bucket rounding can retain at most one extra sixty-fourth of a window."),
+    def!("security.protection.longMinimumSamples", int(1, 1000000), "100", G, "security", "Minimum observed normal plus anomalous requests before the ratio trigger applies. The absolute anomaly threshold is independent of this minimum."),
+    def!("security.protection.longAbsoluteAnomalies", int(0, 1000000), "100", G, "security", "Trigger when this many selected anomalies accumulate, even when normal requests dilute the ratio. Zero disables this trigger."),
+    def!("security.protection.longRatioPercent", int(0, 100), "25", G, "security", "Trigger when selected anomalies reach this percentage after the minimum sample count. Either the absolute or ratio trigger suffices. Zero disables this trigger."),
+    def!("security.protection.normalCapPerBucket", int(1, 1000000), "1000", G, "security", "Bound the normal baseline learned in each rolling-window bucket. Independent absolute anomaly budgets prevent unlimited valid-request padding from hiding abuse."),
+    def!("security.protection.signals", Kind::StringList { max_len: 6, max_item: 32 }, "[\"malformed\",\"oversized\",\"credential-rejected\"]", G, "security", "Select authoritative malformed, oversized, credential-rejected, permission-denied, body-deadline or opt-in admin-route-miss observations. Admin route probing excludes entity-not-found responses and static assets; generic status codes, capacity refusals and user-agent strings do not establish abuse."),
+    def!("security.protection.throttleSecs", int(1, 300), "3", G, "security", "First threshold crossing starts a fixed throttle deadline. Requests during that deadline do not extend it."),
+    def!("security.protection.blockSecs", int(1, 86400), "300", G, "security", "A later threshold crossing before recovery may escalate to this bounded block. No permanent account lock is created."),
+    def!("security.protection.decaySecs", int(3600, 2592000), "86400", G, "security", "After this anomaly-free interval and expiry of the current action, escalation returns to its initial stage. Rolling evidence expires according to its configured windows."),
+    def!("security.protection.exemptClients", Kind::StringList { max_len: 100, max_item: 64 }, "[]", G, "security", "Exact IP addresses or CIDR networks exempt only the client dimension. Verified account limits still apply. Use deliberately for shared NAT networks; forwarded addresses are trusted only through configured proxies."),
+    def!("security.protection.exemptAccounts", Kind::StringList { max_len: 100, max_item: 512 }, "[]", G, "security", "Exact server-verified mailbox account IDs exempt only their account dimension, never the source-client dimension. Email addresses and caller-supplied account parameters are not identity evidence."),
+    def!("security.protection.exemptAdmins", Kind::StringList { max_len: 100, max_item: 512 }, "[]", G, "security", "Exact authenticated administrator IDs exempt only their administrator dimension. Existing sign-in failure locks and strict administrator session deadlines remain unchanged."),
+    def!("security.protection.storageFailure", Kind::Enum(&["closed", "open"]), "\"closed\"", G, "security", "Closed refuses protected work when an enabled enforcement budget cannot be checked. Open temporarily permits it with a bounded operational warning. Observe-only failures never impose an enforcement action."),
     def!("security.signin.geoEnforceSessions", Kind::Bool, "false", G, "security", "also check current source country on authenticated requests"),
     def!("security.signin.geoScope", Kind::Enum(&["off", "mailbox", "admin", "all"]), "\"off\"", G, "security", "country policy applies only to new sign-ins"),
     def!("security.signin.geoMode", Kind::Enum(&["allow", "deny"]), "\"allow\"", G, "security", "allow only listed countries or deny listed countries"),
@@ -1631,8 +1657,11 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                     || text.len() > max_item
                     || !text.bytes().all(|b| {
                         if def.key == "security.signin.geoCountries" { b.is_ascii_uppercase() }
+                        else if matches!(def.key, "security.protection.exemptClients" | "security.protection.exemptAccounts" | "security.protection.exemptAdmins") { !b.is_ascii_control() }
                         else { b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'.') }
                     })
+                    || (def.key == "security.protection.exemptClients" && crate::scope_mw::proxy::Cidr::parse(text).is_none())
+                    || (def.key == "security.protection.signals" && !matches!(text, "malformed" | "oversized" | "credential-rejected" | "permission-denied" | "body-deadline" | "admin-route-miss"))
                     || !seen.insert(text)
                 {
                     return Err(Refusal::invalid(

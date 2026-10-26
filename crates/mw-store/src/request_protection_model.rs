@@ -18,6 +18,7 @@ pub enum Signal {
     CredentialRejected,
     PermissionDenied,
     BodyDeadline,
+    AdminRouteMiss,
     Ignored,
 }
 impl Signal {
@@ -28,6 +29,7 @@ impl Signal {
             Self::CredentialRejected => 4,
             Self::PermissionDenied => 8,
             Self::BodyDeadline => 16,
+            Self::AdminRouteMiss => 32,
             _ => 0,
         }
     }
@@ -68,7 +70,7 @@ impl Policy {
             && window(self.short)
             && window(self.long)
             && (1..=1_000_000).contains(&self.normal_cap_per_bucket)
-            && self.signals & !31 == 0
+            && self.signals & !63 == 0
             && (1..=300).contains(&self.throttle_secs)
             && (1..=86400).contains(&self.block_secs)
             && (3600..=2_592_000).contains(&self.decay_secs)

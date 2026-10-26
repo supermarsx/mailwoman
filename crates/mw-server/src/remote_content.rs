@@ -576,6 +576,7 @@ async fn admit(
     if gate.disabled || gate.password_change_required {
         return Err(forbidden("invalid or expired link"));
     }
+    crate::request_protection::session_account(&session).await?;
     Ok((claims, session))
 }
 

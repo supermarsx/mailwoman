@@ -79,6 +79,7 @@ impl AdminApiError {
 
     /// `403`: the admin's roles do not include `cap`.
     pub fn forbidden(cap: Capability) -> Self {
+        crate::request_protection::observe(mw_store::request_protection_model::Signal::PermissionDenied);
         Self::new(
             StatusCode::FORBIDDEN,
             "forbidden",
@@ -90,6 +91,7 @@ impl AdminApiError {
     /// `403`: `cap` is granted only for some domains, and this action needs it
     /// for all of them.
     pub fn unscoped_required(cap: Capability) -> Self {
+        crate::request_protection::observe(mw_store::request_protection_model::Signal::PermissionDenied);
         Self::new(
             StatusCode::FORBIDDEN,
             "unscopedGrantRequired",
@@ -102,6 +104,7 @@ impl AdminApiError {
 
     /// `403`: `domain` is outside the domains `cap` is granted for.
     pub fn out_of_scope(cap: Capability, domain: &str) -> Self {
+        crate::request_protection::observe(mw_store::request_protection_model::Signal::PermissionDenied);
         Self::new(
             StatusCode::FORBIDDEN,
             "outOfScope",
@@ -219,6 +222,11 @@ where
 }
 
 fn json_rejection(rejection: JsonRejection) -> AdminApiError {
+    match &rejection {
+        JsonRejection::JsonSyntaxError(_) | JsonRejection::JsonDataError(_) => crate::request_protection::observe(mw_store::request_protection_model::Signal::Malformed),
+        JsonRejection::BytesRejection(_) if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE => crate::request_protection::observe(mw_store::request_protection_model::Signal::Oversized),
+        _ => {},
+    }
     let status = rejection.status();
     let detail = rejection.body_text();
     if status == StatusCode::UNSUPPORTED_MEDIA_TYPE {
@@ -369,6 +377,7 @@ impl AdminCtx {
             Err(e) => return Err(AdminApiError::internal(e)),
         };
         let mut ctx = load_grants(state, &username).await?;
+        crate::request_protection::administrator(ctx.account_id.as_deref().unwrap_or(&ctx.username)).await?;
         ctx.session_hash = hash;
         Ok(ctx)
     }

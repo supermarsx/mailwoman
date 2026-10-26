@@ -823,3 +823,115 @@ native bearer requests and signed reader content. It does not silently revoke st
 access resumes from an allowed source. Public pages and logout remain available. New sign-ins
 and recovery sign-ins retain their existing country checks. Long-lived streams already open
 before a policy change are checked on reconnect, not terminated retroactively.
+
+## Aggregate and adaptive request protection
+
+State is bounded to 20,000 subjects and 10,000 decision events. Expired state is excluded from enforcement and views immediately. A lifecycle-bound maintenance task removes at most 128 expired subjects and 128 expired events per minute, with additional cleanup during administrative reads and new-subject admission; physical removal can therefore lag logical expiry during a backlog. Empty OFF deployments perform no counter or maintenance writes. Decision events expire logically after 30 days.
+
+<a id="security.protection.rateMode"></a>
+
+`security.protection.rateMode` (default `"off"`): Off by default. Observe records budget exhaustion without refusal; enforce returns a temporary 429. Existing protocol concurrency limits remain independent.
+
+<a id="security.protection.adaptiveMode"></a>
+
+`security.protection.adaptiveMode` (default `"off"`): Off by default. Observe records explainable typed anomalies and proposed actions; enforce applies bounded temporary throttles or blocks. This is a deterministic counter policy, not an AI classifier.
+
+<a id="security.protection.clientRequests"></a>
+
+`security.protection.clientRequests` (default `600`): Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver.
+
+<a id="security.protection.accountRequests"></a>
+
+`security.protection.accountRequests` (default `300`): Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver.
+
+<a id="security.protection.adminRequests"></a>
+
+`security.protection.adminRequests` (default `120`): Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver.
+
+<a id="security.protection.rateWindowSecs"></a>
+
+`security.protection.rateWindowSecs` (default `60`): Fixed request-budget interval. Capacity load shedding and ordinary not-found responses are not adaptive evidence.
+
+<a id="security.protection.adaptiveClients"></a>
+
+`security.protection.adaptiveClients` (default `true`): Enable this subject dimension when adaptive mode is active. Accounts and administrators are counted only after their identity is verified.
+
+<a id="security.protection.adaptiveAccounts"></a>
+
+`security.protection.adaptiveAccounts` (default `true`): Enable this subject dimension when adaptive mode is active. Accounts and administrators are counted only after their identity is verified.
+
+<a id="security.protection.adaptiveAdmins"></a>
+
+`security.protection.adaptiveAdmins` (default `true`): Enable this subject dimension when adaptive mode is active. Accounts and administrators are counted only after their identity is verified.
+
+<a id="security.protection.shortWindowSecs"></a>
+
+`security.protection.shortWindowSecs` (default `300`): Rolling observation window. Long windows support hours through thirty days; bucket rounding can retain at most one extra sixty-fourth of a window.
+
+<a id="security.protection.shortMinimumSamples"></a>
+
+`security.protection.shortMinimumSamples` (default `30`): Minimum observed normal plus anomalous requests before the ratio trigger applies. The absolute anomaly threshold is independent of this minimum.
+
+<a id="security.protection.shortAbsoluteAnomalies"></a>
+
+`security.protection.shortAbsoluteAnomalies` (default `20`): Trigger when this many selected anomalies accumulate, even when normal requests dilute the ratio. Zero disables this trigger.
+
+<a id="security.protection.shortRatioPercent"></a>
+
+`security.protection.shortRatioPercent` (default `50`): Trigger when selected anomalies reach this percentage after the minimum sample count. Either the absolute or ratio trigger suffices. Zero disables this trigger.
+
+<a id="security.protection.longWindowSecs"></a>
+
+`security.protection.longWindowSecs` (default `604800`): Rolling observation window. Long windows support hours through thirty days; bucket rounding can retain at most one extra sixty-fourth of a window.
+
+<a id="security.protection.longMinimumSamples"></a>
+
+`security.protection.longMinimumSamples` (default `100`): Minimum observed normal plus anomalous requests before the ratio trigger applies. The absolute anomaly threshold is independent of this minimum.
+
+<a id="security.protection.longAbsoluteAnomalies"></a>
+
+`security.protection.longAbsoluteAnomalies` (default `100`): Trigger when this many selected anomalies accumulate, even when normal requests dilute the ratio. Zero disables this trigger.
+
+<a id="security.protection.longRatioPercent"></a>
+
+`security.protection.longRatioPercent` (default `25`): Trigger when selected anomalies reach this percentage after the minimum sample count. Either the absolute or ratio trigger suffices. Zero disables this trigger.
+
+<a id="security.protection.normalCapPerBucket"></a>
+
+`security.protection.normalCapPerBucket` (default `1000`): Bound the normal baseline learned in each rolling-window bucket. Independent absolute anomaly budgets prevent unlimited valid-request padding from hiding abuse.
+
+<a id="security.protection.signals"></a>
+
+`security.protection.signals` (default `["malformed","oversized","credential-rejected"]`): Select authoritative malformed, oversized, credential-rejected, permission-denied, body-deadline or opt-in admin-route-miss observations. Admin route probing excludes entity-not-found responses and static assets; generic status codes, capacity refusals and user-agent strings do not establish abuse.
+
+<a id="security.protection.throttleSecs"></a>
+
+`security.protection.throttleSecs` (default `3`): First threshold crossing starts a fixed throttle deadline. Requests during that deadline do not extend it.
+
+<a id="security.protection.blockSecs"></a>
+
+`security.protection.blockSecs` (default `300`): A later threshold crossing before recovery may escalate to this bounded block. No permanent account lock is created.
+
+<a id="security.protection.decaySecs"></a>
+
+`security.protection.decaySecs` (default `86400`): After this anomaly-free interval and expiry of the current action, escalation returns to its initial stage. Rolling evidence expires according to its configured windows.
+
+<a id="security.protection.exemptClients"></a>
+
+`security.protection.exemptClients` (default `[]`): Exact IP addresses or CIDR networks exempt only the client dimension. Verified account limits still apply. Use deliberately for shared NAT networks; forwarded addresses are trusted only through configured proxies.
+
+<a id="security.protection.exemptAccounts"></a>
+
+`security.protection.exemptAccounts` (default `[]`): Exact server-verified native mailbox account IDs exempt only their account dimension, never the source-client dimension. Proxy account subjects use `proxy:` followed by SHA-256 of the JSON tuple containing the verified canonical service authority and upstream account ID; independent services sharing an account ID remain separate. Proxy exemptions must use this qualified subject, never a raw upstream account ID. Legacy proxy API keys without a verified service realm cannot access protected work while account-level enforcement is enabled; observe-only mode leaves them accessible but cannot record an account dimension. Trusted-client protection still applies. Email addresses and caller-supplied account parameters are not identity evidence.
+
+<a id="security.protection.exemptAdmins"></a>
+
+`security.protection.exemptAdmins` (default `[]`): Exact authenticated administrator IDs exempt only their administrator dimension. Existing sign-in failure locks and strict administrator session deadlines remain unchanged.
+
+<a id="security.protection.storageFailure"></a>
+
+`security.protection.storageFailure` (default `"closed"`): Closed refuses protected work when an enabled enforcement budget cannot be checked. Open temporarily permits it with a bounded operational warning. Observe-only failures never impose an enforcement action.
+
+<a id="mail.requestDeliveryReceipt"></a>
+
+`mail.requestDeliveryReceipt` defaults to false and controls the saved delivery-notification preference for new messages. The separate `receipts.dsnAllowed` policy governs whether the request is permitted; SMTP DSN support is still required.

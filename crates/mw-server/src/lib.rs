@@ -123,6 +123,7 @@ pub(crate) mod alerts;
 pub(crate) mod step_up;
 mod security_center;
 mod signin_cooldown;
+mod request_protection;
 mod signin_guard;
 mod signin_geography;
 mod deployment_security;
@@ -892,6 +893,7 @@ pub(crate) struct AppState {
     /// In-process session idle/absolute-timeout tracking.
     sessions: Arc<SessionGuard>,
     signin_cooldown: Arc<signin_cooldown::Cooldown>,
+    request_protection: Arc<request_protection::Runtime>,
     signin_challenges: Arc<signin_challenge::IssuanceLimiter>,
     hardening: HardeningConfig,
     /// V4 crypto/security endpoint config (plan §3 e7).
@@ -1303,6 +1305,7 @@ async fn build_app_inner(
     if !base_path.is_empty() {
         tracing::info!("serving under sub-path {base_path} (MW_BASE_PATH)");
     }
+    let request_protection = request_protection::Runtime::start(store.clone());
     let state = AppState {
         started_at: std::time::SystemTime::now(),
         started: std::time::Instant::now(),
@@ -1319,6 +1322,7 @@ async fn build_app_inner(
         push: push.clone(),
         sessions: Arc::new(SessionGuard::new()),
         signin_cooldown: Arc::new(signin_cooldown::Cooldown::default()),
+        request_protection,
         signin_challenges: Arc::new(signin_challenge::IssuanceLimiter::default()),
         hardening: config.hardening,
         security: config.security,
@@ -1537,6 +1541,7 @@ fn router(
         ))
         .layer(middleware::from_fn_with_state(state.clone(), signin_geography::session_guard))
         .layer(middleware::from_fn_with_state(state.clone(), source_bans::guard))
+        .layer(middleware::from_fn_with_state(state.clone(), request_protection::guard))
         // V5 (plan §2.2; t31 D10): CORS/preflight for the native shell origins
         // (the Tauri origins plus `MW_NATIVE_ORIGINS`). Any other origin passes
         // through untouched, so the browser path emits no `Access-Control-*` headers.
@@ -2803,8 +2808,10 @@ fn prefix_session_urls(mut session: Value, base: &str) -> Value {
 async fn jmap_api(State(state): State<AppState>, source: Option<Extension<scope_mw::RestSessionSource>>, headers: HeaderMap, body: Body) -> Response {
     let body = match axum::body::to_bytes(body, mw_engine::jmap::core::MAX_SIZE_REQUEST).await {
         Ok(body) => body,
-        Err(_) if state.engine.is_some() => return jmap_limits::problem(mw_engine::jmap::core::problem("limit", Some("maxSizeRequest")), StatusCode::BAD_REQUEST),
-        Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+        Err(error) => {
+            request_protection::body_error(&error);
+            return if state.engine.is_some() { jmap_limits::problem(mw_engine::jmap::core::problem("limit", Some("maxSizeRequest")), StatusCode::BAD_REQUEST) } else { StatusCode::PAYLOAD_TOO_LARGE.into_response() };
+        },
     };
     let headless_key = matches!(&source, Some(Extension(scope_mw::RestSessionSource::Key { .. })));
     let key_account = match &source {
@@ -2847,8 +2854,10 @@ async fn jmap_api(State(state): State<AppState>, source: Option<Extension<scope_
     // any call. A disabled feature cannot hide behind a permitted first call.
     let request: Value = match serde_json::from_slice(&body) {
         Ok(value) => value,
-        Err(_) if state.engine.is_some() => return jmap_limits::problem(mw_engine::jmap::core::problem("notJSON", None), StatusCode::BAD_REQUEST),
-        Err(_) => return (StatusCode::BAD_REQUEST, "invalid JMAP JSON").into_response(),
+        Err(_) => {
+            request_protection::observe(mw_store::request_protection_model::Signal::Malformed);
+            return if state.engine.is_some() { jmap_limits::problem(mw_engine::jmap::core::problem("notJSON", None), StatusCode::BAD_REQUEST) } else { (StatusCode::BAD_REQUEST, "invalid JMAP JSON").into_response() };
+        },
     };
     let _native_request_permit = if state.engine.is_some() {
         if let Err(problem) = mw_engine::jmap::core::validate(&request, body.len(), true) {
@@ -4526,6 +4535,7 @@ async fn static_handler(
     // and an unmounted `POST /mcp` arrive as HTML a JSON client then choked on;
     // answering an unknown page with the shell was a soft 404 (t32-h10).
     if !is_app_page(path) || !wants_spa_shell(&method, &headers, path) {
+        request_protection::admin_route_miss(app_path);
         return error(error_pages::ErrorKind::NotFound);
     }
     let shell = if path == console_page() {
@@ -5122,6 +5132,7 @@ pub(crate) async fn authed_with_gate(
         account_gate::stop_engine_work(state, &session.account_id);
         return Err(unauthorized());
     }
+    request_protection::session_account(&session).await?;
     Ok((session, gate))
 }
 

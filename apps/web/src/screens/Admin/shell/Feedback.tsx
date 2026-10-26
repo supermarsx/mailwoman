@@ -105,7 +105,7 @@ export function describeAdminError(err: unknown): string {
   if (status === 401) return t('admin-shell-err-session');
   if (status === 403) return t('admin-shell-err-forbidden');
   if (status === 404) return t('admin-shell-err-not-found');
-  if (status === 409) return t('admin-shell-err-conflict');
+  if (status === 409 || status === 412) return t('admin-shell-err-conflict');
   if (status === 422 || status === 400) return t('admin-shell-err-validation');
   if (status === 429) return t('admin-shell-err-rate-limited');
   return t('admin-shell-err-server', { status });

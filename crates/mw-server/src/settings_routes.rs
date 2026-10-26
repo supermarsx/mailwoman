@@ -507,6 +507,7 @@ async fn put_global(
     if !state.store.compare_setting_policy(&key, current.as_ref(), Some(&row)).await? {
         return Err(AdminApiError::stale(None, None));
     }
+    if key.starts_with("security.protection.") { state.request_protection.invalidate(); }
     audit(
         &state,
         &ctx,
@@ -539,6 +540,7 @@ async fn delete_global(
     if !state.store.compare_setting_policy(&key, current.as_ref(), None).await? {
         return Err(AdminApiError::stale(None, None));
     }
+    if key.starts_with("security.protection.") { state.request_protection.invalidate(); }
     if current.is_some() {
         audit(
             &state,

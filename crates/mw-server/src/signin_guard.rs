@@ -81,6 +81,9 @@ pub(crate) async fn check(
     Ok(())
 }
 pub(crate) async fn observe(state: &AppState, event: &SigninEvent, surface: AuthSurface) {
+    if event.result == "failure" && credential_rejection(&event.reason) {
+        crate::request_protection::observe(mw_store::request_protection_model::Signal::CredentialRejected);
+    }
     let Ok(ip) = event.ip.parse::<IpAddr>() else {
         return;
     };
