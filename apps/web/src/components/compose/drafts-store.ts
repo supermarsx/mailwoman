@@ -37,6 +37,8 @@ export interface StoredDraft {
   serverRevision?: string;
   serverStatus?:'saved'|'uncertain'|'refused';
   identityId?: string;
+  fromOverride?: string;
+  importance?: 'high'|'normal'|'low';
   bodyFormat?: 'plain' | 'html';
   insertedSignatures?: string[];
   to: string;
@@ -97,6 +99,8 @@ function isDraft(d: unknown): d is StoredDraft {
     typeof r.id === 'string' &&
     typeof r.accountId === 'string' && r.accountId.length > 0 &&
     typeof r.storageAuthority==='string'&&/^[A-Za-z0-9_-]{16,256}$/.test(r.storageAuthority)&&
+    optional(r.importance,value=>value==='high'||value==='normal'||value==='low') &&
+    optional(r.fromOverride, value => typeof value === 'string' && value.length <= 254 && !/[\r\n]/.test(value)) &&
     optional(r.serverStatus,value=>value==='saved'||value==='uncertain'||value==='refused') &&
     optional(r.serverRevision, isString) &&
     optional(r.identityId, isString) &&

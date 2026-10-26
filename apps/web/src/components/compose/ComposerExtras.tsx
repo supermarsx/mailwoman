@@ -54,11 +54,17 @@ export function SignaturePicker(props: {
 export function RecallPanel(props: {
   submissions: () => EmailSubmission[];
   onRecall: (id: string) => void;
+  loading?:boolean;
+  failed?:boolean;
 }): JSX.Element {
   return (
-    <Show when={props.submissions().length > 0}>
+    <>
       <section class="compose-extra__recall" data-testid="compose-recall" aria-label={t('mail-compose-recall')}>
         <h3 class="compose-extra__recall-title">{t('mail-compose-recall')}</h3>
+        <p>{t('mail-compose-recall-help')}</p>
+        <Show when={props.loading}><p role="status">{t('mail-compose-recall-loading')}</p></Show>
+        <Show when={props.failed}><p role="alert">{t('mail-compose-recall-failed')}</p></Show>
+        <Show when={!props.loading&&!props.failed&&props.submissions().length===0}><p>{t('mail-compose-recall-empty')}</p></Show>
         <ul class="compose-extra__recall-list">
           <For each={props.submissions()}>
             {(sub) => (
@@ -72,6 +78,7 @@ export function RecallPanel(props: {
                   type="button"
                   class={`btn btn--ghost ${a11y.focusable}`}
                   data-testid={`recall-${sub.id}`}
+                  disabled={props.loading || props.failed}
                   onClick={() => props.onRecall(sub.id)}
                 >
                   {t('mail-compose-recall-action')}
@@ -81,7 +88,7 @@ export function RecallPanel(props: {
           </For>
         </ul>
       </section>
-    </Show>
+    </>
   );
 }
 

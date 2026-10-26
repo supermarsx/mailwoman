@@ -1,3 +1,7 @@
+import {AdvancedEditorTools} from './AdvancedEditorTools.tsx';
+import {EditorCounts} from './EditorCounts.tsx';
+import {documentCounts,tableLimitPlugin} from './richCommands.ts';
+import {tableEditing,goToNextCell} from 'prosemirror-tables';
 import {COMPOSER_FONTS} from './fontCatalog.ts';
 import './composerFonts.css';
 import { Icon, type IconName } from '../Icon.tsx';
@@ -11,13 +15,13 @@ import { Icon, type IconName } from '../Icon.tsx';
 // plain `body()` signal, keep working). It also reconciles external plain-text
 // mutations (Assist rewrite, dictation) back into the document.
 
-import { createEffect, createSignal, onCleanup, onMount, For, Show, type JSX } from 'solid-js';
+import { createEffect, createMemo, createSignal, onCleanup, onMount, For, Show, type JSX } from 'solid-js';
 import { EditorState, type Command } from 'prosemirror-state';
 import { EditorView, type NodeView } from 'prosemirror-view';
 import type { MarkType, Node as PMNode } from 'prosemirror-model';
 import { baseKeymap, toggleMark, wrapIn } from 'prosemirror-commands';
 import { keymap } from 'prosemirror-keymap';
-import { history, undo, redo } from 'prosemirror-history';
+import { history, undo, redo, undoDepth, redoDepth, closeHistory } from 'prosemirror-history';
 import { wrapInList, splitListItem } from 'prosemirror-schema-list';
 import type { NodeType } from 'prosemirror-model';
 import { richSchema, docFromHtml, docFromText, htmlFromDoc, textFromDoc, COMPOSE_FONT_SIZES } from './richtext.ts';
@@ -79,6 +83,9 @@ export interface RichTextApi {
   focus: () => void;
   /** Re-read every image's preview (the composer made new ones). */
   refreshImages: () => void;
+  undo?:()=>void;
+  redo?:()=>void;
+  historyDepth?:()=>{undo:number;redo:number};
 }
 
 /** Images in the body (t29-e12). The composer uploads them and owns the list;
@@ -95,7 +102,8 @@ export interface InlineImageSupport {
 export interface RichTextEditorProps {
   /** Initial HTML to seed the document (from the composer's `bodyHtml`). */
   initialHtml: string;
-  ribbonTab?: () => 'format'|'insert'|null;
+  ribbonTab?: () => 'format'|'insert'|'table'|null;
+  externalHistory?: boolean;
   /** External plain-text source (dictation / Assist) reconciled into the doc. */
   externalText?: () => string;
   /** Reports the serialized HTML + plain-text projection after every change. */
@@ -115,9 +123,13 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   // (dictation / Assist) mutations of the shared `body()` signal.
   let lastText = '';
   const [activeState, setActiveState] = createSignal<EditorState | null>(null);
+  const [editorError,setEditorError]=createSignal('');
+  const [zoom,setZoom]=createSignal(100),[markers,setMarkers]=createSignal(false);
+  const documentNode=createMemo(()=>activeState()?.doc);
+  const counts=createMemo(()=>{const doc=documentNode();return doc?documentCounts(doc):{words:0,paragraphs:0,characters:0};});
   const [linkOpen, setLinkOpen] = createSignal(false);
   const [linkUrl, setLinkUrl] = createSignal('');
-  const [localRibbonTab,setRibbonTab]=createSignal<'format'|'insert'>('format');
+  const [localRibbonTab,setRibbonTab]=createSignal<'format'|'insert'|'table'>('format');
   const ribbonTab=()=>props.ribbonTab ? props.ribbonTab() : localRibbonTab();
   function fontValue(name:string):string {
     const state=activeState();if(!state)return '';
@@ -171,6 +183,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
       doc: docFromHtml(props.initialHtml, owned()),
       plugins: [
         history(),
+        tableLimitPlugin(()=>setEditorError(t('mail-editor-table-limits'))),
         keymap({
           'Mod-z': undo,
           'Mod-y': redo,
@@ -179,8 +192,11 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
           'Mod-i': toggleMark(mEm),
           'Mod-u': toggleMark(mUnderline),
           Enter: splitListItem(nListItem),
+          Tab: goToNextCell(1),
+          'Shift-Tab': goToNextCell(-1),
         }),
         keymap(baseKeymap),
+        tableEditing(),
       ],
     });
     view = new EditorView(host, {
@@ -220,6 +236,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
     emit(view.state);
 
     props.onReady?.({
+      undo:()=>run(undo),redo:()=>run(redo),historyDepth:()=>{const state=activeState();return {undo:state?undoDepth(state):0,redo:state?redoDepth(state):0};},
       appendHtml(html: string): void {
         if (view === undefined) return;
         const frag = docFromHtml(html).content;
@@ -246,7 +263,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
     });
   });
 
-  onCleanup(() => { host.removeEventListener('mailwoman:documentchange', updateDocumentRoot); view?.destroy(); });
+  onCleanup(() => { host.removeEventListener('mailwoman:documentchange', updateDocumentRoot); view?.destroy(); view=undefined; });
 
   // Reconcile external plain-text edits (dictation / Assist rewrite) into the
   // document. Tracks `externalText()`; only replaces the doc when it diverges
@@ -264,7 +281,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   /** Run a command against the live view and return focus to the editor. */
   function run(command: Command): void {
     if (view === undefined) return;
-    command(view.state, view.dispatch, view);
+    command(view.state, tr => view?.dispatch(tr.docChanged && command !== undo && command !== redo ? closeHistory(tr) : tr), view);
     view.focus();
   }
 
@@ -283,11 +300,14 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   }
 
   return (
-    <div class="compose-rt" data-testid="compose-rt">
-      <Show when={!props.ribbonTab}><div data-detached-local class="compose-rt__tabs" role="tablist" aria-label={t('mail-compose-ribbon')}><For each={['format','insert'] as const}>{tab=><button type="button" role="tab" aria-selected={ribbonTab()===tab} onClick={()=>setRibbonTab(tab)}>{t(`mail-compose-ribbon-${tab}`)}</button>}</For></div></Show>
-      <div data-detached-local hidden={ribbonTab()===null} class="compose-rt__toolbar" role="toolbar" aria-label={t('mail-compose-rt-toolbar')}>
-        <button type="button" class="compose-rt__btn" aria-label={t('mail-compose-undo')} title={t('mail-compose-undo')} onMouseDown={event=>{event.preventDefault();run(undo);}}><Icon name="back"/></button>
-        <button type="button" class="compose-rt__btn" aria-label={t('mail-compose-redo')} title={t('mail-compose-redo')} onMouseDown={event=>{event.preventDefault();run(redo);}}><Icon name="forward"/></button>
+    <div class="compose-rt" data-testid="compose-rt" data-markers={markers()}>
+      <div class="compose-rt__chrome"><Show when={!props.externalHistory}><div class="compose-rt__history" data-detached-local>
+        <button type="button" class="compose-rt__btn" disabled={!activeState()||undoDepth(activeState()!)===0} aria-label={t('mail-compose-undo')} onMouseDown={event=>event.preventDefault()} onClick={()=>run(undo)}><Icon name="back"/>{t('mail-compose-undo')}</button>
+        <button type="button" class="compose-rt__btn" disabled={!activeState()||redoDepth(activeState()!)===0} aria-label={t('mail-compose-redo')} onMouseDown={event=>event.preventDefault()} onClick={()=>run(redo)}><Icon name="forward"/>{t('mail-compose-redo')}</button>
+        <label>{t('mail-editor-history')}<select aria-label={t('mail-editor-history')} value="0" disabled={!activeState()||undoDepth(activeState()!)===0} onChange={event=>{const amount=Number(event.currentTarget.value);for(let index=0;index<amount;index++)run(undo);event.currentTarget.value='0';}}><option value="0">{t('mail-editor-history')}</option><For each={Array.from({length:Math.min(20,activeState()?undoDepth(activeState()!):0)},(_,index)=>index+1)}>{amount=><option value={amount}>{t('mail-editor-undo-groups',{count:amount})}</option>}</For></select></label>
+      </div></Show>
+      <Show when={!props.ribbonTab}><div data-detached-local class="compose-rt__tabs" role="tablist" aria-label={t('mail-compose-ribbon')}><For each={['format','insert','table'] as const}>{tab=><button type="button" role="tab" aria-selected={ribbonTab()===tab} onClick={()=>setRibbonTab(tab)}>{t(`mail-compose-ribbon-${tab}`)}</button>}</For></div></Show>
+      <div data-detached-local hidden={ribbonTab()===null||ribbonTab()==='table'} class="compose-rt__toolbar" role="toolbar" aria-label={t('mail-compose-rt-toolbar')}>
         <Show when={ribbonTab()==='format'}>
         <label class="compose-rt__field"><span>{t('mail-compose-font')}</span><select aria-label={t('mail-compose-font')} value={fontValue('fontFamily')} onChange={event=>setTextStyle('fontFamily',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSER_FONTS}>{font=><option value={font.stack}>{font.label}</option>}</For></select></label>
         <label class="compose-rt__field"><span>{t('mail-compose-font-size')}</span><select aria-label={t('mail-compose-font-size')} value={fontValue('fontSize')} onChange={event=>setTextStyle('fontSize',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSE_FONT_SIZES}>{size=><option value={`${size}pt`}>{size} pt</option>}</For></select></label>
@@ -307,11 +327,8 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
                 aria-label={t(btn.labelKey)}
                 title={t(btn.labelKey)}
                 data-testid={`rt-${btn.id}`}
-                onMouseDown={(e) => {
-                  // mousedown (not click) so the editor keeps its selection.
-                  e.preventDefault();
-                  run(btn.command);
-                }}
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => run(btn.command)}
               >
                 <Icon name={btn.glyph} />
               </button>
@@ -325,10 +342,8 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
           aria-label={t('mail-compose-rt-link')}
           title={t('mail-compose-rt-link')}
           data-testid="rt-link"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            setLinkOpen((v) => !v);
-          }}
+          onMouseDown={e => e.preventDefault()}
+          onClick={() => setLinkOpen(v => !v)}
         >
           <Icon name="link" />
         </button>
@@ -359,6 +374,9 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
         </Show>
       </div>
 
+      <AdvancedEditorTools state={activeState} view={()=>view} run={run} tab={ribbonTab} owned={owned} report={setEditorError}/>
+      <Show when={editorError()}><p class="compose-rt__error" role="alert">{editorError()}</p></Show>
+
       {linkOpen() && (
         <div data-detached-local class="compose-rt__link" data-testid="rt-link-row">
           <input
@@ -386,7 +404,9 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
         </div>
       )}
 
-      <div class="compose-rt__surface" ref={host} />
+      </div>
+      <div class="compose-rt__surface" data-zoom={zoom()} ref={host} />
+      <div class="compose-rt__footer" data-detached-local><EditorCounts counts={counts()}/><label>{t('mail-editor-zoom')}<select aria-label={t('mail-editor-zoom')} value={zoom()} onChange={event=>setZoom(Number(event.currentTarget.value))}><For each={[75,100,125,150,200]}>{value=><option value={value}>{value}%</option>}</For></select></label><button type="button" class="compose-rt__btn" aria-pressed={markers()} onClick={()=>setMarkers(value=>!value)}>{t('mail-editor-markers')}</button></div>
     </div>
   );
 }

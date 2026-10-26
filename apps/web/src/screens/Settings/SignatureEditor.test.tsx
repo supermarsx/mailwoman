@@ -63,3 +63,12 @@ describe('dedicated signature formats',()=>{
   await rejected;
  });
 });
+
+it('offers all standalone rich tools and saves authored table formatting',async()=>{
+ const {save}=setup({name:'Table signature',body:'Regards',html:'<p>Regards</p>',text:'Regards',isDefault:false});
+ await screen.findByRole('textbox',{name:'Rich signature'});
+ expect(screen.getByRole('tab',{name:'Format text'})).toBeVisible();expect(screen.getByRole('tab',{name:'Table'})).toBeVisible();
+ fireEvent.click(screen.getByRole('tab',{name:'Insert'}));fireEvent.click(screen.getByRole('button',{name:'Insert table'}));
+ fireEvent.click(screen.getByTestId('signature-save'));await waitFor(()=>expect(save).toHaveBeenCalled());
+ expect(save.mock.calls[0]?.[0].html).toContain('<table');expect(save.mock.calls[0]?.[0].html).toContain('border: 1px solid');
+});

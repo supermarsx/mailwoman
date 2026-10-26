@@ -1,3 +1,4 @@
+import {styledBlock,colorMark,composeTableNodes,boundTableHtml} from './richFormatting.ts';
 import {COMPOSER_FONTS,normalizeComposerFont} from './fontCatalog.ts';
 // Rich-text (ProseMirror) schema + serialization for the composer (W1).
 //
@@ -10,8 +11,9 @@ import {COMPOSER_FONTS,normalizeComposerFont} from './fontCatalog.ts';
 // blockquote, code blocks, horizontal rules, ordered/bulleted lists, hard
 // breaks, inline images of this draft, and the inline marks bold / italic /
 // code / underline / strikethrough / link (http, https and mailto targets
-// only). There is no table and no attribute other than a link's `href`/`title`
-// and an image's `cid`/`alt`, plus allowlisted font family/point size.
+// only), bounded tables, and explicit paragraph/color formatting. Attributes
+// are constrained to owned CID images, safe links, finite paragraph styles,
+// colors and allowlisted font family/point size.
 // `htmlFromDoc(docFromHtml(x))` reduces any HTML
 // to that subset: a `javascript:` link keeps its text and loses the link, and
 // Unsupported style properties and all event handlers do not survive. The composer relies on this for
@@ -39,7 +41,8 @@ import { addListNodes } from 'prosemirror-schema-list';
 // paragraph + heading + blockquote + code_block + horizontal_rule + lists: the
 // basic nodes without the basic `image`, whose parse rule would let parsed HTML
 // carry a remote `<img src>` into the outgoing body.
-const nodes = addListNodes(basicSchema.spec.nodes.remove('image'), 'paragraph block*', 'block');
+const basicNodes=basicSchema.spec.nodes.remove('image').update('paragraph',styledBlock(basicSchema.spec.nodes.get('paragraph')!)).update('heading',styledBlock(basicSchema.spec.nodes.get('heading')!,true));
+const nodes = addListNodes(basicNodes, 'paragraph block*', 'block').append(composeTableNodes);
 
 /** An image this draft uploaded, referenced by its Content-ID. Serialises as
  *  `<img src="cid:<id>">`; the editor shows a local preview instead (a node view
@@ -90,6 +93,8 @@ function textStyle(property:'font-family'|'font-size'):MarkSpec {
 }
 
 const marks = basicSchema.spec.marks.update('link', link).append({
+    textColor:colorMark('color'),
+    highlight:colorMark('background-color'),
     fontFamily:textStyle('font-family'),
     fontSize:textStyle('font-size'),
     underline: {
@@ -159,6 +164,7 @@ export function inertBody(html: string): HTMLElement {
  *  schema. `owned` is the set of Content-IDs this draft uploaded; an image is
  *  kept only when its `cid:` names one of them. */
 export function docFromElement(root: HTMLElement, owned?: ReadonlySet<string>): PMNode {
+  boundTableHtml(root);
   if (owned === undefined || owned.size === 0) return DOMParser.fromSchema(richSchema).parse(root);
   return new DOMParser(richSchema, [ownedImageRule(owned), ...DOMParser.fromSchema(richSchema).rules]).parse(root);
 }
@@ -171,6 +177,7 @@ export function docFromHtml(html: string, owned?: ReadonlySet<string>): PMNode {
 
 /** Parse a quoted original's content under `quoteSchema` (no images). */
 export function quoteDocFromElement(root: HTMLElement): PMNode {
+  boundTableHtml(root);
   return DOMParser.fromSchema(quoteSchema).parse(root);
 }
 

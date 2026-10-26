@@ -128,3 +128,34 @@ label.compose-rt__btn:focus-within:has(:focus-visible) {
 .compose-rt__field { flex:0 1 auto; min-inline-size:0; max-inline-size:100%; box-sizing:border-box; }
 .compose-rt__field select { min-inline-size:0; max-inline-size:100%; }
 @media(max-width:600px) { .compose-rt__field { flex:0 1 8rem; } }
+
+/* Composer-authored formatting only; view zoom and markers never enter HTML. */
+.compose-rt__advanced,.compose-rt__history,.compose-rt__footer {display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;padding:.35rem;background:var(--bg-alt);border-block-end:var(--border-hair) solid var(--border);}
+.compose-rt__advanced {align-items:flex-start;}
+.compose-rt__group,.compose-rt__options {display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;}
+.compose-rt__group {border-inline-end:var(--border-hair) solid var(--border);padding-inline-end:.35rem;}
+.compose-rt__advanced label,.compose-rt__history label,.compose-rt__footer label {display:flex;align-items:center;gap:.25rem;font-size:.75rem;}
+.compose-rt__advanced select,.compose-rt__advanced input,.compose-rt__footer select,.compose-rt__history select {max-width:14rem;min-height:1.75rem;color:var(--text);background:var(--bg);border:var(--border-hair) solid var(--border);font:inherit;}
+.compose-rt__advanced input[type=number] {width:3.5rem;}
+.compose-rt__advanced input[type=color] {width:2rem;padding:.1rem;}
+.compose-rt__advanced summary {cursor:pointer;font-size:.8rem;padding:.3rem;}
+.compose-rt__options {padding:.35rem;border:var(--border-hair) solid var(--border);}
+.compose-rt__find {flex-basis:100%;}
+.compose-rt__footer {border-block-start:var(--border-hair) solid var(--border);border-block-end:0;flex-shrink:0;}
+.compose-editor-counts {display:flex;flex-wrap:wrap;gap:.65rem;font-size:.75rem;color:var(--text-muted);margin-inline-end:auto;}
+.compose-rt__error {margin:.25rem;padding:.35rem;border:var(--border-hair) solid var(--border);}
+.compose-rt[data-markers=true] .ProseMirror :is(p,h1,h2,h3,h4,h5,h6)::after {content:'¶';color:var(--text-muted);padding-inline-start:.2em;user-select:none;}
+.compose-rt__surface[data-zoom="75"] .ProseMirror {zoom:.75;}
+.compose-rt__surface[data-zoom="125"] .ProseMirror {zoom:1.25;}
+.compose-rt__surface[data-zoom="150"] .ProseMirror {zoom:1.5;}
+.compose-rt__surface[data-zoom="200"] .ProseMirror {zoom:2;}
+.compose-rt .ProseMirror table {border-collapse:collapse;table-layout:fixed;width:100%;margin:.5rem 0;}
+.compose-rt .ProseMirror td,.compose-rt .ProseMirror th {border:1px solid var(--border);vertical-align:top;padding:.3rem;position:relative;min-width:2rem;}
+.compose-rt .ProseMirror th {font-weight:bold;background:var(--bg-alt);}
+.compose-rt .ProseMirror .selectedCell::after {content:'';position:absolute;inset:0;pointer-events:none;background:var(--accent);opacity:.15;}
+
+/* Scroll ribbon controls separately so editor focus cannot hide the footer. */
+.compose-rt__chrome { flex:0 0 auto; max-block-size:12rem; overflow:auto; }
+.compose-rt__surface { flex:1 0 9rem; }
+.compose .field--grow > .compose-rt { min-block-size:26rem; }
+.compose-rt__footer { position:relative; }

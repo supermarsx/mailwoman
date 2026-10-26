@@ -1,3 +1,4 @@
+import {resolveSender} from '../../api/senderResolution.ts';
 import { suspendAccountPreferences } from '../../api/accountPreferenceLifecycle.ts';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot } from 'solid-js';
@@ -17,6 +18,8 @@ import {
   type Mailbox,
   type EmailBodyPart,
 } from '../../api/jmap-types.ts';
+
+vi.mock('../../api/senderResolution.ts',()=>({resolveSender:vi.fn()}));
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 const MAILBOXES: Mailbox[] = [
@@ -419,6 +422,28 @@ describe('mail slice — what a send puts on the wire', () => {
           rcptTo: [{ email: 'alice@example.org' }, { email: 'bob@example.org' }],
         }),
       );
+    });
+  });
+
+  it('uses a one-message alias without changing or submitting the selected native identity', async () => {
+    vi.mocked(resolveSender).mockResolvedValue({email:'alias@example.org',identityId:null});
+    await withInbox([email('a')],async(mail,{jmap})=>{
+      jmap.mockClear();
+      await mail.sendMessage({to:'you@example.org',subject:'Alias',htmlBody:'<p>x</p>',fromOverride:'alias@example.org',identity:{id:'old-id',name:'Old',email:'me@example.org',replyTo:null,signatureHtml:null,signatureText:null,sentMailboxId:null}});
+      const request=sendRequests(jmap)[0]!;
+      const draft=(request.methodCalls[0]![1]['create'] as Record<string,Record<string,unknown>>)['draft']!;
+      expect(draft.from).toEqual([{name:null,email:'alias@example.org'}]);
+      const submission=(request.methodCalls[1]![1]['create'] as Record<string,Record<string,unknown>>)['send']!;
+      expect(submission.identityId).toBeUndefined();
+    });
+  });
+
+  it('stops before creating an email when the typed sender is refused', async () => {
+    vi.mocked(resolveSender).mockRejectedValue(new Error('forbiddenFrom'));
+    await withInbox([email('a')],async(mail,{jmap})=>{
+      jmap.mockClear();
+      await expect(mail.sendMessage({to:'you@example.org',subject:'Alias',htmlBody:'',fromOverride:'other@example.org'})).rejects.toThrow('forbiddenFrom');
+      expect(sendRequests(jmap)).toHaveLength(0);
     });
   });
 
@@ -1485,7 +1510,7 @@ describe('mail slice — receipt, inline images and open tracking (t29-e12)', ()
       expect(draft['textBody']).toEqual([{partId:'body',type:'text/plain'}]);
       expect(draft['bodyValues']).toEqual({body:{value:'literal <b> & text'}});
       expect(draft['htmlBody']).toBeUndefined();
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fetchMock.mock.calls.filter(([url])=>String(url).includes('/api/track/open'))).toHaveLength(0);
     });
   });
 
@@ -1544,7 +1569,7 @@ describe('mail slice — receipt, inline images and open tracking (t29-e12)', ()
         },
         track: true,
       });
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fetchMock.mock.calls.filter(([url])=>String(url).includes('/api/track/open'))).toHaveLength(0);
     });
   });
 });

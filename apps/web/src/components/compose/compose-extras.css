@@ -140,3 +140,22 @@
 .compose__attachments li > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 .compose__from { inline-size:min(32rem, 100%); align-self:flex-start; }
+
+.compose-ribbon { flex:none; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); }
+.compose-ribbon__panel { display:flex; align-items:end; flex-wrap:wrap; gap:.65rem; padding:.5rem; max-block-size:16rem; overflow:auto; }
+.compose-ribbon__panel[hidden], .compose-rt__toolbar[hidden] { display:none; }
+.compose-ribbon__group { display:flex; flex-direction:column; align-items:start; gap:.3rem; padding-inline-end:.65rem; border-inline-end:1px solid var(--border); }
+.compose-ribbon__group > span { font-size:.7rem; color:var(--text-dim); }
+.compose-ribbon .btn, .compose-ribbon .field { width:auto; flex:0 1 auto; }
+.compose-ribbon .field { min-inline-size:0; }
+.workspace-compose > .compose { height:100%; }
+.compose > .field--grow { flex:1 0 14rem; min-block-size:14rem; display:flex; flex-direction:column; }
+.compose > .field--grow > .compose-rt { flex:1; min-block-size:12rem; }
+.compose > .field--grow:has(> .compose-rt) { flex-basis:28rem; min-block-size:28rem; }
+.compose > .compose__footer { flex:0 0 auto; }
+.compose > .field--grow .compose-rt__surface { flex:1; max-block-size:none; }
+.compose > .field--grow .ProseMirror { min-block-size:100%; }
+
+.compose-source { display:flex; flex-direction:column; flex:1; min-block-size:12rem; gap:.4rem; }
+.compose-source p { font-size:.75rem; color:var(--text-dim); margin:0; }
+.compose-source textarea { flex:1; min-block-size:10rem; font-family:monospace; }

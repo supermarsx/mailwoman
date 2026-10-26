@@ -132,6 +132,42 @@ export const ASSETS = [
     covers: ['apps/web/public/fonts/licenses/open-sans.txt'], note: 'bundled',
   },
   {
+    kind: 'font', name: 'Lora', package: '@fontsource-variable/lora', licence: 'OFL-1.1',
+    repository: 'https://github.com/cyrealtype/Lora-Cyrillic', homepage: 'https://fontsource.org/fonts/lora',
+    files: ['apps/web/public/font-licenses/lora.txt'],
+    covers: ['apps/web/public/font-licenses/lora.txt'], note: 'bundled',
+  },
+  {
+    kind: 'font', name: 'Merriweather', package: '@fontsource-variable/merriweather', licence: 'OFL-1.1',
+    repository: 'https://github.com/SorkinType/Merriweather', homepage: 'https://fontsource.org/fonts/merriweather',
+    files: ['apps/web/public/font-licenses/merriweather.txt'],
+    covers: ['apps/web/public/font-licenses/merriweather.txt'], note: 'bundled',
+  },
+  {
+    kind: 'font', name: 'Montserrat', package: '@fontsource-variable/montserrat', licence: 'OFL-1.1',
+    repository: 'https://github.com/JulietaUla/Montserrat', homepage: 'https://fontsource.org/fonts/montserrat',
+    files: ['apps/web/public/font-licenses/montserrat.txt'],
+    covers: ['apps/web/public/font-licenses/montserrat.txt'], note: 'bundled',
+  },
+  {
+    kind: 'font', name: 'Nunito Sans', package: '@fontsource-variable/nunito-sans', licence: 'OFL-1.1',
+    repository: 'https://github.com/googlefonts/nunito', homepage: 'https://fontsource.org/fonts/nunito-sans',
+    files: ['apps/web/public/font-licenses/nunito-sans.txt'],
+    covers: ['apps/web/public/font-licenses/nunito-sans.txt'], note: 'bundled',
+  },
+  {
+    kind: 'font', name: 'Source Sans 3', package: '@fontsource-variable/source-sans-3', licence: 'OFL-1.1',
+    repository: 'https://github.com/adobe-fonts/source-sans', homepage: 'https://fontsource.org/fonts/source-sans-3',
+    files: ['apps/web/public/font-licenses/source-sans-3.txt'],
+    covers: ['apps/web/public/font-licenses/source-sans-3.txt'], note: 'bundled',
+  },
+  {
+    kind: 'font', name: 'Source Serif 4', package: '@fontsource-variable/source-serif-4', licence: 'OFL-1.1',
+    repository: 'https://github.com/adobe-fonts/source-serif', homepage: 'https://fontsource.org/fonts/source-serif-4',
+    files: ['apps/web/public/font-licenses/source-serif-4.txt'],
+    covers: ['apps/web/public/font-licenses/source-serif-4.txt'], note: 'bundled',
+  },
+  {
     kind: 'icons',
     name: 'Mailwoman icons',
     licence: 'MIT',
@@ -153,7 +189,7 @@ export const ASSETS = [
 // Files in apps/web/public copied from a package rather than bundled by rollup.
 export const VENDORED_PUBLIC = { 'apps/web/public/pdf.worker.mjs': 'pdfjs-dist' };
 // First-party code and configuration in apps/web/public (not assets).
-export const FIRST_PARTY_PUBLIC = ['apps/web/public/sw.js', 'apps/web/public/manifest.webmanifest'];
+export const FIRST_PARTY_PUBLIC = ['apps/web/public/sw.js', 'apps/web/public/manifest.webmanifest', 'apps/web/public/workspace-popup.html'];
 const ASSET_EXT = /\.(woff2?|ttf|otf|eot|png|jpe?g|gif|webp|avif|svg|ico|bmp)$/i;
 
 // The FROM-scratch image's non-Rust contents (Dockerfile stage runtime-static).

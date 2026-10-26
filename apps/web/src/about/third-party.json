@@ -4,7 +4,7 @@
   "generatedFrom": {
     "cargoLock": "47152d2cff09e411bffa68a48354eb228597b14a6d22233bf97c1f2c1f8c552f",
     "mediaWasmLock": "ca63d9934f59dc33721e6adee7e152ebff91a84e6738315c3ec9e64c05582494",
-    "pnpmLock": "8b6c1fb220e087d5a214a0bd3908b16adcdbafa2ac490c79a6f3aae2a33a25a8"
+    "pnpmLock": "179982caeb5302eec3bbacc0095542f05293475ebef1312b2a05b0ab043708a9"
   },
   "images": {
     "runtime": {
@@ -17569,6 +17569,19 @@
     },
     {
       "kind": "npm",
+      "name": "prosemirror-tables",
+      "version": "1.8.5",
+      "licence": "MIT",
+      "repository": "https://github.com/ProseMirror/prosemirror-tables",
+      "texts": [
+        {
+          "file": "LICENSE",
+          "id": "3363c2fef90aa885"
+        }
+      ]
+    },
+    {
+      "kind": "npm",
       "name": "prosemirror-transform",
       "version": "1.12.0",
       "licence": "MIT",
@@ -17722,6 +17735,96 @@
         {
           "file": "open-sans.txt",
           "id": "509ee70fccf950fa"
+        }
+      ],
+      "note": "bundled"
+    },
+    {
+      "kind": "font",
+      "name": "Lora",
+      "version": "5.3.0",
+      "licence": "OFL-1.1",
+      "repository": "https://github.com/cyrealtype/Lora-Cyrillic",
+      "homepage": "https://fontsource.org/fonts/lora",
+      "texts": [
+        {
+          "file": "lora.txt",
+          "id": "9c7b992c123c421b"
+        }
+      ],
+      "note": "bundled"
+    },
+    {
+      "kind": "font",
+      "name": "Merriweather",
+      "version": "5.3.0",
+      "licence": "OFL-1.1",
+      "repository": "https://github.com/SorkinType/Merriweather",
+      "homepage": "https://fontsource.org/fonts/merriweather",
+      "texts": [
+        {
+          "file": "merriweather.txt",
+          "id": "95d2fa7614c590e5"
+        }
+      ],
+      "note": "bundled"
+    },
+    {
+      "kind": "font",
+      "name": "Montserrat",
+      "version": "5.3.0",
+      "licence": "OFL-1.1",
+      "repository": "https://github.com/JulietaUla/Montserrat",
+      "homepage": "https://fontsource.org/fonts/montserrat",
+      "texts": [
+        {
+          "file": "montserrat.txt",
+          "id": "d25ddd82daf422dc"
+        }
+      ],
+      "note": "bundled"
+    },
+    {
+      "kind": "font",
+      "name": "Nunito Sans",
+      "version": "5.3.0",
+      "licence": "OFL-1.1",
+      "repository": "https://github.com/googlefonts/nunito",
+      "homepage": "https://fontsource.org/fonts/nunito-sans",
+      "texts": [
+        {
+          "file": "nunito-sans.txt",
+          "id": "fef354a6ff3cc1d5"
+        }
+      ],
+      "note": "bundled"
+    },
+    {
+      "kind": "font",
+      "name": "Source Sans 3",
+      "version": "5.3.1",
+      "licence": "OFL-1.1",
+      "repository": "https://github.com/adobe-fonts/source-sans",
+      "homepage": "https://fontsource.org/fonts/source-sans-3",
+      "texts": [
+        {
+          "file": "source-sans-3.txt",
+          "id": "34a3c71092da0076"
+        }
+      ],
+      "note": "bundled"
+    },
+    {
+      "kind": "font",
+      "name": "Source Serif 4",
+      "version": "5.3.1",
+      "licence": "OFL-1.1",
+      "repository": "https://github.com/adobe-fonts/source-serif",
+      "homepage": "https://fontsource.org/fonts/source-serif-4",
+      "texts": [
+        {
+          "file": "source-serif-4.txt",
+          "id": "34a3c71092da0076"
         }
       ],
       "note": "bundled"

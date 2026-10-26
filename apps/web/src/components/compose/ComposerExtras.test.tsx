@@ -47,9 +47,18 @@ describe('RecallPanel (W10)', () => {
     expect(recalled).toBe('a');
   });
 
-  it('renders nothing when there is nothing to recall', () => {
+  it('disables cancellation while a request is pending or the queue failed', () => {
+    const [failed,setFailed]=createSignal(false);const [loading,setLoading]=createSignal(true);
+    render(()=><RecallPanel submissions={()=>[sub('a')]} onRecall={()=>undefined} loading={loading()} failed={failed()}/>);
+    expect(screen.getByTestId('recall-a')).toBeDisabled();
+    setLoading(false);setFailed(true);
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByTestId('recall-a')).toBeDisabled();
+  });
+
+  it('explains that no queued messages can be recalled', () => {
     render(() => <RecallPanel submissions={() => []} onRecall={() => undefined} />);
-    expect(screen.queryByTestId('compose-recall')).toBeNull();
+    expect(screen.getByTestId('compose-recall')).toHaveTextContent('No queued messages');
   });
 });
 

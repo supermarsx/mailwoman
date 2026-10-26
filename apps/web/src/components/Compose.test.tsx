@@ -132,6 +132,7 @@ describe('Compose', () => {
   it('offers the sending identities once loaded', async () => {
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES });
     await app.loadIdentities();
+    fireEvent.click(screen.getByRole('button', {name:'From'}));
     const select = await screen.findByLabelText('From');
     expect(select).toBeInTheDocument();
     // Scope to the From select — the signature picker (W12) also renders an
@@ -146,7 +147,7 @@ describe('Compose', () => {
     expect(screen.queryByLabelText('To')).toBeNull();
     expect(screen.getByRole('region', { name: 'Quick reply' })).toHaveTextContent('alice@outside.test');
     expect(screen.getByText('1 recipient(s) outside trusted domains')).toBeVisible();
-    fireEvent.click(screen.getByTestId('format-toggle'));
+    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}});
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'My quick reply\nQuoted text' } });
     fireEvent.click(screen.getByRole('button', { name: 'Edit recipients and subject' }));
     expect(screen.getByLabelText('To')).toHaveValue('alice@outside.test');
@@ -160,6 +161,7 @@ describe('Compose', () => {
     await app.loadIdentities();
 
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
+    fireEvent.click(screen.getByRole('button', {name:'From'}));
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
@@ -218,6 +220,7 @@ describe('Compose', () => {
     });
     await app.assist.loadConfig();
     expect(await screen.findByTestId('compose-assist')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', {name:'Insert'}));
     expect(screen.getByRole('button', { name: 'Fix grammar' })).toBeInTheDocument();
   });
 
@@ -227,6 +230,7 @@ describe('Compose', () => {
     });
     await app.login({ username: 'me@example.org', password: 'p' });
     app.nextcloud.setEnabled(true);
+    fireEvent.click(screen.getByRole('tab', {name:'Insert'}));
     fireEvent.click(await screen.findByRole('button', { name: 'Attach from Nextcloud' }));
     // The picker lists the linked Nextcloud; select the file then attach it.
     const file = await screen.findByText('report.pdf');
@@ -282,6 +286,7 @@ describe('Compose', () => {
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES });
     await app.login({ username: 'me@example.org', password: 'p' });
 
+    fireEvent.click(screen.getByRole('tab', {name:'Insert'}));
     const input = (await screen.findByLabelText('Attach a file')) as HTMLInputElement;
     // The picker enables once the session probe lands (uploadUrl + accountId).
     await waitFor(() => expect(input.disabled).toBe(false));
@@ -313,6 +318,7 @@ describe('Compose', () => {
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES });
     await app.login({ username: 'me@example.org', password: 'p' });
 
+    fireEvent.click(screen.getByRole('tab', {name:'Insert'}));
     const input = (await screen.findByLabelText('Attach a file')) as HTMLInputElement;
     await waitFor(() => expect(input.disabled).toBe(false));
 
@@ -350,7 +356,7 @@ describe('Compose', () => {
     // The rich editor mounts lazily; its editable region carries the Body label.
     expect(await screen.findByTestId('compose-richtext')).toBeInTheDocument();
     // Toggle to plain text: a textarea takes over, still labelled Body.
-    fireEvent.click(screen.getByTestId('format-toggle'));
+    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}});
     expect(screen.queryByTestId('compose-richtext')).toBeNull();
     expect((screen.getByLabelText('Body') as HTMLElement).tagName).toBe('TEXTAREA');
   });
@@ -358,11 +364,11 @@ describe('Compose', () => {
   it('round-trips the body text between plain and rich modes', async () => {
     renderWithApp(() => <Compose onClose={() => undefined} />);
     await screen.findByTestId('compose-richtext');
-    fireEvent.click(screen.getByTestId('format-toggle')); // rich -> plain
+    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}}); // rich -> plain
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'hello\nworld' } });
-    fireEvent.click(screen.getByTestId('format-toggle')); // plain -> rich (seeds editor)
+    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}}); // plain -> rich (seeds editor)
     await screen.findByTestId('compose-richtext');
-    fireEvent.click(screen.getByTestId('format-toggle')); // rich -> plain
+    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}}); // rich -> plain
     expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toBe('hello\nworld');
   });
 
@@ -419,7 +425,7 @@ describe('Compose', () => {
 
   /** Fill To / Subject / Body in plain-text mode. */
   function fillPlain(body: string, to = 'you@example.org'): void {
-    fireEvent.click(screen.getByTestId('format-toggle'));
+    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}});
     fireEvent.input(screen.getByLabelText('To'), { target: { value: to } });
     fireEvent.input(screen.getByLabelText('Subject'), { target: { value: 'Hi' } });
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: body } });
@@ -444,7 +450,7 @@ describe('Compose', () => {
     expect(screen.queryByTestId('opt-tracking')).toBeNull();
     expect(screen.queryByTestId('opt-receipt')).toBeNull();
 
-    fireEvent.click(screen.getByTestId('format-toggle')); // plain text
+    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}}); // plain text
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
     fireEvent.input(screen.getByLabelText('Subject'), { target: { value: 'Hi' } });
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'plain body' } });
@@ -596,9 +602,10 @@ describe('Compose', () => {
   it('appends the identity signature once, reduced to the composer schema', async () => {
     const { client, app, onClose } = await composeWithClient({ identities: IDENTITIES });
     await app.loadIdentities();
+    fireEvent.click(screen.getByRole('button', {name:'From'}));
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id3' } });
     fillPlain('hi');
-    fireEvent.click(screen.getByTestId('format-toggle'));
+    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}});
     await screen.findByTestId('compose-richtext');
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
@@ -609,6 +616,7 @@ describe('Compose', () => {
   it('appends a text-only signature literally to plain text', async () => {
     const { client, app, onClose } = await composeWithClient({ identities: IDENTITIES });
     await app.loadIdentities();
+    fireEvent.click(screen.getByRole('button', {name:'From'}));
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id1' } });
     expect(await screen.findByTestId('compose-auto-signature')).toHaveTextContent('Sent from Mailwoman');
     fillPlain('hi');
@@ -620,10 +628,12 @@ describe('Compose', () => {
   it('does not append a signature the picker already put in the body', async () => {
     const { client, app, onClose } = await composeWithClient({ identities: IDENTITIES });
     await app.loadIdentities();
+    fireEvent.click(screen.getByRole('button', {name:'From'}));
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id1' } });
     fillPlain('hi');
     // Precondition: the send would append it.
     expect(screen.getByTestId('compose-auto-signature')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', {name:'Insert'}));
     const picker = await screen.findByTestId('compose-signature');
     fireEvent.change(within(picker).getByRole('combobox'), { target: { value: 'id1' } });
     expect(screen.queryByTestId('compose-auto-signature')).toBeNull();
@@ -637,6 +647,7 @@ describe('Compose', () => {
   it('appends no signature to a signed send', async () => {
     const { app } = await composeWithClient({ identities: IDENTITIES });
     await app.loadIdentities();
+    fireEvent.click(screen.getByRole('button', {name:'From'}));
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id1' } });
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
     // Precondition: unsigned, the signature would be appended.
@@ -661,7 +672,7 @@ describe('Compose', () => {
       </AppContext.Provider>
     ));
     await app.login({ username: 'me@example.org', password: 'p' });
-    fireEvent.click(screen.getByTestId('format-toggle')); // plain text
+    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}}); // plain text
     const body = screen.getByLabelText('Body');
     expect(screen.queryByTestId('outer-fallback')).toBeNull();
 
@@ -691,6 +702,7 @@ describe('Compose', () => {
     expect(screen.queryByTestId('draft-resume-foreign')).toBeNull();
     fireEvent.click(await screen.findByTestId('draft-resume-resume-owned'));
     expect(screen.getByTestId('format-toggle')).toHaveTextContent('Rich text');
+    fireEvent.click(screen.getByRole('button', {name:'From'}));
     expect(screen.getByLabelText('From')).toHaveValue('id1');
     expect(screen.getByTestId('compose-attachments')).toHaveTextContent('saved.pdf');
     fireEvent.click(screen.getByRole('button',{name:'Send'}));
@@ -706,7 +718,8 @@ describe('Compose', () => {
   it('inserts a chosen signature into the plain-text body', async () => {
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES });
     await app.loadIdentities();
-    fireEvent.click(screen.getByTestId('format-toggle')); // plain text
+    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}}); // plain text
+    fireEvent.click(screen.getByRole('tab', {name:'Insert'}));
     const picker = await screen.findByTestId('compose-signature');
     fireEvent.change(within(picker).getByRole('combobox'), { target: { value: 'id1' } });
     expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toContain('Sent from Mailwoman');
@@ -800,9 +813,9 @@ describe('Compose', () => {
       vi.stubGlobal('fetch', fetchSpy);
       const { client, app } = await composeWithClient();
       await screen.findByTestId('compose-track-opens');
-      fireEvent.click(screen.getByTestId('format-toggle')); // plain text
+      fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}}); // plain text
       fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'tracked' } });
-      fireEvent.click(screen.getByTestId('format-toggle'));
+      fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}});
       await screen.findByTestId('compose-richtext');
       fireEvent.click(await screen.findByTestId('compose-track-opens'));
       fillAndSend();

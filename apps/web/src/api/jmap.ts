@@ -216,6 +216,7 @@ export interface DraftInput {
   htmlBody: string;
   /** Explicit plain text mode; when present no HTML body is sent. */
   textBody?: string;
+  importance?: 'high'|'normal'|'low';
   draftMailboxId: Id;
   sentMailboxId?: Id;
   /** V2: send via a specific sending identity (§2.1 `Identity`). */
@@ -277,6 +278,7 @@ export function draftCreateSpec(input: DraftInput): Record<string, unknown> {
   if (input.inReplyTo !== undefined && input.inReplyTo.length > 0) spec['inReplyTo'] = [...input.inReplyTo];
   if (input.references !== undefined && input.references.length > 0) spec['references'] = [...input.references];
   spec['subject'] = input.subject;
+  if(input.importance){spec['header:Importance:asText']=input.importance;spec['header:X-Priority:asText']=({high:'1',normal:'3',low:'5'} as const)[input.importance];}
   const plain = input.textBody !== undefined;
   spec[plain ? 'textBody' : 'htmlBody'] = [{ partId: 'body', type: plain ? 'text/plain' : 'text/html' }];
   spec['bodyValues'] = { body: { value: input.textBody ?? input.htmlBody } };
@@ -349,7 +351,7 @@ export function sendEnvelope(accountId: Id, input: DraftInput): JmapRequest {
  * Split an address-list field into its entries. `,` and `;` separate entries
  * except inside a double-quoted display name or between `<` and `>`.
  */
-function splitAddressList(raw: string): string[] {
+export function splitAddressList(raw: string): string[] {
   const out: string[] = [];
   let cur = '';
   let quoted = false;

@@ -1,3 +1,4 @@
+import {resolveSender} from '../../api/senderResolution.ts';
 import { rememberSuccessfulSigninIfAllowed } from '../../api/rememberedSignins.ts';
 import { activateAccountPreferences, suspendAccountPreferences, preferenceAccount, preferenceAccountIsCurrent } from '../../api/accountPreferenceLifecycle.ts';
 import { createMessageView, type MessageView } from './messageView.ts';
@@ -124,8 +125,11 @@ export interface SendInput {
    *  body is ciphertext or a clear-signed block that must not be altered. */
   htmlBody: string;
   textBody?: string;
+  importance?: 'high'|'normal'|'low';
   /** Send as this identity (its from-address); `null` = the account's own. */
   identity?: Identity | null;
+  /** One-message alias, resolved against current server authority before submission. */
+  fromOverride?: string;
   /** Send-later: ISO 8601 UTC time, which must be in the future; omitted/null =
    *  send now (with undo window). */
   sendAt?: string | null;
@@ -1574,8 +1578,11 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
 
     const identity = input.identity ?? null;
-    const fromEmail = identity?.email ?? user.username;
-    const fromName = identity?.name ?? null;
+    const override = input.fromOverride === undefined ? null : await resolveSender(input.fromOverride, authority);
+    requireCurrent();
+    const fromEmail = override?.email ?? identity?.email ?? user.username;
+    const fromName = override === null ? identity?.name ?? null : null;
+    const senderIdentityId = override === null ? identity?.id : override.identityId;
 
     // A scheduled send carries no undo hold, so a `sendAt` that is unreadable
     // or already past would leave at once and could not be cancelled. It is
@@ -1598,11 +1605,12 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       ...(input.inReplyTo !== undefined && input.inReplyTo.length > 0 ? { inReplyTo: input.inReplyTo } : {}),
       ...(input.references !== undefined && input.references.length > 0 ? { references: input.references } : {}),
       subject: input.subject,
+      ...(input.importance ? {importance:input.importance} : {}),
       htmlBody: input.htmlBody,
       ...(input.textBody !== undefined ? {textBody: input.textBody} : {}),
       holdSeconds,
       ...(sent !== null ? { sentMailboxId: sent } : {}),
-      ...(identity !== null ? { identityId: identity.id } : {}),
+      ...(senderIdentityId ? { identityId: senderIdentityId } : {}),
       ...(scheduled ? { sendAt: input.sendAt! } : {}),
       ...(input.attachments !== undefined && input.attachments.length > 0
         ? { attachments: input.attachments }

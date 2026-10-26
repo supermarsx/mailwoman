@@ -1,7 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { createSignal } from 'solid-js';
 import { render, screen, waitFor, fireEvent } from '@solidjs/testing-library';
 import { RichTextEditor, type RichTextApi } from './RichTextEditor.tsx';
+
+beforeAll(()=>{Object.defineProperty(Range.prototype,'getClientRects',{configurable:true,value:()=>[]});Object.defineProperty(Range.prototype,'getBoundingClientRect',{configurable:true,value:()=>({left:0,right:0,top:0,bottom:0,width:0,height:0})});});
 
 describe('RichTextEditor (W1)', () => {
   it('switches ribbon groups without changing the document',()=>{
@@ -82,4 +84,23 @@ describe('RichTextEditor (W1)', () => {
     setExt('two\nthree');
     await waitFor(() => expect(text).toBe('two\nthree'));
   });
+});
+
+it('edits real table structure, reverses it with history, and keeps display settings out of serialized HTML',()=>{
+ let html='';render(()=><RichTextEditor initialHtml="<p>Keep</p>" ariaLabel="Body" onChange={value=>html=value}/>);
+ fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
+ fireEvent.click(screen.getByRole('button',{name:'Insert table'}));
+ expect(html).toContain('<table');expect((html.match(/<td/g)??[]).length).toBe(4);
+ fireEvent.click(screen.getByRole('tab',{name:'Table'}));
+ fireEvent.click(screen.getByRole('button',{name:'Row below'}));
+ expect((html.match(/<td/g)??[]).length).toBe(6);
+ fireEvent.click(screen.getByRole('button',{name:'Undo'}));
+ expect((html.match(/<td/g)??[]).length).toBe(4);
+ const before=html;fireEvent.change(screen.getByLabelText('Editor zoom'),{target:{value:'150'}});fireEvent.click(screen.getByRole('button',{name:'Paragraph marks'}));expect(html).toBe(before);
+});
+it('replaces literal text through the accessible controls and leaves unrelated marks intact',()=>{
+ let html='';render(()=><RichTextEditor initialHtml="<p><strong>one</strong> two one</p>" ariaLabel="Body" onChange={value=>html=value}/>);
+ fireEvent.click(screen.getByText('Find and replace'));
+ fireEvent.input(screen.getByLabelText('Find text'),{target:{value:'one'}});fireEvent.input(screen.getByLabelText('Replace with'),{target:{value:'three'}});
+ fireEvent.click(screen.getByRole('button',{name:'Replace all matches'}));expect(html).toBe('<p><strong>three</strong> two three</p>');
 });

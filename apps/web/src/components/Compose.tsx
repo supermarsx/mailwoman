@@ -1,3 +1,6 @@
+import {checkRecipientNames} from './compose/recipientNames.ts';
+import {EditorCounts} from './compose/EditorCounts.tsx';
+import {InsertAccountItem} from './compose/InsertAccountItem.tsx';
 import {accountDraftApi,draftEditorState,localAccountDraft,type AccountDraftDocument} from '../api/accountDrafts.ts';
 import {createDraftAutosave,type DraftSaveStatus,type DraftSaveMode} from './compose/accountDraftAutosave.ts';
 import {toast} from './toast/toast.ts';
@@ -24,6 +27,7 @@ import { t, isolate, loadCatalog } from '../i18n/index.ts';
 import * as a11y from './mailA11y.css.ts';
 import { AsyncBoundary } from './ErrorBoundary.tsx';
 import type { RichTextApi } from './compose/RichTextEditor.tsx';
+import {ComposerHistory} from './compose/ComposerHistory.tsx';
 import {
   SignaturePicker,
   RecallPanel,
@@ -57,6 +61,7 @@ import { buildDownloadUrl, fetchObjectUrl } from '../viewers/attachments.ts';
 // fallback, so the Body field is usable (and its label present) before the
 // chunk resolves.
 const RichTextEditor = lazy(() => import('./compose/RichTextEditor.tsx'));
+const HtmlSourceEditor = lazy(() => import('./compose/HtmlSourceEditor.tsx'));
 import {
   createContactAutocomplete,
   type ContactSuggestion,
@@ -171,7 +176,7 @@ export function Compose(props: {
    *  editor can be absent — plain-text mode, the chunk still loading, and the
    *  chunk failing to load at all — so it lives in one place rather than three. */
   const plainBody = (): JSX.Element => (
-    <textarea
+    <><textarea
       aria-label={t('mail-compose-body')}
       rows={compact() ? 4 : 10}
       value={body()}
@@ -182,13 +187,16 @@ export function Compose(props: {
         setBody(e.currentTarget.value);
         setBodyHtml(plainToHtml(e.currentTarget.value));
       }}
-    />
+    /><EditorCounts text={body()}/></>
   );
   const [richMode, setRichMode] = createSignal(true);
+  const [sourceMode,setSourceMode]=createSignal(false);
   const [editorApi, setEditorApi] = createSignal<RichTextApi | null>(null);
   // W9 drafts drawer + W10 recall panel visibility, and the loaded draft list.
   const [draftsOpen, setDraftsOpen] = createSignal(false);
   const [recallOpen, setRecallOpen] = createSignal(false);
+  const [recallError,setRecallError]=createSignal(false);
+  const [recallBusy,setRecallBusy]=createSignal(false);
   const [drafts, setDrafts] = createSignal<StoredDraft[]>([]);
   // Stable id for THIS composer's auto-saved draft (W9).
   let draftId = newDraftId();
@@ -204,6 +212,14 @@ export function Compose(props: {
   let remoteAbort:AbortController|undefined;
 
   const [identityId, setIdentityId] = createSignal<string>('');
+  const [fromOverride, setFromOverride] = createSignal('');
+  const [importance,setImportance]=createSignal<'high'|'normal'|'low'>('normal');
+  const [customFrom, setCustomFrom] = createSignal(false);
+  const fromHelpId = createUniqueId();
+  const [ribbonTab,setRibbonTab]=createSignal<'format'|'insert'|'table'|'security'|'delivery'>('format');
+  createEffect(()=>{if(unlockOpen())setRibbonTab('security');});
+  const [fromVisibleOverride,setFromVisibleOverride] = createSignal<boolean|null>(null);
+  const showFrom=()=>customFrom() || (fromVisibleOverride() ?? settings()['mail.showFrom']?.value === true);
   const [sendAt, setSendAt] = createSignal('');
   // Earliest time the Send-later field offers; refreshed when the field is
   // focused, since a composer can stay open for a long time.
@@ -461,14 +477,13 @@ export function Compose(props: {
   /** Toggle the body between the rich editor and a plain-text / format=flowed
    *  textarea. Rich → plain just reveals the already-synced text; plain → rich
    *  re-seeds the editor from that text so the content round-trips. */
-  function toggleFormat(): void {
-    if (richMode()) {
-      setRichMode(false);
-    } else {
-      setBodyHtml(plainToHtml(body()));
-      setRichMode(true);
-    }
+  function changeFormat(mode:string):void {
+    if(!richMode() && mode!=='plain')setBodyHtml(plainToHtml(body()));
+    if(mode!=='rich'&&ribbonTab()==='table')setRibbonTab('format');
+    setSourceMode(mode==='html');
+    setRichMode(mode!=='plain');
   }
+
 
   // W12: signatures the picker offers, derived from the sending identities that
   // carry one. A signatures CRUD backend (e15) can supply the same shape later.
@@ -557,7 +572,11 @@ export function Compose(props: {
     props.onDraftIdChange?.(draftId);
     setExpanded(true);
     setIdentityId(d.identityId ?? '');
+    setFromOverride(d.fromOverride ?? '');
+    setImportance(d.importance ?? 'normal');
+    setCustomFrom(Boolean(d.fromOverride));
     setInsertedSignatures(new Set(d.insertedSignatures ?? []));
+    setSourceMode(false);
     setRichMode(d.bodyFormat !== 'plain');
     setTo(d.to);
     setCc(d.cc ?? '');
@@ -659,13 +678,15 @@ export function Compose(props: {
 
   /** Open the recall panel, refreshing the server-held submission queue (W10). */
   function openRecall(): void {
-    void app.refreshOutbox();
-    setRecallOpen(true);
+    setRecallOpen(true);setRecallError(false);
+    void app.refreshOutbox().catch(()=>{if(ownsDraft())setRecallError(true);});
   }
 
   /** Recall (cancel) a still-holding / scheduled submission before it dispatches. */
   function recallSubmission(id: string): void {
-    void app.cancelOutbox(id).then(() => app.refreshOutbox());
+    if(recallBusy())return;
+    setRecallBusy(true);setRecallError(false);
+    void app.cancelOutbox(id).then(() => app.refreshOutbox()).catch(()=>{if(ownsDraft())setRecallError(true);}).finally(()=>{if(ownsDraft())setRecallBusy(false);});
   }
 
   function remoteFailure(code:string):void {
@@ -753,7 +774,7 @@ export function Compose(props: {
     if (account !== draftAccount || (draftAuthority && !preferenceAccountIsCurrent(draftAuthority))) {
       remoteWriter?.dispose();remoteAbort?.abort();
       clearTimeout(saveTimer); pendingDraft=undefined;
-      setTo('');setCc('');setBcc('');setSubject('');setBody('');setBodyHtml('');setIdentityId('');
+      setTo('');setCc('');setBcc('');setSubject('');setBody('');setBodyHtml('');setIdentityId('');setFromOverride('');setCustomFrom(false);
       for (const image of inlineImages()) if (image.previewUrl) URL.revokeObjectURL(image.previewUrl);
       setInlineImages([]);setAttachments([]);setDrafts([]);props.onClose();
     }
@@ -769,6 +790,8 @@ export function Compose(props: {
       ...(remoteRevision()?{serverRevision:remoteRevision()!}:{}),
       ...(remoteStatus()==='uncertain'?{serverStatus:'uncertain' as const}:{}),
       identityId: identityId(),
+      importance:importance(),
+      ...(customFrom() ? {fromOverride: fromOverride()} : {}),
       bodyFormat: richMode() ? 'html' : 'plain',
       insertedSignatures: [...insertedSignatures()],
       attachments: attachments().map(file => ({...file})),
@@ -813,6 +836,13 @@ export function Compose(props: {
     cc: [cc, setCc],
     bcc: [bcc, setBcc],
   } as const;
+
+  function checkNames():void {
+    const missing:string[]=[];let resolved=0;
+    for(const field of ['to','cc','bcc'] as const){const [read,write]=recipientFields[field];const result=checkRecipientNames(read(),app.contacts());write(result.value);missing.push(...result.unresolved);resolved+=result.resolved;}
+    if(missing.length)setError(t('mail-compose-names-unresolved',{names:isolate(missing.join(', '))}));
+    else {setError(null);toast.info(t('mail-compose-names-checked',{count:resolved}));}
+  }
 
   /** Typing in To, Cc or Bcc: the token after the last separator drives the
    *  contact suggestions for that field. The directory lookup stays on To. */
@@ -888,7 +918,7 @@ export function Compose(props: {
    *  unchanged). An over-`maxSizeUpload` file is refused BEFORE upload with a
    *  concrete size message; a failed upload reports the file by name and leaves
    *  the rest of the selection intact. */
-  async function onFilesPicked(fileList: FileList | null): Promise<void> {
+  async function onFilesPicked(fileList: FileList | File[] | null): Promise<void> {
     if (fileList === null || fileList.length === 0) return;
     const url = uploadUrl();
     const acct = app.accountId();
@@ -1040,6 +1070,8 @@ export function Compose(props: {
         htmlBody,
         ...(textBody !== undefined ? {textBody} : {}),
         identity: identity(),
+        ...(importance()!=='normal'?{importance:importance()}:{}),
+        ...(customFrom() ? {fromOverride: fromOverride()} : {}),
         sendAt: sendAtIso,
         // V7 (§18.4): Nextcloud-materialised blob attachments (empty ⇒ omitted).
         ...(attached.length > 0
@@ -1090,16 +1122,17 @@ export function Compose(props: {
               aria-expanded={draftsOpen()}
               onClick={() => (draftsOpen() ? setDraftsOpen(false) : openDrafts())}
             >
-              {t('mail-compose-drafts')}
+              <Icon name="file"/> {t('mail-compose-drafts')}
             </button>
             <button
               type="button"
               class={`btn btn--ghost ${a11y.focusable}`}
               data-testid="open-recall"
+              data-tooltip={t('mail-compose-recall-help')}
               aria-expanded={recallOpen()}
               onClick={() => (recallOpen() ? setRecallOpen(false) : openRecall())}
             >
-              {t('mail-compose-recall')}
+              <Icon name="clock"/> {t('mail-compose-recall')}
             </button>
             <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-compose-close')} onClick={() => void closeWithDraftSave()}>
               <Icon name="close" />
@@ -1120,17 +1153,17 @@ export function Compose(props: {
           onClose={() => setDraftsOpen(false)}
         />
         <Show when={recallOpen()}>
-          <RecallPanel submissions={app.cancelableOutbox} onRecall={recallSubmission} />
+          <RecallPanel submissions={app.cancelableOutbox} onRecall={recallSubmission} loading={app.outboxLoading() || recallBusy()} failed={recallError()} />
         </Show>
 
         <Show when={!localDraftAuthority()}><p role="status" class="compose__sign-unlock-note">{t('mail-compose-private-storage-unavailable')}</p></Show>
         <Show when={compact()}><section class="compose__quick-summary" aria-label={t('mail-quick-reply')}><p><strong>{t('mail-compose-to')}:</strong> {to()}<Show when={cc()}> · Cc: {cc()}</Show><Show when={bcc()}> · Bcc: {bcc()}</Show></p><p>{subject()}</p><button type="button" class="btn btn--ghost" onClick={() => setExpanded(true)}>{t('mail-quick-reply-expand')}</button></section></Show>
         <Show when={!compact()}>
-        <Show when={app.identities().length > 0}>
-          <label class="field compose__from">
+          <Show when={showFrom()}><label class="field compose__from">
             <span>{t('mail-compose-from')}</span>
-            <select value={identityId()} onChange={(e) => setIdentityId(e.currentTarget.value)}>
+            <select value={customFrom() ? "__custom_from__" : identityId()} onChange={(e) => { const value=e.currentTarget.value; setCustomFrom(value === "__custom_from__"); if(value !== "__custom_from__") setIdentityId(value); }}>
               <option value="">{isolate(app.me()?.username ?? t('mail-compose-from-default'))}</option>
+              <option value="__custom_from__">{t('mail-compose-from-custom')}</option>
               <For each={app.identities()}>
                 {(id) => (
                   <option value={id.id}>
@@ -1140,7 +1173,8 @@ export function Compose(props: {
               </For>
             </select>
           </label>
-        </Show>
+          </Show>
+          <Show when={customFrom()}><label class="field compose__from"><span>{t('mail-compose-from-alias')}</span><input type="email" required maxlength={254} autocomplete="off" value={fromOverride()} onInput={event=>setFromOverride(event.currentTarget.value)} aria-describedby={fromHelpId}/><small id={fromHelpId}>{t('mail-compose-from-alias-help')}</small></label></Show>
 
         <label class="field compose__to">
           <span>{t('mail-compose-to')}</span>
@@ -1180,19 +1214,7 @@ export function Compose(props: {
           )}
         </Show>
 
-        <Show
-          when={ccBccOpen()}
-          fallback={
-            <button
-              type="button"
-              class={`btn btn--ghost ${a11y.focusable}`}
-              data-testid="compose-show-cc-bcc"
-              onClick={() => setCcBccOpen(true)}
-            >
-              {t('mail-compose-show-cc-bcc')}
-            </button>
-          }
-        >
+        <Show when={ccBccOpen()}>
           <label class="field compose__to">
             <span>{t('mail-compose-cc')}</span>
             <input
@@ -1246,75 +1268,14 @@ export function Compose(props: {
         </Show>
 
         <Show when={externalMode()!=='off' && outside().length>0}><section class="compose-external" aria-label={t('mail-external-recipients')}><details><summary><Icon name="alert"/> {t('mail-external-count',{count:outside().length})}</summary><p>{t('mail-external-help')}</p><ul><For each={outside()}>{address=><li>{address}</li>}</For></ul></details><Show when={externalMode()==='confirm'}><label><input type="checkbox" checked={reviewedRecipients()===recipientReviewKey()} onChange={event=>setReviewedRecipients(event.currentTarget.checked?recipientReviewKey():'')}/>{t('mail-external-reviewed')}</label></Show></section></Show>
-        <div class="field field--grow">
-          <div class="compose__body-head">
-            <span>{t('mail-compose-body')}</span>
-            <button
-              type="button"
-              class={`btn btn--ghost ${a11y.focusable}`}
-              data-testid="format-toggle"
-              aria-pressed={!richMode()}
-              onClick={() => toggleFormat()}
-            >
-              {richMode() ? t('mail-compose-format-plain') : t('mail-compose-format-rich')}
-            </button>
+        <section class="compose-ribbon" aria-label={t('mail-compose-ribbon')}>
+          <Show when={richMode()&&!sourceMode()}><ComposerHistory api={editorApi()}/></Show>
+          <div class="compose-rt__tabs" role="tablist"><For each={richMode()&&!sourceMode()?['format','insert','table','security','delivery'] as const:['format','insert','security','delivery'] as const}>{tab=><button type="button" role="tab" aria-selected={ribbonTab()===tab} onClick={()=>setRibbonTab(tab)}>{t(`mail-compose-ribbon-${tab}`)}</button>}</For></div>
+          <div class="compose-ribbon__panel" hidden={ribbonTab()!=='format'} inert={ribbonTab()!=='format'}>
+            <div class="compose-ribbon__group"><span>{t('mail-compose-ribbon-recipients')}</span><button type="button" class="btn btn--ghost" onClick={checkNames} data-tooltip={t('mail-compose-check-names-help')}><Icon name="check"/>{t('mail-compose-check-names')}</button><button type="button" class="btn btn--ghost" data-testid="compose-show-cc-bcc" aria-pressed={ccBccOpen()} onClick={()=>setCcBccOpen(!ccBccOpen())}>{t('mail-compose-show-cc-bcc')}</button><button type="button" class="btn btn--ghost" aria-pressed={showFrom()} onClick={()=>setFromVisibleOverride(!showFrom())}>{t('mail-compose-from')}</button></div>
+            <label class="compose-ribbon__group"><span>{t('mail-compose-ribbon-message-type')}</span><select data-testid="format-toggle" value={!richMode()?'plain':sourceMode()?'html':'rich'} onChange={event=>changeFormat(event.currentTarget.value)}><option value="plain">{t('mail-compose-format-plain')}</option><option value="rich">{t('mail-compose-format-rich')}</option><option value="html">{t('mail-compose-html-source')}</option></select></label>
           </div>
-          <Show when={richMode()} fallback={plainBody()}>
-            {/* The editor chunk can FAIL to arrive, not just be slow — offline, or
-                a 404 against a tab open across a redeploy. `Suspense` covers only
-                the PENDING case; a rejected `lazy()` import throws, and with no
-                boundary here that throw escapes the dialog. The plain textarea
-                was always the documented contract for "the editor is not here"
-                (see the `lazy()` call above), so honour it when the import fails
-                and not only while it is in flight — the same reasoning
-                ErrorBoundary.tsx was written for.
-
-                PROVEN to fix the `e2e-engine` `offline.spec.ts:18` failure
-                ("Compose message" dialog never found), by controlled revert: on
-                `9216888` plus a revert of this boundary and nothing else, that
-                spec fails on all three retries with `element(s) not found` for
-                the dialog (run 36255164856, 30 passed / 1 failed), while
-                `9216888` itself is green. The signature is byte-identical to the
-                historical failure at `b34b9d3`.
-
-                Mechanism: `offline.spec.ts` opens Compose for the first time while
-                the browser context is offline, so the ~286 kB ProseMirror chunk
-                has never been fetched into the service-worker cache. The import
-                rejects, and without this boundary the throw escapes and the dialog
-                never renders — which is why the error was `element(s) not found`
-                on the ROLE, never a name mismatch.
-
-                Do not try to cover this with a unit test: under vitest a mocked
-                rejecting import leaves Suspense pending forever, so the boundary is
-                never exercised and such a test passes with OR without this wrapper.
-                One was written, found to be vacuous, and deleted. The real coverage
-                is `offline.spec.ts:18` itself — a real browser with the SW cache
-                cold and the context offline. */}
-            <AsyncBoundary fallback={() => plainBody()}>
-              <Suspense fallback={plainBody()}>
-                <RichTextEditor
-                  initialHtml={bodyHtml()}
-                  externalText={body}
-                  ariaLabel={t('mail-compose-body')}
-                  onChange={onEditorChange}
-                  onReady={setEditorApi}
-                  inline={{
-                    owned: ownedCids,
-                    preview: (cid) => inlineImages().find((i) => i.cid === cid)?.previewUrl ?? null,
-                    upload: uploadInline,
-                  }}
-                />
-              </Suspense>
-            </AsyncBoundary>
-          </Show>
-          <Show when={inlineError()}>
-            <p class="login__error" role="alert">
-              {inlineError()}
-            </p>
-          </Show>
-        </div>
-
-        <SignaturePicker signatures={signatures} onInsert={insertSignature} />
+          <div class="compose-ribbon__panel" hidden={ribbonTab()!=='insert'} inert={ribbonTab()!=='insert'}>        <InsertAccountItem onFiles={onFilesPicked} disabled={uploading()||busy()}/><SignaturePicker signatures={signatures} onInsert={insertSignature} />
 
         {/* V7 inline Assist composer tools + dictation (plan §14.3). Each component
             self-hides on the capabilities it lacks; the whole block is additionally
@@ -1395,7 +1356,8 @@ export function Compose(props: {
           </div>
         </Show>
 
-        {/* Crypto + DLP (plan §2.5): encrypt/sign toggles, the live E2EE/TLS/mixed
+</div>
+          <div class="compose-ribbon__panel" hidden={ribbonTab()!=='security'} inert={ribbonTab()!=='security'}>        {/* Crypto + DLP (plan §2.5): encrypt/sign toggles, the live E2EE/TLS/mixed
             banner from real per-recipient CryptoKey/lookup, and the Dlp/scan
             pre-send warnings. Reports state up via onChange for the send path. */}
         {/* A boundary of its own, because the panel reads two resources (the
@@ -1418,7 +1380,7 @@ export function Compose(props: {
               lookupKeys={lookupKeys}
               scanDlp={scanDlp}
               signingKeyRef={() => signingSession()?.keyRef ?? null}
-              onRequestSigningKey={() => setUnlockOpen(true)}
+              onRequestSigningKey={() => {setRibbonTab('security');setUnlockOpen(true);}}
               onChange={setCryptoState}
             />
           </Suspense>
@@ -1469,16 +1431,9 @@ export function Compose(props: {
           </section>
         </Show>
 
-        {/* Shown exactly when the send will append it (see `autoSignature`). */}
-        <Show when={autoSignature()}>
-          {(sig) => (
-            <p class="compose__signature" data-testid="compose-auto-signature">
-              — {isolate(sig().text)}
-            </p>
-          )}
-        </Show>
-
-        <SendOptions
+</div>
+          <div class="compose-ribbon__panel" hidden={ribbonTab()!=='delivery'} inert={ribbonTab()!=='delivery'}>
+            <label class="field"><span>{t('mail-compose-importance')}</span><select value={importance()} onChange={event=>setImportance(event.currentTarget.value as 'high'|'normal'|'low')}><For each={['high','normal','low'] as const}>{value=><option value={value}>{t(`mail-compose-importance-${value}`)}</option>}</For></select></label>        <SendOptions
           deliveryAvailable={deliveryAvailable()}
           requestDelivery={requestDelivery()}
           onRequestDelivery={setRequestDelivery}
@@ -1503,6 +1458,80 @@ export function Compose(props: {
             onInvalid={() => setError(t('mail-compose-send-later-past'))}
           />
         </label>
+
+</div>
+        </section>
+        <div class="field field--grow">
+          <div class="compose__body-head">
+
+            <span>{t('mail-compose-body')}</span>
+
+          </div>
+          <Show when={richMode()} fallback={plainBody()}>
+            {/* The editor chunk can FAIL to arrive, not just be slow — offline, or
+                a 404 against a tab open across a redeploy. `Suspense` covers only
+                the PENDING case; a rejected `lazy()` import throws, and with no
+                boundary here that throw escapes the dialog. The plain textarea
+                was always the documented contract for "the editor is not here"
+                (see the `lazy()` call above), so honour it when the import fails
+                and not only while it is in flight — the same reasoning
+                ErrorBoundary.tsx was written for.
+
+                PROVEN to fix the `e2e-engine` `offline.spec.ts:18` failure
+                ("Compose message" dialog never found), by controlled revert: on
+                `9216888` plus a revert of this boundary and nothing else, that
+                spec fails on all three retries with `element(s) not found` for
+                the dialog (run 36255164856, 30 passed / 1 failed), while
+                `9216888` itself is green. The signature is byte-identical to the
+                historical failure at `b34b9d3`.
+
+                Mechanism: `offline.spec.ts` opens Compose for the first time while
+                the browser context is offline, so the ~286 kB ProseMirror chunk
+                has never been fetched into the service-worker cache. The import
+                rejects, and without this boundary the throw escapes and the dialog
+                never renders — which is why the error was `element(s) not found`
+                on the ROLE, never a name mismatch.
+
+                Do not try to cover this with a unit test: under vitest a mocked
+                rejecting import leaves Suspense pending forever, so the boundary is
+                never exercised and such a test passes with OR without this wrapper.
+                One was written, found to be vacuous, and deleted. The real coverage
+                is `offline.spec.ts:18` itself — a real browser with the SW cache
+                cold and the context offline. */}
+            <AsyncBoundary fallback={() => plainBody()}>
+              <Suspense fallback={plainBody()}>
+                <Show when={!sourceMode()} fallback={<HtmlSourceEditor initialHtml={bodyHtml()} externalText={body} owned={ownedCids} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
+                  externalHistory
+                  ribbonTab={()=>ribbonTab() === 'format' || ribbonTab() === 'insert' || ribbonTab() === 'table' ? ribbonTab() as 'format'|'insert'|'table' : null}
+                  initialHtml={bodyHtml()}
+                  externalText={body}
+                  ariaLabel={t('mail-compose-body')}
+                  onChange={onEditorChange}
+                  onReady={setEditorApi}
+                  inline={{
+                    owned: ownedCids,
+                    preview: (cid) => inlineImages().find((i) => i.cid === cid)?.previewUrl ?? null,
+                    upload: uploadInline,
+                  }}
+                /></Show>
+              </Suspense>
+            </AsyncBoundary>
+          </Show>
+          <Show when={inlineError()}>
+            <p class="login__error" role="alert">
+              {inlineError()}
+            </p>
+          </Show>
+        </div>
+
+        {/* Shown exactly when the send will append it (see `autoSignature`). */}
+        <Show when={autoSignature()}>
+          {(sig) => (
+            <p class="compose__signature" data-testid="compose-auto-signature">
+              — {isolate(sig().text)}
+            </p>
+          )}
+        </Show>
 
         {/* Asked once per composer, when a send would put the decrypted text of
             an encrypted original on the wire unencrypted. Confirming sends. */}
