@@ -315,6 +315,7 @@ body {
 }
 .sidebar__box {
   display: flex;
+  column-gap: 0.65rem;
   justify-content: space-between;
   align-items: center;
   padding: 0.45rem 0.6rem;
@@ -1011,3 +1012,5 @@ label.settings-binding-field > input.settings-binding-input { max-inline-size:24
 table.settings-label-table { min-inline-size:24rem; }
 table.settings-package-table { min-inline-size:38rem; }
 .settings-label-color { padding-inline-start:.5rem; }
+
+.sidebar__box > svg { flex: 0 0 auto; }

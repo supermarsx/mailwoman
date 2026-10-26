@@ -4,7 +4,6 @@ import {accountUiPreferences,setAccountUiPreferences} from '../api/accountPrefer
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import type {Mailbox} from '../api/jmap-types.ts';
 import {t} from '../i18n';
-import {Icon} from './Icon.tsx';
 import {EmptyTrashDialog} from './EmptyTrash.tsx';
 import {createContextMenu,type ContextAction} from './ContextMenu.tsx';
 import * as css from './contextMenu.css.ts';
@@ -24,5 +23,5 @@ export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen
   return rows;
  },onError:()=>app.showToast('error',t('mail-context-failed'))});
  onCleanup(observePreferenceAccount(()=>{context.close(false);setTrash(false);}));
- return <div class={css.folderRow} onContextMenu={e=>{props.onProbe();context.open(e);}} onKeyDown={e=>{if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10'))props.onProbe();context.keydown(e);}}>{props.children}<button type="button" class={css.more} aria-label={`${t('mail-more-actions')}: ${props.box.name}`} aria-haspopup="menu" aria-expanded={context.isOpen()} onClick={e=>{props.onProbe();context.open(e);}}><Icon name="more"/></button>{context.menu()}<Show when={trash()}><EmptyTrashDialog mailboxId={props.box.id} onClose={()=>setTrash(false)}/></Show></div>;
+ return <div class={css.folderRow} onContextMenu={e=>{props.onProbe();context.open(e);}} onKeyDown={e=>{if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10'))props.onProbe();context.keydown(e);}}>{props.children}{context.menu()}<Show when={trash()}><EmptyTrashDialog mailboxId={props.box.id} onClose={()=>setTrash(false)}/></Show></div>;
 }
