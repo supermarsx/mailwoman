@@ -11,7 +11,7 @@
 //!   * **OTLP traces + metrics export** — [`init_otlp`] builds tonic (rustls, NO
 //!     openssl) OTLP exporters into SDK providers and registers them globally, so a
 //!     plain [`tracing_opentelemetry::layer`] bridges spans out. A no-op unless
-//!     `MW_OTLP_ENDPOINT` is set.
+//!     persisted telemetry or `MW_OTLP_ENDPOINT` explicitly enables export.
 //!   * **auth-gated Prometheus `/metrics`** — [`metrics`] renders the process-wide
 //!     `metrics`/`metrics-exporter-prometheus` recorder, gated behind a bearer token
 //!     ([`set_metrics_token`] / `MW_METRICS_TOKEN`); never open.
@@ -172,6 +172,7 @@ where
 /// configures none behaves exactly as before.
 #[derive(Debug, Clone, Default)]
 pub struct ObservabilityConfig {
+    pub telemetry: crate::telemetry_config::TelemetryConfig,
     /// OTLP collector endpoint (env: `MW_OTLP_ENDPOINT`, e.g. `http://otel:4317`).
     /// `None` → OTLP export disabled.
     pub otlp_endpoint: Option<String>,
@@ -192,12 +193,25 @@ impl ObservabilityConfig {
     pub fn from_env() -> Self {
         let s = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         Self {
+            telemetry: crate::telemetry_config::TelemetryConfig::default(),
             otlp_endpoint: s("MW_OTLP_ENDPOINT"),
             service_name: s("MW_OTEL_SERVICE").unwrap_or_else(|| "mailwoman".to_string()),
             metrics_token: s("MW_METRICS_TOKEN"),
             log_directives: s("MW_LOG").unwrap_or_else(|| "info".to_string()),
             sentry_dsn: s("MW_SENTRY_DSN"),
         }
+    }
+
+    pub async fn from_store(store: &mw_store::Store) -> anyhow::Result<Self> {
+        let (telemetry, _) = crate::telemetry_config::load(store).await?
+            .with_environment(|key| std::env::var(key).ok())
+            .map_err(|(_, message)| anyhow::anyhow!(message))?;
+        let mut config = Self::from_env();
+        config.otlp_endpoint = telemetry.enabled.then(|| telemetry.endpoint.clone());
+        config.service_name = telemetry.service_name.clone();
+        if !telemetry.prometheus_enabled { config.metrics_token = None; }
+        config.telemetry = telemetry;
+        Ok(config)
     }
 }
 
@@ -231,11 +245,28 @@ impl Drop for OtelGuard {
     }
 }
 
-/// Guards against a second OTLP initialisation registering a duplicate pair of
-/// global providers. `main` initialises OTLP before composing the subscriber (so
-/// the `tracing_opentelemetry` layer binds the registered tracer); `build_app`
-/// also calls [`init_otlp`], and that second call must be a no-op.
+/// Prevent duplicate process-wide providers. The CLI installs its tracing bridge
+/// first; build_app initializes providers after loading the persisted settings.
 static OTLP_INITIALIZED: OnceLock<()> = OnceLock::new();
+static OTLP_INIT_LOCK: Mutex<()> = Mutex::new(());
+type TracerBridge = Box<dyn Fn(opentelemetry_sdk::trace::SdkTracer) -> Result<(), String> + Send + Sync>;
+static TRACER_BRIDGE: OnceLock<TracerBridge> = OnceLock::new();
+static OTEL_GUARD: Mutex<Option<OtelGuard>> = Mutex::new(None);
+static HTTP_INSTRUMENTS: OnceLock<(opentelemetry::metrics::Counter<u64>, opentelemetry::metrics::Histogram<f64>)> = OnceLock::new();
+pub fn record_http(class: &'static str, status: &'static str, seconds: f64) {
+    if let Some((counter, duration)) = HTTP_INSTRUMENTS.get() {
+        let attributes = [opentelemetry::KeyValue::new("route.class", class), opentelemetry::KeyValue::new("status.class", status)];
+        counter.add(1, &attributes);
+        duration.record(seconds, &attributes);
+    }
+}
+
+/// The CLI installs its reloadable tracing layer before opening the store.
+pub fn install_tracer_bridge(bridge: impl Fn(opentelemetry_sdk::trace::SdkTracer) -> Result<(), String> + Send + Sync + 'static) {
+    let _ = TRACER_BRIDGE.set(Box::new(bridge));
+}
+pub fn retain_otlp(guard: OtelGuard) { *OTEL_GUARD.lock().expect("OTLP guard lock") = Some(guard); }
+pub fn shutdown_otlp() { let guard = OTEL_GUARD.lock().expect("OTLP guard lock").take(); drop(guard); }
 
 /// Initialise OTLP export from configuration. When `otlp_endpoint` is set, build a
 /// tonic (rustls) span + metric exporter, wrap each in an SDK provider, and
@@ -251,38 +282,60 @@ pub fn init_otlp(config: &ObservabilityConfig) -> anyhow::Result<Option<OtelGuar
     let Some(endpoint) = config.otlp_endpoint.clone() else {
         return Ok(None);
     };
-    // Already initialised earlier in this process (e.g. by `main` before the
-    // subscriber was composed) → do not register a second provider pair.
-    if OTLP_INITIALIZED.set(()).is_err() {
+    // A second application in this process must not replace global providers.
+    let _initialization = OTLP_INIT_LOCK.lock().expect("OTLP init lock");
+    if OTLP_INITIALIZED.get().is_some() {
         return Ok(None);
     }
 
     let resource = opentelemetry_sdk::Resource::builder()
         .with_service_name(config.service_name.clone())
+        .with_attribute(opentelemetry::KeyValue::new("deployment.environment.name", config.telemetry.environment.clone()))
         .build();
-
-    let span_exporter = opentelemetry_otlp::SpanExporter::builder()
+    let timeout = std::time::Duration::from_millis(config.telemetry.export_timeout_ms);
+    let tracer_provider = if config.telemetry.traces {
+      let span_exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
         .with_endpoint(endpoint.clone())
+        .with_timeout(timeout)
         .build()?;
-    let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
-        .with_batch_exporter(span_exporter)
-        .with_resource(resource.clone())
+      let batch = opentelemetry_sdk::trace::BatchConfigBuilder::default()
+        .with_max_queue_size(config.telemetry.span_queue_size)
+        .with_max_export_batch_size(config.telemetry.span_batch_size)
+        .with_scheduled_delay(std::time::Duration::from_millis(config.telemetry.span_export_delay_ms))
         .build();
+      let processor = opentelemetry_sdk::trace::BatchSpanProcessor::builder(span_exporter).with_batch_config(batch).build();
+      Some(opentelemetry_sdk::trace::SdkTracerProvider::builder()
+        .with_span_processor(processor)
+        .with_sampler(opentelemetry_sdk::trace::Sampler::ParentBased(Box::new(opentelemetry_sdk::trace::Sampler::TraceIdRatioBased(config.telemetry.sample_ratio))))
+        .with_resource(resource.clone())
+        .build())
+    } else { None };
     // Register the provider for direct OTel instrumentation. The tracing bridge
     // must explicitly use OtelGuard::tracer; its default tracer is a no-op.
-    let _tracer = tracer_provider.tracer("mw-server");
-    opentelemetry::global::set_tracer_provider(tracer_provider.clone());
-
-    let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
+    let meter_provider = if config.telemetry.metrics {
+      let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
         .with_tonic()
         .with_endpoint(endpoint)
+        .with_timeout(timeout)
         .build()?;
-    let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
-        .with_periodic_exporter(metric_exporter)
+      let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter)
+        .with_interval(std::time::Duration::from_secs(config.telemetry.metrics_interval_secs)).build();
+      Some(opentelemetry_sdk::metrics::SdkMeterProvider::builder()
+        .with_reader(reader)
         .with_resource(resource)
-        .build();
-    opentelemetry::global::set_meter_provider(meter_provider.clone());
+        .build())
+    } else { None };
+    if let Some(provider) = &tracer_provider {
+        if let Some(bridge) = TRACER_BRIDGE.get() { bridge(provider.tracer("mw-server")).map_err(anyhow::Error::msg)?; }
+        opentelemetry::global::set_tracer_provider(provider.clone());
+    }
+    if let Some(provider) = &meter_provider {
+        opentelemetry::global::set_meter_provider(provider.clone());
+        let meter = opentelemetry::global::meter("mw-server");
+        let _ = HTTP_INSTRUMENTS.set((meter.u64_counter("mailwoman.http.requests").build(), meter.f64_histogram("mailwoman.http.duration").with_unit("s").build()));
+    }
+    let _ = OTLP_INITIALIZED.set(());
 
     tracing::info!(
         "OTLP export enabled → {} (service {})",
@@ -290,8 +343,8 @@ pub fn init_otlp(config: &ObservabilityConfig) -> anyhow::Result<Option<OtelGuar
         config.service_name
     );
     Ok(Some(OtelGuard {
-        tracer: Some(tracer_provider),
-        meter: Some(meter_provider),
+        tracer: tracer_provider,
+        meter: meter_provider,
     }))
 }
 

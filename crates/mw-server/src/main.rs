@@ -453,27 +453,26 @@ struct HealthArgs {
 async fn main() -> std::process::ExitCode {
     use tracing_subscriber::prelude::*;
 
-    // Initialise OTLP export before composing the subscriber and bind its actual
-    // SDK tracer explicitly; the bridge's default tracer does not export. Both
-    // are a clean no-op unless `MW_OTLP_ENDPOINT` is set; the guard is held for the
-    // process lifetime so the exporters flush + shut down on exit. `build_app` calls
-    // `init_otlp` again — that second call is idempotent and returns `None`.
+    // Start with a disabled tracing bridge. Once build_app opens the store, its
+    // persisted telemetry configuration creates the SDK and binds the real tracer.
+    // CLI health checks and administrative commands never start exporters.
     let obs = mw_server::observability::ObservabilityConfig::from_env();
-    let otel_guard = mw_server::observability::init_otlp(&obs).ok().flatten();
-    let otlp_layer = otel_guard.as_ref().and_then(|guard| guard.tracer())
-        .map(|tracer| tracing_opentelemetry::layer().with_tracer(tracer));
+    let (otlp_layer, otlp_reload) = tracing_subscriber::reload::Layer::new(None::<tracing_opentelemetry::OpenTelemetryLayer<tracing_subscriber::Registry, opentelemetry_sdk::trace::SdkTracer>>);
+    mw_server::observability::install_tracer_bridge(move |tracer| otlp_reload.reload(Some(tracing_opentelemetry::layer().with_tracer(tracer))).map_err(|error| error.to_string()));
     tracing_subscriber::registry()
+        // Export only our fixed, non-personal request spans. Existing diagnostic
+        // tracing events are for local logs, not implicit remote collection.
+        .with(otlp_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| metadata.name() == "mailwoman.http.request")))
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&obs.log_directives)),
         )
         .with(tracing_subscriber::fmt::layer())
         .with(mw_server::application_logs::CaptureLayer::default())
-        .with(otlp_layer)
         .init();
 
     let cli = Cli::parse();
-    match cli.command {
+    let result = match cli.command {
         Command::Serve(args) => run(serve(args).await),
         Command::Fonts(args) => run(fonts_cmd(args).await),
         Command::Healthcheck(args) => healthcheck(args).await,
@@ -484,7 +483,9 @@ async fn main() -> std::process::ExitCode {
         Command::Password(args) => run(password_cmd(args).await),
         Command::Maintenance(args) => run(maintenance_cmd(args).await),
         Command::Doctor(args) => run(doctor_cmd(args).await),
-    }
+    };
+    mw_server::observability::shutdown_otlp();
+    result
 }
 
 /// Print the cache posture (SPEC §15.6) + render sandbox posture (SPEC §7.5) and

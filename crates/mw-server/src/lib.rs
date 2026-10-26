@@ -66,6 +66,8 @@ pub mod errors;
 pub mod mcp;
 pub mod oauth;
 pub mod observability;
+pub mod telemetry_config;
+mod telemetry_routes;
 pub mod rest;
 pub mod webhooks;
 // V7 additive route modules (plan §3): the GAL directory, password self-service,
@@ -1146,14 +1148,13 @@ async fn build_app_inner(
     // checked for that endpoint (t32-h5); see `webhooks::deliver`.
     webhooks::spawn(webhook_registry, engine.as_ref(), push.subscribe_relay());
 
-    // Observability (OTLP/metrics/errors/inbound-webhook secret) — all off unless
-    // the operator configures the corresponding env var.
-    let obs = observability::ObservabilityConfig::from_env();
+    // Persisted opt-in telemetry, with explicit deployment environment overrides.
+    let obs = observability::ObservabilityConfig::from_store(&store).await?;
     observability::init_metrics(&obs);
-    if let Ok(Some(guard)) = observability::init_otlp(&obs) {
-        // Keep the exporter alive for the process lifetime.
-        std::mem::forget(guard);
+    if let Some(guard) = observability::init_otlp(&obs)? {
+        observability::retain_otlp(guard);
     }
+    telemetry_config::record_active(obs.telemetry.clone());
     errors::set_error_config(errors::ErrorConfig::from_env());
     // A5 (t16 e10, e9 handoff): inject the engine-backed inbound-webhook action sink,
     // mirroring the outbound `WebhookRegistryAdapter` wiring above. Until this is set

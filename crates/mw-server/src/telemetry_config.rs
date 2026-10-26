@@ -2,6 +2,9 @@
 use serde::{Deserialize, Serialize};
 
 pub const SETTINGS_KEY: &str = "admin.telemetry.v1";
+static ACTIVE: std::sync::RwLock<Option<TelemetryConfig>> = std::sync::RwLock::new(None);
+pub fn active() -> Option<TelemetryConfig> { ACTIVE.read().expect("telemetry config lock").clone() }
+pub(crate) fn record_active(config: TelemetryConfig) { *ACTIVE.write().expect("telemetry config lock") = Some(config); }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
@@ -38,7 +41,8 @@ impl TelemetryConfig {
             return Err(("/endpoint", "Enter an OTLP gRPC collector endpoint before enabling export."));
         }
         if !self.endpoint.is_empty() {
-            let url = url::Url::parse(&self.endpoint).map_err(|_| ("/endpoint", "Use an HTTP or HTTPS collector URL."))?;
+            if self.endpoint.len() > 2048 { return Err(("/endpoint", "Collector URL must not exceed 2048 bytes.")); }
+            let url = reqwest::Url::parse(&self.endpoint).map_err(|_| ("/endpoint", "Use an HTTP or HTTPS collector URL."))?;
             if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none()
                 || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some()
             {

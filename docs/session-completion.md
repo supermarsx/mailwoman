@@ -51,7 +51,7 @@ States: **Verified** means the bounded behavior listed has passing local accepta
 | Server-backed user settings/drafts and cross-device read/move state synchronization | Root + Integrations | Audit account identity, drafts and realtime conflict handling |
 | CalDAV discovery, PWA/offline, browser storage permissions | Integrations + Security | Audit discovery, offline boundaries, permission UX and sync recovery |
 | Extensive HTTP/2 and HTTP/3/QUIC deployment support | Integrations | Audit server/proxy configuration and real negotiated protocols |
-| Open-source telemetry, extensive controls, off by default | Root | Partial, 542acd3; typed draft unwired; actual collector acceptance pending |
+| Open-source telemetry, extensive controls, off by default | Root | Verified bounded operational telemetry: persisted admin editor with revision/step-up, visible environment pins and restart state, bounded sampling/queues/timeouts; native3/HTTP1/browser3 and actual local OTel Collector0.163.2 ingestion pass. Request counts/durations and fixed request spans export; private query/event markers do not. Production collector validation remains deployment-specific. |
 | Optional open-source analytics, off by default | Integrations | Verified local runtime, 40b827b/74a8d0b; native, store and three browser layouts pass. Real provider ingestion remains deployment-specific. |
 | Quick replies, off by default and user/admin configurable | Root | Verified compact reply tabs, af880dc; 52 tests, TypeScript/lint and Chromium/Firefox/phone acceptance passed. Reuses full composer protections. |
 | IMAP quota/usage/folder item and unread indicators | Integrations + Root UI | Audit real capabilities and per-user/admin toggles |

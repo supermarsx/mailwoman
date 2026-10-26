@@ -4,24 +4,28 @@ import * as auditCss from './shell/audit.css.ts';
 // Admin › Observability (§19, §21). The append-only audit-log viewer + JSONL
 // export, and the login monitor's ban list with add + unban.
 //
-// There is no telemetry form. The log level, OTLP DSN and metrics toggle it used
-// to carry were saved to a settings row that nothing applies: the running log
-// filter, OTLP exporter and `/metrics` endpoint are set from the server's
-// environment at start (`crates/mw-server/src/observability.rs`,
-// `ObservabilityConfig::from_env`). The form returns when a save changes the
-// running server (26.20, t28-e8).
+// Telemetry has a dedicated editor under /observability/telemetry. Its typed
+// configuration is applied at server startup, with explicit environment pins.
 //
 // The ban list is a record, and the screen says so: no request path refuses a
 // listed address (`mw_admin::BanEntry`, `crates/mw-admin/src/lib.rs`).
 
-import { createSignal, For, Show, onMount, type JSX } from 'solid-js';
+import { createSignal, For, Show, onMount, useContext, lazy, type JSX } from 'solid-js';
+import { ShellContext } from './shell/context.ts';
+import { sectionPath } from './shell/router.ts';
 import { useAdmin } from './context.ts';
 import type { AuditLogEntry, BanEntry } from '../../state/slices/admin.ts';
 import { t } from '../../i18n';
 import { Feedback } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 
+const Telemetry = lazy(() => import('./Telemetry.tsx').then(module => ({ default: module.Telemetry })));
 export function Observability(): JSX.Element {
+  const shell = useContext(ShellContext);
+  return <Show when={shell?.router.route().rest[0] === 'telemetry'} fallback={<ObservabilityAudit/>}><Telemetry/></Show>;
+}
+function ObservabilityAudit(): JSX.Element {
+  const shell = useContext(ShellContext);
   const { api } = useAdmin();
   const [audit, setAudit] = createSignal<AuditLogEntry[]>([]);
   const [bans, setBans] = createSignal<BanEntry[]>([]);
@@ -96,6 +100,7 @@ export function Observability(): JSX.Element {
 
       <div class={css.card}>
         <p class={css.note}>{t('admin-obs-telemetry-note')}</p>
+        <Show when={shell?.can.can('observability.read')}><button class="btn" onClick={()=>void shell?.router.navigate(sectionPath('observability',['telemetry']))}>{t('admin-obs-telemetry-open')}</button></Show>
       </div>
 
       <div class={css.card}>

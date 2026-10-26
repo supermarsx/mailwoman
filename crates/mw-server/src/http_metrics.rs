@@ -224,6 +224,7 @@ fn record_at(now: u64, class: RouteClass, status: u16, elapsed_ms: u64) {
         .increment(1);
     metrics::histogram!("mw_http_request_duration_seconds", "class" => class.as_str())
         .record(elapsed_ms as f64 / 1000.0);
+    crate::observability::record_http(class.as_str(), status_class, elapsed_ms as f64 / 1000.0);
     let minute = now / 60;
     with_metrics(|m| {
         m.totals[class.index()].add(status, elapsed_ms);
@@ -242,7 +243,10 @@ fn record_at(now: u64, class: RouteClass, status: u16, elapsed_ms: u64) {
 pub async fn layer(req: Request, next: Next) -> Response {
     let class = classify(req.uri().path());
     let start = Instant::now();
-    let resp = next.run(req).await;
+    use tracing::Instrument as _;
+    let span = tracing::info_span!("mailwoman.http.request", route_class = class.as_str(), status = tracing::field::Empty);
+    let resp = next.run(req).instrument(span.clone()).await;
+    span.record("status", resp.status().as_u16());
     let ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
     record(class, resp.status().as_u16(), ms);
     resp
