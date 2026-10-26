@@ -53,6 +53,10 @@ body {
  * so each padding gives back 1px and no button grows. Hover lifts a hard
  * shadow, which changes no box; focus is the global outline. */
 .btn {
+  /* Flex/grid parents otherwise stretch action buttons across the entire row.
+     Explicit full-width actions (such as login) keep their scoped overrides. */
+  width: fit-content;
+  max-width: 100%;
   border: var(--border-rule) solid var(--border-strong);
   border-radius: var(--radius-md);
   padding: calc(0.5rem - 1px) calc(0.9rem - 1px);

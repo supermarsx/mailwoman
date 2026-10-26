@@ -27,6 +27,9 @@ test('dedicated shortcut editor persists a custom binding and the live dispatche
     await mailTab.focus();
     await page.keyboard.press('Control+Shift+K');
     await expect(page.getByRole('region', { name: 'Compose message', exact: true })).toBeVisible();
+    const actionWidth = (await page.getByTestId('compose-show-cc-bcc').boundingBox())!.width;
+    const composeWidth = (await page.getByRole('region', { name: 'Compose message', exact: true }).boundingBox())!.width;
+    expect(actionWidth).toBeLessThan(composeWidth - 40);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: test.info().outputPath('custom-shortcut-composer.png'), fullPage: true });
   } finally {
