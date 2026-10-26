@@ -21,6 +21,8 @@ export function DashboardPreferencesFields() {
       <option value="0">{t('admin-personal-dashboard-manual')}</option><For each={[30,60,300]}>{seconds => <option value={seconds}>{t('admin-personal-dashboard-seconds', { seconds })}</option>}</For>
     </select></label>
     <p class={css.prose}>{t('admin-personal-dashboard-refresh-help')}</p>
+    <label><input type="checkbox" checked={value().keepCompletedChecklistProminent} onChange={e => prefs.patch({ dashboard: { ...value(), keepCompletedChecklistProminent: e.currentTarget.checked } })} /> {t('admin-personal-dashboard-keep-checklist')}</label>
+    <p class={css.prose}>{t('admin-personal-dashboard-keep-checklist-help')}</p>
     <For each={value().order}>{(id, index) => <div class={css.actions}>
       <label><input type="checkbox" checked={!value().hidden.includes(id)} onChange={e => prefs.patch({ dashboard: { ...value(), hidden: e.currentTarget.checked ? value().hidden.filter(v => v !== id) : [...value().hidden, id] } })} /> {t(`admin-personal-dashboard-${id}`)}</label>
       <button type="button" class={css.button} aria-label={t('admin-personal-dashboard-move-up', { name: t(`admin-personal-dashboard-${id}`) })} disabled={index() === 0} onClick={() => move(id, -1)}><Icon name="chevronUp" /></button>

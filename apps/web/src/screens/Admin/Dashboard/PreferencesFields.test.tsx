@@ -13,4 +13,8 @@ it('persists visibility, ordering and refresh with other personal preferences in
   await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ dashboard: expect.objectContaining({ order: ['checklist', 'overview', 'traffic', 'security', 'health', 'storage', 'audit', 'server'] }) }), expect.anything()));
   fireEvent.change(screen.getByLabelText('Automatic refresh'), { target: { value: '60' } });
   await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ dashboard: expect.objectContaining({ refreshSecs: 60 }) }), expect.anything()));
+  const keep = screen.getByRole('checkbox', { name: 'Keep the completed setup checklist prominent' });
+  expect(keep).not.toBeChecked();
+  fireEvent.click(keep);
+  await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ unrelated: 'preserved', dashboard: expect.objectContaining({ keepCompletedChecklistProminent: true, refreshSecs: 60, hidden: ['traffic'] }) }), expect.anything()));
 });

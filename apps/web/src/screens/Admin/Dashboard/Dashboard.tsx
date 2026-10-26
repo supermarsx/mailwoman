@@ -154,12 +154,13 @@ interface BodyProps {
   username: string;
 }
 
-function Widget(props: { id: DashboardWidgetId; layout: DashboardPreferences; children: JSX.Element }): JSX.Element {
-  return <Show when={!props.layout.hidden.includes(props.id)}><div data-dashboard-widget={props.id} class={css.widgetOrder[props.layout.order.indexOf(props.id) as keyof typeof css.widgetOrder]}>{props.children}</div></Show>;
+function Widget(props: { id: DashboardWidgetId; layout: DashboardPreferences; deprioritized?: boolean; children: JSX.Element }): JSX.Element {
+  return <Show when={!props.layout.hidden.includes(props.id)}><div data-dashboard-widget={props.id} data-deprioritized={props.deprioritized ? 'true' : undefined} class={props.deprioritized ? css.completedWidget : css.widgetOrder[props.layout.order.indexOf(props.id) as keyof typeof css.widgetOrder]}>{props.children}</div></Show>;
 }
 
 function DashboardBody(props: BodyProps): JSX.Element {
   const d = (): DashboardData => props.data;
+  const completedChecklist = (): boolean => !!d().checklist?.length && d().checklist!.every(item => item.done) && !props.layout.keepCompletedChecklistProminent;
   const proxy = (): boolean => d().server?.mode === 'proxy';
   const reasonProxy = (): string => (proxy() ? t('admin-dash-na-proxy') : t('admin-dash-na-unreported'));
 
@@ -205,7 +206,7 @@ function DashboardBody(props: BodyProps): JSX.Element {
       </Show>
 
       <Show when={d().checklist && d().checklist!.length > 0}>
-        <Widget id="checklist" layout={props.layout}><Checklist items={d().checklist!} open={props.open} username={props.username} /></Widget>
+        <Widget id="checklist" layout={props.layout} deprioritized={completedChecklist()}><Checklist items={d().checklist!} open={props.open} username={props.username} deprioritized={completedChecklist()} /></Widget>
       </Show>
 
       <Widget id="overview" layout={props.layout}>
@@ -461,7 +462,7 @@ function BlockedAccounts(props: {
   );
 }
 
-function Checklist(props: { items: ChecklistItem[]; open: (path: string) => void; username: string }): JSX.Element {
+function Checklist(props: { items: ChecklistItem[]; open: (path: string) => void; username: string; deprioritized: boolean }): JSX.Element {
   const [hidden, setHidden] = createSignal<string[]>(readHidden(props.username));
   const [showHidden, setShowHidden] = createSignal(false);
   const shown = (): ChecklistItem[] => props.items.filter((i) => showHidden() || !hidden().includes(i.id));
@@ -475,9 +476,10 @@ function Checklist(props: { items: ChecklistItem[]; open: (path: string) => void
 
   return (
     <section class={css.panel} aria-labelledby="admin-dash-checklist" data-testid="dash-checklist">
-      <h3 id="admin-dash-checklist" class={css.panelTitle}>
+      <details open={!props.deprioritized}>
+      <summary class={css.checkSummary}><h3 id="admin-dash-checklist" class={css.checkTitle}>
         {t('admin-dash-checklist', { open: openCount() })}
-      </h3>
+      </h3></summary>
       <ul class={css.list}>
         <For each={shown()}>
           {(item) => (
@@ -512,6 +514,7 @@ function Checklist(props: { items: ChecklistItem[]; open: (path: string) => void
           </button>
         </p>
       </Show>
+      </details>
     </section>
   );
 }

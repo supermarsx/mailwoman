@@ -203,6 +203,34 @@ describe('Dashboard — blocked accounts (DA3)', () => {
 });
 
 describe('Dashboard — first-run checklist', () => {
+  it('collapses and lowers a completed checklist, restoring it if any item reopens', async () => {
+    const done = withChecklist(); done.checklist!.forEach(item => { item.done = true; });
+    const load = vi.fn<() => Promise<DashboardResult>>().mockResolvedValueOnce(ok(done)).mockResolvedValueOnce(ok(withChecklist()));
+    renderInShell(() => <Dashboard />, { loadDashboard: load });
+    const list = await screen.findByTestId('dash-checklist');
+    expect(list.querySelector('details')).not.toHaveAttribute('open');
+    expect(list.parentElement).toHaveAttribute('data-deprioritized', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(screen.getByTestId('dash-checklist').querySelector('details')).toHaveAttribute('open'));
+    expect(screen.getByTestId('dash-checklist').parentElement).not.toHaveAttribute('data-deprioritized');
+  });
+
+  it('honors the saved preference to keep a completed checklist prominent', async () => {
+    const done = withChecklist(); done.checklist!.forEach(item => { item.done = true; });
+    renderInShell(() => <PersonalPreferencesProvider username="root" api={{ load: async () => ({ data: { dashboard: { keepCompletedChecklistProminent: true } }, etag: '"1"' }), save: vi.fn() }}><Dashboard /></PersonalPreferencesProvider>, { loadDashboard: dashboardReturning(ok(done)) });
+    const list = await screen.findByTestId('dash-checklist');
+    await waitFor(() => expect(list.querySelector('details')).toHaveAttribute('open'));
+    expect(list.parentElement).not.toHaveAttribute('data-deprioritized');
+  });
+
+  it('does not lower the checklist while an optional item remains incomplete', async () => {
+    const data = withChecklist(); data.checklist!.filter(item => !item.optional).forEach(item => { item.done = true; });
+    renderInShell(() => <Dashboard />, { loadDashboard: dashboardReturning(ok(data)) });
+    const list = await screen.findByTestId('dash-checklist');
+    expect(list.querySelector('details')).toHaveAttribute('open');
+    expect(list.parentElement).not.toHaveAttribute('data-deprioritized');
+  });
+
   function withChecklist() {
     const d = engineDashboard();
     d.checklist = [

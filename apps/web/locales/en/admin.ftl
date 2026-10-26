@@ -732,3 +732,6 @@ admin-egress-destination-note-help = Describe why this private service is approv
 
 admin-deployment-check-connectionNegotiation = Inbound connection negotiation limits
 admin-deployment-value-connectionNegotiation = Built-in listener startup configuration: TLS deadline { $tlsTimeoutMs } ms, up to { $tlsMaximum } handshakes; PROXY header deadline { $proxyTimeoutMs } ms, up to { $proxyMaximum } negotiations. Changes require restart. External proxy limits are not measured here.
+
+admin-personal-dashboard-keep-checklist = Keep the completed setup checklist prominent
+admin-personal-dashboard-keep-checklist-help = Otherwise, completing every item collapses the checklist below the other dashboard widgets. An incomplete item restores its usual position.
