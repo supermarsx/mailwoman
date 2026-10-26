@@ -148,7 +148,7 @@ def copy_file(row, source, name):
         # Download verification also works on SFTP/WebDAV servers without hash support.
         with tempfile.TemporaryDirectory(prefix="mw-backup-verify-") as work:
             copied = Path(work) / name
-            run(args + ["copyto", "--max-size", str(source.stat().st_size), "--max-transfer", str(source.stat().st_size + 65536), "--cutoff-mode", "HARD", target, str(copied)], row.get("timeoutSeconds", 900))
+            run(args + ["copyto", "--max-transfer", str(source.stat().st_size + 65536), "--cutoff-mode", "HARD", target, str(copied)], row.get("timeoutSeconds", 900))
             if copied.stat().st_size != source.stat().st_size or digest(copied) != digest(source):
                 raise BackupError("Remote backup checksum verification failed")
 
@@ -181,7 +181,7 @@ def read_copy(row, name, output, limit):
             raise BackupError("Backup file is missing, oversized or a link")
         shutil.copyfile(source, output)
     else:
-        run(["rclone", "--config", row["rcloneConfig"], "copyto", "--max-size", str(limit),
+        run(["rclone", "--config", row["rcloneConfig"], "copyto",
              "--max-transfer", str(limit + 65536), "--cutoff-mode", "HARD", "--retries", "1",
              "--contimeout", "15s", "--timeout", "60s", remote_path(row, name), str(output)], row.get("timeoutSeconds", 900))
     if not output.is_file() or output.stat().st_size > limit:
