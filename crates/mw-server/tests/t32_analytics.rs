@@ -135,6 +135,73 @@ async fn analytics_is_off_by_default_and_configuration_requires_fresh_proof_and_
             .status(),
         412
     );
+    // Secret rotation is one atomic config revision; responses never expose plaintext.
+    let response = c
+        .get(format!("{base}/admin/analytics"))
+        .send()
+        .await
+        .unwrap();
+    let tag = response.headers()["etag"].to_str().unwrap().to_owned();
+    let ga4 = json!({"enabled":true,"provider":"ga4","endpoint":"https://www.google-analytics.com/mp/collect","siteId":"G-TEST123","allowHttp":false,"apiSecret":"ga4_fixture_secret"});
+    let response = c
+        .put(format!("{base}/admin/analytics"))
+        .header("if-match", &tag)
+        .json(&ga4)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let next_tag = response.headers()["etag"].to_str().unwrap().to_owned();
+    let raw = response.text().await.unwrap();
+    assert!(!raw.contains("ga4_fixture_secret"));
+    assert!(!raw.contains("apiSecretSealed"));
+    assert_eq!(
+        serde_json::from_str::<Value>(&raw).unwrap()["config"]["apiSecretConfigured"],
+        true
+    );
+    let mut cleared = ga4.clone();
+    cleared.as_object_mut().unwrap().remove("apiSecret");
+    cleared["clearApiSecret"] = json!(true);
+    assert_eq!(
+        c.put(format!("{base}/admin/analytics"))
+            .header("if-match", &next_tag)
+            .json(&cleared)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        422
+    );
+    cleared["enabled"] = json!(false);
+    let response = c
+        .put(format!("{base}/admin/analytics"))
+        .header("if-match", &next_tag)
+        .json(&cleared)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<Value>().await.unwrap()["config"]["apiSecretConfigured"],
+        false
+    );
+    let response = c
+        .get(format!("{base}/admin/analytics"))
+        .send()
+        .await
+        .unwrap();
+    let tag = response.headers()["etag"].to_str().unwrap().to_owned();
+    assert_eq!(
+        c.put(format!("{base}/admin/analytics"))
+            .header("if-match", tag)
+            .json(&value)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+
     assert_eq!(
         c.post(format!("{base}/admin/analytics/allowlist"))
             .json(&json!({"destination":"169.254.169.254"}))

@@ -1,9 +1,10 @@
 import { adminRequest } from '../../screens/Admin/shell/adminApi.ts';
-export interface AnalyticsConfig { enabled:boolean;provider:'umami'|'matomo';endpoint:string;siteId:string;allowHttp:boolean }
+export interface AnalyticsConfig { enabled:boolean;provider:'umami'|'matomo'|'ga4';endpoint:string;siteId:string;allowHttp:boolean;apiSecretConfigured?:boolean }
+export type AnalyticsWrite = Omit<AnalyticsConfig,'apiSecretConfigured'> & {apiSecret?:string;clearApiSecret?:boolean};
 export interface AnalyticsView { config:AnalyticsConfig;status:{queued:number;delivered:number;dropped:number;mode:'event-counts';uniqueVisitors:null};allowlist:{id:string;destination:string}[] }
 export interface AnalyticsApi {
   read():Promise<{data:AnalyticsView;etag:string}>;
-  save(config:AnalyticsConfig,etag:string):Promise<{data:AnalyticsView;etag:string}>;
+  save(config:AnalyticsWrite,etag:string):Promise<{data:AnalyticsView;etag:string}>;
   allow(destination:string):Promise<void>;
   remove(id:string):Promise<void>;
 }

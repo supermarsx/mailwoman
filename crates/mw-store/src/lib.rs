@@ -6,6 +6,7 @@
 //! translated per-backend by the [`backend`]/[`dialect`] helpers (no `sqlx::Any`).
 
 mod security_center;
+pub mod analytics_secret;
 pub mod branding;
 pub mod identity_principal;
 pub mod oidc_provider;

@@ -3,7 +3,7 @@ use crate::{
     admin_ctx::{AdminApiError, AdminCtx, AdminJson, check_if_match, etag_of, with_etag},
     admin_router::AdminRegistrar,
     analytics_adapter::Event,
-    analytics_config::{self, Config},
+    analytics_config::{self, Update},
     analytics_runtime,
     capabilities::Capability,
 };
@@ -124,7 +124,9 @@ async fn view(state: &AppState, ctx: &AdminCtx) -> Result<Response, AdminApiErro
     Ok(with_etag(
         (
             [("cache-control", "private, no-store")],
-            Json(json!({"config":config,"status":state.analytics.status(),"allowlist":allowlist})),
+            Json(
+                json!({"config":config.public(),"status":state.analytics.status(),"allowlist":allowlist}),
+            ),
         ),
         &tag,
     ))
@@ -137,7 +139,7 @@ async fn save(
     State(state): State<AppState>,
     ctx: AdminCtx,
     headers: HeaderMap,
-    AdminJson(config): AdminJson<Config>,
+    AdminJson(update): AdminJson<Update>,
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::IntegrationsWrite)?;
     crate::step_up::require_admin(
@@ -146,9 +148,6 @@ async fn save(
         crate::step_up::StepUpAction::IntegrationManage,
     )
     .await?;
-    config
-        .validate()
-        .map_err(|message| AdminApiError::invalid("invalidAnalytics", message, "/config"))?;
     let raw = state
         .store
         .get_setting(analytics_config::KEY)
@@ -165,6 +164,9 @@ async fn save(
         ));
     }
     check_if_match(&headers, &etag_of(&json!(previous)), None, None)?;
+    let config = update
+        .prepare(&previous, &state.store)
+        .map_err(|message| AdminApiError::invalid("invalidAnalytics", message, "/config"))?;
     let serialized = serde_json::to_string(&config).expect("analytics config");
     if !state
         .store

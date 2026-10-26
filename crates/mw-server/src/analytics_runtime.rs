@@ -148,7 +148,7 @@ impl Runtime {
                 if !current_consent_and_config(&state.store, &account_id, &config).await {
                     return Err(());
                 }
-                analytics_adapter::deliver(&config, screen, domain.as_deref())
+                analytics_adapter::deliver(&state.store, &config, screen, domain.as_deref())
                     .await
                     .map_err(|_| ())
             })
@@ -221,6 +221,7 @@ mod tests {
             endpoint: "https://stats.example/matomo.php".into(),
             site_id: "1".into(),
             allow_http: false,
+            api_secret_sealed: None,
         };
         store
             .set_setting(

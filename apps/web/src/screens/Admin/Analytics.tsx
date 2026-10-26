@@ -22,11 +22,13 @@ export function Analytics(props:{api?:AnalyticsApi}):JSX.Element {
   const [error,setError]=createSignal('');
   const [saved,setSaved]=createSignal(false);
   const [destination,setDestination]=createSignal('');
-  const dirty=()=>!!config()&&JSON.stringify(config())!==baseline();
+  const [apiSecret,setApiSecret]=createSignal('');
+  const [clearApiSecret,setClearApiSecret]=createSignal(false);
+  const dirty=()=>!!config()&&(JSON.stringify(config())!==baseline()||apiSecret()!==''||clearApiSecret());
   useDirtyGuard(dirty);
-  function accept(result:{data:AnalyticsView;etag:string}):void {setView(result.data);setConfig(result.data.config);setBaseline(JSON.stringify(result.data.config));setEtag(result.etag);}
+  function accept(result:{data:AnalyticsView;etag:string}):void {setView(result.data);setConfig(result.data.config);setBaseline(JSON.stringify(result.data.config));setEtag(result.etag);setApiSecret('');setClearApiSecret(false);}
   async function reload():Promise<void> {setBusy(true);setError('');try{accept(await api().read());}catch(e){setError(describeAdminError(e));}finally{setBusy(false);}}
-  async function save(event:SubmitEvent):Promise<void> {event.preventDefault();const value=config();if(!value||busy())return;setBusy(true);setError('');setSaved(false);try{accept(await api().save(value,etag()));setSaved(true);}catch(e){setError(describeAdminError(e));}finally{setBusy(false);}}
+  async function save(event:SubmitEvent):Promise<void> {event.preventDefault();const value=config();if(!value||busy())return;setBusy(true);setError('');setSaved(false);const {enabled,provider,endpoint,siteId,allowHttp}=value;try{accept(await api().save({enabled,provider,endpoint,siteId,allowHttp,...(apiSecret()?{apiSecret:apiSecret()}:{}),...(clearApiSecret()?{clearApiSecret:true}:{})},etag()));setSaved(true);}catch(e){setError(describeAdminError(e));}finally{setBusy(false);}}
   async function permission(action:()=>Promise<void>):Promise<void> {setBusy(true);setError('');try{await action();setDestination('');const next=await api().read();setView(next.data);}catch(e){setError(describeAdminError(e));}finally{setBusy(false);}}
   const change=(patch:Partial<AnalyticsConfig>):void=>{setSaved(false);setConfig(value=>value&&({...value,...patch}));};
   onMount(()=>{void loadCatalog('admin-analytics');void reload();});
@@ -35,10 +37,18 @@ export function Analytics(props:{api?:AnalyticsApi}):JSX.Element {
     <Show when={config()} fallback={<Show when={busy()} fallback={<button class="btn" onClick={()=>void reload()}>{t('admin-analytics-reload')}</button>}><AsyncPending /></Show>}>{value=><form class={css.subsectionBody} onSubmit={event=>void save(event)}>
       <AdminSubsection title={t('admin-analytics-collector')}>
         <label><input type="checkbox" checked={value().enabled} disabled={!writable()||busy()} onChange={event=>change({enabled:event.currentTarget.checked})}/> {t('admin-analytics-enabled')}</label>
-        <label class="field"><span>{t('admin-analytics-provider')}</span><select value={value().provider} disabled={!writable()||busy()} onChange={event=>change({provider:event.currentTarget.value as AnalyticsConfig['provider']})}><option value="umami">Umami</option><option value="matomo">Matomo</option></select></label>
+        <label class="field"><span>{t('admin-analytics-provider')}</span><select value={value().provider} disabled={!writable()||busy()} onChange={event=>{const provider=event.currentTarget.value as AnalyticsConfig['provider'];setApiSecret('');setClearApiSecret(false);change({provider,...(provider==='ga4'?{endpoint:'https://www.google-analytics.com/mp/collect',allowHttp:false}:{})});}}><option value="umami">Umami</option><option value="matomo">Matomo</option><option value="ga4">Google Analytics 4</option></select></label>
+        <Show when={value().provider==='ga4'} fallback={<>
         <label class="field"><span>{t('admin-analytics-endpoint')}</span><input type="url" maxlength={2048} required={value().enabled} value={value().endpoint} disabled={!writable()||busy()} onInput={event=>change({endpoint:event.currentTarget.value})}/><small>{t('admin-analytics-endpoint-help')}</small></label>
         <label class="field"><span>{t('admin-analytics-site')}</span><input maxlength={64} required={value().enabled} value={value().siteId} disabled={!writable()||busy()} onInput={event=>change({siteId:event.currentTarget.value})}/><small>{t('admin-analytics-site-help')}</small></label>
         <label><input type="checkbox" checked={value().allowHttp} disabled={!writable()||busy()} onChange={event=>change({allowHttp:event.currentTarget.checked})}/> {t('admin-analytics-http')}</label>
+        </>}>
+          <p>{t('admin-analytics-ga-help')}</p>
+          <label class="field"><span>{t('admin-analytics-endpoint')}</span><select value={value().endpoint} disabled={!writable()||busy()} onChange={event=>change({endpoint:event.currentTarget.value})}><option value="https://www.google-analytics.com/mp/collect">{t('admin-analytics-ga-global')}</option><option value="https://region1.google-analytics.com/mp/collect">{t('admin-analytics-ga-eu')}</option></select></label>
+          <label class="field"><span>{t('admin-analytics-ga-id')}</span><input maxlength={64} required={value().enabled} value={value().siteId} placeholder="G-XXXXXXXXXX" disabled={!writable()||busy()} onInput={event=>change({siteId:event.currentTarget.value})}/></label>
+          <label class="field"><span>{t('admin-analytics-ga-secret')}</span><input type="password" autocomplete="new-password" maxlength={256} value={apiSecret()} disabled={!writable()||busy()||clearApiSecret()} onInput={event=>setApiSecret(event.currentTarget.value)}/><small>{t(value().apiSecretConfigured?'admin-analytics-ga-secret-stored':'admin-analytics-ga-secret-needed')}</small></label>
+          <Show when={value().apiSecretConfigured}><label><input type="checkbox" checked={clearApiSecret()} disabled={!writable()||busy()} onChange={event=>{setClearApiSecret(event.currentTarget.checked);setApiSecret('');}}/> {t('admin-analytics-ga-secret-clear')}</label></Show>
+        </Show>
         <div><button class="btn btn--primary" type="submit" disabled={!writable()||busy()||!dirty()}>{t('admin-analytics-save')}</button> <button class="btn" type="button" disabled={busy()} onClick={()=>void reload()}>{t('admin-analytics-reload')}</button></div>
       </AdminSubsection>
     </form>}</Show>
