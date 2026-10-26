@@ -638,3 +638,9 @@ admin-settings-help-login-show-remembered-hint = Show explanatory text in the pr
 
 admin-settings-key-mail-show-from = Show the composer From field
 admin-settings-help-mail-show-from = Show From by default in new composers. Users can reveal it for one message; only authorized addresses can send.
+admin-settings-key-accounts-linking-enabled = Allow linked mailbox accounts
+admin-settings-help-accounts-linking-enabled = Disabled by default. Global disablement blocks all linked access; both accounts must also satisfy their domain and account policy. Linking requires actual child authentication and fresh primary proof.
+admin-settings-key-accounts-use-linked = Use linked mailboxes
+admin-settings-help-accounts-use-linked = User opt-out for linked access. Cannot override administrative disablement. Mailbox data is preserved when access is disabled.
+admin-settings-key-accounts-max-linked = Maximum linked mailboxes
+admin-settings-help-accounts-max-linked = Maximum verified child mailboxes per primary identity, from 1 to 16. Default 5.

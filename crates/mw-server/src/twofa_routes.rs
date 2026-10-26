@@ -140,6 +140,13 @@ impl TwofaState {
         (entry.expires_at > Instant::now()).then_some(entry)
     }
 
+    pub(crate) fn discard_link_pending(&self, token: &str) {
+        self.take_pending(token);
+    }
+    pub(crate) fn native_link_pending(&self, token: &str) -> bool {
+        self.peek_pending(token).is_some_and(|p|p.args.jmap_url=="engine" && p.args.api_url=="engine")
+    }
+
     /// A clone of a live pending login without consuming it — used to READ the
     /// challenge/args before a verify that may fail (so TOTP can be retried).
     fn peek_pending(&self, token: &str) -> Option<PendingLogin> {
@@ -832,6 +839,16 @@ struct VerifyReq {
     signature: Option<String>,
     #[serde(default)]
     user_handle: Option<String>,
+}
+
+/// The link wrapper retains and owner-binds the pending token. It cannot change
+/// the original native-client login arguments or bypass normal factor checks.
+pub(crate) async fn verify_link_factor(state:AppState,headers:HeaderMap,ext:axum::http::Extensions,pending:String,mut body:serde_json::Value)->Response {
+    if state.twofa.peek_pending(&pending).is_none(){return (StatusCode::GONE,Json(json!({"code":"linkedChallengeExpired","error":"linkedChallengeExpired"}))).into_response();}
+    let Some(object)=body.as_object_mut() else{return twofa_unauthorized()};
+    object.insert("pendingToken".into(),serde_json::Value::String(pending));
+    let Ok(body)=serde_json::from_value::<VerifyReq>(body) else{return twofa_unauthorized()};
+    verify_2fa(State(state),headers,ext,Json(body)).await
 }
 
 /// Verify the presented second factor for a pending login and, on success, issue the

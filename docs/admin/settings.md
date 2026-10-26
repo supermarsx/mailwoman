@@ -6,6 +6,35 @@ user, and whether users may choose their own. The server's registry
 (`crates/mw-server/src/settings_registry.rs`) lists every key with its type, bounds,
 default and scopes; this page describes each one.
 
+## Linked mailbox accounts
+
+<a id="accounts.linkingEnabled"></a>
+`accounts.linkingEnabled` is an administrative boolean, disabled by default.
+Global `false` is a hard ceiling. When globally enabled, domain and per-user
+administrative restrictions still apply to both the primary and child account.
+
+<a id="accounts.useLinked"></a>
+`accounts.useLinked` defaults to `true` and lets a user opt out of linked mailbox
+access. It never overrides administrative disablement. Disabling access does not
+delete a linked mailbox, its messages, identities, signatures or preferences.
+
+<a id="accounts.maxLinked"></a>
+`accounts.maxLinked` is the global maximum number of verified child mailboxes per
+primary identity: default `5`, permitted range `1`–`16`.
+
+This initial release supports native IMAP, POP3 and EWS accounts. Proxy JMAP,
+SSO-only and header-only contexts are refused: the existing proxy second-factor
+storage still needs verified-realm isolation before it can safely support links.
+Adding an account requires a fresh primary proof and the child's actual password
+and any enrolled second factor. A forced first-factor enrollment or password
+change must be completed through a separate sign-in before linking. Existing
+metadata-only legacy links are not adopted. Child authentication expires at its
+original deadline; unlink and link again to authenticate afresh. Switching never
+changes the primary identity used for identity-provider consent or account
+management. This initial runtime supports explicit mail and personal-settings
+routes; linked realtime, external integrations and security-factor management
+are unavailable, rather than silently executed as the primary account.
+
 ## How a value is chosen
 
 From broad to narrow: the whole server, the domain, a feature profile, a group, an

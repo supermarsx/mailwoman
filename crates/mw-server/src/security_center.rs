@@ -273,6 +273,17 @@ pub(crate) async fn enforce_session(
     state: &AppState,
     session: &mw_store::Session,
 ) -> Result<(), Response> {
+    match state.store.linked_session_kind(&session.id).await.map_err(|e| error("session authority",e))? {
+        Some(0) => {},
+        Some(2) => crate::linked_accounts::enforce_context(state,session).await?,
+        _ => return Err(crate::unauthorized()),
+    }
+    enforce_session_clock(state,session).await
+}
+pub(crate) async fn enforce_session_clock(
+    state: &AppState,
+    session: &mw_store::Session,
+) -> Result<(), Response> {
     let policy = policy(state, &session.account_id, &session.username).await?;
     let Some((created, activity)) = state
         .store
@@ -328,9 +339,7 @@ async fn renew_activity(State(state): State<AppState>, headers: HeaderMap) -> Re
         Ok(session) => session,
         Err(response) => return response,
     };
-    match state
-        .store
-        .record_session_activity(&session.id, &chrono::Utc::now().to_rfc3339())
+    match crate::linked_accounts::record_activity(&state, &session, &chrono::Utc::now().to_rfc3339())
         .await
     {
         Ok(true) => (

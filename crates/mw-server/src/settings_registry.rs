@@ -366,6 +366,9 @@ use Scopes::{
 
 /// Every registered key. Order is the admin screen's order within a category.
 pub static REGISTRY: &[SettingDef] = &[
+    def!("accounts.linkingEnabled", Kind::Bool, "false", GDA, "accounts", "Allow verified linked mailbox accounts; global false is a hard ceiling"),
+    def!("accounts.useLinked", Kind::Bool, "true", GDU, "accounts", "Use linked mailboxes when permitted by the administrator"),
+    def!("accounts.maxLinked", int(1,16), "5", G, "accounts", "Maximum verified linked mailboxes per primary identity"),
     def!("privacy.remoteImageDownloads", Kind::Bool, "false", GDU, "privacy", "allow deliberate message image downloads through the guarded privacy proxy"),
     def!("appearance.customCssEnabled", Kind::Bool, "false", G, "appearance", "Allow owner-scoped appearance CSS; disabled by default and paused under enforced mailbox appearance locks"),
     def!("appearance.customJsEnabled", Kind::Bool, "false", G, "appearance", "Allow owner-written scripts in an opaque appearance-only worker sandbox; disabled by default"),

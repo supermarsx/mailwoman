@@ -140,6 +140,7 @@ mod server_text;
 pub mod image_proxy;
 pub mod import_routes;
 mod account_drafts;
+mod linked_accounts;
 pub mod prefs_routes;
 // 26.20 t32-e10b (f01): the settings model C — the registry (keys, types,
 // defaults, scopes, environment precedence, the limit ceiling) and its routes.
@@ -1473,6 +1474,7 @@ fn router(
         .merge(client_policy::router())
         .merge(import_routes::import_router())
         .merge(account_drafts::router())
+        .merge(linked_accounts::router().layer(Extension(provider_plugins.clone())))
         .merge(sieve_sync::sieve_sync_router())
         .merge(open_tracking::router())
         .route("/api/login", post(login).layer(Extension(provider_plugins)))
@@ -1547,6 +1549,7 @@ fn router(
             error_pages::json(error_pages::ErrorKind::MethodNotAllowed)
         })
         .fallback(static_handler)
+        .layer(middleware::from_fn_with_state(state.clone(), linked_accounts::guard))
         // Innermost: reject cross-origin / missing-CSRF writes before handlers.
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -2062,7 +2065,7 @@ fn add_cors_headers(h: &mut HeaderMap, origin: HeaderValue) {
     // on every request (t32-cfg §4.18); a preflight listing it must be allowed.
     h.insert(
         header::ACCESS_CONTROL_ALLOW_HEADERS,
-        HeaderValue::from_static("authorization, content-type, x-csrf-token, x-mailwoman-client, x-mailwoman-account, x-mailwoman-storage-authority, if-match"),
+        HeaderValue::from_static("authorization, content-type, x-csrf-token, x-mailwoman-client, x-mailwoman-account, x-mailwoman-storage-authority, x-mailwoman-link, if-match"),
     );
     h.insert(
         header::ACCESS_CONTROL_EXPOSE_HEADERS,
@@ -2177,7 +2180,8 @@ async fn login(
     // already authenticated the user and asserts it via `X-Remote-User`, mint the
     // session from that header without a password. OFF unless configured, and
     // restricted to `MW_HEADER_AUTH_TRUSTED_IPS` peers.
-    if let Some(resp) = header_auth_login(&state, &headers, &ext, &body).await {
+    if ext.get::<linked_accounts::PasswordProof>().is_none()
+        && let Some(resp) = header_auth_login(&state, &headers, &ext, &body).await {
         return resp;
     }
     let host = state.external.host(&headers, &ext);
@@ -2710,7 +2714,15 @@ async fn me(State(state): State<AppState>, headers: HeaderMap) -> Response {
     }
     // Bind the readable token to this session, replacing stale tokens after login.
     let existing = hardening::cookie(&headers, CSRF_COOKIE);
-    let token = state.store.session_csrf_token(&session.id);
+    // The selected mailbox is not a replacement browser login. CSRF remains
+    // bound to the actual primary cookie/native session, including refreshes.
+    let csrf_session = if headers.contains_key(linked_accounts::SELECTOR) {
+        match state.store.linked_context_authority(&session.id).await {
+            Ok(Some(authority)) => authority.parent.id,
+            _ => return unauthorized(),
+        }
+    } else {session.id.clone()};
+    let token = state.store.session_csrf_token(&csrf_session);
     if let Some(obj) = body.as_object_mut() {
         obj.insert("csrfToken".into(), json!(token));
     }
@@ -2871,7 +2883,8 @@ async fn jmap_api(State(state): State<AppState>, source: Option<Extension<scope_
             // backend (the accountId is carried in each method call). Purely additive —
             // this only runs on the auth-failure path, so the normal JMAP auth is
             // never weakened; a non-admin / non-metadata request falls through to `resp`.
-            if let Some(admin_resp) =
+            if !headers.contains_key(linked_accounts::SELECTOR)
+                && let Some(admin_resp) =
                 admin_maintenance::try_admin_jmap_passthrough(&state, &headers, &body).await
             {
                 return admin_resp;
@@ -5189,6 +5202,12 @@ pub(crate) async fn authed_with_gate(
         account_gate::stop_engine_work(state, &session.account_id);
         return Err(unauthorized());
     }
+    if let Some(context) = linked_accounts::resolve(state, headers, &session).await? {
+        let gate = account_gate::for_session(&state.store, &context).await
+            .map_err(|e| account_gate::unavailable("linked session", e))?;
+        request_protection::session_account(&context).await?;
+        return Ok((context, gate));
+    }
     request_protection::session_account(&session).await?;
     Ok((session, gate))
 }
@@ -5202,7 +5221,7 @@ async fn authed_cookie(
     let id = cookie_value(headers).ok_or_else(unauthorized)?;
     let session = state
         .store
-        .get_session(&id)
+        .get_primary_session(&id)
         .await
         .map_err(|_| unauthorized())?;
     if let Err(reason) = state.sessions.check(&id, &state.hardening) {
@@ -5211,7 +5230,7 @@ async fn authed_cookie(
         state.sessions.forget(&id);
         return Err(session_expired());
     }
-    security_center::enforce_session(state, &session).await?;
+    security_center::enforce_session_clock(state, &session).await?;
     let _ = state.store.touch_session(&id).await;
     Ok(session)
 }
@@ -5228,7 +5247,7 @@ async fn authed_native(state: &AppState, token: &str) -> Result<mw_store::Sessio
     }
     let session = state
         .store
-        .get_session(token)
+        .get_primary_session(token)
         .await
         .map_err(|_| unauthorized())?;
     if let Err(reason) = state.sessions.check(token, &state.hardening) {
@@ -5238,7 +5257,7 @@ async fn authed_native(state: &AppState, token: &str) -> Result<mw_store::Sessio
         state.sessions.forget(token);
         return Err(session_expired());
     }
-    security_center::enforce_session(state, &session).await?;
+    security_center::enforce_session_clock(state, &session).await?;
     let _ = state.store.touch_session(token).await;
     Ok(session)
 }

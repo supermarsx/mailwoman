@@ -180,8 +180,8 @@ const TABLES: &[TableSpec] = &[
         name: "sessions",
         // 0033 (26.20): the device columns travel with the session, so "sign out
         // this device" still names the right device after a move.
-        select: "SELECT id, account_id, username, jmap_url, api_url, sealed_creds, created_at, last_seen, user_agent, ip, client_type, device_label, client_version, authentication_method, activity_at FROM sessions",
-        insert: "INSERT INTO sessions (id, account_id, username, jmap_url, api_url, sealed_creds, created_at, last_seen, user_agent, ip, client_type, device_label, client_version, authentication_method, activity_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+        select: "SELECT id, account_id, username, jmap_url, api_url, sealed_creds, created_at, last_seen, user_agent, ip, client_type, device_label, client_version, authentication_method, activity_at, linked_internal FROM sessions",
+        insert: "INSERT INTO sessions (id, account_id, username, jmap_url, api_url, sealed_creds, created_at, last_seen, user_agent, ip, client_type, device_label, client_version, authentication_method, activity_at, linked_internal) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -199,6 +199,7 @@ const TABLES: &[TableSpec] = &[
                 ot(r, "client_version"),
                 t(r, "authentication_method"),
                 ot(r, "activity_at"),
+                i(r, "linked_internal"),
             ]
         },
     },
@@ -208,6 +209,20 @@ const TABLES: &[TableSpec] = &[
         insert: "INSERT INTO session_principal(session_id,principal_id,binding_id,primary_account_id,auth_time,authentication_method) VALUES(?1,?2,?3,?4,?5,?6)",
         map: |r| vec![t(r,"session_id"),t(r,"principal_id"),t(r,"binding_id"),t(r,"primary_account_id"),i(r,"auth_time"),t(r,"authentication_method")],
     },
+    TableSpec {
+        name: "linked_account",
+        select: "SELECT id,owner_principal_id,child_principal_id,child_subject,account_id,display_name,sealed_session,revision,created_at FROM linked_account",
+        insert: "INSERT INTO linked_account(id,owner_principal_id,child_principal_id,child_subject,account_id,display_name,sealed_session,revision,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        map: |r| vec![t(r,"id"),t(r,"owner_principal_id"),t(r,"child_principal_id"),t(r,"child_subject"),t(r,"account_id"),t(r,"display_name"),b(r,"sealed_session"),t(r,"revision"),i(r,"created_at")],
+    },
+    TableSpec {
+        name: "linked_context",
+        select: "SELECT session_id,owner_session_id,link_id,link_revision FROM linked_context",
+        insert: "INSERT INTO linked_context(session_id,owner_session_id,link_id,link_revision) VALUES(?1,?2,?3,?4)",
+        map: |r| vec![t(r,"session_id"),t(r,"owner_session_id"),t(r,"link_id"),t(r,"link_revision")],
+    },
+    // MFA continuations are process-local. Drop challenges on store migration;
+    // never copy a stale pending token and pretend it can complete on a new node.
     TableSpec {
         name: "accounts",
         select: "SELECT id, kind, host, port, tls, username, sealed_creds, sync_policy_json, backend_kind, backend_authority FROM accounts",

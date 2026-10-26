@@ -50,3 +50,7 @@ crates/mw-store/migrations_pg/0063_account_drafts.sql -text
 # Provider account migration bytes are immutable LF.
 crates/mw-store/migrations/0067_provider_accounts.sql -text
 crates/mw-store/migrations_pg/0067_provider_accounts.sql -text
+
+# Linked-account authority migration bytes are immutable LF.
+crates/mw-store/migrations/0068_linked_accounts.sql -text
+crates/mw-store/migrations_pg/0068_linked_accounts.sql -text

@@ -52,7 +52,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Every store table, for TRUNCATE between Postgres runs.
-const ALL_TABLES: &str = "account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, personal_signature, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
+const ALL_TABLES: &str = "linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, personal_signature, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
@@ -1028,6 +1028,7 @@ async fn migrate_store_sqlite_to_postgres() {
 /// deployment, or an admin/deployment surface the operator re-configures on the
 /// new host. `(table, reason)`.
 const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
+    ("linked_challenge", "MFA continuations reference process-local pending proofs; sign in again after a store move."),
     ("oidc_browser_flow", "0057: short-lived browser-bound pre-login requests expire and must restart after deployment migration."),
     ("oidc_provider_config", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
     ("oidc_client", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
@@ -2847,6 +2848,7 @@ mod admin_controls_0033 {
         ]),
         ("sessions", &[
             ("authentication_method", 'T', "=legacy"),
+            ("linked_internal", 'I', "=0"),
             ("activity_at", 'T', "~"),
             ("user_agent", 'T', "~"),
             ("ip", 'T', "~"),

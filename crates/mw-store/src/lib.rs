@@ -9,6 +9,7 @@ mod security_center;
 pub mod analytics_secret;
 pub mod branding;
 pub mod identity_principal;
+pub mod linked_accounts;
 pub mod personal_records;
 pub mod personal_delivery;
 pub mod provider_accounts;
@@ -471,6 +472,19 @@ impl Store {
             jmap_url: row.get_string("jmap_url"),
             api_url: row.get_string("api_url"),
             credentials: creds,
+        })
+    }
+
+    /// External cookie/native credentials cannot name private linked sessions.
+    /// Keep this predicate in the original row read, without adding a second
+    /// policy/marker query to every ordinary request when linking is disabled.
+    pub async fn get_primary_session(&self, id: &str) -> Result<Session, StoreError> {
+        let row=q("SELECT id,account_id,username,jmap_url,api_url,sealed_creds FROM sessions WHERE id=?1 AND linked_internal=0")
+            .bind(id).fetch_optional(&self.backend).await?.ok_or(StoreError::NotFound)?;
+        Ok(Session {
+            id:row.get_string("id"),account_id:row.get_string("account_id"),username:row.get_string("username"),
+            jmap_url:row.get_string("jmap_url"),api_url:row.get_string("api_url"),
+            credentials:decode_creds(&self.key.open(&row.get_blob("sealed_creds"))?)?,
         })
     }
 

@@ -103,7 +103,7 @@ impl Store {
             .execute_tx(&mut tx)
             .await?;
         // Serialize against another rotation/revocation of this same old session.
-        if q("UPDATE sessions SET last_seen=last_seen WHERE id=?1")
+        if q("UPDATE sessions SET last_seen=last_seen WHERE id=?1 AND linked_internal=0")
             .bind(old)
             .execute_tx(&mut tx)
             .await?
@@ -111,7 +111,7 @@ impl Store {
         {
             return Ok(false);
         }
-        let changed = q("UPDATE sessions SET (created_at,last_seen,activity_at,user_agent,ip,client_type,device_label,client_version,authentication_method)=(SELECT created_at,last_seen,activity_at,user_agent,ip,client_type,device_label,client_version,authentication_method FROM sessions WHERE id=?1) WHERE id=?2 AND account_id=(SELECT account_id FROM sessions WHERE id=?1)")
+        let changed = q("UPDATE sessions SET (created_at,last_seen,activity_at,user_agent,ip,client_type,device_label,client_version,authentication_method)=(SELECT created_at,last_seen,activity_at,user_agent,ip,client_type,device_label,client_version,authentication_method FROM sessions WHERE id=?1) WHERE id=?2 AND linked_internal=0 AND account_id=(SELECT account_id FROM sessions WHERE id=?1)")
             .bind(old).bind(new).execute_tx(&mut tx).await?;
         if changed != 1 {
             return Ok(false);
@@ -234,7 +234,7 @@ impl Store {
         if updated == 0 {
             return Err(StoreError::NotFound);
         }
-        let rows = q("SELECT id FROM sessions WHERE account_id=?1 ORDER BY CASE WHEN id=?2 THEN 0 ELSE 1 END, created_at DESC,id DESC")
+        let rows = q("SELECT id FROM sessions WHERE account_id=?1 AND linked_internal<>2 ORDER BY CASE WHEN id=?2 THEN 0 ELSE 1 END, created_at DESC,id DESC")
             .bind(account).bind(id).fetch_all_tx(&mut tx).await?;
         let evicted: Vec<_> = rows
             .iter()
@@ -264,7 +264,7 @@ impl Store {
         account: Option<&str>,
         limit: u32,
     ) -> Result<Vec<SecuritySession>, StoreError> {
-        let rows=q("SELECT id,account_id,username,created_at,last_seen,COALESCE(activity_at,created_at) AS last_activity,user_agent,ip,client_type,device_label,client_version FROM sessions WHERE (?1 IS NULL OR account_id=?1) ORDER BY last_seen DESC,id LIMIT ?2")
+        let rows=q("SELECT id,account_id,username,created_at,last_seen,COALESCE(activity_at,created_at) AS last_activity,user_agent,ip,client_type,device_label,client_version FROM sessions WHERE linked_internal<>2 AND (?1 IS NULL OR account_id=?1) ORDER BY last_seen DESC,id LIMIT ?2")
             .bind(account).bind(i64::from(limit.clamp(1,1000))).fetch_all(&self.backend).await?;
         Ok(rows
             .iter()
