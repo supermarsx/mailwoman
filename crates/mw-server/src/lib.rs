@@ -4561,6 +4561,24 @@ async fn static_handler(
     if path == error_pages::STYLESHEET_PATH {
         return error_pages::stylesheet_response(&headers);
     }
+    // The detached workspace is a server-owned document, not an optional build
+    // asset. A stale MW_WEB_DIR must never turn its mount target into a 404 page.
+    if path == "workspace-popup.html" {
+        if !matches!(method, Method::GET | Method::HEAD) {
+            let mut response = error(error_pages::ErrorKind::MethodNotAllowed);
+            response.headers_mut().insert(header::ALLOW, HeaderValue::from_static("GET, HEAD"));
+            return response;
+        }
+        let bytes = include_str!("../../../apps/web/public/workspace-popup.html").as_bytes();
+        let mut response = asset_response(path, "text/html; charset=utf-8", bytes.to_vec(), &headers);
+        if method == Method::HEAD {
+            if response.status() == StatusCode::OK {
+                response.headers_mut().insert(header::CONTENT_LENGTH, HeaderValue::from(bytes.len()));
+            }
+            *response.body_mut() = Body::empty();
+        }
+        return response;
+    }
     if let Some(resp) = serve_asset(&state, path, &headers) {
         return resp;
     }
