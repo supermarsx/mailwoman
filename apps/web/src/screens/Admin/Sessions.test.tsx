@@ -31,3 +31,14 @@ it('filters displayed metadata and revokes only a confirmed row handle', async (
   fireEvent.click(screen.getByRole('button', { name: /^Revoke session$/ }));
   await waitFor(() => expect(adminRequest).toHaveBeenCalledWith('/sessions/revoke', { method: 'POST', body: { filter: { handle: 'one' }, dryRun: false, handles: ['one'] } }));
 });
+it('reports partial selected revocations and stops after fresh-proof refusal',async()=>{
+ const rows=['one','two','three'].map(handle=>({handle,accountId:'a',username:'alice@example.org',lastSeen:'today',clientType:'browser',userAgent:handle,ip:'192.0.2.1'}));
+ const listing={data:{sessions:rows,truncated:false},status:200,etag:null};
+ vi.mocked(adminRequest).mockReset().mockResolvedValue(listing).mockResolvedValueOnce(listing).mockResolvedValueOnce({data:{revoked:1},status:200,etag:null}).mockRejectedValueOnce({status:403});
+ render(()=><AdminSessions/>);await screen.findByText('one');
+ fireEvent.click(screen.getByRole('checkbox',{name:'Select all visible sessions'}));fireEvent.click(screen.getByRole('button',{name:/Revoke selected sessions/}));
+ expect(screen.getByRole('alertdialog')).toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'Confirm selected revocations'}));
+ expect(await screen.findByRole('alert')).toHaveTextContent(/Revoked:.*1.*Could not confirm:.*1.*Not attempted:.*1/);
+ const writes=vi.mocked(adminRequest).mock.calls.filter(([path])=>path==='/sessions/revoke');
+ expect(writes.map(([,init])=>(init?.body as {handles:string[]}).handles)).toEqual([['one'],['two']]);
+});

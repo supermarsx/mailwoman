@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
 import { expect, it, vi } from 'vitest';
 import { Sessions } from './Sessions.tsx';
 import { SettingsService } from './service.ts';
+import { activateAccountPreferences, suspendAccountPreferences } from '../../api/accountPreferenceLifecycle.ts';
 it('keeps the current session safe and targets the selected device handle', async () => {
   const service = new SettingsService();
   vi.spyOn(service, 'sessions').mockResolvedValue([
@@ -26,4 +27,33 @@ it('renders a bounded error without throwing while session loading fails', async
   render(() => <Sessions service={service} />);
   expect(await screen.findByRole('alert')).toHaveTextContent('The session could not be changed.');
   expect(screen.queryByText('private backend failure')).not.toBeInTheDocument();
+});
+it('confirms selected other sessions, protects the current one and reports partial failure',async()=>{
+ const service=new SettingsService();
+ vi.spyOn(service,'sessions').mockResolvedValue(['current','one','two','three'].map(handle=>({handle,username:'alice@example.org',createdAt:'today',lastSeen:'now',current:handle==='current',deviceLabel:handle})));
+ const revoke=vi.spyOn(service,'revokeSession').mockImplementation(async handle=>{if(handle==='two')throw{status:503};});
+ render(()=><Sessions service={service}/>);await screen.findByText('three');
+ expect(screen.getByRole('checkbox',{name:'Select session for current'})).toBeDisabled();
+ fireEvent.click(screen.getByRole('checkbox',{name:'Select all visible other sessions'}));
+ fireEvent.click(screen.getByRole('button',{name:/Sign out selected sessions \(/}));
+ expect(screen.getByRole('alertdialog')).toHaveTextContent('This session stays signed in');
+ expect(revoke).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'Cancel'}));expect(revoke).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:/Sign out selected sessions \(/}));fireEvent.click(screen.getByRole('button',{name:/^Sign out selected sessions$/}));
+ expect(await screen.findByRole('alert')).toHaveTextContent(/Signed out:.*1.*Could not confirm:.*1.*Not attempted:.*1/);
+ expect(revoke.mock.calls.map(call=>call[0])).toEqual(['one','two']);
+});
+it('does not continue or publish an old batch after the account changes',async()=>{
+ activateAccountPreferences('bulk-first');
+ const service=new SettingsService();let finish:()=>void=()=>{};
+ vi.spyOn(service,'sessions').mockResolvedValue(['one','two'].map(handle=>({handle,username:'first',createdAt:'today',lastSeen:'now',current:false,deviceLabel:handle})));
+ const revoke=vi.spyOn(service,'revokeSession').mockImplementation(()=>new Promise<void>(resolve=>{finish=resolve;}));
+ render(()=><Sessions service={service}/>);await screen.findByText('two');
+ fireEvent.click(screen.getByRole('checkbox',{name:'Select all visible other sessions'}));
+ fireEvent.click(screen.getByRole('button',{name:/Sign out selected sessions \(/}));
+ fireEvent.click(screen.getByRole('button',{name:/^Sign out selected sessions$/}));
+ await waitFor(()=>expect(revoke).toHaveBeenCalledOnce());
+ suspendAccountPreferences();activateAccountPreferences('bulk-second');finish();
+ await waitFor(()=>expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+ expect(revoke).toHaveBeenCalledOnce();expect(screen.queryByText(/Signed out:/)).not.toBeInTheDocument();
+ suspendAccountPreferences();
 });

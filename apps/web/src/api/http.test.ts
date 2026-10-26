@@ -9,6 +9,8 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { apiFetch, csrfToken, setNativeTransport, type NativeTransport } from './http.ts';
+import { markAdminSessionActive } from './adminSession.ts';
+import { activateAccountPreferences, suspendAccountPreferences } from './accountPreferenceLifecycle.ts';
 
 type FetchArgs = [input: string, init?: RequestInit];
 
@@ -40,9 +42,35 @@ describe('apiFetch', () => {
   });
 
   afterEach(() => {
+    setNativeTransport(null);
     vi.unstubAllGlobals();
     clearCookie();
     delete (globalThis as { __MW_BASE__?: unknown }).__MW_BASE__;
+  });
+
+  it('does not retry an admin mutation after its authority changes during CSRF refresh',async()=>{
+    markAdminSessionActive();let release:(value:Response)=>void=()=>{};
+    fetchMock.mockResolvedValueOnce(refusal()).mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));
+    const pending=apiFetch('/admin/admin-sessions/old',{method:'DELETE'});
+    const rejected=expect(pending).rejects.toMatchObject({name:'AbortError'});
+    await vi.waitFor(()=>expect(fetchMock).toHaveBeenCalledTimes(2));markAdminSessionActive();release(json(200,{csrfToken:'new'}));await rejected;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+  it('does not retry a session mutation under a newly selected mailbox account',async()=>{
+    activateAccountPreferences('old');let release:(value:Response)=>void=()=>{};
+    fetchMock.mockResolvedValueOnce(refusal()).mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));
+    const pending=apiFetch('/api/account/sessions/revoke',{method:'POST',headers:{'X-Mailwoman-Account':'old'},body:'{"all":true}'});
+    const rejected=expect(pending).rejects.toMatchObject({name:'AbortError'});
+    await vi.waitFor(()=>expect(fetchMock).toHaveBeenCalledTimes(2));suspendAccountPreferences();activateAccountPreferences('new');release(json(200,{csrfToken:'new'}));await rejected;
+    expect(fetchMock).toHaveBeenCalledTimes(2);suspendAccountPreferences();
+  });
+  it('does not dispatch a native session mutation after an account change while loading its token',async()=>{
+    activateAccountPreferences('native-old');let release:(token:string)=>void=()=>{};
+    setNativeTransport({base:()=> 'https://native.example',token:()=>new Promise(resolve=>{release=resolve;}),setToken:async()=>{}});
+    const pending=apiFetch('/api/account/sessions/revoke',{method:'POST',headers:{'X-Mailwoman-Account':'native-old'},body:'{"all":true}'});
+    const rejected=expect(pending).rejects.toMatchObject({name:'AbortError'});
+    suspendAccountPreferences();activateAccountPreferences('native-new');release('new-token');await rejected;
+    expect(fetchMock).not.toHaveBeenCalled();suspendAccountPreferences();
   });
 
   it('reads the token from the mw_csrf cookie', () => {

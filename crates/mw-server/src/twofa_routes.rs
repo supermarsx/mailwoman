@@ -1600,6 +1600,9 @@ async fn sessions_revoke_route(
         Ok(s) => s,
         Err(r) => return r,
     };
+    if headers.get("x-mailwoman-account").is_some_and(|expected| expected.to_str().ok() != Some(session.account_id.as_str())) {
+        return (StatusCode::CONFLICT,Json(json!({"code":"sessionAccountChanged","error":"Account changed; reload sessions before continuing."}))).into_response();
+    }
     let current = mw_store::session_handle(&session.id);
     match body.handle {
         Some(handle) if !body.all => {

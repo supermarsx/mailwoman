@@ -735,3 +735,13 @@ admin-deployment-value-connectionNegotiation = Built-in listener startup configu
 
 admin-personal-dashboard-keep-checklist = Keep the completed setup checklist prominent
 admin-personal-dashboard-keep-checklist-help = Otherwise, completing every item collapses the checklist below the other dashboard widgets. An incomplete item restores its usual position.
+
+admin-session-select = Select
+admin-session-select-account = Select session for { $account }
+admin-session-select-visible = Select all visible sessions
+admin-session-revoke-selected = Revoke selected sessions ({ $count })
+admin-session-batch-confirm = Revoke only the selected sessions. You may be asked to confirm your identity. Failed or skipped sessions will be reported.
+admin-session-batch-current = Your current administrator session is selected. It will be revoked last, signing you out, only if the other selected sessions are handled successfully. If another request fails, this session is kept so you can review the result.
+admin-session-batch-confirm-button = Confirm selected revocations
+admin-session-batch-result = Revoked: { $revoked }. Already ended: { $unchanged }. Could not confirm: { $failed }. Not attempted: { $skipped }.
+admin-session-refresh-failed = The session list could not be refreshed. Reload it before selecting more sessions.

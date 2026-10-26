@@ -5,3 +5,4 @@ export const table = style({ inlineSize: '100%', borderCollapse: 'collapse', tex
 globalStyle(`${table} th, ${table} td`, { padding: vars.space[5], borderBlockEnd: `1px solid ${vars.color.border}`, verticalAlign: 'top', overflowWrap: 'anywhere', minInlineSize: '8rem', maxInlineSize: '22rem' });
 globalStyle(`${table} caption`, { textAlign: 'start', padding: vars.space[5], fontWeight: 700 });
 globalStyle(`${table} td:last-child`, { textAlign: 'end' });
+globalStyle(`${table} th:first-child, ${table} td:first-child`, { minInlineSize:'3rem',inlineSize:'3rem',maxInlineSize:'3rem' });

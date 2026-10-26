@@ -576,7 +576,7 @@ async fn native_preferences_expose_etags_and_allow_cas_without_widening_origins(
         .header("access-control-request-method", "PUT")
         .header(
             "access-control-request-headers",
-            "authorization, content-type, if-match",
+            "authorization, content-type, x-mailwoman-account, if-match",
         )
         .send()
         .await
@@ -589,6 +589,7 @@ async fn native_preferences_expose_etags_and_allow_cas_without_widening_origins(
             .split(',')
             .any(|v| v.trim() == "if-match")
     );
+    assert!(preflight.headers()["access-control-allow-headers"].to_str().unwrap().split(',').any(|value| value.trim()=="x-mailwoman-account"));
     let loaded = c
         .get(&endpoint)
         .header("origin", TAURI)

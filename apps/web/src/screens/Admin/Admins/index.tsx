@@ -1,7 +1,9 @@
-import { For, Show, createSignal, createEffect, on, onMount, type JSX } from 'solid-js';
+import { For, Show, createSignal, createEffect, on, onMount, onCleanup, type JSX } from 'solid-js';
+import { adminSessionGeneration } from '../../../api/adminSession.ts';
 import { loadCatalog, t } from '../../../i18n';
 import { adminsApi, type AdminAccountsApi, type AdminAccount, type AdminRole, type AdminMe, type AdminSession, type RoleGrant, type Override } from '../../../api/admin/admins.ts';
 import { AdminSessionTable } from './SessionTable.tsx';
+import { revokeSessionBatch } from '../../../api/sessionRevocation.ts';
 import { Feedback, describeAdminError } from '../shell/Feedback.tsx';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { useShell } from '../shell/context.ts';
@@ -12,6 +14,8 @@ import * as css from '../shell/shell.css.ts';
 import * as ux from '../shell/ux.css.ts';
 
 export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element {
+  const authority=adminSessionGeneration();let alive=true;onCleanup(()=>{alive=false;});
+  const authorityCurrent=():boolean=>alive&&authority===adminSessionGeneration();
   const api = props.service ?? adminsApi;
   const shell = useShell();
   const route = () => shell.router.route();
@@ -36,6 +40,7 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
   const [error, setError] = createSignal<string | null>(null);
   const [success, setSuccess] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
+  const [sessionBatch,setSessionBatch]=createSignal<AdminSession[]>();
   const [loaded, setLoaded] = createSignal(false);
   const [secret, setSecret] = createSignal('');
   const [confirm, setConfirm] = createSignal<{ name: string; typed?: boolean; action: () => Promise<unknown> }>();
@@ -51,6 +56,18 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
     try { await action(); await reload(); if (announce) setSuccess(t('admin-accounts-saved')); }
     catch (e) { setError(describeAdminError(e)); }
     finally { setBusy(false); }
+  }
+  async function revokeSelectedSessions():Promise<void>{
+    const rows=sessionBatch();if(!rows||!canManage()||!authorityCurrent())return;
+    setBusy(true);setError(null);setSuccess(null);
+    try{
+      const result=await revokeSessionBatch(rows,row=>row.id,row=>row.current,async row=>{await api.write(`/admin-sessions/${encodeURIComponent(row.id)}`,'DELETE');},authorityCurrent);
+      if(!authorityCurrent())return;
+      const message=t('admin-session-batch-result',{revoked:result.revoked.length,failed:result.failed.length,skipped:result.skipped.length,unchanged:result.unchanged.length});
+      setSessionBatch(undefined);
+      if(result.failed.length||result.skipped.length)setError(message);else setSuccess(message);
+      try{await reload();}catch{if(authorityCurrent()&&!result.currentRevoked)setError(`${message} ${t('admin-session-refresh-failed')}`);}
+    }finally{if(authorityCurrent())setBusy(false);}
   }
   function select(a: AdminAccount): void { setSelected(a); setName(a.displayName); setPassword(''); setSecret(''); setGrants(a.roles.map((g) => ({ ...g }))); setDomainText(Object.fromEntries(a.roles.map((g) => [g.roleId, g.domains?.join(', ') ?? '']))); setOverrides([...a.overrides]); }
   const normalizedGrants = (): RoleGrant[] => grants().map(g => {
@@ -146,8 +163,10 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
         </fieldset>
       </section>}</Show></Show>
       <Show when={!creating()}><AdminSessionTable sessions={editing() ? sessions().filter(s => s.adminId === selected()?.id) : sessions()} accounts={accounts()} busy={busy()} canRevoke={canManage()}
+        onRevokeMany={rows=>setSessionBatch(rows)}
         onRevoke={(session) => setConfirm({ name: accounts().find((a) => a.id === session.adminId)?.username ?? session.adminId, action: () => api.write(`/admin-sessions/${encodeURIComponent(session.id)}`, 'DELETE') })} /></Show>
     </Show>
+    <ConfirmDialog open={sessionBatch()!==undefined} title={t('admin-session-revoke-selected',{count:sessionBatch()?.length??0})} body={t(sessionBatch()?.some(row=>row.current)?'admin-session-batch-current':'admin-session-batch-confirm')} confirmLabel={t('admin-session-batch-confirm-button')} onCancel={()=>setSessionBatch(undefined)} onConfirm={revokeSelectedSessions}/>
     <ConfirmDialog {...(confirm()?.typed ? { typedConfirmation: confirm()?.name ?? '' } : {})} open={confirm() !== undefined} title={t('admin-accounts-confirm', { name: confirm()?.name ?? '' })} body={t('admin-accounts-confirm-body')} confirmLabel={t('admin-accounts-confirm-action')} onCancel={() => setConfirm(undefined)} onConfirm={async () => { const action = confirm()?.action; if (action) { await action(); setConfirm(undefined); await run(reload); } }} />
   </section>;
 }

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@solidjs/testing-library';
+import { render, screen, fireEvent,waitFor } from '@solidjs/testing-library';
 import { expect, it, vi } from 'vitest';
 import { AdminSessionTable } from './SessionTable.tsx';
 it('shows real deadlines, marks the current session and respects revoke permissions', () => {
@@ -9,4 +9,13 @@ it('shows real deadlines, marks the current session and respects revoke permissi
   expect(screen.getByText(new Date(1800000000 * 1000).toLocaleString())).toBeInTheDocument();
   const button = screen.getByRole('button', { name: 'Revoke session for root' });
   expect(button).toBeDisabled(); fireEvent.click(button); expect(revoke).not.toHaveBeenCalled();
+});
+it('selects only visible administrator sessions and passes a reviewed snapshot',async()=>{
+ const batch=vi.fn();const sessions=[{id:'mine',adminId:'root',createdAt:'2026-10-25',current:true},{id:'other',adminId:'alice',createdAt:'2026-10-25',current:false}];
+ render(()=><AdminSessionTable sessions={sessions} accounts={[]} busy={false} canRevoke={true} onRevoke={()=>{}} onRevokeMany={batch}/>);
+ fireEvent.input(screen.getByRole('searchbox'),{target:{value:'alice'}});
+ await waitFor(()=>expect(screen.queryByRole('checkbox',{name:'Select session for root'})).toBeNull());
+ fireEvent.click(screen.getByRole('checkbox',{name:'Select all visible sessions'}));
+ fireEvent.click(screen.getByRole('button',{name:/Revoke selected sessions/}));
+ expect(batch).toHaveBeenCalledWith([sessions[1]]);
 });

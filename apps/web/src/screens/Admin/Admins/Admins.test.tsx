@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createSignal } from 'solid-js';
+import { markAdminSessionActive } from '../../../api/adminSession.ts';
 import { parseAdminPath } from '../shell/router.ts';
 import { fireEvent, screen, waitFor, within } from '@solidjs/testing-library';
 import { AdminAdmins } from './index.tsx';
@@ -19,6 +20,28 @@ function renderAccounts(api: AdminAccountsApi, initial = '/admin#/admins') {
   return { ...view, route };
 }
 describe('admin accounts and roles', () => {
+  it('warns before current-session revocation and preserves it after another request fails',async()=>{
+    const api=service();api.sessions=vi.fn(async()=>[{id:'mine',adminId:'root',createdAt:'today',current:true},{id:'other',adminId:'alice',createdAt:'today',current:false}]);
+    api.write=vi.fn(async()=>{throw{status:503};}) as AdminAccountsApi['write'];renderAccounts(api);
+    await screen.findByRole('checkbox',{name:'Select session for root'});
+    await waitFor(()=>expect(screen.getByRole('checkbox',{name:'Select all visible sessions'})).toBeEnabled());
+    fireEvent.click(screen.getByRole('checkbox',{name:'Select all visible sessions'}));
+    fireEvent.click(screen.getByRole('button',{name:/Revoke selected sessions/}));
+    const dialog=screen.getByRole('alertdialog');expect(dialog).toHaveTextContent('Your current administrator session is selected');
+    fireEvent.click(within(dialog).getByRole('button',{name:'Confirm selected revocations'}));
+    await waitFor(()=>expect(api.write).toHaveBeenCalledExactlyOnceWith('/admin-sessions/other','DELETE'));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Could not confirm:.*1.*Not attempted:.*1/);
+  });
+  it('stops an old batch after a successful response from a replaced admin session',async()=>{
+    const api=service();api.sessions=vi.fn(async()=>['one','two'].map(id=>({id,adminId:'alice',createdAt:'today',current:false})));
+    let finish:(value:unknown)=>void=()=>{};api.write=vi.fn(()=>new Promise(resolve=>{finish=resolve;})) as AdminAccountsApi['write'];
+    renderAccounts(api);await screen.findAllByRole('checkbox',{name:'Select session for alice'});
+    await waitFor(()=>expect(screen.getByRole('checkbox',{name:'Select all visible sessions'})).toBeEnabled());
+    fireEvent.click(screen.getByRole('checkbox',{name:'Select all visible sessions'}));fireEvent.click(screen.getByRole('button',{name:/Revoke selected sessions/}));
+    fireEvent.click(screen.getByRole('alertdialog').querySelector('button[type="submit"]')!);
+    await waitFor(()=>expect(api.write).toHaveBeenCalledOnce());markAdminSessionActive();finish({});
+    await new Promise(resolve=>setTimeout(resolve,0));expect(api.write).toHaveBeenCalledOnce();expect(screen.queryByText(/Revoked:/)).not.toBeInTheDocument();
+  });
   it('requires the account name before revoking passkeys and sessions', async () => {
     const api = service();
     api.accounts = vi.fn(async () => [{ ...account, passkeyCount: 2 }]);

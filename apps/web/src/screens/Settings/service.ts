@@ -1,3 +1,4 @@
+import { preferenceAccount, observePreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
 // Settings-surface server I/O (t16 e15). One service over an injectable `Fetcher`
 // so every component unit-tests without a live server. Same-origin cookie auth,
 // byte-identical to the passwd/apikeys services (SPEC §7.4/§19, W12/W13/W15).
@@ -178,18 +179,29 @@ export class SettingsService {
   // ── Sessions (S11) ───────────────────────────────────────────────────────
 
   async sessions(): Promise<SessionMeta[]> {
-    const out = await jsonOrThrow<{ sessions: SessionMeta[] }>(await this.fetcher(withBase('/api/account/sessions')));
+    const out = await jsonOrThrow<{ sessions: SessionMeta[] }>(await this.sessionFetch(withBase('/api/account/sessions')));
     return out.sessions;
   }
 
   /** Revoke one session by handle. */
   async revokeSession(handle: string): Promise<void> {
-    await okOrThrow(await postJson(this.fetcher, withBase('/api/account/sessions/revoke'), { handle }));
+    await okOrThrow(await postJson(this.sessionFetch.bind(this), withBase('/api/account/sessions/revoke'), { handle }));
   }
 
   /** Sign out everywhere else (revoke every session but the current one). */
   async revokeOtherSessions(): Promise<void> {
-    await okOrThrow(await postJson(this.fetcher, withBase('/api/account/sessions/revoke'), { all: true }));
+    await okOrThrow(await postJson(this.sessionFetch.bind(this), withBase('/api/account/sessions/revoke'), { all: true }));
+  }
+
+  private async sessionFetch(input:string,init?:RequestInit):Promise<Response>{
+    const account=preferenceAccount();const controller=new AbortController();const headers=new Headers(init?.headers);
+    if(account)headers.set('X-Mailwoman-Account',account.id);
+    const unsubscribe=observePreferenceAccount(value=>{if(value!==account)controller.abort();});
+    try{
+      const response=await this.fetcher(input,{...init,headers,signal:controller.signal});
+      if(controller.signal.aborted)throw new DOMException('Authentication changed','AbortError');
+      return response;
+    }finally{unsubscribe();}
   }
 
   // ── Signatures (W12) ─────────────────────────────────────────────────────

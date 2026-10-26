@@ -38,6 +38,7 @@
 import { basePath, stripBase } from './basePath.ts';
 import { consolePath } from './adminPath.ts';
 import { adminSessionGeneration,observeAdminResponse } from './adminSession.ts';
+import { preferenceAccount, preferenceAccountIsCurrent } from './accountPreferenceLifecycle.ts';
 
 /** The readable cookie holding the token (`hardening::CSRF_COOKIE`). */
 const CSRF_COOKIE = 'mw_csrf';
@@ -125,8 +126,9 @@ function isRootRelative(input: string): boolean {
  * instead of cookies, and no CSRF token (the server does not check a request
  * whose only authority is its bearer token). A sign-in answer's token is kept.
  */
-async function sendNative(transport: NativeTransport, input: string, init: RequestInit | undefined): Promise<Response> {
+async function sendNative(transport: NativeTransport, input: string, init: RequestInit | undefined, assertAuthority:()=>void): Promise<Response> {
   const token = await transport.token();
+  assertAuthority();
   const base = transport.base();
   if (base === null) throw new TypeError('no server address is configured');
   const path = stripBase(input, basePath());
@@ -235,15 +237,16 @@ function refreshToken(source: string): Promise<string | null> {
  *
  * `X-Mailwoman-Client` is added where `setClientHeader` says so.
  */
-async function rawApiFetch(input: string, given?: RequestInit): Promise<Response> {
+async function rawApiFetch(input: string, given: RequestInit|undefined, assertAuthority:()=>void): Promise<Response> {
   const epoch=adminSessionGeneration();
-  const response=await sendApiFetch(input,given);
+  assertAuthority();
+  const response=await sendApiFetch(input,given,assertAuthority);
   observeAdminResponse(input,response.status,epoch);
   return response;
 }
-async function sendApiFetch(input: string, given?: RequestInit): Promise<Response> {
+async function sendApiFetch(input: string, given: RequestInit|undefined, assertAuthority:()=>void): Promise<Response> {
   const init = withClientHeader(input, given);
-  if (native !== null && isRootRelative(input)) return sendNative(native, input, init);
+  if (native !== null && isRootRelative(input)) return sendNative(native, input, init,assertAuthority);
   const method = (init?.method ?? 'GET').toUpperCase();
   if (SAFE_METHODS.has(method)) return send(input, init);
   const token = csrfToken();
@@ -252,6 +255,7 @@ async function sendApiFetch(input: string, given?: RequestInit): Promise<Respons
   if (typeof ReadableStream !== 'undefined' && init?.body instanceof ReadableStream) return res;
   const fresh = await refreshToken(tokenSource(input));
   if (fresh === null) return res;
+  assertAuthority();
   return fetch(input, withToken(init, fresh));
 }
 
@@ -260,9 +264,17 @@ const confirming = new Map<string, Promise<boolean>>();
 
 /** A refusal occurs before the handler mutates state. Confirm once, then retry once. */
 export async function apiFetch(input: string, given?: RequestInit): Promise<Response> {
+  const adminEpoch=adminSessionGeneration();
+  const admin=requestPath(input).startsWith(`${consolePath()}/`);
+  const account=preferenceAccount();
+  const expectedAccount=new Headers(given?.headers).get('X-Mailwoman-Account');
+  const assertAuthority=():void=>{
+    if(given?.signal?.aborted||(admin&&adminEpoch!==adminSessionGeneration())||(expectedAccount!==null&&account!==null&&(!preferenceAccountIsCurrent(account)||account.id!==expectedAccount)))throw new DOMException('Authentication changed before dispatch','AbortError');
+  };
   const originalNative = native;
   const originalToken = originalNative === null ? null : await originalNative.token();
-  const response = await rawApiFetch(input, given);
+  assertAuthority();
+  const response = await rawApiFetch(input, given,assertAuthority);
   if (response.status !== 403 || typeof response.clone !== 'function' || typeof document === 'undefined'
     || new Headers(given?.headers).has('authorization') || given?.credentials === 'omit'
     || (typeof ReadableStream !== 'undefined' && given?.body instanceof ReadableStream)
@@ -273,6 +285,7 @@ export async function apiFetch(input: string, given?: RequestInit): Promise<Resp
   if (path.includes('/step-up')) return response;
   const body = await response.clone().json().catch(() => null) as { code?: unknown; methods?: unknown } | null;
   if (body?.code !== 'step_up_required' || !Array.isArray(body.methods)) return response;
+  assertAuthority();
   const endpoint = `${basePath()}${path.startsWith(`${consolePath()}/`) ? `${consolePath()}/step-up` : '/api/security/step-up'}`;
   let confirmation = confirming.get(endpoint);
   if (confirmation === undefined) {
@@ -282,11 +295,12 @@ export async function apiFetch(input: string, given?: RequestInit): Promise<Resp
       methods,
       send: (proof, begin) => rawApiFetch(`${endpoint}${begin ? '/passkey' : ''}`, {
         method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(proof),
-      }),
+      },assertAuthority),
     })).finally(() => { confirming.delete(endpoint); });
     confirming.set(endpoint, confirmation);
   }
   if (!(await confirmation) || given?.signal?.aborted) return response;
   if (native !== originalNative || (originalNative !== null && await originalNative.token() !== originalToken)) return response;
-  return rawApiFetch(input, given);
+  assertAuthority();
+  return rawApiFetch(input, given,assertAuthority);
 }

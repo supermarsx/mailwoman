@@ -356,3 +356,14 @@ settings-folder-role-sent = Sent mail
 settings-folder-role-trash = Trash
 settings-folder-role-junk = Junk and spam
 settings-folder-role-archive = Archive
+
+settings-sessions-select = Select
+settings-sessions-select-device = Select session for { $device }
+settings-sessions-select-visible = Select all visible other sessions
+settings-sessions-current-protected = This session stays signed in and cannot be selected here. Use Sign out to end it.
+settings-sessions-selected-title = Sign out selected sessions ({ $count })
+settings-sessions-selected-confirm = End only the selected other sessions. This session stays signed in. Failed or skipped requests will be reported without automatic retries.
+settings-sessions-selected-action = Sign out selected sessions
+settings-sessions-cancel = Cancel
+settings-sessions-selected-result = Signed out: { $revoked }. Already ended: { $unchanged }. Could not confirm: { $failed }. Not attempted: { $skipped }.
+settings-sessions-refresh-failed = The session list could not be refreshed. Reload it before selecting more sessions.

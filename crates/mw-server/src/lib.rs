@@ -2040,7 +2040,7 @@ fn add_cors_headers(h: &mut HeaderMap, origin: HeaderValue) {
     // on every request (t32-cfg §4.18); a preflight listing it must be allowed.
     h.insert(
         header::ACCESS_CONTROL_ALLOW_HEADERS,
-        HeaderValue::from_static("authorization, content-type, x-csrf-token, x-mailwoman-client, if-match"),
+        HeaderValue::from_static("authorization, content-type, x-csrf-token, x-mailwoman-client, x-mailwoman-account, if-match"),
     );
     h.insert(
         header::ACCESS_CONTROL_EXPOSE_HEADERS,

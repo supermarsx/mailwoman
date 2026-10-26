@@ -625,6 +625,33 @@ fn now_unix() -> u64 {
         .as_secs()
 }
 
+#[tokio::test]
+async fn session_revocation_refuses_a_stale_selected_account_before_mutating() {
+    let db = temp_db("session-account-fence");
+    let mock = spawn_mock().await;
+    let addr = spawn_server(&db).await;
+    let base = format!("http://{addr}");
+    let store = seed_store(&db).await;
+    store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+        key:"signin.retryCooldownSecs".into(), global_value:Some("0".into()),
+        allow_user_override:false,global_locked:false,updated_by:"fixture".into(),updated_at:1,
+    }).await.unwrap();
+    let first=client();let other=client();
+    for client in [&first,&other] {
+        assert_eq!(post(client,format!("{base}/api/login"),login_body(&mock)).await.status(),200);
+    }
+    let me:Value=first.get(format!("{base}/api/me")).send().await.unwrap().json().await.unwrap();
+    let response=first.post(format!("{base}/api/account/sessions/revoke"))
+        .header("x-mailwoman-account","not-the-authenticated-account").json(&json!({"all":true})).send().await.unwrap();
+    assert_eq!(response.status(),409);
+    assert_eq!(other.get(format!("{base}/api/me")).send().await.unwrap().status(),200);
+    let response=first.post(format!("{base}/api/account/sessions/revoke"))
+        .header("x-mailwoman-account",me["accountId"].as_str().unwrap()).json(&json!({"all":true})).send().await.unwrap();
+    assert_eq!(response.status(),200);
+    assert_eq!(other.get(format!("{base}/api/me")).send().await.unwrap().status(),401);
+    assert_eq!(first.get(format!("{base}/api/me")).send().await.unwrap().status(),200);
+}
+
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle)
 }
