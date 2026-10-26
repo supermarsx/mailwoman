@@ -1,7 +1,7 @@
 import { test, expect } from '../csrf.ts';
+import {adminLogin} from './admin-login.ts';
 test('effective configuration renders the actual endpoint on desktop and phone @phone', async ({ page }) => {
-  await page.goto('/admin'); await page.getByLabel('Admin username').fill('root'); await page.getByLabel('Password', { exact: true }).fill('hunter2'); await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
+  await adminLogin(page);
   const response = page.waitForResponse(r => r.url().includes('/config/effective') && r.request().method() === 'GET');
   await page.goto('/admin#/config');
   const api = await response; expect(api.status()).toBe(200);

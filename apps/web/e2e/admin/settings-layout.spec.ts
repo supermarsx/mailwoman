@@ -1,11 +1,8 @@
 import { test, expect } from '../csrf.ts';
+import {adminLogin} from './admin-login.ts';
 
 test('settings actions are icons and the detail fits the scrolling viewport @phone', async ({ page }) => {
-  await page.goto('/admin');
-  await page.getByLabel('Admin username').fill('root');
-  await page.getByLabel('Password', { exact: true }).fill('hunter2');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
+  await adminLogin(page);
   await page.goto('/admin#/settings');
   const open = page.getByRole('link', { name: /^Open / }).first();
   await expect(open).toBeVisible();
