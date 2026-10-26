@@ -39,6 +39,10 @@ pub mod engine_mode;
 mod attachment_preview;
 mod delivery_status;
 mod branding_routes;
+mod analytics_adapter;
+mod analytics_config;
+mod analytics_routes;
+mod analytics_runtime;
 mod login_failure;
 pub mod fonts;
 pub mod hardening;
@@ -879,6 +883,7 @@ pub(crate) struct AppState {
     /// or an admin sets a require-2FA policy — the default login path is unchanged.
     pub(crate) twofa: Arc<twofa_routes::TwofaState>,
     pub(crate) step_up: Arc<step_up::StepUpState>,
+    pub(crate) analytics: Arc<analytics_runtime::Runtime>,
     /// t16 (26.16, e3, A1): the GAL/LDAP directory handle, so the login path can add
     /// an LDAP-bind pre-check (§18.3) when `MW_LDAP_BIND_AUTH` is set. Inert (never
     /// consulted) unless that env flag is on — the default login path is unchanged.
@@ -1303,6 +1308,7 @@ async fn build_app_inner(
         v6,
         twofa: Arc::new(twofa_routes::TwofaState::new()),
         step_up: Arc::new(step_up::StepUpState::new()),
+        analytics: Arc::new(analytics_runtime::Runtime::default()),
         directory: directory.clone(),
     };
     jobs::start(state.clone());
@@ -1450,6 +1456,7 @@ fn router(
         .merge(attachment_preview::router())
         .merge(delivery_status::router())
         .merge(branding_routes::router())
+        .merge(analytics_routes::router())
         .route("/jmap/session", get(jmap_session))
         .route("/jmap/api", post(jmap_api).route_layer(middleware::from_fn_with_state(state.clone(), scope_mw::jmap_sieve_scope_guard)))
         .route(

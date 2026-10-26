@@ -50,6 +50,7 @@ import { AccountSettings } from './Settings/index.ts';
 import { Language } from './Settings/Language.tsx';
 import { SecurityCenter } from './Settings/SecurityCenter.tsx';
 import { Privacy } from './Settings/Privacy.tsx';
+import { AnalyticsConsent } from './Settings/AnalyticsConsent.tsx';
 import { ComposePreferences } from './Settings/ComposePreferences.tsx';
 import { ReaderAppearanceSettings } from './Settings/ReaderAppearance.tsx';
 import { LockNote } from './Settings/LockNote.tsx';
@@ -268,7 +269,7 @@ export function Settings(props: SettingsProps): JSX.Element {
                 <AccountSettings hideSecurity onSearchFoldersChanged={() => app.refreshFolders()} {...(props.embedded ? {section:()=>navigation.route().section} : {})} />
               </AsyncBoundary>
               <Show when={visible('security')}><AsyncBoundary><SecurityCenter /></AsyncBoundary></Show>
-              <Show when={visible('privacy')}><AsyncBoundary><Privacy /></AsyncBoundary></Show>
+              <Show when={visible('privacy')}><AsyncBoundary><Privacy /><AnalyticsConsent /></AsyncBoundary></Show>
               <Show when={visible('folders')}><AsyncBoundary><FolderPreferences folders={app.mailboxes}/></AsyncBoundary></Show>
               <Show when={visible('compose')}><AsyncBoundary><ComposePreferences /></AsyncBoundary></Show>
               <Show when={visible('reader')}><AsyncBoundary><ReaderAppearanceSettings /></AsyncBoundary></Show>

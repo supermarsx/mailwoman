@@ -7,8 +7,8 @@
 //! one without turning the refusal off.
 //!
 //! # What an entry can never do
-//! * **Widen another class.** Only [`TrafficClass::Webhooks`] and
-//!   [`TrafficClass::Siem`] are eligible ([`TrafficClass::internal_allow_eligible`]);
+//! * **Widen another class.** Only [`TrafficClass::Webhooks`],
+//!   [`TrafficClass::Siem`] and [`TrafficClass::Analytics`] are eligible ([`TrafficClass::internal_allow_eligible`]);
 //!   [`AllowEntry::new`] refuses the rest, and [`InternalAllowList::permits`] checks
 //!   again, so a list built some other way cannot widen remote content either.
 //! * **Reach loopback, link-local or the cloud-metadata address.** A match is
@@ -188,7 +188,9 @@ impl AllowEntry {
         destination: AllowDestination,
     ) -> Result<AllowEntry, &'static str> {
         if !class.internal_allow_eligible() {
-            return Err("only the webhooks and siem classes may reach internal destinations");
+            return Err(
+                "only the webhooks, siem and analytics classes may reach internal destinations",
+            );
         }
         Ok(AllowEntry { class, destination })
     }
@@ -444,6 +446,47 @@ mod tests {
                 assert!(!l.permits(c, "siem", 6514, &ip("10.20.9.9")), "{c}");
             }
         }
+    }
+
+    #[test]
+    fn analytics_permission_is_scoped_and_cannot_admit_metadata_or_loopback() {
+        let l = list(&[(TrafficClass::Analytics, "collector.corp.example:443")]);
+        assert!(l.permits(
+            TrafficClass::Analytics,
+            "collector.corp.example",
+            443,
+            &ip("10.20.9.9")
+        ));
+        for class in TrafficClass::ALL {
+            if class != TrafficClass::Analytics {
+                assert!(!l.permits(class, "collector.corp.example", 443, &ip("10.20.9.9")));
+            }
+        }
+        for address in [
+            "127.0.0.1",
+            "::1",
+            "169.254.169.254",
+            "::ffff:169.254.169.254",
+        ] {
+            assert!(!l.permits(
+                TrafficClass::Analytics,
+                "collector.corp.example",
+                443,
+                &ip(address)
+            ));
+        }
+        assert!(!l.permits(
+            TrafficClass::Analytics,
+            "other.corp.example",
+            443,
+            &ip("10.20.9.9")
+        ));
+        assert!(!l.permits(
+            TrafficClass::Analytics,
+            "collector.corp.example",
+            80,
+            &ip("10.20.9.9")
+        ));
     }
 
     #[test]

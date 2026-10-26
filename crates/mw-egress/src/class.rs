@@ -45,6 +45,8 @@ pub enum TrafficClass {
     Unsubscribe,
     /// Audit log forwarding to a SIEM. May use the internal-destination allowlist.
     Siem,
+    /// Explicitly opted-in application event counts for a configured collector.
+    Analytics,
     /// OAuth token and device-code endpoints of mail providers.
     Oauth,
     /// The release feed polled by the optional update check.
@@ -59,7 +61,7 @@ pub const CLASS_UA: &str = "Mailwoman";
 
 impl TrafficClass {
     /// Every class, in declaration order.
-    pub const ALL: [TrafficClass; 12] = [
+    pub const ALL: [TrafficClass; 13] = [
         TrafficClass::RemoteContent,
         TrafficClass::IcsFeeds,
         TrafficClass::Keyservers,
@@ -69,6 +71,7 @@ impl TrafficClass {
         TrafficClass::DnsAuth,
         TrafficClass::Unsubscribe,
         TrafficClass::Siem,
+        TrafficClass::Analytics,
         TrafficClass::Oauth,
         TrafficClass::UpdateCheck,
         TrafficClass::Sieve,
@@ -92,6 +95,7 @@ impl TrafficClass {
             TrafficClass::DnsAuth => "dns_auth",
             TrafficClass::Unsubscribe => "unsubscribe",
             TrafficClass::Siem => "siem",
+            TrafficClass::Analytics => "analytics",
             TrafficClass::Oauth => "oauth",
             TrafficClass::UpdateCheck => "update_check",
             TrafficClass::Sieve => "sieve",
@@ -105,10 +109,13 @@ impl TrafficClass {
     }
 
     /// Whether the admin's internal-destination allowlist may widen this class's
-    /// address policy. Exactly the two classes migration 0033's CHECK constraint on
-    /// `egress_internal_allow.traffic_class` names; keep the two in step.
+    /// address policy. Matches the classes in migration 0047's CHECK constraint on
+    /// `egress_internal_allow.traffic_class`.
     pub const fn internal_allow_eligible(self) -> bool {
-        matches!(self, TrafficClass::Webhooks | TrafficClass::Siem)
+        matches!(
+            self,
+            TrafficClass::Webhooks | TrafficClass::Siem | TrafficClass::Analytics
+        )
     }
 
     /// The `User-Agent` this class sends unless the caller supplies its own.
@@ -167,6 +174,7 @@ mod tests {
                 "dns_auth",
                 "unsubscribe",
                 "siem",
+                "analytics",
                 "oauth",
                 "update_check",
                 "sieve",
@@ -189,12 +197,19 @@ mod tests {
     }
 
     #[test]
-    fn only_webhooks_and_siem_may_use_the_internal_allowlist() {
+    fn only_explicit_collector_classes_may_use_the_internal_allowlist() {
         let eligible: Vec<_> = TrafficClass::ALL
             .into_iter()
             .filter(|c| c.internal_allow_eligible())
             .collect();
-        assert_eq!(eligible, [TrafficClass::Webhooks, TrafficClass::Siem]);
+        assert_eq!(
+            eligible,
+            [
+                TrafficClass::Webhooks,
+                TrafficClass::Siem,
+                TrafficClass::Analytics
+            ]
+        );
     }
 
     #[test]

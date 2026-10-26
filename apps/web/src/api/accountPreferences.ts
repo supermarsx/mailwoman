@@ -6,6 +6,7 @@ import { observePreferenceAccount, preferenceAccount, preferenceAccountIsCurrent
 export const FOLDER_ICONS = ['folder', 'star', 'flag', 'tag', 'clock', 'calendar', 'file', 'image', 'lock', 'users', 'archive', 'mail', 'attachment', 'check', 'alert'] as const;
 export type FolderIcon = typeof FOLDER_ICONS[number];
 export interface AccountUiPreferences {
+  analyticsConsent?: boolean;
   keyboardPreset?: 'default' | 'gmail' | 'outlook' | 'vim' | 'off';
   direction?: 'auto' | 'ltr' | 'rtl';
   markRead?: 'on-open' | 'never';

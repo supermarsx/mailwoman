@@ -9,6 +9,8 @@ const MAX_BYTES: usize = 65_536;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct Preferences {
     #[serde(skip_serializing_if = "Option::is_none")]
+    analytics_consent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     keyboard_preset: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     workspace_layout: Option<String>,

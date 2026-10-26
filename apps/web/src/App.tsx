@@ -14,6 +14,7 @@ import { AsyncBoundary, LazyRoute } from './components/ErrorBoundary.tsx';
 import { AsyncError, AsyncPending } from './components/AsyncState.tsx';
 import { t } from './i18n/index.ts';
 import { clearSettings, loadSettings } from './api/settings.ts';
+import { startAnalytics } from './api/startAnalytics.ts';
 
 // Every route below is a DYNAMIC IMPORT, and each now loads through `LazyRoute`
 // rather than a bare `<Suspense fallback="Loading…">`. A chunk that fails to
@@ -89,6 +90,7 @@ export function App(): JSX.Element {
 
   const client = createConfiguredClient();
   const app = createAppState(client);
+  startAnalytics();
   createEffect(on(app.accountId, account => {
     clearSettings();
     if (account) void loadSettings();

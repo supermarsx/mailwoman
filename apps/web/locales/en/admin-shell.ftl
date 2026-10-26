@@ -213,3 +213,4 @@ admin-diag-no-match = No checks match this filter.
 admin-diag-limits = Up to { $checks } checks, { $concurrency } concurrent connections, { $check } seconds per check including queue time, and { $run } seconds for probe work.
 
 admin-login-retry-countdown = Try again in { $seconds } seconds.
+admin-analytics-title = Usage analytics
