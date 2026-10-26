@@ -2224,6 +2224,20 @@ const TABLES: &[TableSpec] = &[
             ]
         },
     },
+    // Approved cloud authority and account-bound sealed credentials must move
+    // together. The server key is preserved by the store migration contract.
+    TableSpec {
+        name: "nextcloud_instance",
+        select: "SELECT id,name,base_url,enabled,revision,ca_pem FROM nextcloud_instance",
+        insert: "INSERT INTO nextcloud_instance(id,name,base_url,enabled,revision,ca_pem) VALUES(?1,?2,?3,?4,?5,?6)",
+        map: |r| vec![t(r, "id"), t(r, "name"), t(r, "base_url"), i(r, "enabled"), t(r, "revision"), t(r, "ca_pem")],
+    },
+    TableSpec {
+        name: "nextcloud_account_link",
+        select: "SELECT account_id,instance_id,instance_revision,username,sealed_password,revision FROM nextcloud_account_link",
+        insert: "INSERT INTO nextcloud_account_link(account_id,instance_id,instance_revision,username,sealed_password,revision) VALUES(?1,?2,?3,?4,?5,?6)",
+        map: |r| vec![t(r, "account_id"), t(r, "instance_id"), t(r, "instance_revision"), t(r, "username"), b(r, "sealed_password"), t(r, "revision")],
+    },
     TableSpec {
         name: "metric_rollup",
         select: "SELECT series, hour, instance, value_json FROM metric_rollup",
