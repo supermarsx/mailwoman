@@ -342,6 +342,56 @@ impl PluginCtx {
     }
 }
 
+/// A cached instance is reusable only after the guest call returns normally.
+/// Holding the cache lock serializes calls; Drop evicts on trap or cancellation.
+struct SessionLease<'a, T> {
+    slot: tokio::sync::MutexGuard<'a, Option<T>>,
+    completed: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl<'a, T> SessionLease<'a, T> {
+    fn new(slot: tokio::sync::MutexGuard<'a, Option<T>>) -> Self {
+        Self {
+            slot,
+            completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+    fn completion(&self) -> Arc<std::sync::atomic::AtomicBool> {
+        self.completed.clone()
+    }
+}
+impl<T> std::ops::Deref for SessionLease<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.slot.as_ref().expect("initialized guest lease")
+    }
+}
+impl<T> std::ops::DerefMut for SessionLease<'_, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.slot.as_mut().expect("initialized guest lease")
+    }
+}
+impl<T> Drop for SessionLease<'_, T> {
+    fn drop(&mut self) {
+        if !self.completed.load(std::sync::atomic::Ordering::Relaxed) {
+            self.slot.take();
+        }
+    }
+}
+
+/// Instantiation and each operation have the same configured resource budget.
+/// Idle time never consumes the next operation's budget.
+fn reset_operation_budget(
+    store: &mut wasmtime::Store<host_state::HostState>,
+    limits: &PluginLimits,
+) -> Result<()> {
+    store.set_epoch_deadline(engine::EpochTicker::ticks_for(limits.deadline_ms));
+    store.epoch_deadline_trap();
+    store
+        .set_fuel(limits.fuel.unwrap_or(u64::MAX))
+        .map_err(|e| PluginError::Load(format!("set operation fuel: {e}")))
+}
+
 /// The plugin host + in-memory registry (plan §2.1). Consumed by e8 (engine) +
 /// e14 (mount). Owns the wasmtime `Engine`, the epoch ticker, the injected host
 /// services, and the signing trust root.
@@ -528,6 +578,131 @@ impl PluginHost {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lifecycle_handle(host: &PluginHost, bytes: &[u8]) -> PluginHandle {
+        let caps = vec![
+            Capability::AccountBackend,
+            Capability::Net,
+            Capability::AddrbookSource,
+        ];
+        host.load(
+            bytes,
+            &PluginManifest {
+                id: "lifecycle".into(),
+                name: "Lifecycle fixture".into(),
+                version: "0".into(),
+                signature: None,
+                capabilities: caps.clone(),
+                net_allowlist: vec!["fixture.test".into()],
+                limits: PluginLimits {
+                    deadline_ms: 1_000,
+                    fuel: None,
+                    memory_mb: 64,
+                },
+            },
+            &Grant {
+                plugin_id: "lifecycle".into(),
+                capabilities: caps,
+                granted_by: "test".into(),
+                allow_unsigned: true,
+            },
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn cached_mail_and_pim_operations_receive_fresh_budgets_after_idle() {
+        let host = PluginHost::new();
+        let mail = lifecycle_handle(&host, include_bytes!("../tests/fixtures/guest.wasm"));
+        let pim = lifecycle_handle(&host, include_bytes!("../tests/fixtures/pim-guest.wasm"));
+        let backend = mail.as_account_backend().unwrap();
+        let calendar = pim.as_bridge_calendar().unwrap();
+        assert_eq!(backend.list_mailboxes().await.unwrap().len(), 2);
+        assert_eq!(calendar.list_calendars().await.unwrap().len(), 1);
+        // Advance the real engine clock past both cached deadlines deterministically.
+        for _ in 0..500 {
+            host.engine.increment_epoch();
+        }
+        assert_eq!(backend.list_mailboxes().await.unwrap().len(), 2);
+        assert_eq!(calendar.list_calendars().await.unwrap().len(), 1);
+        // A typed guest refusal is not a component trap.
+        assert!(
+            backend
+                .append(
+                    &mw_engine::RawMailboxRef {
+                        name: "INBOX".into(),
+                        uidvalidity: 1
+                    },
+                    b"mail",
+                    &[]
+                )
+                .await
+                .is_err()
+        );
+        assert_eq!(backend.list_mailboxes().await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn cached_pim_recovers_after_actual_guest_deadline_trap() {
+        let host = PluginHost::new();
+        let handle = lifecycle_handle(&host, include_bytes!("../tests/fixtures/pim-guest.wasm"));
+        let calendar = handle.as_bridge_calendar().unwrap();
+        assert!(calendar.sync_events("loop", b"").await.is_err());
+        // The SAME adapter must instantiate a fresh guest, not re-enter the trapped one.
+        assert_eq!(calendar.list_calendars().await.unwrap().len(), 1);
+    }
+
+    struct PendingLifecycleHttp(tokio::sync::Notify);
+    #[async_trait::async_trait]
+    impl HttpFetcher for PendingLifecycleHttp {
+        async fn fetch(&self, _: HttpReq) -> std::result::Result<HttpResp, String> {
+            self.0.notify_one();
+            std::future::pending().await
+        }
+    }
+
+    #[tokio::test]
+    async fn canceled_actual_guest_call_evicts_lease_without_replaying() {
+        let http = Arc::new(PendingLifecycleHttp(tokio::sync::Notify::new()));
+        let host = PluginHost::try_new(
+            HostServices {
+                http: http.clone(),
+                ..Default::default()
+            },
+            TrustRoot::empty(),
+        )
+        .unwrap();
+        let handle = lifecycle_handle(&host, include_bytes!("../tests/fixtures/guest.wasm"));
+        let slot = tokio::sync::Mutex::new(Some(handle.ctx.instantiate().await.unwrap()));
+        {
+            let mut lease = SessionLease::new(slot.lock().await);
+            reset_operation_budget(&mut lease.store, &handle.ctx.limits).unwrap();
+            let adapter::GuestSession { store, plugin } = &mut *lease;
+            let source = plugin.mailwoman_plugin_addrbook_source();
+            let call = source.call_search(&mut *store, "https://fixture.test/pending");
+            tokio::pin!(call);
+            tokio::select! {
+                _ = http.0.notified() => {},
+                result = &mut call => panic!("guest must suspend in host HTTP: {result:?}"),
+                _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => panic!("host HTTP was never reached"),
+            }
+            // Drop the suspended call before dropping its owning lease.
+        }
+        assert!(
+            slot.lock().await.is_none(),
+            "canceled component must not remain cached"
+        );
+        assert_eq!(
+            handle
+                .as_account_backend()
+                .unwrap()
+                .list_mailboxes()
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+    }
 
     #[test]
     fn manifest_round_trips_and_defaults_deny() {

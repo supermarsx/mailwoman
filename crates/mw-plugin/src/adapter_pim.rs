@@ -123,7 +123,7 @@ pub(crate) struct PimSupport {
 /// exactly like [`crate::adapter::AccountBackendAdapter`].
 pub(crate) struct PluginPimBackend {
     ctx: Arc<PluginCtx>,
-    session: Mutex<Option<Arc<Mutex<PimSession>>>>,
+    session: Mutex<Option<PimSession>>,
 }
 
 impl PluginPimBackend {
@@ -157,26 +157,27 @@ impl PluginPimBackend {
     /// Get (or lazily instantiate) the persistent `plugin-pim` session, under the
     /// SAME resource limits (memory ceiling + epoch deadline + fuel) as the
     /// account-backend path.
-    async fn session(&self) -> Result<Arc<Mutex<PimSession>>> {
+    async fn session(&self) -> Result<crate::SessionLease<'_, PimSession>> {
         self.ctx.admit(self.ctx.bound_account.as_deref()).await?;
         let mut slot = self.session.lock().await;
-        if let Some(s) = slot.as_ref() {
-            return Ok(s.clone());
+        if slot.is_none() {
+            let mut store = new_store(
+                &self.ctx.engine,
+                self.ctx.gate.clone(),
+                self.ctx.services.clone(),
+                &self.ctx.limits,
+                self.ctx.plugin_id.clone(),
+                self.ctx.bound_account.clone(),
+            )?;
+            let pim =
+                PluginPim::instantiate_async(&mut store, &self.ctx.component, &self.ctx.linker)
+                    .await
+                    .map_err(|e| map_call_err(&store, e))?;
+            *slot = Some(PimSession { store, pim });
         }
-        let mut store = new_store(
-            &self.ctx.engine,
-            self.ctx.gate.clone(),
-            self.ctx.services.clone(),
-            &self.ctx.limits,
-            self.ctx.plugin_id.clone(),
-            self.ctx.bound_account.clone(),
-        )?;
-        let pim = PluginPim::instantiate_async(&mut store, &self.ctx.component, &self.ctx.linker)
-            .await
-            .map_err(|e| map_call_err(&store, e))?;
-        let arc = Arc::new(Mutex::new(PimSession { store, pim }));
-        *slot = Some(arc.clone());
-        Ok(arc)
+        let mut lease = crate::SessionLease::new(slot);
+        crate::reset_operation_budget(&mut lease.store, &self.ctx.limits)?;
+        Ok(lease)
     }
 
     // ── supports-*() honesty probe (calls into the guest) ─────────────────────────
@@ -184,8 +185,8 @@ impl PluginPimBackend {
     pub(crate) async fn supports(&self) -> Result<PimSupport> {
         let probe = self.probe();
         self.ensure(probe.any())?;
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let PimSession { store, pim } = &mut *g;
         let mut out = PimSupport::default();
         if probe.calendar {
@@ -221,6 +222,7 @@ impl PluginPimBackend {
                 .await
                 .map_err(|e| map_call_err(store, e))?;
         }
+        completed.store(true, std::sync::atomic::Ordering::Relaxed);
         Ok(out)
     }
 
@@ -228,13 +230,14 @@ impl PluginPimBackend {
 
     pub(crate) async fn calendars_list(&self) -> Result<Vec<BridgeCalendarInfo>> {
         self.ensure(self.probe().calendar)?;
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let PimSession { store, pim } = &mut *g;
         let cal = pim.mailwoman_plugin_calendar();
         let list = cal
             .call_list_calendars(&mut *store)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| map_call_err(store, e))?
             .map_err(wit_pim_err)?;
         Ok(list.into_iter().map(cal_info_to_engine).collect())
@@ -246,8 +249,8 @@ impl PluginPimBackend {
         cursor: &[u8],
     ) -> Result<BridgeEventDelta> {
         self.ensure(self.probe().calendar)?;
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let PimSession { store, pim } = &mut *g;
         let cal = pim.mailwoman_plugin_calendar();
         let wcur = wpim::SyncCursor {
@@ -256,6 +259,7 @@ impl PluginPimBackend {
         let delta = cal
             .call_sync_events(&mut *store, calendar_id, &wcur)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| map_call_err(store, e))?
             .map_err(wit_pim_err)?;
         Ok(event_delta_to_engine(delta))
@@ -263,13 +267,14 @@ impl PluginPimBackend {
 
     pub(crate) async fn rooms_find(&self) -> Result<Vec<BridgeRoomInfo>> {
         self.ensure(self.probe().calendar)?;
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let PimSession { store, pim } = &mut *g;
         let cal = pim.mailwoman_plugin_calendar();
         let rooms = cal
             .call_find_rooms(&mut *store)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| map_call_err(store, e))?
             .map_err(wit_pim_err)?;
         Ok(rooms.into_iter().map(room_info_to_engine).collect())
@@ -277,12 +282,13 @@ impl PluginPimBackend {
 
     pub(crate) async fn schedule_get(&self, who: &str, start: &str, end: &str) -> Result<String> {
         self.ensure(self.probe().calendar)?;
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let PimSession { store, pim } = &mut *g;
         let cal = pim.mailwoman_plugin_calendar();
         cal.call_get_schedule(&mut *store, who, start, end)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| map_call_err(store, e))?
             .map_err(wit_pim_err)
     }
@@ -291,13 +297,14 @@ impl PluginPimBackend {
 
     pub(crate) async fn tasks_list(&self) -> Result<Vec<BridgeTaskInfo>> {
         self.ensure(self.probe().tasks)?;
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let PimSession { store, pim } = &mut *g;
         let t = pim.mailwoman_plugin_tasks();
         let list = t
             .call_list_tasks(&mut *store)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| map_call_err(store, e))?
             .map_err(wit_pim_err)?;
         Ok(list.into_iter().map(task_info_to_engine).collect())
@@ -305,8 +312,8 @@ impl PluginPimBackend {
 
     pub(crate) async fn tasks_sync(&self, list_id: &str, cursor: &[u8]) -> Result<BridgeTaskDelta> {
         self.ensure(self.probe().tasks)?;
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let PimSession { store, pim } = &mut *g;
         let t = pim.mailwoman_plugin_tasks();
         let wcur = wpim::SyncCursor {
@@ -315,6 +322,7 @@ impl PluginPimBackend {
         let delta = t
             .call_sync_tasks(&mut *store, list_id, &wcur)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| map_call_err(store, e))?
             .map_err(wit_pim_err)?;
         Ok(task_delta_to_engine(delta))
@@ -322,12 +330,13 @@ impl PluginPimBackend {
 
     pub(crate) async fn task_complete(&self, id: &str) -> Result<()> {
         self.ensure(self.probe().tasks)?;
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let PimSession { store, pim } = &mut *g;
         let t = pim.mailwoman_plugin_tasks();
         t.call_complete(&mut *store, id)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| map_call_err(store, e))?
             .map_err(wit_pim_err)
     }
@@ -342,12 +351,13 @@ impl PluginPimBackend {
     ) -> Result<()> {
         self.ensure(self.probe().parity)?;
         let wmsg = msgref_to_pim(msg)?;
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let PimSession { store, pim } = &mut *g;
         let p = pim.mailwoman_plugin_bridge_parity();
         p.call_set_reaction(&mut *store, &wmsg, emoji, add)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| map_call_err(store, e))?
             .map_err(wit_pim_err)
     }
@@ -355,13 +365,14 @@ impl PluginPimBackend {
     pub(crate) async fn reactions_get(&self, msg: &MessageRef) -> Result<Vec<BridgeReaction>> {
         self.ensure(self.probe().parity)?;
         let wmsg = msgref_to_pim(msg)?;
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let PimSession { store, pim } = &mut *g;
         let p = pim.mailwoman_plugin_bridge_parity();
         let rs = p
             .call_get_reactions(&mut *store, &wmsg)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| map_call_err(store, e))?
             .map_err(wit_pim_err)?;
         Ok(rs.into_iter().map(reaction_to_engine).collect())
@@ -370,12 +381,13 @@ impl PluginPimBackend {
     pub(crate) async fn vote_cast(&self, msg: &MessageRef, choice: &str) -> Result<()> {
         self.ensure(self.probe().parity)?;
         let wmsg = msgref_to_pim(msg)?;
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let PimSession { store, pim } = &mut *g;
         let p = pim.mailwoman_plugin_bridge_parity();
         p.call_cast_vote(&mut *store, &wmsg, choice)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| map_call_err(store, e))?
             .map_err(wit_pim_err)
     }
@@ -383,13 +395,14 @@ impl PluginPimBackend {
     pub(crate) async fn vote_tally(&self, msg: &MessageRef) -> Result<Vec<BridgeVoteTally>> {
         self.ensure(self.probe().parity)?;
         let wmsg = msgref_to_pim(msg)?;
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let PimSession { store, pim } = &mut *g;
         let p = pim.mailwoman_plugin_bridge_parity();
         let t = p
             .call_tally(&mut *store, &wmsg)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| map_call_err(store, e))?
             .map_err(wit_pim_err)?;
         Ok(t.into_iter().map(vote_tally_to_engine).collect())
@@ -398,13 +411,14 @@ impl PluginPimBackend {
     pub(crate) async fn msg_recall(&self, msg: &MessageRef) -> Result<RecallOutcome> {
         self.ensure(self.probe().parity)?;
         let wmsg = msgref_to_pim(msg)?;
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let PimSession { store, pim } = &mut *g;
         let p = pim.mailwoman_plugin_bridge_parity();
         let out = p
             .call_recall(&mut *store, &wmsg)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| map_call_err(store, e))?
             .map_err(wit_pim_err)?;
         Ok(recall_outcome_to_engine(out))
@@ -413,13 +427,14 @@ impl PluginPimBackend {
     pub(crate) async fn focused_get(&self, msg: &MessageRef) -> Result<FocusedState> {
         self.ensure(self.probe().parity)?;
         let wmsg = msgref_to_pim(msg)?;
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let PimSession { store, pim } = &mut *g;
         let p = pim.mailwoman_plugin_bridge_parity();
         let f = p
             .call_get_focused(&mut *store, &wmsg)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| map_call_err(store, e))?
             .map_err(wit_pim_err)?;
         Ok(focused_state_to_engine(f))
@@ -428,12 +443,13 @@ impl PluginPimBackend {
     pub(crate) async fn focused_set(&self, msg: &MessageRef, focused: bool) -> Result<()> {
         self.ensure(self.probe().parity)?;
         let wmsg = msgref_to_pim(msg)?;
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let PimSession { store, pim } = &mut *g;
         let p = pim.mailwoman_plugin_bridge_parity();
         p.call_set_focused(&mut *store, &wmsg, focused)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| map_call_err(store, e))?
             .map_err(wit_pim_err)
     }

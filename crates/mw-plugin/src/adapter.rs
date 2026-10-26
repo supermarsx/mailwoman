@@ -48,7 +48,7 @@ pub(crate) struct GuestSession {
 /// Holds one lazily-created, resource-limited session (instance-per-account).
 pub(crate) struct AccountBackendAdapter {
     ctx: Arc<PluginCtx>,
-    session: Mutex<Option<Arc<Mutex<GuestSession>>>>,
+    session: Mutex<Option<GuestSession>>,
 }
 
 impl AccountBackendAdapter {
@@ -60,32 +60,33 @@ impl AccountBackendAdapter {
     }
 
     /// Get (or lazily instantiate) the persistent session for this account.
-    async fn session(&self) -> Result<Arc<Mutex<GuestSession>>, EngineError> {
+    async fn session(&self) -> Result<crate::SessionLease<'_, GuestSession>, EngineError> {
         self.ctx
             .admit(self.ctx.bound_account.as_deref())
             .await
             .map_err(plugin_to_engine)?;
         let mut slot = self.session.lock().await;
-        if let Some(s) = slot.as_ref() {
-            return Ok(s.clone());
+        if slot.is_none() {
+            *slot = Some(self.ctx.instantiate().await.map_err(plugin_to_engine)?);
         }
-        let s = self.ctx.instantiate().await.map_err(plugin_to_engine)?;
-        let arc = Arc::new(Mutex::new(s));
-        *slot = Some(arc.clone());
-        Ok(arc)
+        let mut lease = crate::SessionLease::new(slot);
+        crate::reset_operation_budget(&mut lease.store, &self.ctx.limits)
+            .map_err(plugin_to_engine)?;
+        Ok(lease)
     }
 }
 
 #[async_trait]
 impl AccountBackend for AccountBackendAdapter {
     async fn capabilities(&self) -> mw_engine::Result<BackendCaps> {
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let GuestSession { store, plugin } = &mut *g;
         let ab = plugin.mailwoman_plugin_account_backend();
         let caps = ab
             .call_capabilities(&mut *store)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| trap_to_engine(store, e))?
             .map_err(wit_to_engine)?;
         Ok(BackendCaps {
@@ -96,13 +97,14 @@ impl AccountBackend for AccountBackendAdapter {
     }
 
     async fn list_mailboxes(&self) -> mw_engine::Result<Vec<RawMailbox>> {
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let GuestSession { store, plugin } = &mut *g;
         let ab = plugin.mailwoman_plugin_account_backend();
         let list = ab
             .call_list_mailboxes(&mut *store)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| trap_to_engine(store, e))?
             .map_err(wit_to_engine)?;
         Ok(list.into_iter().map(mailbox_to_engine).collect())
@@ -113,8 +115,8 @@ impl AccountBackend for AccountBackendAdapter {
         mbox: &RawMailboxRef,
         cursor: &SyncCursor,
     ) -> mw_engine::Result<MailboxDelta> {
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let GuestSession { store, plugin } = &mut *g;
         let ab = plugin.mailwoman_plugin_account_backend();
         let wmbox = mailbox_ref_to_wit(mbox);
@@ -122,14 +124,15 @@ impl AccountBackend for AccountBackendAdapter {
         let delta = ab
             .call_sync_mailbox(&mut *store, &wmbox, &wcur)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| trap_to_engine(store, e))?
             .map_err(wit_to_engine)?;
         delta_to_engine(delta)
     }
 
     async fn fetch_raw(&self, refs: &[MessageRef]) -> mw_engine::Result<Vec<RawMessage>> {
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let GuestSession { store, plugin } = &mut *g;
         let ab = plugin.mailwoman_plugin_account_backend();
         let wrefs: Vec<wit::MessageRef> =
@@ -137,6 +140,7 @@ impl AccountBackend for AccountBackendAdapter {
         let out = ab
             .call_fetch_raw(&mut *store, &wrefs)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| trap_to_engine(store, e))?
             .map_err(wit_to_engine)?;
         out.into_iter().map(rawmsg_to_engine).collect()
@@ -148,8 +152,8 @@ impl AccountBackend for AccountBackendAdapter {
         add: &[Flag],
         remove: &[Flag],
     ) -> mw_engine::Result<()> {
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let GuestSession { store, plugin } = &mut *g;
         let ab = plugin.mailwoman_plugin_account_backend();
         let wrefs: Vec<wit::MessageRef> =
@@ -158,6 +162,7 @@ impl AccountBackend for AccountBackendAdapter {
         let wrem: Vec<wit::Flag> = remove.iter().map(flag_to_wit).collect();
         ab.call_store_flags(&mut *store, &wrefs, &wadd, &wrem)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| trap_to_engine(store, e))?
             .map_err(wit_to_engine)
     }
@@ -167,8 +172,8 @@ impl AccountBackend for AccountBackendAdapter {
         refs: &[MessageRef],
         to: &RawMailboxRef,
     ) -> mw_engine::Result<MoveOutcome> {
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let GuestSession { store, plugin } = &mut *g;
         let ab = plugin.mailwoman_plugin_account_backend();
         let wrefs: Vec<wit::MessageRef> =
@@ -176,6 +181,7 @@ impl AccountBackend for AccountBackendAdapter {
         let wto = mailbox_ref_to_wit(to);
         ab.call_move_messages(&mut *store, &wrefs, &wto)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| trap_to_engine(store, e))?
             .map_err(wit_to_engine)?;
         // The WIT move returns unit; the engine re-derives destination refs by
@@ -189,8 +195,8 @@ impl AccountBackend for AccountBackendAdapter {
         raw: &[u8],
         flags: &[Flag],
     ) -> mw_engine::Result<MessageRef> {
-        let sess = self.session().await?;
-        let mut g = sess.lock().await;
+        let mut g = self.session().await?;
+        let completed = g.completion();
         let GuestSession { store, plugin } = &mut *g;
         let ab = plugin.mailwoman_plugin_account_backend();
         let wmbox = mailbox_ref_to_wit(mbox);
@@ -198,6 +204,7 @@ impl AccountBackend for AccountBackendAdapter {
         let r = ab
             .call_submit(&mut *store, &wmbox, raw, &wflags)
             .await
+            .inspect(|_| completed.store(true, std::sync::atomic::Ordering::Relaxed))
             .map_err(|e| trap_to_engine(store, e))?
             .map_err(wit_to_engine)?;
         msgref_to_engine(&r)
@@ -226,12 +233,14 @@ impl AccountBackend for AccountBackendAdapter {
                     }
                     _ = ticker.tick() => {
                         if ctx.admit(ctx.bound_account.as_deref()).await.is_err() { break; }
+                        if crate::reset_operation_budget(&mut sess.store, &ctx.limits).is_err() { break; }
                         let GuestSession { store, plugin } = &mut sess;
                         let ab = plugin.mailwoman_plugin_account_backend();
-                        if let Ok(Ok(events)) = ab.call_poll_changes(&mut *store).await {
-                            for ev in events {
-                                let _ = sink.emit(change_to_engine(ev));
-                            }
+                        match ab.call_poll_changes(&mut *store).await {
+                            Ok(Ok(events)) => for ev in events { let _ = sink.emit(change_to_engine(ev)); },
+                            Ok(Err(_)) => {},
+                            // Never call a trapped component again or retry a mutation.
+                            Err(_) => break,
                         }
                     }
                 }
