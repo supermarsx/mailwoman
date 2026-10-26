@@ -614,5 +614,5 @@ admin-settings-last-superadmin-confirm = Allow loss of access
 admin-settings-key-mail-resume-tabs = Resume workspace tabs
 admin-settings-help-mail-resume-tabs = Restore account-owned tab references after reload. Disabling this clears the local workspace record without deleting drafts.
 
-admin-settings-key-privacy-remoteImageDownloads = Manual remote image downloads
-admin-settings-help-privacy-remoteImageDownloads = Allow an explicit download of an image referenced by the owned message through the guarded privacy proxy. Disabled by default; this never opens the external URL directly.
+admin-settings-key-privacy-remote-image-downloads = Manual remote image downloads
+admin-settings-help-privacy-remote-image-downloads = Allow an explicit download of an image referenced by the owned message through the guarded privacy proxy. Disabled by default; this never opens the external URL directly.
