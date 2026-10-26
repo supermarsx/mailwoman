@@ -417,19 +417,59 @@ admin-settings-help-signin-anti-bot-expiry-secs = Seconds a single-use verificat
 
 admin-settings-key-attachments-preview-allowed = Allow attachment previews
 admin-settings-help-attachments-preview-allowed = Disable to prevent attachment preview rendering; original downloads have their own control.
+
 admin-settings-key-attachments-download-allowed = Allow original attachment delivery
 admin-settings-help-attachments-download-allowed = Disabling also prevents previews that require original bytes. Browser previews are not copy protection.
+
 admin-settings-key-attachments-max-bytes = Maximum attachment bytes
 admin-settings-help-attachments-max-bytes = Zero is unlimited. Applies to original delivered bytes, including range requests.
+
 admin-settings-key-attachments-allowed-extensions = Allowed filename extensions
 admin-settings-help-attachments-allowed-extensions = JSON array of lowercase extensions without a dot, such as ["pdf","tar.gz"]. Empty allows any extension; blocked rules win.
+
 admin-settings-key-attachments-blocked-extensions = Blocked filename extensions
 admin-settings-help-attachments-blocked-extensions = JSON array of lowercase extensions. Evaluated against stored MIME filenames, never the download URL name.
+
 admin-settings-key-attachments-warn-extensions = Warn for filename extensions
 admin-settings-help-attachments-warn-extensions = JSON array of extensions requiring explicit acknowledgement before original delivery.
+
 admin-settings-key-attachments-allowed-mime-types = Allowed MIME types
 admin-settings-help-attachments-allowed-mime-types = JSON array of lowercase types or top-level wildcards such as ["image/*","application/pdf"]. Empty allows any type.
+
 admin-settings-key-attachments-blocked-mime-types = Blocked MIME types
 admin-settings-help-attachments-blocked-mime-types = JSON array of lowercase types or top-level wildcards. Blocked rules take precedence.
+
 admin-settings-key-attachments-warn-mime-types = Warn for MIME types
 admin-settings-help-attachments-warn-mime-types = JSON array of lowercase types or top-level wildcards requiring acknowledgement. MIME metadata is not malware detection.
+
+admin-settings-cat-shortcuts = Keyboard shortcuts
+admin-settings-key-shortcuts-enabled = Enable keyboard shortcuts
+admin-settings-help-shortcuts-enabled = Allow application shortcuts. Locks can disable them globally or for a domain. Typing fields and modal dialogs retain their normal keyboard handling.
+admin-settings-key-shortcuts-compose = Compose shortcut
+admin-settings-help-shortcuts-compose = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-archive = Archive shortcut
+admin-settings-help-shortcuts-archive = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-reply = Reply shortcut
+admin-settings-help-shortcuts-reply = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-reply-all = Reply all shortcut
+admin-settings-help-shortcuts-reply-all = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-forward = Forward shortcut
+admin-settings-help-shortcuts-forward = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-next = Next message shortcut
+admin-settings-help-shortcuts-next = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-previous = Previous message shortcut
+admin-settings-help-shortcuts-previous = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-search = Focus search shortcut
+admin-settings-help-shortcuts-search = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-refresh = Refresh messages shortcut
+admin-settings-help-shortcuts-refresh = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-settings = Open settings shortcut
+admin-settings-help-shortcuts-settings = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-trash = Move to trash shortcut
+admin-settings-help-shortcuts-trash = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-mark-read = Mark read shortcut
+admin-settings-help-shortcuts-mark-read = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-mark-unread = Mark unread shortcut
+admin-settings-help-shortcuts-mark-unread = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-spam = Mark as spam shortcut
+admin-settings-help-shortcuts-spam = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.

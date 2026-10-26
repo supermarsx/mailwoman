@@ -643,6 +643,7 @@ Global solver counter ceiling, 100–20000, default2000. Higher values increase 
 ### `signin.antiBotExpirySecs`
 Global issued challenge lifetime, 60–600seconds, default180. Every proof is consumed atomically once before credential processing and bound to its login surface and trusted client network. At most10000 outstanding challenges and8 per network are retained; issuance also has a bounded process-local rate limit. Expired rows are removed during issuance. Issued proofs are deliberately omitted by migrate-store; users obtain fresh verification after migration. Replicas require the same persistent server key and database.
 
+
 ## Attachment access policy
 
 Global and domain administrators can restrict original attachment delivery and previews. Policy uses stored message MIME metadata; it does not detect malware or prevent copying bytes already delivered to a client. Under restrictive rules, whole-message and nested-message exports are refused rather than bypassing attachment controls. Proxy downloads require an owned email ID to resolve the blob metadata. Unnamed uploaded blobs cannot satisfy filename rules.
@@ -691,3 +692,25 @@ JSON array of lowercase types or top-level wildcards. Blocked rules take precede
 ### `attachments.warnMimeTypes`
 
 JSON array of lowercase types or top-level wildcards requiring acknowledgement. MIME metadata is not malware detection.
+
+## Keyboard shortcuts
+
+<a id="shortcuts.enabled"></a>
+`shortcuts.enabled` is a global/domain/user boolean, default true. False disables all application shortcuts. The user's Off preset also always disables them. Admin locks use the normal settings policy model.
+
+Each binding below is global/domain/user text (maximum 64 characters): `inherit` uses the selected preset; `disabled` removes that action; otherwise enter one key with optional Ctrl/Cmd, Alt and Shift modifiers. Duplicate chords disable all conflicting actions. Invalid bindings do not execute. Inputs, editors, IME and modal dialogs retain their usual keyboard behavior. Browser-reserved shortcuts may be unavailable on some platforms.
+
+- <a id="shortcuts.compose"></a>`shortcuts.compose` — Compose; default `inherit`.
+- <a id="shortcuts.archive"></a>`shortcuts.archive` — Archive; default `inherit`.
+- <a id="shortcuts.reply"></a>`shortcuts.reply` — Reply; default `inherit`.
+- <a id="shortcuts.replyAll"></a>`shortcuts.replyAll` — Reply all; default `inherit`.
+- <a id="shortcuts.forward"></a>`shortcuts.forward` — Forward; default `inherit`.
+- <a id="shortcuts.next"></a>`shortcuts.next` — Next message; default `inherit`.
+- <a id="shortcuts.previous"></a>`shortcuts.previous` — Previous message; default `inherit`.
+- <a id="shortcuts.search"></a>`shortcuts.search` — Focus search; default `inherit`.
+- <a id="shortcuts.refresh"></a>`shortcuts.refresh` — Refresh messages; default `inherit`.
+- <a id="shortcuts.settings"></a>`shortcuts.settings` — Open settings; default `inherit`.
+- <a id="shortcuts.trash"></a>`shortcuts.trash` — Move to trash; default `inherit`.
+- <a id="shortcuts.markRead"></a>`shortcuts.markRead` — Mark read; default `inherit`.
+- <a id="shortcuts.markUnread"></a>`shortcuts.markUnread` — Mark unread; default `inherit`.
+- <a id="shortcuts.spam"></a>`shortcuts.spam` — Mark as spam; default `inherit`.

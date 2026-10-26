@@ -556,6 +556,21 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!("mail.externalRecipientWarning", Kind::Enum(&["off", "warn", "confirm"]), "\"warn\"", GDU, "mail", "external recipient composer warning"),
     def!("mail.trustedRecipientDomains", Kind::StringList { max_len: 100, max_item: 253 }, "[]", GDU, "mail", "exact trusted recipient domains for composer warnings"),
+    def!("shortcuts.enabled", Kind::Bool, "true", GDU, "shortcuts", "enable application keyboard shortcuts"),
+    def!("shortcuts.compose", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for compose"),
+    def!("shortcuts.archive", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for archive"),
+    def!("shortcuts.reply", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for reply"),
+    def!("shortcuts.replyAll", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for replyAll"),
+    def!("shortcuts.forward", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for forward"),
+    def!("shortcuts.next", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for next"),
+    def!("shortcuts.previous", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for previous"),
+    def!("shortcuts.search", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for search"),
+    def!("shortcuts.refresh", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for refresh"),
+    def!("shortcuts.settings", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for settings"),
+    def!("shortcuts.trash", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for trash"),
+    def!("shortcuts.markRead", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for markRead"),
+    def!("shortcuts.markUnread", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for markUnread"),
+    def!("shortcuts.spam", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for spam"),
     def!("mail.quoteStyle", Kind::Enum(&["classic", "outlook"]), "\"classic\"", GDU, "mail", "reply and forward header style"),
     // ── Interface (user-facing) ──────────────────────────────────────────────
     def!("mail.quickReply", Kind::Bool, "false", GDU, "mail", "enable the compact message reply composer"),
@@ -1401,6 +1416,18 @@ fn check_text(shape: Text, s: &str) -> Result<(), &'static str> {
 /// Validate `value` for `def`. `field` is the JSON pointer of the value in the
 /// request body, used in the refusal. Returns the value to store (numbers are
 /// normalised: an integral float is accepted for an int key).
+fn valid_shortcut(value: &str) -> bool {
+    let value = value.trim();
+    if matches!(value, "inherit" | "disabled") { return true; }
+    if value.len() > 64 || value.is_empty() { return false; }
+    let (prefix, key) = if value == "+" { ("", "+") }
+        else if let Some(prefix) = value.strip_suffix("++") { (prefix, "+") }
+        else { value.rsplit_once('+').unwrap_or(("", value)) };
+    if !prefix.is_empty() && !prefix.split('+').all(|part| matches!(part.trim().to_ascii_lowercase().as_str(), "ctrl" | "cmd" | "meta" | "mod" | "alt" | "option" | "shift")) { return false; }
+    (key.chars().count() == 1 && !key.chars().any(char::is_control))
+        || matches!(key, "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight" | "Home" | "End" | "PageUp" | "PageDown" | "Delete" | "Del" | "Backspace" | "Insert" | "Escape" | "Esc" | "Tab" | "Enter" | "Space" | "F1" | "F2" | "F3" | "F4" | "F5" | "F6" | "F7" | "F8" | "F9" | "F10" | "F11" | "F12")
+}
+
 pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, Refusal> {
     if value.is_null() {
         return if def.nullable {
@@ -1410,6 +1437,10 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
         };
     }
     let bad = |detail: String| Err(Refusal::invalid(field, detail));
+    if def.key.starts_with("shortcuts.") && def.key != "shortcuts.enabled"
+        && !value.as_str().is_some_and(valid_shortcut) {
+        return bad("must be inherit, disabled, or one key with Ctrl, Alt and Shift modifiers".into());
+    }
     match def.kind {
         Kind::Bool => match value {
             Value::Bool(_) => Ok(value.clone()),
@@ -2595,5 +2626,16 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod shortcut_validation_tests {
+    use super::*;
+    #[test]
+    fn shortcut_chords_are_bounded_and_match_supported_browser_syntax() {
+        for value in ["inherit", "disabled", "Ctrl+Shift+K", "Cmd+ArrowDown", "Space", "Ctrl++", "+", "↓"] { assert!(valid_shortcut(value), "{value}"); }
+        for value in ["", "Hyper+x", "UnknownKey", "Ctrl+", "Ctrl+Shift+", "\n"] { assert!(!valid_shortcut(value), "{value:?}"); }
+        assert!(!valid_shortcut(&"x".repeat(65)));
     }
 }

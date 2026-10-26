@@ -933,6 +933,14 @@ function ReaderBody(props: ReaderProps): JSX.Element {
 
   // The `reply` shortcut (src/keymap/): the same as the toolbar's Reply button.
   useActions({
+    replyAll: () => {
+      if (props.active === false || app.openEmail() === null || props.onCompose === undefined) return false;
+      void startReply('reply-all'); return true;
+    },
+    forward: () => {
+      if (props.active === false || app.openEmail() === null || props.onCompose === undefined) return false;
+      void startReply('forward'); return true;
+    },
     reply: () => {
       if (props.active === false || app.openEmail() === null || props.onCompose === undefined) return false;
       void startReply('reply');

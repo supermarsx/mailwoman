@@ -287,7 +287,25 @@ export function MailboxScreen(): JSX.Element {
   // the preset chosen in Settings). `next`/`previous` are the message list's and
   // `reply` the reader's. Each declines (returns false) off the mail surface or
   // with nothing to act on, so the key does what it would have done anyway.
+  function shortcutTargets(): string[] {
+    if (surface() !== 'mail') return [];
+    if (subTabs.activeId() === 'mail') return app.actionTargets();
+    const pane = panes().find(item => item.id === subTabs.activeId());
+    const id = pane?.kind === 'messages' ? pane.view?.openEmail()?.id : undefined;
+    return id ? [id] : [];
+  }
+  function shortcutMailAction(action: (ids: string[]) => unknown): boolean {
+    const ids = shortcutTargets();
+    if (!ids.length) return false;
+    void action(ids); return true;
+  }
   useActions({
+    settings: () => { openSettings(); return true; },
+    refresh: () => { if (surface() !== 'mail') return false; void app.refreshCurrentMailbox(); return true; },
+    trash: () => shortcutMailAction(ids => app.trashMessage(ids)),
+    markRead: () => shortcutMailAction(ids => app.markRead(ids, true)),
+    markUnread: () => shortcutMailAction(ids => app.markRead(ids, false)),
+    spam: () => shortcutMailAction(ids => app.markSpam(ids)),
     compose: () => {
       if (composing()) return false;
       openNewMessage();
@@ -295,7 +313,7 @@ export function MailboxScreen(): JSX.Element {
     },
     archive: () => {
       if (surface() !== 'mail') return false;
-      const ids = app.actionTargets();
+      const ids = shortcutTargets();
       if (ids.length === 0) return false;
       void app.archiveMessage(ids);
       return true;

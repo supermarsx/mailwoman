@@ -953,3 +953,7 @@ body {
 
 .login__card > .field { margin-block: 0 1rem; }
 #login-domain-hint { margin-block: -.35rem 1rem; text-align: start; }
+
+.settings-shortcut-table { width:100%; border-collapse:collapse; }
+.settings-shortcut-table th,.settings-shortcut-table td { padding:.65rem .75rem; text-align:start; border-bottom:var(--border-hair) solid var(--border); overflow-wrap:anywhere; }
+.settings-shortcut-table td:last-child { width:3rem; }

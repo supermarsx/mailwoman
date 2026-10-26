@@ -24,6 +24,8 @@
 
 import { chordId, chordOf, parseChord } from './chords.ts';
 import { loadPrefs, PRESET_BINDINGS, type KeyboardPreset } from '../screens/Settings/prefs.ts';
+import { settings } from '../api/settings.ts';
+import { resolveCustomBindings } from './custom.ts';
 
 /** A canonical action name, as `PRESET_BINDINGS` uses them (`archive`, `next`, …). */
 export type ActionId = string;
@@ -59,7 +61,8 @@ export function bindingsFor(preset: KeyboardPreset): BindingMap {
 /** The bindings of the preset chosen in Settings, read at each press so a change
  *  there applies to the next key without a reload. */
 export function activeBindings(): BindingMap {
-  return bindingsFor(loadPrefs().keyboardPreset);
+  const preset = loadPrefs().keyboardPreset;
+  return preset === 'off' ? new Map() : resolveCustomBindings(bindingsFor(preset), settings()).bindings;
 }
 
 /** Where typing happens: keys there are text, not shortcuts. */
@@ -98,11 +101,14 @@ export function createKeymap(opts: KeymapOptions = {}): Keymap {
     const action = bindings().get(chordId(chordOf(e)));
     if (action === undefined) return false;
     const stack = handlers.get(action);
-    const handler = stack?.[stack.length - 1];
-    if (handler === undefined) return false;
-    if (handler(e) === false) return false;
-    e.preventDefault();
-    return true;
+    // Retained workspace tabs stay mounted. An inactive tab declines so the
+    // active reader's earlier registration can handle the action.
+    for (const handler of [...(stack ?? [])].reverse()) {
+      if (handler(e) === false) continue;
+      e.preventDefault();
+      return true;
+    }
+    return false;
   }
 
   const listener = (e: Event): void => {
