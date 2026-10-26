@@ -111,9 +111,9 @@ nothing is stored; **boot** = read once at start, a change needs a restart.
 | <a id="mw-passwd-poppassd-port"></a>`MW_PASSWD_POPPASSD_PORT` | ui | plain | 106 | pin | poppassd port | Admin → Integrations → Password change |
 | <a id="mw-passwd-webhook-url"></a>`MW_PASSWD_WEBHOOK_URL` | ui | url |  | pin | password-change webhook | Admin → Integrations → Password change |
 | <a id="mw-passwd-webhook-secret"></a>`MW_PASSWD_WEBHOOK_SECRET` | ui | secret |  | pin | password-change webhook signing secret | Admin → Integrations → Password change |
-| <a id="mw-nextcloud-url"></a>`MW_NEXTCLOUD_URL` | ui | url |  | pin | Nextcloud file picker server | Admin → Integrations → Nextcloud |
-| <a id="mw-nextcloud-user"></a>`MW_NEXTCLOUD_USER` | ui | plain |  | pin | Nextcloud user | Admin → Integrations → Nextcloud |
-| <a id="mw-nextcloud-app-password"></a>`MW_NEXTCLOUD_APP_PASSWORD` | ui | secret |  | pin | Nextcloud app password | Admin → Integrations → Nextcloud |
+| <a id="mw-nextcloud-url"></a>`MW_NEXTCLOUD_URL` | readOnly | url |  |  | deprecated shared Nextcloud URL; ignored by account-owned file operations | Admin → Nextcloud; User settings → Nextcloud; a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-nextcloud-user"></a>`MW_NEXTCLOUD_USER` | readOnly | plain |  |  | deprecated shared Nextcloud user; ignored, each mailbox must verify its own link | Admin → Nextcloud; User settings → Nextcloud; a root of trust, or a protection a stolen admin session could switch off |
+| <a id="mw-nextcloud-app-password"></a>`MW_NEXTCLOUD_APP_PASSWORD` | readOnly | secret |  |  | deprecated shared Nextcloud password; ignored, never grants mailbox access | Admin → Nextcloud; User settings → Nextcloud; a root of trust, or a protection a stolen admin session could switch off |
 | <a id="mw-bridge-oauth-client-secret"></a>`MW_BRIDGE_OAUTH_CLIENT_SECRET` | ui | secret |  | pin | bridge OAuth client secret | Admin → OAuth providers |
 | <a id="mw-dcr-initial-access-token"></a>`MW_DCR_INITIAL_ACCESS_TOKEN` | ui | secret |  | pin | OAuth dynamic client registration initial access token | Admin → Integrations → Client registration |
 | <a id="mw-webhook-inbound-secret"></a>`MW_WEBHOOK_INBOUND_SECRET` | ui | secret |  | pin | inbound webhook HMAC secret | Admin → Integrations → Inbound webhooks |
@@ -227,6 +227,7 @@ nothing is stored; **boot** = read once at start, a change needs a restart.
 
 | Name | Class | Value | Default | Precedence | What | Set in / reason |
 |---|---|---|---|---|---|---|
+| <a id="mw-build-sha"></a>`MW_BUILD_SHA` | build | plain |  |  | optional source revision embedded in the dashboard server metadata | a CLI, build or test input, or a protocol or safety constant |
 | <a id="mw-shell-server-url"></a>`MW_SHELL_SERVER_URL` | build | url |  |  | server URL baked into a shell build | a CLI, build or test input, or a protocol or safety constant |
 | <a id="mw-shell-product-name"></a>`MW_SHELL_PRODUCT_NAME` | build | plain |  |  | product name of a shell build | a CLI, build or test input, or a protocol or safety constant |
 | <a id="mw-shell-identifier"></a>`MW_SHELL_IDENTIFIER` | build | plain |  |  | bundle identifier of a shell build | a CLI, build or test input, or a protocol or safety constant |
@@ -315,19 +316,56 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="sieve.allowedextensions"></a>`sieve.allowedExtensions` | sieve | global+domain+admin_user | null | plain |  | yes | Allowed Sieve extensions |
 | <a id="cap.sieve.raw-edit"></a>`cap.sieve.raw_edit` | sieve | global+domain+admin_user | false | plain |  | yes | Raw Sieve editing permission |
 | <a id="cap.sieve.forward-external"></a>`cap.sieve.forward_external` | sieve | global+domain+admin_user | false | plain |  | yes | Sieve forwarding outside the account domain |
+| <a id="mail.externalrecipientwarning"></a>`mail.externalRecipientWarning` | mail | global+domain+user | "warn" | plain |  | yes | external recipient composer warning |
+| <a id="mail.trustedrecipientdomains"></a>`mail.trustedRecipientDomains` | mail | global+domain+user | [] | plain |  | yes | exact trusted recipient domains for composer warnings |
+| <a id="time.displayzone"></a>`time.displayZone` | time | global+domain+user | "local" | plain |  | yes | preferred message display time zone |
+| <a id="time.comparisonzone"></a>`time.comparisonZone` | time | global+domain+user | "" | plain |  | yes | optional second time zone for message and event helpers |
+| <a id="time.showhelpers"></a>`time.showHelpers` | time | global+domain+user | true | plain |  | yes | show message and event time zone comparisons |
+| <a id="shortcuts.enabled"></a>`shortcuts.enabled` | shortcuts | global+domain+user | true | plain |  | yes | enable application keyboard shortcuts |
+| <a id="shortcuts.compose"></a>`shortcuts.compose` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for compose |
+| <a id="shortcuts.archive"></a>`shortcuts.archive` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for archive |
+| <a id="shortcuts.reply"></a>`shortcuts.reply` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for reply |
+| <a id="shortcuts.replyall"></a>`shortcuts.replyAll` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for replyAll |
+| <a id="shortcuts.forward"></a>`shortcuts.forward` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for forward |
+| <a id="shortcuts.next"></a>`shortcuts.next` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for next |
+| <a id="shortcuts.previous"></a>`shortcuts.previous` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for previous |
+| <a id="shortcuts.search"></a>`shortcuts.search` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for search |
+| <a id="shortcuts.refresh"></a>`shortcuts.refresh` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for refresh |
+| <a id="shortcuts.settings"></a>`shortcuts.settings` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for settings |
+| <a id="shortcuts.trash"></a>`shortcuts.trash` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for trash |
+| <a id="shortcuts.markread"></a>`shortcuts.markRead` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for markRead |
+| <a id="shortcuts.markunread"></a>`shortcuts.markUnread` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for markUnread |
+| <a id="shortcuts.spam"></a>`shortcuts.spam` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for spam |
+| <a id="mail.quotestyle"></a>`mail.quoteStyle` | mail | global+domain+user | "classic" | plain |  | yes | reply and forward header style |
+| <a id="mail.quickreply"></a>`mail.quickReply` | mail | global+domain+user | false | plain |  | yes | enable the compact message reply composer |
+| <a id="mail.requestreadreceipt"></a>`mail.requestReadReceipt` | mail | global+domain+user | false | plain |  | yes | request a read receipt by default when composing supported mail |
+| <a id="reader.colormode"></a>`reader.colorMode` | reader | global+domain+user | "auto" | plain |  | yes | message color adaptation inside the isolated reader |
+| <a id="reader.fontsize"></a>`reader.fontSize` | reader | global+domain+user | 14 | plain |  | yes | message reading font size in pixels |
+| <a id="reader.lineheight"></a>`reader.lineHeight` | reader | global+domain+user | 1.6 | plain |  | yes | message reading line height |
+| <a id="reader.contentwidth"></a>`reader.contentWidth` | reader | global+domain+user | "wide" | plain |  | yes | message content width |
+| <a id="reader.loading"></a>`reader.loading` | reader | global+domain+user | "skeleton" | plain |  | yes | message loading appearance |
+| <a id="reader.loadingdelayms"></a>`reader.loadingDelayMs` | reader | global+domain+user | 120 | plain |  | yes | delay before showing message loading feedback |
 | <a id="ui.language"></a>`ui.language` | interface | global+domain+user | "browser" | plain |  | yes | web client locale (cached in localStorage mw.locale) |
 | <a id="appearance.theme"></a>`appearance.theme` | appearance | global+domain+user | "dark" | plain |  | yes | appearance blob theme/lightTheme/darkTheme; deployment default |
 | <a id="appearance.accent"></a>`appearance.accent` | appearance | global+domain+user | "" | plain |  | yes | appearance blob accentId (empty = the theme's own) |
 | <a id="appearance.density"></a>`appearance.density` | appearance | global+domain+user | "cozy" | plain |  | yes | appearance blob density |
+| <a id="appearance.font"></a>`appearance.font` | appearance | global+domain+user | "default" | plain |  | yes | self-hosted interface font; account choice or administrator default/lock |
 | <a id="appearance.brandname"></a>`appearance.brandName` | appearance | global | "Mailwoman" | plain |  | yes | public config brand name |
+| <a id="login.showdomainhint"></a>`login.showDomainHint` | appearance | global | false | plain |  | yes | public config preferred-domain hint visibility |
 | <a id="login.notice"></a>`login.notice` | appearance | global | null | plain |  | yes | public config sign-in notice |
 | <a id="mail.readreceipts"></a>`mail.readReceipts` | mail | global+domain+user | "ask" | plain |  | yes | mdn_policy:<account> (MDN/send) |
+| <a id="notifications.pushallowed"></a>`notifications.pushAllowed` | notifications | global+domain | true | plain |  | yes | account-authorized push registration and delivery |
+| <a id="offline.persistentstorageallowed"></a>`offline.persistentStorageAllowed` | offline | global+domain | false | plain |  | yes | explicit browser persistent-storage permission request |
 | <a id="notifications.enabled"></a>`notifications.enabled` | notifications | global+domain+user | false | plain |  | yes | notification rules enabled flag |
 | <a id="offline.retentiondays"></a>`offline.retentionDays` | offline | global+domain+user | 30 | plain |  | yes | web device prefs offlineRetentionDays (client clamps) |
 | <a id="offline.budgetmb"></a>`offline.budgetMb` | offline | global+domain+user | 250 | plain |  | yes | web device prefs offlineBudgetMb (client clamps) |
 | <a id="assistant.enabled"></a>`assistant.enabled` | assistant | global+domain+user | true | plain |  | yes | below the assist_config deployment ceiling and kill switch |
 | <a id="upstream.default"></a>`upstream.default` | upstream | global | null | url | `MW_UPSTREAM_DEFAULT` (fallback) | yes | deployment default upstream (domain config wins) |
 | <a id="upstream.proxytimeoutsecs"></a>`upstream.proxyTimeoutSecs` | upstream | global | 300 | plain |  | yes | proxy per-request timeout (lib.rs) |
+| <a id="signin.antibotmode"></a>`signin.antiBotMode` | signin | global | "off" | plain |  | yes | initial sign-in proof-of-work policy |
+| <a id="signin.antibotdifficulty"></a>`signin.antiBotDifficulty` | signin | global | 2000 | plain |  | yes | maximum proof-of-work solver counter |
+| <a id="signin.antibotexpirysecs"></a>`signin.antiBotExpirySecs` | signin | global | 180 | plain |  | yes | single-use challenge lifetime |
+| <a id="signin.retrycooldownsecs"></a>`signin.retryCooldownSecs` | signin | global | 3 | plain |  | yes | initial sign-in retry cooldown |
 | <a id="signin.newusers"></a>`signin.newUsers` | signin | global+domain | "open" | plain |  | yes | signin_policy::admit new-user rule |
 | <a id="signin.domainmode"></a>`signin.domainMode` | signin | global | "any" | plain |  | yes | domain gate mode (e12) |
 | <a id="signin.refusaldetail"></a>`signin.refusalDetail` | signin | global | "explain" | plain |  | yes | refusal answers: explain (403 codes) or uniform (401) |
@@ -341,6 +379,15 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="passwd.policy.requirelower"></a>`passwd.policy.requireLower` | passwords | global+domain | false | plain |  | yes | password policy: a lower-case letter |
 | <a id="passwd.policy.requiredigit"></a>`passwd.policy.requireDigit` | passwords | global+domain | false | plain |  | yes | password policy: a digit |
 | <a id="passwd.policy.requiresymbol"></a>`passwd.policy.requireSymbol` | passwords | global+domain | false | plain |  | yes | password policy: a symbol |
+| <a id="attachments.previewallowed"></a>`attachments.previewAllowed` | attachments | global+domain | true | plain |  | yes | allow attachment previews |
+| <a id="attachments.downloadallowed"></a>`attachments.downloadAllowed` | attachments | global+domain | true | plain |  | yes | allow original attachment delivery; disabling also prevents raw previews |
+| <a id="attachments.maxbytes"></a>`attachments.maxBytes` | attachments | global+domain | 0 | plain |  | yes | maximum delivered attachment bytes; zero is unlimited |
+| <a id="attachments.allowedextensions"></a>`attachments.allowedExtensions` | attachments | global+domain | [] | plain |  | yes | attachment allowed Extensions; blocked rules take precedence |
+| <a id="attachments.allowedmimetypes"></a>`attachments.allowedMimeTypes` | attachments | global+domain | [] | plain |  | yes | attachment allowed MimeTypes; blocked rules take precedence |
+| <a id="attachments.blockedextensions"></a>`attachments.blockedExtensions` | attachments | global+domain | [] | plain |  | yes | attachment blocked Extensions; blocked rules take precedence |
+| <a id="attachments.blockedmimetypes"></a>`attachments.blockedMimeTypes` | attachments | global+domain | [] | plain |  | yes | attachment blocked MimeTypes; blocked rules take precedence |
+| <a id="attachments.warnextensions"></a>`attachments.warnExtensions` | attachments | global+domain | [] | plain |  | yes | attachment warn Extensions; blocked rules take precedence |
+| <a id="attachments.warnmimetypes"></a>`attachments.warnMimeTypes` | attachments | global+domain | [] | plain |  | yes | attachment warn MimeTypes; blocked rules take precedence |
 | <a id="limit.attachment-bytes"></a>`limit.attachment_bytes` | limits | global+domain+admin_user | 50000000 | plain |  | yes | Attachment bytes; 0 = no limit |
 | <a id="limit.send-per-hour"></a>`limit.send_per_hour` | limits | global+domain+admin_user | 0 | plain |  | yes | Submissions per hour; 0 = no limit |
 | <a id="limit.recipients-per-message"></a>`limit.recipients_per_message` | limits | global+domain+admin_user | 0 | plain |  | yes | Recipients per message; 0 = no limit |
@@ -391,4 +438,6 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="metrics.rollupdays"></a>`metrics.rollupDays` | observability | global | 30 | plain |  | yes | hourly metric rollups kept |
 | <a id="diagnostics.retentiondays"></a>`diagnostics.retentionDays` | diagnostics | global | 30 | plain |  | yes | diagnostic runs kept |
 | <a id="dataexport.linkhours"></a>`dataExport.linkHours` | users | global | 24 | plain |  | yes | data export download window |
+| <a id="logs.auth.retentiondays"></a>`logs.auth.retentionDays` | observability | global | 7 | plain |  | yes | authentication history days kept |
+| <a id="logs.auth.maxentries"></a>`logs.auth.maxEntries` | observability | global | 50000 | plain |  | yes | maximum authentication history entries |
 | <a id="servertext."></a>`serverText.*` | serverText | global+domain | {} | plain |  | yes | server_text(id, locale, domain) overrides |

@@ -319,6 +319,14 @@ const fn ui(
     k
 }
 
+/// Retained for deployment inspection only; these inputs grant no account access.
+const fn ignored_nextcloud_input(id: &'static str, kind: ValueKind, what: &'static str) -> Knob {
+    let mut k = row(id, Group::Integrations, Class::ReadOnly, kind, "", what);
+    k.reason = Some(Reason::Trust);
+    k.configured_by = "Admin → Nextcloud; User settings → Nextcloud";
+    k
+}
+
 const fn refused(id: &'static str) -> Knob {
     let mut k = row(
         id,
@@ -968,32 +976,20 @@ pub static CATALOGUE: &[Knob] = &[
         "password-change webhook signing secret",
         "Admin → Integrations → Password change",
     ),
-    ui(
+    ignored_nextcloud_input(
         "MW_NEXTCLOUD_URL",
-        Gr::Integrations,
         Url,
-        Pin,
-        "",
-        "Nextcloud file picker server",
-        "Admin → Integrations → Nextcloud",
+        "deprecated shared Nextcloud URL; ignored by account-owned file operations",
     ),
-    ui(
+    ignored_nextcloud_input(
         "MW_NEXTCLOUD_USER",
-        Gr::Integrations,
         Plain,
-        Pin,
-        "",
-        "Nextcloud user",
-        "Admin → Integrations → Nextcloud",
+        "deprecated shared Nextcloud user; ignored, each mailbox must verify its own link",
     ),
-    ui(
+    ignored_nextcloud_input(
         "MW_NEXTCLOUD_APP_PASSWORD",
-        Gr::Integrations,
         Secret,
-        Pin,
-        "",
-        "Nextcloud app password",
-        "Admin → Integrations → Nextcloud",
+        "deprecated shared Nextcloud password; ignored, never grants mailbox access",
     ),
     ui(
         "MW_BRIDGE_OAUTH_CLIENT_SECRET",
@@ -1485,6 +1481,11 @@ pub static CATALOGUE: &[Knob] = &[
         "mailwoman mcp-stdio",
     ),
     // ── Build inputs ───────────────────────────────────────────────────────────
+    build(
+        "MW_BUILD_SHA",
+        Plain,
+        "optional source revision embedded in the dashboard server metadata",
+    ),
     build(
         "MW_SHELL_SERVER_URL",
         Url,
