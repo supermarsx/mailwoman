@@ -256,7 +256,7 @@ export function RethreadMaintenance(props: RethreadMaintenanceProps): JSX.Elemen
   }
 
   return (
-    <>
+    <div class={css.section}>
       <SearchIndexMaintenance api={props.searchIndex} />
       <section class={css.section} aria-label={t('admin-rethread-title')} data-testid="admin-rethread">
         <h2 class={css.heading}>{t('admin-rethread-title')}</h2>
@@ -357,7 +357,7 @@ export function RethreadMaintenance(props: RethreadMaintenanceProps): JSX.Elemen
           </div>
         </Show>
       </section>
-    </>
+    </div>
   );
 }
 

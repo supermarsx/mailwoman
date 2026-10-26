@@ -24,3 +24,5 @@ it('exposes separate installed-app icon slots and keeps uploads unpublished unti
  fireEvent.click(screen.getByRole('button',{name:'Save branding'}));
  await waitFor(()=>expect(a.save).toHaveBeenCalledWith(expect.objectContaining({images:expect.objectContaining({pwa192Id:'a'.repeat(64)})}),'"one"'));
 });
+
+it('replaces initial pending feedback with retry after a refused read',async()=>{const a=api();let reject!:(error:Error)=>void;a.read=vi.fn(()=>new Promise<Awaited<ReturnType<BrandingApi['read']>>>((_resolve,no)=>{reject=no;}));renderInShell(()=><BrandingSettings api={a}/>);await screen.findByTestId('async-pending');reject(new Error('unavailable'));await screen.findByRole('alert');expect(screen.queryByTestId('async-pending')).not.toBeInTheDocument();expect(screen.getByRole('button',{name:'Reload saved branding'})).toBeEnabled();});

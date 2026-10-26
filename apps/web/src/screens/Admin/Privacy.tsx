@@ -9,6 +9,7 @@ import { SettingDetail } from './Settings/SettingDetail.tsx';
 import { AdminSubsection } from './AdminSubsection.tsx';
 import { AsyncPending } from '../../components/AsyncState.tsx';
 import * as css from './admin.css.ts';
+import * as layout from './privacyLayout.css.ts';
 export interface PrivacyStats { cacheEntries: number; cacheBytes: number; trackersReplaced: number; traffic: { class: string; allowed: number; refused: number; failed: number; totalMs: number }[] }
 export const privacyAdminApi = { settings: listAdminSettings, async stats(): Promise<PrivacyStats> { return (await adminRequest<PrivacyStats>('/egress/privacy-stats')).data; } };
 export function AdminPrivacy(props: { service?: typeof privacyAdminApi }): JSX.Element {
@@ -20,7 +21,7 @@ export function AdminPrivacy(props: { service?: typeof privacyAdminApi }): JSX.E
   const editKey=()=>shell.router.route().rest[0]==='policy' && Object.hasOwn(labels,shell.router.route().rest[1]??'') && shell.can.can('settings.read') ? shell.router.route().rest[1] : undefined;
   return <Show when={editKey()} keyed fallback={<section class={css.section}><h2>{t('privacy-admin-title')}</h2><p>{t('privacy-admin-help')}</p>
     <Show when={settings.error}><p role="alert">{describeAdminError(settings.error)}</p></Show>
-    <Show when={settings.state === 'ready' && settings.latest?.kind === 'ok' ? settings.latest.data.filter(row => Object.hasOwn(labels, row.key)) : []}>{rows => <AdminSubsection title={t('privacy-policy-values')}><For each={rows()}>{row => <div class={css.listRow}><div><strong>{t(labels[row.key] ?? row.key)}</strong><p>{typeof row.effective.value === 'boolean' ? t(row.effective.value ? 'privacy-on':'privacy-off') : String(row.effective.value)}</p><Show when={row.globalLocked}><p>{t('privacy-locked')}</p></Show></div><a class="btn" href={hrefFor(sectionPath('privacy',['policy',row.key]))} onClick={e => { e.preventDefault(); void shell.router.navigate(sectionPath('privacy',['policy',row.key])); }}>{t('privacy-edit-setting')}</a></div>}</For></AdminSubsection>}</Show>
+    <Show when={settings.state === 'ready' && settings.latest?.kind === 'ok' ? settings.latest.data.filter(row => Object.hasOwn(labels, row.key)) : []}>{rows => <AdminSubsection title={t('privacy-policy-values')}><For each={rows()}>{row => <div class={css.listRow}><div class={layout.policyText}><strong>{t(labels[row.key] ?? row.key)}</strong><p>{typeof row.effective.value === 'boolean' ? t(row.effective.value ? 'privacy-on':'privacy-off') : String(row.effective.value)}</p><Show when={row.globalLocked}><p>{t('privacy-locked')}</p></Show></div><a class={`btn ${layout.policyAction}`} href={hrefFor(sectionPath('privacy',['policy',row.key]))} onClick={e => { e.preventDefault(); void shell.router.navigate(sectionPath('privacy',['policy',row.key])); }}>{t('privacy-edit-setting')}</a></div>}</For></AdminSubsection>}</Show>
     <AdminSubsection title={t('privacy-process-stats')} actions={<button class="btn" disabled={stats.loading} onClick={() => void refetch()}>{t('privacy-refresh')}</button>}>
     <Show when={stats.error}><p role="alert">{describeAdminError(stats.error)}</p></Show>
     <Show when={stats.loading && !stats.latest}><AsyncPending /></Show>
