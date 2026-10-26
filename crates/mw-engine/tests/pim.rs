@@ -546,16 +546,128 @@ async fn contact_round_trip_import_merge_autocomplete() {
 #[tokio::test]
 async fn contact_groups_round_trip() {
     let h = setup().await;
+    let first = h.card("First member", "first@example.org").await;
+    let second = h.card("Second member", "second@example.org").await;
     let set = h
         .call(
             "ContactGroup/set",
-            json!({ "create": { "g": { "name": "Team", "memberIds": ["x", "y"] }}}),
+            json!({ "create": { "g": { "name": "Team", "memberIds": [first, second] }}}),
         )
         .await;
     let gid = set["created"]["g"]["id"].as_str().unwrap().to_string();
     let got = h.call("ContactGroup/get", json!({ "ids": [gid] })).await;
     assert_eq!(got["list"][0]["name"], "Team");
     assert_eq!(got["list"][0]["memberIds"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn contact_objects_are_isolated_between_accounts() {
+    let owner = setup().await;
+    let intruder_id = owner
+        .engine
+        .store()
+        .create_account(
+            &NewAccount {
+                kind: AccountKind::Imap,
+                host: "other.example.org",
+                port: 993,
+                tls: "implicit",
+                username: "other@example.org",
+                sync_policy_json: "{}",
+            },
+            &Credentials {
+                username: "other@example.org".into(),
+                password: "test".into(),
+            },
+        )
+        .await
+        .unwrap();
+    owner.engine.register_backend(
+        intruder_id.clone(),
+        AccountRuntime::new(
+            Arc::new(NoopBackend),
+            Arc::new(CapturingSubmitter::default()),
+            "other@example.org",
+        ),
+    );
+    let intruder = Harness {
+        engine: owner.engine.clone(),
+        account_id: intruder_id,
+        submitter: Arc::new(CapturingSubmitter::default()),
+    };
+    let books = owner.call("AddressBook/get", json!({})).await;
+    let book = books["list"][0]["id"].as_str().unwrap();
+    let card = owner.card("Private owner", "private@example.org").await;
+    let group_set = owner.call("ContactGroup/set", json!({"create":{"g":{"name":"Private group","addressBookId":book,"memberIds":[card]}}})).await;
+    let group = group_set["created"]["g"]["id"].as_str().unwrap();
+    let read = intruder
+        .call("ContactCard/get", json!({"ids":[card]}))
+        .await;
+    assert_eq!(
+        read["list"],
+        json!([]),
+        "foreign contact contents must not be disclosed"
+    );
+    assert_eq!(read["notFound"], json!([card]));
+    let export = intruder
+        .call("ContactCard/export", json!({"ids":[card]}))
+        .await;
+    assert!(!export.to_string().contains("private@example.org"));
+    let own_card = intruder.card("Own contact", "own@example.org").await;
+    let merge = intruder
+        .call(
+            "ContactCard/merge",
+            json!({"keepId":own_card,"mergeIds":[card]}),
+        )
+        .await;
+    assert_eq!(merge["type"], "serverFail");
+    let legacy_merge = intruder
+        .call("ContactCard/merge", json!({"ids":[own_card,card]}))
+        .await;
+    assert_eq!(legacy_merge["type"], "serverFail");
+    let group_create = intruder
+        .call(
+            "ContactGroup/set",
+            json!({"create":{"x":{"name":"Bad members","memberIds":[card]}}}),
+        )
+        .await;
+    assert!(group_create["notCreated"]["x"].is_object());
+    let card_update = intruder
+        .call(
+            "ContactCard/set",
+            json!({"update":{own_card.clone():{"groupIds":[group]}}}),
+        )
+        .await;
+    assert!(card_update["notUpdated"][&own_card].is_object());
+    for (method, id) in [
+        ("AddressBook/set", book),
+        ("ContactCard/set", card.as_str()),
+        ("ContactGroup/set", group),
+    ] {
+        let edit = intruder
+            .call(method, json!({"update":{id:{"name":"Stolen"}}}))
+            .await;
+        assert!(edit["notUpdated"][id].is_object(), "{method}: {edit}");
+        let delete = intruder.call(method, json!({"destroy":[id]})).await;
+        assert!(delete["notDestroyed"][id].is_object(), "{method}: {delete}");
+    }
+    for method in ["ContactCard/set", "ContactGroup/set"] {
+        let create = intruder
+            .call(
+                method,
+                json!({"create":{"x":{"name":{"full":"Intrusion"},"addressBookId":book}}}),
+            )
+            .await;
+        assert!(create["notCreated"]["x"].is_object(), "{method}: {create}");
+    }
+    assert_eq!(
+        owner.call("ContactCard/get", json!({"ids":[card]})).await["list"][0]["name"]["full"],
+        "Private owner"
+    );
+    assert_eq!(
+        owner.call("ContactGroup/get", json!({"ids":[group]})).await["list"][0]["name"],
+        "Private group"
+    );
 }
 
 // ── ContactCard/merge — the two request shapes (26.20, t22-e13) ───────────────

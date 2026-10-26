@@ -28,6 +28,59 @@ use super::{
 const VCARD_EXTRA: &str = "vcardExtra";
 
 impl Engine {
+    async fn owned_address_book(
+        &self,
+        account_id: &str,
+        id: &str,
+    ) -> Result<Option<AddressBookRow>> {
+        Ok(self
+            .store()
+            .get_address_book(id)
+            .await?
+            .filter(|row| row.account_id == account_id))
+    }
+
+    async fn owned_contact(&self, account_id: &str, id: &str) -> Result<Option<ContactRow>> {
+        let Some(row) = self.store().get_contact(id).await? else {
+            return Ok(None);
+        };
+        Ok(self
+            .owned_address_book(account_id, &row.address_book_id)
+            .await?
+            .map(|_| row))
+    }
+
+    async fn owned_contact_group(
+        &self,
+        account_id: &str,
+        id: &str,
+    ) -> Result<Option<ContactGroupRow>> {
+        let Some(row) = self.store().get_contact_group(id).await? else {
+            return Ok(None);
+        };
+        Ok(self
+            .owned_address_book(account_id, &row.address_book_id)
+            .await?
+            .map(|_| row))
+    }
+
+    async fn validate_group_members(&self, account_id: &str, spec: &Value) -> Result<()> {
+        if let Some(value) = spec.get("memberIds") {
+            let members = value
+                .as_array()
+                .ok_or_else(|| EngineError::Protocol("memberIds must be an array".into()))?;
+            for member in members {
+                let id = member.as_str().ok_or_else(|| {
+                    EngineError::Protocol("memberIds must contain contact IDs".into())
+                })?;
+                if self.owned_contact(account_id, id).await?.is_none() {
+                    return Err(EngineError::Protocol("unknown contact member".into()));
+                }
+            }
+        }
+        Ok(())
+    }
+
     // ── AddressBook/{get,set} ────────────────────────────────────────────────
 
     pub(crate) async fn address_book_get(&self, account_id: &str, args: &Value) -> Value {
@@ -131,6 +184,13 @@ impl Engine {
         }
         if let Some(destroys) = args.get("destroy").and_then(Value::as_array) {
             for id in destroys.iter().filter_map(Value::as_str) {
+                if !matches!(self.owned_address_book(account_id, id).await, Ok(Some(_))) {
+                    out.not_destroyed.insert(
+                        id.to_string(),
+                        set_error("notFound", "unknown address book"),
+                    );
+                    continue;
+                }
                 match self.store().delete_address_book(id).await {
                     Ok(()) => {
                         let _ = self
@@ -161,8 +221,7 @@ impl Engine {
 
     async fn address_book_update(&self, account_id: &str, id: &str, patch: &Value) -> Result<()> {
         let mut row = self
-            .store()
-            .get_address_book(id)
+            .owned_address_book(account_id, id)
             .await?
             .ok_or_else(|| EngineError::Protocol(format!("unknown address book {id}")))?;
         if let Some(v) = patch.get("name").and_then(Value::as_str) {
@@ -197,7 +256,7 @@ impl Engine {
         let mut list = Vec::new();
         let mut not_found = Vec::new();
         for id in &ids {
-            match self.store().get_contact(id).await {
+            match self.owned_contact(account_id, id).await {
                 Ok(Some(row)) => list.push(contact_card_json(&row)),
                 Ok(None) => not_found.push(json!(id)),
                 Err(e) => return server_fail(e),
@@ -300,8 +359,7 @@ impl Engine {
         patch: &Value,
     ) -> Result<()> {
         let row = self
-            .store()
-            .get_contact(id)
+            .owned_contact(account_id, id)
             .await?
             .ok_or_else(|| EngineError::Protocol(format!("unknown contact {id}")))?;
         let mut json = contact_row_to_json(&row);
@@ -329,11 +387,12 @@ impl Engine {
 
     async fn contact_destroy(&self, account_id: &str, rt: &AccountRuntime, id: &str) -> Result<()> {
         let row = self
-            .store()
-            .get_contact(id)
+            .owned_contact(account_id, id)
             .await?
             .ok_or_else(|| EngineError::Protocol(format!("unknown contact {id}")))?;
-        if let Some(book) = self.store().get_address_book(&row.address_book_id).await?
+        if let Some(book) = self
+            .owned_address_book(account_id, &row.address_book_id)
+            .await?
             && let Some(url) = book.carddav_url.clone()
         {
             let href = match self.store().contact_href(id).await? {
@@ -377,7 +436,7 @@ impl Engine {
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn persist_contact_with(
         &self,
-        _account_id: &str,
+        account_id: &str,
         book_id: &str,
         id: &str,
         uid: &str,
@@ -386,6 +445,26 @@ impl Engine {
         push_rt: Option<&AccountRuntime>,
         server: Option<super::sync::ServerCopy<'_>>,
     ) -> Result<()> {
+        if self
+            .owned_address_book(account_id, book_id)
+            .await?
+            .is_none()
+        {
+            return Err(EngineError::Protocol("unknown address book".into()));
+        }
+        if let Some(groups) = json.get("groupIds") {
+            let groups = groups
+                .as_array()
+                .ok_or_else(|| EngineError::Protocol("groupIds must be an array".into()))?;
+            for group in groups {
+                let id = group
+                    .as_str()
+                    .ok_or_else(|| EngineError::Protocol("invalid group ID".into()))?;
+                if self.owned_contact_group(account_id, id).await?.is_none() {
+                    return Err(EngineError::Protocol("unknown contact group".into()));
+                }
+            }
+        }
         set_str(&mut json, "id", id);
         set_str(&mut json, "addressBookId", book_id);
         set_str(&mut json, "uid", uid);
@@ -420,12 +499,12 @@ impl Engine {
         let mut etag = prior_etag.clone();
         if server.is_none()
             && let Some(rt) = push_rt
-            && let Some(book) = self.store().get_address_book(book_id).await?
+            && let Some(book) = self.owned_address_book(account_id, book_id).await?
             && let Some(url) = book.carddav_url.clone()
         {
             let stored_href = self.store().contact_href(id).await?;
             if stored_href.is_some()
-                && let Some(prev) = self.store().get_contact(id).await?
+                && let Some(prev) = self.owned_contact(account_id, id).await?
             {
                 vcard_raw = super::sync::merge_vcard(&prev.vcard_raw, &emitted);
             }
@@ -623,7 +702,7 @@ impl Engine {
             .unwrap_or("vcard");
         let mut rows = Vec::new();
         for id in &ids {
-            if let Ok(Some(r)) = self.store().get_contact(id).await {
+            if let Ok(Some(r)) = self.owned_contact(account_id, id).await {
                 rows.push(r);
             }
         }
@@ -739,7 +818,7 @@ impl Engine {
         if merge_ids.is_empty() {
             return server_fail("ContactCard/merge requires keepId and at least one other id");
         }
-        let keep_row = match self.store().get_contact(keep_id).await {
+        let keep_row = match self.owned_contact(account_id, keep_id).await {
             Ok(Some(r)) => r,
             Ok(None) => return server_fail(format!("unknown contact {keep_id}")),
             Err(e) => return server_fail(e),
@@ -754,7 +833,7 @@ impl Engine {
         // The kept card leads: `merge_cards` folds every later card onto the first.
         let mut sources = vec![keep_row];
         for id in &merge_ids {
-            match self.store().get_contact(id).await {
+            match self.owned_contact(account_id, id).await {
                 Ok(Some(r)) => sources.push(r),
                 Ok(None) => return server_fail(format!("unknown contact {id}")),
                 Err(e) => return server_fail(e),
@@ -789,7 +868,7 @@ impl Engine {
         // Read the survivor back rather than echoing what we meant to write, so
         // the card returned is the one that is actually stored — vCard round-trip
         // and all.
-        let card = match self.store().get_contact(keep_id).await {
+        let card = match self.owned_contact(account_id, keep_id).await {
             Ok(Some(r)) => contact_card_json(&r),
             Ok(None) => return server_fail(format!("merged contact {keep_id} is missing")),
             Err(e) => return server_fail(e),
@@ -822,7 +901,7 @@ impl Engine {
         }
         let mut sources = Vec::new();
         for id in &ids {
-            match self.store().get_contact(id).await {
+            match self.owned_contact(account_id, id).await {
                 Ok(Some(r)) => sources.push(r),
                 Ok(None) => return server_fail(format!("unknown contact {id}")),
                 Err(e) => return server_fail(e),
@@ -972,6 +1051,21 @@ impl Engine {
                         }
                     },
                 };
+                if !matches!(
+                    self.owned_address_book(account_id, &book_id).await,
+                    Ok(Some(_))
+                ) {
+                    out.not_created.insert(
+                        cid.clone(),
+                        set_error("invalidProperties", "unknown address book"),
+                    );
+                    continue;
+                }
+                if let Err(e) = self.validate_group_members(account_id, spec).await {
+                    out.not_created
+                        .insert(cid.clone(), set_error("invalidProperties", e));
+                    continue;
+                }
                 let id = gen_id("group");
                 let row = ContactGroupRow {
                     id: id.clone(),
@@ -1017,6 +1111,13 @@ impl Engine {
         }
         if let Some(destroys) = args.get("destroy").and_then(Value::as_array) {
             for id in destroys.iter().filter_map(Value::as_str) {
+                if !matches!(self.owned_contact_group(account_id, id).await, Ok(Some(_))) {
+                    out.not_destroyed.insert(
+                        id.to_string(),
+                        set_error("notFound", "unknown contact group"),
+                    );
+                    continue;
+                }
                 match self.store().delete_contact_group(id).await {
                     Ok(()) => {
                         let _ = self
@@ -1046,9 +1147,9 @@ impl Engine {
     }
 
     async fn contact_group_update(&self, account_id: &str, id: &str, patch: &Value) -> Result<()> {
+        self.validate_group_members(account_id, patch).await?;
         let mut row = self
-            .store()
-            .get_contact_group(id)
+            .owned_contact_group(account_id, id)
             .await?
             .ok_or_else(|| EngineError::Protocol(format!("unknown contact group {id}")))?;
         if let Some(v) = patch.get("name").and_then(Value::as_str) {
