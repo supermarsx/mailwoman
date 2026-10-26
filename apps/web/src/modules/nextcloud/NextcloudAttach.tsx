@@ -19,7 +19,7 @@ export interface NextcloudAttachProps {
 
 export function NextcloudAttach(props: NextcloudAttachProps): JSX.Element {
   onMount(() => void loadCatalog('nextcloud'));
-  const service = props.service ?? new NextcloudService(props.fetcher);
+  const service = (props.service ?? new NextcloudService(props.fetcher)).forAccount(props.accountId);
   const [selected, setSelected] = createSignal<Set<string>>(new Set());
   const [busy, setBusy] = createSignal(false);
   // "Select a file" stays on the panel; a failed attach is a toast (t32 f39).

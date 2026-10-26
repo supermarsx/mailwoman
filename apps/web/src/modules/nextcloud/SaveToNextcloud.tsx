@@ -11,7 +11,7 @@ import * as css from './styles.css.ts';
 
 export interface SaveToNextcloudProps {
   /** The message attachment to save. */
-  attachment: { blobId: string; name: string };
+  attachment: { emailId: string; blobId: string; name: string };
   onSaved?: (entry: WebDavEntry) => void;
   fetcher?: Fetcher;
   service?: NextcloudService;
@@ -27,7 +27,7 @@ export function SaveToNextcloud(props: SaveToNextcloudProps): JSX.Element {
   async function save(): Promise<void> {
     setBusy(true);
     try {
-      const entry: WebDavEntry = await service.saveTo(props.attachment.blobId, dir(), props.attachment.name);
+      const entry: WebDavEntry = await service.saveTo(props.attachment.blobId, dir(), props.attachment.emailId);
       toast.success(t('nextcloud-saved', { path: isolate(entry.path) }), { testId: 'nc-saved' });
       props.onSaved?.(entry);
     } catch (e) {

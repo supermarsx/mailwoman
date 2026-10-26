@@ -1,10 +1,11 @@
 // Nextcloud attach/save/share server I/O (SPEC §18.4, plan §3 e7). Talks to the
 // `/api/nextcloud/*` surface (e9 fills over the OCS/WebDAV plugin, e14 mounts).
 // Transport injectable so the pickers unit-test without a live server / Nextcloud.
-// CalDAV/CardDAV/tasks are core (`mw-dav`) — this module is only files + share links.
+// This client handles files and shares only; it does not imply calendar/contact synchronization.
 
 import { withBase } from '../../api/basePath.ts';
 import { apiFetch } from '../../api/http.ts';
+import {preferenceAccount,preferenceAccountIsCurrent} from '../../api/accountPreferenceLifecycle.ts';
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -55,49 +56,44 @@ export interface ShareLinkOptions {
 /**
  * The Nextcloud client. Endpoints (e9 to satisfy, e14 to mount):
  *   GET  /api/nextcloud/list?path=          → { entries: WebDavEntry[] }  (browse)
- *   POST /api/nextcloud/attach   {paths}    → { attachments: AttachedFile[] }
- *   POST /api/nextcloud/save     {blobId,attachmentId,path} → { entry: WebDavEntry }
- *   POST /api/nextcloud/share-link {path,password?,expiresAt?} → ShareLink
+ *   POST /api/nextcloud/attach   {accountId,paths}    → { attachments: AttachedFile[] }
+ *   POST /api/nextcloud/save     {accountId,emailId,blobId,path} → { entry: WebDavEntry }
+ *   POST /api/nextcloud/share-link {accountId,path,password?,expiresAt?} → ShareLink
  */
 export class NextcloudService {
-  constructor(private readonly fetcher: Fetcher = defaultFetcher) {}
+  constructor(private readonly fetcher: Fetcher = defaultFetcher, private readonly expectedAccountId?:string) {}
+  forAccount(accountId:string|undefined):NextcloudService { return new NextcloudService(this.fetcher,accountId); }
+
+  private async request<T>(path:string, body?:Record<string,unknown>):Promise<T> {
+    const account=preferenceAccount();
+    if(!account)throw new Error('Sign in before using Nextcloud.');
+    if(this.expectedAccountId&&this.expectedAccountId!==account.id)throw new Error('The draft belongs to a different account.');
+    const response=await this.fetcher(withBase(path),body===undefined?undefined:{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...body,accountId:account.id})});
+    const result=await jsonOrThrow<T>(response);
+    if(!preferenceAccountIsCurrent(account))throw new Error('The active account changed. Open the picker again.');
+    return result;
+  }
 
   /** Browse a WebDAV directory (default the account root). */
   async list(path = '/'): Promise<WebDavEntry[]> {
-    const res = await this.fetcher(withBase(`/api/nextcloud/list?path=${encodeURIComponent(path)}`));
-    const out = await jsonOrThrow<{ entries: WebDavEntry[] }>(res);
+    const out = await this.request<{entries:WebDavEntry[]}>(`/api/nextcloud/list?path=${encodeURIComponent(path)}`);
     return out.entries;
   }
 
   /** Attach one or more Nextcloud files to the current draft. */
   async attach(paths: string[]): Promise<AttachedFile[]> {
-    const res = await this.fetcher(withBase('/api/nextcloud/attach'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ paths }),
-    });
-    const out = await jsonOrThrow<{ attachments: AttachedFile[] }>(res);
+    const out = await this.request<{attachments:AttachedFile[]}>('/api/nextcloud/attach',{paths});
     return out.attachments;
   }
 
   /** Save an existing message attachment (by blob id) to a Nextcloud folder. */
-  async saveTo(blobId: string, dir: string, name: string): Promise<WebDavEntry> {
-    const res = await this.fetcher(withBase('/api/nextcloud/save'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ blobId, path: dir, name }),
-    });
-    const out = await jsonOrThrow<{ entry: WebDavEntry }>(res);
+  async saveTo(blobId: string, dir: string, emailId: string): Promise<WebDavEntry> {
+    const out = await this.request<{entry:WebDavEntry}>('/api/nextcloud/save',{blobId,path:dir,emailId});
     return out.entry;
   }
 
   /** Create a public share link for a Nextcloud file (optional password/expiry). */
   async createShareLink(options: ShareLinkOptions): Promise<ShareLink> {
-    const res = await this.fetcher(withBase('/api/nextcloud/share-link'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(options),
-    });
-    return jsonOrThrow<ShareLink>(res);
+    return this.request<ShareLink>('/api/nextcloud/share-link',{...options});
   }
 }

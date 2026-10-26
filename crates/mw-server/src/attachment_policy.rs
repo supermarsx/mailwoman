@@ -109,6 +109,32 @@ pub(crate) async fn proxy_metadata(state:&AppState, session:&mw_store::Session, 
     Ok(parts)
 }
 
+pub(crate) struct AuthorizedAttachment {
+    pub bytes:Vec<u8>,
+    pub content_type:String,
+    pub filename:String,
+}
+
+/// Export seam for integrations. The caller supplies only an owned message/blob
+/// reference and its own byte ceiling, never a supposedly authoritative filename.
+pub(crate) async fn read_owned_part(state:&AppState,session:&mw_store::Session,email_id:&str,blob_id:&str,limit:usize,acknowledge_warning:bool)->Result<Option<AuthorizedAttachment>,Response> {
+    let policy=effective(state,session).await?;
+    if !policy.download_allowed {return Err(refusal("downloadsDisabled"));}
+    let query=DownloadQuery{email_id:Some(email_id.into()),preview:Some(false),acknowledge_warning:Some(acknowledge_warning)};
+    let metadata=if state.engine.is_some() {
+        if blob_id.split_once('.').map(|(message,_)|message)!=Some(email_id) {return Err(refusal("attachmentMetadataUnavailable"));}
+        Vec::new()
+    } else {proxy_metadata(state,session,blob_id,&query).await?};
+    for part in &metadata {authorize(&policy,part,&query)?;}
+    let ceiling=if policy.max_bytes>0 {limit.min(policy.max_bytes as usize)} else {limit};
+    let Some((bytes,mime,name))=crate::image_proxy::remote_content::read_part(state,session,blob_id,ceiling).await? else {return Ok(None)};
+    let content_type=mime.unwrap_or_else(||"application/octet-stream".into());
+    let filename=name.or_else(||metadata.first().map(|part|part.name.clone())).ok_or_else(||refusal("attachmentMetadataUnavailable"))?;
+    authorize(&policy,&Metadata{name:filename.clone(),mime:content_type.clone(),size:bytes.len() as u64},&query)?;
+    for part in &metadata {authorize(&policy,&Metadata{name:part.name.clone(),mime:content_type.clone(),size:bytes.len() as u64},&query)?;}
+    Ok(Some(AuthorizedAttachment{bytes,content_type,filename}))
+}
+
 /// A blob may occur more than once with different sender-supplied names/types.
 /// Evaluate every matching occurrence rather than choosing the easiest name.
 pub(crate) fn matching_parts(message: &serde_json::Value, blob: &str) -> Result<Vec<Metadata>, ()> {

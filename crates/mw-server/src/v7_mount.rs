@@ -49,7 +49,7 @@ use crate::admin_ctx::AdminCtx;
 use crate::admin_router::AdminRegistrar;
 use crate::capabilities::Capability as AdminCap;
 use crate::assist::AssistHandle;
-use crate::nextcloud::{NextcloudGateway, OcsNextcloud};
+use crate::nextcloud::NextcloudGateway;
 use crate::plugins::PluginRegistry;
 
 // The third-party allowlist admin API (approve/revoke/list-pending/uninstall). Declared
@@ -3152,25 +3152,12 @@ pub async fn load_plugin_backends(
 // 6. Nextcloud extension
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Build the linked Nextcloud gateway from env (`MW_NEXTCLOUD_URL/USER/APP_PASSWORD`).
-/// Unset ⇒ `None` (every `/api/nextcloud/*` route 501s; the web hides the UI).
+/// Retain the legacy extension slot without any process-wide credentials.
+/// Runtime requests resolve verified, account-owned links instead.
 pub(crate) fn build_nextcloud() -> Option<Arc<dyn NextcloudGateway>> {
-    let (url, user, pw) = (
-        env("MW_NEXTCLOUD_URL")?,
-        env("MW_NEXTCLOUD_USER")?,
-        env("MW_NEXTCLOUD_APP_PASSWORD")?,
-    );
-    Some(Arc::new(OcsNextcloud::new(
-        // `.no_proxy()`: this client sends the Nextcloud app password on every OCS
-        // call. See `mw_egress::harden_client`.
-        reqwest::Client::builder()
-            .no_proxy()
-            .build()
-            .expect("reqwest client builds"),
-        url,
-        user,
-        pw,
-    )))
+    // Legacy process-wide credentials must never be shared across mailbox accounts.
+    // Runtime handlers resolve an administrator-approved, account-owned link.
+    None
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3806,19 +3793,12 @@ struct ListQuery {
 async fn nextcloud_list(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Extension(nc): Extension<crate::nextcloud::NextcloudHandle>,
     Query(q): Query<ListQuery>,
 ) -> Response {
     if let Err(resp) = crate::user_router::feature_session(&state, &headers, "integrations.nextcloud").await {
         return resp;
     }
-    let Some(nc) = nc else {
-        return (
-            StatusCode::NOT_IMPLEMENTED,
-            Json(json!({ "error": "no nextcloud account linked" })),
-        )
-            .into_response();
-    };
+    let nc=match crate::nextcloud_gateway::resolve(&state,&headers,None).await {Ok(gateway)=>gateway,Err(response)=>return response};
     match nc.list(&q.path).await {
         Ok(entries) => Json(json!({ "entries": entries })).into_response(),
         Err(e) => {

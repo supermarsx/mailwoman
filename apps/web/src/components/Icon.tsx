@@ -16,6 +16,7 @@ export type IconName =
   | 'preferences'
   | 'dashboard'
   | 'analytics'
+  | 'nextcloud'
   | 'sessions'
   | 'admins'
   | 'roles'
@@ -171,6 +172,7 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   admins: () => <><circle cx="5" cy="4" r="2" {...S} /><path d="M1 14 V11 A4 4 0 0 1 9 11 V14 M11 7 L15 7 V11 L13 14 L11 11 Z" {...S} /></>,
   roles: () => <><path d="M1 3 H7 M1 8 H7 M1 13 H7" {...S} /><path d="M10 3 L12 5 L15 1 M10 8 L12 10 L15 6 M10 13 L12 15 L15 11" {...S} /></>,
   // Two filled blocks, a ring and a triangle: the four tiles of an overview.
+  nextcloud: () => <><circle cx="8" cy="8" r="3" {...S} /><circle cx="2" cy="8" r="1.5" {...S} /><circle cx="14" cy="8" r="1.5" {...S} /><path d="M3.5 8H5 M11 8h1.5" {...S} /></>,
   analytics: () => <><path d="M1 1 V15 H15" {...S} /><path d="M4 11 V8 M8 11 V5 M12 11 V2" {...S} /></>,
   dashboard: () => (
     <>

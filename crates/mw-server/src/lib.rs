@@ -76,6 +76,11 @@ pub mod webhooks;
 pub mod assist;
 pub mod directory;
 pub mod nextcloud;
+mod nextcloud_accounts;
+mod nextcloud_config;
+mod nextcloud_gateway;
+mod nextcloud_transport;
+mod nextcloud_xml;
 pub mod passwd;
 pub mod plugins;
 // V7 MOUNT/WIRE (plan §3 e14): builds + injects the five V7 extensions, backs the
@@ -1464,6 +1469,7 @@ fn router(
         .merge(delivery_status::router())
         .merge(branding_routes::router())
         .merge(analytics_routes::router())
+        .merge(nextcloud_accounts::router())
         .route("/jmap/session", get(jmap_session))
         .route("/jmap/api", post(jmap_api).route_layer(middleware::from_fn_with_state(state.clone(), scope_mw::jmap_sieve_scope_guard)))
         .route(

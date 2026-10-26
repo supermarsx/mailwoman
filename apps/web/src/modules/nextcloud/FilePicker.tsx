@@ -1,3 +1,4 @@
+import { AsyncPending } from '../../components/AsyncState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 // A minimal WebDAV directory picker (SPEC §18.4, plan §3 e7). Browses Nextcloud
 // folders via the injected NextcloudService, letting the caller either navigate into
@@ -26,6 +27,8 @@ export function FilePicker(props: FilePickerProps): JSX.Element {
   onMount(() => void loadCatalog('nextcloud'));
   const [dir, setDir] = createSignal('/');
   const [entries] = createResource(dir, (path) => props.service.list(path));
+
+  const loaded=():WebDavEntry[]=>entries.loading||entries.error?[]:entries()??[];
 
   function navigate(path: string): void {
     setDir(path);
@@ -56,7 +59,7 @@ export function FilePicker(props: FilePickerProps): JSX.Element {
       </div>
 
       <Show when={entries.loading}>
-        <p class={css.meta}>{t('nextcloud-loading')}</p>
+        <AsyncPending message={t('nextcloud-loading')}/>
       </Show>
       <Show when={entries.error as unknown}>
         <p class={css.error} role="alert">
@@ -64,13 +67,13 @@ export function FilePicker(props: FilePickerProps): JSX.Element {
         </p>
       </Show>
 
-      <Show when={!entries.loading && (entries() ?? []).length === 0}>
+      <Show when={!entries.loading && !entries.error && loaded().length === 0}>
         <p class={css.meta}>{t('nextcloud-empty')}</p>
       </Show>
 
-      <Show when={(entries() ?? []).length > 0}>
+      <Show when={loaded().length > 0}>
         <ul class={css.list} aria-label={t('nextcloud-file-list')}>
-          <For each={entries()}>
+          <For each={loaded()}>
             {(entry) => {
               const selectable = (): boolean => props.mode === 'files' && !entry.isDir;
               const isSelected = (): boolean => selectable() && (props.selected?.has(entry.path) ?? false);

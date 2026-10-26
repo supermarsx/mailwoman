@@ -221,3 +221,5 @@ admin-attachments-policy-title = Delivery and preview rules
 admin-attachments-unavailable = Attachment policy settings are not available on this server.
 admin-attachments-edit = Edit policy
 admin-attachments-refresh = Refresh rules
+
+admin-nav-nextcloud = Nextcloud

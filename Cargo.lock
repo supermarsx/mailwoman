@@ -5589,6 +5589,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "p256 0.14.0",
+ "quick-xml",
  "rand 0.10.3",
  "rand 0.8.7",
  "reqwest 0.12.28",

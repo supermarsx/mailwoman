@@ -1,4 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import {Suspense} from 'solid-js';
+import {FilePicker} from './FilePicker.tsx';
+import {NextcloudService} from './service.ts';
+import {activateAccountPreferences,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
+beforeEach(()=>{suspendAccountPreferences();activateAccountPreferences('test-account');});
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { NextcloudAttach } from './NextcloudAttach.tsx';
 import { ShareLinkComposer } from './ShareLinkComposer.tsx';
@@ -77,7 +82,7 @@ describe('share-link composer — password + expiry controls', () => {
       password?: string;
       expiresAt?: string;
     };
-    expect(body).toEqual({ path: '/report.pdf', password: 's3cret', expiresAt: '2026-12-31' });
+    expect(body).toEqual({ accountId:'test-account', path: '/report.pdf', password: 's3cret', expiresAt: '2026-12-31' });
   });
 
   it('omits password + expiry when their toggles are off', async () => {
@@ -89,7 +94,7 @@ describe('share-link composer — password + expiry controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create link' }));
     await waitFor(() => expect(screen.getByTestId('nc-share-url')).toBeInTheDocument());
     const body = JSON.parse((fetcher.mock.calls[0]?.[1]?.body as string) ?? '{}') as Record<string, unknown>;
-    expect(body).toEqual({ path: '/big.zip' });
+    expect(body).toEqual({ accountId:'test-account', path: '/big.zip' });
   });
 
   it('validates that a chosen password is not empty', async () => {
@@ -127,7 +132,7 @@ describe('results as toasts (t32 f39)', () => {
     });
     render(() => (
       <>
-        <SaveToNextcloud attachment={{ blobId: 'b1', name: 'a.pdf' }} fetcher={fetcher} />
+        <SaveToNextcloud attachment={{ emailId:'message-1', blobId: 'b1', name: 'a.pdf' }} fetcher={fetcher} />
         <ToastRegion />
       </>
     ));
@@ -154,5 +159,19 @@ describe('results as toasts (t32 f39)', () => {
     fireEvent.click(screen.getByText('report.pdf'));
     fireEvent.click(screen.getByRole('button', { name: /Attach 1 file/ }));
     await waitFor(() => expect(toasts().map((i) => [i.tone, i.message])).toEqual([['error', 'nextcloud request failed: 500']]));
+  });
+});
+
+
+describe('picker loading isolation',()=>{
+  it('keeps the containing workspace mounted while listing and after refusal',async()=>{
+    let reject!:(error:Error)=>void;
+    const service=new NextcloudService(()=>new Promise<Response>((_resolve,fail)=>{reject=fail;}));
+    render(()=><Suspense fallback={<p>Workspace suspended</p>}><span>Retained workspace</span><FilePicker service={service} mode="files"/></Suspense>);
+    expect(screen.getByText('Retained workspace')).toBeVisible();
+    expect(screen.queryByText('Workspace suspended')).not.toBeInTheDocument();
+    reject(new Error('Access refused'));
+    await screen.findByRole('alert');
+    expect(screen.getByText('Retained workspace')).toBeVisible();
   });
 });

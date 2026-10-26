@@ -1020,7 +1020,7 @@ fn download_name(url: &reqwest::Url) -> String {
 /// A part's bytes and declared type, read as `/jmap/download` reads a blob: from
 /// the engine in engine mode, from the upstream's download URL with the session's
 /// credentials in proxy mode.
-async fn read_part(
+pub(crate) async fn read_part(
     state: &AppState,
     session: &mw_store::Session,
     blob_id: &str,
