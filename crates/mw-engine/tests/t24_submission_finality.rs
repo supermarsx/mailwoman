@@ -161,6 +161,7 @@ enum Smtp {
     RejectAllRecipients,
     /// The connection fails before anything is accepted.
     TransportError,
+    AuthRejected,
 }
 
 struct CountingSubmitter {
@@ -215,6 +216,7 @@ impl MailSubmitter for CountingSubmitter {
                     .collect(),
             }),
             Smtp::TransportError => Err(EngineError::Transport("connection refused".into())),
+            Smtp::AuthRejected => Err(EngineError::Auth("credentials rejected".into())),
         }
     }
 }
@@ -712,4 +714,22 @@ async fn a_cancel_cannot_overwrite_a_sent_submission() {
     );
     assert_eq!(submission(&h, "sub-done").await["undoStatus"], "final");
     assert_eq!(h.submitter.delivered(), 1);
+}
+
+#[tokio::test]
+async fn smtp_auth_rejection_stops_queued_credential_replay() {
+    let h = setup(SentAppend::Accept, Smtp::AuthRejected).await;
+    let draft = create_draft(&h).await;
+    enqueue_due(&h, "sub-auth", &draft).await;
+    let t0 = Utc::now();
+    h.engine.dispatch_tick_at(t0).await.unwrap();
+    assert!(!h.engine.is_registered(&h.account_id));
+    for day in 1..4 {
+        h.engine
+            .dispatch_tick_at(t0 + chrono::Duration::days(day))
+            .await
+            .unwrap();
+    }
+    assert_eq!(h.submitter.calls(), 1);
+    assert_eq!(h.submitter.delivered(), 0);
 }

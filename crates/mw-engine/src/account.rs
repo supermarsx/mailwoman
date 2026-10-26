@@ -90,6 +90,8 @@ pub struct AccountRuntime {
     /// A running change-ingestion loop, kept alive so its `Drop`/`stop` fires
     /// when the account is unregistered.
     pub watch: Option<Arc<WatchHandle>>,
+    /// Opaque randomized sealed credentials, used only for rejection CAS.
+    pub credential_revision: Option<Vec<u8>>,
     /// The account's CalDAV/CardDAV connection config (plan §2.3, V3). `None`
     /// for a mail-only account; when set, the PIM surface (e8) drives
     /// `mw-dav`/`mw-carddav` to sync CalDAV-backed calendars + CardDAV-backed
@@ -110,6 +112,7 @@ impl AccountRuntime {
             submitter,
             identity: identity.into(),
             watch: None,
+            credential_revision: None,
             dav: None,
         }
     }

@@ -384,22 +384,110 @@ impl Store {
 
     /// Update an account's opaque sync-policy JSON.
     pub async fn update_sync_policy(&self, id: &str, policy_json: &str) -> Result<(), StoreError> {
-        q("UPDATE accounts SET sync_policy_json = ?2 WHERE id = ?1")
+        for _ in 0..8 {
+            let row = q("SELECT sync_policy_json FROM accounts WHERE id = ?1")
+                .bind(id)
+                .fetch_optional(&self.backend)
+                .await?
+                .ok_or(StoreError::NotFound)?;
+            let old = row.get_string("sync_policy_json");
+            let rejected = serde_json::from_str::<serde_json::Value>(&old)
+                .ok()
+                .is_some_and(|p| {
+                    p.get("credential_rejected")
+                        .and_then(serde_json::Value::as_bool)
+                        == Some(true)
+                });
+            let next = if rejected {
+                let mut policy: serde_json::Value = serde_json::from_str(policy_json)
+                    .map_err(|_| StoreError::Corrupt("invalid account policy".into()))?;
+                policy
+                    .as_object_mut()
+                    .ok_or_else(|| StoreError::Corrupt("invalid account policy".into()))?
+                    .insert("credential_rejected".into(), true.into());
+                policy.to_string()
+            } else {
+                policy_json.to_owned()
+            };
+            if q(
+                "UPDATE accounts SET sync_policy_json = ?2 WHERE id = ?1 AND sync_policy_json = ?3",
+            )
             .bind(id)
-            .bind(policy_json)
+            .bind(next)
+            .bind(old)
             .execute(&self.backend)
-            .await?;
-        Ok(())
+            .await?
+                == 1
+            {
+                return Ok(());
+            }
+        }
+        Err(StoreError::Corrupt(
+            "account policy changed concurrently".into(),
+        ))
     }
 
     /// Open the sealed credentials for an account.
     pub async fn account_credentials(&self, id: &str) -> Result<crate::Credentials, StoreError> {
+        self.account_credentials_with_revision(id)
+            .await
+            .map(|(credentials, _)| credentials)
+    }
+
+    /// Read credentials and their opaque revision from the same database snapshot.
+    pub async fn account_credentials_with_revision(
+        &self,
+        id: &str,
+    ) -> Result<(crate::Credentials, Vec<u8>), StoreError> {
         let row = q("SELECT sealed_creds FROM accounts WHERE id = ?1")
             .bind(id)
             .fetch_optional(&self.backend)
             .await?
             .ok_or(StoreError::NotFound)?;
-        crate::decode_creds(&self.key.open(&row.get_blob("sealed_creds"))?)
+        let revision = row.get_blob("sealed_creds");
+        let credentials = crate::decode_creds(&self.key.open(&revision)?)?;
+        Ok((credentials, revision))
+    }
+
+    /// Opaque randomized sealed-credential revision; never expose or log it.
+    pub async fn account_credential_revision(&self, id: &str) -> Result<Vec<u8>, StoreError> {
+        let row = q("SELECT sealed_creds FROM accounts WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&self.backend)
+            .await?
+            .ok_or(StoreError::NotFound)?;
+        Ok(row.get_blob("sealed_creds"))
+    }
+
+    /// Mark only the rejected credential revision, preserving concurrent policy edits.
+    pub async fn reject_account_credential_revision(
+        &self,
+        id: &str,
+        revision: &[u8],
+    ) -> Result<bool, StoreError> {
+        for _ in 0..8 {
+            let row = q("SELECT sealed_creds, sync_policy_json FROM accounts WHERE id = ?1")
+                .bind(id)
+                .fetch_optional(&self.backend)
+                .await?
+                .ok_or(StoreError::NotFound)?;
+            if row.get_blob("sealed_creds") != revision {
+                return Ok(false);
+            }
+            let old = row.get_string("sync_policy_json");
+            let mut policy: serde_json::Value = serde_json::from_str(&old)
+                .map_err(|_| StoreError::Corrupt("invalid account policy".into()))?;
+            let object = policy
+                .as_object_mut()
+                .ok_or_else(|| StoreError::Corrupt("invalid account policy".into()))?;
+            object.insert("credential_rejected".into(), true.into());
+            if q("UPDATE accounts SET sync_policy_json = ?2 WHERE id = ?1 AND sealed_creds = ?3 AND sync_policy_json = ?4")
+                .bind(id).bind(policy.to_string()).bind(revision.to_vec()).bind(old)
+                .execute(&self.backend).await? == 1 { return Ok(true); }
+        }
+        Err(StoreError::Corrupt(
+            "account policy changed concurrently".into(),
+        ))
     }
 
     fn account_from_row(row: &Row) -> Result<Account, StoreError> {
@@ -1660,6 +1748,58 @@ mod tests {
         )
         .await
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn rejected_credential_revision_preserves_policy_and_cannot_reject_replacement() {
+        let s = store().await;
+        let id = seed_account(&s).await;
+        let old = s.account_credential_revision(&id).await.unwrap();
+        assert!(
+            s.reject_account_credential_revision(&id, &old)
+                .await
+                .unwrap()
+        );
+        let account = s.get_account(&id).await.unwrap();
+        let policy: serde_json::Value = serde_json::from_str(&account.sync_policy_json).unwrap();
+        assert_eq!(policy["keep"], true);
+        assert_eq!(policy["credential_rejected"], true);
+        s.update_sync_policy(&id, r#"{"keep":true,"unrelated":1}"#)
+            .await
+            .unwrap();
+        assert!(
+            s.get_account(&id)
+                .await
+                .unwrap()
+                .sync_policy_json
+                .contains("credential_rejected")
+        );
+        s.upsert_account_by_identity(
+            &NewAccount {
+                kind: account.kind,
+                host: &account.host,
+                port: account.port,
+                tls: &account.tls,
+                username: &account.username,
+                sync_policy_json: r#"{"keep":true}"#,
+            },
+            &creds(),
+        )
+        .await
+        .unwrap();
+        assert_ne!(s.account_credential_revision(&id).await.unwrap(), old);
+        assert!(
+            !s.reject_account_credential_revision(&id, &old)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !s.get_account(&id)
+                .await
+                .unwrap()
+                .sync_policy_json
+                .contains("credential_rejected")
+        );
     }
 
     async fn seed_mailbox(s: &Store, account_id: &str, name: &str, uidvalidity: u32) -> String {

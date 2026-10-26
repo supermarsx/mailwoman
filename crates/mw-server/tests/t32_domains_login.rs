@@ -703,3 +703,81 @@ async fn only_successful_domain_login_enrolls_the_real_account_in_admin_users() 
     );
     assert_eq!(store.directory_accounts().await.unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn rejected_password_is_attempted_once_and_never_registered() {
+    let mail = MockPop3::start("alice@example.org", "different-secret").await;
+    let db = test_db::unique_dir("login-no-retry")
+        .join("mw.db")
+        .to_string_lossy()
+        .into_owned();
+    let store = Store::open(&db, ServerKey::from_hex(KEY).unwrap())
+        .await
+        .unwrap();
+    store
+        .put_domain_config(&row("example.org", &mail))
+        .await
+        .unwrap();
+    let base = server(&db, &mail).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    assert_eq!(
+        login(&client, &base, "alice@example.org").await.status(),
+        401
+    );
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    assert_eq!(mail.logins_refused(), 1);
+    assert_eq!(mail.logins_accepted(), 0);
+    assert!(store.list_accounts().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn hanging_upstream_login_times_out_and_drops_connection() {
+    use tokio::io::AsyncReadExt;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let peer = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut bytes = [0u8; 16];
+        tokio::time::timeout(std::time::Duration::from_secs(30), stream.read(&mut bytes))
+            .await
+            .unwrap()
+            .unwrap()
+    });
+    let fallback = MockPop3::start("unused", "unused").await;
+    let db = test_db::unique_dir("login-timeout")
+        .join("mw.db")
+        .to_string_lossy()
+        .into_owned();
+    let store = Store::open(&db, ServerKey::from_hex(KEY).unwrap())
+        .await
+        .unwrap();
+    let mut domain = row("example.org", &fallback);
+    domain.upstream_json =
+        json!({"imap":{"host":"127.0.0.1","port":addr.port(),"tls":"none","allowPrivate":true}})
+            .to_string();
+    store.put_domain_config(&domain).await.unwrap();
+    store
+        .put_domain_alias("alias.test", "example.org")
+        .await
+        .unwrap();
+    let base = server(&db, &fallback).await;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(29))
+        .build()
+        .unwrap();
+    let start = std::time::Instant::now();
+    assert_eq!(
+        login(&client, &base, "alice@alias.test").await.status(),
+        504
+    );
+    assert!(start.elapsed() < std::time::Duration::from_secs(28));
+    assert_eq!(
+        peer.await.unwrap(),
+        0,
+        "timed-out login must close its upstream socket"
+    );
+    assert!(store.list_accounts().await.unwrap().is_empty());
+    assert_eq!(fallback.logins_accepted(), 0);
+    assert_eq!(fallback.logins_refused(), 0);
+}

@@ -778,6 +778,7 @@ async fn operator_search_via_filter_text() {
 /// engine's watch loop must re-establish it. Counts `watch` calls.
 struct ReconnectBackend {
     watch_calls: AtomicUsize,
+    reject_reconnect: bool,
 }
 
 #[async_trait]
@@ -821,6 +822,9 @@ impl AccountBackend for ReconnectBackend {
     }
     async fn watch(&self, sink: ChangeSink) -> Result<WatchHandle> {
         let n = self.watch_calls.fetch_add(1, Ordering::SeqCst);
+        if n > 0 && self.reject_reconnect {
+            return Err(mw_engine::backend::EngineError::Auth("rejected".into()));
+        }
         let mbox = RawMailboxRef {
             name: "INBOX".into(),
             uidvalidity: 0,
@@ -843,6 +847,7 @@ async fn watch_reconnects_after_a_drop() {
     let engine = Arc::new(Engine::new(store));
     let backend = Arc::new(ReconnectBackend {
         watch_calls: AtomicUsize::new(0),
+        reject_reconnect: false,
     });
     engine.register_backend(
         "recon-acct",
@@ -1129,4 +1134,82 @@ async fn local_redirect_copy_uses_smtp_and_hot_revocation_prevents_later_forward
     h.backend.state.lock().unwrap().messages.get_mut("INBOX").unwrap().push((2,String::from_utf8(message).unwrap().replace("forward-1","forward-2").into_bytes(),vec![],"2026-07-01T09:00:00Z".into()));
     let _=h.engine.resync(&h.account_id).await;
     assert_eq!(h.submitter.calls.load(Ordering::SeqCst),1);
+}
+
+#[tokio::test]
+async fn watch_authentication_rejection_stops_without_retry() {
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let engine = Arc::new(Engine::new(store));
+    let backend = Arc::new(ReconnectBackend {
+        watch_calls: AtomicUsize::new(0),
+        reject_reconnect: true,
+    });
+    engine.register_backend(
+        "rejected",
+        AccountRuntime::new(
+            backend.clone(),
+            Arc::new(FakeSubmitter::new()),
+            "me@example.org",
+        ),
+    );
+    engine.start_watch("rejected").await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while engine.is_registered("rejected") {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    assert_eq!(
+        backend.watch_calls.load(Ordering::SeqCst),
+        2,
+        "initial watch plus exactly one rejected reconnect"
+    );
+}
+#[tokio::test]
+async fn obsolete_worker_cannot_reject_a_replacement_runtime() {
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let engine = Arc::new(Engine::new(store));
+    let old: Arc<dyn AccountBackend> = Arc::new(ReconnectBackend {
+        watch_calls: AtomicUsize::new(0),
+        reject_reconnect: true,
+    });
+    let replacement: Arc<dyn AccountBackend> = Arc::new(ReconnectBackend {
+        watch_calls: AtomicUsize::new(0),
+        reject_reconnect: false,
+    });
+    engine.register_backend(
+        "replaced",
+        AccountRuntime::new(
+            old.clone(),
+            Arc::new(FakeSubmitter::new()),
+            "me@example.org",
+        ),
+    );
+    engine.register_backend(
+        "replaced",
+        AccountRuntime::new(
+            replacement,
+            Arc::new(FakeSubmitter::new()),
+            "me@example.org",
+        ),
+    );
+    engine.reject_runtime_credentials("replaced", &old).await;
+    assert!(engine.is_registered("replaced"));
+}
+#[tokio::test]
+async fn rejected_revision_stays_blocked_when_durable_marker_cannot_be_written() {
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let engine = Arc::new(Engine::new(store));
+    let backend: Arc<dyn AccountBackend> = Arc::new(ReconnectBackend {
+        watch_calls: AtomicUsize::new(0), reject_reconnect: true,
+    });
+    let mut runtime = AccountRuntime::new(backend.clone(), Arc::new(FakeSubmitter::new()), "me@example.org");
+    runtime.credential_revision = Some(vec![1, 2, 3]);
+    engine.register_backend("missing-store-row", runtime);
+    engine.reject_runtime_credentials("missing-store-row", &backend).await;
+    assert!(engine.credential_revision_rejected("missing-store-row", &[1, 2, 3]));
+    assert!(!engine.credential_revision_rejected("missing-store-row", &[4, 5, 6]));
+    assert!(!engine.is_registered("missing-store-row"));
 }

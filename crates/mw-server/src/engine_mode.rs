@@ -719,6 +719,7 @@ async fn register(
     backend: Arc<dyn AccountBackend>,
     submitter: mw_smtp::Submitter,
     identity: &str,
+    credential_revision: Option<Vec<u8>>,
 ) {
     // Wrap the SMTP submitter with masked-email on-send From enforcement (26.10
     // follow-up a): a submission whose envelope `From` is one of this account's
@@ -729,11 +730,12 @@ async fn register(
     let base: Arc<dyn MailSubmitter> = Arc::new(submitter);
     let masked =
         crate::masked::MaskedSubmitter::new(engine.store().clone(), account_id.to_string(), base);
-    let runtime = AccountRuntime::new(
+    let mut runtime = AccountRuntime::new(
         backend,
         Arc::new(masked) as Arc<dyn MailSubmitter>,
         identity,
     );
+    runtime.credential_revision = credential_revision;
     engine.register_backend(account_id.to_string(), runtime);
 }
 
@@ -769,17 +771,40 @@ async fn register_and_sync(
     backend: Arc<dyn AccountBackend>,
     submitter: mw_smtp::Submitter,
     identity: &str,
+    credential_revision: Option<Vec<u8>>,
 ) -> Result<(), String> {
-    register(engine, account_id, backend, submitter, identity).await;
+    register(
+        engine,
+        account_id,
+        backend.clone(),
+        submitter,
+        identity,
+        credential_revision,
+    )
+    .await;
     let mut first_sync = FirstSync {
         engine,
         account_id,
         finished: false,
     };
-    engine.resync(account_id).await.map_err(|e| e.to_string())?;
-    first_sync.finished = true;
+    if let Err(error) = engine.resync(account_id).await {
+        if matches!(error, mw_engine::backend::EngineError::Auth(_)) {
+            engine
+                .reject_runtime_credentials(account_id, &backend)
+                .await;
+        }
+        return Err(error.to_string());
+    }
     // Change ingestion keeps the cache fresh for the next browser poll.
-    let _ = engine.start_watch(account_id).await;
+    if let Err(error) = engine.start_watch(account_id).await
+        && matches!(error, mw_engine::backend::EngineError::Auth(_))
+    {
+        engine
+            .reject_runtime_credentials(account_id, &backend)
+            .await;
+        return Err("authentication rejected; fresh sign-in required".into());
+    }
+    first_sync.finished = true;
     Ok(())
 }
 
@@ -787,6 +812,20 @@ async fn register_and_sync(
 /// backend, find or create the account, register it, and run an initial sync. Returns `(account_id,
 /// username)` for the session cookie. Any failure is a uniform login error.
 pub async fn engine_login(
+    engine: &Arc<Engine>,
+    server_url: &str,
+    username: &str,
+    password: &str,
+) -> Result<(String, String), LoginFailure> {
+    tokio::time::timeout(
+        Duration::from_secs(25),
+        engine_login_inner(engine, server_url, username, password),
+    )
+    .await
+    .map_err(|_| LoginFailure::new(LoginFailureReason::Timeout))?
+}
+
+async fn engine_login_inner(
     engine: &Arc<Engine>,
     server_url: &str,
     username: &str,
@@ -920,6 +959,13 @@ pub async fn engine_login(
         return Err(LoginFailure::new(LoginFailureReason::Disabled));
     }
 
+    // Serialize credential replacement with stored reconnects for an existing account.
+    let identity_lock_key = known
+        .clone()
+        .unwrap_or_else(|| format!("login:{}:{}:{}", url.host, url.port, username));
+    let lock = connect_lock(&identity_lock_key);
+    let _connecting = lock.lock().await;
+
     // Find the account this identity logged in as before, or create it. The id
     // must be stable across logins: second factors, and everything else the
     // account owns, are keyed by it.
@@ -960,11 +1006,27 @@ pub async fn engine_login(
     // Under the account's connect lock, so that a request for the account made
     // meanwhile (another session of it, after a restart) waits for this sync
     // instead of reading while it runs. The dial above is outside the lock.
-    let lock = connect_lock(&account_id);
-    let _connecting = lock.lock().await;
-    register_and_sync(engine, &account_id, backend, submitter, username)
+    let new_account_lock = connect_lock(&account_id);
+    let _new_account_connecting = if identity_lock_key != account_id {
+        Some(new_account_lock.lock().await)
+    } else {
+        None
+    };
+    let revision = engine
+        .store()
+        .account_credential_revision(&account_id)
         .await
-        .map_err(|_| LoginFailure::new(LoginFailureReason::Sync))?;
+        .map_err(|_| LoginFailure::new(LoginFailureReason::Storage))?;
+    register_and_sync(
+        engine,
+        &account_id,
+        backend,
+        submitter,
+        username,
+        Some(revision),
+    )
+    .await
+    .map_err(|_| LoginFailure::new(LoginFailureReason::Sync))?;
 
     Ok((account_id, username.to_string()))
 }
@@ -999,11 +1061,21 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
         .get_account(account_id)
         .await
         .map_err(|e| e.to_string())?;
-    let creds = engine
+    if serde_json::from_str::<serde_json::Value>(&account.sync_policy_json)
+        .ok()
+        .and_then(|p| p.get("credential_rejected").and_then(|v| v.as_bool()))
+        .unwrap_or(false)
+    {
+        return Err("authentication rejected; fresh sign-in required".into());
+    }
+    let (creds, credential_revision) = engine
         .store()
-        .account_credentials(account_id)
+        .account_credentials_with_revision(account_id)
         .await
         .map_err(|e| e.to_string())?;
+    if engine.credential_revision_rejected(account_id, &credential_revision) {
+        return Err("authentication rejected; fresh sign-in required".into());
+    }
     let mut configured =
         crate::domain_config::upstream_for(engine.store(), &account.username).await?;
     let domain_mail = configured.as_ref().and_then(|c| c.mail());
@@ -1086,7 +1158,21 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
                 .flatten(),
         },
     )
-    .await?;
+    .await;
+    let backend = match backend {
+        Ok(backend) => backend,
+        Err(error) => {
+            if error.reason == LoginFailureReason::Auth {
+                engine.remember_rejected_credential_revision(account_id, &credential_revision);
+                engine
+                    .store()
+                    .reject_account_credential_revision(account_id, &credential_revision)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+            return Err(error.to_string());
+        }
+    };
     let submitter = build_submitter(
         &policy,
         &smtp_username,
@@ -1105,7 +1191,15 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
             .and_then(|c| c.smtp.as_ref())
             .map(endpoint_dialer),
     );
-    register_and_sync(engine, account_id, backend, submitter, &account.username).await
+    register_and_sync(
+        engine,
+        account_id,
+        backend,
+        submitter,
+        &account.username,
+        Some(credential_revision),
+    )
+    .await
 }
 
 #[cfg(test)]

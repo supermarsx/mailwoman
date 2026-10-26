@@ -2139,7 +2139,16 @@ async fn login(
     // Validate credentials by fetching the upstream Session server-side — under the
     // upstream policy, so a refused upstream is never contacted (t24 B2). A refusal
     // answers with the same 401 as a wrong password.
-    let session = match upstream_session(&state.security, &jmap_url, &creds).await {
+    let attempt = tokio::time::timeout(std::time::Duration::from_secs(25), upstream_session(&state.security, &jmap_url, &creds)).await;
+    let attempt = match attempt {
+        Ok(result) => result,
+        Err(_) => {
+            security_center::record_failure_backend(&state,None,&body.username,
+                &security_center::device(&headers,&ext,body.client_type.as_deref()),"password","timeout",Some("jmap")).await;
+            return StatusCode::GATEWAY_TIMEOUT.into_response();
+        }
+    };
+    let session = match attempt {
         Ok(s) => s,
         Err(e) => {
             if let UpstreamSessionError::Refused(r) = &e {
@@ -2155,6 +2164,7 @@ async fn login(
             };
             security_center::record_failure_backend(&state,None,&body.username,
                 &security_center::device(&headers,&ext,body.client_type.as_deref()),"password",reason,Some("jmap")).await;
+            if reason == "timeout" { return StatusCode::GATEWAY_TIMEOUT.into_response(); }
             return unauthorized();
         }
     };
@@ -2478,6 +2488,7 @@ async fn engine_login(
                 tracing::warn!("engine login failed");
                 security_center::record_failure_backend(state,None,&body.username,
                     &security_center::device(headers,ext,body.client_type.as_deref()),"password",error.reason.code(),Some("engine")).await;
+                if error.reason == login_failure::LoginFailureReason::Timeout { return StatusCode::GATEWAY_TIMEOUT.into_response(); }
                 return unauthorized();
             }
         };

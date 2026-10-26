@@ -71,6 +71,7 @@ impl IndexPatch {
 pub struct Engine {
     store: Store,
     accounts: Mutex<HashMap<String, AccountRuntime>>,
+    rejected_credential_revisions: Mutex<HashMap<String, Vec<u8>>>,
     /// Realtime change fan-out (plan §1.2, §2.2). `start_watch` broadcasts a
     /// `StateChange` after each resync (e9); `mw-server` (e10) subscribes per
     /// session to feed `/jmap/ws` + `/jmap/eventsource`.
@@ -150,6 +151,7 @@ impl Engine {
         Self {
             store,
             accounts: Mutex::new(HashMap::new()),
+            rejected_credential_revisions: Mutex::new(HashMap::new()),
             changes,
             search,
             search_dir: None,
@@ -244,6 +246,50 @@ impl Engine {
             .lock()
             .expect("accounts lock")
             .insert(account_id.into(), runtime);
+    }
+
+    /// Reject only the worker and credential revision that actually failed.
+    pub async fn reject_runtime_credentials(
+        &self,
+        account_id: &str,
+        backend: &Arc<dyn AccountBackend>,
+    ) {
+        let runtime = self
+            .runtime(account_id)
+            .filter(|rt| Arc::ptr_eq(&rt.backend, backend));
+        if let Some(runtime) = runtime {
+            if let Some(revision) = &runtime.credential_revision {
+                self.remember_rejected_credential_revision(account_id, revision);
+                let _ = self
+                    .store
+                    .reject_account_credential_revision(account_id, revision)
+                    .await;
+            }
+            let mut accounts = self.accounts.lock().expect("accounts lock");
+            if accounts
+                .get(account_id)
+                .is_some_and(|rt| Arc::ptr_eq(&rt.backend, backend))
+            {
+                accounts.remove(account_id);
+            }
+        }
+    }
+
+    /// Remember a rejected opaque revision before attempting its durable marker.
+    pub fn remember_rejected_credential_revision(&self, account_id: &str, revision: &[u8]) {
+        self.rejected_credential_revisions
+            .lock()
+            .expect("credential rejection lock")
+            .insert(account_id.to_owned(), revision.to_vec());
+    }
+
+    /// In-process fail-closed guard if persisting a rejection encounters a store failure.
+    pub fn credential_revision_rejected(&self, account_id: &str, revision: &[u8]) -> bool {
+        self.rejected_credential_revisions
+            .lock()
+            .expect("credential rejection lock")
+            .get(account_id)
+            .is_some_and(|saved| saved == revision)
     }
 
     /// Whether an account is currently connected in this engine.
@@ -1279,10 +1325,25 @@ async fn watch_loop(
                 rx = new_rx;
                 backoff = Duration::from_secs(1); // reconnected — reset backoff
                 if let Err(e) = engine.resync(&account_id).await {
+                    if matches!(e, EngineError::Auth(_)) {
+                        engine
+                            .reject_runtime_credentials(&account_id, &backend)
+                            .await;
+                        return;
+                    }
                     tracing::warn!("resync after watch reconnect failed for {account_id}: {e}");
                 } else {
                     engine.broadcast_state(&account_id).await;
                 }
+            }
+            Err(EngineError::Auth(_)) => {
+                engine
+                    .reject_runtime_credentials(&account_id, &backend)
+                    .await;
+                tracing::warn!(
+                    "watch authentication rejected for {account_id}; fresh sign-in required"
+                );
+                return;
             }
             Err(e) => {
                 tracing::warn!("watch reconnect failed for {account_id}: {e}; will retry");
@@ -1319,6 +1380,12 @@ async fn consume_events(
                 Some(ChangeEvent::MailboxChanged { .. }) => {
                     match engine.resync(account_id).await {
                         Ok(()) => engine.broadcast_state(account_id).await,
+                        Err(EngineError::Auth(_)) => {
+                            if let Some(rt) = engine.runtime(account_id) {
+                                engine.reject_runtime_credentials(account_id, &rt.backend).await;
+                            }
+                            return WatchExit::Stop;
+                        }
                         Err(e) if is_disconnect(&e) => {
                             tracing::warn!("resync hit a dropped connection for {account_id}: {e}; reconnecting");
                             return WatchExit::Dropped;

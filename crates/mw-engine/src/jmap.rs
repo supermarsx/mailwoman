@@ -3332,12 +3332,16 @@ impl Engine {
                 }
             }
             None => rt.submitter.submit(outgoing).await,
-        }
-        .map_err(|e| match e {
-            // A submitter that cannot send will not start to on a retry.
-            e @ EngineError::Unsupported(_) => NotSent::permanent(e),
-            e => NotSent::transient(e),
-        })?;
+        };
+        let result = match result {
+            Err(error @ EngineError::Auth(_)) => {
+                self.reject_runtime_credentials(account_id, &rt.backend).await;
+                return Err(NotSent::permanent(error));
+            }
+            Err(error @ EngineError::Unsupported(_)) => return Err(NotSent::permanent(error)),
+            Err(error) => return Err(NotSent::transient(error)),
+            Ok(result) => result,
+        };
         // `mw-smtp` returns `Ok` with an empty `accepted` only when every RCPT TO
         // was refused, in which case it never sent DATA. Refused recipients stay
         // refused, so this is not retried.
