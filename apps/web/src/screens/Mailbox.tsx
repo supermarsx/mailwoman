@@ -519,7 +519,7 @@ export function MailboxScreen(): JSX.Element {
         <Show when={app.layout()==='ribbon'}><Ribbon onCompose={openNewMessage} onOpenSettings={openSettings}/></Show>
         <div class="workspace-body" ref={bodyElement} data-reading-pane={readingPane()} classList={{'workspace-body--split':splitVisible()}}>
           <div class={`mail-pane ${motion.surface}`} hidden={!listVisible()} data-mw-entering={mailEntering()}>
-            <SearchBox /><InboxTabs /><MessageList onOpenMessage={openMessageTab}/>
+            <SearchBox /><InboxTabs /><MessageList onOpenMessage={openMessageTab} onCompose={openReply}/>
           </div>
           <Show when={splitVisible()}><ResizeHandle label={t('mail-resize-list')} orientation={readingPane()==='bottom'?'horizontal':'vertical'} value={listSize()} min={readingPane()==='bottom'?160:240} max={listMax()} onChange={setListDrag} onCommit={value=>{setAccountUiPreferences(readingPane()==='bottom'?{messageListHeight:value}:{messageListWidth:value});setListDrag(null);}}/></Show>
           <div class="workspace-panes" ref={tilesElement} data-layout={narrow() ? 'tabs' : workspaceLayout()} data-pair={panes().length===2} hidden={!readersVisible()}>

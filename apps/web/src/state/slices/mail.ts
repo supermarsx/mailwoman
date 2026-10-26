@@ -144,6 +144,7 @@ export interface SendInput {
    *  the submission it is given `keyword`; cancelling the send within the undo
    *  window takes the keyword off again. */
   source?: { emailId: Id; keyword: '$answered' | '$forwarded' };
+  sources?: { emailId: Id; keyword: '$answered' | '$forwarded' }[];
 }
 
 /** The mail/session portion of `AppState` (accessors + actions). */
@@ -240,6 +241,7 @@ export interface MailSlice {
   // ── V2 message mutations (each with a 10s undo) ──
   applyTag(id: Id, keyword: string): Promise<void>;
   removeTag(id: Id, keyword: string): Promise<void>;
+  tagMessages(ids: readonly Id[], keyword: string, on: boolean): Promise<void>;
   pinMessage(id: Id, pinned: boolean): Promise<void>;
   snoozeMessage(id: Id, untilIso: string): Promise<void>;
   unsnoozeMessage(id: Id): Promise<void>;
@@ -711,10 +713,12 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     try {
       res = await client.jmap(updateEmails(acct, patches));
     } catch {
+      if(accountId()!==acct)return 0;
       putBack(touched);
       if (opts.quiet !== true) showToast('error', t('mail-toast-update-failed'));
       return 0;
     }
+    if(accountId()!==acct)return 0;
     const refused = refusedUpdates(res, ids);
     if (refused.size > 0) {
       putBack(touched.filter((x) => refused.has(x.before.id)));
@@ -742,10 +746,12 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     on: boolean,
     label: (count: number) => string,
   ): Promise<void> {
+    const owner=accountId();
     const prior = keywordSnapshot(ids, keyword);
     const written = await writeKeyword(keyword, new Map(ids.map((id) => [id, on])));
-    if (written === 0) return;
+    if (written === 0 || accountId()!==owner) return;
     showUndo(label(written), async () => {
+      if(accountId()!==owner)return;
       await writeKeyword(keyword, prior);
     });
   }
@@ -823,6 +829,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   // ── tags ─────────────────────────────────────────────────────────────────
+  async function tagMessages(ids: readonly Id[],keyword:string,on:boolean):Promise<void> {
+    if(!/^[a-zA-Z0-9_-]{1,255}$/.test(keyword))return;
+    await markWithUndo(ids,keyword,on,count=>t(on?'mail-toast-labels-added':'mail-toast-labels-removed',{count,label:keyword}));
+  }
   async function applyTag(id: Id, keyword: string): Promise<void> {
     await rawKeyword(id, keyword, true);
     showUndo(t('mail-toast-label-added'), () => rawKeyword(id, keyword, false));
@@ -1424,6 +1434,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const acct = accountId();
     const user = me();
     if (acct === null || user === null) throw new Error(t('mail-send-not-signed-in'));
+    const sources = input.sources ?? (input.source ? [input.source] : []);
+    const sourceBefore=new Map(sources.map(source=>[source.emailId,findEmail(source.emailId)?.keywords?.[source.keyword]===true]));
     const drafts = roleOf(mailboxes(), 'drafts') ?? selectedMailboxId();
     if (drafts === null) throw new Error(t('mail-send-no-draft-folder'));
     const sent = roleOf(mailboxes(), 'sent');
@@ -1527,10 +1539,16 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // the client when it leaves. A send cancelled from the toast below clears
     // the mark; a scheduled send cancelled later from the Outbox does not.
     // The send itself has succeeded, so a failure here is not reported as one.
-    const source = input.source;
-    if (source !== undefined) {
+    async function markSources(on:boolean):Promise<void> {
+      if(!sources.length||accountId()!==acct)return;
+      if(!input.sources&&input.source){await rawKeyword(input.source.emailId,input.source.keyword,on||sourceBefore.get(input.source.emailId)===true);return;}
+      const patches:Record<Id,Record<string,unknown>>={};
+      for(const source of sources)patches[source.emailId]={[`keywords/${source.keyword}`]:on||sourceBefore.get(source.emailId)===true?true:null};
+      await client.jmap(updateEmails(acct!,patches));ctx.broadcastChange?.();
+    }
+    if(sources.length) {
       try {
-        await rawKeyword(source.emailId, source.keyword, true);
+        await markSources(true);
       } catch {
         // The message went out; only the mark is missing.
       }
@@ -1545,7 +1563,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         t('mail-toast-sent'),
         async () => {
           await client.jmap(cancelSubmission(acct, submissionId));
-          if (source !== undefined) await rawKeyword(source.emailId, source.keyword, false).catch(() => undefined);
+          await markSources(false).catch(() => undefined);
           showToast('info', t('mail-toast-send-canceled'));
         },
         holdSeconds * 1000,
@@ -1695,6 +1713,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     setFocusedInbox,
 
     applyTag,
+    tagMessages,
     removeTag,
     pinMessage,
     snoozeMessage,

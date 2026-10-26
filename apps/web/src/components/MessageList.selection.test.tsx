@@ -50,7 +50,7 @@ describe('MessageList selection', () => {
     expect(open).not.toHaveBeenCalled();
     // Marked without relying on colour: a check mark and screen-reader text.
     expect(within(row('Subject b')).getByText('Selected')).toBeInTheDocument();
-    expect(row('Subject b').textContent).toContain('✓');
+    expect(row('Subject b').querySelector('svg[data-icon="check"]')).not.toBeNull();
 
     fireEvent.click(row('Subject d'), { ctrlKey: true });
     expect(selectedSubjects()).toEqual(['Subject b']);

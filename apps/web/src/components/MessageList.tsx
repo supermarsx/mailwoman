@@ -1,4 +1,7 @@
 import { Icon } from './Icon.tsx';
+import {downloadMessages,forwardMessages} from '../api/mailBulk.ts';
+import {preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
+import type {ComposeInitial} from './compose/reply.ts';
 import { createMemo, createSignal, createEffect, on, For, onCleanup, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t, isolate } from '../i18n/index.ts';
@@ -318,9 +321,19 @@ function ListToolbar(): JSX.Element {
  * and raises the shared undo. Flag reads "Remove flag" when every selected
  * message is already flagged.
  */
-function BulkBar(): JSX.Element {
+function BulkBar(props:{onCompose?:((initial:ComposeInitial)=>void)|undefined}): JSX.Element {
   const app = useApp();
+  const [busy,setBusy]=createSignal(false);const [error,setError]=createSignal('');
+  const controller=new AbortController();onCleanup(()=>controller.abort());
   const targets = (): Id[] => app.actionTargets();
+  function forward():void {
+    setError('');try {const ids=new Set(targets());props.onCompose?.(forwardMessages(app.messages().filter(message=>ids.has(message.id)),t('mail-bulk-forward-subject',{count:ids.size})));}catch{setError(t('mail-bulk-transfer-failed'));}
+  }
+  async function download():Promise<void>{
+    if(busy())return;const owner=preferenceAccount();if(!owner)return;setBusy(true);setError('');
+    try {const blob=await downloadMessages(targets(),()=>preferenceAccountIsCurrent(owner),controller.signal);if(!preferenceAccountIsCurrent(owner))return;const url=URL.createObjectURL(blob);const anchor=document.createElement('a');anchor.href=url;anchor.download='messages.mbox';document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);}
+    catch {if(!controller.signal.aborted&&preferenceAccountIsCurrent(owner))setError(t('mail-bulk-transfer-failed'));}finally{setBusy(false);}
+  }
   const allFlagged = (): boolean => {
     const sel = app.selectedIds();
     const chosen = app.messages().filter((m) => sel.has(m.id));
@@ -366,6 +379,12 @@ function BulkBar(): JSX.Element {
       <button type="button" class={btn} onClick={() => void app.trashMessage(targets())}>
         {t('mail-delete')}
       </button>
+      <button type="button" class={btn} aria-label={t('mail-mark-spam')} onClick={()=>void app.markSpam(targets())}><Icon name="shield"/></button>
+      <select class={`${bulk.select} ${a11y.focusable}`} aria-label={t('mail-bulk-add-label')} onChange={event=>{const keyword=event.currentTarget.value;event.currentTarget.value='';if(keyword)void app.tagMessages(targets(),keyword,true);}}><option value="">{t('mail-bulk-add-label')}</option><For each={app.tags()}>{tag=><option value={tag.id}>{tag.name}</option>}</For></select>
+      <select class={`${bulk.select} ${a11y.focusable}`} aria-label={t('mail-bulk-remove-label')} onChange={event=>{const keyword=event.currentTarget.value;event.currentTarget.value='';if(keyword)void app.tagMessages(targets(),keyword,false);}}><option value="">{t('mail-bulk-remove-label')}</option><For each={app.tags()}>{tag=><option value={tag.id}>{tag.name}</option>}</For></select>
+      <Show when={props.onCompose}><button type="button" class={btn} aria-label={t('mail-bulk-forward')} onClick={forward}><Icon name="forward"/></button></Show>
+      <button type="button" class={btn} disabled={busy()} aria-label={t('mail-bulk-download')} onClick={()=>void download()}><Icon name="download"/></button>
+      <Show when={error()}><span role="alert">{error()}</span></Show>
       <button type="button" class={btn} onClick={() => app.selectAllInView()}>
         {t('mail-select-all')}
       </button>
@@ -387,7 +406,7 @@ export function rowRefCount(): number {
   return liveRowEls?.deref()?.size ?? -1;
 }
 
-export function MessageList(props: { onOpenMessage?: (id: string) => void } = {}): JSX.Element {
+export function MessageList(props: { onOpenMessage?: (id: string) => void; onCompose?: (initial:ComposeInitial)=>void } = {}): JSX.Element {
   const app = useApp();
   const [scrollTop, setScrollTop] = createSignal(0);
   // jsdom reports 0 for clientHeight; fall back to a sane viewport so tests
@@ -619,7 +638,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void } = {}
   return (
     <section class="list" aria-label={t('mail-list-label')} aria-busy={app.listLoading()}>
       <Show when={app.selectedIds().size > 0} fallback={<ListToolbar />}>
-        <BulkBar />
+        <BulkBar onCompose={props.onCompose}/>
       </Show>
       <OfflineQueueNotice />
       <Show when={app.listLoading()}><div class="list__loading" role="status">{t('mail-loading')}</div></Show>

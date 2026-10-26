@@ -842,6 +842,7 @@ export function Compose(props: {
         inReplyTo: threading().inReplyTo,
         references: threading().references,
         ...(initial?.source !== undefined ? { source: initial.source } : {}),
+        ...(initial?.sources !== undefined ? { sources: initial.sources } : {}),
         subject: subjectToSend,
         htmlBody,
         identity: identity(),

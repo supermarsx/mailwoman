@@ -521,6 +521,15 @@ describe('mail slice — what a send puts on the wire', () => {
     });
   });
 
+  it('marks bulk forwards together only after acceptance and undo preserves prior forwarded flags',async()=>{
+    await withInbox([email('one'),{...email('two'),keywords:{$forwarded:true}}],async(mail,{jmap})=>{
+      jmap.mockClear();await mail.sendMessage({to:'you@example.org',subject:'Two originals',htmlBody:'',sources:[{emailId:'one',keyword:'$forwarded'},{emailId:'two',keyword:'$forwarded'}]});
+      const sets=()=>jmap.mock.calls.flatMap(call=>(call[0] as JmapRequest).methodCalls).filter(call=>call[0]==='Email/set'&&'update' in call[1]);
+      expect(sets()).toHaveLength(1);expect(sets()[0]?.[1]['update']).toEqual({one:{'keywords/$forwarded':true},two:{'keywords/$forwarded':true}});
+      jmap.mockClear();await mail.undoNow();expect(sets()).toHaveLength(1);expect(sets()[0]?.[1]['update']).toEqual({one:{'keywords/$forwarded':null},two:{'keywords/$forwarded':true}});
+    });
+  });
+
   it('sends a message whose only recipient is in Bcc', async () => {
     await withInbox([email('a')], async (mail, { jmap }) => {
       jmap.mockClear();

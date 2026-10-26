@@ -1592,6 +1592,7 @@ impl Engine {
     ) -> Result<ComposeRequest> {
         check_compose_spec(spec).map_err(|i| EngineError::Protocol(i.to_string()))?;
         let mut req = compose_base_from_spec(spec, identity, message_id);
+        let mut attachment_bytes = 0usize;
         if let Some(atts) = spec.get("attachments").and_then(Value::as_array) {
             for att in atts {
                 // An inline part is not a file in the attachment list;
@@ -1609,6 +1610,10 @@ impl Engine {
                         "attachment blobId {blob_id:?} does not resolve to a stored message part or uploaded blob"
                     ))
                 })?;
+                attachment_bytes = attachment_bytes.saturating_add(blob.bytes.len());
+                if attachment_bytes > 32 * 1024 * 1024 {
+                    return Err(EngineError::Protocol("attachments exceed the 32 MiB composition limit".into()));
+                }
                 // Prefer the client-declared type/name; fall back to what the
                 // stored part reports (fetch_blob derives both from the MIME part).
                 let content_type = att

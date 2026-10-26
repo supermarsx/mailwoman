@@ -13,6 +13,7 @@ export type IconName =
   | 'shield'
   | 'fileAudio' | 'fileVideo' | 'filePdf' | 'fileCode'
   | 'print'
+  | 'download'
   | 'preferences'
   | 'dashboard'
   | 'analytics'
@@ -108,6 +109,7 @@ const S = { fill: 'none', stroke: 'currentColor', 'stroke-width': '2' } as const
 const F = { fill: 'currentColor' } as const;
 
 const PATHS: Record<IconName, () => JSX.Element> = {
+  download: () => <path d="M8 1v9m-4-4 4 4 4-4M2 11v3h12v-3" {...S}/>,
   shield: () => <><path d="M8 1L2 3v5c0 3 3 5 6 7 3-2 6-4 6-7V3z" {...S}/><path d="M5 8l2 2 4-4" {...S}/></>,
   fileAudio: () => <><path d="M6 12V3l7-2v9M6 6l7-2" {...S}/><ellipse cx="3.5" cy="12" rx="2.5" ry="2" {...S}/><ellipse cx="10.5" cy="10" rx="2.5" ry="2" {...S}/></>,
   fileVideo: () => <><rect x="1" y="3" width="10" height="10" {...S}/><path d="M11 6l4-2v8l-4-2M5 6l3 2-3 2z" {...S}/></>,

@@ -18,6 +18,7 @@ import { apiFetch } from './http.ts';
 // snooze, follow-up and the attachment indicator render straight off Email/get.
 export const HEADER_PROPERTIES = [
   'id',
+  'blobId',
   'from',
   'to',
   'subject',

@@ -255,6 +255,17 @@ describe('decideMarkRead', () => {
 });
 
 describe('bulk actions are one request', () => {
+  it('labels a selection in one request, preserves existing labels on undo and reports partial refusal',async()=>{
+    await withSlice([msg('a'),msg('b',{keywords:{work:true}}),msg('c')],async(mail,server,toast)=>{
+      server.refuse.add('c');server.jmap.mockClear();
+      await mail.tagMessages(['a','b','c'],'work',true);
+      expect(server.sets()).toEqual([{a:{'keywords/work':true},c:{'keywords/work':true}}]);
+      expect(server.stored('a').keywords?.work).toBe(true);expect(server.stored('b').keywords?.work).toBe(true);expect(server.stored('c').keywords?.work).not.toBe(true);
+      expect(toast).toHaveBeenCalledWith('error','The server refused the change for one message');
+      await mail.undoNow();expect(server.stored('a').keywords?.work).not.toBe(true);expect(server.stored('b').keywords?.work).toBe(true);
+      server.jmap.mockClear();await mail.tagMessages(['a'],'$seen',true);expect(server.jmap).not.toHaveBeenCalled();
+    });
+  });
   it('archiving three selected messages sends one Email/set naming all three, and undo puts each back', async () => {
     await withSlice([msg('a'), msg('b'), msg('c'), msg('d', { mailboxIds: { inbox: true } })], async (mail, server) => {
       mail.setSelection(['a', 'b', 'c']);
