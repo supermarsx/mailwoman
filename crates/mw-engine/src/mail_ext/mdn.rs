@@ -54,6 +54,14 @@ use super::server_fail;
 
 #[path = "mdn_policy.rs"]
 mod policy;
+#[path = "mdn_standard.rs"]
+mod standard;
+
+struct Delivery {
+    automatic: bool,
+    report: Option<Vec<u8>>,
+    identity: Option<(String, String)>,
+}
 
 /// The keyword that records a receipt was sent for a message (RFC 8621 §4.1.1,
 /// IMAP `$MDNSent`).
@@ -264,7 +272,12 @@ impl Engine {
 
     /// The values the read-receipt policy can take. `ask` is the default.
     pub const MDN_POLICIES: [&'static str; 6] = [
-        "ask", "never", "always", "contactsOnly", "orgOnly", "orgAlwaysAskOthers",
+        "ask",
+        "never",
+        "always",
+        "contactsOnly",
+        "orgOnly",
+        "orgAlwaysAskOthers",
     ];
 
     /// The `settings` key holding one account's read-receipt policy.
@@ -370,6 +383,15 @@ impl Engine {
     /// `mdnAutomaticRefused`, `mdnNoRecipientAddress`, `mdnNotSent`,
     /// `accountNotFound`, `serverFail`.
     pub(crate) async fn mdn_send(&self, account_id: &str, args: &Value) -> Value {
+        self.mdn_send_common(account_id, args, None).await
+    }
+
+    async fn mdn_send_common(
+        &self,
+        account_id: &str,
+        args: &Value,
+        standard: Option<&standard::SendOptions>,
+    ) -> Value {
         match self.mdn_sending_allowed(account_id).await {
             Ok(true) => {}
             Ok(false) => {
@@ -399,8 +421,11 @@ impl Engine {
             }
             Err(e) => return server_fail(e),
         };
-        let raw = match self.fetch_blob(account_id, email_id).await {
-            Ok(Some(blob)) => blob.bytes,
+        let raw = match self
+            .stored_raw_limited(account_id, email_id, 8 * 1024 * 1024)
+            .await
+        {
+            Ok(Some(bytes)) => bytes,
             Ok(None) => return refusal("notFound", "the Email has no stored message"),
             Err(e) => return server_fail(e),
         };
@@ -437,7 +462,9 @@ impl Engine {
                 Err(e) => return server_fail(e),
             };
             let why = if action != policy::Action::Automatic {
-                Some("the account's read-receipt policy requires confirmation or suppresses this response")
+                Some(
+                    "the account's read-receipt policy requires confirmation or suppresses this response",
+                )
             } else if !request.same_as_sender {
                 Some("the request address is not the message's return path")
             } else if request.from_list {
@@ -454,15 +481,39 @@ impl Engine {
         }
 
         let parsed = mw_mime::parse(&raw).map(|p| p.email).unwrap_or_default();
-        let Some(own_address) = self
-            .addressed_own_address(account_id, &rt.identity, &parsed)
-            .await
-        else {
+        let own_address = if let Some(options) = standard {
+            [&parsed.to, &parsed.cc]
+                .into_iter()
+                .flatten()
+                .flatten()
+                .any(|address| same_mailbox(&address.email, &options.identity))
+                .then(|| options.identity.clone())
+        } else {
+            self.addressed_own_address(account_id, &rt.identity, &parsed)
+                .await
+        };
+        let Some(own_address) = own_address else {
             return refusal(
                 "mdnNoRecipientAddress",
                 "the message's To and Cc name no address of this account, so there is no \
                  address a receipt could be sent from",
             );
+        };
+
+        let mut defaults = None;
+        let report = if let Some(options) = standard {
+            match options.build(&request, &msg, &parsed, &raw) {
+                Ok(report) => {
+                    defaults = mw_mime::parse_mdn_document(&report).map(standard::document_value);
+                    if defaults.is_none() {
+                        return refusal("serverFail", "generated report could not be represented");
+                    }
+                    Some(report)
+                }
+                Err(_) => return refusal("invalidProperties", "invalid MDN message properties"),
+            }
+        } else {
+            None
         };
 
         // One sender per message: in this process by the in-flight set, across
@@ -482,11 +533,30 @@ impl Engine {
             .set_sent_keyword(account_id, email_id, json!(true))
             .await
         {
+            if standard.is_some() {
+                let _ = self.store().set_setting(&ledger, RELEASED).await;
+                return refusal(
+                    "serverFail",
+                    "required receipt keyword could not be recorded; no receipt sent",
+                );
+            }
             tracing::warn!("could not set {MDN_SENT_KEYWORD} on {email_id}: {why}");
         }
 
         let outcome = self
-            .transmit_mdn(&rt, &request, &own_address, &msg, &parsed, automatic)
+            .transmit_mdn(
+                &rt,
+                &request,
+                &own_address,
+                &msg,
+                &parsed,
+                Delivery {
+                    automatic,
+                    report,
+                    identity: standard
+                        .map(|options| (options.identity_id.clone(), options.identity.clone())),
+                },
+            )
             .await;
         match outcome {
             Ok(()) => {
@@ -495,13 +565,17 @@ impl Engine {
                     // The claim stays, which reads as sent.
                     tracing::warn!("could not stamp the receipt ledger for {email_id}: {e}");
                 }
-                json!({
+                let mut response = json!({
                     "accountId": account_id,
                     "emailId": email_id,
                     "sent": true,
                     "to": request.to,
                     "automatic": automatic,
-                })
+                });
+                if let Some(defaults) = defaults {
+                    response["standardDefaults"] = defaults;
+                }
+                response
             }
             Err(e) => {
                 if !matches!(e, EngineError::Auth(_) | EngineError::Unsupported(_)) {
@@ -607,35 +681,40 @@ impl Engine {
         own_address: &str,
         msg: &mw_store::Message,
         original: &mw_jmap::Email,
-        automatic: bool,
+        delivery: Delivery,
     ) -> Result<()> {
-        let report = mw_mime::build_mdn(&MdnInput {
-            from: EmailAddress {
-                name: None,
-                email: own_address.to_string(),
-            },
-            to: request.to.clone(),
-            final_recipient: own_address.to_string(),
-            original_recipient: None,
-            original_message_id: msg
-                .message_id
-                .as_deref()
-                .map(|id| id.trim().trim_start_matches('<').trim_end_matches('>'))
-                .filter(|id| writable_message_id(id))
-                .map(String::from),
-            original_subject: original.subject.clone(),
-            // The message was displayed because the user opened it; what can be
-            // automatic is the sending of the report.
-            action_mode: MdnActionMode::Manual,
-            sending_mode: if automatic {
-                MdnSendingMode::Automatic
-            } else {
-                MdnSendingMode::Manual
-            },
-            disposition: MdnDisposition::Displayed,
-            message_id: Some(crate::jmap::gen_message_id()),
-        })
-        .map_err(|e| EngineError::Protocol(e.to_string()))?;
+        let automatic = delivery.automatic;
+        let report = if let Some(report) = delivery.report {
+            report
+        } else {
+            mw_mime::build_mdn(&MdnInput {
+                from: EmailAddress {
+                    name: None,
+                    email: own_address.to_string(),
+                },
+                to: request.to.clone(),
+                final_recipient: own_address.to_string(),
+                original_recipient: None,
+                original_message_id: msg
+                    .message_id
+                    .as_deref()
+                    .map(|id| id.trim().trim_start_matches('<').trim_end_matches('>'))
+                    .filter(|id| writable_message_id(id))
+                    .map(String::from),
+                original_subject: original.subject.clone(),
+                // The message was displayed because the user opened it; what can be
+                // automatic is the sending of the report.
+                action_mode: MdnActionMode::Manual,
+                sending_mode: if automatic {
+                    MdnSendingMode::Automatic
+                } else {
+                    MdnSendingMode::Manual
+                },
+                disposition: MdnDisposition::Displayed,
+                message_id: Some(crate::jmap::gen_message_id()),
+            })
+            .map_err(|e| EngineError::Protocol(e.to_string()))?
+        };
 
         let outgoing = mw_smtp::Outgoing {
             mail_from: String::new(),
@@ -657,6 +736,30 @@ impl Engine {
             return Err(EngineError::Unsupported(
                 "automatic read receipt no longer permitted by policy".into(),
             ));
+        }
+        if let Some((id, email)) = &delivery.identity {
+            let current = self.store().get_identity(id).await?;
+            if !current.is_some_and(|identity| {
+                identity.account_id == msg.account_id && same_mailbox(&identity.email, email)
+            }) {
+                return Err(EngineError::Unsupported(
+                    "receipt identity is no longer authorized".into(),
+                ));
+            }
+        }
+        // Receipts with custom content or an original-message attachment are
+        // still outgoing mail. Inspect the exact bytes and envelope at dispatch,
+        // including fail-closed policy/input errors and encryption requirements.
+        let verdicts = crate::security::dlp::evaluate_outgoing(
+            self,
+            &msg.account_id,
+            &outgoing.raw,
+            &outgoing.rcpt_to,
+        )
+        .await
+        .map_err(|error| EngineError::Unsupported(error.code().into()))?;
+        if verdicts.iter().any(|verdict| verdict.blocked) {
+            return Err(EngineError::Unsupported("dlpBlocked".into()));
         }
         let result = rt.submitter.submit(outgoing).await?;
         if result.accepted.is_empty() {

@@ -61,8 +61,45 @@ Background tabs, failed display acknowledgement and unavailable policy evidence
 do not send. Uncertain outcomes have no automatic client retry. Proxy accounts
 do not expose these engine-specific controls.
 
-The current custom `MDN/send` method is not yet a complete implementation of
-RFC 9007, so this work does not advertise its standard capability. Standard
-MDN parsing and send-map arguments remain separate work. A received delivery report does not establish that a
-person read a message; a disposition notification reports another mail
-program's claim rather than independently proving human reading.
+### Standard JMAP MDNs
+
+Engine accounts expose `urn:ietf:params:jmap:mdn` in both the session and account
+capabilities. Requests using it use the [RFC 9007](https://www.rfc-editor.org/rfc/rfc9007.html)
+`MDN/send` creation map and `MDN/parse` blob map; the legacy custom
+`MDN/send {emailId, automatic}` remains available without that capability.
+Standard sends also require the mail capability and an account-owned Identity.
+
+Every send entry must have an `onSuccessUpdateEmail` creation reference setting
+`keywords/$mdnsent` to true. Missing or conflicting patches are rejected before
+sending. The keyword must be recorded before SMTP; successful operations include
+the implicit `Email/set` response. The durable duplicate ledger also survives an
+uncertain transport result, which must not be retried automatically. An explicit
+final recipient must match the selected identity and be visible in the original
+To/Cc; an identity removed or changed before dispatch is refused.
+
+Subject, plain-text body, Reporting-UA, all four dispositions, original-message
+inclusion and extension fields are supported. Server-set gateway, original
+recipient, original Message-ID and error properties are returned as applicable.
+The server is not a foreign-MDN gateway, so it does not invent gateway/error data.
+Including the original is explicit and may disclose its contents and headers to
+the receipt recipient; no decrypted replacement is generated. Reports use the
+null SMTP reverse path. Existing administrator and automatic-response policy
+checks apply to standard sends too. The exact outgoing report bytes and SMTP
+recipient also pass ordinary DLP enforcement before transmission; malformed
+policy, unavailable inspection input and matching blocks refuse the send.
+
+Limits: 32 records per method, 8 MiB original messages for sending, 9 MiB blobs
+for parsing, 64 KiB report/plain-text fields, 4 KiB subjects, and 32 extension
+fields when sending. Oversized/ambiguous report fields are refused rather than
+silently truncated. Upload ownership and plaintext size are checked before
+reading the sealed object, separately from encryption-envelope overhead. Reads
+use bounded cached raw messages and parts; a missing cache object is unavailable
+rather than causing an unbounded upstream fetch. `MDN/parse` leaves `forEmailId`
+null instead of guessing a relationship or scanning every message in an account,
+as permitted by RFC 9007. Duplicate field names are treated as ambiguous.
+RFC 6533 internationalized receipt construction is not implemented; ASCII
+recipient/report fields are enforced while human-readable content supports Unicode.
+
+A received delivery report does not establish that a person read a message;
+a disposition notification reports another mail program's claim rather than
+independently proving human reading.

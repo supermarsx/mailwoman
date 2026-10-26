@@ -109,6 +109,17 @@ async fn native_core_enforces_envelopes_and_reports_method_errors_without_stoppi
         .json()
         .await
         .unwrap();
+    assert_eq!(
+        session["capabilities"]["urn:ietf:params:jmap:mdn"],
+        json!({})
+    );
+    let account = session["primaryAccounts"]["urn:ietf:params:jmap:mail"]
+        .as_str()
+        .unwrap();
+    assert_eq!(
+        session["accounts"][account]["accountCapabilities"]["urn:ietf:params:jmap:mdn"],
+        json!({})
+    );
     let limits = &session["capabilities"]["urn:ietf:params:jmap:core"];
     assert_eq!(
         limits["maxSizeRequest"],

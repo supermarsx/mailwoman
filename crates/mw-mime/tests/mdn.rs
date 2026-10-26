@@ -687,3 +687,248 @@ fn malformed_input_never_panics() {
     let _ = parse_mdn(b"Content-Type: multipart/report\r\n\r\n");
     let _ = parse_mdn(b"Content-Type: multipart/report; boundary=\r\n\r\n----\r\n");
 }
+
+#[test]
+fn standard_options_preserve_explicit_body_subject_and_original_without_header_injection() {
+    use mw_mime::{MdnOptions, build_mdn_with_options};
+    let original = b"From: alice@example.org\r\nTo: bob@example.net\r\nSubject: original\r\nMessage-ID: <original@example.org>\r\n\r\nPrivate original body.\r\n";
+    let fields = vec![("X-Receipt-Trace".to_owned(), "safe-token".to_owned())];
+    let raw = build_mdn_with_options(
+        &input(),
+        &MdnOptions {
+            subject: Some("Receção confirmada"),
+            text_body: Some("Explicit body <not HTML>"),
+            reporting_ua: Some("Mailwoman"),
+            original_message: Some(original),
+            extension_fields: &fields,
+        },
+    )
+    .unwrap();
+    let parsed = reparse(&raw);
+    assert_eq!(parsed.subject(), Some("Receção confirmada"));
+    assert_eq!(
+        parsed.body_text(0).unwrap().trim(),
+        "Explicit body <not HTML>"
+    );
+    assert_eq!(
+        parse_mdn(&raw).unwrap().reporting_ua.as_deref(),
+        Some("Mailwoman")
+    );
+    let nested = parsed
+        .parts
+        .iter()
+        .find_map(|part| match &part.body {
+            mail_parser::PartType::Message(message) => Some(message),
+            _ => None,
+        })
+        .expect("third original-message part");
+    assert_eq!(nested.subject(), Some("original"));
+    assert!(
+        nested
+            .body_text(0)
+            .unwrap()
+            .contains("Private original body.")
+    );
+    assert!(String::from_utf8_lossy(&raw).contains("X-Receipt-Trace: safe-token\r\n"));
+}
+
+#[test]
+fn standard_options_refuse_reserved_duplicate_and_injected_fields() {
+    use mw_mime::{MdnOptions, build_mdn_with_options};
+    for name in [
+        "Final-Recipient",
+        "disposition",
+        "Reporting-UA",
+        "Error",
+        "X:Bad",
+        "X\r\nBcc",
+    ] {
+        let fields = vec![(name.to_owned(), "value".to_owned())];
+        assert!(
+            build_mdn_with_options(
+                &input(),
+                &MdnOptions {
+                    extension_fields: &fields,
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
+    }
+    for value in [
+        "line\r\nBcc: attacker@example.org",
+        "nul\0byte",
+        "ESC\u{1b}",
+        "non-ASCII é",
+    ] {
+        let fields = vec![("X-Note".to_owned(), value.to_owned())];
+        assert!(
+            build_mdn_with_options(
+                &input(),
+                &MdnOptions {
+                    extension_fields: &fields,
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
+    }
+    let duplicate = vec![
+        ("X-Note".to_owned(), "one".to_owned()),
+        ("x-note".to_owned(), "two".to_owned()),
+    ];
+    assert!(
+        build_mdn_with_options(
+            &input(),
+            &MdnOptions {
+                extension_fields: &duplicate,
+                ..Default::default()
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        build_mdn_with_options(
+            &input(),
+            &MdnOptions {
+                subject: Some("safe\nBcc: attacker@example.org"),
+                ..Default::default()
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        build_mdn_with_options(
+            &input(),
+            &MdnOptions {
+                reporting_ua: Some("safe\r\nDisposition: fake"),
+                ..Default::default()
+            }
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn standard_options_enforce_aggregate_and_individual_limits_without_truncation() {
+    use mw_mime::{MdnOptions, build_mdn_with_options};
+    let text = "x".repeat(65537);
+    let subject = "x".repeat(4097);
+    let original = vec![b'x'; 8 * 1024 * 1024 + 1];
+    let fields = (0..33)
+        .map(|i| (format!("X-{i}"), "v".to_owned()))
+        .collect::<Vec<_>>();
+    for options in [
+        MdnOptions {
+            text_body: Some(&text),
+            ..Default::default()
+        },
+        MdnOptions {
+            subject: Some(&subject),
+            ..Default::default()
+        },
+        MdnOptions {
+            original_message: Some(&original),
+            ..Default::default()
+        },
+        MdnOptions {
+            extension_fields: &fields,
+            ..Default::default()
+        },
+    ] {
+        assert!(build_mdn_with_options(&input(), &options).is_err());
+    }
+    let raw = build_mdn_with_options(
+        &input(),
+        &MdnOptions {
+            subject: Some(""),
+            text_body: Some(""),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(reparse(&raw).body_text(0).unwrap().trim(), "");
+}
+
+#[test]
+fn standard_projection_retains_full_typed_fields_and_errors() {
+    use mw_mime::parse_mdn_document;
+    let raw = String::from_utf8(build_mdn(&input()).unwrap()).unwrap();
+    let extended=raw.replace("Final-Recipient:","MDN-Gateway: dns; gateway.example.org\r\nX-Detail: first\r\n continued\r\nError: first problem\r\nError: second problem\r\nFinal-Recipient:");
+    let parsed = parse_mdn_document(extended.as_bytes()).unwrap();
+    assert_eq!(
+        parsed.final_recipient.as_deref(),
+        Some("rfc822; bob@example.net")
+    );
+    assert_eq!(
+        parsed.original_message_id.as_deref(),
+        Some("<compose-1@example.org>")
+    );
+    assert_eq!(
+        parsed.mdn_gateway.as_deref(),
+        Some("dns; gateway.example.org")
+    );
+    assert_eq!(parsed.error, vec!["first problem", "second problem"]);
+    assert_eq!(
+        parsed.extension_fields.get("X-Detail").map(String::as_str),
+        Some("first continued")
+    );
+    assert!(!parsed.include_original_message);
+    for replacement in [
+        "Final-Recipient: rfc822; attacker@example.org\r\nFinal-Recipient:",
+        "Disposition: manual-action/MDN-sent-manually; deleted\r\nFinal-Recipient:",
+    ] {
+        assert!(
+            parse_mdn_document(raw.replace("Final-Recipient:", replacement).as_bytes()).is_none()
+        );
+    }
+}
+
+#[test]
+fn standard_projection_never_returns_truncated_or_forwarded_reports() {
+    use mw_mime::{MdnOptions, build_mdn_with_options, parse_mdn_document};
+    let raw = build_mdn(&input()).unwrap();
+    let large = String::from_utf8(raw.clone()).unwrap().replace(
+        "Final-Recipient:",
+        &format!("X-Large: {}\r\nFinal-Recipient:", "x".repeat(8193)),
+    );
+    assert!(parse_mdn_document(large.as_bytes()).is_none());
+    let forward = [
+        b"Content-Type: message/rfc822\r\n\r\n".as_slice(),
+        raw.as_slice(),
+    ]
+    .concat();
+    assert!(parse_mdn_document(&forward).is_none());
+    let original = b"From: alice@example.org\r\nTo: bob@example.net\r\n\r\nOriginal content\r\n";
+    let with_original = build_mdn_with_options(
+        &input(),
+        &MdnOptions {
+            original_message: Some(original),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        parse_mdn_document(&with_original)
+            .unwrap()
+            .include_original_message
+    );
+}
+
+#[test]
+fn standard_projection_accepts_structured_comments_and_legal_extension_names() {
+    let raw = String::from_utf8(build_mdn(&input()).unwrap()).unwrap();
+    let raw = raw
+        .replace(
+            "manual-action/MDN-sent-manually; displayed",
+            "MANUAL-ACTION (user) / MDN-SENT-MANUALLY ; DISPLAYED (screen)",
+        )
+        .replace("Final-Recipient:", "X_Receipt: token\r\nFinal-Recipient:");
+    let parsed = mw_mime::parse_mdn_document(raw.as_bytes()).unwrap();
+    assert_eq!(parsed.action_mode, MdnActionMode::Manual);
+    assert_eq!(parsed.disposition, MdnDisposition::Displayed);
+    assert_eq!(
+        parsed.extension_fields.get("X_Receipt").map(String::as_str),
+        Some("token")
+    );
+}

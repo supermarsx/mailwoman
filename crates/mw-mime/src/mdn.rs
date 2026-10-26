@@ -7,9 +7,9 @@
 //! decision; [`crate::ReceiptHeaders`] carries what that decision needs.
 //!
 //! Not implemented: the UTF-8 forms of RFC 6533 (`utf-8;` address type,
-//! `message/global-disposition-notification` on build), the optional third
-//! part holding the original message or its headers, and the `Reporting-UA`,
-//! `MDN-Gateway` and `Error` fields on build.
+//! `message/global-disposition-notification` on build), and the optional
+//! `MDN-Gateway` and `Error` fields on build. Optional original-message and
+//! Reporting-UA fields are available through [`build_mdn_with_options`].
 
 use mail_builder::MessageBuilder;
 use mail_builder::headers::content_type::ContentType;
@@ -169,6 +169,29 @@ pub struct MdnReport {
 ///
 /// The envelope is the caller's: RFC 8098 §3 requires the null reverse path.
 pub fn build_mdn(input: &MdnInput) -> Result<Vec<u8>, MimeError> {
+    build_mdn_with_options(input, &MdnOptions::default())
+}
+
+/// Optional, bounded RFC 9007 message representation fields. Authority and
+/// permission to disclose an original message remain the caller's responsibility.
+#[derive(Debug, Default)]
+pub struct MdnOptions<'a> {
+    pub subject: Option<&'a str>,
+    pub text_body: Option<&'a str>,
+    pub reporting_ua: Option<&'a str>,
+    pub original_message: Option<&'a [u8]>,
+    pub extension_fields: &'a [(String, String)],
+}
+
+/// Build the same safe report with explicit human-readable content, agent
+/// description, extension fields and an optional third original-message part.
+/// Field injection, reserved extension names, excessive lengths and NUL bytes
+/// are refused; no caller-supplied string selects the multipart boundary.
+pub fn build_mdn_with_options(
+    input: &MdnInput,
+    options: &MdnOptions<'_>,
+) -> Result<Vec<u8>, MimeError> {
+    validate_options(options)?;
     for (what, addr) in [
         ("from address", &input.from.email),
         ("to address", &input.to),
@@ -221,6 +244,13 @@ pub fn build_mdn(input: &MdnInput) -> Result<Vec<u8>, MimeError> {
         input.disposition.as_str(),
     ));
 
+    if let Some(ua) = options.reporting_ua {
+        fields.push_str(&format!("Reporting-UA: {ua}\r\n"));
+    }
+    for (name, value) in options.extension_fields {
+        fields.push_str(&format!("{name}: {value}\r\n"));
+    }
+
     let subject = input
         .original_subject
         .as_deref()
@@ -264,7 +294,7 @@ pub fn build_mdn(input: &MdnInput) -> Result<Vec<u8>, MimeError> {
     address_header(&mut out, "From", std::slice::from_ref(&input.from), false).map_err(io)?;
     address_header(&mut out, "To", std::slice::from_ref(&to), false).map_err(io)?;
 
-    let mut b = MessageBuilder::new().subject(headline);
+    let mut b = MessageBuilder::new().subject(options.subject.unwrap_or(&headline));
     if let Some(id) = &input.message_id {
         no_control("message id", id)?;
         b = b.message_id(
@@ -289,16 +319,94 @@ pub fn build_mdn(input: &MdnInput) -> Result<Vec<u8>, MimeError> {
         BodyPart::Binary(fields.into_bytes().into()),
     )
     .transfer_encoding("7bit");
-    b.body(MimePart::new(
-        report,
-        vec![
-            MimePart::new("text/plain", BodyPart::Text(text.into())),
-            notification,
-        ],
-    ))
-    .write_to(&mut out)
-    .map_err(io)?;
+    let mut parts = vec![
+        MimePart::new(
+            "text/plain",
+            BodyPart::Text(options.text_body.unwrap_or(&text).to_owned().into()),
+        ),
+        notification,
+    ];
+    if let Some(original) = options.original_message {
+        // message/rfc822 forbids base64/quoted-printable transfer encodings.
+        parts.push(
+            MimePart::new("message/rfc822", BodyPart::Binary(original.into()))
+                .transfer_encoding("8bit"),
+        );
+    }
+    b.body(MimePart::new(report, parts))
+        .write_to(&mut out)
+        .map_err(io)?;
     Ok(out)
+}
+
+fn validate_options(options: &MdnOptions<'_>) -> Result<(), MimeError> {
+    for (name, value, maximum) in [
+        ("subject", options.subject, 4096),
+        ("reporting agent", options.reporting_ua, 900),
+    ] {
+        if let Some(value) = value {
+            no_control(name, value)?;
+            if value.len() > maximum {
+                return Err(refuse(name, "", "too long"));
+            }
+        }
+    }
+    if options
+        .text_body
+        .is_some_and(|text| text.len() > 64 * 1024 || text.contains('\0'))
+    {
+        return Err(refuse("text body", "", "too long or contains NUL"));
+    }
+    if options
+        .original_message
+        .is_some_and(|raw| raw.is_empty() || raw.len() > 8 * 1024 * 1024 || raw.contains(&0))
+    {
+        return Err(refuse(
+            "original message",
+            "",
+            "empty, too large or contains NUL",
+        ));
+    }
+    if options.extension_fields.len() > 32 {
+        return Err(refuse("extension fields", "", "too many fields"));
+    }
+    let mut names = std::collections::HashSet::new();
+    for (name, value) in options.extension_fields {
+        let lower = name.to_ascii_lowercase();
+        if name.is_empty()
+            || name.len() > 64
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_graphic() && byte != b':')
+            || [
+                "reporting-ua",
+                "mdn-gateway",
+                "original-recipient",
+                "final-recipient",
+                "original-message-id",
+                "disposition",
+                "error",
+            ]
+            .contains(&lower.as_str())
+            || !names.insert(lower)
+        {
+            return Err(refuse(
+                "extension field",
+                "",
+                "invalid, duplicate or reserved field name",
+            ));
+        }
+        no_control("extension value", value)?;
+        // Notification fields use 7bit encoding; internationalized reports are
+        // not silently emitted under the RFC822 address/notification types.
+        if !value.is_ascii() || name.len() + value.len() + 2 > 998 {
+            return Err(refuse("extension value", "", "non-ASCII or too long"));
+        }
+    }
+    if options.reporting_ua.is_some_and(|value| !value.is_ascii()) {
+        return Err(refuse("reporting agent", "", "not ASCII"));
+    }
+    Ok(())
 }
 
 /// One `<name>: rfc822; <addr>` line, or the refusal.

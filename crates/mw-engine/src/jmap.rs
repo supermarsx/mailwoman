@@ -60,6 +60,7 @@ pub fn session_json(account_id: &str, username: &str) -> Value {
             // dispatch alongside the `Email/*`/`Mailbox/*` handlers.
             "urn:ietf:params:jmap:mail": {},
             "urn:ietf:params:jmap:submission": {},
+            "urn:ietf:params:jmap:mdn": {},
             // t16 J4/J3: VacationResponse (RFC 8621 §8) + Quota (RFC 9425).
             "urn:ietf:params:jmap:vacationresponse": {},
             "urn:ietf:params:jmap:quota": {},
@@ -78,6 +79,7 @@ pub fn session_json(account_id: &str, username: &str) -> Value {
         },
         "accounts": {
             account_id: { "name": username, "isPersonal": true, "isReadOnly": false, "accountCapabilities": {
+                "urn:ietf:params:jmap:mdn": {},
                 "urn:ietf:params:jmap:vacationresponse": {},
                 "urn:ietf:params:jmap:quota": {},
                 "urn:mailwoman:calendars": {},
@@ -91,6 +93,7 @@ pub fn session_json(account_id: &str, username: &str) -> Value {
         "primaryAccounts": {
             "urn:ietf:params:jmap:mail": account_id,
             "urn:ietf:params:jmap:submission": account_id,
+            "urn:ietf:params:jmap:mdn": account_id,
             "urn:ietf:params:jmap:vacationresponse": account_id,
             "urn:ietf:params:jmap:quota": account_id,
             "urn:mailwoman:calendars": account_id,
@@ -157,6 +160,27 @@ impl Engine {
             // data, not the engine's method-error convention.
             if name == "Core/echo" {
                 responses.push(json!([name, args, call_id]));
+                continue;
+            }
+            let using = request.get("using").and_then(Value::as_array);
+            if name.starts_with("MDN/") && using.is_some_and(|caps| caps.iter().any(|cap| cap == Self::STANDARD_MDN_CAPABILITY)) {
+                if !using.is_some_and(|caps| caps.iter().any(|cap| cap == "urn:ietf:params:jmap:mail")) {
+                    responses.push(json!(["error", {"type":"unknownMethod"}, call_id]));
+                    continue;
+                }
+                let (response, implicit) = self.mdn_standard_dispatch(account_id, name, &args).await;
+                if let Some(created) = response.get("created").and_then(Value::as_object) {
+                    for (creation_id, object) in created {
+                        if let Some(id) = object.get("id").and_then(Value::as_str) {
+                            created_ids.insert(creation_id.clone(), id.to_owned());
+                        }
+                    }
+                }
+                let response_name = if response.get("type").is_some() { "error" } else { name };
+                responses.push(json!([response_name, response, call_id]));
+                if let Some(email_set) = implicit {
+                    responses.push(json!(["Email/set", email_set, call_id]));
+                }
                 continue;
             }
             if crate::sieve_jmap::is_managed_method(name)

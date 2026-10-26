@@ -263,10 +263,40 @@ impl Store {
         account_id: &str,
         blob_id: &str,
     ) -> Result<Option<Upload>, StoreError> {
+        self.get_upload_limited(account_id, blob_id, usize::MAX)
+            .await
+    }
+
+    /// Account-scoped immutable plaintext size, without reading the object.
+    pub async fn upload_size(
+        &self,
+        account_id: &str,
+        blob_id: &str,
+    ) -> Result<Option<i64>, StoreError> {
+        Ok(
+            q("SELECT size FROM uploaded_blobs WHERE blob_id = ?1 AND account_id = ?2")
+                .bind(blob_id)
+                .bind(account_id)
+                .fetch_optional(&self.backend)
+                .await?
+                .map(|row| row.get_i64("size")),
+        )
+    }
+
+    /// Refuse oversized uploads from immutable, account-owned plaintext-size
+    /// metadata before reading the sealed object. The limit does not include
+    /// encryption envelope overhead. Recheck actual plaintext after unsealing.
+    pub async fn get_upload_limited(
+        &self,
+        account_id: &str,
+        blob_id: &str,
+        maximum: usize,
+    ) -> Result<Option<Upload>, StoreError> {
         let row = q("SELECT blob_id, account_id, content_type, size, storage_key
-                       FROM uploaded_blobs WHERE blob_id = ?1 AND account_id = ?2")
+                       FROM uploaded_blobs WHERE blob_id = ?1 AND account_id = ?2 AND size >= 0 AND size <= ?3")
         .bind(blob_id)
         .bind(account_id)
+        .bind(i64::try_from(maximum).unwrap_or(i64::MAX))
         .fetch_optional(&self.backend)
         .await?;
         let Some(r) = row else { return Ok(None) };
@@ -277,6 +307,9 @@ impl Store {
             None => return Ok(None),
         };
         let bytes = self.key.open(&sealed)?;
+        if bytes.len() > maximum || i64::try_from(bytes.len()).ok() != Some(r.get_i64("size")) {
+            return Ok(None);
+        }
         Ok(Some(Upload {
             blob_id: r.get_string("blob_id"),
             account_id: r.get_string("account_id"),
@@ -371,6 +404,71 @@ mod tests {
         assert_eq!(got.bytes, b"\x89PNG\r\n\x1a\n payload");
         assert_eq!(got.size as usize, got.bytes.len());
 
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn bounded_upload_read_checks_owner_metadata_and_actual_plaintext() {
+        let root = temp_root("bounded");
+        let store = fs_store(&root).await;
+        let blob = store
+            .put_upload("acct-a", "text/plain", b"payload")
+            .await
+            .unwrap();
+        assert!(
+            store
+                .get_upload_limited("acct-b", &blob, 100)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            store
+                .get_upload_limited("acct-a", &blob, 6)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            store
+                .get_upload_limited("acct-a", &blob, 7)
+                .await
+                .unwrap()
+                .unwrap()
+                .bytes,
+            b"payload"
+        );
+        q("UPDATE uploaded_blobs SET size = 1 WHERE blob_id = ?1")
+            .bind(&blob)
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        assert!(
+            store
+                .get_upload_limited("acct-a", &blob, 1)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        q("UPDATE uploaded_blobs SET size = 7 WHERE blob_id = ?1")
+            .bind(&blob)
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        // An oversized object must be refused before corrupt ciphertext can be opened.
+        for directory in std::fs::read_dir(&root).unwrap() {
+            for object in std::fs::read_dir(directory.unwrap().path()).unwrap() {
+                std::fs::write(object.unwrap().path(), b"not a sealed object").unwrap();
+            }
+        }
+        assert!(
+            store
+                .get_upload_limited("acct-a", &blob, 6)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(store.get_upload_limited("acct-a", &blob, 7).await.is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
 

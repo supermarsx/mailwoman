@@ -1468,3 +1468,388 @@ async fn receipt_contact_mode_uses_owned_vcards_and_organisation_mode_uses_login
     assert_eq!(action(h.engine.receipt_response_decision(&h.account_id, &list).await.unwrap().unwrap()), "ask");
     assert!(h.submitter.handed().is_empty(), "eligibility alone never sends");
 }
+
+async fn standard_identity(h: &Harness) -> String {
+    let id = format!("standard-{}", h.account_id);
+    h.store
+        .upsert_identity(&mw_store::IdentityRow {
+            id: id.clone(),
+            account_id: h.account_id.clone(),
+            name: "Me".into(),
+            email: ME.into(),
+            reply_to: None,
+            signature_html: None,
+            signature_text: None,
+            signature_name: None,
+            sent_mailbox_id: None,
+            source: "configured".into(),
+        })
+        .await
+        .unwrap();
+    id
+}
+fn standard_args(identity: &str, email_id: &str) -> Value {
+    json!({"identityId":identity,"send":{"receipt":{"forEmailId":email_id,"subject":"Explicit receipt","textBody":"Explicit body","includeOriginalMessage":true,"reportingUA":"Mailwoman","extensionFields":{"X-Trace":"test"},"disposition":{"actionMode":"manual-action","sendingMode":"mdn-sent-manually","type":"displayed"}}},"onSuccessUpdateEmail":{"#receipt":{"keywords/$mdnsent":true,"keywords/$seen":true}}})
+}
+#[tokio::test]
+async fn rfc9007_send_all_properties_and_parse_owned_upload() {
+    let h = setup().await;
+    let identity = standard_identity(&h).await;
+    let id = find(&h, "request").await;
+    let (sent, implicit) = h
+        .engine
+        .mdn_standard_dispatch(&h.account_id, "MDN/send", &standard_args(&identity, &id))
+        .await;
+    assert!(sent["notSent"].is_null(), "{sent}");
+    assert_eq!(
+        sent["sent"]["receipt"]["finalRecipient"],
+        format!("rfc822; {ME}")
+    );
+    assert!(implicit.unwrap()["updated"].get(&id).is_some());
+    let outgoing = h.submitter.handed();
+    assert_eq!(outgoing.len(), 1);
+    assert!(outgoing[0].mail_from.is_empty());
+    assert_eq!(outgoing[0].rcpt_to, vec![ANN]);
+    let report = mw_mime::parse_mdn_document(&outgoing[0].raw).unwrap();
+    assert_eq!(report.subject.as_deref(), Some("Explicit receipt"));
+    assert_eq!(report.reporting_ua.as_deref(), Some("Mailwoman"));
+    assert!(report.include_original_message);
+    let blob = h
+        .store
+        .put_upload(&h.account_id, "message/rfc822", &outgoing[0].raw)
+        .await
+        .unwrap();
+    let (parsed, none) = h
+        .engine
+        .mdn_standard_dispatch(
+            &h.account_id,
+            "MDN/parse",
+            &json!({"blobIds":[blob,"unknown"]}),
+        )
+        .await;
+    assert!(none.is_none());
+    assert_eq!(parsed["parsed"][&blob]["subject"], "Explicit receipt");
+    assert_eq!(
+        parsed["parsed"][&blob]["disposition"]["sendingMode"],
+        "mdn-sent-manually"
+    );
+    assert_eq!(parsed["notFound"], json!(["unknown"]));
+    assert!(parsed["parsed"][&blob]["forEmailId"].is_null());
+    let (again, _) = h
+        .engine
+        .mdn_standard_dispatch(&h.account_id, "MDN/send", &standard_args(&identity, &id))
+        .await;
+    assert_eq!(again["notSent"]["receipt"]["type"], "mdnAlreadySent");
+    assert_eq!(h.submitter.handed().len(), 1);
+}
+#[tokio::test]
+async fn rfc9007_refuses_missing_keyword_and_spoofed_final_recipient_before_send() {
+    let h = setup().await;
+    let identity = standard_identity(&h).await;
+    let id = find(&h, "request").await;
+    for patch in [
+        Value::Null,
+        json!({"#receipt":{"keywords/$seen":true}}),
+        json!({"#receipt":{"keywords/$mdnsent":true,"keywords/$MDNSent":null}}),
+    ] {
+        let mut args = standard_args(&identity, &id);
+        args["onSuccessUpdateEmail"] = patch;
+        let (result, _) = h
+            .engine
+            .mdn_standard_dispatch(&h.account_id, "MDN/send", &args)
+            .await;
+        assert_eq!(result["type"], "invalidArguments", "{result}");
+    }
+    let mut args = standard_args(&identity, &id);
+    args["send"]["receipt"]["finalRecipient"] = json!("rfc822; victim@example.org");
+    let (result, _) = h
+        .engine
+        .mdn_standard_dispatch(&h.account_id, "MDN/send", &args)
+        .await;
+    assert_eq!(result["notSent"]["receipt"]["type"], "forbiddenFrom");
+    assert!(h.submitter.handed().is_empty());
+    assert_ne!(email(&h, &id).await["keywords"]["$mdnsent"], true);
+}
+#[tokio::test]
+async fn rfc9007_account_identity_blob_and_message_authority_are_independent() {
+    let h = setup().await;
+    let identity = standard_identity(&h).await;
+    let id = find(&h, "request").await;
+    let other = new_account(&h.store, "other@example.org").await;
+    let foreign = h
+        .store
+        .put_upload(&other, "message/rfc822", &report_asking_for_a_receipt())
+        .await
+        .unwrap();
+    let (parsed, _) = h
+        .engine
+        .mdn_standard_dispatch(&h.account_id, "MDN/parse", &json!({"blobIds":[foreign]}))
+        .await;
+    assert_eq!(parsed["notFound"], json!([foreign]));
+    let (result, _) = h
+        .engine
+        .mdn_standard_dispatch(
+            &h.account_id,
+            "MDN/send",
+            &standard_args("foreign-identity", &id),
+        )
+        .await;
+    assert_eq!(result["type"], "invalidArguments");
+    let (result, _) = h
+        .engine
+        .mdn_standard_dispatch(
+            "foreign-account",
+            "MDN/send",
+            &standard_args(&identity, &id),
+        )
+        .await;
+    assert_eq!(result["type"], "invalidArguments");
+    assert!(h.submitter.handed().is_empty());
+}
+#[tokio::test]
+async fn rfc9007_invalid_options_do_not_claim_and_automatic_policy_is_shared() {
+    let h = setup().await;
+    let identity = standard_identity(&h).await;
+    let id = find(&h, "request").await;
+    let mut args = standard_args(&identity, &id);
+    args["send"]["receipt"]["reportingUA"] = json!("safe\r\nFinal-Recipient: forged");
+    let (result, _) = h
+        .engine
+        .mdn_standard_dispatch(&h.account_id, "MDN/send", &args)
+        .await;
+    assert_eq!(result["notSent"]["receipt"]["type"], "invalidProperties");
+    assert_ne!(email(&h, &id).await["keywords"]["$mdnsent"], true);
+    args = standard_args(&identity, &id);
+    args["send"]["receipt"]["disposition"]["sendingMode"] = json!("mdn-sent-automatically");
+    set_policy(&h, "never").await;
+    let (result, _) = h
+        .engine
+        .mdn_standard_dispatch(&h.account_id, "MDN/send", &args)
+        .await;
+    assert_eq!(result["notSent"]["receipt"]["type"], "forbidden");
+    assert!(h.submitter.handed().is_empty());
+}
+
+#[tokio::test]
+async fn rfc9007_parse_classifies_invalid_missing_oversized_and_request_limits() {
+    let h = setup().await;
+    let ordinary = h
+        .store
+        .put_upload(&h.account_id, "text/plain", b"not a report")
+        .await
+        .unwrap();
+    let large = h
+        .store
+        .put_upload(
+            &h.account_id,
+            "message/rfc822",
+            &vec![b'x'; 9 * 1024 * 1024 + 1],
+        )
+        .await
+        .unwrap();
+    let (result, _) = h
+        .engine
+        .mdn_standard_dispatch(
+            &h.account_id,
+            "MDN/parse",
+            &json!({"blobIds":[ordinary,large,"missing"]}),
+        )
+        .await;
+    assert_eq!(result["notParsable"], json!([ordinary, large]));
+    assert_eq!(result["notFound"], json!(["missing"]));
+    assert!(result["parsed"].is_null());
+    let (result, _) = h
+        .engine
+        .mdn_standard_dispatch(
+            &h.account_id,
+            "MDN/parse",
+            &json!({"blobIds":vec!["missing";33]}),
+        )
+        .await;
+    assert_eq!(result["type"], "requestTooLarge");
+    let (result, _) = h
+        .engine
+        .mdn_standard_dispatch(
+            &h.account_id,
+            "MDN/parse",
+            &json!({"accountId":"someone-else","blobIds":[]}),
+        )
+        .await;
+    assert_eq!(result["type"], "invalidArguments");
+    let identity = standard_identity(&h).await;
+    let (empty, implicit) = h
+        .engine
+        .mdn_standard_dispatch(
+            &h.account_id,
+            "MDN/send",
+            &json!({"identityId":identity,"send":{},"onSuccessUpdateEmail":null}),
+        )
+        .await;
+    assert!(empty["sent"].is_null());
+    assert!(empty["notSent"].is_null());
+    assert!(implicit.is_none());
+    assert!(h.submitter.handed().is_empty());
+}
+
+#[tokio::test]
+async fn rfc9007_all_dispositions_use_requested_modes_and_uncertainty_blocks_replay() {
+    let h = setup().await;
+    let identity = standard_identity(&h).await;
+    for (subject, kind) in [
+        ("request", "displayed"),
+        ("other address", "deleted"),
+        ("list mail", "dispatched"),
+        ("no return path", "processed"),
+    ] {
+        let id = find(&h, subject).await;
+        let mut args = standard_args(&identity, &id);
+        args["send"]["receipt"]["disposition"]["type"] = json!(kind);
+        args["send"]["receipt"]["disposition"]["actionMode"] = json!("automatic-action");
+        let (result, _) = h
+            .engine
+            .mdn_standard_dispatch(&h.account_id, "MDN/send", &args)
+            .await;
+        assert!(result["notSent"].is_null(), "{result}");
+        let raw = h.submitter.handed().pop().unwrap().raw;
+        let parsed = mw_mime::parse_mdn_document(&raw).unwrap();
+        assert_eq!(parsed.disposition.as_str(), kind);
+        assert_eq!(parsed.action_mode, MdnActionMode::Automatic);
+    }
+    let h = setup().await;
+    let identity = standard_identity(&h).await;
+    let id = find(&h, "request").await;
+    let args = standard_args(&identity, &id);
+    h.submitter.uncertain.store(true, Ordering::SeqCst);
+    let (first, _) = h
+        .engine
+        .mdn_standard_dispatch(&h.account_id, "MDN/send", &args)
+        .await;
+    assert_eq!(first["notSent"]["receipt"]["type"], "serverFail");
+    h.submitter.uncertain.store(false, Ordering::SeqCst);
+    let (second, _) = h
+        .engine
+        .mdn_standard_dispatch(&h.account_id, "MDN/send", &args)
+        .await;
+    assert_eq!(second["notSent"]["receipt"]["type"], "mdnAlreadySent");
+    assert_eq!(h.submitter.handed().len(), 1);
+}
+
+#[tokio::test]
+async fn rfc9007_foreign_email_never_leaks_or_sends() {
+    let h = setup().await;
+    let identity = standard_identity(&h).await;
+    let other = new_account(&h.store, "other@example.org").await;
+    h.engine.register_backend(
+        other.clone(),
+        AccountRuntime::new(
+            h.backend.clone() as Arc<dyn AccountBackend>,
+            h.submitter.clone() as Arc<dyn MailSubmitter>,
+            "other@example.org",
+        ),
+    );
+    h.engine.resync(&other).await.unwrap();
+    let query = h
+        .engine
+        .handle_jmap(
+            &other,
+            &json!({"methodCalls":[["Email/query",{"filter":{"subject":"request"}},"q"]]}),
+        )
+        .await;
+    let foreign = query["methodResponses"][0][1]["ids"][0].as_str().unwrap();
+    let (result, _) = h
+        .engine
+        .mdn_standard_dispatch(
+            &h.account_id,
+            "MDN/send",
+            &standard_args(&identity, foreign),
+        )
+        .await;
+    assert_eq!(result["notSent"]["receipt"]["type"], "notFound");
+    assert!(h.submitter.handed().is_empty());
+}
+
+#[tokio::test]
+async fn rfc9007_public_envelope_preserves_standard_send_parse_and_implicit_results() {
+    let h = setup().await;
+    let identity = standard_identity(&h).await;
+    let id = find(&h, "request").await;
+    let using = json!([
+        "urn:ietf:params:jmap:core",
+        "urn:ietf:params:jmap:mail",
+        Engine::STANDARD_MDN_CAPABILITY
+    ]);
+    let args = standard_args(&identity, &id);
+    let refused=h.engine.handle_jmap(&h.account_id,&json!({"using":["urn:ietf:params:jmap:core",Engine::STANDARD_MDN_CAPABILITY],"methodCalls":[["MDN/send",args,"s"]]})).await;
+    assert_eq!(refused["methodResponses"][0][0], "error");
+    assert_eq!(refused["methodResponses"][0][1]["type"], "unknownMethod");
+    assert!(h.submitter.handed().is_empty());
+    let sent = h
+        .engine
+        .handle_jmap(
+            &h.account_id,
+            &json!({"using":using,"methodCalls":[["MDN/send",args,"s"]]}),
+        )
+        .await;
+    assert_eq!(sent["methodResponses"][0][0], "MDN/send");
+    assert!(sent["methodResponses"][0][1]["notSent"].is_null(), "{sent}");
+    assert_eq!(sent["methodResponses"][1][0], "Email/set");
+    assert_eq!(sent["methodResponses"][1][2], "s");
+    assert!(sent["methodResponses"][1][1]["updated"].get(&id).is_some());
+    let bytes = h.submitter.handed()[0].raw.clone();
+    let blob = h
+        .store
+        .put_upload(&h.account_id, "message/rfc822", &bytes)
+        .await
+        .unwrap();
+    let parsed=h.engine.handle_jmap(&h.account_id,&json!({"using":using,"methodCalls":[["MDN/parse",{"accountId":h.account_id,"blobIds":[blob]},"p"]]})).await;
+    assert_eq!(parsed["methodResponses"][0][0], "MDN/parse");
+    assert_eq!(
+        parsed["methodResponses"][0][1]["parsed"][&blob]["subject"],
+        "Explicit receipt"
+    );
+    let duplicate = h
+        .engine
+        .handle_jmap(
+            &h.account_id,
+            &json!({"using":using,"methodCalls":[["MDN/send",args,"again"]]}),
+        )
+        .await;
+    assert_eq!(duplicate["methodResponses"][0][0], "MDN/send");
+    assert_eq!(
+        duplicate["methodResponses"][0][1]["notSent"]["receipt"]["type"],
+        "mdnAlreadySent"
+    );
+}
+
+#[tokio::test]
+async fn rfc9007_dlp_enforces_exact_report_body_before_smtp() {
+    let h = setup().await;
+    let identity = standard_identity(&h).await;
+    let id = find(&h, "request").await;
+    let rules = json!([{"id":"receipt-fixture","name":"Protect card data","enabled":true,"priority":1,"conditions":{"detectors":["pan"],"customRegex":null,"dictionaries":[],"attachmentTypes":[],"maxAttachmentSize":null,"recipientDomains":[],"recipientDomainMode":"in","classification":null},"action":"block","message":"Restricted"}]);
+    h.store
+        .set_setting(
+            "v6:admin:security_policy",
+            &json!({"dlp_rules_json":rules.to_string()}).to_string(),
+        )
+        .await
+        .unwrap();
+    let mut args = standard_args(&identity, &id);
+    args["send"]["receipt"]["textBody"] = json!("Card: 4111 1111 1111 1111");
+    let (blocked, _) = h
+        .engine
+        .mdn_standard_dispatch(&h.account_id, "MDN/send", &args)
+        .await;
+    assert!(
+        h.submitter.handed().is_empty(),
+        "DLP policy must govern receipt body too"
+    );
+    assert_eq!(blocked["notSent"]["receipt"]["type"], "forbidden");
+    args["send"]["receipt"]["textBody"] = json!("Safe body");
+    let (allowed, _) = h
+        .engine
+        .mdn_standard_dispatch(&h.account_id, "MDN/send", &args)
+        .await;
+    assert!(allowed["notSent"].is_null(), "{allowed}");
+    assert_eq!(h.submitter.handed().len(), 1);
+}

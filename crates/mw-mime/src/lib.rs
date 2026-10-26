@@ -28,6 +28,7 @@ mod build;
 mod check;
 mod dsn;
 mod mdn;
+mod mdn_standard;
 mod parse;
 
 pub use build::{
@@ -35,8 +36,9 @@ pub use build::{
 };
 pub use check::{generate_content_id, validate_content_id, validate_mailbox};
 pub use dsn::{DsnRecipient, DsnReport, parse_dsn};
+pub use mdn_standard::{MdnDocument, parse_mdn_document};
 pub use mdn::{
-    MdnActionMode, MdnDisposition, MdnInput, MdnReport, MdnSendingMode, build_mdn, parse_mdn,
+    MdnActionMode, MdnDisposition, MdnInput, MdnOptions, MdnReport, MdnSendingMode, build_mdn, build_mdn_with_options, parse_mdn,
 };
 pub use parse::{
     Parsed, ParsedEnvelope, PartBlob, ReceiptHeaders, decode_charset, parse, part_blob,

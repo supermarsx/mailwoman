@@ -564,3 +564,156 @@ async fn sender_rules_require_authority_current_revision_and_real_account() {
     assert_eq!(client.put(&url).header("if-match",&etag).json(&body).send().await.unwrap().status(),403);
     assert_eq!(client.get(format!("{}/api/account/mdn-decision/unknown",srv.base)).send().await.unwrap().status(),404);
 }
+
+#[tokio::test]
+async fn rfc9007_authenticated_http_sends_once_with_null_envelope_and_parses_report() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let _guard = serial().await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let smtp = tokio::spawn(async move {
+        tokio::time::timeout(std::time::Duration::from_secs(30), async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (read, mut write) = stream.into_split();
+            let mut read = BufReader::new(read);
+            write.write_all(b"220 fixture ready\r\n").await.unwrap();
+            let mut envelope = false;
+            let mut recipient = false;
+            let mut data = Vec::new();
+            loop {
+                let mut line = String::new();
+                assert!(read.read_line(&mut line).await.unwrap() > 0);
+                assert!(line.len() < 8192);
+                let command = line.trim_end();
+                if command.starts_with("EHLO") {
+                    write
+                        .write_all(b"250-fixture\r\n250 AUTH PLAIN\r\n")
+                        .await
+                        .unwrap();
+                } else if command.starts_with("AUTH PLAIN") {
+                    write.write_all(b"235 authenticated\r\n").await.unwrap();
+                } else if command.starts_with("MAIL FROM:") {
+                    assert_eq!(command, "MAIL FROM:<>");
+                    envelope = true;
+                    write.write_all(b"250 sender accepted\r\n").await.unwrap();
+                } else if command.starts_with("RCPT TO:") {
+                    assert!(envelope);
+                    assert_eq!(command, "RCPT TO:<ann@example.org>");
+                    recipient = true;
+                    write
+                        .write_all(b"250 recipient accepted\r\n")
+                        .await
+                        .unwrap();
+                } else if command == "DATA" {
+                    assert!(recipient);
+                    write.write_all(b"354 send data\r\n").await.unwrap();
+                    loop {
+                        let mut line = Vec::new();
+                        assert!(read.read_until(b'\n', &mut line).await.unwrap() > 0);
+                        if line == b".\r\n" {
+                            break;
+                        }
+                        if line.starts_with(b"..") {
+                            line.remove(0);
+                        }
+                        data.extend(line);
+                        assert!(data.len() <= 9 * 1024 * 1024);
+                    }
+                    write.write_all(b"250 queued\r\n").await.unwrap();
+                } else if command == "QUIT" {
+                    write.write_all(b"221 bye\r\n").await.unwrap();
+                    break;
+                } else {
+                    panic!("unexpected fixture command");
+                }
+            }
+            data
+        })
+        .await
+        .unwrap()
+    });
+    // SAFETY: all tests in this binary hold serial() across environment use.
+    unsafe {
+        std::env::set_var("MW_SMTP_HOST", "127.0.0.1");
+        std::env::set_var("MW_SMTP_PORT", port.to_string());
+        std::env::set_var("MW_SMTP_SECURITY", "plaintext");
+    }
+    let imap = MockImap::start(ENGINE_USER, ENGINE_PASS).await;
+    let server = spawn(ServerMode::Engine, imap.url()).await;
+    let client = browser();
+    let account = engine_login(&client, &server.base, &imap).await;
+    let session: Value = client.get(format!("{}/jmap/session",server.base))
+        .send().await.unwrap().json().await.unwrap();
+    assert_eq!(session["capabilities"][mw_engine::Engine::STANDARD_MDN_CAPABILITY],json!({}));
+    assert_eq!(session["accounts"][&account]["accountCapabilities"][mw_engine::Engine::STANDARD_MDN_CAPABILITY],json!({}));
+    let id = import_asking(&client, &server.base, &account).await;
+    let identities = jmap(
+        &client,
+        &server.base,
+        "Identity/get",
+        json!({"accountId":account}),
+    )
+    .await;
+    let identity = identities["list"][0]["id"].as_str().unwrap();
+    let request = json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail",mw_engine::Engine::STANDARD_MDN_CAPABILITY],"methodCalls":[["MDN/send",{"accountId":account,"identityId":identity,"send":{"receipt":{"forEmailId":id,"subject":"HTTP standard receipt","textBody":"Displayed by client","includeOriginalMessage":true,"disposition":{"actionMode":"manual-action","sendingMode":"mdn-sent-manually","type":"displayed"}}},"onSuccessUpdateEmail":{"#receipt":{"keywords/$mdnsent":true}}},"s"]]});
+    let anonymous = browser()
+        .post(format!("{}/jmap/api", server.base))
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(anonymous.status(), 401);
+    let response = client
+        .post(format!("{}/jmap/api", server.base))
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let response: Value = response.json().await.unwrap();
+    assert_eq!(response["methodResponses"][0][0], "MDN/send");
+    assert!(
+        response["methodResponses"][0][1]["sent"]["receipt"].is_object(),
+        "{response}"
+    );
+    assert_eq!(response["methodResponses"][1][0], "Email/set");
+    let raw = smtp.await.unwrap();
+    let wire = String::from_utf8_lossy(&raw);
+    assert!(wire.contains("HTTP standard receipt"));
+    assert!(wire.contains("message/rfc822"));
+    let duplicate: Value = client
+        .post(format!("{}/jmap/api", server.base))
+        .json(&request)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        duplicate["methodResponses"][0][1]["notSent"]["receipt"]["type"],
+        "mdnAlreadySent"
+    );
+    let upload: Value = client
+        .post(format!("{}/jmap/upload/{account}", server.base))
+        .header("content-type", "message/rfc822")
+        .body(raw)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let blob = upload["blobId"].as_str().unwrap();
+    let parsed:Value=client.post(format!("{}/jmap/api",server.base)).json(&json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail",mw_engine::Engine::STANDARD_MDN_CAPABILITY],"methodCalls":[["MDN/parse",{"accountId":account,"blobIds":[blob]},"p"]]})).send().await.unwrap().json().await.unwrap();
+    assert_eq!(parsed["methodResponses"][0][0], "MDN/parse");
+    assert_eq!(
+        parsed["methodResponses"][0][1]["parsed"][blob]["subject"],
+        "HTTP standard receipt"
+    );
+    unsafe {
+        std::env::remove_var("MW_SMTP_HOST");
+        std::env::remove_var("MW_SMTP_PORT");
+        std::env::remove_var("MW_SMTP_SECURITY");
+    }
+}
