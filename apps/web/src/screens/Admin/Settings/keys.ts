@@ -100,6 +100,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'appearance.theme',
   'appearance.accent',
   'appearance.density',
+  'appearance.font',
   'appearance.brandName',
   'login.notice',
   'login.showDomainHint',
