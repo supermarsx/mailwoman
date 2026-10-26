@@ -1,0 +1,11 @@
+# Package tracking
+
+Package tracking is off until an administrator configures and enables AfterShip in **Package tracking**, and a mailbox user enables it in **Settings → Package tracking**. The `packages.allowed` setting provides global, domain and administrator-per-user restrictions; it does not replace personal opt-in.
+
+The administrator supplies a tracking read/create API key. Mailwoman seals it with the server key, never returns it to the browser, and requires fresh administrator proof and a current configuration revision for changes. Keep the server key with backups. Configure a `package_tracking` outbound route when a proxy is required. This traffic class permits only public HTTPS destinations, and the credential-bearing API is restricted to `api.aftership.com/tracking/2026-07`; redirects and remote-DNS SOCKS routing are refused.
+
+Users add packages through a separate editor. Saving sends nothing to the provider. **Track or refresh** sends only the tracking number and exact carrier code. Mailwoman does not scan message bodies, send labels or account addresses, or poll in the background. Provider records may persist after removing a local package. Manage provider retention and billing in AfterShip.
+
+The integration uses the documented [AfterShip authentication](https://www.aftership.com/docs/tracking/quickstart/authentication) and [tracking API](https://www.aftership.com/docs/tracking/quickstart/api-quick-start), with [filtered lookup](https://www.aftership.com/docs/tracking/jh865r66gc6hi-get-trackings) before registration to recover a lost create response. Carriers requiring additional registration fields are not supported by this integration. API/provider access is deployment-specific; local tests do not establish an active provider subscription.
+
+Accounts hold up to 100 packages. Status responses are bounded to 1 MiB; at most 20 recent checkpoints are retained per package. Tracking requests are serialized, paced, time bounded and never automatically retried. The administrator sets a per-package minimum interval of 60–86400 seconds, including failures. A failed response preserves the last successful status. Carrier estimates are not guarantees, and carrier timestamps are displayed as supplied rather than assigned an inferred time zone.

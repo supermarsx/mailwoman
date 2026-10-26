@@ -223,3 +223,4 @@ admin-attachments-edit = Edit policy
 admin-attachments-refresh = Refresh rules
 
 admin-nav-nextcloud = Nextcloud
+admin-nav-package-tracking = Package tracking

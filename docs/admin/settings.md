@@ -34,6 +34,11 @@ Settings section shows them read-only.
 
 ## Settings
 
+<a id="packages.allowed"></a>
+### Package tracking allowed (`packages.allowed`)
+
+Restricts package tracking globally, by domain or for an individual account. Default `true` only permits availability: the separately configured provider and explicit personal opt-in both remain off by default. A false effective value stops provider calls; local removal and opting out remain available. See [Package tracking](package-tracking.md).
+
 <a id="ui.language"></a>
 ### Language (`ui.language`)
 

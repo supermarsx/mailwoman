@@ -79,6 +79,8 @@ pub mod assist;
 pub mod directory;
 pub mod nextcloud;
 mod nextcloud_accounts;
+mod packages;
+mod packages_model;
 mod nextcloud_config;
 mod nextcloud_gateway;
 mod nextcloud_transport;
@@ -1465,6 +1467,7 @@ fn router(
         .merge(branding_routes::router())
         .merge(analytics_routes::router())
         .merge(nextcloud_accounts::router())
+        .merge(packages::router())
         .route("/jmap/session", get(jmap_session))
         .route("/jmap/api", post(jmap_api).route_layer(middleware::from_fn_with_state(state.clone(), scope_mw::jmap_sieve_scope_guard)))
         .route(
