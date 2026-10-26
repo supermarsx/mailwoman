@@ -128,14 +128,52 @@ async fn summary_requires_admin_and_counts_real_requests_without_paths() {
     let body: Value = response.json().await.unwrap();
     assert_eq!(body["series"][0]["requests"], 2);
     assert_eq!(body["series"][0]["errors5xx"], 1);
-    assert_eq!(body["series"][0]["p50Ms"], 37);
-    assert_eq!(body["series"][0]["p95Ms"], 83);
-    assert_eq!(body["series"][0]["p95ResolutionMs"], 1);
+    assert_eq!(body["series"][0]["p50Ms"].as_f64(), Some(37.0));
+    assert_eq!(body["series"][0]["p95Ms"].as_f64(), Some(83.0));
+    assert_eq!(body["series"][0]["p95ResolutionMs"].as_f64(), Some(1.0));
     assert_eq!(body["series"][0]["legacyLatencyEstimate"], false);
     assert_eq!(body["series"][0]["coverage"], "complete");
     assert!(body["series"][1]["requests"].is_null());
     assert_eq!(body["series"][1]["coverage"], "unavailable");
     assert_eq!(body["coverage"]["observedSeconds"], 60);
+    let precise_start = start - 180;
+    let mut precise = mw_store::request_metrics::Counts::default();
+    for micros in [1, 123, 999] {
+        precise.record_us(200, micros);
+    }
+    store
+        .save_request_metrics(
+            "microsecond-fixture",
+            &[mw_store::request_metrics::Bucket {
+                seconds: 60,
+                start: precise_start,
+                observed_from: precise_start,
+                observed_to: precise_start + 60,
+                counts: precise,
+            }],
+            current,
+            30,
+        )
+        .await
+        .unwrap();
+    let precise: Value = client
+        .get(format!(
+            "{history}?from={precise_start}&to={}&maxPoints=1",
+            precise_start + 60
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(precise["latencySampleUnit"], "microseconds");
+    assert_eq!(precise["series"][0]["p50Ms"].as_f64(), Some(0.123));
+    assert_eq!(precise["series"][0]["p95Ms"].as_f64(), Some(0.999));
+    assert_eq!(
+        precise["series"][0]["p50ResolutionMs"].as_f64(),
+        Some(0.001)
+    );
     let legacy=mw_store::request_metrics::Bucket{seconds:60,start:start-60,observed_from:start-60,observed_to:start,counts:serde_json::from_value(json!({"requests":2,"errors5xx":0,"histogram":[0,0,0,0,0,1,1,0,0,0,0,0,0,0],"max_ms":83})).unwrap()};
     store
         .save_request_metrics("legacy-fixture", &[legacy], current, 30)
@@ -153,7 +191,7 @@ async fn summary_requires_admin_and_counts_real_requests_without_paths() {
         .json()
         .await
         .unwrap();
-    assert_eq!(mixed["series"][0]["p95Ms"], 100);
+    assert_eq!(mixed["series"][0]["p95Ms"].as_f64(), Some(100.0));
     assert_eq!(mixed["series"][0]["legacyLatencyEstimate"], true);
     assert!(mixed["series"][0]["p95ResolutionMs"].is_null());
     assert_eq!(

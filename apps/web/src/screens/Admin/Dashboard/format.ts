@@ -9,7 +9,8 @@ export const formatCount = (n: number): string => formatNumber(n);
 export const formatBytes = (n: number): string => bytes(n);
 
 export function formatMs(n: number): string {
-  return t('admin-dash-ms', { ms: formatNumber(n, { maximumFractionDigits: n < 10 ? 1 : 0 }) });
+  if (n > 0 && n < 0.001) return t('admin-dash-ms-under', { ms: formatNumber(0.001, { maximumFractionDigits: 3 }) });
+  return t('admin-dash-ms', { ms: formatNumber(n, { maximumFractionDigits: n > 0 && n < 1 ? 3 : n < 10 ? 1 : 0 }) });
 }
 
 /** "3 d 4 h", "4 h 12 min", "12 min", "40 s". */

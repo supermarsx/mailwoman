@@ -48,3 +48,11 @@ it('shows fine integer-ms values and omits the legacy warning for current rows',
  expect(screen.queryByText(/original measurement precision cannot be recovered/)).not.toBeInTheDocument();
  expect(screen.getByRole('region',{name:'Response time, 95th percentile'})).toHaveTextContent('83');
 });
+
+it('renders fractional milliseconds from the server without losing the resolution metadata',async()=>{
+ const value=sample();value.latencySampleUnit='microseconds';value.series[0]={...value.series[0]!,p50Ms:0.123,p95Ms:0.999,legacyLatencyEstimate:false,p50ResolutionMs:0.001,p95ResolutionMs:0.001};
+ vi.mocked(loadRequestHistory).mockResolvedValue(value);
+ render(()=><RequestHistory/>);await screen.findByText(/History covers/);
+ expect(screen.getByTestId('spark-p95')).toHaveTextContent('0.999 ms');
+ expect(screen.getByRole('region',{name:'Response time, median'})).toHaveTextContent('0.123 ms');
+});

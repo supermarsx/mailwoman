@@ -827,7 +827,7 @@ admin-history-refresh = Refresh request history
 admin-history-errors = Server errors (5xx) per bucket
 admin-users-legacy-alias = This account signs in through a domain alias. Existing administrative record: { $address }. Its settings and history are preserved; the records have not been merged or renamed.
 
-admin-history-latency-resolution = New latency samples retain integer milliseconds through 1 second; slower timings use wider bounded bins. Percentiles describe response-ready timing, not the full transfer.
+admin-history-latency-resolution = Sub-millisecond samples retain microseconds when available; older snapshots retain their original precision. Timings from 1 ms through 1 second use integer milliseconds, and slower timings use wider bounded bins. Percentiles describe response-ready timing, not the full transfer.
 admin-history-latency-legacy = This range includes older or mixed coarse latency estimates. Their original measurement precision cannot be recovered.
 
 admin-users-access-title = Mailwoman access
@@ -893,3 +893,5 @@ admin-transfer-setup-smb = Named SMB remote with a share/path and host-managed c
 admin-transfer-setup-nfs = Existing NFS mount. An absent mount is refused rather than writing to local disk.
 admin-transfer-backup-template = Download destination template
 admin-transfer-backup-host = Enable and configure destinations in the template, then set BACKUP_TARGETS_FILE and BACKUP_RECIPIENT in deploy.env. The existing deploy.sh backup command and systemd timer use them. All template destinations start disabled; downloading the template does not change a running deployment.
+
+admin-dash-ms-under = <{ $ms } ms

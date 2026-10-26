@@ -5,7 +5,7 @@ export interface RequestHistory {
  series:{t:number;requests:number|null;errors5xx:number|null;p50Ms:number|null;p95Ms:number|null;coverage:'complete'|'partial'|'unavailable';legacyLatencyEstimate?:boolean;p50ResolutionMs?:number|null;p95ResolutionMs?:number|null}[];
  coverage:{observedSeconds:number;requestedSeconds:number;gaps:RequestHistoryRange[]};
  policy:{defaultRangeSeconds:number;maxRangeSeconds:number;retentionDays:number};
- scope:'server';timing:'response-ready';
+ scope:'server';timing:'response-ready';latencySampleUnit?:'integer-milliseconds'|'microseconds';
 }
 export async function loadRequestHistory(range?:RequestHistoryRange,signal?:AbortSignal):Promise<RequestHistory>{
  const query=new URLSearchParams({maxPoints:'240'});

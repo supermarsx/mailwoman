@@ -103,7 +103,7 @@ impl Recorder {
         memory.touch(time);
         memory.buckets.values().cloned().collect()
     }
-    pub(crate) fn record(&self, status: u16, ms: u64) {
+    pub(crate) fn record_us(&self, status: u16, micros: u64) {
         let time = now();
         let mut memory = self
             .memory
@@ -112,7 +112,7 @@ impl Recorder {
         memory.touch(time);
         for seconds in [60, 3600] {
             if let Some(bucket) = memory.buckets.get_mut(&(seconds, time / seconds * seconds)) {
-                bucket.counts.record(status, ms);
+                bucket.counts.record_us(status, micros);
             }
         }
     }
@@ -213,7 +213,7 @@ pub(crate) async fn history(
             } else {
                 "partial"
             };
-            series.push(json!({"t":t,"requests":(covered>0).then_some(counts.requests),"errors5xx":(covered>0).then_some(counts.errors5xx),"p50Ms":(covered>0).then(||counts.percentile(50)).flatten(),"p95Ms":(covered>0).then(||counts.percentile(95)).flatten(),"coverage":coverage,"legacyLatencyEstimate":counts.legacy_estimate(),"p50ResolutionMs":counts.percentile_resolution_ms(50),"p95ResolutionMs":counts.percentile_resolution_ms(95)}));
+            series.push(json!({"t":t,"requests":(covered>0).then_some(counts.requests),"errors5xx":(covered>0).then_some(counts.errors5xx),"p50Ms":(covered>0).then(||counts.precise_percentile_ms(50)).flatten(),"p95Ms":(covered>0).then(||counts.precise_percentile_ms(95)).flatten(),"coverage":coverage,"legacyLatencyEstimate":counts.legacy_estimate(),"p50ResolutionMs":counts.precise_percentile_resolution_ms(50),"p95ResolutionMs":counts.precise_percentile_resolution_ms(95)}));
             t = end;
         }
         let observed = union(&observed);
@@ -229,7 +229,7 @@ pub(crate) async fn history(
             gaps.push(json!({"from":cursor,"to":to}));
         }
         let seconds = observed.iter().map(|(a, b)| b - a).sum::<i64>();
-        Ok::<_,AdminApiError>(([(header::CACHE_CONTROL,"no-store")],Json(json!({"from":from,"to":to,"bucketSeconds":width,"series":series,"coverage":{"observedSeconds":seconds,"requestedSeconds":to-from,"gaps":gaps},"policy":policy,"scope":"server","timing":"response-ready","latencySampleUnit":"integer-milliseconds"}))).into_response())
+        Ok::<_,AdminApiError>(([(header::CACHE_CONTROL,"no-store")],Json(json!({"from":from,"to":to,"bucketSeconds":width,"series":series,"coverage":{"observedSeconds":seconds,"requestedSeconds":to-from,"gaps":gaps},"policy":policy,"scope":"server","timing":"response-ready","latencySampleUnit":"microseconds"}))).into_response())
     };
     tokio::time::timeout(Duration::from_secs(5), work)
         .await

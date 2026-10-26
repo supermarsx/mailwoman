@@ -18,7 +18,7 @@
 //! address, account, query text or token ever becomes a label.
 //!
 //! **Percentiles** are the upper bound of the latency bucket that holds the rank
-//! (buckets in [`BUCKETS_MS`]); samples through one second retain their integer-ms value. Resolution metadata distinguishes wider slow bins. A minute
+//! (buckets in [`BUCKETS_MS`]); sub-ms samples retain microseconds; samples from one millisecond through one second retain integer-ms values. Resolution metadata distinguishes wider slow bins. A minute
 //! with no requests reports `0`.
 
 use std::sync::Mutex;
@@ -112,7 +112,7 @@ pub fn classify(path: &str) -> RouteClass {
     RouteClass::Static
 }
 
-/// Integer-ms samples through one second; bounded wider bins above that.
+/// Integer-ms bounds from one millisecond through one second; v3 adds sub-ms microsecond bins.
 pub use mw_store::request_metrics::PRECISE_LATENCY_BOUNDS_MS as BUCKETS_MS;
 pub const WINDOW_MINS: usize = 60;
 const NCLASSES: usize = RouteClass::ALL.len();
@@ -133,16 +133,24 @@ impl Cell {
         self.errors5xx = self.errors5xx.saturating_add(u64::from(status >= 500));
         self.hist.record(status, ms);
     }
+    fn add_us(&mut self, status: u16, micros: u64) {
+        self.requests = self.requests.saturating_add(1);
+        self.errors4xx = self
+            .errors4xx
+            .saturating_add(u64::from((400..500).contains(&status)));
+        self.errors5xx = self.errors5xx.saturating_add(u64::from(status >= 500));
+        self.hist.record_us(status, micros);
+    }
     fn merge(&mut self, other: &Self) {
         self.requests = self.requests.saturating_add(other.requests);
         self.errors4xx = self.errors4xx.saturating_add(other.errors4xx);
         self.errors5xx = self.errors5xx.saturating_add(other.errors5xx);
         self.hist.merge(&other.hist);
     }
-    fn quantile_ms(&self, q: f64) -> u64 {
+    fn quantile_ms(&self, q: f64) -> f64 {
         self.hist
-            .percentile((q * 100.0).round() as u64)
-            .unwrap_or(0)
+            .precise_percentile_ms((q * 100.0).round() as u64)
+            .unwrap_or(0.0)
     }
 }
 
@@ -186,6 +194,13 @@ pub fn record(class: RouteClass, status: u16, elapsed_ms: u64) {
 }
 
 fn record_at(now: u64, class: RouteClass, status: u16, elapsed_ms: u64) {
+    record_measurement(now, class, status, elapsed_ms, false);
+}
+pub fn record_us(class: RouteClass, status: u16, elapsed_us: u64) {
+    record_measurement(now_secs(), class, status, elapsed_us, true);
+}
+fn record_measurement(now: u64, class: RouteClass, status: u16, elapsed: u64, microseconds: bool) {
+    let seconds = elapsed as f64 / if microseconds { 1_000_000.0 } else { 1000.0 };
     let status_class = match status {
         100..=199 => "1xx",
         200..=299 => "2xx",
@@ -196,11 +211,15 @@ fn record_at(now: u64, class: RouteClass, status: u16, elapsed_ms: u64) {
     metrics::counter!("mw_http_requests_total", "class" => class.as_str(), "status" => status_class)
         .increment(1);
     metrics::histogram!("mw_http_request_duration_seconds", "class" => class.as_str())
-        .record(elapsed_ms as f64 / 1000.0);
-    crate::observability::record_http(class.as_str(), status_class, elapsed_ms as f64 / 1000.0);
+        .record(seconds);
+    crate::observability::record_http(class.as_str(), status_class, seconds);
     let minute = now / 60;
     with_metrics(|m| {
-        m.totals[class.index()].add(status, elapsed_ms);
+        if microseconds {
+            m.totals[class.index()].add_us(status, elapsed);
+        } else {
+            m.totals[class.index()].add(status, elapsed);
+        }
         let slot = &mut m.ring[(minute % WINDOW_MINS as u64) as usize];
         if slot.minute != minute {
             *slot = Slot {
@@ -208,7 +227,11 @@ fn record_at(now: u64, class: RouteClass, status: u16, elapsed_ms: u64) {
                 cells: std::array::from_fn(|_| Cell::default()),
             };
         }
-        slot.cells[class.index()].add(status, elapsed_ms);
+        if microseconds {
+            slot.cells[class.index()].add_us(status, elapsed);
+        } else {
+            slot.cells[class.index()].add(status, elapsed);
+        }
     });
 }
 
@@ -228,9 +251,12 @@ pub(crate) async fn layer(
     );
     let resp = next.run(req).instrument(span.clone()).await;
     span.record("status", resp.status().as_u16());
-    let ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-    record(class, resp.status().as_u16(), ms);
-    state.request_history.record(resp.status().as_u16(), ms);
+    // Quantize only once, at one microsecond; never truncate sub-ms durations to zero.
+    let micros = start.elapsed().as_micros().clamp(1, u64::MAX as u128) as u64;
+    record_us(class, resp.status().as_u16(), micros);
+    state
+        .request_history
+        .record_us(resp.status().as_u16(), micros);
     resp
 }
 
@@ -245,17 +271,17 @@ pub struct ClassTotals {
 }
 
 /// One minute of one class (or of all classes).
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Point {
     pub requests: u64,
     pub errors4xx: u64,
     pub errors5xx: u64,
-    pub p50_ms: u64,
-    pub p95_ms: u64,
+    pub p50_ms: f64,
+    pub p95_ms: f64,
     pub legacy_latency_estimate: bool,
-    pub p50_resolution_ms: Option<u64>,
-    pub p95_resolution_ms: Option<u64>,
+    pub p50_resolution_ms: Option<f64>,
+    pub p95_resolution_ms: Option<f64>,
 }
 
 impl From<&Cell> for Point {
@@ -267,8 +293,8 @@ impl From<&Cell> for Point {
             p50_ms: c.quantile_ms(0.50),
             p95_ms: c.quantile_ms(0.95),
             legacy_latency_estimate: c.hist.legacy_estimate(),
-            p50_resolution_ms: c.hist.percentile_resolution_ms(50),
-            p95_resolution_ms: c.hist.percentile_resolution_ms(95),
+            p50_resolution_ms: c.hist.precise_percentile_resolution_ms(50),
+            p95_resolution_ms: c.hist.precise_percentile_resolution_ms(95),
         }
     }
 }
@@ -294,6 +320,7 @@ pub struct Summary {
     pub window_mins: usize,
     pub bucket_secs: u64,
     pub latency_buckets_ms: &'static [u64],
+    pub sub_millisecond_resolution_ms: f64,
     pub totals: Vec<ClassTotals>,
     /// Oldest first; minutes with no traffic are present with zeros.
     pub series: Vec<Minute>,
@@ -349,6 +376,7 @@ fn summary_at(now: u64) -> Summary {
             window_mins: WINDOW_MINS,
             bucket_secs: 60,
             latency_buckets_ms: &BUCKETS_MS,
+            sub_millisecond_resolution_ms: 0.001,
             totals,
             series,
         }
@@ -423,6 +451,20 @@ mod tests {
     }
 
     #[test]
+    fn live_percentiles_preserve_microseconds_and_wire_fractions() {
+        let mut cell = Cell::default();
+        for micros in [1, 123, 999, 1000] {
+            cell.add_us(200, micros);
+        }
+        let point = Point::from(&cell);
+        assert_eq!(point.p50_ms, 0.123);
+        assert_eq!(point.p50_resolution_ms, Some(0.001));
+        assert_eq!(point.p95_ms, 1.0);
+        let json = serde_json::to_value(point).unwrap();
+        assert_eq!(json["p50Ms"], serde_json::json!(0.123));
+        assert_eq!(json["p50ResolutionMs"], serde_json::json!(0.001));
+    }
+    #[test]
     fn live_percentiles_preserve_37_and_83_millisecond_samples() {
         let mut cell = Cell::default();
         for _ in 0..50 {
@@ -430,9 +472,9 @@ mod tests {
             cell.add(200, 83);
         }
         let point = Point::from(&cell);
-        assert_eq!(point.p50_ms, 37);
-        assert_eq!(point.p95_ms, 83);
-        assert_eq!(point.p95_resolution_ms, Some(1));
+        assert_eq!(point.p50_ms, 37.0);
+        assert_eq!(point.p95_ms, 83.0);
+        assert_eq!(point.p95_resolution_ms, Some(1.0));
         assert!(!point.legacy_latency_estimate);
     }
 
@@ -445,15 +487,15 @@ mod tests {
         for _ in 0..10 {
             c.add(500, 400); // exact integer-ms sample
         }
-        assert_eq!(c.quantile_ms(0.5), 3);
-        assert_eq!(c.quantile_ms(0.95), 400);
+        assert_eq!(c.quantile_ms(0.5), 3.0);
+        assert_eq!(c.quantile_ms(0.95), 400.0);
         assert_eq!(c.errors5xx, 10);
-        assert_eq!(Cell::default().quantile_ms(0.95), 0);
+        assert_eq!(Cell::default().quantile_ms(0.95), 0.0);
         let mut slow = Cell::default();
         slow.add(200, 60_000);
-        assert_eq!(slow.quantile_ms(0.5), 60_000);
+        assert_eq!(slow.quantile_ms(0.5), 60_000.0);
         c.merge(&slow);
-        assert_eq!(c.quantile_ms(1.0), 60_000);
+        assert_eq!(c.quantile_ms(1.0), 60_000.0);
     }
 
     #[test]
@@ -474,7 +516,7 @@ mod tests {
         assert_eq!(last.by_class["jmap"].requests, 1);
         assert_eq!(prev.by_class["admin"].requests, 2);
         assert_eq!(prev.by_class["admin"].errors5xx, 1);
-        assert_eq!(prev.all.p95_ms, 30);
+        assert_eq!(prev.all.p95_ms, 30.0);
         // 60 minutes later the first minute has left the window.
         let later = summary_at(base + 60 * 60);
         assert!(later.series.iter().all(|m| m.t != base / 60 * 60));

@@ -24,6 +24,13 @@ pub struct Counts {
         skip_serializing_if = "Option::is_none"
     )]
     fine_histogram: Option<histogram::Histogram>,
+    /// Version-three sub-ms samples, in integer microseconds. Old rows omit this.
+    #[serde(
+        default,
+        rename = "subMillisecondHistogram",
+        skip_serializing_if = "Option::is_none"
+    )]
+    sub_millisecond: Option<std::collections::BTreeMap<u16, u64>>,
 }
 impl Default for Counts {
     fn default() -> Self {
@@ -32,16 +39,35 @@ impl Default for Counts {
             errors5xx: 0,
             histogram: [0; 14],
             max_ms: 0,
-            histogram_version: 2,
+            histogram_version: 3,
             fine_histogram: Some(histogram::Histogram::default()),
+            sub_millisecond: Some(Default::default()),
         }
     }
 }
 impl Counts {
     pub fn record(&mut self, status: u16, ms: u64) {
+        self.record_sample(status, ms, None);
+        // An integer-ms caller cannot establish sub-ms measurement precision.
+        self.sub_millisecond = None;
+        self.histogram_version = if self.fine_histogram.is_some() { 2 } else { 1 };
+    }
+    pub fn record_us(&mut self, status: u16, micros: u64) {
+        self.record_sample(
+            status,
+            micros / 1000,
+            (micros < 1000).then_some(micros as u16),
+        );
+    }
+    fn record_sample(&mut self, status: u16, ms: u64, sub_ms: Option<u16>) {
         if self.requests == 0 {
-            self.histogram_version = 2;
+            self.histogram_version = 3;
             self.fine_histogram = Some(histogram::Histogram::default());
+            self.sub_millisecond = Some(Default::default());
+        }
+        if let (Some(values), Some(micros)) = (&mut self.sub_millisecond, sub_ms) {
+            let count = values.entry(micros).or_default();
+            *count = count.saturating_add(1);
         }
         self.requests = self.requests.saturating_add(1);
         self.errors5xx = self.errors5xx.saturating_add(u64::from(status >= 500));
@@ -59,11 +85,25 @@ impl Counts {
         if self.requests == 0 {
             self.histogram_version = other.histogram_version;
             self.fine_histogram = other.fine_histogram.clone();
+            self.sub_millisecond = other.sub_millisecond.clone();
         } else if other.requests > 0 {
+            match (&mut self.sub_millisecond, &other.sub_millisecond) {
+                (Some(ours), Some(theirs)) => {
+                    for (&micros, &count) in theirs {
+                        let value = ours.entry(micros).or_default();
+                        *value = value.saturating_add(count);
+                    }
+                }
+                _ => {
+                    self.sub_millisecond = None;
+                    self.histogram_version = 2;
+                }
+            }
             match (&mut self.fine_histogram, &other.fine_histogram) {
                 (Some(ours), Some(theirs)) => ours.merge(theirs),
                 _ => {
                     self.fine_histogram = None;
+                    self.sub_millisecond = None;
                     self.histogram_version = 1;
                 }
             }
@@ -95,6 +135,36 @@ impl Counts {
         }
         None
     }
+    fn sub_ms_percentile(&self, percent: u64) -> Option<f64> {
+        if self.requests == 0 {
+            return None;
+        }
+        let rank = self
+            .requests
+            .saturating_mul(percent.clamp(1, 100))
+            .div_ceil(100);
+        let mut seen = 0_u64;
+        for (&micros, &count) in self.sub_millisecond.as_ref()? {
+            seen = seen.saturating_add(count);
+            if seen >= rank {
+                return Some(f64::from(micros) / 1000.0);
+            }
+        }
+        None
+    }
+    /// Milliseconds on the wire; only measured v3 sub-ms bins produce fractions.
+    pub fn precise_percentile_ms(&self, percent: u64) -> Option<f64> {
+        self.sub_ms_percentile(percent)
+            .or_else(|| self.percentile(percent).map(|value| value as f64))
+    }
+    pub fn precise_percentile_resolution_ms(&self, percent: u64) -> Option<f64> {
+        if self.sub_ms_percentile(percent).is_some() {
+            Some(0.001)
+        } else {
+            self.percentile_resolution_ms(percent)
+                .map(|value| value as f64)
+        }
+    }
     pub fn legacy_estimate(&self) -> bool {
         self.requests > 0 && self.fine_histogram.is_none()
     }
@@ -116,7 +186,7 @@ impl Counts {
                 .try_fold(0_u64, |sum, n| sum.checked_add(*n))
                 == Some(self.requests)
             && match (&self.fine_histogram, self.histogram_version) {
-                (Some(fine), 2) => {
+                (Some(fine), 2 | 3) => {
                     let mut projected = [0_u64; 14];
                     for (index, count) in fine.entries() {
                         let upper = if index == histogram::OVERFLOW_INDEX {
@@ -130,11 +200,30 @@ impl Counts {
                             .unwrap_or(13);
                         projected[legacy] = projected[legacy].saturating_add(count);
                     }
-                    fine.total() == Some(self.requests)
+                    let sub_valid = match (&self.sub_millisecond, self.histogram_version) {
+                        (Some(values), 3) => {
+                            values.len() <= 1000
+                                && values
+                                    .iter()
+                                    .all(|(&micros, &count)| micros < 1000 && count > 0)
+                                && values
+                                    .values()
+                                    .try_fold(0_u64, |sum, count| sum.checked_add(*count))
+                                    == Some(
+                                        fine.entries()
+                                            .find(|(index, _)| *index == 0)
+                                            .map_or(0, |(_, count)| count),
+                                    )
+                        }
+                        (None, 2) => true,
+                        _ => false,
+                    };
+                    sub_valid
+                        && fine.total() == Some(self.requests)
                         && fine.compatible_max(self.max_ms)
                         && projected == self.histogram
                 }
-                (None, 0 | 1) => true,
+                (None, 0 | 1) => self.sub_millisecond.is_none(),
                 _ => false,
             }
     }
@@ -364,6 +453,35 @@ mod tests {
                 .await
                 .is_err()
         );
+        let mut fractional = Counts::default();
+        for micros in [1, 123, 999, 1000] {
+            fractional.record_us(200, micros);
+        }
+        let sample_time = 720_000_000;
+        store
+            .save_request_metrics(
+                "fractional",
+                &[Bucket {
+                    seconds: 60,
+                    start: sample_time,
+                    observed_from: sample_time,
+                    observed_to: sample_time + 60,
+                    counts: fractional,
+                }],
+                sample_time + 60,
+                30,
+            )
+            .await
+            .unwrap();
+        let rows = store
+            .request_metrics_history(sample_time, sample_time + 60, 60)
+            .await
+            .unwrap();
+        assert_eq!(rows[0].counts.precise_percentile_ms(50), Some(0.123));
+        assert_eq!(
+            rows[0].counts.precise_percentile_resolution_ms(50),
+            Some(0.001)
+        );
         byte_budget_checks(&store).await;
     }
     async fn byte_budget_checks(store: &Store) {
@@ -531,5 +649,80 @@ mod precision_tests {
         let mut value = serde_json::to_value(&counts).unwrap();
         value["fineHistogram"] = serde_json::json!([[37, 2]]);
         assert!(!serde_json::from_value::<Counts>(value).unwrap().valid());
+    }
+}
+
+#[cfg(test)]
+mod sub_millisecond_tests {
+    use super::*;
+    #[test]
+    fn microsecond_samples_roundtrip_with_bounded_resolution() {
+        let mut counts = Counts::default();
+        for micros in [1, 123, 999, 1000] {
+            counts.record_us(200, micros);
+        }
+        assert!(counts.valid());
+        for (percent, expected, resolution) in [
+            (25, 0.001, 0.001),
+            (50, 0.123, 0.001),
+            (75, 0.999, 0.001),
+            (100, 1.0, 1.0),
+        ] {
+            assert_eq!(counts.precise_percentile_ms(percent), Some(expected));
+            assert_eq!(
+                counts.precise_percentile_resolution_ms(percent),
+                Some(resolution)
+            );
+        }
+        let encoded = serde_json::to_string(&counts).unwrap();
+        assert!(encoded.len() < MAX_BUCKET_JSON_BYTES as usize);
+        let decoded: Counts = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(counts, decoded);
+        assert!(decoded.valid());
+        let mut merged = Counts::default();
+        merged.merge(&decoded);
+        merged.merge(&counts);
+        assert_eq!(merged.precise_percentile_ms(50), Some(0.123));
+        assert!(merged.valid());
+    }
+    #[test]
+    fn mixing_integer_ms_history_never_invents_sub_ms_measurements() {
+        let mut old = Counts::default();
+        old.record(200, 0);
+        let encoded = serde_json::to_value(&old).unwrap();
+        assert_eq!(encoded["histogramVersion"], 2);
+        assert!(encoded.get("subMillisecondHistogram").is_none());
+        let old: Counts = serde_json::from_value(encoded).unwrap();
+        assert!(old.valid());
+        let mut precise = Counts::default();
+        precise.record_us(200, 123);
+        for reverse in [false, true] {
+            let mut merged = if reverse {
+                old.clone()
+            } else {
+                precise.clone()
+            };
+            merged.merge(if reverse { &precise } else { &old });
+            assert!(merged.valid());
+            assert_eq!(merged.precise_percentile_ms(95), Some(0.0));
+            assert_eq!(merged.precise_percentile_resolution_ms(95), Some(1.0));
+            assert!(merged.sub_millisecond.is_none());
+        }
+    }
+    #[test]
+    fn rejects_inconsistent_or_out_of_range_microsecond_bins() {
+        let mut counts = Counts::default();
+        counts.record_us(200, 123);
+        let mut bad = serde_json::to_value(&counts).unwrap();
+        bad["subMillisecondHistogram"] = serde_json::json!({"1000":1});
+        assert!(!serde_json::from_value::<Counts>(bad).unwrap().valid());
+        counts.sub_millisecond.as_mut().unwrap().insert(124, 1);
+        assert!(!counts.valid());
+        let mut full = Counts::default();
+        for micros in 0..1000 {
+            full.record_us(200, micros);
+        }
+        assert!(full.valid());
+        assert!(serde_json::to_string(&full).unwrap().len() < MAX_BUCKET_JSON_BYTES as usize);
     }
 }
