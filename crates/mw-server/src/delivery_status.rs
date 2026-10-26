@@ -36,10 +36,6 @@ async fn parse(
     if input.bytes_base64.len() > MAX_BYTES.div_ceil(3) * 4 {
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
-    let raw = match base64::engine::general_purpose::STANDARD.decode(input.bytes_base64) {
-        Ok(raw) if !raw.is_empty() && raw.len() <= MAX_BYTES => raw,
-        _ => return StatusCode::BAD_REQUEST.into_response(),
-    };
     static WORKERS: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
     let Ok(permit) = WORKERS
         .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(2)))
@@ -47,6 +43,10 @@ async fn parse(
         .try_acquire_owned()
     else {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
+    };
+    let raw = match base64::engine::general_purpose::STANDARD.decode(input.bytes_base64) {
+        Ok(raw) if !raw.is_empty() && raw.len() <= MAX_BYTES => raw,
+        _ => return StatusCode::BAD_REQUEST.into_response(),
     };
     let task = tokio::task::spawn_blocking(move || {
         // Retained inside the task: HTTP cancellation/timeout cannot release a

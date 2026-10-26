@@ -315,3 +315,15 @@ fn failed_can_retain_temporary_failure_status_after_retry_exhaustion() {
         parse_fields(&fields.replace("4.4.7 (delivery time expired)", "4.4.7 garbage")).is_none()
     );
 }
+
+#[cfg(test)]
+#[test]
+fn transfer_encoded_report_is_decoded_before_field_validation() {
+    let raw=b"Content-Type: multipart/report; report-type=delivery-status; boundary=b\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\nDelivery failed\r\n--b\r\nContent-Type: message/delivery-status\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nReporting-MTA: dns; mx\r\n\r\nFinal-Recipient: rfc822; user=40example.org\r\nAction: failed\r\nStatus: 5.1.1\r\nDiagnostic-Code: smtp; too=20many=20failures\r\n--b--\r\n";
+    let report = parse_dsn(raw).unwrap();
+    assert_eq!(report.recipients[0].final_recipient, "user@example.org");
+    assert_eq!(
+        report.recipients[0].diagnostic.as_deref(),
+        Some("smtp; too many failures")
+    );
+}
