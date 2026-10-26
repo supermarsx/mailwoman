@@ -18,7 +18,7 @@ import { keymap } from 'prosemirror-keymap';
 import { history, undo, redo } from 'prosemirror-history';
 import { wrapInList, splitListItem } from 'prosemirror-schema-list';
 import type { NodeType } from 'prosemirror-model';
-import { richSchema, docFromHtml, docFromText, htmlFromDoc, textFromDoc } from './richtext.ts';
+import { richSchema, docFromHtml, docFromText, htmlFromDoc, textFromDoc, COMPOSE_FONTS, COMPOSE_FONT_SIZES } from './richtext.ts';
 import { imageFiles } from './inlineImages.ts';
 import { t } from '../../i18n/index.ts';
 import * as a11y from '../mailA11y.css.ts';
@@ -114,6 +114,9 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   const [activeState, setActiveState] = createSignal<EditorState | null>(null);
   const [linkOpen, setLinkOpen] = createSignal(false);
   const [linkUrl, setLinkUrl] = createSignal('');
+  const [ribbonTab,setRibbonTab]=createSignal<'format'|'insert'>('format');
+  function fontValue(name:string):string {const state=activeState();return String(state?.storedMarks?.find(mark=>mark.type.name===name)?.attrs['value']??state?.selection.$from.marks().find(mark=>mark.type.name===name)?.attrs['value']??'');}
+  function setTextStyle(name:string,value:string):void {if(!view)return;const mark=richSchema.marks[name];if(!mark)return;const {from,to,empty}=view.state.selection;let tr=view.state.tr;if(empty)tr=value?tr.addStoredMark(mark.create({value})):tr.removeStoredMark(mark);else{tr=tr.removeMark(from,to,mark);if(value)tr=tr.addMark(from,to,mark.create({value}));}view.dispatch(tr);view.focus();}
 
   const owned = (): ReadonlySet<string> | undefined => props.inline?.owned();
 
@@ -269,7 +272,13 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
 
   return (
     <div class="compose-rt" data-testid="compose-rt">
+      <div class="compose-rt__tabs" role="tablist" aria-label={t('mail-compose-ribbon')}><For each={['format','insert'] as const}>{tab=><button type="button" role="tab" aria-selected={ribbonTab()===tab} onClick={()=>setRibbonTab(tab)}>{t(`mail-compose-ribbon-${tab}`)}</button>}</For></div>
       <div class="compose-rt__toolbar" role="toolbar" aria-label={t('mail-compose-rt-toolbar')}>
+        <button type="button" class="compose-rt__btn" aria-label={t('mail-compose-undo')} title={t('mail-compose-undo')} onMouseDown={event=>{event.preventDefault();run(undo);}}><Icon name="back"/></button>
+        <button type="button" class="compose-rt__btn" aria-label={t('mail-compose-redo')} title={t('mail-compose-redo')} onMouseDown={event=>{event.preventDefault();run(redo);}}><Icon name="forward"/></button>
+        <Show when={ribbonTab()==='format'}>
+        <label class="compose-rt__field"><span>{t('mail-compose-font')}</span><select aria-label={t('mail-compose-font')} value={fontValue('fontFamily')} onChange={event=>setTextStyle('fontFamily',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSE_FONTS}>{font=><option value={font}>{font}</option>}</For></select></label>
+        <label class="compose-rt__field"><span>{t('mail-compose-font-size')}</span><select aria-label={t('mail-compose-font-size')} value={fontValue('fontSize')} onChange={event=>setTextStyle('fontSize',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSE_FONT_SIZES}>{size=><option value={`${size}pt`}>{size} pt</option>}</For></select></label>
         <For each={BUTTONS}>
           {(btn) => {
             const state = () => activeState();
@@ -297,6 +306,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
             );
           }}
         </For>
+        </Show><Show when={ribbonTab()==='insert'}>
         <button
           type="button"
           class={`compose-rt__btn ${a11y.focusable}`}
@@ -333,6 +343,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
               }}
             />
           </label>
+        </Show>
         </Show>
       </div>
 

@@ -12,6 +12,13 @@ import {
 } from './richtext.ts';
 
 describe('richtext serialization (W1)', () => {
+  it('round-trips approved fonts and sizes while discarding unsafe style properties', () => {
+    const html=htmlFromDoc(docFromHtml('<p><span style="font-family:Georgia;font-size:18pt;position:fixed;background:url(https://tracker.test/x)">Styled</span></p>'));
+    expect(html).toContain('font-family: Georgia');expect(html).toContain('font-size: 18pt');
+    expect(html).not.toContain('tracker.test');expect(html).not.toContain('position');
+    expect(htmlFromDoc(docFromHtml(html))).toBe(html);
+    expect(htmlFromDoc(docFromHtml('<p><span style="font-size:9999pt;font-family:Unapproved">Text</span></p>'))).toBe('<p>Text</p>');
+  });
   it('round-trips inline formatting through the HTML serializer', () => {
     const html = htmlFromDoc(docFromHtml('<p>Hello <strong>bold</strong> and <em>italic</em></p>'));
     expect(html).toContain('<strong>bold</strong>');

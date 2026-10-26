@@ -134,3 +134,9 @@
 .compose__quick-summary p { margin:0; }
 .compose--compact .field--grow { flex-grow:0; }
 .compose--compact .ProseMirror { min-height:6rem; max-height:14rem; overflow:auto; }
+
+.compose__attachments { display:flex; flex-wrap:wrap; align-items:center; gap:.35rem; list-style:none; margin:.25rem 0; padding:0; max-block-size:7rem; overflow:auto; }
+.compose__attachments li { display:inline-flex; align-items:center; gap:.3rem; padding:.2rem .4rem; max-inline-size:100%; border:var(--border-hair) solid var(--border); background:var(--bg-alt); }
+.compose__attachments li > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+.compose__from { inline-size:min(32rem, 100%); align-self:flex-start; }

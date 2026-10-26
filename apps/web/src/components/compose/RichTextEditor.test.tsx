@@ -1,9 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { createSignal } from 'solid-js';
-import { render, screen, waitFor } from '@solidjs/testing-library';
+import { render, screen, waitFor, fireEvent } from '@solidjs/testing-library';
 import { RichTextEditor, type RichTextApi } from './RichTextEditor.tsx';
 
 describe('RichTextEditor (W1)', () => {
+  it('switches ribbon groups without changing the document',()=>{
+    let html='';render(()=><RichTextEditor initialHtml="<p>Keep this</p>" ariaLabel="Body" onChange={value=>html=value}/>);
+    expect(screen.getByLabelText('Font size')).toBeVisible();
+    fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
+    expect(screen.getByTestId('rt-link')).toBeVisible();expect(screen.queryByLabelText('Font size')).toBeNull();
+    expect(html).toBe('<p>Keep this</p>');
+  });
   it('mounts an editable region with the given accessible name', () => {
     render(() => (
       <RichTextEditor initialHtml="<p>hi</p>" ariaLabel="Body" onChange={() => undefined} />

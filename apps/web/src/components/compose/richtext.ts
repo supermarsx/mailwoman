@@ -10,9 +10,10 @@
 // breaks, inline images of this draft, and the inline marks bold / italic /
 // code / underline / strikethrough / link (http, https and mailto targets
 // only). There is no table and no attribute other than a link's `href`/`title`
-// and an image's `cid`/`alt`, so `htmlFromDoc(docFromHtml(x))` reduces any HTML
+// and an image's `cid`/`alt`, plus allowlisted font family/point size.
+// `htmlFromDoc(docFromHtml(x))` reduces any HTML
 // to that subset: a `javascript:` link keeps its text and loses the link, and
-// `style`/`on*` attributes do not survive. The composer relies on this for
+// Unsupported style properties and all event handlers do not survive. The composer relies on this for
 // HTML it did not author (an identity's stored signature).
 //
 // Images (t29-e12): the `image` node has no parse rule of its own. Only a parse
@@ -72,7 +73,24 @@ const link: MarkSpec = {
   ],
 };
 
+export const COMPOSE_FONTS=['Arial','Verdana','Tahoma','Trebuchet MS','Georgia','Times New Roman','Courier New','Inter'] as const;
+export const COMPOSE_FONT_SIZES=[8,9,10,11,12,14,16,18,20,24,28,32,36,48,72] as const;
+function textStyle(property:'font-family'|'font-size'):MarkSpec {
+ const valid=(value:unknown):string|false=>{
+  if(typeof value!=='string')return false;
+  const clean=value.replace(/^["']|["']$/g,'').trim();
+  return property==='font-family' ? COMPOSE_FONTS.find(font=>font.toLowerCase()===clean.toLowerCase())??false : COMPOSE_FONT_SIZES.some(size=>clean===`${size}pt`)?clean:false;
+ };
+ return {attrs:{value:{}},parseDOM:[{style:property,getAttrs:value=>{const checked=valid(value);return checked?{value:checked}:false;}}],toDOM:mark=>{
+  const span=document.createElement('span'),value=valid(mark.attrs['value']);
+  if(value)span.style.setProperty(property,value);
+  return {dom:span,contentDOM:span};
+ }};
+}
+
 const marks = basicSchema.spec.marks.update('link', link).append({
+    fontFamily:textStyle('font-family'),
+    fontSize:textStyle('font-size'),
     underline: {
       parseDOM: [{ tag: 'u' }, { style: 'text-decoration=underline' }],
       toDOM(): ['u', 0] {

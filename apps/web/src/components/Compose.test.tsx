@@ -809,6 +809,7 @@ describe('Compose', () => {
       const { client, app } = await composeWithClient();
       await screen.findByTestId('compose-richtext');
       await waitFor(() => expect(screen.queryByTestId('compose-request-receipt')).not.toBeNull());
+      fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
       const input = (await screen.findByLabelText('Insert an image')) as HTMLInputElement;
 
       fireEvent.change(input, { target: { files: [new File(['PNG'], 'chart.png', { type: 'image/png' })] } });
@@ -838,6 +839,7 @@ describe('Compose', () => {
       await composeWithClient();
       await screen.findByTestId('compose-richtext');
       await waitFor(() => expect(screen.queryByTestId('compose-request-receipt')).not.toBeNull());
+      fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
       const input = (await screen.findByLabelText('Insert an image')) as HTMLInputElement;
       fireEvent.change(input, { target: { files: [new File(['<svg/>'], 'x.svg', { type: 'image/svg+xml' })] } });
       expect(await screen.findByText(/cannot be placed in the text/)).toBeInTheDocument();

@@ -592,3 +592,12 @@ mail-trash-already-running = Trash deletion is already running. Use its progress
 mail-context-search-sender = Search this sender
 mail-context-search-subject = Search the same subject
 mail-drag-too-many = Drag up to { $count } messages at a time. Select a smaller group before moving.
+
+mail-compose-ribbon = Editor ribbon
+mail-compose-ribbon-format = Format text
+mail-compose-ribbon-insert = Insert
+mail-compose-font = Font
+mail-compose-font-size = Font size
+mail-compose-font-inherit = Default
+mail-compose-undo = Undo
+mail-compose-redo = Redo

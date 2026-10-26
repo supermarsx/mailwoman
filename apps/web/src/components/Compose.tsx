@@ -996,10 +996,10 @@ export function Compose(props: {
         <Show when={compact()}><section class="compose__quick-summary" aria-label={t('mail-quick-reply')}><p><strong>{t('mail-compose-to')}:</strong> {to()}<Show when={cc()}> · Cc: {cc()}</Show><Show when={bcc()}> · Bcc: {bcc()}</Show></p><p>{subject()}</p><button type="button" class="btn btn--ghost" onClick={() => setExpanded(true)}>{t('mail-quick-reply-expand')}</button></section></Show>
         <Show when={!compact()}>
         <Show when={app.identities().length > 0}>
-          <label class="field">
+          <label class="field compose__from">
             <span>{t('mail-compose-from')}</span>
             <select value={identityId()} onChange={(e) => setIdentityId(e.currentTarget.value)}>
-              <option value="">{t('mail-compose-from-default')}</option>
+              <option value="">{isolate(app.me()?.username ?? t('mail-compose-from-default'))}</option>
               <For each={app.identities()}>
                 {(id) => (
                   <option value={id.id}>
@@ -1091,6 +1091,29 @@ export function Compose(props: {
           <input type="text" value={subject()} onInput={(e) => setSubject(e.currentTarget.value)} />
         </label>
         </Show>
+        {/* Shared attachment list (Nextcloud + local-file uploads). Rendered
+            independent of any backend gate so a local-file attach shows even when
+            no Nextcloud account is linked. */}
+        <Show when={attachments().length > 0}>
+          <ul class="compose__attachments" aria-label={t('mail-compose-attachments')} data-testid="compose-attachments">
+            <For each={attachments()}>
+              {(a) => (
+                <li>
+                  <span>{a.name}</span>
+                  <button
+                    type="button"
+                    class={`btn btn--ghost ${a11y.iconButton}`}
+                    aria-label={t('mail-compose-remove-attachment', { name: isolate(a.name) })}
+                    onClick={() => setAttachments((cur) => cur.filter((x) => x.blobId !== a.blobId))}
+                  >
+                    <Icon name="close" />
+                  </button>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+
         <Show when={externalMode()!=='off' && outside().length>0}><section class="compose-external" aria-label={t('mail-external-recipients')}><details><summary><Icon name="alert"/> {t('mail-external-count',{count:outside().length})}</summary><p>{t('mail-external-help')}</p><ul><For each={outside()}>{address=><li>{address}</li>}</For></ul></details><Show when={externalMode()==='confirm'}><label><input type="checkbox" checked={reviewedRecipients()===recipientReviewKey()} onChange={event=>setReviewedRecipients(event.currentTarget.checked?recipientReviewKey():'')}/>{t('mail-external-reviewed')}</label></Show></section></Show>
         <div class="field field--grow">
           <div class="compose__body-head">
@@ -1239,29 +1262,6 @@ export function Compose(props: {
               />
             </Show>
           </div>
-        </Show>
-
-        {/* Shared attachment list (Nextcloud + local-file uploads). Rendered
-            independent of any backend gate so a local-file attach shows even when
-            no Nextcloud account is linked. */}
-        <Show when={attachments().length > 0}>
-          <ul class="compose__attachments" aria-label={t('mail-compose-attachments')} data-testid="compose-attachments">
-            <For each={attachments()}>
-              {(a) => (
-                <li>
-                  <span>{a.name}</span>
-                  <button
-                    type="button"
-                    class={`btn btn--ghost ${a11y.iconButton}`}
-                    aria-label={t('mail-compose-remove-attachment', { name: isolate(a.name) })}
-                    onClick={() => setAttachments((cur) => cur.filter((x) => x.blobId !== a.blobId))}
-                  >
-                    <Icon name="close" />
-                  </button>
-                </li>
-              )}
-            </For>
-          </ul>
         </Show>
 
         {/* Crypto + DLP (plan §2.5): encrypt/sign toggles, the live E2EE/TLS/mixed
