@@ -15,6 +15,7 @@ pub mod backend;
 pub mod change;
 pub mod dispatcher;
 pub mod engine;
+pub mod folder_roles;
 pub mod identity;
 pub mod jmap;
 pub mod maintenance;

@@ -1,4 +1,5 @@
 import {createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type Accessor, type JSX} from 'solid-js';
+import {FolderRoles} from './FolderRoles.tsx';
 import {Icon} from '../../components/Icon.tsx';
 import type {Tag} from '../../state/slices/tags.ts';
 import {accountUiPreferences, accountUiPreferenceStatus, FOLDER_ICONS, retryAccountUiPreferences, setAccountUiPreferences, type AccountUiPreferences, type FolderIcon} from '../../api/accountPreferences.ts';
@@ -13,6 +14,7 @@ export interface FolderPreferencesProps {
  onChange?: (patch:AccountUiPreferences)=>void;
  navigation?: SettingsNavigation;
  tags?: Accessor<readonly Tag[]>;
+ onRolesSaved?:()=>Promise<void>;
 }
 function FolderIconEditor(props:{folder:PreferenceFolder;prefs:Accessor<AccountUiPreferences>;update:(patch:AccountUiPreferences)=>void;navigation:SettingsNavigation;tags:Accessor<readonly Tag[]>;local:boolean}):JSX.Element {
  const owner=preferenceAccount();const [pending,setPending]=createSignal(false);
@@ -58,6 +60,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
  return <Show when={editing()} keyed fallback={<section class={css.section} aria-label={t('settings-folders-title')}>
   <h2 class={css.heading}>{t('settings-folders-title')}</h2><p class={css.prose}>{t('settings-folders-help')}</p>
   <p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>
+  <Show when={!props.onChange}><FolderRoles folders={props.folders} {...(props.onRolesSaved?{onSaved:props.onRolesSaved}:{})}/></Show>
   <div style={{'overflow-x':'auto'}}><table class="settings-shortcut-table"><thead><tr><th>{t('settings-folders-name')}</th><th>{t('settings-folders-actions')}</th></tr></thead><tbody>
    <For each={folders()}>{(folder,index)=><tr onDragOver={event=>{if(dragging()&&canMove(dragging()!,folder.id))event.preventDefault();}} onDrop={event=>{event.preventDefault();const id=dragging();if(id)move(id,folder.id);setDragging(null);}}>
     <td><Icon name={folderIcon(folder,prefs())}/> {folder.name}<Show when={prefs().folderLabels?.[folder.id]?.length}><small class={css.meta}>{prefs().folderLabels?.[folder.id]?.map(id=>props.tags?.().find(tag=>tag.id===id)?.name??id).join(', ')}</small></Show></td><td><div class={css.actions}>

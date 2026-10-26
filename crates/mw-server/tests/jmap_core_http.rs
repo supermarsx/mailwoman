@@ -271,6 +271,89 @@ async fn fresh_trash_state_destroys_the_owned_message_and_stale_state_cannot() {
         1,
         "stale state cannot issue expunge"
     );
+    // A hot role policy change invalidates the mailbox state and must refuse
+    // Empty Trash before any upstream mutation, even with a valid Email state.
+    use mw_store::settings_policy::{SettingScope, SettingValueRow};
+    let mapping = SettingValueRow {
+        scope: SettingScope::User,
+        scope_id: account.into(),
+        key: "mail.folderRole.trash".into(),
+        value: json!({"id":"foreign-or-removed-folder"}).to_string(),
+        locked: false,
+        updated_by: "test".into(),
+        updated_at: 1,
+    };
+    store.put_setting_value(&mapping).await.unwrap();
+    let mapped = call(&client, &base, "Mailbox/get", json!({"accountId":account})).await;
+    assert_eq!(mapped["mailwomanFolderRoleGuard"], true);
+    assert_eq!(
+        mapped["list"][0]["myRights"]["mayDelete"], false,
+        "overrides never turn a backend special folder into a deletable ordinary folder"
+    );
+    let folder_refusal = call(
+        &client,
+        &base,
+        "Mailbox/set",
+        json!({"accountId":account,"destroy":[trash]}),
+    )
+    .await;
+    assert_eq!(folder_refusal["notDestroyed"][trash]["type"], "forbidden");
+    assert!(
+        mapped["list"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["role"] != "trash")
+    );
+    assert_eq!(
+        mapped["mailwomanRoleMappingProblems"][0]["reason"],
+        "targetNotFound"
+    );
+    let changed = call(
+        &client,
+        &base,
+        "Mailbox/changes",
+        json!({"accountId":account,"sinceState":boxes["state"]}),
+    )
+    .await;
+    assert_eq!(changed["type"], "cannotCalculateChanges");
+    let refused = call(
+        &client,
+        &base,
+        "Email/set",
+        json!({"accountId":account,"destroy":[id],"mailwomanRequireMailboxRole":"trash"}),
+    )
+    .await;
+    assert_eq!(refused["type"], "forbidden");
+    assert_eq!(mail.messages.lock().await.len(), 1);
+    // A locked domain path wins over the invalid user target immediately.
+    let mut domain_mapping = mapping.clone();
+    domain_mapping.scope = SettingScope::Domain;
+    domain_mapping.scope_id = "example.org".into();
+    domain_mapping.value = json!({"path":"Trash"}).to_string();
+    domain_mapping.locked = true;
+    store.put_setting_value(&domain_mapping).await.unwrap();
+    let restored = call(&client, &base, "Mailbox/get", json!({"accountId":account})).await;
+    assert_eq!(restored["list"][0]["role"], "trash");
+    // Explicit automatic values restore discovery; no upstream role is rewritten.
+    domain_mapping.value = "null".into();
+    domain_mapping.locked = false;
+    store.put_setting_value(&domain_mapping).await.unwrap();
+    let automatic = client
+        .put(format!("{base}/api/settings/mail.folderRole.trash"))
+        .json(&json!({"value":null}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        automatic.status(),
+        200,
+        "automatic role is a value, distinct from deleting the override"
+    );
+    assert_eq!(
+        automatic.json::<Value>().await.unwrap()["userValue"],
+        Value::Null
+    );
     let preview = call(
         &client,
         &base,
@@ -283,7 +366,7 @@ async fn fresh_trash_state_destroys_the_owned_message_and_stale_state_cannot() {
         &client,
         &base,
         "Email/set",
-        json!({"accountId":account,"ifInState":preview["state"],"destroy":[id]}),
+        json!({"accountId":account,"ifInState":preview["state"],"destroy":[id],"mailwomanRequireMailboxRole":"trash"}),
     )
     .await;
     assert_eq!(destroyed["destroyed"], json!([id]), "{destroyed}");

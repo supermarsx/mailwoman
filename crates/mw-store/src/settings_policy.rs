@@ -255,6 +255,30 @@ impl Store {
         Ok(row.as_ref().map(policy_from_row))
     }
 
+    /// Read only the requested global policies, in fixed batches of at most 16 keys.
+    /// Missing rows are omitted, as with individual `get_setting_policy` reads.
+    pub async fn get_setting_policies_batch(
+        &self,
+        keys: &[&str],
+    ) -> Result<Vec<SettingPolicyRow>, StoreError> {
+        let mut result = Vec::new();
+        for chunk in keys.chunks(16) {
+            let mut query = q("SELECT key, global_value, allow_user_override, global_locked, updated_by, updated_at
+                FROM setting_policy WHERE key IN (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16) ORDER BY key");
+            for index in 0..16 {
+                query = query.bind(chunk.get(index).copied());
+            }
+            result.extend(
+                query
+                    .fetch_all(&self.backend)
+                    .await?
+                    .iter()
+                    .map(policy_from_row),
+            );
+        }
+        Ok(result)
+    }
+
     /// Every stored policy row, in key order.
     pub async fn list_setting_policies(&self) -> Result<Vec<SettingPolicyRow>, StoreError> {
         let rows = q(
@@ -1292,6 +1316,91 @@ mod tests {
             "a..test",
         ] {
             assert!(normalize_policy_domain(bad).is_err(), "{bad}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod policy_batch_tests {
+    use super::*;
+    #[tokio::test]
+    async fn six_role_policies_match_individual_resolution_including_locks_and_missing_rows() {
+        let store = Store::open_in_memory(crate::ServerKey::generate())
+            .await
+            .unwrap();
+        let keys = ["inbox", "drafts", "sent", "trash", "junk", "archive"]
+            .map(|role| format!("mail.folderRole.{role}"));
+        for (index, key) in keys.iter().enumerate().take(5) {
+            store
+                .put_setting_policy(&SettingPolicyRow {
+                    key: key.clone(),
+                    global_value: Some(format!("{{\"path\":\"global-{index}\"}}")),
+                    allow_user_override: index != 1,
+                    global_locked: index == 0,
+                    updated_by: "test".into(),
+                    updated_at: 1,
+                })
+                .await
+                .unwrap();
+        }
+        let batch = store
+            .get_setting_policies_batch(&keys.iter().map(String::as_str).collect::<Vec<_>>())
+            .await
+            .unwrap();
+        assert_eq!(batch.len(), 5);
+        assert!(
+            store
+                .get_setting_policies_batch(&[])
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        for (index, key) in keys.iter().enumerate() {
+            let individual = store.get_setting_policy(key).await.unwrap();
+            let batched = batch.iter().find(|row| row.key == *key);
+            assert_eq!(individual.as_ref(), batched);
+            let domain = SettingValueRow {
+                scope: SettingScope::Domain,
+                scope_id: "example.test".into(),
+                key: key.clone(),
+                value: "{\"path\":\"domain\"}".into(),
+                locked: index % 2 == 0,
+                updated_by: "test".into(),
+                updated_at: 1,
+            };
+            let user = SettingValueRow {
+                scope: SettingScope::User,
+                value: "{\"id\":\"owned\"}".into(),
+                locked: false,
+                ..domain.clone()
+            };
+            let values = [&domain, &user];
+            let one = resolve(&ResolveInput {
+                floor: "null",
+                policy: individual.as_ref(),
+                values: &values,
+                ..Default::default()
+            });
+            let many = resolve(&ResolveInput {
+                floor: "null",
+                policy: batched,
+                values: &values,
+                ..Default::default()
+            });
+            assert_eq!(
+                (
+                    one.value,
+                    one.locked_by,
+                    one.user_may_override,
+                    one.user_value
+                ),
+                (
+                    many.value,
+                    many.locked_by,
+                    many.user_may_override,
+                    many.user_value
+                )
+            );
         }
     }
 }

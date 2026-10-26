@@ -34,7 +34,7 @@ export function toDraft(kind: SettingKind, value: unknown): Draft {
 
 /** Whether a kind is edited as JSON text. */
 export function isJsonKind(kind: SettingKind): boolean {
-  return ['localeMap', 'intList', 'stringList', 'quietHours', 'links'].includes(kind.type);
+  return ['folderRole', 'localeMap', 'intList', 'stringList', 'quietHours', 'links'].includes(kind.type);
 }
 
 /** Check a draft against the declared type and bounds; the server checks again. */

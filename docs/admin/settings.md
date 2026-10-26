@@ -793,3 +793,25 @@ Global/domain/user integer, default 300 seconds, range 0–86400. Zero disables 
 <a id="reader.actionStyle"></a>
 ### Message action ribbon (`reader.actionStyle`)
 Global/domain/user enum, default `icons`; `labels` adds visible text beside each native icon. Both styles preserve accessible action names, keyboard activation and themed explanatory tooltips. Mobile controls keep 44-pixel targets. User configuration is in Message display and administrator locks apply.
+
+### Special-folder mappings
+
+<a id="mail.folderRole.inbox"></a>
+`mail.folderRole.inbox`: nullable owned mailbox target, global/domain/user, default null (automatic).
+
+<a id="mail.folderRole.drafts"></a>
+`mail.folderRole.drafts`: nullable owned mailbox target, global/domain/user, default null (automatic).
+
+<a id="mail.folderRole.sent"></a>
+`mail.folderRole.sent`: nullable owned mailbox target, global/domain/user, default null (automatic).
+
+<a id="mail.folderRole.trash"></a>
+`mail.folderRole.trash`: nullable owned mailbox target, global/domain/user, default null (automatic).
+
+<a id="mail.folderRole.junk"></a>
+`mail.folderRole.junk`: nullable owned mailbox target, global/domain/user, default null (automatic).
+
+<a id="mail.folderRole.archive"></a>
+`mail.folderRole.archive`: nullable owned mailbox target, global/domain/user, default null (automatic).
+
+Use `{"path":"INBOX/Trash"}` for an exact upstream path or `{"id":"mailbox-id"}` for one account. Each role inherits and locks independently. Native engine overrides do not rewrite backend discovery data; resetting restores automatic roles. Missing targets and conflicting role assignments do not silently fall back. Proxy accounts retain their upstream role contract.

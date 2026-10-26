@@ -7,9 +7,10 @@ export interface TrashResult {deleted:number;skipped:number;remaining:number;sto
 type Transport=Pick<Client,'jmap'>;
 interface Authority {current:()=>boolean;signal:AbortSignal}
 function admitted(authority:Authority):void {if(!authority.current()||authority.signal.aborted)throw new Error('Trash operation is no longer active');}
-async function trashFolder(client:Transport,accountId:string,mailboxId:string,authority:Authority):Promise<void> {
+async function trashFolder(client:Transport,accountId:string,mailboxId:string,authority:Authority):Promise<boolean> {
  admitted(authority);const response=await client.jmap({using:[CAP_CORE,CAP_MAIL],methodCalls:[['Mailbox/get',{accountId,ids:[mailboxId],properties:['id','role']},'box']]},{signal:authority.signal});admitted(authority);
  const result=responseFor<MailboxGetResponse>(response,'box');if(result.accountId!==accountId||result.list.length!==1||result.list[0]?.id!==mailboxId||result.list[0]?.role!=='trash')throw new Error('This folder is no longer the trash folder');
+ return result.mailwomanFolderRoleGuard===true;
 }
 /** Preview a stable, bounded snapshot. New arrivals after confirmation are excluded. */
 export async function prepareTrash(client:Transport,accountId:string,mailboxId:string,authority:Authority):Promise<TrashSnapshot> {
@@ -28,13 +29,13 @@ export async function emptyTrash(client:Transport,snapshot:TrashSnapshot,authori
  if(snapshot.ids.length>TRASH_LIMIT||new Set(snapshot.ids).size!==snapshot.ids.length)throw new Error('Invalid trash preview');
  const result:TrashResult={deleted:0,skipped:0,remaining:snapshot.ids.length,stopped:false};
  try {
-  await trashFolder(client,snapshot.accountId,snapshot.mailboxId,authority);
+  const nativeGuard=await trashFolder(client,snapshot.accountId,snapshot.mailboxId,authority);
   for(let offset=0;offset<snapshot.ids.length;offset+=100){
    admitted(authority);const ids=snapshot.ids.slice(offset,offset+100);const response=await client.jmap({using:[CAP_CORE,CAP_MAIL],methodCalls:[['Email/get',{accountId:snapshot.accountId,ids,properties:['id','mailboxIds']},'messages']]},{signal:authority.signal});admitted(authority);
    const messages=responseFor<EmailGetResponse>(response,'messages');if(messages.accountId!==snapshot.accountId||typeof messages.state!=='string'||!Array.isArray(messages.list)||messages.list.some(message=>!ids.includes(message.id)))throw new Error('Invalid message state');
    const targets=[...new Set(messages.list.filter(message=>message.mailboxIds?.[snapshot.mailboxId]).map(message=>message.id))];result.skipped+=ids.length-targets.length;
    if(targets.length){
-    admitted(authority);const mutation=await client.jmap({using:[CAP_CORE,CAP_MAIL],methodCalls:[['Email/set',{accountId:snapshot.accountId,ifInState:messages.state,destroy:targets},'delete']]},{signal:authority.signal});admitted(authority);
+    admitted(authority);const mutation=await client.jmap({using:[CAP_CORE,CAP_MAIL],methodCalls:[['Email/set',{accountId:snapshot.accountId,ifInState:messages.state,...(nativeGuard?{mailwomanRequireMailboxRole:'trash'}:{}),destroy:targets},'delete']]},{signal:authority.signal});admitted(authority);
     const changed=responseFor<EmailSetResponse>(mutation,'delete');if(changed.accountId!==snapshot.accountId)throw new Error('Invalid deletion response');
     const deleted=new Set((changed.destroyed??[]).filter(id=>targets.includes(id)));result.deleted+=deleted.size;if(deleted.size!==targets.length)result.stopped=true;
    }

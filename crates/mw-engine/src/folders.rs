@@ -320,17 +320,23 @@ impl Engine {
                 "description": "this account's mail server does not support managing folders",
             });
         }
-        let old_state = self
-            .type_state(account_id, ChangeType::Mailbox)
-            .await
-            .unwrap_or_default();
-        if let Some(expected) = args.get("ifInState").and_then(Value::as_str)
-            && expected != old_state
-        {
-            return json!({
-                "type": "stateMismatch",
-                "description": "ifInState does not match the current Mailbox state",
-            });
+        let role_view = match self.mailbox_role_view(account_id).await {
+            Ok(view) => view,
+            Err(error) => return server_fail(&error),
+        };
+        let old_state = role_view.state(
+            &self
+                .type_state(account_id, ChangeType::Mailbox)
+                .await
+                .unwrap_or_default(),
+        );
+        match args.get("ifInState") {
+            None | Some(Value::Null) => {}
+            Some(Value::String(expected)) if expected == &old_state => {}
+            Some(Value::String(_)) => {
+                return json!({"type":"stateMismatch","description":"ifInState does not match the current Mailbox state"});
+            }
+            Some(_) => return json!({"type":"invalidArguments","arguments":["ifInState"]}),
         }
         let delimiter = self.hierarchy_delimiter(rt).await;
 
@@ -410,10 +416,16 @@ impl Engine {
             }
         }
 
-        let new_state = self
-            .type_state(account_id, ChangeType::Mailbox)
+        let current_roles = self
+            .mailbox_role_view(account_id)
             .await
-            .unwrap_or_default();
+            .unwrap_or(role_view);
+        let new_state = current_roles.state(
+            &self
+                .type_state(account_id, ChangeType::Mailbox)
+                .await
+                .unwrap_or_default(),
+        );
         let mut resp = json!({
             "accountId": account_id,
             "oldState": old_state,
@@ -436,9 +448,9 @@ impl Engine {
 
     /// One account's cached mailboxes, or a `serverFail` SetError.
     async fn mailboxes_or_fail(&self, account_id: &str) -> Result<Vec<mw_store::Mailbox>, Value> {
-        self.store()
-            .list_mailboxes(account_id)
+        self.mailbox_role_view(account_id)
             .await
+            .map(|view| view.management_mailboxes)
             .map_err(|e| server_fail(&e))
     }
 
@@ -975,8 +987,7 @@ impl Engine {
         why: &str,
     ) -> Value {
         let trash = self
-            .store()
-            .list_mailboxes(account_id)
+            .effective_mailboxes(account_id)
             .await
             .unwrap_or_default()
             .into_iter()

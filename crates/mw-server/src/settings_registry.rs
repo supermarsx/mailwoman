@@ -137,6 +137,8 @@ pub enum Text {
 /// A value's type and bounds.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Kind {
+    /// An exact owned mailbox ID or upstream folder path; null selects discovery.
+    FolderRole,
     Bool,
     Int {
         min: i64,
@@ -181,6 +183,7 @@ impl Kind {
     /// The wire description the admin UI validates against (UX5).
     pub fn describe(&self) -> Value {
         match *self {
+            Kind::FolderRole => json!({ "type": "folderRole", "maxLength": 512 }),
             Kind::Bool => json!({ "type": "bool" }),
             Kind::AttachmentList { .. } => json!({ "type": "stringList", "maxItems": 100, "maxLength": 127 }),
             Kind::StringList { max_len, max_item } => {
@@ -363,6 +366,12 @@ use Scopes::{
 
 /// Every registered key. Order is the admin screen's order within a category.
 pub static REGISTRY: &[SettingDef] = &[
+    nullable(def!("mail.folderRole.inbox", Kind::FolderRole, "null", GDU, "mail", "inbox folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder")),
+    nullable(def!("mail.folderRole.drafts", Kind::FolderRole, "null", GDU, "mail", "drafts folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder")),
+    nullable(def!("mail.folderRole.sent", Kind::FolderRole, "null", GDU, "mail", "sent folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder")),
+    nullable(def!("mail.folderRole.trash", Kind::FolderRole, "null", GDU, "mail", "trash folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder")),
+    nullable(def!("mail.folderRole.junk", Kind::FolderRole, "null", GDU, "mail", "junk folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder")),
+    nullable(def!("mail.folderRole.archive", Kind::FolderRole, "null", GDU, "mail", "archive folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder")),
     def!("nextcloud.syncIntervalSecs", int(0,86400), "300", GDU, "integrations", "Nextcloud collection refresh interval; zero is manual only, positive values have a sixty-second minimum"),
     def!("packages.allowed", Kind::Bool, "true", GDA, "integrations", "Allow package tracking; provider activation and separate account opt-in are still required"),
     def!("cap.integration.nextcloud", Kind::Bool, "true", GDA, "integrations", "Nextcloud integration"),
@@ -1496,6 +1505,8 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
         return bad("must contain uppercase two-letter country codes".into());
     }
     match def.kind {
+        Kind::FolderRole => mw_engine::folder_roles::parse_target(value)
+            .map(|_| value.clone()).map_err(|detail| Refusal::invalid(field, detail)),
         Kind::Bool => match value {
             Value::Bool(_) => Ok(value.clone()),
             _ => bad("must be true or false".into()),
@@ -2724,5 +2735,23 @@ mod geography_validation_tests {
             assert!(validate(def,&value,"/value").is_err(),"{value}");
         }
         assert!(validate(def,&serde_json::json!(vec!["PT";250]),"/value").is_err());
+    }
+}
+
+#[cfg(test)]
+mod folder_role_validation_tests {
+    use super::*;
+    #[test]
+    fn only_automatic_or_one_bounded_owned_target_shape_is_accepted() {
+        for role in mw_engine::folder_roles::ROLES {
+            let key = format!("mail.folderRole.{role}");
+            let def = REGISTRY.iter().find(|def| def.key == key).unwrap();
+            for value in [json!(null), json!({"id":"owned"}), json!({"path":"INBOX/Deleted Items"})] {
+                assert!(validate(def, &value, "/value").is_ok(), "{key}: {value}");
+            }
+            for value in [json!("Trash"), json!({}), json!({"id":"a","path":"Trash"}), json!({"path":"Trash\r\nINBOX"})] {
+                assert!(validate(def, &value, "/value").is_err(), "{key}: {value}");
+            }
+        }
     }
 }

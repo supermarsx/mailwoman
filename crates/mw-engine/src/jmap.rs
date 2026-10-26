@@ -346,6 +346,12 @@ impl Engine {
             .get("sinceState")
             .and_then(Value::as_str)
             .unwrap_or("0");
+        let role_view = if kind == ChangeType::Mailbox {
+            match self.mailbox_role_view(account_id).await { Ok(view) => Some(view), Err(error) => return server_fail(&error) }
+        } else { None };
+        let since = if let Some(view) = &role_view {
+            match view.base_state(since) { Some(base) => base, None => return cannot_calculate_changes("folder role mappings changed; refetch Mailbox/get") }
+        } else { since };
         let max_changes = args
             .get("maxChanges")
             .and_then(Value::as_u64)
@@ -368,6 +374,11 @@ impl Engine {
                 let mut v = serde_json::to_value(&changes).unwrap_or_else(|_| json!({}));
                 if let Some(obj) = v.as_object_mut() {
                     obj.insert("accountId".into(), json!(account_id));
+                    if let Some(view) = &role_view {
+                        for field in ["oldState", "newState"] {
+                            if let Some(state) = obj.get(field).and_then(Value::as_str) { obj.insert(field.into(), json!(view.state(state))); }
+                        }
+                    }
                 }
                 v
             }
@@ -384,14 +395,15 @@ impl Engine {
     // ---- Mailbox/get ----------------------------------------------------
 
     async fn mailbox_get(&self, account_id: &str, rt: &AccountRuntime, args: &Value) -> Value {
-        let mailboxes = match self.store().list_mailboxes(account_id).await {
-            Ok(m) => m,
-            Err(e) => return server_fail(&e),
+        let role_view = match self.mailbox_role_view(account_id).await {
+            Ok(view) => view,
+            Err(error) => return server_fail(&error),
         };
+        let mailboxes = &role_view.mailboxes;
         // Hierarchy (26.20 t28-e17): `parentId` and the leaf `name` come from
         // the server name and the server's delimiter. `isSubscribed` costs an
         // upstream LSUB, so it is answered only when `properties` names it.
-        let tree = folders::Tree::new(&mailboxes, self.hierarchy_delimiter(rt).await);
+        let tree = folders::Tree::new(mailboxes, self.hierarchy_delimiter(rt).await);
         let manages = self.manages_folders(account_id, rt);
         let subscribed = if folders::wants_property(args, "isSubscribed") {
             self.subscribed_names(rt).await
@@ -405,7 +417,7 @@ impl Engine {
             .map(|a| a.iter().filter_map(Value::as_str).collect());
 
         let mut list = Vec::new();
-        for m in &mailboxes {
+        for (m, protected) in mailboxes.iter().zip(&role_view.management_mailboxes) {
             if let Some(ids) = &wanted
                 && !ids.contains(&m.id.as_str())
             {
@@ -415,6 +427,7 @@ impl Engine {
             let mut entry = json!({
                 "id": m.id,
                 "name": tree.name(m),
+                "mailwomanUpstreamName": m.name,
                 "parentId": tree.parent_id(m),
                 "role": role,
                 "sortOrder": role_sort_order(role),
@@ -422,7 +435,7 @@ impl Engine {
                 "unreadEmails": m.unread,
                 "totalThreads": m.total,
                 "unreadThreads": m.unread,
-                "myRights": folders::my_rights(m, manages),
+                "myRights": folders::my_rights(protected, manages),
             });
             if let Some(names) = &subscribed {
                 entry["isSubscribed"] = json!(names.contains(&m.name));
@@ -472,7 +485,9 @@ impl Engine {
         };
         json!({
             "accountId": account_id,
-            "state": self.type_state(account_id, ChangeType::Mailbox).await.unwrap_or_default(),
+            "state": role_view.state(&self.type_state(account_id, ChangeType::Mailbox).await.unwrap_or_default()),
+            "mailwomanRoleMappingProblems": role_view.problems,
+            "mailwomanFolderRoleGuard": true,
             "list": list,
             "notFound": not_found
         })
@@ -1294,6 +1309,25 @@ impl Engine {
             Some(Value::String(expected)) if expected == &old_state => {},
             Some(Value::String(_)) => return json!({"type":"stateMismatch"}),
             Some(_) => return json!({"type":"invalidArguments","arguments":["ifInState"]}),
+        }
+        if let Some(required) = args.get("mailwomanRequireMailboxRole") {
+            if required != "trash" || args.get("create").is_some() || args.get("update").is_some() {
+                return json!({"type":"invalidArguments","arguments":["mailwomanRequireMailboxRole"]});
+            }
+            let Some(ids) = args.get("destroy").and_then(Value::as_array).filter(|ids| ids.iter().all(Value::is_string)) else {
+                return json!({"type":"invalidArguments","arguments":["destroy"]});
+            };
+            let view = match self.mailbox_role_view(account_id).await { Ok(view) => view, Err(error) => return server_fail(&error) };
+            let Some(trash) = view.mailboxes.iter().find(|mailbox| mailbox.role.as_deref() == Some("trash") && mailbox.uidvalidity != 0) else {
+                return json!({"type":"forbidden","description":"Trash mapping is unavailable or conflicting"});
+            };
+            for id in ids {
+                match self.store().get_message(id.as_str().expect("validated id")).await {
+                    Ok(message) if message.account_id == account_id && message.mailbox_id == trash.id => {},
+                    Ok(_) | Err(mw_store::StoreError::NotFound) => return json!({"type":"stateMismatch","description":"Trash membership changed; preview again"}),
+                    Err(error) => return server_fail(&error),
+                }
+            }
         }
         let mut created = Map::new();
         let mut not_created = Map::new();
@@ -2769,8 +2803,7 @@ impl Engine {
             return;
         }
         let sent = self
-            .store()
-            .list_mailboxes(account_id)
+            .effective_mailboxes(account_id)
             .await
             .unwrap_or_default()
             .into_iter()
@@ -3555,7 +3588,11 @@ impl Engine {
         role: &str,
         fallback_name: &str,
     ) -> Result<(String, String)> {
-        let mailboxes = self.store().list_mailboxes(account_id).await?;
+        let view = self.mailbox_role_view(account_id).await?;
+        if view.problems.iter().any(|problem| problem.role == role) {
+            return Err(EngineError::Unsupported("configured folder role is missing or conflicting".into()));
+        }
+        let mailboxes = view.mailboxes;
         if let Some(m) = mailboxes.iter().find(|m| m.role.as_deref() == Some(role)) {
             return Ok((m.id.clone(), m.name.clone()));
         }

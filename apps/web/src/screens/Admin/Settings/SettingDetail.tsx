@@ -231,7 +231,7 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
               <FormField
                 label={label()}
                 technical={s().key}
-                help={s().kind.type === 'localeMap' || s().kind.type === 'intList' || s().kind.type === 'quietHours' || s().kind.type === 'links' ? t('admin-settings-json-hint') : ''}
+                help={s().kind.type === 'folderRole' || s().kind.type === 'localeMap' || s().kind.type === 'intList' || s().kind.type === 'quietHours' || s().kind.type === 'links' ? t('admin-settings-json-hint') : ''}
                 error={valueError() ?? blockedReason()}
               >
                 {(w) => (

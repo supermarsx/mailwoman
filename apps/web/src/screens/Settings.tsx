@@ -292,7 +292,7 @@ export function Settings(props: SettingsProps): JSX.Element {
               <Show when={visible('security')}><AsyncBoundary><SecurityCenter /></AsyncBoundary></Show>
               <Show when={visible('privacy')}><AsyncBoundary><Privacy /><AnalyticsConsent /></AsyncBoundary></Show>
               <Show when={visible('nextcloud')}><AsyncBoundary><NextcloudAccounts /></AsyncBoundary></Show>
-              <Show when={visible('folders')}><AsyncBoundary><FolderPreferences folders={app.mailboxes} tags={app.tags} navigation={navigation}/></AsyncBoundary></Show>
+              <Show when={visible('folders')}><AsyncBoundary><FolderPreferences folders={app.mailboxes} tags={app.tags} navigation={navigation} onRolesSaved={app.refreshFolders}/></AsyncBoundary></Show>
               <Show when={visible('mail-transfer')}><AsyncBoundary><MailTransfer accountId={accountId()} mailboxes={app.mailboxes()} onImported={()=>void app.refreshFolders()}/></AsyncBoundary></Show>
               <Show when={visible('receipts')}><AsyncBoundary><Receipts accountId={accountId()}/></AsyncBoundary></Show>
               <Show when={visible('compose')}><AsyncBoundary><ComposePreferences /></AsyncBoundary></Show>

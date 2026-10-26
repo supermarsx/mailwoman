@@ -134,7 +134,7 @@ impl Engine {
         email: &mw_jmap::Email,
         raw: &[u8],
     ) -> Result<bool> {
-        if self.store().get_mailbox(mailbox_id).await?.role.as_deref() != Some("inbox") {
+        if self.effective_mailbox(account_id, mailbox_id).await?.role.as_deref() != Some("inbox") {
             return Ok(false);
         }
         let scripts = self.store().list_sieve_scripts(account_id).await?;
@@ -171,7 +171,7 @@ impl Engine {
             .collect();
         let actions = mw_sieve::local::evaluate(&script.content, &message)
             .map_err(|e| EngineError::Protocol(e.to_string()))?;
-        let mailboxes = self.store().list_mailboxes(account_id).await?;
+        let mailboxes = self.effective_mailboxes(account_id).await?;
         let keep = actions.iter().any(|a| matches!(a, Action::Keep));
         let last_move = actions
             .iter()

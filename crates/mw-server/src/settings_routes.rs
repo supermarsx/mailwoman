@@ -1228,7 +1228,7 @@ async fn user_put(
         return user_locked(&key, &current);
     }
     let value = match registry::validate(def, &body.value, "/value") {
-        Ok(v) if !v.is_null() => v,
+        Ok(v) if !v.is_null() || matches!(def.kind, registry::Kind::FolderRole) => v,
         Ok(_) => {
             return user_error(
                 StatusCode::UNPROCESSABLE_ENTITY,

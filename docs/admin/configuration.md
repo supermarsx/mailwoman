@@ -275,6 +275,12 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 
 | Key | Category | Scopes | Default | Value | Environment | Hot | Read by |
 |---|---|---|---|---|---|---|---|
+| <a id="mail.folderrole.inbox"></a>`mail.folderRole.inbox` | mail | global+domain+user | null | plain |  | yes | inbox folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder |
+| <a id="mail.folderrole.drafts"></a>`mail.folderRole.drafts` | mail | global+domain+user | null | plain |  | yes | drafts folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder |
+| <a id="mail.folderrole.sent"></a>`mail.folderRole.sent` | mail | global+domain+user | null | plain |  | yes | sent folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder |
+| <a id="mail.folderrole.trash"></a>`mail.folderRole.trash` | mail | global+domain+user | null | plain |  | yes | trash folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder |
+| <a id="mail.folderrole.junk"></a>`mail.folderRole.junk` | mail | global+domain+user | null | plain |  | yes | junk folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder |
+| <a id="mail.folderrole.archive"></a>`mail.folderRole.archive` | mail | global+domain+user | null | plain |  | yes | archive folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder |
 | <a id="nextcloud.syncintervalsecs"></a>`nextcloud.syncIntervalSecs` | integrations | global+domain+user | 300 | plain |  | yes | Nextcloud collection refresh interval; zero is manual only, positive values have a sixty-second minimum |
 | <a id="packages.allowed"></a>`packages.allowed` | integrations | global+domain+admin_user | true | plain |  | yes | Allow package tracking; provider activation and separate account opt-in are still required |
 | <a id="cap.integration.nextcloud"></a>`cap.integration.nextcloud` | integrations | global+domain+admin_user | true | plain |  | yes | Nextcloud integration |

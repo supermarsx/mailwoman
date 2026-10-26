@@ -48,6 +48,8 @@ export interface EmailBodyValue {
 }
 
 export interface Mailbox {
+  /** Native upstream path for owned special-folder configuration. */
+  mailwomanUpstreamName?: string;
   id: Id;
   name: string;
   parentId: Id | null;
@@ -107,6 +109,8 @@ export interface MailboxGetArgs {
   properties?: string[] | null;
 }
 export interface MailboxGetResponse {
+  mailwomanFolderRoleGuard?: boolean;
+  mailwomanRoleMappingProblems?: {role:string;reason:string}[];
   accountId: Id;
   state: string;
   list: Mailbox[];

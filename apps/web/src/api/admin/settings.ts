@@ -25,7 +25,7 @@ import {
 
 /** A value's type and bounds, as the registry declares it. */
 export interface SettingKind {
-  type: 'bool' | 'int' | 'float' | 'enum' | 'text' | 'locale' | 'localeMap' | 'intList' | 'stringList' | 'quietHours' | 'links';
+  type: 'folderRole' | 'bool' | 'int' | 'float' | 'enum' | 'text' | 'locale' | 'localeMap' | 'intList' | 'stringList' | 'quietHours' | 'links';
   min?: number;
   max?: number;
   values?: string[];

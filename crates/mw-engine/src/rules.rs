@@ -60,11 +60,7 @@ impl Engine {
         flags: &[Flag],
     ) -> Result<()> {
         // Only inbox deliveries are subject to rules.
-        let mailbox = self
-            .store()
-            .get_mailbox(mailbox_id)
-            .await
-            .map_err(crate::backend::EngineError::Store)?;
+        let mailbox = self.effective_mailbox(account_id, mailbox_id).await?;
         if mailbox.role.as_deref() != Some("inbox") {
             return Ok(());
         }
@@ -83,7 +79,7 @@ impl Engine {
             return Ok(());
         };
         // Resolve move targets against the account's mailboxes (by name or role).
-        let mailboxes = self.store().list_mailboxes(account_id).await?;
+        let mailboxes = self.effective_mailboxes(account_id).await?;
         for action in &actions {
             match action {
                 Action::Move { mailbox: target } => {
@@ -135,11 +131,7 @@ impl Engine {
             return Ok(()); // no classifier configured — byte-unchanged.
         };
         // Only genuinely-new inbox arrivals are classified (mirrors the rules gate).
-        let mailbox = self
-            .store()
-            .get_mailbox(mailbox_id)
-            .await
-            .map_err(EngineError::Store)?;
+        let mailbox = self.effective_mailbox(account_id, mailbox_id).await?;
         if mailbox.role.as_deref() != Some("inbox") {
             return Ok(());
         }
@@ -154,7 +146,7 @@ impl Engine {
         self.add_keyword_local(&rt, stable_id, "$Junk").await?;
         // Move to the Junk mailbox when the account has one (else leave it tagged in
         // the inbox rather than inventing a folder).
-        let mailboxes = self.store().list_mailboxes(account_id).await?;
+        let mailboxes = self.effective_mailboxes(account_id).await?;
         if let Some(dest) = resolve_mailbox(&mailboxes, "Junk")
             && dest != mailbox_id
         {

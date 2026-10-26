@@ -1195,7 +1195,7 @@ pub(crate) mod session_state_tests {
     /// statements that a store-level measurement could not attribute, which is
     /// why this had to be driven end to end to be answered.
     #[tokio::test]
-    async fn a_whole_mailbox_get_request_is_six_statements() {
+    async fn a_whole_mailbox_get_request_has_a_fixed_policy_budget() {
         let p = Probe::sqlite().await;
         let acct = p.account("mbox-get-request").await;
         for name in ["INBOX", "Sent", "Drafts"] {
@@ -1232,15 +1232,16 @@ pub(crate) mod session_state_tests {
         let session_state = stmts.against("changes") - stmts.against("mailboxes");
         assert_eq!(
             stmts.len(),
-            6,
-            "a whole Mailbox/get request: 3 sessionState + 3 method statements. \
-             e0 published 4 for this, from a store-level measurement that could \
-             not see `list_saved_searches` or `type_state`. Got {stmts:#?}"
+            11,
+            "a whole Mailbox/get request: 3 sessionState + 3 method statements + \
+             5 fixed account/policy resolution reads. Got {stmts:#?}"
         );
         assert!(
             session_state >= 3,
             "three change-log statements are sessionState's; got {stmts:#?}"
         );
+
+        assert_eq!(stmts.against("FROM setting_policy"), 1, "all six role policies share one query: {stmts:#?}");
 
         // Named individually, so a regression says WHICH read came back rather
         // than only that the total moved.
@@ -1546,11 +1547,14 @@ pub(crate) mod session_state_tests {
     /// Driven end to end through `handle_jmap` with a connected runtime, the real
     /// figure is **3 + 3 = 6** after and **3 + 12 = 15** before, which reproduces
     /// the verifier's 15 exactly and leaves **nothing above the engine**.
-    /// `mailbox_get` makes three store reads, not one: `list_mailboxes`,
+    /// That historical total predates hot folder-role policy resolution. The
+    /// current whole-request budget is eleven: six historical reads plus five
+    /// fixed identity/scope/policy reads, including one batch for all six roles.
+    /// `mailbox_get` historically made three store reads, not one: `list_mailboxes`,
     /// `list_saved_searches` and `type_state`. The test below is a true claim
     /// about `Store::list_mailboxes`, and its scaling property stands — it simply
     /// never measured `Engine::mailbox_get`. See
-    /// [`a_whole_mailbox_get_request_is_six_statements`].
+    /// [`a_whole_mailbox_get_request_has_a_fixed_policy_budget`].
     #[tokio::test]
     async fn mailbox_get_reads_the_store_once_whatever_the_mailbox_count() {
         let p = Probe::sqlite().await;
