@@ -628,3 +628,7 @@ Global/domain/user list of up to 100 exact domains, each at most 253 characters.
 ### `login.showDomainHint`
 
 Global boolean, default `false`. Shows the preferred-domain hint below Email or username on the sign-in page when enabled. Hiding this hint does not change username routing or authentication.
+
+<a id="mail.quickReply"></a>
+`mail.quickReply` defaults to `false`. This checkpoint registers the preference only; the compact reply composer is not wired yet.
+It supports global/domain defaults, administrator locks and user overrides.

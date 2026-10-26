@@ -555,6 +555,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("mail.trustedRecipientDomains", Kind::StringList { max_len: 100, max_item: 253 }, "[]", GDU, "mail", "exact trusted recipient domains for composer warnings"),
     def!("mail.quoteStyle", Kind::Enum(&["classic", "outlook"]), "\"classic\"", GDU, "mail", "reply and forward header style"),
     // ── Interface (user-facing) ──────────────────────────────────────────────
+    def!("mail.quickReply", Kind::Bool, "false", GDU, "mail", "enable the compact message reply composer"),
     def!("mail.requestReadReceipt", Kind::Bool, "false", GDU, "mail", "request a read receipt by default when composing supported mail"),
     def!("reader.colorMode", Kind::Enum(&["auto", "original", "adaptive", "invert"]), "\"auto\"", GDU, "reader", "message color adaptation inside the isolated reader"),
     def!("reader.fontSize", int(12, 24), "14", GDU, "reader", "message reading font size in pixels"),

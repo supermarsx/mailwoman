@@ -22,7 +22,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'mail.quoteStyle',
   'mail.externalRecipientWarning',
   'mail.trustedRecipientDomains',
-  'mail.requestReadReceipt',
+  'mail.quickReply', 'mail.requestReadReceipt',
   'reader.colorMode', 'reader.fontSize', 'reader.lineHeight',
   'reader.contentWidth', 'reader.loading', 'reader.loadingDelayMs',
   'cap.integration.nextcloud',
