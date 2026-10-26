@@ -6,15 +6,15 @@ globalStyle(':root[data-reading-pane] .shell.workspace-shell',{'@media':{[deskto
 globalStyle(':root[data-reading-pane] .workspace-shell > .sidebar',{'@media':{[desktop]:{gridColumn:'1',gridRow:'1'}}});
 globalStyle('.mail-workspace',{display:'flex',flexDirection:'column',minWidth:0,minHeight:0,overflow:'hidden',gridColumn:'3 / -1',gridRow:'1',flex:'1 1 0'});
 globalStyle('.mail-workspace[hidden], .mail-workspace [hidden]',{display:'none'});
-globalStyle('.workspace-bar',{display:'flex',alignItems:'center',gap:vars.space[1],padding:vars.space[1],flexShrink:0,borderBlockEnd:`${vars.border.rule} solid ${vars.color.borderStrong}`,overflowX:'auto'});
-globalStyle('.workspace-bar .btn',{flex:'none'});
+globalStyle('.workspace-bar',{display:'flex',alignItems:'center',gap:vars.space[1],padding:'2px 4px',flexShrink:0,borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}`,overflowX:'auto'});
+globalStyle('.workspace-bar .btn',{flex:'none','@media':{'(min-width: 761px) and (pointer: fine)':{minHeight:'28px',paddingBlock:'2px'}}});
 globalStyle('.workspace-body',{display:'grid',gridTemplateColumns:'minmax(0,1fr)',minHeight:0,minWidth:0,flex:'1 1 0',overflow:'hidden'});
 globalStyle('.workspace-body--split',{gridTemplateColumns:'var(--list-size,340px) 6px minmax(0,1fr)'});
 globalStyle(':root[data-reading-pane] .mail-workspace .mail-pane',{gridColumn:'auto',gridRow:'auto',minHeight:0});
 globalStyle('.workspace-panes',{display:'grid',gridTemplateColumns:'minmax(0,1fr)',minWidth:0,minHeight:0,overflow:'auto'});
 globalStyle('.workspace-panes[data-layout="side-by-side"]',{gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,320px),1fr))',gridAutoRows:'minmax(320px,1fr)'});
 globalStyle('.workspace-panes[data-layout="stack"]',{gridTemplateColumns:'minmax(0,1fr)',gridAutoRows:'minmax(300px,1fr)'});
-globalStyle('.workspace-pane',{minWidth:0,minHeight:0,overflow:'auto',borderInlineStart:`${vars.border.rule} solid ${vars.color.borderStrong}`});
+globalStyle('.workspace-pane',{minWidth:0,minHeight:0,overflow:'auto',borderInlineStart:`${vars.border.hair} solid ${vars.color.border}`});
 globalStyle('.workspace-shell .mail-workspace .reader, :root[data-reading-pane] .mail-workspace .reader.reader--open',{position:'static',inset:'auto',gridColumn:'auto',gridRow:'auto',height:'100%',width:'100%',maxHeight:'none',minHeight:0,zIndex:'auto',display:'flex'});
 globalStyle('.workspace-compose',{height:'100%',minHeight:0,overflow:'auto'});
 globalStyle('.workspace-compose > .compose',{width:'100%',maxWidth:'none',maxHeight:'none',minHeight:'100%',border:0,boxShadow:'none'});
@@ -33,7 +33,7 @@ globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__badge',{'@me
 globalStyle('.mail-workspace, .workspace-body, .workspace-pane',{position:'relative'});
 globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__total',{'@media':{[desktop]:{display:'none'}}});
 globalStyle('.workspace-show-folders',{position:'fixed',insetBlockStart:vars.space[2],insetInlineStart:vars.space[2],zIndex:40});
-globalStyle('.mail-workspace .subtab-strip',{display:'flex',alignItems:'stretch',gap:vars.space[1],overflowX:'auto',flexShrink:0,padding:vars.space[1],borderBlockEnd:`${vars.border.rule} solid ${vars.color.borderStrong}`});
+globalStyle('.mail-workspace .subtab-strip',{display:'flex',alignItems:'stretch',gap:vars.space[1],overflowX:'auto',flexShrink:0,padding:vars.space[1],borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}`});
 globalStyle('.mail-workspace .subtab',{display:'flex',alignItems:'center',flex:'0 0 auto',maxWidth:'min(70vw,320px)'});
 globalStyle('.mail-workspace .subtab__label',{minWidth:0,maxWidth:'220px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minHeight:'32px',paddingInline:vars.space[2]});
 globalStyle('.mail-workspace .subtab--active .subtab__label',{borderBlockEnd:`3px solid ${vars.color.borderStrong}`});

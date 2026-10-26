@@ -236,7 +236,7 @@ body {
 }
 
 /* ── Shell layout ─────────────────────────────────────────────── */
-/* Regions are flat fields split by 3px rules in the control border colour. */
+/* Regions use quiet hairline dividers; controls retain their stronger outlines. */
 .shell {
   display: grid;
   grid-template-columns: 220px minmax(260px, 360px) 1fr;
@@ -292,7 +292,7 @@ body {
   padding-block: 0.9rem;
   padding-inline: 0.9rem calc(0.9rem - 2px);
   background: var(--bg-sink);
-  border-inline-end: var(--border-heavy) solid var(--border-strong);
+  border-inline-end: var(--border-hair) solid var(--border);
 }
 .sidebar__head {
   display: flex;
@@ -367,7 +367,7 @@ body {
   overflow: hidden;
   min-height: 0;
   min-width: 0;
-  border-inline-end: var(--border-heavy) solid var(--border-strong);
+  border-inline-end: var(--border-hair) solid var(--border);
   background: var(--bg);
 }
 /* The virtual-scroll viewport. These three declarations used to be an inline
@@ -480,7 +480,7 @@ body {
 .reader__header {
   padding-block: 0.9rem calc(0.9rem - 1px);
   padding-inline: 1.1rem;
-  border-block-end: var(--border-rule) solid var(--border-strong);
+  border-block-end: var(--border-hair) solid var(--border);
 }
 .reader__close {
   margin-bottom: 0.6rem;
@@ -763,10 +763,10 @@ body {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding-block: 0.4rem calc(0.4rem - 2px);
+    padding-block: 0.2rem;
     padding-inline: 0.6rem;
     background: var(--bg-sink);
-    border-block-end: var(--border-heavy) solid var(--border-strong);
+    border-block-end: var(--border-hair) solid var(--border);
   }
   /* Phone touch targets keep their height: the pinned 1.2 line height made
      each button and field 2px shorter, so here the 1px the 2px border took
@@ -811,7 +811,7 @@ body {
     overflow-y: auto;
     padding-block: calc(0.9rem + env(safe-area-inset-top)) calc(0.9rem + env(safe-area-inset-bottom));
     padding-inline: 0.9rem calc(0.9rem - 2px);
-    border-inline-end: var(--border-heavy) solid var(--border-strong);
+    border-inline-end: var(--border-hair) solid var(--border);
     visibility: hidden;
     transform: translateX(-100%);
     transition:
