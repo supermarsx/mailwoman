@@ -431,7 +431,7 @@ export function MailboxScreen(): JSX.Element {
         }}
       >
         <div class="sidebar__head">
-          <span class="sidebar__brand"><Show when={brandAssetUrl(branding()?.logoUrl)}>{url=><img src={url()} alt={branding()?.brandName||'Mailwoman'} style={{'max-width':'3rem','max-height':'2rem','object-fit':'contain'}}/>}</Show>{branding()?.brandName || t('mail-brand')}</span>
+          <span class="sidebar__brand"><Show when={brandAssetUrl(branding()?.logoUrl)}>{url=><img src={url()} alt={branding()?.brandName||'Mailwoman'} class="sidebar__brand-logo"/>}</Show>{branding()?.brandName || t('mail-brand')}</span>
           <Show when={app.me()}>{(m) => <span class="sidebar__user">{isolate(m().username)}</span>}</Show>
           <button
             type="button"
