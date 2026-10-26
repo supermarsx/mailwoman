@@ -49,6 +49,7 @@ pub use domain_config::{
 mod sieve_scripts;
 pub use sieve_scripts::{SieveScriptRow, SieveReplaceResult};
 mod cache;
+mod account_query;
 pub use admin_accounts::{AdminAccountRow, AdminRoleGrant, AdminRoleRow, AdminSessionRow};
 mod redact;
 mod seal;

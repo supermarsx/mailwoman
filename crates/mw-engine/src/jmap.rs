@@ -520,9 +520,9 @@ impl Engine {
     /// Resolve an `Email/query` to the **page the client asked for**, pushing
     /// `position`/`limit` into SQL where the filter allows it (26.20 t22-e2).
     ///
-    /// Routing is the frozen rule (§2.1): `mw-search` for any
-    /// full-text/attachment/custom-sort condition, the SQL fast path for a pure
-    /// `inMailbox` newest-first listing, and saved-search folders run their
+    /// `mw-search` handles full-text/attachment/custom-sort conditions; metadata
+    /// SQL handles account-wide or pure `inMailbox` newest-first listings.
+    /// Saved-search folders run their
     /// stored filter.
     ///
     /// # Three things this does that the unpaged predecessor did not
@@ -620,12 +620,17 @@ impl Engine {
         } else {
             query_route(&filter, custom_sort)
         };
-        if matches!(route, QueryRoute::Empty) {
-            // No `inMailbox`, nothing for the search index to do: empty, as it
-            // has always been. `total` is a real zero when asked for.
+        if matches!(route, QueryRoute::Account) {
+            let start = match anchor {
+                Some(id) => self.store().message_position_in_account(account_id, id).await?
+                    .ok_or(QueryFail::AnchorNotFound)?.saturating_add_signed(anchor_offset),
+                None => position,
+            };
             return Ok(QueryPage {
-                total: want_total.then_some(0),
-                ..QueryPage::default()
+                ids: self.store().list_account_message_ids(account_id, sql_limit, start.min(i64::MAX as u64) as i64).await?,
+                position: start,
+                total: if want_total { Some(self.store().count_account_messages(account_id).await?) } else { None },
+                total_truncated: false,
             });
         }
         if let QueryRoute::Sql(mb) = route {
@@ -863,6 +868,11 @@ impl Engine {
     /// is exact (V9), matching `Email/query`. It used to be `ids.len()` of the
     /// whole materialised query, unconditionally.
     async fn email_query_changes(&self, account_id: &str, args: &Value) -> Value {
+        // Never turn malformed filters into an unrestricted account query.
+        if let Some(filter) = args.get("filter").filter(|filter| !filter.is_null())
+            && let Err(message) = EmailFilter::parse_saved_json(&filter.to_string()) {
+            return json!({"type":"invalidArguments","description":message});
+        }
         let since = args
             .get("sinceQueryState")
             .and_then(Value::as_str)
@@ -986,6 +996,7 @@ impl Engine {
         args: &Value,
         up_to_id: Option<&str>,
     ) -> Result<Vec<String>> {
+        self.ensure_cached_date_upgrade(account_id).await?;
         if let Some(id) = up_to_id {
             let filter: EmailFilter =
                 serde_json::from_value(args.get("filter").cloned().unwrap_or(Value::Null))
@@ -993,13 +1004,21 @@ impl Engine {
             let comparator = first_comparator(args);
             let sort = search_index::sort_from_comparator(comparator.as_ref());
             let custom_sort = sort != mw_search::Sort::received_desc();
-            if let QueryRoute::Sql(mb) = query_route(&filter, custom_sort)
-                && let Some(p) = self.store().message_position_in_mailbox(&mb, id).await?
-            {
-                return Ok(self
-                    .store()
-                    .list_message_ids(&mb, p.saturating_add(1).min(i64::MAX as u64) as i64, 0)
-                    .await?);
+            if matches!(query_route(&filter, custom_sort), QueryRoute::Account)
+                && let Some(p) = self.store().message_position_in_account(account_id, id).await? {
+                return Ok(self.store().list_account_message_ids(account_id, p.saturating_add(1).min(i64::MAX as u64) as i64, 0).await?);
+            }
+            if let QueryRoute::Sql(mb) = query_route(&filter, custom_sort) {
+                match self.store().get_mailbox(&mb).await {
+                    Ok(mailbox) if mailbox.account_id != account_id => return Ok(Vec::new()),
+                    Ok(_) => {
+                        if let Some(p) = self.store().message_position_in_mailbox(&mb, id).await? {
+                            return Ok(self.store().list_message_ids(&mb, p.saturating_add(1).min(i64::MAX as u64) as i64, 0).await?);
+                        }
+                    }
+                    Err(mw_store::StoreError::NotFound) => {}, // A saved folder is resolved below.
+                    Err(error) => return Err(error.into()),
+                }
             }
         }
         let mut ids = self.query_ids(account_id, args).await?;
@@ -1022,33 +1041,18 @@ impl Engine {
         if !want_total {
             return Ok(QueryPage::default());
         }
-        let filter: EmailFilter =
-            serde_json::from_value(args.get("filter").cloned().unwrap_or(Value::Null))
-                .unwrap_or_default();
-        let semantic = filter.semantic;
-        let comparator = first_comparator(args);
-        let sort = search_index::sort_from_comparator(comparator.as_ref());
-        let custom_sort = sort != mw_search::Sort::received_desc();
-
-        let (total, truncated) = match query_route(&filter, custom_sort) {
-            QueryRoute::Sql(mb) => (
-                Some(self.store().count_messages_in_mailbox(&mb).await?),
-                false,
-            ),
-            QueryRoute::Empty => (Some(0), false),
-            QueryRoute::Search => {
-                let hits = self.search_ids(account_id, &filter, sort, semantic).await?;
-                if hits.truncated {
-                    (None, true)
-                } else {
-                    (Some(hits.ids.len() as u64), false)
-                }
-            }
-        };
-        Ok(QueryPage {
-            total,
-            total_truncated: truncated,
-            ..QueryPage::default()
+        // Use the same ownership, saved-folder and filter validation as the page.
+        let mut query = args.clone();
+        if let Some(object) = query.as_object_mut() {
+            object.remove("anchor");
+            object.remove("anchorOffset");
+            object.insert("position".into(), json!(0));
+            object.insert("limit".into(), json!(0));
+        }
+        self.query_page(account_id, &query).await.map_err(|error| match error {
+            QueryFail::Engine(error) => error,
+            QueryFail::InvalidFilter(message) => EngineError::Protocol(message.into()),
+            QueryFail::AnchorNotFound => EngineError::Protocol("query total anchor unavailable".into()),
         })
     }
 
@@ -3869,17 +3873,9 @@ impl From<mw_store::StoreError> for QueryFail {
 enum QueryRoute {
     /// Straight from SQL, newest-first, in this mailbox.
     Sql(String),
-    /// Fast-path shape but **no `inMailbox`**: there is no listing to run, and
-    /// the answer is empty rather than "every message in the account".
-    ///
-    /// This case is a deliberate carry-over, not an oversight. `master`'s
-    /// `query_ids` returned `Vec::new()` here (`let Some(mb) = … else { return
-    /// Ok(Vec::new()) }`), and two `mw-server` suites say so in prose —
-    /// `t13_jwz.rs` and `t13_geoip.rs` both note "an unfiltered `Email/query`
-    /// returns nothing". Routing it to the search index instead would quietly
-    /// turn a request that matched nothing into one that matches the account's
-    /// entire mailbox set, which is not a paging change.
-    Empty,
+    /// No retrieval condition: RFC 8620 section 5.5 includes all account messages.
+    /// Read metadata directly, including when zero-access posture disables indexing.
+    Account,
     /// Needs the search index.
     Search,
 }
@@ -3894,7 +3890,7 @@ fn query_route(filter: &EmailFilter, custom_sort: bool) -> QueryRoute {
     }
     match filter.in_mailbox.clone() {
         Some(mb) => QueryRoute::Sql(mb),
-        None => QueryRoute::Empty,
+        None => QueryRoute::Account,
     }
 }
 
@@ -6037,66 +6033,75 @@ mod query_paging_tests {
         assert_eq!(bogus["type"], json!("cannotCalculateChanges"), "{bogus}");
     }
 
-    /// A filter with neither an `inMailbox` nor a search condition stays
-    /// **empty** — it does not become "every message in the account".
-    ///
-    /// `master` returned `Vec::new()` for this, and two `mw-server` suites say
-    /// so in prose (`t13_jwz.rs`, `t13_geoip.rs`: "an unfiltered `Email/query`
-    /// returns nothing") without asserting it. Restructuring the router around
-    /// the fast path made it fall through to the search index instead, which
-    /// turned a request matching nothing into one matching the whole account —
-    /// caught by reading the prose, not by a red test, which is why it gets one
-    /// now.
+    /// RFC 8620 section 5.5: omitted/null filter includes every account record.
+    /// No search documents exist here: encrypted/index-disabled mail still lists.
     #[tokio::test]
-    async fn an_unfiltered_query_stays_empty() {
+    async fn unfiltered_account_query_lists_metadata_with_paging_and_anchors() {
         let f = Fixture::with(30).await;
-        for (i, id) in f.ordered.iter().enumerate() {
-            f.engine
-                .search()
-                .upsert(&mw_search::IndexDoc {
-                    stable_id: id.clone(),
-                    account_id: f.account.clone(),
-                    mailbox_id: f.mailbox.clone(),
-                    subject: format!("indexed {i}"),
-                    ..mw_search::IndexDoc::default()
-                })
-                .unwrap();
+        for args in [json!({}), json!({"filter":null}), json!({"filter":{}})] {
+            assert_eq!(ids_of(&f.query(args).await), f.ordered);
         }
-
-        for args in [
-            json!({}),
-            json!({ "filter": Value::Null }),
-            json!({ "filter": {} }),
-            json!({ "limit": 10, "calculateTotal": true }),
-        ] {
-            let resp = f.query(args.clone()).await;
-            assert!(
-                ids_of(&resp).is_empty(),
-                "an unfiltered query must match nothing, not everything                  indexed: {args} -> {resp}"
-            );
+        let page = f.query(json!({"position":4,"limit":3,"calculateTotal":true})).await;
+        assert_eq!(ids_of(&page), f.ordered[4..7]);
+        assert_eq!(page["total"], 30);
+        assert_eq!(page["position"], 4);
+        let empty = f.query(json!({"limit":0,"calculateTotal":true})).await;
+        assert!(ids_of(&empty).is_empty());
+        assert_eq!(empty["total"],30);
+        let page = f.query(json!({"anchor":f.ordered[5],"anchorOffset":-2,"limit":2})).await;
+        assert_eq!(ids_of(&page),f.ordered[3..5]);
+        assert_eq!(page["position"],3);
+        assert_eq!(f.query(json!({"anchor":"foreign-or-missing"})).await["type"],"anchorNotFound");
+        assert!(ids_of(&f.query(json!({"position":100,"limit":2})).await).is_empty());
+        for filter in [json!(false),json!({"inMailbox":""}),json!({"unsupported":true})] {
+            assert_eq!(f.query(json!({"filter":filter})).await["type"],"invalidArguments");
+            assert_eq!(f.query_changes(json!({"filter":filter,"sinceQueryState":"0","calculateTotal":true})).await["type"],"invalidArguments");
         }
-        // And when a total is asked for it is a real zero, not an absent field.
-        let counted = f
-            .query(json!({ "limit": 10, "calculateTotal": true }))
-            .await;
-        assert_eq!(counted["total"], json!(0), "{counted}");
+    }
 
-        // The contrast that makes the above meaningful: the same corpus DOES
-        // answer a query that names a mailbox, and one that names a text term.
-        assert_eq!(
-            f.query(json!({ "filter": f.in_mailbox() })).await["ids"]
-                .as_array()
-                .unwrap()
-                .len(),
-            30
-        );
-        assert_eq!(
-            f.query(json!({ "filter": { "text": "indexed" } })).await["ids"]
-                .as_array()
-                .unwrap()
-                .len(),
-            30
-        );
+    #[tokio::test]
+    async fn unfiltered_account_query_isolated_across_folders_and_zero_access() {
+        struct Zero;
+        impl crate::v6::AccountPostureSource for Zero {
+            fn posture(&self, _: &str) -> crate::v6::AccountPosture { crate::v6::AccountPosture::ZeroAccess }
+        }
+        let f = Fixture::with(3).await;
+        f.engine.attach_v6(crate::v6::V6Hooks::new().with_posture_source(std::sync::Arc::new(Zero)));
+        assert_eq!(f.engine.account_posture(&f.account),crate::v6::AccountPosture::ZeroAccess);
+        let other = f.store().create_account(&NewAccount { kind:AccountKind::Imap,host:"other",port:993,tls:"implicit",username:"foreign",sync_policy_json:"{}" },&Credentials{username:"foreign".into(),password:"fixture".into()}).await.unwrap();
+        let mut extra = Vec::new();
+        for (account,name,date) in [(&f.account,"Other",Some("2026-08-01T00:00:00Z")),(&f.account,"Undated",None),(&other,"Foreign",Some("2026-09-01T00:00:00Z"))] {
+            let mailbox=f.store().upsert_mailbox(&MailboxUpsert{account_id:account,name,role:None,uidvalidity:1,uidnext:2,highestmodseq:0,total:1,unread:0,parent_id:None}).await.unwrap();
+            let id=f.store().upsert_message(&MessageUpsert{account_id:account,mailbox_id:&mailbox,uid:1,uidvalidity:1,message_id:None,thread_id:None,internaldate:date,size:1,flags_json:"[]",envelope:None,blob_ref:None}).await.unwrap();
+            extra.push(id);
+        }
+        let mut expected=vec![extra[0].clone()]; expected.extend(f.ordered.clone()); expected.push(extra[1].clone());
+        let actual=f.query(json!({"calculateTotal":true})).await;
+        assert_eq!(ids_of(&actual),expected);
+        assert_eq!(actual["total"],5);
+        assert_eq!(f.query(json!({"anchor":extra[2]})).await["type"],"anchorNotFound");
+        let foreign_mailbox=f.store().get_message(&extra[2]).await.unwrap().mailbox_id;
+        let foreign_query=json!({"filter":{"inMailbox":foreign_mailbox},"sinceQueryState":"0","calculateTotal":true});
+        let denied=f.query_changes(foreign_query.clone()).await;
+        assert_eq!(denied["total"],0);
+        assert!(f.engine.query_prefix(&f.account,&foreign_query,Some(&extra[2])).await.unwrap().is_empty());
+        assert!(f.engine.query_prefix(&f.account,&json!({}),Some(&extra[2])).await.unwrap().iter().all(|id|id != &extra[2]));
+        assert_eq!(ids_of(&f.engine.email_query(&other,&json!({})).await),vec![extra[2].clone()]);
+        assert!(ids_of(&f.engine.email_query("missing-account",&json!({})).await).is_empty());
+    }
+
+    #[tokio::test]
+    async fn unfiltered_account_query_changes_preserves_prefix_indices_and_total() {
+        let f=Fixture::with(10).await;
+        let since=f.email_state().await;
+        f.touch(3).await;
+        let changed=f.query_changes(json!({"sinceQueryState":since,"upToId":f.ordered[1],"calculateTotal":true})).await;
+        assert_eq!(changed["total"],10);
+        assert_eq!(changed["added"],json!([{"id":f.ordered[0],"index":0},{"id":f.ordered[1],"index":1}]));
+        assert_eq!(changed["removed"].as_array().unwrap().len(),3);
+        let unchanged=f.query_changes(json!({"sinceQueryState":changed["newQueryState"],"calculateTotal":true})).await;
+        assert_eq!(unchanged["added"],json!([]));
+        assert_eq!(unchanged["total"],10);
     }
 
     /// The cap must land on a **state boundary**, because change rows do not
