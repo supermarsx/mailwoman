@@ -262,3 +262,37 @@ describe('createPushClient — lifecycle', () => {
     client.close();
   });
 });
+
+
+describe('bounded realtime recovery',()=>{
+  it('falls back after repeated opens with no valid push activity',()=>{
+    const ws:FakeWs[]=[];const es:FakeEs[]=[];
+    const client=createPushClient({WebSocketImpl:class extends FakeWs{constructor(url:string){super(url);ws.push(this);}},EventSourceImpl:class extends FakeEs{constructor(url:string){super(url);es.push(this);}},maxAttemptsPerRung:2,backoff:[10],rungDelayMs:5,checkSession:async()=>'ok'});
+    client.connect();ws[0]!.open();ws[0]!.drop();vi.advanceTimersByTime(10);
+    ws[1]!.open();ws[1]!.message('{invalid');ws[1]!.drop();vi.advanceTimersByTime(5);
+    expect(es).toHaveLength(1);expect(ws).toHaveLength(2);client.close();
+  });
+  it('stops automatic upgrade cycles after a bounded budget and permits explicit retry',()=>{
+    let wsAttempts=0;let sseAttempts=0;
+    const client=createPushClient({WebSocketImpl:class{constructor(){wsAttempts++;throw new Error('blocked');}} as unknown as WebSocketCtor,EventSourceImpl:class{constructor(){sseAttempts++;throw new Error('blocked');}} as unknown as EventSourceCtor,maxAttemptsPerRung:1,rungDelayMs:5,upgradeIntervalMs:100,maxAutomaticUpgrades:1,checkSession:async()=>'ok'});
+    client.connect();vi.advanceTimersByTime(10_000);
+    expect(wsAttempts).toBe(2);expect(sseAttempts).toBe(2);expect(client.transport()).toBe('poll');
+    vi.advanceTimersByTime(60_000);expect(wsAttempts).toBe(2);
+    client.reconnect();expect(wsAttempts).toBe(3);client.close();vi.advanceTimersByTime(60_000);expect(wsAttempts).toBe(3);
+  });
+  it('resets the failure budget only after an observed protocol heartbeat',()=>{
+    const ws:FakeWs[]=[];
+    const client=createPushClient({WebSocketImpl:class extends FakeWs{constructor(url:string){super(url);ws.push(this);}},maxAttemptsPerRung:2,backoff:[10],rungDelayMs:5,checkSession:async()=>'ok'});
+    client.connect();ws[0]!.drop();vi.advanceTimersByTime(10);
+    ws[1]!.open();ws[1]!.message(JSON.stringify({'@type':'ping'}));ws[1]!.drop();vi.advanceTimersByTime(10);
+    expect(ws).toHaveLength(3);client.close();
+  });
+});
+
+it('bounds silent opening handshakes and releases their sockets before fallback',()=>{
+ const ws:FakeWs[]=[];const es:FakeEs[]=[];
+ const client=createPushClient({WebSocketImpl:class extends FakeWs{constructor(url:string){super(url);ws.push(this);}},EventSourceImpl:class extends FakeEs{constructor(url:string){super(url);es.push(this);}},connectTimeoutMs:100,maxAttemptsPerRung:1,maxAutomaticUpgrades:0,rungDelayMs:5,checkSession:async()=>'ok'});
+ client.connect();vi.advanceTimersByTime(210);
+ expect(ws).toHaveLength(1);expect(es).toHaveLength(1);expect(ws[0]!.closed).toBe(true);expect(es[0]!.closed).toBe(true);expect(client.transport()).toBe('poll');
+ vi.advanceTimersByTime(60_000);expect(ws).toHaveLength(1);client.close();
+});

@@ -63,3 +63,23 @@ committed, self-hostable Android path, alongside Web Push (VAPID) on web/desktop
   + Web Push are the committed live paths.
 - **A Mailwoman-operated push service** — by design there is none; the relay is
   yours. See [`mobile-android.md`](./mobile-android.md) for the app-side build/gaps.
+
+## Foreground WebSocket and EventSource recovery
+
+`/jmap/ws` and `/jmap/eventsource` are authenticated application routes in both
+engine and proxy modes. A failed browser connection does not by itself prove
+that a backend lacks realtime support; inspect the actual HTTP status, session
+state, reverse-proxy upgrade handling, and SSE buffering before diagnosing it.
+These routes retain their existing authentication and account filtering.
+
+The browser tries WebSocket, then EventSource, with at most two unsuccessful
+attempts per transport. An opening handshake has a 10-second deadline. Merely
+opening and immediately closing a connection does not reset the failure count;
+a valid StateChange or application heartbeat is required.
+
+If both transports fail, the client stays in degraded mode with on-demand refresh.
+It retries the complete ladder up to three more times, after 30, 60, and 120 seconds.
+After that it stops automatic attempts until explicit retry, a new sign-in, or an
+explicit push-wake reconnect. A healthy observed connection resets the budget.
+Session-ended responses still stop recovery immediately. This bounds repeated
+connection errors without claiming to repair an unavailable deployment endpoint.

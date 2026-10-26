@@ -4,7 +4,7 @@
 // to subscribers. Transport ladder ws → sse → poll (contracts/push.ts): a WS to
 // `/jmap/ws` is primary; on failure it falls to an EventSource on
 // `/jmap/eventsource`; on failure it falls to passive polling (transport
-// 'poll'), from which it periodically re-attempts the whole ladder to recover.
+// 'poll'), with a bounded number of automatic retries before explicit recovery.
 // A 30 s heartbeat detects a dead-but-open socket; reconnects use backoff.
 //
 // A session the server has ended is not a dropped connection: the server closes
@@ -82,14 +82,18 @@ export interface PushClientOptions {
   EventSourceImpl?: EventSourceCtor;
   /** Heartbeat/keepalive interval (default 30 s, §2.2). */
   heartbeatMs?: number;
+  /** Maximum time for a WS/SSE opening handshake (default 10 s). */
+  connectTimeoutMs?: number;
   /** Reconnect backoff schedule (ms); the last value repeats. */
   backoff?: number[];
   /** Attempts on one rung before falling to the next (default 2). */
   maxAttemptsPerRung?: number;
   /** Delay before trying the next rung down (default 100 ms). */
   rungDelayMs?: number;
-  /** While on 'poll', how often to re-attempt the whole ladder (default 30 s). */
+  /** Initial wait on 'poll' before retrying the ladder (default 30 s, then exponential backoff). */
   upgradeIntervalMs?: number;
+  /** Automatic full-ladder retries without valid activity (default 3, maximum 10). */
+  maxAutomaticUpgrades?: number;
   /** Wall clock (default `Date.now`), injectable for fake-timer tests. */
   now?: () => number;
   /** Lifecycle callback for the connection model / toast. */
@@ -129,10 +133,12 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
   const ES =
     opts.EventSourceImpl ?? (globalThis.EventSource as unknown as EventSourceCtor | undefined);
   const heartbeatMs = opts.heartbeatMs ?? HEARTBEAT_MS;
+  const connectTimeoutMs = opts.connectTimeoutMs ?? 10_000;
   const backoff = opts.backoff ?? [500, 1000, 2000, 4000, 8000];
   const maxAttemptsPerRung = opts.maxAttemptsPerRung ?? 2;
   const rungDelayMs = opts.rungDelayMs ?? 100;
   const upgradeIntervalMs = opts.upgradeIntervalMs ?? 30_000;
+  const maxAutomaticUpgrades = Math.max(0, Math.min(10, Math.floor(opts.maxAutomaticUpgrades ?? 3)));
   const nowFn = opts.now ?? Date.now;
   const checkSession = opts.checkSession ?? (() => defaultCheckSession(opts.bearer));
 
@@ -141,9 +147,11 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
   let transport: PushTransport = 'offline';
   let ladderIndex = 0;
   let attemptsOnRung = 0;
+  let automaticUpgrades = 0;
   let closed = true;
   let lastActivity = 0;
   let hb: ReturnType<typeof setInterval> | undefined;
+  let openingTimer: ReturnType<typeof setTimeout> | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let upgradeTimer: ReturnType<typeof setTimeout> | undefined;
   // Bumped on every open, connect, reconnect and close, so a session check that
@@ -159,7 +167,6 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
   }
 
   function handleData(data: unknown): void {
-    lastActivity = nowFn();
     if (typeof data !== 'string') return;
     let obj: unknown;
     try {
@@ -167,6 +174,12 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
     } catch {
       return;
     }
+    const changed = isStateChange(obj);
+    const ping = typeof obj === 'object' && obj !== null && (obj as Record<string, unknown>)['@type'] === 'ping';
+    if (!changed && !ping) return;
+    lastActivity = nowFn();
+    attemptsOnRung = 0;
+    automaticUpgrades = 0;
     if (isStateChange(obj)) emit(obj);
   }
 
@@ -196,7 +209,12 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
     }, heartbeatMs);
   }
 
+  function clearOpening(): void {
+    if (openingTimer !== undefined) { clearTimeout(openingTimer); openingTimer = undefined; }
+  }
+
   function clearCurrent(): void {
+    clearOpening();
     if (current === null) return;
     if (current.kind === 'ws') {
       const { ws } = current;
@@ -307,9 +325,10 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
       return;
     }
     current = { kind: 'ws', ws };
+    openingTimer = setTimeout(handleDrop, connectTimeoutMs);
     ws.onopen = () => {
+      clearOpening();
       generation += 1;
-      attemptsOnRung = 0;
       transport = 'ws';
       status('open');
       startHeartbeat();
@@ -338,9 +357,10 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
       return;
     }
     current = { kind: 'sse', es };
+    openingTimer = setTimeout(handleDrop, connectTimeoutMs);
     es.onopen = () => {
+      clearOpening();
       generation += 1;
-      attemptsOnRung = 0;
       transport = 'sse';
       status('open');
       startHeartbeat();
@@ -352,19 +372,23 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
   function enterPoll(): void {
     transport = 'poll';
     status('degraded');
-    // Passive: the app falls back to on-demand refresh. Periodically re-attempt
-    // the full ladder so a recovered network upgrades back to ws/sse.
+    // Keep on-demand refresh available without endlessly retrying blocked endpoints.
+    // An explicit reconnect (or new sign-in) starts a fresh recovery budget.
     clearUpgrade();
+    if (automaticUpgrades >= maxAutomaticUpgrades) return;
+    const delay = Math.min(upgradeIntervalMs * 2 ** automaticUpgrades, 300_000);
     upgradeTimer = setTimeout(() => {
+      automaticUpgrades += 1;
       attemptsOnRung = 0;
       openRung(0);
-    }, upgradeIntervalMs);
+    }, delay);
   }
 
   return {
     connect(): void {
       if (!closed) return;
       closed = false;
+      automaticUpgrades = 0;
       generation += 1;
       attemptsOnRung = 0;
       ladderIndex = 0;
@@ -372,6 +396,7 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
     },
     reconnect(): void {
       closed = false;
+      automaticUpgrades = 0;
       generation += 1;
       stopHeartbeat();
       clearReconnect();
