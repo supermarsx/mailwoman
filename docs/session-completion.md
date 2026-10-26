@@ -201,3 +201,37 @@ Each row needs evidence of implemented runtime behavior, reachable/configurable 
 - Root/Protocol are adding a read-only display correction for old alias-bound directory rows, requiring authoritative native identity proof and the current alias mapping. Records, policies and history remain unchanged; acceptance pending.
 - Draft autosave continues: store claims/copy, strict native Drafts APPEND with zero SMTP, serial debounce/periodic controller and mounted API checks pass. Composer/close/send/privacy integration and real cross-device resume remain under acceptance.
 - The source-backed JMAP standards inventory is now documented in docs/admin/jmap.md. Missing standard capabilities remain pending; private PIM/crypto APIs and push-only WebSockets do not imply complete RFC conformance.
+
+
+## UI and deployment checkpoints, 2026-10-26 17:45
+
+- c19bd65: colored deployment phases, complete incoming commit subjects, UTC start/finish and elapsed durations; real Git/TTY checks passed.
+- d4550c5: Docker incremental optimized Rust cache and configurable Cargo jobs; BuildKit checks and deploy harness passed. No full image or deployment-host speed benchmark claimed.
+- 94148a7: compact saved-sign-in removal; global remembering policy default on and explanation default off; disabled policy purges current-server local addresses when observed. UI31, keys1, HTTP1, registry11, catalogue3, strict, TypeScript/lint/build and controlled-policy Chromium/Firefox/phone3 passed.
+- 13e5468: folder icon spacing and removed visible folder overflow buttons. Context menu remains available through right-click/keyboard; UI2, TypeScript/lint/build and browser3 passed. Native touch long-press is not separately verified.
+- b721bf5: whole-tab boundaries/active accent and compact star/close controls, revealed on hover/focus with visible coarse-pointer controls. TypeScript/lint/build and browser3 passed. This does not establish pointer drag support.
+- 35fdc0e: lazy retained ordinary Settings panels, sensitive section cleanup and verified-account-generation disposal. UI38 and browser3 prove same document, retained panel DOM, no repeated signature/identity fetch, and preserved discard guards; TypeScript/lint/build passed.
+- 1d4df78: column borders moved onto full-height containers, explicit main grid track and stretched resize handles. Resize tests, TypeScript/lint/build and Chromium/Firefox message/reader plus empty-folder geometry passed.
+- 8c520c4: compact120px-wide theme cards with24px previews and descriptions in themed tooltips. TypeScript/lint/build and browser3 passed (18 choices, approximately70px card height).
+- 7629628: hide disabled personal CSS/scripts and empty customization sections; preserve hidden saved content and enabled-but-locked behavior. Focused10, TypeScript/lint passed.
+- Active: tooltip flicker timer regression (two failing tests reproduced, fixed tests10 pass); browser CSS compatibility warnings and separately unconfirmed forced-layout source; real pointer tab dragging (draggable empty attribute confirmed); five explicit icon-only view modes, drag-to-view assignment and safe popup detach/reattach. Layout and popup work remain unaccepted.
+- Earlier queued backend/draft/identity/alias patches remain pending central integration. Nothing here claims production deployment or completion of the entire session.
+
+
+## Active composer and workspace additions, 2026-10-26 17:50
+
+- Composer redesign requested: body consumes most available height; move Security, SendOptions and SendLater into named ribbon groups while preserving always-live security evaluation. Header Drafts/Recall need icons and useful states; existing Recall cancels queued/held submissions, not delivered SMTP mail.
+- Ribbon groups: Clipboard, Font, Paragraph, Recipients, Insert, Signature, Security and Delivery. Undo/redo with history above ribbon. Plain/rich/HTML selector belongs in ribbon with mode-appropriate controls. Additional controls: contact-backed Check Names, Cc/Bcc, high/normal/low importance, signatures, dark message-background toggle, cut/copy/paste, format painter, paragraph alignment. More locally bundled Google Fonts and common email font stacks; no runtime external font dependencies.
+- Attachment management belongs in Insert ribbon; compact attached-file list stays below Subject with upload/removal feedback. Preserve actual attachment ownership, send guards, protected draft boundaries and in-flight upload close guards.
+- Workspace user request: five explicit icon-only modes (tabs, two side-by-side, two stacked, side-by-side masonry, stacked masonry); assign tabs by drag, safe detached popup and reattach. Pointer-drag bug confirmed (draggable empty attribute). Protocol owns layout/placement, Crypto owns drag/popup. Safe popup behavior must preserve unsaved content and never leave confirmations hidden in opener. No completed popup claim.
+
+## Accepted integration checkpoints, 2026-10-26 18:50
+
+- 00d2c0b: verified personal identity/notification ownership (0066); legacy ambiguous rows remain inert. HTTP, store and browser acceptance reviewed. This is not a universal personal-storage audit.
+- aaeed933: six additional bundled OFL font families, safe composer font serialization and common system stacks. Catalogue/schema checks and local-font build acceptance passed.
+- d209887: account-owned autosave drafts, bounded Drafts APPEND, revision conflicts, tombstones and cross-device resume. Store/HTTP/IMAP and browser acceptance passed; protected drafts remain excluded from plaintext autosave.
+- b389932: verified read-only display correction for legacy alias identities; stored directory records/history remain unchanged. HTTP, SQLite/PostgreSQL and UI checks passed.
+- dd596ef and 277f594: exact authorized one-shot sender resolution, hidden-by-default From setting, validated importance headers and draft intent fields. Backend tests passed; full composer UI integration remains pending.
+- 181bc97: dashboard rearrangement restricted to Customize. Focused dashboard/preferences tests passed.
+- 320ecf1: five persisted workspace layouts, drag-to-pane placement, sidebar Settings footer, detach/reattach and popup-document tooltips. Same-origin popup shell fixes Firefox stylesheet CSP failure without relaxing policy. Actual Chromium/Firefox popup six scenarios passed, including rich edits, reattachment, dirty-editor confirmation and logout cleanup; themed screenshot inspected. Final focused workspace/tooltip tests17 passed. Detached panes remain parent-owned and require the main window.
+- Active: advanced composer/signature tooling; finer durable request latency precision; provisioned-user block/delete controls; dashboard active webmail session counts; shared mixed-input checkbox alignment. These are not yet accepted or deployed.
