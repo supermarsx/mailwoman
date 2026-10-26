@@ -121,10 +121,24 @@ impl AuthorizeParams {
 /// user consents, and the scope that grants nothing if the row is missing or does
 /// not parse. A client an operator put in the registry has no registered scope
 /// and so no ceiling here.
+async fn reject_identity_client(state: &AppState, id: &str) -> Result<(), Response> {
+    let reserved = id.starts_with("oidc_client_");
+    let owned = state
+        .store
+        .oidc_client(id)
+        .await
+        .map_err(server_error)?
+        .is_some();
+    if reserved || owned {
+        return Err((StatusCode::BAD_REQUEST,Json(json!({"error":"invalid_client","detail":"Identity clients cannot request mail API authority"}))).into_response());
+    }
+    Ok(())
+}
 async fn client_scope_ceiling(
     state: &AppState,
     client_id: &str,
 ) -> Result<Option<Scope>, Response> {
+    reject_identity_client(state, client_id).await?;
     let self_registered = match state.store.get_oauth_client_meta(client_id).await {
         Ok(meta) => meta.is_some_and(|m| m.created_via == mw_oauth::dcr::DCR_CREATED_VIA),
         Err(e) => return Err(server_error(e)),
@@ -273,6 +287,11 @@ struct TokenReq {
 }
 
 async fn token(State(state): State<AppState>, Json(body): Json<TokenReq>) -> Response {
+    if let Err(response) =
+        reject_identity_client(&state, body.client_id.as_deref().unwrap_or_default()).await
+    {
+        return response;
+    }
     let req = match body.grant_type.as_str() {
         "authorization_code" => TokenRequest::AuthorizationCode {
             code: body.code.unwrap_or_default(),

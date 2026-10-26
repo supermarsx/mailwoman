@@ -1,3 +1,6 @@
+//! OIDC0056 deployment configuration, keys and grants follow the existing
+//! oauth_clients exclusion: an operator reapproves the issuer and clients on the
+//! destination, and users consent again. Durable primary principals are copied.
 //! `mailwoman migrate-store` engine (t6-e1; plan §1.1, §2.1, §4.2): copy a
 //! populated SQLite store into the (Postgres) backend held by `self`, row-for-row,
 //! preserving every id, timestamp, and sealed blob byte-for-byte.

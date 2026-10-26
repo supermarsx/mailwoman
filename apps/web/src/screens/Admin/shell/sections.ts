@@ -63,6 +63,7 @@ function screen<P extends object>(load: () => Promise<Component<P>>, passApi: bo
 
 export const SECTIONS: readonly SectionDef[] = [
   { id: 'package-tracking', group: 'configuration', icon: 'archive', label: () => t('admin-nav-package-tracking'), capability: 'integrations.read', component: screen(() => import('../PackageTracking.tsx').then(m => m.PackageTracking), false) },
+  { id: 'identity-provider', group: 'security', icon: 'identityProvider', label: () => t('admin-identity-title'), capability: 'integrations.read', component: screen(() => import('../IdentityProvider/index.tsx').then(m => m.default), false) },
   { id: 'attachments', group: 'security', icon: 'attachment', label: () => t('admin-attachments-title'), capability: 'settings.read', component: screen(() => import('../AttachmentPolicy.tsx').then(m => m.AdminAttachmentPolicy), false) },
   { id: 'nextcloud', group: 'configuration', icon: 'nextcloud', label: () => t('admin-nav-nextcloud'), capability: 'integrations.read', component: screen(() => import('../Nextcloud.tsx').then(m => m.AdminNextcloud), false) },
   { id: 'analytics', group: 'configuration', icon: 'analytics', label: () => t('admin-analytics-title'), capability: 'integrations.read', component: screen(() => import('../Analytics.tsx').then(m => m.Analytics), false) },

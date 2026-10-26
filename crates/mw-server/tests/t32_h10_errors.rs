@@ -612,6 +612,7 @@ async fn spawn_sso(base_path: Option<&str>) -> (String, MutexGuard<'static, ()>)
     let entry = SsoEntry {
         provider: Arc::new(MockProvider),
         meta: SsoMeta {
+            identity_authority: "fixture:verified-idp".into(),
             display_name: "Acme".into(),
             kind: SsoKind::Oidc,
             scope: SsoScope::Deployment,

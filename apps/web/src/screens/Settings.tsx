@@ -51,6 +51,7 @@ import { MetadataView } from '../modules/servermeta/index.ts';
 // account alongside the existing feature modules.
 import { AccountSettings } from './Settings/index.ts';
 import { Language } from './Settings/Language.tsx';
+import { IdentityGrants } from './Settings/IdentityGrants.tsx';
 import { SecurityCenter } from './Settings/SecurityCenter.tsx';
 import { Privacy } from './Settings/Privacy.tsx';
 import { AnalyticsConsent } from './Settings/AnalyticsConsent.tsx';
@@ -289,7 +290,7 @@ export function Settings(props: SettingsProps): JSX.Element {
               <AsyncBoundary>
                 <AccountSettings hideSecurity onSearchFoldersChanged={() => app.refreshFolders()} {...(props.embedded ? {section:()=>navigation.route().section} : {})} />
               </AsyncBoundary>
-              <Show when={visible('security')}><AsyncBoundary><SecurityCenter /></AsyncBoundary></Show>
+              <Show when={visible('security')}><AsyncBoundary><SecurityCenter /></AsyncBoundary><AsyncBoundary><IdentityGrants /></AsyncBoundary></Show>
               <Show when={visible('privacy')}><AsyncBoundary><Privacy /><AnalyticsConsent /></AsyncBoundary></Show>
               <Show when={visible('nextcloud')}><AsyncBoundary><NextcloudAccounts /></AsyncBoundary></Show>
               <Show when={visible('folders')}><AsyncBoundary><FolderPreferences folders={app.mailboxes} tags={app.tags} navigation={navigation} onRolesSaved={app.refreshFolders}/></AsyncBoundary></Show>

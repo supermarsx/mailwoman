@@ -30,6 +30,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
 rand = { workspace = true }
+rand10 = { workspace = true }
 tracing = { workspace = true }
 openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }

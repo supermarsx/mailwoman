@@ -30,7 +30,7 @@ function ssoErrorReturn(): boolean {
   return new URLSearchParams(location.search).has('sso_error');
 }
 
-export function Login(): JSX.Element {
+export function Login(props: { returnPath?: string } = {}): JSX.Element {
   const app = useApp();
   onMount(() => void loadCatalog('auth'));
   onMount(() => void loadCatalog('login2fa'));
@@ -240,7 +240,7 @@ export function Login(): JSX.Element {
               {(p) => (
                 <a
                   class="btn btn--ghost login__sso-btn"
-                  href={ssoBeginPath(p.id, basePath())}
+                  href={`${ssoBeginPath(p.id, basePath())}${props.returnPath ? `?relayState=${encodeURIComponent(props.returnPath)}` : ''}`}
                   data-sso-id={p.id}
                   rel="nofollow"
                 >

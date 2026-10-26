@@ -90,6 +90,8 @@ mod nextcloud_pim_scheduler;
 mod jmap_limits;
 mod nextcloud_xml;
 pub mod passwd;
+mod primary_identity;
+mod oidc_provider;
 pub mod plugins;
 // V7 MOUNT/WIRE (plan §3 e14): builds + injects the five V7 extensions, backs the
 // host-service seams, and the extra endpoints. Owned by e14.
@@ -1410,6 +1412,7 @@ fn router(
     // t32-e24a: every admin route registered with a capability.
     let mut v6 = admin_routes
         .merge(oauth::routes())
+        .merge(oidc_provider::routes())
         .merge(rest)
         .merge(v7_routes)
         .merge(sso_routes)
@@ -1908,7 +1911,7 @@ async fn state_change_guard(State(state): State<AppState>, req: Request, next: N
         // form POST from the IdP legitimately has a foreign/absent Origin). Exempt
         // EXACTLY these paths; every other route (incl. `/api/sso/logout`) stays
         // guarded.
-        if is_sso_idp_callback(req.uri().path()) {
+        if is_sso_idp_callback(req.uri().path()) || matches!(req.uri().path(), "/oidc/token" | "/oidc/revoke") {
             return next.run(req).await;
         }
         // V5 (plan §2.2): a request whose only authority is its bearer token (the
@@ -2232,6 +2235,10 @@ async fn login(
     // Resolve the (possibly relative) upstream apiUrl to an absolute URL so
     // server-side proxying can reach it regardless of the browser origin.
     let api_url = resolve_api_url(&jmap_url, &session.api_url);
+    let primary_identity = match primary_identity::VerifiedLoginIdentity::proxy(&jmap_url, &account_id) {
+        Ok(identity) => identity,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     // Credentials validated — hand off to the 2FA gate (DQ2). It either completes the
     // login (no factor enrolled/required) or returns a `twofaRequired` challenge and
     // withholds the session until the second factor clears.
@@ -2241,6 +2248,7 @@ async fn login(
         &ext,
         twofa_routes::SessionArgs {
             authentication_method: "password",
+            primary_identity,
             account_id,
             username,
             jmap_url,
@@ -2311,6 +2319,7 @@ async fn header_auth_login(
         );
         return Some(unauthorized());
     }
+    let primary_identity = primary_identity::VerifiedLoginIdentity::header(&username);
     let host = state.external.host(headers, ext);
     let username = match domain_config::canonical(&state.store, &username, host.as_deref()).await {
         Ok(identity) => identity.login_name,
@@ -2363,6 +2372,7 @@ async fn header_auth_login(
             ext,
             twofa_routes::SessionArgs {
                 authentication_method: "header-auth",
+                primary_identity,
                 account_id,
                 username,
                 jmap_url,
@@ -2553,6 +2563,10 @@ async fn engine_login(
                 return unauthorized();
             }
         };
+    let primary_identity = match primary_identity::VerifiedLoginIdentity::engine(state, &account_id).await {
+        Ok(identity) => identity,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     let creds = Credentials {
         username: body.username.clone(),
         password: body.password.clone(),
@@ -2565,6 +2579,7 @@ async fn engine_login(
         ext,
         twofa_routes::SessionArgs {
             authentication_method: "password",
+            primary_identity,
             account_id,
             username,
             jmap_url: "engine".to_string(),
@@ -4512,6 +4527,8 @@ async fn static_handler(
     }
     let shell = if path == console_page() {
         serve_console_shell(&state, &headers)
+    } else if path == "oidc/consent" {
+        oidc_provider::shell(&state, &headers)
     } else {
         serve_asset(&state, "index.html", &headers)
     };
@@ -4532,7 +4549,7 @@ fn console_page() -> String {
 /// at which the shell is a real page; at any deeper path its relative asset URLs
 /// (`./assets/…`) would not even resolve.
 fn is_app_page(path: &str) -> bool {
-    matches!(path, "index.html" | "oauth/authorize") || path == console_page()
+    matches!(path, "index.html" | "oauth/authorize" | "oidc/consent") || path == console_page()
 }
 
 /// `308 {prefix}{console}/` → `{prefix}{console}` (the console is `/admin` unless
@@ -4546,7 +4563,7 @@ fn is_app_page(path: &str) -> bool {
 /// origin root of a prefixed deployment is redirected at the root.
 fn redirect_page_trailing_slash(original: &Uri, app_path: &str, base: &str) -> Option<Response> {
     let page = app_path.strip_suffix('/')?.trim_start_matches('/');
-    if page != "oauth/authorize" && page != console_page() {
+    if page != "oauth/authorize" && page != "oidc/consent" && page != console_page() {
         return None;
     }
     let prefix = match match_base_path(original.path(), base) {

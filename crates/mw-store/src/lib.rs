@@ -8,6 +8,7 @@
 mod security_center;
 pub mod branding;
 pub mod identity_principal;
+pub mod oidc_provider;
 mod signin_challenges;
 mod auth_logs;
 pub mod auth_failures;

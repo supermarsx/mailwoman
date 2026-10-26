@@ -114,6 +114,7 @@ fn entry(
             metadata,
         }),
         meta: SsoMeta {
+            identity_authority: "fixture:verified-idp".into(),
             display_name: display.into(),
             kind,
             scope,

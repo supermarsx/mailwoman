@@ -76,6 +76,8 @@ pub struct SsoEntry {
 /// Non-secret backend metadata used for advertising + identity→account resolution.
 #[derive(Clone)]
 pub struct SsoMeta {
+    /// Trusted provider realm captured from operator configuration, never claims.
+    pub identity_authority: String,
     /// Admin-facing label ("Sign in with Acme SSO").
     pub display_name: String,
     /// Protocol.
@@ -163,7 +165,15 @@ fn build_entry_from_row(row: &mw_store::SsoConfigRow) -> Result<SsoEntry, mw_sso
     let config: SsoConfig = serde_json::from_str(&row.config_json)
         .map_err(|e| mw_sso::SsoError::Config(format!("bad config json: {e}")))?;
     let claim_map: ClaimMap = serde_json::from_str(&row.claim_map_json).unwrap_or_default();
+    let realm = match &config {
+        SsoConfig::Oidc(config) => &config.issuer_url,
+        SsoConfig::Saml(config) => &config.idp_sso_url,
+    };
+    if realm.is_empty() { return Err(mw_sso::SsoError::Config("missing identity provider authority".into())); }
+    let identity_authority = serde_json::to_string(&(row.id.as_str(), config.kind().as_db(), realm))
+        .map_err(|_| mw_sso::SsoError::Config("invalid identity provider authority".into()))?;
     let meta = SsoMeta {
+        identity_authority,
         display_name: row.display_name.clone(),
         kind: config.kind(),
         scope: SsoScope::parse(&row.scope),
@@ -523,6 +533,19 @@ async fn complete_flow(
     };
     state.sessions.begin(&session_id);
     let device = crate::security_center::device(headers, ext, None);
+    if state.store.set_session_authentication(&session_id, "sso").await.is_err() {
+        let _ = state.store.delete_session(&session_id).await;
+        state.sessions.forget(&session_id);
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    let primary = crate::primary_identity::VerifiedLoginIdentity {
+        kind: "sso", authority: entry.meta.identity_authority.clone(), subject: identity.subject.clone(),
+    };
+    if primary.bind(state, &session_id, &account.id).await.is_err() {
+        let _ = state.store.delete_session(&session_id).await;
+        state.sessions.forget(&session_id);
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
     if let Err(response) = crate::security_center::record_login(state, &session_id, &account.id, &account.username, &device, "sso").await {
         let _ = state.store.delete_session(&session_id).await;
         state.sessions.forget(&session_id);

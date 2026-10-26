@@ -36,6 +36,7 @@ const loadAdminScreen = () => import('./screens/Admin/index.tsx');
 /** V6 OAuth 2.1 consent (plan §3 e8/e11): the resource-owner grant/deny screen,
  *  reached ONLY via the `/oauth/authorize` redirect. */
 const loadConsentScreen = () => import('./screens/Consent/index.tsx');
+const loadIdentityConsent = () => import('./screens/IdentityConsent/index.tsx');
 
 /** t10 UI-plugin tier (plan §3 e13, SPEC §22.2): a fail-soft surface rendering the
  *  approved+enabled sandboxed UI plugins. Renders NOTHING when no plugin is
@@ -75,6 +76,10 @@ function isOAuthAuthorizeRoute(): boolean {
 export function App(): JSX.Element {
   if (isAdminRoute()) {
     return <LazyRoute load={loadAdminScreen} />;
+  }
+
+  if (typeof location !== 'undefined' && stripBase(location.pathname).replace(/\/+$/, '') === '/oidc/consent') {
+    return <LazyRoute load={loadIdentityConsent} />;
   }
 
   if (isOAuthAuthorizeRoute()) {

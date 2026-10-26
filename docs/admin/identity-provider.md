@@ -1,0 +1,19 @@
+# Mailwoman identity provider
+
+Mailwoman can act as an OpenID Connect identity provider independently of its mail API OAuth service. It is disabled by default. An unscoped administrator with integration read and OAuth client write permissions configures it under **Identity provider**; changes require fresh administrator authentication.
+
+Use the deployment's HTTPS URL with `/oidc` appended as the issuer. Enable the provider, create a client on its dedicated page, and register exact redirect and post-logout URLs. HTTPS redirects are required except numeric loopback HTTP callbacks for local applications. Wildcards and fragments are rejected. Public clients use `none`; confidential clients use `client_secret_basic` or `client_secret_post`. Generated secrets appear only once. Rotate a lost secret rather than attempting to retrieve it.
+
+Supported endpoints are discovery, JWKS, authorization, token, UserInfo, revocation, and explicit browser logout under `/oidc`. Authorization uses code flow with mandatory S256 PKCE. Supported scopes are `openid`, `profile`, `email`, and `offline_access`. Clients registered here cannot request mail API permissions through the separate `/oauth` service, even when disabled. Deleting an identity client removes its underlying registration as well as its identity grants.
+
+Every authorization requires explicit consent. `prompt=none` returns an appropriate interaction-required error instead of silently granting access. The consent page shows the client, requested scopes, and current identity. Settings → Security lists identity grants and supports revocation. Logout requires browser confirmation and signs out the current Mailwoman session; it does not claim federated logout from other applications or external identity providers.
+
+Identity is bound to verified backend identity, never joined by email address. Native accounts use their stored account identity. Proxy accounts bind the upstream account ID to the canonical configured JMAP service URL, including path and query, stored as a digest. Different services on one HTTPS origin remain distinct. External SSO binds the verified subject to its configured provider realm. Existing sessions without a verified principal must sign in again.
+
+Access tokens expire after five minutes. Refresh grants require `offline_access`, remain bounded by the original verified authentication time and session policy, and cannot exceed fifteen days. Disabling a client/provider, changing its configuration revision, retiring an identity, ending the session, or revoking consent invalidates associated authority. Refresh tokens rotate on every use; replay revokes the entire family. A refresh request may retain or narrow its original scopes, never expand them. Removing `offline_access` stops further refresh-token issuance.
+
+Expired access-token rows are pruned in bounded batches. Refresh replay evidence is retained until grant expiry; a family reaching 8,192 refresh records is revoked and requires a new authorization. Token endpoints also have bounded process-local request and concurrency admission. Signing keys are sealed at rest. Rotation retains old public verification keys briefly for outstanding short-lived tokens without exposing private keys.
+
+The issuer intentionally does not implement implicit, resource-owner-password, client-credentials, device authorization, dynamic identity-client registration, or back-channel logout. Profile/email claims are limited to available verified session metadata; Mailwoman does not invent `email_verified` or infer a person's name.
+
+Deployment migration excludes issuer configuration, clients, signing keys, consent, pending browser flows, and tokens together with the existing deployment OAuth registry. Reconfigure clients and obtain consent after moving deployments. Durable verified principal identity is copied; deployment-bound credentials are not silently carried to a new authority.

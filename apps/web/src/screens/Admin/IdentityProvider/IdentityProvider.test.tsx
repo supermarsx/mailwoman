@@ -1,0 +1,16 @@
+import { describe,it,expect,vi } from 'vitest';
+import { createSignal } from 'solid-js';
+import { fireEvent,screen,waitFor } from '@solidjs/testing-library';
+import IdentityProviderPage from './index.tsx';
+import { identityProviderApi,type IdentityClient } from '../../../api/admin/identityProvider.ts';
+import { renderInShell,holding } from '../shell/testkit.tsx';
+import { parseAdminPath } from '../shell/router.ts';
+const row:IdentityClient={clientId:'rp',name:'Relying party',config:{redirectUris:['https://rp.example/callback'],postLogoutRedirectUris:[],scopes:['openid'],authMethod:'none'},enabled:true,revision:'rev1',secretConfigured:false};
+function service():typeof identityProviderApi{return{provider:vi.fn(async()=>({issuer:'https://mail.example/oidc',enabled:true,revision:'config1'})),saveProvider:vi.fn(async value=>value),rotate:vi.fn(async()=>{}),clients:vi.fn(async()=>[row]),client:vi.fn(async()=>row),save:vi.fn(async()=>({clientId:'rp',revision:'rev2'})),remove:vi.fn(async()=>{})};}
+function mount(path:string,api=service(),readOnly=false){const[route,setRoute]=createSignal(parseAdminPath(path));return{api,...renderInShell(()=><IdentityProviderPage api={api}/>,{route,navigate:path=>setRoute(parseAdminPath(path)),...(readOnly?{loadMe:holding(['integrations.read'])}:{})})};}
+describe('identity provider client pages',()=>{
+ it('keeps editing fields off the filtered overview',async()=>{mount('/admin#/identity-provider');await screen.findByText('Relying party');expect(screen.queryByRole('textbox',{name:'Name'})).not.toBeInTheDocument();fireEvent.input(screen.getByRole('searchbox',{name:'Search clients'}),{target:{value:'missing'}});expect(screen.queryByText('Relying party')).not.toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'Add identity client'}));expect(await screen.findByRole('textbox',{name:'Name'})).toBeInTheDocument();});
+ it('sends revision and explicit confidential-secret generation',async()=>{const{api}=mount('/admin#/identity-provider/clients/rp/edit');fireEvent.input(await screen.findByRole('textbox',{name:'Name'}),{target:{value:'Renamed'}});fireEvent.change(screen.getByRole('combobox',{name:'Client authentication'}),{target:{value:'client_secret_basic'}});fireEvent.click(screen.getByRole('button',{name:'Save'}));await waitFor(()=>expect(api.save).toHaveBeenCalledWith(expect.objectContaining({clientId:'rp',revision:'rev1',name:'Renamed',secretAction:'rotate',config:expect.objectContaining({authMethod:'client_secret_basic'})})));});
+ it('shows generated secret until acknowledgement',async()=>{const api=service();api.save=vi.fn(async()=>({clientId:'rp',revision:'rev2',clientSecret:'one-time-secret'}));const{navigate}=mount('/admin#/identity-provider/clients/rp/edit',api);await screen.findByRole('textbox',{name:'Name'});fireEvent.click(screen.getByRole('button',{name:'Save'}));expect(await screen.findByRole('textbox',{name:'Generated client secret'})).toHaveValue('one-time-secret');expect(navigate).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'Done'}));expect(navigate).toHaveBeenCalled();});
+ it('respects read-only authority',async()=>{mount('/admin#/identity-provider/clients/rp/edit',service(),true);expect(await screen.findByRole('textbox',{name:'Name'})).toBeDisabled();expect(screen.getByRole('button',{name:'Save'})).toBeDisabled();});
+});

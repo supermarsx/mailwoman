@@ -93,6 +93,7 @@ fn endpoints(r: &mut impl AdminRegistrar) {
     crate::auth_logs::register(r);
     crate::signin_guard::register(r);
     crate::signin_geography::register(r);
+    crate::oidc_provider::register(r);
     crate::application_logs::register(r);
     // f02 (e24c): sign-in, the admin's own profile, admin accounts and roles.
     crate::admin_accounts::register(r);

@@ -834,6 +834,7 @@ async fn sso_callback_does_not_mint_a_session_for_a_disabled_account() {
             },
         }),
         meta: SsoMeta {
+            identity_authority: "fixture:verified-idp".into(),
             display_name: "Acme".into(),
             kind: SsoKind::Oidc,
             scope: SsoScope::Deployment,

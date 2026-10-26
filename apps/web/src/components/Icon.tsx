@@ -10,6 +10,7 @@
 import type { JSX } from 'solid-js';
 
 export type IconName =
+  | 'identityProvider'
   | 'shield'
   | 'fileAudio' | 'fileVideo' | 'filePdf' | 'fileCode'
   | 'print'
@@ -110,6 +111,7 @@ const S = { fill: 'none', stroke: 'currentColor', 'stroke-width': '2' } as const
 const F = { fill: 'currentColor' } as const;
 
 const PATHS: Record<IconName, () => JSX.Element> = {
+  identityProvider: () => <><rect x="1" y="2" width="14" height="12" {...S}/><circle cx="5" cy="6" r="2" {...S}/><path d="M2 12v-1a3 3 0 016 0v1M10 6h3M10 9h3" {...S}/></>,
   replyAll: () => <><path d="M6 3L2 7l4 4M10 3L6 7l4 4M6 7h5c3 0 4 2 4 6" {...S}/></>,
   mailRead: () => <><path d="M1 6l7-5 7 5v9H1zM1 6l7 5 7-5" {...S}/></>,
   spam: () => <><path d="M5 1h6l4 4v6l-4 4H5l-4-4V5zM8 4v5M8 11v1" {...S}/></>,

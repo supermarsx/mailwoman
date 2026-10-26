@@ -184,6 +184,7 @@ impl TwofaState {
 #[derive(Clone)]
 pub(crate) struct SessionArgs {
     pub authentication_method: &'static str,
+    pub primary_identity: crate::primary_identity::VerifiedLoginIdentity,
     pub account_id: String,
     pub username: String,
     /// The `jmap_url`/`api_url` [`Store::create_session`](mw_store::Store) persists
@@ -533,25 +534,20 @@ async fn complete_login(
         Ok(id) => id,
         Err(e) => return server_error("persist session", e),
     };
+    let method = if args.authentication_method == "header-auth" { "header-auth" } else {
+        match stage { Stage::Password => "password", Stage::SecondFactor => "password+factor", Stage::Remembered => "remembered-device", Stage::Passwordless => "passkey" }
+    };
+    if let Err(error) = state.store.set_session_authentication(&id, method).await {
+        let _ = state.store.delete_session(&id).await;
+        return server_error("authentication method", error);
+    }
+    if let Err(error) = args.primary_identity.bind(state, &id, &args.account_id).await {
+        let _ = state.store.delete_session(&id).await;
+        return server_error("bind primary identity", error);
+    }
     if let Err(response) = crate::security_center::record_login(
-        state,
-        &id,
-        &args.account_id,
-        &args.username,
-        device,
-        if args.authentication_method == "header-auth" {
-            "header-auth"
-        } else {
-            match stage {
-                Stage::Password => "password",
-                Stage::SecondFactor => "password+factor",
-                Stage::Remembered => "remembered-device",
-                Stage::Passwordless => "passkey",
-            }
-        },
-    )
-    .await
-    {
+        state, &id, &args.account_id, &args.username, device, method,
+    ).await {
         let _ = state.store.delete_session(&id).await;
         return response;
     }
@@ -730,8 +726,13 @@ async fn passwordless_finish(
     if !policy.passkeys_enabled {
         return rejected_passkey(&state, &device, "credential-rejected").await;
     }
+    let primary_identity = match crate::primary_identity::VerifiedLoginIdentity::engine(&state, &account.id).await {
+        Ok(identity) => identity,
+        Err(error) => return server_error("resolve primary identity", error),
+    };
     let args = SessionArgs {
         authentication_method: "passkey",
+        primary_identity,
         account_id: account.id.clone(),
         username: account.username,
         jmap_url: "engine".into(),
@@ -2188,6 +2189,7 @@ mod tests {
     fn args() -> SessionArgs {
         SessionArgs {
             authentication_method: "password",
+            primary_identity: crate::primary_identity::VerifiedLoginIdentity::proxy("https://fixture.example", "a@ex").unwrap(),
             account_id: "a@ex".into(),
             username: "a@ex".into(),
             jmap_url: "engine".into(),

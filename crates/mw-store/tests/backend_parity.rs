@@ -52,7 +52,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Every store table, for TRUNCATE between Postgres runs.
-const ALL_TABLES: &str = "nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
+const ALL_TABLES: &str = "oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
@@ -1028,6 +1028,15 @@ async fn migrate_store_sqlite_to_postgres() {
 /// deployment, or an admin/deployment surface the operator re-configures on the
 /// new host. `(table, reason)`.
 const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
+    ("oidc_browser_flow", "0057: short-lived browser-bound pre-login requests expire and must restart after deployment migration."),
+    ("oidc_provider_config", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
+    ("oidc_client", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
+    ("oidc_signing_key", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
+    ("oidc_consent", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
+    ("oidc_authorization", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
+    ("oidc_grant", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
+    ("oidc_code", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
+    ("oidc_token", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
     ("signin_challenge", "Ephemeral single-use login proofs are deployment-local; omitting issued nonces fails closed and requires fresh verification."),
     ("identity_serialization", "Structural singleton seeded by migration 0043; contains no identity or authorization data."),
     ("hosting_connection", "Panel host authority and sealed provisioning credentials are deployment-local, like directory and tunnel configuration; re-approve on the new deployment."),
