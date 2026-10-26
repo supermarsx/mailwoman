@@ -34,12 +34,22 @@ globalStyle('.mail-workspace, .workspace-body, .workspace-pane',{position:'relat
 globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__total',{'@media':{[desktop]:{display:'none'}}});
 globalStyle('.workspace-show-folders',{position:'fixed',insetBlockStart:vars.space[2],insetInlineStart:vars.space[2],zIndex:40});
 globalStyle('.mail-workspace .subtab-strip',{display:'flex',alignItems:'stretch',gap:vars.space[1],overflowX:'auto',flexShrink:0,padding:vars.space[1],borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}`});
-globalStyle('.mail-workspace .subtab',{display:'flex',alignItems:'center',flex:'0 0 auto',maxWidth:'min(70vw,320px)'});
-globalStyle('.mail-workspace .subtab__label',{minWidth:0,maxWidth:'220px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minHeight:'32px',paddingInline:vars.space[2]});
-globalStyle('.mail-workspace .subtab--active .subtab__label',{borderBlockEnd:`3px solid ${vars.color.borderStrong}`});
+globalStyle('.mail-workspace .subtab',{display:'flex',alignItems:'center',flex:'0 0 auto',maxWidth:'min(70vw,320px)',gap:'2px',padding:'2px',border:`1px solid ${vars.color.border}`,borderRadius:vars.radius.sm,background:vars.color.bgAlt,color:vars.color.textDim});
+globalStyle('.mail-workspace .subtab__label',{minWidth:0,maxWidth:'220px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minHeight:'32px',paddingInline:vars.space[2],border:0,background:'transparent',color:'inherit',font:'inherit',textAlign:'start'});
+globalStyle('.mail-workspace .subtab--active',{background:vars.color.surface,color:vars.color.text,borderColor:vars.color.accent,boxShadow:`inset 0 3px 0 ${vars.color.accent}`});
+globalStyle('.mail-workspace .subtab--active .subtab__label',{fontWeight:vars.weight.bold});
 const tabActions='.mail-workspace :is(.subtab__pin, .subtab__close, .subtab__tearoff)';
-globalStyle(tabActions,{flex:'0 0 auto',width:'26px',minWidth:'26px',height:'26px',minHeight:'26px',marginInline:'2px',padding:0,display:'inline-flex',alignItems:'center',justifyContent:'center',border:`${vars.border.hair} solid ${vars.color.border}`,borderRadius:vars.radius.sm,background:vars.color.bgAlt,color:vars.color.textDim,'@media':{'(pointer: coarse)':{width:'44px',minWidth:'44px',height:'44px',minHeight:'44px'}}});
-globalStyle(`${tabActions} svg`,{width:'13px',height:'13px'});
+globalStyle(tabActions,{flex:'0 0 auto',width:'24px',minWidth:'24px',height:'24px',minHeight:'24px',marginInline:0,padding:0,display:'inline-flex',alignItems:'center',justifyContent:'center',border:'1px solid transparent',borderRadius:vars.radius.sm,background:'transparent',color:vars.color.textDim,'@media':{'(pointer: coarse)':{width:'44px',minWidth:'44px',height:'44px',minHeight:'44px'}}});
+globalStyle(`${tabActions} svg`,{width:'11px',height:'11px'});
 globalStyle(`${tabActions}:hover`,{background:vars.color.surface,color:vars.color.text,borderColor:vars.color.borderStrong});
 globalStyle('.mail-workspace .subtab__pin[aria-pressed="true"]',{background:vars.color.accent,color:vars.color.accentText,borderColor:vars.color.accent});
 globalStyle('.mail-workspace .subtab__close:hover',{color:vars.color.danger});
+
+// Reserve control space so revealing actions never shifts the tab title.
+// Focus reveals them too; coarse/non-hover input keeps actions discoverable.
+globalStyle('.mail-workspace .subtab :is(.subtab__pin, .subtab__close)', {
+  '@media': { '(hover: hover) and (pointer: fine)': { opacity: 0, pointerEvents: 'none' } },
+});
+globalStyle('.mail-workspace .subtab:is(:hover, :focus-within) :is(.subtab__pin, .subtab__close)', {
+  '@media': { '(hover: hover) and (pointer: fine)': { opacity: 1, pointerEvents: 'auto' } },
+});
