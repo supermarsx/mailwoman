@@ -6,6 +6,7 @@
 // pure `location.hash` + `hashchange`, inert under jsdom (which never fires
 // hashchange unless the hash is set).
 
+import { confirmShellNavigation } from './navigationGuard.ts';
 import { createSignal, onCleanup, type Accessor } from 'solid-js';
 
 /** Every top-level surface the shell can show (mail-family, the four PIM modules,
@@ -115,24 +116,38 @@ export function createShellRouter(onUnknown?: () => void): ShellRouter {
 
   const [route, setRoute] = createSignal<ShellRoute>(parseHash(settledHash()));
 
+  let request = 0;
+  let deciding = false;
+  let alive = true;
+  onCleanup(() => { alive = false; request += 1; });
+  function commit(h: string): void {
+    if (typeof location !== 'undefined' && location.hash !== h) location.hash = h;
+    setRoute(parseHash(h));
+  }
+  function propose(h: string): void {
+    if (deciding) return;
+    const ticket = ++request;
+    const decision = confirmShellNavigation();
+    if (typeof decision === 'boolean') { if (decision) commit(h); return; }
+    deciding = true;
+    void decision.then(allowed => { if (allowed && alive && ticket === request) commit(h); }).catch(() => undefined).finally(() => { deciding = false; });
+  }
   if (typeof window !== 'undefined') {
     const onHash = (): void => {
-      setRoute(parseHash(settledHash()));
+      const h = settledHash();
+      const current = routeHash(route().surface, route().param);
+      if (h === current) return;
+      // Keep the mounted editor and URL together until it permits leaving.
+      history.replaceState(history.state, '', `${location.pathname}${location.search}${current}`);
+      propose(h);
     };
     window.addEventListener('hashchange', onHash);
     onCleanup(() => window.removeEventListener('hashchange', onHash));
   }
-
   function navigate(surface: ShellSurface, param?: string | null): void {
     const h = routeHash(surface, param ?? null);
-    if (typeof location !== 'undefined') {
-      // Setting the hash fires `hashchange` → setRoute; if it's already the
-      // target hash the event won't fire, so update the signal directly.
-      if (location.hash !== h) location.hash = h;
-      else setRoute(parseHash(h));
-    } else {
-      setRoute(parseHash(h));
-    }
+    if (h === routeHash(route().surface, route().param)) return;
+    propose(h);
   }
 
   return { route, navigate };

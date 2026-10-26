@@ -101,3 +101,8 @@ contacts-merge-confirm = Merge contacts
 contacts-no-duplicates = No duplicates found.
 contacts-possible-duplicates = { $count } possible duplicates
 contacts-review-merge = Review merge
+
+contacts-editor-person = Name and work
+contacts-editor-reach = Email and phone
+contacts-editor-other = Notes and preferences
+contacts-editor-save-error = The contact could not be saved. Your changes are still here. Try again.

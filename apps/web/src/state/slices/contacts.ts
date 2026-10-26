@@ -10,7 +10,8 @@
 // discipline as V2). `store.ts` spreads whatever this factory returns into the
 // frozen `AppState`, so the interface below is additive and self-contained.
 
-import { createSignal, createMemo, batch, type Accessor } from 'solid-js';
+import { createSignal, createMemo, batch, onCleanup, type Accessor } from 'solid-js';
+import { observePreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
 import { CAP_CONTACTS, type AddressBook, type ContactCard, type ContactGroup } from '../../api/pim-types.ts';
 import type { Id } from '../../api/jmap-types.ts';
 import { responseFor } from '../../api/jmap.ts';
@@ -138,7 +139,7 @@ export interface ContactsSlice {
   /** Create a contact; returns the new id (or null on failure). */
   createContact(draft: ContactDraft, addressBookId?: Id): Promise<Id | null>;
   /** Patch an existing contact. */
-  updateContact(id: Id, patch: Partial<ContactCard>): Promise<void>;
+  updateContact(id: Id, patch: Partial<ContactCard>): Promise<boolean>;
   /** Delete a contact. */
   deleteContact(id: Id): Promise<void>;
   /** Flip a contact's favorite flag. */
@@ -171,10 +172,22 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
   const [selectedContactId, setSelectedContactId] = createSignal<Id | null>(null);
 
   let currentAccount: string | null = null;
+  let authority = 0;
+  onCleanup(observePreferenceAccount(() => {
+    authority += 1;
+    currentAccount = null;
+    batch(() => {
+      setContacts([]); setAddressBooks([]); setContactGroups([]);
+      setSelectedContactId(null); setSelectedAddressBookId(null); setSelectedGroupId(null);
+      setContactsLoading(false);
+    });
+  }));
 
   async function resolveAccount(): Promise<string | null> {
     if (currentAccount !== null) return currentAccount;
+    const version = authority;
     const session = await client.session();
+    if (version !== authority) return null;
     const acct = session.primaryAccounts[CAP_CONTACTS] ?? Object.keys(session.accounts)[0] ?? null;
     currentAccount = acct;
     return acct;
@@ -223,7 +236,8 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
 
   async function loadContacts(): Promise<void> {
     const ticket = ++loadTicket;
-    const stale = (): boolean => ticket !== loadTicket;
+    const version = authority;
+    const stale = (): boolean => ticket !== loadTicket || version !== authority;
     const acct = await resolveAccount();
     if (stale()) return;
     if (acct === null) {
@@ -259,31 +273,37 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
 
   // ── card CRUD ──
   async function createContact(draft: ContactDraft, addressBookId?: Id): Promise<Id | null> {
+    const version = authority;
     const acct = await resolveAccount();
-    if (acct === null) return null;
+    if (acct === null || version !== authority) return null;
     const book = addressBookId ?? selectedAddressBookId() ?? addressBooks()[0]?.id ?? 'default';
     const { id: _omit, addressBookId: _omitBook, ...create } = draftToCard('', book, draft);
-    const res = await client.jmap(contactSet(acct, { create: { new: create as ContactCreate } }));
-    const setRes = responseFor<ContactSetResponse>(res, 'set');
-    if (setRes.notCreated?.['new'] !== undefined) {
-      ctx.showToast('error', `Contact rejected: ${setRes.notCreated['new'].type}`);
-      return null;
-    }
-    const created = setRes.created?.['new'];
-    const id = created?.id ?? localId('contact');
-    const card = draftToCard(id, book, { ...draft, ...created });
-    setContacts((cs) => sortContacts([...cs, card]));
-    ctx.broadcastChange?.();
-    return id;
+    try {
+      const res = await client.jmap(contactSet(acct, { create: { new: create as ContactCreate } }));
+      if (version !== authority) return null;
+      const result = responseFor<ContactSetResponse>(res, 'set');
+      const created = result.created?.['new'];
+      if (result.accountId !== acct || result.notCreated?.['new'] || !created?.id) return null;
+      setContacts(cs => sortContacts([...cs, draftToCard(created.id, book, { ...draft, ...created })]));
+      ctx.broadcastChange?.();
+      return created.id;
+    } catch { return null; }
   }
 
-  async function updateContact(id: Id, patch: Partial<ContactCard>): Promise<void> {
+  async function updateContact(id: Id, patch: Partial<ContactCard>): Promise<boolean> {
+    const version = authority;
     const acct = await resolveAccount();
-    if (acct === null) return;
-    patchCard(id, patch);
-    setContacts((cs) => sortContacts(cs));
-    await client.jmap(contactSet(acct, { update: { [id]: { ...patch } } }));
-    ctx.broadcastChange?.();
+    if (acct === null || version !== authority) return false;
+    try {
+      const res = await client.jmap(contactSet(acct, { update: { [id]: { ...patch } } }));
+      if (version !== authority) return false;
+      const result = responseFor<ContactSetResponse>(res, 'set');
+      if (result.accountId !== acct || result.notUpdated?.[id] || !result.updated || !Object.hasOwn(result.updated, id)) return false;
+      patchCard(id, patch);
+      setContacts(cs => sortContacts(cs));
+      ctx.broadcastChange?.();
+      return true;
+    } catch { return false; }
   }
 
   async function deleteContact(id: Id): Promise<void> {

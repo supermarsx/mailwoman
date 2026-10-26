@@ -46,6 +46,8 @@ describe('ContactsModule', () => {
     fireEvent.click(await screen.findByText('Ada Lovelace'));
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
     const name = await screen.findByLabelText('Full name');
+    expect(screen.queryByRole('list', {name:'Contacts'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
     fireEvent.input(name, { target: { value: 'Ada King' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(app.contactById('c1')!.name.full).toBe('Ada King'));

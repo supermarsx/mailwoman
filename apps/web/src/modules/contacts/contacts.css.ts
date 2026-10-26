@@ -31,6 +31,7 @@ export const layout = style({
   padding: vars.space[5],
   color: vars.color.text,
   fontFamily: vars.font.ui,
+  '@media': { '(max-width: 900px)': { gridTemplateColumns: 'minmax(0, 1fr)', overflowY: 'auto', alignContent: 'start' } },
 });
 
 export const sidebar = style({
@@ -335,3 +336,7 @@ export const cardHeader = style({ justifyContent: 'space-between' });
 export const notesText = style({ whiteSpace: 'pre-wrap', margin: 0 });
 /** A fieldset that only groups (no frame, no inset). */
 export const bareFieldset = style({ border: 'none', padding: 0, margin: 0 });
+
+/** Exclusive contact editor, independent of the list's three-column grid. */
+export const editorPage = style({height: '100%', minWidth: 0, overflow: 'auto', padding: vars.space[5], color: vars.color.text});
+export const editorSection = style({display: 'grid', gap: vars.space[3], border: hair, padding: vars.space[4], minWidth: 0, margin: 0});

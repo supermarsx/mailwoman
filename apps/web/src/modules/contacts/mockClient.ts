@@ -78,15 +78,16 @@ export function makeContactsClient(seed: ContactsSeed = {}): Client {
           cards.push(fullCard(payload, id));
           created[key] = { id };
         }
+        const updated: Record<string, null> = {};
         for (const [id, patch] of Object.entries((args['update'] as Record<string, Record<string, unknown>>) ?? {})) {
           const idx = cards.findIndex((c) => c.id === id);
-          if (idx >= 0) cards[idx] = { ...cards[idx]!, ...(patch as Partial<ContactCard>) };
+          if (idx >= 0) { cards[idx] = { ...cards[idx]!, ...(patch as Partial<ContactCard>) }; updated[id] = null; }
         }
         for (const id of (args['destroy'] as string[]) ?? []) {
           const idx = cards.findIndex((c) => c.id === id);
           if (idx >= 0) cards.splice(idx, 1);
         }
-        return ['ContactCard/set', { accountId: 'acct1', oldState: 's', newState: 's2', created, updated: {}, destroyed: (args['destroy'] as string[]) ?? [], notCreated: null, notUpdated: null, notDestroyed: null }, callId];
+        return ['ContactCard/set', { accountId: 'acct1', oldState: 's', newState: 's2', created, updated, destroyed: (args['destroy'] as string[]) ?? [], notCreated: null, notUpdated: null, notDestroyed: null }, callId];
       }
       case 'ContactGroup/set': {
         const created: Record<string, { id: string }> = {};

@@ -10,10 +10,12 @@ import { Icon } from '../../components/Icon.tsx';
 
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
 import { createStore } from 'solid-js/store';
+import { ContactEditor } from './ContactEditor.tsx';
+import { observePreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
 import { t, loadCatalog } from '../../i18n';
 import { useApp } from '../../state/context.ts';
-import { contactDisplayName, type ContactDraft } from '../../state/slices/contacts.ts';
-import type { ContactCard, ContactEmail, ContactValue } from '../../api/pim-types.ts';
+import { contactDisplayName } from '../../state/slices/contacts.ts';
+import type { ContactCard } from '../../api/pim-types.ts';
 import type { Id } from '../../api/jmap-types.ts';
 import { parseVCards, toVCardDocument, type ParsedContact } from './vcard.ts';
 import { contactsToCsv, csvToContacts, guessMapping, parseCsv, type CsvField, type CsvMapping } from './csv.ts';
@@ -57,6 +59,7 @@ export function ContactsModule(): JSX.Element {
   });
 
   const [panel, setPanel] = createSignal<'view' | 'edit' | 'create'>('view');
+  onCleanup(observePreferenceAccount(() => setPanel('view')));
   const [showImport, setShowImport] = createSignal(false);
   const [showDuplicates, setShowDuplicates] = createSignal(false);
   const [newGroupOpen, setNewGroupOpen] = createSignal(false);
@@ -71,7 +74,31 @@ export function ContactsModule(): JSX.Element {
   }
 
   return (
-    <section aria-label={t('contacts-title')} data-module="contacts" class={css.layout}>
+    <section aria-label={t('contacts-title')} data-module="contacts" class={panel() === 'view' ? css.layout : css.editorPage}>
+        <Show when={panel() === 'create'}>
+          <ContactEditor
+            mode="create"
+            onCancel={() => setPanel('view')}
+            onSaved={(id) => { if (typeof id === 'string') app.selectContact(id); setPanel('view'); }}
+            onSave={async (draft) => {
+              const id = await app.createContact(draft);
+              return id;
+            }}
+          />
+        </Show>
+        <Show when={panel() === 'edit' && app.selectedContact() !== null}>
+          <ContactEditor
+            mode="edit"
+            source={app.selectedContact()!}
+            onCancel={() => setPanel('view')}
+            onSaved={(id) => { if (typeof id === 'string') app.selectContact(id); setPanel('view'); }}
+            onSave={async (draft) => {
+              return await app.updateContact(app.selectedContact()!.id, draft);
+            }}
+          />
+        </Show>
+
+      <Show when={panel() === 'view'}>
       <Sidebar
         isAll={isAll()}
         onNewGroup={() => setNewGroupOpen(true)}
@@ -153,27 +180,6 @@ export function ContactsModule(): JSX.Element {
       </div>
 
       <div class={css.detail}>
-        <Show when={panel() === 'create'}>
-          <ContactEditor
-            mode="create"
-            onCancel={() => setPanel('view')}
-            onSave={async (draft) => {
-              const id = await app.createContact(draft);
-              if (id !== null) openContact(id);
-            }}
-          />
-        </Show>
-        <Show when={panel() === 'edit' && app.selectedContact() !== null}>
-          <ContactEditor
-            mode="edit"
-            source={app.selectedContact()!}
-            onCancel={() => setPanel('view')}
-            onSave={async (draft) => {
-              await app.updateContact(app.selectedContact()!.id, draft);
-              setPanel('view');
-            }}
-          />
-        </Show>
         <Show when={panel() === 'view' && app.selectedContact() !== null}>
           <BusinessCard card={app.selectedContact()!} onEdit={() => setPanel('edit')} />
         </Show>
@@ -182,6 +188,7 @@ export function ContactsModule(): JSX.Element {
         </Show>
       </div>
 
+      </Show>
       <Show when={showImport()}>
         <ImportDialog onClose={() => setShowImport(false)} />
       </Show>
@@ -417,124 +424,6 @@ function GroupMembership(props: { card: ContactCard }): JSX.Element {
 }
 
 // ── Editor (create / edit) ───────────────────────────────────────────────────
-
-function ContactEditor(props: {
-  mode: 'create' | 'edit';
-  source?: ContactCard;
-  onCancel: () => void;
-  onSave: (draft: ContactDraft) => void | Promise<void>;
-}): JSX.Element {
-  const src = props.source;
-  const [draft, setDraft] = createStore<{
-    name: ContactCard['name'];
-    organizations: string[];
-    titles: string[];
-    emails: ContactEmail[];
-    phones: ContactValue[];
-    notes: string;
-    pgpKey: string;
-    isFavorite: boolean;
-  }>({
-    name: src ? { ...src.name } : { full: '', given: '', surname: '', prefix: '', suffix: '' },
-    organizations: src ? [...src.organizations] : [],
-    titles: src ? [...src.titles] : [],
-    emails: src ? src.emails.map((e) => ({ ...e })) : [{ context: '', value: '', pref: 0 }],
-    phones: src ? src.phones.map((p) => ({ ...p })) : [{ context: '', value: '' }],
-    notes: src?.notes ?? '',
-    pgpKey: src?.pgpKey ?? '',
-    isFavorite: src?.isFavorite ?? false,
-  });
-
-  function submit(e: Event): void {
-    e.preventDefault();
-    const full = draft.name.full.trim() || [draft.name.given, draft.name.surname].filter(Boolean).join(' ').trim();
-    const patch: ContactDraft = {
-      name: { ...draft.name, full },
-      organizations: draft.organizations.filter((o) => o.trim().length > 0),
-      titles: draft.titles.filter((t) => t.trim().length > 0),
-      emails: draft.emails.filter((em) => em.value.trim().length > 0),
-      phones: draft.phones.filter((p) => p.value.trim().length > 0),
-      notes: draft.notes,
-      pgpKey: draft.pgpKey.trim().length > 0 ? draft.pgpKey.trim() : null,
-      isFavorite: draft.isFavorite,
-    };
-    void props.onSave(patch);
-  }
-
-  return (
-    <form class={css.card} onSubmit={submit} aria-label={props.mode === 'create' ? t('contacts-new-contact') : t('contacts-edit-contact')}>
-      <h1 class={css.cardName}>{props.mode === 'create' ? t('contacts-new-contact') : t('contacts-edit-contact')}</h1>
-
-      <div class={css.fieldGroup}>
-        <label class={css.fieldLabel} for="c-full">{t('contacts-full-name')}</label>
-        <input
-          id="c-full"
-          class={css.input}
-          aria-label={t('contacts-full-name')}
-          value={draft.name.full}
-          onInput={(e) => setDraft('name', 'full', e.currentTarget.value)}
-        />
-      </div>
-      <div class={css.fieldRow}>
-        <input class={css.input} aria-label={t('contacts-given')} placeholder={t('contacts-given-placeholder')} value={draft.name.given} onInput={(e) => setDraft('name', 'given', e.currentTarget.value)} />
-        <input class={css.input} aria-label={t('contacts-surname')} placeholder={t('contacts-surname-placeholder')} value={draft.name.surname} onInput={(e) => setDraft('name', 'surname', e.currentTarget.value)} />
-      </div>
-
-      <div class={css.fieldGroup}>
-        <span class={css.fieldLabel}>{t('contacts-organization')}</span>
-        <input class={css.input} aria-label={t('contacts-organization')} value={draft.organizations[0] ?? ''} onInput={(e) => setDraft('organizations', [e.currentTarget.value])} />
-        <input class={css.input} aria-label={t('contacts-job-title')} placeholder={t('contacts-job-title-placeholder')} value={draft.titles[0] ?? ''} onInput={(e) => setDraft('titles', [e.currentTarget.value])} />
-      </div>
-
-      <div class={css.fieldGroup}>
-        <span class={css.fieldLabel}>{t('contacts-email')}</span>
-        <For each={draft.emails}>
-          {(em, i) => (
-            <div class={css.fieldRow}>
-              <input class={css.input} aria-label={t('contacts-email-n', { n: i() + 1 })} type="email" value={em.value} onInput={(e) => setDraft('emails', i(), 'value', e.currentTarget.value)} />
-              <input class={css.select} aria-label={t('contacts-email-label', { n: i() + 1 })} placeholder={t('contacts-email-label-placeholder')} value={em.context} onInput={(e) => setDraft('emails', i(), 'context', e.currentTarget.value)} />
-              <button type="button" class={css.buttonGhost} aria-label={t('contacts-remove-email', { n: i() + 1 })} onClick={() => setDraft('emails', (list) => list.filter((_, j) => j !== i()))}><Icon name="minus" /></button>
-            </div>
-          )}
-        </For>
-        <button type="button" class={css.buttonGhost} onClick={() => setDraft('emails', (list) => [...list, { context: '', value: '', pref: 0 }])}>{t('contacts-add-email')}</button>
-      </div>
-
-      <div class={css.fieldGroup}>
-        <span class={css.fieldLabel}>{t('contacts-phone')}</span>
-        <For each={draft.phones}>
-          {(p, i) => (
-            <div class={css.fieldRow}>
-              <input class={css.input} aria-label={t('contacts-phone-n', { n: i() + 1 })} value={p.value} onInput={(e) => setDraft('phones', i(), 'value', e.currentTarget.value)} />
-              <button type="button" class={css.buttonGhost} aria-label={t('contacts-remove-phone', { n: i() + 1 })} onClick={() => setDraft('phones', (list) => list.filter((_, j) => j !== i()))}><Icon name="minus" /></button>
-            </div>
-          )}
-        </For>
-        <button type="button" class={css.buttonGhost} onClick={() => setDraft('phones', (list) => [...list, { context: '', value: '' }])}>{t('contacts-add-phone')}</button>
-      </div>
-
-      <div class={css.fieldGroup}>
-        <label class={css.fieldLabel} for="c-notes">{t('contacts-notes')}</label>
-        <textarea id="c-notes" class={css.input} aria-label={t('contacts-notes')} rows={3} value={draft.notes} onInput={(e) => setDraft('notes', e.currentTarget.value)} />
-      </div>
-
-      <div class={css.fieldGroup}>
-        <label class={css.fieldLabel} for="c-key">{t('contacts-security-key-label')}</label>
-        <textarea id="c-key" class={css.input} aria-label={t('contacts-security-key')} rows={2} placeholder={t('contacts-security-key-placeholder')} value={draft.pgpKey} onInput={(e) => setDraft('pgpKey', e.currentTarget.value)} />
-      </div>
-
-      <label class={css.fieldRow}>
-        <input type="checkbox" aria-label={t('contacts-favorite-word')} checked={draft.isFavorite} onChange={(e) => setDraft('isFavorite', e.currentTarget.checked)} />
-        <span>{t('contacts-favorite-word')}</span>
-      </label>
-
-      <div class={css.actions}>
-        <button type="button" class={css.buttonGhost} onClick={props.onCancel}>{t('common-cancel')}</button>
-        <button type="submit" class={css.button}>{t('common-save')}</button>
-      </div>
-    </form>
-  );
-}
 
 // ── Import dialog (vCard / CSV with preview + field mapping) ──────────────────
 

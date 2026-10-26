@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { registerNavigationGuard } from './navigationGuard.ts';
 import { createRoot } from 'solid-js';
 import {
   createShellRouter,
@@ -104,5 +105,29 @@ describe('shell router: unknown routes', () => {
     expect(isUnknownRoute('#/')).toBe(false);
     expect(isUnknownRoute('')).toBe(false);
     expect(isUnknownRoute('#main')).toBe(false);
+  });
+});
+
+describe('shell editor navigation guard', () => {
+  it('keeps the mounted route and hash on denied navigation, including browser history', async () => {
+    history.replaceState(null, '', '/#/contacts');
+    let dispose: () => void = () => undefined;
+    const router=createRoot(done=>{dispose=done;return createShellRouter();});
+    const remove=registerNavigationGuard(()=>false);
+    router.navigate('mail'); await Promise.resolve(); await Promise.resolve();
+    expect(router.route().surface).toBe('contacts'); expect(location.hash).toBe('#/contacts');
+    history.replaceState(null,'','/#/mail'); window.dispatchEvent(new HashChangeEvent('hashchange'));
+    await Promise.resolve(); await Promise.resolve();
+    expect(router.route().surface).toBe('contacts'); expect(location.hash).toBe('#/contacts');
+    remove(); dispose(); history.replaceState(null,'','/');
+  });
+  it('does not apply pending editor navigation after the account shell is disposed', async () => {
+    history.replaceState(null, '', '/#/contacts');
+    let answer:(allow:boolean)=>void=()=>undefined; let dispose:()=>void=()=>undefined;
+    const remove=registerNavigationGuard(()=>new Promise<boolean>(resolve=>{answer=resolve;}));
+    const router=createRoot(done=>{dispose=done;return createShellRouter();});
+    router.navigate('mail'); dispose(); remove(); answer(true);
+    await Promise.resolve(); await Promise.resolve();
+    expect(location.hash).toBe('#/contacts'); history.replaceState(null,'','/');
   });
 });
