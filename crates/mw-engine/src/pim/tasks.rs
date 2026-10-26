@@ -16,6 +16,15 @@ use super::{
 };
 
 impl Engine {
+    async fn owned_task(&self, account_id: &str, id: &str) -> Result<Option<TaskRow>> {
+        let Some(row) = self.store().get_task(id).await? else {
+            return Ok(None);
+        };
+        Ok(self
+            .owned_calendar(account_id, &row.list_id)
+            .await?
+            .map(|_| row))
+    }
     // ── Task/get ─────────────────────────────────────────────────────────────
 
     pub(crate) async fn task_get(&self, account_id: &str, args: &Value) -> Value {
@@ -33,7 +42,7 @@ impl Engine {
         let mut list = Vec::new();
         let mut not_found = Vec::new();
         for id in &ids {
-            match self.store().get_task(id).await {
+            match self.owned_task(account_id, id).await {
                 Ok(Some(row)) => list.push(task_row_to_json(&row)),
                 Ok(None) => not_found.push(json!(id)),
                 Err(e) => return server_fail(e),
@@ -121,7 +130,7 @@ impl Engine {
 
         let mut json = spec.clone();
         // Mail→task / event→task conveniences (§2.2): seed the title/description.
-        self.apply_from_sources(account_id, &mut json, spec).await;
+        self.apply_from_sources(account_id, &mut json, spec).await?;
         normalize_task(&mut json);
         self.persist_task(account_id, &list_id, &id, &uid, json, None, Some(rt))
             .await?;
@@ -138,8 +147,7 @@ impl Engine {
         patch: &Value,
     ) -> Result<()> {
         let row = self
-            .store()
-            .get_task(id)
+            .owned_task(account_id, id)
             .await?
             .ok_or_else(|| EngineError::Protocol(format!("unknown task {id}")))?;
         let mut json = task_row_to_json(&row);
@@ -172,11 +180,10 @@ impl Engine {
 
     async fn task_destroy(&self, account_id: &str, rt: &AccountRuntime, id: &str) -> Result<()> {
         let row = self
-            .store()
-            .get_task(id)
+            .owned_task(account_id, id)
             .await?
             .ok_or_else(|| EngineError::Protocol(format!("unknown task {id}")))?;
-        if let Some(list) = self.store().get_calendar(&row.list_id).await?
+        if let Some(list) = self.owned_calendar(account_id, &row.list_id).await?
             && !list.is_overlay
             && let Some(url) = list.caldav_url.clone()
         {
@@ -218,7 +225,7 @@ impl Engine {
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn persist_task_with(
         &self,
-        _account_id: &str,
+        account_id: &str,
         list_id: &str,
         id: &str,
         uid: &str,
@@ -227,6 +234,9 @@ impl Engine {
         push_rt: Option<&AccountRuntime>,
         server: Option<super::sync::ServerCopy<'_>>,
     ) -> Result<()> {
+        if self.owned_calendar(account_id, list_id).await?.is_none() {
+            return Err(EngineError::Protocol("unknown task list".into()));
+        }
         set_str(&mut json, "id", id);
         set_str(&mut json, "listId", list_id);
         set_str(&mut json, "uid", uid);
@@ -252,13 +262,13 @@ impl Engine {
         let mut etag = prior_etag.clone();
         if server.is_none()
             && let Some(rt) = push_rt
-            && let Some(list) = self.store().get_calendar(list_id).await?
+            && let Some(list) = self.owned_calendar(account_id, list_id).await?
             && !list.is_overlay
             && let Some(url) = list.caldav_url.clone()
         {
             let stored_href = self.store().task_href(id).await?;
             if stored_href.is_some()
-                && let Some(prev) = self.store().get_task(id).await?
+                && let Some(prev) = self.owned_task(account_id, id).await?
             {
                 ical_raw = super::sync::merge_ics(&prev.ical_raw, &emitted);
             }
@@ -427,7 +437,12 @@ impl Engine {
     }
 
     /// Seed a task title/description from a `fromEmail` / `fromEvent` source.
-    async fn apply_from_sources(&self, _account_id: &str, json: &mut Value, spec: &Value) {
+    async fn apply_from_sources(
+        &self,
+        account_id: &str,
+        json: &mut Value,
+        spec: &Value,
+    ) -> Result<()> {
         let has_title = json
             .get("title")
             .and_then(Value::as_str)
@@ -437,6 +452,10 @@ impl Engine {
             .and_then(|f| f.get("emailId"))
             .and_then(Value::as_str)
         {
+            let source = self.store().get_message(email_id).await?;
+            if source.account_id != account_id {
+                return Err(EngineError::Protocol("unknown source message".into()));
+            }
             if !has_title
                 && let Ok(Some(bytes)) = self.store().get_envelope(email_id).await
                 && let Ok(env) = serde_json::from_slice::<Value>(&bytes)
@@ -451,7 +470,11 @@ impl Engine {
             .and_then(|f| f.get("eventId"))
             .and_then(Value::as_str)
         {
-            if !has_title && let Ok(Some(row)) = self.store().get_event(event_id).await {
+            let row = self
+                .owned_event(account_id, event_id)
+                .await?
+                .ok_or_else(|| EngineError::Protocol("unknown source event".into()))?;
+            if !has_title {
                 let title = self
                     .event_row_to_json(&row)
                     .get("title")
@@ -462,6 +485,7 @@ impl Engine {
             }
             add_link(json, "event", event_id);
         }
+        Ok(())
     }
 }
 

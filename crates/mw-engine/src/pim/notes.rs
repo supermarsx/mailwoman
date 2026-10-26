@@ -80,6 +80,12 @@ impl Engine {
         }
         if let Some(destroys) = args.get("destroy").and_then(Value::as_array) {
             for id in destroys.iter().filter_map(Value::as_str) {
+                if !matches!(self.store().get_note(id).await, Ok(Some(row)) if row.account_id == account_id)
+                {
+                    out.not_destroyed
+                        .insert(id.to_string(), set_error("notFound", "unknown note"));
+                    continue;
+                }
                 match self.store().delete_note(id).await {
                     Ok(()) => {
                         let _ = self

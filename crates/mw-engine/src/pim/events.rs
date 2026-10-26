@@ -19,6 +19,15 @@ use super::{
 };
 
 impl Engine {
+    pub(super) async fn owned_event(&self, account_id: &str, id: &str) -> Result<Option<EventRow>> {
+        let Some(row) = self.store().get_event(id).await? else {
+            return Ok(None);
+        };
+        Ok(self
+            .owned_calendar(account_id, &row.calendar_id)
+            .await?
+            .map(|_| row))
+    }
     // ── CalendarEvent/get ────────────────────────────────────────────────────
 
     pub(crate) async fn event_get(&self, account_id: &str, args: &Value) -> Value {
@@ -36,7 +45,7 @@ impl Engine {
         let mut list = Vec::new();
         let mut not_found = Vec::new();
         for id in &ids {
-            match self.store().get_event(id).await {
+            match self.owned_event(account_id, id).await {
                 Ok(Some(row)) => list.push(self.event_row_to_json(&row)),
                 Ok(None) => not_found.push(json!(id)),
                 Err(e) => return server_fail(e),
@@ -81,7 +90,7 @@ impl Engine {
         }
         if let Some(updates) = args.get("update").and_then(Value::as_object) {
             for (id, patch) in updates {
-                if let Some(err) = self.update_participants_error(id, patch).await {
+                if let Some(err) = self.update_participants_error(account_id, id, patch).await {
                     out.not_updated.insert(id.clone(), err);
                     continue;
                 }
@@ -165,8 +174,7 @@ impl Engine {
         patch: &Value,
     ) -> Result<()> {
         let row = self
-            .store()
-            .get_event(id)
+            .owned_event(account_id, id)
             .await?
             .ok_or_else(|| EngineError::Protocol(format!("unknown event {id}")))?;
         let mut json = self.event_row_to_json(&row);
@@ -199,9 +207,14 @@ impl Engine {
     /// an event sends the whole map back, and refusing that would make the
     /// event uneditable without removing anything from the store. Those values
     /// are refused where it matters, in [`Engine::send_itip`].
-    async fn update_participants_error(&self, id: &str, patch: &Value) -> Option<Value> {
+    async fn update_participants_error(
+        &self,
+        account_id: &str,
+        id: &str,
+        patch: &Value,
+    ) -> Option<Value> {
         patch.get("participants")?;
-        let stored = match self.store().get_event(id).await {
+        let stored = match self.owned_event(account_id, id).await {
             Ok(Some(row)) => self.event_row_to_json(&row),
             // Unknown id or a store error: `event_update` reports it.
             _ => return None,
@@ -213,14 +226,13 @@ impl Engine {
 
     async fn event_destroy(&self, account_id: &str, rt: &AccountRuntime, id: &str) -> Result<()> {
         let row = self
-            .store()
-            .get_event(id)
+            .owned_event(account_id, id)
             .await?
             .ok_or_else(|| EngineError::Protocol(format!("unknown event {id}")))?;
         // Best-effort remote delete for CalDAV-backed calendars, at the href the
         // server named the event with (t28-e19). A webcal overlay is a feed, not a
         // DAV collection: nothing is sent to it.
-        if let Some(cal) = self.store().get_calendar(&row.calendar_id).await?
+        if let Some(cal) = self.owned_calendar(account_id, &row.calendar_id).await?
             && !cal.is_overlay
             && let Some(url) = cal.caldav_url.clone()
         {
@@ -282,7 +294,7 @@ impl Engine {
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn persist_event_with(
         &self,
-        _account_id: &str,
+        account_id: &str,
         calendar_id: &str,
         id: &str,
         uid: &str,
@@ -291,6 +303,13 @@ impl Engine {
         push_rt: Option<&AccountRuntime>,
         server: Option<super::sync::ServerCopy<'_>>,
     ) -> Result<EventRow> {
+        if self
+            .owned_calendar(account_id, calendar_id)
+            .await?
+            .is_none()
+        {
+            return Err(EngineError::Protocol("unknown calendar".into()));
+        }
         // Stamp identity onto the projection so get/query are self-consistent.
         set_str(&mut json, "id", id);
         set_str(&mut json, "calendarId", calendar_id);
@@ -361,13 +380,13 @@ impl Engine {
         let mut etag = prior_etag.clone();
         if server.is_none()
             && let Some(rt) = push_rt
-            && let Some(cal) = self.store().get_calendar(calendar_id).await?
+            && let Some(cal) = self.owned_calendar(account_id, calendar_id).await?
             && !cal.is_overlay
             && let Some(url) = cal.caldav_url.clone()
         {
             let stored_href = self.store().event_href(id).await?;
             if stored_href.is_some()
-                && let Some(prev) = self.store().get_event(id).await?
+                && let Some(prev) = self.owned_event(account_id, id).await?
             {
                 ical_raw = super::sync::merge_ics(&prev.ical_raw, &emitted);
             }
@@ -474,7 +493,7 @@ impl Engine {
             if let Some(cid) = calendar_id {
                 let mut kept = Vec::new();
                 for id in ids {
-                    if let Some(ev) = self.store().get_event(&id).await?
+                    if let Some(ev) = self.owned_event(account_id, &id).await?
                         && ev.calendar_id == cid
                     {
                         kept.push(id);
@@ -503,7 +522,7 @@ impl Engine {
             ids
         };
 
-        self.filter_events_by_categories(ids, &wanted_categories)
+        self.filter_events_by_categories(account_id, ids, &wanted_categories)
             .await
     }
 
@@ -560,7 +579,7 @@ impl Engine {
         };
         let mut list = Vec::new();
         for id in &ids {
-            let Ok(Some(row)) = self.store().get_event(id).await else {
+            let Ok(Some(row)) = self.owned_event(account_id, id).await else {
                 continue;
             };
             let master = self.event_row_to_json(&row);
@@ -661,6 +680,12 @@ impl Engine {
         events: Vec<Value>,
         push_rt: Option<&AccountRuntime>,
     ) -> (Vec<String>, usize) {
+        if !matches!(
+            self.owned_calendar(account_id, calendar_id).await,
+            Ok(Some(_))
+        ) {
+            return (Vec::new(), 0);
+        }
         let held: std::collections::HashSet<String> =
             match self.store().list_events(calendar_id).await {
                 Ok(rows) => rows.into_iter().map(|r| r.uid).collect(),
@@ -727,7 +752,7 @@ impl Engine {
         let mut body =
             String::from("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailwoman//EN\r\n");
         for id in &ids {
-            if let Ok(Some(row)) = self.store().get_event(id).await {
+            if let Ok(Some(row)) = self.owned_event(account_id, id).await {
                 // Splice the VEVENT out of each event's single-component calendar.
                 if let Some(inner) = extract_components(&row.ical_raw) {
                     body.push_str(&inner);
@@ -754,7 +779,7 @@ impl Engine {
             .get("action")
             .and_then(Value::as_str)
             .unwrap_or("accept");
-        let row = match self.store().get_event(event_id).await {
+        let row = match self.owned_event(account_id, event_id).await {
             Ok(Some(r)) => r,
             Ok(None) => return server_fail(format!("unknown event {event_id}")),
             Err(e) => return server_fail(e),
@@ -824,7 +849,7 @@ impl Engine {
             self.send_itip(rt, &me, &[org], &json, method).await;
         }
         self.broadcast_state(account_id).await;
-        json!({ "accountId": account_id, "updated": self.reload_event_json(event_id).await })
+        json!({ "accountId": account_id, "updated": self.reload_event_json(account_id, event_id).await })
     }
 
     // ── CalendarEvent/quickAdd (P3 — natural-language create) ────────────────
@@ -901,6 +926,7 @@ impl Engine {
     /// (case-insensitive). Used by `CalendarEvent/query` category filtering (P4).
     async fn filter_events_by_categories(
         &self,
+        account_id: &str,
         ids: Vec<String>,
         wanted: &[String],
     ) -> Result<Vec<String>> {
@@ -910,7 +936,7 @@ impl Engine {
         let want: Vec<String> = wanted.iter().map(|s| s.to_lowercase()).collect();
         let mut kept = Vec::new();
         for id in ids {
-            if let Some(row) = self.store().get_event(&id).await? {
+            if let Some(row) = self.owned_event(account_id, &id).await? {
                 let cats: Vec<String> = self
                     .event_row_to_json(&row)
                     .get("categories")
@@ -954,8 +980,8 @@ impl Engine {
         json
     }
 
-    async fn reload_event_json(&self, id: &str) -> Value {
-        match self.store().get_event(id).await {
+    async fn reload_event_json(&self, account_id: &str, id: &str) -> Value {
+        match self.owned_event(account_id, id).await {
             Ok(Some(row)) => self.event_row_to_json(&row),
             _ => Value::Null,
         }

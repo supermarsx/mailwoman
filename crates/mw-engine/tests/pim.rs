@@ -670,6 +670,148 @@ async fn contact_objects_are_isolated_between_accounts() {
     );
 }
 
+#[tokio::test]
+async fn calendar_and_task_objects_are_isolated_between_accounts() {
+    let owner = setup().await;
+    let account_id = owner
+        .engine
+        .store()
+        .create_account(
+            &NewAccount {
+                kind: AccountKind::Imap,
+                host: "other.example.org",
+                port: 993,
+                tls: "implicit",
+                username: "other@example.org",
+                sync_policy_json: "{}",
+            },
+            &Credentials {
+                username: "other@example.org".into(),
+                password: "test".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let intruder_submitter = Arc::new(CapturingSubmitter::default());
+    owner.engine.register_backend(
+        account_id.clone(),
+        AccountRuntime::new(
+            Arc::new(NoopBackend),
+            intruder_submitter.clone(),
+            "other@example.org",
+        ),
+    );
+    let intruder = Harness {
+        engine: owner.engine.clone(),
+        account_id,
+        submitter: intruder_submitter,
+    };
+    let calendars = owner.call("Calendar/get", json!({})).await;
+    let collections = calendars["list"].as_array().unwrap();
+    let calendar = collections
+        .iter()
+        .find(|row| row["component"] == "VEVENT")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap();
+    let tasks = collections
+        .iter()
+        .find(|row| row["component"] == "VTODO")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap();
+    let event_set=owner.call("CalendarEvent/set",json!({"create":{"e":{"title":"Private event","start":"2026-10-26T10:00:00","timeZone":"UTC","duration":"PT1H"}}})).await;
+    let event = event_set["created"]["e"]["id"].as_str().unwrap();
+    let task_set = owner
+        .call("Task/set", json!({"create":{"t":{"title":"Private task"}}}))
+        .await;
+    let task = task_set["created"]["t"]["id"].as_str().unwrap();
+    let note_set = owner
+        .call(
+            "Note/set",
+            json!({"create":{"n":{"title":"Private note","bodyText":"Secret"}}}),
+        )
+        .await;
+    let note = note_set["created"]["n"]["id"].as_str().unwrap();
+    for (family, id) in [("CalendarEvent", event), ("Task", task), ("Note", note)] {
+        let read = intruder
+            .call(&format!("{family}/get"), json!({"ids":[id]}))
+            .await;
+        assert_eq!(read["list"], json!([]), "{family} leaked foreign data");
+        assert_eq!(read["notFound"], json!([id]));
+    }
+    for (family, id) in [
+        ("Calendar", calendar),
+        ("CalendarEvent", event),
+        ("Task", task),
+        ("Note", note),
+    ] {
+        let update = intruder
+            .call(
+                &format!("{family}/set"),
+                json!({"update":{id:{"title":"Stolen","name":"Stolen"}}}),
+            )
+            .await;
+        assert!(update["notUpdated"][id].is_object(), "{family}: {update}");
+        let destroy = intruder
+            .call(&format!("{family}/set"), json!({"destroy":[id]}))
+            .await;
+        assert!(
+            destroy["notDestroyed"][id].is_object(),
+            "{family}: {destroy}"
+        );
+    }
+    let create=intruder.call("CalendarEvent/set",json!({"create":{"e":{"calendarId":calendar,"title":"Intrusion","start":"2026-10-26T10:00:00","timeZone":"UTC","duration":"PT1H"}}})).await;
+    assert!(create["notCreated"]["e"].is_object());
+    let create = intruder
+        .call(
+            "Task/set",
+            json!({"create":{"t":{"listId":tasks,"title":"Intrusion"}}}),
+        )
+        .await;
+    assert!(create["notCreated"]["t"].is_object());
+    let derived = intruder
+        .call(
+            "Task/set",
+            json!({"create":{"t":{"fromEvent":{"eventId":event}}}}),
+        )
+        .await;
+    assert!(derived["notCreated"]["t"].is_object());
+    let exported = intruder
+        .call("CalendarEvent/export", json!({"ids":[event]}))
+        .await;
+    assert!(!exported.to_string().contains("Private event"));
+    let expanded = intruder
+        .call(
+            "CalendarEvent/expand",
+            json!({"ids":[event],"start":"2026-10-26T00:00:00Z","end":"2026-10-27T00:00:00Z"}),
+        )
+        .await;
+    assert_eq!(expanded["list"], json!([]));
+    let response = intruder
+        .call(
+            "CalendarEvent/respond",
+            json!({"eventId":event,"participationStatus":"accepted"}),
+        )
+        .await;
+    assert_eq!(response["type"], "serverFail");
+    assert!(intruder.submitter.sent.lock().unwrap().is_empty());
+    assert_eq!(
+        owner
+            .call("CalendarEvent/get", json!({"ids":[event]}))
+            .await["list"][0]["title"],
+        "Private event"
+    );
+    assert_eq!(
+        owner.call("Task/get", json!({"ids":[task]})).await["list"][0]["title"],
+        "Private task"
+    );
+    assert_eq!(
+        owner.call("Note/get", json!({"ids":[note]})).await["list"][0]["title"],
+        "Private note"
+    );
+}
+
 // ── ContactCard/merge — the two request shapes (26.20, t22-e13) ───────────────
 //
 // The web client emits `{accountId, keepId, mergeIds}`

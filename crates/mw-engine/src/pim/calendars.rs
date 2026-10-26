@@ -14,6 +14,17 @@ use crate::engine::Engine;
 use super::{SetOutcome, gen_id, get_response, server_fail, set_error, wanted_ids};
 
 impl Engine {
+    pub(super) async fn owned_calendar(
+        &self,
+        account_id: &str,
+        id: &str,
+    ) -> Result<Option<CalendarRow>> {
+        Ok(self
+            .store()
+            .get_calendar(id)
+            .await?
+            .filter(|row| row.account_id == account_id))
+    }
     // ── Calendar/get ─────────────────────────────────────────────────────────
 
     pub(crate) async fn calendar_get(&self, account_id: &str, args: &Value) -> Value {
@@ -88,6 +99,11 @@ impl Engine {
         }
         if let Some(destroys) = args.get("destroy").and_then(Value::as_array) {
             for id in destroys.iter().filter_map(Value::as_str) {
+                if !matches!(self.owned_calendar(account_id, id).await, Ok(Some(_))) {
+                    out.not_destroyed
+                        .insert(id.to_string(), set_error("notFound", "unknown calendar"));
+                    continue;
+                }
                 match self.store().delete_calendar(id).await {
                     Ok(()) => {
                         let _ = self
@@ -165,7 +181,7 @@ impl Engine {
     }
 
     async fn calendar_update(&self, account_id: &str, id: &str, patch: &Value) -> Result<()> {
-        let mut row = self.store().get_calendar(id).await?.ok_or_else(|| {
+        let mut row = self.owned_calendar(account_id, id).await?.ok_or_else(|| {
             crate::backend::EngineError::Protocol(format!("unknown calendar {id}"))
         })?;
         if let Some(v) = patch.get("name").and_then(Value::as_str) {
