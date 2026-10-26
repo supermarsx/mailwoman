@@ -297,6 +297,47 @@ async fn list_mailboxes_maps_special_use_roles() {
 }
 
 #[tokio::test]
+async fn list_infers_only_unique_unclaimed_conventional_roles() {
+    let list = "\
+* LIST () \"/\" \"INBOX\"\r\n\
+* LIST () \"/\" \"Trash\"\r\n\
+* LIST () \"/\" \"INBOX/Spam\"\r\n\
+* LIST () \"/\" \"Projects/Archive\"\r\n\
+* LIST () \"/\" \"Drafts\"\r\n\
+* LIST () \"/\" \"Rascunhos\"\r\n\
+* LIST (\\Sent) \"/\" \"Server sent\"\r\n\
+* LIST () \"/\" \"Sent Items\"\r\n\
+* LIST (\\Noselect) \"/\" \"Archive\"\r\n\
+{tag} OK List completed\r\n";
+    let (addr, _) = spawn_mock(vec![dovecot_script(vec![Ex::Cmd {
+        expect: "LIST",
+        respond: list.into(),
+    }])])
+    .await;
+    let backend = connect_dovecot(addr, vec![]).await;
+    let boxes = backend.list_mailboxes().await.unwrap();
+    let role = |name: &str| {
+        boxes
+            .iter()
+            .find(|m| m.mailbox_ref.name == name)
+            .unwrap()
+            .role
+    };
+    assert_eq!(role("Trash"), MailboxRole::Trash);
+    assert_eq!(role("INBOX/Spam"), MailboxRole::Junk);
+    assert_eq!(role("Server sent"), MailboxRole::Sent);
+    for name in [
+        "Projects/Archive",
+        "Drafts",
+        "Rascunhos",
+        "Sent Items",
+        "Archive",
+    ] {
+        assert_eq!(role(name), MailboxRole::None, "{name}");
+    }
+}
+
+#[tokio::test]
 async fn sync_qresync_reports_vanished_and_flag_changes() {
     let select = "\
 * 3 EXISTS\r\n\

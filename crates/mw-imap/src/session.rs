@@ -382,6 +382,8 @@ impl Session {
             }
         }
 
+        infer_missing_roles(&mut entries);
+
         // For servers without LIST-STATUS, query STATUS per selectable mailbox.
         if !want_status {
             for entry in &entries {
@@ -1416,6 +1418,55 @@ fn role_from_attrs(attrs: &[NameAttribute<'_>]) -> MailboxRole {
         return role;
     }
     MailboxRole::None
+}
+
+/// Use conservative conventional names only when the server supplies no role.
+/// Never turn an arbitrary nested project folder into a special-use mailbox.
+fn infer_missing_roles(entries: &mut [ListEntry]) {
+    let candidates: Vec<Option<MailboxRole>> = entries
+        .iter()
+        .map(|entry| {
+            if !entry.selectable || entry.role != MailboxRole::None {
+                return None;
+            }
+            let leaf = match entry.delimiter.as_deref().filter(|d| !d.is_empty()) {
+                Some(delimiter) => match entry.name.rsplit_once(delimiter) {
+                    Some((parent, leaf)) if parent.eq_ignore_ascii_case("INBOX") => leaf,
+                    Some(_) => return None,
+                    None => &entry.name,
+                },
+                None => &entry.name,
+            };
+            match leaf.to_lowercase().as_str() {
+                "trash" | "deleted items" | "deleted messages" | "lixo" | "itens eliminados" => {
+                    Some(MailboxRole::Trash)
+                }
+                "spam" | "junk" | "junk email" | "junk e-mail" | "correio não solicitado" => {
+                    Some(MailboxRole::Junk)
+                }
+                "sent" | "sent items" | "sent messages" | "enviados" | "itens enviados" => {
+                    Some(MailboxRole::Sent)
+                }
+                "drafts" | "rascunhos" => Some(MailboxRole::Drafts),
+                "archive" | "archives" | "arquivo" => Some(MailboxRole::Archive),
+                _ => None,
+            }
+        })
+        .collect();
+    for index in 0..entries.len() {
+        let Some(role) = candidates[index] else {
+            continue;
+        };
+        if !entries.iter().any(|entry| entry.role == role)
+            && candidates
+                .iter()
+                .filter(|candidate| **candidate == Some(role))
+                .count()
+                == 1
+        {
+            entries[index].role = role;
+        }
+    }
 }
 
 fn parent_of(name: &str, delimiter: Option<&str>) -> Option<String> {
