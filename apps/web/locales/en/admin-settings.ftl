@@ -590,10 +590,10 @@ admin-settings-help-security-protection-exempt-admins = Exact authenticated admi
 admin-settings-key-security-protection-storage-failure = Enforcement storage failure policy
 admin-settings-help-security-protection-storage-failure = Closed refuses protected work when an enabled enforcement budget cannot be checked. Open temporarily permits it with a bounded operational warning. Observe-only failures never impose an enforcement action.
 
-admin-settings-key-appearance-customCssEnabled = Allow personal appearance CSS
-admin-settings-help-appearance-customCssEnabled = Allow restricted visual styles in the owner’s workspace. Disabled by default; enforced mailbox appearance locks pause these styles.
-admin-settings-key-appearance-customJsEnabled = Allow personal appearance scripts
-admin-settings-help-appearance-customJsEnabled = Allow isolated scripts that can only request appearance changes. Disabled by default; scripts cannot access mail, account data, or the application DOM.
+admin-settings-key-appearance-custom-css-enabled = Allow personal appearance CSS
+admin-settings-help-appearance-custom-css-enabled = Allow restricted visual styles in the owner’s workspace. Disabled by default; enforced mailbox appearance locks pause these styles.
+admin-settings-key-appearance-custom-js-enabled = Allow personal appearance scripts
+admin-settings-help-appearance-custom-js-enabled = Allow isolated scripts that can only request appearance changes. Disabled by default; scripts cannot access mail, account data, or the application DOM.
 
 admin-settings-key-mail-modifier-selection = Message modifier-key selection
 admin-settings-help-mail-modifier-selection = Allow Ctrl, Command and Shift range selection. Lock this value to enforce it; visible selection controls remain available.
