@@ -1104,6 +1104,18 @@ const TABLES: &[TableSpec] = &[
             ]
         },
     },
+    TableSpec {
+        name: "package_provider",
+        select: "SELECT id,enabled,refresh_secs,sealed_key,revision FROM package_provider",
+        insert: "INSERT INTO package_provider(id,enabled,refresh_secs,sealed_key,revision) VALUES(?1,?2,?3,?4,?5)",
+        map: |r| vec![t(r,"id"),i(r,"enabled"),i(r,"refresh_secs"),b(r,"sealed_key"),t(r,"revision")],
+    },
+    TableSpec {
+        name: "package_account",
+        select: "SELECT account_id,state,revision FROM package_account",
+        insert: "INSERT INTO package_account(account_id,state,revision) VALUES(?1,?2,?3)",
+        map: |r| vec![t(r,"account_id"),t(r,"state"),t(r,"revision")],
+    },
     // `audit_log` and `twofa_policy` reference nothing and are referenced by
     // nothing, so their position is unconstrained; they go last rather than being
     // interleaved with the mail graph they have no part in.
