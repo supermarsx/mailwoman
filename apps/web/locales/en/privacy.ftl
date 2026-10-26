@@ -58,3 +58,8 @@ privacy-analytics-save-error = Consent could not be synchronized. This browser p
 privacy-analytics-saving = Saving consent…
 
 privacy-back-policies = Back to privacy policies
+
+privacy-image-downloads = Manual remote-image downloads
+privacy-image-download-help = If an image does not display, download a checked copy through this server. The server verifies that it belongs to this message and still applies its privacy and security rules. Client-decrypted images are not available here.
+privacy-image-download-ready = The image is ready and its download has started.
+privacy-image-download-failed = The image could not be downloaded. It may be unavailable or blocked by your privacy policy.

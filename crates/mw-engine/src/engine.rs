@@ -1212,6 +1212,38 @@ impl Engine {
         }))
     }
 
+    /// Owned HTML bodies for remote-reference authorization, with no backend fetch.
+    /// Bounds the sealed raw document before allocation and decoded HTML before copying.
+    pub async fn message_html_limited(
+        &self,
+        account_id: &str,
+        stable_id: &str,
+        raw_limit: usize,
+        html_limit: usize,
+    ) -> Result<Option<Vec<String>>> {
+        let Some(raw) = self.stored_raw_limited(account_id, stable_id, raw_limit).await? else {
+            return Ok(None);
+        };
+        tokio::task::spawn_blocking(move || {
+            let message = mail_parser::MessageParser::default().parse(&raw)
+                .ok_or_else(|| EngineError::Protocol("message body cannot be parsed".into()))?;
+            if message.html_body.len() > 64 {
+                return Err(EngineError::Unsupported("too many HTML body parts".into()));
+            }
+            let mut total = 0usize;
+            let mut bodies = Vec::new();
+            for index in 0..message.html_body.len() {
+                let Some(html) = message.body_html(index) else { continue; };
+                total = total.checked_add(html.len()).ok_or_else(|| EngineError::Unsupported("HTML body limit exceeded".into()))?;
+                if total > html_limit {
+                    return Err(EngineError::Unsupported("HTML body limit exceeded".into()));
+                }
+                bodies.push(html.into_owned());
+            }
+            Ok(Some(bodies))
+        }).await.map_err(|_| EngineError::Protocol("message body task failed".into()))?
+    }
+
     /// CID membership from the same bounded, account-scoped source as downloads.
     pub async fn inline_part_ids_limited(
         &self,

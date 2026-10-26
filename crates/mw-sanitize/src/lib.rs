@@ -128,9 +128,16 @@ struct BlockedResource {
 
 /// A remote image kept as placeholder `mw-rc:<index>`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct RemoteRef {
-    url: String,
-    tracker: bool,
+pub struct RemoteImageReference {
+    pub url: String,
+    pub tracker: bool,
+}
+
+/// References obtained from the sanitizer's own parse, never from input markers.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RemoteReferences {
+    pub images: Vec<RemoteImageReference>,
+    pub links: Vec<String>,
 }
 
 /// What one sanitize run records while ammonia walks the document. The attribute
@@ -140,9 +147,10 @@ struct RemoteRef {
 struct Recorded {
     opts: SanitizeOptions,
     blocked: Vec<BlockedResource>,
-    refs: Vec<RemoteRef>,
+    refs: Vec<RemoteImageReference>,
     /// `(original, cleaned)` for each link whose tracking parameters were removed.
     links: Vec<(String, String)>,
+    link_urls: Vec<String>,
 }
 
 impl Recorded {
@@ -152,6 +160,7 @@ impl Recorded {
             blocked: Vec::new(),
             refs: Vec::new(),
             links: Vec::new(),
+            link_urls: Vec::new(),
         }
     }
 
@@ -163,7 +172,7 @@ impl Recorded {
             && remote::is_http_url(url)
             && !(tracker && self.opts.block_trackers)
         {
-            self.refs.push(RemoteRef {
+            self.refs.push(RemoteImageReference {
                 url: url.trim().to_string(),
                 tracker,
             });
@@ -190,6 +199,12 @@ pub fn sanitize_email_html(input: &str) -> String {
 
 /// [`sanitize_email_html`] with the remote-content behaviour chosen by `opts`.
 pub fn sanitize_email_html_with(input: &str, opts: &SanitizeOptions) -> String {
+    sanitize_email_html_and_references(input, opts).0
+}
+
+/// Return the exact image/link references accepted by the same sanitizer pass.
+/// Callers handling untrusted remote bodies must bound input bytes beforehand.
+pub fn sanitize_email_html_and_references(input: &str, opts: &SanitizeOptions) -> (String, RemoteReferences) {
     // S9 side-channel: the attribute filter runs inside ammonia's single parse and
     // cannot ADD attributes to an element, so it records each stripped remote
     // `<img src>` (and, in placeholder mode, each kept reference and cleaned link)
@@ -281,11 +296,13 @@ pub fn sanitize_email_html_with(input: &str, opts: &SanitizeOptions) -> String {
             }
             return None;
         }
-        if element == "a" && attribute == "href" && rec.opts.clean_links {
-            if let Some(cleaned) = remote::clean_link(value) {
+        if element == "a" && attribute == "href" {
+            if rec.opts.clean_links && let Some(cleaned) = remote::clean_link(value) {
                 rec.links.push((value.to_string(), cleaned.clone()));
+                if remote::is_http_url(&cleaned) { rec.link_urls.push(cleaned.clone()); }
                 return Some(Cow::Owned(cleaned));
             }
+            if remote::is_http_url(value) { rec.link_urls.push(value.to_string()); }
             return Some(Cow::Borrowed(value));
         }
         if attribute == "style" {
@@ -362,7 +379,7 @@ pub fn sanitize_email_html_with(input: &str, opts: &SanitizeOptions) -> String {
         markers.push_str("\"></span>");
     }
 
-    if scoped_css.is_empty() && markers.is_empty() {
+    let html = if scoped_css.is_empty() && markers.is_empty() {
         body
     } else {
         let style = if scoped_css.is_empty() {
@@ -371,7 +388,9 @@ pub fn sanitize_email_html_with(input: &str, opts: &SanitizeOptions) -> String {
             format!("<style>{scoped_css}</style>")
         };
         format!("<div class=\"{CONTAINER_CLASS}\">{style}{body}{markers}</div>")
-    }
+    };
+    let references = RemoteReferences { images: std::mem::take(&mut rec.refs), links: std::mem::take(&mut rec.link_urls) };
+    (html, references)
 }
 
 /// Extract the lower-cased host from an absolute `http`/`https` URL (the only
@@ -1484,5 +1503,20 @@ mod tests {
         let out = sanitize_declaration_list("color:rgb(1, 2, 3); width:calc(100% - 10px)");
         assert!(out.contains("rgb("), "{out}");
         assert!(out.contains("calc("), "{out}");
+    }
+}
+
+#[cfg(test)]
+mod remote_reference_tests {
+    use super::*;
+    #[test]
+    fn references_come_from_accepted_resources_not_forged_markers() {
+        let source = r#"<img src="https://images.example/real.png?a=1&amp;b=2"><img src="https://images.example/pixel.png" width="1" height="1"><a href="https://files.example/report.pdf?utm_source=mail&amp;id=7">file</a><span data-mw-rc="0" data-mw-rc-url="https://attacker.example/fake.png"></span><a href="javascript:alert(1)">bad</a><img src="file:///private">"#;
+        let (_, refs) = sanitize_email_html_and_references(source, &SanitizeOptions { remote_images: RemoteImages::Placeholder, block_trackers: false, clean_links: true });
+        assert_eq!(refs.images.len(), 2);
+        assert_eq!(refs.images[0].url, "https://images.example/real.png?a=1&b=2");
+        assert!(!refs.images[0].tracker);
+        assert!(refs.images[1].tracker);
+        assert_eq!(refs.links, ["https://files.example/report.pdf?id=7"]);
     }
 }

@@ -287,6 +287,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 
 | Key | Category | Scopes | Default | Value | Environment | Hot | Read by |
 |---|---|---|---|---|---|---|---|
+| <a id="privacy.remoteimagedownloads"></a>`privacy.remoteImageDownloads` | privacy | global+domain+user | false | plain |  | yes | allow deliberate message image downloads through the guarded privacy proxy |
 | <a id="appearance.customcssenabled"></a>`appearance.customCssEnabled` | appearance | global | false | plain |  | yes | Allow owner-scoped appearance CSS; disabled by default and paused under enforced mailbox appearance locks |
 | <a id="appearance.customjsenabled"></a>`appearance.customJsEnabled` | appearance | global | false | plain |  | yes | Allow owner-written scripts in an opaque appearance-only worker sandbox; disabled by default |
 | <a id="mail.folderrole.inbox"></a>`mail.folderRole.inbox` | mail | global+domain+user | null | plain |  | yes | inbox folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder |

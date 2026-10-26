@@ -4,8 +4,8 @@ import { isNativeAuth, nativeServerBase } from './serverAddress.ts';
 export function remoteServerBase(): string { return isNativeAuth() ? nativeServerBase() ?? location.origin : location.origin + basePath(); }
 
 export type RemoteMode = 'block' | 'ask' | 'proxy' | 'direct';
-export interface RemotePolicy { mode: RemoteMode; trackers: boolean; cleanLinks: boolean; allowDirect: boolean; inlineParts?: boolean; locked: { mode: boolean; trackers: boolean; cleanLinks: boolean } }
-export interface SignedContent { images: { url: string; src: string }[]; parts: { blobId: string; src: string }[]; files: { url: string; src: string }[]; refused: { url?: string; blobId?: string; reason: string }[] }
+export interface RemotePolicy { mode: RemoteMode; trackers: boolean; cleanLinks: boolean; allowDirect: boolean; inlineParts?: boolean; remoteImageDownloads?: boolean; locked: { mode: boolean; trackers: boolean; cleanLinks: boolean } }
+export interface SignedContent { images: { url: string; src: string }[]; parts: { blobId: string; src: string }[]; files: { url: string; src: string }[]; imageDownloads?:{url:string;src:string}[]; refused: { url?: string; blobId?: string; reason: string }[] }
 export interface ReaderReferences { urls: string[]; cids: string[]; trackers: number; files: string[]; links: string[] }
 export const BLOCKED_POLICY: RemotePolicy = { mode: 'block', trackers: true, cleanLinks: true, allowDirect: false, locked: { mode: true, trackers: true, cleanLinks: true } };
 export const EMPTY_SIGNED: SignedContent = { images: [], parts: [], files: [], refused: [] };
@@ -18,8 +18,8 @@ export async function remotePolicy(): Promise<RemotePolicy> {
   if (!modes.includes(value.mode ?? '') || typeof value.trackers !== 'boolean' || typeof value.cleanLinks !== 'boolean' || typeof value.allowDirect !== 'boolean' || !value.locked || ['mode', 'trackers', 'cleanLinks'].some(k => typeof (value.locked as unknown as Record<string, unknown>)[k] !== 'boolean')) throw new Error('Invalid remote-content policy');
   return { ...value, mode: value.mode === 'direct' && !value.allowDirect ? 'ask' : value.mode } as RemotePolicy;
 }
-export async function signContent(emailId: string, refs: { urls?: string[]; parts?: string[]; files?: string[] }): Promise<SignedContent> {
-  const r = await apiFetch(withBase('/api/rc/sign'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ emailId, ...refs }) });
+export async function signContent(emailId: string, refs: { urls?: string[]; parts?: string[]; files?: string[];imageDownloads?:string[] }, expectedAccount?:string): Promise<SignedContent> {
+  const r = await apiFetch(withBase('/api/rc/sign'), { method: 'POST', headers: { 'Content-Type': 'application/json',...(expectedAccount?{'X-Mailwoman-Account':expectedAccount}:{}) }, body: JSON.stringify({ emailId, ...refs }) });
   if (!r.ok) throw new Error('Unable to authorize remote content');
   return await r.json() as SignedContent;
 }
@@ -39,7 +39,7 @@ export function readerReferences(html: string): ReaderReferences {
   return { urls, cids, files, links, trackers: doc.querySelectorAll('[data-mw-tracker]').length };
 }
 /** Signed URLs must remain in this server's narrow token endpoints. */
-export function signedSource(src: string, kind: 'i' | 'p' | 'f', base = remoteServerBase()): string | null {
+export function signedSource(src: string, kind: 'i' | 'p' | 'f' | 'd', base = remoteServerBase()): string | null {
   try { const server = new URL(base); const prefix = server.pathname.replace(/\/$/, '') + `/api/rc/${kind}/`; const url = new URL(src, server); return !url.username && !url.password && url.origin === server.origin && url.pathname.startsWith(prefix) && /^[A-Za-z0-9_.-]+$/.test(url.pathname.slice(prefix.length)) && !url.search && !url.hash ? url.href : null; } catch { return null; }
 }
 /** Replaces sanitizer placeholders only. Unapproved references remain inert. */

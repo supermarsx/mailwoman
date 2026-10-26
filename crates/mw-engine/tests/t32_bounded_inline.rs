@@ -79,6 +79,13 @@ async fn bounded_inline_parts_enforce_source_decoded_and_account_limits() {
             .is_none()
     );
     let engine = Engine::new(store);
+    let html = engine.message_html_limited(&account, &message, raw.len(), 1024).await.unwrap().unwrap();
+    assert_eq!(html.len(), 1);
+    assert!(html[0].contains("<img src=cid:logo>"));
+    assert!(engine.message_html_limited("other", &message, raw.len(), 1024).await.unwrap().is_none());
+    assert!(engine.message_html_limited(&account, &message, raw.len() - 1, 1024).await.unwrap().is_none());
+    assert!(engine.message_html_limited(&account, &message, raw.len(), 1).await.is_err());
+
     assert!(
         engine
             .inline_part_ids_limited(&account, &message, raw.len() - 1)

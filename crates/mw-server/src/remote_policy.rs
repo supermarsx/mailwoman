@@ -17,6 +17,7 @@ pub(crate) struct PrivacyPolicy {
     pub clean_links: bool,
     pub allow_direct: bool,
     pub inline_parts: bool,
+    pub remote_image_downloads: bool,
     pub locked: Locks,
     #[serde(skip)]
     pub max_bytes: usize,
@@ -69,6 +70,7 @@ pub(crate) async fn effective(
     let mut values = std::collections::BTreeMap::new();
     for key in [
         "privacy.remoteContent",
+        "privacy.remoteImageDownloads",
         "privacy.trackers",
         "privacy.cleanLinks",
         "privacy.allowDirect",
@@ -119,6 +121,7 @@ pub(crate) async fn effective(
         clean_links: boolean("privacy.cleanLinks"),
         allow_direct,
         inline_parts: state.engine.is_some(),
+        remote_image_downloads: boolean("privacy.remoteImageDownloads"),
         locked: Locks {
             mode: locked("privacy.remoteContent"),
             trackers: locked("privacy.trackers"),
@@ -152,13 +155,13 @@ pub(crate) struct ReaderFrameResponse;
 pub(crate) async fn frame() -> Response {
     use base64::Engine as _;
     use sha2::Digest;
-    const SCRIPT: &str = include_str!("remote-frame.js");
-    let hash = base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(SCRIPT));
+    let script = include_str!("remote-frame.js").replace("\r\n", "\n").replace('\r', "\n");
+    let hash = base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(script.as_bytes()));
     let csp = format!(
         "default-src 'none'; script-src 'sha256-{hash}'; style-src 'unsafe-inline'; frame-src 'self'; img-src 'self' https: data: blob:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
     );
     let html = format!(
-        "<!doctype html><html><head><meta charset=utf-8><meta name=referrer content=no-referrer><style>html,body{{margin:0;width:100%;height:100%;overflow:hidden}}</style></head><body><script>{SCRIPT}</script></body></html>"
+        "<!doctype html><html><head><meta charset=utf-8><meta name=referrer content=no-referrer><style>html,body{{margin:0;width:100%;height:100%;overflow:hidden}}</style></head><body><script>{script}</script></body></html>"
     );
     let mut response = (
         [

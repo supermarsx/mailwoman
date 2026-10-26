@@ -366,6 +366,7 @@ use Scopes::{
 
 /// Every registered key. Order is the admin screen's order within a category.
 pub static REGISTRY: &[SettingDef] = &[
+    def!("privacy.remoteImageDownloads", Kind::Bool, "false", GDU, "privacy", "allow deliberate message image downloads through the guarded privacy proxy"),
     def!("appearance.customCssEnabled", Kind::Bool, "false", G, "appearance", "Allow owner-scoped appearance CSS; disabled by default and paused under enforced mailbox appearance locks"),
     def!("appearance.customJsEnabled", Kind::Bool, "false", G, "appearance", "Allow owner-written scripts in an opaque appearance-only worker sandbox; disabled by default"),
     nullable(def!("mail.folderRole.inbox", Kind::FolderRole, "null", GDU, "mail", "inbox folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder")),

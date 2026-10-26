@@ -626,6 +626,7 @@ pub(crate) fn image_proxy_router() -> Router<AppState> {
         .route("/api/rc/i/{token}", get(remote_content::image))
         .route("/api/rc/p/{token}", get(remote_content::part))
         .route("/api/rc/f/{token}", get(remote_content::file))
+        .route("/api/rc/d/{token}", get(remote_content::image_download))
 }
 
 // ── SSRF refusal → HTTP ────────────────────────────────────────────────────────

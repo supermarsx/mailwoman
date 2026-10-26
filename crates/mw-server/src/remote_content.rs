@@ -75,6 +75,8 @@ const MAX_PART_RAW_BYTES: usize = 32 * 1024 * 1024;
 
 #[path = "remote_tracker_stats.rs"]
 mod tracker_stats;
+#[path = "remote_membership.rs"]
+mod membership;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -293,6 +295,9 @@ pub(crate) enum Kind {
     /// served only as a download.
     #[serde(rename = "f")]
     File,
+    /// A deliberately downloaded, decoded message image; never interchangeable with image display tokens.
+    #[serde(rename = "di")]
+    ImageDownload,
 }
 
 /// The signed claims. Short field names keep the URL short.
@@ -389,6 +394,8 @@ pub(crate) struct SignReq {
     parts: Vec<String>,
     #[serde(default)]
     files: Vec<String>,
+    #[serde(default)]
+    image_downloads: Vec<String>,
 }
 
 /// `POST /api/rc/sign {emailId, urls?, parts?, files?}` — signed paths for the
@@ -410,6 +417,11 @@ pub(crate) async fn sign(
         Ok(s) => s,
         Err(r) => return r,
     };
+    if !body.image_downloads.is_empty()
+        && headers.get("x-mailwoman-account").and_then(|value| value.to_str().ok()) != Some(session.account_id.as_str())
+    {
+        return (StatusCode::CONFLICT, Json(json!({"error":"accountChanged"}))).into_response();
+    }
     let policy = match crate::remote_policy::effective(&state, &session).await {
         Ok(p) => p,
         Err(r) => return r,
@@ -421,7 +433,7 @@ pub(crate) async fn sign(
         )
             .into_response();
     }
-    if body.urls.len() > MAX_SIGN || body.parts.len() > MAX_SIGN || body.files.len() > MAX_SIGN {
+    if body.urls.len() > MAX_SIGN || body.parts.len() > MAX_SIGN || body.files.len() > MAX_SIGN || body.image_downloads.len() > MAX_SIGN {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "too many references in one request" })),
@@ -444,6 +456,15 @@ pub(crate) async fn sign(
             Err(_) => return internal("remote-file message check"),
         }
     }
+
+    if !body.image_downloads.is_empty() && !policy.remote_image_downloads {
+        return forbidden("remote image downloads are disabled");
+    }
+    let references = if body.files.is_empty() && body.image_downloads.is_empty() { None } else {
+        match membership::owned(&state, &session, &body.email_id, policy.clean_links).await {
+            Ok(refs) => Some(refs), Err(response) => return response,
+        }
+    };
 
     let key = signing_key(&state);
     let now = now_secs();
@@ -490,11 +511,22 @@ pub(crate) async fn sign(
             refused.push(json!({ "url": url, "reason": "scheme" }));
             continue;
         }
-        let token = mint(&key, &claims(Kind::File, url, PART_TTL_SECS));
+        let Some(normalized) = membership::normalized_url(url).filter(|value| references.as_ref().is_some_and(|refs| refs.links.contains(value))) else {
+            refused.push(json!({"url":url,"reason":"message"})); continue;
+        };
+        let token = mint(&key, &claims(Kind::File, &normalized, PART_TTL_SECS));
         files.push(json!({
             "url": url,
             "src": format!("{}/api/rc/f/{token}", state.base_path),
         }));
+    }
+    let mut image_downloads = Vec::new();
+    for url in &body.image_downloads {
+        let Some(normalized) = membership::normalized_url(url) else { refused.push(json!({"url":url,"reason":"scheme"})); continue; };
+        let Some(tracker) = references.as_ref().and_then(|refs| refs.images.get(&normalized)) else { refused.push(json!({"url":url,"reason":"message"})); continue; };
+        if policy.trackers && *tracker { refused.push(json!({"url":url,"reason":"tracker"})); continue; }
+        let token = mint(&key, &claims(Kind::ImageDownload, &normalized, PART_TTL_SECS));
+        image_downloads.push(json!({"url":url,"src":format!("{}/api/rc/d/{token}",state.base_path)}));
     }
     let allowed_parts = if body.parts.is_empty() {
         Vec::new()
@@ -523,7 +555,7 @@ pub(crate) async fn sign(
             "src": format!("{}/api/rc/p/{token}", state.base_path),
         }));
     }
-    Json(json!({ "images": images, "parts": parts, "files": files, "refused": refused }))
+    Json(json!({ "images": images, "parts": parts, "files": files, "imageDownloads": image_downloads, "refused": refused }))
         .into_response()
 }
 
@@ -705,6 +737,10 @@ pub(crate) async fn image(
         return forbidden("tracker blocked by policy");
     }
 
+    fetch_image(state, session, claims, policy, headers).await
+}
+
+async fn fetch_image(state: AppState, session: mw_store::Session, claims: Claims, policy: crate::remote_policy::PrivacyPolicy, headers: HeaderMap) -> Response {
     let plan = match load_plan(&state.store).await {
         Ok(p) => p,
         Err(()) => return internal("egress route lookup"),
@@ -791,6 +827,30 @@ pub(crate) async fn image(
     if response.headers().get("x-mw-remote-content").is_some_and(|value| value == "tracker") {
         tracker_stats::record(&claims.a, &claims.s, &claims.e, &claims.u, claims.x);
     }
+    response
+}
+
+/// A manual, policy-enabled image download through the same guarded image decoder.
+pub(crate) async fn image_download(State(state): State<AppState>, UrlPath(token): UrlPath<String>, headers: HeaderMap) -> Response {
+    let (claims, session) = match admit(&state, &token, Kind::ImageDownload).await { Ok(value) => value, Err(response) => return response };
+    let current = match crate::authed(&state, &headers).await { Ok(value) => value, Err(response) => return response };
+    if current.id != session.id || current.account_id != session.account_id
+        || headers.get("x-mailwoman-account").is_some_and(|value| value.to_str().ok() != Some(session.account_id.as_str()))
+    {
+        return (StatusCode::CONFLICT, Json(json!({"error":"accountChanged"}))).into_response();
+    }
+    let policy = match crate::remote_policy::effective(&state, &session).await { Ok(value) => value, Err(response) => return response };
+    if !policy.remote_image_downloads { return forbidden("remote image downloads are disabled"); }
+    let refs = match membership::owned(&state, &session, &claims.e, policy.clean_links).await { Ok(value) => value, Err(response) => return response };
+    let Some(url) = membership::normalized_url(&claims.u) else { return forbidden("invalid image URL"); };
+    let Some(tracker) = refs.images.get(&url) else { return forbidden("URL is not an image in this message"); };
+    if policy.trackers && *tracker { return forbidden("tracker blocked by policy"); }
+    let mut response = fetch_image(state, session, claims, policy, HeaderMap::new()).await;
+    if !response.status().is_success() { return response; }
+    if response.headers().get("x-mw-remote-content").is_some_and(|value| value == "tracker") { return forbidden("tracker blocked by policy"); }
+    response.headers_mut().insert(header::CONTENT_DISPOSITION, HeaderValue::from_static("attachment; filename=\"message-image.png\""));
+    response.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
+    response.headers_mut().insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("sandbox; default-src 'none'"));
     response
 }
 
@@ -915,6 +975,12 @@ pub(crate) async fn file(
         Ok(Some(_)) => {}
         Ok(None) => return forbidden("no such message"),
         Err(()) => return internal("remote-file message check"),
+    }
+    let references = match membership::owned(&state, &session, &claims.e, policy.clean_links).await {
+        Ok(refs) => refs, Err(response) => return response,
+    };
+    if !membership::normalized_url(&claims.u).is_some_and(|url| references.links.contains(&url)) {
+        return forbidden("URL is not a link in this message");
     }
     let _permit = match fetch_semaphore().try_acquire() {
         Ok(p) => p,

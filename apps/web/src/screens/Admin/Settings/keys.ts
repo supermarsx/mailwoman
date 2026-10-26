@@ -126,6 +126,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'limit.send_per_hour',
   'limit.recipients_per_message',
   'privacy.remoteContent',
+  'privacy.remoteImageDownloads',
   'privacy.trackers',
   'privacy.cleanLinks',
   'privacy.maxBytes',

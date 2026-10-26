@@ -1,3 +1,4 @@
+import {RemoteImageDownloads} from './RemoteImageDownloads.tsx';
 import {SaveToNextcloud} from '../modules/nextcloud/SaveToNextcloud.tsx';
 import {
   createEffect,
@@ -690,7 +691,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     if(key===receiptDocumentKey()&&html===bodySrcdoc())setReceiptDisplayed({key,html});
   }
   const [privacy] = createResource(
-    () => app.accountId() && emailId() ? { account: app.accountId(), email: emailId(), values: ['privacy.remoteContent', 'privacy.trackers', 'privacy.cleanLinks'].map(key => settings()[key]?.value) } : null,
+    () => app.accountId() && emailId() ? { account: app.accountId(), email: emailId(), values: ['privacy.remoteContent', 'privacy.trackers', 'privacy.cleanLinks', 'privacy.remoteImageDownloads'].map(key => settings()[key]?.value) } : null,
     async () => { try { const p = await remotePolicy(); return isNativeAuth() && p.mode === 'direct' ? { ...p, mode: 'ask' as const, allowDirect: false } : p; } catch { return BLOCKED_POLICY; } },
   );
   const policy = (): RemotePolicy => settled(privacy) ?? BLOCKED_POLICY;
@@ -1024,6 +1025,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
             </Show>
             <Show when={fullMode() && policy().trackers && (policy().mode === 'proxy' || (policy().mode === 'ask' && activeGrant() !== null))}><DecodedTrackerCount emailId={email().id} scope={`${app.accountId()}:${email().id}`} loaded={frameLoads()} /></Show>
             <Show when={currentBody()?.refs.links.length}><RemoteFileDownloads emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={currentBody()?.refs.files ?? []} links={currentBody()?.refs.links ?? []} /></Show>
+            <RemoteImageDownloads emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={policy().remoteImageDownloads===true && armor()===null && decryptedHtml()===null && decryptedText()===null ? currentBody()?.refs.urls??[] : []}/>
             <Show when={currentBody()?.failed}><p role="alert">{t('privacy-content-failed')}</p></Show>
             <Show
               when={showDecrypt()}

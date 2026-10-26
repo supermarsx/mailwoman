@@ -22,7 +22,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{Value, json};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -175,6 +175,8 @@ async fn spawn_mock() -> String {
                         for email in list {
                             if email["id"] == "e1" {
                                 email["bodyStructure"] = json!({"type":"multipart/related","subParts":[{"blobId":"Mblob1","cid":"logo@example.test","type":"image/png"}]});
+                                email["htmlBody"] = json!([{"partId":"html","type":"text/html"}]);
+                                email["bodyValues"] = json!({"html":{"value":"<a href='http://1.2.3.4/dl/report.html'>Report</a><img src='http://1.2.3.4/download-image.png'><img src='http://1.2.3.4/download-svg.svg'><img src='http://1.2.3.4/declared-pixel.png' width='1' height='1'>","isTruncated":false,"isEncodingProblem":false}});
                             }
                         }
                     }
@@ -285,6 +287,7 @@ fn claims_of(token: &str) -> Value {
 struct Fixture {
     base: String,
     user: reqwest::Client,
+    admin: reqwest::Client,
     anon: reqwest::Client,
     email_id: String,
     account: String,
@@ -359,6 +362,8 @@ async fn fixture(proxy: SocketAddr, tag: &str) -> Fixture {
             .await
             .unwrap()
     };
+    // Console and mailbox sign-ins share the trusted-client cooldown.
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     // The route that carries remote content: the stand-in proxy.
     let admin = reqwest::Client::builder()
         .no_proxy()
@@ -371,7 +376,10 @@ async fn fixture(proxy: SocketAddr, tag: &str) -> Fixture {
         .send()
         .await
         .unwrap();
-    assert_eq!(login.status(), 200);
+    assert_eq!(login.status(), 200, "{}", login.text().await.unwrap());
+    let proof = admin.post(format!("{base}/admin/step-up"))
+        .json(&json!({"password":"rc-fixture-password"})).send().await.unwrap();
+    assert_eq!(proof.status(), 200, "{}", proof.text().await.unwrap());
     for (path, body) in [
         (
             "/admin/egress/proxies".to_string(),
@@ -395,6 +403,7 @@ async fn fixture(proxy: SocketAddr, tag: &str) -> Fixture {
     Fixture {
         base,
         user,
+        admin,
         anon: reqwest::Client::builder().no_proxy().build().unwrap(),
         email_id,
         account,
@@ -590,6 +599,7 @@ async fn reader_bridge_has_one_independent_policy_while_shell_stays_restricted()
     assert!(csp.contains("script-src 'sha256-"));
     assert!(csp.contains("frame-ancestors 'self'"));
     assert!(!csp.contains("connect-src"));
+    let csp = csp.to_owned();
     assert_eq!(response.headers()["x-frame-options"], "SAMEORIGIN");
     assert_eq!(
         response.headers()["cross-origin-embedder-policy"],
@@ -601,6 +611,10 @@ async fn reader_bridge_has_one_independent_policy_while_shell_stays_restricted()
     );
     let html = response.text().await.unwrap();
     assert!(html.contains("mw-reader-ready"));
+    let script = html.split_once("<script>").unwrap().1.split_once("</script>").unwrap().0;
+    let normalized = script.replace("\r\n", "\n").replace('\r', "\n");
+    let digest = base64::engine::general_purpose::STANDARD.encode(Sha256::digest(normalized.as_bytes()));
+    assert!(csp.contains(&format!("'sha256-{digest}'")), "CSP hashes the HTML parser's normalized script bytes");
     let shell = f.anon.get(format!("{}/", f.base)).send().await.unwrap();
     assert_eq!(shell.headers()["x-frame-options"], "DENY");
     assert_eq!(
@@ -889,7 +903,7 @@ async fn a_linked_file_downloads_through_the_server_and_is_never_rendered() {
     let (status, signed) = f
         .user
         .post(format!("{}/api/rc/sign", f.base))
-        .json(&json!({ "emailId": f.email_id, "files": ["http://1.2.3.4/dl/report.html", "file:///etc/passwd"] }))
+        .json(&json!({ "emailId": "e1", "files": ["http://1.2.3.4/dl/report.html", "file:///etc/passwd"] }))
         .send()
         .await
         .map(|r| (r.status().as_u16(), r))
@@ -1237,4 +1251,72 @@ async fn message_tracker_stats_require_session_and_owned_message_and_start_at_ze
         stats,
         json!({"decodedTrackersReplaced":0,"limited":false,"windowSecs":3600})
     );
+}
+
+#[tokio::test]
+async fn manual_image_downloads_require_policy_and_real_message_membership_at_every_use() {
+    let (proxy, seen) = standin_proxy(vec![("image/png".into(), png(4,4)), ("image/svg+xml".into(), b"<svg/>".to_vec())]).await;
+    let f = fixture(proxy, "mw-rc-image-download").await;
+    let endpoint = format!("{}/api/rc/sign", f.base);
+    let body = json!({"emailId":"e1","imageDownloads":["http://1.2.3.4/download-image.png","http://1.2.3.4/not-in-message.png","http://1.2.3.4/declared-pixel.png","http://1.2.3.4/download-svg.svg"]});
+    assert_eq!(f.user.post(&endpoint).header("x-mailwoman-account", &f.account).json(&body).send().await.unwrap().status(),403);
+    assert_eq!(seen.lock().unwrap().connections,0);
+    async fn enable(f: &Fixture, value: bool) {
+        let url = format!("{}/admin/settings/privacy.remoteImageDownloads", f.base);
+        let current = f.admin.get(&url).send().await.unwrap();
+        let tag = current.headers()["etag"].to_str().unwrap().to_owned();
+        let response = f.admin.put(url).header("if-match",tag).json(&json!({"globalValue":value})).send().await.unwrap();
+        assert_eq!(response.status(),200,"{}",response.text().await.unwrap());
+    }
+    enable(&f,true).await;
+    assert_eq!(f.user.post(&endpoint).json(&body).send().await.unwrap().status(),409);
+    assert_eq!(f.user.post(&endpoint).header("x-mailwoman-account","foreign").json(&body).send().await.unwrap().status(),409);
+    let response = f.user.post(&endpoint).header("x-mailwoman-account", &f.account).json(&body).send().await.unwrap();
+    assert_eq!(response.status(),200);
+    let signed: Value = response.json().await.unwrap();
+    assert_eq!(signed["imageDownloads"].as_array().unwrap().len(),2,"{signed}");
+    assert_eq!(signed["refused"][0]["reason"],"message");
+    assert_eq!(signed["refused"][1]["reason"],"tracker");
+    let image = signed["imageDownloads"][0]["src"].as_str().unwrap();
+    assert_eq!(f.load(&image.replace("/api/rc/d/","/api/rc/i/")).await.status(),403);
+    assert_eq!(f.load(image).await.status(),401,"manual download requires the current authenticated account");
+    assert_eq!(f.user.get(format!("{}{image}",f.base)).header("x-mailwoman-account","foreign").send().await.unwrap().status(),409);
+    let loaded = f.user.get(format!("{}{image}",f.base)).send().await.unwrap();
+    assert_eq!(loaded.status(),200);
+    assert_eq!(loaded.headers()["content-disposition"],"attachment; filename=\"message-image.png\"");
+    assert_eq!(loaded.headers()["content-type"],"image/png");
+    assert!(loaded.bytes().await.unwrap().starts_with(b"\x89PNG\r\n\x1a\n"));
+    assert_eq!(seen.lock().unwrap().connections,1);
+    // Even another valid session with the same provider-local account ID cannot
+    // redeem a token minted for this browser's authority.
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    let other = reqwest::Client::builder().cookie_store(true).no_proxy().build().unwrap();
+    let login = other.post(format!("{}/api/login", f.base))
+        .json(&json!({"username":mw_mock_jmap::USER,"password":mw_mock_jmap::PASS}))
+        .send().await.unwrap();
+    assert_eq!(login.status(),200,"{}",login.text().await.unwrap());
+    assert_eq!(other.get(format!("{}{image}",f.base)).send().await.unwrap().status(),409);
+    assert_eq!(seen.lock().unwrap().connections,1);
+    let file = f.user.post(&endpoint).json(&json!({"emailId":"e1","files":["http://1.2.3.4/not-in-message.zip"]})).send().await.unwrap().json::<Value>().await.unwrap();
+    assert_eq!(file["files"].as_array().unwrap().len(),0);
+    assert_eq!(file["refused"][0]["reason"],"message");
+    assert_eq!(seen.lock().unwrap().connections,1);
+    let svg = signed["imageDownloads"][1]["src"].as_str().unwrap();
+    assert_eq!(f.user.get(format!("{}{svg}",f.base)).send().await.unwrap().status(),415);
+    assert_eq!(seen.lock().unwrap().connections,2);
+    enable(&f,false).await;
+    assert_eq!(f.user.get(format!("{}{image}",f.base)).send().await.unwrap().status(),403,"cached image cannot bypass the current download policy");
+    assert_eq!(seen.lock().unwrap().connections,2);
+    enable(&f,true).await;
+    // The signing secret is available only to this test: forge a valid token for
+    // an absent URL, proving redemption rechecks membership rather than trusting it.
+    let mut claims = claims_of(&token_of(image));
+    claims["u"] = json!("http://1.2.3.4/retargeted.png");
+    let forged = mint(&claims);
+    assert_eq!(f.user.get(format!("{}/api/rc/d/{forged}",f.base)).send().await.unwrap().status(),403);
+    assert_eq!(seen.lock().unwrap().connections,2);
+    claims["k"] = json!("f");
+    let forged_file = mint(&claims);
+    assert_eq!(f.load(&format!("/api/rc/f/{forged_file}")).await.status(),403,"linked files also recheck exact message membership at redemption");
+    assert_eq!(seen.lock().unwrap().connections,2);
 }
