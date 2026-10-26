@@ -31,6 +31,8 @@ pub(crate) async fn public_config(
                 | "appearance.accent"
                 | "login.notice"
                 | "login.showDomainHint"
+                | "login.rememberSignins"
+                | "login.showRememberedHint"
                 | "signin.retryCooldownSecs"
         )
     })
@@ -69,6 +71,8 @@ pub(crate) async fn public_config(
         "brandName":branding["brandName"], "theme":value("appearance.theme"),
         "accent":value("appearance.accent"), "loginNotice":branding["loginNotice"],
         "usernameDomainHint":hint, "showDomainHint":value("login.showDomainHint"),
+        "rememberSignins":value("login.rememberSignins"),
+        "showRememberedHint":value("login.showRememberedHint"),
         "logoUrl":branding["assets"]["logoUrl"], "faviconUrl":branding["assets"]["faviconUrl"],
         "loginBackgroundUrl":branding["assets"]["loginBackgroundUrl"],
     }))

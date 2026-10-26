@@ -1,6 +1,6 @@
 import { SigninChallenge } from '../components/SigninChallenge.tsx';
 import { LoginTimeoutError } from '../api/loginTimeout.ts';
-import { rememberedSignins, forgetSignin } from '../api/rememberedSignins.ts';
+import { rememberedSignins, forgetSignin, clearRememberedSignins } from '../api/rememberedSignins.ts';
 import { Icon } from '../components/Icon.tsx';
 import * as rememberedCss from './rememberedSignins.css.ts';
 import { createSignal, onMount, onCleanup, For, Show, type JSX } from 'solid-js';
@@ -44,12 +44,12 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
   const [verificationProof, setVerificationProof] = createSignal<string>();
   const [verificationReset, setVerificationReset] = createSignal(0);
   const needsVerification = () => config()?.antiBot?.mailbox === true;
-  onMount(() => { void publicConfig().then(value => { setConfig(value); applyBranding(value); }).catch(() => undefined); });
+  onMount(() => { void publicConfig().then(value => { setConfig(value); applyBranding(value); if (value.rememberSignins === false) clearRememberedSignins(); setRemembered(value.rememberSignins === true ? rememberedSignins() : []); }).catch(() => undefined); });
   const [email, setEmail] = createSignal('');
   const [rememberedOpen, setRememberedOpen] = createSignal(false);
   let usernameInput: HTMLInputElement | undefined;
-  const [remembered, setRemembered] = createSignal(rememberedSignins());
-  onMount(() => { const update = (): void => { setRemembered(rememberedSignins()); }; window.addEventListener('storage', update); onCleanup(() => window.removeEventListener('storage', update)); });
+  const [remembered, setRemembered] = createSignal<string[]>([]);
+  onMount(() => { const update = (): void => { setRemembered(config()?.rememberSignins === true ? rememberedSignins() : []); }; window.addEventListener('storage', update); onCleanup(() => window.removeEventListener('storage', update)); });
   const [password, setPassword] = createSignal('');
   const [error, setError] = createSignal<string | null>(ssoErrorReturn() ? t('auth-sso-error') : null);
   const [busy, setBusy] = createSignal(false);
@@ -191,8 +191,8 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
           <Show when={remembered().length}><button type="button" class={rememberedCss.toggle} disabled={busy()} aria-label={t('auth-remembered')} aria-expanded={rememberedOpen()} aria-controls="remembered-signins" onClick={() => setRememberedOpen(value => !value)}><Icon name="chevronDown" /></button></Show>
           </div>
           <Show when={rememberedOpen() && remembered().length}><div id="remembered-signins" class={rememberedCss.container}>
-            <p class="login__hint">{t('auth-remembered-help')}</p>
-            <ul class={rememberedCss.list}><For each={remembered()}>{address => <li class={rememberedCss.row}><button type="button" class={`btn btn--ghost ${rememberedCss.address}`} disabled={busy()} onClick={() => { setEmail(address); setPassword(''); setRememberedOpen(false); usernameInput?.focus(); }}><Icon name="mail" /><span>{address}</span></button><button type="button" class="btn btn--ghost" disabled={busy()} aria-label={t('auth-forget-address', {address})} onClick={() => { forgetSignin(address); setRemembered(rememberedSignins()); usernameInput?.focus(); }}><Icon name="delete" /></button></li>}</For></ul>
+            <Show when={config()?.showRememberedHint === true}><p class="login__hint">{t('auth-remembered-help')}</p></Show>
+            <ul class={rememberedCss.list}><For each={remembered()}>{address => <li class={rememberedCss.row}><button type="button" class={`btn btn--ghost ${rememberedCss.address}`} disabled={busy()} onClick={() => { setEmail(address); setPassword(''); setRememberedOpen(false); usernameInput?.focus(); }}><Icon name="mail" /><span>{address}</span></button><button type="button" class={rememberedCss.remove} disabled={busy()} data-tooltip={t('auth-forget-address', {address})} aria-label={t('auth-forget-address', {address})} onClick={() => { forgetSignin(address); setRemembered(rememberedSignins()); usernameInput?.focus(); }}><Icon name="delete" /></button></li>}</For></ul>
           </div></Show>
         </div>
         <Show when={config()?.showDomainHint === true ? config()?.usernameDomainHint : null}>{(domain) => <p id="login-domain-hint" class="login__hint">{t('auth-domain-hint', { domain: domain() })}</p>}</Show>

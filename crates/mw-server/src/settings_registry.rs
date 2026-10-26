@@ -305,7 +305,7 @@ impl SettingDef {
 }
 
 /// Global-only keys a signed-in user may still read (branding the client shows).
-const PUBLIC_KEYS: &[&str] = &["appearance.brandName", "login.notice", "login.showDomainHint"];
+const PUBLIC_KEYS: &[&str] = &["appearance.brandName", "login.notice", "login.showDomainHint", "login.rememberSignins", "login.showRememberedHint"];
 
 /// The admin route (console-path suffix) that owns `signin.newUsers`,
 /// `signin.domainMode` and `signin.refusalDetail` (e66): those writes need
@@ -663,6 +663,8 @@ pub static REGISTRY: &[SettingDef] = &[
         "appearance",
         "public config preferred-domain hint visibility"
     ),
+    def!("login.rememberSignins", Kind::Bool, "true", G, "appearance", "allow this browser to remember successful sign-in addresses; never credentials"),
+    def!("login.showRememberedHint", Kind::Bool, "false", G, "appearance", "show explanatory text for remembered sign-in addresses"),
     nullable(def!(
         "login.notice",
         text(Text::Plain, 500),
@@ -2181,6 +2183,19 @@ mod tests {
 
     fn no_env(_: &str) -> Option<String> {
         None
+    }
+
+    #[test]
+    fn remembered_signin_policies_are_public_global_booleans() {
+        for (key, default) in [("login.rememberSignins", "true"), ("login.showRememberedHint", "false")] {
+            let def = lookup(key).unwrap();
+            assert_eq!(def.default, default);
+            assert_eq!(def.scopes, Scopes::Global);
+            assert!(def.user_visible());
+            assert!(!def.user_override);
+            assert!(validate(def, &serde_json::json!(true), "/value").is_ok());
+            assert!(validate(def, &serde_json::json!("true"), "/value").is_err());
+        }
     }
 
     #[test]

@@ -624,3 +624,8 @@ admin-settings-key-metrics-default-range-seconds = Default request history range
 admin-settings-help-metrics-default-range-seconds = Seconds shown when a history request does not specify a range. Limited by retention and the maximum range.
 admin-settings-key-metrics-max-range-seconds = Maximum request history range
 admin-settings-help-metrics-max-range-seconds = Maximum seconds per history query. Retention remains an additional limit.
+
+admin-settings-key-login-remember-signins = Remember successful sign-in addresses
+admin-settings-help-login-remember-signins = Keep up to ten successfully used usernames or email addresses on this device for the sign-in dropdown. Never saves passwords or sessions. Disabling removes this server's saved addresses when a device next loads the sign-in page or completes sign-in; it does not control the browser's own autofill.
+admin-settings-key-login-show-remembered-hint = Show saved-address explanation
+admin-settings-help-login-show-remembered-hint = Show explanatory text in the previous-sign-ins dropdown. Hidden by default. Only applies when remembering successful sign-ins is enabled.

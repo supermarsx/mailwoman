@@ -384,6 +384,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="appearance.font"></a>`appearance.font` | appearance | global+domain+user | "default" | plain |  | yes | self-hosted interface font; account choice or administrator default/lock |
 | <a id="appearance.brandname"></a>`appearance.brandName` | appearance | global | "Mailwoman" | plain |  | yes | public config brand name |
 | <a id="login.showdomainhint"></a>`login.showDomainHint` | appearance | global | false | plain |  | yes | public config preferred-domain hint visibility |
+| <a id="login.remembersignins"></a>`login.rememberSignins` | appearance | global | true | plain |  | yes | allow this browser to remember successful sign-in addresses; never credentials |
+| <a id="login.showrememberedhint"></a>`login.showRememberedHint` | appearance | global | false | plain |  | yes | show explanatory text for remembered sign-in addresses |
 | <a id="login.notice"></a>`login.notice` | appearance | global | null | plain |  | yes | public config sign-in notice |
 | <a id="receipts.dsnallowed"></a>`receipts.dsnAllowed` | mail | global+domain+admin_user | true | plain |  | yes | Allow delivery status notification requests at SMTP submission |
 | <a id="mail.readreceipts"></a>`mail.readReceipts` | mail | global+domain+user | "ask" | plain |  | yes | mdn_policy:<account> (MDN/send) |

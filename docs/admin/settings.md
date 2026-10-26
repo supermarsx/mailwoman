@@ -633,6 +633,16 @@ Automatic colors adapt in dark themes and preserve original colors in light them
 
 Global boolean, default `false`. Shows the preferred-domain hint below Email or username on the sign-in page when enabled. Hiding this hint does not change username routing or authentication.
 
+<a id="login.rememberSignins"></a>
+### `login.rememberSignins`
+
+Global boolean, default `true`. Allows this browser to remember successful sign-in addresses for later selection. Only addresses are remembered, never passwords, tokens or other credentials. The public sign-in configuration exposes `rememberSignins`; when it is false, the client clears remembered addresses and stops recording them. This does not change session lifetime or authentication requirements.
+
+<a id="login.showRememberedHint"></a>
+### `login.showRememberedHint`
+
+Global boolean, default `false`. Controls explanatory text beside remembered sign-in addresses. The public sign-in configuration exposes `showRememberedHint`. Enabling this hint does not enable remembering when `login.rememberSignins` is false.
+
 <a id="signin.retryCooldownSecs"></a>
 ### `signin.retryCooldownSecs`
 Global initial password sign-in cooldown, 0–300 seconds, default 3. Applies to mailbox/native and administrator login using the trusted client IP (IPv6 /64). MFA continuation and administrator session expiry are unchanged. Refusals return 429 with Retry-After. Bounded process-local state resets on restart and is independent per replica. Existing failure bans remain in force.

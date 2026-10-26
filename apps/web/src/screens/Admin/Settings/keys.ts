@@ -153,6 +153,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'appearance.brandName',
   'login.notice',
   'login.showDomainHint',
+  'login.rememberSignins',
+  'login.showRememberedHint',
   'mail.readReceipts',
   'receipts.dsnAllowed',
   'notifications.enabled',

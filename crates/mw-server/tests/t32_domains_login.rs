@@ -331,6 +331,8 @@ async fn host_mapping_expands_bare_name_and_untrusted_forwarded_host_is_ignored(
     let public: Value = public.json().await.unwrap();
     assert!(public["usernameDomainHint"].is_null());
     assert_eq!(public["showDomainHint"], false);
+    assert_eq!(public["rememberSignins"], true);
+    assert_eq!(public["showRememberedHint"], false);
     let allowed = [
         "brandName",
         "theme",
@@ -338,12 +340,15 @@ async fn host_mapping_expands_bare_name_and_untrusted_forwarded_host_is_ignored(
         "loginNotice",
         "usernameDomainHint",
         "showDomainHint",
+        "rememberSignins",
+        "showRememberedHint",
         "retryCooldownSecs",
         "logoUrl",
         "faviconUrl",
         "loginBackgroundUrl",
         "antiBot",
     ];
+    assert_eq!(public.as_object().unwrap().len(), allowed.len());
     assert!(
         public
             .as_object()
@@ -368,6 +373,12 @@ async fn host_mapping_expands_bare_name_and_untrusted_forwarded_host_is_ignored(
         })
         .await
         .unwrap();
+    for (key, value) in [("login.rememberSignins", "false"), ("login.showRememberedHint", "true")] {
+        store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: key.into(), global_value: Some(value.into()), allow_user_override: false,
+            global_locked: false, updated_by: "test".into(), updated_at: 2,
+        }).await.unwrap();
+    }
     let opted_in: Value = client
         .get(format!("{base}/api/public-config"))
         .header("host", "mail.test")
@@ -379,6 +390,10 @@ async fn host_mapping_expands_bare_name_and_untrusted_forwarded_host_is_ignored(
         .unwrap();
     assert_eq!(opted_in["usernameDomainHint"], "mapped.test");
     assert_eq!(opted_in["showDomainHint"], true);
+    assert_eq!(opted_in["rememberSignins"], false);
+    assert_eq!(opted_in["showRememberedHint"], true);
+    assert_eq!(opted_in.as_object().unwrap().len(), allowed.len());
+    assert!(opted_in.as_object().unwrap().keys().all(|key| allowed.contains(&key.as_str())));
     let response = client
         .post(format!("{base}/api/login"))
         .header("host", "mail.test")

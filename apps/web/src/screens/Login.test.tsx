@@ -425,6 +425,7 @@ describe('Login › native shell', () => {
 
 describe('Successful sign-in addresses and timeout feedback', () => {
   it('remembers the server-confirmed address only after success', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({rememberSignins:true}))));
     renderLogin(fakeClient());
     fireEvent.input(screen.getByLabelText('Email or username'), {target:{value:'typed@example.org'}});
     fireEvent.input(screen.getByLabelText('Password'), {target:{value:'private-password'}});
@@ -442,18 +443,35 @@ describe('Successful sign-in addresses and timeout feedback', () => {
     expect(rememberedSignins()).toEqual([]);
     expect(login).toHaveBeenCalledOnce();
   });
-  it('fills only the remembered address and lets the user forget it', () => {
+  it('fills only the remembered address and lets the user forget it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({rememberSignins:true}))));
     rememberSuccessfulSignin('alice@example.test');
     renderLogin(fakeClient());
     fireEvent.input(screen.getByLabelText('Password'), {target:{value:'old-password'}});
-    fireEvent.click(screen.getByRole('button', {name:'Previous sign-ins'}));
+    fireEvent.click(await screen.findByRole('button', {name:'Previous sign-ins'}));
+    expect(screen.queryByText(/Addresses used successfully/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button',{name:'alice@example.test'}));
     expect(screen.getByLabelText('Email or username')).toHaveValue('alice@example.test');
     expect(screen.getByLabelText('Password')).toHaveValue('');
     expect(screen.queryByRole('button', {name:'alice@example.test'})).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', {name:'Previous sign-ins'}));
+    fireEvent.click(await screen.findByRole('button', {name:'Previous sign-ins'}));
     fireEvent.click(screen.getByRole('button',{name:/Forget.*alice@example.test/}));
     expect(rememberedSignins()).toEqual([]);
     expect(screen.queryByText('Previous sign-ins')).not.toBeInTheDocument();
   });
+});
+
+it('hides and purges saved addresses when the administrator disables remembering', async () => {
+  rememberSuccessfulSignin('alice@example.test');
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({rememberSignins:false,showRememberedHint:true}))));
+  renderLogin(fakeClient());
+  await vi.waitFor(() => expect(rememberedSignins()).toEqual([]));
+  expect(screen.queryByRole('button',{name:'Previous sign-ins'})).not.toBeInTheDocument();
+});
+it('shows the optional saved-address explanation only when enabled', async () => {
+  rememberSuccessfulSignin('alice@example.test');
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({rememberSignins:true,showRememberedHint:true}))));
+  renderLogin(fakeClient());
+  fireEvent.click(await screen.findByRole('button',{name:'Previous sign-ins'}));
+  expect(screen.getByText(/Addresses used successfully/)).toBeInTheDocument();
 });

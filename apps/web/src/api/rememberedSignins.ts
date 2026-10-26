@@ -1,3 +1,4 @@
+import { publicConfig } from './publicConfig.ts';
 import { basePath } from './basePath.ts';
 import { nativeServerBase } from './serverAddress.ts';
 
@@ -18,3 +19,16 @@ export function rememberSuccessfulSignin(username: string): void {
   if (valid(address)) save([address, ...rememberedSignins().filter(item => item !== address)].slice(0, MAX_ADDRESSES));
 }
 export function forgetSignin(address: string): void { save(rememberedSignins().filter(item => item !== address)); }
+
+/** Purge only this server's local address history when its policy disables it. */
+export function clearRememberedSignins(): void { try { localStorage.removeItem(key()); } catch { /* Storage may be disabled. */ } }
+/** Fail closed if current public policy cannot be fetched; never delay sign-in. */
+export async function rememberSuccessfulSigninIfAllowed(username: string): Promise<void> {
+  const serverKey = key();
+  try {
+    const policy = await publicConfig();
+    if (serverKey !== key()) return;
+    if (policy.rememberSignins === false) clearRememberedSignins();
+    else if (policy.rememberSignins === true) rememberSuccessfulSignin(username);
+  } catch { /* A configuration outage must not save an identifier or break sign-in. */ }
+}

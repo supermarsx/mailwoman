@@ -3,6 +3,8 @@ import { transportBase } from './transport.ts';
 
 export interface PublicConfig {
   brandName: string;
+  rememberSignins?: boolean;
+  showRememberedHint?: boolean;
   logoUrl?: string | null;
   faviconUrl?: string | null;
   loginBackgroundUrl?: string | null;
