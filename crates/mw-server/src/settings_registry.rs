@@ -749,6 +749,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("signin.antiBotMode", Kind::Enum(&["off", "mailbox", "admin", "all"]), "\"off\"", G, "signin", "initial sign-in proof-of-work policy"),
     def!("signin.antiBotDifficulty", int(100, 20000), "2000", G, "signin", "maximum proof-of-work solver counter"),
     def!("signin.antiBotExpirySecs", int(60, 600), "180", G, "signin", "single-use challenge lifetime"),
+    def!("security.signin.geoEnforceSessions", Kind::Bool, "false", G, "security", "also check current source country on authenticated requests"),
     def!("security.signin.geoScope", Kind::Enum(&["off", "mailbox", "admin", "all"]), "\"off\"", G, "security", "country policy applies only to new sign-ins"),
     def!("security.signin.geoMode", Kind::Enum(&["allow", "deny"]), "\"allow\"", G, "security", "allow only listed countries or deny listed countries"),
     def!("security.signin.geoCountries", Kind::StringList { max_len: 249, max_item: 2 }, "[]", G, "security", "uppercase two-letter country codes"),

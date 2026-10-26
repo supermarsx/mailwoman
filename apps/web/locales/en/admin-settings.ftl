@@ -533,3 +533,6 @@ admin-settings-help-mail-folder-role-archive = Null uses automatic discovery. Us
 
 admin-settings-key-mail-request-delivery-receipt = Request delivery notifications by default
 admin-settings-help-mail-request-delivery-receipt = Select delivery notifications for new messages when the account supports SMTP DSN. Locking controls this saved default; receipts.dsnAllowed separately governs whether requests are permitted. Delivery does not prove reading.
+
+admin-settings-key-security-signin-geo-enforce-sessions = Enforce country policy on existing sessions
+admin-settings-help-security-signin-geo-enforce-sessions = Off by default. Apply the configured sign-in country scope to authenticated requests, native bearer access and signed reader content. Blocked clients can still sign out. Already-open streams are checked when they reconnect; this does not terminate existing connections.

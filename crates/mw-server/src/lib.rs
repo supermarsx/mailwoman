@@ -1533,6 +1533,7 @@ fn router(
             state.clone(),
             state_change_guard,
         ))
+        .layer(middleware::from_fn_with_state(state.clone(), signin_geography::session_guard))
         .layer(middleware::from_fn_with_state(state.clone(), source_bans::guard))
         // V5 (plan §2.2; t31 D10): CORS/preflight for the native shell origins
         // (the Tauri origins plus `MW_NATIVE_ORIGINS`). Any other origin passes

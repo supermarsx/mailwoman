@@ -60,6 +60,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'mail.quoteStyle',
   'mail.externalRecipientWarning',
   'mail.trustedRecipientDomains',
+  'security.signin.geoEnforceSessions',
   'security.signin.geoScope',
   'security.signin.geoMode',
   'security.signin.geoCountries',

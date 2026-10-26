@@ -280,6 +280,125 @@ async fn geography_uses_trusted_source_and_stops_before_upstream() {
             .is_none(),
         "country refusals are not rejected credentials"
     );
+    // Existing mixed mailbox/admin cookies are scoped by the requested surface.
+    assert_eq!(
+        trusted
+            .get(format!("{base}/api/me"))
+            .header("x-forwarded-for", "81.2.69.160")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    setting(&store, "security.signin.geoEnforceSessions", json!(true)).await;
+    setting(&store, "security.signin.geoScope", json!("mailbox")).await;
+    let blocked = trusted
+        .get(format!("{base}/api/me"))
+        .header("x-forwarded-for", "81.2.69.160")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(blocked.status(), 403);
+    assert_eq!(blocked.headers()["cache-control"], "private, no-store");
+    assert_eq!(
+        blocked.json::<Value>().await.unwrap()["code"],
+        "sessionGeographyDenied"
+    );
+    assert_eq!(
+        trusted
+            .get(format!("{base}/admin/me"))
+            .header("x-forwarded-for", "81.2.69.160")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    // Cookieless signed reader authority cannot skip source policy.
+    setting(&store, "security.signin.geoUnknown", json!("deny")).await;
+    let invalid = untrusted
+        .get(format!("{base}/api/rc/p/untrusted-token"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), 403);
+    assert_ne!(
+        invalid.json::<Value>().await.unwrap()["code"],
+        "sessionGeographyDenied"
+    );
+    use hmac::{Hmac, KeyInit, Mac};
+    let key = store.derive_key("mw-remote-content-v1");
+    let payload=base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json!({"v":1,"k":"p","a":"fixture","s":"fixture","e":"fixture","u":"fixture","x":chrono::Utc::now().timestamp()+60}).to_string());
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(&key).unwrap();
+    mac.update(b"mw-rc-token\0");
+    mac.update(payload.as_bytes());
+    let signed_token = format!(
+        "{payload}%2E{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
+    );
+    let signed = untrusted
+        .get(format!("{base}/api/rc/p/{signed_token}"))
+        .header("x-forwarded-for", "81.2.69.160")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(signed.status(), 403);
+    assert_eq!(
+        signed.json::<Value>().await.unwrap()["code"],
+        "sessionGeographyDenied"
+    );
+    setting(&store, "security.signin.geoScope", json!("admin")).await;
+    assert_eq!(
+        trusted
+            .get(format!("{base}/api/me"))
+            .header("x-forwarded-for", "81.2.69.160")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        trusted
+            .get(format!("{base}/admin/me"))
+            .header("x-forwarded-for", "81.2.69.160")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        trusted
+            .get(format!("{base}/healthz"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        trusted
+            .get(format!("{base}/api/public-config"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    // Policy failure does not prevent signing out of the affected admin session.
+    assert!(
+        trusted
+            .post(format!("{base}/admin/logout"))
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .is_success()
+    );
+    setting(&store, "security.signin.geoScope", json!("all")).await;
     std::fs::remove_file(&owned_database).unwrap();
     let unavailable = untrusted
         .post(format!("{base}/api/login"))

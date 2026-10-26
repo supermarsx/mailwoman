@@ -815,3 +815,11 @@ Global/domain/user enum, default `icons`; `labels` adds visible text beside each
 `mail.folderRole.archive`: nullable owned mailbox target, global/domain/user, default null (automatic).
 
 Use `{"path":"INBOX/Trash"}` for an exact upstream path or `{"id":"mailbox-id"}` for one account. Each role inherits and locks independently. Native engine overrides do not rewrite backend discovery data; resetting restores automatic roles. Missing targets and conflicting role assignments do not silently fall back. Proxy accounts retain their upstream role contract.
+
+<a id="security.signin.geoEnforceSessions"></a>
+`security.signin.geoEnforceSessions` defaults to false. When enabled, the same country scope,
+list and unknown-address policy checks incoming authenticated mailbox/admin requests,
+native bearer requests and signed reader content. It does not silently revoke stored sessions;
+access resumes from an allowed source. Public pages and logout remain available. New sign-ins
+and recovery sign-ins retain their existing country checks. Long-lived streams already open
+before a policy change are checked on reconnect, not terminated retroactively.

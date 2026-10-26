@@ -666,3 +666,9 @@ admin-obs-geo-value-empty = Empty list
 admin-obs-geo-value-admin = Administrator sign-in
 admin-obs-geo-value-mailbox = Mailbox sign-in
 admin-obs-geo-value-all = All sign-ins
+
+admin-obs-geo-field-sessions = Existing authenticated requests
+admin-obs-geo-sessions-on = Country checks enabled
+admin-obs-geo-sessions-off = Sign-in checks only
+admin-obs-geo-session-note = The configured country policy also checks authenticated requests, native bearer access and signed reader content. Blocked clients can sign out. This does not erase sessions or terminate already-open streams; streams are checked again when they reconnect. Review your administrator decision before enabling it.
+admin-obs-geo-configure-sessions = Configure existing-session checks
