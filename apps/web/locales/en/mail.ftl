@@ -558,3 +558,13 @@ mail-links-warning-direction = The link text contains direction-changing charact
 
 mail-outbox-uncertain = Delivery status unknown
 mail-outbox-uncertain-note = Sending began, but delivery could not be confirmed. This message will not be resent automatically. Check Sent or confirm with the recipient before sending again.
+
+mail-conversation-title = View conversation
+mail-conversation-help = Browse this account's available conversation messages across folders. Opening a message does not change your folder selection.
+mail-conversation-count = Showing { $loaded } of { $total } conversation messages.
+mail-conversation-other-folder = Another folder
+mail-conversation-loading = Loading conversation…
+mail-conversation-missing = { $count } message(s) are no longer available.
+mail-conversation-error = The conversation could not be loaded. Try again.
+mail-conversation-more = Load more messages
+mail-conversation-limit = This view is limited to { $count } messages.

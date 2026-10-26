@@ -141,6 +141,7 @@ function MessageRow(props: {
       <button
         type="button"
         ref={(el) => props.setRef(el)}
+        aria-disabled={app.listLoading()}
         class={`list__row ${rowCss.row} ${a11y.focusable}`}
         classList={{
           'list__row--active': app.openEmail()?.id === email().id,
@@ -259,6 +260,7 @@ function ThreadHeadRow(props: {
       <button
         type="button"
         ref={(el) => props.setRef(el)}
+        aria-disabled={app.listLoading()}
         class={`list__row ${rowCss.row} ${thread.headRow} ${a11y.focusable}`}
         classList={{
           'list__row--active': active(),

@@ -38,6 +38,7 @@ import { DeliveryStatus } from './security/DeliveryStatus.tsx';
 import { ReadReceipt } from './ReadReceipt.tsx';
 import { MailingListActions } from './MailingListActions.tsx';
 import {MessageLinks} from './MessageLinks.tsx';
+import {Conversation} from './Conversation.tsx';
 import {reviewMessageLinks} from '../viewers/messageLinks.ts';
 import { InviteCard, hasCalendarPart } from './InviteCard.tsx';
 // V7 auto-tag (SPEC §14.3, e14b): model-suggested labels for the open message.
@@ -1011,6 +1012,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <Show when={email().blobId && app.downloadUrl() && app.accountId()}><SpamScore url={buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'})} onHeaders={collectListHeaders}/></Show>
               <MailingListActions headers={listHeaders()?.scope===receiptDocumentKey()&&listHeaders()?.url===messageHeaderUrl()?listHeaders()!.raw:''} scope={receiptDocumentKey()} active={props.active!==false} {...(props.onCompose?{onCompose:props.onCompose}:{})}/>
               <ReaderToolbar email={email()} onReply={(mode) => void startReply(mode)} preparing={preparing()} onPrint={() => printMessage(email(), displayedContent(email()).source)} />
+              <Show when={email().threadId}>{threadId=><Conversation threadId={threadId()} messageId={email().id} active={props.active!==false}/>}</Show>
               <MessageLinks links={reviewedBody()?.links??[]} truncated={reviewedBody()?.truncated??false} scope={receiptDocumentKey()} active={props.active!==false} {...(props.onCompose?{onCompose:props.onCompose}:{})}/>
               <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
               <AutoTagSection email={email()} />
