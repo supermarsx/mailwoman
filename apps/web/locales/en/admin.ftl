@@ -874,6 +874,7 @@ admin-transfer-apply = Apply reviewed changes
 admin-transfer-confirm = Apply the reviewed policies? This can change defaults and locks for users. Reauthentication is required. If a concurrent change stops the import, the result identifies how many earlier policies were applied.
 admin-transfer-imported = Applied { $count } policies.
 admin-transfer-partial = Applied { $count } policies, then stopped at { $key } (HTTP { $status }). Reload and review the file again before continuing.
+admin-transfer-uncertain = Confirmed { $count } earlier policy changes. The result for { $key } is uncertain after a server error (HTTP { $status }); it may already have been saved. Reload the current settings and review a fresh preview before trying again.
 admin-transfer-backup-help = Full deployment snapshots include the database, uploads, configuration and server key. Destination copies require archive encryption and checksum verification. Configure destinations on the deployment host; the web server does not receive host filesystem or Docker privileges.
 admin-transfer-destinations = Supported backup destinations
 admin-transfer-method = Method

@@ -2,7 +2,7 @@
 
 Admin → Configuration transfer exports and imports **registered global setting policies**. Exports include stored values, locks and user-override rules; they exclude domain definitions, account preferences, environment variables, credentials and dedicated integration records. Use a full deployment backup for recovery of the database and its configuration.
 
-Imports first validate every entry and show a before/after preview. Applying requires the configuration-import permission and a fresh authentication proof. The preview records revisions: changed settings must be reviewed again. Imports update listed keys only. Writes are individually audited and protected against concurrent changes, but the whole bundle is **not a transaction**; if a concurrent change interrupts application, the result identifies applied, failed and unattempted entries. The last-superadmin-loss setting cannot be imported.
+Imports first validate every entry and show a before/after preview. Applying requires the configuration-import permission and a fresh authentication proof. The preview records revisions: changed settings must be reviewed again. Imports update listed keys only. Writes are individually audited and protected against concurrent changes, but the whole bundle is **not a transaction**; if a concurrent change interrupts application, the result identifies applied, failed and unattempted entries. A server error can occur after the current key was committed: the response marks that outcome uncertain, and the UI requires a fresh review rather than retrying automatically. The last-superadmin-loss setting cannot be imported.
 
 ## Destination setup
 

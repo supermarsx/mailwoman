@@ -203,7 +203,9 @@ async fn import(
         .await
         {
             let status = error.into_response().status().as_u16();
-            return Ok(Json(json!({"complete":false,"applied":applied,"failed":{"key":entry.key,"status":status},"notAttempted":request.bundle.entries.iter().skip(applied.len()+1).map(|e|&e.key).collect::<Vec<_>>()})).into_response());
+            // The policy writer may commit before response enrichment fails.
+            // Do not describe a server-error outcome as a confirmed non-write.
+            return Ok(Json(json!({"complete":false,"applied":applied,"outcomeUncertain":status>=500,"reloadRequired":true,"failed":{"key":entry.key,"status":status},"notAttempted":request.bundle.entries.iter().skip(applied.len()+1).map(|e|&e.key).collect::<Vec<_>>()})).into_response());
         }
         applied.push(entry.key.clone());
     }
