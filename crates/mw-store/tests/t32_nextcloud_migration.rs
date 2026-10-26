@@ -13,6 +13,17 @@ async fn sqlite_nextcloud_upgrade_preserves_existing_scoped_destinations() {
         .await
         .unwrap();
     tx.commit().await.unwrap();
+    db.execute("INSERT INTO nextcloud_instance VALUES ('cloud','Existing','https://cloud.test/',1,'authority-v1')").await.unwrap();
+    sqlx::query("INSERT INTO nextcloud_account_link VALUES ('alice','cloud','authority-v1','remote-user',?1,'link-v1')").bind(vec![1u8,2,3]).execute(&mut db).await.unwrap();
+    sqlx::raw_sql(include_str!("../migrations/0050_nextcloud_ca.sql"))
+        .execute(&mut db)
+        .await
+        .unwrap();
+    let upgraded = sqlx::query("SELECT i.ca_pem,l.sealed_password,l.revision FROM nextcloud_instance i JOIN nextcloud_account_link l ON i.id=l.instance_id").fetch_one(&mut db).await.unwrap();
+    assert_eq!(upgraded.get::<String, _>("ca_pem"), "");
+    assert_eq!(upgraded.get::<Vec<u8>, _>("sealed_password"), vec![1, 2, 3]);
+    assert_eq!(upgraded.get::<String, _>("revision"), "link-v1");
+
     let rows = sqlx::query("SELECT id,traffic_class,destination,note,created_by,created_at FROM egress_internal_allow ORDER BY id").fetch_all(&mut db).await.unwrap();
     assert_eq!(rows.len(), 3);
     assert_eq!(rows[2].get::<String, _>("traffic_class"), "analytics");
@@ -40,6 +51,16 @@ async fn postgres_nextcloud_upgrade_preserves_existing_scoped_destinations() {
     .execute(&mut *tx)
     .await
     .unwrap();
+    tx.execute("INSERT INTO nextcloud_instance VALUES ('cloud','Existing','https://cloud.test/',1,'authority-v1')").await.unwrap();
+    sqlx::query("INSERT INTO nextcloud_account_link VALUES ('alice','cloud','authority-v1','remote-user',$1,'link-v1')").bind(vec![1u8,2,3]).execute(&mut *tx).await.unwrap();
+    sqlx::raw_sql(include_str!("../migrations_pg/0050_nextcloud_ca.sql"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let upgraded = sqlx::query("SELECT i.ca_pem,l.sealed_password,l.revision FROM nextcloud_instance i JOIN nextcloud_account_link l ON i.id=l.instance_id").fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(upgraded.get::<String, _>("ca_pem"), "");
+    assert_eq!(upgraded.get::<Vec<u8>, _>("sealed_password"), vec![1, 2, 3]);
+    assert_eq!(upgraded.get::<String, _>("revision"), "link-v1");
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM egress_internal_allow WHERE traffic_class IN ('siem','webhooks','analytics')",
     )

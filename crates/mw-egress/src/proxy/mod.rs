@@ -471,7 +471,12 @@ async fn hop_with(
     traversed.store(true, Ordering::SeqCst);
 
     let pipe = if is_https {
-        stream::wrap_tls(conn, origin_host).await?
+        if let Some(dav) = out.authorized_dav {
+            dav.validate().map_err(ProxyRefusal::Origin)?;
+            stream::wrap_tls_with_roots(conn, origin_host, dav.additional_roots).await?
+        } else {
+            stream::wrap_tls(conn, origin_host).await?
+        }
     } else {
         stream::TunnelStream::Plain(conn)
     };

@@ -10,6 +10,7 @@ pub struct NextcloudInstance {
     pub id: String,
     pub name: String,
     pub base_url: String,
+    pub ca_pem: String,
     pub enabled: bool,
     pub revision: String,
 }
@@ -28,6 +29,7 @@ fn instance(row: &Row) -> NextcloudInstance {
         id: row.get_string("id"),
         name: row.get_string("name"),
         base_url: row.get_string("base_url"),
+        ca_pem: row.get_string("ca_pem"),
         enabled: row.get_i64("enabled") != 0,
         revision: row.get_string("revision"),
     }
@@ -87,8 +89,8 @@ impl Store {
         }
         let mut saved = desired.clone();
         saved.revision = seal::random_token();
-        q("INSERT INTO nextcloud_instance(id,name,base_url,enabled,revision) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET name=excluded.name,base_url=excluded.base_url,enabled=excluded.enabled,revision=excluded.revision")
-            .bind(&saved.id).bind(&saved.name).bind(&saved.base_url).bind(i64::from(saved.enabled)).bind(&saved.revision).execute_tx(&mut tx).await?;
+        q("INSERT INTO nextcloud_instance(id,name,base_url,enabled,revision,ca_pem) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(id) DO UPDATE SET name=excluded.name,base_url=excluded.base_url,enabled=excluded.enabled,revision=excluded.revision,ca_pem=excluded.ca_pem")
+            .bind(&saved.id).bind(&saved.name).bind(&saved.base_url).bind(i64::from(saved.enabled)).bind(&saved.revision).bind(&saved.ca_pem).execute_tx(&mut tx).await?;
         tx.commit().await?;
         Ok(Some(saved))
     }
@@ -149,13 +151,14 @@ impl Store {
         account: &str,
         id: &str,
     ) -> Result<Option<(NextcloudInstance, NextcloudLink, String)>, StoreError> {
-        let Some(row) = q("SELECT l.*,i.id,i.name,i.base_url,i.enabled FROM nextcloud_account_link l JOIN nextcloud_instance i ON i.id=l.instance_id AND i.revision=l.instance_revision WHERE l.account_id=?1 AND l.instance_id=?2 AND i.enabled=1")
+        let Some(row) = q("SELECT l.*,i.id,i.name,i.base_url,i.enabled,i.ca_pem FROM nextcloud_account_link l JOIN nextcloud_instance i ON i.id=l.instance_id AND i.revision=l.instance_revision WHERE l.account_id=?1 AND l.instance_id=?2 AND i.enabled=1")
             .bind(account).bind(id).fetch_optional(&self.backend).await? else { return Ok(None); };
         let linked = link(&row);
         let authority = NextcloudInstance {
             id: id.into(),
             name: row.get_string("name"),
             base_url: row.get_string("base_url"),
+            ca_pem: row.get_string("ca_pem"),
             enabled: true,
             revision: linked.instance_revision.clone(),
         };
@@ -226,6 +229,7 @@ mod tests {
             id: "cloud".into(),
             name: "Cloud".into(),
             base_url: "https://cloud.example/".into(),
+            ca_pem: String::new(),
             enabled: true,
             revision: String::new(),
         };
@@ -269,12 +273,24 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+        let mut updated = first.clone();
+        updated.ca_pem = "replacement CA certificate".into();
         let changed = store
-            .put_nextcloud_instance(&first, Some(&first.revision))
+            .put_nextcloud_instance(&updated, Some(&first.revision))
             .await
             .unwrap()
             .unwrap();
         assert_ne!(changed.revision, first.revision);
+        assert_eq!(changed.ca_pem, updated.ca_pem);
+        assert_eq!(
+            store
+                .nextcloud_instance("cloud")
+                .await
+                .unwrap()
+                .unwrap()
+                .ca_pem,
+            updated.ca_pem
+        );
         assert!(
             store
                 .nextcloud_authority("alice", "cloud")

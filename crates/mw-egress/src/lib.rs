@@ -627,6 +627,7 @@ impl DavMethod {
 /// No arbitrary headers, Host override, cookies or proxy credentials.
 #[derive(Clone, Copy)]
 pub struct AuthorizedDav<'a> {
+    pub additional_roots: &'a [Vec<u8>],
     pub method: DavMethod,
     pub authorization: &'a str,
     pub depth: Option<u8>,
@@ -642,6 +643,18 @@ impl fmt::Debug for AuthorizedDav<'_> {
 }
 impl AuthorizedDav<'_> {
     pub fn validate(&self) -> Result<(), Refusal> {
+        if self.additional_roots.len() > 8
+            || self.additional_roots.iter().map(Vec::len).sum::<usize>() > 65536
+        {
+            return Err(Refusal::BadRequest("DAV CA bundle too large"));
+        }
+        let mut roots = rustls::RootCertStore::empty();
+        for cert in self.additional_roots {
+            roots
+                .add(rustls_pki_types::CertificateDer::from(cert.clone()))
+                .map_err(|_| Refusal::BadRequest("invalid DAV CA"))?;
+        }
+
         if !self.authorization.starts_with("Basic ")
             || self.authorization.len() > 16384
             || self.depth.is_some_and(|depth| depth > 1)
@@ -711,7 +724,17 @@ pub(crate) async fn send_hop_typed(
     target: &Target,
     out: &Outgoing<'_>,
 ) -> Result<(Hop, Option<String>), Refusal> {
-    let client = harden_client(reqwest::Client::builder(), &target.host, target.addr)
+    let mut builder = reqwest::Client::builder();
+    if let Some(dav) = out.authorized_dav {
+        dav.validate()?;
+        for cert in dav.additional_roots {
+            builder = builder.add_root_certificate(
+                reqwest::Certificate::from_der(cert)
+                    .map_err(|_| Refusal::BadRequest("invalid DAV CA"))?,
+            );
+        }
+    }
+    let client = harden_client(builder, &target.host, target.addr)
         .build()
         .map_err(|_| Refusal::Upstream)?;
 

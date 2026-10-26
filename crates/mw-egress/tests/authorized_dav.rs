@@ -7,6 +7,7 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 fn auth(method: DavMethod) -> AuthorizedDav<'static> {
     AuthorizedDav {
+        additional_roots: &[],
         method,
         authorization: "Basic cHJpdmF0ZTpwYXNzd29yZA==",
         depth: Some(1),
@@ -168,4 +169,117 @@ fn dav_credentials_are_redacted_and_headers_and_body_are_bounded() {
         ),
         Err(Refusal::TooLarge)
     ));
+}
+
+#[tokio::test]
+async fn additional_ca_verifies_origin_inside_proxy_without_disabling_hostname_checks() {
+    use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+    use std::sync::Arc;
+    for (trusted, correct_name) in [(true, true), (false, true), (true, false)] {
+        let certified = rcgen::generate_simple_self_signed(vec![
+            if correct_name {
+                "8.8.8.8"
+            } else {
+                "wrong.test"
+            }
+            .into(),
+        ])
+        .unwrap();
+        let certificate = certified.cert.der().to_vec();
+        let config = rustls::ServerConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![CertificateDer::from(certificate.clone())],
+            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
+                certified.signing_key.serialize_der(),
+            )),
+        )
+        .unwrap();
+        let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let plan = EgressPlan::new(
+            vec![PlanRoute {
+                scope: RouteScope::Global,
+                classes: [TrafficClass::Nextcloud].into_iter().collect(),
+                route: ProxyRoute {
+                    id: "tls-cloud".into(),
+                    scheme: ProxyScheme::HttpConnect,
+                    host: "127.0.0.1".into(),
+                    port: listener.local_addr().unwrap().port(),
+                    auth: None,
+                    allow_plaintext: false,
+                },
+            }],
+            InternalAllowList::empty(),
+        )
+        .unwrap();
+        let peer = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = BufReader::new(socket);
+            loop {
+                let mut line = String::new();
+                socket.read_line(&mut line).await.unwrap();
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            socket
+                .get_mut()
+                .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                .await
+                .unwrap();
+            let Ok(stream) = acceptor.accept(socket.into_inner()).await else {
+                return false;
+            };
+            let mut stream = BufReader::new(stream);
+            let mut head = String::new();
+            loop {
+                let mut line = String::new();
+                match stream.read_line(&mut line).await {
+                    Ok(0) | Err(_) => return false,
+                    _ => {}
+                }
+                head.push_str(&line);
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            assert!(head.to_ascii_lowercase().contains("authorization: basic "));
+            stream
+                .get_mut()
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                .await
+                .unwrap();
+            true
+        });
+        let roots = if trusted {
+            vec![certificate]
+        } else {
+            Vec::new()
+        };
+        let request = Request::dav(
+            AuthorizedDav {
+                additional_roots: &roots,
+                ..auth(DavMethod::Get)
+            },
+            None,
+        )
+        .unwrap();
+        let response = mw_egress::plan::send_with(
+            &plan,
+            "https://8.8.8.8/remote.php/dav/".parse().unwrap(),
+            &request,
+        )
+        .await;
+        assert_eq!(response.outcome.is_ok(), trusted && correct_name);
+        assert_eq!(
+            peer.await.unwrap(),
+            trusted && correct_name,
+            "credentials must not cross a failed TLS handshake"
+        );
+    }
 }

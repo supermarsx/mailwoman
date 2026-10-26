@@ -318,6 +318,29 @@ pub async fn wrap_tls(
     .await
 }
 
+/// Additional administrator-approved DAV roots affect only origin TLS, never the proxy.
+pub(crate) async fn wrap_tls_with_roots(
+    conn: impl Into<ProxyConn>,
+    origin_host: &str,
+    certificates: &[Vec<u8>],
+) -> Result<TunnelStream, ProxyRefusal> {
+    let floor = min_tls();
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    for certificate in certificates {
+        roots
+            .add(rustls_pki_types::CertificateDer::from(certificate.clone()))
+            .map_err(|_| ProxyRefusal::Origin(crate::Refusal::BadRequest("invalid DAV CA")))?;
+    }
+    handshake(
+        TlsConnector::from(build_config(roots, floor)),
+        floor,
+        conn.into(),
+        origin_host,
+    )
+    .await
+}
+
 /// [`wrap_tls`] over a given connector. `floor` is the floor `connector` was built
 /// for; it is used only to describe a failure.
 async fn handshake(
