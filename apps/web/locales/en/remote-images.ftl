@@ -31,7 +31,8 @@ remote-grant-sender = Always load from { $sender }
 remote-grant-domain = Always load from { $domain }
 remote-grant-all = Always load all remote images
 
-remote-grant-done-single = Remote images loaded for this message.
+remote-grant-done-single = Remote images are allowed for this message and are loading.
+remote-change-failed = Could not update remote image permissions. Please try again.
 remote-grant-done-per-sender = Remote images will load from this sender.
 remote-grant-done-per-domain = Remote images will load from this domain.
 remote-grant-done-all = Remote images will load for all mail.

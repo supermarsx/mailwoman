@@ -53,7 +53,7 @@ describe('RemoteContentBar — blocked state', () => {
   it('confirms the action in the live status region', async () => {
     render(() => <RemoteContentBar {...CTX} report={report()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Load images' }));
-    expect(await screen.findByText('Remote images loaded for this message.')).toBeInTheDocument();
+    expect(await screen.findByText('Remote images are allowed for this message and are loading.')).toBeInTheDocument();
   });
 
   it('hides per-sender / per-domain actions when the sender is unknown', () => {

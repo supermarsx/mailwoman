@@ -21,6 +21,7 @@
 
 import { For, Show, createMemo, createSignal, type JSX } from 'solid-js';
 import { t } from '../i18n/index.ts';
+import {toast} from './toast/toast.ts';
 import * as css from './remote-content-bar.css.ts';
 import {
   scopeFor,
@@ -82,6 +83,10 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
     try {
       await settle((props.onGrant ?? (() => undefined))(scopeFor(kind, ctx())));
       setStatus(t(`remote-grant-done-${kind}`));
+      toast.success(t(`remote-grant-done-${kind}`));
+    } catch {
+      setStatus(t('remote-change-failed'));
+      toast.error(t('remote-change-failed'));
     } finally {
       setPending(false);
     }
@@ -96,6 +101,10 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
         (props.onRevoke ?? (() => undefined))({ kind: g.scopeKind, value: g.scopeValue }),
       );
       setStatus(t('remote-revoke-done'));
+      toast.info(t('remote-revoke-done'));
+    } catch {
+      setStatus(t('remote-change-failed'));
+      toast.error(t('remote-change-failed'));
     } finally {
       setPending(false);
     }
