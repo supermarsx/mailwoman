@@ -501,3 +501,12 @@ admin-settings-key-security-signin-failure-window-secs = Failed-credential count
 admin-settings-help-security-signin-failure-window-secs = Rolling window in seconds for credential and MFA rejections. Successful completed sign-in resets that source and surface.
 admin-settings-key-security-signin-lock-secs = Temporary sign-in lock duration
 admin-settings-help-security-signin-lock-secs = Lock duration in seconds. Repeated attempts while locked do not extend its original expiry. Manual global IP bans are separate.
+
+admin-settings-key-security-signin-geo-scope = Sign-in country policy scope
+admin-settings-help-security-signin-geo-scope = Off by default. Apply only to new mailbox, administrator, or all sign-ins. Existing sessions are not revoked. Check the current-source diagnostic before enabling; an unavailable local GeoIP database refuses sign-in.
+admin-settings-key-security-signin-geo-mode = Country allow or deny list
+admin-settings-help-security-signin-geo-mode = Allow permits only listed countries; deny refuses listed countries. Unknown addresses use their own explicit policy.
+admin-settings-key-security-signin-geo-countries = Sign-in country codes
+admin-settings-help-security-signin-geo-countries = JSON array of uppercase two-letter country codes, for example ["PT", "GB"]. Uses only the operator-supplied MW_GEOIP_DB; no external location service is contacted.
+admin-settings-key-security-signin-geo-unknown = Unmapped source address policy
+admin-settings-help-security-signin-geo-unknown = Allow or deny addresses absent from a readable local database, including private addresses. Missing or unreadable databases always refuse active-policy sign-ins, even when unknown addresses are allowed.

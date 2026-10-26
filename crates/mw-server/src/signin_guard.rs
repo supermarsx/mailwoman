@@ -57,6 +57,7 @@ pub(crate) async fn check(
     surface: AuthSurface,
     source: Option<IpAddr>,
 ) -> Result<(), AdminApiError> {
+    crate::signin_geography::check(state, surface, source).await?;
     let Some(ip) = source else { return Ok(()) };
     // Resolve configured policy before upstream authentication, even when no lock exists.
     let _ = policy(state, surface).await?;

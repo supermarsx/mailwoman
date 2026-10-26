@@ -531,6 +531,28 @@ pub fn country_for_ip(ip: IpAddr) -> Option<String> {
     geoip_enrich(Some(ip)).country
 }
 
+/// Admission policies must distinguish an unavailable database from an address
+/// absent from a readable database. No remote lookup or inferred country.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CountryLookup {
+    DatabaseUnavailable,
+    Unknown,
+    Known(String),
+}
+
+pub fn country_lookup(ip: Option<IpAddr>) -> CountryLookup {
+    country_lookup_with_path(ip, geoip_db_path().as_deref())
+}
+
+fn country_lookup_with_path(ip: Option<IpAddr>, path: Option<&Path>) -> CountryLookup {
+    let Some(reader) = path.and_then(geoip_reader) else {
+        return CountryLookup::DatabaseUnavailable;
+    };
+    ip.and_then(|ip| geoip_lookup(&reader, ip.to_canonical()).country)
+        .map(CountryLookup::Known)
+        .unwrap_or(CountryLookup::Unknown)
+}
+
 /// The admin-supplied GeoIP database path (`MW_GEOIP_DB`), when it points at an
 /// existing file. `None` (the default) leaves every hop's ASN/country unset.
 fn geoip_db_path() -> Option<std::path::PathBuf> {
@@ -997,6 +1019,17 @@ mod tests {
         // No `MW_GEOIP_DB` set in the test env ⇒ no bundled DB ⇒ all fields None.
         let geo = geoip_enrich("192.0.2.10".parse::<IpAddr>().ok());
         assert_eq!(geo, GeoEnrichment::default());
+    }
+
+    #[test]
+    fn admission_country_lookup_distinguishes_missing_database_and_unknown_address() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/geoip/GeoIP2-Country-Test.mmdb");
+        assert_eq!(country_lookup_with_path(None, None), CountryLookup::DatabaseUnavailable);
+        assert_eq!(country_lookup_with_path(None, Some(&fixture)), CountryLookup::Unknown);
+        assert_eq!(country_lookup_with_path("127.0.0.1".parse().ok(), Some(&fixture)), CountryLookup::Unknown);
+        assert_eq!(country_lookup_with_path("81.2.69.160".parse().ok(), Some(&fixture)), CountryLookup::Known("GB".into()));
+        let invalid=Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        assert_eq!(country_lookup_with_path("81.2.69.160".parse().ok(), Some(&invalid)), CountryLookup::DatabaseUnavailable);
     }
 
     #[test]

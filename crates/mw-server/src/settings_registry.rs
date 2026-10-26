@@ -736,6 +736,10 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("signin.antiBotMode", Kind::Enum(&["off", "mailbox", "admin", "all"]), "\"off\"", G, "signin", "initial sign-in proof-of-work policy"),
     def!("signin.antiBotDifficulty", int(100, 20000), "2000", G, "signin", "maximum proof-of-work solver counter"),
     def!("signin.antiBotExpirySecs", int(60, 600), "180", G, "signin", "single-use challenge lifetime"),
+    def!("security.signin.geoScope", Kind::Enum(&["off", "mailbox", "admin", "all"]), "\"off\"", G, "security", "country policy applies only to new sign-ins"),
+    def!("security.signin.geoMode", Kind::Enum(&["allow", "deny"]), "\"allow\"", G, "security", "allow only listed countries or deny listed countries"),
+    def!("security.signin.geoCountries", Kind::StringList { max_len: 249, max_item: 2 }, "[]", G, "security", "uppercase two-letter country codes"),
+    def!("security.signin.geoUnknown", Kind::Enum(&["allow", "deny"]), "\"deny\"", G, "security", "decision for unmapped addresses in a readable local database"),
     def!("security.signin.mailboxFailureLimit", int(1, 100), "10", G, "security", "rejected mailbox credentials per source before a temporary lock"),
     def!("security.signin.adminFailureLimit", int(1, 100), "5", G, "security", "rejected admin credentials per source before a temporary lock"),
     def!("security.signin.failureWindowSecs", int(30, 86400), "900", G, "security", "rolling failed-credential counting window"),
@@ -1484,6 +1488,9 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
     if def.key.starts_with("shortcuts.") && def.key != "shortcuts.enabled"
         && !value.as_str().is_some_and(valid_shortcut) {
         return bad("must be inherit, disabled, or one key with Ctrl, Alt and Shift modifiers".into());
+    }
+    if def.key == "security.signin.geoCountries" && !value.as_array().is_some_and(|items| items.iter().all(|item| item.as_str().is_some_and(|code| code.len()==2 && code.bytes().all(|b|b.is_ascii_uppercase())))) {
+        return bad("must contain uppercase two-letter country codes".into());
     }
     match def.kind {
         Kind::Bool => match value {
@@ -2699,5 +2706,19 @@ mod time_zone_validation_tests {
             assert!(validate(display, &serde_json::json!(zone), "/value").is_err());
         }
         assert!(validate(comparison, &serde_json::json!("local"), "/value").is_err());
+    }
+}
+
+#[cfg(test)]
+mod geography_validation_tests {
+    use super::*;
+    #[test]
+    fn country_lists_are_bounded_uppercase_codes_without_wildcards() {
+        let def=REGISTRY.iter().find(|def|def.key=="security.signin.geoCountries").unwrap();
+        assert!(validate(def,&serde_json::json!(["PT","GB"]),"/value").is_ok());
+        for value in [serde_json::json!(["pt"]),serde_json::json!(["*"]),serde_json::json!(["USA"]),serde_json::json!(["1A"]),serde_json::json!("PT"),serde_json::json!([null])] {
+            assert!(validate(def,&value,"/value").is_err(),"{value}");
+        }
+        assert!(validate(def,&serde_json::json!(vec!["PT";250]),"/value").is_err());
     }
 }

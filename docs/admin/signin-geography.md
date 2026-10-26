@@ -1,0 +1,9 @@
+# Sign-in country policy
+
+Country checks are off by default. The global `security.signin.geoScope` setting enables checks for new mailbox sign-ins, administrator sign-ins, or both. An allow list permits only listed countries; a deny list refuses listed countries. Country codes are uppercase two-letter values. `security.signin.geoUnknown` separately decides whether an address absent from a readable database is allowed; the default is deny.
+
+Use Observability → Sign-in country policy before enabling it. The diagnostic displays the source address resolved by the server's trusted-proxy configuration, the local database status, and separate administrator/mailbox decisions. Reading it requires unscoped `bans.read`; policy changes use the existing Settings authorization. The diagnostic never accepts a caller-selected address to look up.
+
+Set `MW_GEOIP_DB` to an operator-supplied country/city MaxMind database. No production location database is bundled and no external location service is called. A missing or unreadable database refuses sign-in whenever the country policy applies, even if unknown addresses are allowed. The database is cached by path; restart after replacing or repairing it. Private/loopback addresses generally have no country and therefore use the unknown-address decision.
+
+This implementation governs new sign-ins before upstream credential requests and also covers SSO begin/callback and MFA/passwordless entry points. It does not revoke existing sessions or enforce countries on every authenticated request. Broader authenticated-session geofencing and per-authenticated-user API limits remain separate work. A country decision is an IP database classification, not proof of a person's physical location.

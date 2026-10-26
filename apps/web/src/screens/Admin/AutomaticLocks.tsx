@@ -32,7 +32,7 @@ export function AutomaticLocks(props:{api?:AutomaticLocksApi}):JSX.Element {
  <button class="btn btn--ghost" onClick={()=>void shell?.router.navigate(sectionPath('observability'))}>{t('admin-obs-locks-back')}</button>
  <button class="btn" disabled={loading()} onClick={()=>void reload()}>{t('admin-obs-locks-refresh')}</button></div></div>
  <p class={css.note}>{t('admin-obs-locks-note')}</p>
- <Show when={shell?.can.can('settings.read')}><button class="btn btn--ghost" onClick={()=>void shell?.router.navigate(`${sectionPath('settings')}?field=security.signin.adminFailureLimit`)}>{t('admin-obs-locks-configure')}</button></Show>
+ <Show when={shell?.can.can('settings.read')}><button class="btn btn--ghost" onClick={()=>void shell?.router.navigate(sectionPath('settings',['security.signin.adminFailureLimit']))}>{t('admin-obs-locks-configure')}</button></Show>
  <Feedback kind="success" as="toast" message={success()}/>
  <div class={css.card}><label class="field">{t('admin-obs-lock-surface')} <select value={surface()} onChange={event=>{const value=event.currentTarget.value;if(value==='all'||value==='admin'||value==='webmail'){setSurface(value);setPage(0);}}}>
  <option value="all">{t('admin-obs-lock-surface-all')}</option><option value="admin">{t('admin-obs-lock-surface-admin')}</option><option value="webmail">{t('admin-obs-lock-surface-webmail')}</option></select></label>

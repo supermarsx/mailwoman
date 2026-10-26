@@ -31,7 +31,7 @@ pub mod sender_controls;
 pub mod store_key;
 pub mod types;
 pub mod verdict;
-pub use verdict::country_for_ip;
+pub use verdict::{CountryLookup, country_for_ip, country_lookup};
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};

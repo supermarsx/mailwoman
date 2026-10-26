@@ -763,3 +763,18 @@ are durable across replicas; rejection while locked does not extend expiry. Admi
 counters are separate. A successful completed login resets its matching source/surface counter;
 issuing an MFA challenge is not success. Typed network, configuration and unknown-challenge errors
 do not count as rejected credentials. Existing permanent bans remain until an operator removes them.
+
+<a id="security.signin.geoScope"></a>
+<a id="security.signin.geoMode"></a>
+<a id="security.signin.geoCountries"></a>
+<a id="security.signin.geoUnknown"></a>
+### Sign-in country policy
+
+`security.signin.geoScope` is off by default; mailbox, admin, and all apply to new sign-ins only.
+`security.signin.geoMode` selects allow (default) or deny for the uppercase two-letter country
+list `security.signin.geoCountries` (default empty). `security.signin.geoUnknown` explicitly
+allows or denies unmapped addresses (default deny). An active policy with missing or unreadable
+`MW_GEOIP_DB` refuses admission, including when unknown addresses are allowed. The local database
+is operator supplied and cached until restart; no external lookup occurs. Inspect the current-source
+diagnostic under Observability before enabling. Existing authenticated requests and sessions are
+not governed by this initial sign-in policy; broader session geofencing is not implemented here.

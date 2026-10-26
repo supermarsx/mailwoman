@@ -5,6 +5,11 @@ import { renderInShell, holding } from './shell/testkit.tsx';
 import type { AutomaticLock } from '../../api/admin/automaticLocks.ts';
 const lock:AutomaticLock={surface:'admin',ip:'192.0.2.8',failures:5,lockedUntil:2000000000,revision:'rev1'};
 describe('Temporary sign-in locks',()=>{
+ it('opens the dedicated limit editor',async()=>{
+ const {navigate}=renderInShell(()=><AutomaticLocks api={{list:async()=>[],unlock:vi.fn()}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Configure sign-in limits'}));
+ expect(navigate).toHaveBeenCalledWith('/admin#/settings/security.signin.adminFailureLimit');
+ });
  it('filters surfaces and requires confirmation before unlocking',async()=>{
  const list=vi.fn(async()=>[lock,{...lock,surface:'webmail' as const,ip:'192.0.2.9'}]);const unlock=vi.fn(async()=>undefined);
  renderInShell(()=><AutomaticLocks api={{list,unlock}}/>);
