@@ -11,6 +11,7 @@ import { Icon } from '../../components/Icon.tsx';
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
 import { createStore } from 'solid-js/store';
 import { ContactEditor } from './ContactEditor.tsx';
+import { GroupEditor } from './GroupEditor.tsx';
 import { observePreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
 import { t, loadCatalog } from '../../i18n';
 import { useApp } from '../../state/context.ts';
@@ -58,11 +59,10 @@ export function ContactsModule(): JSX.Element {
     void app.directory.ensureEnabled();
   });
 
-  const [panel, setPanel] = createSignal<'view' | 'edit' | 'create'>('view');
+  const [panel, setPanel] = createSignal<'view' | 'edit' | 'create' | 'group'>('view');
   onCleanup(observePreferenceAccount(() => setPanel('view')));
   const [showImport, setShowImport] = createSignal(false);
   const [showDuplicates, setShowDuplicates] = createSignal(false);
-  const [newGroupOpen, setNewGroupOpen] = createSignal(false);
 
   const isAll = createMemo(
     () => app.selectedAddressBookId() === null && app.selectedGroupId() === null && !app.favoritesOnly(),
@@ -75,6 +75,7 @@ export function ContactsModule(): JSX.Element {
 
   return (
     <section aria-label={t('contacts-title')} data-module="contacts" class={panel() === 'view' ? css.layout : css.editorPage}>
+        <Show when={panel() === 'group'}><GroupEditor books={app.addressBooks()} initialBook={app.selectedAddressBookId()??app.addressBooks()[0]?.id??''} onSave={(name,book)=>app.createGroup(name,book)} onSaved={()=>setPanel('view')} onCancel={()=>setPanel('view')}/></Show>
         <Show when={panel() === 'create'}>
           <ContactEditor
             mode="create"
@@ -101,9 +102,7 @@ export function ContactsModule(): JSX.Element {
       <Show when={panel() === 'view'}>
       <Sidebar
         isAll={isAll()}
-        onNewGroup={() => setNewGroupOpen(true)}
-        newGroupOpen={newGroupOpen()}
-        closeNewGroup={() => setNewGroupOpen(false)}
+        onNewGroup={() => setPanel('group')}
         onImport={() => setShowImport(true)}
       />
 
@@ -204,12 +203,9 @@ export function ContactsModule(): JSX.Element {
 function Sidebar(props: {
   isAll: boolean;
   onNewGroup: () => void;
-  newGroupOpen: boolean;
-  closeNewGroup: () => void;
   onImport: () => void;
 }): JSX.Element {
   const app = useApp();
-  const [groupName, setGroupName] = createSignal('');
 
   const memberCount = (groupId: Id): number => {
     const g = app.contactGroups().find((x) => x.id === groupId);
@@ -254,30 +250,6 @@ function Sidebar(props: {
         <span>{t('contacts-groups')}</span>
         <button type="button" class={css.buttonGhost} aria-label={t('contacts-new-group')} onClick={props.onNewGroup}><Icon name="plus" /></button>
       </h2>
-      <Show when={props.newGroupOpen}>
-        <div class={css.toolbar}>
-          <input
-            class={css.input}
-            aria-label={t('contacts-new-group-name')}
-            placeholder={t('contacts-group-name-placeholder')}
-            value={groupName()}
-            onInput={(e) => setGroupName(e.currentTarget.value)}
-          />
-          <button
-            type="button"
-            class={css.button}
-            onClick={async () => {
-              const name = groupName().trim();
-              if (name.length === 0) return;
-              await app.createGroup(name);
-              setGroupName('');
-              props.closeNewGroup();
-            }}
-          >
-            {t('contacts-create')}
-          </button>
-        </div>
-      </Show>
       <For each={app.contactGroups()}>
         {(group) => (
           <button

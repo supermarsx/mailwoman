@@ -151,6 +151,8 @@ describe('ContactsModule', () => {
     fireEvent.click(await screen.findByText('Ada Lovelace'));
     // Create a new group from the sidebar.
     fireEvent.click(screen.getByRole('button', { name: 'New group' }));
+    expect(screen.queryByRole('searchbox',{name:'Search contacts'})).not.toBeInTheDocument();
+    expect(screen.getByRole('heading',{name:'New group'})).toBeInTheDocument();
     fireEvent.input(await screen.findByLabelText('New group name'), { target: { value: 'Friends' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
     await waitFor(() => expect(app.contactGroups().some((g) => g.name === 'Friends')).toBe(true));

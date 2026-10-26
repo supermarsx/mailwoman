@@ -106,3 +106,7 @@ contacts-editor-person = Name and work
 contacts-editor-reach = Email and phone
 contacts-editor-other = Notes and preferences
 contacts-editor-save-error = The contact could not be saved. Your changes are still here. Try again.
+
+contacts-group-editor-help = Create a group in an address book, then add members from their contact cards.
+contacts-group-details = Group details
+contacts-group-save-error = The group could not be saved. Your changes are still here. Try again.

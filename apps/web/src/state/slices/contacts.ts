@@ -390,19 +390,20 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
 
   // ── groups ──
   async function createGroup(name: string, addressBookId?: Id, memberIds: Id[] = []): Promise<Id | null> {
+    const version = authority;
     const acct = await resolveAccount();
-    if (acct === null) return null;
+    if (acct === null || version !== authority) return null;
     const book = addressBookId ?? selectedAddressBookId() ?? addressBooks()[0]?.id ?? 'default';
-    const res = await client.jmap(contactGroupSet(acct, { create: { new: { addressBookId: book, name, memberIds } } }));
-    const setRes = responseFor<ContactGroupSetResponse>(res, 'set');
-    if (setRes.notCreated?.['new'] !== undefined) {
-      ctx.showToast('error', `Group rejected: ${setRes.notCreated['new'].type}`);
-      return null;
-    }
-    const id = setRes.created?.['new']?.id ?? localId('group');
-    setContactGroups((gs) => [...gs, { id, addressBookId: book, name, memberIds }]);
-    ctx.broadcastChange?.();
-    return id;
+    try {
+      const res = await client.jmap(contactGroupSet(acct, { create: { new: { addressBookId: book, name, memberIds } } }));
+      if (version !== authority) return null;
+      const result = responseFor<ContactGroupSetResponse>(res, 'set');
+      const id = result.created?.['new']?.id;
+      if (result.accountId !== acct || result.notCreated?.['new'] || !id) return null;
+      setContactGroups((gs) => [...gs, { id, addressBookId: book, name, memberIds }]);
+      ctx.broadcastChange?.();
+      return id;
+    } catch { return null; }
   }
 
   async function updateGroup(id: Id, patch: Partial<ContactGroup>): Promise<void> {
