@@ -38,6 +38,7 @@ export function TooltipLayer(): JSX.Element {
   let dismissedTitle: string | null = null;
 
   const clearHide = () => { clearTimeout(hideTimer); };
+  const scheduleHide = () => { clearHide(); hideTimer = setTimeout(() => hide(), 100); };
   const restoreDismissed = () => {
     if (dismissed && dismissedTitle !== null && !dismissed.hasAttribute('title')) dismissed.setAttribute('title', dismissedTitle);
     dismissed = null; dismissedTitle = null;
@@ -121,9 +122,10 @@ export function TooltipLayer(): JSX.Element {
     observer.observe(document.body, {subtree:true,childList:true,attributes:true,attributeFilter:['title','data-tooltip','aria-label']});
     const over = (event: PointerEvent) => { if (event.pointerType !== 'touch') { const element=find(event); if (element!==dismissed) pointerUntil=0; show(element); } };
     const out = (event: PointerEvent) => {
+      if (!(event.target instanceof Node) || !(target?.contains(event.target) || bubble?.contains(event.target) || dismissed?.contains(event.target))) return;
       if (dismissed && !(event.relatedTarget instanceof Node && dismissed.contains(event.relatedTarget))) restoreDismissed();
       if (event.relatedTarget instanceof Node && (target?.contains(event.relatedTarget) || bubble?.contains(event.relatedTarget))) return;
-      if (target !== document.activeElement) hideTimer = setTimeout(hide, 100);
+      if (target !== document.activeElement) scheduleHide();
     };
     const focus = (event: FocusEvent) => show(find(event));
     const blur = () => { restoreDismissed(); hide(); };
@@ -149,5 +151,5 @@ export function TooltipLayer(): JSX.Element {
       window.visualViewport?.removeEventListener('scroll', schedulePosition);
     });
   });
-  return <Portal><Show when={text()}>{(description) => <div ref={bubble} id={id} role="tooltip" class={css.tooltip} onPointerEnter={clearHide} onPointerLeave={() => { hideTimer = setTimeout(hide, 100); }}>{description()}</div>}</Show></Portal>;
+  return <Portal><Show when={text()}>{(description) => <div ref={bubble} id={id} role="tooltip" class={css.tooltip} onPointerEnter={clearHide} onPointerLeave={scheduleHide}>{description()}</div>}</Show></Portal>;
 }

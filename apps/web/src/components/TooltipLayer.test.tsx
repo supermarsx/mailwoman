@@ -102,3 +102,23 @@ it('does not reopen over navigation after mouse activation, but retains keyboard
   await settle();
   expect(screen.getByRole('tooltip')).toHaveTextContent('Compose');
 });
+
+it('cancels every pending dismissal when returning from the tooltip to its anchor', async () => {
+  render(() => <><button aria-label="Archive"/><TooltipLayer/></>);
+  const button=screen.getByRole('button',{name:'Archive'});
+  fireEvent.pointerOver(button,{pointerType:'mouse'});
+  const tooltip=screen.getByRole('tooltip');
+  fireEvent.pointerOut(tooltip,{relatedTarget:document.body,pointerType:'mouse'});
+  fireEvent.pointerLeave(tooltip,{relatedTarget:document.body,pointerType:'mouse'});
+  await settle(50);
+  fireEvent.pointerOver(button,{pointerType:'mouse'});
+  await settle(150);
+  expect(screen.getByRole('tooltip')).toBe(tooltip);
+});
+it('does not dismiss help when pointer movement happens outside its anchor and bubble', async () => {
+  render(() => <><button aria-label="Archive"/><span>Other content</span><TooltipLayer/></>);
+  fireEvent.pointerOver(screen.getByRole('button',{name:'Archive'}),{pointerType:'mouse'});
+  fireEvent.pointerOut(screen.getByText('Other content'),{relatedTarget:document.body,pointerType:'mouse'});
+  await settle(150);
+  expect(screen.getByRole('tooltip')).toBeInTheDocument();
+});
