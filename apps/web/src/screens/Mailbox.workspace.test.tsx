@@ -2,7 +2,7 @@ import * as workspaceAttachments from '../realtime/workspaceAttachment.ts';
 import {loadSettings} from '../api/settings.ts';
 import {WORKSPACE_STORAGE_KEY} from '../realtime/workspaceStorage.ts';
 import {suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { render, fireEvent, screen, within, waitFor } from '@solidjs/testing-library';
 import { AppContext } from '../state/context.ts';
 import { createAppState } from '../state/store.ts';
@@ -13,6 +13,8 @@ import { createRealtimeController } from '../realtime/controller.ts';
 import type { EmailGetResponse, JmapRequest } from '../api/jmap-types.ts';
 
 beforeEach(async()=>{suspendAccountPreferences();localStorage.removeItem(WORKSPACE_STORAGE_KEY);history.replaceState(null,'','#/mail');await new Promise(resolve=>setTimeout(resolve,0));});
+
+afterEach(()=>vi.unstubAllGlobals());
 
 function mount(attachment=false) {
   const first=mkEmail('a');
@@ -81,13 +83,15 @@ describe('retained mailbox workspace',()=>{
     expect(screen.getByRole('tab',{name:'Settings'})).toHaveAttribute('aria-selected','true');
   });
   it('opens attachments in their own reusable tab without replacing the message reader',async()=>{
+    const policy={previewAllowed:true,downloadAllowed:true,maxBytes:1024,allowedExtensions:[],blockedExtensions:[],warnExtensions:[],allowedMimeTypes:[],blockedMimeTypes:[],warnMimeTypes:[]};
+    vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>new URL(input instanceof Request?input.url:String(input),location.href).pathname==='/api/attachments/policy'?new Response(JSON.stringify(policy),{status:200,headers:{'content-type':'application/json'}}):new Response(null,{status:404})));
     const {app,realtime}=mount(true);await app.login({username:'me@example.org',password:'p'});
     fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}));
     const item=await screen.findByRole('option',{name:/report.txt/});fireEvent.click(item);
     expect(screen.getByRole('tab',{name:'report.txt'})).toHaveAttribute('aria-selected','true');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab',{name:'Subject a'}));
-    fireEvent.click(screen.getByRole('option',{name:/report.txt/}));
+    fireEvent.click(await screen.findByRole('option',{name:/report.txt/}));
     expect(realtime.subTabs.tabs().filter(tab=>tab.kind==='attachment')).toHaveLength(1);
     expect(screen.getByRole('tab',{name:'Subject a'})).toBeInTheDocument();
   });
