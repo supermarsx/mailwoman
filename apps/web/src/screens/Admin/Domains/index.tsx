@@ -4,6 +4,7 @@ import { loadCatalog, t } from '../../../i18n';
 import { Feedback, describeAdminError } from '../shell/Feedback.tsx';
 import { useDirtyGuard } from '../shell/useDirtyGuard.ts';
 import { sectionPath, hrefFor } from '../shell/router.ts';
+import { SectionTabs } from '../shell/SectionTabs.tsx';
 import { useShell } from '../shell/context.ts';
 import { AdminProblemError } from '../shell/adminApi.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
@@ -160,9 +161,7 @@ export function Domains(props: { service?: DomainsApi }): JSX.Element {
       <Show when={guided() && canWrite()}><GuidedDomain api={api} status={status()} canUpstream={canUpstream()} onCancel={() => void shell.router.navigate(sectionPath('domains'))} onCreated={async value => { setRows(await api.list()); await load(value); await shell.router.navigate(sectionPath('domains', [value, 'connections'])); }} /></Show>
       <Show when={selected()}>{d => <>
         <h3>{d().name}</h3><p>{t('domain-editor-mode', { mode: d().mode })}</p>
-        <nav class={css.grid} aria-label={t('domain-editor-pages')}>
-          <For each={['overview', 'connections', 'policy', 'aliases', 'hosts', 'diagnostics']}>{page => <a class="btn btn--ghost" href={hrefFor(sectionPath('domains', [d().name, page]))} aria-current={domainPage() === page ? 'page' : undefined} onClick={e => { if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return; e.preventDefault(); openPage(page); }}>{t(`domain-page-${page}`)}</a>}</For>
-        </nav>
+        <SectionTabs label={t('domain-editor-pages')} items={['overview', 'connections', 'policy', 'aliases', 'hosts', 'diagnostics'].map(page=>({id:page,label:t(`domain-page-${page}`),path:sectionPath('domains',[d().name,page])}))} selected={domainPage()} navigate={path=>void shell.router.navigate(path)}/>
         <Show when={domainPage() === 'overview'}><section class={css.card}><h4>{t('domain-page-overview')}</h4><p>{t('domain-editor-overview-help')}</p><p>{summary('upstream', d())}</p></section></Show>
         <div class={css.listRow}>
           <button type="button" class="btn" disabled={busy()} onClick={() => dirty() ? setConfirmation('reload') : void run(refresh)}>{t('domain-editor-reload')}</button>
