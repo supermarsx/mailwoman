@@ -1,2 +1,3 @@
 .person-avatar { display:inline-flex; align-items:center; justify-content:center; flex:0 0 1.7rem; inline-size:1.7rem; block-size:1.7rem; margin-inline-end:.45rem; border:1px solid currentColor; border-radius:50%; color:#fff; font-size:.65rem; font-weight:700; line-height:1; vertical-align:middle; overflow:hidden; unicode-bidi:isolate; }
 .person-avatar img { inline-size:100%; block-size:100%; object-fit:cover; }
+.person-avatar svg { inline-size:1.05rem; block-size:1.05rem; flex:none; }

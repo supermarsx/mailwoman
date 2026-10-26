@@ -2,12 +2,34 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {render,screen,waitFor} from '@solidjs/testing-library';
 import {createSignal} from 'solid-js';
 import {avatarPresentation,PersonAvatar} from './PersonAvatar.tsx';
-const state=vi.hoisted(()=>({mode:'initials',fetch:vi.fn(),owner:{accountId:'one',generation:1}}));
-vi.mock('../api/settings.ts',()=>({settings:()=>({'contacts.avatarMode':{value:state.mode}})}));
+import {AVATAR_COLORS} from './senderIcons/palette.ts';
+const state=vi.hoisted(()=>({mode:'initials',icons:true,fetch:vi.fn(),owner:{accountId:'one',generation:1}}));
+vi.mock('../api/settings.ts',()=>({settings:()=>({'contacts.avatarMode':{value:state.mode},'contacts.senderIcons':{value:state.icons}})}));
 vi.mock('../api/http.ts',()=>({apiFetch:(...args:unknown[])=>state.fetch(...args)}));
 vi.mock('../api/accountPreferenceLifecycle.ts',()=>({observePreferenceAccount:(listener:(value:unknown)=>void)=>{listener(state.owner);return ()=>{};},preferenceAccount:()=>state.owner,preferenceAccountIsCurrent:(owner:unknown)=>owner===state.owner}));
 afterEach(()=>vi.unstubAllGlobals());
-beforeEach(()=>{state.mode='initials';state.fetch.mockReset();});
+beforeEach(()=>{state.mode='initials';state.icons=true;state.fetch.mockReset();});
+it('uses 192 stable colours with readable white initials and no inline style',()=>{
+ expect(new Set(AVATAR_COLORS).size).toBe(192);
+ for(const hex of AVATAR_COLORS){
+  const channels=[1,3,5].map(start=>parseInt(hex.slice(start,start+2),16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);
+  expect(1.05/(.2126*channels[0]!+.7152*channels[1]!+.0722*channels[2]!+.05)).toBeGreaterThanOrEqual(4.5);
+ }
+ expect(new Set(Array.from({length:1000},(_,n)=>avatarPresentation('',`sender${n}@example.org`).color)).size).toBeGreaterThan(150);
+ expect(avatarPresentation('','ANA@EXAMPLE.ORG').palette).toBe(avatarPresentation('','ana@example.org').palette);
+ const view=render(()=><PersonAvatar name="Ana" address="ana@example.org"/>);
+ expect(view.container.querySelector('.person-avatar')).not.toHaveAttribute('style');
+});
+it('uses a bundled SVG for recognised senders without any photo requests',()=>{
+ const view=render(()=><PersonAvatar name="GitHub" address="notifications@github.com"/>);
+ expect(view.container.querySelector('[data-sender-icon="github"] svg path')).not.toBeNull();
+ expect(state.fetch).not.toHaveBeenCalled();
+});
+it('allows user or admin policy to disable sender icons',()=>{
+ state.icons=false;
+ const view=render(()=><PersonAvatar name="GitHub" address="notifications@github.com"/>);
+ expect(view.container.querySelector('svg')).toBeNull();expect(view.container).toHaveTextContent('G');
+});
 it('generates stable local initials and makes no photo request by default',()=>{
  expect(avatarPresentation('Ana Maria','ana@example.org').initials).toBe('AM');expect(avatarPresentation('Ana Maria','ana@example.org')).toEqual(avatarPresentation('Ana Maria','ana@example.org'));
  expect(avatarPresentation('\u202eAna','ana@example.org').initials).toBe('A');render(()=><PersonAvatar name="Ana Maria" address="ana@example.org"/>);expect(screen.getByText('AM')).toBeTruthy();expect(state.fetch).not.toHaveBeenCalled();

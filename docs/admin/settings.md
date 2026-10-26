@@ -975,3 +975,14 @@ Global/domain/user boolean, default `true`. Uses smaller badges outside Inbox. U
 ### Manual remote image downloads (`privacy.remoteImageDownloads`)
 
 Global/domain/user boolean, default false. Allows an explicit image download through the privacy proxy without granting automatic image display. Signing and redemption both verify the current policy, session and exact image reference in the owned message. Existing image address, route, type, size and tracker protections apply; SVG is refused. Accepted images are decoded and served as PNG attachments, not original remote bytes. There is no direct external-link fallback. The server inspects at most 32 MiB of cached MIME and 1 MiB of HTML across 64 parts and 4,096 references. Missing, truncated, oversized or client-only decrypted bodies are unavailable for this action; client-provided HTML and reference markers are never trusted. Linked-file downloads also require an exact accepted link in the owned message. Manual image signing requires the expected account header, and redemption requires the same currently authenticated signing session and account.
+
+<a id="contacts.senderIcons"></a>
+### Bundled sender icons (`contacts.senderIcons`)
+
+Enabled by default, with global/domain/user overrides and administrator locks.
+Recognised sender domains use bundled SVG icons; unknown senders use deterministic
+initials from a 192-colour palette with at least 4.5:1 white-text contrast. Embedded
+contact photos take priority when contact-photo mode is selected; hiding avatars
+also hides domain icons. Government domains use a generic civic icon, not an
+identity seal. Domain matching is an appearance hint, never authentication
+verification. It does not request favicons, remote logos, or external profiles.

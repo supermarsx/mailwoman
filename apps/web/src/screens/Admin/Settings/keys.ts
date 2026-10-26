@@ -26,6 +26,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'mail.folderRole.archive',
   'reader.actionStyle',
   'contacts.avatarMode',
+  'contacts.senderIcons',
   'nextcloud.syncIntervalSecs',
   'time.displayZone',
   'time.comparisonZone',

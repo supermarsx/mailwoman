@@ -5,3 +5,7 @@ avatars-initials = Generate initials locally
 avatars-contacts = Use local contact pictures, with initials as fallback
 avatars-help = Initials are generated on this device. Contact pictures use only embedded PNG or JPEG photos already saved in your own address books, up to 512 × 512 pixels and 128 KiB. Remote picture URLs and external avatar services are never requested. This preference is saved with your account and can be held by your administrator.
 avatars-default = Restore inherited preference
+avatars-sender-icons = Show bundled sender-domain icons
+avatars-sender-icons-help = Recognised social, developer, AI, shopping and government domains use icons bundled with this app. Your own contact pictures take priority. Unknown senders use locally generated initials with 192 colours. Icons are domain hints, not proof that a message is authentic. No external logo service is contacted.
+avatars-icons-default = Restore inherited icon preference
+avatars-domain-icon = { $name } domain icon · sender identity is not verified by this icon

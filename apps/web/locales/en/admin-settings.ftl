@@ -616,3 +616,6 @@ admin-settings-help-mail-resume-tabs = Restore account-owned tab references afte
 
 admin-settings-key-privacy-remote-image-downloads = Manual remote image downloads
 admin-settings-help-privacy-remote-image-downloads = Allow an explicit download of an image referenced by the owned message through the guarded privacy proxy. Disabled by default; this never opens the external URL directly.
+
+admin-settings-key-contacts-sender-icons = Bundled sender icons
+admin-settings-help-contacts-sender-icons = Show locally bundled icons for recognised sender domains, with generated initials for others. Contact pictures take priority. Icons do not verify a sender's identity. No external logo service is contacted; user and domain overrides can be locked.

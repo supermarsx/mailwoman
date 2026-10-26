@@ -367,6 +367,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.resumetabs"></a>`mail.resumeTabs` | mail | global+domain+user | true | plain |  | yes | restore account-owned workspace tab references after reload |
 | <a id="mail.dragtofolder"></a>`mail.dragToFolder` | mail | global+domain+user | true | plain |  | yes | move selected messages by dragging them to a folder |
 | <a id="contacts.avatarmode"></a>`contacts.avatarMode` | contacts | global+domain+user | "initials" | plain |  | yes | local generated avatars or embedded photos from this account contacts; never remote photo requests |
+| <a id="contacts.sendericons"></a>`contacts.senderIcons` | contacts | global+domain+user | true | plain |  | yes | bundled sender-domain icons with generated initials fallback; domain hints are not authentication evidence |
 | <a id="reader.actionstyle"></a>`reader.actionStyle` | reader | global+domain+user | "icons" | plain |  | yes | compact reader actions or icons with visible labels |
 | <a id="reader.colormode"></a>`reader.colorMode` | reader | global+domain+user | "auto" | plain |  | yes | message color adaptation inside the isolated reader |
 | <a id="reader.fontsize"></a>`reader.fontSize` | reader | global+domain+user | 14 | plain |  | yes | message reading font size in pixels |

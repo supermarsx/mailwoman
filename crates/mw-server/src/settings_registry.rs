@@ -599,6 +599,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("mail.folderCounts", Kind::Enum(&["none", "unread", "total", "both"]), "\"both\"", GDU, "mail", "counts displayed beside mail folders"),
     def!("mail.compactFolderBadges", Kind::Bool, "true", GDU, "mail", "smaller count badges for folders other than Inbox"),
     def!("contacts.avatarMode", Kind::Enum(&["off", "initials", "contacts"]), "\"initials\"", GDU, "contacts", "local generated avatars or embedded photos from this account contacts; never remote photo requests"),
+    def!("contacts.senderIcons", Kind::Bool, "true", GDU, "contacts", "bundled sender-domain icons with generated initials fallback; domain hints are not authentication evidence"),
     def!("reader.actionStyle", Kind::Enum(&["icons", "labels"]), "\"icons\"", GDU, "reader", "compact reader actions or icons with visible labels"),
     def!("reader.colorMode", Kind::Enum(&["auto", "original", "adaptive", "invert"]), "\"auto\"", GDU, "reader", "message color adaptation inside the isolated reader"),
     def!("reader.fontSize", int(12, 24), "14", GDU, "reader", "message reading font size in pixels"),
