@@ -42,3 +42,7 @@ crates/mw-store/migrations_pg/0064_request_metrics.sql -text
 # Personal identity and notification ownership migrations are immutable LF bytes.
 crates/mw-store/migrations/0066_personal_delivery.sql -text
 crates/mw-store/migrations_pg/0066_personal_delivery.sql -text
+
+# Account draft migrations use immutable LF bytes.
+crates/mw-store/migrations/0063_account_drafts.sql -text
+crates/mw-store/migrations_pg/0063_account_drafts.sql -text

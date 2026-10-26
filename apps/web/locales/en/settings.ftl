@@ -441,3 +441,12 @@ settings-folder-counts-reset-size = Inherit badge size
 settings-mail-resume-tabs = Resume my open tabs
 settings-mail-resume-tabs-help = Restore account-owned tab references after reopening Mailwoman. Message bodies and attachment URLs are not saved in the workspace record.
 settings-permissions-push-other-registration = This browser has a subscription that is not registered to this account. Remove it before registering again.
+
+settings-draft-save = Account drafts
+settings-draft-save-help = Save to your account’s Drafts folder for access on another device. Saving is quiet; only failures show a notification. Unsupported accounts and protected decrypted content are never silently uploaded.
+settings-draft-save-mode = Save automatically
+settings-draft-realtime = After a typing pause
+settings-draft-periodic = At regular intervals
+settings-draft-manual = Only when I choose Save
+settings-draft-debounce = Typing pause (milliseconds)
+settings-draft-interval = Save interval (seconds)

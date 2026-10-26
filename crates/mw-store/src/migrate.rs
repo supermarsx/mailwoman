@@ -151,6 +151,13 @@ fn ob(r: &Row, c: &str) -> Arg {
 /// alongside the deferred constraints). This list is not the whole schema — see
 /// the module note above for the two lists that account for the rest.
 const TABLES: &[TableSpec] = &[
+    // Verified durable realm subject and sealed editor bytes survive store copies.
+    TableSpec {
+        name: "account_draft",
+        select: "SELECT owner,id,account_id,revision,email_id,sealed_state,sealed_summary,updated_at,operation_id,request_hash,operation_state,sealed_pending_state,sealed_pending_summary,cleanup_email_id FROM account_draft",
+        insert: "INSERT INTO account_draft(owner,id,account_id,revision,email_id,sealed_state,sealed_summary,updated_at,operation_id,request_hash,operation_state,sealed_pending_state,sealed_pending_summary,cleanup_email_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+        map: |r| vec![t(r,"owner"),t(r,"id"),t(r,"account_id"),ot(r,"revision"),ot(r,"email_id"),ob(r,"sealed_state"),ob(r,"sealed_summary"),i(r,"updated_at"),t(r,"operation_id"),t(r,"request_hash"),t(r,"operation_state"),ob(r,"sealed_pending_state"),ob(r,"sealed_pending_summary"),ot(r,"cleanup_email_id")],
+    },
     TableSpec {
         name: "identity_principal",
         select: "SELECT id,state,created_at,retired_at FROM identity_principal",

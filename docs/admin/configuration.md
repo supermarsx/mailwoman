@@ -366,6 +366,9 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.requestreadreceipt"></a>`mail.requestReadReceipt` | mail | global+domain+user | false | plain |  | yes | request a read receipt by default when composing supported mail |
 | <a id="mail.requestdeliveryreceipt"></a>`mail.requestDeliveryReceipt` | mail | global+domain+user | false | plain |  | yes | request delivery status notifications by default when the account supports DSN |
 | <a id="mail.modifierselection"></a>`mail.modifierSelection` | mail | global+domain+user | true | plain |  | yes | select messages with Ctrl, Command, Shift and arrow keys |
+| <a id="mail.draftsavemode"></a>`mail.draftSaveMode` | mail | global+domain+user | "realtime" | plain |  | yes | account draft save scheduling; manual disables automatic upstream writes |
+| <a id="mail.draftdebouncems"></a>`mail.draftDebounceMs` | mail | global+domain+user | 1000 | plain |  | yes | idle milliseconds before saving an edited account draft |
+| <a id="mail.draftintervalsecs"></a>`mail.draftIntervalSecs` | mail | global+domain+user | 30 | plain |  | yes | periodic account draft save interval in seconds |
 | <a id="mail.resumetabs"></a>`mail.resumeTabs` | mail | global+domain+user | true | plain |  | yes | restore account-owned workspace tab references after reload |
 | <a id="mail.dragtofolder"></a>`mail.dragToFolder` | mail | global+domain+user | true | plain |  | yes | move selected messages by dragging them to a folder |
 | <a id="contacts.avatarmode"></a>`contacts.avatarMode` | contacts | global+domain+user | "initials" | plain |  | yes | local generated avatars or embedded photos from this account contacts; never remote photo requests |

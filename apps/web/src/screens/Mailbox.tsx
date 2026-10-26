@@ -1,7 +1,8 @@
 import {resolveWorkspaceAttachment} from '../realtime/workspaceAttachment.ts';
 import { settings, settingsLoadStatus } from '../api/settings.ts';
 import { MAX_WORKSPACE_TABS, readWorkspace, saveWorkspace, clearWorkspace, type WorkspaceReference } from '../realtime/workspaceStorage.ts';
-import { listDrafts } from '../components/compose/drafts-store.ts';
+import {accountDraftApi,localAccountDraft} from '../api/accountDrafts.ts';
+import { listDrafts,saveDraft } from '../components/compose/drafts-store.ts';
 import { FolderCountBadge } from '../components/FolderCountBadge.tsx';
 import { PaneNavigationContext, confirmShellNavigation } from '../shell/navigationGuard.ts';
 import { preferenceAccount, preferenceAccountIsCurrent, observePreferenceAccount } from '../api/accountPreferenceLifecycle.ts';
@@ -116,7 +117,7 @@ export function MailboxScreen(): JSX.Element {
   const branding=useBranding();
   const app = useApp();
   const { subTabs } = useRealtime();
-  interface Pane { id:string; kind:'messages'|'composer'|'settings'|'attachment'|'module'|'outbox'|'attachments'|'sharing'; title:string; surface?:ShellSurface; reference?:string; draftId?:string; accountId?:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
+  interface Pane { beforeClose?:()=>Promise<boolean>; id:string; kind:'messages'|'composer'|'settings'|'attachment'|'module'|'outbox'|'attachments'|'sharing'; title:string; surface?:ShellSurface; reference?:string; draftId?:string; accountId?:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
   const [panes,setPanes]=createSignal<Pane[]>([]);
   const [workspaceReady,setWorkspaceReady]=createSignal(false);
   const [draftRevision,setDraftRevision]=createSignal(0);
@@ -196,6 +197,14 @@ export function MailboxScreen(): JSX.Element {
     const pane=panes().find(item=>item.id===`settings:${account ?? ''}`);
     if(account===app.accountId()) await pane?.navigation?.navigate({section:'mail-transfer',editor:{kind:'edit',id:messageId}});
   }
+  async function openDraftOrMessage(messageId:string):Promise<void>{
+    const owner=preferenceAccount(),message=app.messages().find(item=>item.id===messageId);
+    if(owner?.storageAuthority&&message?.keywords?.['$draft']){
+      try{const result=await accountDraftApi(owner).resolve(messageId);if(!preferenceAccountIsCurrent(owner))return;if(result.draft?.state){const draft=localAccountDraft(result.draft);saveDraft(draft);openComposer(undefined,draft.id);return;}}
+      catch{if(!preferenceAccountIsCurrent(owner))return;}
+    }
+    openMessageTab(messageId);
+  }
   function openMessageTab(messageId:string,restoring=false):void {
     if(!restoring)noteWorkspaceIntent();
     router.navigate('mail');
@@ -212,6 +221,7 @@ export function MailboxScreen(): JSX.Element {
     if(id==='mail') return;
     noteWorkspaceIntent();
     const pane=panes().find(item=>item.id===id),owner=preferenceAccount();
+    if(pane?.beforeClose && !await pane.beforeClose()) return;
     if(pane?.navigation && !await pane.navigation.canLeave()) return;
     if(!await confirmShellNavigation(id)) return;
     if((owner&&!preferenceAccountIsCurrent(owner))||panes().find(item=>item.id===id)!==pane)return;
@@ -633,7 +643,7 @@ export function MailboxScreen(): JSX.Element {
         <Show when={app.layout()==='ribbon'}><Ribbon onCompose={openNewMessage} onOpenSettings={openSettings}/></Show>
         <div class="workspace-body" ref={bodyElement} data-reading-pane={readingPane()} classList={{'workspace-body--split':splitVisible()}}>
           <div class={`mail-pane ${motion.surface}`} hidden={!listVisible()} data-mw-entering={mailEntering()}>
-            <SearchBox /><InboxTabs /><MessageList onOpenMessage={openMessageTab} onCompose={openReply}/>
+            <SearchBox /><InboxTabs /><MessageList onOpenMessage={id=>void openDraftOrMessage(id)} onCompose={openReply}/>
           </div>
           <Show when={splitVisible()}><ResizeHandle label={t('mail-resize-list')} orientation={readingPane()==='bottom'?'horizontal':'vertical'} value={listSize()} min={readingPane()==='bottom'?160:240} max={listMax()} onChange={setListDrag} onCommit={value=>{setAccountUiPreferences(readingPane()==='bottom'?{messageListHeight:value}:{messageListWidth:value});setListDrag(null);}}/></Show>
           <div class="workspace-panes" ref={tilesElement} data-layout={narrow() ? 'tabs' : workspaceLayout()} data-pair={panes().length===2} hidden={!readersVisible()}>
@@ -643,7 +653,7 @@ export function MailboxScreen(): JSX.Element {
               onFocusIn={()=>subTabs.activate(pane.id)} onPointerDown={()=>subTabs.activate(pane.id)}>
               <Show when={pane.kind==='messages' && pane.view}>{view=><><Show when={view().error()}><p role="alert">{t('mail-workspace-load-error')}</p></Show><Reader view={view()} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} onCompose={openReply} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)}/></>}</Show>
               <Show when={pane.kind==='attachment' && pane.attachment}>{item=><AttachmentTab item={item()}/>}</Show>
-              <Show when={pane.kind==='composer'}><Compose embedded onSubjectChange={subject=>subTabs.rename(pane.id,subject.trim()||t('mail-compose'))} onDraftIdChange={id=>{if(pane.draftId!==id){pane.draftId=id;setDraftRevision(value=>value+1);}}} {...(pane.draftId?{resumeDraftId:pane.draftId}:{})} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
+              <Show when={pane.kind==='composer'}><Compose embedded registerBeforeClose={handler=>{pane.beforeClose=handler;}} onSubjectChange={subject=>subTabs.rename(pane.id,subject.trim()||t('mail-compose'))} onDraftIdChange={id=>{if(pane.draftId!==id){pane.draftId=id;setDraftRevision(value=>value+1);}}} {...(pane.draftId?{resumeDraftId:pane.draftId}:{})} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
               <Show when={pane.kind==='outbox'}><Outbox/></Show>
               <Show when={pane.kind==='attachments'}><Attachments loadPage={position=>app.listAttachmentsPage(position)} onOpen={openAttachmentTab} onOpenMessage={item=>openMessageTab(item.emailId)}/></Show>
               <Show when={pane.kind==='sharing'&&pane.reference&&pane.accountId}><SharingDialog embedded mailboxId={pane.reference!} accountId={pane.accountId!} mailboxName={pane.title} onClose={()=>void closePane(pane.id)}/></Show>

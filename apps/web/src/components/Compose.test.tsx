@@ -293,6 +293,20 @@ describe('Compose', () => {
     expect(within(list).getByText('note.txt')).toBeInTheDocument();
   });
 
+  it('keeps the composer open while an attachment upload is pending', async () => {
+    const baseFetch=mockUploadFetch();let finish!:(response:Response)=>void;
+    vi.stubGlobal('fetch',vi.fn((input:RequestInfo|URL)=>String(input).includes('/jmap/upload/')?new Promise<Response>(resolve=>{finish=resolve;}):baseFetch(input)));
+    const close=vi.fn();const {app}=renderWithApp(()=><Compose onClose={close}/>,{identities:IDENTITIES});
+    await app.login({username:'me@example.org',password:'p'});
+    const input=await screen.findByLabelText('Attach a file');await waitFor(()=>expect(input).toBeEnabled());
+    fireEvent.change(input,{target:{files:[new File(['hello'],'pending.txt',{type:'text/plain'})]}});
+    await waitFor(()=>expect(finish).toBeTypeOf('function'));
+    fireEvent.click(screen.getByRole('button',{name:/^Close$/}));expect(close).not.toHaveBeenCalled();
+    finish(json({accountId:'acct1',blobId:'Ublob-file-1',type:'text/plain',size:5}));
+    expect(await screen.findByText('pending.txt')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:/^Close$/}));await waitFor(()=>expect(close).toHaveBeenCalledOnce());
+  });
+
   it('refuses a file larger than the upload limit and never uploads it', async () => {
     const fetchSpy = mockUploadFetch();
     vi.stubGlobal('fetch', fetchSpy);

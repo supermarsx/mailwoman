@@ -629,3 +629,10 @@ admin-settings-key-login-remember-signins = Remember successful sign-in addresse
 admin-settings-help-login-remember-signins = Keep up to ten successfully used usernames or email addresses on this device for the sign-in dropdown. Never saves passwords or sessions. Disabling removes this server's saved addresses when a device next loads the sign-in page or completes sign-in; it does not control the browser's own autofill.
 admin-settings-key-login-show-remembered-hint = Show saved-address explanation
 admin-settings-help-login-show-remembered-hint = Show explanatory text in the previous-sign-ins dropdown. Hidden by default. Only applies when remembering successful sign-ins is enabled.
+
+admin-settings-key-mail-draft-save-mode = Account draft save mode
+admin-settings-help-mail-draft-save-mode = Save after a typing pause, periodically, or only on demand. Saves require a supported upstream Drafts folder; uncertain writes are never automatically retried.
+admin-settings-key-mail-draft-debounce-ms = Draft typing pause (milliseconds)
+admin-settings-help-mail-draft-debounce-ms = Wait 500 to 10000 milliseconds after editing before saving in realtime mode.
+admin-settings-key-mail-draft-interval-secs = Draft save interval (seconds)
+admin-settings-help-mail-draft-interval-secs = Save edited drafts every 5 to 3600 seconds in periodic mode. Unchanged drafts are not written again.

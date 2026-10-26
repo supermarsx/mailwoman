@@ -199,6 +199,7 @@ export function emailGetFull(accountId: Id, id: Id, maxBodyValueBytes = 1_000_00
 }
 
 export interface DraftInput {
+  accountDraft?:{id:string;revision:string};
   from: EmailAddress;
   to: string;
   /** `Cc` recipients, in the same field syntax as `to`. */
@@ -326,6 +327,7 @@ export function sendEnvelope(accountId: Id, input: DraftInput): JmapRequest {
       rcptTo: envelopeRecipients(input).map(recipient => ({...recipient,...(input.requestDeliveryReceipt ? {parameters:{NOTIFY:'SUCCESS,FAILURE,DELAY'}} : {})})),
     },
   };
+  if(input.accountDraft)sendCreate['mailwomanAccountDraft']=input.accountDraft;
   if (input.identityId !== undefined) sendCreate['identityId'] = input.identityId;
   if (input.sendAt !== undefined) sendCreate['sendAt'] = input.sendAt;
   if (input.holdSeconds !== undefined) sendCreate['mailwomanHoldSeconds'] = input.holdSeconds;

@@ -59,6 +59,7 @@ import { SecurityCenter } from './Settings/SecurityCenter.tsx';
 import { Privacy } from './Settings/Privacy.tsx';
 import { AnalyticsConsent } from './Settings/AnalyticsConsent.tsx';
 import { ComposePreferences } from './Settings/ComposePreferences.tsx';
+import {DraftSavePreferences} from './Settings/DraftSavePreferences.tsx';
 import {MailInteractionPreferences} from './Settings/MailInteractionPreferences.tsx';
 import { KeyboardShortcuts } from './Settings/KeyboardShortcuts.tsx';
 import { TimeZones } from './Settings/TimeZones.tsx';
@@ -306,7 +307,7 @@ export function Settings(props: SettingsProps): JSX.Element {
               <RetainedSettingsSection name="folders" active={visible('folders')}>{()=><AsyncBoundary><FolderPreferences folders={app.mailboxes} tags={app.tags} navigation={navigation} onRolesSaved={app.refreshFolders}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="mail-transfer" active={visible('mail-transfer')}>{()=><AsyncBoundary><MailTransfer accountId={accountId()} mailboxes={app.mailboxes()} onImported={()=>void app.refreshFolders()}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="receipts" active={visible('receipts')}>{()=><AsyncBoundary><Receipts accountId={accountId()}/></AsyncBoundary>}</RetainedSettingsSection>
-              <RetainedSettingsSection name="compose" active={visible('compose')}>{()=><AsyncBoundary><ComposePreferences /></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="compose" active={visible('compose')}>{()=><AsyncBoundary><ComposePreferences /><DraftSavePreferences/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="shortcuts" active={visible('shortcuts')}>{()=><AsyncBoundary><KeyboardShortcuts navigation={navigation}/><MailInteractionPreferences/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="time" active={visible('time')}>{()=><AsyncBoundary><TimeZones navigation={navigation}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="packages" active={visible('packages')}>{()=><AsyncBoundary><Packages accountId={accountId()} navigation={navigation}/></AsyncBoundary>}</RetainedSettingsSection>

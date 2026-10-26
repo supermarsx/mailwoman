@@ -1,3 +1,6 @@
+import {accountDraftApi,draftEditorState,localAccountDraft,type AccountDraftDocument} from '../api/accountDrafts.ts';
+import {createDraftAutosave,type DraftSaveStatus,type DraftSaveMode} from './compose/accountDraftAutosave.ts';
+import {toast} from './toast/toast.ts';
 import {observePreferenceAccount,preferenceAccount, preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import { settings } from '../api/settings.ts';
 import { supportsDeliveryReceipts } from '../api/deliveryReceipts.ts';
@@ -28,6 +31,7 @@ import {
   type ComposeSignature,
 } from './compose/ComposerExtras.tsx';
 import {
+  draftHasContent,
   listDrafts,
   saveDraft,
   deleteDraft,
@@ -127,6 +131,7 @@ export function Compose(props: {
   resumeDraftId?: string;
   onDraftIdChange?: (id:string)=>void;
   onSubjectChange?: (subject:string)=>void;
+  registerBeforeClose?: (handler:()=>Promise<boolean>)=>void;
   /** Reply / Reply all / Forward: what the composer starts with. Read once,
    *  when the composer mounts. */
   initial?: ComposeInitial;
@@ -187,6 +192,17 @@ export function Compose(props: {
   const [drafts, setDrafts] = createSignal<StoredDraft[]>([]);
   // Stable id for THIS composer's auto-saved draft (W9).
   let draftId = newDraftId();
+  const [remoteRevision,setRemoteRevision]=createSignal<string|null>(null);
+  const [remoteReady,setRemoteReady]=createSignal(false);
+  const [remoteStatus,setRemoteStatus]=createSignal<DraftSaveStatus>('idle');
+  const [remoteDrafts,setRemoteDrafts]=createSignal<AccountDraftDocument[]>([]);
+  const [remoteLoading,setRemoteLoading]=createSignal(false);
+  const [discardConfirmation,setDiscardConfirmation]=createSignal<AccountDraftDocument|null>(null);
+  let remoteWriter:ReturnType<typeof createDraftAutosave>|undefined;
+  let remoteWriterId='';
+  let resumedUncertain=false;
+  let remoteAbort:AbortController|undefined;
+
   const [identityId, setIdentityId] = createSignal<string>('');
   const [sendAt, setSendAt] = createSignal('');
   // Earliest time the Send-later field offers; refreshed when the field is
@@ -255,6 +271,7 @@ export function Compose(props: {
   // is not sent unencrypted until the user has said so, in the dialog below,
   // for this composer.
   const quotesDecrypted = initial?.quotesDecrypted === true;
+  const protectedDraft=()=>quotesDecrypted||cryptoState()?.encrypt===true;
   const [plaintextConfirmOpen, setPlaintextConfirmOpen] = createSignal(false);
   const [plaintextConfirmed, setPlaintextConfirmed] = createSignal(false);
 
@@ -308,7 +325,7 @@ export function Compose(props: {
     if (props.embedded) return;
     if (e.key === 'Escape') {
       e.preventDefault();
-      props.onClose();
+      void closeWithDraftSave();
       return;
     }
     if (e.key !== 'Tab' || backdropEl === undefined) return;
@@ -533,7 +550,10 @@ export function Compose(props: {
   function resumeDraft(d: StoredDraft): void {
     const owner=preferenceAccount();
     if (d.accountId !== app.accountId() || !owner || owner.id!==d.accountId || !preferenceAccountIsCurrent(owner) || !owner.storageAuthority || d.storageAuthority!==owner.storageAuthority) return;
+    remoteWriter?.dispose();remoteWriter=undefined;remoteWriterId='';
+    resumedUncertain=d.serverStatus==='uncertain';
     draftId = d.id;
+    setRemoteRevision(d.serverRevision??null);
     props.onDraftIdChange?.(draftId);
     setExpanded(true);
     setIdentityId(d.identityId ?? '');
@@ -634,7 +654,7 @@ export function Compose(props: {
   /** Open the Drafts drawer, refreshing the list from storage first (W9). */
   function openDrafts(): void {
     setDrafts(listDrafts(app.accountId(),localDraftAuthority()));
-    setDraftsOpen(true);
+    setDraftsOpen(true);void refreshRemoteDrafts();
   }
 
   /** Open the recall panel, refreshing the server-held submission queue (W10). */
@@ -648,6 +668,62 @@ export function Compose(props: {
     void app.cancelOutbox(id).then(() => app.refreshOutbox());
   }
 
+  function remoteFailure(code:string):void {
+    if(!ownsDraft())return;
+    toast.error(t(code==='draftSaveUncertain'?'mail-draft-uncertain':code==='draftConflict'?'mail-draft-conflict':code==='draftCleanupPending'?'mail-draft-cleanup-pending':code==='draftDiscardPending'?'mail-draft-discard-pending':code==='draftLimit'?'mail-draft-limit':'mail-draft-save-failed'));
+  }
+  async function refreshRemoteDrafts():Promise<void>{
+    const owner=composerAuthority();if(!owner?.storageAuthority||!ownsDraft())return;
+    setRemoteLoading(true);
+    try{const result=await accountDraftApi(owner,remoteAbort?.signal).list();if(!ownsDraft())return;setRemoteReady(result.supported);setRemoteDrafts(result.items);if(!result.supported)setRemoteStatus('unsupported');}
+    catch{if(ownsDraft())setRemoteStatus('error');}
+    finally{if(ownsDraft())setRemoteLoading(false);}
+  }
+  async function resumeRemoteDraft(id:string):Promise<void>{
+    const owner=composerAuthority();if(!owner?.storageAuthority||!ownsDraft()||remoteLoading())return;
+    if(remoteWriter?.isBusy())return;
+    if(remoteWriter?.hasPending()&&settings()['mail.draftSaveMode']?.value!=='manual'&&!await remoteWriter.flush())return;
+    if(pendingDraft&&ownsDraft())saveDraft(pendingDraft);
+    setRemoteLoading(true);
+    try{const document=await accountDraftApi(owner,remoteAbort?.signal).load(id);if(!ownsDraft())return;
+      const local=localAccountDraft(document);if(document.revision)local.serverRevision=document.revision;
+      resumeDraft(local);ensureRemoteWriter();remoteWriter?.resume(document);
+      setRemoteStatus(document.status==='uncertain'?'uncertain':'saved');
+    }catch{remoteFailure('draftStateUnavailable');}finally{if(ownsDraft())setRemoteLoading(false);}
+  }
+  async function discardRemoteDraft(document:AccountDraftDocument):Promise<void>{
+    const owner=composerAuthority();if(!owner?.storageAuthority||!ownsDraft()||remoteLoading())return;
+    if(remoteWriterId===document.id){remoteWriter?.suspend(true);await remoteWriter?.settled();}
+    setRemoteLoading(true);
+    try{await accountDraftApi(owner,remoteAbort?.signal).discard(document.id,document.revision);if(!ownsDraft())return;deleteDraft(document.id,owner.id,owner.storageAuthority);setRemoteDrafts(rows=>rows.filter(row=>row.id!==document.id));void app.refreshFolders();
+      if(draftId===document.id){allowRecoveryClose=true;pendingDraft=undefined;sent=true;props.onClose();}
+    }catch{remoteFailure('draftDiscardPending');}finally{if(ownsDraft())setRemoteLoading(false);}
+  }
+  function ensureRemoteWriter():void{
+    const owner=composerAuthority();if(!remoteReady()||protectedDraft()||!owner?.storageAuthority||!ownsDraft())return;
+    if(remoteWriter&&remoteWriterId===draftId)return;
+    remoteWriter?.dispose();remoteWriterId=draftId;
+    remoteWriter=createDraftAutosave({id:draftId,transport:accountDraftApi(owner,remoteAbort?.signal),current:()=>ownsDraft()&&preferenceAccountIsCurrent(owner)&&!sent,status:setRemoteStatus,failure:remoteFailure,saved:(before,document)=>{
+      setRemoteRevision(document.revision);
+      void app.refreshFolders();
+      const rebound=new Map<string,{blobId:string;size:number}>();
+      before.attachments.forEach((file,index)=>{const saved=document.state?.attachments[index];if(saved)rebound.set(file.blobId,saved);});
+      before.inline.forEach(file=>{const saved=document.state?.inline.find(value=>value.cid===file.cid);if(saved)rebound.set(file.blobId,saved);});
+      setAttachments(files=>files.map(file=>{const saved=rebound.get(file.blobId);return saved?{...file,blobId:saved.blobId,size:saved.size}:file;}));
+      setInlineImages(files=>files.map(file=>{const saved=rebound.get(file.blobId);return saved?{...file,blobId:saved.blobId,size:saved.size}:file;}));
+    }});
+    remoteWriter.seedRevision(remoteRevision());
+    if(resumedUncertain)remoteWriter.seedUncertain();
+  }
+  let allowRecoveryClose=false;
+  async function beforeDraftClose():Promise<boolean>{
+    if(sent||allowRecoveryClose||!ownsDraft())return true;
+    if(uploading()||remoteWriter?.isBusy())return false;
+    if(settings()['mail.draftSaveMode']?.value!=='manual'&&remoteWriter?.hasPending()&&!await remoteWriter.flush())return false;
+    return true;
+  }
+  async function closeWithDraftSave():Promise<void>{if(await beforeDraftClose())props.onClose();}
+  onMount(()=>props.registerBeforeClose?.(beforeDraftClose));
   // W9 auto-save: debounce a snapshot of the composition to local storage so a
   // closed / refreshed composer can be resumed. Empty compositions are skipped
   // (see `draftHasContent`). A composition quoting decrypted text is never
@@ -674,7 +750,8 @@ export function Compose(props: {
     const account = app.accountId(),owner=composerAuthority();
     if(!draftAuthority&&owner?.id===account){draftAuthority=owner;setDrafts(listDrafts(account,owner.storageAuthority));}
     if (draftAccount === null && account !== null) { draftAccount = account; draftAuthority=owner; setDrafts(listDrafts(account,localDraftAuthority())); }
-    if (account !== draftAccount) {
+    if (account !== draftAccount || (draftAuthority && !preferenceAccountIsCurrent(draftAuthority))) {
+      remoteWriter?.dispose();remoteAbort?.abort();
       clearTimeout(saveTimer); pendingDraft=undefined;
       setTo('');setCc('');setBcc('');setSubject('');setBody('');setBodyHtml('');setIdentityId('');
       for (const image of inlineImages()) if (image.previewUrl) URL.revokeObjectURL(image.previewUrl);
@@ -684,11 +761,13 @@ export function Compose(props: {
   createEffect(() => {
     const account = app.accountId();
     composerAuthority();
-    if (quotesDecrypted || account === null || account !== draftAccount || !draftAuthority?.storageAuthority) return;
+    if (protectedDraft() || account === null || account !== draftAccount || !draftAuthority?.storageAuthority) return;
     const snapshot: StoredDraft = {
       id: draftId,
       accountId: account,
       storageAuthority:draftAuthority.storageAuthority,
+      ...(remoteRevision()?{serverRevision:remoteRevision()!}:{}),
+      ...(remoteStatus()==='uncertain'?{serverStatus:'uncertain' as const}:{}),
       identityId: identityId(),
       bodyFormat: richMode() ? 'html' : 'plain',
       insertedSignatures: [...insertedSignatures()],
@@ -709,8 +788,24 @@ export function Compose(props: {
     };
     clearTimeout(saveTimer);
     pendingDraft=snapshot;
+    ensureRemoteWriter();
+    if(draftHasContent(snapshot))remoteWriter?.update(draftEditorState(snapshot));
     saveTimer = setTimeout(() => {if(!sent && ownsDraft() && app.accountId()===snapshot.accountId && app.me()!==null) saveDraft(snapshot);}, 800);
   });
+  createEffect(()=>{
+    const protectedNow=protectedDraft();remoteWriter?.suspend(protectedNow);
+    if(protectedNow){clearTimeout(saveTimer);pendingDraft=undefined;}
+  });
+  let remoteOwnerStarted=false;
+  createEffect(()=>{const owner=composerAuthority();if(!remoteOwnerStarted&&owner?.storageAuthority&&ownsDraft()){remoteOwnerStarted=true;remoteAbort=new AbortController();void refreshRemoteDrafts();}});
+  createEffect(()=>{
+    remoteReady();ensureRemoteWriter();
+    const values=settings();
+    const mode=values['mail.draftSaveMode']?.value;
+    remoteWriter?.configure({mode:(mode==='periodic'||mode==='manual'?mode:'realtime') as DraftSaveMode,debounceMs:Number(values['mail.draftDebounceMs']?.value??1000),intervalSecs:Number(values['mail.draftIntervalSecs']?.value??30)});
+    if(pendingDraft&&draftHasContent(pendingDraft))remoteWriter?.update(draftEditorState(pendingDraft));
+  });
+  onCleanup(()=>{remoteWriter?.dispose();remoteAbort?.abort();});
   onCleanup(() => {clearTimeout(saveTimer);if(!sent && pendingDraft && ownsDraft() && app.me()!==null) saveDraft(pendingDraft);draftDisposed=true;});
 
   const recipientFields = {
@@ -835,6 +930,12 @@ export function Compose(props: {
 
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
+    if(busy()||uploading())return;
+    setBusy(true);
+    try {
+    remoteWriter?.suspend(true);
+    if(remoteWriter?.isBusy())await remoteWriter.settled();
+    if(!ownsDraft())return;
     setError(null);
     if(externalMode()==='confirm' && outside().length && reviewedRecipients()!==recipientReviewKey()){
       setError(t('mail-external-confirm-required'));return;
@@ -927,6 +1028,7 @@ export function Compose(props: {
       if(requestDelivery()&&!deliveryAvailable())throw new Error(t('mail-compose-delivery-unavailable'));
       if (!ownsDraft()) throw new Error(t('mail-compose-account-changed'));
       await app.sendMessage({
+        ...(remoteRevision()&&remoteStatus()!=='uncertain'&&remoteStatus()!=='conflict'?{accountDraft:{id:draftId,revision:remoteRevision()!}}:{}),
         to: to(),
         cc: cc(),
         bcc: bcc(),
@@ -965,6 +1067,7 @@ export function Compose(props: {
     } finally {
       setBusy(false);
     }
+    } finally {setBusy(false);if(!sent)remoteWriter?.suspend(protectedDraft());else remoteWriter?.dispose();}
   }
 
   return (
@@ -998,12 +1101,17 @@ export function Compose(props: {
             >
               {t('mail-compose-recall')}
             </button>
-            <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-compose-close')} onClick={() => props.onClose()}>
+            <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-compose-close')} onClick={() => void closeWithDraftSave()}>
               <Icon name="close" />
             </button>
           </div>
         </header>
 
+        <p role="status" aria-live="polite" class="compose__sign-unlock-note" data-testid="account-draft-status">{t(protectedDraft()?'mail-draft-protected':`mail-draft-status-${remoteStatus()}`)}</p>
+        <Show when={['error','uncertain','conflict'].includes(remoteStatus())&&localDraftAuthority()}><button type="button" class="btn btn--ghost" onClick={()=>{allowRecoveryClose=true;props.onClose();}}>{t('mail-draft-close-recovery')}</button></Show>
+        <Show when={remoteReady()&&!protectedDraft()}><button type="button" class="btn btn--ghost" disabled={remoteStatus()==='saving'||remoteStatus()==='uncertain'||remoteStatus()==='conflict'} onClick={()=>void remoteWriter?.flush()}>{t('mail-draft-save-now')}</button></Show>
+        <Show when={draftsOpen()}><section aria-label={t('mail-draft-account-list')}><h3>{t('mail-draft-account-list')}</h3><p>{t('mail-draft-quota-help')}</p><Show when={remoteLoading()}><p role="status">{t('mail-draft-loading')}</p></Show><For each={remoteDrafts()}>{document=><div><button type="button" class="btn btn--ghost" disabled={remoteLoading()} onClick={()=>void resumeRemoteDraft(document.id)}>{document.summary.subject||t('mail-no-subject')}</button><button type="button" class="btn btn--ghost" disabled={remoteLoading()||document.status==='uncertain'} onClick={()=>setDiscardConfirmation(document)}>{t('mail-draft-discard-account')}</button></div>}</For></section></Show>
+        <Show when={discardConfirmation()}>{document=><section role="alertdialog" aria-label={t('mail-draft-discard-confirm')}><p>{t('mail-draft-discard-confirm-detail',{subject:document().summary.subject||t('mail-no-subject')})}</p><button type="button" class="btn btn--ghost" disabled={remoteLoading()} onClick={()=>setDiscardConfirmation(null)}>{t('mail-compose-cancel')}</button><button type="button" class="btn" disabled={remoteLoading()} onClick={()=>{const row=document();setDiscardConfirmation(null);void discardRemoteDraft(row);}}>{t('mail-draft-discard-confirm')}</button></section>}</Show>
         <DraftsDrawer
           open={draftsOpen()}
           drafts={drafts}
@@ -1442,7 +1550,7 @@ export function Compose(props: {
           </p>
         </Show>
         <footer class="compose__footer">
-          <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => props.onClose()}>
+          <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => void closeWithDraftSave()}>
             {t('mail-compose-cancel')}
           </button>
           <button type="submit" class={`btn btn--primary ${a11y.focusable}`} disabled={busy()}>

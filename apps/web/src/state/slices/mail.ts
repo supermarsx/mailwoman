@@ -108,6 +108,7 @@ export type InboxTab = 'focused' | 'other';
 
 /** The compose/send input (grown for identities + send-later + undo-send). */
 export interface SendInput {
+  accountDraft?:{id:string;revision:string};
   /** The recipient field as typed: `addr` or `Name <addr>` entries, `,`/`;`-separated. */
   to: string;
   /** `Cc` and `Bcc` recipient fields, in the same syntax as `to`. */
@@ -1588,6 +1589,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const holdSeconds = scheduled ? 0 : (input.holdSeconds ?? 10);
 
     const draft: DraftInput = {
+      ...(input.accountDraft?{accountDraft:input.accountDraft}:{}),
       from: { name: fromName, email: fromEmail },
       draftMailboxId: drafts,
       to: input.to,

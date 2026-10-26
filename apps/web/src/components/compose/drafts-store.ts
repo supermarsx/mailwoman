@@ -33,6 +33,9 @@ export interface StoredDraft {
   id: string;
   accountId: string;
   storageAuthority: string;
+  /** Revision last confirmed by the account Drafts API; never inferred from a newer server copy. */
+  serverRevision?: string;
+  serverStatus?:'saved'|'uncertain'|'refused';
   identityId?: string;
   bodyFormat?: 'plain' | 'html';
   insertedSignatures?: string[];
@@ -94,6 +97,8 @@ function isDraft(d: unknown): d is StoredDraft {
     typeof r.id === 'string' &&
     typeof r.accountId === 'string' && r.accountId.length > 0 &&
     typeof r.storageAuthority==='string'&&/^[A-Za-z0-9_-]{16,256}$/.test(r.storageAuthority)&&
+    optional(r.serverStatus,value=>value==='saved'||value==='uncertain'||value==='refused') &&
+    optional(r.serverRevision, isString) &&
     optional(r.identityId, isString) &&
     optional(r.bodyFormat, value => value === 'plain' || value === 'html') &&
     optional(r.insertedSignatures, isStringList) &&

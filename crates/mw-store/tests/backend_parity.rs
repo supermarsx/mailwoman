@@ -52,7 +52,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Every store table, for TRUNCATE between Postgres runs.
-const ALL_TABLES: &str = "personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, personal_signature, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
+const ALL_TABLES: &str = "account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, personal_signature, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
@@ -2094,6 +2094,13 @@ mod admin_controls_0033 {
     /// Every table 0033 creates, FK parents before their children.
     #[rustfmt::skip]
     const NEW_TABLES: &[NewTable] = &[
+        NewTable {name:"account_draft",copied:true,cols:&[
+            ("owner",'T',"!","po1-draft-owner"),("id",'T',"!","draft-copy"),("account_id",'T',"!","wire-account"),
+            ("revision",'T',"~","revision-one"),("email_id",'T',"~","email-one"),("sealed_state",'B',"~","draft-state"),
+            ("sealed_summary",'B',"~","draft-summary"),("updated_at",'I',"!",TS),("operation_id",'T',"!","operation-one"),
+            ("request_hash",'T',"!","request-hash"),("operation_state",'T',"!","saved"),
+            ("sealed_pending_state",'B',"~","pending-state"),("sealed_pending_summary",'B',"~","pending-summary"),("cleanup_email_id",'T',"~","email-old"),
+        ]},
         NewTable {name:"personal_identity",copied:true,cols:&[
             ("owner_subject",'T',"!","po1-delivery-owner"),("id",'T',"!","owned-profile"),("name",'T',"=","Work"),("email",'T',"!","owner@example.test"),
             ("reply_to",'T',"~","reply@example.test"),("signature_html",'T',"~","<p>Rich</p>"),("signature_text",'T',"~","Plain"),("signature_name",'T',"~","Work"),

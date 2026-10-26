@@ -137,6 +137,7 @@ mod server_text;
 // merges in `router()`; the module bodies are owned by e6/e18/e10 respectively.
 pub mod image_proxy;
 pub mod import_routes;
+mod account_drafts;
 pub mod prefs_routes;
 // 26.20 t32-e10b (f01): the settings model C — the registry (keys, types,
 // defaults, scopes, environment precedence, the limit ceiling) and its routes.
@@ -1465,6 +1466,7 @@ fn router(
         .merge(features::user_router())
         .merge(client_policy::router())
         .merge(import_routes::import_router())
+        .merge(account_drafts::router())
         .merge(sieve_sync::sieve_sync_router())
         .merge(open_tracking::router())
         .route("/api/login", post(login))

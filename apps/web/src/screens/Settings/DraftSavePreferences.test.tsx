@@ -1,0 +1,8 @@
+import {afterEach,expect,it,vi} from 'vitest';
+import {cleanup,fireEvent,render,screen} from '@solidjs/testing-library';
+import {DraftSavePreferences} from './DraftSavePreferences.tsx';
+const fixture=vi.hoisted(()=>({locked:false,mode:'realtime',save:vi.fn(async(_key:string,_value:unknown)=>true)}));
+vi.mock('./useSetting.ts',()=>({useSetting:(key:string,fallback:unknown)=>({value:()=>key==='mail.draftSaveMode'?fixture.mode:fallback,entry:()=>({value:fallback}),locked:()=>fixture.locked,saving:()=>false,error:()=>'',reset:async()=>true,set:(value:unknown)=>fixture.save(key,value)})}));
+afterEach(()=>{cleanup();fixture.locked=false;fixture.mode='realtime';fixture.save.mockClear();});
+it('offers bounded debounce and explicit manual mode',()=>{render(()=><DraftSavePreferences/>);expect(screen.getByLabelText('Typing pause (milliseconds)')).toHaveValue(1000);fireEvent.change(screen.getByLabelText('Typing pause (milliseconds)'),{target:{value:'20'}});expect(fixture.save).not.toHaveBeenCalled();fireEvent.change(screen.getByLabelText('Save automatically'),{target:{value:'manual'}});expect(fixture.save).toHaveBeenCalledWith('mail.draftSaveMode','manual');});
+it('honors locked periodic policy and exposes interval instead of debounce',()=>{fixture.locked=true;fixture.mode='periodic';render(()=><DraftSavePreferences/>);expect(screen.getByLabelText('Save automatically')).toBeDisabled();expect(screen.getByLabelText('Save interval (seconds)')).toHaveValue(30);expect(screen.getByLabelText('Save interval (seconds)')).toBeDisabled();expect(screen.queryByLabelText('Typing pause (milliseconds)')).toBeNull();});

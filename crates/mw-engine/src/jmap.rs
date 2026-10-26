@@ -38,6 +38,9 @@ pub(crate) mod mail_ext;
 #[path = "jmap_core.rs"]
 pub mod core;
 
+#[path = "saved_drafts.rs"]
+pub mod saved_drafts;
+
 // Folder management (26.20 t28-e17): `Mailbox/set`, the `Email/set` destroy
 // path and the session's mail account capability. A child of this module so it
 // reaches the private helpers below (`remove_local_email`, `move_email`, ...).
@@ -2396,6 +2399,7 @@ impl Engine {
         if let Some(err) = dlp_block_error(&dlp_verdicts) {
             return Err(err);
         }
+        let account_draft=self.account_draft_submission_reference(account_id,spec.get("mailwomanAccountDraft")).await.map_err(|e|set_error(&e))?;
         self.enqueue_submission(
             account_id,
             rt,
@@ -2406,7 +2410,7 @@ impl Engine {
                 hold_seconds,
                 hold,
                 origin,
-                at_send: at_send_json(on_success, rcpt_to.as_deref(), dsn.as_ref()),
+                at_send: at_send_json(on_success, rcpt_to.as_deref(), dsn.as_ref(), account_draft.as_ref()),
             },
         )
         .await
@@ -2604,7 +2608,7 @@ impl Engine {
             self.store()
                 .set_submission_on_success(
                     id,
-                    at_send_json(Some(on_success), rcpt_to.as_deref(), dsn.as_ref()).as_deref(),
+                    at_send_json(Some(on_success), rcpt_to.as_deref(), dsn.as_ref(), stored.as_deref().and_then(|s|serde_json::from_str::<Value>(s).ok()).and_then(|v|v.get("accountDraft").cloned()).as_ref()).as_deref(),
                 )
                 .await?;
         }
@@ -2987,6 +2991,10 @@ impl Engine {
                 Some(earlier) => format!("{earlier}; {note}"),
                 None => note,
             });
+        }
+        if let Some(reference)=stored.as_deref().and_then(|s|serde_json::from_str::<Value>(s).ok()).and_then(|v|v.get("accountDraft").filter(|v|!v.is_null()).cloned())
+            && self.cleanup_account_draft_after_send(account_id,&reference).await.is_err() {
+            problem=Some("sent; saved account draft cleanup is pending; inspect Drafts".into());
         }
         if let Some(note) = problem {
             tracing::warn!("submission {sub_id} was {note}; filing will not be retried");
@@ -4755,8 +4763,9 @@ fn at_send_json(
     on_success: Option<&OnSuccess>,
     rcpt_to: Option<&[String]>,
     dsn: Option<&mail_ext::dsn::DsnRequest>,
+    account_draft:Option<&Value>,
 ) -> Option<String> {
-    if on_success.is_none() && rcpt_to.is_none() && dsn.is_none() {
+    if on_success.is_none() && rcpt_to.is_none() && dsn.is_none() && account_draft.is_none() {
         return None;
     }
     Some(
@@ -4765,6 +4774,7 @@ fn at_send_json(
             "destroy": on_success.is_some_and(|o| o.destroy),
             "rcptTo": rcpt_to,
             "dsn": dsn.map(|d| d.to_json()),
+            "accountDraft":account_draft,
         })
         .to_string(),
     )
