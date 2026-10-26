@@ -4,6 +4,13 @@ import { DeploymentSecurity,type DeploymentAssessment } from './DeploymentSecuri
 import { renderInShell,holding } from './shell/testkit.tsx';
 const report:DeploymentAssessment={generatedAt:'2026-10-26T09:00:00Z',scope:'current-process-and-request',checks:[{id:'adminFactors',status:'warning',value:2,settings:[]},{id:'adminSessions',status:'info',value:{idleSeconds:1800,absoluteSeconds:43200},settings:['admin.session.idleSecs']},{id:'csrf',status:'pass',value:true,settings:[]}],limitations:['no-external-tls-or-firewall-probe','configured-worker-not-executed']};
 describe('deployment assessment',()=>{
+ it('distinguishes request ingress limits from response streams',async()=>{
+  const snapshot={...report,checks:[{id:'httpAdmission',status:'info' as const,value:{connections:1024,requests:256,headerBytes:32768,headers:100,headerTimeoutMs:10000,bodyTimeoutMs:60000,http2Streams:32,shutdownTimeoutMs:30000},settings:[]}]};
+  renderInShell(()=><DeploymentSecurity load={async()=>snapshot}/>);
+  expect(await screen.findByText('HTTP admission and request limits')).toBeInTheDocument();
+  expect(screen.getByText(/Response streams are not subject/)).toHaveTextContent('Fixed limits require restart');
+ });
+
  it('describes startup connection limits without claiming an external TLS probe',async()=>{
   const snapshot={...report,checks:[{id:'connectionNegotiation',status:'info' as const,value:{tlsTimeoutMs:10000,tlsMaximum:128,proxyTimeoutMs:5000,proxyMaximum:128,requiresRestart:true},settings:[]}]};
   renderInShell(()=><DeploymentSecurity load={async()=>snapshot}/>);

@@ -50,6 +50,7 @@ mod login_failure;
 pub mod fonts;
 pub mod hardening;
 pub mod http_metrics;
+pub mod inbound_http;
 pub mod knobs;
 mod config_routes;
 pub mod holidays;

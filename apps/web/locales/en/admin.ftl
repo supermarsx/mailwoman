@@ -745,3 +745,5 @@ admin-session-batch-current = Your current administrator session is selected. It
 admin-session-batch-confirm-button = Confirm selected revocations
 admin-session-batch-result = Revoked: { $revoked }. Already ended: { $unchanged }. Could not confirm: { $failed }. Not attempted: { $skipped }.
 admin-session-refresh-failed = The session list could not be refreshed. Reload it before selecting more sessions.
+admin-deployment-check-httpAdmission = HTTP admission and request limits
+admin-deployment-value-httpAdmission = Built-in listener startup configuration: { $connections } connections, { $requests } requests through response completion, { $headerBytes } header bytes and { $headers } headers. HTTP opening and HTTP/1 header deadline { $headerTimeoutMs } ms; request-body deadline { $bodyTimeoutMs } ms; { $http2Streams } HTTP/2 streams per connection; graceful drain { $shutdownTimeoutMs } ms. Fixed limits require restart. Response streams are not subject to the request-body deadline.

@@ -68,7 +68,22 @@ async fn assessment(
     );
     let limits = crate::tls::inbound_limits::InboundLimits::from_env()
         .map_err(|_| AdminApiError::internal("invalid startup connection limits"))?;
+    let http = crate::inbound_http::HttpLimits::from_env()
+        .map_err(|_| AdminApiError::internal("invalid startup HTTP limits"))?;
     let checks = vec![
+        row(
+            "httpAdmission",
+            "info",
+            json!({
+                "connections":http.connections,"requests":http.requests,
+                "headerBytes":http.header_bytes,"headers":http.headers,
+                "headerTimeoutMs":http.header_timeout.as_millis(),"bodyTimeoutMs":http.body_timeout.as_millis(),
+                "http2Streams":http.http2_streams,"shutdownTimeoutMs":http.shutdown_timeout.as_millis(),
+                "requiresRestart":true,"adaptive":false,
+                "source":"built-in-listener-startup-configuration",
+            }),
+            &[],
+        ),
         row(
             "connectionNegotiation",
             "info",

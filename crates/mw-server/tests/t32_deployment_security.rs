@@ -95,6 +95,11 @@ async fn assessment_reports_actual_policy_without_secrets_and_requires_global_di
         "built-in-listener-startup-configuration"
     );
     assert_eq!(value("connectionNegotiation")["tlsMaximum"], 128);
+    assert_eq!(value("httpAdmission")["requiresRestart"], true);
+    assert_eq!(value("httpAdmission")["adaptive"], false);
+    assert_eq!(value("httpAdmission")["headerBytes"], 32768);
+    assert_eq!(value("httpAdmission")["http2Streams"], 32);
+
     assert_eq!(value("connectionNegotiation")["tlsTimeoutMs"], 10000);
     assert_eq!(value("connectionNegotiation")["proxyTimeoutMs"], 5000);
 
