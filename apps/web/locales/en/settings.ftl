@@ -287,6 +287,37 @@ settings-kbd-action-markRead = Mark read
 settings-kbd-action-markUnread = Mark unread
 settings-kbd-action-spam = Mark as spam
 
+settings-notif-device-title = Permission on this device
+settings-notif-device-help = Your notification preferences follow your account. Browser permission belongs to this device; Mailwoman asks only when you choose to allow it.
+settings-notif-permission-default = Browser permission has not been requested.
+settings-notif-permission-granted = Browser notifications are allowed on this device.
+settings-notif-permission-denied = Notifications are blocked. Change this site's permission in your browser settings to allow them.
+settings-notif-permission-unsupported = This browser does not support system notifications here.
+settings-notif-permission-request = Allow notifications on this device
+settings-notif-permission-error = The browser could not request notification permission.
+settings-notif-timezone = Quiet-hours time zone (IANA)
+settings-notif-timezone-device = Use this device's time zone
+
+settings-permissions-background-title = Background notifications on this browser
+settings-permissions-background-help = Save notification preferences and allow browser notifications first. Register this browser to receive account activity when the app is closed.
+settings-permissions-push-unsupported = Background Web Push is unavailable in this browser.
+settings-permissions-push-registered = This browser has a push subscription. Register it to bind it to the current account.
+settings-permissions-push-unregistered = This browser has no push subscription.
+settings-permissions-push-register = Register background notifications
+settings-permissions-push-remove = Remove browser subscription
+settings-permissions-push-policy = Your administrator does not allow background push notifications.
+settings-permissions-storage-title = Browser storage
+settings-permissions-storage-help = Persistent storage protects this site's local data from automatic eviction when the browser grants it. This is device-local and does not change server retention. You can clear site data in browser settings; unsent offline changes may be lost.
+settings-permissions-storage-unsupported = Persistent storage requests are unavailable in this browser.
+settings-permissions-storage-persistent = The browser has granted persistent storage for this site.
+settings-permissions-storage-evictable = The browser may automatically evict this site's local data.
+settings-permissions-storage-usage = Current site storage: { $mib } MiB.
+settings-permissions-storage-request = Request persistent storage
+settings-permissions-storage-policy = Your administrator does not allow persistent-storage requests.
+settings-permissions-error = The browser action could not be completed. Check the saved account settings and this site's browser permissions.
+
+settings-notif-background-rules = Content rules are evaluated while Mailwoman is open. Background system notifications are suppressed while any content rules are configured, because an opaque background wake does not contain message details.
+
 settings-time-title = Time zones
 settings-time-help = Choose how message times appear and an optional comparison zone for scheduling. Locations are never inferred from email addresses.
 settings-time-displayZone = Display time zone

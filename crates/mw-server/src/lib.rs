@@ -38,6 +38,7 @@ pub mod dlp;
 pub mod engine_mode;
 mod attachment_preview;
 mod attachment_policy;
+mod notification_policy;
 mod delivery_status;
 mod branding_routes;
 mod analytics_adapter;
@@ -1124,13 +1125,6 @@ async fn build_app_inner(
     tokio::spawn(push_relay::run_dispatcher(
         store.clone(),
         push.subscribe_relay(),
-        // `.no_proxy()`: push wakes go to operator-configured relay URLs; an
-        // ambient `HTTP_PROXY` would route them through a third party.
-        // See `mw_egress::harden_client`.
-        reqwest::Client::builder()
-            .no_proxy()
-            .build()
-            .expect("reqwest client builds"),
     ));
 
     // ── V6 MOUNT (plan §3 e11) ───────────────────────────────────────────────
@@ -1509,6 +1503,7 @@ fn router(
         // additive native bearer-auth mode + CORS gate are OFF by default
         // (browser cookie/same-origin path UNCHANGED). ──
         .route("/api/push/vapid", get(push_relay::push_vapid))
+        .route("/api/push/permission", get(push_relay::push_permission))
         .route("/api/push/subscribe", post(push_relay::push_subscribe))
         .route("/api/push/unsubscribe", post(push_relay::push_unsubscribe))
         .route("/healthz", get(|| async { "ok" }))

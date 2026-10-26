@@ -93,6 +93,8 @@ export interface Worker {
   caches: FakeCacheStorage;
   /** The network as the worker sees it; replace per test. */
   network: { fetch: (req: FakeRequest | string) => Promise<Response>; calls: string[] };
+  push(): Promise<void>;
+  pushState: { endpoint: string | null; visible: boolean; notifications: string[] };
   install(): Promise<void>;
   activate(): Promise<void>;
   fetch(path: string, init?: { method?: string; mode?: string }): Promise<FetchOutcome>;
@@ -113,11 +115,14 @@ export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js'): Worker
     calls: [],
     fetch: async () => new Response('ok', { status: 200 }),
   };
+  const pushState: Worker['pushState'] = { endpoint: 'https://push.example/capability-secret', visible: false, notifications: [] };
   const self = {
+    crypto: globalThis.crypto, TextEncoder,
     location,
     addEventListener: (type: string, fn: Listener) => listeners.set(type, fn),
     skipWaiting: async () => undefined,
-    clients: { claim: async () => undefined },
+    clients: { claim: async () => undefined, matchAll: async () => pushState.visible ? [{ visibilityState: 'visible', postMessage: () => undefined }] : [] },
+    registration: { pushManager: { getSubscription: async () => pushState.endpoint ? { endpoint: pushState.endpoint } : null }, showNotification: async (title: string) => { pushState.notifications.push(title); } },
   };
   const fetchFromWorker = (req: FakeRequest | string): Promise<Response> => {
     network.calls.push(new URL(typeof req === 'string' ? req : req.url, location.href).href);
@@ -135,6 +140,8 @@ export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js'): Worker
     origin: location.origin,
     caches,
     network,
+    push: () => lifecycle('push'),
+    pushState,
     install: () => lifecycle('install'),
     activate: () => lifecycle('activate'),
     async fetch(path, init = {}) {

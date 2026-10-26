@@ -16,6 +16,10 @@ import { t } from './i18n/index.ts';
 import { clearSettings, loadSettings } from './api/settings.ts';
 import { startAnalytics } from './api/startAnalytics.ts';
 
+import { observePreferenceAccount, preferenceAccountIsCurrent, type PreferenceAccount } from './api/accountPreferenceLifecycle.ts';
+import { SettingsService } from './screens/Settings/service.ts';
+import { shouldNotify } from './api/notificationPolicy.ts';
+
 // Every route below is a DYNAMIC IMPORT, and each now loads through `LazyRoute`
 // rather than a bare `<Suspense fallback="Loading…">`. A chunk that fails to
 // arrive — a 404 against a tab left open across a redeploy, or one dropped
@@ -142,37 +146,42 @@ export function App(): JSX.Element {
     else app.stopRealtime();
   });
 
-  // V5 push subscribe on login (plan §3 e6). Fire-and-forget + gated: a plain
-  // browser (no shell, no injected capability) never touches the push endpoints.
-  createEffect(() => {
-    if (inMail() && capabilityEnabled('push')) {
-      void getPlatform()
-        .pushSubscribe()
-        .catch(() => undefined);
-    }
-  });
+  const [notificationAccount, setNotificationAccount] = createSignal<PreferenceAccount | null>(null);
+  onMount(() => { onCleanup(observePreferenceAccount(setNotificationAccount)); });
 
   // V5 native new-mail notification + unread badge (plan §3 e6), fed by the live
   // message list (which the realtime StateChange refetch updates). Gated so the
   // browser path is byte-identical; notifications only fire while the tab is
   // hidden, and the first run just seeds the baseline (no notification storm).
   let knownUnread: Set<string> | null = null;
+  let knownNotificationAccount: PreferenceAccount | null = null;
   createEffect(() => {
     const messages = app.messages();
-    if (!capabilityEnabled('notifications')) return;
+    const account = notificationAccount();
+    if (account !== knownNotificationAccount) {
+      knownUnread = null;
+      knownNotificationAccount = account;
+    }
+    if (!account || !inMail()) { knownUnread = null; return; }
+    if (!capabilityEnabled('notifications') && (typeof Notification === 'undefined' || Notification.permission !== 'granted')) return;
     const platform = getPlatform();
     const unread = messages.filter((m) => m.keywords?.['$seen'] !== true);
     void platform.setBadgeCount(unread.length);
     if (knownUnread !== null && typeof document !== 'undefined' && document.hidden) {
-      for (const m of unread) {
-        if (!knownUnread.has(m.id)) {
-          void platform.notify({
-            id: m.id,
-            title: t('common-notify-new-message'),
-            body: m.subject ?? t('common-notify-no-subject'),
-            ...(m.threadId !== undefined ? { threadId: m.threadId } : {}),
-          });
-        }
+      const candidates = unread.filter(message => !knownUnread?.has(message.id));
+      if (candidates.length > 0) {
+        // Recheck administrator policy immediately before each delivery batch.
+        // A failed check or an account transition suppresses the batch.
+        void new SettingsService().notifications().then(config => {
+          if (!preferenceAccountIsCurrent(account) || !document.hidden) return;
+          for (const message of candidates) {
+            if (shouldNotify(config, { ...message, mailboxNames: app.mailboxes().filter(mailbox => message.mailboxIds?.[mailbox.id]).map(mailbox => mailbox.name) })) void platform.notify({
+              id: message.id, title: t('common-notify-new-message'),
+              body: message.subject ?? t('common-notify-no-subject'),
+              ...(message.threadId !== undefined ? { threadId: message.threadId } : {}),
+            });
+          }
+        }).catch(() => undefined);
       }
     }
     knownUnread = new Set(unread.map((m) => m.id));

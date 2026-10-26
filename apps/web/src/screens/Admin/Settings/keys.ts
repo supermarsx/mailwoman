@@ -21,6 +21,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'time.displayZone',
   'time.comparisonZone',
   'time.showHelpers',
+  'notifications.pushAllowed',
+  'offline.persistentStorageAllowed',
   'attachments.previewAllowed',
   'attachments.downloadAllowed',
   'attachments.maxBytes',

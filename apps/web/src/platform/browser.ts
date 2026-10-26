@@ -181,9 +181,7 @@ export function createBrowserPlatform(): Platform {
         };
         if (Notif.permission === 'granted') {
           show();
-        } else if (Notif.permission !== 'denied') {
-          const perm = await Notif.requestPermission();
-          if (perm === 'granted') show();
+
         }
       } catch {
         /* Notifications unavailable (e.g. insecure context): degrade to nothing. */

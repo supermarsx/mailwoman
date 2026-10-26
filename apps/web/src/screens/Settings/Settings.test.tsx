@@ -192,6 +192,27 @@ describe('Identities — validation + create', () => {
 // ── Notifications (W15) ─────────────────────────────────────────────────────────
 
 describe('Notifications — rules + quiet hours', () => {
+  it('keeps failed configuration unavailable instead of enabling notifications', async () => {
+    const save = vi.fn();
+    render(() => <Notifications service={fakeService({ notifications: vi.fn(async () => { throw new Error('offline'); }), saveNotifications: save })} />);
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByTestId('notif-save')).toBeDisabled();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('requests device permission only from the explicit button', async () => {
+    const requestPermission = vi.fn(async () => 'granted' as NotificationPermission);
+    vi.stubGlobal('Notification', { permission: 'default', requestPermission });
+    try {
+      render(() => <Notifications service={fakeService({ notifications: vi.fn(async () => ({ enabled: true, rules: [], quietHours: { enabled: false, start: '22:00', end: '07:00' } })) })} />);
+      const button = await screen.findByRole('button', { name: 'Allow notifications on this device' });
+      await waitFor(() => expect(button).not.toBeDisabled());
+      expect(requestPermission).not.toHaveBeenCalled();
+      fireEvent.click(button);
+      await waitFor(() => expect(requestPermission).toHaveBeenCalledOnce());
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it('adds a rule and saves the config', async () => {
     const save = vi.fn(async (_c: NotificationConfig) => undefined);
     const service = fakeService({

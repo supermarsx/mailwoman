@@ -126,6 +126,7 @@ export interface NotificationRule {
 
 /** Quiet-hours window (local 24h HH:MM). Suppresses notifications in-range. */
 export interface QuietHours {
+  readonly timezone?: string;
   readonly enabled: boolean;
   readonly start: string;
   readonly end: string;
@@ -133,6 +134,8 @@ export interface QuietHours {
 
 /** `GET/PUT /api/account/notifications` — the account's notification config. */
 export interface NotificationConfig {
+  readonly pushAllowed?: boolean;
+  readonly persistentStorageAllowed?: boolean;
   readonly enabled: boolean;
   readonly rules: readonly NotificationRule[];
   readonly quietHours: QuietHours;

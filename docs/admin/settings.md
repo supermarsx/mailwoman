@@ -722,3 +722,11 @@ Each binding below is global/domain/user text (maximum 64 characters): `inherit`
 - <a id="shortcuts.markRead"></a>`shortcuts.markRead` — Mark read; default `inherit`.
 - <a id="shortcuts.markUnread"></a>`shortcuts.markUnread` — Mark unread; default `inherit`.
 - <a id="shortcuts.spam"></a>`shortcuts.spam` — Mark as spam; default `inherit`.
+
+<a id="notifications.pushAllowed"></a>
+### `notifications.pushAllowed`
+Administrator ceiling (global/domain, default true) for account-authorized background push registration and delivery. Account notifications must also be enabled. Browser permissions remain device-local.
+
+<a id="offline.persistentStorageAllowed"></a>
+### `offline.persistentStorageAllowed`
+Administrator ceiling (global/domain, default false) for an explicit browser persistent-storage request. The browser decides whether to grant the request; this setting cannot silently grant permission.

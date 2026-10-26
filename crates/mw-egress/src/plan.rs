@@ -252,6 +252,7 @@ pub fn current() -> Option<Arc<EgressPlan>> {
 /// One class request, apart from its URL.
 #[derive(Debug, Clone, Copy)]
 pub struct Request<'a> {
+    web_push: Option<crate::WebPushHeaders<'a>>,
     authorized_dav: Option<crate::AuthorizedDav<'a>>,
     class: TrafficClass,
     domain: Option<&'a str>,
@@ -267,6 +268,7 @@ impl<'a> Request<'a> {
     pub fn get(class: TrafficClass) -> Request<'a> {
         Request {
             authorized_dav: None,
+            web_push: None,
             class,
             domain: None,
             accept: "*/*",
@@ -286,6 +288,19 @@ impl<'a> Request<'a> {
             }),
             ..Request::get(class)
         }
+    }
+
+    /// Encrypted Web Push with fixed protocol headers, public HTTPS only.
+    pub fn web_push(authorization: &'a str, bytes: &'a [u8]) -> Result<Self, Refusal> {
+        let headers = crate::WebPushHeaders { authorization };
+        headers.validate()?;
+        if bytes.len() > 65536 {
+            return Err(Refusal::TooLarge);
+        }
+        Ok(Self {
+            web_push: Some(headers),
+            ..Self::post(TrafficClass::Push, "application/octet-stream", bytes).response_limit(8192)
+        })
     }
 
     /// Credential-bearing DAV/OCS requests never follow redirects or retry auth.
@@ -335,6 +350,7 @@ impl<'a> Request<'a> {
     fn outgoing(&self) -> Outgoing<'a> {
         Outgoing {
             authorized_dav: self.authorized_dav,
+            web_push: self.web_push,
             accept: self.accept,
             user_agent: self
                 .user_agent
@@ -383,6 +399,30 @@ pub async fn fetch_class(
 /// picks, fail-closed, or directly under the class's address policy.
 pub async fn send_with(plan: &EgressPlan, url: reqwest::Url, req: &Request<'_>) -> RoutedFetch {
     let started = Instant::now();
+    if req.class == TrafficClass::Push && url.scheme() != "https" {
+        let outcome = Err(Refusal::BadRequest("push endpoints require HTTPS"));
+        record(req.class, &outcome, started);
+        return RoutedFetch {
+            traversed_proxy: false,
+            content_type: None,
+            outcome,
+        };
+    }
+    if req.class == TrafficClass::Push
+        && plan
+            .selected_route(req.class, req.domain)
+            .is_some_and(|route| route.scheme == proxy::ProxyScheme::Socks5h)
+    {
+        let outcome = Err(Refusal::BadRequest(
+            "push requires locally verified destination addresses",
+        ));
+        record(req.class, &outcome, started);
+        return RoutedFetch {
+            traversed_proxy: false,
+            content_type: None,
+            outcome,
+        };
+    }
     let out = req.outgoing();
     let fetched = match plan.selected_route(req.class, req.domain) {
         // A route applies. Its result is the result — one exit, no direct retry.

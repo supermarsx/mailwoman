@@ -649,6 +649,22 @@ pub static REGISTRY: &[SettingDef] = &[
         "mdn_policy:<account> (MDN/send)"
     ),
     def!(
+        "notifications.pushAllowed",
+        Kind::Bool,
+        "true",
+        GD,
+        "notifications",
+        "account-authorized push registration and delivery"
+    ),
+    def!(
+        "offline.persistentStorageAllowed",
+        Kind::Bool,
+        "false",
+        GD,
+        "offline",
+        "explicit browser persistent-storage permission request"
+    ),
+    def!(
         "notifications.enabled",
         Kind::Bool,
         "false",

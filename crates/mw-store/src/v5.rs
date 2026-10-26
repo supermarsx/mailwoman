@@ -76,14 +76,15 @@ impl Store {
         &self,
         row: &PushSubscriptionRow,
     ) -> Result<(), StoreError> {
-        q("INSERT INTO push_subscriptions
+        let changed = q("INSERT INTO push_subscriptions
                  (id, account_id, transport, endpoint, p256dh, auth, app_id,
                   expires_at, created_at, last_wake_at)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
              ON CONFLICT(endpoint) DO UPDATE SET
                  account_id=excluded.account_id, transport=excluded.transport,
                  p256dh=excluded.p256dh, auth=excluded.auth, app_id=excluded.app_id,
-                 expires_at=excluded.expires_at")
+                 expires_at=excluded.expires_at
+             WHERE push_subscriptions.account_id=excluded.account_id")
         .bind(&row.id)
         .bind(&row.account_id)
         .bind(&row.transport)
@@ -96,6 +97,9 @@ impl Store {
         .bind(row.last_wake_at.as_deref())
         .execute(&self.backend)
         .await?;
+        if changed == 0 {
+            return Err(StoreError::NotFound);
+        }
         Ok(())
     }
 
@@ -126,6 +130,18 @@ impl Store {
             .bind(id)
             .execute(&self.backend)
             .await?;
+        Ok(())
+    }
+
+    /// Account-authorized unsubscribe. Unknown/foreign identifiers are no-ops.
+    pub async fn delete_account_push_subscription(
+        &self,
+        account: &str,
+        endpoint: Option<&str>,
+        id: Option<&str>,
+    ) -> Result<(), StoreError> {
+        q("DELETE FROM push_subscriptions WHERE account_id=?1 AND ((?2 IS NOT NULL AND endpoint=?2) OR (?2 IS NULL AND id=?3))")
+            .bind(account).bind(endpoint).bind(id).execute(&self.backend).await?;
         Ok(())
     }
 
@@ -270,6 +286,25 @@ mod tests {
         assert_eq!(subs.len(), 1);
         assert_eq!(subs[0].endpoint, "https://push.example/abc");
 
+        s.delete_account_push_subscription("other", Some(&row.endpoint), None)
+            .await
+            .unwrap();
+        s.delete_account_push_subscription("other", None, Some(&row.id))
+            .await
+            .unwrap();
+        assert_eq!(s.list_push_subscriptions("acct").await.unwrap().len(), 1);
+        let mut stolen = row.clone();
+        stolen.account_id = "other".into();
+        assert!(matches!(
+            s.upsert_push_subscription(&stolen).await,
+            Err(StoreError::NotFound)
+        ));
+        assert_eq!(s.list_push_subscriptions("acct").await.unwrap().len(), 1);
+        s.delete_account_push_subscription("acct", None, Some(&row.id))
+            .await
+            .unwrap();
+        assert!(s.list_push_subscriptions("acct").await.unwrap().is_empty());
+        s.upsert_push_subscription(&row).await.unwrap();
         s.delete_push_subscription("https://push.example/abc")
             .await
             .unwrap();

@@ -50,10 +50,10 @@ describe('notify() — Notification API bridge', () => {
     expect(seen).toEqual([{ notificationId: 'm1', actionId: 'default' }]);
   });
 
-  it('requests permission when it is default, and degrades if denied', async () => {
+  it('never prompts for permission from passive delivery', async () => {
     const made: unknown[] = [];
     class FakeNotification {
-      static permission = 'denied';
+      static permission = 'default';
       static requestPermission = vi.fn(async () => 'denied' as NotificationPermission);
       constructor() {
         made.push(this);
@@ -61,7 +61,8 @@ describe('notify() — Notification API bridge', () => {
     }
     g.Notification = FakeNotification;
     await createBrowserPlatform().notify({ id: 'x', title: 't', body: 'b' });
-    expect(made).toHaveLength(0); // denied → nothing shown, no throw.
+    expect(made).toHaveLength(0);
+    expect(FakeNotification.requestPermission).not.toHaveBeenCalled();
   });
 
   it('is a silent no-op when the Notification API is absent', async () => {

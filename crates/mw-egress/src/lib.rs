@@ -572,6 +572,7 @@ pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Re
         target,
         &Outgoing {
             authorized_dav: None,
+            web_push: None,
             accept,
             user_agent,
             body: None,
@@ -590,6 +591,7 @@ pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Re
 /// a reader's request (no cookie, referrer, authorization or browser UA).
 #[derive(Clone, Copy)]
 pub struct Outgoing<'a> {
+    pub web_push: Option<WebPushHeaders<'a>>,
     /// Explicit credential-bearing DAV operation; redirects are always refused.
     pub authorized_dav: Option<AuthorizedDav<'a>>,
     /// Maximum response bytes; always bounded by the hard transport ceiling.
@@ -600,6 +602,28 @@ pub struct Outgoing<'a> {
     pub user_agent: &'a str,
     /// The request body; `None` for `GET`.
     pub body: Option<OutBody<'a>>,
+}
+
+/// Fixed Web Push headers. No cookies, Host override or arbitrary header names.
+#[derive(Clone, Copy)]
+pub struct WebPushHeaders<'a> {
+    pub authorization: &'a str,
+}
+impl fmt::Debug for WebPushHeaders<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("WebPushHeaders([redacted])")
+    }
+}
+impl WebPushHeaders<'_> {
+    pub fn validate(&self) -> Result<(), Refusal> {
+        if !self.authorization.starts_with("vapid ")
+            || self.authorization.len() > 8192
+            || reqwest::header::HeaderValue::from_str(self.authorization).is_err()
+        {
+            return Err(Refusal::BadRequest("invalid Web Push authorization"));
+        }
+        Ok(())
+    }
 }
 
 /// Deliberately restricted methods for account-owned DAV/OCS calls.
@@ -770,6 +794,18 @@ pub(crate) async fn send_hop_typed(
                 .header(header::CONTENT_TYPE, b.content_type)
                 .body(b.bytes.to_vec()),
         }
+    };
+    let request = if let Some(push) = out.web_push {
+        push.validate()?;
+        if out.body.is_none() || out.authorized_dav.is_some() || target.url.scheme() != "https" {
+            return Err(Refusal::BadRequest("invalid Web Push request"));
+        }
+        request
+            .header(header::AUTHORIZATION, push.authorization)
+            .header("TTL", "2419200")
+            .header(header::CONTENT_ENCODING, "aes128gcm")
+    } else {
+        request
     };
     let resp = request
         .header(header::USER_AGENT, out.user_agent)

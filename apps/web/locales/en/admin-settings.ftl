@@ -481,3 +481,8 @@ admin-settings-key-time-comparison-zone = Comparison time zone
 admin-settings-help-time-comparison-zone = Optional second IANA time zone for message and calendar helpers. Leave empty to hide the comparison; no location is inferred from an email address.
 admin-settings-key-time-show-helpers = Show time zone helpers
 admin-settings-help-time-show-helpers = Show local and selected-zone comparisons for message timestamps and calendar events. Admin locks can enforce this choice.
+
+admin-settings-key-notifications-push-allowed = Background push notifications allowed
+admin-settings-help-notifications-push-allowed = Permit this account's enabled notifications to register and receive background push. Browser permission is still required.
+admin-settings-key-offline-persistent-storage-allowed = Persistent browser storage requests allowed
+admin-settings-help-offline-persistent-storage-allowed = Allow an explicit request to protect local cached data from automatic browser eviction. The browser may refuse; this does not grant permission automatically.

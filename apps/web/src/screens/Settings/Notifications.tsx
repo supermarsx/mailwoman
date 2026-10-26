@@ -8,6 +8,7 @@ import { t, loadCatalog } from '../../i18n';
 import { SettingsService } from './service.ts';
 import { useSetting } from './useSetting.ts';
 import { LockNote } from './LockNote.tsx';
+import { BrowserPermissions } from './BrowserPermissions.tsx';
 import type { NotificationConfig, NotificationRule } from './types.ts';
 import * as css from './styles.css.ts';
 
@@ -16,7 +17,7 @@ export interface NotificationsProps {
 }
 
 const DEFAULT_CONFIG: NotificationConfig = {
-  enabled: true,
+  enabled: false,
   rules: [],
   quietHours: { enabled: false, start: '22:00', end: '07:00' },
 };
@@ -31,17 +32,25 @@ export function Notifications(props: NotificationsProps): JSX.Element {
   onMount(() => void loadCatalog('settings-policy'));
   // An administrator can hold notifications on or off (`notifications.enabled`,
   // t32 settings model C); the server refuses a held change, so offer none.
-  const enabledHold = useSetting('notifications.enabled', true);
+  const enabledHold = useSetting('notifications.enabled', false);
 
-  const [loaded] = createResource<NotificationConfig>(() => service.notifications().catch(() => DEFAULT_CONFIG));
+  const [loaded] = createResource<NotificationConfig>(() => service.notifications());
   // Working copy; hydrated from the resource once it settles (exactly once).
   const [config, setConfig] = createSignal<NotificationConfig>(DEFAULT_CONFIG);
   const [hydrated, setHydrated] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal('');
   const [saved, setSaved] = createSignal(false);
+  const [permission, setPermission] = createSignal<NotificationPermission | 'unsupported'>(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
+  async function requestNotifications(): Promise<void> {
+    if (!hydrated() || !view().enabled || typeof Notification === 'undefined') return;
+    try { setPermission(await Notification.requestPermission()); }
+    catch { setError(t('settings-notif-permission-error')); }
+  }
+
 
   createEffect(() => {
+    if (loaded.error) { setError(t('settings-notif-error')); return; }
     const fetched = loaded();
     if (fetched !== undefined && !hydrated()) {
       setConfig(fetched);
@@ -79,6 +88,7 @@ export function Notifications(props: NotificationsProps): JSX.Element {
     setBusy(true);
     try {
       await service.saveNotifications(view());
+      window.dispatchEvent(new Event('mw:notifications-changed'));
       setSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : t('settings-notif-error'));
@@ -92,6 +102,7 @@ export function Notifications(props: NotificationsProps): JSX.Element {
       <h2 class={css.heading}>{t('settings-notif-title')}</h2>
       <p class={css.prose}>{t('settings-notif-intro')}</p>
 
+      <fieldset disabled={!hydrated() || busy()}>
       <label class={css.check}>
         <input
           class={css.checkbox}
@@ -105,6 +116,17 @@ export function Notifications(props: NotificationsProps): JSX.Element {
         <span>{t('settings-notif-enabled-label')}</span>
       </label>
       <LockNote id="settings-notif-enabled-lock" locked={enabledHold.locked()} />
+
+      <div class={css.field}>
+        <h3 class={css.subheading}>{t('settings-notif-device-title')}</h3>
+        <p class={css.prose}>{t('settings-notif-device-help')}</p>
+        <p role="status">{t(`settings-notif-permission-${permission()}`)}</p>
+        <Show when={permission() === 'default'}>
+          <button type="button" class={css.button} disabled={!view().enabled || !hydrated()} onClick={() => void requestNotifications()}>{t('settings-notif-permission-request')}</button>
+        </Show>
+      </div>
+
+      <BrowserPermissions enabled={config().enabled} pushAllowed={config().pushAllowed === true} persistentStorageAllowed={config().persistentStorageAllowed === true} />
 
       {/* Quiet hours */}
       <div class={css.field}>
@@ -141,10 +163,16 @@ export function Notifications(props: NotificationsProps): JSX.Element {
                 onInput={(e) => patchQuiet({ end: e.currentTarget.value })}
               />
             </label>
+            <label class={css.field}>
+              <span class={css.label}>{t('settings-notif-timezone')}</span>
+              <input class={css.input} value={view().quietHours.timezone ?? 'UTC'} onInput={event => patchQuiet({ timezone: event.currentTarget.value })} />
+            </label>
+            <button type="button" class={css.ghost} onClick={() => patchQuiet({ timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })}>{t('settings-notif-timezone-device')}</button>
           </div>
         </Show>
       </div>
 
+      <Show when={view().rules.length > 0}><p class={css.prose}>{t('settings-notif-background-rules')}</p></Show>
       {/* Rules */}
       <div class={css.field}>
         <span class={css.subheading}>{t('settings-notif-rules-title')}</span>
@@ -193,6 +221,7 @@ export function Notifications(props: NotificationsProps): JSX.Element {
         </Show>
       </div>
 
+      </fieldset>
       <Show when={error() !== ''}>
         <p class={css.error} role="alert">
           {error()}

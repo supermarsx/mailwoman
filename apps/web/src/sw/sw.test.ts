@@ -444,3 +444,26 @@ describe('the admin console is never handled by the worker', () => {
     expect(sw.caches.urls()).toEqual([`${ORIGIN}${ASSET}`]);
   });
 });
+
+describe('background push authority recheck', () => {
+  it('checks only an endpoint hash under the deployment prefix before notifying', async () => {
+    const sw=boot('https://mail.example.com/mail/sw.js');
+    sw.network.fetch=async()=>reply('{"allowed":true}','application/json');
+    await sw.push();
+    expect(sw.pushState.notifications).toEqual(['Mailwoman']);
+    expect(sw.network.calls).toHaveLength(1);
+    expect(sw.network.calls[0]).toMatch(/^https:\/\/mail\.example\.com\/mail\/api\/push\/permission\?endpointHash=[a-f0-9]{64}$/);
+    expect(sw.network.calls[0]).not.toContain('capability-secret');
+    expect(sw.caches.urls()).toEqual([]);
+  });
+  it('suppresses delayed wakes after logout, policy refusal, or network failure', async () => {
+    for (const response of [async()=>reply('{}','application/json',401),async()=>reply('{"allowed":false}','application/json'),offline]) {
+      const sw=boot();sw.network.fetch=response;await sw.push();expect(sw.pushState.notifications).toEqual([]);
+    }
+  });
+  it('does not display or request authority when a window is visible or the subscription was removed', async () => {
+    const sw=boot();sw.pushState.visible=true;await sw.push();expect(sw.network.calls).toEqual([]);
+    sw.pushState.visible=false;sw.pushState.endpoint=null;await sw.push();expect(sw.network.calls).toEqual([]);
+    expect(sw.pushState.notifications).toEqual([]);
+  });
+});

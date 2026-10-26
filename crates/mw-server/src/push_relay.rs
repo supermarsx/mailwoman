@@ -230,6 +230,29 @@ pub(crate) async fn push_subscribe(
         Ok(s) => s,
         Err(resp) => return resp,
     };
+    let subject = match crate::settings_routes::UserSubject::resolved(&state.store, &session).await
+    {
+        Ok(subject) => subject,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let allowed = crate::notification_policy::allowed(
+        &state.store,
+        &subject.as_subject(),
+        "notifications.pushAllowed",
+    )
+    .await;
+    let config = crate::notification_policy::for_subject(&state.store, &subject.as_subject()).await;
+    match (allowed, config) {
+        (Ok(true), Ok(config)) if config.enabled => {}
+        (Err(_), _) | (_, Err(_)) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        _ => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({"code":"notificationsDisabled"})),
+            )
+                .into_response();
+        }
+    }
     let req: SubscribeReq = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(e) => {
@@ -244,6 +267,39 @@ pub(crate) async fn push_subscribe(
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "transport must be webpush|unifiedpush|apns" })),
+        )
+            .into_response();
+    }
+    if matches!(req.transport.as_str(), "webpush" | "unifiedpush")
+        && !valid_push_endpoint(&req.endpoint)
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"code":"invalidPushEndpoint"})),
+        )
+            .into_response();
+    }
+    if let Some(expiry) = &req.expires_at
+        && chrono::DateTime::parse_from_rfc3339(expiry).is_err()
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"code":"invalidPushExpiry"})),
+        )
+            .into_response();
+    }
+    let existing = match state
+        .store
+        .list_push_subscriptions(&session.account_id)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    if existing.len() >= 32 && !existing.iter().any(|row| row.endpoint == req.endpoint) {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({"code":"pushSubscriptionLimit"})),
         )
             .into_response();
     }
@@ -271,11 +327,92 @@ pub(crate) async fn push_subscribe(
         last_wake_at: None,
     };
     if let Err(e) = state.store.upsert_push_subscription(&row).await {
+        if matches!(e, mw_store::StoreError::NotFound) {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({"code":"pushEndpointAlreadyBound"})),
+            )
+                .into_response();
+        }
         tracing::error!("failed to store push subscription: {e}");
         return (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response();
     }
+    let id = existing
+        .iter()
+        .find(|old| old.endpoint == row.endpoint)
+        .map(|old| old.id.as_str())
+        .unwrap_or(&row.id);
     let vapid_public = state.store.vapid_public().await.ok().flatten();
-    Json(json!({ "id": row.id, "vapidPublicKey": vapid_public })).into_response()
+    Json(json!({ "id": id, "vapidPublicKey": vapid_public })).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PushPermissionQuery {
+    endpoint_hash: String,
+}
+
+/// Recheck current account ownership/policy when an old queued wake reaches a browser.
+pub(crate) async fn push_permission(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<PushPermissionQuery>,
+) -> Response {
+    let session = match crate::authed(&state, &headers).await {
+        Ok(session) => session,
+        Err(response) => return response,
+    };
+    if query.endpoint_hash.len() != 64
+        || !query
+            .endpoint_hash
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let allowed = async {
+        let subject = crate::settings_routes::UserSubject::resolved(&state.store, &session).await?;
+        let config =
+            crate::notification_policy::for_subject(&state.store, &subject.as_subject()).await?;
+        if !config.enabled
+            || !config.rules.is_empty()
+            || crate::notification_policy::quiet_at(&config.quiet_hours, chrono::Utc::now())
+            || quiet_now(&state.store).await
+            || !crate::notification_policy::allowed(
+                &state.store,
+                &subject.as_subject(),
+                "notifications.pushAllowed",
+            )
+            .await?
+        {
+            return Ok::<bool, mw_store::StoreError>(false);
+        }
+        Ok(state
+            .store
+            .list_push_subscriptions(&session.account_id)
+            .await?
+            .iter()
+            .any(|row| {
+                let hash = Sha256::digest(row.endpoint.as_bytes())
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>();
+                hash == query.endpoint_hash
+                    && row.expires_at.as_ref().is_none_or(|expiry| {
+                        chrono::DateTime::parse_from_rfc3339(expiry)
+                            .is_ok_and(|expiry| expiry > chrono::Utc::now())
+                    })
+            }))
+    }
+    .await;
+    match allowed {
+        Ok(allowed) => (
+            [(header::CACHE_CONTROL, "private, no-store")],
+            Json(json!({ "allowed": allowed })),
+        )
+            .into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
 }
 
 /// `POST /api/push/unsubscribe {id|endpoint}`. Removes the subscription. Cookie- or
@@ -293,9 +430,10 @@ pub(crate) async fn push_unsubscribe(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
-    if let Err(resp) = crate::authed(&state, &headers).await {
-        return resp;
-    }
+    let session = match crate::authed(&state, &headers).await {
+        Ok(session) => session,
+        Err(resp) => return resp,
+    };
     let req: UnsubscribeReq = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(e) => {
@@ -306,17 +444,21 @@ pub(crate) async fn push_unsubscribe(
                 .into_response();
         }
     };
-    let outcome = match (&req.endpoint, &req.id) {
-        (Some(endpoint), _) => state.store.delete_push_subscription(endpoint).await,
-        (None, Some(id)) => state.store.delete_push_subscription_by_id(id).await,
-        (None, None) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "id or endpoint required" })),
-            )
-                .into_response();
-        }
-    };
+    if req.endpoint.is_none() && req.id.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"id or endpoint required"})),
+        )
+            .into_response();
+    }
+    let outcome = state
+        .store
+        .delete_account_push_subscription(
+            &session.account_id,
+            req.endpoint.as_deref(),
+            req.id.as_deref(),
+        )
+        .await;
     match outcome {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => {
@@ -334,14 +476,10 @@ pub(crate) async fn push_unsubscribe(
 /// wake to every active subscription of a changed account (plan §2.3). Spawned
 /// once by `build_app`. Never carries message content — the wake only prompts the
 /// client to foreground-fetch `/changes` (the same refetch the WS/SSE path does).
-pub(crate) async fn run_dispatcher(
-    store: Store,
-    mut rx: broadcast::Receiver<StateChange>,
-    http: reqwest::Client,
-) {
+pub(crate) async fn run_dispatcher(store: Store, mut rx: broadcast::Receiver<StateChange>) {
     loop {
         match rx.recv().await {
-            Ok(change) => dispatch_wakes(&store, &http, &change).await,
+            Ok(change) => dispatch_wakes(&store, &change).await,
             Err(broadcast::error::RecvError::Lagged(n)) => {
                 tracing::warn!("push dispatcher lagged {n} changes");
             }
@@ -352,8 +490,37 @@ pub(crate) async fn run_dispatcher(
 
 /// Fan an account change out to its subscriptions as opaque wakes, respecting a
 /// (cheap, optional) global quiet-hours window (§17.3).
-async fn dispatch_wakes(store: &Store, http: &reqwest::Client, change: &StateChange) {
+async fn dispatch_wakes(store: &Store, change: &StateChange) {
     if quiet_now(store).await {
+        return;
+    }
+    // Resolve the same canonical account policy used by the settings API.
+    // Unavailable or corrupt policy must never send an unsolicited notification.
+    let Ok(Some(subject)) =
+        crate::notification_policy::account_subject(store, &change.account_id).await
+    else {
+        return;
+    };
+    let Ok(config) = crate::notification_policy::for_subject(store, &subject.as_subject()).await
+    else {
+        return;
+    };
+    if !crate::notification_policy::allowed(
+        store,
+        &subject.as_subject(),
+        "notifications.pushAllowed",
+    )
+    .await
+    .unwrap_or(false)
+    {
+        return;
+    }
+    if !config.rules.is_empty() {
+        return;
+    } // Opaque wakes cannot safely evaluate content rules.
+    if !config.enabled
+        || crate::notification_policy::quiet_at(&config.quiet_hours, chrono::Utc::now())
+    {
         return;
     }
     let subs = match store.list_push_subscriptions(&change.account_id).await {
@@ -371,9 +538,18 @@ async fn dispatch_wakes(store: &Store, http: &reqwest::Client, change: &StateCha
     let vapid = vapid_for_dispatch(store.load_vapid_keypair().await.ok().flatten());
     let vapid_private = vapid.as_ref().map(|(_, private)| private.as_slice());
     for sub in subs {
+        if sub.expires_at.as_ref().is_some_and(|expiry| {
+            chrono::DateTime::parse_from_rfc3339(expiry)
+                .map_or(true, |expiry| expiry <= chrono::Utc::now())
+        }) {
+            let _ = store
+                .delete_account_push_subscription(&sub.account_id, None, Some(&sub.id))
+                .await;
+            continue;
+        }
         let result = match sub.transport.as_str() {
-            "webpush" => send_webpush(http, &sub, vapid_private).await,
-            "unifiedpush" => send_unifiedpush(http, &sub).await,
+            "webpush" => send_webpush(Some(&subject.domain), &sub, vapid_private).await,
+            "unifiedpush" => send_unifiedpush(Some(&subject.domain), &sub).await,
             "apns" => send_apns_mock(&sub),
             other => {
                 tracing::warn!("push dispatcher: unknown transport {other:?}");
@@ -383,7 +559,9 @@ async fn dispatch_wakes(store: &Store, http: &reqwest::Client, change: &StateCha
         match result {
             // Gone / not found: the endpoint expired — drop the subscription.
             Ok(status) if status == 404 || status == 410 => {
-                let _ = store.delete_push_subscription(&sub.endpoint).await;
+                let _ = store
+                    .delete_account_push_subscription(&sub.account_id, None, Some(&sub.id))
+                    .await;
             }
             Ok(_) => {
                 let _ = store.touch_push_wake(&sub.id, &now_rfc3339()).await;
@@ -406,7 +584,7 @@ fn vapid_for_dispatch(loaded: Option<(String, Vec<u8>)>) -> Option<(String, Zero
 /// it goes out over the in-tree `reqwest` client. The encrypted body is the fixed
 /// [`WAKE_MARKER`] — never message content.
 async fn send_webpush(
-    http: &reqwest::Client,
+    domain: Option<&str>,
     sub: &PushSubscriptionRow,
     vapid_private: Option<&[u8]>,
 ) -> anyhow::Result<u16> {
@@ -425,15 +603,15 @@ async fn send_webpush(
         WAKE_MARKER,
     )?;
 
-    // Translate the built `http::Request` (POST + ECE headers + VAPID auth + body)
-    // into a `reqwest` request — the http crate is shared with axum/reqwest.
     let (parts, body) = request.into_parts();
-    let mut req = http.post(parts.uri.to_string()).body(body);
-    for (name, value) in parts.headers.iter() {
-        req = req.header(name.clone(), value.clone());
-    }
-    let resp = req.send().await.map_err(reqwest::Error::without_url)?;
-    Ok(resp.status().as_u16())
+    let authorization = parts
+        .headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| anyhow!("invalid Web Push authorization"))?;
+    let request = mw_egress::plan::Request::web_push(authorization, &body)
+        .map_err(|_| anyhow!("invalid Web Push request"))?;
+    send_guarded(&sub.endpoint, domain, request).await
 }
 
 /// Build the encrypted, VAPID-authenticated Web Push request for one subscription:
@@ -607,17 +785,18 @@ fn b64url_decode(s: &str) -> anyhow::Result<Vec<u8>> {
 /// Send an opaque wake to a UnifiedPush endpoint (Android, self-hostable, no
 /// Google). UnifiedPush delivers the POST body to the app; the app treats any
 /// delivery as "sync now", so the body is the fixed [`WAKE_MARKER`] — no content.
-async fn send_unifiedpush(
-    http: &reqwest::Client,
-    sub: &PushSubscriptionRow,
-) -> anyhow::Result<u16> {
-    let resp = http
-        .post(&sub.endpoint)
-        .body(WAKE_MARKER)
-        .send()
-        .await
-        .map_err(reqwest::Error::without_url)?;
-    Ok(resp.status().as_u16())
+async fn send_unifiedpush(domain: Option<&str>, sub: &PushSubscriptionRow) -> anyhow::Result<u16> {
+    send_guarded(
+        &sub.endpoint,
+        domain,
+        mw_egress::plan::Request::post(
+            mw_egress::TrafficClass::Push,
+            "application/octet-stream",
+            WAKE_MARKER,
+        )
+        .response_limit(8192),
+    )
+    .await
 }
 
 /// APNs opaque wake — MOCKED (plan §1.7 / risk #5): live APNs needs an Apple
@@ -649,18 +828,91 @@ fn vapid_contact_from(value: Option<String>) -> String {
 // Quiet hours (cheap, optional — §17.3)
 // ---------------------------------------------------------------------------
 
+fn valid_push_endpoint(endpoint: &str) -> bool {
+    if endpoint.len() > 4096 {
+        return false;
+    }
+    let Ok(url) = reqwest::Url::parse(endpoint) else {
+        return false;
+    };
+    if url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return false;
+    }
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    host.trim_matches(['[', ']'])
+        .parse::<std::net::IpAddr>()
+        .map(|ip| mw_egress::ip_allowed(&ip))
+        .unwrap_or(true)
+}
+
+async fn send_guarded<'a>(
+    endpoint: &str,
+    domain: Option<&'a str>,
+    mut request: mw_egress::plan::Request<'a>,
+) -> anyhow::Result<u16> {
+    let url = reqwest::Url::parse(endpoint).map_err(|_| anyhow!("invalid push endpoint"))?;
+    if url.scheme() != "https" {
+        anyhow::bail!("push endpoint requires HTTPS");
+    }
+    if let Some(domain) = domain {
+        request = request.for_domain(domain);
+    }
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        mw_egress::plan::send(url, &request),
+    )
+    .await
+    .map_err(|_| anyhow!("push timeout"))?;
+    match response.outcome {
+        Ok(_) => Ok(200),
+        Err(mw_egress::Refusal::Status(status)) => Ok(status),
+        Err(_) => Err(anyhow!("push delivery refused or unavailable")),
+    }
+}
+
 /// Whether the current UTC hour falls in the operator's quiet-hours window. The
 /// window is a `"start-end"` (UTC hours) `settings` value under `push.quiet_hours`;
 /// absent/unparseable → never quiet (the default). One indexed settings read per
 /// change — cheap enough to honor per the plan's "if cheap".
 async fn quiet_now(store: &Store) -> bool {
-    let Ok(Some(raw)) = store.get_setting("push.quiet_hours").await else {
-        return false;
+    let subject = mw_store::settings_policy::SettingSubject {
+        account_id: "",
+        address: "",
+        domain: "",
     };
-    let Some((start, end)) = parse_quiet_window(&raw) else {
+    let effective =
+        match crate::settings_registry::effective_for(store, "push.quietHours", &subject).await {
+            Ok(Some(value)) => value,
+            _ => return true,
+        };
+    if let (Some(start), Some(end)) = (
+        effective
+            .value
+            .get("start")
+            .and_then(serde_json::Value::as_u64),
+        effective
+            .value
+            .get("end")
+            .and_then(serde_json::Value::as_u64),
+    ) {
+        return in_quiet_window(start as u32, end as u32, current_utc_hour());
+    }
+    if effective.source != mw_store::settings_policy::SettingSource::Default {
         return false;
-    };
-    in_quiet_window(start, end, current_utc_hour())
+    }
+    // Compatibility only when the canonical registry key has never been configured.
+    match store.get_setting("push.quiet_hours").await {
+        Ok(Some(raw)) => parse_quiet_window(&raw)
+            .is_some_and(|(start, end)| in_quiet_window(start, end, current_utc_hour())),
+        Ok(None) => false,
+        Err(_) => true,
+    }
 }
 
 /// Parse a `"start-end"` (24h UTC) quiet-hours window, e.g. `"22-7"`.
@@ -1210,11 +1462,6 @@ mod tests {
                 drop(conn);
             }
         });
-        let http = reqwest::Client::builder()
-            .no_proxy()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-            .unwrap();
         let (_, scalar) = generate_vapid_keypair().unwrap();
         let (_, ua_public) = ua_keypair();
         let sub = |transport: &str| PushSubscriptionRow {
@@ -1230,10 +1477,10 @@ mod tests {
             last_wake_at: None,
         };
         let errors = [
-            send_unifiedpush(&http, &sub("unifiedpush"))
+            send_unifiedpush(None, &sub("unifiedpush"))
                 .await
                 .unwrap_err(),
-            send_webpush(&http, &sub("webpush"), Some(scalar.as_slice()))
+            send_webpush(None, &sub("webpush"), Some(scalar.as_slice()))
                 .await
                 .unwrap_err(),
         ];
@@ -1308,7 +1555,10 @@ mod tests {
     #[test]
     fn tracing_scanner_stops_at_match_arm_and_keeps_nested_values() {
         let call = r#"tracing::warn!("failed ({})", failure.kind()), next => endpoint(secret);"#;
-        assert_eq!(tracing_call(call), r#"tracing::warn!("failed ({})", failure.kind())"#);
+        assert_eq!(
+            tracing_call(call),
+            r#"tracing::warn!("failed ({})", failure.kind())"#
+        );
         let sensitive = r#"tracing::warn!("failed: {}", endpoint(secret)),"#;
         assert!(formatted_values(tracing_call(sensitive)).contains("endpoint(secret)"));
     }

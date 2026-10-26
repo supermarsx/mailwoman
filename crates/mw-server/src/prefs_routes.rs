@@ -77,46 +77,9 @@ struct SignatureDto {
 }
 
 /// A single notification rule (match → notify/mute).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "camelCase")]
-struct NotificationRuleDto {
-    id: String,
-    label: String,
-    /// `match` is a Rust keyword; the wire/JSON field is `match`.
-    r#match: String,
-    /// "notify" | "mute" (opaque here).
-    action: String,
-}
-
-/// A quiet-hours window (local 24h HH:MM).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-struct QuietHoursDto {
-    enabled: bool,
-    start: String,
-    end: String,
-}
-
-impl Default for QuietHoursDto {
-    fn default() -> Self {
-        QuietHoursDto {
-            enabled: false,
-            start: "22:00".to_string(),
-            end: "07:00".to_string(),
-        }
-    }
-}
-
-/// The account's notification configuration (`GET`/`PUT /api/account/notifications`).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "camelCase")]
-struct NotificationConfigDto {
-    enabled: bool,
-    #[serde(default)]
-    rules: Vec<NotificationRuleDto>,
-    #[serde(default)]
-    quiet_hours: QuietHoursDto,
-}
+use crate::notification_policy::NotificationConfigDto;
+#[cfg(test)]
+use crate::notification_policy::{NotificationRuleDto, QuietHoursDto};
 
 /// A saved search surfaced as a virtual search folder (frozen 0003 `saved_searches`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -207,7 +170,32 @@ async fn notifications_get(State(state): State<AppState>, headers: HeaderMap) ->
         Ok(h) => h,
         Err(r) => return r,
     };
-    match do_get_notifications(&state.store, &session.account_id).await {
+    let subject = match crate::settings_routes::UserSubject::resolved(&state.store, &session).await
+    {
+        Ok(subject) => subject,
+        Err(error) => return server_error("notification policy", error),
+    };
+    let push_allowed = match crate::notification_policy::allowed(
+        &state.store,
+        &subject.as_subject(),
+        "notifications.pushAllowed",
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => return server_error("notification policy", error),
+    };
+    let persistent_storage_allowed = match crate::notification_policy::allowed(
+        &state.store,
+        &subject.as_subject(),
+        "offline.persistentStorageAllowed",
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => return server_error("storage policy", error),
+    };
+    match crate::notification_policy::for_subject(&state.store, &subject.as_subject()).await {
         Ok(mut cfg) => {
             let mut locked = Vec::new();
             if let Some(v) = held.as_ref().and_then(|e| e.value.as_bool()) {
@@ -216,6 +204,8 @@ async fn notifications_get(State(state): State<AppState>, headers: HeaderMap) ->
             }
             let mut body = serde_json::to_value(cfg).unwrap_or_else(|_| json!({}));
             body["lockedFields"] = json!(locked);
+            body["pushAllowed"] = json!(push_allowed);
+            body["persistentStorageAllowed"] = json!(persistent_storage_allowed);
             Json(body).into_response()
         }
         Err(e) => server_error("get notifications", e),
@@ -231,6 +221,9 @@ async fn notifications_put(
         Ok(s) => s,
         Err(r) => return r,
     };
+    if let Err(error) = crate::notification_policy::validate(&body) {
+        return bad_request(error);
+    }
     let account = session.account_id.clone();
     match held(&state, &session, "notifications.enabled").await {
         Ok(Some(e)) if e.value.as_bool() != Some(body.enabled) => {
@@ -679,6 +672,7 @@ async fn do_upsert_signature(
         .await
 }
 
+#[cfg(test)]
 async fn do_get_notifications(
     store: &Store,
     account: &str,
@@ -843,6 +837,7 @@ fn signature_from_dto(account: &str, dto: &SignatureDto) -> SignatureRow {
     }
 }
 
+#[cfg(test)]
 fn notifications_to_dto(row: &NotificationRulesRow) -> NotificationConfigDto {
     // The rule set / quiet-hours JSON blobs are ours to shape; junk falls back to
     // an empty set / default window rather than failing the read.
@@ -1210,6 +1205,7 @@ mod tests {
                 enabled: true,
                 start: "23:00".into(),
                 end: "06:30".into(),
+                timezone: None,
             },
         };
         do_put_notifications(&s, "a1", &cfg).await.unwrap();

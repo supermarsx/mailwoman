@@ -6,8 +6,7 @@
 //!   * native login returns a bearer token + a `/jmap/api` bearer request succeeds
 //!     WHILE the cookie/browser path is byte-identical (both asserted);
 //!   * a subscription round-trips (+ `/api/push/vapid` serves the public key);
-//!   * a simulated `StateChange` triggers a WebPush send to a fake endpoint that
-//!     carries NO message content;
+//!   * client-supplied private/plaintext push endpoints are refused before dispatch;
 //!   * CORS is OFF by default (the browser response has no `Access-Control-*`).
 
 use std::net::SocketAddr;
@@ -199,6 +198,7 @@ async fn native_login_returns_bearer_and_cookie_path_is_byte_identical() {
         .unwrap();
     assert_eq!(bad.status(), 401, "unknown bearer token must be rejected");
 
+    tokio::time::sleep(Duration::from_secs(4)).await; // independent login obeys configured cooldown
     // ── Browser login: byte-identical to before — sets the session + CSRF cookies,
     // returns a csrfToken, and NO bearer token. ──
     let browser = client()
@@ -287,7 +287,7 @@ async fn subscription_round_trips_and_vapid_public_is_served() {
 }
 
 #[tokio::test]
-async fn state_change_sends_opaque_webpush_with_no_content() {
+async fn client_supplied_private_push_endpoint_never_receives_a_wake() {
     let mock = spawn_mock().await;
     let (server, _addr, push) = spawn_server().await;
     let (fake_endpoint, mut rx) = spawn_fake_push().await;
@@ -306,7 +306,7 @@ async fn state_change_sends_opaque_webpush_with_no_content() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), 400);
 
     // Simulate the engine broadcasting a change for the subscribed account.
     push.send(StateChange {
@@ -319,37 +319,12 @@ async fn state_change_sends_opaque_webpush_with_no_content() {
         mail_rule: "0".into(),
     });
 
-    // The dispatcher delivers an opaque wake to the fake endpoint. The timeout is
-    // a generous safety net (not a latency assertion): under a full `cargo test
-    // --workspace` run — now many more test binaries in parallel since V6 — the
-    // wake occasionally arrived just past a tight 5s bound though it passes in
-    // ~0.2s isolated. 30s tolerates load without weakening the opaque-content check.
-    let (headers, body) = tokio::time::timeout(Duration::from_secs(30), rx.recv())
-        .await
-        .expect("a wake reaches the fake endpoint")
-        .expect("channel open");
-
-    // It is a VAPID-signed, ECE-encrypted Web Push — and carries NO content.
-    assert_eq!(
-        headers
-            .get(reqwest::header::CONTENT_ENCODING)
-            .and_then(|v| v.to_str().ok()),
-        Some("aes128gcm")
-    );
     assert!(
-        headers.contains_key(reqwest::header::AUTHORIZATION),
-        "wake must be VAPID-signed"
+        tokio::time::timeout(Duration::from_millis(250), rx.recv())
+            .await
+            .is_err(),
+        "no request may reach a client-supplied private endpoint"
     );
-    // No message content: the subject/body of any email never transits push. The
-    // payload is a small ECE-encrypted opaque marker (~100 bytes), not an email —
-    // and no plaintext account id / subject leaks into it.
-    assert!(
-        !body.is_empty() && body.len() < 512,
-        "an opaque wake is a small encrypted marker, not message content (len={})",
-        body.len()
-    );
-    assert!(!contains(&body, mw_mock_jmap::ACCOUNT_ID.as_bytes()));
-    assert!(!contains(&body, b"Subject"));
 }
 
 #[tokio::test]
@@ -409,8 +384,6 @@ async fn login_cookie(c: &reqwest::Client, server: &str, _mock: &str) {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200, "login should succeed");
-}
-
-fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack.windows(needle.len()).any(|w| w == needle)
+    let saved=c.put(format!("{server}/api/account/notifications")).json(&json!({"enabled":true,"rules":[],"quietHours":{"enabled":false,"start":"22:00","end":"07:00","timezone":"UTC"}})).send().await.unwrap();
+    assert_eq!(saved.status(), 200, "explicit account notification opt-in");
 }

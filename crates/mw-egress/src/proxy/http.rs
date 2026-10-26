@@ -61,6 +61,7 @@ where
         url,
         &Outgoing {
             authorized_dav: None,
+            web_push: None,
             accept,
             user_agent: PROXY_UA,
             body: None,
@@ -125,6 +126,20 @@ async fn exchange_inner(
         .header(header::ACCEPT, out.accept)
         // One less decompression-bomb surface, identical to the direct path.
         .header(header::ACCEPT_ENCODING, "identity");
+    let builder = if let Some(push) = out.web_push {
+        push.validate().map_err(ProxyRefusal::Origin)?;
+        if out.body.is_none() || out.authorized_dav.is_some() || url.scheme() != "https" {
+            return Err(ProxyRefusal::Origin(Refusal::BadRequest(
+                "invalid Web Push request",
+            )));
+        }
+        builder
+            .header(header::AUTHORIZATION, push.authorization)
+            .header("TTL", "2419200")
+            .header(header::CONTENT_ENCODING, "aes128gcm")
+    } else {
+        builder
+    };
     let request = if let Some(dav) = out.authorized_dav {
         dav.validate().map_err(ProxyRefusal::Origin)?;
         let mut builder = builder
@@ -240,6 +255,7 @@ mod tests {
                 &url("http://example.test/image"),
                 &Outgoing {
                     authorized_dav: None,
+                    web_push: None,
                     accept: "*/*",
                     user_agent: PROXY_UA,
                     body: None,
