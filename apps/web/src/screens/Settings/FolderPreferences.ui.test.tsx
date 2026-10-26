@@ -19,3 +19,9 @@ it('supports keyboard move controls without any mailbox mutation',()=>{
  const update=vi.fn();render(()=><FolderPreferences folders={()=>[{id:'a',name:'Projects'},{id:'b',name:'Receipts'}]} preferences={()=>({})} onChange={update}/>);
  fireEvent.click(screen.getByRole('button',{name:'Move Projects down'}));expect(update).toHaveBeenCalledWith({folderOrder:['b','a']});
 });
+it('edits folder labels in the dedicated page without modifying message keywords',async()=>{
+ const [prefs,setPrefs]=createSignal<AccountUiPreferences>({folderLabels:{a:['old']}});const update=vi.fn((patch:AccountUiPreferences)=>setPrefs(value=>({...value,...patch})));
+ render(()=><FolderPreferences folders={()=>[{id:'a',name:'Projects'}]} preferences={prefs} onChange={update} tags={()=>[{id:'work',name:'Work',color:'#112233',icon:'tag'}]}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Edit Projects appearance'}));await screen.findByRole('checkbox',{name:'Work'});fireEvent.click(screen.getByRole('checkbox',{name:'Work'}));fireEvent.click(screen.getByRole('checkbox',{name:'old'}));expect(update).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Save folder appearance'}));expect(update).toHaveBeenCalledWith({folderIcons:{},folderLabels:{a:['work']}});await screen.findByRole('table');
+});

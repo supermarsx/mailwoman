@@ -57,7 +57,7 @@ async fn authenticated_preferences_use_cas_and_reject_foreign_authority_fields()
     assert_eq!(initial.status(), 200);
     assert_eq!(initial.headers()["cache-control"], "private, no-store");
     assert_eq!(initial.headers()["etag"], "\"0\"");
-    let document = json!({"version":1,"preferences":{"markRead":"never","folderPinned":["inbox"],"folderIcons":{"inbox":"star"},"tags":{"work":{"name":"Trabalho","color":"#112233","icon":"tag"}}}});
+    let document = json!({"version":1,"preferences":{"markRead":"never","folderPinned":["inbox"],"folderIcons":{"inbox":"star"},"tags":{"work":{"name":"Trabalho","color":"#112233","icon":"tag"}},"folderLabels":{"inbox":["work"]}}});
     assert_eq!(
         client
             .put(&endpoint)
@@ -117,6 +117,8 @@ async fn authenticated_preferences_use_cas_and_reject_foreign_authority_fields()
         json!({"folderIcons":{"inbox":"https://external.invalid/avatar"}}),
         json!({"tags":{"$seen":{"name":"Read","color":"#112233","icon":"tag"}}}),
         json!({"tags":{"work":{"name":"Work","color":"url(https://invalid)","icon":"tag"}}}),
+        json!({"folderLabels":{"inbox":["$seen"]}}),
+        json!({"folderLabels":{"inbox":["work","work"]}}),
     ] {
         assert_eq!(
             client

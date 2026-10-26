@@ -1,6 +1,8 @@
-import {createMemo, createSignal, For, onCleanup, onMount, Show, type Accessor, type JSX} from 'solid-js';
+import {createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type Accessor, type JSX} from 'solid-js';
 import {Icon} from '../../components/Icon.tsx';
-import {accountUiPreferences, accountUiPreferenceStatus, FOLDER_ICONS, setAccountUiPreferences, type AccountUiPreferences, type FolderIcon} from '../../api/accountPreferences.ts';
+import type {Tag} from '../../state/slices/tags.ts';
+import {accountUiPreferences, accountUiPreferenceStatus, FOLDER_ICONS, retryAccountUiPreferences, setAccountUiPreferences, type AccountUiPreferences, type FolderIcon} from '../../api/accountPreferences.ts';
+import {preferenceAccount, preferenceAccountIsCurrent} from '../../api/accountPreferenceLifecycle.ts';
 import {t, loadCatalog} from '../../i18n';
 import {createSettingsNavigation, type SettingsNavigation} from './navigation.tsx';
 import {folderIcon, moveFolder, orderedFolders, type PreferenceFolder} from './folderPreferenceModel.ts';
@@ -10,26 +12,35 @@ export interface FolderPreferencesProps {
  preferences?: Accessor<AccountUiPreferences>;
  onChange?: (patch:AccountUiPreferences)=>void;
  navigation?: SettingsNavigation;
+ tags?: Accessor<readonly Tag[]>;
 }
-function FolderIconEditor(props:{folder:PreferenceFolder;prefs:Accessor<AccountUiPreferences>;update:(patch:AccountUiPreferences)=>void;navigation:SettingsNavigation}):JSX.Element {
+function FolderIconEditor(props:{folder:PreferenceFolder;prefs:Accessor<AccountUiPreferences>;update:(patch:AccountUiPreferences)=>void;navigation:SettingsNavigation;tags:Accessor<readonly Tag[]>;local:boolean}):JSX.Element {
+ const owner=preferenceAccount();const [pending,setPending]=createSignal(false);
  const [draft,setDraft]=createSignal<FolderIcon|''>(props.prefs().folderIcons?.[props.folder.id]??'');
- const [baseline,setBaseline]=createSignal(draft());
- onCleanup(props.navigation.beforeLeave(()=>draft()===baseline()||window.confirm(t('settings-folders-discard'))));
+ const [labels,setLabels]=createSignal(props.prefs().folderLabels?.[props.folder.id]??[]);
+ const snapshot=()=>JSON.stringify([draft(),[...labels()].sort()]);const [baseline,setBaseline]=createSignal(snapshot());
+ const choices=()=>[...new Set([...props.tags().map(tag=>tag.id),...labels()])];
+ onCleanup(props.navigation.beforeLeave(()=>snapshot()===baseline()||window.confirm(t(pending()?'settings-folders-leave-pending':'settings-folders-discard'))));
+ createEffect(()=>{if(pending()&&accountUiPreferenceStatus()==='synced'&&owner&&preferenceAccountIsCurrent(owner)){setBaseline(snapshot());void props.navigation.navigate({section:'folders'});}});
  function save():void {
+  if(!props.local&&(!owner||!preferenceAccountIsCurrent(owner)))return;
   const icons={...props.prefs().folderIcons};const selected=draft();
   if(selected)icons[props.folder.id]=selected;else delete icons[props.folder.id];
-  props.update({folderIcons:icons});setBaseline(selected);void props.navigation.navigate({section:'folders'});
+  const folderLabels={...props.prefs().folderLabels};if(labels().length)folderLabels[props.folder.id]=labels();else delete folderLabels[props.folder.id];
+  props.update({folderIcons:icons,...(props.prefs().folderLabels?.[props.folder.id]||choices().length||Object.keys(folderLabels).length?{folderLabels}:{})});if(props.local){setBaseline(snapshot());void props.navigation.navigate({section:'folders'});}else setPending(true);
  }
  return <section class={css.section} aria-label={t('settings-folders-edit',{name:props.folder.name})}>
   <h3 class={css.heading}>{t('settings-folders-edit',{name:props.folder.name})}</h3>
   <p class={css.meta}>{t('settings-folders-icon-help')}</p>
   <label class={css.field}><span>{t('settings-folders-icon',{name:props.folder.name})}</span>
-   <select class={css.select} value={draft()} onChange={event=>setDraft(event.currentTarget.value as FolderIcon|'')}>
+   <select class={css.select} disabled={pending()} value={draft()} onChange={event=>setDraft(event.currentTarget.value as FolderIcon|'')}>
     <option value="">{t('settings-folders-automatic')}</option><For each={FOLDER_ICONS}>{id=><option value={id}>{t(`settings-folder-icon-${id}`)}</option>}</For>
    </select>
   </label>
   <p><Icon name={draft()||folderIcon(props.folder,{})}/> {props.folder.name}</p>
-  <div class={css.actions}><button type="button" class={css.button} disabled={draft()===baseline()} onClick={save}>{t('settings-folders-save')}</button><button type="button" class={css.ghost} onClick={()=>void props.navigation.navigate({section:'folders'})}>{t('settings-folders-back')}</button></div>
+  <Show when={choices().length}><fieldset class={css.section}><legend>{t('settings-folder-labels')}</legend><p class={css.meta}>{t('settings-folder-labels-help')}</p><For each={choices()}>{id=><label class={css.check}><input class={css.checkbox} type="checkbox" checked={labels().includes(id)} disabled={pending()||(!labels().includes(id)&&labels().length>=32)} onChange={event=>setLabels(value=>event.currentTarget.checked?[...value,id]:value.filter(label=>label!==id))}/>{props.tags().find(tag=>tag.id===id)?.name??id}</label>}</For></fieldset></Show>
+  <Show when={pending()}><p role="status">{t(`settings-folders-sync-${accountUiPreferenceStatus()}`)}</p><Show when={accountUiPreferenceStatus()==='error'}><button class={css.ghost} onClick={()=>void retryAccountUiPreferences()}>{t('settings-folders-retry')}</button></Show></Show>
+  <div class={css.actions}><button type="button" class={css.button} disabled={pending()||snapshot()===baseline()} onClick={save}>{t('settings-folders-save')}</button><button type="button" class={css.ghost} onClick={()=>void props.navigation.navigate({section:'folders'})}>{t('settings-folders-back')}</button></div>
  </section>;
 }
 export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
@@ -49,7 +60,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   <p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>
   <div style={{'overflow-x':'auto'}}><table class="settings-shortcut-table"><thead><tr><th>{t('settings-folders-name')}</th><th>{t('settings-folders-actions')}</th></tr></thead><tbody>
    <For each={folders()}>{(folder,index)=><tr onDragOver={event=>{if(dragging()&&canMove(dragging()!,folder.id))event.preventDefault();}} onDrop={event=>{event.preventDefault();const id=dragging();if(id)move(id,folder.id);setDragging(null);}}>
-    <td><Icon name={folderIcon(folder,prefs())}/> {folder.name}</td><td><div class={css.actions}>
+    <td><Icon name={folderIcon(folder,prefs())}/> {folder.name}<Show when={prefs().folderLabels?.[folder.id]?.length}><small class={css.meta}>{prefs().folderLabels?.[folder.id]?.map(id=>props.tags?.().find(tag=>tag.id===id)?.name??id).join(', ')}</small></Show></td><td><div class={css.actions}>
      <button type="button" class={css.ghost} aria-label={t('settings-folders-edit',{name:folder.name})} onClick={()=>void navigation.navigate({section:'folders',editor:{kind:'edit',id:folder.id}})}><Icon name="edit"/></button>
      <button type="button" class={css.ghost} aria-label={t('settings-folders-pin',{name:folder.name})} aria-pressed={pinned(folder.id)} onClick={()=>pin(folder.id)}><Icon name="star"/></button>
      <button type="button" class={css.ghost} draggable="true" aria-label={t('settings-folders-drag',{name:folder.name})} onDragStart={event=>{setDragging(folder.id);event.dataTransfer?.setData('text/plain',folder.id);}} onDragEnd={()=>setDragging(null)}><Icon name="sort"/></button>
@@ -58,5 +69,5 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
     </div></td>
    </tr>}</For>
   </tbody></table></div>
- </section>}>{folder=><FolderIconEditor folder={folder} prefs={prefs} update={update} navigation={navigation}/>}</Show>;
+ </section>}>{folder=><FolderIconEditor folder={folder} prefs={prefs} update={update} navigation={navigation} tags={props.tags??(()=>[])} local={!!props.onChange}/>}</Show>;
 }

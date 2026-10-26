@@ -58,6 +58,8 @@ pub(super) struct Preferences {
     folder_icons: Option<BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tags: Option<BTreeMap<String, Tag>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_labels: Option<BTreeMap<String,Vec<String>>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -115,6 +117,7 @@ fn valid(document: &Document) -> bool {
         && p.offline_retention_days.is_none_or(|v| v <= 36_500)
         && valid_ids(&p.folder_pinned)
         && valid_ids(&p.folder_order)
+        && p.folder_labels.as_ref().is_none_or(|folders|folders.len()<=500 && folders.iter().all(|(id,labels)|valid_id(id) && labels.len()<=32 && labels.iter().collect::<HashSet<_>>().len()==labels.len() && labels.iter().all(|keyword|!keyword.is_empty()&&keyword.len()<=255&&keyword.bytes().all(|byte|byte.is_ascii_alphanumeric()||b"_-".contains(&byte)))))
         && p.tags.as_ref().is_none_or(|tags|tags.len()<=100 && tags.iter().all(|(id,tag)| {
             !id.is_empty() && id.len()<=255 && id.bytes().all(|byte|byte.is_ascii_alphanumeric()||b"_-".contains(&byte))
             && !tag.name.trim().is_empty() && tag.name.chars().count()<=128 && !tag.name.chars().any(char::is_control)

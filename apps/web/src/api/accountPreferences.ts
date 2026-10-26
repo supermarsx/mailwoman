@@ -28,6 +28,7 @@ export interface AccountUiPreferences {
   folderOrder?: string[];
   folderIcons?: Record<string, FolderIcon>;
   tags?: Record<string, AccountTag>;
+  folderLabels?: Record<string,string[]>;
 }
 interface Snapshot { preferences: AccountUiPreferences; etag: string }
 export interface AccountPreferencesApi {
@@ -62,6 +63,7 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
   let edits: Partial<Record<keyof AccountUiPreferences, number>> = {};
   let iconEdits: Record<string, {value: FolderIcon | null; serial: number}> = {};
   let tagEdits: Record<string, {value: AccountTag | null; serial: number}> = {};
+  let folderLabelEdits: Record<string,{value:string[]|null;serial:number}>={};
   let busy = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const active = (value: PreferenceAccount): boolean => account === value && current(value);
@@ -75,7 +77,11 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
     if(!Object.keys(tagEdits).length){if(edits.tags===undefined)delete dirty.tags;return;}
     const tags={...base.tags};for(const [id,edit] of Object.entries(tagEdits)){if(edit.value===null)delete tags[id];else tags[id]=edit.value;}dirty.tags=tags;
   }
-  const emit = (): void => { rebaseIcons();rebaseTags(); publish({...base, ...dirty}); };
+  function rebaseFolderLabels():void {
+    if(!Object.keys(folderLabelEdits).length){delete dirty.folderLabels;return;}
+    const labels={...base.folderLabels};for(const [id,edit] of Object.entries(folderLabelEdits)){if(edit.value===null)delete labels[id];else labels[id]=edit.value;}dirty.folderLabels=labels;
+  }
+  const emit = (): void => { rebaseIcons();rebaseTags();rebaseFolderLabels(); publish({...base, ...dirty}); };
   function schedule(): void {
     clearTimeout(timer);
     timer = setTimeout(() => { timer = undefined; void flush(); }, 400);
@@ -101,6 +107,7 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
     const sentEdits = {...edits};
     const sentIcons = {...iconEdits};
     const sentTags = {...tagEdits};
+    const sentFolderLabels={...folderLabelEdits};
     const sent = {...base, ...dirty};
     report('saving');
     try {
@@ -114,6 +121,7 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
         if (iconEdits[id]?.serial === edit.serial) delete iconEdits[id];
       }
       for(const [id,edit] of Object.entries(sentTags)){if(tagEdits[id]?.serial===edit.serial)delete tagEdits[id];}
+      for(const [id,edit] of Object.entries(sentFolderLabels)){if(folderLabelEdits[id]?.serial===edit.serial)delete folderLabelEdits[id];}
       emit(); report(Object.keys(dirty).length ? 'saving' : 'synced');
       reschedule = true;
     } catch (error) {
@@ -131,7 +139,7 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
   return {
     bind(next: PreferenceAccount | null): void {
       clearTimeout(timer); timer = undefined;
-      account = next; base = {}; dirty = {}; edits = {}; iconEdits = {}; tagEdits = {}; etag = null; busy = false;
+      account = next; base = {}; dirty = {}; edits = {}; iconEdits = {}; tagEdits = {}; folderLabelEdits={}; etag = null; busy = false;
       emit(); report(next ? 'loading' : 'idle');
       if (next) void refresh();
     },
@@ -150,7 +158,8 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
         }
         if(base.tags===undefined)edits.tags=++serial;
       }
-      for (const key of Object.keys(patch) as (keyof AccountUiPreferences)[]) if (key !== 'folderIcons'&&key!=='tags') edits[key] = ++serial;
+      if(patch.folderLabels){const previous=dirty.folderLabels??base.folderLabels??{};for(const id of new Set([...Object.keys(previous),...Object.keys(patch.folderLabels)])){if(JSON.stringify(previous[id])!==JSON.stringify(patch.folderLabels[id]))folderLabelEdits[id]={value:patch.folderLabels[id]??null,serial:++serial};}}
+      for (const key of Object.keys(patch) as (keyof AccountUiPreferences)[]) if (key !== 'folderIcons'&&key!=='tags'&&key!=='folderLabels') edits[key] = ++serial;
       dirty = {...dirty, ...patch}; report('saving'); emit(); schedule();
     },
     refresh, flush,

@@ -46,3 +46,8 @@ it('merges separate tag edits after conflicts and drops old-account edits',async
  expect(writes.at(-1)?.tags).toEqual({a:label('Edited A'),b:label('Other device'),c:label('C')});
  sync.update({tags:{a:label('Private A')}});sync.bind({id:'other',generation:2});await Promise.resolve();await vi.advanceTimersByTimeAsync(500);expect(writes).toHaveLength(2);sync.dispose();
 });
+it('merges folder-label assignments independently across devices',async()=>{
+ vi.useFakeTimers();let loads=0;const writes:AccountUiPreferences[]=[];
+ const sync=createAccountPreferencesSync({load:async()=>({preferences:{folderLabels:++loads===1?{inbox:['work'],archive:['old']}:{inbox:['work'],archive:['remote'],other:['new']}},etag:`"${loads}"`}),save:async(value,etag)=>{writes.push(value);if(etag==='"1"')throw new PreferenceConflict();return {preferences:value,etag:'"3"'};}},vi.fn(),vi.fn(),()=>true);
+ sync.bind(owner);await Promise.resolve();sync.update({folderLabels:{archive:['old']}});await sync.flush();await vi.advanceTimersByTimeAsync(500);expect(writes.at(-1)?.folderLabels).toEqual({archive:['remote'],other:['new']});sync.dispose();
+});

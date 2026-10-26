@@ -336,3 +336,8 @@ settings-folders-icon-help = Choose one of fifteen themed icons, or keep automat
 settings-folders-save = Save folder appearance
 settings-folders-back = Back to folders
 settings-folders-discard = Discard unsaved folder appearance changes?
+settings-folder-labels = Folder labels
+settings-folder-labels-help = Organize this folder with up to 32 account labels. This does not label or move messages inside it. Manage label names and colours in Labels.
+
+settings-folders-leave-pending = These changes are still queued for synchronization. Leave this editor?
+settings-folders-retry = Retry saving

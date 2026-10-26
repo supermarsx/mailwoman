@@ -425,7 +425,7 @@ export function MailboxScreen(): JSX.Element {
                 type="button"
                 class={`sidebar__box ${a11y.focusable}`}
                 classList={{ 'sidebar__box--active': surface() === 'mail' && app.selectedMailboxId() === box.id }}
-                aria-label={box.name} title={box.name}
+                aria-label={box.name} title={[box.name,...(accountUiPreferences().folderLabels?.[box.id]??[]).map(id=>app.tagByKeyword(id)?.name??id)].join(' · ')}
                 onClick={() => {
                   router.navigate('mail');
                   subTabs.activate('mail');
