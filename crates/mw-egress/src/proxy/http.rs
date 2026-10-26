@@ -61,6 +61,7 @@ where
         url,
         &Outgoing {
             response_metadata: None,
+            authorized_plugin: None,
             authorized_api: None,
             authorized_dav: None,
             web_push: None,
@@ -142,7 +143,24 @@ async fn exchange_inner(
     } else {
         builder
     };
-    let request = if let Some(api) = out.authorized_api {
+    let request = if let Some(plugin) = out.authorized_plugin {
+        plugin.validate().map_err(ProxyRefusal::Origin)?;
+        if out.authorized_api.is_some() || out.authorized_dav.is_some() || out.web_push.is_some() {
+            return Err(ProxyRefusal::Origin(Refusal::BadRequest(
+                "mixed authorization refused",
+            )));
+        }
+        let mut builder = builder.method(plugin.method);
+        for (name, value) in plugin.headers {
+            builder = builder.header(name, value);
+        }
+        match out.body {
+            None => builder.body(Either::Left(Empty::<Bytes>::new())),
+            Some(body) => {
+                builder.body(Either::Right(Full::new(Bytes::copy_from_slice(body.bytes))))
+            }
+        }
+    } else if let Some(api) = out.authorized_api {
         api.validate_target(url).map_err(ProxyRefusal::Origin)?;
         if out.authorized_dav.is_some() || out.web_push.is_some() {
             return Err(ProxyRefusal::Origin(Refusal::BadRequest(
@@ -209,7 +227,7 @@ async fn exchange_inner(
                 .and_then(|v| v.to_str().ok()),
         );
     }
-    if status.is_redirection() {
+    if status.is_redirection() && out.authorized_plugin.is_none() {
         let location = response
             .headers()
             .get(header::LOCATION)
@@ -218,7 +236,7 @@ async fn exchange_inner(
             .to_string();
         return Ok((Hop::Redirect(location), None));
     }
-    if !status.is_success() {
+    if !status.is_success() && out.authorized_plugin.is_none() {
         // The same discriminant the direct path returns, so a caller reads one
         // taxonomy whether or not a route was configured.
         return Err(ProxyRefusal::Origin(Refusal::Status(status.as_u16())));
@@ -259,6 +277,32 @@ async fn exchange_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn plugin_error_json_is_bounded_and_cookie_headers_are_not_forwarded() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (client, mut server) = tokio::io::duplex(4096);
+        let received = tokio::spawn(async move {
+            let mut bytes = Vec::new();
+            while !bytes.ends_with(b"\r\n\r\n") { bytes.push(server.read_u8().await.unwrap()); }
+            server.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 11\r\nSet-Cookie: upstream=secret\r\nConnection: close\r\n\r\n{\"error\":1}").await.unwrap();
+            String::from_utf8(bytes).unwrap()
+        });
+        let metadata = crate::ResponseMetadata::default();
+        let headers = vec![("Authorization".into(), "Bearer fixture-token".into())];
+        let out = Outgoing {
+            response_metadata: Some(&metadata),
+            authorized_plugin: Some(crate::PluginHttp { method: "GET", headers: &headers }),
+            authorized_api: None, authorized_dav: None, web_push: None,
+            response_limit: 128, accept: "application/json", user_agent: "Mailwoman", body: None,
+        };
+        let response = exchange_with(client, &url("https://approved.test/token"), &out).await.unwrap();
+        assert!(matches!(response, Hop::Body(bytes) if bytes == b"{\"error\":1}"));
+        assert_eq!(metadata.snapshot().unwrap().status, 400);
+        let sent = received.await.unwrap().to_ascii_lowercase();
+        assert!(sent.contains("authorization: bearer fixture-token\r\n"));
+        assert!(!sent.contains("cookie:") && !sent.contains("proxy-authorization:"));
+    }
 
     #[tokio::test]
     async fn package_api_sends_only_fixed_secret_header_over_verified_test_tls() {
@@ -305,6 +349,7 @@ mod tests {
             .unwrap();
         let out = Outgoing {
             response_metadata: None,
+            authorized_plugin: None,
             authorized_api: Some(crate::AuthorizedApi {
                 method: crate::ApiMethod::Delete,
                 key: "fixture-key",
@@ -360,6 +405,7 @@ mod tests {
                 &url("http://example.test/image"),
                 &Outgoing {
                     response_metadata: None,
+                    authorized_plugin: None,
                     authorized_api: None,
                     authorized_dav: None,
                     web_push: None,

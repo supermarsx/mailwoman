@@ -52,7 +52,9 @@
 /// handing the proxy a hostname to resolve** — see the module docs for the threat
 /// model, the residual it cannot close, and the deliberate origin/proxy asymmetry.
 mod api;
+mod plugin_http;
 pub use api::{ApiMethod, AuthorizedApi};
+pub use plugin_http::PluginHttp;
 mod response_metadata;
 pub use response_metadata::{ResponseHead, ResponseMetadata};
 pub mod proxy;
@@ -461,6 +463,21 @@ pub(crate) async fn resolve_gated(
     url: reqwest::Url,
     gate: &AddressGate<'_>,
 ) -> Result<Target, Refusal> {
+    resolve_gated_policy(url, gate, false).await
+}
+
+pub(crate) async fn resolve_gated_all(
+    url: reqwest::Url,
+    gate: &AddressGate<'_>,
+) -> Result<Target, Refusal> {
+    resolve_gated_policy(url, gate, true).await
+}
+
+async fn resolve_gated_policy(
+    url: reqwest::Url,
+    gate: &AddressGate<'_>,
+    all: bool,
+) -> Result<Target, Refusal> {
     match url.scheme() {
         "http" | "https" => {}
         _ => return Err(Refusal::BadRequest("only http/https URLs are proxied")),
@@ -496,6 +513,13 @@ pub(crate) async fn resolve_gated(
             .map_err(|_| Refusal::Blocked)?
             .collect(),
     };
+    if all
+        && resolved
+            .iter()
+            .any(|address| !gate(&host, port, &address.ip()))
+    {
+        return Err(Refusal::Blocked);
+    }
     let addr = resolved
         .into_iter()
         .find(|a| gate(&host, port, &a.ip()))
@@ -576,6 +600,7 @@ pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Re
         target,
         &Outgoing {
             response_metadata: None,
+            authorized_plugin: None,
             authorized_api: None,
             authorized_dav: None,
             web_push: None,
@@ -598,6 +623,7 @@ pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Re
 #[derive(Clone, Copy)]
 pub struct Outgoing<'a> {
     pub response_metadata: Option<&'a ResponseMetadata>,
+    pub authorized_plugin: Option<PluginHttp<'a>>,
     pub authorized_api: Option<AuthorizedApi<'a>>,
     pub web_push: Option<WebPushHeaders<'a>>,
     /// Explicit credential-bearing DAV operation; redirects are always refused.
@@ -773,7 +799,24 @@ pub(crate) async fn send_hop_typed(
         .build()
         .map_err(|_| Refusal::Upstream)?;
 
-    let request = if let Some(api) = out.authorized_api {
+    let request = if let Some(plugin) = out.authorized_plugin {
+        plugin.validate()?;
+        if out.authorized_api.is_some() || out.authorized_dav.is_some() || out.web_push.is_some() {
+            return Err(Refusal::BadRequest("mixed authorization refused"));
+        }
+        let mut request = client.request(
+            reqwest::Method::from_bytes(plugin.method.as_bytes())
+                .map_err(|_| Refusal::BadRequest("invalid plugin method"))?,
+            target.url.clone(),
+        );
+        for (name, value) in plugin.headers {
+            request = request.header(name, value);
+        }
+        if let Some(body) = out.body {
+            request = request.body(body.bytes.to_vec());
+        }
+        request
+    } else if let Some(api) = out.authorized_api {
         api.validate_target(&target.url)?;
         if out.authorized_dav.is_some() || out.web_push.is_some() {
             return Err(Refusal::BadRequest("mixed authorization refused"));
@@ -863,7 +906,7 @@ pub(crate) async fn send_hop_typed(
                 .and_then(|v| v.to_str().ok()),
         );
     }
-    if status.is_redirection() {
+    if status.is_redirection() && out.authorized_plugin.is_none() {
         let loc = resp
             .headers()
             .get(header::LOCATION)
@@ -872,7 +915,7 @@ pub(crate) async fn send_hop_typed(
             .to_string();
         return Ok((Hop::Redirect(loc), None));
     }
-    if !status.is_success() {
+    if !status.is_success() && out.authorized_plugin.is_none() {
         // The CODE is carried, not collapsed — see `Refusal::Status`. A caller that
         // does not care can use `Refusal::is_upstream_failure`.
         return Err(Refusal::Status(status.as_u16()));

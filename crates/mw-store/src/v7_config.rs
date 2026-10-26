@@ -459,6 +459,21 @@ impl Store {
             .collect())
     }
 
+    /// Read one binding through the account primary key without scanning other accounts.
+    pub async fn get_bridge_account(
+        &self,
+        account: &str,
+    ) -> Result<Option<BridgeAccountRow>, StoreError> {
+        let row = q("SELECT account_id, bridge_id, oauth_ref, extra FROM bridge_accounts WHERE account_id = ?1")
+            .bind(account).fetch_optional(&self.backend).await?;
+        Ok(row.map(|r| BridgeAccountRow {
+            account_id: r.get_string("account_id"),
+            bridge_id: r.get_string("bridge_id"),
+            oauth_ref: r.get_opt_string("oauth_ref"),
+            extra_json: r.get_string("extra"),
+        }))
+    }
+
     /// Upsert a bridge-account binding (by `account_id`).
     pub async fn put_bridge_account(&self, row: &BridgeAccountRow) -> Result<(), StoreError> {
         q(
@@ -592,6 +607,40 @@ mod tests {
 
     fn caps(v: &[&str]) -> Vec<String> {
         v.iter().map(|c| c.to_string()).collect()
+    }
+
+    #[tokio::test]
+    async fn bridge_binding_lookup_uses_primary_key_and_never_returns_other_accounts() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        for index in 0..128 {
+            store
+                .put_bridge_account(&BridgeAccountRow {
+                    account_id: format!("account-{index}"),
+                    bridge_id: "bridge-graph".into(),
+                    oauth_ref: Some(format!("config-{index}")),
+                    extra_json: "{}".into(),
+                })
+                .await
+                .unwrap();
+        }
+        let row = store
+            .get_bridge_account("account-73")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.account_id, "account-73");
+        assert_eq!(row.oauth_ref.as_deref(), Some("config-73"));
+        assert!(store.get_bridge_account("missing").await.unwrap().is_none());
+        let plan = q("EXPLAIN QUERY PLAN SELECT account_id, bridge_id, oauth_ref, extra FROM bridge_accounts WHERE account_id = ?1")
+            .bind("account-73").fetch_all(store.backend()).await.unwrap();
+        assert!(plan.iter().any(|row| {
+            row.get_string("detail")
+                .contains("SEARCH bridge_accounts USING INDEX")
+        }));
+        assert!(
+            plan.iter()
+                .all(|row| !row.get_string("detail").contains("SCAN"))
+        );
     }
 
     #[tokio::test]

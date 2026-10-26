@@ -10,7 +10,6 @@
 //! as before.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -85,55 +84,12 @@ fn env(key: &str) -> Option<String> {
 // 1. Host services (plan §2.1 §e1 injection seam) — reqwest HTTP + OAuth + KV/clock/rng
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The host `http-fetch` impl over `reqwest`/rustls. `mw-plugin` checks the `net`
-/// capability and the plugin's `net_allowlist` **before** calling this, so the URL's
-/// host is one the administrator listed. What is checked here is where that name
-/// leads:
-///
-/// - [`plugin_fetch_addrs`]: http(s) only, no credentials in the URL, and the host
-///   is resolved once; the connection is pinned to the addresses of that one answer
-///   which the policy allows (a second DNS answer is never used), and refused when
-///   there is none;
-/// - the address policy is [`mw_egress::on_prem_allowed`]: private ranges are
-///   reachable, because rspamd, SpamAssassin, LanguageTool and Nextcloud are usually
-///   on them; link-local (which includes the `169.254.169.254` metadata address),
-///   unspecified and multicast addresses never are;
-/// - loopback is reachable only when the URL names it (`localhost` or a loopback
-///   literal), which the administrator must have listed for the gate to pass it. A
-///   name that merely resolves to loopback is refused;
-/// - a redirect is followed only to the same host, never from https to http, at most
-///   [`PLUGIN_FETCH_MAX_REDIRECTS`] times. Any other redirect is returned to the guest
-///   as the `3xx` it is; a guest that follows it calls `http-fetch` again and meets
-///   the allowlist again.
-///
-/// No proxy is used and the operator's egress route (`/admin/egress`) is not applied:
-/// that route is read by the image proxy and the calendar-subscription fetch only.
-///
-/// For a guest that carries no credentials of its own (the Nextcloud plugin), the
-/// host attaches the linked account's Basic auth for the matching host.
+#[path = "plugin_transport.rs"]
+mod plugin_transport;
+
+/// Host-bound HTTP transport. No process-wide credential injection.
 pub(crate) struct ReqwestFetcher {
-    /// host → (username, password) Basic-auth injection for credential-less guests.
-    host_auth: Vec<(String, (String, String))>,
-}
-
-/// How many same-host redirects one plugin `http-fetch` follows.
-const PLUGIN_FETCH_MAX_REDIRECTS: usize = 5;
-
-impl ReqwestFetcher {
-    fn from_env() -> Self {
-        let mut host_auth = Vec::new();
-        // The Nextcloud plugin (host-attaches-auth) — same linked-account secret as
-        // the native OcsNextcloud gateway.
-        if let (Some(url), Some(user), Some(pw)) = (
-            env("MW_NEXTCLOUD_URL"),
-            env("MW_NEXTCLOUD_USER"),
-            env("MW_NEXTCLOUD_APP_PASSWORD"),
-        ) && let Some(host) = host_of(&url)
-        {
-            host_auth.push((host, (user, pw)));
-        }
-        Self { host_auth }
-    }
+    store: Store,
 }
 
 fn host_of(url: &str) -> Option<String> {
@@ -144,130 +100,18 @@ fn host_of(url: &str) -> Option<String> {
         .map(|h| h.split(':').next().unwrap_or(h).to_lowercase())
 }
 
-/// Whether a URL host names loopback itself: `localhost`, or a loopback address
-/// literal (`host` is `Url::host_str`, so an IPv6 literal is in brackets).
-fn names_loopback(host: &str) -> bool {
-    let bare = host
-        .strip_prefix('[')
-        .and_then(|h| h.strip_suffix(']'))
-        .unwrap_or(host);
-    bare.eq_ignore_ascii_case("localhost")
-        || bare.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
-}
-
-/// [`mw_egress::on_prem_allowed`] plus loopback, for a URL that [`names_loopback`].
-fn on_prem_or_loopback(ip: &IpAddr) -> bool {
-    ip.is_loopback() || mw_egress::on_prem_allowed(ip)
-}
-
-/// The address policy for one plugin fetch, chosen from the host the URL names.
-fn plugin_fetch_policy(host: &str) -> fn(&IpAddr) -> bool {
-    if names_loopback(host) {
-        on_prem_or_loopback
-    } else {
-        mw_egress::on_prem_allowed
-    }
-}
-
-/// Check a plugin fetch URL and resolve its host, once, to the addresses the request
-/// may connect to: every address of the answer that [`plugin_fetch_policy`] allows.
-/// An IP literal is its own answer and never goes to the resolver. Unlike
-/// [`mw_egress::validate_and_resolve_with`], which keeps the first allowed address,
-/// this keeps them all, so a dual-stack name whose service listens on one family
-/// (`localhost`, most often) still connects.
-async fn plugin_fetch_addrs(url: &reqwest::Url) -> Result<Vec<std::net::SocketAddr>, &'static str> {
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err("only http and https URLs are fetched");
-    }
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err("credentials in the URL are not allowed");
-    }
-    let host = url
-        .host_str()
-        .filter(|h| !h.is_empty())
-        .ok_or("the URL has no host")?;
-    let port = url.port_or_known_default().ok_or("the URL has no port")?;
-    let bare = host
-        .strip_prefix('[')
-        .and_then(|h| h.strip_suffix(']'))
-        .unwrap_or(host);
-    let resolved: Vec<std::net::SocketAddr> = match bare.parse::<IpAddr>() {
-        Ok(ip) => vec![std::net::SocketAddr::new(ip, port)],
-        Err(_) => tokio::net::lookup_host((host, port))
-            .await
-            .map_err(|_| "the host does not resolve")?
-            .collect(),
-    };
-    let policy = plugin_fetch_policy(host);
-    let allowed: Vec<_> = resolved.into_iter().filter(|a| policy(&a.ip())).collect();
-    if allowed.is_empty() {
-        return Err("the host has no address this server may connect to");
-    }
-    Ok(allowed)
-}
-
-/// Whether a redirect from `from` to `to` stays on the same host without dropping
-/// from https to http.
-fn same_host_redirect(from: &reqwest::Url, to: &reqwest::Url) -> bool {
-    from.host_str() == to.host_str() && (to.scheme() == "https" || from.scheme() == to.scheme())
-}
-
 #[async_trait]
 impl HttpFetcher for ReqwestFetcher {
-    async fn fetch(&self, req: HttpReq) -> std::result::Result<HttpResp, String> {
-        let method = reqwest::Method::from_bytes(req.method.as_bytes())
-            .map_err(|_| format!("bad method {}", req.method))?;
-        let url = reqwest::Url::parse(&req.url).map_err(|_| "malformed url".to_string())?;
-        let addrs = plugin_fetch_addrs(&url)
-            .await
-            .map_err(|why| format!("refused by the host address policy: {why}"))?;
-        let host = url.host_str().unwrap_or_default().to_lowercase();
-        // `.no_proxy()`: an ambient `HTTP_PROXY` would resolve the name itself, so the
-        // pin below would not be what the request reaches. See `mw_egress::harden_client`.
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .resolve_to_addrs(&host, &addrs)
-            .redirect(reqwest::redirect::Policy::custom(|attempt| {
-                let stays = attempt
-                    .previous()
-                    .last()
-                    .is_some_and(|from| same_host_redirect(from, attempt.url()));
-                if stays && attempt.previous().len() <= PLUGIN_FETCH_MAX_REDIRECTS {
-                    attempt.follow()
-                } else {
-                    attempt.stop()
-                }
-            }))
-            .build()
-            .map_err(|e| e.to_string())?;
-        let mut rb = client.request(method, url);
-        for (k, v) in &req.headers {
-            rb = rb.header(k.as_str(), v.as_str());
-        }
-        // Inject the linked-account auth for a credential-less allowlisted guest.
-        if let Some((_, (user, pw))) = self.host_auth.iter().find(|(h, _)| *h == host) {
-            rb = rb.basic_auth(user, Some(pw));
-        }
-        if let Some(body) = req.body {
-            rb = rb.body(body);
-        }
-        let resp = rb.send().await.map_err(|e| e.to_string())?;
-        let status = resp.status().as_u16();
-        let headers = resp
-            .headers()
-            .iter()
-            .filter_map(|(k, v)| {
-                v.to_str()
-                    .ok()
-                    .map(|s| (k.as_str().to_string(), s.to_string()))
-            })
-            .collect();
-        let body = resp.bytes().await.map_err(|e| e.to_string())?.to_vec();
-        Ok(HttpResp {
-            status,
-            headers,
-            body,
-        })
+    async fn fetch(&self, _req: HttpReq) -> std::result::Result<HttpResp, String> {
+        Err("plugin HTTP requires trusted instance context".into())
+    }
+    async fn fetch_for(
+        &self,
+        plugin: &str,
+        account: Option<&str>,
+        req: HttpReq,
+    ) -> std::result::Result<HttpResp, String> {
+        plugin_transport::fetch(&self.store, plugin, account, req).await
     }
 }
 
@@ -286,7 +130,6 @@ impl HttpFetcher for ReqwestFetcher {
 /// leaves it unset. The refresh token, the one long-lived secret, lives only sealed.
 pub(crate) struct StoreOAuthProvider {
     store: Store,
-    poster: Arc<oauth_client::ReqwestPoster>,
     /// Deployment-wide confidential-client secret; `None` for a public PKCE client.
     client_secret: Option<String>,
 }
@@ -296,7 +139,7 @@ impl OAuthTokenProvider for StoreOAuthProvider {
     async fn token(&self, account: &str) -> std::result::Result<String, String> {
         oauth_client::acquire_access_token(
             &self.store,
-            self.poster.as_ref(),
+            &oauth_client::ReqwestPoster::new(self.store.clone(), account.to_owned()),
             self.client_secret.as_deref(),
             account,
         )
@@ -445,20 +288,15 @@ impl mw_plugin::InvocationPolicy for StoreInvocationPolicy {
 }
 
 pub(crate) fn host_services(store: &Store) -> HostServices {
-    // `.no_proxy()`: the OAuth poster carries bridge refresh tokens, and an ambient
-    // `HTTP_PROXY` would see the token exchange. See `mw_egress::harden_client`.
-    let oauth_http = reqwest::Client::builder()
-        .no_proxy()
-        .build()
-        .expect("reqwest client builds");
     HostServices {
         invocation_policy: Some(Arc::new(StoreInvocationPolicy {
             store: store.clone(),
         })),
-        http: Arc::new(ReqwestFetcher::from_env()),
+        http: Arc::new(ReqwestFetcher {
+            store: store.clone(),
+        }),
         oauth: Arc::new(StoreOAuthProvider {
             store: store.clone(),
-            poster: Arc::new(oauth_client::ReqwestPoster::new(oauth_http)),
             client_secret: env("MW_BRIDGE_OAUTH_CLIENT_SECRET"),
         }),
         basic_creds: Arc::new(StoreEwsCredProvider {
@@ -4639,139 +4477,17 @@ mod tests {
         assert_eq!(status.not_loaded, None);
     }
 
-    // ── 26.20 (t28-e14): the plugin `http-fetch` address policy ──────────────────
-
-    #[test]
-    fn loopback_is_reachable_only_when_the_url_names_it() {
-        let loopback: IpAddr = "127.0.0.1".parse().unwrap();
-        let private: IpAddr = "10.1.2.3".parse().unwrap();
-        let metadata: IpAddr = "169.254.169.254".parse().unwrap();
-        for host in ["localhost", "LOCALHOST", "127.0.0.1", "127.9.9.9", "[::1]"] {
-            assert!(names_loopback(host), "{host}");
-            assert!(plugin_fetch_policy(host)(&loopback), "{host}");
-            assert!(!plugin_fetch_policy(host)(&metadata), "{host}");
-        }
-        for host in [
-            "rspamd",
-            "rspamd.internal",
-            "10.1.2.3",
-            "localhost.example.org",
-        ] {
-            assert!(!names_loopback(host), "{host}");
-            let policy = plugin_fetch_policy(host);
-            assert!(!policy(&loopback), "{host} must not reach loopback");
-            assert!(policy(&private), "{host} may reach a private address");
-            assert!(!policy(&metadata), "{host} must not reach link-local");
-        }
-    }
-
-    #[test]
-    fn only_a_same_host_redirect_is_followed() {
-        let url = |s: &str| reqwest::Url::parse(s).unwrap();
-        assert!(same_host_redirect(
-            &url("http://a.test/x"),
-            &url("http://a.test/y")
-        ));
-        assert!(same_host_redirect(
-            &url("http://a.test/x"),
-            &url("https://a.test/y")
-        ));
-        assert!(!same_host_redirect(
-            &url("https://a.test/x"),
-            &url("http://a.test/y")
-        ));
-        assert!(!same_host_redirect(
-            &url("http://a.test/x"),
-            &url("http://b.test/y")
-        ));
-        assert!(!same_host_redirect(
-            &url("http://a.test/x"),
-            &url("http://169.254.169.254/latest/meta-data")
-        ));
-    }
-
-    /// Answer every connection on a fresh loopback port with `response`, counting
-    /// the requests that arrive.
-    async fn count_requests(response: String) -> (u16, Arc<std::sync::atomic::AtomicUsize>) {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let seen = Arc::clone(&hits);
-        tokio::spawn(async move {
-            loop {
-                let Ok((mut sock, _)) = listener.accept().await else {
-                    return;
-                };
-                seen.fetch_add(1, Ordering::SeqCst);
-                let mut buf = [0u8; 2048];
-                let _ = sock.read(&mut buf).await;
-                let _ = sock.write_all(response.as_bytes()).await;
-                let _ = sock.shutdown().await;
-            }
-        });
-        (port, hits)
-    }
-
-    fn plugin_get(url: String) -> HttpReq {
-        HttpReq {
-            method: "GET".into(),
-            url,
-            headers: Vec::new(),
-            body: None,
-        }
-    }
-
-    /// The fetcher itself, over real sockets: a link-local address and a URL with
-    /// credentials are refused before any connection; a redirect to another host is
-    /// handed back as the `302` and that host is never contacted. Before 26.20 the
-    /// fetcher was a default `reqwest` client, which follows such a redirect.
     #[tokio::test]
-    async fn the_plugin_fetcher_applies_the_address_policy_and_keeps_redirects_on_host() {
-        let fetcher = ReqwestFetcher {
-            host_auth: Vec::new(),
-        };
-
-        let err = fetcher
-            .fetch(plugin_get("http://169.254.169.254/latest/meta-data".into()))
-            .await
-            .unwrap_err();
-        assert!(err.contains("address policy"), "{err}");
-        let err = fetcher
-            .fetch(plugin_get("http://user:pw@127.0.0.1:9/".into()))
-            .await
-            .unwrap_err();
-        assert!(err.contains("address policy"), "{err}");
-
-        let ok = "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nhi".to_string();
-        let (other_port, other_hits) = count_requests(ok.clone()).await;
-        // `localhost` and `127.0.0.1` are different hosts to the redirect rule.
-        let (first_port, first_hits) = count_requests(format!(
-            "HTTP/1.1 302 Found\r\nlocation: http://localhost:{other_port}/elsewhere\r\n\
-             content-length: 0\r\nconnection: close\r\n\r\n"
-        ))
-        .await;
-        let resp = fetcher
-            .fetch(plugin_get(format!("http://127.0.0.1:{first_port}/start")))
-            .await
-            .expect("the 302 itself is the answer");
-        assert_eq!(resp.status, 302);
-        assert_eq!(first_hits.load(Ordering::SeqCst), 1);
-        assert_eq!(
-            other_hits.load(Ordering::SeqCst),
-            0,
-            "the redirect target on another host must not be contacted"
-        );
-
-        // Positive control: the same target is reachable when asked for directly.
-        let resp = fetcher
-            .fetch(plugin_get(format!(
-                "http://localhost:{other_port}/elsewhere"
-            )))
-            .await
-            .expect("a named loopback host is reachable");
-        assert_eq!((resp.status, resp.body), (200, b"hi".to_vec()));
-        assert_eq!(other_hits.load(Ordering::SeqCst), 1);
+    async fn plugin_fetch_requires_host_selected_instance_context() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let fetcher = ReqwestFetcher { store };
+        let result = fetcher.fetch(HttpReq {
+            method: "GET".into(),
+            url: "http://127.0.0.1:9/".into(),
+            headers: vec![],
+            body: None,
+        }).await;
+        assert!(result.unwrap_err().contains("trusted instance context"));
     }
 
     // ── 26.20 (t29-e14): the local-process program allowlist ──

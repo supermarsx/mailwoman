@@ -61,8 +61,12 @@ use crate::admin_router::AdminRegistrar;
 use crate::capabilities::Capability;
 use mw_store::EgressProxyRow;
 
+#[path = "egress_destinations.rs"]
+mod destinations;
+
 /// The egress admin routes (registered through `v7_mount::register_admin`).
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
+    destinations::register(r);
     r.admin_endpoint(
         Method::GET,
         "/egress/privacy-stats",

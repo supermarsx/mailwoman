@@ -51,6 +51,16 @@ mod live_policy_tests {
     }
     #[async_trait]
     impl HttpFetcher for Calls {
+        async fn fetch_for(
+            &self,
+            plugin: &str,
+            account: Option<&str>,
+            req: HttpReq,
+        ) -> std::result::Result<HttpResp, String> {
+            assert_eq!(plugin, "plugin");
+            assert_eq!(account, Some("own"));
+            self.fetch(req).await
+        }
         async fn fetch(&self, _req: HttpReq) -> std::result::Result<HttpResp, String> {
             self.http.fetch_add(1, Ordering::SeqCst);
             Ok(HttpResp {
@@ -172,6 +182,15 @@ pub struct HttpResp {
 #[async_trait]
 pub trait HttpFetcher: Send + Sync {
     async fn fetch(&self, req: HttpReq) -> std::result::Result<HttpResp, String>;
+    /// Trusted instance coordinates supplied by the host, never by guest input.
+    async fn fetch_for(
+        &self,
+        _plugin: &str,
+        _account: Option<&str>,
+        req: HttpReq,
+    ) -> std::result::Result<HttpResp, String> {
+        self.fetch(req).await
+    }
 }
 
 /// Acquires a short-lived OAuth token for a bound account. The host holds/refreshes
@@ -596,12 +615,16 @@ impl Host for HostState {
         let out = self
             .services
             .http
-            .fetch(HttpReq {
-                method: req.method,
-                url: req.url,
-                headers: req.headers,
-                body: req.body,
-            })
+            .fetch_for(
+                &self.plugin_id,
+                self.bound_account.as_deref(),
+                HttpReq {
+                    method: req.method,
+                    url: req.url,
+                    headers: req.headers,
+                    body: req.body,
+                },
+            )
             .await;
         Ok(match out {
             Ok(r) => Ok(HttpResponse {

@@ -253,6 +253,7 @@ pub fn current() -> Option<Arc<EgressPlan>> {
 #[derive(Debug, Clone, Copy)]
 pub struct Request<'a> {
     response_metadata: Option<&'a crate::ResponseMetadata>,
+    authorized_plugin: Option<crate::PluginHttp<'a>>,
     authorized_api: Option<crate::AuthorizedApi<'a>>,
     web_push: Option<crate::WebPushHeaders<'a>>,
     authorized_dav: Option<crate::AuthorizedDav<'a>>,
@@ -270,6 +271,7 @@ impl<'a> Request<'a> {
     pub fn get(class: TrafficClass) -> Request<'a> {
         Request {
             response_metadata: None,
+            authorized_plugin: None,
             authorized_api: None,
             authorized_dav: None,
             web_push: None,
@@ -292,6 +294,26 @@ impl<'a> Request<'a> {
             }),
             ..Request::get(class)
         }
+    }
+
+    /// Host-approved plugin or OAuth call. Error bodies are bounded and redirects returned without following.
+    pub fn plugin(
+        class: TrafficClass,
+        operation: crate::PluginHttp<'a>,
+        body: Option<OutBody<'a>>,
+    ) -> Result<Self, Refusal> {
+        if !matches!(class, TrafficClass::Plugins | TrafficClass::Oauth) {
+            return Err(Refusal::BadRequest("invalid plugin traffic class"));
+        }
+        operation.validate()?;
+        if body.is_some_and(|body| body.bytes.len() > crate::MAX_IMAGE_BYTES) {
+            return Err(Refusal::TooLarge);
+        }
+        Ok(Self {
+            authorized_plugin: Some(operation),
+            body,
+            ..Self::get(class)
+        })
     }
 
     /// Encrypted Web Push with fixed protocol headers, public HTTPS only.
@@ -388,6 +410,7 @@ impl<'a> Request<'a> {
     fn outgoing(&self) -> Outgoing<'a> {
         Outgoing {
             response_metadata: self.response_metadata,
+            authorized_plugin: self.authorized_plugin,
             authorized_api: self.authorized_api,
             authorized_dav: self.authorized_dav,
             web_push: self.web_push,
@@ -465,7 +488,10 @@ pub async fn send_with(plan: &EgressPlan, url: reqwest::Url, req: &Request<'_>) 
     }
     if matches!(
         req.class,
-        TrafficClass::Push | TrafficClass::PackageTracking
+        TrafficClass::Push
+            | TrafficClass::PackageTracking
+            | TrafficClass::Plugins
+            | TrafficClass::Oauth
     ) && plan
         .selected_route(req.class, req.domain)
         .is_some_and(|route| route.scheme == proxy::ProxyScheme::Socks5h)
@@ -484,7 +510,12 @@ pub async fn send_with(plan: &EgressPlan, url: reqwest::Url, req: &Request<'_>) 
     let fetched = match plan.selected_route(req.class, req.domain) {
         // A route applies. Its result is the result — one exit, no direct retry.
         Some(route) => {
-            let via = proxy::send_via_proxy(url, route, &out).await;
+            let gate = |host: &str, port: u16, ip: &IpAddr| plan.admits(req.class, host, port, ip);
+            let via = if req.authorized_plugin.is_some() {
+                proxy::send_via_proxy_gated(url, route, &out, &gate).await
+            } else {
+                proxy::send_via_proxy(url, route, &out).await
+            };
             RoutedFetch {
                 traversed_proxy: via.traversed_proxy,
                 content_type: via.content_type,
@@ -521,7 +552,11 @@ async fn send_direct(
 ) -> Result<(Vec<u8>, Option<String>), Refusal> {
     let mut url = start;
     for _ in 0..=MAX_REDIRECTS {
-        let target = resolve_gated(url.clone(), gate).await?;
+        let target = if out.authorized_plugin.is_some() {
+            crate::resolve_gated_all(url.clone(), gate).await?
+        } else {
+            resolve_gated(url.clone(), gate).await?
+        };
         match send_hop_typed(&target, out).await? {
             (Hop::Body(bytes), content_type) => return Ok((bytes, content_type)),
             (Hop::Redirect(_), _)
@@ -812,6 +847,32 @@ mod tests {
                 Refusal::Blocked,
                 "{u}"
             );
+        }
+    }
+
+    #[test]
+    fn plugin_hostname_permission_does_not_implicitly_allow_private_addresses() {
+        let ip = "10.20.0.9".parse().unwrap();
+        assert!(!EgressPlan::direct().admits(TrafficClass::Plugins, "ews.corp.test", 443, &ip));
+        let allow = InternalAllowList::new(vec![
+            AllowEntry::new(
+                TrafficClass::Plugins,
+                AllowDestination::parse("ews.corp.test:443").unwrap(),
+            )
+            .unwrap(),
+        ]);
+        let plan = EgressPlan::new(Vec::new(), allow).unwrap();
+        assert!(plan.admits(TrafficClass::Plugins, "ews.corp.test", 443, &ip));
+        assert!(!plan.admits(TrafficClass::Plugins, "other.corp.test", 443, &ip));
+        assert!(!plan.admits(TrafficClass::Plugins, "ews.corp.test", 80, &ip));
+        assert!(!plan.admits(TrafficClass::Oauth, "ews.corp.test", 443, &ip));
+        for blocked in ["169.254.169.254", "0.0.0.0", "::ffff:169.254.169.254"] {
+            assert!(!plan.admits(
+                TrafficClass::Plugins,
+                "ews.corp.test",
+                443,
+                &blocked.parse().unwrap()
+            ));
         }
     }
 

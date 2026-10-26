@@ -117,6 +117,7 @@ async fn cancelled_dav_exchange_closes_connection_pump() {
     let task = tokio::spawn(async move {
         let out = Outgoing {
             response_metadata: None,
+            authorized_plugin: None,
             authorized_api: None,
             authorized_dav: Some(auth(DavMethod::Propfind)),
             web_push: None,

@@ -26,6 +26,7 @@ const REPLY: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\n\r\nthrough";
 fn get() -> Outgoing<'static> {
     Outgoing {
         response_metadata: None,
+        authorized_plugin: None,
         authorized_api: None,
         authorized_dav: None,
         web_push: None,

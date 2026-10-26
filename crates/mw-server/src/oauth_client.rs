@@ -207,18 +207,16 @@ pub struct FormResponse {
     pub body: String,
 }
 
-/// The production [`FormPoster`]: the in-tree `reqwest`(rustls) client (no native-tls /
-/// openssl). Reused across every bridge account.
+/// Account-bound form transport. Uses the current egress plan; never follows redirects.
 pub struct ReqwestPoster {
-    client: reqwest::Client,
+    store: Store,
+    account: String,
 }
-
 impl ReqwestPoster {
-    pub fn new(client: reqwest::Client) -> Self {
-        Self { client }
+    pub fn new(store: Store, account: String) -> Self {
+        Self { store, account }
     }
 }
-
 #[async_trait]
 impl FormPoster for ReqwestPoster {
     async fn post_form(
@@ -226,19 +224,113 @@ impl FormPoster for ReqwestPoster {
         url: &str,
         form: &[(&str, &str)],
     ) -> std::result::Result<FormResponse, OauthError> {
-        let resp = self
-            .client
-            .post(url)
-            .form(form)
-            .send()
+        let operation = async {
+            let binding = self
+                .store
+                .get_bridge_account(&self.account)
+                .await
+                .map_err(|_| OauthError::Transport("binding unavailable".into()))?
+                .ok_or_else(|| OauthError::Transport("binding unavailable".into()))?;
+            crate::features::plugin_policy_admit(
+                &self.store,
+                &binding.bridge_id,
+                Some(&self.account),
+            )
             .await
-            .map_err(|e| OauthError::Transport(e.to_string()))?;
-        let status = resp.status().as_u16();
-        let body = resp
-            .text()
+            .map_err(OauthError::Transport)?;
+            let plugin = self
+                .store
+                .get_plugin(&binding.bridge_id)
+                .await
+                .map_err(|_| OauthError::Transport("plugin registry unavailable".into()))?
+                .filter(|plugin| plugin.enabled && plugin.approved_by.is_some())
+                .ok_or_else(|| OauthError::Transport("plugin unavailable".into()))?;
+            let grants = self
+                .store
+                .plugin_grants_scoped(&plugin.id, Some(&self.account))
+                .await
+                .map_err(|_| OauthError::Transport("plugin grants unavailable".into()))?;
+            if !["net", "account-backend"]
+                .iter()
+                .all(|required| grants.iter().any(|grant| grant == required))
+            {
+                return Err(OauthError::Transport("plugin capability revoked".into()));
+            }
+            let client = build_client(&self.store, self, None, &self.account).await?;
+            let target = reqwest::Url::parse(url)
+                .map_err(|_| OauthError::Transport("invalid OAuth endpoint".into()))?;
+            let allowed: Vec<String> = serde_json::from_str(&plugin.net_allowlist_json)
+                .map_err(|_| OauthError::Transport("invalid plugin host permissions".into()))?;
+            if !target.host_str().is_some_and(|host| {
+                allowed
+                    .iter()
+                    .any(|allowed| allowed.eq_ignore_ascii_case(host))
+            }) {
+                return Err(OauthError::Transport(
+                    "OAuth host permission revoked".into(),
+                ));
+            }
+            if target.scheme() != "https"
+                || (url != client.endpoints.token && url != client.endpoints.device_authorization)
+            {
+                return Err(OauthError::Transport(
+                    "OAuth endpoint authority changed".into(),
+                ));
+            }
+            let address = self
+                .store
+                .security_account_address(&self.account)
+                .await
+                .map_err(|_| OauthError::Transport("account identity unavailable".into()))?
+                .ok_or_else(|| OauthError::Transport("account identity unavailable".into()))?;
+            let canonical = self
+                .store
+                .canonical_policy_address(&address)
+                .await
+                .map_err(|_| OauthError::Transport("account identity unavailable".into()))?;
+            let plan = crate::image_proxy::load_plan(&self.store)
+                .await
+                .map_err(|_| OauthError::Transport("OAuth egress unavailable".into()))?;
+            let mut encoded = reqwest::Url::parse("https://form.invalid/").expect("constant URL");
+            encoded.query_pairs_mut().extend_pairs(form.iter().copied());
+            let bytes = encoded.query().unwrap_or_default().as_bytes().to_vec();
+            let headers = vec![(
+                "Content-Type".into(),
+                "application/x-www-form-urlencoded".into(),
+            )];
+            let metadata = mw_egress::ResponseMetadata::default();
+            let mut request = mw_egress::plan::Request::plugin(
+                mw_egress::TrafficClass::Oauth,
+                mw_egress::PluginHttp {
+                    method: "POST",
+                    headers: &headers,
+                },
+                Some(mw_egress::OutBody {
+                    content_type: "application/x-www-form-urlencoded",
+                    bytes: &bytes,
+                }),
+            )
+            .map_err(|_| OauthError::Transport("invalid OAuth request".into()))?
+            .response_limit(65536)
+            .capture_response(&metadata);
+            if let Some((_, domain)) = canonical.rsplit_once('@') {
+                request = request.for_domain(domain);
+            }
+            let response = mw_egress::plan::send_with(&plan, target, &request).await;
+            let body = response
+                .outcome
+                .map_err(|_| OauthError::Transport("OAuth egress refused or failed".into()))?;
+            let status = metadata
+                .snapshot()
+                .ok_or_else(|| OauthError::Transport("OAuth response unavailable".into()))?
+                .status;
+            let body = String::from_utf8(body)
+                .map_err(|_| OauthError::Transport("invalid OAuth response encoding".into()))?;
+            Ok(FormResponse { status, body })
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(15), operation)
             .await
-            .map_err(|e| OauthError::Transport(e.to_string()))?;
-        Ok(FormResponse { status, body })
+            .map_err(|_| OauthError::Transport("OAuth request timed out".into()))?
     }
 }
 
@@ -484,15 +576,10 @@ async fn build_client<'a>(
     client_secret: Option<&str>,
     account: &str,
 ) -> std::result::Result<OauthClient<'a>, OauthError> {
-    // There's a single binding per local account; filter the (small) list rather than
-    // add a store method — this file doesn't own `v7_config.rs`.
-    let bindings = store
-        .list_bridge_accounts()
+    let binding = store
+        .get_bridge_account(account)
         .await
-        .map_err(|e| OauthError::Config(format!("bridge_accounts read failed: {e}")))?;
-    let binding = bindings
-        .into_iter()
-        .find(|b| b.account_id == account)
+        .map_err(|e| OauthError::Config(format!("bridge_accounts read failed: {e}")))?
         .ok_or_else(|| OauthError::Config(format!("no bridge account binding for '{account}'")))?;
 
     let raw = binding.oauth_ref.unwrap_or_default();
@@ -629,11 +716,9 @@ async fn enforce_integration_policy(store: &Store, account: &str) -> Result<(), 
         Err(_) => return Err("bridge identity unavailable".into()),
     };
     let binding = store
-        .list_bridge_accounts()
+        .get_bridge_account(account)
         .await
         .map_err(|_| "bridge binding unavailable")?
-        .into_iter()
-        .find(|b| b.account_id == account)
         .ok_or("bridge binding missing")?;
     let cfg: BridgeOauthConfig = serde_json::from_str(binding.oauth_ref.as_deref().unwrap_or("{}"))
         .map_err(|_| "bridge OAuth configuration invalid")?;
@@ -783,6 +868,72 @@ mod tests {
             })
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn production_poster_refuses_foreign_binding_revoked_grants_and_changed_authority() {
+        let store = store().await;
+        let account = "owner@example.test";
+        seed_binding(&store, account, serde_json::json!({"client_id":"fixture-app","token_endpoint":"https://unapproved.test/token"})).await;
+        store
+            .put_plugin(&mw_store::PluginRow {
+                id: "bridge-graph".into(),
+                name: "Graph".into(),
+                version: "1".into(),
+                signature_hex: None,
+                approved_by: Some("fixture-admin".into()),
+                enabled: true,
+                capabilities_json: "[\"net\",\"account-backend\"]".into(),
+                net_allowlist_json: "[\"approved.test\"]".into(),
+                limits_json: "{}".into(),
+                created_at: "2026-10-26T00:00:00Z".into(),
+            })
+            .await
+            .unwrap();
+        store
+            .replace_plugin_grants(
+                "bridge-graph",
+                "",
+                &["net".into(), "account-backend".into()],
+                "fixture-admin",
+            )
+            .await
+            .unwrap();
+        let poster = ReqwestPoster::new(store.clone(), account.into());
+        let secret = [("refresh_token", "fixture-sensitive-token")];
+        assert_eq!(
+            poster
+                .post_form("https://unapproved.test/token", &secret)
+                .await
+                .unwrap_err(),
+            OauthError::Transport("OAuth host permission revoked".into())
+        );
+        assert_eq!(
+            poster
+                .post_form("https://approved.test/other", &secret)
+                .await
+                .unwrap_err(),
+            OauthError::Transport("OAuth endpoint authority changed".into())
+        );
+        store
+            .replace_plugin_grants("bridge-graph", "", &[], "fixture-admin")
+            .await
+            .unwrap();
+        assert_eq!(
+            poster
+                .post_form("https://approved.test/token", &secret)
+                .await
+                .unwrap_err(),
+            OauthError::Transport("plugin capability revoked".into())
+        );
+        let foreign = ReqwestPoster::new(store, "foreign-account".into());
+        assert_eq!(
+            foreign
+                .post_form("https://approved.test/token", &secret)
+                .await
+                .unwrap_err(),
+            OauthError::Transport("binding unavailable".into())
+        );
     }
 
     #[tokio::test]

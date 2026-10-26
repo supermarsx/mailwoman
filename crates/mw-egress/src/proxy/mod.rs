@@ -91,10 +91,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::net::TcpStream;
 
-use crate::{
-    FETCH_TIMEOUT, Hop, MAX_REDIRECTS, Outgoing, PROXY_UA, Refusal, Target, ip_allowed,
-    validate_and_resolve,
-};
+use crate::{FETCH_TIMEOUT, Hop, MAX_REDIRECTS, Outgoing, PROXY_UA, Refusal, Target, ip_allowed};
 
 /// A hop's outcome together with the media type its body declared.
 type TypedHop = Result<(Hop, Option<String>), ProxyRefusal>;
@@ -563,6 +560,7 @@ pub async fn tunnel_fetch_hop(target: &Target, route: &ProxyRoute, accept: &str)
         route,
         &Outgoing {
             response_metadata: None,
+            authorized_plugin: None,
             authorized_api: None,
             authorized_dav: None,
             web_push: None,
@@ -589,8 +587,17 @@ async fn tunnel_send_hop_with(
     route: &ProxyRoute,
     out: &Outgoing<'_>,
 ) -> ProxyHop {
-    // ── the ip_allowed check on a possibly hand-built Target ──────────────────
-    if !ip_allowed(&target.addr.ip()) {
+    tunnel_send_hop_gated(dialer, target, route, out, &|_, _, ip| ip_allowed(ip)).await
+}
+
+async fn tunnel_send_hop_gated(
+    dialer: &Dialer,
+    target: &Target,
+    route: &ProxyRoute,
+    out: &Outgoing<'_>,
+    gate: &crate::AddressGate<'_>,
+) -> ProxyHop {
+    if !gate(&target.host, target.addr.port(), &target.addr.ip()) {
         return ProxyHop {
             traversed_proxy: false,
             content_type: None,
@@ -656,6 +663,7 @@ pub async fn fetch_via_proxy(start: reqwest::Url, route: &ProxyRoute, accept: &s
         route,
         &Outgoing {
             response_metadata: None,
+            authorized_plugin: None,
             authorized_api: None,
             authorized_dav: None,
             web_push: None,
@@ -691,6 +699,35 @@ async fn send_via_proxy_with(
     route: &ProxyRoute,
     out: &Outgoing<'_>,
 ) -> ProxyFetch {
+    send_via_proxy_gated_with(dialer, start, route, out, &|_, _, ip| ip_allowed(ip)).await
+}
+
+/// Internal policy-aware entrypoint: callers supply only the current plan's address gate.
+pub(crate) async fn send_via_proxy_gated(
+    start: reqwest::Url,
+    route: &ProxyRoute,
+    out: &Outgoing<'_>,
+    gate: &crate::AddressGate<'_>,
+) -> ProxyFetch {
+    send_via_proxy_gated_with(&Dialer::production(), start, route, out, gate).await
+}
+
+async fn send_via_proxy_gated_with(
+    dialer: &Dialer,
+    start: reqwest::Url,
+    route: &ProxyRoute,
+    out: &Outgoing<'_>,
+    gate: &crate::AddressGate<'_>,
+) -> ProxyFetch {
+    if out.authorized_plugin.is_some() && route.scheme == ProxyScheme::Socks5h {
+        return ProxyFetch {
+            traversed_proxy: false,
+            content_type: None,
+            outcome: Err(ProxyRefusal::Origin(Refusal::BadRequest(
+                "plugin requests require local DNS verification",
+            ))),
+        };
+    }
     if let Some(api) = out.authorized_api {
         let refused = api.validate_target(&start).err().or_else(|| {
             (route.scheme == ProxyScheme::Socks5h).then_some(Refusal::BadRequest(
@@ -711,7 +748,12 @@ async fn send_via_proxy_with(
         let hop = if route.scheme == ProxyScheme::Socks5h {
             remote_dns_hop(dialer, &url, route, out).await
         } else {
-            let target = match validate_and_resolve(url.clone()).await {
+            let resolved = if out.authorized_plugin.is_some() {
+                crate::resolve_gated_all(url.clone(), gate).await
+            } else {
+                crate::resolve_gated(url.clone(), gate).await
+            };
+            let target = match resolved {
                 Ok(t) => t,
                 Err(r) => {
                     return ProxyFetch {
@@ -721,7 +763,7 @@ async fn send_via_proxy_with(
                     };
                 }
             };
-            tunnel_send_hop_with(dialer, &target, route, out).await
+            tunnel_send_hop_gated(dialer, &target, route, out, gate).await
         };
         traversed_proxy |= hop.traversed_proxy;
         match hop.outcome {

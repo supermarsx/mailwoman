@@ -28,6 +28,50 @@ use tokio::net::{TcpListener, TcpStream};
 use super::*;
 use crate::{Hop, Refusal, Target};
 
+#[tokio::test]
+async fn plugin_calls_use_selected_connect_route_and_never_follow_redirects() {
+    let (proxy, log) = recording_connect_proxy().await;
+    let origin =
+        spawn_plain_origin(b"ok".to_vec(), Some("http://169.254.169.254/secret".into())).await;
+    let route = http_route(ProxyScheme::HttpConnect, proxy);
+    let metadata = crate::ResponseMetadata::default();
+    let headers = vec![("Authorization".into(), "Bearer fixture-token".into())];
+    let out = Outgoing {
+        response_metadata: Some(&metadata),
+        authorized_plugin: Some(crate::PluginHttp {
+            method: "GET",
+            headers: &headers,
+        }),
+        authorized_api: None,
+        authorized_dav: None,
+        web_push: None,
+        response_limit: 1024,
+        accept: "*/*",
+        user_agent: "Mailwoman",
+        body: None,
+    };
+    let url = reqwest::Url::parse(&format!("http://{origin}/redirect")).unwrap();
+    // Test-only loopback permission; production gate is the current scoped plan.
+    let fetched =
+        super::send_via_proxy_gated(url.clone(), &route, &out, &|_, _, ip| ip.is_loopback()).await;
+    assert!(fetched.traversed_proxy);
+    assert!(fetched.outcome.unwrap().is_empty());
+    assert_eq!(metadata.snapshot().unwrap().status, 302);
+    assert_eq!(
+        log.lock().unwrap().len(),
+        1,
+        "no redirect tunnel or direct retry"
+    );
+    let refused = super::send_via_proxy_gated(url, &route, &out, &|_, _, _| false).await;
+    assert!(!refused.traversed_proxy);
+    assert!(refused.outcome.is_err());
+    assert_eq!(
+        log.lock().unwrap().len(),
+        1,
+        "denied address opens no proxy socket"
+    );
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────────
 
 /// Drive the ungated hop and report `(traversed_proxy, outcome)`.
@@ -38,6 +82,7 @@ async fn hop(
 ) -> (bool, Result<Hop, ProxyRefusal>) {
     let out = Outgoing {
         response_metadata: None,
+        authorized_plugin: None,
         authorized_api: None,
         authorized_dav: None,
         web_push: None,
