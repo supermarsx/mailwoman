@@ -8,7 +8,7 @@ globalStyle('.mail-workspace',{display:'flex',flexDirection:'column',minWidth:0,
 globalStyle('.mail-workspace[hidden], .mail-workspace [hidden]',{display:'none'});
 globalStyle('.workspace-bar',{display:'flex',alignItems:'center',gap:vars.space[1],padding:'2px 4px',flexShrink:0,borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}`,overflowX:'auto'});
 globalStyle('.workspace-bar .btn',{flex:'none','@media':{'(min-width: 761px) and (pointer: fine)':{minHeight:'28px',paddingBlock:'2px'}}});
-globalStyle('.workspace-body',{display:'grid',gridTemplateColumns:'minmax(0,1fr)',minHeight:0,minWidth:0,flex:'1 1 0',overflow:'hidden'});
+globalStyle('.workspace-body',{display:'grid',gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'minmax(0,1fr)',alignItems:'stretch',minHeight:0,minWidth:0,flex:'1 1 0',overflow:'hidden'});
 globalStyle('.workspace-body--split',{gridTemplateColumns:'var(--list-size,340px) 6px minmax(0,1fr)'});
 globalStyle(':root[data-reading-pane] .mail-workspace .mail-pane',{gridColumn:'auto',gridRow:'auto',minHeight:0});
 globalStyle('.workspace-panes',{display:'grid',gridTemplateColumns:'minmax(0,1fr)',minWidth:0,minHeight:0,overflow:'auto'});
@@ -53,3 +53,10 @@ globalStyle('.mail-workspace .subtab :is(.subtab__pin, .subtab__close)', {
 globalStyle('.mail-workspace .subtab:is(:hover, :focus-within) :is(.subtab__pin, .subtab__close)', {
   '@media': { '(hover: hover) and (pointer: fine)': { opacity: 1, pointerEvents: 'auto' } },
 });
+
+// Column scaffolds belong to the stretched containers, not their content lists.
+globalStyle('.mail-workspace .mail-pane', { alignSelf: 'stretch', background: vars.color.bg, borderInlineEnd: `1px solid ${vars.color.border}` });
+globalStyle('.mail-workspace .mail-pane > .list', { borderInlineEnd: 0 });
+globalStyle('.workspace-panes[data-layout="tabs"]', { gridTemplateRows: 'minmax(0,1fr)' });
+globalStyle('.workspace-pane', { alignSelf: 'stretch', background: vars.color.bg });
+globalStyle('.workspace-body--split[data-reading-pane="bottom"] > .mail-pane', { borderInlineEnd: 0, borderBlockEnd: `1px solid ${vars.color.border}` });
