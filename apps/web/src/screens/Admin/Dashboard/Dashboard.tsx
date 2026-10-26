@@ -115,7 +115,7 @@ export function Dashboard(): JSX.Element {
       </div>
       <Switch>
         <Match when={data.loading && data() === undefined}>
-          <div class={shell.state}><AsyncPending message={t('admin-shell-loading')} onRetry={() => void refetch()} /></div>
+          <div class={shell.state}><AsyncPending variant="page" message={t('admin-shell-loading')} onRetry={() => void refetch()} /></div>
         </Match>
         <Match when={data()?.kind === 'unavailable'}>
           <div class={shell.field} data-testid="dash-unavailable">

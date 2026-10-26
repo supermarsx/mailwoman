@@ -211,7 +211,7 @@ export function App(): JSX.Element {
     <AppContext.Provider value={app}>
       <Show
         when={app.authChecked()}
-        fallback={<AsyncPending onRetry={boot} />}
+        fallback={<AsyncPending variant="boot" onRetry={boot} />}
       >
         <Switch>
           {/* Ordered before the logged-out branch: a boot FAILURE and a

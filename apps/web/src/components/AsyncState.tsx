@@ -10,7 +10,7 @@
 // chunk (`i18n/catalog.ts`), so these render correctly at boot before any lazy
 // catalog has arrived — which matters, because the boot spinner is one of them.
 
-import { createSignal, onCleanup, Show, type JSX } from 'solid-js';
+import { createSignal, onCleanup, Show, For, type JSX } from 'solid-js';
 import { t } from '../i18n/index.ts';
 import { NetworkError } from '../api/client.ts';
 import * as a11y from './mailA11y.css.ts';
@@ -95,6 +95,7 @@ export function AsyncEmpty(props: { message?: string }): JSX.Element {
  */
 export function AsyncPending(props: {
   message?: string;
+  variant?: 'lines' | 'list' | 'table' | 'page' | 'boot' | 'status';
   timeoutMs?: number;
   onRetry?: (() => void) | undefined;
 }): JSX.Element {
@@ -104,9 +105,17 @@ export function AsyncPending(props: {
       when={!elapsed()}
       fallback={<AsyncError onRetry={props.onRetry} />}
     >
-      <p class={`async-state async-state--pending ${loading.pending}`} role="status" aria-live="polite" data-testid="async-pending">
+      <div class={`async-state async-state--pending ${loading.pending} ${props.variant==='status'?'':loading.skeletonPanel} ${props.variant==='boot'?loading.boot:''}`} role="status" aria-live="polite" data-testid="async-pending">
         <span class={loading.indicator}>{props.message ?? t('common-loading')}</span>
-      </p>
+        <Show when={props.variant!=='status'}><div aria-hidden="true" class={loading.skeletonBody} data-skeleton={props.variant??'lines'}>
+          <Show when={props.variant==='page'||props.variant==='boot'}><div class={loading.skeletonCards}><For each={[1,2,3]}>{()=> <span class={loading.skeletonCard}/>}</For></div></Show>
+          <For each={Array.from({length:props.variant==='list'||props.variant==='table'?5:3})}>{()=> <div class={loading.skeletonRow}>
+            <Show when={props.variant==='list'}><span class={loading.skeletonAvatar}/></Show>
+            <span class={loading.skeletonLine}/>
+            <Show when={props.variant==='table'}><span class={loading.skeletonLine}/><span class={loading.skeletonShort}/></Show>
+          </div>}</For>
+        </div></Show>
+      </div>
     </Show>
   );
 }

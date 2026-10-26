@@ -83,5 +83,5 @@ export const widgets = style({ display: 'flex', flexDirection: 'column', gap: va
 
 export const widgetOrder = styleVariants({ 0: { order: 1 }, 1: { order: 2 }, 2: { order: 3 }, 3: { order: 4 }, 4: { order: 5 }, 5: { order: 6 }, 6: { order: 7 }, 7: { order: 8 } });
 export const completedWidget = style({ order: 9 });
-export const checkSummary = style({ cursor: 'pointer' });
+export const checkSummary = style({ cursor: 'pointer', ':focus-visible': { outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`, outlineOffset: '2px' } });
 export const checkTitle = style([panelTitle, { display: 'inline', margin: 0 }]);

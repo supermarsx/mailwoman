@@ -96,7 +96,7 @@ function DiagnosticRuns(props: { api?: DiagnosticsApi }): JSX.Element {
       <Show when={job()?.run.status==='running'}><button class="btn" type="button" onClick={()=>void cancelJob()}>{t('admin-diag-cancel')}</button><span role="status">{job()?.completed} / {job()?.total}</span></Show>
       <Show when={api().report}><button class="btn" type="button" onClick={()=>void supportReport(true)}>{t('admin-diag-copy')}</button><button class="btn" type="button" onClick={()=>void supportReport(false)}>{t('admin-diag-export')}</button></Show>
     </div>
-    <Show when={busy()}><AsyncPending timeoutMs={70_000} /></Show>
+    <Show when={busy()}><AsyncPending variant="status" timeoutMs={70_000} /></Show>
     <p class={css.note}>{t('admin-diag-redaction')}</p>
     <Show when={catalogue()}><details><summary>{t('admin-diag-catalogue')}</summary><ul><For each={catalogue()?.suites}>{suite=><li>{suite.id}: {suite.description ?? suite.reason}</li>}</For></ul><Show when={catalogue()?.limits}>{limits=><p>{t('admin-diag-limits',{concurrency:limits().concurrency,checks:limits().checks,run:limits().runSeconds,check:limits().checkSeconds})}</p>}</Show></details></Show>
     <Feedback kind="error" message={error()} /><Feedback kind="info" message={notice()} />

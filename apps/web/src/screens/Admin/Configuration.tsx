@@ -66,7 +66,7 @@ export function Configuration(props: ConfigurationProps): JSX.Element {
       <label class="field"><span>{t('admin-config-source')}</span><select value={source()} onChange={e => { setSource(e.currentTarget.value); setLimit(50); }}><option value="">{t('admin-config-all-sources')}</option><For each={[...new Set(rows().map(row => row.source))].sort()}>{value => <option value={value}>{t(`admin-config-source-${value}`)}</option>}</For></select></label>
       <Show when={query() || group() || source()}><button type="button" class="btn btn--ghost" onClick={() => { setQuery(''); setGroup(''); setSource(''); setLimit(50); }}>{t('admin-config-clear')}</button></Show>
     </div></AdminSubsection>
-    <Show when={busy()}><AsyncPending /></Show>
+    <Show when={busy()}><AsyncPending variant="status" /></Show>
     <Show when={!busy()}><p role="status">{t('admin-config-count', { count: filtered().length })}</p></Show>
     <Show when={!busy() && !error() && !unavailable() && filtered().length === 0}><p class={ux.pageState} role="status">{t('admin-config-no-results')}</p></Show>
     <Show when={filtered().length > 0}><AdminSubsection title={t('admin-config-entries')}>

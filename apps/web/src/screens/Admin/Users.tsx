@@ -30,7 +30,7 @@ function UserIdentity(props: { id: string }): JSX.Element {
   return <section class={css.section} aria-label={t('admin-users-title')}>
     <a href={hrefFor(sectionPath('users'))}>{t('admin-users-back')}</a>
     <h2 class={css.heading}>{t('admin-users-identity')}</h2>
-    <Show when={identity.loading}><AsyncPending /></Show>
+    <Show when={identity.loading}><AsyncPending variant="status" /></Show>
     <Show when={identity.error}><p role="alert">{t('admin-users-load-error')}</p></Show>
     <Show when={identity()}>{value => <div class={css.card}><h3 dir="auto">{value().label}</h3><p dir="auto">{value().address}</p><p class={css.note}>{t('admin-users-id')}: <code class={auditCss.actor}>{value().accountId}</code></p></div>}</Show>
   </section>;

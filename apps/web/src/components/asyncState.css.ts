@@ -45,3 +45,15 @@ export const indicator = style({
   selectors: { ':root[data-reduced-motion] &': { animation: 'none' } },
   '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none' } },
 });
+
+// Quiet content-shaped placeholders. One live status announces loading; these
+// shapes are decorative, bounded and never pretend to be loaded information.
+export const skeletonPanel = style({flexDirection:'column',alignItems:'stretch',gap:vars.space[3],inlineSize:'100%',maxInlineSize:'64rem',minInlineSize:0,boxSizing:'border-box'});
+export const skeletonBody = style({display:'grid',gap:vars.space[3],paddingBlock:vars.space[2],animation:`${appear} 120ms ease-out 120ms both`,selectors:{':root[data-reduced-motion] &':{animation:'none'}},'@media':{'(prefers-reduced-motion: reduce)':{animation:'none'}}});
+export const skeletonRow = style({display:'flex',alignItems:'center',gap:vars.space[3],minBlockSize:'2rem',minInlineSize:0});
+export const skeletonLine = style({display:'block',blockSize:'.75rem',flex:'1 1 0',minInlineSize:0,background:vars.color.border,borderRadius:vars.radius.sm});
+export const skeletonShort = style([skeletonLine,{flex:'0 1 18%'}]);
+export const skeletonAvatar = style({display:'block',inlineSize:'2rem',blockSize:'2rem',flex:'0 0 auto',background:vars.color.bgAlt,border:`${vars.border.hair} solid ${vars.color.border}`,borderRadius:vars.radius.sm});
+export const skeletonCards = style({display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,9rem),1fr))',gap:vars.space[3]});
+export const skeletonCard = style({display:'block',blockSize:'5rem',background:vars.color.bgAlt,border:`${vars.border.hair} solid ${vars.color.border}`,borderRadius:vars.radius.sm});
+export const boot = style({minBlockSize:'100dvh',maxInlineSize:'38rem',margin:'0 auto',padding:vars.space[6],justifyContent:'center',fontFamily:vars.font.ui,color:vars.color.text});

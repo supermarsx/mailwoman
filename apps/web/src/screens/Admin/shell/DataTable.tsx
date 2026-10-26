@@ -143,7 +143,7 @@ export function DataTable<R>(props: DataTableProps<R>): JSX.Element {
       }>
         <Show when={props.state === 'ready' || props.rows.length > 0} fallback={
           <div class={css.state}>
-            <AsyncPending message={t('admin-shell-loading')} onRetry={props.onRetry} />
+            <AsyncPending variant="table" message={t('admin-shell-loading')} onRetry={props.onRetry} />
           </div>
         }>
           <Show when={props.rows.length > 0} fallback={
@@ -160,7 +160,7 @@ export function DataTable<R>(props: DataTableProps<R>): JSX.Element {
           }>
             <div class={css.tableRefresh}>
               <Show when={props.state === 'loading'}>
-                <AsyncPending message={t('admin-shell-loading')} onRetry={props.onRetry} />
+                <AsyncPending variant="status" message={t('admin-shell-loading')} onRetry={props.onRetry} />
               </Show>
             </div>
             <div class={admin.tableWrap}>
