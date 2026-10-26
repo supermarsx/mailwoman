@@ -57,6 +57,7 @@ import { ComposePreferences } from './Settings/ComposePreferences.tsx';
 import { KeyboardShortcuts } from './Settings/KeyboardShortcuts.tsx';
 import { TimeZones } from './Settings/TimeZones.tsx';
 import { Packages } from './Settings/Packages.tsx';
+import { Labels } from './Settings/Labels.tsx';
 import { ReaderAppearanceSettings } from './Settings/ReaderAppearance.tsx';
 import { LockNote } from './Settings/LockNote.tsx';
 import { useSetting } from './Settings/useSetting.ts';
@@ -128,13 +129,14 @@ export function Settings(props: SettingsProps): JSX.Element {
   const app = useApp();
   const navigation=props.navigation ?? createSettingsNavigation();
   const visible=(section:string):boolean=>!props.embedded || navigation.route().section===section;
-  const sections=[['appearance','settings-appearance'],['reader','reader-settings-title'],['compose','settings-compose-title'],['shortcuts','settings-kbd-title'],['time','settings-time-title'],['packages','packages-title'],['security','security-center-title'],['privacy','privacy-title'],['signatures','settings-sig-title'],['identities','settings-ident-title'],['notifications','settings-notif-title'],['searches','settings-search-title'],['folders','settings-folders-title'],['mail-transfer','mail-transfer-title'],['nextcloud','nextcloud-account-title'],['preferences','settings-nav-preferences'],['rules','settings-nav-rules'],['access','settings-nav-access'],['metadata','settings-nav-metadata']] as const;
+  const sections=[['appearance','settings-appearance'],['reader','reader-settings-title'],['compose','settings-compose-title'],['shortcuts','settings-kbd-title'],['time','settings-time-title'],['packages','packages-title'],['labels','labels-title'],['security','security-center-title'],['privacy','privacy-title'],['signatures','settings-sig-title'],['identities','settings-ident-title'],['notifications','settings-notif-title'],['searches','settings-search-title'],['folders','settings-folders-title'],['mail-transfer','mail-transfer-title'],['nextcloud','nextcloud-account-title'],['preferences','settings-nav-preferences'],['rules','settings-nav-rules'],['access','settings-nav-access'],['metadata','settings-nav-metadata']] as const;
 
   let panel!: HTMLElement;
   onMount(() => {
     void loadCatalog('settings');
     void loadCatalog('mail-transfer');
     void loadCatalog('packages');
+    void loadCatalog('labels');
     void loadCatalog('appearance');
     void loadCatalog('settings-policy');
     void loadCatalog('nextcloud'); void loadCatalog('reader'); void loadCatalog('privacy'); void loadCatalog('security');
@@ -293,6 +295,7 @@ export function Settings(props: SettingsProps): JSX.Element {
               <Show when={visible('shortcuts')}><AsyncBoundary><KeyboardShortcuts navigation={navigation}/></AsyncBoundary></Show>
               <Show when={visible('time')}><AsyncBoundary><TimeZones navigation={navigation}/></AsyncBoundary></Show>
               <Show when={visible('packages')}><AsyncBoundary><Packages accountId={accountId()} navigation={navigation}/></AsyncBoundary></Show>
+              <Show when={visible('labels')}><AsyncBoundary><Labels navigation={navigation}/></AsyncBoundary></Show>
               <Show when={visible('reader')}><AsyncBoundary><ReaderAppearanceSettings /></AsyncBoundary></Show>
               <Show when={visible('rules')}>              <AsyncBoundary>
                 <RulesSettings accountId={accountId()} />

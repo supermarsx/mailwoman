@@ -39,3 +39,10 @@ it('merges different-folder icon edits across devices and preserves explicit aut
  sync.bind(owner);await Promise.resolve();sync.update({folderIcons:{b:'flag'}});await sync.flush();await vi.advanceTimersByTimeAsync(500);
  expect(writes.at(-1)?.folderIcons).toEqual({b:'clock',c:'lock'});sync.dispose();
 });
+it('merges separate tag edits after conflicts and drops old-account edits',async()=>{
+ vi.useFakeTimers();let loads=0;const writes:AccountUiPreferences[]=[];const label=(name:string)=>({name,color:'#112233',icon:'tag' as const});
+ const sync=createAccountPreferencesSync({load:async()=>({preferences:{tags:++loads===1?{a:label('A'),b:label('B')}:{a:label('A'),b:label('Other device'),c:label('C')}},etag:`"${loads}"`}),save:async(value,etag)=>{writes.push(value);if(etag==='"1"')throw new PreferenceConflict();return {preferences:value,etag:'"3"'};}},vi.fn(),vi.fn(),()=>true);
+ sync.bind(owner);await Promise.resolve();sync.update({tags:{a:label('Edited A'),b:label('B')}});await sync.flush();await vi.advanceTimersByTimeAsync(500);
+ expect(writes.at(-1)?.tags).toEqual({a:label('Edited A'),b:label('Other device'),c:label('C')});
+ sync.update({tags:{a:label('Private A')}});sync.bind({id:'other',generation:2});await Promise.resolve();await vi.advanceTimersByTimeAsync(500);expect(writes).toHaveLength(2);sync.dispose();
+});

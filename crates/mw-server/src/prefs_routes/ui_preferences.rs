@@ -5,6 +5,14 @@ use std::collections::{BTreeMap, HashSet};
 
 const MAX_BYTES: usize = 65_536;
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Tag {
+    name: String,
+    color: String,
+    icon: String,
+}
+
 #[derive(Default, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct Preferences {
@@ -48,6 +56,8 @@ pub(super) struct Preferences {
     folder_order: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     folder_icons: Option<BTreeMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tags: Option<BTreeMap<String, Tag>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -105,6 +115,12 @@ fn valid(document: &Document) -> bool {
         && p.offline_retention_days.is_none_or(|v| v <= 36_500)
         && valid_ids(&p.folder_pinned)
         && valid_ids(&p.folder_order)
+        && p.tags.as_ref().is_none_or(|tags|tags.len()<=100 && tags.iter().all(|(id,tag)| {
+            !id.is_empty() && id.len()<=255 && id.bytes().all(|byte|byte.is_ascii_alphanumeric()||b"_-".contains(&byte))
+            && !tag.name.trim().is_empty() && tag.name.chars().count()<=128 && !tag.name.chars().any(char::is_control)
+            && tag.color.len()==7 && tag.color.starts_with('#') && tag.color[1..].bytes().all(|byte|byte.is_ascii_hexdigit())
+            && ["folder","star","flag","tag","clock","calendar","file","image","lock","users","archive","mail","attachment","check","alert"].contains(&tag.icon.as_str())
+        }))
         && p.folder_icons.as_ref().is_none_or(|icons| {
             icons.len() <= 500
                 && icons.iter().all(|(id, icon)| {
@@ -233,6 +249,9 @@ mod tests {
             json!({"folderOrder":["a","a"]}),
             json!({"folderIcons":{"a":"https://avatar.invalid"}}),
             json!({"keyboardPreset":"arbitrary"}),
+            json!({"tags":{"$seen":{"name":"System","color":"#112233","icon":"tag"}}}),
+            json!({"tags":{"work":{"name":"Work","color":"url(https://invalid)","icon":"tag"}}}),
+            json!({"tags":{"work":{"name":"Work","color":"#112233","icon":"https://invalid"}}}),
         ] {
             assert!(!valid(
                 &serde_json::from_value(json!({"version":1,"preferences":prefs})).unwrap()
@@ -244,5 +263,6 @@ mod tests {
             )
             .unwrap()
         ));
+        assert!(valid(&serde_json::from_value(json!({"version":1,"preferences":{"tags":{"work":{"name":"Trabalho","color":"#112233","icon":"tag"}}}})).unwrap()));
     }
 }

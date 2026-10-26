@@ -2,14 +2,16 @@
 // keywords (round-tripped to IMAP keywords by the engine); this slice owns the
 // per-user *color/icon registry* — the metadata IMAP can't hold — as
 // `Tag {id,name,color,icon}`. The engine persists it in mw-store settings at
-// integration (§1.5); until then it lives here, seeded with defaults and cached
-// in localStorage so a page reload keeps the user's palette.
+// account UI preferences. Signed-in registries synchronize by account and tag
+// ID; the legacy local cache is only used before authentication.
 //
 // Applying/removing a tag on a message is a keyword mutation and lives in the
 // mail slice (it mutates the message list); this slice only answers "what does
 // keyword `work` look like?".
 
-import { createSignal, type Accessor } from 'solid-js';
+import { createSignal, createMemo, onCleanup, type Accessor } from 'solid-js';
+import {accountUiPreferences,setAccountUiPreferences,FOLDER_ICONS,type FolderIcon} from '../../api/accountPreferences.ts';
+import {observePreferenceAccount,preferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
 import type { SliceContext } from './context.ts';
 
 /** A user label: `id` doubles as the JMAP keyword it maps to (lowercased). */
@@ -18,7 +20,7 @@ export interface Tag {
   name: string;
   /** Any CSS color; rendered as the chip background. */
   color: string;
-  /** A short glyph (emoji) shown before the name. */
+  /** A native theme-colored icon name. */
   icon: string;
 }
 
@@ -65,6 +67,7 @@ export function keywordFor(name: string): string {
   return name
     .trim()
     .toLowerCase()
+    .normalize('NFKD').replace(/\p{M}/gu,'')
     .replace(/^\$+/, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
@@ -83,9 +86,16 @@ function load(): Tag[] {
 }
 
 export function createTagsSlice(_ctx: SliceContext): TagsSlice {
-  const [tags, setTags] = createSignal<Tag[]>(load());
+  const [localTags, setTags] = createSignal<Tag[]>(load());
+  const [owner,setOwner]=createSignal(preferenceAccount());
+  onCleanup(observePreferenceAccount(setOwner));
+  const tags=createMemo(()=>owner()?Object.entries(accountUiPreferences().tags??Object.fromEntries(DEFAULT_TAGS.map(({id,...tag})=>[id,tag]))).map(([id,tag])=>({id,...tag})):localTags());
 
   function persist(next: Tag[]): void {
+    if(owner()){
+      setAccountUiPreferences({tags:Object.fromEntries(next.slice(0,100).map(({id,name,color,icon})=>[id,{name:name.slice(0,128),color:/^#[0-9a-f]{6}$/i.test(color)?color:'#2563eb',icon:(FOLDER_ICONS as readonly string[]).includes(icon)?icon as FolderIcon:'tag'}]))});
+      return;
+    }
     setTags(next);
     try {
       globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(next));

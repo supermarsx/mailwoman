@@ -15,6 +15,12 @@ export function labelKeywords(email: Email): string[] {
     .sort();
 }
 
+export function labelTextColor(color:string):string {
+  if(!/^#[0-9a-f]{6}$/i.test(color))return '#fff';
+  const channels=[1,3,5].map(offset=>{const value=parseInt(color.slice(offset,offset+2),16)/255;return value<=0.04045?value/12.92:((value+0.055)/1.055)**2.4;});
+  return channels[0]!*0.2126+channels[1]!*0.7152+channels[2]!*0.0722>0.179?'#000':'#fff';
+}
+
 export function TagChips(props: { email: Email }): JSX.Element {
   const app = useApp();
   const labels = () => labelKeywords(props.email);
@@ -28,7 +34,7 @@ export function TagChips(props: { email: Email }): JSX.Element {
             return (
               <span
                 class="tag-chip"
-                style={tag ? { 'background-color': tag.color, color: '#fff' } : undefined}
+                style={tag ? { 'background-color': tag.color, color: labelTextColor(tag.color) } : undefined}
                 data-keyword={kw}
               >
                 <Show when={tag?.icon}>{(icon) => <span class="tag-chip__icon"><Icon name={tagIconName(icon())} /></span>}</Show>

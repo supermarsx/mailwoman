@@ -5,6 +5,7 @@ import { observePreferenceAccount, preferenceAccount, preferenceAccountIsCurrent
 
 export const FOLDER_ICONS = ['folder', 'star', 'flag', 'tag', 'clock', 'calendar', 'file', 'image', 'lock', 'users', 'archive', 'mail', 'attachment', 'check', 'alert'] as const;
 export type FolderIcon = typeof FOLDER_ICONS[number];
+export interface AccountTag {name:string;color:string;icon:FolderIcon}
 export interface AccountUiPreferences {
   analyticsConsent?: boolean;
   keyboardPreset?: 'default' | 'gmail' | 'outlook' | 'vim' | 'off';
@@ -26,6 +27,7 @@ export interface AccountUiPreferences {
   folderPinned?: string[];
   folderOrder?: string[];
   folderIcons?: Record<string, FolderIcon>;
+  tags?: Record<string, AccountTag>;
 }
 interface Snapshot { preferences: AccountUiPreferences; etag: string }
 export interface AccountPreferencesApi {
@@ -59,6 +61,7 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
   let serial = 0;
   let edits: Partial<Record<keyof AccountUiPreferences, number>> = {};
   let iconEdits: Record<string, {value: FolderIcon | null; serial: number}> = {};
+  let tagEdits: Record<string, {value: AccountTag | null; serial: number}> = {};
   let busy = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const active = (value: PreferenceAccount): boolean => account === value && current(value);
@@ -68,7 +71,11 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
     for (const [id, edit] of Object.entries(iconEdits)) { if (edit.value === null) delete icons[id]; else icons[id] = edit.value; }
     dirty.folderIcons = icons;
   }
-  const emit = (): void => { rebaseIcons(); publish({...base, ...dirty}); };
+  function rebaseTags():void {
+    if(!Object.keys(tagEdits).length){if(edits.tags===undefined)delete dirty.tags;return;}
+    const tags={...base.tags};for(const [id,edit] of Object.entries(tagEdits)){if(edit.value===null)delete tags[id];else tags[id]=edit.value;}dirty.tags=tags;
+  }
+  const emit = (): void => { rebaseIcons();rebaseTags(); publish({...base, ...dirty}); };
   function schedule(): void {
     clearTimeout(timer);
     timer = setTimeout(() => { timer = undefined; void flush(); }, 400);
@@ -93,6 +100,7 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
     let reschedule = false;
     const sentEdits = {...edits};
     const sentIcons = {...iconEdits};
+    const sentTags = {...tagEdits};
     const sent = {...base, ...dirty};
     report('saving');
     try {
@@ -105,6 +113,7 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
       for (const [id, edit] of Object.entries(sentIcons)) {
         if (iconEdits[id]?.serial === edit.serial) delete iconEdits[id];
       }
+      for(const [id,edit] of Object.entries(sentTags)){if(tagEdits[id]?.serial===edit.serial)delete tagEdits[id];}
       emit(); report(Object.keys(dirty).length ? 'saving' : 'synced');
       reschedule = true;
     } catch (error) {
@@ -122,7 +131,7 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
   return {
     bind(next: PreferenceAccount | null): void {
       clearTimeout(timer); timer = undefined;
-      account = next; base = {}; dirty = {}; edits = {}; iconEdits = {}; etag = null; busy = false;
+      account = next; base = {}; dirty = {}; edits = {}; iconEdits = {}; tagEdits = {}; etag = null; busy = false;
       emit(); report(next ? 'loading' : 'idle');
       if (next) void refresh();
     },
@@ -134,8 +143,15 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
           if (previous[id] !== patch.folderIcons[id]) iconEdits[id] = {value: patch.folderIcons[id] ?? null, serial: ++serial};
         }
       }
-      for (const key of Object.keys(patch) as (keyof AccountUiPreferences)[]) if (key !== 'folderIcons') edits[key] = ++serial;
-      dirty = {...dirty, ...patch}; emit(); schedule();
+      if(patch.tags){
+        const previous=dirty.tags??base.tags??{};
+        for(const id of new Set([...Object.keys(previous),...Object.keys(patch.tags)])){
+          if(JSON.stringify(previous[id])!==JSON.stringify(patch.tags[id]))tagEdits[id]={value:patch.tags[id]??null,serial:++serial};
+        }
+        if(base.tags===undefined)edits.tags=++serial;
+      }
+      for (const key of Object.keys(patch) as (keyof AccountUiPreferences)[]) if (key !== 'folderIcons'&&key!=='tags') edits[key] = ++serial;
+      dirty = {...dirty, ...patch}; report('saving'); emit(); schedule();
     },
     refresh, flush,
     dispose(): void { this.bind(null); },
@@ -158,3 +174,4 @@ export function startAccountUiPreferences(): () => void {
   return stop;
 }
 export function setAccountUiPreferences(patch: AccountUiPreferences): void { controller?.update(patch); }
+export async function retryAccountUiPreferences():Promise<void>{await controller?.flush();}

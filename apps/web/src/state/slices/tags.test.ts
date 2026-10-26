@@ -18,6 +18,7 @@ describe('keywordFor', () => {
     expect(keywordFor('  Work Stuff! ')).toBe('work-stuff');
     expect(keywordFor('$$Junk')).toBe('junk');
     expect(keywordFor('---')).toBe('');
+    expect(keywordFor('Viagens às Açores')).toBe('viagens-as-acores');
   });
 });
 
