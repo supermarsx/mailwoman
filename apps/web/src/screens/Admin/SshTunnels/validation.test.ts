@@ -1,0 +1,6 @@
+import {expect,it} from 'vitest';
+import {validateTunnel,validSshHost} from './validation.ts';
+const config={id:'',name:'Mail gateway',host:'ssh.example.test',port:22,username:'mail',enabled:false,allowPrivate:false,hostKeyPins:[],targets:[],keepaliveSeconds:30,connectTimeoutMs:10000,maxChannels:8};
+it('accepts hostname and bare IP authorities, never URLs or ports',()=>{for(const host of ['mail.example.test','127.0.0.1','2001:db8::1'])expect(validSshHost(host)).toBe(true);for(const host of ['','ssh://mail.test','user@mail.test','mail.test:22','mail.test/path','mail test'])expect(validSshHost(host)).toBe(false);});
+it('explains incomplete enabled tunnels and exact numeric bounds',()=>{expect(validateTunnel(config)).toEqual([]);expect(validateTunnel({...config,enabled:true,keepaliveSeconds:0,connectTimeoutMs:99,maxChannels:129,port:1.5}).map(issue=>issue.field)).toEqual(['port','keepaliveSeconds','connectTimeoutMs','maxChannels','enabled']);});
+it('rejects duplicate destinations and malformed fingerprints',()=>{expect(validateTunnel({...config,targets:[{host:'mail.test',port:993,allowPrivate:false},{host:'MAIL.test',port:993,allowPrivate:false}],hostKeyPins:[{algorithm:'ssh-ed25519',sha256:'SHA256:bad'}]}).map(issue=>issue.field)).toEqual(['hostKeyPins','targets']);});

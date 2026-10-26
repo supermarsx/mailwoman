@@ -25,6 +25,8 @@ use std::{
 #[path = "ssh_tunnel_transport.rs"]
 mod transport;
 pub(crate) use transport::hosting_dialer;
+#[path = "ssh_tunnel_inspect.rs"]
+mod inspect_draft;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -377,6 +379,12 @@ async fn step_up(state: &AppState, ctx: &AdminCtx) -> Result<(), AdminApiError> 
     crate::step_up::require_admin(state, ctx, crate::step_up::StepUpAction::IntegrationManage).await
 }
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
+    r.admin_endpoint(
+        Method::POST,
+        "/tunnels/inspect-host-key",
+        Capability::TunnelsTest,
+        inspect_draft::inspect,
+    );
     r.admin_endpoint(Method::GET, "/tunnels", Capability::TunnelsRead, list);
     r.admin_endpoint(Method::POST, "/tunnels", Capability::TunnelsWrite, create);
     r.admin_endpoint(Method::GET, "/tunnels/{id}", Capability::TunnelsRead, get);

@@ -1,0 +1,8 @@
+.ssh-tunnel-editor form { display:flex; flex-direction:column; gap:1rem; }
+.ssh-tunnel-editor .ssh-section { min-width:0; margin:0; padding:1rem; border:1px solid color-mix(in srgb,currentColor 22%,transparent); }
+.ssh-tunnel-editor .ssh-section legend { padding:0 .5rem; font-weight:700; }
+.ssh-tunnel-editor .ssh-section > button { margin-block:.5rem; width:fit-content; }
+.ssh-tunnel-editor .ssh-section > div { margin-block:.75rem; }
+.ssh-validation { padding:.75rem 1rem; margin-block:.5rem; border-inline-start:3px solid currentColor; background:color-mix(in srgb,currentColor 6%,transparent); }
+.ssh-validation ul { margin:.5rem 0 0; padding-inline-start:1.25rem; }
+.ssh-validation li + li { margin-block-start:.25rem; }

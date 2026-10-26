@@ -72,3 +72,21 @@ admin-ssh-review-old-pins = Previously trusted host keys
 admin-ssh-review-new-pins = New trusted host keys
 
 admin-ssh-refresh = Refresh
+
+admin-ssh-validation-title = Check these tunnel settings
+admin-ssh-validation-name = Enter a tunnel name of at most 128 bytes.
+admin-ssh-validation-host = Enter a hostname or IP address, without ssh://, a username, a path or a port.
+admin-ssh-validation-port = SSH port must be a whole number from 1 to 65535.
+admin-ssh-validation-user = Enter an SSH username of at most 128 bytes.
+admin-ssh-validation-keepalive = Keepalive must be 10–300 seconds.
+admin-ssh-validation-timeout = Connection timeout must be 100–60000 milliseconds.
+admin-ssh-validation-channels = Concurrent channels must be a whole number from 1 to 128.
+admin-ssh-validation-pin = Add up to 16 valid SHA256 host-key fingerprints with supported algorithms.
+admin-ssh-validation-target = Add up to 128 unique destination hostname/port pairs with valid ports.
+admin-ssh-validation-enabled = Before enabling, add a trusted host key and at least one allowed destination.
+admin-ssh-fetch-current = Fetch current host key
+admin-ssh-fetch-current-help = Contact the hostname and port in this draft without sending credentials. Review the returned fingerprint before trusting it.
+admin-ssh-tofu-help = SSH identifies servers by host keys, not TLS certificates. You can verify a fingerprint separately, or explicitly trust the first key observed (TOFU). Once saved, a different key is rejected. TOFU cannot verify who owns the server on the first connection.
+admin-ssh-tofu-confirm = Trust this first observed key (TOFU); I accept the first-connection identity risk
+admin-ssh-tofu-add = Trust first key in this draft
+admin-ssh-key-changed = This key differs from the trusted fingerprints. Verify the change separately before adding it. Trust on first use cannot replace an existing key.
