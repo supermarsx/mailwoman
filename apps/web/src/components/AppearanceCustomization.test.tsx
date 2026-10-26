@@ -6,9 +6,50 @@ import { AppearanceCustomization } from './AppearanceCustomization.tsx';
 import { renderInShell } from '../screens/Admin/shell/testkit.tsx';
 import { loadCustomization, saveCustomization, type AppearanceOwner, type CustomizationSnapshot } from '../api/appearanceCustomization.ts';
 vi.mock('../api/appearanceCustomization.ts', () => ({loadCustomization: vi.fn(), saveCustomization: vi.fn()}));
-const snapshot = (ownerId = 'one'): CustomizationSnapshot => ({etag: '"one"', value: {ownerId, document: {version: 1, css: '', script: ''}, compiledCss: '', cssEnabled: false, scriptEnabled: false, cssAllowed: false, lockedFields: [], scopeClass: 'mw-custom-mail'}});
+const snapshot = (ownerId = 'one'): CustomizationSnapshot => ({etag: '"one"', value: {ownerId, document: {version: 1, css: '', script: ''}, compiledCss: '', cssEnabled: true, scriptEnabled: true, cssAllowed: true, lockedFields: [], scopeClass: 'mw-custom-mail'}});
 beforeEach(() => {activateAccountPreferences('one', 'msa1_test_authority_one');vi.mocked(loadCustomization).mockReset(); vi.mocked(saveCustomization).mockReset();});
 describe('owner appearance editor', () => {
+  it('renders no controls, notices or empty section while policy loads or when both features are disabled', async () => {
+    let finish!: (value: CustomizationSnapshot) => void;
+    vi.mocked(loadCustomization).mockReturnValue(new Promise(resolve => {finish = resolve;}));
+    renderInShell(() => <AppearanceCustomization owner={() => ({kind:'mailbox', accountId:'one'})} />);
+    await waitFor(() => expect(loadCustomization).toHaveBeenCalled());
+    expect(screen.queryByRole('region', {name:'Personal appearance customization'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    finish({...snapshot(), value:{...snapshot().value, cssEnabled:false, cssAllowed:false, scriptEnabled:false}});
+    await Promise.resolve(); await Promise.resolve();
+    expect(screen.queryByRole('region', {name:'Personal appearance customization'})).not.toBeInTheDocument();
+    expect(screen.queryByText(/disabled by administrator/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name:'Save customization'})).not.toBeInTheDocument();
+  });
+  it.each(['css', 'script'] as const)('shows only the enabled %s feature and preserves hidden content on reset', async feature => {
+    const initial = {...snapshot(), value:{...snapshot().value, cssAllowed:feature==='css', cssEnabled:feature==='css', scriptEnabled:feature==='script', document:{version:1 as const, css:'button{color:red}', script:'appearance.set({density:"compact"})'}}};
+    vi.mocked(loadCustomization).mockResolvedValue(initial);
+    vi.mocked(saveCustomization).mockResolvedValue(initial);
+    renderInShell(() => <AppearanceCustomization owner={() => ({kind:'mailbox', accountId:'one'})} />);
+    await screen.findByLabelText(feature==='css' ? 'Restricted CSS' : 'Isolated appearance script');
+    expect(screen.queryByLabelText(feature==='css' ? 'Isolated appearance script' : 'Restricted CSS')).not.toBeInTheDocument();
+    expect(screen.queryByText(feature==='css' ? /Call appearance.set/ : /Visual properties and simple selectors/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name:'Reset customization'}));
+    await waitFor(() => expect(saveCustomization).toHaveBeenCalled());
+    expect(vi.mocked(saveCustomization).mock.calls[0]?.[2]).toEqual({version:1, css:feature==='css'?'':initial.value.document.css, script:feature==='script'?'':initial.value.document.script});
+  });
+  it('does not advertise customization when feature policy cannot be loaded', async () => {
+    vi.mocked(loadCustomization).mockRejectedValue(new Error('Policy unavailable'));
+    renderInShell(() => <AppearanceCustomization owner={() => ({kind:'mailbox', accountId:'one'})} />);
+    await waitFor(() => expect(loadCustomization).toHaveBeenCalled());
+    await Promise.resolve(); await Promise.resolve();
+    expect(screen.queryByRole('region', {name:'Personal appearance customization'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  });
+  it('retains an enabled CSS configuration and explains its appearance lock', async () => {
+    vi.mocked(loadCustomization).mockResolvedValue({...snapshot(), value:{...snapshot().value, cssEnabled:false, scriptEnabled:false, lockedFields:['accent'], document:{version:1,css:'button{color:red}',script:''}}});
+    renderInShell(() => <AppearanceCustomization owner={() => ({kind:'mailbox', accountId:'one'})} />);
+    expect(await screen.findByLabelText('Restricted CSS')).toHaveValue('button{color:red}');
+    expect(screen.getByRole('status')).toHaveTextContent('Administrator appearance locks pause this CSS');
+    expect(screen.queryByText('Custom CSS disabled by administrator')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Isolated appearance script')).not.toBeInTheDocument();
+  });
   it('keeps a rejected concurrent draft and sends the original owner and revision', async () => {
     vi.mocked(loadCustomization).mockResolvedValue(snapshot());
     vi.mocked(saveCustomization).mockRejectedValue(new Error('Changed elsewhere; draft retained.'));

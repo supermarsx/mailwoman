@@ -33,40 +33,51 @@ export function AppearanceCustomization(props: {owner: Accessor<AppearanceOwner 
   }
   createEffect(() => { let owner = props.owner(); if (owner?.kind === 'mailbox' && (!currentAccount()?.storageAuthority || currentAccount()?.id !== owner.accountId)) owner = null; if (owner) void load(owner); else {++generation; lifetime.abort(); setSnapshot(undefined); setCss(''); setScript('');} });
   onCleanup(() => {++generation; lifetime.abort();});
-  const dirty = createMemo(() => {const current = snapshot(); return !!current && (current.value.document.css !== cssDraft() || current.value.document.script !== script());});
+  const cssVisible = () => snapshot()?.value.cssAllowed === true;
+  const scriptVisible = () => snapshot()?.value.scriptEnabled === true;
+  const visible = () => cssVisible() || scriptVisible();
+  const dirty = createMemo(() => {const current = snapshot(); return !!current && ((cssVisible() && current.value.document.css !== cssDraft()) || (scriptVisible() && current.value.document.script !== script()));});
   const guard = useEditorGuard(dirty, saving);
   onCleanup(registerNavigationGuard(() => props.owner()?.kind === 'admin' ? guard.confirm() : true));
   async function save(reset = false) {
     const owner = props.owner(), current = snapshot(), mine = generation;
-    if (!owner || !current || saving()) return;
+    if (!owner || !current || saving() || !visible()) return;
     setSaving(true); setError(''); setSaved(false);
     try {
-      const next = await saveCustomization(owner, current, {version: 1, css: reset ? '' : cssDraft(), script: reset ? '' : script()}, lifetime.signal);
+      const next = await saveCustomization(owner, current, {version: 1,
+        css: cssVisible() ? (reset ? '' : cssDraft()) : current.value.document.css,
+        script: scriptVisible() ? (reset ? '' : script()) : current.value.document.script,
+      }, lifetime.signal);
       if (mine !== generation) return;
       setSnapshot(next); setCss(next.value.document.css); setScript(next.value.document.script); setSaved(true);
       window.dispatchEvent(new Event(CUSTOMIZATION_CHANGED));
     } catch (cause) {if (mine === generation) setError(cause instanceof Error ? cause.message : t('appearance-custom-error'));}
     finally {if (mine === generation) setSaving(false);}
   }
-  return <section class={css.section} aria-label={t('appearance-custom-title')}>
+  return <Show when={visible()}><section class={css.section} aria-label={t('appearance-custom-title')}>
     {guard.dialog()}
     <h3 class={css.heading}>{t('appearance-custom-title')}</h3>
-    <p class={css.prose}>{t('appearance-custom-description')}</p>
+    <Show when={visible()}><p class={css.prose}>{t('appearance-custom-description')}</p></Show>
     <Show when={loading()}><p role="status">{t('appearance-custom-loading')}</p></Show>
     <Show when={error()}><p role="alert">{error()}</p></Show>
     <Show when={snapshot()}>{current => <>
-      <p class={css.meta}>{current().value.cssAllowed ? t('appearance-custom-css-on') : t('appearance-custom-css-off')} · {current().value.scriptEnabled ? t('appearance-custom-js-on') : t('appearance-custom-js-off')}</p>
-      <Show when={current().value.lockedFields.length > 0}><p role="status">{t('appearance-custom-locked')}</p></Show>
       <fieldset disabled={loading() || saving()}>
+        <Show when={cssVisible()}>
+        <Show when={current().value.cssEnabled} fallback={<p role="status">{t('appearance-custom-css-locked')}</p>}><p class={css.meta}>{t('appearance-custom-css-on')}</p></Show>
         <label class={css.field}>{t('appearance-custom-css')}<textarea class={css.textarea} rows={8} maxLength={16384} spellcheck={false} value={cssDraft()} onInput={event => {setCss(event.currentTarget.value); setSaved(false);}} /></label>
         <p class={css.meta}>{t('appearance-custom-css-help')}</p>
+        </Show>
+        <Show when={scriptVisible()}>
+        <p class={css.meta}>{t('appearance-custom-js-on')}</p>
+        <Show when={current().value.lockedFields.length > 0}><p role="status">{t('appearance-custom-js-locked')}</p></Show>
         <label class={css.field}>{t('appearance-custom-js')}<textarea class={css.textarea} rows={8} maxLength={16384} spellcheck={false} value={script()} onInput={event => {setScript(event.currentTarget.value); setSaved(false);}} /></label>
         <p class={css.meta}>{t('appearance-custom-js-help')}</p>
-        <div class={css.actions}><button class={css.button} disabled={!dirty()} onClick={() => void save()}>{t('appearance-custom-save')}</button><button class={css.button} disabled={!cssDraft() && !script()} onClick={() => void save(true)}>{t('appearance-custom-reset')}</button></div>
+        </Show>
+        <div class={css.actions}><button class={css.button} disabled={!dirty()} onClick={() => void save()}>{t('appearance-custom-save')}</button><button class={css.button} disabled={!(cssVisible() && cssDraft()) && !(scriptVisible() && script())} onClick={() => void save(true)}>{t('appearance-custom-reset')}</button></div>
       </fieldset>
     </>}</Show>
     <Show when={error()}><button class={css.button} onClick={() => {const owner = props.owner(); if (owner) void load(owner);}}>{t('appearance-custom-reload')}</button></Show>
     <Show when={saved()}><p role="status">{t('appearance-custom-saved')}</p></Show>
-    <p class={css.meta}>{t('appearance-custom-safe')}</p>
-  </section>;
+    <Show when={visible()}><p class={css.meta}>{t('appearance-custom-safe')}</p></Show>
+  </section></Show>;
 }

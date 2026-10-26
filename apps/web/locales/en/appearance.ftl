@@ -115,7 +115,7 @@ appearance-accent-magenta = Magenta
 appearance-accent-graphite = Graphite
 
 appearance-custom-title = Personal appearance customization
-appearance-custom-description = Saved only for this signed-in workspace. Administrator switches control execution; drafts can be saved while disabled.
+appearance-custom-description = Saved only for this signed-in workspace. Administrator policies control which customizations can run.
 appearance-custom-loading = Loading customization…
 appearance-custom-error = Appearance customization is unavailable.
 appearance-custom-css-on = Custom CSS enabled
@@ -123,6 +123,8 @@ appearance-custom-css-off = Custom CSS disabled by administrator
 appearance-custom-js-on = Appearance scripts enabled
 appearance-custom-js-off = Appearance scripts disabled by administrator
 appearance-custom-locked = Administrator appearance locks pause custom CSS. Scripts cannot change locked fields.
+appearance-custom-css-locked = Administrator appearance locks pause this CSS. Its saved configuration remains available below.
+appearance-custom-js-locked = This script cannot change appearance fields locked by an administrator.
 appearance-custom-css = Restricted CSS
 appearance-custom-css-help = Up to 16 KiB. Visual properties and simple selectors only; no URLs, imports, attributes, positioning, or !important. Selectors stay inside your workspace.
 appearance-custom-js = Isolated appearance script
