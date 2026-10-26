@@ -1,5 +1,6 @@
-.time-helper { margin-block: .5rem; max-inline-size: 42rem; font-size: .8rem; }
-.time-helper summary { display: flex; align-items: center; gap: .5rem; cursor: pointer; }
+.time-helper { margin-block: .2rem; max-inline-size: 42rem; font-size: .72rem; }
+.time-helper summary { display: flex; align-items: center; gap: .3rem; cursor: pointer; line-height:1.3; inline-size:fit-content; white-space:nowrap; }
+.time-helper summary svg { inline-size:.8rem; block-size:.8rem; }
 .time-helper dl { display: grid; grid-template-columns: minmax(5rem, auto) minmax(0, 1fr); gap: .5rem 1rem; padding: .75rem; border: var(--border-rule) solid var(--border); }
 .time-helper dt { font-weight: 600; overflow-wrap: anywhere; }
 .time-helper dd { margin: 0; overflow-wrap: anywhere; }

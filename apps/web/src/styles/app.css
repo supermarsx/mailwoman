@@ -398,15 +398,18 @@ body {
     'sender date'
     'subject subject'
     'preview preview';
-  gap: 0.15rem 0.5rem;
+  gap: var(--mail-row-gap, 2px) 0.5rem;
+  grid-template-rows: var(--mail-row-line, 18px) var(--mail-row-line, 18px) var(--mail-preview-line, 16px);
   width: 100%;
   text-align: start;
-  padding: 0.6rem 0.8rem;
+  padding: var(--mail-row-padding, 7px) 0.8rem;
   border: none;
   border-block-end: var(--border-hair) solid var(--border);
   background: transparent;
   color: inherit;
   font: inherit;
+  font-size: var(--mail-row-font, 14px);
+  line-height: var(--mail-row-line, 18px);
   cursor: pointer;
 }
 .list__row:hover {
@@ -444,13 +447,18 @@ body {
   grid-area: sender;
   font-weight: var(--weight-medium);
 }
+.list__sender, .list__subject { min-inline-size:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.list__sender .person-avatar { inline-size:var(--mail-row-line,18px); block-size:var(--mail-row-line,18px); font-size:.6em; vertical-align:middle; }
+:root[data-density='compact'] { --mail-row-font:13px; --mail-row-line:16px; --mail-preview-line:14px; --mail-row-padding:3px; --mail-row-gap:1px; --mail-preview-font:11px; }
+:root[data-density='cozy'] { --mail-row-font:14px; --mail-row-line:18px; --mail-preview-line:16px; --mail-row-padding:7px; --mail-row-gap:2px; --mail-preview-font:12px; }
+:root[data-density='relaxed'] { --mail-row-font:15px; --mail-row-line:21px; --mail-preview-line:18px; --mail-row-padding:10px; --mail-row-gap:3px; --mail-preview-font:13px; }
 .list__row--unread .list__sender {
   font-weight: var(--weight-bold);
 }
 .list__date {
   grid-area: date;
   color: var(--text-dim);
-  font-size: 0.75rem;
+  font-size: var(--mail-preview-font, 12px);
 }
 .list__subject {
   grid-area: subject;
@@ -458,7 +466,8 @@ body {
 .list__preview {
   grid-area: preview;
   color: var(--text-dim);
-  font-size: 0.8rem;
+  font-size: var(--mail-preview-font, 12px);
+  line-height: var(--mail-preview-line, 16px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -975,3 +984,10 @@ body {
 .settings-shortcut-table { width:auto; max-width:100%; align-self:flex-start; justify-self:start; table-layout:auto; border-collapse:collapse; }
 .settings-shortcut-table th,.settings-shortcut-table td { padding:.65rem .75rem; text-align:start; border-bottom:var(--border-hair) solid var(--border); overflow-wrap:anywhere; }
 .settings-shortcut-table th:last-child,.settings-shortcut-table td:last-child { white-space:nowrap; }
+
+/* Keep secondary folder counts subordinate to the folder label. */
+.sidebar__badge[data-secondary="true"] { font-size:.625rem; min-inline-size:1rem; min-block-size:.875rem; line-height:1.2; padding:.05rem .2rem; }
+.sidebar__box-name { flex:1; min-inline-size:0; text-align:start; }
+.reader__security-line { display:flex; align-items:center; gap:.4rem; min-inline-size:0; flex-wrap:nowrap; margin-block:.25rem; }
+.reader__security-line > :first-child { min-inline-size:0; flex-shrink:1; }
+.reader__security-line .spam-score__empty { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

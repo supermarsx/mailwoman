@@ -61,7 +61,8 @@ describe('SecurityPanel — collapsed chip', () => {
   it('renders the plain-language chip collapsed by default (panel hidden)', () => {
     render(() => <SecurityPanel verdict={baseVerdict()} />);
     const chip = screen.getByRole('button', { expanded: false });
-    expect(chip).toHaveTextContent('This message passed all authentication checks.');
+    expect(chip).toHaveTextContent('DKIM · SPF · DMARC');
+    expect(chip).toHaveAccessibleName('This message passed all authentication checks.');
     expect(screen.queryByRole('region')).toBeNull();
   });
 
@@ -70,6 +71,7 @@ describe('SecurityPanel — collapsed chip', () => {
     const chip = screen.getByRole('button');
     fireEvent.click(chip);
     expect(chip).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal','true');
     expect(screen.getByRole('region', { name: 'Message security details' })).toBeInTheDocument();
     fireEvent.click(chip);
     expect(chip).toHaveAttribute('aria-expanded', 'false');

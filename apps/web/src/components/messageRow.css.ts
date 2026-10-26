@@ -54,7 +54,7 @@ export const row = style({
       height: '100%',
       boxSizing: 'border-box',
       overflow: 'hidden',
-      paddingBlock: '0.35rem',
+      paddingBlock: 'var(--mail-row-padding, 7px)',
       alignContent: 'start',
     },
   },
@@ -65,7 +65,7 @@ export const row = style({
  *  the grid's first column: label chips are placed in the second, beside it. */
 export const line1 = style({
   display: 'flex',
-  alignItems: 'baseline',
+  alignItems: 'center',
   gap: '0.4rem',
   minWidth: 0,
 });
@@ -84,12 +84,8 @@ export const date = style({
   whiteSpace: 'nowrap',
 });
 
-/** The preview line, dropped at compact density where the row is two lines tall. */
-export const preview = style({
-  selectors: {
-    ':root[data-density="compact"] &': { display: 'none' },
-  },
-});
+/** All densities preserve three complete lines, sized with their virtual slots. */
+export const preview = style({minInlineSize:0});
 
 /** Wrapper for the toggle and the cluster. It has no box of its own, so the
  *  slot (a containing block, because it is transformed) positions both. */

@@ -37,4 +37,9 @@ globalStyle('.mail-workspace .subtab-strip',{display:'flex',alignItems:'stretch'
 globalStyle('.mail-workspace .subtab',{display:'flex',alignItems:'center',flex:'0 0 auto',maxWidth:'min(70vw,320px)'});
 globalStyle('.mail-workspace .subtab__label',{minWidth:0,maxWidth:'220px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minHeight:'32px',paddingInline:vars.space[2]});
 globalStyle('.mail-workspace .subtab--active .subtab__label',{borderBlockEnd:`3px solid ${vars.color.borderStrong}`});
-globalStyle('.mail-workspace .subtab__pin, .mail-workspace .subtab__close',{width:'30px',minWidth:'30px',height:'32px',padding:0,display:'inline-flex',alignItems:'center',justifyContent:'center'});
+const tabActions='.mail-workspace :is(.subtab__pin, .subtab__close, .subtab__tearoff)';
+globalStyle(tabActions,{flex:'0 0 auto',width:'26px',minWidth:'26px',height:'26px',minHeight:'26px',marginInline:'2px',padding:0,display:'inline-flex',alignItems:'center',justifyContent:'center',border:`${vars.border.hair} solid ${vars.color.border}`,borderRadius:vars.radius.sm,background:vars.color.bgAlt,color:vars.color.textDim,'@media':{'(pointer: coarse)':{width:'44px',minWidth:'44px',height:'44px',minHeight:'44px'}}});
+globalStyle(`${tabActions} svg`,{width:'13px',height:'13px'});
+globalStyle(`${tabActions}:hover`,{background:vars.color.surface,color:vars.color.text,borderColor:vars.color.borderStrong});
+globalStyle('.mail-workspace .subtab__pin[aria-pressed="true"]',{background:vars.color.accent,color:vars.color.accentText,borderColor:vars.color.accent});
+globalStyle('.mail-workspace .subtab__close:hover',{color:vars.color.danger});

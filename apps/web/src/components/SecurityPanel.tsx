@@ -16,7 +16,9 @@ import { Icon, type IconName } from './Icon.tsx';
 // attachment names) get `dir="auto"` so a spoofed RTL run can't reorder the UI.
 // i18n (t8): all labels come from `security.ftl` via `t()`.
 
-import { For, Show, createMemo, createSignal, createUniqueId, onMount, type JSX } from 'solid-js';
+import { For, Show, createMemo, createSignal, createUniqueId, onMount, onCleanup, type JSX } from 'solid-js';
+import {Portal} from 'solid-js/web';
+import {wireDialogFocus} from '../modules/contacts/dialogFocus.ts';
 import type {
   AttachmentRisk,
   AuthResult,
@@ -91,16 +93,20 @@ export function SecurityPanel(props: SecurityPanelProps): JSX.Element {
         class={`${css.chip} ${css.chipTone[tone()]}`}
         aria-expanded={expanded()}
         aria-controls={panelId}
+        aria-haspopup="dialog"
+        aria-label={props.verdict.plainLanguage}
+        title={props.verdict.plainLanguage}
         onClick={() => setExpanded((v) => !v)}
       >
         <span class={`${css.chipDot} ${css.chipDotTone[tone()]}`} aria-hidden="true" />
-        <span class={css.chipLabel}>{props.verdict.plainLanguage}</span>
+        <span class={css.chipLabel}>DKIM · SPF · DMARC</span>
         <span class={css.chipCaret} aria-hidden="true">
           <Icon name={expanded() ? 'chevronUp' : 'chevronDown'} />
         </span>
       </button>
 
       <Show when={expanded()}>
+        <SecurityPopup onClose={()=>{setExpanded(false);chipRef?.focus();}}>
         <div id={panelId} class={css.panel} role="region" aria-label={t('security-panel-region')}>
           <p class={css.summary}>{props.verdict.plainLanguage}</p>
           <AuthSection auth={props.verdict.auth} />
@@ -115,9 +121,21 @@ export function SecurityPanel(props: SecurityPanelProps): JSX.Element {
             onSenderControl={props.onSenderControl}
           />
         </div>
+        </SecurityPopup>
       </Show>
     </div>
   );
+}
+
+function SecurityPopup(props:{onClose:()=>void;children:JSX.Element}):JSX.Element {
+  let element:HTMLDivElement|undefined;
+  onMount(()=>{if(element)onCleanup(wireDialogFocus(element,props.onClose));});
+  return <Portal><div class={css.backdrop} onClick={event=>{if(event.target===event.currentTarget)props.onClose();}}>
+    <div ref={element} class={css.dialog} role="dialog" aria-modal="true" aria-label={t('security-panel-region')} tabIndex={-1}>
+      <header class={css.dialogHeader}><h3>{t('security-panel-region')}</h3><button type="button" aria-label={t('mail-compose-close')} onClick={props.onClose}><Icon name="close"/></button></header>
+      {props.children}
+    </div>
+  </div></Portal>;
 }
 
 // ── Tone badge ───────────────────────────────────────────────────────────────

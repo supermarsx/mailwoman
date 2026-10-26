@@ -26,7 +26,7 @@ import * as a11y from './mailA11y.css.ts';
 // Reading-pane layout switch (W3): the globalStyle overrides keyed on
 // `:root[data-reading-pane]`. Imported for its side effect so the rules ship.
 import './readerPane.css.ts';
-import { createNarrowViewport, focusListRow } from './narrowViewport.ts';
+import { createNarrowViewport } from './narrowViewport.ts';
 import { SweepDialog } from './SweepDialog.tsx';
 import { ThumbnailStrip, type StripItem } from '../viewers/ThumbnailStrip.tsx';
 import { AttachmentViewer } from '../viewers/AttachmentViewer.tsx';
@@ -599,20 +599,13 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // hides. At desktop width the list stays visible beside the reader and focus
   // stays on the row, as before.
   const narrow = createNarrowViewport();
-  let backButton: HTMLButtonElement | undefined;
+  let subjectHeading: HTMLHeadingElement | undefined;
   createEffect(
     on(emailId, (id) => {
-      if (id !== null && narrow() && props.active !== false) queueMicrotask(() => backButton?.focus());
+      if (id !== null && narrow() && props.active !== false) queueMicrotask(() => subjectHeading?.focus());
     }),
   );
 
-  /** Close the open message and return focus to its list row. The Back button
-   *  unmounts with the message, so without this focus falls to `<body>`. */
-  function closeAndRefocusList(): void {
-    const row = document.querySelector<HTMLElement>('.list__row[aria-current="true"]');
-    app.closeMessage();
-    queueMicrotask(() => focusListRow(row));
-  }
   const sender = (): string => app.openEmail()?.from?.[0]?.email ?? '';
   const threadId = (): string | undefined => app.openEmail()?.threadId;
 
@@ -975,15 +968,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
         {(email) => (
           <>
             <header class="reader__header">
-              <button
-                type="button"
-                ref={backButton}
-                class={`btn btn--ghost reader__close ${a11y.focusable}`}
-                onClick={closeAndRefocusList}
-              >
-                <Icon name="back" /> {t('mail-back')}
-              </button>
-              <h2 class="reader__subject">{email().subject ?? t('mail-no-subject')}</h2>
+              <h2 ref={subjectHeading} tabIndex={-1} class="reader__subject">{email().subject ?? t('mail-no-subject')}</h2>
               <div class="reader__meta">
                 <span>{t('mail-reader-from', { addr: isolate(addressList(email().from)) })}</span>
                 <span>{t('mail-reader-to', { addr: isolate(addressList(email().to)) })}</span>
@@ -992,6 +977,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                 </Show>
               </div>
               <MessageTimes sent={email().sentAt} received={email().receivedAt}/>
+              <div class="reader__security-line">
               {/* Security chip → expandable panel: server verdict merged
                   with the client decrypt/verify result. */}
               <Show when={verdict()}>
@@ -1007,9 +993,11 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   );
                 }}
               </Show>
+              <Show when={email().blobId && app.downloadUrl() && app.accountId()}><SpamScore url={buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'})} onHeaders={collectListHeaders}/></Show>
+              </div>
               <Show when={app.accountId()}><DeliveryStatus accountId={app.accountId()!} emailId={email().id} enabled={policy().inlineParts === true} proxyUrl={privacy.state === 'ready' && policy().inlineParts !== true && email().blobId && app.downloadUrl() ? buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'}) : undefined}/></Show>
               <Show when={app.accountId()&&policy().inlineParts===true}><ReadReceipt accountId={app.accountId()!} emailId={email().id} active={props.active!==false} fullView={props.view!==undefined} displayed={receiptDisplayed()?.key===receiptDocumentKey()&&receiptDisplayed()?.html===bodySrcdoc()&&!showDecrypt()}/></Show>
-              <Show when={email().blobId && app.downloadUrl() && app.accountId()}><SpamScore url={buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'})} onHeaders={collectListHeaders}/></Show>
+
               <MailingListActions headers={listHeaders()?.scope===receiptDocumentKey()&&listHeaders()?.url===messageHeaderUrl()?listHeaders()!.raw:''} scope={receiptDocumentKey()} active={props.active!==false} {...(props.onCompose?{onCompose:props.onCompose}:{})}/>
               <ReaderToolbar email={email()} onReply={(mode) => void startReply(mode)} preparing={preparing()} onPrint={() => printMessage(email(), displayedContent(email()).source)} />
               <Show when={email().threadId}>{threadId=><Conversation threadId={threadId()} messageId={email().id} active={props.active!==false}/>}</Show>

@@ -29,7 +29,7 @@ export const chip = style({
   appearance: 'none',
   display: 'inline-flex',
   alignItems: 'center',
-  gap: vars.space[2],
+  gap: vars.space[1],
   border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   background: vars.color.bg,
   color: vars.color.text,
@@ -37,10 +37,11 @@ export const chip = style({
   cursor: 'pointer',
   padding: `calc(${vars.space[1]} - 1px) calc(${vars.space[3]} - 1px)`,
   font: 'inherit',
-  fontSize: '0.85rem',
-  lineHeight: 1.4,
+  fontSize: '0.72rem',
+  lineHeight: 1.25,
   maxWidth: '100%',
-  minHeight: vars.a11y.touchTarget,
+  minHeight: '1.65rem',
+  '@media': {'(pointer: coarse)': {minHeight:vars.a11y.touchTarget}},
   selectors: {
     '&:hover': { boxShadow: vars.elevation[1] },
   },
@@ -85,6 +86,10 @@ export const panel = style({
   gap: vars.space[4],
   maxWidth: '32rem',
 });
+
+export const backdrop=style({position:'fixed',inset:0,zIndex:1200,background:'rgb(0 0 0 / .45)',display:'grid',placeItems:'center',padding:vars.space[4]});
+export const dialog=style({background:vars.color.surface,color:vars.color.text,border:`${vars.border.rule} solid ${vars.color.borderStrong}`,boxShadow:vars.elevation[2],inlineSize:'min(38rem, 100%)',maxBlockSize:'calc(100dvh - 2rem)',overflow:'auto',padding:vars.space[4]});
+export const dialogHeader=style({display:'flex',alignItems:'center',justifyContent:'space-between',gap:vars.space[3]});
 
 export const summary = style({
   margin: 0,

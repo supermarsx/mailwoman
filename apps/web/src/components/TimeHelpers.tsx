@@ -15,7 +15,7 @@ function dateIn(value:string|Date,zone:string):string {return formatDateTime(val
 export function MessageTimes(props:{sent?:string|null|undefined;received:string}):JSX.Element {
   const when=()=>props.sent??props.received;
   return <Show when={settings()['time.showHelpers']?.value!==false}><details class="time-helper">
-    <summary><Icon name="clock"/><time dateTime={when()}>{dateIn(when(),messageTimeZone())}</time></summary>
+    <summary title={dateIn(when(),messageTimeZone())}><Icon name="clock"/><time dateTime={when()}>{formatDateTime(when(),{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:messageTimeZone()})}</time></summary>
     <dl><dt>{t('mail-time-sent')}</dt><dd>{props.sent?dateIn(props.sent,messageTimeZone()):t('mail-time-unknown')}</dd>
       <dt>{t('mail-time-received')}</dt><dd>{dateIn(props.received,messageTimeZone())}</dd>
       <Show when={comparisonZone()}>{zone=><><dt>{t('mail-time-comparison',{zone:zone()})}</dt><dd>{dateIn(when(),zone())}</dd></>}</Show>
