@@ -53,10 +53,15 @@ impl Engine {
         let Some(mailbox_id) = args.get("mailboxId").and_then(Value::as_str) else {
             return invalid_args("mailboxId is required");
         };
-        let mbox = match self.resolve_mbox_ref(mailbox_id).await {
+        let mbox = match self.resolve_mbox_ref(account_id, mailbox_id).await {
             Ok(m) => m,
             Err(e) => return method_error(&e),
         };
+        match rt.backend.capabilities().await {
+            Ok(caps) if caps.acl => {}
+            Ok(_) => return method_error(&EngineError::Unsupported("acl".into())),
+            Err(error) => return method_error(&error),
+        }
         let my_rights = match rt.backend.my_rights(&mbox).await {
             Ok(r) => r,
             Err(e) => return method_error(&e),
@@ -91,13 +96,17 @@ impl Engine {
         };
         // `rights` present (non-null) → SETACL grant; null/absent → DELETEACL revoke.
         let rights = args.get("rights").and_then(Value::as_str);
-        let mbox = match self.resolve_mbox_ref(mailbox_id).await {
+        let mbox = match self.resolve_mbox_ref(account_id, mailbox_id).await {
             Ok(m) => m,
             Err(e) => return method_error(&e),
         };
-        let outcome = match rights {
-            Some(r) => rt.backend.set_acl(&mbox, identifier, r).await,
-            None => rt.backend.delete_acl(&mbox, identifier).await,
+        let outcome = match rt.backend.capabilities().await {
+            Ok(caps) if caps.acl => match rights {
+                Some(r) => rt.backend.set_acl(&mbox, identifier, r).await,
+                None => rt.backend.delete_acl(&mbox, identifier).await,
+            },
+            Ok(_) => Err(EngineError::Unsupported("acl".into())),
+            Err(error) => Err(error),
         };
         let state = self.session_state(account_id).await;
         match outcome {
@@ -136,10 +145,15 @@ impl Engine {
             })
             .unwrap_or_default();
         let mailbox_id = args.get("mailboxId").and_then(Value::as_str);
-        let mbox = match self.resolve_opt_mbox_ref(mailbox_id).await {
+        let mbox = match self.resolve_opt_mbox_ref(account_id, mailbox_id).await {
             Ok(m) => m,
             Err(e) => return method_error(&e),
         };
+        match rt.backend.capabilities().await {
+            Ok(caps) if caps.metadata => {}
+            Ok(_) => return method_error(&EngineError::Unsupported("metadata".into())),
+            Err(error) => return method_error(&error),
+        }
         let list = match rt.backend.get_metadata(mbox.as_ref(), &entries).await {
             Ok(v) => v,
             Err(e) => return method_error(&e),
@@ -167,12 +181,17 @@ impl Engine {
         // `value` present (non-null) → set; null/absent → remove (RFC 5464 NIL).
         let value = args.get("value").and_then(Value::as_str);
         let mailbox_id = args.get("mailboxId").and_then(Value::as_str);
-        let mbox = match self.resolve_opt_mbox_ref(mailbox_id).await {
+        let mbox = match self.resolve_opt_mbox_ref(account_id, mailbox_id).await {
             Ok(m) => m,
             Err(e) => return method_error(&e),
         };
+        let outcome = match rt.backend.capabilities().await {
+            Ok(caps) if caps.metadata => rt.backend.set_metadata(mbox.as_ref(), entry, value).await,
+            Ok(_) => Err(EngineError::Unsupported("metadata".into())),
+            Err(error) => Err(error),
+        };
         let state = self.session_state(account_id).await;
-        match rt.backend.set_metadata(mbox.as_ref(), entry, value).await {
+        match outcome {
             Ok(()) => json!({
                 "accountId": account_id,
                 "state": state,
@@ -190,8 +209,14 @@ impl Engine {
 
     /// Resolve a JMAP mailbox id to the backend's [`RawMailboxRef`] (name +
     /// uidvalidity), so ACL/METADATA commands address the upstream folder.
-    async fn resolve_mbox_ref(&self, mailbox_id: &str) -> Result<RawMailboxRef> {
-        let m = self.store().get_mailbox(mailbox_id).await?;
+    async fn resolve_mbox_ref(&self, account_id: &str, mailbox_id: &str) -> Result<RawMailboxRef> {
+        let m = match self.store().get_mailbox(mailbox_id).await {
+            Ok(value) if value.account_id == account_id => value,
+            Ok(_) | Err(mw_store::StoreError::NotFound) => {
+                return Err(EngineError::MailboxNotFound(mailbox_id.into()));
+            }
+            Err(error) => return Err(error.into()),
+        };
         Ok(RawMailboxRef {
             name: m.name,
             uidvalidity: m.uidvalidity,
@@ -202,10 +227,11 @@ impl Engine {
     /// `None`; `Some(id)` resolves via [`Self::resolve_mbox_ref`].
     async fn resolve_opt_mbox_ref(
         &self,
+        account_id: &str,
         mailbox_id: Option<&str>,
     ) -> Result<Option<RawMailboxRef>> {
         match mailbox_id {
-            Some(id) => Ok(Some(self.resolve_mbox_ref(id).await?)),
+            Some(id) => Ok(Some(self.resolve_mbox_ref(account_id, id).await?)),
             None => Ok(None),
         }
     }
@@ -217,9 +243,10 @@ impl Engine {
 fn method_error(e: &EngineError) -> Value {
     let ty = match e {
         EngineError::Unsupported(_) => "unsupported",
+        EngineError::MailboxNotFound(_) => "notFound",
         _ => "serverFail",
     };
-    json!({ "type": ty, "description": e.to_string() })
+    json!({ "type": ty, "description": match ty { "unsupported" => "This backend does not support the requested mailbox feature", "notFound" => "No such mailbox", _ => "Mailbox access could not be completed" } })
 }
 
 /// A JMAP `invalidArguments` method-level error (a required arg was missing).
@@ -246,14 +273,25 @@ mod tests {
 
     // A backend that speaks ACL/METADATA, returning known fixtures so the tests
     // pin the request→response envelope shape.
-    struct AclBackend;
+    #[derive(Default)]
+    struct AclBackend {
+        calls: Option<Arc<std::sync::atomic::AtomicUsize>>,
+        disabled: bool,
+    }
+    impl AclBackend {
+        fn record(&self) {
+            if let Some(calls) = &self.calls {
+                calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+    }
 
     #[async_trait]
     impl AccountBackend for AclBackend {
         async fn capabilities(&self) -> Result<BackendCaps> {
             Ok(BackendCaps {
-                acl: true,
-                metadata: true,
+                acl: !self.disabled,
+                metadata: !self.disabled,
                 ..BackendCaps::default()
             })
         }
@@ -290,6 +328,7 @@ mod tests {
 
         // ── ACL / METADATA overrides returning known fixtures ──
         async fn get_acl(&self, _mbox: &RawMailboxRef) -> Result<Vec<AclEntry>> {
+            self.record();
             Ok(vec![
                 AclEntry {
                     identifier: "alice".into(),
@@ -302,12 +341,15 @@ mod tests {
             ])
         }
         async fn set_acl(&self, _mbox: &RawMailboxRef, _id: &str, _rights: &str) -> Result<()> {
+            self.record();
             Ok(())
         }
         async fn delete_acl(&self, _mbox: &RawMailboxRef, _id: &str) -> Result<()> {
+            self.record();
             Ok(())
         }
         async fn my_rights(&self, _mbox: &RawMailboxRef) -> Result<String> {
+            self.record();
             Ok("lrswipkxtea".into())
         }
         async fn get_metadata(
@@ -315,6 +357,7 @@ mod tests {
             _mbox: Option<&RawMailboxRef>,
             _entries: &[String],
         ) -> Result<Vec<MetadataEntry>> {
+            self.record();
             Ok(vec![MetadataEntry {
                 entry: "/shared/comment".into(),
                 value: Some("hello".into()),
@@ -326,6 +369,7 @@ mod tests {
             _entry: &str,
             _value: Option<&str>,
         ) -> Result<()> {
+            self.record();
             Ok(())
         }
     }
@@ -442,7 +486,11 @@ mod tests {
             let resp = self.engine.handle_jmap(&self.account_id, &req).await;
             // Successful methods retain their name; method failures use the
             // RFC8620 error invocation while preserving the original call id.
-            let name = if resp["methodResponses"][0][1].get("type").is_some() { "error" } else { method };
+            let name = if resp["methodResponses"][0][1].get("type").is_some() {
+                "error"
+            } else {
+                method
+            };
             assert_eq!(resp["methodResponses"][0][0], json!(name));
             assert_eq!(resp["methodResponses"][0][2], json!("c0"));
             resp["methodResponses"][0][1].clone()
@@ -451,7 +499,7 @@ mod tests {
 
     #[tokio::test]
     async fn mailbox_rights_get_returns_my_rights_and_acl() {
-        let h = setup(Arc::new(AclBackend)).await;
+        let h = setup(Arc::new(AclBackend::default())).await;
         let r = h
             .call("MailboxRights/get", json!({ "mailboxId": h.mailbox_id }))
             .await;
@@ -468,7 +516,7 @@ mod tests {
 
     #[tokio::test]
     async fn mailbox_rights_set_grant_and_revoke() {
-        let h = setup(Arc::new(AclBackend)).await;
+        let h = setup(Arc::new(AclBackend::default())).await;
         // Grant (SETACL): rights present.
         let grant = h
             .call(
@@ -491,7 +539,7 @@ mod tests {
 
     #[tokio::test]
     async fn server_metadata_get_server_level_and_mailbox_scope() {
-        let h = setup(Arc::new(AclBackend)).await;
+        let h = setup(Arc::new(AclBackend::default())).await;
         // Server-level scope: no mailboxId.
         let srv = h
             .call(
@@ -515,7 +563,7 @@ mod tests {
 
     #[tokio::test]
     async fn server_metadata_set_and_remove() {
-        let h = setup(Arc::new(AclBackend)).await;
+        let h = setup(Arc::new(AclBackend::default())).await;
         let set = h
             .call(
                 "ServerMetadata/set",
@@ -574,7 +622,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_required_args_are_invalid_arguments() {
-        let h = setup(Arc::new(AclBackend)).await;
+        let h = setup(Arc::new(AclBackend::default())).await;
         let no_mbox = h.call("MailboxRights/get", json!({})).await;
         assert_eq!(no_mbox["type"], json!("invalidArguments"));
         let no_id = h
@@ -583,5 +631,86 @@ mod tests {
         assert_eq!(no_id["type"], json!("invalidArguments"));
         let no_entry = h.call("ServerMetadata/set", json!({})).await;
         assert_eq!(no_entry["type"], json!("invalidArguments"));
+    }
+    #[tokio::test]
+    async fn foreign_acl_and_metadata_targets_never_reach_backend() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let h = setup(Arc::new(AclBackend {
+            calls: Some(calls.clone()),
+            disabled: false,
+        }))
+        .await;
+        let store = h.engine.store();
+        let foreign = store
+            .create_account(
+                &NewAccount {
+                    kind: AccountKind::Imap,
+                    host: "other.example.org",
+                    port: 993,
+                    tls: "implicit",
+                    username: "other@example.org",
+                    sync_policy_json: "{}",
+                },
+                &Credentials {
+                    username: "other@example.org".into(),
+                    password: "pw".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let mailbox = store
+            .upsert_mailbox(&MailboxUpsert {
+                account_id: &foreign,
+                name: "Foreign/Secret",
+                role: None,
+                uidvalidity: 42,
+                uidnext: 1,
+                highestmodseq: 0,
+                total: 0,
+                unread: 0,
+                parent_id: None,
+            })
+            .await
+            .unwrap();
+        let mut failures = Vec::new();
+        for method in [
+            "MailboxRights/get",
+            "MailboxRights/set",
+            "ServerMetadata/get",
+            "ServerMetadata/set",
+        ] {
+            let response=h.call(method,json!({"mailboxId":mailbox,"identifier":"attacker","rights":"lra","entry":"/shared/comment","value":"changed"})).await;
+            failures.push(response["type"].clone());
+        }
+        assert_eq!(failures, vec![json!("notFound"); 4]);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+    #[tokio::test]
+    async fn unadvertised_acl_and_metadata_never_issue_commands() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let h = setup(Arc::new(AclBackend {
+            calls: Some(calls.clone()),
+            disabled: true,
+        }))
+        .await;
+        for method in [
+            "MailboxRights/get",
+            "MailboxRights/set",
+            "ServerMetadata/get",
+            "ServerMetadata/set",
+        ] {
+            let response=h.call(method,json!({"mailboxId":h.mailbox_id,"identifier":"other","rights":"lr","entry":"/shared/comment","value":"changed"})).await;
+            let error = if method.ends_with("/set") {
+                &response["notUpdated"][if method.starts_with("Mailbox") {
+                    "other"
+                } else {
+                    "/shared/comment"
+                }]
+            } else {
+                &response
+            };
+            assert_eq!(error["type"], "unsupported");
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 }
