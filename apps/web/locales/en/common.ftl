@@ -82,6 +82,12 @@ common-nav-close = Close folders and apps
 # -- Attachments (global, cross-account view; rides the entry bundle so the
 #    account-wide attachments screen needs no extra catalog fetch) ------------
 common-attach-title = Attachments
+common-attach-column-name = File
+common-attach-column-type = Type
+common-attach-column-size = Size
+common-attach-column-sender = Sender
+common-attach-column-subject = Subject
+common-attach-column-date = Received
 common-attach-search = Search attachments
 common-attach-search-placeholder = filename:report type:pdf larger:1mb from:alice
 common-attach-filter-type = Filter by type

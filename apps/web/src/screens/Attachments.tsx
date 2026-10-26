@@ -7,6 +7,9 @@
 
 import { createMemo, createResource, createSignal, For, Show, type JSX } from 'solid-js';
 import { t } from '../i18n';
+import {Icon, type IconName} from '../components/Icon.tsx';
+import {AsyncPending, AsyncError} from '../components/AsyncState.tsx';
+import * as table from './attachmentsTable.css.ts';
 import '../viewers/viewers.css';
 import {
   categoryOf,
@@ -42,7 +45,7 @@ function catLabel(c: TypeCategory | 'all'): string {
 }
 
 export function Attachments(props: AttachmentsProps): JSX.Element {
-  const [data] = createResource(async () =>
+  const [data,{refetch}] = createResource(async () =>
     props.load !== undefined ? await props.load() : (props.items ?? []),
   );
   const [query, setQuery] = createSignal('');
@@ -50,7 +53,8 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
 
   // The module owns its loading state. Reading a pending resource here would
   // suspend the enclosing mailbox route and replace the entire app with Loading.
-  const all = (): AttachmentItem[] => data.loading ? (props.items ?? []) : data() ?? props.items ?? [];
+  const all = (): AttachmentItem[] => data.error || data.state === 'pending' || data.state === 'unresolved' ? (props.items ?? []) : data.latest ?? props.items ?? [];
+  const icons:Partial<Record<TypeCategory,IconName>>={image:'image',pdf:'filePdf',text:'file',audio:'fileAudio',video:'fileVideo',message:'mail'};
 
   const filtered = createMemo<AttachmentItem[]>(() => {
     const base = parseAttachmentQuery(query());
@@ -80,37 +84,34 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
         </select>
       </header>
 
-      <Show
-        when={!data.loading}
-        fallback={<p class="mw-attach__status">{t('common-attach-loading')}</p>}
+      <Show when={!data.error} fallback={<AsyncError error={data.error} onRetry={()=>void refetch()}/> }><Show
+        when={!data.loading||all().length>0}
+        fallback={<AsyncPending variant="table" message={t('common-attach-loading')} onRetry={()=>void refetch()}/>}
       >
         <Show
           when={filtered().length > 0}
           fallback={<p class="mw-attach__status">{t('common-attach-empty')}</p>}
         >
-          <ul class="mw-attach__grid">
+          <div class={table.wrap}><table class={table.table} aria-label={t('common-attach-title')} aria-busy={data.loading}><thead><tr><For each={['name','type','size','sender','subject','date']}>{key=><th scope="col">{t(`common-attach-column-${key}`)}</th>}</For></tr></thead><tbody>
             <For each={filtered()}>
               {(item) => (
-                <li>
+                <tr>
+                  <td>
                   <button
                     type="button"
-                    class="mw-attach__card"
+                    class={table.name}
                     data-category={categoryOf(item.mime)}
                     onClick={() => props.onOpen?.(item)}
                   >
-                    <span class="mw-attach__kind">{categoryOf(item.mime).toUpperCase()}</span>
-                    <span class="mw-attach__name">{item.name}</span>
-                    <span class="mw-attach__meta">
-                      {formatSize(item.size)} · {item.from}
-                    </span>
-                    <span class="mw-attach__subject">{item.subject}</span>
+                    <Icon name={icons[categoryOf(item.mime)]??'file'}/><span>{item.name}</span>
                   </button>
-                </li>
+                  </td><td>{catLabel(categoryOf(item.mime))}</td><td>{formatSize(item.size)}</td><td>{item.from}</td><td>{item.subject}</td><td>{Number.isNaN(Date.parse(item.receivedAt))?'—':new Date(item.receivedAt).toLocaleDateString()}</td>
+                </tr>
               )}
             </For>
-          </ul>
+          </tbody></table></div>
         </Show>
-      </Show>
+      </Show></Show>
     </section>
   );
 }

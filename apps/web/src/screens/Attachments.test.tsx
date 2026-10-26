@@ -21,7 +21,7 @@ describe('Attachments module', () => {
     await screen.findByText('Q3-report.pdf');
     expect(screen.getByText('Mailbox navigation')).toBeVisible();
   });
-  it('renders a card per attachment', async () => {
+  it('renders a table row per attachment', async () => {
     render(() => <Attachments items={items} />);
     await waitFor(() => expect(screen.getByText('Q3-report.pdf')).toBeInTheDocument());
     expect(screen.getByText('logo.png')).toBeInTheDocument();
