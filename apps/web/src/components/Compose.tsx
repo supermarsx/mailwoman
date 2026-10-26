@@ -1,3 +1,4 @@
+import {preferenceAccount, preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import { settings } from '../api/settings.ts';
 import { supportsDeliveryReceipts } from '../api/deliveryReceipts.ts';
 import { externalRecipients } from './compose/recipientTrust.ts';
@@ -178,7 +179,7 @@ export function Compose(props: {
   const [recallOpen, setRecallOpen] = createSignal(false);
   const [drafts, setDrafts] = createSignal<StoredDraft[]>([]);
   // Stable id for THIS composer's auto-saved draft (W9).
-  const draftId = newDraftId();
+  let draftId = newDraftId();
   const [identityId, setIdentityId] = createSignal<string>('');
   const [sendAt, setSendAt] = createSignal('');
   // Earliest time the Send-later field offers; refreshed when the field is
@@ -477,7 +478,7 @@ export function Compose(props: {
    *  open tracking on and the message is neither encrypted nor signed (the
    *  image would sit outside the encryption or break the signature). */
   const trackingAvailable = createMemo(() => {
-    if (!clientPolicy().openTracking) return false;
+    if (!clientPolicy().openTracking || !richMode() || editorApi() === null) return false;
     const cs = cryptoState();
     return !(cs !== null && (cs.encrypt || cs.sign));
   });
@@ -499,6 +500,15 @@ export function Compose(props: {
     return plainToHtml(sig.text);
   }
 
+  async function signaturePlain(sig: ComposeSignature): Promise<string> {
+    const source = app.identities().find(identity => identity.id === sig.id);
+    if (source?.signatureText?.trim()) return source.signatureText;
+    if (sig.html) {
+      try { return (await import('./compose/richtext.ts')).htmlToText(sig.html); } catch { /* Plain fallback remains inert. */ }
+    }
+    return sig.text;
+  }
+
   /** Insert a chosen signature (W12). In rich mode it appends as HTML through the
    *  editor handle (keeping existing formatting); otherwise it appends its text
    *  to the plain body. */
@@ -514,7 +524,12 @@ export function Compose(props: {
 
   /** Resume a locally auto-saved draft (W9) into this composer. */
   function resumeDraft(d: StoredDraft): void {
+    if (d.accountId !== app.accountId()) return;
+    draftId = d.id;
     setExpanded(true);
+    setIdentityId(d.identityId ?? '');
+    setInsertedSignatures(new Set(d.insertedSignatures ?? []));
+    setRichMode(d.bodyFormat !== 'plain');
     setTo(d.to);
     setCc(d.cc ?? '');
     setBcc(d.bcc ?? '');
@@ -526,6 +541,7 @@ export function Compose(props: {
     setTrackOpens(d.openTracking === true);
     const images = (d.inline ?? []).map((i) => ({ ...i, previewUrl: null }));
     setInlineImages(images);
+    setAttachments(d.attachments ?? []);
     setBody(d.bodyText);
     setBodyHtml(d.bodyHtml);
     const api = editorApi();
@@ -546,6 +562,7 @@ export function Compose(props: {
         const url = await fetchObjectUrl(
           buildDownloadUrl(template, { accountId: acct, blobId: img.blobId, name: img.name, mime: img.type }),
         );
+        if (!ownsDraft() || app.accountId() !== acct) { URL.revokeObjectURL(url); return; }
         setInlineImages((cur) => cur.map((i) => (i.cid === img.cid ? { ...i, previewUrl: url } : i)));
       } catch {
         // The blob is no longer there; the image keeps its alt text.
@@ -584,6 +601,7 @@ export function Compose(props: {
       }
       try {
         const up = await uploadBlob(url, acct, file);
+        if (!ownsDraft() || app.accountId() !== acct) return [];
         const cid = newCid();
         const previewUrl = URL.createObjectURL(file);
         setInlineImages((cur) => [
@@ -600,13 +618,13 @@ export function Compose(props: {
 
   /** Discard a stored draft and refresh the list (W9). */
   function discardDraft(id: string): void {
-    deleteDraft(id);
-    setDrafts(listDrafts());
+    deleteDraft(id, app.accountId());
+    setDrafts(listDrafts(app.accountId()));
   }
 
   /** Open the Drafts drawer, refreshing the list from storage first (W9). */
   function openDrafts(): void {
-    setDrafts(listDrafts());
+    setDrafts(listDrafts(app.accountId()));
     setDraftsOpen(true);
   }
 
@@ -625,15 +643,34 @@ export function Compose(props: {
   // closed / refreshed composer can be resumed. Empty compositions are skipped
   // (see `draftHasContent`). A composition quoting decrypted text is never
   // saved: local storage is plaintext, and the original was not.
-  onMount(() => setDrafts(listDrafts()));
+  onMount(() => setDrafts(listDrafts(app.accountId())));
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingDraft:StoredDraft | undefined;
   let sent=false;
-  const draftAccount=app.accountId();
+  let draftAccount=app.accountId();
+  let draftAuthority=preferenceAccount();
+  let draftDisposed=false;
+  const ownsDraft=()=>!draftDisposed && app.accountId()===draftAccount && (draftAuthority===null || preferenceAccountIsCurrent(draftAuthority));
   createEffect(() => {
-    if (quotesDecrypted) return;
+    const account = app.accountId();
+    if (draftAccount === null && account !== null) { draftAccount = account; draftAuthority=preferenceAccount(); setDrafts(listDrafts(account)); }
+    if (account !== draftAccount) {
+      clearTimeout(saveTimer); pendingDraft=undefined;
+      setTo('');setCc('');setBcc('');setSubject('');setBody('');setBodyHtml('');setIdentityId('');
+      for (const image of inlineImages()) if (image.previewUrl) URL.revokeObjectURL(image.previewUrl);
+      setInlineImages([]);setAttachments([]);setDrafts([]);props.onClose();
+    }
+  });
+  createEffect(() => {
+    const account = app.accountId();
+    if (quotesDecrypted || account === null || account !== draftAccount) return;
     const snapshot: StoredDraft = {
       id: draftId,
+      accountId: account,
+      identityId: identityId(),
+      bodyFormat: richMode() ? 'html' : 'plain',
+      insertedSignatures: [...insertedSignatures()],
+      attachments: attachments().map(file => ({...file})),
       to: to(),
       ...(cc().trim() !== '' ? { cc: cc() } : {}),
       ...(bcc().trim() !== '' ? { bcc: bcc() } : {}),
@@ -650,9 +687,9 @@ export function Compose(props: {
     };
     clearTimeout(saveTimer);
     pendingDraft=snapshot;
-    saveTimer = setTimeout(() => {if(!sent) saveDraft(snapshot);}, 800);
+    saveTimer = setTimeout(() => {if(!sent && ownsDraft() && app.accountId()===snapshot.accountId && app.me()!==null) saveDraft(snapshot);}, 800);
   });
-  onCleanup(() => {clearTimeout(saveTimer);if(!sent && pendingDraft && app.accountId()===draftAccount && app.me()!==null) saveDraft(pendingDraft);});
+  onCleanup(() => {clearTimeout(saveTimer);if(!sent && pendingDraft && ownsDraft() && app.me()!==null) saveDraft(pendingDraft);draftDisposed=true;});
 
   const recipientFields = {
     to: [to, setTo],
@@ -760,6 +797,7 @@ export function Compose(props: {
         }
         try {
           const up = await uploadBlob(url, acct, file);
+          if (!ownsDraft() || app.accountId() !== acct) return;
           setAttachments((cur) => [
             ...cur,
             { name: file.name, blobId: up.blobId, size: up.size, contentType: up.type },
@@ -835,18 +873,26 @@ export function Compose(props: {
       const session = signingSession();
       const signOnly = enc === null && cs !== null && cs.sign && session !== null;
       let htmlBody: string;
+      let textBody: string | undefined;
       if (enc !== null) {
         htmlBody = enc.armoredCiphertext;
+        textBody = enc.armoredCiphertext;
       } else if (signOnly && session !== null) {
         htmlBody = await clearSignBody(getCryptoWorker(), session, body());
+        textBody = htmlBody;
       } else {
         // The rich editor's serialized HTML, but only while the editor is
         // actually mounted. In plain-text mode, and when the editor's chunk is
         // still loading or failed to load, the user typed into the textarea and
         // `bodyHtml` does not hold their text — the body is built from `body`.
-        htmlBody = richMode() && editorApi() !== null ? bodyHtml() : plainToHtml(body());
+        const rich = richMode() && editorApi() !== null;
+        htmlBody = rich ? bodyHtml() : '';
+        if (!rich) textBody = body();
         const sig = autoSignature();
-        if (sig !== null) htmlBody += `<br>${await signatureBlock(sig)}`;
+        if (sig !== null) {
+          if (rich) htmlBody += `<br>${await signatureBlock(sig)}`;
+          else textBody += `\n\n-- \n${await signaturePlain(sig)}`;
+        }
       }
       const subjectToSend =
         enc !== null && cs !== null && cs.protectSubject && enc.encryptedSubjectApplied
@@ -857,6 +903,7 @@ export function Compose(props: {
       // clear-signed body, which carry no `cid:` reference).
       const inline = inlineAttachments(inlineImages(), referencedCids(htmlBody));
       if(requestDelivery()&&!deliveryAvailable())throw new Error(t('mail-compose-delivery-unavailable'));
+      if (!ownsDraft()) throw new Error(t('mail-compose-account-changed'));
       await app.sendMessage({
         to: to(),
         cc: cc(),
@@ -867,6 +914,7 @@ export function Compose(props: {
         ...(initial?.sources !== undefined ? { sources: initial.sources } : {}),
         subject: subjectToSend,
         htmlBody,
+        ...(textBody !== undefined ? {textBody} : {}),
         identity: identity(),
         sendAt: sendAtIso,
         // V7 (§18.4): Nextcloud-materialised blob attachments (empty ⇒ omitted).
@@ -885,9 +933,10 @@ export function Compose(props: {
         ...(requestDelivery() ? { requestDeliveryReceipt: true } : {}),
         ...(trackingAvailable() && trackOpens() ? { openTracking: true } : {}),
       });
+      if (!ownsDraft()) return;
       // W9: the composition was sent — drop its auto-saved draft.
       sent=true;clearTimeout(saveTimer);pendingDraft=undefined;
-      deleteDraft(draftId);
+      deleteDraft(draftId, draftAccount);
       props.onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('mail-compose-send-failed'));

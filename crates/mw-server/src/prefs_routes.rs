@@ -794,21 +794,18 @@ async fn do_list_identities(store: &Store, account: &str) -> Result<Vec<Identity
 
 /// Upsert an identity under `account`. A body carrying an id owned by ANOTHER account
 /// is refused (`Ok(None)`). New identities are `source = "configured"`; `signatureName`
-/// persists in the 0020 column while the JMAP-shaped signature columns are left null
-/// (see module note on `signatureName`).
+/// persists in the 0020 column. Existing provider signature bodies and Sent folder
+/// metadata are preserved; profile updates are not authority grants.
 async fn do_upsert_identity(
     store: &Store,
     account: &str,
     dto: &IdentityDto,
 ) -> Result<Option<String>, StoreError> {
+    let existing = if dto.id.trim().is_empty() { None } else { store.get_identity(&dto.id).await? };
+    if existing.as_ref().is_some_and(|row| row.account_id != account) { return Ok(None); }
     let id = if dto.id.trim().is_empty() {
         new_id()
     } else {
-        if let Some(existing) = store.get_identity(&dto.id).await?
-            && existing.account_id != account
-        {
-            return Ok(None);
-        }
         dto.id.clone()
     };
     store
@@ -818,10 +815,10 @@ async fn do_upsert_identity(
             name: dto.name.clone(),
             email: dto.email.clone(),
             reply_to: dto.reply_to.clone(),
-            signature_html: None,
-            signature_text: None,
+            signature_html: existing.as_ref().and_then(|row| row.signature_html.clone()),
+            signature_text: existing.as_ref().and_then(|row| row.signature_text.clone()),
             signature_name: dto.signature_name.clone(),
-            sent_mailbox_id: None,
+            sent_mailbox_id: existing.as_ref().and_then(|row| row.sent_mailbox_id.clone()),
             source: "configured".to_string(),
         })
         .await?;
@@ -1372,6 +1369,19 @@ mod tests {
 
         assert!(do_delete_identity(&s, &a1, &id).await.unwrap());
         assert!(do_list_identities(&s, &a1).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn identity_profile_edit_preserves_provider_signature_bodies() {
+        let s=store().await;
+        let account=seed_account(&s,"primary@example.org").await;
+        s.upsert_identity(&IdentityRow{id:"provider-profile".into(),account_id:account.clone(),name:"Before".into(),email:"primary@example.org".into(),reply_to:None,signature_html:Some("<p>Provider</p>".into()),signature_text:Some("Provider text".into()),signature_name:None,sent_mailbox_id:Some("sent".into()),source:"server".into()}).await.unwrap();
+        do_upsert_identity(&s,&account,&IdentityDto{id:"provider-profile".into(),name:"After".into(),email:"primary@example.org".into(),reply_to:None,signature_name:Some("local-template".into())}).await.unwrap();
+        let row=s.get_identity("provider-profile").await.unwrap().unwrap();
+        assert_eq!(row.signature_html.as_deref(),Some("<p>Provider</p>"));
+        assert_eq!(row.signature_text.as_deref(),Some("Provider text"));
+        assert_eq!(row.sent_mailbox_id.as_deref(),Some("sent"));
+        assert_eq!(row.signature_name.as_deref(),Some("local-template"));
     }
 
     #[tokio::test]

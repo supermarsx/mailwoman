@@ -1,3 +1,4 @@
+import { suspendAccountPreferences } from '../../api/accountPreferenceLifecycle.ts';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot } from 'solid-js';
 import { readFileSync } from 'node:fs';
@@ -1216,14 +1217,14 @@ describe('mail slice — session lifecycle', () => {
   it('logout removes the composer drafts stored in this browser', async () => {
     localStorage.clear();
     await withInbox([email('a')], async (mail) => {
-      saveDraft({ id: 'd1', to: 'you@example.org', subject: 'Unsent', bodyHtml: '<p>x</p>', bodyText: 'x', savedAt: 1 });
+      saveDraft({ id: 'd1', accountId: 'account-a', to: 'you@example.org', subject: 'Unsent', bodyHtml: '<p>x</p>', bodyText: 'x', savedAt: 1 });
       // Precondition: the draft is really in storage under the key the composer reads.
-      expect(listDrafts().map((d) => d.id)).toEqual(['d1']);
+      expect(listDrafts('account-a').map((d) => d.id)).toEqual(['d1']);
       expect(localStorage.getItem('mw.compose.drafts.v1')).not.toBeNull();
 
       await mail.logout();
 
-      expect(listDrafts()).toEqual([]);
+      expect(listDrafts('account-a')).toEqual([]);
       expect(localStorage.getItem('mw.compose.drafts.v1')).toBeNull();
     });
   });
@@ -1259,11 +1260,11 @@ describe('mail slice — session lifecycle', () => {
       localStorage.clear();
       const cacheStorage = stubCaches();
       await withInbox([email('a')], async (mail, { client }) => {
-        saveDraft({ id: 'd1', to: '', subject: 'Unsent', bodyHtml: '', bodyText: '', savedAt: 1 });
+        saveDraft({ id: 'd1', accountId: 'account-a', to: '', subject: 'Unsent', bodyHtml: '', bodyText: '', savedAt: 1 });
         vi.mocked(client.logout).mockRejectedValueOnce(new Error('offline'));
         await expect(mail.logout()).rejects.toThrow('offline');
         expect(mail.me()).toBeNull();
-        expect(listDrafts()).toEqual([]);
+        expect(listDrafts('account-a')).toEqual([]);
         await vi.waitFor(() => expect(cacheStorage.deleted.sort()).toEqual(['mw-assets-v2', 'mw-shell-v1']));
       });
     });
@@ -1470,6 +1471,36 @@ describe('mail slice — receipt, inline images and open tracking (t29-e12)', ()
       expect(String(bind[0])).toBe('/api/track/open/tok123');
       expect(JSON.parse(String((bind[1] as RequestInit).body))).toEqual({ emailId: 'draft1' });
       expect(toast).not.toHaveBeenCalledWith('error', expect.anything());
+    });
+  });
+
+  it('does not mint a tracking image for an explicitly plain message', async () => {
+    const fetchMock = trackingFetch(minted());
+    await withInbox([email('a')], async (mail, {jmap}) => {
+      jmap.mockClear();
+      await mail.sendMessage({to:'you@example.org',subject:'plain',htmlBody:'',textBody:'literal <b> & text',openTracking:true});
+      const draft=(sendRequests(jmap)[0]!.methodCalls[0]![1]['create'] as Record<string,Record<string,unknown>>)['draft']!;
+      expect(draft['textBody']).toEqual([{partId:'body',type:'text/plain'}]);
+      expect(draft['bodyValues']).toEqual({body:{value:'literal <b> & text'}});
+      expect(draft['htmlBody']).toBeUndefined();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it('refuses dispatch when account authority changes during token minting', async () => {
+    let release!: (response:Response)=>void;
+    let entered!: ()=>void;
+    const started=new Promise<void>(resolve=>{entered=resolve;});
+    vi.stubGlobal('fetch',vi.fn(async()=>{entered();return new Promise<Response>(resolve=>{release=resolve;});}));
+    await withInbox([email('a')], async (mail,{jmap})=>{
+      jmap.mockClear();
+      const pending=mail.sendMessage({to:'you@example.org',subject:'held',htmlBody:'<p>private</p>',openTracking:true});
+      const rejected=expect(pending).rejects.toThrow('different sign-in');
+      await started;
+      suspendAccountPreferences();
+      release(minted());
+      await rejected;
+      expect(sendRequests(jmap)).toEqual([]);
     });
   });
 

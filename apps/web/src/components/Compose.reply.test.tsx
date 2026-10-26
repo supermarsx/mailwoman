@@ -73,7 +73,7 @@ function sends(client: ReturnType<typeof makeClient>): JmapRequest[] {
 
 /** The whole compose+submit request for the harness account (no Drafts or
  *  Sent folder: the draft is held in the inbox and nothing is moved). */
-function expectedRequest(draft: Record<string, unknown>, rcptTo: string[]): JmapRequest['methodCalls'] {
+function expectedRequest(draft: Record<string, unknown>, rcptTo: string[], plain = false): JmapRequest['methodCalls'] {
   return [
     [
       'Email/set',
@@ -85,7 +85,7 @@ function expectedRequest(draft: Record<string, unknown>, rcptTo: string[]): Jmap
             keywords: { $draft: true, $seen: true },
             from: [{ name: null, email: 'me@example.org' }],
             ...draft,
-            htmlBody: [{ partId: 'body', type: 'text/html' }],
+            ...(plain ? { textBody: [{ partId: 'body', type: 'text/plain' }] } : { htmlBody: [{ partId: 'body', type: 'text/html' }] }),
           },
         },
       },
@@ -133,8 +133,8 @@ describe('Compose opened as a reply or a forward', () => {
     expect(sends(client)).toHaveLength(1);
     expect(sends(client)[0]!.methodCalls).toEqual(
       expectedRequest(
-        { to: [{ name: null, email: 'you@example.org' }], subject: 'Hi', bodyValues: { body: { value: '<p>b</p>' } } },
-        ['you@example.org'],
+        { to: [{ name: null, email: 'you@example.org' }], subject: 'Hi', bodyValues: { body: { value: 'b' } } },
+        ['you@example.org'], true,
       ),
     );
   });
@@ -160,9 +160,9 @@ describe('Compose opened as a reply or a forward', () => {
             { name: null, email: 'you@example.org' },
           ],
           subject: 'Hi',
-          bodyValues: { body: { value: '<p>b</p>' } },
+          bodyValues: { body: { value: 'b' } },
         },
-        ['you@example.org', 'carol@example.org', 'dave@example.org'],
+        ['you@example.org', 'carol@example.org', 'dave@example.org'], true,
       ),
     );
   });
@@ -177,8 +177,8 @@ describe('Compose opened as a reply or a forward', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(sends(client)[0]!.methodCalls).toEqual(
       expectedRequest(
-        { to: [], bcc: [{ name: null, email: 'dave@example.org' }], subject: '', bodyValues: { body: { value: '<p>b</p>' } } },
-        ['dave@example.org'],
+        { to: [], bcc: [{ name: null, email: 'dave@example.org' }], subject: '', bodyValues: { body: { value: 'b' } } },
+        ['dave@example.org'], true,
       ),
     );
   });
@@ -311,7 +311,7 @@ describe('Compose opened as a reply or a forward', () => {
     } finally {
       vi.useRealTimers();
     }
-    const saved = listDrafts();
+    const saved = listDrafts('acct1');
     expect(saved).toHaveLength(1);
     expect(saved[0]).toMatchObject({
       to: 'Alice <alice@example.org>',
@@ -341,7 +341,7 @@ describe('Compose quoting the decrypted text of an encrypted message', () => {
     } finally {
       vi.useRealTimers();
     }
-    expect(listDrafts()).toEqual([]);
+    expect(listDrafts('acct1')).toEqual([]);
     expect(localStorage.getItem('mw.compose.drafts.v1')).toBeNull();
   });
 

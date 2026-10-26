@@ -2778,10 +2778,24 @@ impl Engine {
     async fn identity_get(&self, account_id: &str, rt: &AccountRuntime, args: &Value) -> Value {
         self.ensure_default_identity(account_id, rt).await;
         self.ensure_server_identities(account_id).await;
-        let rows = match self.authorized_identities(account_id, rt).await {
+        let mut rows = match self.authorized_identities(account_id, rt).await {
             Ok(v) => v,
             Err(e) => return server_fail(&e),
         };
+        if rows.iter().any(|row| row.signature_name.is_some()) {
+            let templates = match self.store().list_signatures(account_id).await {
+                Ok(templates) => templates,
+                Err(error) => return server_fail(&error),
+            };
+            for row in &mut rows {
+                if let Some(name) = &row.signature_name {
+                    // Named templates are literal text, never trusted HTML. A
+                    // removed template must not resurrect an old provider value.
+                    row.signature_text = templates.iter().find(|template| &template.name == name).map(|template| template.body.clone());
+                    row.signature_html = None;
+                }
+            }
+        }
         let wanted: Option<Vec<String>> = args.get("ids").and_then(Value::as_array).map(|a| {
             a.iter()
                 .filter_map(Value::as_str)

@@ -941,3 +941,22 @@ async fn sender_authority_malformed_actual_from_never_falls_back_to_primary() {
         assert_eq!(h.submitter.calls(),0,"malformed raw header reached SMTP: {header:?}");
     }
 }
+
+#[tokio::test]
+async fn named_signature_is_account_scoped_and_resolved_at_identity_read() {
+    let h=setup(SentAppend::Accept,Smtp::Deliver).await;
+    sender_test_identity(&h,"primary-template","me@example.org").await;
+    let mut identity=h.engine.store().get_identity("primary-template").await.unwrap().unwrap();
+    identity.signature_name=Some("work".into());
+    h.engine.store().upsert_identity(&identity).await.unwrap();
+    let mut template=mw_store::SignatureRow{account_id:h.account_id.clone(),name:"work".into(),body:"Literal <team> & me".into(),is_default:false,rule_json:String::new(),updated_at:String::new()};
+    h.engine.store().upsert_signature(&template).await.unwrap();
+    let get=||json!([["Identity/get",{"ids":["primary-template"]},"get"]]);
+    let response=jmap(&h,get()).await;
+    assert_eq!(result(&response,"get")["list"][0]["signatureText"],"Literal <team> & me");
+    assert!(result(&response,"get")["list"][0]["signatureHtml"].is_null());
+    template.body="Updated template".into();h.engine.store().upsert_signature(&template).await.unwrap();
+    assert_eq!(result(&jmap(&h,get()).await,"get")["list"][0]["signatureText"],"Updated template");
+    h.engine.store().delete_signature(&h.account_id,"work").await.unwrap();
+    assert!(result(&jmap(&h,get()).await,"get")["list"][0]["signatureText"].is_null());
+}

@@ -507,3 +507,11 @@ describe('outgoing delivery notifications',()=>{
   expect(send['envelope']).toEqual({mailFrom:{email:'me@example.org'},rcptTo:[{email:'to@example.org'}]});
  });
 });
+
+it('preserves an explicit plain text composition as text/plain without an HTML body', () => {
+  const input={from:{name:null,email:'me@example.org'},to:'recipient@example.org',subject:'Plain',htmlBody:'',textBody:'literal <tag> & text',draftMailboxId:'drafts'};
+  const draft=draftCreateSpec(input);
+  expect(draft['textBody']).toEqual([{partId:'body',type:'text/plain'}]);
+  expect(draft).not.toHaveProperty('htmlBody');
+  expect(draft['bodyValues']).toEqual({body:{value:'literal <tag> & text'}});
+});

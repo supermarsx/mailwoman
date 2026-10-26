@@ -213,6 +213,8 @@ export interface DraftInput {
   references?: string[];
   subject: string;
   htmlBody: string;
+  /** Explicit plain text mode; when present no HTML body is sent. */
+  textBody?: string;
   draftMailboxId: Id;
   sentMailboxId?: Id;
   /** V2: send via a specific sending identity (§2.1 `Identity`). */
@@ -274,8 +276,9 @@ export function draftCreateSpec(input: DraftInput): Record<string, unknown> {
   if (input.inReplyTo !== undefined && input.inReplyTo.length > 0) spec['inReplyTo'] = [...input.inReplyTo];
   if (input.references !== undefined && input.references.length > 0) spec['references'] = [...input.references];
   spec['subject'] = input.subject;
-  spec['htmlBody'] = [{ partId: 'body', type: 'text/html' }];
-  spec['bodyValues'] = { body: { value: input.htmlBody } };
+  const plain = input.textBody !== undefined;
+  spec[plain ? 'textBody' : 'htmlBody'] = [{ partId: 'body', type: plain ? 'text/plain' : 'text/html' }];
+  spec['bodyValues'] = { body: { value: input.textBody ?? input.htmlBody } };
   if (input.requestReadReceipt === true) spec['mailwomanRequestReadReceipt'] = true;
   return spec;
 }

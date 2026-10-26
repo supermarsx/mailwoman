@@ -1,3 +1,4 @@
+import { saveDraft, listDrafts } from './compose/drafts-store.ts';
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
 import { Suspense } from 'solid-js';
@@ -448,8 +449,8 @@ describe('Compose', () => {
               from: [{ name: null, email: 'me@example.org' }],
               to: [{ name: null, email: 'you@example.org' }],
               subject: 'Hi',
-              htmlBody: [{ partId: 'body', type: 'text/html' }],
-              bodyValues: { body: { value: '<p>plain body</p>' } },
+              textBody: [{ partId: 'body', type: 'text/plain' }],
+              bodyValues: { body: { value: 'plain body' } },
             },
           },
         },
@@ -583,13 +584,15 @@ describe('Compose', () => {
     await app.loadIdentities();
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id3' } });
     fillPlain('hi');
+    fireEvent.click(screen.getByTestId('format-toggle'));
+    await screen.findByTestId('compose-richtext');
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     // No <img>, no javascript: link, no style attribute, no <script>.
     expect(sentBody(client)).toEqual({ body: { value: '<p>hi</p><br><p>Regards, me</p>' } });
   });
 
-  it('appends a text-only signature as escaped text', async () => {
+  it('appends a text-only signature literally to plain text', async () => {
     const { client, app, onClose } = await composeWithClient({ identities: IDENTITIES });
     await app.loadIdentities();
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id1' } });
@@ -597,7 +600,7 @@ describe('Compose', () => {
     fillPlain('hi');
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
-    expect(sentBody(client)).toEqual({ body: { value: '<p>hi</p><br><p>Sent from Mailwoman</p>' } });
+    expect(sentBody(client)).toEqual({ body: { value: 'hi\n\n-- \nSent from Mailwoman' } });
   });
 
   it('does not append a signature the picker already put in the body', async () => {
@@ -613,7 +616,7 @@ describe('Compose', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(sentBody(client)).toEqual({
-      body: { value: '<p>hi<br><br>-- <br>Sent from Mailwoman</p>' },
+      body: { value: 'hi\n\n-- \nSent from Mailwoman' },
     });
   });
 
@@ -661,6 +664,29 @@ describe('Compose', () => {
     renderWithApp(() => <Compose onClose={() => undefined} />);
     fireEvent.click(screen.getByTestId('open-drafts'));
     expect(screen.getByTestId('compose-drafts')).toBeInTheDocument();
+  });
+
+  it('resumes the owned format, identity and attachments without duplicating its signature', async () => {
+    saveDraft({id:'resume-owned',accountId:'acct1',identityId:'id1',bodyFormat:'plain',insertedSignatures:['id1'],
+      to:'you@example.org',subject:'Resumed',bodyText:'Hi\n\n-- \nSent from Mailwoman',bodyHtml:'',savedAt:1,
+      attachments:[{name:'saved.pdf',blobId:'saved-upload',size:42,contentType:'application/pdf'}]});
+    saveDraft({id:'foreign',accountId:'other',to:'private@example.org',subject:'Foreign private',bodyText:'private',bodyHtml:'',savedAt:2});
+    const {app,client,onClose}=await composeWithClient({identities:IDENTITIES});
+    await app.loadIdentities();
+    fireEvent.click(screen.getByTestId('open-drafts'));
+    expect(screen.queryByTestId('draft-resume-foreign')).toBeNull();
+    fireEvent.click(await screen.findByTestId('draft-resume-resume-owned'));
+    expect(screen.getByTestId('format-toggle')).toHaveTextContent('Rich text');
+    expect(screen.getByLabelText('From')).toHaveValue('id1');
+    expect(screen.getByTestId('compose-attachments')).toHaveTextContent('saved.pdf');
+    fireEvent.click(screen.getByRole('button',{name:'Send'}));
+    await waitFor(()=>expect(onClose).toHaveBeenCalledTimes(1));
+    const request=sentRequest(client);
+    const draft=(request.methodCalls[0]![1]['create'] as Record<string,Record<string,unknown>>)['draft']!;
+    expect(draft['bodyValues']).toEqual({body:{value:'Hi\n\n-- \nSent from Mailwoman'}});
+    expect(draft['attachments']).toEqual([{blobId:'saved-upload',type:'application/pdf',name:'saved.pdf',size:42,disposition:'attachment'}]);
+    expect(listDrafts('acct1')).toEqual([]);
+    expect(listDrafts('other')).toHaveLength(1);
   });
 
   it('inserts a chosen signature into the plain-text body', async () => {
@@ -759,9 +785,12 @@ describe('Compose', () => {
       const fetchSpy = serverFetch({ engine: false, openTracking: true });
       vi.stubGlobal('fetch', fetchSpy);
       const { client, app } = await composeWithClient();
-      fireEvent.click(await screen.findByTestId('compose-track-opens'));
+      await screen.findByTestId('compose-track-opens');
       fireEvent.click(screen.getByTestId('format-toggle')); // plain text
       fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'tracked' } });
+      fireEvent.click(screen.getByTestId('format-toggle'));
+      await screen.findByTestId('compose-richtext');
+      fireEvent.click(await screen.findByTestId('compose-track-opens'));
       fillAndSend();
       await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
       expect(draftOf(client)['bodyValues']).toEqual({

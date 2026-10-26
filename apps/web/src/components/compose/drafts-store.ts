@@ -2,7 +2,7 @@
 //
 // Composer drafts are auto-saved to `localStorage` under a single JSON array so a
 // closed/refreshed composer can be resumed without a round-trip. These copies
-// are the ONLY saved state of an unsent composition: the composer does not
+// are account-bound saved state of an unsent composition: the composer does not
 // write drafts to the server's Drafts mailbox. They are plaintext (recipients,
 // subject, body) and belong to whoever is signed in, so `clearDrafts()` is
 // called on logout. The drawer is written prop-first so a server list can back
@@ -21,8 +21,19 @@ export interface StoredInlineImage {
   size: number;
 }
 
+export interface StoredAttachment {
+  name: string;
+  blobId: string;
+  size: number;
+  contentType: string | null;
+}
+
 export interface StoredDraft {
   id: string;
+  accountId: string;
+  identityId?: string;
+  bodyFormat?: 'plain' | 'html';
+  insertedSignatures?: string[];
   to: string;
   /** Absent on a draft stored before Cc/Bcc and replies existed. */
   cc?: string;
@@ -39,6 +50,7 @@ export interface StoredDraft {
   openTracking?: boolean;
   /** Images placed in the body; absent = none. */
   inline?: StoredInlineImage[];
+  attachments?: StoredAttachment[];
 }
 
 function read(): StoredDraft[] {
@@ -65,11 +77,23 @@ const isInlineList = (v: unknown): boolean =>
     return isString(r.cid) && isString(r.blobId) && isString(r.type) && isString(r.name) && typeof r.size === 'number';
   });
 
+const isAttachments = (v: unknown): boolean => Array.isArray(v) && v.length <= 100 && v.every(item => {
+  if (typeof item !== 'object' || item === null) return false;
+  const file = item as Record<string, unknown>;
+  return isString(file.name) && typeof file.blobId === 'string' && file.blobId.length > 0
+    && typeof file.size === 'number' && Number.isSafeInteger(file.size) && file.size >= 0
+    && (file.contentType === null || isString(file.contentType));
+});
+
 function isDraft(d: unknown): d is StoredDraft {
   if (typeof d !== 'object' || d === null) return false;
   const r = d as Record<string, unknown>;
   return (
     typeof r.id === 'string' &&
+    typeof r.accountId === 'string' && r.accountId.length > 0 &&
+    optional(r.identityId, isString) &&
+    optional(r.bodyFormat, value => value === 'plain' || value === 'html') &&
+    optional(r.insertedSignatures, isStringList) &&
     typeof r.to === 'string' &&
     typeof r.subject === 'string' &&
     typeof r.bodyHtml === 'string' &&
@@ -82,38 +106,46 @@ function isDraft(d: unknown): d is StoredDraft {
     optional(r.requestReceipt, isBool) &&
     optional(r.requestDeliveryReceipt, isBool) &&
     optional(r.openTracking, isBool) &&
-    optional(r.inline, isInlineList)
+    optional(r.inline, isInlineList) && optional(r.attachments, isAttachments)
   );
 }
 
 function write(drafts: StoredDraft[]): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(drafts.slice(0, MAX_DRAFTS)));
+    const counts = new Map<string, number>();
+    localStorage.setItem(KEY, JSON.stringify(drafts.filter(draft => {
+      const count = counts.get(draft.accountId) ?? 0;
+      counts.set(draft.accountId, count + 1);
+      return count < MAX_DRAFTS;
+    })));
   } catch {
     // Storage full / disabled (private mode): drafts degrade to in-session only.
   }
 }
 
-/** All stored drafts, newest first. */
-export function listDrafts(): StoredDraft[] {
-  return read().sort((a, b) => b.savedAt - a.savedAt);
+/** Only this authenticated account drafts, newest first. Legacy unowned rows
+ * are not attributed to whichever account happens to sign in next. */
+export function listDrafts(accountId: string | null): StoredDraft[] {
+  if (!accountId) return [];
+  return read().filter(draft => draft.accountId === accountId).sort((a, b) => b.savedAt - a.savedAt);
 }
 
 /** A draft is worth saving only once it has some recipient / subject / body. */
-export function draftHasContent(d: Pick<StoredDraft, 'to' | 'cc' | 'bcc' | 'subject' | 'bodyText'>): boolean {
-  return [d.to, d.cc ?? '', d.bcc ?? '', d.subject, d.bodyText].some((v) => v.trim() !== '');
+export function draftHasContent(d: Pick<StoredDraft, 'to' | 'cc' | 'bcc' | 'subject' | 'bodyText' | 'attachments' | 'inline'>): boolean {
+  return [d.to, d.cc ?? '', d.bcc ?? '', d.subject, d.bodyText].some((v) => v.trim() !== '') || (d.attachments?.length ?? 0) > 0 || (d.inline?.length ?? 0) > 0;
 }
 
 /** Insert or update a draft by id (no-op when it has no content yet). */
 export function saveDraft(draft: StoredDraft): void {
-  if (!draftHasContent(draft)) return;
-  const rest = read().filter((d) => d.id !== draft.id);
+  if (!draft.accountId || !isDraft(draft) || !draftHasContent(draft)) return;
+  const rest = read().filter((d) => d.id !== draft.id || d.accountId !== draft.accountId);
   write([draft, ...rest]);
 }
 
 /** Remove a draft by id (e.g. after it is sent or discarded). */
-export function deleteDraft(id: string): void {
-  write(read().filter((d) => d.id !== id));
+export function deleteDraft(id: string, accountId: string | null): void {
+  if (!accountId) return;
+  write(read().filter((d) => d.id !== id || d.accountId !== accountId));
 }
 
 /** Remove every stored draft (logout: the next person at this browser must not

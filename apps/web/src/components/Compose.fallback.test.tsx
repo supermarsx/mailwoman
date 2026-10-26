@@ -50,7 +50,7 @@ describe('Compose — the rich editor chunk has not arrived', () => {
     expect(sends).toHaveLength(1);
     const create = sends[0]!.methodCalls[0]![1]['create'] as Record<string, Record<string, unknown>>;
     expect(create['draft']!['bodyValues']).toEqual({
-      body: { value: '<p>typed in the fallback<br>second line</p>' },
+      body: { value: 'typed in the fallback\nsecond line' },
     });
   });
 
@@ -58,6 +58,7 @@ describe('Compose — the rich editor chunk has not arrived', () => {
     vi.useFakeTimers();
     try {
       const app = createAppState(makeClient());
+      await app.login({ username: 'me@example.org', password: 'p' });
       render(() => (
         <AppContext.Provider value={app}>
           <Compose onClose={() => undefined} />

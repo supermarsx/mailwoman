@@ -1,5 +1,5 @@
 import { rememberSuccessfulSignin } from '../../api/rememberedSignins.ts';
-import { activateAccountPreferences, suspendAccountPreferences } from '../../api/accountPreferenceLifecycle.ts';
+import { activateAccountPreferences, suspendAccountPreferences, preferenceAccount, preferenceAccountIsCurrent } from '../../api/accountPreferenceLifecycle.ts';
 import { createMessageView, type MessageView } from './messageView.ts';
 import { toastTarget } from '../../components/toast/context.ts';
 // Mail slice: session/auth, mailbox list, message list + reader, compose+send,
@@ -120,6 +120,7 @@ export interface SendInput {
    *  adds the identity's signature itself, because only it knows whether the
    *  body is ciphertext or a clear-signed block that must not be altered. */
   htmlBody: string;
+  textBody?: string;
   /** Send as this identity (its from-address); `null` = the account's own. */
   identity?: Identity | null;
   /** Send-later: ISO 8601 UTC time, which must be in the future; omitted/null =
@@ -1435,6 +1436,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const acct = accountId();
     const user = me();
     if (acct === null || user === null) throw new Error(t('mail-send-not-signed-in'));
+    const authority = preferenceAccount();
+    const sendAuthorityCurrent = () => accountId() === acct && me() === user && (authority === null || preferenceAccountIsCurrent(authority));
+    const requireCurrent = () => { if (!sendAuthorityCurrent()) throw new Error(t('mail-compose-account-changed')); };
     const sources = input.sources ?? (input.source ? [input.source] : []);
     const sourceBefore=new Map(sources.map(source=>[source.emailId,findEmail(source.emailId)?.keywords?.[source.keyword]===true]));
     const drafts = roleOf(mailboxes(), 'drafts') ?? selectedMailboxId();
@@ -1479,6 +1483,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       ...(input.references !== undefined && input.references.length > 0 ? { references: input.references } : {}),
       subject: input.subject,
       htmlBody: input.htmlBody,
+      ...(input.textBody !== undefined ? {textBody: input.textBody} : {}),
       holdSeconds,
       ...(sent !== null ? { sentMailboxId: sent } : {}),
       ...(identity !== null ? { identityId: identity.id } : {}),
@@ -1490,12 +1495,13 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       ...(input.requestReadReceipt === true ? { requestReadReceipt: true } : {}),
       ...(input.requestDeliveryReceipt === true ? { requestDeliveryReceipt: true } : {}),
     };
-    const track = input.openTracking === true;
+    const track = input.openTracking === true && input.textBody === undefined;
 
     // Offline: queue the send for replay on reconnect (drainOutbox → sendEnvelope).
     // A tracked send is queued without its image; the replay mints the token.
     if (isOffline() && ctx.enqueueOffline) {
       await ctx.enqueueOffline('send', { accountId: acct, draft, ...(track ? { track: true } : {}) });
+      if (!sendAuthorityCurrent()) return;
       showToast('info', t('mail-toast-send-queued'));
       return;
     }
@@ -1512,7 +1518,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       }
     }
 
+    requireCurrent();
     const res = await client.jmap(sendEnvelope(acct, outgoing));
+    if (!sendAuthorityCurrent()) return;
     ctx.broadcastChange?.();
     const setRes = responseFor<EmailSetResponse>(res, 'set');
     // A refused create throws, so the composer stays open and shows why.
@@ -1532,6 +1540,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (trackingToken !== null) {
       const emailId = setRes.created?.['draft']?.id;
       const bound = emailId !== undefined && (await bindTrackingToken(trackingToken, emailId));
+      if (!sendAuthorityCurrent()) return;
       if (!bound) showToast('error', t('mail-toast-tracking-not-bound'));
     }
 
@@ -1542,7 +1551,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // the mark; a scheduled send cancelled later from the Outbox does not.
     // The send itself has succeeded, so a failure here is not reported as one.
     async function markSources(on:boolean):Promise<void> {
-      if(!sources.length||accountId()!==acct)return;
+      if(!sources.length||!sendAuthorityCurrent())return;
       if(!input.sources&&input.source){await rawKeyword(input.source.emailId,input.source.keyword,on||sourceBefore.get(input.source.emailId)===true);return;}
       const patches:Record<Id,Record<string,unknown>>={};
       for(const source of sources)patches[source.emailId]={[`keywords/${source.keyword}`]:on||sourceBefore.get(source.emailId)===true?true:null};
@@ -1556,6 +1565,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       }
     }
 
+    if (!sendAuthorityCurrent()) return;
     if (scheduled) {
       showToast('success', t('mail-toast-send-scheduled'));
     } else if (submissionId !== null) {
@@ -1564,7 +1574,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       showUndo(
         t('mail-toast-sent'),
         async () => {
+          requireCurrent();
           await client.jmap(cancelSubmission(acct, submissionId));
+          if (!sendAuthorityCurrent()) return;
           await markSources(false).catch(() => undefined);
           showToast('info', t('mail-toast-send-canceled'));
         },
