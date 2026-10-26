@@ -19,13 +19,13 @@ States: **Verified** means the bounded behavior listed has passing local accepta
 | Atomic conditional settings/branding writes | Verified, 6fe9983; SQLite/PostgreSQL and HTTP concurrency tests | Further settings usability audit below |
 | Themed tooltips and retained mail surfaces/transitions | Verified bounded fixes, 89158d8/ea3af85 | Whole-app UX audit still required |
 | Session activity renewal up to 15 days; strict admin sessions | Verified bounded implementation, 0b7b28e | Final integrated regression still required |
-| Docker vendored dependency inclusion | Verified source stage and Cargo manifest loading, 2f04439 | Full runtime-static build currently being validated |
+| Docker vendored dependency inclusion | Verified source stage, Cargo manifest loading and full runtime-static image, 2f04439; local container healthcheck and HTTP health/SPA 200 passed | Build captured source before the latest parallel feature changes; not a production deployment |
 
 ## Remaining work and ownership
 
 | Request group (all constituent requests remain in scope) | Owner | State / next acceptance |
 |---|---|---|
-| Deployment: pull latest Git, dirty-tree handling, Compose wait compatibility, colored steps/commit information, Docker build speed | Root | Audit current deploy.sh and regression tests; complete full image build, preserve data, verify actual supported Compose behavior |
+| Deployment: pull latest Git, dirty-tree handling, Compose wait compatibility, colored steps/commit information, Docker build speed | Root | Git/TTY/color and Compose2.30 resume/restart regression suites pass. POSIX sh invocation now delegates to Bash. Full static image and local health/SPA smoke pass; cache-speed and full deployment lifecycle acceptance remain. |
 | Global brutalist/Bauhaus controls: inputs, dropdowns, multi-select, checkboxes, buttons, margins, field/button alignment, width/layout behavior | Root | Audit all screens; fix shared primitives and verify desktop/mobile/dark/reduced-motion |
 | Dedicated editor pages/tabs: roles, domains, identities, signatures, SSO and other editable entities | Root | Audit; no residual inline entity editors where user requested dedicated views |
 | Admin personal configuration/TOTP, global/admin/user configurability, effective configuration UX | Security + Root UI | Audit persistence, policy locks, navigation and account isolation |
@@ -47,7 +47,7 @@ States: **Verified** means the bounded behavior listed has passing local accepta
 | Global search, full threading, Outlook-like filters, saved search folders | Root + Integrations | Audit feature depth and backend behavior, not only controls |
 | Embedded OpenID Connect identity provider for other apps | Security | Audit existing provider work; complete protocol/security and relying-party acceptance |
 | Linked child accounts with own identities, signatures, mappings and top-bar selector | Integrations | Audit parent/child authorization, isolated account state and switching |
-| Nextcloud per-account files/attachments, contacts and calendars, admin/user controls | Integrations | Partial; existing environment-global gateway and mismatched API contracts require repair |
+| Nextcloud per-account files/attachments, contacts and calendars, admin/user controls | Integrations | Partial; 265999f adds sealed account-isolated links and guarded DAV transport. SQLite/PostgreSQL migration/CAS, egress104 and DAV wire3 tests pass; runtime/UI integration in progress. |
 | Server-backed user settings/drafts and cross-device read/move state synchronization | Root + Integrations | Audit account identity, drafts and realtime conflict handling |
 | CalDAV discovery, PWA/offline, browser storage permissions | Integrations + Security | Audit discovery, offline boundaries, permission UX and sync recovery |
 | Extensive HTTP/2 and HTTP/3/QUIC deployment support | Integrations | Audit server/proxy configuration and real negotiated protocols |

@@ -2,6 +2,11 @@
 # Mailwoman single-host deployment and recovery. Run `bash deploy.sh --help`.
 # Requires Bash 4+, Docker with Linux containers, Compose 2.30+, curl and tar.
 # Configuration files are parsed as data, never sourced as shell scripts.
+# Accept `sh deploy.sh` on hosts where sh is dash or another POSIX shell.
+# Keep this bootstrap POSIX-compatible and before any Bash-only syntax.
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
 set -Eeuo pipefail
 umask 077
 
