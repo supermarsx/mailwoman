@@ -75,6 +75,44 @@ def run(args, timeout, output=False):
     return result.stdout if output else None
 
 
+def external_ssh_is_pinned(command):
+    """Accept required checks only as leading OpenSSH options, never command text."""
+    options = shlex.split(command)
+    if not options or Path(options[0]).name not in {"ssh", "ssh.exe"}:
+        return False
+    values, index = [], 1
+    takes_value = set("BbcDEeFIiJLlmOoPpQRSWw")
+    flags = set("46AaCfGgKkMNnqsTtVvXxYy")
+    while index < len(options):
+        item = options[index]
+        if item == "--":
+            index += 1
+            break
+        if not item.startswith("-") or item == "-":
+            break
+        if len(item) < 2:
+            return False
+        option = item[1]
+        if option in takes_value:
+            value = item[2:]
+            if not value:
+                index += 1
+                if index >= len(options):
+                    return False
+                value = options[index]
+            if option == "o":
+                values.append(value.lower())
+        elif not all(flag in flags for flag in item[1:]):
+            return False
+        index += 1
+    # SFTP supplies its own subsystem command; extra command tokens are not options.
+    if index != len(options) - 1 or options[index].startswith("-"):
+        return False
+    trust = [value for value in values if value.startswith("stricthostkeychecking=")]
+    batch = [value for value in values if value.startswith("batchmode=")]
+    return trust == ["stricthostkeychecking=yes"] and batch == ["batchmode=yes"]
+
+
 def preflight(row):
     kind = row["type"]
     if kind in {"local", "nfs"}:
@@ -88,18 +126,24 @@ def preflight(row):
         return
     if not shutil.which("rclone"):
         raise BackupError("Install rclone for remote destinations")
+    unsafe = sorted(name for name in os.environ
+                    if name.upper().startswith("RCLONE_") and name.upper() != "RCLONE_CA_CERT")
+    if unsafe:
+        names = ", ".join(re.sub(r"[^A-Za-z0-9_]", "?", name)[:128] for name in unsafe[:16])
+        raise BackupError(f"Use the configured rclone file; only RCLONE_CA_CERT is allowed. Refused environment names: {names}")
     config = configparser.ConfigParser(interpolation=None)
     config.read(row["rcloneConfig"], encoding="utf-8")
     if not config.has_section(row["remote"]) or config.get(row["remote"], "type", fallback="") != kind:
         raise BackupError("Named rclone remote is missing or has a different storage type")
     remote = config[row["remote"]]
+    overrides = sorted(name for name in remote if name.startswith(("global.", "override.")))
+    if overrides:
+        names = ", ".join(re.sub(r"[^A-Za-z0-9_.]", "?", name)[:128] for name in overrides[:16])
+        raise BackupError(f"Remote global/override options are not supported. Refused option names: {names}")
     if kind == "sftp":
         external = remote.get("ssh", "")
         if external:
-            options = shlex.split(external)
-            trust = [arg.removeprefix("-o").lower() for arg in options if arg.removeprefix("-o").lower().startswith("stricthostkeychecking=")]
-            batch = [arg.removeprefix("-o").lower() for arg in options if arg.removeprefix("-o").lower().startswith("batchmode=")]
-            if not options or Path(options[0]).name not in {"ssh", "ssh.exe"} or trust != ["stricthostkeychecking=yes"] or batch != ["batchmode=yes"]:
+            if not external_ssh_is_pinned(external):
                 raise BackupError("External SSH requires ssh -o StrictHostKeyChecking=yes -o BatchMode=yes; jump hosts must also enforce host-key verification")
         elif not remote.get("known_hosts_file") or remote.get("known_hosts_file", "").lower() == "none":
             raise BackupError("SFTP requires known_hosts_file with pinned host keys")
@@ -107,6 +151,8 @@ def preflight(row):
             raise BackupError("Backups may not automatically accept new SSH host keys")
     if kind == "webdav" and not remote.get("url", "").startswith("https://"):
         raise BackupError("WebDAV requires HTTPS")
+    if kind == "s3" and remote.get("endpoint", "") and not remote.get("endpoint", "").startswith("https://"):
+        raise BackupError("Custom S3 endpoints require HTTPS")
 
 
 def digest(path):
@@ -250,6 +296,11 @@ def main():
             except BackupError as error:
                 failed = True
                 print(f"[backup] {row['id']}: {error}", file=sys.stderr)
+            except (OSError, ValueError, TypeError, configparser.Error) as error:
+                # One destination must not prevent independent recovery copies.
+                # Exception text can include credentials, signed URLs or paths.
+                failed = True
+                print(f"[backup] {row['id']}: Configuration or filesystem error: {type(error).__name__}", file=sys.stderr)
         return 1 if failed else 0
     except BackupError as error:
         print(f"[backup] {error}", file=sys.stderr)

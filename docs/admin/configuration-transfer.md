@@ -69,3 +69,9 @@ python3 scripts/test-backup-transports.py --rclone /absolute/path/to/rclone --me
 ```
 
 These require rclone with the relevant `serve` command, OpenSSL, and `ssh-keygen` for SFTP. They check publication, retrieval and tamper rejection; SFTP also checks host-key mismatch rejection. They do not replace acceptance against the operator's storage provider, SMB server, NFS mount or SSH jump-host configuration.
+
+### Backup helper configuration boundaries
+
+Nonempty custom S3 endpoints must use HTTPS; an empty endpoint keeps the standard provider endpoint. The selected rclone remote may not contain `global.*` or `override.*` options. Runtime `RCLONE_*` environment overrides are refused, except `RCLONE_CA_CERT` for explicit private-CA trust. Put credentials and remote settings in the operator-owned configuration file. HTTP(S) proxy environment routing remains available. Refusal diagnostics name options or environment variables but do not print their values.
+
+External SSH commands must put `StrictHostKeyChecking=yes` and `BatchMode=yes` in leading `-o` options, followed by one destination. Extra remote-command arguments are refused; rclone supplies its own SFTP subsystem command. Jump-host trust remains the operator's separately pinned SSH configuration responsibility.
