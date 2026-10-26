@@ -5562,6 +5562,7 @@ dependencies = [
  "mw-autoconfig",
  "mw-cache",
  "mw-crypto",
+ "mw-dav",
  "mw-directory",
  "mw-egress",
  "mw-engine",

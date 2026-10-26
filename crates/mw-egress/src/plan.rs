@@ -252,6 +252,7 @@ pub fn current() -> Option<Arc<EgressPlan>> {
 /// One class request, apart from its URL.
 #[derive(Debug, Clone, Copy)]
 pub struct Request<'a> {
+    response_metadata: Option<&'a crate::ResponseMetadata>,
     authorized_api: Option<crate::AuthorizedApi<'a>>,
     web_push: Option<crate::WebPushHeaders<'a>>,
     authorized_dav: Option<crate::AuthorizedDav<'a>>,
@@ -268,6 +269,7 @@ impl<'a> Request<'a> {
     /// `User-Agent` and no account.
     pub fn get(class: TrafficClass) -> Request<'a> {
         Request {
+            response_metadata: None,
             authorized_api: None,
             authorized_dav: None,
             web_push: None,
@@ -356,6 +358,12 @@ impl<'a> Request<'a> {
         self
     }
 
+    /// Capture bounded status/ETag metadata without changing failure semantics.
+    pub fn capture_response(mut self, metadata: &'a crate::ResponseMetadata) -> Self {
+        self.response_metadata = Some(metadata);
+        self
+    }
+
     /// Lower the response cap for every hop, including tunneled requests.
     pub fn response_limit(mut self, bytes: usize) -> Request<'a> {
         self.response_limit = bytes.min(if self.authorized_api.is_some() {
@@ -379,6 +387,7 @@ impl<'a> Request<'a> {
 
     fn outgoing(&self) -> Outgoing<'a> {
         Outgoing {
+            response_metadata: self.response_metadata,
             authorized_api: self.authorized_api,
             authorized_dav: self.authorized_dav,
             web_push: self.web_push,

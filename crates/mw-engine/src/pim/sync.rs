@@ -9,7 +9,7 @@
 //! (`persist_*` PUTs on write); this module owns the **pull** side plus the thin
 //! PUT/DELETE adapters those writers call.
 
-use mw_dav::{DavClient, DavConfig, SyncDelta};
+use mw_dav::SyncDelta;
 use serde_json::Value;
 
 use crate::account::AccountRuntime;
@@ -25,18 +25,32 @@ pub(crate) fn dav_err(e: mw_dav::DavError) -> EngineError {
     EngineError::Protocol(format!("dav: {e}"))
 }
 
+/// Resolve server-relative resources using their owning collection, while
+/// retaining legacy relative collection URLs under the configured DAV root.
+pub(crate) fn resource_url(rt: &AccountRuntime, collection: &str, href: &str) -> Result<String> {
+    let config = rt
+        .dav
+        .as_ref()
+        .ok_or_else(|| EngineError::Protocol("DAV is not configured".into()))?;
+    let collection =
+        mw_dav::resolve_resource_href(&config.base_url, collection).map_err(dav_err)?;
+    mw_dav::resolve_resource_href(&collection, href).map_err(dav_err)
+}
+
 impl Engine {
     // ── write adapters (called by persist_* on the push side) ────────────────
 
     /// `PUT` an iCalendar resource, returning the server's new `ETag` if any.
     pub(crate) async fn dav_put(
         &self,
-        base: &DavConfig,
+        rt: &AccountRuntime,
         href: &str,
         body: &str,
         if_match: Option<&str>,
+        tasks: bool,
     ) -> Result<Option<String>> {
-        let client = DavClient::new(base.clone()).map_err(dav_err)?;
+        let client = rt.dav_client().map_err(dav_err)?;
+        let client = if tasks { client.for_tasks() } else { client };
         client
             .put_resource(href, body, if_match)
             .await
@@ -46,11 +60,13 @@ impl Engine {
     /// `DELETE` an iCalendar resource (best-effort; `412` conflict is surfaced).
     pub(crate) async fn dav_delete(
         &self,
-        base: &DavConfig,
+        rt: &AccountRuntime,
         href: &str,
         if_match: Option<&str>,
+        tasks: bool,
     ) -> Result<()> {
-        let client = DavClient::new(base.clone()).map_err(dav_err)?;
+        let client = rt.dav_client().map_err(dav_err)?;
+        let client = if tasks { client.for_tasks() } else { client };
         client
             .delete_resource(href, if_match)
             .await
@@ -60,12 +76,12 @@ impl Engine {
     /// `PUT` a vCard resource, returning the server's new `ETag` if any.
     pub(crate) async fn carddav_put(
         &self,
-        base: &DavConfig,
+        rt: &AccountRuntime,
         href: &str,
         vcard: &str,
         if_match: Option<&str>,
     ) -> Result<Option<String>> {
-        let client = mw_carddav::CardDavClient::new(base.clone()).map_err(dav_err)?;
+        let client = rt.carddav_client().map_err(dav_err)?;
         let etag = client
             .put_contact(href, vcard, if_match)
             .await
@@ -76,11 +92,11 @@ impl Engine {
     /// `DELETE` a vCard resource (best-effort; `412` conflict is surfaced).
     pub(crate) async fn carddav_delete(
         &self,
-        base: &DavConfig,
+        rt: &AccountRuntime,
         href: &str,
         if_match: Option<&str>,
     ) -> Result<()> {
-        let client = mw_carddav::CardDavClient::new(base.clone()).map_err(dav_err)?;
+        let client = rt.carddav_client().map_err(dav_err)?;
         client.delete_contact(href, if_match).await.map_err(dav_err)
     }
 
@@ -93,6 +109,15 @@ impl Engine {
     /// so the surface degrades rather than stalls; the first failure is returned
     /// after every collection was tried, so the caller can back off.
     pub async fn sync_pim(&self, account_id: &str, rt: &AccountRuntime) -> Result<()> {
+        self.sync_pim_selected(account_id, rt, None).await
+    }
+
+    pub(crate) async fn sync_pim_selected(
+        &self,
+        account_id: &str,
+        rt: &AccountRuntime,
+        selected: Option<&std::collections::HashSet<String>>,
+    ) -> Result<()> {
         // Bridge PIM routing (plan §2.2, §1.3): when the account's backend advertises
         // a bridge calendar/tasks capability, pull PIM through the bridge. When it
         // does NOT — a plain IMAP/POP3/DAV account, or nothing attached — this is a
@@ -100,22 +125,28 @@ impl Engine {
         // standards CalDAV/CardDAV path below runs byte-for-byte unchanged.
         self.sync_pim_via_bridge(account_id).await?;
 
-        let Some(base) = rt.dav.clone() else {
+        let Some(_) = rt.dav.as_ref() else {
             return Ok(()); // mail-only account (incl. bridge-only accounts)
         };
         let mut first_err: Option<EngineError> = None;
         for cal in self.store().list_calendars(account_id).await? {
+            if selected.is_some_and(|ids| !ids.contains(&cal.id)) {
+                continue;
+            }
             if cal.caldav_url.is_none() || cal.is_overlay {
                 continue;
             }
-            if let Err(e) = self.pull_calendar(account_id, &cal, &base).await {
+            if let Err(e) = self.pull_calendar(account_id, &cal, rt).await {
                 tracing::warn!("CalDAV pull for calendar {} failed: {e}", cal.id);
                 first_err.get_or_insert(e);
             }
         }
         for book in self.store().list_address_books(account_id).await? {
+            if selected.is_some_and(|ids| !ids.contains(&book.id)) {
+                continue;
+            }
             if book.carddav_url.is_some()
-                && let Err(e) = self.pull_address_book(account_id, &book, &base).await
+                && let Err(e) = self.pull_address_book(account_id, &book, rt).await
             {
                 tracing::warn!("CardDAV pull for book {} failed: {e}", book.id);
                 first_err.get_or_insert(e);
@@ -132,7 +163,7 @@ impl Engine {
         &self,
         account_id: &str,
         cal: &mw_store::CalendarRow,
-        base: &DavConfig,
+        rt: &AccountRuntime,
     ) -> Result<()> {
         if cal.is_overlay {
             // A webcal feed: no REPORT, PUT or DELETE ever goes to it.
@@ -140,7 +171,8 @@ impl Engine {
         }
         let href = cal.caldav_url.as_deref().unwrap_or_default();
         let tasks = cal.component == "VTODO";
-        let client = DavClient::new(base.clone()).map_err(dav_err)?;
+        let client = rt.dav_client().map_err(dav_err)?;
+        let client = if tasks { client.for_tasks() } else { client };
         let members = if tasks {
             self.store().task_dav_members(&cal.id).await?
         } else {
@@ -296,10 +328,10 @@ impl Engine {
         &self,
         account_id: &str,
         book: &mw_store::AddressBookRow,
-        base: &DavConfig,
+        rt: &AccountRuntime,
     ) -> Result<()> {
         let href = book.carddav_url.as_deref().unwrap_or_default();
-        let client = mw_carddav::CardDavClient::new(base.clone()).map_err(dav_err)?;
+        let client = rt.carddav_client().map_err(dav_err)?;
         let members = self.store().contact_dav_members(&book.id).await?;
         let delta = client
             .sync_addressbook(href, book.sync_token.as_deref())

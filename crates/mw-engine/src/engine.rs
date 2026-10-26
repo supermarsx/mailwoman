@@ -253,6 +253,22 @@ impl Engine {
             .insert(account_id.into(), runtime);
     }
 
+    /// Install a guarded transport without replacing mailbox state or watch handles.
+    pub fn configure_dav_transport(&self, account: &str, config: mw_dav::DavConfig, transport: Arc<dyn mw_dav::DavTransport>) {
+        if let Some(runtime) = self.accounts.lock().expect("accounts lock").get_mut(account) {
+            runtime.dav = Some(config);
+            runtime.dav_transport = Some(transport);
+        }
+    }
+
+    /// Explicit bounded caller-driven refresh of all configured PIM collections.
+    pub async fn sync_current_pim(&self, account: &str) -> Result<()> {
+        let runtime = self.require_runtime(account)?;
+        let selected = self.store().active_nextcloud_pim_bindings(account).await?
+            .into_iter().map(|binding|binding.collection_id).collect();
+        self.sync_pim_selected(account, &runtime, Some(&selected)).await
+    }
+
     /// Reject only the worker and credential revision that actually failed.
     pub async fn reject_runtime_credentials(
         &self,

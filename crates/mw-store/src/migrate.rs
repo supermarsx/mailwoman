@@ -2257,6 +2257,12 @@ const TABLES: &[TableSpec] = &[
         map: |r| vec![t(r, "account_id"), t(r, "instance_id"), t(r, "instance_revision"), t(r, "username"), b(r, "sealed_password"), t(r, "revision")],
     },
     TableSpec {
+        name: "nextcloud_pim_binding",
+        select: "SELECT account_id,collection_id,kind,instance_id,link_revision,href,enabled FROM nextcloud_pim_binding",
+        insert: "INSERT INTO nextcloud_pim_binding(account_id,collection_id,kind,instance_id,link_revision,href,enabled) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| vec![t(r,"account_id"),t(r,"collection_id"),t(r,"kind"),t(r,"instance_id"),t(r,"link_revision"),t(r,"href"),i(r,"enabled")],
+    },
+    TableSpec {
         name: "metric_rollup",
         select: "SELECT series, hour, instance, value_json FROM metric_rollup",
         insert: "INSERT INTO metric_rollup (series, hour, instance, value_json) VALUES (?1,?2,?3,?4)",

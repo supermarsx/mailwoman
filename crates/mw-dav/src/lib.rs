@@ -26,6 +26,8 @@
 
 pub mod request;
 pub mod response;
+pub mod transport;
+pub use transport::{DavTransport, TransportRequest, TransportResponse};
 
 use request::DavKind;
 use serde::{Deserialize, Serialize};
@@ -157,6 +159,13 @@ fn check_status(status: u16, body: &str) -> Result<()> {
 /// Resolve `href` against `base` into an absolute URL. Absolute hrefs (which
 /// Google returns) pass through; root-relative hrefs are joined to the base
 /// origin; anything else is appended to the base path.
+pub fn resolve_resource_href(base: &str, href: &str) -> Result<String> {
+    reqwest::Url::parse(base)
+        .and_then(|url| url.join(href))
+        .map(|url| url.to_string())
+        .map_err(|_| DavError::Transport("invalid collection resource URL".into()))
+}
+
 fn resolve(base: &str, href: &str) -> String {
     if href.starts_with("http://") || href.starts_with("https://") {
         return href.to_string();
@@ -176,25 +185,40 @@ fn resolve(base: &str, href: &str) -> String {
     )
 }
 
-/// A completed DAV/HTTP response reduced to what the core parsers need.
-struct DavResponse {
-    status: u16,
-    etag: Option<String>,
-    body: String,
-}
+type DavResponse = TransportResponse;
 
 /// The shared DAV/HTTP client (plan §1.3). `mw-carddav` constructs its own
 /// surface over the same core methods.
 pub struct DavClient {
+    kind: &'static str,
     config: DavConfig,
-    http: reqwest::Client,
+    transport: std::sync::Arc<dyn DavTransport>,
 }
 
 impl DavClient {
     /// Construct a DAV client for an account (rustls `reqwest`).
     pub fn new(config: DavConfig) -> Result<Self> {
-        let http = http_client(&config)?;
-        Ok(Self { config, http })
+        let transport = std::sync::Arc::new(transport::DirectTransport::new(config.clone())?);
+        Ok(Self {
+            config,
+            transport,
+            kind: "calendar",
+        })
+    }
+
+    /// Use an account-authorized transport for every request without fallback.
+    pub fn with_transport(config: DavConfig, transport: std::sync::Arc<dyn DavTransport>) -> Self {
+        Self {
+            config,
+            transport,
+            kind: "calendar",
+        }
+    }
+
+    /// Apply task-family policy to a VTODO collection.
+    pub fn for_tasks(mut self) -> Self {
+        self.kind = "tasks";
+        self
     }
 
     /// Issue a raw DAV request (custom method, optional `Depth`, optional XML
@@ -227,41 +251,25 @@ impl DavClient {
         extra_headers: &[(&str, &str)],
         body: Option<(&str, String)>,
     ) -> Result<DavResponse> {
-        if !url_allowed(&self.config, url) {
-            return Err(DavError::Transport(
-                "refused: the DAV server named a URL on another host".into(),
-            ));
+        let mut request = TransportRequest {
+            kind: Some(self.kind),
+            method: method.into(),
+            url: url.into(),
+            depth: depth.map(str::to_owned),
+            content_type: body.as_ref().map(|(kind, _)| (*kind).to_owned()),
+            body: body.map(|(_, body)| body),
+            if_match: None,
+            if_none_match: None,
+        };
+        for (name, value) in extra_headers {
+            match *name {
+                "If-Match" => request.if_match = Some((*value).into()),
+                "If-None-Match" => request.if_none_match = Some((*value).into()),
+                _ => return Err(DavError::Transport("unsupported DAV header".into())),
+            }
         }
-        let method = reqwest::Method::from_bytes(method.as_bytes())
-            .map_err(|e| DavError::Transport(e.to_string()))?;
-        let mut req = self
-            .http
-            .request(method, url)
-            .basic_auth(&self.config.username, Some(&self.config.password));
-        if let Some(d) = depth {
-            req = req.header("Depth", d);
-        }
-        for (k, v) in extra_headers {
-            req = req.header(*k, *v);
-        }
-        if let Some((content_type, b)) = body {
-            req = req.header("Content-Type", content_type).body(b);
-        }
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| DavError::Transport(e.to_string()))?;
-        let status = resp.status().as_u16();
-        let etag = resp
-            .headers()
-            .get(reqwest::header::ETAG)
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string);
-        let body = resp
-            .text()
-            .await
-            .map_err(|e| DavError::Transport(e.to_string()))?;
-        Ok(DavResponse { status, etag, body })
+        request.validate()?;
+        self.transport.send(request).await
     }
 
     // ── shared DAV core (reused by mw-carddav) ──────────────────────────────

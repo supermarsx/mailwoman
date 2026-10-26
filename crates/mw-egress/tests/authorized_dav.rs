@@ -12,6 +12,7 @@ fn auth(method: DavMethod) -> AuthorizedDav<'static> {
         authorization: "Basic cHJpdmF0ZTpwYXNzd29yZA==",
         depth: Some(1),
         ocs: true,
+        if_none_match: None,
         if_match: Some("\"rev1\""),
     }
 }
@@ -21,6 +22,7 @@ async fn selected_proxy_receives_restricted_dav_headers_and_never_retries_reject
     for (method, status) in [
         (DavMethod::Propfind, "401 Unauthorized"),
         (DavMethod::Get, "302 Found"),
+        (DavMethod::Put, "412 Precondition Failed"),
     ] {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -79,7 +81,7 @@ async fn selected_proxy_receives_restricted_dav_headers_and_never_retries_reject
             assert!(lower.contains("if-match: \"rev1\""));
             assert!(!lower.contains("cookie:"));
             assert!(!lower.contains("proxy-authorization:"));
-            socket.get_mut().write_all(format!("HTTP/1.1 {status}\r\nLocation: http://8.8.4.4/stolen\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+            socket.get_mut().write_all(format!("HTTP/1.1 {status}\r\nETag: remote-v2\r\nLocation: http://8.8.4.4/stolen\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
             drop(socket);
             assert!(
                 tokio::time::timeout(std::time::Duration::from_millis(150), listener.accept())
@@ -87,9 +89,11 @@ async fn selected_proxy_receives_restricted_dav_headers_and_never_retries_reject
                     .is_err()
             );
         });
+        let metadata = mw_egress::ResponseMetadata::default();
         let request = Request::dav(auth(method), None)
             .unwrap()
-            .for_domain("mail.test");
+            .for_domain("mail.test")
+            .capture_response(&metadata);
         let result = mw_egress::plan::send_with(
             &plan,
             "http://8.8.8.8/remote.php/dav/files/alice/"
@@ -100,6 +104,9 @@ async fn selected_proxy_receives_restricted_dav_headers_and_never_retries_reject
         .await;
         assert!(result.traversed_proxy);
         assert!(result.outcome.is_err());
+        let captured = metadata.snapshot().expect("bounded metadata for failure");
+        assert_eq!(captured.status.to_string(), &status[..3]);
+        assert_eq!(captured.etag.as_deref(), Some("remote-v2"));
         task.await.unwrap();
     }
 }
@@ -109,6 +116,7 @@ async fn cancelled_dav_exchange_closes_connection_pump() {
     let (client, mut server) = tokio::io::duplex(4096);
     let task = tokio::spawn(async move {
         let out = Outgoing {
+            response_metadata: None,
             authorized_api: None,
             authorized_dav: Some(auth(DavMethod::Propfind)),
             web_push: None,

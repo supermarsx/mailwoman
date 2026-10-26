@@ -84,6 +84,8 @@ mod packages_model;
 mod nextcloud_config;
 mod nextcloud_gateway;
 mod nextcloud_transport;
+mod nextcloud_pim;
+mod nextcloud_pim_transport;
 mod nextcloud_xml;
 pub mod passwd;
 pub mod plugins;
@@ -1468,6 +1470,7 @@ fn router(
         .merge(branding_routes::router())
         .merge(analytics_routes::router())
         .merge(nextcloud_accounts::router())
+        .merge(nextcloud_pim::router())
         .merge(packages::router())
         .route("/jmap/session", get(jmap_session))
         .route("/jmap/api", post(jmap_api).route_layer(middleware::from_fn_with_state(state.clone(), scope_mw::jmap_sieve_scope_guard)))
@@ -2824,6 +2827,9 @@ async fn jmap_api(State(state): State<AppState>, source: Option<Extension<scope_
                 Err(response) => return response,
             }
         } else { None };
+        if request.get("methodCalls").and_then(Value::as_array).is_some_and(|calls| calls.iter().any(|call| call.get(0).and_then(Value::as_str).is_some_and(mw_engine::pim::dispatch::is_pim_method))) {
+            nextcloud_pim::install(engine, &state.store, &session.account_id);
+        }
         let response = engine.handle_jmap_with_sieve(&session.account_id, &request, sieve.as_mut()).await;
         if sieve.as_ref().is_some_and(|ctx| ctx.forwarding_added) {
             alerts::emit(&state, &session.account_id, alerts::AlertKind::ForwardingAdded, json!({})).await;

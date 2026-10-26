@@ -53,6 +53,8 @@
 /// model, the residual it cannot close, and the deliberate origin/proxy asymmetry.
 mod api;
 pub use api::{ApiMethod, AuthorizedApi};
+mod response_metadata;
+pub use response_metadata::{ResponseHead, ResponseMetadata};
 pub mod proxy;
 
 /// Traffic classes (t32 e31b): what an outbound request is for, which decides the
@@ -573,6 +575,7 @@ pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Re
     send_hop(
         target,
         &Outgoing {
+            response_metadata: None,
             authorized_api: None,
             authorized_dav: None,
             web_push: None,
@@ -594,6 +597,7 @@ pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Re
 /// a reader's request (no cookie, referrer, authorization or browser UA).
 #[derive(Clone, Copy)]
 pub struct Outgoing<'a> {
+    pub response_metadata: Option<&'a ResponseMetadata>,
     pub authorized_api: Option<AuthorizedApi<'a>>,
     pub web_push: Option<WebPushHeaders<'a>>,
     /// Explicit credential-bearing DAV operation; redirects are always refused.
@@ -635,6 +639,7 @@ impl WebPushHeaders<'_> {
 pub enum DavMethod {
     Get,
     Propfind,
+    MkCalendar,
     Put,
     Post,
     Report,
@@ -645,6 +650,7 @@ impl DavMethod {
         match self {
             Self::Get => "GET",
             Self::Propfind => "PROPFIND",
+            Self::MkCalendar => "MKCALENDAR",
             Self::Put => "PUT",
             Self::Post => "POST",
             Self::Report => "REPORT",
@@ -661,6 +667,7 @@ pub struct AuthorizedDav<'a> {
     pub depth: Option<u8>,
     pub ocs: bool,
     pub if_match: Option<&'a str>,
+    pub if_none_match: Option<&'a str>,
 }
 impl fmt::Debug for AuthorizedDav<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -689,7 +696,7 @@ impl AuthorizedDav<'_> {
         {
             return Err(Refusal::BadRequest("invalid DAV authorization or depth"));
         }
-        for value in [Some(self.authorization), self.if_match]
+        for value in [Some(self.authorization), self.if_match, self.if_none_match]
             .into_iter()
             .flatten()
         {
@@ -799,6 +806,9 @@ pub(crate) async fn send_hop_typed(
         if dav.ocs {
             request = request.header("OCS-APIRequest", "true");
         }
+        if let Some(tag) = dav.if_none_match {
+            request = request.header("If-None-Match", tag);
+        }
         if let Some(tag) = dav.if_match {
             request = request.header(header::IF_MATCH, tag);
         }
@@ -845,6 +855,14 @@ pub(crate) async fn send_hop_typed(
         })?;
 
     let status = resp.status();
+    if let Some(metadata) = out.response_metadata {
+        metadata.record(
+            status.as_u16(),
+            resp.headers()
+                .get(reqwest::header::ETAG)
+                .and_then(|v| v.to_str().ok()),
+        );
+    }
     if status.is_redirection() {
         let loc = resp
             .headers()

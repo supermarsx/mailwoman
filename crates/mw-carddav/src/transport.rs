@@ -22,16 +22,22 @@ pub(crate) struct HttpResponse {
 
 /// The CardDAV HTTP transport (basic-auth `reqwest`, rustls).
 pub(crate) struct Http {
-    client: reqwest::Client,
+    transport: std::sync::Arc<dyn mw_dav::DavTransport>,
     config: DavConfig,
 }
 
 impl Http {
     pub(crate) fn new(config: DavConfig) -> Result<Self> {
-        // The shared DAV core's client: no ambient proxy, and pinned to the
-        // checked address when the config carries one (t28-e19).
-        let client = mw_dav::http_client(&config).map_err(|e| Error::Transport(e.to_string()))?;
-        Ok(Self { client, config })
+        let transport =
+            std::sync::Arc::new(mw_dav::transport::DirectTransport::new(config.clone())?);
+        Ok(Self { transport, config })
+    }
+
+    pub(crate) fn with_transport(
+        config: DavConfig,
+        transport: std::sync::Arc<dyn mw_dav::DavTransport>,
+    ) -> Self {
+        Self { config, transport }
     }
 
     /// Resolve a collection/resource href against the account base URL. Absolute
@@ -62,48 +68,22 @@ impl Http {
         if_none_match: Option<&str>,
     ) -> Result<HttpResponse> {
         let url = self.resolve(href)?;
-        if !mw_dav::url_allowed(&self.config, url.as_str()) {
-            return Err(Error::Transport(
-                "refused: the DAV server named a URL on another host".into(),
-            ));
-        }
-        let mut req = self
-            .client
-            .request(method, url)
-            .basic_auth(&self.config.username, Some(&self.config.password));
-        if let Some(d) = depth {
-            req = req.header("Depth", d);
-        }
-        if let Some(ct) = content_type {
-            req = req.header("Content-Type", ct);
-        }
-        if let Some(m) = if_match {
-            req = req.header("If-Match", m);
-        }
-        if let Some(m) = if_none_match {
-            req = req.header("If-None-Match", m);
-        }
-        if let Some(b) = body {
-            req = req.body(b);
-        }
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| Error::Transport(e.to_string()))?;
-        let status = resp.status().as_u16();
-        let etag = resp
-            .headers()
-            .get("ETag")
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string);
-        let text = resp
-            .text()
-            .await
-            .map_err(|e| Error::Transport(e.to_string()))?;
+        let request = mw_dav::TransportRequest {
+            kind: Some("contacts"),
+            method: method.as_str().into(),
+            url: url.to_string(),
+            depth: depth.map(str::to_owned),
+            content_type: content_type.map(str::to_owned),
+            body,
+            if_match: if_match.map(str::to_owned),
+            if_none_match: if_none_match.map(str::to_owned),
+        };
+        request.validate()?;
+        let response = self.transport.send(request).await?;
         Ok(HttpResponse {
-            status,
-            etag,
-            body: text,
+            status: response.status,
+            etag: response.etag,
+            body: response.body,
         })
     }
 

@@ -222,13 +222,15 @@ impl Engine {
         // DAV collection: nothing is sent to it.
         if let Some(cal) = self.store().get_calendar(&row.calendar_id).await?
             && !cal.is_overlay
-            && let (Some(base), Some(url)) = (rt.dav.clone(), cal.caldav_url.clone())
+            && let Some(url) = cal.caldav_url.clone()
         {
             let href = match self.store().event_href(id).await? {
                 Some(h) => h,
                 None => resource_href(&url, &row.uid, "ics"),
             };
-            let _ = self.dav_delete(&base, &href, row.etag.as_deref()).await;
+            let href = super::sync::resource_url(rt, &url, &href)?;
+            self.dav_delete(rt, &href, row.etag.as_deref(), false)
+                .await?;
         }
         self.store().delete_event(id).await?;
         self.record_pim_change(
@@ -361,7 +363,7 @@ impl Engine {
             && let Some(rt) = push_rt
             && let Some(cal) = self.store().get_calendar(calendar_id).await?
             && !cal.is_overlay
-            && let (Some(base), Some(url)) = (rt.dav.clone(), cal.caldav_url.clone())
+            && let Some(url) = cal.caldav_url.clone()
         {
             let stored_href = self.store().event_href(id).await?;
             if stored_href.is_some()
@@ -370,15 +372,16 @@ impl Engine {
                 ical_raw = super::sync::merge_ics(&prev.ical_raw, &emitted);
             }
             let href = stored_href.unwrap_or_else(|| resource_href(&url, uid, "ics"));
+            let href = super::sync::resource_url(rt, &url, &href)?;
             match self
-                .dav_put(&base, &href, &ical_raw, prior_etag.as_deref())
+                .dav_put(rt, &href, &ical_raw, prior_etag.as_deref(), false)
                 .await
             {
                 Ok(new_etag) => {
                     etag = new_etag;
                     pushed_href = Some(href);
                 }
-                Err(e) => tracing::warn!("CalDAV put for event {id} failed: {e}"),
+                Err(e) => return Err(e),
             }
         }
         set_json(

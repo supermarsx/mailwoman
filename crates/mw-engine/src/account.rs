@@ -98,6 +98,8 @@ pub struct AccountRuntime {
     /// address books over it. The per-collection href is stored on each
     /// calendar/address-book row; this carries the shared base URL + credentials.
     pub dav: Option<mw_dav::DavConfig>,
+    /// Per-operation account authority; never falls back to direct networking.
+    pub dav_transport: Option<Arc<dyn mw_dav::DavTransport>>,
 }
 
 impl AccountRuntime {
@@ -114,6 +116,38 @@ impl AccountRuntime {
             watch: None,
             credential_revision: None,
             dav: None,
+            dav_transport: None,
+        }
+    }
+
+    /// Attach a guarded PIM transport. Its implementation rechecks live authority.
+    pub fn with_dav_transport(mut self, transport: Arc<dyn mw_dav::DavTransport>) -> Self {
+        self.dav_transport = Some(transport);
+        self
+    }
+
+    pub(crate) fn dav_client(&self) -> mw_dav::Result<mw_dav::DavClient> {
+        let config = self
+            .dav
+            .clone()
+            .ok_or_else(|| mw_dav::DavError::Transport("DAV is not configured".into()))?;
+        match &self.dav_transport {
+            Some(transport) => Ok(mw_dav::DavClient::with_transport(config, transport.clone())),
+            None => mw_dav::DavClient::new(config),
+        }
+    }
+
+    pub(crate) fn carddav_client(&self) -> mw_dav::Result<mw_carddav::CardDavClient> {
+        let config = self
+            .dav
+            .clone()
+            .ok_or_else(|| mw_dav::DavError::Transport("DAV is not configured".into()))?;
+        match &self.dav_transport {
+            Some(transport) => Ok(mw_carddav::CardDavClient::with_transport(
+                config,
+                transport.clone(),
+            )),
+            None => mw_carddav::CardDavClient::new(config),
         }
     }
 

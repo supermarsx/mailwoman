@@ -60,6 +60,7 @@ where
         stream,
         url,
         &Outgoing {
+            response_metadata: None,
             authorized_api: None,
             authorized_dav: None,
             web_push: None,
@@ -168,6 +169,9 @@ async fn exchange_inner(
         if dav.ocs {
             builder = builder.header("OCS-APIRequest", "true");
         }
+        if let Some(tag) = dav.if_none_match {
+            builder = builder.header("If-None-Match", tag);
+        }
         if let Some(tag) = dav.if_match {
             builder = builder.header(header::IF_MATCH, tag);
         }
@@ -196,6 +200,15 @@ async fn exchange_inner(
         .map_err(|e| ProxyRefusal::OriginHttp(format!("request failed: {e}")))?;
 
     let status = response.status();
+    if let Some(metadata) = out.response_metadata {
+        metadata.record(
+            status.as_u16(),
+            response
+                .headers()
+                .get(reqwest::header::ETAG)
+                .and_then(|v| v.to_str().ok()),
+        );
+    }
     if status.is_redirection() {
         let location = response
             .headers()
@@ -291,6 +304,7 @@ mod tests {
             .await
             .unwrap();
         let out = Outgoing {
+            response_metadata: None,
             authorized_api: Some(crate::AuthorizedApi {
                 method: crate::ApiMethod::Delete,
                 key: "fixture-key",
@@ -345,6 +359,7 @@ mod tests {
                 client,
                 &url("http://example.test/image"),
                 &Outgoing {
+                    response_metadata: None,
                     authorized_api: None,
                     authorized_dav: None,
                     web_push: None,

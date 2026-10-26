@@ -78,6 +78,7 @@ pub(crate) async fn call(
                 authorization: &authorization,
                 depth,
                 ocs: true,
+                if_none_match: None,
                 if_match: None,
             },
             body.map(|(content_type, bytes)| OutBody {

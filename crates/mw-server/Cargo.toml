@@ -42,6 +42,7 @@ mw-egress = { workspace = true }
 # mw-render → mw-sanitize/mw-export/wasmtime; nothing depends back on mw-server.
 mw-render = { path = "../mw-render" }
 mw-engine = { workspace = true }
+mw-dav.workspace = true
 mw-export = { workspace = true }
 # t16 (26.16, e10) A5 inbound-webhook sink: evaluate an account's stored rules
 # (`mw_sieve::evaluate_all`) against a webhook envelope + translate a Sieve action

@@ -736,6 +736,8 @@ async fn register(
         identity,
     );
     runtime.credential_revision = credential_revision;
+    runtime.dav = Some(crate::nextcloud_pim::config());
+    runtime.dav_transport = Some(crate::nextcloud_pim_transport::ManagedTransport::runtime(engine.store().clone(), account_id.into()));
     engine.register_backend(account_id.to_string(), runtime);
 }
 

@@ -57,7 +57,10 @@ function enabledAssistService(): AssistService {
 
 /** A Nextcloud fetcher: one file to attach; attach materialises a blob. */
 const nextcloudFetcher = async (input: string): Promise<Response> => {
-  if (input.includes('/api/nextcloud/list')) {
+  if (input.includes('/api/account/nextcloud')) {
+    return json({ accountId: 'acct1', instances: [{id: 'cloud', name: 'Cloud'}], links: [{instanceId: 'cloud', ready: true}] });
+  }
+  if (input.includes('/api/nextcloud/files')) {
     return json({
       entries: [
         { name: 'report.pdf', path: '/report.pdf', isDir: false, size: 2048, modified: null, contentType: 'application/pdf' },
@@ -221,6 +224,7 @@ describe('Compose', () => {
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, {
       deps: { nextcloudFetcher },
     });
+    await app.login({ username: 'me@example.org', password: 'p' });
     app.nextcloud.setEnabled(true);
     fireEvent.click(await screen.findByRole('button', { name: 'Attach from Nextcloud' }));
     // The picker lists the linked Nextcloud; select the file then attach it.

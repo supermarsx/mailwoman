@@ -681,3 +681,100 @@ async fn carddav_pull_keeps_favourites_and_the_photo_and_sees_deletes() {
     assert_eq!(left, vec!["ann".to_string()]);
     assert!(h.fake.body("/book/c1.vcf").is_some());
 }
+
+struct RejectedMutation {
+    status: u16,
+    calls: Mutex<Vec<mw_dav::TransportRequest>>,
+}
+impl mw_dav::DavTransport for RejectedMutation {
+    fn send(&self, request: mw_dav::TransportRequest) -> mw_dav::transport::TransportFuture<'_> {
+        Box::pin(async move {
+            self.calls.lock().unwrap().push(request);
+            Ok(mw_dav::TransportResponse {
+                status: self.status,
+                etag: None,
+                body: String::new(),
+            })
+        })
+    }
+}
+
+#[tokio::test]
+async fn rejected_remote_mutations_preserve_events_and_contacts() {
+    for status in [401, 412, 503] {
+        let h = harness(true).await;
+        h.calendar("cal", "/cal/", false).await;
+        h.store
+            .upsert_address_book(&AddressBookRow {
+                id: "book".into(),
+                account_id: h.account.clone(),
+                name: "Book".into(),
+                is_default: false,
+                carddav_url: Some("/book/".into()),
+                sync_token: None,
+                ctag: None,
+            })
+            .await
+            .unwrap();
+        h.fake.put("/cal/a.ics", &vevent("event", "Original", ""));
+        h.fake.put("/book/a.vcf", &vcard("contact", "Original", ""));
+        h.calendar("tasks", "/tasks/", false).await;
+        let mut task_list = h.store.get_calendar("tasks").await.unwrap().unwrap();
+        task_list.component = "VTODO".into();
+        h.store.upsert_calendar(&task_list).await.unwrap();
+        h.fake.put("/tasks/t.ics", "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VTODO\r\nUID:task\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:Original task\r\nEND:VTODO\r\nEND:VCALENDAR\r\n");
+        h.sync().await;
+        let event = h.store.list_events("cal").await.unwrap().remove(0);
+        let contact = h.store.list_contacts("book").await.unwrap().remove(0);
+        let task = h.store.list_tasks("tasks").await.unwrap().remove(0);
+        let transport = Arc::new(RejectedMutation {
+            status,
+            calls: Mutex::new(vec![]),
+        });
+        h.engine.register_backend(
+            h.account.clone(),
+            h.rt.clone().with_dav_transport(transport.clone()),
+        );
+        for (method, id, patch) in [
+            (
+                "Task/set",
+                task.id.as_str(),
+                json!({"title":"Must not persist"}),
+            ),
+            (
+                "CalendarEvent/set",
+                event.id.as_str(),
+                json!({"title":"Must not persist"}),
+            ),
+            (
+                "ContactCard/set",
+                contact.id.as_str(),
+                json!({"isFavorite":true}),
+            ),
+        ] {
+            let update = h.call(method, json!({"update":{id:patch}})).await;
+            assert!(update["notUpdated"][id].is_object(), "{status}: {update}");
+            let destroy = h.call(method, json!({"destroy":[id]})).await;
+            assert!(
+                destroy["notDestroyed"][id].is_object(),
+                "{status}: {destroy}"
+            );
+        }
+        assert_eq!(h.store.get_event(&event.id).await.unwrap().unwrap(), event);
+        assert_eq!(
+            h.store.get_contact(&contact.id).await.unwrap().unwrap(),
+            contact
+        );
+        assert_eq!(h.store.get_task(&task.id).await.unwrap().unwrap(), task);
+        let calls = transport.calls.lock().unwrap();
+        assert_eq!(
+            calls.len(),
+            6,
+            "each explicit operation attempts once, no direct fallback"
+        );
+        assert!(calls.iter().all(|request| request.if_match.is_some()));
+        assert_eq!(calls[0].kind, Some("tasks"));
+        assert_eq!(calls[2].kind, Some("calendar"));
+        assert_eq!(calls[4].kind, Some("contacts"));
+    }
+}

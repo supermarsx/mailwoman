@@ -52,6 +52,7 @@ async fn typed_push_headers_cross_only_the_origin_exchange() {
         web_push: Some(WebPushHeaders {
             authorization: "vapid t=token, k=key",
         }),
+        response_metadata: None,
         authorized_api: None,
         authorized_dav: None,
         response_limit: 8192,
@@ -161,6 +162,7 @@ async fn web_push_redirect_is_returned_without_following_or_reposting() {
         web_push: Some(WebPushHeaders {
             authorization: "vapid t=secret, k=key",
         }),
+        response_metadata: None,
         authorized_api: None,
         authorized_dav: None,
         response_limit: 8192,

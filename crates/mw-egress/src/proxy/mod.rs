@@ -562,6 +562,7 @@ pub async fn tunnel_fetch_hop(target: &Target, route: &ProxyRoute, accept: &str)
         target,
         route,
         &Outgoing {
+            response_metadata: None,
             authorized_api: None,
             authorized_dav: None,
             web_push: None,
@@ -654,6 +655,7 @@ pub async fn fetch_via_proxy(start: reqwest::Url, route: &ProxyRoute, accept: &s
         start,
         route,
         &Outgoing {
+            response_metadata: None,
             authorized_api: None,
             authorized_dav: None,
             web_push: None,

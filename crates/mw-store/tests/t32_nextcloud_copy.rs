@@ -10,6 +10,23 @@ async fn copy_into(target: &Store) {
     let dir = test_db::unique_dir("nextcloud-copy");
     let path = dir.join("source.db");
     let source = Store::open(path.to_str().unwrap(), key()).await.unwrap();
+    let account = source
+        .create_account(
+            &mw_store::NewAccount {
+                kind: mw_store::AccountKind::Imap,
+                host: "mail.test",
+                port: 993,
+                tls: "implicit",
+                username: "alice@test",
+                sync_policy_json: "{}",
+            },
+            &mw_store::Credentials {
+                username: "alice@test".into(),
+                password: "fixture".into(),
+            },
+        )
+        .await
+        .unwrap();
     let instance = source
         .put_nextcloud_instance(
             &NextcloudInstance {
@@ -28,7 +45,7 @@ async fn copy_into(target: &Store) {
     let link = source
         .put_verified_nextcloud_link(
             &NextcloudLink {
-                account_id: "alice".into(),
+                account_id: account.clone(),
                 instance_id: instance.id.clone(),
                 instance_revision: instance.revision.clone(),
                 username: "remote-user".into(),
@@ -37,6 +54,18 @@ async fn copy_into(target: &Store) {
             "fixture-app-secret",
             None,
         )
+        .await
+        .unwrap()
+        .unwrap();
+    let binding = source
+        .apply_nextcloud_pim(mw_store::nextcloud_pim::NextcloudPimApply {
+            account_id: &account,
+            instance_id: "cloud",
+            link_revision: &link.revision,
+            kind: "calendar",
+            href: "https://cloud.example.test/remote.php/dav/calendars/remote-user/work/",
+            name: "Work",
+        })
         .await
         .unwrap()
         .unwrap();
@@ -56,8 +85,21 @@ async fn copy_into(target: &Store) {
             .iter()
             .any(|(name, count)| name == "nextcloud_account_link" && *count == 1)
     );
+    assert_eq!(
+        target.nextcloud_pim_bindings(&account).await.unwrap(),
+        vec![binding.clone()]
+    );
+    assert_eq!(
+        target
+            .get_calendar(&binding.collection_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .account_id,
+        account
+    );
     let (copied, copied_link, password) = target
-        .nextcloud_authority("alice", "cloud")
+        .nextcloud_authority(&account, "cloud")
         .await
         .unwrap()
         .unwrap();
@@ -80,7 +122,7 @@ async fn copy_into(target: &Store) {
         .unwrap();
     assert!(
         target
-            .nextcloud_authority("alice", "cloud")
+            .nextcloud_authority(&account, "cloud")
             .await
             .unwrap()
             .is_none()

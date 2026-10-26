@@ -178,13 +178,15 @@ impl Engine {
             .ok_or_else(|| EngineError::Protocol(format!("unknown task {id}")))?;
         if let Some(list) = self.store().get_calendar(&row.list_id).await?
             && !list.is_overlay
-            && let (Some(base), Some(url)) = (rt.dav.clone(), list.caldav_url.clone())
+            && let Some(url) = list.caldav_url.clone()
         {
             let href = match self.store().task_href(id).await? {
                 Some(h) => h,
                 None => resource_href(&url, &row.uid, "ics"),
             };
-            let _ = self.dav_delete(&base, &href, row.etag.as_deref()).await;
+            let href = super::sync::resource_url(rt, &url, &href)?;
+            self.dav_delete(rt, &href, row.etag.as_deref(), true)
+                .await?;
         }
         self.store().delete_task(id).await?;
         self.record_pim_change(account_id, ChangeType::Task, id, ChangeOp::Destroyed)
@@ -252,7 +254,7 @@ impl Engine {
             && let Some(rt) = push_rt
             && let Some(list) = self.store().get_calendar(list_id).await?
             && !list.is_overlay
-            && let (Some(base), Some(url)) = (rt.dav.clone(), list.caldav_url.clone())
+            && let Some(url) = list.caldav_url.clone()
         {
             let stored_href = self.store().task_href(id).await?;
             if stored_href.is_some()
@@ -261,15 +263,16 @@ impl Engine {
                 ical_raw = super::sync::merge_ics(&prev.ical_raw, &emitted);
             }
             let href = stored_href.unwrap_or_else(|| resource_href(&url, uid, "ics"));
+            let href = super::sync::resource_url(rt, &url, &href)?;
             match self
-                .dav_put(&base, &href, &ical_raw, prior_etag.as_deref())
+                .dav_put(rt, &href, &ical_raw, prior_etag.as_deref(), true)
                 .await
             {
                 Ok(new_etag) => {
                     etag = new_etag;
                     pushed_href = Some(href);
                 }
-                Err(e) => tracing::warn!("CalDAV put for task {id} failed: {e}"),
+                Err(e) => return Err(e),
             }
         }
         set_json(

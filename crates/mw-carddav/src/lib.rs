@@ -50,6 +50,16 @@ impl CardDavClient {
         Ok(Self { dav, http })
     }
 
+    /// Use the same account-authorized transport for shared discovery and CardDAV operations.
+    pub fn with_transport(
+        config: DavConfig,
+        transport: std::sync::Arc<dyn mw_dav::DavTransport>,
+    ) -> Self {
+        let dav = mw_dav::DavClient::with_transport(config.clone(), transport.clone());
+        let http = Http::with_transport(config, transport);
+        Self { dav, http }
+    }
+
     /// The underlying shared DAV core (holds the account `DavConfig`); the
     /// CardDAV REPORTs run over this crate's own transport (see the crate root).
     pub fn dav(&self) -> &mw_dav::DavClient {
@@ -104,6 +114,12 @@ impl CardDavClient {
             .await?;
         if resp.status == 207 {
             return response::parse_sync_delta(&resp.body);
+        }
+        if !matches!(resp.status, 400 | 403 | 405 | 409 | 415 | 501) {
+            return Err(Error::Status {
+                status: resp.status,
+                body: resp.body,
+            });
         }
         // Fallback: sync-collection unsupported (400/403/409/501) → ctag+etag list.
         self.ctag_fallback(collection_href).await

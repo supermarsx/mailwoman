@@ -454,10 +454,8 @@ impl Engine {
             unresolved = left;
         }
 
-        if !unresolved.is_empty()
-            && let Some(dav) = rt.dav.clone()
-        {
-            match mw_dav::DavClient::new(dav) {
+        if !unresolved.is_empty() && rt.dav.is_some() {
+            match rt.dav_client() {
                 Ok(client) => match client
                     .schedule_free_busy(&me, &unresolved, start, end)
                     .await

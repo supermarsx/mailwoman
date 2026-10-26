@@ -247,9 +247,15 @@ pub fn parse_sync_delta(xml: &str) -> Result<SyncDelta> {
         if r.href.is_empty() {
             continue;
         }
-        if matches!(r.status, Some(s) if s >= 400) {
+        if r.status == Some(404) {
             delta.removed.push(r.href);
         } else {
+            if let Some(status) = r.status.filter(|s| !(200..300).contains(s)) {
+                return Err(DavError::Status {
+                    status,
+                    body: "DAV resource refused synchronization".into(),
+                });
+            }
             delta.changed.push(Resource {
                 href: r.href,
                 etag: r.etag,

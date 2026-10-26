@@ -334,13 +334,14 @@ impl Engine {
             .await?
             .ok_or_else(|| EngineError::Protocol(format!("unknown contact {id}")))?;
         if let Some(book) = self.store().get_address_book(&row.address_book_id).await?
-            && let (Some(base), Some(url)) = (rt.dav.clone(), book.carddav_url.clone())
+            && let Some(url) = book.carddav_url.clone()
         {
             let href = match self.store().contact_href(id).await? {
                 Some(h) => h,
                 None => resource_href(&url, &row.uid, "vcf"),
             };
-            let _ = self.carddav_delete(&base, &href, row.etag.as_deref()).await;
+            let href = super::sync::resource_url(rt, &url, &href)?;
+            self.carddav_delete(rt, &href, row.etag.as_deref()).await?;
         }
         self.store().delete_contact(id).await?;
         self.record_pim_change(account_id, ChangeType::ContactCard, id, ChangeOp::Destroyed)
@@ -420,7 +421,7 @@ impl Engine {
         if server.is_none()
             && let Some(rt) = push_rt
             && let Some(book) = self.store().get_address_book(book_id).await?
-            && let (Some(base), Some(url)) = (rt.dav.clone(), book.carddav_url.clone())
+            && let Some(url) = book.carddav_url.clone()
         {
             let stored_href = self.store().contact_href(id).await?;
             if stored_href.is_some()
@@ -429,15 +430,16 @@ impl Engine {
                 vcard_raw = super::sync::merge_vcard(&prev.vcard_raw, &emitted);
             }
             let href = stored_href.unwrap_or_else(|| resource_href(&url, uid, "vcf"));
+            let href = super::sync::resource_url(rt, &url, &href)?;
             match self
-                .carddav_put(&base, &href, &vcard_raw, prior_etag.as_deref())
+                .carddav_put(rt, &href, &vcard_raw, prior_etag.as_deref())
                 .await
             {
                 Ok(new_etag) => {
                     etag = new_etag;
                     pushed_href = Some(href);
                 }
-                Err(e) => tracing::warn!("CardDAV put for contact {id} failed: {e}"),
+                Err(e) => return Err(e),
             }
         }
         set_json(
