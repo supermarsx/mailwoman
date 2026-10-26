@@ -35,6 +35,7 @@ import { SecurityPanel } from './SecurityPanel.tsx';
 import { SpamScore } from './security/SpamScore.tsx';
 import { DeliveryStatus } from './security/DeliveryStatus.tsx';
 import { ReadReceipt } from './ReadReceipt.tsx';
+import { MailingListActions } from './MailingListActions.tsx';
 import { InviteCard, hasCalendarPart } from './InviteCard.tsx';
 // V7 auto-tag (SPEC §14.3, e14b): model-suggested labels for the open message.
 // Gated on the `auto-tag` Assist capability, so a Disabled gateway renders nothing.
@@ -743,6 +744,14 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   const [frameLoads, setFrameLoads] = createSignal(0);
   const [receiptDisplayed,setReceiptDisplayed]=createSignal<{key:string;html:string}|null>(null);
   const receiptDocumentKey=()=>JSON.stringify([app.accountId(),emailId()]);
+  const [listHeaders,setListHeaders]=createSignal<{scope:string;url:string;raw:string}|null>(null);
+  const messageHeaderUrl=()=>{
+    const email=app.openEmail(),accountId=app.accountId(),template=app.downloadUrl();
+    return email?.blobId&&accountId&&template?buildDownloadUrl(template,{accountId,blobId:email.blobId,name:'message.eml',mime:'message/rfc822'}):null;
+  };
+  function collectListHeaders(raw:string|null,url:string):void {
+    if(url===messageHeaderUrl())setListHeaders(raw===null?null:{scope:receiptDocumentKey(),url,raw});
+  }
   function receiptDidDisplay(html:string,key:string|undefined):void {
     if(key===receiptDocumentKey()&&html===bodySrcdoc())setReceiptDisplayed({key,html});
   }
@@ -1057,7 +1066,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               </Show>
               <Show when={app.accountId()}><DeliveryStatus accountId={app.accountId()!} emailId={email().id} enabled={policy().inlineParts === true} proxyUrl={privacy.state === 'ready' && policy().inlineParts !== true && email().blobId && app.downloadUrl() ? buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'}) : undefined}/></Show>
               <Show when={app.accountId()&&policy().inlineParts===true}><ReadReceipt accountId={app.accountId()!} emailId={email().id} active={props.active!==false} fullView={props.view!==undefined} displayed={receiptDisplayed()?.key===receiptDocumentKey()&&receiptDisplayed()?.html===bodySrcdoc()&&!showDecrypt()}/></Show>
-              <Show when={email().blobId && app.downloadUrl() && app.accountId()}><SpamScore url={buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'})}/></Show>
+              <Show when={email().blobId && app.downloadUrl() && app.accountId()}><SpamScore url={buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'})} onHeaders={collectListHeaders}/></Show>
+              <MailingListActions headers={listHeaders()?.scope===receiptDocumentKey()&&listHeaders()?.url===messageHeaderUrl()?listHeaders()!.raw:''} scope={receiptDocumentKey()} active={props.active!==false} {...(props.onCompose?{onCompose:props.onCompose}:{})}/>
               <ReaderToolbar email={email()} onReply={(mode) => void startReply(mode)} preparing={preparing()} onPrint={() => printMessage(email(), displayedContent(email()).source)} />
               <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
               <AutoTagSection email={email()} />

@@ -12,7 +12,7 @@ export type ReplyMode = 'reply' | 'reply-all' | 'forward';
 export interface ComposeInitial {
   /** Open the same safe composer with recipient fields initially collapsed. */
   compact?: boolean;
-  mode: ReplyMode;
+  mode: ReplyMode | 'new';
   /** Recipient fields in the composer's own syntax (`Name <addr>, …`). */
   to: string;
   cc: string;

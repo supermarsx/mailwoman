@@ -111,6 +111,7 @@ type RecipientField = 'to' | 'cc' | 'bcc';
 
 /** The dialog heading for each way a composer can be opened. */
 const TITLE_KEY = {
+  new: 'mail-compose-title',
   reply: 'mail-compose-title-reply',
   'reply-all': 'mail-compose-title-reply-all',
   forward: 'mail-compose-title-forward',
@@ -344,7 +345,7 @@ export function Compose(props: {
   // A reply is answered above the quote: once the editor is there, the caret
   // goes to its first (empty) paragraph. A forward still needs its recipient,
   // so focus stays in To.
-  if (initial !== undefined && initial.mode !== 'forward') {
+  if (initial !== undefined && (initial.mode === 'reply' || initial.mode === 'reply-all')) {
     let moved = false;
     createEffect(() => {
       const api = editorApi();

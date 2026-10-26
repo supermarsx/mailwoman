@@ -1,0 +1,14 @@
+mailing-list-title = Mailing list actions
+mailing-list-unverified = These commands come from the message sender and are not independently verified. Choose a destination to review it first.
+mailing-list-no-post = This list says it does not accept posts by email.
+mailing-list-help = Help
+mailing-list-subscribe = Subscribe
+mailing-list-unsubscribe = Unsubscribe
+mailing-list-post = Post to list
+mailing-list-owner = Contact list owner
+mailing-list-archive = List archive
+mailing-list-review = Review mailing list action
+mailing-list-compose = Review email draft
+mailing-list-external = This opens an external page, which may receive your IP address. It does not perform a one-click unsubscribe request.
+mailing-list-open = Open web page
+mailing-list-cancel = Cancel

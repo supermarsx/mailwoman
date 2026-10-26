@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { render, screen } from '@solidjs/testing-library';
-import { Suspense } from 'solid-js';
+import { render, screen, waitFor } from '@solidjs/testing-library';
+import { createSignal, Suspense } from 'solid-js';
 import { fetchMailHeaders } from '../../api/mailHeaders.ts';
 import { SpamScore } from './SpamScore.tsx';
 vi.mock('../../api/mailHeaders.ts',async original=>({...await original<typeof import('../../api/mailHeaders.ts')>(),fetchMailHeaders:vi.fn()}));
@@ -20,4 +20,17 @@ it('does not invent a zero score when headers cannot be retrieved',async()=>{
   render(()=><SpamScore url="/mail/raw"/>);
   expect(await screen.findByText('Spam score unavailable')).toBeVisible();
   expect(screen.queryByText('0 / 5')).toBeNull();
+});
+
+it('does not publish headers from an aborted previous message',async()=>{
+  const pending=new Map<string,(raw:string)=>void>();
+  vi.mocked(fetchMailHeaders).mockImplementation(url=>new Promise(resolve=>pending.set(url,resolve)));
+  const received=vi.fn();const [url,setUrl]=createSignal('/mail/old');
+  render(()=><SpamScore url={url()} onHeaders={received}/>);
+  setUrl('/mail/new');
+  pending.get('/mail/new')!('X-Spam-Score: 1');
+  await waitFor(()=>expect(received).toHaveBeenCalledWith('X-Spam-Score: 1','/mail/new'));
+  pending.get('/mail/old')!('List-Unsubscribe: <https://old.example>');
+  await Promise.resolve();
+  expect(received.mock.calls).toEqual([[null,'/mail/old'],[null,'/mail/new'],['X-Spam-Score: 1','/mail/new']]);
 });

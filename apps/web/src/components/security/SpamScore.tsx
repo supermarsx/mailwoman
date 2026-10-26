@@ -5,13 +5,14 @@ import { t } from '../../i18n';
 import { Icon } from '../Icon.tsx';
 import './spamScore.css';
 
-export function SpamScore(props: { url: string }): JSX.Element {
+export function SpamScore(props: { url: string; onHeaders?: (raw:string|null,url:string)=>void }): JSX.Element {
   let current:AbortController|undefined;
   onCleanup(()=>current?.abort());
   const [scores]=createResource(()=>props.url,async url=>{
     current?.abort();const abort=new AbortController();current=abort;
+    props.onHeaders?.(null,url);
     const timeout=setTimeout(()=>abort.abort(),10000);
-    try{return parseSpamScores(await fetchMailHeaders(url,abort.signal));}catch{return [];}finally{clearTimeout(timeout);}
+    try{const raw=await fetchMailHeaders(url,abort.signal);if(current===abort&&!abort.signal.aborted)props.onHeaders?.(raw,url);return parseSpamScores(raw);}catch{return [];}finally{clearTimeout(timeout);}
   });
   const ready=()=>scores.state==='ready'?scores.latest:[];
   return <div class="spam-score" aria-label={t('mail-spam-score')}>
