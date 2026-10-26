@@ -17,6 +17,9 @@ use std::time::Duration;
 use mw_store::{MailboxUpsert, MessageUpsert, Store};
 use tokio::sync::{broadcast, mpsc, watch};
 
+#[path = "date_upgrade.rs"]
+mod date_upgrade;
+
 use crate::account::AccountRuntime;
 use crate::backend::{
     AccountBackend, ChangeEvent, ChangeSink, EngineError, MailboxDelta, MessageRef, RawMailbox,
@@ -72,6 +75,7 @@ pub struct Engine {
     store: Store,
     accounts: Mutex<HashMap<String, AccountRuntime>>,
     rejected_credential_revisions: Mutex<HashMap<String, Vec<u8>>>,
+    cached_date_upgrade: date_upgrade::DateUpgrade,
     /// Realtime change fan-out (plan §1.2, §2.2). `start_watch` broadcasts a
     /// `StateChange` after each resync (e9); `mw-server` (e10) subscribes per
     /// session to feed `/jmap/ws` + `/jmap/eventsource`.
@@ -152,6 +156,7 @@ impl Engine {
             store,
             accounts: Mutex::new(HashMap::new()),
             rejected_credential_revisions: Mutex::new(HashMap::new()),
+            cached_date_upgrade: date_upgrade::DateUpgrade::default(),
             changes,
             search,
             search_dir: None,
@@ -341,10 +346,16 @@ impl Engine {
         self.resync(account_id).await
     }
 
+    pub(crate) async fn ensure_cached_date_upgrade(&self, account_id: &str) -> std::result::Result<(), mw_store::StoreError> {
+        self.cached_date_upgrade.ensure(account_id, || async {
+            self.store.normalize_cached_imap_dates(account_id).await.map(|_| ())
+        }).await
+    }
+
     /// Full sync: enumerate mailboxes, upsert them, then incrementally sync each
     /// from its persisted cursor. Idempotent — safe to call on every change tick.
     pub async fn resync(&self, account_id: &str) -> Result<()> {
-        self.store.normalize_cached_imap_dates(account_id).await?;
+        self.ensure_cached_date_upgrade(account_id).await?;
         let rt = self.require_runtime(account_id)?;
         let mailboxes = rt.backend.list_mailboxes().await?;
         let cached_mailboxes = self.store.list_mailboxes(account_id).await?;
