@@ -49,6 +49,7 @@ export interface DataTableProps<R> {
   emptyAction?: { label: string; onClick: () => void };
   search?: { label: string; value: string; onSearch: (q: string) => void; debounceMs?: number };
   filters?: readonly FilterChip[];
+  compactFilters?: boolean;
   onToggleFilter?: (id: string) => void;
   sort?: SortState | null;
   onSort?: (column: string) => void;
@@ -60,6 +61,7 @@ export interface DataTableProps<R> {
 export function DataTable<R>(props: DataTableProps<R>): JSX.Element {
   const id = createUniqueId();
   const [activeRow, setActiveRow] = createSignal(0);
+  const [filtersOpen,setFiltersOpen]=createSignal(false);
   const [query, setQuery] = createSignal(props.search?.value ?? '');
   let timer: ReturnType<typeof setTimeout> | undefined;
   let tbody: HTMLTableSectionElement | undefined;
@@ -113,7 +115,8 @@ export function DataTable<R>(props: DataTableProps<R>): JSX.Element {
             )}
           </Show>
           <Show when={props.filters && props.filters.length > 0}>
-            <div class={css.chips} role="group" aria-label={t('admin-shell-table-filters')}>
+            <Show when={props.compactFilters}><button type="button" class="btn btn--ghost" aria-expanded={filtersOpen()} aria-controls={`${id}-filters`} onClick={()=>setFiltersOpen(!filtersOpen())}><Icon name="filter"/>{t('admin-shell-table-filters')}<Show when={props.filters?.some(filter=>filter.active)}> ({props.filters?.filter(filter=>filter.active).length})</Show></button></Show>
+            <Show when={!props.compactFilters||filtersOpen()}><div id={`${id}-filters`} class={css.chips} role="group" aria-label={t('admin-shell-table-filters')}>
               <For each={props.filters}>
                 {(f) => (
                   <button
@@ -126,7 +129,7 @@ export function DataTable<R>(props: DataTableProps<R>): JSX.Element {
                   </button>
                 )}
               </For>
-            </div>
+            </div></Show>
           </Show>
         </div>
       </Show>

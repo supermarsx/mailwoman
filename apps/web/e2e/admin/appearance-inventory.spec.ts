@@ -1,0 +1,45 @@
+import {readFile,writeFile} from 'node:fs/promises';
+import path from 'node:path';
+import {test,expect} from '../csrf.ts';
+import {adminLogin} from './admin-login.ts';
+
+test('remaining admin screens retain bounded read-only layout @phone',async({page},info)=>{
+  test.setTimeout(180_000);
+  const dist=path.resolve(process.env['MW_APPEARANCE_DIST']??'../../.orchestration/reports/codex-admin-integrations-web');
+  await page.route('**/*',async route=>{
+    const url=new URL(route.request().url());
+    if(url.pathname!=='/admin'&&!url.pathname.startsWith('/assets/'))return route.continue();
+    const file=path.resolve(dist,url.pathname==='/admin'?'index.html':url.pathname.slice(1));
+    if(!file.startsWith(dist+path.sep))return route.abort();
+    try{await route.fulfill({status:200,body:await readFile(file),contentType:file.endsWith('.html')?'text/html':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.woff2')?'font/woff2':'application/octet-stream'});}catch{await route.continue();}
+  });
+  await adminLogin(page);
+  const results:Array<{section:string;width:number;documentWidth:number;pending:number;headings:(string|null)[];tables:number;alerts:number}>=[];
+  for(const section of ['ai-assistant','branding','diagnostics','logs','maintenance','oauth-clients','plugins','ui-plugins','privacy','roles','security-policy','server-metadata','settings','config','observability']){
+    if(process.env['MW_APPEARANCE_SECTION']&&process.env['MW_APPEARANCE_SECTION']!==section)continue;
+    await test.step(section,async()=>{
+      // A fresh document prevents a previous route's heading satisfying readiness
+      // while the next lazy screen is still replacing it with a skeleton.
+      await page.goto(`/admin?appearance-audit=${section}#/${section}`);
+      await page.locator('main').first().waitFor();
+      await expect(page.locator('main h1, main h2').first(),`${section} finished mounting`).toBeVisible();
+      await page.waitForLoadState('networkidle',{timeout:8000}).catch(()=>undefined);
+      const metrics=await page.evaluate(()=>({width:innerWidth,documentWidth:document.documentElement.scrollWidth,pending:document.querySelectorAll('[data-testid="async-pending"]').length,headings:[...document.querySelectorAll('main h1,main h2')].map(node=>node.textContent),tables:document.querySelectorAll('main table').length,alerts:document.querySelectorAll('main [role="alert"]').length}));
+      results.push({section,...metrics});
+      await page.screenshot({path:info.outputPath(`${section}.png`)});
+      expect.soft(metrics.documentWidth,`${section} document overflow`).toBeLessThanOrEqual(metrics.width+1);
+      if(section==='settings'&&process.env['MW_EXPECT_COMPACT_FILTERS']==='1'){
+        const filters=page.getByRole('button',{name:'Filters',exact:true});
+        await expect(filters).toHaveAttribute('aria-expanded','false');
+        await filters.focus();await page.keyboard.press('Enter');
+        await expect(page.getByRole('group',{name:'Filters',exact:true})).toBeVisible();
+        await page.getByRole('button',{name:'Appearance',exact:true}).click();
+        await expect(page.getByRole('button',{name:'Appearance',exact:true})).toHaveAttribute('aria-pressed','true');
+        await page.getByRole('button',{name:'Filters (1)',exact:true}).click();
+        await expect(page.getByRole('group',{name:'Filters',exact:true})).toHaveCount(0);
+      }
+    });
+  }
+  await info.attach('appearance-inventory',{body:JSON.stringify(results,null,2),contentType:'application/json'});
+  await writeFile(info.outputPath('inventory.json'),JSON.stringify(results,null,2));
+});

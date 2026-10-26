@@ -109,6 +109,7 @@ export function AdminSettings(props: AdminSettingsProps): JSX.Element {
           emptyText: t('admin-settings-empty'),
           search: { label: t('admin-settings-search'), value: query(), onSearch: setQuery },
           filters: present().map((c) => ({ id: c, label: categoryLabel(c), active: category() === c })),
+          compactFilters: true,
           onToggleFilter: (id) => setCategory(category() === id ? null : id),
           rowActions: (s) => <Show when={!s.dedicatedRoute && (s.globalValue !== null && s.globalValue !== undefined || s.globalLocked)}>
             <RevertToDefault compact label={settingLabel(s.key)} defaultDisplay={displayValue(s.kind, s.default)} isDefault={false}

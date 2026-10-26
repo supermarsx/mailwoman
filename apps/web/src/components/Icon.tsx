@@ -47,6 +47,7 @@ export type IconName =
   | 'menu'
   | 'close'
   | 'search'
+  | 'filter'
   | 'chevron'
   | 'check'
   | 'alert'
@@ -112,6 +113,7 @@ const S = { fill: 'none', stroke: 'currentColor', 'stroke-width': '2' } as const
 const F = { fill: 'currentColor' } as const;
 
 const PATHS: Record<IconName, () => JSX.Element> = {
+  filter: () => <path d="M2 2 H14 L9 8 V13 L7 14 V8 Z" {...S} />,
   home: () => <><path d="M1 7l7-6 7 6M3 6v9h10V6M6 15v-5h4v5" {...S}/></>,
   briefcase: () => <><rect x="1" y="5" width="14" height="10" {...S}/><path d="M5 5V2h6v3M1 9h14M7 8v3h2V8" {...S}/></>,
   heart: () => <path d="M8 14L2 8C-2 3 5-1 8 4c3-5 10-1 6 4z" {...S}/>,

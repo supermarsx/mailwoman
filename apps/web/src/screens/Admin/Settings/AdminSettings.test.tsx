@@ -121,6 +121,8 @@ describe('Admin › Settings list', () => {
     await waitFor(() => expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(2));
 
     fireEvent.input(screen.getByRole('searchbox', { name: t('admin-settings-search') }), { target: { value: '' } });
+    expect(screen.queryByRole('group',{name:t('admin-shell-table-filters')})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:t('admin-shell-table-filters')}));
     fireEvent.click(await screen.findByRole('button', { name: t('admin-settings-cat-interface') }));
     await waitFor(() => expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(2));
     expect(within(screen.getByRole('table')).getAllByText('ui.language').length).toBeGreaterThan(0);
