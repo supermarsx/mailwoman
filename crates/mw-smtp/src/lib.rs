@@ -18,6 +18,7 @@
 
 mod addr;
 mod conn;
+mod dsn_support;
 mod sasl;
 mod tls;
 
@@ -262,7 +263,10 @@ pub struct Submitter {
     /// How the connection reaches the server (`None` = direct TCP).
     dialer: Option<mw_net::SharedDialer>,
     tls_options: mw_net::TlsOptions,
+    dsn_support: std::sync::Arc<dsn_support::Support>,
 }
+
+type Connected = (Connection<mw_net::BoxStream>, Option<(&'static str, Vec<u8>)>);
 
 impl Submitter {
     /// Construct a submitter for the given server configuration.
@@ -271,6 +275,7 @@ impl Submitter {
             config,
             dialer: None,
             tls_options: mw_net::TlsOptions::default(),
+            dsn_support: Default::default(),
         }
     }
 
@@ -278,11 +283,13 @@ impl Submitter {
     /// the default). TLS and STARTTLS run over the dialled stream as over a
     /// direct socket, validated against the configured host.
     pub fn with_dialer(mut self, dialer: Option<mw_net::SharedDialer>) -> Self {
+        self.dsn_support = Default::default();
         self.dialer = dialer;
         self
     }
 
     pub fn with_tls_options(mut self, options: mw_net::TlsOptions) -> Self {
+        self.dsn_support = Default::default();
         self.tls_options = options;
         self
     }
@@ -308,57 +315,55 @@ impl Submitter {
         opts: SubmitOptions,
     ) -> Result<SubmissionResult, SmtpError> {
         msg.validate()?;
+        let (mut conn, binding) = self.connect().await?;
+        self.session(&mut conn, &msg, &opts, binding.as_ref().map(|(name, bytes)| (*name, bytes.as_slice()))).await
+    }
+
+    /// Recently observed DSN support; unknown or expired observations are false.
+    pub fn cached_dsn_support(&self) -> bool { self.dsn_support.get() == Some(true) }
+
+    /// Observe EHLO over the configured TLS, egress and authentication path.
+    /// Never issues MAIL/RCPT/DATA; concurrent callers share a bounded probe.
+    pub async fn probe_dsn(&self) -> Result<bool, SmtpError> {
+        use std::time::Duration;
+        if let Some(known) = self.dsn_support.get() { return Ok(known); }
+        let _guard = tokio::time::timeout(Duration::from_secs(2), self.dsn_support.probe.lock()).await
+            .map_err(|_| SmtpError::Transport("SMTP capability probe busy".into()))?;
+        if let Some(known) = self.dsn_support.get() { return Ok(known); }
+        let result = tokio::time::timeout(Duration::from_secs(2), async {
+            let (mut conn, binding) = self.connect().await?;
+            let caps = conn.ehlo(&self.config.ehlo_name).await?;
+            conn.authenticate(&self.config.credentials, &caps, binding.as_ref().map(|(name, bytes)| (*name, bytes.as_slice()))).await?;
+            conn.quit().await;
+            Ok(caps.dsn)
+        }).await.unwrap_or_else(|_| Err(SmtpError::Transport("SMTP capability probe timed out".into())));
+        self.dsn_support.record(result.as_ref().copied().unwrap_or(false));
+        result
+    }
+
+    async fn connect(&self) -> Result<Connected, SmtpError> {
         conn::check_ehlo_name(&self.config.ehlo_name)?;
-
         let tcp = mw_net::dial(self.dialer.as_deref(), &self.config.host, self.config.port).await?;
-
         match self.config.security {
             Security::ImplicitTls => {
                 let up = tls::connect(tcp, &self.config.host, &self.tls_options).await?;
-                let binding = up.channel_binding;
-                let mut conn = Connection::new(up.stream);
+                let mut conn = Connection::new(Box::new(up.stream) as mw_net::BoxStream);
                 conn.read_greeting().await?;
-                self.session(
-                    &mut conn,
-                    &msg,
-                    &opts,
-                    binding
-                        .as_ref()
-                        .map(|(name, bytes)| (*name, bytes.as_slice())),
-                )
-                .await
+                Ok((conn, up.channel_binding))
             }
             Security::StartTls => {
-                // Cleartext probe: greet, EHLO, verify STARTTLS, upgrade, then
-                // re-EHLO over TLS inside `session`.
                 let mut conn = Connection::new(tcp);
                 conn.read_greeting().await?;
                 let caps = conn.ehlo(&self.config.ehlo_name).await?;
-                if !caps.starttls {
-                    return Err(SmtpError::Protocol(
-                        "server does not advertise STARTTLS on this port".into(),
-                    ));
-                }
+                if !caps.starttls { return Err(SmtpError::Protocol("server does not advertise STARTTLS on this port".into())); }
                 conn.starttls().await?;
-                let tcp = conn.into_inner()?;
-                let up = tls::connect(tcp, &self.config.host, &self.tls_options).await?;
-                let binding = up.channel_binding;
-                let mut conn = Connection::new(up.stream);
-                self.session(
-                    &mut conn,
-                    &msg,
-                    &opts,
-                    binding
-                        .as_ref()
-                        .map(|(name, bytes)| (*name, bytes.as_slice())),
-                )
-                .await
+                let up = tls::connect(conn.into_inner()?, &self.config.host, &self.tls_options).await?;
+                Ok((Connection::new(Box::new(up.stream) as mw_net::BoxStream), up.channel_binding))
             }
             Security::Plaintext => {
-                // No TLS ⇒ no channel binding ⇒ SCRAM-SHA-256-PLUS is unavailable.
                 let mut conn = Connection::new(tcp);
                 conn.read_greeting().await?;
-                self.session(&mut conn, &msg, &opts, None).await
+                Ok((conn, None))
             }
         }
     }
@@ -392,6 +397,7 @@ impl Submitter {
 
         conn.authenticate(&self.config.credentials, &caps, channel_binding)
             .await?;
+        self.dsn_support.record(caps.dsn);
 
         // Fail closed if the caller asked for an extension the server did not
         // advertise, rather than silently dropping the guarantee.

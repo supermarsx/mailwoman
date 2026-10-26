@@ -18,13 +18,8 @@
 //! - Other parameters are ignored, as before: they are not DSN, and refusing a
 //!   submission over, say, a `SIZE` the client computed would help nobody.
 //!
-//! When the submission server does not offer DSN the message is sent without
-//! it rather than not at all, and the account remembers that, so the session
-//! stops advertising `DSN` in `submissionExtensions` and the client hides the
-//! option (see [`Engine::record_dsn_support`]).
-
-use std::collections::HashSet;
-use std::sync::{Mutex, OnceLock};
+//! Requested DSN parameters are never silently dropped. Session publication
+//! requires a fresh observation from the configured SMTP transport authority.
 
 use serde_json::{Map, Value, json};
 
@@ -223,67 +218,22 @@ fn parse_notify(raw: &str) -> std::result::Result<Vec<String>, String> {
 }
 
 impl Engine {
-    /// The `settings` key recording whether the account's submission server
-    /// offered DSN on its last DSN send (`"true"` / `"false"`).
-    pub fn dsn_support_key(account_id: &str) -> String {
-        format!("smtp_dsn:{account_id}")
-    }
-
-    /// Record what the submission server said about DSN.
-    pub(crate) async fn record_dsn_support(&self, account_id: &str, offered: bool) {
-        if let Ok(mut refused) = dsn_refused().lock() {
-            if offered {
-                refused.remove(account_id);
-            } else {
-                refused.insert(account_id.to_string());
-            }
-        }
-        if let Err(e) = self
-            .store()
-            .set_setting(
-                &Self::dsn_support_key(account_id),
-                if offered { "true" } else { "false" },
-            )
-            .await
-        {
-            tracing::warn!("account {account_id}: could not record DSN support: {e}");
-        }
-    }
-
-    /// Whether DSN can be asked for: not known to be refused by the account's
-    /// submission server. Reads the stored record (and refreshes the copy the
-    /// session document reads).
+    /// Probe only the current account's submitter, and intersect administrator policy.
+    /// Failures never grant a capability or make the rest of the session unavailable.
     pub async fn dsn_offered(&self, account_id: &str) -> Result<bool> {
-        let offered = self
-            .store()
-            .get_setting(&Self::dsn_support_key(account_id))
-            .await?
-            .as_deref()
-            != Some("false");
-        if let Ok(mut refused) = dsn_refused().lock() {
-            if offered {
-                refused.remove(account_id);
-            } else {
-                refused.insert(account_id.to_string());
-            }
-        }
-        Ok(offered)
+        if !self.dsn_allowed(account_id).await { return Ok(false); }
+        let Some(runtime) = self.runtime(account_id) else { return Ok(false); };
+        let offered = tokio::time::timeout(std::time::Duration::from_secs(4), runtime.submitter.probe_dsn())
+            .await.ok().and_then(std::result::Result::ok).unwrap_or(false);
+        // Replacement during an awaited probe must not publish the old endpoint's result.
+        Ok(offered && self.runtime(account_id).is_some_and(|current| std::sync::Arc::ptr_eq(&current.submitter, &runtime.submitter)))
     }
 
-    /// The session's `submissionExtensions` (RFC 8621 §1.3.2): `DSN` unless the
-    /// account's submission server is known to refuse it. Synchronous, for the
-    /// session document; it reads the copy [`Engine::record_dsn_support`] and
-    /// [`Engine::dsn_offered`] keep.
+    /// Session projection of a fresh, authority-bound SMTP observation.
     pub fn submission_extensions(&self, account_id: &str) -> Value {
-        let refused = dsn_refused()
-            .lock()
-            .map(|r| r.contains(account_id))
-            .unwrap_or(false);
-        if refused {
-            json!({})
-        } else {
-            json!({ "DSN": [] })
-        }
+        if self.runtime(account_id).is_some_and(|runtime| runtime.submitter.cached_dsn_support()) {
+            json!({"DSN": []})
+        } else { json!({}) }
     }
 
     /// Whether an administrator allows asking for delivery status
@@ -301,12 +251,6 @@ impl Engine {
             }
         }
     }
-}
-
-/// Accounts whose submission server refused DSN, as last recorded.
-fn dsn_refused() -> &'static Mutex<HashSet<String>> {
-    static REFUSED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-    REFUSED.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
 #[cfg(test)]

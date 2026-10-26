@@ -3386,31 +3386,11 @@ impl Engine {
         if dlp_block_error(&verdicts).is_some() {
             return Err(NotSent::permanent(EngineError::Unsupported("dlpBlocked".into())));
         }
-        // Delivery status notifications (t32-e46): asked for through the
-        // envelope parameters. A server that does not offer DSN refuses before
-        // anything is sent; the message then goes without, and the account
-        // remembers it so the option stops being offered.
+        // A requested extension must be honored, never retried as an ordinary send.
         let result = match dsn {
-            Some(dsn) => {
-                let opts = mw_smtp::SubmitOptions {
-                    dsn: Some(dsn.to_smtp()),
-                    ..mw_smtp::SubmitOptions::default()
-                };
-                match rt.submitter.submit_with(outgoing.clone(), opts).await {
-                    Err(EngineError::Unsupported(m)) if m == crate::account::DSN_NOT_OFFERED => {
-                        self.record_dsn_support(account_id, false).await;
-                        tracing::info!(
-                            "draft {email_id}: the submission server does not offer DSN; sent without"
-                        );
-                        rt.submitter.submit(outgoing).await
-                    }
-                    Ok(r) => {
-                        self.record_dsn_support(account_id, true).await;
-                        Ok(r)
-                    }
-                    other => other,
-                }
-            }
+            Some(dsn) => rt.submitter.submit_with(outgoing, mw_smtp::SubmitOptions {
+                dsn: Some(dsn.to_smtp()), ..mw_smtp::SubmitOptions::default()
+            }).await,
             None => rt.submitter.submit(outgoing).await,
         };
         let result = match result {

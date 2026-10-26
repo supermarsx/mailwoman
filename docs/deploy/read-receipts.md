@@ -103,3 +103,34 @@ recipient/report fields are enforced while human-readable content supports Unico
 A received delivery report does not establish that a person read a message;
 a disposition notification reports another mail program's claim rather than
 independently proving human reading.
+
+## Outgoing SMTP DSN support
+
+Native engine session publication now lists `DSN` only after a recent successful
+EHLO observation through the configured SMTP egress, TLS and authentication path,
+and only when effective `receipts.dsnAllowed` permits it. Unknown, expired,
+failed-authentication and unsupported observations do not advertise support.
+The probe sends no MAIL, RCPT or DATA. Its network work is limited to two seconds;
+concurrent callers share a probe. Positive observations last five minutes,
+negative observations thirty seconds. Each immutable submitter owns its cache:
+changing endpoint, credentials or dialer cannot reuse another authority's result.
+Legacy `smtp_dsn:<account>` settings are no longer capability authority.
+
+Submission checks actual EHLO support again. If a requested DSN becomes
+unavailable, the submission fails before MAIL; the engine does not retry it as
+an ordinary send. The masked-address wrapper preserves DSN options after the
+same account/alias authorization used for ordinary submission. A successful
+SMTP acceptance still does not prove delivery or reading, and downstream
+report generation remains under the receiving mail systems' control.
+
+This implements truthful [RFC 8621 submission extension publication](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.2)
+and the configured submission hop of [RFC 3461](https://www.rfc-editor.org/rfc/rfc3461.html).
+It does not claim Mailwoman is a complete DSN-generating relay. Existing native
+parameter limits remain: common NOTIFY across recipients, ASCII ENVID, RET
+FULL/HDRS, and ORCPT restricted to each recipient's own address. Proxy sessions
+retain their upstream capability authority; Mailwoman still enforces its own
+administrative DSN restriction at admission.
+
+At this backend checkpoint the outgoing web compose DSN control and personal
+default remain pending. Incoming DSN display is implemented separately and
+always identifies reports as unverified mail content.

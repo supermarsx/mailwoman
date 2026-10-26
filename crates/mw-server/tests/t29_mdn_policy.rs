@@ -573,6 +573,7 @@ async fn rfc9007_authenticated_http_sends_once_with_null_envelope_and_parses_rep
     let port = listener.local_addr().unwrap().port();
     let smtp = tokio::spawn(async move {
         tokio::time::timeout(std::time::Duration::from_secs(30), async move {
+            loop {
             let (stream, _) = listener.accept().await.unwrap();
             let (read, mut write) = stream.into_split();
             let mut read = BufReader::new(read);
@@ -627,7 +628,8 @@ async fn rfc9007_authenticated_http_sends_once_with_null_envelope_and_parses_rep
                     panic!("unexpected fixture command");
                 }
             }
-            data
+            if !data.is_empty() { break data; }
+            }
         })
         .await
         .unwrap()
@@ -716,4 +718,51 @@ async fn rfc9007_authenticated_http_sends_once_with_null_envelope_and_parses_rep
         std::env::remove_var("MW_SMTP_PORT");
         std::env::remove_var("MW_SMTP_SECURITY");
     }
+}
+
+#[tokio::test]
+async fn dsn_http_capability_probe_is_truthful_and_changed_support_never_sends_plain() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let _guard=serial().await;
+    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port=listener.local_addr().unwrap().port();
+    let smtp=tokio::spawn(async move {
+        tokio::time::timeout(std::time::Duration::from_secs(30),async move {
+            let mut commands=Vec::new();
+            for attempt in 0..2 {
+                let (stream,_)=listener.accept().await.unwrap();
+                let (read,mut write)=stream.into_split(); let mut read=BufReader::new(read);
+                write.write_all(b"220 fixture ready\r\n").await.unwrap();
+                loop {
+                    let mut line=String::new();
+                    if read.read_line(&mut line).await.unwrap()==0 {break;}
+                    assert!(line.len()<8192); let command=line.trim_end();
+                    commands.push(command.to_owned());
+                    if command.starts_with("EHLO") {
+                        write.write_all(if attempt==0 {b"250-fixture\r\n250-DSN\r\n250 AUTH PLAIN\r\n"} else {b"250-fixture\r\n250 AUTH PLAIN\r\n"}).await.unwrap();
+                    } else if command.starts_with("AUTH PLAIN") {write.write_all(b"235 authenticated\r\n").await.unwrap();}
+                    else if command=="QUIT" {write.write_all(b"221 bye\r\n").await.unwrap();break;}
+                    else {panic!("unsupported DSN must stop before any message command");}
+                }
+            }
+            commands
+        }).await.unwrap()
+    });
+    // SAFETY: serialized environment fixture, no parallel mutation.
+    unsafe { std::env::set_var("MW_SMTP_HOST","127.0.0.1"); std::env::set_var("MW_SMTP_PORT",port.to_string()); std::env::set_var("MW_SMTP_SECURITY","plaintext"); }
+    let imap=MockImap::start(ENGINE_USER,ENGINE_PASS).await;
+    let server=spawn(ServerMode::Engine,imap.url()).await; let client=browser();
+    let account=engine_login(&client,&server.base,&imap).await;
+    let session:Value=client.get(format!("{}/jmap/session",server.base)).send().await.unwrap().json().await.unwrap();
+    assert_eq!(session["accounts"][&account]["accountCapabilities"]["urn:ietf:params:jmap:submission"]["submissionExtensions"],json!({"DSN":[]}));
+    let draft=jmap(&client,&server.base,"Email/set",json!({"accountId":account,"create":{"draft":{"from":[{"email":ENGINE_USER}],"to":[{"email":"friend@example.org"}],"subject":"DSN required","bodyValues":{"1":{"value":"hello"}},"textBody":[{"partId":"1","type":"text/plain"}]}}})).await;
+    let id=draft["created"]["draft"]["id"].as_str().expect("draft created");
+    let response:Value=client.post(format!("{}/jmap/api",server.base)).json(&json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail","urn:ietf:params:jmap:submission"],"methodCalls":[["EmailSubmission/set",{"accountId":account,"create":{"send":{"emailId":id,"envelope":{"mailFrom":{"email":ENGINE_USER},"rcptTo":[{"email":"friend@example.org","parameters":{"NOTIFY":"SUCCESS,FAILURE"}}]}}}},"send"]]})).send().await.unwrap().json().await.unwrap();
+    assert!(response["methodResponses"][0][1]["notCreated"]["send"].is_object(),"{response}");
+    let commands=smtp.await.unwrap();
+    assert_eq!(commands.iter().filter(|line|line.starts_with("AUTH PLAIN")).count(),2);
+    assert!(!commands.iter().any(|line|line.starts_with("MAIL") || line.starts_with("RCPT") || line=="DATA"));
+    let session:Value=client.get(format!("{}/jmap/session",server.base)).send().await.unwrap().json().await.unwrap();
+    assert_eq!(session["accounts"][&account]["accountCapabilities"]["urn:ietf:params:jmap:submission"]["submissionExtensions"],json!({}));
+    unsafe {std::env::remove_var("MW_SMTP_HOST");std::env::remove_var("MW_SMTP_PORT");std::env::remove_var("MW_SMTP_SECURITY");}
 }

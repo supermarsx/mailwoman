@@ -2722,7 +2722,9 @@ async fn jmap_session(State(state): State<AppState>, headers: HeaderMap, ext: ax
             tracing::warn!("engine account not available: {e}");
             return upstream_error();
         }
+        let dsn = !scripts_only && engine.dsn_offered(&session.account_id).await.unwrap_or(false);
         let mut document=engine.session_json_for(&session.account_id,&session.username);
+        if !dsn { document["accounts"][&session.account_id]["accountCapabilities"]["urn:ietf:params:jmap:submission"]["submissionExtensions"]=json!({}); }
         if scripts_only {
             document["capabilities"].as_object_mut().unwrap().retain(|key,_|key=="urn:ietf:params:jmap:core");
             document["primaryAccounts"]=json!({});

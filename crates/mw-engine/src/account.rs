@@ -21,10 +21,16 @@ pub trait MailSubmitter: Send + Sync {
     /// Submit one already-serialized message, reporting per-recipient outcome.
     async fn submit(&self, msg: Outgoing) -> Result<SubmissionResult>;
 
+    /// A fresh observation from this submitter's immutable transport authority.
+    fn cached_dsn_support(&self) -> bool { false }
+
+    /// Probe configured transport capabilities without submitting a message.
+    async fn probe_dsn(&self) -> Result<bool> { Ok(false) }
+
     /// Submit with ESMTP options (t32-e46: DSN). A submitter that cannot honour
     /// a DSN request answers [`EngineError::Unsupported`] with
-    /// [`DSN_NOT_OFFERED`] before anything is sent, and the engine sends the
-    /// message without it. Without a DSN request this is [`Self::submit`].
+    /// [`DSN_NOT_OFFERED`] before anything is sent. Requested options are never
+    /// silently discarded. Without a DSN request this is [`Self::submit`].
     async fn submit_with(&self, msg: Outgoing, opts: SubmitOptions) -> Result<SubmissionResult> {
         if opts.dsn.is_some() {
             return Err(EngineError::Unsupported(DSN_NOT_OFFERED.into()));
@@ -50,6 +56,11 @@ pub(crate) fn header_text(s: &str) -> String {
 /// Adapt the real `mw-smtp` submitter onto the engine's [`MailSubmitter`] seam.
 #[async_trait]
 impl MailSubmitter for Submitter {
+    fn cached_dsn_support(&self) -> bool { Submitter::cached_dsn_support(self) }
+    async fn probe_dsn(&self) -> Result<bool> {
+        Submitter::probe_dsn(self).await.map_err(|_| EngineError::Transport("SMTP capability probe unavailable".into()))
+    }
+
     async fn submit(&self, msg: Outgoing) -> Result<SubmissionResult> {
         MailSubmitter::submit_with(self, msg, SubmitOptions::default()).await
     }

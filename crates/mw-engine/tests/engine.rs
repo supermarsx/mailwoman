@@ -1504,3 +1504,41 @@ async fn dlp_encryption_requirement_refuses_matching_plaintext_submission() {
     );
     assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 0);
 }
+
+#[tokio::test]
+async fn dsn_unknown_is_unadvertised_and_refusal_never_falls_back_to_plain_send() {
+    let h=setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    assert_eq!(h.engine.submission_extensions(&h.account_id),json!({}));
+    assert!(!h.engine.dsn_offered(&h.account_id).await.unwrap());
+    // An obsolete process-persistent observation is not authority for this runtime.
+    h.engine.store().set_setting(&format!("smtp_dsn:{}",h.account_id),"true").await.unwrap();
+    assert!(!h.engine.dsn_offered(&h.account_id).await.unwrap());
+    let response=jmap(&h,json!([
+        ["Email/set",{"create":{"draft":{"from":[{"email":"me@example.org"}],"to":[{"email":"friend@example.org"}],"subject":"DSN must be honored","bodyValues":{"1":{"value":"hello"}},"textBody":[{"partId":"1","type":"text/plain"}]}}},"draft"],
+        ["EmailSubmission/set",{"create":{"send":{"emailId":"#draft","envelope":{"mailFrom":{"email":"me@example.org"},"rcptTo":[{"email":"friend@example.org","parameters":{"NOTIFY":"SUCCESS,FAILURE"}}]}}}},"send"]
+    ])).await;
+    assert!(method_result(&response,"send")["notCreated"]["send"].is_object(),"{response}");
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst),0,"unsupported DSN must never retry an ordinary submission");
+}
+
+#[tokio::test]
+async fn dsn_probe_cannot_publish_a_replaced_runtime_authority() {
+    struct HeldProbe { entered: tokio::sync::Notify, release: tokio::sync::Notify }
+    #[async_trait]
+    impl MailSubmitter for HeldProbe {
+        fn cached_dsn_support(&self) -> bool { true }
+        async fn probe_dsn(&self) -> Result<bool> { self.entered.notify_one(); self.release.notified().await; Ok(true) }
+        async fn submit(&self, _:Outgoing)->Result<SubmissionResult>{panic!("probe must never submit")}
+    }
+    let h=setup().await;
+    let probe=Arc::new(HeldProbe{entered:tokio::sync::Notify::new(),release:tokio::sync::Notify::new()});
+    h.engine.register_backend(h.account_id.clone(),AccountRuntime::new(h.backend.clone(),probe.clone(),"me@example.org"));
+    assert_eq!(h.engine.submission_extensions(&h.account_id),json!({"DSN":[]}));
+    let engine=h.engine.clone(); let account=h.account_id.clone();
+    let probing=tokio::spawn(async move {engine.dsn_offered(&account).await.unwrap()});
+    probe.entered.notified().await;
+    h.engine.register_backend(h.account_id.clone(),AccountRuntime::new(h.backend.clone(),h.submitter.clone(),"me@example.org"));
+    probe.release.notify_one(); assert!(!probing.await.unwrap());
+    assert_eq!(h.engine.submission_extensions(&h.account_id),json!({}));
+}
