@@ -328,3 +328,11 @@ settings-time-helpers = Show time zone helpers
 settings-time-save = Save time zone
 settings-time-invalid = Enter a valid IANA time zone. Use local only for the display zone, or leave the comparison zone empty.
 settings-time-discard = Discard unsaved time zone changes?
+
+settings-folders-name = Folder
+settings-folders-actions = Actions
+settings-folders-edit = Edit { $name } appearance
+settings-folders-icon-help = Choose one of fifteen themed icons, or keep automatic selection based on the folder's purpose. This follows your account and does not rename the mailbox.
+settings-folders-save = Save folder appearance
+settings-folders-back = Back to folders
+settings-folders-discard = Discard unsaved folder appearance changes?
