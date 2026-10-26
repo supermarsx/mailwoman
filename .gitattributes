@@ -46,3 +46,7 @@ crates/mw-store/migrations_pg/0066_personal_delivery.sql -text
 # Account draft migrations use immutable LF bytes.
 crates/mw-store/migrations/0063_account_drafts.sql -text
 crates/mw-store/migrations_pg/0063_account_drafts.sql -text
+
+# Provider account migration bytes are immutable LF.
+crates/mw-store/migrations/0067_provider_accounts.sql -text
+crates/mw-store/migrations_pg/0067_provider_accounts.sql -text

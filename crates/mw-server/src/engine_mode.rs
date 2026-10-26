@@ -302,6 +302,10 @@ pub(crate) async fn account_matches_upstream(
     account: &mw_store::Account,
     url: &str,
 ) -> Result<bool, String> {
+    if account.kind == AccountKind::Ews {
+        let selected = crate::domain_provider::stored_selection(store, &account.id).await?;
+        return Ok(selected.is_some_and(|selected| selected.config.endpoint().is_ok_and(|endpoint| endpoint.as_str() == url)));
+    }
     let expected = parse_mail_url(url).ok_or("invalid configured mail URL")?;
     let configured = crate::domain_config::upstream_for(store, &account.username).await?;
     let endpoint = configured
@@ -400,7 +404,7 @@ async fn register_one(
 ///
 /// An account a bridge serves is registered by `v7_mount::load_plugin_backends`
 /// and not under this lock; nothing here says when its first sync has run.
-fn connect_lock(account_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+pub(crate) fn connect_lock(account_id: &str) -> Arc<tokio::sync::Mutex<()>> {
     static LOCKS: OnceLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = OnceLock::new();
     let mut locks = LOCKS
         .get_or_init(Default::default)
@@ -648,6 +652,7 @@ async fn connect_backend(
     });
     let (username, password) = credentials;
     match kind {
+        AccountKind::Ews => Err(LoginFailure::new(LoginFailureReason::Unsupported)),
         AccountKind::Imap => {
             let tls_mode = match tls {
                 "implicit" => mw_imap::TlsMode::Implicit,
@@ -1066,6 +1071,14 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
         .unwrap_or(false)
     {
         return Err("authentication rejected; fresh sign-in required".into());
+    }
+    if account.kind == AccountKind::Ews {
+        if crate::domain_provider::stored_selection(engine.store(), account_id).await?.is_none() {
+            return Err("provider identity unavailable".into());
+        }
+        return if engine.is_registered(account_id) { Ok(()) } else {
+            Err("provider runtime unavailable; fresh sign-in required".into())
+        };
     }
     let (creds, credential_revision) = engine
         .store()

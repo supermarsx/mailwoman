@@ -292,7 +292,7 @@ mod tests {
         let headers = vec![("Authorization".into(), "Bearer fixture-token".into())];
         let out = Outgoing {
             response_metadata: Some(&metadata),
-            authorized_plugin: Some(crate::PluginHttp { method: "GET", headers: &headers }),
+            authorized_plugin: Some(crate::PluginHttp { additional_roots: &[], method: "GET", headers: &headers }),
             authorized_api: None, authorized_dav: None, web_push: None,
             response_limit: 128, accept: "application/json", user_agent: "Mailwoman", body: None,
         };

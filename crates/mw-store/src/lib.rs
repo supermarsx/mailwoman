@@ -11,6 +11,7 @@ pub mod branding;
 pub mod identity_principal;
 pub mod personal_records;
 pub mod personal_delivery;
+pub mod provider_accounts;
 pub mod oidc_provider;
 mod signin_challenges;
 pub mod request_protection_model;

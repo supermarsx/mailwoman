@@ -153,6 +153,7 @@ opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "trace", "metric
 tracing-opentelemetry = { workspace = true }
 
 [dev-dependencies]
+rcgen = "0.14"
 russh = { workspace = true }
 rand10 = { workspace = true }
 # t25-e1: `tests/common/gate.rs` is now a re-export of this crate, which is where the

@@ -560,9 +560,13 @@ pub(crate) async fn diagnostic_backend(
     plan: &mw_egress::plan::EgressPlan,
 ) -> Value {
     use crate::domain_selection::Protocol;
+    if backend.protocol == Protocol::Ews {
+        return json!({"protocol":"ews","reachable":false,"tls":false,
+            "credentialsSent":false,"selectedReason":"authenticated-provider-probe-required"});
+    }
     let protocol = match backend.protocol {
         Protocol::Imap => "imap", Protocol::Pop3 => "pop3", Protocol::Jmap => "jmap",
-        Protocol::Smtp => "smtp", Protocol::Sieve => "sieve",
+        Protocol::Smtp => "smtp", Protocol::Sieve => "sieve", Protocol::Ews => "ews",
     };
     let probe = if let Some(endpoint) = &backend.endpoint {
         probe_mail(protocol, endpoint, domain, plan).await

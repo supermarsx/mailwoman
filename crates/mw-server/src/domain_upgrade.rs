@@ -126,6 +126,7 @@ pub(crate) async fn prepare(store: &Store, security: &SecurityConfig, engine: bo
                     let protocol = match account.kind {
                         AccountKind::Imap => "imap",
                         AccountKind::Pop3 => "pop3",
+                        AccountKind::Ews => continue,
                     };
                     // Existing targets are operator-reviewable imports; allow private
                     // addressing explicitly so an on-prem install keeps its upstream.

@@ -30,6 +30,7 @@ pub(super) async fn fetch(
         let allowed: Vec<String> = serde_json::from_str(&row.net_allowlist_json)
             .map_err(|_| "invalid plugin permissions")?;
         let mut endpoint_grant = false;
+        let mut additional_roots = Vec::new();
         let canonical = if let Some(account) = account {
             if matches!(plugin, "bridge-ews" | "bridge-graph" | "bridge-gmail") {
                 let binding = store
@@ -40,16 +41,30 @@ pub(super) async fn fetch(
                     return Err("account provider binding changed".into());
                 }
             }
-            let address = store
-                .security_account_address(account)
-                .await
-                .map_err(|_| "account identity unavailable")?
-                .ok_or("account identity unavailable")?;
+            let provider = if plugin == "bridge-ews" {
+                crate::domain_provider::stored_selection(store, account).await?
+            } else {
+                None
+            };
+            // Verified provider enrollment precedes the login audit/session row.
+            // Initial indexing must use that durable identity, not race the later
+            // signin_identity projection. Legacy bridges retain their old lookup.
+            let address = if let Some(selected) = &provider {
+                selected.login_address.clone()
+            } else {
+                store.security_account_address(account).await
+                    .map_err(|_| "account identity unavailable")?
+                    .ok_or("account identity unavailable")?
+            };
             let canonical = store
                 .canonical_policy_address(&address)
                 .await
                 .map_err(|_| "account identity unavailable")?;
             if plugin == "bridge-ews" {
+                if let Some(selected) = provider {
+                    endpoint_grant = url == selected.config.endpoint()?;
+                    additional_roots = selected.config.roots()?;
+                } else {
                 let credential = store
                     .get_ews_account_cred(account)
                     .await
@@ -61,6 +76,7 @@ pub(super) async fn fetch(
                     && url.origin() == endpoint.origin()
                     && url.path() == endpoint.path()
                     && url.query() == endpoint.query();
+                }
                 if !endpoint_grant {
                     return Err("account endpoint mismatch".into());
                 }
@@ -108,7 +124,7 @@ pub(super) async fn fetch(
         });
         let mut request = mw_egress::plan::Request::plugin(
             mw_egress::TrafficClass::Plugins,
-            mw_egress::PluginHttp {
+            mw_egress::PluginHttp { additional_roots: &additional_roots,
                 method: &req.method,
                 headers: &req.headers,
             },
@@ -270,6 +286,34 @@ mod tests {
                 .unwrap_err(),
             "plugin network capability revoked"
         );
+    }
+
+    #[tokio::test]
+    async fn verified_provider_can_apply_egress_before_login_audit_projection() {
+        let store = fixture().await;
+        let endpoint = "https://127.0.0.1:9/EWS.asmx";
+        store.put_domain_config(&mw_store::DomainConfigRow {
+            name: "example.test".into(), enabled: true, preferred: false,
+            upstream_json: serde_json::json!({"version":2,"backends":[{
+                "id":"ews","role":"mail","protocol":"ews",
+                "ews":{"endpointUrl":endpoint,"authentication":"basic"}
+            }]}).to_string(),
+            allowlist_json: "[]".into(), blocklist_json: "[]".into(),
+            settings_json: "{}".into(), updated_at: 1,
+        }).await.unwrap();
+        let selected = crate::domain_provider::SelectedEws::for_login(&store,"owner@example.test")
+            .await.unwrap().unwrap();
+        let account = store.enroll_verified_ews(mw_store::provider_accounts::VerifiedEwsEnrollment {
+            endpoint_url: endpoint, backend_username: &selected.wire_username,
+            login_address: &selected.login_address, domain_binding: &selected.binding,
+            ca_pem: None, password: "fixture",
+        }).await.unwrap();
+        assert!(store.security_account_address(&account.account_id).await.unwrap().is_none());
+        // The request reaches the egress refusal using authoritative enrollment;
+        // it neither needs a later sign-in audit row nor bypasses private-IP policy.
+        let error = fetch(&store,"bridge-ews",Some(&account.account_id),request(endpoint))
+            .await.unwrap_err();
+        assert!(error.contains("egress"), "{error}");
     }
 
     #[tokio::test]

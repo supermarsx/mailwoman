@@ -210,8 +210,8 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "accounts",
-        select: "SELECT id, kind, host, port, tls, username, sealed_creds, sync_policy_json FROM accounts",
-        insert: "INSERT INTO accounts (id, kind, host, port, tls, username, sealed_creds, sync_policy_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+        select: "SELECT id, kind, host, port, tls, username, sealed_creds, sync_policy_json, backend_kind, backend_authority FROM accounts",
+        insert: "INSERT INTO accounts (id, kind, host, port, tls, username, sealed_creds, sync_policy_json, backend_kind, backend_authority) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -222,8 +222,16 @@ const TABLES: &[TableSpec] = &[
                 t(r, "username"),
                 b(r, "sealed_creds"),
                 t(r, "sync_policy_json"),
+                t(r, "backend_kind"),
+                t(r, "backend_authority"),
             ]
         },
+    },
+    TableSpec {
+        name: "account_provider",
+        select: "SELECT account_id,provider,endpoint_url,backend_username,login_address,domain_binding,ca_pem,sealed_credential,revision,created_at,updated_at FROM account_provider",
+        insert: "INSERT INTO account_provider(account_id,provider,endpoint_url,backend_username,login_address,domain_binding,ca_pem,sealed_credential,revision,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+        map: |r| vec![t(r,"account_id"),t(r,"provider"),t(r,"endpoint_url"),t(r,"backend_username"),t(r,"login_address"),t(r,"domain_binding"),ot(r,"ca_pem"),b(r,"sealed_credential"),t(r,"revision"),i(r,"created_at"),i(r,"updated_at")],
     },
     // `quotas` and `zeroaccess_accounts` are keyed by `account_id` but declare no
     // `REFERENCES accounts(id)` in either dialect, so nothing constrains their

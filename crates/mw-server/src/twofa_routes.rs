@@ -715,7 +715,16 @@ async fn passwordless_finish(
     let Ok(account) = state.store.get_account(&credential.account_id).await else {
         return rejected_passkey(&state, &device, "credential-rejected").await;
     };
-    let Ok(creds) = state.store.account_credentials(&account.id).await else {
+    let credentials = if account.kind == mw_store::AccountKind::Ews {
+        if !matches!(crate::domain_provider::stored_selection(&state.store, &account.id).await, Ok(Some(_))) {
+            return rejected_passkey(&state, &device, "credential-rejected").await;
+        }
+        state.store.provider_ews_credentials(&account.id).await.and_then(|credentials| {
+            credentials.map(|credentials| mw_store::Credentials { username: account.username.clone(), password: credentials.password })
+                .ok_or(mw_store::StoreError::NotFound)
+        })
+    } else { state.store.account_credentials(&account.id).await };
+    let Ok(creds) = credentials else {
         return rejected_passkey(&state, &device, "credential-rejected").await;
     };
     let policy = match crate::security_center::policy(&state, &account.id, &account.username).await
@@ -773,14 +782,20 @@ async fn passwordless_finish(
         return twofa_unauthorized();
     }
     if !engine.is_registered(&args.account_id) {
-        match crate::engine_mode::engine_login(
+        let attempt = if account.kind == mw_store::AccountKind::Ews {
+            match (crate::domain_provider::stored_selection(&state.store, &args.account_id).await,
+                ext.get::<crate::plugins::PluginRegistry>()) {
+                (Ok(Some(selected)), Some(registry)) => crate::domain_provider::login(engine, registry, selected, &args.creds.password).await,
+                _ => return twofa_unauthorized(),
+            }
+        } else { crate::engine_mode::engine_login(
             engine,
             upstream.url(),
             &args.creds.username,
             &args.creds.password,
         )
-        .await
-        {
+        .await };
+        match attempt {
             Ok((id, _)) if id == args.account_id => {}
             _ => return twofa_unauthorized(),
         }

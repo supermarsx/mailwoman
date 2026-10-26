@@ -132,6 +132,7 @@ fn configured(row: &mw_store::DomainConfigRow) -> Result<Vec<Target>, String> {
                     priority: 100,
                     endpoint: Some(endpoint),
                     session_url: None,
+                    ews: None,
                     username: Default::default(),
                 });
             }
@@ -146,6 +147,7 @@ fn configured(row: &mw_store::DomainConfigRow) -> Result<Vec<Target>, String> {
                 priority: 100,
                 endpoint: None,
                 session_url: Some(jmap.session_url),
+                ews: None,
                 username: Default::default(),
             });
         }

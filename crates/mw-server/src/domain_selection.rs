@@ -20,6 +20,7 @@ pub(crate) enum Protocol {
     Imap,
     Pop3,
     Jmap,
+    Ews,
     Smtp,
     Sieve,
 }
@@ -40,6 +41,8 @@ pub(crate) struct Backend {
     pub endpoint: Option<Endpoint>,
     #[serde(default)]
     pub session_url: Option<String>,
+    #[serde(default)]
+    pub ews: Option<crate::domain_provider::config::EwsConfig>,
     #[serde(default)]
     pub username: UsernameFormat,
 }
@@ -94,12 +97,20 @@ impl BackendConfig {
             }
             backend.username.validate()?;
             match (backend.role, backend.protocol) {
-                (ServiceRole::Mail, Protocol::Imap | Protocol::Pop3 | Protocol::Jmap)
+                (ServiceRole::Mail, Protocol::Imap | Protocol::Pop3 | Protocol::Jmap | Protocol::Ews)
                 | (ServiceRole::Submission, Protocol::Smtp)
                 | (ServiceRole::Rules, Protocol::Sieve) => {}
                 _ => return Err("the backend protocol does not implement its service role".into()),
             }
-            if backend.protocol == Protocol::Jmap {
+            if backend.protocol != Protocol::Ews && backend.ews.is_some() {
+                return Err("EWS configuration requires the EWS mail protocol".into());
+            }
+            if backend.protocol == Protocol::Ews {
+                if backend.endpoint.is_some() || backend.session_url.is_some() {
+                    return Err("EWS uses its configured HTTPS endpoint only".into());
+                }
+                backend.ews.as_ref().ok_or("EWS needs its endpoint configuration")?.validate()?;
+            } else if backend.protocol == Protocol::Jmap {
                 if backend.username != UsernameFormat::FullEmail {
                     return Err(
                         "JMAP username formatting is not supported by the current proxy transport"
@@ -128,7 +139,7 @@ impl BackendConfig {
                         Protocol::Pop3 => "pop3",
                         Protocol::Smtp => "smtp",
                         Protocol::Sieve => "sieve",
-                        Protocol::Jmap => unreachable!(),
+                        Protocol::Jmap | Protocol::Ews => unreachable!(),
                     })?;
             }
             if backend.preferred && !backend.enabled {
@@ -149,6 +160,10 @@ impl BackendConfig {
             {
                 return Err("choose at most one preferred backend per service role".into());
             }
+        }
+        if self.selected(ServiceRole::Mail).is_some_and(|backend| backend.protocol == Protocol::Ews)
+            && (self.selected(ServiceRole::Submission).is_some() || self.selected(ServiceRole::Rules).is_some()) {
+            return Err("the EWS backend owns submission and cannot use a separate SMTP or Sieve backend".into());
         }
         Ok(())
     }
@@ -177,6 +192,7 @@ impl BackendConfig {
             match mail.protocol {
                 Protocol::Imap => result.imap = mail.endpoint.clone(),
                 Protocol::Pop3 => result.pop3 = mail.endpoint.clone(),
+                Protocol::Ews => result.ews = mail.ews.clone(),
                 Protocol::Jmap => {
                     result.jmap = Some(JmapEndpoint {
                         session_url: mail.session_url.clone().ok_or("JMAP needs a session URL")?,
@@ -212,6 +228,20 @@ mod tests {
 
     fn config(rows: serde_json::Value) -> BackendConfig {
         serde_json::from_value(json!({ "version": 2, "backends": rows })).unwrap()
+    }
+    #[test]
+    fn ews_requires_one_explicit_https_mail_authority() {
+        let row = json!({"id":"exchange","role":"mail","protocol":"ews","ews":{
+            "endpointUrl":"https://exchange.example/EWS/Exchange.asmx","authentication":"basic"
+        }});
+        let selected = config(json!([row.clone()])).resolve().unwrap();
+        assert_eq!(selected.ews.unwrap().endpoint_url,"https://exchange.example/EWS/Exchange.asmx");
+        for replacement in [
+            json!({"id":"exchange","role":"submission","protocol":"ews","ews":row["ews"]}),
+            json!({"id":"exchange","role":"mail","protocol":"ews"}),
+            json!({"id":"exchange","role":"mail","protocol":"ews","sessionUrl":"https://elsewhere.example","ews":row["ews"]}),
+            json!({"id":"exchange","role":"mail","protocol":"imap","ews":row["ews"],"endpoint":{"host":"mail.example","port":993,"tls":"implicit"}}),
+        ] { assert!(config(json!([replacement])).validate().is_err()); }
     }
     fn endpoint(id: &str, priority: u16, preferred: bool) -> serde_json::Value {
         json!({"id":id,"role":"mail","protocol":"imap","priority":priority,"preferred":preferred,"endpoint":{"host":"mail.example.test","port":993,"tls":"implicit"}})

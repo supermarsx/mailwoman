@@ -474,6 +474,9 @@ async fn hop_with(
         if let Some(dav) = out.authorized_dav {
             dav.validate().map_err(ProxyRefusal::Origin)?;
             stream::wrap_tls_with_roots(conn, origin_host, dav.additional_roots).await?
+        } else if let Some(plugin) = out.authorized_plugin {
+            plugin.validate().map_err(ProxyRefusal::Origin)?;
+            stream::wrap_tls_with_roots(conn, origin_host, plugin.additional_roots).await?
         } else {
             stream::wrap_tls(conn, origin_host).await?
         }

@@ -162,6 +162,14 @@ pub(crate) struct StoreEwsCredProvider {
 #[async_trait]
 impl BasicCredentialProvider for StoreEwsCredProvider {
     async fn credentials(&self, account: &str) -> std::result::Result<BasicCredentials, String> {
+        if let Some(selected) = crate::domain_provider::stored_selection(&self.store, account).await? {
+            let credential = self.store.provider_ews_credentials(account).await.map_err(|_| "provider credentials unavailable")?.ok_or("provider credentials unavailable")?;
+            return Ok(BasicCredentials {
+                user: credential.username, password: credential.password,
+                domain: String::new(), workstation: String::new(),
+                endpoint: selected.config.endpoint()?.to_string(),
+            });
+        }
         match self.store.get_ews_account_cred(account).await {
             Ok(Some(c)) if c.enabled => Ok(BasicCredentials {
                 user: c.user,
@@ -1826,8 +1834,8 @@ impl PluginRole {
 /// A load that the registry state permits: the manifest and the grant to hand to
 /// `PluginHost::load`.
 pub(crate) struct LoadPlan {
-    manifest: PluginManifest,
-    grant: Grant,
+    pub(crate) manifest: PluginManifest,
+    pub(crate) grant: Grant,
     /// HIGH_POWER capabilities a stored grant named and provenance removed.
     refused: Vec<Capability>,
 }
@@ -2878,14 +2886,15 @@ pub(crate) async fn build_spam_hook(
 /// and, when advertised, binds its calendar/tasks/reactions/voting/recall/focused-sync
 /// trait objects into a per-account [`BridgePimSource`] (returned for e13 to attach via
 /// [`mw_engine::V7Hooks::with_bridge_caps`]). Returns `(loaded_count, bridge_pim_source)`
-/// — the source is `None` when no account bound any PIM interface.
+/// — an initially empty shared source also accepts later verified EWS enrollment.
 ///
 /// Deny-by-default: an unbound, unapproved, disabled, ungranted or unpinned plugin
 /// loads nothing, a component whose on-disk bytes fail the digest pin fails closed, and
 /// an account with no binding is byte-unchanged from the non-plugin path. Every skip is
 /// logged (never silent). Runs once, at start-up. A later registry change stops an
 /// instance it no longer permits ([`unload_unwanted_bridges`]); one that would start
-/// an instance is reported by [`plugin_status`] as needing a restart.
+/// an instance is reported by [`plugin_status`] as needing a restart, except the
+/// explicit credential-verified domain EWS activation path.
 pub async fn load_plugin_backends(
     engine: &Arc<mw_engine::Engine>,
     host: &PluginRegistry,
@@ -2893,15 +2902,17 @@ pub async fn load_plugin_backends(
 ) -> (usize, Option<Arc<dyn mw_engine::BridgeCapabilitySource>>) {
     let runtime = plugin_runtime(host);
     runtime.engine_mode.store(true, Ordering::SeqCst);
+    let shared_pim = Arc::new(BridgePimSource { accounts: std::sync::RwLock::new(std::collections::HashMap::new()) });
+    *runtime.bridge_pim.lock().expect("plugin runtime lock") = Some(Arc::clone(&shared_pim));
     let bindings = match store.list_bridge_accounts().await {
         Ok(b) => b,
         Err(e) => {
             tracing::warn!("bridge_accounts read failed: {e}");
-            return (0, None);
+            return (0, Some(shared_pim));
         }
     };
     if bindings.is_empty() {
-        return (0, None);
+        return (0, Some(shared_pim));
     }
     let plugins = store.list_plugins().await.unwrap_or_default();
     let mut loaded = 0usize;
@@ -2909,6 +2920,10 @@ pub async fn load_plugin_backends(
         std::collections::HashMap::new();
 
     for b in &bindings {
+        let provider = match crate::domain_provider::stored_selection(store, &b.account_id).await {
+            Ok(provider) => provider,
+            Err(_) => { tracing::warn!("provider authority unavailable at startup"); continue; }
+        };
         // The bound plugin must be a known, approved, ENABLED registry row.
         let Some(row) = plugins.iter().find(|p| p.id == b.bridge_id) else {
             tracing::warn!(
@@ -2930,6 +2945,14 @@ pub async fn load_plugin_backends(
                 continue;
             }
         };
+        if let Some(provider) = provider {
+            if b.bridge_id != "bridge-ews" { continue; }
+            let Ok(endpoint) = provider.config.endpoint() else { continue; };
+            if let Some(hostname) = endpoint.host_str()
+                && !plan.manifest.net_allowlist.iter().any(|h| h.eq_ignore_ascii_case(hostname)) {
+                plan.manifest.net_allowlist.push(hostname.into());
+            }
+        }
         // EWS (password-auth bridge): the account's real Exchange host is provisioned
         // per-account in the sealed 0011 `ews_account_cred` row, not in the registry
         // row's allowlist. Mirror its `endpoint_host` into this instance's manifest
@@ -2979,7 +3002,7 @@ pub async fn load_plugin_backends(
             .await
             .map(|a| a.username)
             .unwrap_or_else(|_| b.account_id.clone());
-        let account_runtime = mw_engine::account::AccountRuntime::new(
+        let mut account_runtime = mw_engine::account::AccountRuntime::new(
             backend.clone(),
             Arc::new(BridgeSubmitter {
                 backend,
@@ -2987,6 +3010,10 @@ pub async fn load_plugin_backends(
             }) as Arc<dyn mw_engine::account::MailSubmitter>,
             identity,
         );
+        if store.get_account(&b.account_id).await.is_ok_and(|account| account.kind == mw_store::AccountKind::Ews) {
+            let Ok(revision) = store.account_credential_revision(&b.account_id).await else { continue; };
+            account_runtime.credential_revision = Some(revision);
+        }
         engine.register_plugin_backend(b.account_id.clone(), b.bridge_id.clone(), account_runtime);
         runtime.note_loaded(row, &b.account_id, &handle);
         loaded += 1;
@@ -3010,17 +3037,45 @@ pub async fn load_plugin_backends(
             pim_slots.insert(b.account_id.clone(), slots);
         }
     }
-    let source: Option<Arc<dyn mw_engine::BridgeCapabilitySource>> = if pim_slots.is_empty() {
-        None
-    } else {
-        let source = Arc::new(BridgePimSource {
-            accounts: std::sync::RwLock::new(pim_slots),
-        });
-        // Kept so that unloading an instance also takes its PIM slots away.
-        *runtime.bridge_pim.lock().expect("plugin runtime lock") = Some(Arc::clone(&source));
-        Some(source)
-    };
-    (loaded, source)
+    *shared_pim.accounts.write().expect("bridge pim lock") = pim_slots;
+    (loaded, Some(shared_pim))
+}
+
+/// Activate one provider only after credential proof and durable enrollment.
+pub(crate) async fn activate_ews(
+    engine: &Arc<mw_engine::Engine>, host: &PluginRegistry, account: &str,
+    mailboxes: Vec<mw_engine::RawMailbox>,
+) -> Result<(), String> {
+    let store = engine.store();
+    let selected = crate::domain_provider::stored_selection(store, account).await?.ok_or("provider unavailable")?;
+    let row = store.get_plugin("bridge-ews").await.map_err(|_| "provider registry unavailable")?.ok_or("provider unavailable")?;
+    let mut plan = plan_load(store, &row, Some(account)).await.map_err(|_| "provider grant unavailable")?;
+    let endpoint = selected.config.endpoint()?;
+    let hostname = endpoint.host_str().ok_or("provider endpoint unavailable")?;
+    if !plan.manifest.net_allowlist.iter().any(|host| host.eq_ignore_ascii_case(hostname)) {
+        plan.manifest.net_allowlist.push(hostname.into());
+    }
+    let handle = load_planned(host, store, &plan, Some(account)).await.map_err(|_| "provider load failed")?;
+    let backend = handle.as_account_backend().ok_or("provider capability unavailable")?;
+    let identity = store.get_account(account).await.map_err(|_| "provider identity unavailable")?.username;
+    let mut account_runtime = mw_engine::account::AccountRuntime::new(
+        backend.clone(), Arc::new(BridgeSubmitter { backend, bridge_id: "bridge-ews".into() }), identity,
+    );
+    account_runtime.credential_revision = Some(store.account_credential_revision(account).await.map_err(|_| "provider credential revision unavailable")?);
+    selected.admit(store, Some(account)).await?;
+    engine.register_plugin_backend(account.to_owned(), "bridge-ews".to_owned(), account_runtime);
+    if engine.cache_mailbox_list(account, mailboxes).await.is_err() {
+        engine.unregister(account);
+        return Err("provider mailbox metadata unavailable".into());
+    }
+    let runtime = plugin_runtime(host);
+    runtime.note_loaded(&row, account, &handle);
+    let slots = probe_bridge_pim(&handle).await;
+    if let Some(source) = runtime.bridge_pim.lock().expect("plugin runtime lock").as_ref() {
+        source.accounts.write().expect("bridge pim lock").insert(account.into(), slots);
+    }
+    engine.start_initial_sync(account);
+    Ok(())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

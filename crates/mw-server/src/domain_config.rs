@@ -131,6 +131,8 @@ pub(crate) struct UpstreamConfig {
     pub pop3: Option<Endpoint>,
     pub smtp: Option<Endpoint>,
     pub jmap: Option<JmapEndpoint>,
+    #[serde(skip)]
+    pub ews: Option<crate::domain_provider::config::EwsConfig>,
     pub sieve: Option<Endpoint>,
     pub dav: Option<DavEndpoints>,
     #[serde(skip)]

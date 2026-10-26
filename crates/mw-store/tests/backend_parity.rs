@@ -52,7 +52,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Every store table, for TRUNCATE between Postgres runs.
-const ALL_TABLES: &str = "account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, personal_signature, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
+const ALL_TABLES: &str = "account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, personal_signature, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
@@ -2094,6 +2094,11 @@ mod admin_controls_0033 {
     /// Every table 0033 creates, FK parents before their children.
     #[rustfmt::skip]
     const NEW_TABLES: &[NewTable] = &[
+        NewTable {name:"account_provider",copied:true,cols:&[
+            ("account_id",'T',"!","acct-1"),("provider",'T',"!","ews"),("endpoint_url",'T',"!","https://exchange.example/EWS/Exchange.asmx"),
+            ("backend_username",'T',"!","alice@example.test"),("login_address",'T',"!","alice@example.test"),("domain_binding",'T',"!","provider-binding"),
+            ("ca_pem",'T',"~","fixture-public-root"),("sealed_credential",'B',"!","fixture-sealed-provider"),("revision",'T',"!","provider-revision"),("created_at",'I',"!",TS),("updated_at",'I',"!",TS),
+        ]},
         NewTable {name:"account_draft",copied:true,cols:&[
             ("owner",'T',"!","po1-draft-owner"),("id",'T',"!","draft-copy"),("account_id",'T',"!","wire-account"),
             ("revision",'T',"~","revision-one"),("email_id",'T',"~","email-one"),("sealed_state",'B',"~","draft-state"),
@@ -2822,6 +2827,7 @@ mod admin_controls_0033 {
     /// `(table, columns)`: the columns 0033 adds to existing tables.
     #[rustfmt::skip]
     const ALTERED: &[(&str, &[AddedCol])] = &[
+        ("accounts", &[("backend_kind",'T',"=mail"),("backend_authority",'T',"=")]),
         ("domains", &[
             ("enabled", 'I', "=1"),
             ("preferred", 'I', "=0"),
@@ -2950,6 +2956,7 @@ mod admin_controls_0033 {
     /// `(child, child column, parent, parent column)`, all `ON DELETE CASCADE`.
     /// These are the ONLY foreign keys the new tables declare.
     const FKS: &[(&str, &str, &str, &str)] = &[
+        ("account_provider", "account_id", "accounts", "id"),
         ("domain_alias", "domain", "domains", "name"),
         ("domain_host", "domain", "domains", "name"),
         ("admin_totp", "account_id", "admin_account", "id"),
@@ -3292,6 +3299,11 @@ mod admin_controls_0033 {
     const PRELUDE: &[&str] =
         &["INSERT INTO domains (name, upstream_json) VALUES ('example.test', '{}')"];
 
+    async fn seed_provider_parent(c: &mut Conn) {
+        c.exec("INSERT INTO accounts(id,kind,host,port,tls,username,sealed_creds,sync_policy_json) VALUES('acct-1','imap','exchange.example',443,'implicit','provider@example.test',?,'{}')", &[Val::B(vec![0])])
+            .await.unwrap();
+    }
+
     // ── schema metadata, per dialect ─────────────────────────────────────────
 
     type LiveCol = (String, String, bool, Option<String>);
@@ -3533,6 +3545,7 @@ mod admin_controls_0033 {
         }
 
         // Full-row round trip, parents first.
+        seed_provider_parent(c).await;
         for p in PRELUDE {
             c.exec(p, &[])
                 .await
@@ -3652,8 +3665,18 @@ mod admin_controls_0033 {
             let ct = table(child);
             let del = (format!("DELETE FROM {child}"), vec![]);
             let orphan = insert_of(ct, &[(ccol, "no-such-parent")], |_| true);
-            let (res, _) = c.in_rollback(&[del, orphan], None).await;
-            if res.is_ok() {
+            // 0067 is initially deferred. Check its pending violation explicitly
+            // inside the rollback fixture instead of assuming statement timing.
+            let missing_parent_refused = if *child == "account_provider" && !c.is_pg() {
+                let (res, violations) = c.in_rollback(&[del, orphan], Some("SELECT COUNT(*) FROM pragma_foreign_key_check WHERE \"table\"='account_provider'")).await;
+                res.is_ok() && violations == Some(1)
+            } else {
+                let mut statements = vec![del, orphan];
+                if *child == "account_provider" { statements.push(("SET CONSTRAINTS ALL IMMEDIATE".into(), vec![])); }
+                let (res, _) = c.in_rollback(&statements, None).await;
+                res.is_err()
+            };
+            if !missing_parent_refused {
                 bad.push(format!("{d}: {child}.{ccol} accepted a missing {parent}"));
             }
             let parent_value = ct.cols.iter().find(|c| c.0 == *ccol).unwrap().3;
@@ -3884,6 +3907,7 @@ mod admin_controls_0033 {
         let path_str = path.to_string_lossy().to_string();
         drop(Store::open(&path_str, key()).await.unwrap());
         let (pool, mut c) = sqlite_conn(&path_str).await;
+        seed_provider_parent(&mut c).await;
         for p in PRELUDE {
             c.exec(p, &[]).await.unwrap();
         }

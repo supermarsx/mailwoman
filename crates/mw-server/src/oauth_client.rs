@@ -301,7 +301,7 @@ impl FormPoster for ReqwestPoster {
             let metadata = mw_egress::ResponseMetadata::default();
             let mut request = mw_egress::plan::Request::plugin(
                 mw_egress::TrafficClass::Oauth,
-                mw_egress::PluginHttp {
+                mw_egress::PluginHttp { additional_roots: &[],
                     method: "POST",
                     headers: &headers,
                 },

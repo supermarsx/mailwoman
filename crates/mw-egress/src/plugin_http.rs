@@ -7,6 +7,8 @@ use crate::Refusal;
 pub struct PluginHttp<'a> {
     pub method: &'a str,
     pub headers: &'a [(String, String)],
+    /// Administrator-owned roots for the exact origin, never for a proxy hop.
+    pub additional_roots: &'a [Vec<u8>],
 }
 
 impl std::fmt::Debug for PluginHttp<'_> {
@@ -19,6 +21,17 @@ impl std::fmt::Debug for PluginHttp<'_> {
 
 impl PluginHttp<'_> {
     pub fn validate(&self) -> Result<(), Refusal> {
+        if self.additional_roots.len() > 8
+            || self.additional_roots.iter().map(Vec::len).sum::<usize>() > 65536
+        {
+            return Err(Refusal::BadRequest("plugin CA bundle too large"));
+        }
+        let mut roots = rustls::RootCertStore::empty();
+        for certificate in self.additional_roots {
+            roots
+                .add(rustls_pki_types::CertificateDer::from(certificate.clone()))
+                .map_err(|_| Refusal::BadRequest("invalid plugin CA"))?;
+        }
         if !matches!(
             self.method,
             "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS"
@@ -65,9 +78,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn origin_ca_roots_are_bounded_and_validated() {
+        let invalid = vec![vec![1, 2, 3]];
+        assert!(
+            PluginHttp {
+                method: "POST",
+                headers: &[],
+                additional_roots: &invalid
+            }
+            .validate()
+            .is_err()
+        );
+        let excessive = vec![Vec::new(); 9];
+        assert!(
+            PluginHttp {
+                method: "POST",
+                headers: &[],
+                additional_roots: &excessive
+            }
+            .validate()
+            .is_err()
+        );
+        let large = vec![vec![0; 65537]];
+        assert!(
+            PluginHttp {
+                method: "POST",
+                headers: &[],
+                additional_roots: &large
+            }
+            .validate()
+            .is_err()
+        );
+    }
+
+    #[test]
     fn credentials_are_redacted_and_authority_headers_cannot_be_overridden() {
         let headers = vec![("Authorization".into(), "Bearer secret-token".into())];
         let request = PluginHttp {
+            additional_roots: &[],
             method: "POST",
             headers: &headers,
         };
@@ -86,6 +134,7 @@ mod tests {
             let headers = vec![(name.into(), "value".into())];
             assert!(
                 PluginHttp {
+                    additional_roots: &[],
                     method: "GET",
                     headers: &headers
                 }
@@ -99,6 +148,7 @@ mod tests {
         ];
         assert!(
             PluginHttp {
+                additional_roots: &[],
                 method: "GET",
                 headers: &duplicate
             }
@@ -108,6 +158,7 @@ mod tests {
         let injected = vec![("Accept".into(), "text/plain\r\nHost: foreign".into())];
         assert!(
             PluginHttp {
+                additional_roots: &[],
                 method: "GET",
                 headers: &injected
             }

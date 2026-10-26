@@ -30,12 +30,13 @@ pub(crate) enum Upstream {
     Jmap(String),
     /// Engine mode: an `imap(s)://` or `pop3(s)://` server URL.
     Mail(String),
+    Ews(String),
 }
 
 impl Upstream {
     pub(crate) fn url(&self) -> &str {
         match self {
-            Upstream::Jmap(u) | Upstream::Mail(u) => u,
+            Upstream::Jmap(u) | Upstream::Mail(u) | Upstream::Ews(u) => u,
         }
     }
 }
@@ -91,6 +92,11 @@ pub(crate) async fn resolve_for(
             }
             let config = crate::domain_config::UpstreamConfig::parse(&row.upstream_json)
                 .map_err(|_| ResolveError::NotConfigured)?;
+            if let Some(ews) = &config.ews {
+                return if engine {
+                    Ok(Upstream::Ews(ews.endpoint().map_err(|_| ResolveError::NotConfigured)?.to_string()))
+                } else { Err(ResolveError::NotConfigured) };
+            }
             if config.selection.is_some() && config.mail().is_none() && config.jmap.is_none() {
                 return Err(ResolveError::NotConfigured);
             }

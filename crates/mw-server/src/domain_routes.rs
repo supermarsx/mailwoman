@@ -341,7 +341,7 @@ async fn put(
         let config = UpstreamConfig::parse(&upstream.to_string())
             .map_err(|error| invalid("/upstream", error))?;
         if (state.engine.is_some() && config.jmap.is_some())
-            || (state.engine.is_none() && config.mail().is_some())
+            || (state.engine.is_none() && (config.mail().is_some() || config.ews.is_some()))
         {
             return Err(invalid(
                 "/upstream",

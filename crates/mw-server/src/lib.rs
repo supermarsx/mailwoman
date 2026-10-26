@@ -53,7 +53,6 @@ pub mod fonts;
 pub mod hardening;
 pub mod http_metrics;
 mod request_history;
-pub mod inbound_http;
 pub mod knobs;
 mod config_routes;
 pub mod holidays;
@@ -61,6 +60,7 @@ pub mod push;
 pub mod push_relay;
 pub mod sharing;
 pub mod tls;
+pub mod inbound_http;
 pub mod watermark;
 pub mod wkd;
 // V6 additive route modules (plan §1.8): the admin console, OAuth authorization
@@ -180,6 +180,7 @@ mod scope_mw;
 // t32-h9: the server, never the client, picks the mail upstream for a sign-in.
 mod upstream_resolve;
 pub(crate) mod domain_config;
+pub(crate) mod domain_provider;
 mod domain_security;
 mod domain_selection;
 mod domain_auth;
@@ -1390,6 +1391,7 @@ fn router(
     let admin_routes = admin_router::router(&state)
         .layer(Extension(v7.plugins.clone()))
         .layer(Extension(v7.assist.clone()));
+    let provider_plugins = v7.plugins.clone();
 
     // ── V7 MOUNT (plan §3 e14) ────────────────────────────────────────────────
     // The five e9 route factories + the extra e14 endpoints, each layered with the
@@ -1454,7 +1456,7 @@ fn router(
         // t16 (26.16, e3): 2FA login-step / enrolment / recovery + session management.
         // `/api/login/2fa*` are pre-auth (pending-token) and CSRF-exempt like
         // `/api/login`; the `/api/account/*` routes are session-authed.
-        .merge(twofa_routes::twofa_router())
+        .merge(twofa_routes::twofa_router().layer(Extension(provider_plugins.clone())))
         .merge(step_up::user_router())
         .merge(security_center::router())
         // t16 (26.16, e10 chain link 3): the additive route modules e6/e18/e10 deliver.
@@ -1473,7 +1475,7 @@ fn router(
         .merge(account_drafts::router())
         .merge(sieve_sync::sieve_sync_router())
         .merge(open_tracking::router())
-        .route("/api/login", post(login))
+        .route("/api/login", post(login).layer(Extension(provider_plugins)))
         .route("/api/logout", post(logout))
         .route("/api/me", get(me))
         .route("/api/session/rotate", post(rotate_session))
@@ -2580,8 +2582,20 @@ async fn engine_login(
     body: LoginReq,
     server_url: &str,
 ) -> Response {
-    let (account_id, username) =
-        match engine_mode::engine_login(engine, server_url, &body.username, &body.password).await {
+    let attempt = match domain_provider::SelectedEws::for_login(&state.store, &body.username).await {
+        Ok(Some(selected)) => {
+            if !selected.config.endpoint().is_ok_and(|endpoint| endpoint.as_str() == server_url) {
+                Err(login_failure::LoginFailure::new(login_failure::LoginFailureReason::Policy))
+            } else if let Some(registry) = ext.get::<plugins::PluginRegistry>() {
+                domain_provider::login(engine, registry, selected, &body.password).await
+            } else {
+                Err(login_failure::LoginFailure::new(login_failure::LoginFailureReason::NotConfigured))
+            }
+        }
+        Ok(None) => engine_mode::engine_login(engine, server_url, &body.username, &body.password).await,
+        Err(_) => Err(login_failure::LoginFailure::new(login_failure::LoginFailureReason::Policy)),
+    };
+    let (account_id, username) = match attempt {
             Ok(pair) => pair,
             Err(error) => {
                 tracing::warn!("engine login failed");

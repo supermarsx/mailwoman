@@ -786,6 +786,15 @@ pub(crate) async fn send_hop_typed(
     out: &Outgoing<'_>,
 ) -> Result<(Hop, Option<String>), Refusal> {
     let mut builder = reqwest::Client::builder();
+    if let Some(plugin) = out.authorized_plugin {
+        plugin.validate()?;
+        for certificate in plugin.additional_roots {
+            builder = builder.add_root_certificate(
+                reqwest::Certificate::from_der(certificate)
+                    .map_err(|_| Refusal::BadRequest("invalid plugin CA"))?,
+            );
+        }
+    }
     if let Some(dav) = out.authorized_dav {
         dav.validate()?;
         for cert in dav.additional_roots {

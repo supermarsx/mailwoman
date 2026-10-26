@@ -25,11 +25,13 @@ use chrono::Utc;
 use crate::backend::Dialect;
 use crate::{Row, Store, StoreError, q, seal};
 
-/// Kind of upstream account (mirrors the `accounts.kind` CHECK constraint).
+/// Effective upstream kind, including providers projected from backend_kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccountKind {
     Imap,
     Pop3,
+    /// Effective provider kind projected from the additive backend discriminator.
+    Ews,
 }
 
 impl AccountKind {
@@ -37,6 +39,7 @@ impl AccountKind {
         match self {
             AccountKind::Imap => "imap",
             AccountKind::Pop3 => "pop3",
+            AccountKind::Ews => "ews",
         }
     }
 
@@ -44,6 +47,7 @@ impl AccountKind {
         match s {
             "imap" => Ok(AccountKind::Imap),
             "pop3" => Ok(AccountKind::Pop3),
+            "ews" => Ok(AccountKind::Ews),
             other => Err(StoreError::Corrupt(format!(
                 "unknown account kind {other:?}"
             ))),
@@ -261,6 +265,9 @@ impl Store {
         acct: &NewAccount<'_>,
         creds: &crate::Credentials,
     ) -> Result<String, StoreError> {
+        if acct.kind == AccountKind::Ews {
+            return Err(StoreError::Corrupt("provider account requires verified enrollment".into()));
+        }
         let id = seal::random_token();
         let sealed = self.key.seal(&crate::encode_creds(creds))?;
         q(
@@ -299,12 +306,12 @@ impl Store {
         let sql = match self.backend.dialect() {
             Dialect::Sqlite => {
                 "SELECT id FROM accounts
-                 WHERE kind = ?1 AND rtrim(lower(host), '.') = rtrim(lower(?2), '.')
+                 WHERE backend_kind = 'mail' AND kind = ?1 AND rtrim(lower(host), '.') = rtrim(lower(?2), '.')
                    AND port = ?3 AND lower(username) = lower(?4)"
             }
             Dialect::Postgres => {
                 "SELECT id FROM accounts
-                 WHERE kind = ?1
+                 WHERE backend_kind = 'mail' AND kind = ?1
                    AND rtrim(translate(host, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '.')
                      = rtrim(translate(?2, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '.')
                    AND port = ?3
@@ -338,6 +345,9 @@ impl Store {
         acct: &NewAccount<'_>,
         creds: &crate::Credentials,
     ) -> Result<String, StoreError> {
+        if acct.kind == AccountKind::Ews {
+            return Err(StoreError::Corrupt("provider account requires verified enrollment".into()));
+        }
         let sealed = self.key.seal(&crate::encode_creds(creds))?;
         for _ in 0..2 {
             if let Some(id) = self
@@ -382,7 +392,7 @@ impl Store {
     /// Fetch an account by id.
     pub async fn get_account(&self, id: &str) -> Result<Account, StoreError> {
         let row = q(
-            "SELECT id, kind, host, port, tls, username, sync_policy_json FROM accounts WHERE id = ?1",
+            "SELECT id, CASE WHEN backend_kind='ews' THEN 'ews' ELSE kind END AS kind, host, port, tls, username, sync_policy_json FROM accounts WHERE id = ?1",
         )
         .bind(id)
         .fetch_optional(&self.backend)
@@ -394,7 +404,7 @@ impl Store {
     /// List all configured accounts (no credentials).
     pub async fn list_accounts(&self) -> Result<Vec<Account>, StoreError> {
         let rows = q(
-            "SELECT id, kind, host, port, tls, username, sync_policy_json FROM accounts ORDER BY id",
+            "SELECT id, CASE WHEN backend_kind='ews' THEN 'ews' ELSE kind END AS kind, host, port, tls, username, sync_policy_json FROM accounts ORDER BY id",
         )
         .fetch_all(&self.backend)
         .await?;
