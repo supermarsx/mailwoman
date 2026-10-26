@@ -69,6 +69,7 @@ pub(crate) async fn admit(
         return Ok(());
     }
     if proxy_submission {
+        crate::dlp::admit_proxy(state, request).await?;
         let dsn = crate::settings_routes::effective_for_session(state, session, "receipts.dsnAllowed")
             .await.map_err(|_| axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response())?
             .ok_or_else(|| axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response())?;

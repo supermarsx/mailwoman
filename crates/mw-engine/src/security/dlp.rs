@@ -1,7 +1,7 @@
 //! DLP family (`Dlp/getRules`, `Dlp/scan`, frozen §2.2) + the outbound
 //! [`evaluate`] hook (plan §1.8). Enforcement is inline on `EmailSubmission/set`:
-//! a `block` verdict fails the submission with a `dlpBlocked` error; `warn`/
-//! `require-encryption` surface pre-send via `Dlp/scan`. The rules in force are
+//! a `block` or matching `require-encryption` verdict refuses submission;
+//! `warn` surfaces pre-send via `Dlp/scan`. The rules in force are
 //! the union of `MW_DLP_RULES` (inline JSON or a path to a JSON `[DlpRule]` file)
 //! and the rules stored in the admin security policy ([`load_rules`]); every
 //! evaluation that matches writes a REDACTED `dlp_audit` row (matched detector +
@@ -18,10 +18,36 @@ use crate::account::header_text;
 use crate::engine::Engine;
 use crate::security::types::{DlpRule, DlpVerdict};
 
-use super::{gen_id, server_fail};
+use super::gen_id;
 
 #[path = "dlp_portugal.rs"]
 mod portugal;
+
+/// Bounded, content-free failure at the authoritative DLP boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DlpError {
+    PolicyUnavailable,
+    InputUnavailable,
+}
+impl DlpError {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::PolicyUnavailable => "dlpPolicyUnavailable",
+            Self::InputUnavailable => "dlpInputUnavailable",
+        }
+    }
+    pub fn jmap_error(self) -> Value {
+        json!({"type":"serverFail","code":self.code(),"description":"DLP policy or authoritative message inspection is unavailable; the message was not submitted."})
+    }
+}
+impl std::fmt::Display for DlpError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.code())
+    }
+}
+impl std::error::Error for DlpError {}
+const MAX_POLICY_BYTES: usize = 2 * 1024 * 1024;
+const MAX_INSPECT_BYTES: usize = 64 * 1024 * 1024;
 
 /// The compose/submit content a rule set is evaluated against.
 #[derive(Debug, Default, Clone)]
@@ -42,8 +68,10 @@ pub(crate) struct AttachmentMeta {
 impl Engine {
     /// `Dlp/getRules` → `{list:[DlpRule]}` (read the active config/env rules).
     pub(crate) async fn dlp_get_rules(&self, _account_id: &str, _args: &Value) -> Value {
-        let rules = load_rules(self.store()).await;
-        json!({ "list": rules })
+        match load_rules(self.store()).await {
+            Ok(rules) => json!({ "list": rules }),
+            Err(error) => error.jmap_error(),
+        }
     }
 
     /// `Dlp/scan {draftId|{recipients,subject,bodyText,attachments}}` →
@@ -52,12 +80,16 @@ impl Engine {
         let input = if let Some(draft_id) = args.get("draftId").and_then(Value::as_str) {
             match self.dlp_input_for_email(account_id, draft_id).await {
                 Ok(i) => i,
-                Err(e) => return server_fail(e),
+                Err(error) => return error.jmap_error(),
             }
         } else {
             dlp_input_from_args(args)
         };
-        let verdicts = scan(&load_rules(self.store()).await, &input);
+        let rules = match load_rules(self.store()).await {
+            Ok(rules) => rules,
+            Err(error) => return error.jmap_error(),
+        };
+        let verdicts = scan(&rules, &input);
         json!({ "list": verdicts })
     }
 
@@ -65,24 +97,28 @@ impl Engine {
     /// envelope, body text + attachment metadata from the parsed MIME.
     pub(crate) async fn dlp_input_for_email(
         &self,
-        _account_id: &str,
+        account_id: &str,
         email_id: &str,
-    ) -> Result<DlpInput, String> {
+    ) -> Result<DlpInput, DlpError> {
         let msg = self
             .store()
             .get_message(email_id)
             .await
-            .map_err(|e| e.to_string())?;
-        let raw = match msg.blob_ref.as_ref() {
-            Some(b) => self
-                .store()
-                .get_body(b)
-                .await
-                .map_err(|e| e.to_string())?
-                .unwrap_or_default(),
-            None => Vec::new(),
-        };
-        let parsed = mw_mime::parse(&raw).map(|p| p.email).unwrap_or_default();
+            .map_err(|_| DlpError::InputUnavailable)?;
+        if msg.account_id != account_id {
+            return Err(DlpError::InputUnavailable);
+        }
+        let blob = msg.blob_ref.as_deref().ok_or(DlpError::InputUnavailable)?;
+        let raw = self
+            .store()
+            .get_body_limited(account_id, blob, MAX_INSPECT_BYTES)
+            .await
+            .map_err(|_| DlpError::InputUnavailable)?
+            .filter(|raw| !raw.is_empty())
+            .ok_or(DlpError::InputUnavailable)?;
+        let parsed = mw_mime::parse(&raw)
+            .map_err(|_| DlpError::InputUnavailable)?
+            .email;
         let recipients = crate::jmap::recipients(&parsed);
         let subject = parsed.subject.clone().unwrap_or_default();
         let body = parsed
@@ -169,42 +205,34 @@ pub const SECURITY_POLICY_SETTINGS_KEY: &str = "v6:admin:security_policy";
 /// an environment rule is dropped: the panel cannot replace or remove an
 /// environment rule. `Dlp/getRules`, `Dlp/scan` and the `submit_email`
 /// enforcement hook all read this, so what is shown and what is enforced agree.
-pub(crate) async fn load_rules(store: &Store) -> Vec<DlpRule> {
-    let mut rules = env_rules();
-    for rule in stored_rules(store).await {
+pub(crate) async fn load_rules(store: &Store) -> Result<Vec<DlpRule>, DlpError> {
+    let mut rules = env_rules()?;
+    for rule in stored_rules(store).await? {
         if !rules.iter().any(|r| r.id == rule.id) {
             rules.push(rule);
         }
     }
-    rules
+    Ok(rules)
 }
 
-/// The rules stored in the admin security policy. A row that does not parse, or
-/// a `dlp_rules_json` that is not a rule list, yields no rules and a warning: the
-/// admin API refuses such a value, so it can only come from a direct database edit.
-pub async fn stored_rules(store: &Store) -> Vec<DlpRule> {
-    let row = match store.get_setting(SECURITY_POLICY_SETTINGS_KEY).await {
-        Ok(Some(row)) => row,
-        Ok(None) => return Vec::new(),
-        Err(e) => {
-            tracing::warn!("DLP: the stored security policy could not be read: {e}");
-            return Vec::new();
-        }
+/// Missing policy is an empty rule set; unavailable or malformed policy is an error.
+pub async fn stored_rules(store: &Store) -> Result<Vec<DlpRule>, DlpError> {
+    let Some(row) = store
+        .get_setting(SECURITY_POLICY_SETTINGS_KEY)
+        .await
+        .map_err(|_| DlpError::PolicyUnavailable)?
+    else {
+        return Ok(Vec::new());
     };
-    let Some(text) = serde_json::from_str::<Value>(&row).ok().and_then(|v| {
-        v.get("dlp_rules_json")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-    }) else {
-        return Vec::new();
-    };
-    match validate_rules(&text) {
-        Ok(rules) => rules,
-        Err(e) => {
-            tracing::warn!("DLP: the stored rules are not used: {e}");
-            Vec::new()
-        }
+    let value: Value = serde_json::from_str(&row).map_err(|_| DlpError::PolicyUnavailable)?;
+    if !value.is_object() {
+        return Err(DlpError::PolicyUnavailable);
     }
+    let Some(field) = value.get("dlp_rules_json") else {
+        return Ok(Vec::new());
+    };
+    let text = field.as_str().ok_or(DlpError::PolicyUnavailable)?;
+    validate_rules(text).map_err(|_| DlpError::PolicyUnavailable)
 }
 
 /// Parse a rule list as the admin API accepts it: a JSON array of [`DlpRule`],
@@ -240,19 +268,37 @@ pub fn validate_rules(json: &str) -> Result<Vec<DlpRule>, String> {
 /// The rules from `MW_DLP_RULES`. The value is EITHER inline JSON (a `[DlpRule]`
 /// array) OR a path to such a file — the SAME two forms `/api/security/dlp/config`
 /// accepts. Inline JSON is tried first (a value starting with `[` after trimming);
-/// otherwise the value is read as a file path. Missing/unset/unparseable → no
-/// rules.
-fn env_rules() -> Vec<DlpRule> {
-    let Ok(value) = std::env::var("MW_DLP_RULES") else {
-        return Vec::new();
-    };
-    if value.trim_start().starts_with('[') {
-        return serde_json::from_str(&value).unwrap_or_default();
+/// otherwise the value is read as a file path. Unset means no environment rules;
+/// unreadable or malformed configured policy refuses submission.
+fn env_rules() -> Result<Vec<DlpRule>, DlpError> {
+    match std::env::var("MW_DLP_RULES") {
+        Ok(value) => rules_from_source(&value),
+        Err(std::env::VarError::NotPresent) => Ok(Vec::new()),
+        Err(_) => Err(DlpError::PolicyUnavailable),
     }
-    let Ok(text) = std::fs::read_to_string(&value) else {
-        return Vec::new();
+}
+
+/// Inline JSON or a bounded local configuration file; never silent fallback.
+pub fn rules_from_source(source: &str) -> Result<Vec<DlpRule>, DlpError> {
+    use std::io::Read;
+    let source = source.trim();
+    if source.is_empty() {
+        return Ok(Vec::new());
+    }
+    let text = if source.starts_with('[') {
+        source.to_owned()
+    } else {
+        let file = std::fs::File::open(source).map_err(|_| DlpError::PolicyUnavailable)?;
+        let mut text = String::new();
+        file.take(MAX_POLICY_BYTES as u64 + 1)
+            .read_to_string(&mut text)
+            .map_err(|_| DlpError::PolicyUnavailable)?;
+        text
     };
-    serde_json::from_str(&text).unwrap_or_default()
+    if text.len() > MAX_POLICY_BYTES {
+        return Err(DlpError::PolicyUnavailable);
+    }
+    validate_rules(&text).map_err(|_| DlpError::PolicyUnavailable)
 }
 
 /// Evaluate a rule set against content → one [`DlpVerdict`] per matched rule
@@ -320,7 +366,7 @@ pub(crate) fn scan(rules: &[DlpRule], input: &DlpInput) -> Vec<DlpVerdict> {
             action: rule.action.clone(),
             matched_detectors: matched.clone(),
             excerpt_redacted: redacted_excerpt(&matched),
-            blocked: rule.action == "block",
+            blocked: matches!(rule.action.as_str(), "block" | "require-encryption"),
         });
     }
     out
@@ -345,7 +391,11 @@ fn recipient_gate(rule: &DlpRule, recipients: &[String]) -> bool {
         .any(|d| domains.iter().any(|x| x.to_lowercase() == *d));
     match rule.conditions.recipient_domain_mode.as_deref() {
         Some("in") => any_in,
-        Some("notIn") => !any_in,
+        Some("notIn") => recip_domains.iter().any(|domain| {
+            !domains
+                .iter()
+                .any(|allowed| allowed.eq_ignore_ascii_case(domain))
+        }),
         _ => true,
     }
 }
@@ -628,18 +678,70 @@ fn scan_grouped(text: &str, groups: &[usize]) -> bool {
 /// as a hard block (fails `EmailSubmission/set` with `dlpBlocked`).
 ///
 /// No rules loaded → no findings → allow (the send path is unchanged).
-pub(crate) async fn evaluate(engine: &Engine, account_id: &str, email_id: &str) -> Vec<DlpVerdict> {
-    let rules = load_rules(engine.store()).await;
-    if rules.is_empty() {
-        return Vec::new();
+pub(crate) async fn evaluate(
+    engine: &Engine,
+    account_id: &str,
+    email_id: &str,
+) -> Result<Vec<DlpVerdict>, DlpError> {
+    let rules = load_rules(engine.store()).await?;
+    if !rules.iter().any(|rule| rule.enabled) {
+        return Ok(Vec::new());
     }
-    let input = match engine.dlp_input_for_email(account_id, email_id).await {
-        Ok(i) => i,
-        Err(_) => return Vec::new(),
+    let input = engine.dlp_input_for_email(account_id, email_id).await?;
+    let verdicts = scan(&rules, &input);
+    // A denied creation never reaches dispatch. Successful creations are
+    // audited at dispatch so warn/notify actions do not fire twice.
+    if verdicts.iter().any(|verdict| verdict.blocked) {
+        audit(engine, account_id, &verdicts).await;
+    }
+    Ok(verdicts)
+}
+
+/// Recheck the exact bytes and SMTP recipients immediately before dispatch.
+/// This closes queued-draft edits and envelope-only recipient overrides.
+pub(crate) async fn evaluate_outgoing(
+    engine: &Engine,
+    account_id: &str,
+    raw: &[u8],
+    recipients: &[String],
+) -> Result<Vec<DlpVerdict>, DlpError> {
+    let rules = load_rules(engine.store()).await?;
+    if !rules.iter().any(|rule| rule.enabled) {
+        return Ok(Vec::new());
+    }
+    if raw.is_empty() || raw.len() > MAX_INSPECT_BYTES {
+        return Err(DlpError::InputUnavailable);
+    }
+    let parsed = mw_mime::parse(raw)
+        .map_err(|_| DlpError::InputUnavailable)?
+        .email;
+    let input = DlpInput {
+        recipients: recipients.to_vec(),
+        subject: parsed.subject.unwrap_or_default(),
+        body: parsed
+            .body_values
+            .values()
+            .map(|value| value.value.as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        attachments: parsed
+            .attachments
+            .iter()
+            .map(|part| AttachmentMeta {
+                name: part.name.clone().unwrap_or_default(),
+                content_type: part.r#type.clone().unwrap_or_default(),
+                size: part.size as i64,
+            })
+            .collect(),
     };
     let verdicts = scan(&rules, &input);
+    audit(engine, account_id, &verdicts).await;
+    Ok(verdicts)
+}
+
+async fn audit(engine: &Engine, account_id: &str, verdicts: &[DlpVerdict]) {
     let now = chrono::Utc::now().to_rfc3339();
-    for v in &verdicts {
+    for v in verdicts {
         // Redacted audit only — matched detectors + rule, NEVER the content.
         let _ = engine
             .store()
@@ -659,9 +761,8 @@ pub(crate) async fn evaluate(engine: &Engine, account_id: &str, email_id: &str) 
     // `notify`/`notify-admin` (non-blocking): email a REDACTED notice to the
     // deployment admin. Best-effort — a send failure never blocks the message.
     if verdicts.iter().any(|v| is_notify_action(&v.action)) {
-        notify_admin(engine, account_id, &verdicts).await;
+        notify_admin(engine, account_id, verdicts).await;
     }
-    verdicts
 }
 
 /// `notify`/`notify-admin` — surface the match to the deployment admin without
@@ -763,6 +864,32 @@ mod tests {
             action: "block".into(),
             message: "Contains a card number.".into(),
         }
+    }
+
+    #[test]
+    fn encryption_requirement_never_allows_matching_plaintext() {
+        let mut rule = pan_rule();
+        rule.action = "require-encryption".into();
+        let input = DlpInput {
+            body: "4111 1111 1111 1111".into(),
+            ..Default::default()
+        };
+        assert!(scan(&[rule], &input)[0].blocked);
+    }
+
+    #[test]
+    fn mixed_internal_external_recipients_cannot_bypass_external_domain_rule() {
+        let mut rule = pan_rule();
+        rule.conditions.recipient_domains = vec!["inside.example".into()];
+        rule.conditions.recipient_domain_mode = Some("notIn".into());
+        let mut input = DlpInput {
+            body: "4111 1111 1111 1111".into(),
+            recipients: vec!["a@inside.example".into()],
+            ..Default::default()
+        };
+        assert!(scan(&[rule.clone()], &input).is_empty());
+        input.recipients.push("b@outside.example".into());
+        assert!(scan(&[rule], &input)[0].blocked);
     }
 
     #[test]

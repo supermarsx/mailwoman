@@ -139,3 +139,5 @@ admin-policy-dlp-keywords = Custom keywords and phrases
 admin-policy-dlp-keywords-placeholder = e.g. internal secret
 admin-policy-dlp-keywords-none = No custom keywords.
 admin-policy-dlp-keywords-help = Literal, case-insensitive words or phrases. Matches whole words; no regular expressions. The credential detector includes password, senha, palavra-passe, API key and private-key terms. Identifier checks validate format, not whether a number was issued.
+
+admin-policy-dlp-enforcement-note = Native sends are checked again immediately before dispatch. Any enabled rule disables upstream-proxy submissions because their exact outgoing content cannot be guaranteed. A matching Require encryption rule refuses sending; encrypted contents are not decrypted or certified by this policy.

@@ -128,6 +128,7 @@ export function DlpRulesEditor(props: DlpRulesEditorProps): JSX.Element {
 
   return (
     <div class={own.dlp} id={props.id} role="group" aria-label={props.label} aria-describedby={props.describedBy} data-testid="dlp-editor">
+      <p class={css.panelText}>{t('admin-policy-dlp-enforcement-note')}</p>
       <Show when={props.envRules.length > 0}>
         <div class={css.panel} data-testid="dlp-env-rules">
           <h3 class={css.panelTitle}>{t('admin-policy-dlp-env-heading')}</h3>

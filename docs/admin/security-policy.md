@@ -81,3 +81,25 @@ Coverage is message subject/body and attachment metadata, not OCR or extraction 
 contents. Verdicts and audit records contain detector names rather than matched identity/secret
 values. Enforcement applies to the engine submission path; this is not a claim that external
 mail clients or independently sending third-party services are covered.
+
+### Authoritative checks and proxy limitations
+
+Unavailable or malformed configured rules refuse submission with `dlpPolicyUnavailable`;
+missing, oversized or unavailable authoritative draft bodies refuse with `dlpInputUnavailable`.
+No configured rules remains an empty policy. Native sends check again immediately before SMTP,
+using the exact outgoing bytes and actual envelope recipients, including queued releases and
+recipient overrides. A recipient-domain exclusion applies if **any** recipient is outside the list.
+Draft scans require the authenticated account to own the draft.
+
+Proxy-mode submissions with any enabled DLP rule are refused before any operation in the batch
+is forwarded (`dlpProxyUnsupported`). Fetching an upstream draft and later submitting it does not
+guarantee the inspected bytes were sent; same-request composition is not an upstream atomicity
+guarantee. Cancellation-only updates remain available. This deliberately does not claim proxy
+content inspection. Administrators must remove/disable those rules or use the native engine to
+send; warnings and notify rules also require authoritative inspection.
+
+A matching `require-encryption` verdict refuses server submission, just like a blocking verdict;
+merely declaring an encrypted Content-Type does not grant an exemption. This is conservative:
+a recipient-only encryption rule can also refuse a genuinely encrypted message until authoritative
+cryptographic validation is supported. Content-based rules cannot inspect encrypted ciphertext;
+this policy does not decrypt encrypted messages or attachments and does not certify encryption.

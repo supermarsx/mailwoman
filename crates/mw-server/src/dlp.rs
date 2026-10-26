@@ -10,28 +10,12 @@
 //! **path** to a JSON file containing that array. This module only LOADS + surfaces
 //! rules; detector evaluation and the redacted audit trail are engine-side (§1.8).
 
-use std::path::Path;
-
 use mw_engine::DlpRule;
 
 /// Load the active DLP rules from an `MW_DLP_RULES` value (inline JSON array or a
 /// path to a JSON file). Returns an empty list for an empty/whitespace source.
 pub fn load_rules(source: &str) -> anyhow::Result<Vec<DlpRule>> {
-    let trimmed = source.trim();
-    if trimmed.is_empty() {
-        return Ok(Vec::new());
-    }
-    let json = if trimmed.starts_with('[') {
-        trimmed.to_string()
-    } else if Path::new(trimmed).is_file() {
-        std::fs::read_to_string(trimmed)?
-    } else {
-        anyhow::bail!(
-            "MW_DLP_RULES is neither inline JSON (starting '[') nor an existing file path"
-        );
-    };
-    let rules: Vec<DlpRule> = serde_json::from_str(&json)?;
-    Ok(rules)
+    Ok(mw_engine::security::dlp::rules_from_source(source)?)
 }
 
 /// The rules in force, as the engine enforces them
@@ -50,7 +34,7 @@ pub async fn active_rules(
         Some(source) => load_rules(source)?,
         None => Vec::new(),
     };
-    let stored = mw_engine::security::dlp::stored_rules(store).await;
+    let stored = mw_engine::security::dlp::stored_rules(store).await?;
     let tagged = |rule: &DlpRule, source: &str| {
         let mut v = serde_json::to_value(rule).unwrap_or_default();
         if let Some(o) = v.as_object_mut() {
@@ -63,6 +47,51 @@ pub async fn active_rules(
         out.push(tagged(rule, "admin"));
     }
     Ok(out)
+}
+
+/// A proxy cannot atomically inspect an upstream draft and submit those exact
+/// bytes. Do not advertise local DLP enforcement while forwarding a bypass.
+pub(crate) async fn admit_proxy(
+    state: &crate::AppState,
+    request: &serde_json::Value,
+) -> Result<(), axum::response::Response> {
+    use axum::response::IntoResponse;
+    let sends = request["methodCalls"].as_array().is_some_and(|calls| {
+        calls.iter().any(|call| {
+            call[0] == "EmailSubmission/set"
+                && (call[1].get("#create").is_some()
+                    || call[1].get("#update").is_some()
+                    || call[1].get("create").is_some_and(|value| {
+                        !value.is_null() && value.as_object().is_none_or(|map| !map.is_empty())
+                    })
+                    || call[1]
+                        .get("update")
+                        .and_then(serde_json::Value::as_object)
+                        .is_some_and(|updates| {
+                            updates.values().any(|patch| {
+                                patch.as_object().is_none_or(|map| {
+                                    map.len() != 1
+                                        || map.get("undoStatus").and_then(serde_json::Value::as_str)
+                                            != Some("canceled")
+                                })
+                            })
+                        }))
+        })
+    });
+    if !sends {
+        return Ok(());
+    }
+    let rules = active_rules(&state.store, state.security.dlp_rules.as_deref()).await.map_err(|_| (
+        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+        axum::Json(serde_json::json!({"code":"dlpPolicyUnavailable","error":"DLP policy is unavailable; nothing was submitted"})),
+    ).into_response())?;
+    if rules.iter().any(|rule| rule["enabled"] == true) {
+        return Err((axum::http::StatusCode::FORBIDDEN, axum::Json(serde_json::json!({
+            "code":"dlpProxyUnsupported",
+            "error":"This upstream cannot guarantee authoritative DLP inspection; governed submissions are disabled"
+        }))).into_response());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

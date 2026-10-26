@@ -1350,3 +1350,157 @@ async fn import_refuses_unsupported_or_invalid_specs_before_upstream_mutation() 
     );
     assert_eq!(h.backend.append_calls.load(Ordering::SeqCst), 0);
 }
+
+#[tokio::test]
+async fn dlp_unreadable_policy_never_dispatches_submission() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    h.engine
+        .store()
+        .set_setting(
+            "v6:admin:security_policy",
+            r#"{"dlp_rules_json":"broken policy"}"#,
+        )
+        .await
+        .unwrap();
+    let response=jmap(&h,json!([
+        ["Email/set",{"create":{"draft":{"from":[{"email":"me@example.org"}],"to":[{"email":"friend@example.org"}],"subject":"Policy unavailable","bodyValues":{"1":{"value":"Synthetic message"}},"textBody":[{"partId":"1","type":"text/plain"}]}}},"draft"],
+        ["EmailSubmission/set",{"create":{"send":{"emailId":"#draft"}}},"send"]
+    ])).await;
+    assert_eq!(
+        method_result(&response, "send")["notCreated"]["send"]["code"],
+        "dlpPolicyUnavailable"
+    );
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn dlp_scan_cannot_inspect_another_accounts_draft() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let draft=jmap(&h,json!([["Email/set",{"create":{"draft":{"from":[{"email":"me@example.org"}],"to":[{"email":"friend@example.org"}],"subject":"Private fixture","bodyValues":{"1":{"value":"password synthetic-secret"}},"textBody":[{"partId":"1","type":"text/plain"}]}}},"draft"]])).await;
+    let id = method_result(&draft, "draft")["created"]["draft"]["id"]
+        .as_str()
+        .unwrap();
+    let other = h
+        .engine
+        .store()
+        .create_account(
+            &NewAccount {
+                kind: AccountKind::Imap,
+                host: "imap.example.org",
+                port: 993,
+                tls: "implicit",
+                username: "other@example.org",
+                sync_policy_json: "{}",
+            },
+            &Credentials {
+                username: "other@example.org".into(),
+                password: "fixture".into(),
+            },
+        )
+        .await
+        .unwrap();
+    h.engine.register_backend(
+        other.clone(),
+        AccountRuntime::new(
+            Arc::new(FakeBackend::new()),
+            Arc::new(FakeSubmitter::new()),
+            "other@example.org",
+        ),
+    );
+    let response = h
+        .engine
+        .handle_jmap(
+            &other,
+            &json!({"methodCalls":[["Dlp/scan",{"draftId":id},"scan"]]}),
+        )
+        .await;
+    assert_eq!(method_result(&response, "scan")["type"], "serverFail");
+    assert_eq!(
+        method_result(&response, "scan")["code"],
+        "dlpInputUnavailable"
+    );
+    assert!(method_result(&response, "scan").get("list").is_none());
+}
+
+fn dlp_test_policy(action: &str, domains: Vec<&str>) -> String {
+    json!({"dlp_rules_json":json!([{"id":"fixture","name":"Fixture","enabled":true,"priority":1,"conditions":{"detectors":["pan"],"customRegex":null,"dictionaries":[],"attachmentTypes":[],"maxAttachmentSize":null,"recipientDomains":domains,"recipientDomainMode":"in","classification":null},"action":action,"message":"Restricted"}]).to_string()}).to_string()
+}
+
+#[tokio::test]
+async fn dlp_policy_changed_during_hold_is_rechecked_before_dispatch() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let queued=jmap(&h,json!([
+        ["Email/set",{"create":{"draft":{"from":[{"email":"me@example.org"}],"to":[{"email":"friend@example.org"}],"subject":"Queued","bodyValues":{"1":{"value":"4111 1111 1111 1111"}},"textBody":[{"partId":"1","type":"text/plain"}]}}},"draft"],
+        ["EmailSubmission/set",{"create":{"send":{"emailId":"#draft","mailwomanHold":"manual"}}},"send"]
+    ])).await;
+    let id = method_result(&queued, "send")["created"]["send"]["id"]
+        .as_str()
+        .unwrap();
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 0);
+    h.engine
+        .store()
+        .set_setting(
+            "v6:admin:security_policy",
+            &dlp_test_policy("block", vec![]),
+        )
+        .await
+        .unwrap();
+    let released = jmap(
+        &h,
+        json!([["EmailSubmission/set",{"update":{id:{"mailwomanHold":null}}},"release"]]),
+    )
+    .await;
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 0, "{released}");
+    let query = jmap(&h, json!([["EmailSubmission/get",{"ids":[id]},"get"]])).await;
+    assert_eq!(
+        method_result(&query, "get")["list"][0]["undoStatus"],
+        "canceled",
+        "{query}"
+    );
+}
+
+#[tokio::test]
+async fn dlp_checks_actual_smtp_recipients_not_only_mime_to() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    h.engine
+        .store()
+        .set_setting(
+            "v6:admin:security_policy",
+            &dlp_test_policy("block", vec!["outside.example"]),
+        )
+        .await
+        .unwrap();
+    let response=jmap(&h,json!([
+        ["Email/set",{"create":{"draft":{"from":[{"email":"me@example.org"}],"to":[{"email":"friend@example.org"}],"subject":"Envelope override","bodyValues":{"1":{"value":"4111 1111 1111 1111"}},"textBody":[{"partId":"1","type":"text/plain"}]}}},"draft"],
+        ["EmailSubmission/set",{"create":{"send":{"emailId":"#draft","envelope":{"mailFrom":{"email":"me@example.org"},"rcptTo":[{"email":"recipient@outside.example"}]}}}},"send"]
+    ])).await;
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 0, "{response}");
+}
+
+#[tokio::test]
+async fn dlp_encryption_requirement_refuses_matching_plaintext_submission() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    h.engine
+        .store()
+        .set_setting(
+            "v6:admin:security_policy",
+            &dlp_test_policy("require-encryption", vec![]),
+        )
+        .await
+        .unwrap();
+    let response=jmap(&h,json!([
+        ["Email/set",{"create":{"draft":{"from":[{"email":"me@example.org"}],"to":[{"email":"friend@example.org"}],"subject":"Unencrypted","bodyValues":{"1":{"value":"4111 1111 1111 1111"}},"textBody":[{"partId":"1","type":"text/plain"}]}}},"draft"],
+        ["EmailSubmission/set",{"create":{"send":{"emailId":"#draft"}}},"send"]
+    ])).await;
+    assert_eq!(
+        method_result(&response, "send")["notCreated"]["send"]["type"],
+        "dlpBlocked",
+        "{response}"
+    );
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 0);
+}

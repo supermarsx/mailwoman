@@ -2274,7 +2274,8 @@ impl Engine {
         // submission is enqueued. A `block` verdict fails this create with a
         // structured `dlpBlocked` error and the message is never queued; the
         // redacted audit row is written by `evaluate`.
-        let dlp_verdicts = crate::security::dlp::evaluate(self, account_id, email_id).await;
+        let dlp_verdicts = crate::security::dlp::evaluate(self, account_id, email_id).await
+            .map_err(|error| { tracing::warn!(code = error.code(), "DLP submission inspection unavailable"); error.jmap_error() })?;
         if let Some(err) = dlp_block_error(&dlp_verdicts) {
             return Err(err);
         }
@@ -3316,11 +3317,11 @@ impl Engine {
             return Err(NotSent::permanent(EngineError::Protocol(e.to_string())));
         }
 
-        // V4 DLP enforcement runs at `EmailSubmission/set` create time (see
-        // `submission_set` → `dlp_block_error`), which gates BOTH the inline and
-        // the deferred send paths before a submission is ever enqueued. By the
-        // time we reach the actual dispatch here the draft has already cleared
-        // DLP, so no second evaluation (and no duplicate audit) is needed.
+        let verdicts = crate::security::dlp::evaluate_outgoing(self, account_id, &outgoing.raw, &outgoing.rcpt_to)
+            .await.map_err(|error| NotSent::permanent(EngineError::Unsupported(error.code().into())))?;
+        if dlp_block_error(&verdicts).is_some() {
+            return Err(NotSent::permanent(EngineError::Unsupported("dlpBlocked".into())));
+        }
         // Delivery status notifications (t32-e46): asked for through the
         // envelope parameters. A server that does not offer DSN refuses before
         // anything is sent; the message then goes without, and the account
