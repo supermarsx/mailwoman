@@ -1616,13 +1616,14 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                 if text.is_empty()
                     || text.len() > max_item
                     || !text.bytes().all(|b| {
-                        b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'.')
+                        if def.key == "security.signin.geoCountries" { b.is_ascii_uppercase() }
+                        else { b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'.') }
                     })
                     || !seen.insert(text)
                 {
                     return Err(Refusal::invalid(
                         &format!("{field}/{index}"),
-                        "must be a unique lowercase extension name",
+                        "must be a unique value using the permitted characters",
                     ));
                 }
             }
@@ -2718,7 +2719,7 @@ mod geography_validation_tests {
     fn country_lists_are_bounded_uppercase_codes_without_wildcards() {
         let def=REGISTRY.iter().find(|def|def.key=="security.signin.geoCountries").unwrap();
         assert!(validate(def,&serde_json::json!(["PT","GB"]),"/value").is_ok());
-        for value in [serde_json::json!(["pt"]),serde_json::json!(["*"]),serde_json::json!(["USA"]),serde_json::json!(["1A"]),serde_json::json!("PT"),serde_json::json!([null])] {
+        for value in [serde_json::json!(["pt"]),serde_json::json!(["*"]),serde_json::json!(["USA"]),serde_json::json!(["1A"]),serde_json::json!("PT"),serde_json::json!([null]),serde_json::json!(["PT","PT"])] {
             assert!(validate(def,&value,"/value").is_err(),"{value}");
         }
         assert!(validate(def,&serde_json::json!(vec!["PT";250]),"/value").is_err());

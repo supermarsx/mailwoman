@@ -190,6 +190,51 @@ async fn geography_uses_trusted_source_and_stops_before_upstream() {
             .status(),
         200
     );
+    // Exercise the actual administrator validation/CAS route, not just a direct
+    // fixture write: country codes intentionally differ from lowercase domains.
+    let policy_url = format!("{base}/admin/settings/security.signin.geoCountries");
+    let read = trusted.get(&policy_url).send().await.unwrap();
+    assert_eq!(read.status(), 200);
+    let tag = read.headers()["etag"].to_str().unwrap().to_owned();
+    let saved = trusted
+        .put(&policy_url)
+        .header("if-match", &tag)
+        .json(&json!({"globalValue":["GB","PT"]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        saved.status(),
+        200,
+        "valid uppercase country list must be configurable"
+    );
+    let read = trusted.get(&policy_url).send().await.unwrap();
+    let tag = read.headers()["etag"].to_str().unwrap().to_owned();
+    assert_eq!(
+        store
+            .get_setting_policy("security.signin.geoCountries")
+            .await
+            .unwrap()
+            .unwrap()
+            .global_value
+            .as_deref(),
+        Some("[\"GB\",\"PT\"]")
+    );
+    for invalid in [
+        json!(["gb"]),
+        json!(["GB", "GB"]),
+        json!(["*"]),
+        json!(vec!["GB"; 250]),
+    ] {
+        let refused = trusted
+            .put(&policy_url)
+            .header("if-match", &tag)
+            .json(&json!({"globalValue":invalid}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(refused.status(), 422);
+    }
     let diagnostic = trusted
         .get(format!("{base}/admin/bans/geography"))
         .header("x-forwarded-for", "81.2.69.160")
