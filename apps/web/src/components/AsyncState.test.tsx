@@ -21,6 +21,7 @@ import { AsyncEmpty, AsyncError, AsyncPending, createElapsed } from './AsyncStat
 import { AsyncBoundary, LazyRoute } from './ErrorBoundary.tsx';
 import { NetworkError } from '../api/client.ts';
 import { createRoot, type JSX } from 'solid-js';
+import {registerNavigationGuard} from '../shell/navigationGuard.ts';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -109,6 +110,15 @@ describe('a failed surface says what kind of failure it was', () => {
 });
 
 describe('a lazy route that fails to import', () => {
+  it('offers application reload after repeated import failure and consults unsaved-change guards',async()=>{
+    const guard=vi.fn(()=>false);const remove=registerNavigationGuard(guard);
+    try {
+      render(()=><LazyRoute load={async()=>{throw new Error('cached chunk failure');}}/>);
+      await screen.findByRole('button',{name:'Retry'});expect(screen.queryByRole('button',{name:'Reload application'})).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button',{name:'Retry'}));fireEvent.click(await screen.findByRole('button',{name:'Reload application'}));await waitFor(()=>expect(guard).toHaveBeenCalledTimes(1));
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    } finally {remove();}
+  });
   it('shows a failure, NOT a spinner that never resolves', async () => {
     const load = vi.fn(() => Promise.reject(new Error('chunk 404')));
     render(() => <LazyRoute load={load} />);

@@ -129,3 +129,10 @@ common-message-preview-failed = This message attachment could not be previewed. 
 common-message-preview-attachments = Files inside this message
 common-message-preview-download = Download file
 common-attach-cat-message = Messages / Outlook attachments
+
+common-error-retry-help = This section is temporarily unavailable. Try again to reload it.
+common-error-network-help = Check your connection, then try again. The server may be temporarily unavailable.
+
+common-error-page = This page could not load
+common-error-page-help = A page resource could not be downloaded. Try again. If the problem continues, reload the application to get the latest version.
+common-reload-app = Reload application

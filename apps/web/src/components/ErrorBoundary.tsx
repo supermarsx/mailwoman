@@ -12,7 +12,8 @@
 // failure replays the stored error without touching the network. So a boundary
 // whose retry only calls `reset()` produces a button that cannot succeed, which
 // is worse than showing none — it reads as a remedy and is not one. `LazyRoute`
-// therefore builds a NEW `lazy()` per attempt, so retrying genuinely re-imports.
+// therefore builds a NEW `lazy()` per attempt. Browsers can also cache a failed
+// module URL; repeated import failures offer a guarded full application reload.
 
 import {
   ErrorBoundary as SolidErrorBoundary,
@@ -25,6 +26,8 @@ import {
 } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { AsyncError, AsyncPending } from './AsyncState.tsx';
+import {confirmShellNavigation} from '../shell/navigationGuard.ts';
+import {t} from '../i18n';
 
 /**
  * Catch anything thrown while rendering `children` and offer a way back.
@@ -79,8 +82,8 @@ export type RouteModule = { default: Component };
  *  * **The module loads and then throws while rendering.** Nothing in the loader
  *    can see that; `AsyncBoundary` catches it.
  *
- * Bumping `attempt` rebuilds the memo, which constructs a fresh `lazy()` around
- * a fresh `import()` — the only way past Solid's memoised rejection.
+ * Bumping `attempt` bypasses Solid's memoised rejection. If the browser retains
+ * the failed module URL, the subsequent error also offers an explicit reload.
  */
 export function LazyRoute(props: {
   load: () => Promise<RouteModule>;
@@ -98,6 +101,9 @@ export function LazyRoute(props: {
   const retry = (): void => {
     setAttempt((n) => n + 1);
   };
+  const reload = async (): Promise<void> => {
+    if (await confirmShellNavigation()) window.location.reload();
+  };
 
   const component = createMemo<Component>(() => {
     attempt(); // rebuild on retry: a new lazy(), a new import()
@@ -108,7 +114,7 @@ export function LazyRoute(props: {
         // Resolve to a VIEW rather than rejecting: a rejected lazy is the path
         // that produced the permanent spinner.
         if (props.failSoft === true) return { default: () => null };
-        return { default: () => <AsyncError error={error} onRetry={retry} /> };
+        return { default: () => <AsyncError error={error} message={t('common-error-page')} detail={t('common-error-page-help')} onRetry={retry} onReload={attempt()>0?()=>void reload():undefined} /> };
       }
     });
   });

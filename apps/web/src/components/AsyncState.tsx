@@ -15,6 +15,7 @@ import { t } from '../i18n/index.ts';
 import { NetworkError } from '../api/client.ts';
 import * as a11y from './mailA11y.css.ts';
 import * as loading from './asyncState.css.ts';
+import {Icon} from './Icon.tsx';
 
 /**
  * How long any single loading state may claim to be loading.
@@ -54,20 +55,24 @@ export function AsyncError(props: {
   onRetry?: (() => void) | undefined;
   /** Overrides the derived message when a surface has something specific to say. */
   message?: string;
+  detail?: string;
+  onReload?: (() => void) | undefined;
 }): JSX.Element {
   return (
-    <div class="async-state async-state--error" role="alert">
-      <p class="async-state__message">{props.message ?? messageForError(props.error)}</p>
+    <div class={`async-state async-state--error ${loading.errorCard}`} role="alert">
+      <p class={loading.errorHeading}><svg class={loading.errorMark} viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 6v8m0 3v1" fill="none" stroke="currentColor" stroke-width="2"/></svg>{props.message ?? messageForError(props.error)}</p>
+      <Show when={props.onRetry !== undefined}><p class={loading.errorHelp}>{props.detail??t(props.error instanceof NetworkError?'common-error-network-help':'common-error-retry-help')}</p></Show>
       <Show when={props.onRetry !== undefined}>
         <button
           type="button"
-          class={`btn btn--ghost async-state__retry ${a11y.focusable}`}
+          class={`async-state__retry ${loading.retry} ${a11y.focusable}`}
           data-testid="async-retry"
           onClick={() => props.onRetry?.()}
         >
-          {t('common-retry')}
+          <Icon name="refresh"/>{t('common-retry')}
         </button>
       </Show>
+      <Show when={props.onReload}><button type="button" class={`${loading.retry} ${a11y.focusable}`} onClick={()=>props.onReload?.()}><Icon name="refresh"/>{t('common-reload-app')}</button></Show>
     </div>
   );
 }
