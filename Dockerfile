@@ -39,6 +39,7 @@ RUN pnpm build
 FROM scratch AS rust-source
 COPY Cargo.toml Cargo.lock rust-toolchain.toml /src/
 COPY .cargo /src/.cargo
+COPY vendor /src/vendor
 COPY crates /src/crates
 COPY plugins /src/plugins
 COPY apps/desktop/src-tauri /src/apps/desktop/src-tauri
