@@ -747,7 +747,7 @@ async fn only_successful_domain_login_enrolls_the_real_account_in_admin_users() 
         .await
         .unwrap();
     let config = AppConfig {
-        db_path: db,
+        db_path: db.clone(),
         server_key_hex: Some(KEY.into()),
         mode: ServerMode::Engine,
         cookie_secure: false,
@@ -831,6 +831,97 @@ async fn only_successful_domain_login_enrolls_the_real_account_in_admin_users() 
         200
     );
     assert_eq!(store.directory_accounts().await.unwrap().len(), 1);
+    // Simulate the historical alias-to-parent registration, without changing the
+    // authenticated native account or its verified authority.
+    assert!(
+        store
+            .register_successful_signin(mw_store::user_directory::SuccessfulSignin {
+                account_id: "legacy-fixture",
+                address: "alice@example.org",
+                domain: "example.org",
+                local_part: "alice",
+                mode: "engine",
+                now: chrono::Utc::now().timestamp(),
+            })
+            .await
+            .unwrap()
+    );
+    let raw = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(sqlx::sqlite::SqliteConnectOptions::new().filename(&db))
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM mail_user_account WHERE account_id='legacy-fixture'")
+        .execute(&raw)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE mail_user_account SET address='alice@example.org',mode='engine' WHERE account_id=?1").bind(&account.id).execute(&raw).await.unwrap();
+    let users: Value = admin
+        .get(format!("{base}/admin/users"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(users[0]["accountId"], account.id);
+    assert_eq!(users[0]["domain"], "alias.test");
+    assert_eq!(users[0]["loginAddress"], "alice@alias.test");
+    assert_eq!(users[0]["directoryAddress"], "alice@example.org");
+    assert_eq!(users[0]["legacyBinding"], true);
+    let detail: Value = admin
+        .get(format!("{base}/admin/users/{}/identity", account.id))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(detail["address"], "alice@example.org");
+    assert_eq!(detail["loginAddress"], "alice@alias.test");
+    assert_eq!(detail["legacyBinding"], true);
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT address FROM mail_user_account WHERE account_id=?1"
+        )
+        .bind(&account.id)
+        .fetch_optional(&raw)
+        .await
+        .unwrap()
+        .as_deref(),
+        Some("alice@example.org")
+    );
+    assert_eq!(
+        login(&client, &base, "alice@alias.test").await.status(),
+        200
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT address FROM mail_user_account WHERE account_id=?1"
+        )
+        .bind(&account.id)
+        .fetch_optional(&raw)
+        .await
+        .unwrap()
+        .as_deref(),
+        Some("alice@example.org")
+    );
+    // A colliding proxy ID is never evidence for native display recovery.
+    sqlx::query("UPDATE mail_user_account SET mode='proxy' WHERE account_id=?1")
+        .bind(&account.id)
+        .execute(&raw)
+        .await
+        .unwrap();
+    let users: Value = admin
+        .get(format!("{base}/admin/users"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(users[0]["domain"], "example.org");
+    assert_eq!(users[0]["legacyBinding"], false);
 }
 
 #[tokio::test]

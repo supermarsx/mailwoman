@@ -140,6 +140,34 @@ fn err500(e: impl std::fmt::Display) -> Response {
 
 // ─── users ────────────────────────────────────────────────────────────────────
 
+/// Presentation-only recovery of a verified native alias. The directory address
+/// remains the authority for policy checks and every stored association.
+async fn directory_login_address(
+    state: &AppState,
+    account: &str,
+    address: &str,
+) -> Result<String, mw_store::StoreError> {
+    let Some(native) = state
+        .store
+        .verified_native_directory_login(account, address)
+        .await?
+    else {
+        return Ok(address.into());
+    };
+    let normalized = native.trim().to_lowercase();
+    let Some((local, domain)) = normalized.rsplit_once('@') else {
+        return Ok(address.into());
+    };
+    let domain =
+        crate::domain_config::normalize_domain(domain).map_err(mw_store::StoreError::Corrupt)?;
+    let login = format!("{local}@{domain}");
+    if login != address && state.store.canonical_policy_address(&login).await? == address {
+        Ok(login)
+    } else {
+        Ok(address.into())
+    }
+}
+
 async fn list_users(State(state): State<AppState>, ctx: AdminCtx) -> Response {
     let users = match state.store.directory_accounts().await {
         Ok(u) => u,
@@ -158,10 +186,16 @@ async fn list_users(State(state): State<AppState>, ctx: AdminCtx) -> Response {
         {
             continue;
         }
-        let address = u.address;
-        let (username, domain) = match address.rsplit_once('@') {
+        let directory_address = u.address;
+        let login_address =
+            match directory_login_address(&state, &account_id, &directory_address).await {
+                Ok(address) => address,
+                Err(error) => return err500(error),
+            };
+        let legacy_binding = login_address != directory_address;
+        let (username, domain) = match login_address.rsplit_once('@') {
             Some((a, b)) => (a.to_string(), b.to_string()),
-            None => (address.clone(), String::new()),
+            None => (login_address.clone(), String::new()),
         };
         let quota = state
             .v6
@@ -179,6 +213,9 @@ async fn list_users(State(state): State<AppState>, ctx: AdminCtx) -> Response {
             .map(FlagsDto::from)
             .unwrap_or_default();
         out.push(UserSummaryDto {
+            login_address,
+            directory_address,
+            legacy_binding,
             account_id,
             username,
             domain,
@@ -219,13 +256,23 @@ async fn get_user_identity(
     UrlPath(id): UrlPath<String>,
 ) -> Response {
     match user_identity(&state, &ctx, &id).await {
-        Ok(identity) => (
-            [(header::CACHE_CONTROL, "no-store")],
-            Json(
-                json!({"accountId":identity.id,"label":identity.label,"address":identity.address}),
-            ),
-        )
-            .into_response(),
+        Ok(identity) => {
+            let directory_address = identity.address.as_deref().unwrap_or_default();
+            let login_address =
+                match directory_login_address(&state, &identity.id, directory_address).await {
+                    Ok(address) => address,
+                    Err(error) => return err500(error),
+                };
+            (
+                [(header::CACHE_CONTROL, "no-store")],
+                Json(json!({
+                    "accountId":identity.id,"label":identity.label,"address":identity.address,
+                    "loginAddress":login_address,"directoryAddress":directory_address,
+                    "legacyBinding":login_address != directory_address,
+                })),
+            )
+                .into_response()
+        }
         Err(error) => error.into_response(),
     }
 }
@@ -828,6 +875,9 @@ impl From<FlagsDto> for mw_admin::UserFeatureFlags {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UserSummaryDto {
+    login_address: String,
+    directory_address: String,
+    legacy_binding: bool,
     last_signin_at: Option<i64>,
     account_id: String,
     username: String,

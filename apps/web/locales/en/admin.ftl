@@ -823,3 +823,5 @@ admin-history-error-future = The period cannot end in the future.
 admin-history-error-limit = This period exceeds the administrator's configured limit.
 admin-history-refresh = Refresh request history
 admin-history-errors = Server errors (5xx) per bucket
+
+admin-users-legacy-alias = This account signs in through a domain alias. Existing administrative record: { $address }. Its settings and history are preserved; the records have not been merged or renamed.

@@ -48,6 +48,10 @@ export interface UserFeatureFlags {
 
 /** A provisioned user row (list view). */
 export interface UserSummary {
+  /** Proven authenticated spelling; may differ from a retained legacy directory record. */
+  loginAddress?: string;
+  directoryAddress?: string;
+  legacyBinding?: boolean;
   lastSigninAt?: number | null;
   accountId: string;
   username: string;

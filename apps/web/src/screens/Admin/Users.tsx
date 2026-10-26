@@ -26,13 +26,13 @@ export function Users(props: { accountId?: string; provision?: boolean } = {}): 
   return <Show when={props.provision || identity()==='+new'} fallback={<Show when={identity()} keyed fallback={<UserList/>}>{id=><UserIdentity id={id}/>}</Show>}><UserList provision/></Show>;
 }
 function UserIdentity(props: { id: string }): JSX.Element {
-  const [identity] = createResource(() => props.id, async id => (await adminRequest<{accountId:string;label:string;address:string}>(`/users/${encodeURIComponent(id)}/identity`)).data);
+  const [identity] = createResource(() => props.id, async id => (await adminRequest<{accountId:string;label:string;address:string;loginAddress?:string;directoryAddress?:string;legacyBinding?:boolean}>(`/users/${encodeURIComponent(id)}/identity`)).data);
   return <section class={css.section} aria-label={t('admin-users-title')}>
     <a href={hrefFor(sectionPath('users'))}>{t('admin-users-back')}</a>
     <h2 class={css.heading}>{t('admin-users-identity')}</h2>
     <Show when={identity.loading}><AsyncPending variant="status" /></Show>
     <Show when={identity.error}><p role="alert">{t('admin-users-load-error')}</p></Show>
-    <Show when={!identity.error && identity.state === 'ready' ? identity.latest : undefined}>{value => <div class={css.card}><h3 dir="auto">{value().label}</h3><p dir="auto">{value().address}</p><p class={css.note}>{t('admin-users-id')}: <code class={auditCss.actor}>{value().accountId}</code></p></div>}</Show>
+    <Show when={!identity.error && identity.state === 'ready' ? identity.latest : undefined}>{value => <div class={css.card}><h3 dir="auto">{value().legacyBinding?value().loginAddress??value().label:value().label}</h3><p dir="auto">{value().loginAddress??value().address}</p><Show when={value().legacyBinding&&value().directoryAddress}><p class={css.note}>{t('admin-users-legacy-alias',{address:value().directoryAddress!})}</p></Show><p class={css.note}>{t('admin-users-id')}: <code class={auditCss.actor}>{value().accountId}</code></p></div>}</Show>
     <UserList accountId={props.id}/>
   </section>;
 }
