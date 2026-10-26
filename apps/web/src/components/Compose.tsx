@@ -648,6 +648,7 @@ export function Compose(props: {
         continue;
       }
       try {
+        if (!ownsDraft() || app.accountId() !== acct) return [];
         const up = await uploadBlob(url, acct, file);
         if (!ownsDraft() || app.accountId() !== acct) return [];
         const cid = newCid();
@@ -943,6 +944,7 @@ export function Compose(props: {
           continue;
         }
         try {
+          if (!ownsDraft() || app.accountId() !== acct) return;
           const up = await uploadBlob(url, acct, file);
           if (!ownsDraft() || app.accountId() !== acct) return;
           setAttachments((cur) => [

@@ -15,7 +15,8 @@ import { withLoginTimeout } from './loginTimeout.ts';
 
 import type { JmapRequest, JmapResponse, JmapSession } from './jmap-types.ts';
 import { basePath } from './basePath.ts';
-import { apiFetch } from './http.ts';
+import { apiFetch,type ApiRequestInit } from './http.ts';
+import {linkedMailboxEpoch,LinkedContextUnsupportedError} from './linkedMailboxSession.ts';
 
 /** What a refused answer says about itself, besides its status. */
 export interface ApiErrorDetails {
@@ -215,8 +216,8 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
 export interface Client {
   login(input: LoginInput): Promise<Me>;
   logout(): Promise<void>;
-  me(): Promise<Me>;
-  session(): Promise<JmapSession>;
+  me(context?:{linkId:string|null}): Promise<Me>;
+  session(context?:{linkId:string|null}): Promise<JmapSession>;
   /**
    * Post a JMAP request. `opts.signal` cancels it: the list layer supersedes its
    * own in-flight queries (`state/slices/mail.ts`), and with append-on-scroll
@@ -297,12 +298,14 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
    * verbatim. With an `auth` that yields a token it attaches the bearer header and
    * omits cookies (native cross-origin path).
    */
-  async function req(path: string, init?: RequestInit): Promise<Response> {
-    const finalInit: RequestInit = { credentials: 'same-origin', ...init };
+  async function req(path: string, init?: ApiRequestInit): Promise<Response> {
+    const contextEpoch=linkedMailboxEpoch();
+    const finalInit: ApiRequestInit = { credentials: 'same-origin', ...init };
     if (auth) {
       // Read before the base: the token provider waits for the platform, which is
       // what puts a stored server address in place at boot.
       const token = await auth.token();
+      if(contextEpoch!==linkedMailboxEpoch())throw new DOMException('Mailbox changed','AbortError');
       finalInit.credentials = 'omit'; // bearer path: no ambient cookie authority.
       if (token !== null) {
         finalInit.headers = { ...(init?.headers as Record<string, string>), Authorization: `Bearer ${token}` };
@@ -325,7 +328,7 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
       // every scroll, mapping an abort to NetworkError would announce "offline"
       // during ordinary scrolling. Rethrow the abort reason unchanged; the
       // caller's own generation guard is what decides it no longer matters.
-      if (finalInit.signal?.aborted === true) throw cause;
+      if (finalInit.signal?.aborted === true||cause instanceof LinkedContextUnsupportedError||(cause instanceof DOMException&&cause.name==='AbortError')) throw cause;
       throw new NetworkError(cause instanceof Error ? cause.message : 'network request failed');
     }
     return res;
@@ -389,15 +392,15 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
         }
       });
     },
-    me() {
+    me(context) {
       return guarded(async () => {
-        const res = await req(`/api/me`);
+        const res = await req(`/api/me`,context?{mailboxContext:context.linkId}:undefined);
         return jsonOrGate<Me>(res);
       });
     },
-    session() {
+    session(context) {
       return guarded(async () => {
-        const res = await req(`/jmap/session`);
+        const res = await req(`/jmap/session`,context?{mailboxContext:context.linkId}:undefined);
         return jsonOrGate<JmapSession>(res);
       });
     },

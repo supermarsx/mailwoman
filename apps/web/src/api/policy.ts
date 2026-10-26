@@ -26,6 +26,7 @@ import { createSignal, type Accessor } from 'solid-js';
 
 import { withBase } from './basePath.ts';
 import { apiFetch } from './http.ts';
+import {activeLinkedMailbox} from './linkedMailboxSession.ts';
 import type { SecurityMode } from '../viewers/sandbox.ts';
 import { getPlatform } from '../platform/index.ts';
 
@@ -75,7 +76,7 @@ export function parseClientPolicy(raw: unknown): ClientPolicy {
 /** Put a policy into force: the signal, and capture protection when asked for. */
 async function apply(p: ClientPolicy, gen: number): Promise<void> {
   if (gen !== generation) return;
-  setPolicy(p);
+  setPolicy(activeLinkedMailbox()?{...p,openTracking:false}:p);
   loaded = true;
   if (p.capturePolicy === 'protect') {
     try {

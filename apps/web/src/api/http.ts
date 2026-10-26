@@ -39,6 +39,13 @@ import { basePath, stripBase } from './basePath.ts';
 import { consolePath } from './adminPath.ts';
 import { adminSessionGeneration,observeAdminResponse } from './adminSession.ts';
 import { preferenceAccount, preferenceAccountIsCurrent } from './accountPreferenceLifecycle.ts';
+import {activeLinkedMailbox,linkedMailboxEpoch,LinkedContextUnsupportedError} from './linkedMailboxSession.ts';
+import {linkedRoute,linkedUnsignedResource} from './linkedAccountRouting.ts';
+
+export interface ApiRequestInit extends RequestInit {
+  /** Explicit effective-Me/discovery probe. Never sent as a fetch option. */
+  mailboxContext?:string|null;
+}
 
 /** The readable cookie holding the token (`hardening::CSRF_COOKIE`). */
 const CSRF_COOKIE = 'mw_csrf';
@@ -263,18 +270,42 @@ async function sendApiFetch(input: string, given: RequestInit|undefined, assertA
 const confirming = new Map<string, Promise<boolean>>();
 
 /** A refusal occurs before the handler mutates state. Confirm once, then retry once. */
-export async function apiFetch(input: string, given?: RequestInit): Promise<Response> {
+export async function apiFetch(input: string, options?: ApiRequestInit): Promise<Response> {
+  const contextEpoch=linkedMailboxEpoch();
+  const {mailboxContext,...ordinary}=options??{};
+  let given:RequestInit|undefined=mailboxContext===undefined?options:ordinary;
   const adminEpoch=adminSessionGeneration();
-  const admin=requestPath(input).startsWith(`${consolePath()}/`);
+  const routePath=requestPath(input);
+  const admin=routePath.startsWith(`${consolePath()}/`);
+  const target=new URL(input,globalThis.location?.href??'http://localhost');
+  const expectedOrigin=native?.base()?new URL(native.base()!).origin:globalThis.location?.origin;
+  const ownServer=isRootRelative(input)||target.origin===expectedOrigin;
+  const active=activeLinkedMailbox();
+  let selected:string|null=null;
+  if(ownServer&&!admin){
+    const scope=linkedRoute(routePath);
+    if(mailboxContext!==undefined&&routePath!=='/api/me'&&routePath!=='/jmap/session')throw new LinkedContextUnsupportedError();
+    if(active&&scope==='unsupported')throw new LinkedContextUnsupportedError();
+    selected=scope==='mailbox'?(mailboxContext===undefined?active?.linkId??null:mailboxContext):null;
+    const headers=new Headers(given?.headers);
+    if(headers.has('x-mailwoman-link'))throw new LinkedContextUnsupportedError();
+    if(target.searchParams.has('mwLink')){
+      if(!selected||!linkedUnsignedResource(routePath)||target.searchParams.getAll('mwLink').length!==1||target.searchParams.get('mwLink')!==selected)throw new LinkedContextUnsupportedError();
+      target.searchParams.delete('mwLink');
+      input=isRootRelative(input)?`${target.pathname}${target.search}${target.hash}`:target.href;
+    }
+    if(selected){headers.set('x-mailwoman-link',selected);given={...given,headers};}
+  }
   const account=preferenceAccount();
   const expectedAccount=new Headers(given?.headers).get('X-Mailwoman-Account');
   const assertAuthority=():void=>{
-    if(given?.signal?.aborted||(admin&&adminEpoch!==adminSessionGeneration())||(expectedAccount!==null&&account!==null&&(!preferenceAccountIsCurrent(account)||account.id!==expectedAccount)))throw new DOMException('Authentication changed before dispatch','AbortError');
+    if(given?.signal?.aborted||(!admin&&ownServer&&contextEpoch!==linkedMailboxEpoch())||(admin&&adminEpoch!==adminSessionGeneration())||(expectedAccount!==null&&account!==null&&(!preferenceAccountIsCurrent(account)||account.id!==expectedAccount)))throw new DOMException('Authentication changed before dispatch','AbortError');
   };
   const originalNative = native;
   const originalToken = originalNative === null ? null : await originalNative.token();
   assertAuthority();
   const response = await rawApiFetch(input, given,assertAuthority);
+  if(!admin)assertAuthority();
   if (response.status !== 403 || typeof response.clone !== 'function' || typeof document === 'undefined'
     || new Headers(given?.headers).has('authorization') || given?.credentials === 'omit'
     || (typeof ReadableStream !== 'undefined' && given?.body instanceof ReadableStream)
@@ -287,20 +318,23 @@ export async function apiFetch(input: string, given?: RequestInit): Promise<Resp
   if (body?.code !== 'step_up_required' || !Array.isArray(body.methods)) return response;
   assertAuthority();
   const endpoint = `${basePath()}${path.startsWith(`${consolePath()}/`) ? `${consolePath()}/step-up` : '/api/security/step-up'}`;
-  let confirmation = confirming.get(endpoint);
+  const confirmationKey=`${endpoint}:${selected??'primary'}`;
+  let confirmation = confirming.get(confirmationKey);
   if (confirmation === undefined) {
     const methods = body.methods.filter((value): value is string => typeof value === 'string' && (native === null || value !== 'passkey'));
     if (methods.length === 0) return response;
     confirmation = import('../components/StepUpDialog.tsx').then(({ requestStepUp }) => requestStepUp({
       methods,
       send: (proof, begin) => rawApiFetch(`${endpoint}${begin ? '/passkey' : ''}`, {
-        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(proof),
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json',...(selected?{'x-mailwoman-link':selected}:{}) }, body: JSON.stringify(proof),
       },assertAuthority),
-    })).finally(() => { confirming.delete(endpoint); });
-    confirming.set(endpoint, confirmation);
+    })).finally(() => { confirming.delete(confirmationKey); });
+    confirming.set(confirmationKey, confirmation);
   }
   if (!(await confirmation) || given?.signal?.aborted) return response;
   if (native !== originalNative || (originalNative !== null && await originalNative.token() !== originalToken)) return response;
   assertAuthority();
-  return rawApiFetch(input, given,assertAuthority);
+  const retried=await rawApiFetch(input, given,assertAuthority);
+  if(!admin)assertAuthority();
+  return retried;
 }

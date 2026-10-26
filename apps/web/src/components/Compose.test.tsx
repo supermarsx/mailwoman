@@ -312,6 +312,21 @@ describe('Compose', () => {
     fireEvent.click(screen.getByRole('button',{name:/^Close$/}));await waitFor(()=>expect(close).toHaveBeenCalledOnce());
   });
 
+  it('does not upload the next file after its composer is disposed while an upload rejects', async () => {
+    const baseFetch=mockUploadFetch();let rejectUpload!:(error:Error)=>void;
+    const fetcher=vi.fn((input:RequestInfo|URL)=>String(input).includes('/jmap/upload/')?new Promise<Response>((_resolve,reject)=>{rejectUpload=reject;}):baseFetch(input));
+    vi.stubGlobal('fetch',fetcher);
+    const {app,result}=renderWithApp(()=><Compose onClose={()=>undefined}/>,{identities:IDENTITIES});
+    await app.login({username:'me@example.org',password:'p'});
+    const input=await screen.findByLabelText('Attach a file');await waitFor(()=>expect(input).toBeEnabled());
+    fireEvent.change(input,{target:{files:[new File(['one'],'one.txt'),new File(['two'],'two.txt')]}});
+    await waitFor(()=>expect(rejectUpload).toBeTypeOf('function'));
+    result.unmount();
+    rejectUpload(new Error('Mailbox changed'));
+    await new Promise(resolve=>setTimeout(resolve,0));
+    expect(fetcher.mock.calls.filter(call=>String(call[0]).includes('/jmap/upload/'))).toHaveLength(1);
+  });
+
   it('refuses a file larger than the upload limit and never uploads it', async () => {
     const fetchSpy = mockUploadFetch();
     vi.stubGlobal('fetch', fetchSpy);

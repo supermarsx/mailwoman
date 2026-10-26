@@ -1,4 +1,5 @@
 import { startMailboxSessionActivity } from '../api/sessionActivity.ts';
+import {accountScopedSlice,accountScopedFetcher} from './accountScopedSlice.ts';
 import { startAccountUiPreferences } from '../api/accountPreferences.ts';
 // Store composition root (plan §3 e0 store-slices refactor).
 //
@@ -153,23 +154,23 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
   startAccountUiPreferences();
   startMailboxSessionActivity();
   const offline = createOfflineSlice(ctx);
-  const outbox = createOutboxSlice(ctx);
+  const outbox = accountScopedSlice(ctx,createOutboxSlice);
 
   // V3 PIM slices (plan §2.5): independent seams, mock-backed until e10.
-  const calendar = createCalendarSlice(ctx);
-  const tasks = createTasksSlice(ctx);
-  const notes = createNotesSlice(ctx);
+  const calendar = accountScopedSlice(ctx,createCalendarSlice);
+  const tasks = accountScopedSlice(ctx,createTasksSlice);
+  const notes = accountScopedSlice(ctx,createNotesSlice);
   const contacts = createContactsSlice(ctx);
 
   // V4 crypto/security slice (plan §2.5): mock-backed + worker-stub until e8.
-  const keys = createKeysSlice(ctx);
+  const keys = accountScopedSlice(ctx,createKeysSlice);
 
   // V7 mailbox integrations (plan §2.7/§14, e14b): Assist (AI), directory/GAL, and
   // Nextcloud files. Each stays hidden until its backend is configured (loadConfig /
   // ensureEnabled probes), so an unconfigured deployment's compose/read UX is
   // unchanged. Transports are injectable for tests; production uses same-origin.
-  const assist = createAssistSlice(ctx, deps.assistService ?? new AssistService());
-  const directory = createDirectorySlice(deps.directoryFetcher);
+  const assist = accountScopedSlice(ctx,bound=>createAssistSlice(bound,deps.assistService??new AssistService(accountScopedFetcher())));
+  const directory = accountScopedSlice(ctx,()=>createDirectorySlice(accountScopedFetcher(deps.directoryFetcher)));
   const nextcloud = createNextcloudSlice(deps.nextcloudFetcher);
 
   // Late-bound so the mail slice can broadcast before the peer channel exists.

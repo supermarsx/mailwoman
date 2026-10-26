@@ -22,6 +22,9 @@ import {
 } from '../api/jmap-types.ts';
 import { viewerKindFor } from '../contracts/viewer.ts';
 import { apiFetch } from '../api/http.ts';
+import {activeLinkedMailbox} from '../api/linkedMailboxSession.ts';
+import {linkedResourceUrl} from '../api/linkedAccountRouting.ts';
+import {transportBase} from '../api/transport.ts';
 import { formatBytes } from '../i18n/format.ts';
 
 /** JMAP `attachments` parts carry a filename/disposition beyond the body-part core. */
@@ -184,11 +187,15 @@ export interface BlobRef {
 
 /** Substitute a JMAP `downloadUrl` URI template (RFC 8620 §6.2). */
 export function buildDownloadUrl(template: string, ref: BlobRef): string {
-  return template
+  const url=template
     .replace(/\{accountId\}/g, encodeURIComponent(ref.accountId))
     .replace(/\{blobId\}/g, encodeURIComponent(ref.blobId))
     .replace(/\{name\}/g, encodeURIComponent(ref.name))
     .replace(/\{type\}/g, encodeURIComponent(ref.mime));
+  const linked=activeLinkedMailbox();
+  if(!linked)return url;
+  if(linked.accountId!==ref.accountId)throw new Error('Mailbox changed');
+  return linkedResourceUrl(url,linked.linkId,new URL(`${transportBase()}/`,globalThis.location.href).href);
 }
 
 /** Fetch a blob (cookie-authed, same-origin) and wrap it in an object URL. */

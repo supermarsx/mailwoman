@@ -1,6 +1,9 @@
 import {resolveSender} from '../../api/senderResolution.ts';
 import { rememberSuccessfulSigninIfAllowed } from '../../api/rememberedSignins.ts';
 import { activateAccountPreferences, suspendAccountPreferences, preferenceAccount, preferenceAccountIsCurrent } from '../../api/accountPreferenceLifecycle.ts';
+import {activeLinkedMailbox,installLinkedMailbox,setPrimaryMailboxAuthority} from '../../api/linkedMailboxSession.ts';
+import {createLinkedAccountsApi} from '../../api/linkedAccounts.ts';
+import {validateLinkedAccountContext} from '../../api/linkedAccountContext.ts';
 import { createMessageView, type MessageView } from './messageView.ts';
 import { toastTarget } from '../../components/toast/context.ts';
 // Mail slice: session/auth, mailbox list, message list + reader, compose+send,
@@ -10,7 +13,7 @@ import { toastTarget } from '../../components/toast/context.ts';
 // derivation. The V1 session+mail behaviour is preserved verbatim; the
 // V2 surface is additive.
 
-import { createSignal, createMemo, type Accessor } from 'solid-js';
+import { batch,createSignal, createMemo, type Accessor } from 'solid-js';
 import { ApiError, NetworkError, PasswordChangeRequired, type LoginInput, type Me } from '../../api/client.ts';
 import {
   cancelSubmission,
@@ -50,6 +53,7 @@ import {
   type Identity,
   type JmapRequest,
   type JmapResponse,
+  type JmapSession,
   type Mailbox,
   type MailboxGetResponse,
   type SetError,
@@ -158,6 +162,9 @@ export interface SendInput {
 
 /** The mail/session portion of `AppState` (accessors + actions). */
 export interface MailSlice {
+  linkedMailboxId:Accessor<string|null>;
+  switchingMailbox:Accessor<boolean>;
+  switchLinkedMailbox(linkId:string|null):Promise<void>;
   me: Accessor<Me | null>;
   authChecked: Accessor<boolean>;
   mailboxes: Accessor<Mailbox[]>;
@@ -352,6 +359,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const { client, showToast } = ctx;
 
   const [me, setMe] = createSignal<Me | null>(null);
+  const [switchingMailbox,setSwitchingMailbox]=createSignal(false);
+  let primaryIdentity:Me|null=null;
   const [authChecked, setAuthChecked] = createSignal(false);
   const [accountId, setAccountId] = createSignal<string | null>(null);
   const [mailboxes, setMailboxes] = createSignal<Mailbox[]>([]);
@@ -1215,11 +1224,11 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     } else if (selected) await refreshCurrentMailbox();
   }
 
-  async function loadMailboxes(): Promise<void> {
+  async function loadMailboxes(verifiedSession?:JmapSession): Promise<void> {
     const authority = preferenceAccount();
     if (authority === null) return;
     const current = () => preferenceAccountIsCurrent(authority);
-    const session = await client.session();
+    const session = verifiedSession??await client.session();
     if (!current()) return;
     setDownloadUrl(session.downloadUrl);
     const primary = session.primaryAccounts[CAP_MAIL];
@@ -1748,10 +1757,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   async function init(): Promise<void> {
+    installLinkedMailbox(null);
+    setPrimaryMailboxAuthority(undefined);
     suspendAccountPreferences();
     for (const view of readerViews) view.closeMessage();
     try {
       const user = await client.me();
+      primaryIdentity=user;
+      setPrimaryMailboxAuthority(user.storageAuthority);
       void rememberSuccessfulSigninIfAllowed(user.username);
       setMe(user);
       setAccountId(user.accountId);
@@ -1769,9 +1782,13 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   async function login(input: LoginInput): Promise<void> {
+    installLinkedMailbox(null);
+    setPrimaryMailboxAuthority(undefined);
     suspendAccountPreferences();
     for (const view of readerViews) view.closeMessage();
     const user = await client.login(input);
+    primaryIdentity=user;
+    setPrimaryMailboxAuthority(user.storageAuthority);
     void rememberSuccessfulSigninIfAllowed(user.username);
     setMe(user);
     setAccountId(user.accountId);
@@ -1780,6 +1797,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   async function logout(): Promise<void> {
+    installLinkedMailbox(null);
+    setPrimaryMailboxAuthority(undefined);
+    primaryIdentity=null;
     suspendAccountPreferences();
     for (const view of readerViews) view.closeMessage();
     try {
@@ -1814,7 +1834,42 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
   }
 
+  async function switchLinkedMailbox(linkId:string|null):Promise<void> {
+    if(switchingMailbox()||linkId===(activeLinkedMailbox()?.linkId??null))return;
+    const owner=preferenceAccount();
+    if(!owner?.storageAuthority||!primaryIdentity?.storageAuthority)throw new Error(t('linked-accounts-changed'));
+    const current=()=>preferenceAccountIsCurrent(owner);
+    const api=createLinkedAccountsApi();
+    setSwitchingMailbox(true);
+    try {
+      const selected=linkId===null?null:(await api.authorize(linkId)).context;
+      if(!current())throw new DOMException('Mailbox changed','AbortError');
+      if(selected&&selected.linkId!==linkId)throw new Error(t('linked-accounts-changed'));
+      const user=await client.me({linkId});
+      if(!current())throw new DOMException('Mailbox changed','AbortError');
+      const discovery=await client.session({linkId});
+      if(!current())throw new DOMException('Mailbox changed','AbortError');
+      if(selected)validateLinkedAccountContext(selected,user,discovery);
+      else if(user.accountId!==primaryIdentity.accountId||user.storageAuthority!==primaryIdentity.storageAuthority
+        ||discovery.primaryAccounts[CAP_MAIL]!==user.accountId||!discovery.accounts[user.accountId])throw new Error(t('linked-accounts-changed'));
+      batch(()=>{
+        suspendAccountPreferences();
+        for(const view of readerViews)view.closeMessage();
+        setActiveReader(null);cancelMarkRead();dismissUndo();beginListRequest();
+        setMailboxes([]);setMessages([]);setSelectedMailboxId(null);setSelectionRaw(new Set<Id>());
+        setOpenEmail(null);setSanitizedHtml(null);setDownloadUrl(null);setSearch('');setSearchActive(false);
+        setPageSource(null);setTotal(null);setLoadedStart(0);setExhausted(true);setListLoading(false);setLoadingMore(false);
+        installLinkedMailbox(selected);setMe(user);setAccountId(user.accountId);
+        activateAccountPreferences(user.accountId,user.storageAuthority);
+      });
+      await loadMailboxes(discovery);
+    }finally{api.dispose();setSwitchingMailbox(false);}
+  }
+
   return {
+    linkedMailboxId:()=>activeLinkedMailbox()?.linkId??null,
+    switchingMailbox,
+    switchLinkedMailbox,
     me,
     authChecked,
     mailboxes,

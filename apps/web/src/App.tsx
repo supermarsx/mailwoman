@@ -1,4 +1,5 @@
-import { on, onMount, onCleanup, createEffect, createSignal, Show, Switch, Match, type JSX } from 'solid-js';
+import { onMount, onCleanup, createEffect, createSignal, Show, Switch, Match, type JSX } from 'solid-js';
+import {resetClientPolicy} from './api/policy.ts';
 import { AppContext } from './state/context.ts';
 import { createAppState } from './state/store.ts';
 import { createConfiguredClient } from './api/transport.ts';
@@ -100,8 +101,9 @@ export function App(): JSX.Element {
   const client = createConfiguredClient();
   const app = createAppState(client);
   startAnalytics();
-  createEffect(on(app.accountId, account => {
+  onCleanup(observePreferenceAccount(account=>{
     clearSettings();
+    resetClientPolicy();
     if (account) void loadSettings();
   }));
   onCleanup(clearSettings);
@@ -147,7 +149,7 @@ export function App(): JSX.Element {
   // Open the realtime push transport once a session exists, and tear it down on
   // logout (plan §2.2). Inert under jsdom (no WebSocket/EventSource).
   createEffect(() => {
-    if (inMail()) app.startRealtime();
+    if (inMail()&&!app.linkedMailboxId?.()) app.startRealtime();
     else app.stopRealtime();
   });
 

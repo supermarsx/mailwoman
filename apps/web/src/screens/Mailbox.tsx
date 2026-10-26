@@ -1,3 +1,4 @@
+import {LinkedAccountControl} from '../components/accounts/LinkedAccountControl.tsx';
 import {DetachedWorkspacePane,type DetachedPaneHandle} from '../components/DetachedWorkspacePane.tsx';
 import {WorkspaceLayoutControls} from '../components/WorkspaceLayoutControls.tsx';
 import {createWorkspaceViews,isSplitLayout,isStackedLayout,workspaceLayout as parseWorkspaceLayout,type WorkspaceLayout,type WorkspaceViewSlot} from '../realtime/workspaceLayout.ts';
@@ -210,6 +211,11 @@ export function MailboxScreen(): JSX.Element {
     if(!panes().some(pane=>pane.id===id)) setPanes(old=>[...old,{id,kind:'settings',title:t('mail-nav-settings'),navigation:createSettingsNavigation()}]);
     subTabs.open({id,kind:'settings',title:t('mail-nav-settings')});
   }
+  async function openLinkedAccounts():Promise<void>{
+    openSettings();
+    const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);
+    await pane?.navigation?.navigate({section:'linked-accounts'});
+  }
   async function openExport(messageId:string):Promise<void> {
     const account=app.accountId();
     openSettings();
@@ -279,6 +285,7 @@ export function MailboxScreen(): JSX.Element {
   const surface = (): ShellSurface => router.route().surface;
   createEffect(()=>{const destination=surface();untrack(()=>{
     if(destination==='mail'){if(activePane()?.surface)subTabs.activate('mail');return;}
+    if(app.linkedMailboxId?.()&&destination!=='attachments'&&destination!=='outbox'){router.navigate('mail');return;}
     const accountId=app.accountId();if(!accountId)return;
     const module=APP_NAV_MODULES.find(item=>item.id===destination);
     const kind=destination==='attachments'?'attachments':destination==='outbox'?'outbox':'module';
@@ -614,7 +621,7 @@ export function MailboxScreen(): JSX.Element {
 
         {/* PIM modules (plan §2.5): Calendar / Tasks / Notes / Contacts, each
             reachable from the nav rail — the explicit mount step V2 lacked. */}
-        <nav class="sidebar__nav sidebar__nav--apps" aria-label={t('mail-nav-apps')}>
+        <Show when={!app.linkedMailboxId?.()}><nav class="sidebar__nav sidebar__nav--apps" aria-label={t('mail-nav-apps')}>
           <For each={APP_NAV_MODULES}>
             {(m) => (
               <button
@@ -630,7 +637,7 @@ export function MailboxScreen(): JSX.Element {
               </button>
             )}
           </For>
-        </nav>
+        </nav></Show>
         </div>
         <div class="sidebar__footer">
         <button type="button" class={`btn btn--ghost sidebar__settings ${a11y.focusable}`} aria-label={t('mail-nav-settings')} data-tooltip={t('mail-nav-settings')} onClick={()=>openSettings()}>
@@ -652,6 +659,7 @@ export function MailboxScreen(): JSX.Element {
       <div class="mail-workspace">
         <SubTabStrip onClose={id=>void closePane(id)} canClose={id=>id!=='mail'} canDetach={id=>id!=='mail'} onDetach={id=>{const pane=panes().find(value=>value.id===id);subTabs.activate(id);pane?.detach?.detach();}} />
         <div class="workspace-bar" role="toolbar" aria-label={t('mail-workspace-layout')}>
+          <LinkedAccountControl onManage={()=>void openLinkedAccounts()}/>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t(folderMode()==='hidden'?'mail-show-folders':'mail-hide-folders')} title={t(folderMode()==='hidden'?'mail-show-folders':'mail-hide-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='hidden'?'expanded':'hidden'})}><Icon name="folder"/></button>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-pressed={folderMode()==='compact'} aria-label={t('mail-compact-folders')} title={t('mail-compact-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='compact'?'expanded':'compact'})}><Icon name="menu"/></button>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-pressed={!accountUiPreferences().messageListCollapsed} aria-label={t('mail-toggle-list')} title={t('mail-toggle-list')} onClick={()=>setAccountUiPreferences({messageListCollapsed:!accountUiPreferences().messageListCollapsed,readerCollapsed:false})}><Icon name="mail"/></button>
