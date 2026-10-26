@@ -87,6 +87,7 @@ mod nextcloud_transport;
 mod nextcloud_pim;
 mod nextcloud_pim_transport;
 mod nextcloud_pim_scheduler;
+mod jmap_limits;
 mod nextcloud_xml;
 pub mod passwd;
 pub mod plugins;
@@ -2779,7 +2780,12 @@ fn prefix_session_urls(mut session: Value, base: &str) -> Value {
     session
 }
 
-async fn jmap_api(State(state): State<AppState>, source: Option<Extension<scope_mw::RestSessionSource>>, headers: HeaderMap, body: Bytes) -> Response {
+async fn jmap_api(State(state): State<AppState>, source: Option<Extension<scope_mw::RestSessionSource>>, headers: HeaderMap, body: Body) -> Response {
+    let body = match axum::body::to_bytes(body, mw_engine::jmap::core::MAX_SIZE_REQUEST).await {
+        Ok(body) => body,
+        Err(_) if state.engine.is_some() => return jmap_limits::problem(mw_engine::jmap::core::problem("limit", Some("maxSizeRequest")), StatusCode::BAD_REQUEST),
+        Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+    };
     let headless_key = matches!(&source, Some(Extension(scope_mw::RestSessionSource::Key { .. })));
     let key_account = match &source {
         Some(Extension(scope_mw::RestSessionSource::Key { account_id })) => Some(account_id.clone()),
@@ -2821,13 +2827,21 @@ async fn jmap_api(State(state): State<AppState>, source: Option<Extension<scope_
     // any call. A disabled feature cannot hide behind a permitted first call.
     let request: Value = match serde_json::from_slice(&body) {
         Ok(value) => value,
+        Err(_) if state.engine.is_some() => return jmap_limits::problem(mw_engine::jmap::core::problem("notJSON", None), StatusCode::BAD_REQUEST),
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid JMAP JSON").into_response(),
     };
+    let _native_request_permit = if state.engine.is_some() {
+        if let Err(problem) = mw_engine::jmap::core::validate(&request, body.len(), true) {
+            return jmap_limits::problem(problem, StatusCode::BAD_REQUEST);
+        }
+        match jmap_limits::request() { Ok(permit) => Some(permit), Err(response) => return response }
+    } else { None };
     if let Err(response) = feature_jmap::admit(&state, &session, &request).await {
         return response;
     }
     if let Some(engine) = &state.engine {
-        if let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await {
+        let echo_only = request["methodCalls"].as_array().is_some_and(|calls| calls.iter().all(|call| call[0] == "Core/echo"));
+        if !echo_only && let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await {
             tracing::warn!("engine account not available: {e}");
             return upstream_error();
         }
@@ -3376,6 +3390,9 @@ async fn jmap_upload(
         )
             .into_response();
     }
+    let _native_upload_permit = if state.engine.is_some() {
+        match jmap_limits::upload() { Ok(permit) => Some(permit), Err(response) => return response }
+    } else { None };
     let content_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())

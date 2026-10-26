@@ -20,6 +20,13 @@ pub struct MockImap {
 }
 impl MockImap {
     pub async fn start(user: &str, password: &str) -> Self {
+        Self::start_folder(user, password, false).await
+    }
+    /// Isolated one-message Trash fixture for verified expunge tests.
+    pub async fn start_single_trash(user: &str, password: &str) -> Self {
+        Self::start_folder(user, password, true).await
+    }
+    async fn start_folder(user: &str, password: &str, trash: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let state = Arc::new(Mutex::new(Vec::<Message>::new()));
@@ -34,7 +41,7 @@ impl MockImap {
                 let password = password.clone();
                 let captured = captured.clone();
                 tokio::spawn(async move {
-                    let _ = serve(stream, state, captured, &user, &password).await;
+                    let _ = serve(stream, state, captured, &user, &password, trash).await;
                 });
             }
         });
@@ -51,6 +58,7 @@ async fn serve(
     captured: Arc<Mutex<Vec<Vec<u8>>>>,
     user: &str,
     password: &str,
+    trash: bool,
 ) -> std::io::Result<()> {
     let (read, mut write) = stream.into_split();
     let mut reader = BufReader::new(read);
@@ -88,11 +96,16 @@ async fn serve(
         } else if !authenticated {
             response = format!("{tag} NO authentication required\r\n");
         } else if upper.starts_with("LIST ") {
-            response = format!("* LIST (\\HasNoChildren) \"/\" \"INBOX\"\r\n{tag} OK list\r\n");
+            response = if trash {
+                format!("* LIST (\\HasNoChildren \\Trash) \"/\" \"Trash\"\r\n{tag} OK list\r\n")
+            } else {
+                format!("* LIST (\\HasNoChildren) \"/\" \"INBOX\"\r\n{tag} OK list\r\n")
+            };
         } else if upper.starts_with("STATUS ") {
             let count = state.lock().await.len();
             response = format!(
-                "* STATUS \"INBOX\" (MESSAGES {count} UNSEEN {count} UIDNEXT {} UIDVALIDITY 55)\r\n{tag} OK status\r\n",
+                "* STATUS \"{}\" (MESSAGES {count} UNSEEN {count} UIDNEXT {} UIDVALIDITY 55)\r\n{tag} OK status\r\n",
+                if trash { "Trash" } else { "INBOX" },
                 count + 1
             );
         } else if upper.starts_with("SELECT ") || upper.starts_with("EXAMINE ") {
@@ -127,6 +140,10 @@ async fn serve(
                 .unwrap_or_default();
             captured.lock().await.push(raw.clone());
             let mut messages = state.lock().await;
+            assert!(
+                !trash || messages.is_empty(),
+                "single-message Trash fixture"
+            );
             messages.push(Message { raw, flags, date });
             response = format!("{tag} OK [APPENDUID 55 {}] saved\r\n", messages.len());
         } else if upper.starts_with("UID FETCH ") {
@@ -159,7 +176,23 @@ async fn serve(
                     .collect::<Vec<_>>()
                     .join(" ")
             );
+        } else if trash && upper.starts_with("UID EXPUNGE ") {
+            let mut messages = state.lock().await;
+            if messages
+                .first()
+                .is_some_and(|message| message.flags.contains("\\Deleted"))
+            {
+                messages.clear();
+                captured.lock().await.clear();
+                response.push_str("* 1 EXPUNGE\r\n");
+            }
+            response.push_str(&format!("{tag} OK expunged\r\n"));
         } else if upper.starts_with("UID STORE ") {
+            if trash && upper.contains("\\DELETED") {
+                for message in state.lock().await.iter_mut() {
+                    message.flags.push_str(" \\Deleted");
+                }
+            }
             response = format!("{tag} OK flags\r\n");
         } else if upper == "NOOP" {
             response = format!("{tag} OK noop\r\n");

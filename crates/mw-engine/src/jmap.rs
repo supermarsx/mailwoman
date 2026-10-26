@@ -35,6 +35,9 @@ use crate::search_index;
 #[path = "mail_ext/mod.rs"]
 pub(crate) mod mail_ext;
 
+#[path = "jmap_core.rs"]
+pub mod core;
+
 // Folder management (26.20 t28-e17): `Mailbox/set`, the `Email/set` destroy
 // path and the session's mail account capability. A child of this module so it
 // reaches the private helpers below (`remove_local_email`, `move_email`, ...).
@@ -46,7 +49,12 @@ mod folders;
 pub fn session_json(account_id: &str, username: &str) -> Value {
     json!({
         "capabilities": {
-            "urn:ietf:params:jmap:core": { "maxSizeUpload": 50_000_000, "maxConcurrentRequests": 4 },
+            "urn:ietf:params:jmap:core": {
+                "maxSizeUpload": 50_000_000, "maxConcurrentUpload": 4,
+                "maxSizeRequest": core::MAX_SIZE_REQUEST, "maxConcurrentRequests": 4,
+                "maxCallsInRequest": core::MAX_CALLS, "maxObjectsInGet": core::MAX_OBJECTS,
+                "maxObjectsInSet": core::MAX_OBJECTS, "collationAlgorithms": []
+            },
             // The core mail capability covers `Thread/*`, `SearchSnippet/get`, and
             // `Email/copy|import|parse` (RFC 8621) — all answered by the `mail_ext`
             // dispatch alongside the `Email/*`/`Mailbox/*` handlers.
@@ -115,6 +123,7 @@ impl Engine {
         request: &Value,
         mut sieve: Option<&mut crate::sieve_jmap::SieveContext>,
     ) -> Value {
+        if let Err(problem) = core::validate(request, 0, false) { return problem; }
         let rt = self.runtime(account_id);
         let empty = Vec::new();
         let calls = request
@@ -125,7 +134,8 @@ impl Engine {
         let mut responses: Vec<Value> = Vec::new();
         // Tracks Email/set creation-id → stable id so EmailSubmission/set can
         // reference a just-created draft as `#clientId`.
-        let mut created_ids: HashMap<String, String> = HashMap::new();
+        let mut created_ids: HashMap<String, String> = request.get("createdIds").and_then(Value::as_object)
+            .map(|ids| ids.iter().filter_map(|(key, value)| value.as_str().map(|value| (key.clone(), value.to_owned()))).collect()).unwrap_or_default();
 
         for call in calls {
             let Some(arr) = call.as_array() else { continue };
@@ -135,7 +145,20 @@ impl Engine {
             let name = arr[0].as_str().unwrap_or_default();
             let call_id = arr[2].as_str().unwrap_or("c0");
             let mut args = arr[1].clone();
-            resolve_references(&mut args, &responses);
+            if let Err(kind) = resolve_references(&mut args, &responses) {
+                responses.push(json!(["error", {"type":kind}, call_id]));
+                continue;
+            }
+            if core::method_too_large(name, &args) {
+                responses.push(json!(["error", {"type":"requestTooLarge"}, call_id]));
+                continue;
+            }
+            // Echo arguments are arbitrary: a client-owned `type` property is
+            // data, not the engine's method-error convention.
+            if name == "Core/echo" {
+                responses.push(json!([name, args, call_id]));
+                continue;
+            }
             if crate::sieve_jmap::is_managed_method(name)
                 && let Some(ctx) = sieve.as_deref_mut()
             {
@@ -189,16 +212,22 @@ impl Engine {
                     "description": "account is not connected in engine mode"
                 }),
             };
-            responses.push(json!([name, resp, call_id]));
+            let resp = if name.ends_with("/get") && resp.get("list").and_then(Value::as_array).is_some_and(|items| items.len() > core::MAX_OBJECTS) { json!({"type":"requestTooLarge"}) } else { resp };
+            let response_name = if resp.get("type").is_some() { "error" } else { name };
+            responses.push(json!([response_name, resp, call_id]));
             if let Some(email_set) = implicit {
                 responses.push(json!(["Email/set", email_set, call_id]));
             }
         }
 
-        json!({
+        let mut response = json!({
             "methodResponses": responses,
             "sessionState": self.session_state(account_id).await
-        })
+        });
+        if request.get("createdIds").is_some_and(Value::is_object) {
+            response["createdIds"] = json!(created_ids);
+        }
+        response
     }
 
     /// Dispatch a single resolved method call to its handler.
@@ -1232,10 +1261,16 @@ impl Engine {
         args: &Value,
         created_ids: &mut HashMap<String, String>,
     ) -> Value {
-        let old_state = self
-            .type_state(account_id, ChangeType::Email)
-            .await
-            .unwrap_or_default();
+        let old_state = match self.type_state(account_id, ChangeType::Email).await {
+            Ok(state) => state,
+            Err(error) => return server_fail(&error),
+        };
+        match args.get("ifInState") {
+            None | Some(Value::Null) => {},
+            Some(Value::String(expected)) if expected == &old_state => {},
+            Some(Value::String(_)) => return json!({"type":"stateMismatch"}),
+            Some(_) => return json!({"type":"invalidArguments","arguments":["ifInState"]}),
+        }
         let mut created = Map::new();
         let mut not_created = Map::new();
         let mut updated = Map::new();
@@ -3598,32 +3633,50 @@ impl Engine {
 /// the value at `path` inside the referenced prior response, stored under the
 /// de-`#`'d key. Ported from the proven `mw-mock-jmap` logic so the byte shape
 /// the web client chains against is identical.
-pub fn resolve_references(args: &mut Value, responses: &[Value]) {
-    let Some(obj) = args.as_object() else {
-        return;
-    };
-    let ref_keys: Vec<String> = obj.keys().filter(|k| k.starts_with('#')).cloned().collect();
-    for key in ref_keys {
-        let spec = args[key.as_str()].clone();
-        if let (Some(result_of), Some(path)) = (
-            spec.get("resultOf").and_then(Value::as_str),
-            spec.get("path").and_then(Value::as_str),
-        ) {
-            let resolved = responses
-                .iter()
-                .find(|r| r.get(2).and_then(Value::as_str) == Some(result_of))
-                .and_then(|r| r.get(1))
-                .and_then(|a| a.pointer(path))
-                .cloned();
-            if let Some(value) = resolved {
-                let target = key.trim_start_matches('#');
-                args[target] = value;
-            }
-        }
-        if let Some(map) = args.as_object_mut() {
-            map.remove(&key);
-        }
+pub fn resolve_references(args: &mut Value, responses: &[Value]) -> std::result::Result<(), &'static str> {
+    let obj = args.as_object_mut().ok_or("invalidArguments")?;
+    let keys: Vec<String> = obj.keys().filter(|key| key.starts_with('#')).cloned().collect();
+    for key in keys {
+        let target = &key[1..];
+        if obj.contains_key(target) { return Err("invalidArguments"); }
+        let spec = &obj[&key];
+        let result_of = spec.get("resultOf").and_then(Value::as_str).ok_or("invalidResultReference")?;
+        let name = spec.get("name").and_then(Value::as_str).ok_or("invalidResultReference")?;
+        let path = spec.get("path").and_then(Value::as_str).ok_or("invalidResultReference")?;
+        let response = responses.iter().find(|response| response.get(2).and_then(Value::as_str) == Some(result_of)).ok_or("invalidResultReference")?;
+        if response.get(0).and_then(Value::as_str) != Some(name) { return Err("invalidResultReference"); }
+        let value = result_pointer(&response[1], path).ok_or("invalidResultReference")?;
+        obj.insert(target.to_owned(), value);
+        obj.remove(&key);
     }
+    Ok(())
+}
+
+fn result_pointer(value: &Value, path: &str) -> Option<Value> {
+    if path.is_empty() { return Some(value.clone()); }
+    let tokens: Vec<&str> = path.strip_prefix('/')?.split('/').collect();
+    if tokens.len() > 128 { return None; }
+    fn walk(value: &Value, tokens: &[&str]) -> Option<Value> {
+        let Some((token, suffix)) = tokens.split_first() else { return Some(value.clone()); };
+        if *token == "*" && let Some(items) = value.as_array() {
+            let mut output = Vec::new();
+            for item in items {
+                match walk(item, suffix)? {
+                    Value::Array(items) => output.extend(items),
+                    item => output.push(item),
+                }
+            }
+            return Some(Value::Array(output));
+        }
+        for (index, byte) in token.bytes().enumerate() {
+            if byte == b'~' && !matches!(token.as_bytes().get(index + 1), Some(b'0' | b'1')) { return None; }
+        }
+        // Only the current token is allocated, never a copy of the remaining
+        // path at each recursive level. Escapes follow RFC6901 exactly.
+        let selected = value.pointer(&format!("/{token}"))?;
+        walk(selected, suffix)
+    }
+    walk(value, &tokens)
 }
 
 /// The default `maxChanges` for `*/changes` and `Email/queryChanges` when the
@@ -5298,6 +5351,10 @@ mod query_paging_tests {
     #[tokio::test]
     async fn a_page_reads_the_page_not_the_folder() {
         let f = Fixture::with(FOLDER).await;
+
+        // The first query performs the bounded legacy-date upgrade once per
+        // account. Measure steady-state paging after that separate startup work.
+        f.counted_query(json!({ "filter": f.in_mailbox(), "position": 0, "limit": 1 })).await;
 
         let (resp, stmts) = f
             .counted_query(json!({ "filter": f.in_mailbox(), "position": 0, "limit": 50 }))

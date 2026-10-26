@@ -440,8 +440,10 @@ mod tests {
         async fn call(&self, method: &str, args: Value) -> Value {
             let req = json!({ "methodCalls": [[method, args, "c0"]] });
             let resp = self.engine.handle_jmap(&self.account_id, &req).await;
-            // Confirm the invocation name + call-id are echoed (dispatch reached).
-            assert_eq!(resp["methodResponses"][0][0], json!(method));
+            // Successful methods retain their name; method failures use the
+            // RFC8620 error invocation while preserving the original call id.
+            let name = if resp["methodResponses"][0][1].get("type").is_some() { "error" } else { method };
+            assert_eq!(resp["methodResponses"][0][0], json!(name));
             assert_eq!(resp["methodResponses"][0][2], json!("c0"));
             resp["methodResponses"][0][1].clone()
         }
