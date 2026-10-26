@@ -15,6 +15,10 @@ function renderStrip(controller: RealtimeController) {
 }
 
 describe('SubTabStrip', () => {
+  it('enables native pointer dragging with an explicit enumerated attribute',()=>{
+    const controller=createRealtimeController();controller.subTabs.open({kind:'module',title:'Contacts'});renderStrip(controller);
+    const tab=screen.getByRole('tab',{name:'Contacts'});expect(tab.getAttribute('draggable')).toBe('true');expect(tab.draggable).toBe(true);
+  });
   it('accepts only its own current-account drag token',()=>{
     activateAccountPreferences('tab-owner');
     const controller=createRealtimeController();const a=controller.subTabs.open({kind:'messages',title:'Inbox'}),b=controller.subTabs.open({kind:'module',title:'Contacts'});renderStrip(controller);

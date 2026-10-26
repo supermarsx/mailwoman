@@ -1,0 +1,23 @@
+import {readFile} from 'node:fs/promises';
+import path from 'node:path';
+import {test,expect} from '../csrf.ts';
+test('reorders retained tabs with real pointer drags in both directions',async({page},info)=>{
+ const dist=path.resolve('../../.orchestration/reports/codex-tab-pointer-web');
+ await page.route('**/*',async route=>{const url=new URL(route.request().url());if(url.pathname!=='/'&&!url.pathname.startsWith('/assets/'))return route.continue();const file=path.resolve(dist,url.pathname==='/'?'index.html':url.pathname.slice(1));if(!file.startsWith(dist+path.sep))return route.abort();try{const body=await readFile(file);await route.fulfill({status:200,body,contentType:file.endsWith('.html')?'text/html':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'application/octet-stream'});}catch{await route.continue();}});
+ await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('testuser');await page.getByLabel('Password',{exact:true}).fill('testpass');await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();
+ const navigate=async(name:string)=>{if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();await page.locator('#shell-nav').getByRole('button',{name,exact:true}).click();};
+ for(const name of ['Calendar','Contacts','Notes'])await navigate(name);
+ const tabs=page.locator('.subtab__label[role="tab"]');
+ const before=await tabs.allTextContents();
+ await expect(tabs.first()).toHaveAttribute('draggable','true');
+ const move=async(from:string,to:string)=>{const source=page.getByRole('tab',{name:from,exact:true});const target=page.getByRole('tab',{name:to,exact:true});await source.dragTo(target);};
+ await move('Notes','Calendar');
+ await expect(tabs).toHaveText(['Mail','Notes','Calendar','Contacts']);
+ await move('Notes','Contacts');
+ await expect(tabs).toHaveText(before);
+ await move('Contacts','Calendar');
+ await expect(tabs).toHaveText(['Mail','Contacts','Calendar','Notes']);
+ await page.waitForTimeout(600);await page.reload();
+ await expect(tabs.filter({hasNotText:/^Mail$/})).toHaveText(['Contacts','Calendar','Notes']);
+ await page.screenshot({path:info.outputPath('pointer-tab-order.png'),fullPage:true});
+});
