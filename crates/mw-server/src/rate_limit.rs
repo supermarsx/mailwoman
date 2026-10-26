@@ -39,7 +39,7 @@
 //! image proxy documents, and it is a fan-out bound rather than a security boundary.
 
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// One key's bucket.
 struct TokenBucket {
@@ -72,7 +72,10 @@ impl KeyedRateLimiter {
     /// Charge one token to `key`, refilling for elapsed time first. `true` when a
     /// token was available (allow), `false` when the bucket is spent (→ `429`).
     pub(crate) fn check(&mut self, key: &str) -> bool {
-        let now = Instant::now();
+        self.retry_after_at(key, Instant::now()).is_none()
+    }
+
+    pub(crate) fn retry_after_at(&mut self, key: &str, now: Instant) -> Option<Duration> {
         if !self.buckets.contains_key(key) {
             self.make_room(now);
         }
@@ -86,9 +89,13 @@ impl KeyedRateLimiter {
         b.last = now;
         if b.tokens >= 1.0 {
             b.tokens -= 1.0;
-            true
+            None
         } else {
-            false
+            Some(if refill > 0.0 {
+                Duration::from_secs_f64((1.0 - b.tokens) / refill)
+            } else {
+                Duration::MAX
+            })
         }
     }
 

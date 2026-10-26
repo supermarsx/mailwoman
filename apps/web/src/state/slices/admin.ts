@@ -273,7 +273,7 @@ export interface AdminApi {
 /** Raised when an `/admin/*` request fails (non-2xx that isn't a session 401). */
 export class AdminApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, readonly retryAfterSecs?: number) {
     super(message);
     this.name = 'AdminApiError';
     this.status = status;
@@ -327,7 +327,10 @@ export function createHttpAdminApi(base = basePath()): AdminApi {
         body: JSON.stringify({ username, password }),
       });
       if (res.status === 401) throw new AdminApiError(401, 'invalid admin credentials');
-      if (!res.ok) throw new AdminApiError(res.status, `login failed (${res.status})`);
+      if (!res.ok) {
+        const retry = Number(res.headers.get("Retry-After"));
+        throw new AdminApiError(res.status, `login failed (${res.status})`, res.status === 429 && Number.isFinite(retry) && retry > 0 ? Math.min(300, Math.ceil(retry)) : undefined);
+      }
       return (await res.json()) as AdminSession;
     },
     async logout() {

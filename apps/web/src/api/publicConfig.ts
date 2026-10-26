@@ -7,6 +7,7 @@ export interface PublicConfig {
   accent: string;
   loginNotice: string | null;
   showDomainHint?: boolean;
+  retryCooldownSecs?: number;
   usernameDomainHint: string | null;
 }
 

@@ -611,3 +611,7 @@ Automatic colors adapt in dark themes and preserve original colors in light them
 ### `mail.quoteStyle`
 
 Default `classic`; choose `outlook` for structured From, Sent, To, Cc and Subject headers in replies and forwards. Global, domain and user scope. Administrators can lock the default. Only newly opened compositions change; existing drafts retain their content.
+
+<a id="signin.retryCooldownSecs"></a>
+### `signin.retryCooldownSecs`
+Global initial password sign-in cooldown, 0–300 seconds, default 3. Applies to mailbox/native and administrator login using the trusted client IP (IPv6 /64). MFA continuation and administrator session expiry are unchanged. Refusals return 429 with Retry-After. Bounded process-local state resets on restart and is independent per replica. Existing failure bans remain in force.

@@ -13,7 +13,7 @@
 // (`shell/adminAuth.ts` has the wire contract). Without TOTP on the server this
 // step never appears.
 
-import { Show, createSignal, onMount, type JSX } from 'solid-js';
+import { Show, createSignal, onMount, onCleanup, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import { AdminApiError } from '../../state/slices/admin.ts';
 import { isolate, t, loadCatalog } from '../../i18n';
@@ -37,6 +37,18 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
   const [pending, setPending] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
+  const [retrySeconds, setRetrySeconds] = createSignal(0);
+  let retryTimer: ReturnType<typeof setInterval> | undefined;
+  function waitForRetry(seconds: number): void {
+    if (retryTimer !== undefined) clearInterval(retryTimer);
+    const deadline = Date.now() + seconds * 1000;
+    setRetrySeconds(seconds);
+    retryTimer = setInterval(() => {
+      setRetrySeconds(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
+      if (retrySeconds() === 0) { clearInterval(retryTimer); retryTimer = undefined; }
+    }, 250);
+  }
+  onCleanup(() => { if (retryTimer !== undefined) clearInterval(retryTimer); });
   const [factors,setFactors]=createSignal<string[]>([]);
   const [recovery,setRecovery]=createSignal(false);
   onMount(()=>void loadCatalog('admin-passkeys'));
@@ -44,6 +56,7 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
 
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
+    if (busy() || retrySeconds() > 0) return;
     setError(null);
     setBusy(true);
     try {
@@ -55,6 +68,7 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
         setFactors(err.challenge.factors);
         setRecovery(err.challenge.factors.includes('recovery') && !err.challenge.factors.includes('totp'));
       } else {
+        if (err instanceof AdminApiError && err.status === 429) waitForRetry(err.retryAfterSecs ?? 3);
         setError(
           err instanceof AdminApiError && err.status === 401
             ? t('admin-login-invalid')
@@ -136,7 +150,8 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
                 {error()}
               </p>
             </Show>
-            <button type="submit" class="btn btn--primary" disabled={busy()}>
+            <Show when={retrySeconds() > 0}><p role="status">{t("admin-login-retry-countdown", { seconds: retrySeconds() })}</p></Show>
+            <button type="submit" class="btn btn--primary" disabled={busy() || retrySeconds() > 0}>
               {busy() ? t('admin-login-signing-in') : t('admin-login-sign-in')}
             </button>
             <Show when={passkeySupported()}><button type="button" class="btn" disabled={busy()} onClick={()=>void passkeyLogin()}>{t('admin-passkeys-sign-in')}</button></Show>

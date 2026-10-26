@@ -395,3 +395,6 @@ admin-settings-help-reader-loading-delay-ms = Delay only the loading indicator, 
 
 admin-settings-key-mail-quote-style = Reply and forward header style
 admin-settings-help-mail-quote-style = Use classic quoted replies or Outlook-style message headers. This sets the user default; lock it to enforce the style. Existing drafts are unchanged.
+
+admin-settings-key-signin-retry-cooldown-secs = Sign-in retry cooldown
+admin-settings-help-signin-retry-cooldown-secs = Minimum seconds between password sign-in attempts from one client network. Default 3; 0 disables the cooldown. Existing failure bans still apply.

@@ -668,6 +668,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "upstream",
         "proxy per-request timeout (lib.rs)"
     ),
+    def!("signin.retryCooldownSecs", int(0, 300), "3", G, "signin", "initial sign-in retry cooldown"),
     // ── Sign-in (e66, e70b) ──────────────────────────────────────────────────
     dedicated(
         def!(
@@ -2100,7 +2101,7 @@ mod tests {
 
     #[test]
     fn signin_keys_name_a_dedicated_route_and_limits_are_per_address() {
-        for d in REGISTRY.iter().filter(|d| d.key.starts_with("signin.")) {
+        for d in REGISTRY.iter().filter(|d| d.key.starts_with("signin.") && d.key != "signin.retryCooldownSecs") {
             let r = refuse_if_dedicated(d).unwrap_err();
             assert_eq!((r.status, r.code), (403, "useDedicatedRoute"), "{}", d.key);
             assert!(r.body()["route"].as_str().unwrap().starts_with('/'));

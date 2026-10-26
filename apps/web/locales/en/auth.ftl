@@ -58,3 +58,6 @@ auth-remembered = Previous sign-ins
 auth-remembered-help = Addresses used successfully on this device. Choosing one fills the address only.
 auth-forget-address = Forget { $address } on this device
 auth-login-timeout = Sign-in timed out. No automatic retry was made. Check the connection and try again when ready.
+
+auth-login-rate-limited = Too many sign-in attempts. Please wait before trying again.
+auth-retry-countdown = Try again in { $seconds }s

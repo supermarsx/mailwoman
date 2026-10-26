@@ -211,3 +211,5 @@ admin-diag-backends-permission = Requires global diagnostics-run and domain-upst
 admin-diag-no-checks = No checks were recorded for this run. No endpoint success is implied.
 admin-diag-no-match = No checks match this filter.
 admin-diag-limits = Up to { $checks } checks, { $concurrency } concurrent connections, { $check } seconds per check including queue time, and { $run } seconds for probe work.
+
+admin-login-retry-countdown = Try again in { $seconds } seconds.

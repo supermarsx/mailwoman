@@ -46,6 +46,21 @@ export function Login(): JSX.Element {
   const [password, setPassword] = createSignal('');
   const [error, setError] = createSignal<string | null>(ssoErrorReturn() ? t('auth-sso-error') : null);
   const [busy, setBusy] = createSignal(false);
+  const [retryWait, setRetryWait] = createSignal(0);
+  let retryTimer: ReturnType<typeof setInterval> | undefined;
+  let retryUntil = 0;
+  onCleanup(() => clearInterval(retryTimer));
+  function waitBeforeRetry(seconds: number): void {
+    if (!Number.isFinite(seconds) || seconds < 0) return;
+    retryUntil = Math.max(retryUntil, Date.now() + seconds * 1000);
+    clearInterval(retryTimer);
+    const update = (): void => {
+      setRetryWait(Math.max(0, Math.ceil((retryUntil - Date.now()) / 1000)));
+      if (retryWait() === 0) clearInterval(retryTimer);
+    };
+    update();
+    if (retryWait() > 0) retryTimer = setInterval(update, 250);
+  }
   // Set when the server refused the credentials (401). A disabled account gets
   // the same 401 as a wrong password — the server keeps one shape so the refusal
   // does not reveal account state — so the form cannot say WHICH it was; it adds
@@ -86,16 +101,20 @@ export function Login(): JSX.Element {
 
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
-    if (busy()) return;
+    if (busy() || retryWait() > 0) return;
     setError(null);
     setRefused(false);
     setReference(null);
     setBusy(true);
+    waitBeforeRetry(config()?.retryCooldownSecs ?? 3);
     try {
       await app.login({ username: email().trim(), password: password() });
     } catch (err) {
       if (err instanceof ApiError) setReference(err.requestId ?? null);
-      if (err instanceof LoginTimeoutError || (err instanceof ApiError && err.status === 504)) {
+      if (err instanceof ApiError && err.status === 429) {
+        waitBeforeRetry(err.retryAfterSecs ?? config()?.retryCooldownSecs ?? 3);
+        setError(t('auth-login-rate-limited'));
+      } else if (err instanceof LoginTimeoutError || (err instanceof ApiError && err.status === 504)) {
         setError(t('auth-login-timeout'));
       } else if (err instanceof TwoFactorRequired) {
         // Not an error: swap the credential form for the second-factor challenge.
@@ -195,8 +214,8 @@ export function Login(): JSX.Element {
             </p>
           )}
         </Show>
-        <button type="submit" class="btn btn--primary" disabled={busy()}>
-          {busy() ? t('auth-signing-in') : t('auth-sign-in')}
+        <button type="submit" class="btn btn--primary" disabled={busy() || retryWait() > 0}>
+          {busy() ? t('auth-signing-in') : retryWait() > 0 ? t('auth-retry-countdown', { seconds: retryWait() }) : t('auth-sign-in')}
         </button>
         <Show when={passkeyAvailable()}>
           <button type="button" class="btn btn--ghost" disabled={busy()} onClick={() => void passkeySignIn()}>{t('auth-passkey-sign-in')}</button>

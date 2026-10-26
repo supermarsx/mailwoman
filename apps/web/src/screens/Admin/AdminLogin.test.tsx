@@ -152,3 +152,26 @@ describe('createHttpAdminApi — a 401 on a panel route ends the session', () =>
     vi.unstubAllGlobals();
   });
 });
+
+
+describe('Admin retry cooldown', () => {
+  it('shows server retry delay and does not automatically resend credentials', async () => {
+    const login = vi.fn(async () => { throw new AdminApiError(429, 'cooldown', 3); });
+    render(() => <AdminScreen api={mockAdminApi({ session: vi.fn(async () => null), login })} {...offlineShell()} />);
+    const form = await screen.findByRole('form', { name: 'Admin sign in' });
+    vi.useFakeTimers();
+    try {
+      fireEvent.submit(form);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(screen.getByText('Try again in 3 seconds.')).toBeInTheDocument();
+      expect(screen.getByRole('button', {name: /^Sign in$/})).toBeDisabled();
+      fireEvent.submit(form);
+      expect(login).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(screen.getByRole('button', {name: /^Sign in$/})).toBeEnabled();
+      expect(login).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -504,6 +504,9 @@ async fn login(
         .await;
         return error.into_response();
     }
+    if let Some(response) = crate::signin_cooldown::check(&state, &headers, &ext).await {
+        return response;
+    }
     match check_credentials(&state, &body.username, &body.password).await {
         Ok(Checked::Ok(username)) => {
             record_login_success(&state, &username, source).await;

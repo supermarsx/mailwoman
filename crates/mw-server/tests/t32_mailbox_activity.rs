@@ -61,6 +61,9 @@ async fn activity_renews_only_live_mailbox_idle_and_rotation_keeps_fifteen_day_c
     let pool = sqlx::SqlitePool::connect(&format!("sqlite:{}", db.display()))
         .await
         .unwrap();
+    // This fixture tests session clocks across repeated cookie/native/admin sign-ins.
+    sqlx::query("INSERT INTO setting_policy(key,global_value,updated_by,updated_at) VALUES('signin.retryCooldownSecs','0','session-clock-fixture',0)")
+        .execute(&pool).await.unwrap();
     let endpoint = format!("{base}/api/account/session/activity");
     let anonymous = reqwest::Client::new();
     assert_eq!(

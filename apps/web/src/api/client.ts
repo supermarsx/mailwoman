@@ -23,18 +23,21 @@ export interface ApiErrorDetails {
   code?: string;
   /** The answer's `X-Request-Id`, shown as "Reference: …" for a support request. */
   requestId?: string;
+  retryAfterSecs?: number;
 }
 
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | undefined;
   readonly requestId: string | undefined;
+  readonly retryAfterSecs: number | undefined;
   constructor(status: number, message: string, details: ApiErrorDetails = {}) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = details.code;
     this.requestId = details.requestId;
+    this.retryAfterSecs = details.retryAfterSecs;
   }
 }
 
@@ -46,9 +49,15 @@ export async function errorDetails(res: Response): Promise<ApiErrorDetails> {
   const out: ApiErrorDetails = {};
   const requestId = res.headers.get('x-request-id');
   if (requestId !== null && requestId !== '') out.requestId = requestId;
+  const retryAfter = res.headers.get('retry-after');
+  if (retryAfter !== null && /^\d+$/.test(retryAfter)) {
+    const seconds = Number(retryAfter);
+    if (Number.isSafeInteger(seconds) && seconds <= 86400) out.retryAfterSecs = seconds;
+  }
   try {
-    const body = (await res.clone().json()) as { code?: unknown };
+    const body = (await res.clone().json()) as { code?: unknown; retryAfterSecs?: unknown };
     if (typeof body.code === 'string' && body.code !== '') out.code = body.code;
+    if (out.retryAfterSecs === undefined && typeof body.retryAfterSecs === 'number' && Number.isInteger(body.retryAfterSecs) && body.retryAfterSecs >= 0 && body.retryAfterSecs <= 86400) out.retryAfterSecs = body.retryAfterSecs;
   } catch {
     /* not JSON */
   }

@@ -97,6 +97,7 @@ pub(crate) mod audit;
 pub(crate) mod alerts;
 pub(crate) mod step_up;
 mod security_center;
+mod signin_cooldown;
 mod server_text;
 // t16 (26.16, e10 chain link 3) MOUNT: the anonymizing image proxy + remote-image
 // grants (e6, S7/S8), the account-preferences router (e18, W12/W13/W15), and the
@@ -861,6 +862,7 @@ pub(crate) struct AppState {
     pub(crate) push: PushHandle,
     /// In-process session idle/absolute-timeout tracking.
     sessions: Arc<SessionGuard>,
+    signin_cooldown: Arc<signin_cooldown::Cooldown>,
     hardening: HardeningConfig,
     /// V4 crypto/security endpoint config (plan §3 e7).
     security: SecurityConfig,
@@ -1292,6 +1294,7 @@ async fn build_app_inner(
         engine,
         push: push.clone(),
         sessions: Arc::new(SessionGuard::new()),
+        signin_cooldown: Arc::new(signin_cooldown::Cooldown::default()),
         hardening: config.hardening,
         security: config.security,
         native_auth: NativeAuthConfig::from_env(),
@@ -2101,6 +2104,9 @@ async fn login(
 ) -> Response {
     if body.names_a_server() {
         return client_server_refused();
+    }
+    if let Some(response) = signin_cooldown::check(&state, &headers, &ext).await {
+        return response;
     }
     // A2 (header-auth trusted proxy): if the deployment trusts an upstream that has
     // already authenticated the user and asserts it via `X-Remote-User`, mint the

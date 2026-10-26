@@ -26,7 +26,7 @@ pub(crate) async fn public_config(
     let values = match settings_registry::effective_all(&state.store, &subject, |def| {
         matches!(
             def.key,
-            "appearance.brandName" | "appearance.theme" | "appearance.accent" | "login.notice"
+            "appearance.brandName" | "appearance.theme" | "appearance.accent" | "login.notice" | "signin.retryCooldownSecs"
         )
     })
     .await
@@ -51,6 +51,7 @@ pub(crate) async fn public_config(
         }
     };
     let mut response = Json(json!({
+        "retryCooldownSecs":value("signin.retryCooldownSecs"),
         "brandName":value("appearance.brandName"), "theme":value("appearance.theme"),
         "accent":value("appearance.accent"), "loginNotice":value("login.notice"),
         "usernameDomainHint":hint,

@@ -45,6 +45,42 @@ function renderLogin(client: Client) {
 beforeEach(() => { suspendAccountPreferences(); localStorage.clear(); });
 
 describe('Login', () => {
+  it('prevents manual retries during the configured cooldown without sending a retry', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ retryCooldownSecs: 2 }))));
+    try {
+      const client = fakeClient({ login: vi.fn(async () => { throw new ApiError(401, 'invalid'); }) });
+      renderLogin(client);
+      await vi.advanceTimersByTimeAsync(0);
+      fireEvent.input(screen.getByLabelText('Email or username'), { target: { value: 'alice' } });
+      fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'secret' } });
+      fireEvent.submit(screen.getByRole('form', { name: 'Sign in' }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(screen.getByRole('button', { name: 'Try again in 2s' })).toBeDisabled();
+      fireEvent.submit(screen.getByRole('form', { name: 'Sign in' }));
+      expect(client.login).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
+      expect(client.login).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); vi.unstubAllGlobals(); }
+  });
+  it('honors a server retry delay even when the configured client cooldown is disabled', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ retryCooldownSecs: 0 }))));
+    try {
+      const client = fakeClient({ login: vi.fn(async () => { throw new ApiError(429, 'limited', { retryAfterSecs: 8 }); }) });
+      renderLogin(client);
+      await vi.advanceTimersByTimeAsync(0);
+      fireEvent.input(screen.getByLabelText('Email or username'), { target: { value: 'alice' } });
+      fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'secret' } });
+      fireEvent.submit(screen.getByRole('form', { name: 'Sign in' }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(screen.getByRole('button', { name: 'Try again in 8s' })).toBeDisabled();
+      await vi.advanceTimersByTimeAsync(8000);
+      expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
+      expect(client.login).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); vi.unstubAllGlobals(); }
+  });
   it('shows the public brand, notice and accessible domain hint without expanding typed input', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => new Response(
       String(input).endsWith('/api/public-config')
@@ -276,7 +312,7 @@ describe('Login › 2FA', () => {
 
     await screen.findByTestId('twofa-challenge');
     fireEvent.click(screen.getByRole('button', { name: 'Back to sign in' }));
-    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Try again in/ })).toBeDisabled();
   });
 });
 
