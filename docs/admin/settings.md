@@ -955,3 +955,13 @@ Global switch, disabled by default. Scripts run in a time-limited worker inside 
 ### Last Super admin protection (`admin.allowLastSuperadminLoss`)
 
 Global boolean, default `false`. The final enabled, unscoped Super admin is protected from deletion, disablement, role removal, deny overrides, and removal of its final passwordless sign-in credential. Built-in role definitions remain immutable. A full Super admin may explicitly enable loss of this access, with fresh authentication and consequence confirmation. The setting does not remove any access itself. Policy writes and destructive account mutations share one database lock across instances; deleting the policy restores protection. Losing all Super admin access requires local deployment administration to recover; it is never repaired by silently granting browser users privileges. With the deployment database and server key available locally, use `mailwoman admin admins create recovery-admin` (password from standard input), then `mailwoman admin admins grant-role recovery-admin super_admin`. Do not put the password in command-line arguments.
+
+<a id="mail.folderCounts"></a>
+### Folder count display (`mail.folderCounts`)
+
+Global/domain/user choice, default `"both"`. Select `none`, `unread`, `total`, or `both` for folder badges. Users can change this under Settings > Folders unless an administrator locks the inherited value. Hiding counts changes their presentation only; it does not alter read state or mailbox totals.
+
+<a id="mail.compactFolderBadges"></a>
+### Secondary folder badge size (`mail.compactFolderBadges`)
+
+Global/domain/user boolean, default `true`. Uses smaller badges outside Inbox. Users can inherit or override this in Settings > Folders unless locked by an administrator. Folder names remain left-aligned and long names truncate without displacing the count.
