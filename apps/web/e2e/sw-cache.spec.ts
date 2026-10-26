@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { engineLogin, injectViaSmtp, messageRow, waitForInboxMessage } from './helpers.ts';
+import { ENGINE_CREDS, engineLogin, injectViaSmtp, messageRow, waitForInboxMessage } from './helpers.ts';
 
 /**
  * Service-worker cache scope and logout purge (t28-e3, audit §10.4 / SEC-8).
@@ -201,14 +201,18 @@ test.describe('service-worker cache: engine mode', () => {
       page.getByRole('option', { name: 'photo.png' }).click(),
     ]);
     expect(attachment.ok()).toBe(true);
-    await expect(page.getByTestId('attachment-viewer')).toBeVisible();
-    await page.getByRole('button', { name: 'Close attachment' }).click();
+    await expect(page.getByRole('tabpanel', { name: 'photo.png', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Close photo.png', exact: true }).click();
 
-    // Export the whole message as .eml — also a GET /jmap/download/….
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      page.getByTestId('reader-export').click(),
-    ]);
+    // The dedicated export page uses the authorized /api/export path.
+    await page.getByTestId('reader-export').click();
+    await expect(page.getByRole('heading', { name: 'Export message', exact: true })).toBeVisible();
+    const pendingDownload = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download selected format', exact: true }).click();
+    const proof = page.getByRole('dialog', { name: 'Confirm it is you' });
+    await proof.getByLabel('Password', { exact: true }).fill(ENGINE_CREDS.password);
+    await proof.getByRole('button', { name: 'Confirm and continue', exact: true }).click();
+    const download = await pendingDownload;
     expect(download.suggestedFilename()).toMatch(/\.eml$/i);
 
     const before = await cachedUrls(page);
@@ -217,7 +221,7 @@ test.describe('service-worker cache: engine mode', () => {
     expect(before.filter((url) => url.includes('/assets/')).length).toBeGreaterThan(0);
 
     await page.locator('.sidebar__logout').click();
-    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
 
     // Nothing that was cached while signed in survives. (The login screen may
     // fetch — and the worker may store — assets it had not loaded before.)
