@@ -14,7 +14,10 @@ test('isolated messages adapt colors, preserve original mode and invert without 
     body.settings['reader.fontSize'] = { value: 18, source: 'user', locked: false };
     await route.fulfill({ response, json: body });
   });
+  // Other admin specs share this source IP; respect the initial-login cooldown.
+  await new Promise(resolve => setTimeout(resolve, 3100));
   await signInManually(page, { username: 'testuser', password: 'testpass' });
+  await expect(page.getByRole('button', { name: 'Compose', exact: true })).toBeVisible();
   for (const colorMode of ['adaptive', 'original', 'invert']) {
     mode = colorMode;
     if (colorMode !== 'adaptive') await page.reload();
