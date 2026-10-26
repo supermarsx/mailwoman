@@ -17,7 +17,7 @@ export function registerFieldLayout(selector: string): void {
   globalStyle(selector, fieldLayout);
   globalStyle(`${selector} > label, ${selector} > span, ${selector} > p`, { margin: 0, lineHeight: 1.5 });
   globalStyle(`${selector} > input:not([type='checkbox'], [type='radio'], [type='range'], [type='color']), ${selector} > select`, {
-    boxSizing: 'border-box', inlineSize: '100%', minInlineSize: 0, maxInlineSize: '100%',
+    boxSizing: 'border-box', inlineSize: '100%', minInlineSize: 0, maxInlineSize: '100%', minBlockSize: '2.5rem',
   });
   globalStyle(`${selector} > input[type='number']`, { inlineSize: '10rem' });
   globalStyle(`${selector} > select`, { inlineSize: 'fit-content' });
@@ -27,7 +27,7 @@ export function registerFieldLayout(selector: string): void {
     maxInlineSize: 'none', gridColumn: '1 / -1',
   });
   globalStyle(`${selector}:has(> input[type='checkbox']), ${selector}:has(> input[type='radio'])`, {
-    flexDirection: 'row', alignItems: 'flex-start',
+    flexDirection: 'row', alignItems: 'center', minBlockSize: '2.5rem',
   });
 }
 
@@ -39,5 +39,8 @@ export function registerFieldGrid(selector: string, fields = '.field, [data-form
     globalStyle(`${selector} > ${field}`, { gridColumn: 'auto', marginBlockEnd: 0 });
     globalStyle(`${selector} > ${field}:has(textarea), ${selector} > ${field}:has([contenteditable='true']), ${selector} > ${field}[data-field-span='full']`, { gridColumn: '1 / -1', maxInlineSize: 'none' });
   }
+  globalStyle(`${selector} > label:has(> input[type='checkbox']), ${selector} > label:has(> input[type='radio'])`, {
+    alignSelf: 'end', alignItems: 'center', minBlockSize: '2.5rem', marginBlockEnd: 0,
+  });
   globalStyle(`${selector} > button`, { justifySelf: 'start', alignSelf: 'end', maxInlineSize: '100%' });
 }

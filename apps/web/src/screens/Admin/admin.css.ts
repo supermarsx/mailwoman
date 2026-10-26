@@ -275,3 +275,7 @@ globalStyle(`${table} p`, { marginBlock: vars.space[3], lineHeight: 1.5 });
 
 // Labelled subsection fieldsets are column flex containers; keep their actions intrinsic.
 globalStyle(':where([data-screen="admin"] fieldset:has(> legend) > button)', { alignSelf: 'flex-start', maxInlineSize: '100%' });
+
+// Mixed rows align single-line toggles with the controls below neighbouring labels.
+globalStyle(`${grid}:has(> .field), ${grid}:has(> [data-form-field])`, {alignItems:'end'});
+globalStyle(`${grid} > label:has(> input[type="checkbox"]), ${grid} > label:has(> input[type="radio"])`, {alignSelf:'end',alignItems:'center',minBlockSize:'2.5rem',marginBlockEnd:0});
