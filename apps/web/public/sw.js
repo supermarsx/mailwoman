@@ -230,27 +230,37 @@ async function purgeCaches() {
 }
 
 async function networkFirst(request) {
-  const cache = await caches.open(CACHE_NAME);
+  const cache = await openCache();
   try {
     const res = await fetch(request);
-    if (isStorable(request, res)) await store(cache, request, res);
+    if (cache && isStorable(request, res)) await store(cache, request, res);
     return res;
   } catch (err) {
-    const cached = await cache.match(request);
+    const cached = await matchCache(cache, request);
     if (cached && isFresh(cached, 'network-first')) return cached;
     throw err;
   }
+}
+
+// Cache Storage can be unavailable or damaged independently of the network
+// (private browsing, storage permissions, disk failures). It is an optional
+// acceleration layer and must never prevent an online module from loading.
+async function openCache() {
+  try { return await caches.open(CACHE_NAME); } catch { return undefined; }
+}
+async function matchCache(cache, request) {
+  try { return await cache?.match(request); } catch { return undefined; }
 }
 
 // A hit is served without an age check: these URLs are content-hashed, and the
 // age limit is applied by sweep(), which only runs after a successful store —
 // that is, while online, when a deleted asset can be fetched again.
 async function cacheFirst(request) {
-  const cache = await caches.open(CACHE_NAME);
-  const cached = await cache.match(request);
-  if (cached) return cached;
+  const cache = await openCache();
+  const cached = await matchCache(cache, request);
+  if (cached && isStorable(request, cached)) return cached;
   const res = await fetch(request);
-  if (isStorable(request, res)) await store(cache, request, res);
+  if (cache && isStorable(request, res)) await store(cache, request, res);
   return res;
 }
 
@@ -267,12 +277,13 @@ async function shellFallback(request) {
     const res = await fetch(request);
     // Keep the stored shell current, and put it back after a logout purge.
     if (isShellDocument(request, res)) {
-      await store(await caches.open(CACHE_NAME), SHELL_URL, res);
+      const cache = await openCache();
+      if (cache) await store(cache, SHELL_URL, res);
     }
     return res;
   } catch (err) {
-    const cache = await caches.open(CACHE_NAME);
-    const shell = await cache.match(SHELL_URL);
+    const cache = await openCache();
+    const shell = await matchCache(cache, SHELL_URL);
     if (shell) return shell;
     throw err;
   }

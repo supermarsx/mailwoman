@@ -145,6 +145,33 @@ describe('what the worker stores', () => {
 });
 
 describe('strategies', () => {
+  it.each([ASSET, '/api/push/vapid', '/'])('keeps %s online when Cache Storage cannot open', async path => {
+    const sw = boot();
+    vi.spyOn(sw.caches, 'open').mockRejectedValue(new DOMException('Storage unavailable', 'SecurityError'));
+    sw.network.fetch = async () => path === '/' ? reply('<!doctype html>', 'text/html') : js();
+    const result = await sw.fetch(path, { mode: path === '/' ? 'navigate' : 'cors' });
+    expect(result.error).toBeUndefined();
+    expect(result.response?.status).toBe(200);
+    expect(sw.network.calls).toHaveLength(1);
+  });
+
+  it('fetches an asset when its cache lookup fails', async () => {
+    const sw = boot();
+    const cache = await sw.caches.open(shellCacheName());
+    vi.spyOn(cache, 'match').mockRejectedValue(new Error('Damaged cache'));
+    const result = await sw.fetch(ASSET);
+    expect(result.error).toBeUndefined();
+    expect(await result.response?.text()).toBe('export{}');
+  });
+
+  it('replaces an old cached HTML error instead of serving it as a module', async () => {
+    const sw = boot();
+    const cache = await sw.caches.open(shellCacheName());
+    await cache.put(ASSET, reply('<html>old fallback</html>', 'text/html'));
+    expect(await (await sw.fetch(ASSET)).response?.text()).toBe('export{}');
+    expect(sw.network.calls).toHaveLength(1);
+  });
+
   it('cache-first serves a stored asset without touching the network', async () => {
     const sw = boot();
     await sw.fetch(ASSET);
