@@ -118,7 +118,10 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
       await app.login({ username: email().trim(), password: password(), ...(verificationProof() ? { altcha: verificationProof()! } : {}) });
     } catch (err) {
       if (err instanceof ApiError) setReference(err.requestId ?? null);
-      if (err instanceof ApiError && err.status === 429) {
+      if (err instanceof ApiError && err.status === 503 && err.code === 'maintenance') {
+        setError(t('auth-maintenance'));
+        void publicConfig().then(setConfig).catch(() => undefined);
+      } else if (err instanceof ApiError && err.status === 429) {
         waitBeforeRetry(err.retryAfterSecs ?? config()?.retryCooldownSecs ?? 3);
         setError(t('auth-login-rate-limited'));
       } else if (err instanceof ApiError && (err.code === 'signinChallengeRequired' || err.code === 'signinChallengeRejected')) {
@@ -181,6 +184,7 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
         <Show when={brandAssetUrl(config()?.logoUrl)}>{url=><img src={url()} alt={config()?.brandName||'Mailwoman'} class="login__brand-logo"/>}</Show>
         <h1 class="login__title">{config()?.brandName || t('auth-app-name')}</h1>
         <Show when={config()?.loginNotice}>{(notice) => <p class="login__hint" dir="auto">{notice()}</p>}</Show>
+        <Show when={config()?.maintenance?.enabled}><p class="login__hint" role="status" dir="auto">{config()?.maintenance?.message || t('auth-maintenance')}</p></Show>
         <div class={rememberedCss.field} onFocusOut={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setRememberedOpen(false); }} onKeyDown={event => { if (event.key === 'Escape') { setRememberedOpen(false); usernameInput?.focus(); event.stopPropagation(); } }}>
           <label for="login-username">{t('auth-email')}</label>
           <div class={rememberedCss.inputRow}>

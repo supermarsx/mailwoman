@@ -347,6 +347,7 @@ async fn host_mapping_expands_bare_name_and_untrusted_forwarded_host_is_ignored(
         "faviconUrl",
         "loginBackgroundUrl",
         "antiBot",
+        "maintenance",
     ];
     assert_eq!(public.as_object().unwrap().len(), allowed.len());
     assert!(

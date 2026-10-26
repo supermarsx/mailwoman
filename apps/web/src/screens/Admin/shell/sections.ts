@@ -221,8 +221,8 @@ export const SECTIONS: readonly SectionDef[] = [
     group: 'operations',
     icon: 'maintenance',
     label: () => t('admin-nav-rethread'),
-    capability: 'maintenance.run',
-    component: screen(() => import('../RethreadMaintenance.tsx').then((m) => m.RethreadMaintenance), true),
+    anyCapabilities: ['maintenance.read', 'maintenance.run'],
+    component: screen(() => import('../Maintenance.tsx').then((m) => m.Maintenance), true),
   },
   {
     id: 'server-metadata',

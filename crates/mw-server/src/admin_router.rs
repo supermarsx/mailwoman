@@ -116,6 +116,7 @@ fn endpoints(r: &mut impl AdminRegistrar) {
     crate::http_metrics::register(r);
     crate::admin_sso::register(r);
     crate::admin_maintenance::register(r);
+    crate::maintenance_mode::register(r);
     crate::oauth::register_admin(r);
     crate::plugins::register_admin(r);
     crate::twofa_routes::register_admin(r);

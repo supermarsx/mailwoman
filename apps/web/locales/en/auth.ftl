@@ -82,3 +82,4 @@ auth-identity-grants = Applications using your identity
 auth-identity-grants-help = Revoke identity access for an application. This does not remove separate mail API permissions.
 auth-identity-no-grants = No applications currently have identity consent.
 auth-identity-revoke = Revoke identity access
+auth-maintenance = Webmail is temporarily paused for maintenance. Please try again later.

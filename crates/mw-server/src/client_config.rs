@@ -65,7 +65,12 @@ pub(crate) async fn public_config(
         Ok(config) => json!({"mailbox":config.enabled(crate::signin_challenge::Surface::Mailbox),"admin":config.enabled(crate::signin_challenge::Surface::Admin)}),
         Err(_) => return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let maintenance = match crate::maintenance_mode::config(&state).await {
+        Ok(config) => config,
+        Err(_) => return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     let mut response = Json(json!({
+        "maintenance":maintenance,
         "antiBot":anti_bot,
         "retryCooldownSecs":value("signin.retryCooldownSecs"),
         "brandName":branding["brandName"], "theme":value("appearance.theme"),

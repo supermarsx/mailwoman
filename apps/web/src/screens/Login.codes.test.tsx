@@ -43,6 +43,13 @@ async function signIn(): Promise<void> {
 describe('Login › explained refusals', () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it('explains maintenance without claiming the credentials were rejected', async () => {
+    renderLogin(client(async () => { throw new ApiError(503, 'paused', {code:'maintenance'}); }));
+    await signIn();
+    expect(await screen.findByRole('alert')).toHaveTextContent(t('auth-maintenance'));
+    expect(screen.queryByTestId('login-refused-note')).toBeNull();
+  });
+
   it('403 accountDisabled says the account is disabled, with the reference', async () => {
     renderLogin(
       client(async () => {

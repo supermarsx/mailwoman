@@ -1,0 +1,14 @@
+maintenance-mode-title = Maintenance mode
+maintenance-mode-help = Temporarily pause webmail sign-ins and mailbox requests while you maintain the server. Admin access remains available. Existing sessions and messages are preserved.
+maintenance-mode-enabled = Pause user access
+maintenance-mode-message = Message for users
+maintenance-mode-message-help = Plain text, up to 1,000 characters. Leave empty to use the standard maintenance message.
+maintenance-mode-retry = Suggested retry delay (seconds)
+maintenance-mode-retry-help = Sent in Retry-After responses. This does not automatically end maintenance mode.
+maintenance-mode-active = Maintenance mode is active
+maintenance-mode-inactive = Webmail is accepting requests
+maintenance-mode-confirm = Apply maintenance mode changes?
+maintenance-mode-impact = Enabling maintenance mode pauses new user requests immediately. Turn it off here when maintenance is complete.
+maintenance-mode-saved = Maintenance mode configuration saved.
+maintenance-mode-jobs = Repair jobs
+maintenance-mode-invalid = The stored configuration could not be read. User access is paused. Review these replacement settings and save them to restore a valid configuration.

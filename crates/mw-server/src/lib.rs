@@ -141,6 +141,7 @@ pub mod image_proxy;
 pub mod import_routes;
 mod account_drafts;
 mod linked_accounts;
+mod maintenance_mode;
 pub mod prefs_routes;
 // 26.20 t32-e10b (f01): the settings model C — the registry (keys, types,
 // defaults, scopes, environment precedence, the limit ceiling) and its routes.
@@ -1549,6 +1550,7 @@ fn router(
             error_pages::json(error_pages::ErrorKind::MethodNotAllowed)
         })
         .fallback(static_handler)
+        .layer(middleware::from_fn_with_state(state.clone(), maintenance_mode::guard))
         .layer(middleware::from_fn_with_state(state.clone(), linked_accounts::guard))
         // Innermost: reject cross-origin / missing-CSRF writes before handlers.
         .layer(middleware::from_fn_with_state(

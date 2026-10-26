@@ -3,6 +3,7 @@ import { transportBase } from './transport.ts';
 
 export interface PublicConfig {
   brandName: string;
+  maintenance?: {enabled:boolean;message:string;retryAfterSecs:number};
   rememberSignins?: boolean;
   showRememberedHint?: boolean;
   logoUrl?: string | null;

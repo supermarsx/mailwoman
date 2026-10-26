@@ -93,10 +93,12 @@ pub enum StepUpAction {
     AdminDataExport,
     /// An administrator changes local user access.
     UserManage,
+    /// Change the global mailbox admission pause.
+    MaintenanceMode,
 }
 
 impl StepUpAction {
-    pub const ALL: [StepUpAction; 13] = [
+    pub const ALL: [StepUpAction; 14] = [
         StepUpAction::DataExport,
         StepUpAction::DelegationGrant,
         StepUpAction::ApiKeyCreate,
@@ -110,6 +112,7 @@ impl StepUpAction {
         StepUpAction::BanManage,
         StepUpAction::AdminDataExport,
         StepUpAction::UserManage,
+        StepUpAction::MaintenanceMode,
     ];
 
     /// The wire id (`action` in the 403 body and the audit detail).
@@ -128,6 +131,7 @@ impl StepUpAction {
             StepUpAction::BanManage => "banManage",
             StepUpAction::AdminDataExport => "adminDataExport",
             StepUpAction::UserManage => "userManage",
+            StepUpAction::MaintenanceMode => "maintenanceMode",
         }
     }
 }

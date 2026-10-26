@@ -1,0 +1,28 @@
+import {test,expect} from '../csrf.ts';
+import {adminLogin} from './admin-login.ts';
+test('maintenance mode pauses users while admin recovery stays available @phone',async({page},info)=>{
+  await adminLogin(page);
+  await page.goto('/admin#/maintenance');
+  const toggle=page.getByLabel('Pause user access',{exact:true});
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await page.getByLabel('Message for users',{exact:true}).fill('Planned mailbox upgrade');
+  await page.getByLabel('Suggested retry delay (seconds)',{exact:true}).fill('60');
+  await page.getByRole('button',{name:'Save',exact:true}).click();
+  await page.getByRole('alertdialog').getByRole('button',{name:'Save',exact:true}).click();
+  const proof=page.getByRole('dialog',{name:'Confirm it is you'});
+  await expect(proof).toBeVisible();
+  await proof.getByLabel('Password',{exact:true}).fill('hunter2');
+  await proof.getByRole('button',{name:'Confirm and continue',exact:true}).click();
+  await expect(page.getByText('Maintenance mode is active',{exact:true})).toBeVisible();
+  const refused=await page.request.get('/api/me');
+  expect(refused.status()).toBe(503);expect(refused.headers()['retry-after']).toBe('60');
+  expect((await refused.json()).message).toBe('Planned mailbox upgrade');
+  expect((await page.request.get('/admin/maintenance/mode')).status()).toBe(200);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+  await page.screenshot({path:info.outputPath('maintenance-active.png'),fullPage:true});
+  await toggle.uncheck();await page.getByRole('button',{name:'Save',exact:true}).click();
+  await page.getByRole('alertdialog').getByRole('button',{name:'Save',exact:true}).click();
+  await expect(page.getByText('Webmail is accepting requests',{exact:true})).toBeVisible();
+  expect((await page.request.get('/api/me')).status()).toBe(401);
+});
