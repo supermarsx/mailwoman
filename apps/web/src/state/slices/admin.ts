@@ -48,6 +48,8 @@ export interface UserFeatureFlags {
 
 /** A provisioned user row (list view). */
 export interface UserSummary {
+  status?: 'active'|'disabled'|'deleting'|'deleted';
+  deletedAt?: number|null;
   /** Proven authenticated spelling; may differ from a retained legacy directory record. */
   loginAddress?: string;
   directoryAddress?: string;

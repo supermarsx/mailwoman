@@ -27,12 +27,12 @@ describe('Admin › Users › flag checkboxes', () => {
     const setFlags = vi.fn(async (_id: string, flags: UserSummary['flags']) => {
       stored = { ...stored, flags };
     });
-    renderWithAdmin(() => <Users />, mockAdminApi({ listUsers, setFlags }));
-    const box = (await screen.findByLabelText('Disable alice@example.com')) as HTMLInputElement;
+    renderWithAdmin(() => <Users accountId={U.accountId} />, mockAdminApi({ listUsers, setFlags }));
+    const box = (await screen.findByLabelText('Force password change for alice@example.com')) as HTMLInputElement;
     box.focus();
     tick(box, true);
     await waitFor(() => expect(listUsers).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.getByLabelText('Disable alice@example.com')).toBe(box));
+    await waitFor(() => expect(screen.getByLabelText('Force password change for alice@example.com')).toBe(box));
     expect(document.activeElement).toBe(box);
     expect(box.checked).toBe(true);
   });
@@ -41,7 +41,7 @@ describe('Admin › Users › flag checkboxes', () => {
     const setFlags = vi.fn(async () => {
       throw new Error('refused');
     });
-    renderWithAdmin(() => <Users />, mockAdminApi({ listUsers: vi.fn(async () => [U]), setFlags }));
+    renderWithAdmin(() => <Users accountId={U.accountId} />, mockAdminApi({ listUsers: vi.fn(async () => [U]), setFlags }));
     const box = (await screen.findByLabelText('Force password change for alice@example.com')) as HTMLInputElement;
     tick(box, true);
     await waitFor(() => expect(setFlags).toHaveBeenCalled());
@@ -52,7 +52,7 @@ describe('Admin › Users › flag checkboxes', () => {
     // The server answers 200 but the reload still reports zero-access off.
     const listUsers = vi.fn(async () => [U]);
     const toggleZeroAccess = vi.fn(async () => undefined);
-    renderWithAdmin(() => <Users />, mockAdminApi({ listUsers, toggleZeroAccess }));
+    renderWithAdmin(() => <Users accountId={U.accountId} />, mockAdminApi({ listUsers, toggleZeroAccess }));
     const box = (await screen.findByLabelText('Zero-access for alice@example.com')) as HTMLInputElement;
     tick(box, true);
     await waitFor(() => expect(listUsers).toHaveBeenCalledTimes(2));

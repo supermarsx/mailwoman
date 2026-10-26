@@ -392,6 +392,11 @@ async fn gate_for(store: &Store, ids: &[&str], names: &[&str]) -> Result<Account
     for name in names {
         let identity = crate::domain_config::canonical(store, name, None).await
             .map_err(StoreError::Corrupt)?;
+        for address in [flag_subject(name), identity.address.clone()] {
+            if store.directory_access_held(&address).await? {
+                gate.disabled = true;
+            }
+        }
         match store.domain_signin_state(&identity.domain).await? {
             mw_store::DomainSigninState::Disabled => gate.disabled = true,
             mw_store::DomainSigninState::Unlisted if listed => gate.disabled = true,

@@ -25,6 +25,7 @@ export const CAPABILITIES = [
   'users.write',
   'users.revoke_sessions',
   'users.flags',
+  'users.delete',
   'users.quota',
   'users.capabilities',
   'domains.read',

@@ -50,11 +50,8 @@ describe('Admin › Users', () => {
   it('says what "disabled" and "force change" do, and ties each note to its checkbox', async () => {
     renderWithAdmin(() => <Users accountId={U.accountId} />, mockAdminApi({ listUsers: vi.fn(async () => [U]) }));
 
-    const disabled = await screen.findByLabelText('Disable alice@example.com');
-    const disabledHelp = document.getElementById(disabled.getAttribute('aria-describedby') ?? '');
-    expect(disabledHelp).toHaveTextContent('Blocks sign-in');
-    expect(disabledHelp).toHaveTextContent('API keys and tokens');
-    expect(disabledHelp).toHaveTextContent('does not disable the mailbox on the mail server');
+    expect(await screen.findByRole('button',{name:'Block login for alice@example.com'})).toBeInTheDocument();
+    expect(screen.queryByLabelText('Disable alice@example.com')).not.toBeInTheDocument();
 
     const force = screen.getByLabelText('Force password change for alice@example.com');
     const forceHelp = document.getElementById(force.getAttribute('aria-describedby') ?? '');
@@ -63,12 +60,12 @@ describe('Admin › Users', () => {
     expect(forceHelp).toHaveTextContent('until you clear this box');
   });
 
-  it('setting "disabled" sends the flag through setFlags', async () => {
+  it('uses the lifecycle action instead of the legacy disabled checkbox', async () => {
     const setFlags = vi.fn(async () => undefined);
-    renderWithAdmin(() => <Users accountId={U.accountId} />, mockAdminApi({ listUsers: vi.fn(async () => [U]), setFlags }));
-    fireEvent.change(await screen.findByLabelText('Disable alice@example.com'), { target: { checked: true } });
-    await Promise.resolve();
-    expect(setFlags).toHaveBeenCalledWith('alice@example.com', { ...U.flags, disabled: true });
+    renderWithAdmin(() => <Users accountId={U.accountId} />, mockAdminApi({listUsers:vi.fn(async()=>[U]),setFlags}));
+    expect(await screen.findByRole('button',{name:'Block login for alice@example.com'})).toBeInTheDocument();
+    expect(screen.queryByLabelText('Disable alice@example.com')).not.toBeInTheDocument();
+    expect(setFlags).not.toHaveBeenCalled();
   });
 
   it('revokes sessions', async () => {

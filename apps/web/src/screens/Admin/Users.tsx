@@ -1,3 +1,4 @@
+import {UserAccessActions} from './UserAccessActions.tsx';
 import * as auditCss from './shell/audit.css.ts';
 import { ShellContext } from './shell/context.ts';
 import { adminRequest } from './shell/adminApi.ts';
@@ -13,7 +14,7 @@ import { AsyncPending } from '../../components/AsyncState.tsx';
 // and expects it (`FlagsDto`, `crates/mw-server/src/admin.rs`), and is passed
 // through unchanged when another flag is saved.
 
-import { createSignal, createResource, useContext, For, Show, onMount, type JSX } from 'solid-js';
+import { createSignal, createResource, useContext, For, Index, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import type { UserFeatureFlags, UserSummary } from '../../state/slices/admin.ts';
 import { t } from '../../i18n';
@@ -147,16 +148,16 @@ function UserList(props: { accountId?: string; provision?: boolean }): JSX.Eleme
         </button>
       </form></Show>
 
-      <Show when={props.accountId}><For each={users().filter(u=>u.accountId===props.accountId)}>{u=><>
+      <Show when={props.accountId}><Index each={users().filter(u=>u.accountId===props.accountId)}>{u=><>
         <section class={css.card}><h3>{t('admin-users-col-flags')}</h3><For each={[
-          ['disabled','admin-users-disable-for','admin-users-disabled-help'],
           ['forcePasswordChange','admin-users-force-change-for','admin-users-force-change-help'],
           ['zeroAccess','admin-users-zeroaccess-for','admin-users-zeroaccess-help'],
-        ] as const}>{([key,label,help])=><div class="field"><label class="field"><input type="checkbox" checked={u.flags[key]} aria-describedby={`user-${key}-help`} onChange={event=>void patchFlag(u,key,event.currentTarget)}/>{t(label,{account:u.domain?`${u.username}@${u.domain}`:u.username})}</label><p class={css.note} id={`user-${key}-help`}>{t(help)}</p></div>}</For></section>
-        <section class={css.card}><h3>{t('admin-users-col-quota')}</h3><p>{u.quota?`${u.quota.bytesLimit} / ${u.quota.msgLimit}`:'—'}</p></section>
-        <section class={css.card}><h3>{t('admin-users-col-sessions')}</h3><button type="button" class="btn btn--ghost" aria-label={t('admin-users-revoke-for',{account:u.accountId})} onClick={()=>void onRevoke(u)}>{t('admin-revoke')}</button></section>
-      </>}</For></Show>
-      <Show when={!props.accountId&&!props.provision}><div class={css.card}><Show when={users().length>0} fallback={<p class={css.note}>{t('admin-users-empty')}</p>}><div class={css.tableWrap}><table class={css.table} aria-label={t('admin-users-title')}><thead><tr><th>{t('admin-users-col-account')}</th><th>{t('admin-users-col-quota')}</th><th>{t('admin-users-col-flags')}</th><th>{t('admin-users-configure')}</th></tr></thead><tbody><For each={users()}>{u=><tr><td dir="auto"><a href={hrefFor(sectionPath('users',[u.accountId]))}>{u.domain?`${u.username}@${u.domain}`:u.username}</a><Show when={u.lastSigninAt}><p class={css.note}>{t('admin-users-last-signin')}: {new Date(u.lastSigninAt!*1000).toLocaleString()}</p></Show></td><td>{u.quota?`${u.quota.bytesLimit} / ${u.quota.msgLimit}`:'—'}</td><td><Show when={u.flags.disabled}><span class={css.badge}>{t('admin-users-disabled')}</span></Show><Show when={u.flags.forcePasswordChange}><span class={css.badge}>{t('admin-users-force-change')}</span></Show></td><td><a class="btn btn--ghost" href={hrefFor(sectionPath('users',[u.accountId]))} aria-label={t('admin-users-configure-for',{account:u.username})}>{t('admin-users-configure')}</a></td></tr>}</For></tbody></table></div></Show></div></Show>
+        ] as const}>{([key,label,help])=><div class="field"><label class="field"><input type="checkbox" checked={u().flags[key]} disabled={u().status==='deleted'||u().status==='deleting'} aria-describedby={`user-${key}-help`} onChange={event=>void patchFlag(u(),key,event.currentTarget)}/>{t(label,{account:u().domain?`${u().username}@${u().domain}`:u().username})}</label><p class={css.note} id={`user-${key}-help`}>{t(help)}</p></div>}</For></section>
+        <section class={css.card}><h3>{t('admin-users-col-quota')}</h3><p>{u().quota?`${u().quota?.bytesLimit} / ${u().quota?.msgLimit}`:'—'}</p></section>
+        <section class={css.card}><h3>{t('admin-users-access-title')}</h3><p class={css.note}>{t('admin-users-access-help')}</p><UserAccessActions user={u()} onChanged={reload}/></section>
+        <section class={css.card}><h3>{t('admin-users-col-sessions')}</h3><button type="button" class="btn btn--ghost" aria-label={t('admin-users-revoke-for',{account:u().accountId})} onClick={()=>void onRevoke(u())}>{t('admin-revoke')}</button></section>
+      </>}</Index></Show>
+      <Show when={!props.accountId&&!props.provision}><div class={css.card}><Show when={users().length>0} fallback={<p class={css.note}>{t('admin-users-empty')}</p>}><div class={css.tableWrap}><table class={css.table} aria-label={t('admin-users-title')}><thead><tr><th>{t('admin-users-col-account')}</th><th>{t('admin-users-col-quota')}</th><th>{t('admin-users-col-flags')}</th><th>{t('admin-users-configure')}</th></tr></thead><tbody><For each={users()}>{u=><tr><td dir="auto"><a href={hrefFor(sectionPath('users',[u.accountId]))}>{u.domain?`${u.username}@${u.domain}`:u.username}</a><Show when={u.lastSigninAt}><p class={css.note}>{t('admin-users-last-signin')}: {new Date(u.lastSigninAt!*1000).toLocaleString()}</p></Show></td><td>{u.quota?`${u.quota.bytesLimit} / ${u.quota.msgLimit}`:'—'}</td><td><Show when={u.status==='deleted'}><span class={css.badge}>{t('admin-users-deleted')}</span></Show><Show when={u.flags.disabled||u.status==='disabled'}><span class={css.badge}>{t('admin-users-disabled')}</span></Show><Show when={u.flags.forcePasswordChange}><span class={css.badge}>{t('admin-users-force-change')}</span></Show></td><td><UserAccessActions user={u} onChanged={reload} configureHref={hrefFor(sectionPath('users',[u.accountId]))}/></td></tr>}</For></tbody></table></div></Show></div></Show>
     </section>
   );
 }

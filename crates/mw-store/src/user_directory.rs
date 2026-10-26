@@ -13,15 +13,17 @@ pub struct DirectoryAccount {
     pub account_id: String,
     pub address: String,
     pub last_signin_at: Option<i64>,
+    pub status: String,
+    pub deleted_at: Option<i64>,
 }
 impl Store {
     /// Credential-free, bounded listing including earlier successful identities.
     pub async fn directory_accounts(&self) -> Result<Vec<DirectoryAccount>, StoreError> {
         let mut accounts = std::collections::BTreeMap::<String, DirectoryAccount>::new();
         for sql in [
-            "SELECT account_id,address,last_seen AS last_signin_at FROM mail_user_account ORDER BY account_id LIMIT 5001",
-            "SELECT account_id,address,seen_at AS last_signin_at FROM signin_identity ORDER BY account_id LIMIT 5001",
-            "SELECT username AS account_id,username AS address,NULL AS last_signin_at FROM admin_users ORDER BY username LIMIT 5001",
+            "SELECT a.account_id,a.address,a.last_seen AS last_signin_at,COALESCE(u.status,'active') AS status,u.deleted_at FROM mail_user_account a LEFT JOIN mail_user u ON u.address=a.address ORDER BY a.account_id LIMIT 5001",
+            "SELECT a.account_id,a.address,a.seen_at AS last_signin_at,COALESCE(u.status,'active') AS status,u.deleted_at FROM signin_identity a LEFT JOIN mail_user u ON u.address=a.address ORDER BY a.account_id LIMIT 5001",
+            "SELECT a.username AS account_id,a.username AS address,NULL AS last_signin_at,COALESCE(u.status,'active') AS status,u.deleted_at FROM admin_users a LEFT JOIN mail_user u ON u.address=a.username ORDER BY a.username LIMIT 5001",
         ] {
             let rows = q(sql).fetch_all(&self.backend).await?;
             if rows.len() > 5000 {
@@ -44,6 +46,8 @@ impl Store {
                             account_id: id,
                             address,
                             last_signin_at: last,
+                            status: row.get_string("status"),
+                            deleted_at: row.get_opt_i64("deleted_at"),
                         },
                     );
                 }
@@ -91,6 +95,19 @@ impl Store {
             ));
         }
         let mut tx = self.backend.begin().await?;
+        // Legacy provisioned identities may use mixed case, including Unicode.
+        // Do not create a folded duplicate that bypasses an existing local hold.
+        let held = q("SELECT address FROM mail_user WHERE status IN ('disabled','deleting','deleted') ORDER BY address LIMIT 5001")
+            .fetch_all_tx(&mut tx).await?;
+        if held.len() > 5000 {
+            return Err(StoreError::Corrupt("directory access holds exceed bounded lookup limit".into()));
+        }
+        let identities = [crate::user_lifecycle::access_identity(policy_address)?, crate::user_lifecycle::access_identity(s.address)?];
+        for row in held {
+            if identities.contains(&crate::user_lifecycle::access_identity(&row.get_string("address"))?) {
+                return Ok(false);
+            }
+        }
         // Lock an existing parent row and preserve its hold/expiry restrictions.
         for checked_address in [policy_address, s.address] {
             let active = q("UPDATE mail_user SET last_signin_at=last_signin_at WHERE address=?1 AND status='active' AND (expires_at IS NULL OR expires_at>?2)")

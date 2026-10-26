@@ -828,3 +828,27 @@ admin-users-legacy-alias = This account signs in through a domain alias. Existin
 
 admin-history-latency-resolution = New latency samples retain integer milliseconds through 1 second; slower timings use wider bounded bins. Percentiles describe response-ready timing, not the full transfer.
 admin-history-latency-legacy = This range includes older or mixed coarse latency estimates. Their original measurement precision cannot be recovered.
+
+admin-users-access-title = Mailwoman access
+admin-users-access-help = These controls affect local sign-in only. Upstream mail, settings and history are preserved. Other policy or account-flag restrictions still apply.
+admin-users-block-for = Block login for { $account }
+admin-users-unblock-for = Unblock login for { $account }
+admin-users-delete-for = Remove Mailwoman access for { $account }
+admin-users-block-help = Block new sign-ins and revoke current Mailwoman sessions.
+admin-users-unblock-help = Remove this directory access hold. Other restrictions still apply.
+admin-users-delete-help = Delete local access while preserving the upstream mailbox and local history.
+admin-users-deleted = Local access deleted
+admin-users-lifecycle-block-title = Block Mailwoman login
+admin-users-lifecycle-unblock-title = Unblock Mailwoman login
+admin-users-lifecycle-delete-title = Delete local Mailwoman access
+admin-users-lifecycle-block-body = This changes the directory sign-in hold. Blocking revokes current sessions. It does not change the upstream mailbox or override other account restrictions.
+admin-users-lifecycle-delete-body = This keeps a deleted access record to prevent automatic re-enrollment. Mailwoman settings, history and the upstream mailbox remain stored. This action cannot be undone from this page.
+admin-users-lifecycle-block-confirm = Block login
+admin-users-lifecycle-unblock-confirm = Unblock login
+admin-users-lifecycle-delete-confirm = Delete local access
+admin-users-lifecycle-unblock-body = Remove the local directory login block. Other security restrictions still apply; this does not restore deleted access.
+admin-users-legacy-clear = Clear legacy login block
+admin-users-legacy-block-help = A legacy login flag also blocks this user. Clear it explicitly before changing the directory block. Other flags and security restrictions remain in effect.
+admin-users-lifecycle-legacy-title = Clear legacy login block?
+admin-users-lifecycle-legacy-body = Clear only the legacy disabled flag. Preserve all other flags and the directory access status. This alone does not guarantee that login is allowed.
+admin-users-lifecycle-legacy-confirm = Clear legacy block

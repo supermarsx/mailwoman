@@ -124,6 +124,7 @@ pub(crate) mod audit;
 pub(crate) mod alerts;
 pub(crate) mod step_up;
 mod security_center;
+mod user_lifecycle;
 mod signin_cooldown;
 mod request_protection;
 mod signin_guard;

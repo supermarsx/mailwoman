@@ -222,6 +222,8 @@ async fn list_users(State(state): State<AppState>, ctx: AdminCtx) -> Response {
             quota,
             flags,
             last_signin_at: u.last_signin_at,
+            status: u.status,
+            deleted_at: u.deleted_at,
         });
     }
     Json(out).into_response()
@@ -875,6 +877,8 @@ impl From<FlagsDto> for mw_admin::UserFeatureFlags {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UserSummaryDto {
+    status: String,
+    deleted_at: Option<i64>,
     login_address: String,
     directory_address: String,
     legacy_binding: bool,
