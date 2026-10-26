@@ -642,3 +642,52 @@ Global solver counter ceiling, 100–20000, default2000. Higher values increase 
 <a id="signin.antiBotExpirySecs"></a>
 ### `signin.antiBotExpirySecs`
 Global issued challenge lifetime, 60–600seconds, default180. Every proof is consumed atomically once before credential processing and bound to its login surface and trusted client network. At most10000 outstanding challenges and8 per network are retained; issuance also has a bounded process-local rate limit. Expired rows are removed during issuance. Issued proofs are deliberately omitted by migrate-store; users obtain fresh verification after migration. Replicas require the same persistent server key and database.
+
+## Attachment access policy
+
+Global and domain administrators can restrict original attachment delivery and previews. Policy uses stored message MIME metadata; it does not detect malware or prevent copying bytes already delivered to a client. Under restrictive rules, whole-message and nested-message exports are refused rather than bypassing attachment controls. Proxy downloads require an owned email ID to resolve the blob metadata. Unnamed uploaded blobs cannot satisfy filename rules.
+
+<a id="attachments.previewAllowed"></a>
+### `attachments.previewAllowed`
+
+Disable to prevent attachment preview rendering; original downloads have their own control.
+
+<a id="attachments.downloadAllowed"></a>
+### `attachments.downloadAllowed`
+
+Disabling also prevents previews that require original bytes. Browser previews are not copy protection.
+
+<a id="attachments.maxBytes"></a>
+### `attachments.maxBytes`
+
+Zero is unlimited. Applies to original delivered bytes, including range requests.
+
+<a id="attachments.allowedExtensions"></a>
+### `attachments.allowedExtensions`
+
+JSON array of lowercase extensions without a dot, such as ["pdf","tar.gz"]. Empty allows any extension; blocked rules win.
+
+<a id="attachments.blockedExtensions"></a>
+### `attachments.blockedExtensions`
+
+JSON array of lowercase extensions. Evaluated against stored MIME filenames, never the download URL name.
+
+<a id="attachments.warnExtensions"></a>
+### `attachments.warnExtensions`
+
+JSON array of extensions requiring explicit acknowledgement before original delivery.
+
+<a id="attachments.allowedMimeTypes"></a>
+### `attachments.allowedMimeTypes`
+
+JSON array of lowercase types or top-level wildcards such as ["image/*","application/pdf"]. Empty allows any type.
+
+<a id="attachments.blockedMimeTypes"></a>
+### `attachments.blockedMimeTypes`
+
+JSON array of lowercase types or top-level wildcards. Blocked rules take precedence.
+
+<a id="attachments.warnMimeTypes"></a>
+### `attachments.warnMimeTypes`
+
+JSON array of lowercase types or top-level wildcards requiring acknowledgement. MIME metadata is not malware detection.

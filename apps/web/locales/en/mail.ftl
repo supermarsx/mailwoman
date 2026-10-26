@@ -494,3 +494,10 @@ mail-external-confirm-required = Review and confirm the external recipients befo
 mail-quick-reply = Quick reply
 mail-quick-reply-help = Offer a compact reply tab with recipients already filled in. Off by default. The normal safety checks and send options still apply.
 mail-quick-reply-expand = Edit recipients and subject
+
+mail-attachment-policy-loading = Checking attachment policy…
+mail-attachment-policy-unavailable = Attachment policy could not be checked. Try again before opening this file.
+mail-attachment-policy-blocked = Your administrator has blocked this attachment or its original download.
+mail-attachment-policy-warning = Your administrator recommends caution with this attachment. Only continue if you trust its source.
+mail-attachment-policy-acknowledge = I understand — continue
+mail-attachment-policy-no-preview = Attachment previews are disabled by your administrator. Original downloads may still be available.

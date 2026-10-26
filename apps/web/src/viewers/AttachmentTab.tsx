@@ -1,5 +1,6 @@
-import { createResource, For, Show, onCleanup, type JSX } from 'solid-js';
+import { createResource, createSignal, For, Show, onCleanup, type JSX } from 'solid-js';
 import { apiFetch } from '../api/http.ts';
+import { attachmentDecision, attachmentPolicyUrl, loadAttachmentPolicy } from '../api/attachmentPolicy.ts';
 import { Icon } from '../components/Icon.tsx';
 import { AttachmentViewer } from './AttachmentViewer.tsx';
 import { inspectFile } from './fileInfo.ts';
@@ -10,11 +11,16 @@ import './attachment-tab.css';
 
 export interface AttachmentTabItem extends StripItem { downloadUrl: string }
 export function AttachmentTab(props: { item: AttachmentTabItem }): JSX.Element {
+  const [policy]=createResource(loadAttachmentPolicy);
+  const [acknowledged,setAcknowledged]=createSignal(false);
+  const decision=()=>policy.state==='ready'?attachmentDecision(policy()!,props.item):undefined;
+  const permitted=()=>decision()?.allowed && (!decision()?.warning || acknowledged());
+  const download=()=>attachmentPolicyUrl(props.item.downloadUrl,props.item.emailId,false,acknowledged());
   const abort = new AbortController();
   let objectUrl: string | undefined;
   onCleanup(() => { abort.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); });
-  const [file, { refetch }] = createResource(async () => {
-    const response = await apiFetch(props.item.downloadUrl, { signal: abort.signal });
+  const [file, { refetch }] = createResource(() => permitted() && decision()?.preview, async () => {
+    const response = await apiFetch(attachmentPolicyUrl(props.item.downloadUrl,props.item.emailId,true,acknowledged()), { signal: abort.signal });
     if (!response.ok) throw new Error(t('mail-attachment-failed'));
     const blob = await response.blob();
     const header = new Uint8Array(await blob.slice(0, 64).arrayBuffer());
@@ -32,6 +38,11 @@ export function AttachmentTab(props: { item: AttachmentTabItem }): JSX.Element {
   const declared = () => inspectFile(props.item.name, props.item.mime);
   return <section class="attachment-tab" aria-label={props.item.name}>
     <header class="attachment-tab__header"><Icon name={declared().icon}/><h2>{props.item.name}</h2></header>
+    <Show when={policy.loading}><p role="status">{t('mail-attachment-policy-loading')}</p></Show>
+    <Show when={policy.error}><p role="alert">{t('mail-attachment-policy-unavailable')}</p></Show>
+    <Show when={decision() && !decision()!.allowed}><p role="alert">{t('mail-attachment-policy-blocked')}</p></Show>
+    <Show when={decision()?.warning && !acknowledged()}><p role="alert">{t('mail-attachment-policy-warning')}</p><button class="btn" onClick={()=>setAcknowledged(true)}>{t('mail-attachment-policy-acknowledge')}</button></Show>
+    <Show when={permitted() && !decision()?.preview}><p>{t('mail-attachment-policy-no-preview')}</p><a class="btn" href={download()} download={props.item.name}>{t('common-message-preview-download')}</a></Show>
     <Show when={file.loading}><p role="status">{t('mail-attachment-loading')}</p></Show>
     <Show when={file.state === 'errored'}><p role="alert">{t('mail-attachment-failed')}</p><button class="btn" onClick={() => void refetch()}>{t('common-retry')}</button></Show>
     <Show when={ready()}>{loaded => <>

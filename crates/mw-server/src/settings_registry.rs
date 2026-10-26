@@ -167,6 +167,8 @@ pub enum Kind {
         max_len: usize,
         max_item: usize,
     },
+    /// Bounded attachment extension or MIME rules (MIME supports top-level /*).
+    AttachmentList { mime: bool },
     /// `{ "start": 0..=23, "end": 0..=23 }` (UTC hours).
     QuietHours,
     /// `[{ "label": "...", "url": "https://..." }]`.
@@ -180,6 +182,7 @@ impl Kind {
     pub fn describe(&self) -> Value {
         match *self {
             Kind::Bool => json!({ "type": "bool" }),
+            Kind::AttachmentList { .. } => json!({ "type": "stringList", "maxItems": 100, "maxLength": 127 }),
             Kind::StringList { max_len, max_item } => {
                 json!({ "type": "stringList", "maxItems": max_len, "maxLength": max_item })
             }
@@ -803,6 +806,16 @@ pub static REGISTRY: &[SettingDef] = &[
         "passwords",
         "password policy: a symbol"
     ),
+    // Attachment delivery policy: administrative global/domain scope only.
+    def!("attachments.previewAllowed", Kind::Bool, "true", GD, "attachments", "allow attachment previews"),
+    def!("attachments.downloadAllowed", Kind::Bool, "true", GD, "attachments", "allow original attachment delivery; disabling also prevents raw previews"),
+    def!("attachments.maxBytes", int(0, BYTES_MAX), "0", GD, "attachments", "maximum delivered attachment bytes; zero is unlimited"),
+    def!("attachments.allowedExtensions", Kind::AttachmentList { mime: false }, "[]", GD, "attachments", "attachment allowed Extensions; blocked rules take precedence"),
+    def!("attachments.allowedMimeTypes", Kind::AttachmentList { mime: true }, "[]", GD, "attachments", "attachment allowed MimeTypes; blocked rules take precedence"),
+    def!("attachments.blockedExtensions", Kind::AttachmentList { mime: false }, "[]", GD, "attachments", "attachment blocked Extensions; blocked rules take precedence"),
+    def!("attachments.blockedMimeTypes", Kind::AttachmentList { mime: true }, "[]", GD, "attachments", "attachment blocked MimeTypes; blocked rules take precedence"),
+    def!("attachments.warnExtensions", Kind::AttachmentList { mime: false }, "[]", GD, "attachments", "attachment warn Extensions; blocked rules take precedence"),
+    def!("attachments.warnMimeTypes", Kind::AttachmentList { mime: true }, "[]", GD, "attachments", "attachment warn MimeTypes; blocked rules take precedence"),
     // ── Limits, quotas, usage (e67) ─────────────────────────────────────────
     per_address(def!("limit.attachment_bytes", int(0, BYTES_MAX), "50000000", GDA, "limits", "Attachment bytes; 0 = no limit")),
     per_address(def!("limit.send_per_hour", int(0, 1_000_000), "0", GDA, "limits", "Submissions per hour; 0 = no limit")),
@@ -1485,6 +1498,18 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                             format!("must be a whole number between {min} and {max}"),
                         ));
                     }
+                }
+            }
+            Ok(value.clone())
+        }
+        Kind::AttachmentList { mime } => {
+            let Some(items) = value.as_array() else { return bad("must be a list of attachment rules".into()); };
+            if items.len() > 100 { return bad("at most 100 attachment rules are allowed".into()); }
+            let mut seen = std::collections::BTreeSet::new();
+            for item in items {
+                let Some(rule) = item.as_str() else { return bad("attachment rules must be text".into()); };
+                if !crate::attachment_policy::valid_rule(rule, mime) || !seen.insert(rule) {
+                    return bad("invalid or duplicate attachment rule; use lowercase extensions or MIME types".into());
                 }
             }
             Ok(value.clone())

@@ -62,7 +62,8 @@ function screen<P extends object>(load: () => Promise<Component<P>>, passApi: bo
 }
 
 export const SECTIONS: readonly SectionDef[] = [
-  { id: 'analytics', group: 'configuration', icon: 'dashboard', label: () => t('admin-analytics-title'), capability: 'integrations.read', component: screen(() => import('../Analytics.tsx').then(m => m.Analytics), false) },
+  { id: 'attachments', group: 'security', icon: 'attachment', label: () => t('admin-attachments-title'), capability: 'settings.read', component: screen(() => import('../AttachmentPolicy.tsx').then(m => m.AdminAttachmentPolicy), false) },
+  { id: 'analytics', group: 'configuration', icon: 'analytics', label: () => t('admin-analytics-title'), capability: 'integrations.read', component: screen(() => import('../Analytics.tsx').then(m => m.Analytics), false) },
   { id: 'branding', group: 'configuration', icon: 'branding', label: () => t('admin-branding-title'), capability: 'branding.read', component: screen(() => import('../Branding/index.tsx').then(m => m.BrandingSettings), false) },
   { id: 'logs', group: 'operations', icon: 'logs', label: () => t('admin-logs-title'), capability: 'logs.read', component: screen(() => import('../Logs.tsx').then((m) => m.Logs), false) },
   { id: 'preferences', group: 'personal', icon: 'preferences', label: () => t('admin-personal-title'), component: screen(() => import('../PersonalPreferences.tsx').then((m) => m.PersonalPreferences), false) },

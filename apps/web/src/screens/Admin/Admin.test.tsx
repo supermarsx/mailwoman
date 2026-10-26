@@ -1,3 +1,4 @@
+import { SECTIONS } from './shell/sections.ts';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, screen, waitFor, within } from '@solidjs/testing-library';
 import { AdminScreen } from './index.tsx';
@@ -42,7 +43,8 @@ describe('AdminScreen (gate + shell)', () => {
     render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} />);
     await findRegion('Dashboard');
     const links = within(nav()).getAllByRole('link');
-    expect(links.length).toBe(24);
+    expect(links.length).toBe(SECTIONS.length);
+    for(const id of ['attachments','analytics','branding'])expect(SECTIONS.some(section=>section.id===id)).toBe(true);
     const icons = new Set<string>();
     for (const a of links) {
       const svgs = a.querySelectorAll('svg');
@@ -148,7 +150,7 @@ describe('capability-aware navigation (GET /admin/me)', () => {
   it('a 404 from /admin/me (no RBAC yet) shows every section', async () => {
     render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} />);
     await findRegion('Dashboard');
-    expect(within(nav()).getAllByRole('link')).toHaveLength(24);
+    expect(within(nav()).getAllByRole('link')).toHaveLength(SECTIONS.length);
   });
 
   it('hides the sections the admin lacks and refuses their URL', async () => {

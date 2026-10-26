@@ -18,6 +18,16 @@ export function settingAnchorId(key: string): string {
 
 /** Every key with a label and help sentence in admin-settings.ftl and an anchor in docs/admin/settings.md. */
 export const KNOWN_KEYS: readonly string[] = [
+  'attachments.previewAllowed',
+  'attachments.downloadAllowed',
+  'attachments.maxBytes',
+  'attachments.allowedExtensions',
+  'attachments.blockedExtensions',
+  'attachments.warnExtensions',
+  'attachments.allowedMimeTypes',
+  'attachments.blockedMimeTypes',
+  'attachments.warnMimeTypes',
+
   'mail.quoteStyle',
   'mail.externalRecipientWarning',
   'mail.trustedRecipientDomains',

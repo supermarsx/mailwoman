@@ -13,6 +13,7 @@ const THUMB_H = 60;
 
 /** One attachment as the strip needs it (a subset of `AttachmentItem`). */
 export interface StripItem {
+  emailId?: string;
   blobId: string;
   name: string;
   mime: string;

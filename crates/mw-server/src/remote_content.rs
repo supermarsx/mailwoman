@@ -164,13 +164,13 @@ async fn message_context(
 }
 
 /// Only metadata belonging to the authenticated account/message is accepted.
-async fn message_metadata(
+pub(crate) async fn message_metadata(
     state: &AppState,
     session: &mw_store::Session,
     email: &str,
     properties: &[&str],
 ) -> Result<Option<serde_json::Value>, ()> {
-    let request = json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/get",{"accountId":session.account_id,"ids":[email],"properties":properties,"bodyProperties":["blobId","cid","subParts","type"]},"privacy"]]});
+    let request = json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/get",{"accountId":session.account_id,"ids":[email],"properties":properties,"bodyProperties":["blobId","cid","subParts","type","name","size"]},"privacy"]]});
     let _metadata_permit = fetch_semaphore().try_acquire().map_err(|_| ())?;
     let response = if let Some(engine) = &state.engine {
         engine.handle_jmap(&session.account_id, &request).await
@@ -838,13 +838,20 @@ pub(crate) async fn part(
         Ok(_) => return forbidden("not a part of this message"),
         Err(()) => return internal("part membership check"),
     }
+    let attachment_policy=match crate::attachment_policy::effective(&state,&session).await {Ok(p)=>p,Err(r)=>return r};
+    if !attachment_policy.preview_allowed || !attachment_policy.download_allowed {return crate::attachment_policy::refusal("attachmentPreviewDisabled");}
+    let attachment_query=crate::attachment_policy::DownloadQuery{email_id:Some(claims.e.clone()),preview:Some(true),acknowledge_warning:None};
+    let metadata=if state.engine.is_none() && attachment_policy.restricts_content() {
+        match crate::attachment_policy::proxy_metadata(&state,&session,&claims.u,&attachment_query).await {Ok(parts)=>parts,Err(r)=>return r}
+    } else {Vec::new()};
+    for part in &metadata {if let Err(r)=crate::attachment_policy::authorize(&attachment_policy,part,&attachment_query) {return r;}}
     let _permit = match fetch_semaphore().try_acquire() {
         Ok(p) => p,
         Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "remote content busy").into_response(),
     };
-    let (bytes, content_type) = match tokio::time::timeout(
+    let (bytes, content_type, filename) = match tokio::time::timeout(
         std::time::Duration::from_secs(15),
-        read_part(&state, &session, &claims.u, policy.max_bytes),
+        read_part(&state, &session, &claims.u, if attachment_policy.max_bytes>0 {policy.max_bytes.min(attachment_policy.max_bytes as usize)} else {policy.max_bytes}),
     )
     .await
     {
@@ -853,6 +860,14 @@ pub(crate) async fn part(
         Ok(Err(r)) => return r,
         Err(_) => return (StatusCode::GATEWAY_TIMEOUT, "part download timed out").into_response(),
     };
+    if let Some(name)=filename {
+        let actual=crate::attachment_policy::Metadata{name,mime:content_type.clone().unwrap_or_else(||"application/octet-stream".into()),size:bytes.len() as u64};
+        if let Err(r)=crate::attachment_policy::authorize(&attachment_policy,&actual,&attachment_query) {return r;}
+    }
+    for part in &metadata {
+        let actual=crate::attachment_policy::Metadata{name:part.name.clone(),mime:content_type.clone().unwrap_or_else(||"application/octet-stream".into()),size:bytes.len() as u64};
+        if let Err(r)=crate::attachment_policy::authorize(&attachment_policy,&actual,&attachment_query) {return r;}
+    }
     let declared = mw_egress::declared_media_type(content_type.as_deref());
     if let Some(why) = type_refusal(declared.as_deref(), &bytes) {
         return unsupported(why);
@@ -1010,13 +1025,13 @@ async fn read_part(
     session: &mw_store::Session,
     blob_id: &str,
     limit: usize,
-) -> Result<Option<(Vec<u8>, Option<String>)>, Response> {
+) -> Result<Option<(Vec<u8>, Option<String>, Option<String>)>, Response> {
     if let Some(engine) = &state.engine {
         return match engine
             .fetch_blob_limited(&session.account_id, blob_id, MAX_PART_RAW_BYTES, limit)
             .await
         {
-            Ok(Some(blob)) => Ok(Some((blob.bytes, Some(blob.content_type)))),
+            Ok(Some(blob)) => Ok(Some((blob.bytes, Some(blob.content_type), Some(blob.filename)))),
             Ok(None) => Ok(None),
             Err(e) => {
                 tracing::warn!("part fetch failed: {e}");
@@ -1075,7 +1090,7 @@ async fn read_part(
     })?;
     match client.get_bytes_limited(&abs, limit).await {
         Ok((status, content_type, bytes)) if status.as_u16() == 200 => {
-            Ok(Some((bytes.to_vec(), content_type)))
+            Ok(Some((bytes.to_vec(), content_type, None)))
         }
         Ok((status, ..)) if status.as_u16() == 404 => Ok(None),
         Ok(_) => Err(crate::upstream_error()),

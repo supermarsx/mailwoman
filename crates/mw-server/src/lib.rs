@@ -37,6 +37,7 @@ pub mod arf;
 pub mod dlp;
 pub mod engine_mode;
 mod attachment_preview;
+mod attachment_policy;
 mod delivery_status;
 mod branding_routes;
 mod analytics_adapter;
@@ -1458,6 +1459,7 @@ fn router(
         .route("/api/sanitize", post(sanitize))
         .route("/api/import/oft", post(import_oft))
         .merge(attachment_preview::router())
+        .route("/api/attachments/policy", get(attachment_policy::get))
         .merge(delivery_status::router())
         .merge(branding_routes::router())
         .merge(analytics_routes::router())
@@ -3157,6 +3159,7 @@ fn proxied_download_type(upstream: Option<&str>) -> String {
 async fn jmap_download(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Query(query): Query<attachment_policy::DownloadQuery>,
     ext: axum::http::Extensions,
     UrlPath((account_id, blob_id, name)): UrlPath<(String, String, String)>,
 ) -> Response {
@@ -3169,9 +3172,15 @@ async fn jmap_download(
         )
             .into_response();
     }
+    let policy = match attachment_policy::effective(&state,&session).await { Ok(p)=>p,Err(r)=>return r };
+    if query.preview==Some(true) && !policy.preview_allowed {return attachment_policy::refusal("attachmentPreviewDisabled");}
+    if !policy.download_allowed {return attachment_policy::refusal("downloadsDisabled");}
     if let Some(engine) = &state.engine {
         match engine.fetch_blob(&account_id, &blob_id).await {
             Ok(Some(blob)) => {
+                if blob_id.starts_with('U') && (!policy.allowed_extensions.is_empty() || !policy.blocked_extensions.is_empty() || !policy.warn_extensions.is_empty()) {return attachment_policy::refusal("attachmentMetadataUnavailable");}
+                let metadata=attachment_policy::Metadata {name:blob.filename.clone(),mime:blob.content_type.clone(),size:blob.bytes.len() as u64};
+                let decision=match attachment_policy::authorize(&policy,&metadata,&query) {Ok(d)=>d,Err(r)=>return r};
                 let filename = if name.is_empty() {
                     &blob.filename
                 } else {
@@ -3179,12 +3188,14 @@ async fn jmap_download(
                 };
                 // The part's type is the sender's word for it, reduced the same
                 // way as a proxied download's (t32-h4).
-                blob_response(
+                let mut response=blob_response(
                     &proxied_download_type(Some(&blob.content_type)),
                     filename,
                     blob.bytes,
                     &headers,
-                )
+                );
+                attachment_policy::response_headers(&mut response,&decision);
+                response
             }
             Ok(None) => (
                 StatusCode::NOT_FOUND,
@@ -3198,12 +3209,13 @@ async fn jmap_download(
         }
     } else {
         proxy_download(
-            &state.security,
+            &state,
             &session,
-            &account_id,
             &blob_id,
             &name,
             &headers,
+            &policy,
+            &query,
         )
         .await
     }
@@ -3225,13 +3237,18 @@ async fn jmap_download(
 /// in hand, a client `Range` is served by slicing that buffer, matching the
 /// engine path's behaviour; the request itself is always sent upstream whole.
 async fn proxy_download(
-    security: &SecurityConfig,
+    state: &AppState,
     session: &mw_store::Session,
-    account_id: &str,
     blob_id: &str,
     name: &str,
     req: &HeaderMap,
+    policy: &attachment_policy::Policy,
+    query: &attachment_policy::DownloadQuery,
 ) -> Response {
+    let security=&state.security;
+    let account_id=&session.account_id;
+    let metadata=if policy.restricts_content() {match attachment_policy::proxy_metadata(state,session,blob_id,query).await {Ok(parts)=>parts,Err(r)=>return r}} else {Vec::new()};
+    for part in &metadata {if let Err(r)=attachment_policy::authorize(policy,part,query) {return r;}}
     let upstream = match upstream_session(security, &session.jmap_url, &session.credentials).await {
         Ok(s) => s,
         Err(e) => {
@@ -3254,19 +3271,25 @@ async fn proxy_download(
                 return upstream_error();
             }
         };
-    match client.get_bytes(&abs).await {
-        Ok((status, content_type, _content_disposition, bytes)) => {
+    let result=if policy.max_bytes>0 {client.get_bytes_limited(&abs,policy.max_bytes as usize).await} else {client.get_bytes(&abs).await.map(|(status,kind,_,bytes)|(status,kind,bytes))};
+    match result {
+        Ok((status, content_type, bytes)) => {
             let code = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
             // Only a full upstream 200 is a representation we may slice and serve as
             // a blob; anything else (redirect, error, or an upstream 206 we did not
             // ask for) is relayed with its status and body only.
             if code == StatusCode::OK {
-                return blob_response(
+                for part in &metadata { let actual=attachment_policy::Metadata{name:part.name.clone(),mime:part.mime.clone(),size:bytes.len() as u64}; if let Err(r)=attachment_policy::authorize(policy,&actual,query) {return r;} }
+                for part in &metadata { let actual=attachment_policy::Metadata{name:part.name.clone(),mime:content_type.clone().unwrap_or_else(|| "application/octet-stream".into()),size:bytes.len() as u64}; if let Err(r)=attachment_policy::authorize(policy,&actual,query) {return r;} }
+                let decision=policy.decide("",content_type.as_deref().unwrap_or("application/octet-stream"),bytes.len() as u64);
+                let mut response=blob_response(
                     &proxied_download_type(content_type.as_deref()),
                     name,
                     bytes.to_vec(),
                     req,
                 );
+                attachment_policy::response_headers(&mut response,&attachment_policy::Decision{download_allowed:true,preview_allowed:policy.preview_allowed,warning:decision.warning,reason:None});
+                return response;
             }
             let mut resp = Response::new(Body::from(bytes));
             *resp.status_mut() = code;
@@ -3651,6 +3674,8 @@ async fn export_message(
     if let Err(response) = step_up::require_user(&state, &session, step_up::StepUpAction::DataExport).await {
         return response;
     }
+    let attachment_policy=match attachment_policy::effective(&state,&session).await {Ok(p)=>p,Err(r)=>return r};
+    if attachment_policy.restricts_content() {return attachment_policy::refusal("attachmentContainerRestricted");}
     let Some(engine) = &state.engine else {
         return (
             StatusCode::NOT_IMPLEMENTED,

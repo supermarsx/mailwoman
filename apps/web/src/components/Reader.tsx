@@ -28,6 +28,7 @@ import { createNarrowViewport, focusListRow } from './narrowViewport.ts';
 import { SweepDialog } from './SweepDialog.tsx';
 import { ThumbnailStrip, type StripItem } from '../viewers/ThumbnailStrip.tsx';
 import { AttachmentViewer } from '../viewers/AttachmentViewer.tsx';
+import { attachmentDecision, attachmentPolicyUrl, loadAttachmentPolicy } from '../api/attachmentPolicy.ts';
 import { buildDownloadUrl, fetchObjectUrl, type AttachmentPart } from '../viewers/attachments.ts';
 import { SecurityPanel } from './SecurityPanel.tsx';
 import { SpamScore } from './security/SpamScore.tsx';
@@ -293,6 +294,9 @@ function ReaderToolbar(props: {
  *  preview jail (the AttachmentViewer sandbox), never as original bytes (§7.2). */
 export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item: StripItem) => void }): JSX.Element {
   const app = useApp();
+  const [attachmentPolicy]=createResource(()=>((props.email as {attachments?:AttachmentPart[]}).attachments?.length??0)>0?props.email.id:undefined,loadAttachmentPolicy);
+  const [acknowledged,setAcknowledged]=createSignal(false);
+  const decision=(item:StripItem)=>attachmentPolicy.state==='ready'?attachmentDecision(attachmentPolicy()!,item):undefined;
   const [openItem, setOpenItem] = createSignal<StripItem | null>(null);
 
   const items = createMemo<StripItem[]>(() => {
@@ -301,18 +305,21 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
       .filter((a) => a.blobId !== null && a.blobId !== undefined && a.blobId !== '')
       .map((a) => ({
         blobId: a.blobId as string,
+        emailId: props.email.id,
         name: a.name !== null && a.name !== undefined && a.name.length > 0 ? a.name : t('mail-attachment-unnamed'),
         mime: a.type.length > 0 ? a.type : 'application/octet-stream',
         size: a.size,
       }));
   });
 
-  function blobUrlFor(item: StripItem): Promise<string> {
+  function blobUrlFor(item: StripItem, acknowledge=false): Promise<string> {
+    const allowed=decision(item);
+    if(!allowed?.preview || (allowed.warning && !acknowledge))return Promise.resolve('');
     const url = app.downloadUrl();
     const acct = app.accountId();
     if (url === null || acct === null) return Promise.resolve('');
     return fetchObjectUrl(
-      buildDownloadUrl(url, { accountId: acct, blobId: item.blobId, name: item.name, mime: item.mime }),
+      attachmentPolicyUrl(buildDownloadUrl(url, { accountId: acct, blobId: item.blobId, name: item.name, mime: item.mime }),item.emailId,true,acknowledge),
     );
   }
 
@@ -325,12 +332,12 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
    *  it is superseded rather than banked until the pane unmounts. */
   let shownUrl: string | null = null;
 
-  const [blobUrl, { refetch: retryAttachment }] = createResource(openItem, async (item) => {
+  const [blobUrl, { refetch: retryAttachment }] = createResource(() => {const item=openItem();return item && decision(item)?.preview && (!decision(item)?.warning||acknowledged()) ? {item,ack:acknowledged()}:undefined;}, async ({item,ack}) => {
     if (shownUrl !== null) {
       urls.release(shownUrl);
       shownUrl = null;
     }
-    shownUrl = urls.adopt(await blobUrlFor(item));
+    shownUrl = urls.adopt(await blobUrlFor(item,ack));
     return shownUrl;
   });
 
@@ -356,8 +363,8 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
         <ThumbnailStrip
           items={items()}
           selectedBlobId={openItem()?.blobId ?? ''}
-          onSelect={(it) => props.onOpenAttachment ? props.onOpenAttachment(it) : setOpenItem(it)}
-          resolveThumb={blobUrlFor}
+          onSelect={(it) => {setAcknowledged(false); if(props.onOpenAttachment)props.onOpenAttachment(it);else setOpenItem(it);}}
+          resolveThumb={(item)=>blobUrlFor(item)}
         />
         <Show when={openItem()}>
           {(item) => (
@@ -379,6 +386,12 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
                   <Icon name="close" />
                 </button>
               </div>
+              <Show when={attachmentPolicy.loading}><p role="status">{t('mail-attachment-policy-loading')}</p></Show>
+              <Show when={attachmentPolicy.error}><p role="alert">{t('mail-attachment-policy-unavailable')}</p></Show>
+              <Show when={decision(item()) && !decision(item())?.allowed}><p role="alert">{t('mail-attachment-policy-blocked')}</p></Show>
+              <Show when={decision(item())?.warning && !acknowledged()}><p role="alert">{t('mail-attachment-policy-warning')}</p><button class="btn" onClick={()=>setAcknowledged(true)}>{t('mail-attachment-policy-acknowledge')}</button></Show>
+              <Show when={decision(item())?.allowed && !decision(item())?.preview}><p>{t('mail-attachment-policy-no-preview')}</p></Show>
+              <Show when={decision(item())?.preview && (!decision(item())?.warning || acknowledged())}>
               <Show when={settled(blobUrl)} fallback={<Show when={blobUrl.state === 'errored'} fallback={<p class="attachment-modal__loading">{t('mail-attachment-loading')}</p>}><p role="alert">{t('mail-attachment-failed')}</p><button type="button" class="btn" onClick={() => void retryAttachment()}>{t('common-retry')}</button></Show>}>
                 {(url) => (
                   <AttachmentViewer
@@ -388,6 +401,7 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
                     name={item().name}
                   />
                 )}
+              </Show>
               </Show>
             </div>
           )}

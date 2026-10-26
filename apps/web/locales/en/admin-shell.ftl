@@ -214,3 +214,10 @@ admin-diag-limits = Up to { $checks } checks, { $concurrency } concurrent connec
 
 admin-login-retry-countdown = Try again in { $seconds } seconds.
 admin-analytics-title = Usage analytics
+
+admin-attachments-title = Attachment policy
+admin-attachments-description = Control attachment delivery using stored MIME types and filenames. Rules apply to global and domain settings. A preview that receives original bytes cannot prevent saving those bytes; this is not malware scanning or copy protection.
+admin-attachments-policy-title = Delivery and preview rules
+admin-attachments-unavailable = Attachment policy settings are not available on this server.
+admin-attachments-edit = Edit policy
+admin-attachments-refresh = Refresh rules
