@@ -337,11 +337,18 @@ body {
 }
 /* Unread count: a yellow block with dark ink, square like every badge. */
 .sidebar__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  white-space: nowrap;
   background: var(--signal);
   color: var(--signal-text);
   border-radius: var(--radius-sm);
-  padding: 0 0.45rem;
-  font-size: 0.72rem;
+  padding: 0.08rem 0.25rem;
+  font-size: 0.68rem;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
   font-weight: var(--weight-bold);
 }
 .sidebar__offline {
