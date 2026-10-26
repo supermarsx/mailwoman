@@ -287,6 +287,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 
 | Key | Category | Scopes | Default | Value | Environment | Hot | Read by |
 |---|---|---|---|---|---|---|---|
+| <a id="appearance.customcssenabled"></a>`appearance.customCssEnabled` | appearance | global | false | plain |  | yes | Allow owner-scoped appearance CSS; disabled by default and paused under enforced mailbox appearance locks |
+| <a id="appearance.customjsenabled"></a>`appearance.customJsEnabled` | appearance | global | false | plain |  | yes | Allow owner-written scripts in an opaque appearance-only worker sandbox; disabled by default |
 | <a id="mail.folderrole.inbox"></a>`mail.folderRole.inbox` | mail | global+domain+user | null | plain |  | yes | inbox folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder |
 | <a id="mail.folderrole.drafts"></a>`mail.folderRole.drafts` | mail | global+domain+user | null | plain |  | yes | drafts folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder |
 | <a id="mail.folderrole.sent"></a>`mail.folderRole.sent` | mail | global+domain+user | null | plain |  | yes | sent folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder |

@@ -143,6 +143,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'ui.language',
   'appearance.theme',
   'appearance.accent',
+  'appearance.customCssEnabled',
+  'appearance.customJsEnabled',
   'appearance.density',
   'appearance.font',
   'packages.allowed',

@@ -1015,13 +1015,13 @@ const APPEARANCE_FIELDS: [(&str, &[&str]); 4] = [
         "appearance.theme",
         &["mode", "theme", "lightTheme", "darkTheme"],
     ),
-    ("appearance.accent", &["accentId"]),
+    ("appearance.accent", &["accentId", "customAccent"]),
     ("appearance.density", &["density"]),
     ("appearance.font", &["font"]),
 ];
 
 /// The held appearance keys and their values, for this user.
-async fn appearance_locks(
+pub(crate) async fn appearance_locks(
     state: &AppState,
     session: &mw_store::Session,
 ) -> Result<Vec<(&'static str, serde_json::Value)>, Response> {
@@ -1063,6 +1063,7 @@ fn apply_appearance_locks(
             }
             "appearance.accent" => {
                 obj.insert("accentId".into(), value.clone());
+                obj.insert("customAccent".into(), json!(""));
             }
             "appearance.density" => {
                 obj.insert("density".into(), value.clone());

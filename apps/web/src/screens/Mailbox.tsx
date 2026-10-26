@@ -1,3 +1,4 @@
+import { AppearanceCustomizationRuntime } from '../components/AppearanceCustomizationRuntime.tsx';
 import {createSharingAccess} from '../api/mailboxSharing.ts';
 import {createConfiguredClient} from '../api/transport.ts';
 import {FolderContextMenu} from '../components/FolderContextMenu.tsx';
@@ -362,7 +363,8 @@ export function MailboxScreen(): JSX.Element {
   });
 
   return (
-    <div class="shell workspace-shell" ref={shellElement} data-folder-mode={folderMode()}>
+    <div class="shell workspace-shell mw-custom-mail" ref={shellElement} data-folder-mode={folderMode()}>
+      <AppearanceCustomizationRuntime owner={() => {const accountId = app.accountId(); return accountId ? {kind: 'mailbox', accountId} : null;}} />
 
       <Show when={narrow()}>
         <header class="shell__bar">

@@ -54,6 +54,7 @@ import {
 } from '../../theme/appearance.ts';
 import { themeEntry, type Appearance } from '../../theme/registry.ts';
 import type { AccentId } from '../../theme/accentMath.ts';
+import { applyCustomAccent } from '../../theme/customAccent.ts';
 import {
   prefersDarkScheme,
   syncRootAppearance,
@@ -148,6 +149,7 @@ function apply(p: AppearancePrefs, resolved: ThemeName, appearance: Appearance):
   syncRootAppearance(appearance);
   if (p.accentId !== '') root.setAttribute('data-accent', p.accentId);
   else root.removeAttribute('data-accent');
+  applyCustomAccent(root, p.customAccent ?? '', resolved);
   const stack = FONT_STACKS[p.font];
   if (stack !== null) root.style.setProperty('--mw-ui-font', stack);
   else root.style.removeProperty('--mw-ui-font');
@@ -165,6 +167,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
   const [schedule, setScheduleSig] = createSignal<ThemeSchedule>(initial.schedule);
   const [density, setDensitySig] = createSignal<Density>(initial.density);
   const [accentId, setAccentIdSig] = createSignal<AccentId | ''>(initial.accentId);
+  const [customAccent, setCustomAccentSig] = createSignal(initial.customAccent ?? '');
   const [uiFont, setUiFontSig] = createSignal<UiFont>(initial.font);
   const [layout, setLayoutSig] = createSignal<LayoutMode>(initial.layout);
   const [ribbonCollapsed, setRibbonCollapsedSig] = createSignal(initial.ribbonCollapsed);
@@ -186,6 +189,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
       schedule: schedule(),
       density: density(),
       accentId: accentId(),
+      customAccent: customAccent(),
       font: uiFont(),
       layout: layout(),
       ribbonCollapsed: ribbonCollapsed(),
@@ -288,6 +292,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
     },
     setAccentId(id) {
       setAccentIdSig(id);
+      setCustomAccentSig('');
       persist();
     },
     setUiFont(f) {
@@ -316,6 +321,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
       setScheduleSig(merged.schedule);
       setDensitySig(merged.density);
       setAccentIdSig(merged.accentId);
+      setCustomAccentSig(merged.customAccent ?? '');
       setUiFontSig(merged.font);
       setLayoutSig(merged.layout);
       setRibbonCollapsedSig(merged.ribbonCollapsed);

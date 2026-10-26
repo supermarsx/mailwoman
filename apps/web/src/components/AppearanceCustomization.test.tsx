@@ -1,0 +1,42 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, screen, waitFor } from '@solidjs/testing-library';
+import { createSignal } from 'solid-js';
+import { AppearanceCustomization } from './AppearanceCustomization.tsx';
+import { renderInShell } from '../screens/Admin/shell/testkit.tsx';
+import { loadCustomization, saveCustomization, type AppearanceOwner, type CustomizationSnapshot } from '../api/appearanceCustomization.ts';
+vi.mock('../api/appearanceCustomization.ts', () => ({loadCustomization: vi.fn(), saveCustomization: vi.fn()}));
+const snapshot = (ownerId = 'one'): CustomizationSnapshot => ({etag: '"one"', value: {ownerId, document: {version: 1, css: '', script: ''}, compiledCss: '', cssEnabled: false, scriptEnabled: false, cssAllowed: false, lockedFields: [], scopeClass: 'mw-custom-mail'}});
+beforeEach(() => {vi.mocked(loadCustomization).mockReset(); vi.mocked(saveCustomization).mockReset();});
+describe('owner appearance editor', () => {
+  it('keeps a rejected concurrent draft and sends the original owner and revision', async () => {
+    vi.mocked(loadCustomization).mockResolvedValue(snapshot());
+    vi.mocked(saveCustomization).mockRejectedValue(new Error('Changed elsewhere; draft retained.'));
+    renderInShell(() => <AppearanceCustomization owner={() => ({kind:'mailbox', accountId:'one'})} />);
+    const css = await screen.findByLabelText('Restricted CSS');
+    expect(await screen.findByText(/Call appearance.set with an object/)).toBeVisible();
+    fireEvent.input(css, {target:{value:'button{color:red}'}});
+    fireEvent.click(screen.getByRole('button', {name:'Save customization'}));
+    await screen.findByRole('alert');
+    expect(css).toHaveValue('button{color:red}');
+    expect(vi.mocked(saveCustomization).mock.calls[0]?.[1].etag).toBe('"one"');
+    expect(vi.mocked(saveCustomization).mock.calls[0]?.[1].value.ownerId).toBe('one');
+  });
+  it('ignores a late response from the previous account', async () => {
+    let resolveOld!: (value: CustomizationSnapshot) => void;
+    const old = new Promise<CustomizationSnapshot>(resolve => {resolveOld = resolve;});
+    vi.mocked(loadCustomization).mockImplementation(owner => owner.kind === 'mailbox' && owner.accountId === 'one' ? old : Promise.resolve(snapshot('two')));
+    const [owner, setOwner] = createSignal<AppearanceOwner>({kind:'mailbox', accountId:'one'});
+    renderInShell(() => <AppearanceCustomization owner={owner} />);
+    await waitFor(() => expect(loadCustomization).toHaveBeenCalled());
+    setOwner({kind:'mailbox',accountId:'two'});
+    const css = await screen.findByLabelText('Restricted CSS');
+    resolveOld({...snapshot(), value:{...snapshot().value, document:{version:1, css:'private-old-draft', script:''}}});
+    await Promise.resolve();
+    expect(css).toHaveValue('');
+    fireEvent.input(css, {target:{value:'button{color:blue}'}});
+    vi.mocked(saveCustomization).mockResolvedValue(snapshot('two'));
+    fireEvent.click(screen.getByRole('button', {name:'Save customization'}));
+    await waitFor(() => expect(saveCustomization).toHaveBeenCalled());
+    expect(vi.mocked(saveCustomization).mock.calls[0]?.[1].value.ownerId).toBe('two');
+  });
+});

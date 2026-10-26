@@ -906,14 +906,12 @@ async fn put_prefs(
         ));
     }
     let key = prefs_key(&ctx);
-    let current: Value = state
-        .store
-        .get_setting(&key)
-        .await?
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_else(|| json!({}));
+    let raw = state.store.get_setting(&key).await?;
+    let current: Value = raw.as_deref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_else(|| json!({}));
     check_if_match(&headers, &etag_of(&current), None, None)?;
-    state.store.set_setting(&key, &text).await?;
+    if !state.store.compare_and_set_setting(&key, raw.as_deref(), &text).await? {
+        return Err(AdminApiError::stale(None, None));
+    }
     let tag = etag_of(&body);
     Ok(with_etag(Json(body), &tag))
 }

@@ -45,6 +45,7 @@ mod branding_routes;
 mod analytics_adapter;
 mod analytics_config;
 mod analytics_routes;
+mod appearance_customization;
 mod analytics_runtime;
 mod login_failure;
 pub mod fonts;
@@ -1482,6 +1483,7 @@ fn router(
         .merge(delivery_status::router())
         .merge(branding_routes::router())
         .merge(analytics_routes::router())
+        .merge(appearance_customization::router())
         .merge(nextcloud_accounts::router())
         .merge(nextcloud_pim::router())
         .merge(packages::router())
@@ -1742,15 +1744,17 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
             .cookie_secure(state.cookie_secure, req.headers(), req.extensions());
 
     let mut resp = next.run(req).await;
-    // Only the static reader bridge may supply its own independent policy.
+    // Only fixed public reader/appearance sandboxes may supply an independent policy.
     // A response extension cannot be forged by a request header or upstream.
     let reader_frame = resp.extensions_mut().remove::<remote_policy::ReaderFrameResponse>().is_some();
+    let appearance_frame = resp.extensions_mut().remove::<appearance_customization::AppearanceSandboxResponse>().is_some();
+    let isolated_frame = reader_frame || appearance_frame;
     let h = resp.headers_mut();
     // A handler's own policy (a download's sandbox, t32-h4) is kept as a second
     // header next to the shell's. The browser enforces both, so it can only
     // narrow what the shell policy allows.
     let own = h.remove("content-security-policy");
-    if let (true, Some(policy)) = (reader_frame, own.as_ref()) {
+    if let (true, Some(policy)) = (isolated_frame, own.as_ref()) {
         h.insert("content-security-policy", policy.clone());
     } else {
         h.insert("content-security-policy", HeaderValue::from_static(CSP));
@@ -1758,7 +1762,7 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
             h.append("content-security-policy", v);
         }
     }
-    h.insert("x-frame-options", HeaderValue::from_static(if reader_frame { "SAMEORIGIN" } else { "DENY" }));
+    h.insert("x-frame-options", HeaderValue::from_static(if isolated_frame { "SAMEORIGIN" } else { "DENY" }));
     h.insert(
         "x-content-type-options",
         HeaderValue::from_static("nosniff"),
@@ -1774,7 +1778,7 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
     // refuse it (t29-e8).
     let own_corp = h.remove("cross-origin-resource-policy");
     hardening::apply_extra_headers(h, state.hardening.coep);
-    if reader_frame {
+    if isolated_frame {
         // Sandboxing gives the bridge an opaque origin in Firefox. It is a
         // public static document; frame-ancestors and its parent handshake
         // still restrict embedding and the delivery of message HTML.

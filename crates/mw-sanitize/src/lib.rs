@@ -40,6 +40,8 @@
 //! hidden marker carrying the original URL, blocks trackers, and removes tracking
 //! parameters from links.
 
+pub mod appearance;
+
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};

@@ -589,3 +589,8 @@ admin-settings-key-security-protection-exempt-admins = Exempt administrator IDs
 admin-settings-help-security-protection-exempt-admins = Exact authenticated administrator IDs exempt only their administrator dimension. Existing sign-in failure locks and strict administrator session deadlines remain unchanged.
 admin-settings-key-security-protection-storage-failure = Enforcement storage failure policy
 admin-settings-help-security-protection-storage-failure = Closed refuses protected work when an enabled enforcement budget cannot be checked. Open temporarily permits it with a bounded operational warning. Observe-only failures never impose an enforcement action.
+
+admin-settings-key-appearance-customCssEnabled = Allow personal appearance CSS
+admin-settings-help-appearance-customCssEnabled = Allow restricted visual styles in the owner’s workspace. Disabled by default; enforced mailbox appearance locks pause these styles.
+admin-settings-key-appearance-customJsEnabled = Allow personal appearance scripts
+admin-settings-help-appearance-customJsEnabled = Allow isolated scripts that can only request appearance changes. Disabled by default; scripts cannot access mail, account data, or the application DOM.

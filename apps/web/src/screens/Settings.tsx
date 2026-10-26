@@ -1,3 +1,5 @@
+import * as customizationCss from './Settings/styles.css.ts';
+import { AppearanceCustomization } from '../components/AppearanceCustomization.tsx';
 import { NextcloudAccounts } from './Settings/NextcloudAccounts.tsx';
 import { MailTransfer } from './Settings/MailTransfer.tsx';
 import { Receipts } from './Settings/Receipts.tsx';
@@ -167,7 +169,7 @@ export function Settings(props: SettingsProps): JSX.Element {
   });
   createEffect(() => {
     const v = accentHold.value();
-    if (accentHold.locked() && app.accentId() !== v && (v === '' || ACCENT_LIST.some((a) => a.id === v))) {
+    if (accentHold.locked() && (app.accentId() !== v || !!app.appearancePrefs().customAccent) && (v === '' || ACCENT_LIST.some((a) => a.id === v))) {
       app.setAccentId(v as Parameters<typeof app.setAccentId>[0]);
     }
   });
@@ -236,6 +238,9 @@ export function Settings(props: SettingsProps): JSX.Element {
         </div>
 
         <AccentPicker locked={accentHold.locked()} />
+        <label class={customizationCss.field}>{t('appearance-custom-accent')}<input class={customizationCss.input} type="color" disabled={accentHold.locked()} value={app.appearancePrefs().customAccent || '#3366cc'} onChange={event => app.setAppearancePrefs({customAccent: event.currentTarget.value})} /></label>
+        <div class={customizationCss.actions}><button class={customizationCss.button} disabled={accentHold.locked() || !app.appearancePrefs().customAccent} onClick={() => app.setAppearancePrefs({customAccent: ''})}>{t('appearance-custom-accent-reset')}</button></div>
+        <AppearanceCustomization owner={() => { const accountId = app.accountId(); return accountId ? {kind: 'mailbox', accountId} : null; }} />
 
         <div class={css.row}>
           <span class={css.label} id="settings-font">

@@ -1,3 +1,4 @@
+import { AppearanceCustomizationRuntime } from '../../../components/AppearanceCustomizationRuntime.tsx';
 // The admin console frame (t32-admin.md §2.1).
 //
 // Desktop: a sidebar with the sections in their groups (icon + text label), the
@@ -191,7 +192,8 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
   );
 
   return (
-    <div ref={frameElement} class={css.frame} data-screen="admin" data-sidebar-collapsed={sidebarCollapsed() ? '' : undefined}>
+    <div ref={frameElement} class={`${css.frame} mw-custom-admin`} data-screen="admin" data-sidebar-collapsed={sidebarCollapsed() ? '' : undefined}>
+      <AppearanceCustomizationRuntime owner={() => ({kind: 'admin', username: props.username})} />
       <aside id="admin-sidebar" class={css.sidebar}>
         <Brand />
         <Nav roving />

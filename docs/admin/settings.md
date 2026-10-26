@@ -935,3 +935,13 @@ State is bounded to 20,000 subjects and 10,000 decision events. Expired state is
 <a id="mail.requestDeliveryReceipt"></a>
 
 `mail.requestDeliveryReceipt` defaults to false and controls the saved delivery-notification preference for new messages. The separate `receipts.dsnAllowed` policy governs whether the request is permitted; SMTP DSN support is still required.
+
+<a id="appearance.customCssEnabled"></a>
+### Personal appearance CSS (`appearance.customCssEnabled`)
+
+Global switch, disabled by default. Enables restricted, parsed visual CSS scoped to the owner’s mailbox or administrator workspace. Network resources, imports, attributes, and positioning are refused. Enforced mailbox appearance locks pause custom CSS without deleting the saved source.
+
+<a id="appearance.customJsEnabled"></a>
+### Personal appearance scripts (`appearance.customJsEnabled`)
+
+Global switch, disabled by default. Scripts run in a time-limited worker inside an opaque sandbox and can request only supported appearance changes. They receive no mail or account identifiers and have no application DOM access. This is an appearance API, not general application JavaScript.

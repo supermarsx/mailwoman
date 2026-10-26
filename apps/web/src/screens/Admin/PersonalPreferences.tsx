@@ -1,3 +1,4 @@
+import { AppearanceCustomization } from '../../components/AppearanceCustomization.tsx';
 import { AdminTotp } from './AdminTotp.tsx';
 import { sectionPath } from './shell/router.ts';
 import { For, Show, createSignal, onMount, type JSX } from 'solid-js';
@@ -23,8 +24,10 @@ export function PersonalPreferences(): JSX.Element {
     <section class={css.section}><h3 class={css.heading}>{t('admin-personal-identity')}</h3><p class={css.prose}>{me()?.displayName || shell.username()}</p><p class={css.meta}>{shell.username()}</p><Show when={me()?.roles.length}><p class={css.meta}>{me()?.roles.join(', ')}</p></Show></section>
     <p role="status" aria-live="polite" class={css.meta}>{prefs.loading() ? t('admin-personal-loading') : prefs.saving() ? t('admin-personal-saving') : prefs.error() ? t('admin-personal-unsaved') : t('admin-personal-saved')}</p>
     <Show when={prefs.error()}><div role="alert" class={css.section}><p>{prefs.error()}</p><p class={css.prose}>{t('admin-personal-reload-warning')}</p><div class={css.actions}><button class={css.button} onClick={() => void prefs.retry()}>{t('admin-personal-retry')}</button><button class={css.button} onClick={() => void prefs.reload()}>{t('admin-personal-reload')}</button></div></div></Show>
+    <AppearanceCustomization owner={() => ({kind: 'admin', username: shell.username()})} />
     <fieldset disabled={blocked()} class={css.section}><legend class={css.heading}>{t('admin-personal-appearance')}</legend><AdminAppearanceFields controller={prefs.appearance} />
-      <div class={css.actions}><button class={css.button} onClick={() => prefs.appearance.reset()}>{t('admin-personal-reset')}</button></div>
+      <label class={css.field}>{t('appearance-custom-accent')}<input class={css.input} type="color" value={prefs.appearance.prefs().customAccent || '#3366cc'} onChange={event => prefs.appearance.setCustomAccent(event.currentTarget.value)} /></label>
+      <div class={css.actions}><button class={css.button} disabled={!prefs.appearance.prefs().customAccent} onClick={() => prefs.appearance.setCustomAccent('')}>{t('appearance-custom-accent-reset')}</button><button class={css.button} onClick={() => prefs.appearance.reset()}>{t('admin-personal-reset')}</button></div>
     </fieldset>
     <fieldset disabled={blocked()} class={css.section}><legend class={css.heading}>{t('admin-personal-layout')}</legend>
       <label class={css.field}>{t('admin-personal-density')}<select class={css.select} value={prefs.appearance.prefs().density ?? 'cozy'} onChange={e => prefs.appearance.setDensity(e.currentTarget.value as 'compact' | 'cozy' | 'relaxed')}><For each={['compact', 'cozy', 'relaxed'] as const}>{value => <option value={value}>{t(`admin-personal-density-${value}`)}</option>}</For></select></label>

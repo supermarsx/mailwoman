@@ -16,6 +16,7 @@ import type { ThemeName } from '../../../theme/contract.css.ts';
 import { FONT_STACKS, parseAppearancePrefs, resolveThemeName, type AppearancePrefs, type UiFont } from '../../../theme/appearance.ts';
 import { DEFAULT_DARK_THEME, isThemeName, themeEntry, variantFor } from '../../../theme/registry.ts';
 import { isAccentId, type AccentId } from '../../../theme/accentMath.ts';
+import { applyCustomAccent, customAccentValue } from '../../../theme/customAccent.ts';
 import { prefersDarkScheme, syncRootAppearance, watchColorScheme } from '../../../shell/rootAttributes.ts';
 
 export type AdminThemeMode = 'light' | 'dark' | 'system';
@@ -25,6 +26,7 @@ export interface AdminAppearancePrefs {
   theme: ThemeName;
   /** A named accent, or `''` for the theme's own. */
   accent: AccentId | '';
+  customAccent?: string;
   mode: AdminThemeMode;
   density?: 'compact' | 'cozy' | 'relaxed';
   font?: UiFont;
@@ -42,7 +44,7 @@ export function parseAdminAppearance(raw: unknown): AdminAppearancePrefs | null 
   if (!isThemeName(o['theme'])) return null;
   const mode = ADMIN_THEME_MODES.includes(o['mode'] as AdminThemeMode) ? (o['mode'] as AdminThemeMode) : themeEntry(o['theme']).appearance;
   const accent = isAccentId(o['accent']) ? o['accent'] : '';
-  return { theme: o['theme'], accent, mode,
+  return { theme: o['theme'], accent, mode, ...(customAccentValue(o['customAccent']) ? {customAccent: customAccentValue(o['customAccent'])} : {}),
     ...(['compact','cozy','relaxed'].includes(String(o['density'])) ? { density: o['density'] as 'compact' | 'cozy' | 'relaxed' } : {}),
     ...(typeof o['font'] === 'string' && o['font'] in FONT_STACKS ? { font: o['font'] as UiFont } : {}),
   };
@@ -107,6 +109,7 @@ export interface AdminAppearanceController {
   /** Pick a theme. Outside `system` mode the mode follows the theme's appearance. */
   setTheme(theme: ThemeName): void;
   setAccent(accent: AccentId | ''): void;
+  setCustomAccent(value: string): void;
   setMode(mode: AdminThemeMode): void;
   setDensity(density: 'compact' | 'cozy' | 'relaxed'): void;
   setFont(font: UiFont): void;
@@ -128,6 +131,7 @@ function apply(theme: ThemeName, accent: AccentId | '', webmail: AppearancePrefs
   root.setAttribute('data-theme', theme);
   if (accent !== '') root.setAttribute('data-accent', accent);
   else root.removeAttribute('data-accent');
+  applyCustomAccent(root, prefs.customAccent ?? '', theme);
   syncRootAppearance(themeEntry(theme).appearance);
   // Density and font: this browser's webmail preference, read-only (unchanged by e71a).
   root.setAttribute('data-density', prefs.density ?? webmail?.density ?? 'cozy');
@@ -170,8 +174,11 @@ export function createAdminAppearance(opts: AdminAppearanceOptions = {}): AdminA
       commit({ ...p, theme, mode: p.mode === 'system' ? 'system' : themeEntry(theme).appearance });
     },
     setAccent(accent) {
-      commit({ ...prefs(), accent });
+      const next = {...prefs(), accent};
+      delete next.customAccent;
+      commit(next);
     },
+    setCustomAccent(value) { commit({ ...prefs(), customAccent: customAccentValue(value) }); },
     setMode(mode) {
       commit({ ...prefs(), mode });
     },

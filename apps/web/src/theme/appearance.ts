@@ -24,6 +24,7 @@ import {
   type Appearance,
 } from './registry.ts';
 import { isAccentId, nearestAccentId, type AccentId } from './accentMath.ts';
+import { customAccentValue } from './customAccent.ts';
 
 /**
  * How the active theme is chosen.
@@ -83,6 +84,7 @@ export interface AppearancePrefs {
    * nearest named accent.
    */
   accentId: AccentId | '';
+  customAccent?: string;
   font: UiFont;
   layout: LayoutMode;
   ribbonCollapsed: boolean;
@@ -272,6 +274,7 @@ export function parseAppearancePrefs(input: unknown): AppearancePrefs {
     schedule: scheduleOf(p.schedule, base.schedule),
     density: DENSITY_VALUES.includes(p.density as Density) ? (p.density as Density) : base.density,
     accentId: accentIdOf(p),
+    customAccent: customAccentValue(p.customAccent),
     font: typeof p.font === 'string' && p.font in FONT_STACKS ? (p.font as UiFont) : base.font,
     layout: p.layout === 'ribbon' ? ('ribbon' as const) : ('default' as const),
     ribbonCollapsed: p.ribbonCollapsed === true,

@@ -113,3 +113,26 @@ appearance-accent-indigo = Indigo
 appearance-accent-violet = Violet
 appearance-accent-magenta = Magenta
 appearance-accent-graphite = Graphite
+
+appearance-custom-title = Personal appearance customization
+appearance-custom-description = Saved only for this signed-in workspace. Administrator switches control execution; drafts can be saved while disabled.
+appearance-custom-loading = Loading customization…
+appearance-custom-error = Appearance customization is unavailable.
+appearance-custom-css-on = Custom CSS enabled
+appearance-custom-css-off = Custom CSS disabled by administrator
+appearance-custom-js-on = Appearance scripts enabled
+appearance-custom-js-off = Appearance scripts disabled by administrator
+appearance-custom-locked = Administrator appearance locks pause custom CSS. Scripts cannot change locked fields.
+appearance-custom-css = Restricted CSS
+appearance-custom-css-help = Up to 16 KiB. Visual properties and simple selectors only; no URLs, imports, attributes, positioning, or !important. Selectors stay inside your workspace.
+appearance-custom-js = Isolated appearance script
+appearance-custom-js-help = Up to 16 KiB and 500 ms. Call appearance.set with an object containing accent '#3366cc' or density 'compact'. Supported fields: accent, density, font and mode (light or dark). context provides dark and reducedMotion booleans. Changes are temporary; no mail, account data, network, or application DOM is available.
+appearance-custom-save = Save customization
+appearance-custom-reset = Reset customization
+appearance-custom-reload = Discard draft and reload saved customization
+appearance-custom-discard = Discard this unsaved customization draft and reload?
+appearance-custom-saved = Customization saved.
+appearance-custom-safe = Recovery: add appearanceSafe=1 to the page query to open this workspace without custom CSS or scripts.
+
+appearance-custom-accent = Custom accent colour
+appearance-custom-accent-reset = Use named or theme accent
