@@ -415,6 +415,12 @@ body {
 .list__row:hover {
   background: var(--bg-alt);
 }
+.list__row--unread:not(.list__row--active):not(.list__row--selected) {
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
+}
+.list__row--unread:not(.list__row--active):not(.list__row--selected):hover {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-alt));
+}
 /* The open message: a field plus a 4px accent bar on the leading edge. */
 .list__row--active {
   background: var(--bg-alt);
@@ -427,7 +433,7 @@ body {
   width: 4px;
   background: var(--accent);
 }
-/* Unread: bold sender and a yellow square in the leading padding, beside the
+/* Unread: a subtle theme tint, bold sender and a square in the leading padding, beside the
    accent bar. On a light page yellow is too faint alone, so the square gets
    a dark edge there. */
 .list__row--unread::before {
