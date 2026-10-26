@@ -1,3 +1,4 @@
+import {AsyncPending} from '../../../components/AsyncState.tsx';
 // Admin → Plugins (SPEC §22; rebuilt on the templates by f33 for t32-cfg §4.12).
 //
 // A list of the engine plugins with their detail at `#/plugins/<id>`
@@ -153,7 +154,7 @@ export function AdminPlugins(props: AdminPluginsProps): JSX.Element {
       );
     }
     return (
-      <Show when={find(id)} fallback={slice.loading() ? <p role="status">{t('admin-shell-loading')}</p> : <Feedback kind="error" message={t('plugins-admin-not-found', { id: isolate(id) })} />}>
+      <Show when={find(id)} fallback={slice.loading() ? <AsyncPending/> : <Feedback kind="error" message={t('plugins-admin-not-found', { id: isolate(id) })} />}>
         {(p) => (
           <PluginDetail
             plugin={p()}

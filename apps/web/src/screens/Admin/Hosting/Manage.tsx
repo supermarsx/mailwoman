@@ -1,3 +1,4 @@
+import {AsyncPending} from '../../../components/AsyncState.tsx';
 import { For, Show, createEffect, createSignal, on, type JSX } from 'solid-js';
 import { t } from '../../../i18n';
 import type { HostingApi, HostingConnection, HostingDomain, HostingMailbox, HostingOperation } from '../../../api/admin/hosting.ts';
@@ -28,7 +29,7 @@ export function HostingManage(props:{connection:HostingConnection;api:HostingApi
  const ask=(operation:HostingOperation,target:string,title:string):void=>{setConfirmation({operation,target,title,body:props.connection.provider==='virtualmin'&&(operation.action==='deleteDomain'||operation.action==='setDomainEnabled')?t('admin-hosting-virtualmin-impact'):props.connection.provider==='virtualmin'&&(operation.action==='deleteMailbox'||operation.action==='setMailboxEnabled')?t('admin-hosting-virtualmin-account-impact'):t('admin-hosting-remote-change')});};
  const localAlias=(alias:string):string|undefined=>{const suffix=`@${domain()??''}`;if(!alias.includes('@'))return alias||undefined;return alias.toLowerCase().endsWith(suffix.toLowerCase())?alias.slice(0,-suffix.length)||undefined:undefined;};
  const mailboxAction=(row:HostingMailbox,action:string):void=>go(['domains',domain()!,'mailboxes',row.account,'edit'],{action});
- return <section class={css.section} aria-label={t('admin-hosting-inventory')}><Feedback kind="error" message={error()}/><Feedback kind="info" message={notice()}/><Show when={busy()}><p role="status">{t('common-loading')}</p></Show>
+ return <section class={css.section} aria-label={t('admin-hosting-inventory')}><Feedback kind="error" message={error()}/><Feedback kind="info" message={notice()}/><Show when={busy()}><AsyncPending variant={'status'}/></Show>
  <Show when={props.connection.enabled} fallback={<><p>{t('admin-hosting-disabled-help')}</p><button class="btn" onClick={()=>go(['edit'])}>{t('admin-hosting-edit')}</button></>}>
  <Show when={formKind()} keyed fallback={<><div class={ux.pageActions}><button class="btn" type="button" onClick={()=>domain()?go(['manage']):void shell.router.navigate(sectionPath('integrations',['hosting']))}>{domain()?t('admin-hosting-back-domains'):t('admin-hosting-back')}</button><button class="btn" type="button" disabled={busy()} onClick={()=>void reload()}>{t('admin-hosting-refresh')}</button><button class="btn" type="button" onClick={()=>go(['edit'])}>{t('admin-hosting-edit')}</button></div><h2>{domain()??props.connection.name}</h2>
  <Show when={props.connection.provider==='virtualmin'&&domain()}><p class={css.note}>{t('admin-hosting-virtualmin-account-impact')}</p></Show><Show when={!lifecycle()}><p class={css.note}>{t('admin-hosting-lifecycle-disabled')}</p></Show>

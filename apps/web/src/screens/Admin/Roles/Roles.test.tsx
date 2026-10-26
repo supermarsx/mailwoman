@@ -73,3 +73,16 @@ describe('dedicated role pages', () => {
     expect(screen.getByRole('heading', { name: 'Support' })).toBeInTheDocument();
   });
 });
+
+it('offers retry after initial role loading fails without retaining a loading skeleton',async()=>{
+ const api=service();let reject!:(cause:unknown)=>void;
+ vi.mocked(api.roles).mockImplementation(()=>new Promise((_resolve,no)=>{reject=no;}));
+ mount('/admin#/roles',api);
+ expect(screen.getByTestId('async-pending')).toBeInTheDocument();
+ reject(new Error('roles refused'));
+ await waitFor(()=>expect(screen.queryByTestId('async-pending')).not.toBeInTheDocument());
+ expect(screen.getByRole('alert')).toBeInTheDocument();
+ vi.mocked(api.roles).mockResolvedValue([role]);
+ fireEvent.click(screen.getByRole('button',{name:'Retry'}));
+ expect(await screen.findByRole('button',{name:'Support'})).toBeInTheDocument();
+});

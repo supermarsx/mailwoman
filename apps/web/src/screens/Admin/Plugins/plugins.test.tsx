@@ -155,7 +155,6 @@ describe('Admin → Plugins: registration', () => {
   it('shows the refusal at the id when the server will not register', async () => {
     const { api } = setup([thirdPartyInfo()], [REGISTER]);
     const form = await screen.findByTestId('plugin-register');
-    await waitFor(() => expect(row('acme-spam')).not.toBeNull());
     fireEvent.change(within(form).getByRole('combobox', { name: 'Component' }), { target: { value: '' } });
     fireEvent.input(within(form).getByRole('textbox', { name: 'Plugin id' }), { target: { value: 'acme-spam' } });
     fireEvent.input(within(form).getByRole('textbox', { name: 'Name' }), { target: { value: 'Again' } });
@@ -204,7 +203,7 @@ describe('Admin → Plugins: detail', () => {
   });
 
   it('allowing an unsigned third-party plugin asks first; the banner follows a loaded one', async () => {
-    const { api } = setup([thirdPartyInfo({ approved: true, granted: ['spam-action'] })], ['acme-spam']);
+    const { api, navigate } = setup([thirdPartyInfo({ approved: true, granted: ['spam-action'] })], ['acme-spam']);
     const d = await detail();
     const allow = within(d).getByRole('checkbox', { name: 'Allow this unsigned plugin to run' });
     fireEvent.click(allow);
@@ -213,7 +212,10 @@ describe('Admin → Plugins: detail', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Allow unsigned' }));
     await waitFor(() => expect(api.calls).toEqual(['allow:acme-spam:true']));
     await waitFor(() => expect(within(d).getByRole('checkbox', { name: 'Allow this unsigned plugin to run' })).toBeChecked());
+    navigate(sectionPath('plugins'));
+    await waitFor(() => expect(row('acme-spam')).not.toBeNull());
     fireEvent.click(within(row('acme-spam')).getByRole('button', { name: /^Enable/ }));
+    navigate(sectionPath('plugins', ['acme-spam']));
     expect(await screen.findByTestId('unsigned-banner')).toBeInTheDocument();
   });
 

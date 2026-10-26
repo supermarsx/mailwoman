@@ -1,3 +1,4 @@
+import {AsyncPending} from '../../../components/AsyncState.tsx';
 // Admin → UI plugins (rebuilt on the templates by f33 for t32-cfg §4.12):
 // register, approve, enable, disable, grant and delete the sandboxed web-client
 // plugins, over the `/admin/ui-plugins` routes (crates/mw-server/src/ui_plugins.rs).
@@ -164,7 +165,7 @@ export function AdminUiPlugins(props: AdminUiPluginsProps): JSX.Element {
     return (
       <Show
         when={find(id)}
-        fallback={plugins.loading ? <p role="status">{t('admin-shell-loading')}</p> : <Feedback kind="error" message={t('plugins-admin-not-found', { id: isolate(id) })} />}
+        fallback={plugins.loading ? <AsyncPending/> : <Feedback kind="error" message={t('plugins-admin-not-found', { id: isolate(id) })} />}
       >
         {(p) => <UiPluginDetail plugin={p()} api={api} change={change} onDelete={() => setPending({ kind: 'delete', plugin: p() })} />}
       </Show>

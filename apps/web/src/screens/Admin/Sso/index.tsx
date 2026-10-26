@@ -1,3 +1,4 @@
+import {AsyncPending} from '../../../components/AsyncState.tsx';
 // Admin › Single sign-on (t9 e4, SPEC §18.3 / §19; rebuilt on the templates by
 // f33 for t32-cfg §4.12).
 //
@@ -245,7 +246,7 @@ export function AdminSso(props: AdminSsoProps): JSX.Element {
     return (
       <Show
         when={loaded() !== undefined}
-        fallback={rows.error !== undefined ? <Feedback kind="error" message={t('admin-sso-load-error')} /> : <p role="status">{t('admin-shell-loading')}</p>}
+        fallback={rows.error !== undefined ? <Feedback kind="error" message={t('admin-sso-load-error')} /> : <AsyncPending/>}
       >
         <Show when={find(id)} fallback={<Feedback kind="error" message={t('admin-sso-not-found', { id: isolate(id) })} />}>
           {(row) => (

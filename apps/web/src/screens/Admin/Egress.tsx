@@ -1,3 +1,4 @@
+import {AsyncPending} from '../../components/AsyncState.tsx';
 import { controls, field } from './Egress.css.ts';
 // Egress-proxy routes admin (26.20 t22-e16), over t22-e12's API (`2eede09`):
 //
@@ -465,7 +466,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
 
       <Show when={!props.onNavigate||!showEditor()}>
       <Show when={props.onNavigate}><button type="button" class="btn" onClick={()=>props.onNavigate?.('new')}>{t('admin-egress-add-heading')}</button></Show>
-      <Show when={loaded()} fallback={<p class={css.note}>{t('common-loading')}</p>}>
+      <Show when={loaded()} fallback={<AsyncPending variant="page"/>}>
         <Show
           when={routes().length > 0}
           fallback={
