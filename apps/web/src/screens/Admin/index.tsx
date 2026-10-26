@@ -14,7 +14,7 @@
 // Component tests inject mock clients through the props; production uses the
 // same-origin HTTP clients.
 
-import { Show, Suspense, createEffect, createSignal, on, onCleanup, onMount, type JSX } from 'solid-js';
+import { Show, Suspense, createEffect, createMemo, createSignal, on, onCleanup, onMount, type JSX } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { createAdminSlice, createHttpAdminApi, type AdminApi } from '../../state/slices/admin.ts';
 import { onAdminSessionEnded,adminSessionGeneration,adminResponseIsCurrent } from '../../api/adminSession.ts';
@@ -59,8 +59,9 @@ export interface AdminScreenProps {
 export function AdminScreen(props: AdminScreenProps): JSX.Element {
   const admin = createAdminSlice(withTotpGate(props.api ?? createHttpAdminApi()));
   const expiryToast = 'admin-session-ended';
-  createEffect(on(admin.sessionEnded, ended => {
-    if (ended) toast.warning(t('admin-login-session-ended'), {id: expiryToast, duration: 10_000});
+  const expiryMessage = createMemo(() => admin.sessionEnded() ? t('admin-login-session-ended') : null);
+  createEffect(on(expiryMessage, message => {
+    if (message) toast.warning(message, {id: expiryToast, duration: 10_000});
     else toast.dismiss(expiryToast);
   }));
   onCleanup(() => toast.dismiss(expiryToast));
