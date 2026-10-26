@@ -490,7 +490,6 @@ mail-external-count = { $count } recipient(s) outside trusted domains
 mail-external-help = Check the To, Cc and Bcc recipients before sending confidential information. Trust is based on the selected sending identity and your effective domain policy.
 mail-external-reviewed = I have checked these external recipients.
 mail-external-confirm-required = Review and confirm the external recipients before sending.
-
 mail-quick-reply = Quick reply
 mail-quick-reply-help = Offer a compact reply tab with recipients already filled in. Off by default. The normal safety checks and send options still apply.
 mail-quick-reply-expand = Edit recipients and subject
@@ -519,3 +518,15 @@ mail-bulk-forward-subject = Forwarded messages ({ $count })
 mail-bulk-transfer-failed = The selected messages could not be prepared. Select up to 100 messages totaling at most 32 MiB, and check your account's export permissions.
 mail-toast-labels-added = Added label { $label } to { $count } messages
 mail-toast-labels-removed = Removed label { $label } from { $count } messages
+
+mail-action-help-reply = Reply to the sender in a new compose tab.
+mail-action-help-reply-all = Reply to the sender and the other recipients in a new compose tab.
+mail-action-help-forward = Review and forward this message to recipients you choose.
+mail-action-help-pin = Keep this message pinned for easy access, or remove its pin.
+mail-action-help-read = Change whether this message is marked as read. You can undo the change.
+mail-action-help-flag = Set or remove the message flag for follow-up.
+mail-action-help-archive = Move this message to the configured archive folder.
+mail-action-help-delete = Move this message to the trash folder. You can undo the move.
+mail-action-help-spam = Mark this message as junk and move it to the configured spam folder.
+mail-action-help-export = Open the export page to download this message in a format you choose.
+mail-action-help-sweep = Review actions for other messages from this sender before applying them.

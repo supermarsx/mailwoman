@@ -23,3 +23,8 @@ reader-option-skeleton = Placeholder lines
 reader-option-indicator = Text indicator
 reader-option-none = No visual indicator
 reader-inherit = Use administrator default
+
+reader-actionStyle = Message action ribbon
+reader-actionStyle-help = Compact icons leave more room for the message. Every action keeps its keyboard name and an explanatory tooltip. Choose visible labels if you prefer text beside the icons.
+reader-option-icons = Compact icons
+reader-option-labels = Icons and labels

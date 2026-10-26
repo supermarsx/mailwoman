@@ -517,3 +517,6 @@ admin-settings-cat-contacts = Contact pictures
 
 admin-settings-key-nextcloud-sync-interval-secs = Nextcloud automatic refresh interval
 admin-settings-help-nextcloud-sync-interval-secs = Seconds between background collection refreshes for connected native-engine accounts. Zero is manual only; positive values have a sixty-second minimum. Failures back off. No background sign-in is attempted.
+
+admin-settings-key-reader-action-style = Message action ribbon
+admin-settings-help-reader-action-style = Compact icons are the default. Choose labels for icons with visible text; both retain action names and themed tooltips. Supports global, domain and user policy locks.

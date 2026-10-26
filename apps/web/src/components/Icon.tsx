@@ -78,6 +78,7 @@ export type IconName =
   | 'starOutline'
   | 'chevronDown'
   | 'chevronUp'
+  | 'replyAll' | 'mailRead' | 'spam' | 'sweep'
   | 'reply'
   | 'forward'
   | 'calendar'
@@ -103,12 +104,16 @@ export type IconName =
   | 'refresh';
 
 /** Icons whose meaning depends on reading direction. */
-export const DIRECTIONAL: ReadonlySet<IconName> = new Set<IconName>(['signOut', 'egress', 'chevron', 'chevronLeft', 'back', 'reply', 'forward']);
+export const DIRECTIONAL: ReadonlySet<IconName> = new Set<IconName>(['signOut', 'egress', 'chevron', 'chevronLeft', 'back', 'reply', 'replyAll', 'forward']);
 
 const S = { fill: 'none', stroke: 'currentColor', 'stroke-width': '2' } as const;
 const F = { fill: 'currentColor' } as const;
 
 const PATHS: Record<IconName, () => JSX.Element> = {
+  replyAll: () => <><path d="M6 3L2 7l4 4M10 3L6 7l4 4M6 7h5c3 0 4 2 4 6" {...S}/></>,
+  mailRead: () => <><path d="M1 6l7-5 7 5v9H1zM1 6l7 5 7-5" {...S}/></>,
+  spam: () => <><path d="M5 1h6l4 4v6l-4 4H5l-4-4V5zM8 4v5M8 11v1" {...S}/></>,
+  sweep: () => <><path d="M10 6l5-5M2 9l5-5 5 5-5 5H1zM5 9l-3 3M8 10l-3 3" {...S}/></>,
   download: () => <path d="M8 1v9m-4-4 4 4 4-4M2 11v3h12v-3" {...S}/>,
   shield: () => <><path d="M8 1L2 3v5c0 3 3 5 6 7 3-2 6-4 6-7V3z" {...S}/><path d="M5 8l2 2 4-4" {...S}/></>,
   fileAudio: () => <><path d="M6 12V3l7-2v9M6 6l7-2" {...S}/><ellipse cx="3.5" cy="12" rx="2.5" ry="2" {...S}/><ellipse cx="10.5" cy="10" rx="2.5" ry="2" {...S}/></>,

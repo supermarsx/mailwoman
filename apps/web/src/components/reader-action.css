@@ -1,0 +1,3 @@
+.reader-action { display:inline-flex; align-items:center; justify-content:center; gap:.35rem; flex:0 0 auto; }
+.reader-action--compact { min-inline-size:2.25rem; min-block-size:2.25rem; padding:.4rem; }
+@media (max-width:760px) { .reader-action--compact { min-inline-size:44px; min-block-size:44px; } }

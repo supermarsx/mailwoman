@@ -5,6 +5,7 @@ import { LockNote } from './LockNote.tsx';
 import * as css from './styles.css.ts';
 
 const fields: { key: string; fallback: string | number; choices?: string[]; min?: number; max?: number; step?: number }[] = [
+  { key: 'actionStyle', fallback: 'icons', choices: ['icons', 'labels'] },
   { key: 'colorMode', fallback: 'auto', choices: ['auto', 'original', 'adaptive', 'invert'] },
   { key: 'fontSize', fallback: 14, min: 12, max: 24, step: 1 },
   { key: 'lineHeight', fallback: 1.6, min: 1.2, max: 2.2, step: 0.1 },

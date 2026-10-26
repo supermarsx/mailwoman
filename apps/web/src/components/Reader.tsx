@@ -13,6 +13,7 @@ import {
   type Resource,
 } from 'solid-js';
 import { printMessage } from '../viewers/printMessage.ts';
+import { MessageTimes } from './TimeHelpers.tsx';
 import { settings as effectiveSettings } from '../api/settings.ts';
 import { AppContext, useApp } from '../state/context.ts';
 import type { MessageView } from '../state/slices/messageView.ts';
@@ -69,7 +70,7 @@ import { settings } from '../api/settings.ts';
 import { themeCssVars } from '../theme/themeCssVars.ts';
 import { MessageLoading } from './MessageLoading.tsx';
 import { Icon } from './Icon.tsx';
-import { MessageTimes } from './TimeHelpers.tsx';
+import {ReaderAction} from './ReaderAction.tsx';
 import type { ReaderAppearance } from '../viewers/readerAppearance.ts';
 import { isNativeAuth } from '../api/serverAddress.ts';
 import {
@@ -201,82 +202,19 @@ function ReaderToolbar(props: {
   return (
     <div class="reader__toolbar" role="toolbar" aria-label={t('mail-reader-actions')}>
       <span class={toolbarCss.replyGroup}>
-        <button
-          type="button"
-          class={`btn btn--ghost ${a11y.focusable}`}
-          data-testid="reader-reply"
-          disabled={props.preparing}
-          onClick={() => props.onReply('reply')}
-        >
-          {t('mail-reply')}
-        </button>
-        <button
-          type="button"
-          class={`btn btn--ghost ${a11y.focusable}`}
-          data-testid="reader-reply-all"
-          disabled={props.preparing}
-          onClick={() => props.onReply('reply-all')}
-        >
-          {t('mail-reply-all')}
-        </button>
-        <button
-          type="button"
-          class={`btn btn--ghost ${a11y.focusable}`}
-          data-testid="reader-forward"
-          disabled={props.preparing}
-          onClick={() => props.onReply('forward')}
-        >
-          {t('mail-forward')}
-        </button>
+        <ReaderAction icon="reply" label={t('mail-reply')} help={t('mail-action-help-reply')} testId="reader-reply" disabled={props.preparing} onClick={()=>props.onReply('reply')}/>
+        <ReaderAction icon="replyAll" label={t('mail-reply-all')} help={t('mail-action-help-reply-all')} testId="reader-reply-all" disabled={props.preparing} onClick={()=>props.onReply('reply-all')}/>
+        <ReaderAction icon="forward" label={t('mail-forward')} help={t('mail-action-help-forward')} testId="reader-forward" disabled={props.preparing} onClick={()=>props.onReply('forward')}/>
       </span>
-      <button
-        type="button"
-        class={`btn btn--ghost ${a11y.focusable}`}
-        aria-pressed={pinned()}
-        onClick={() => void app.pinMessage(id(), !pinned())}
-      >
-        {pinned() ? t('mail-unpin') : t('mail-pin')}
-      </button>
-      <button
-        type="button"
-        class={`btn btn--ghost ${a11y.focusable}`}
-        data-testid="reader-toggle-read"
-        onClick={() => void app.markRead(id(), unread())}
-      >
-        {unread() ? t('mail-mark-read') : t('mail-mark-unread')}
-      </button>
-      <button
-        type="button"
-        class={`btn btn--ghost ${a11y.focusable}`}
-        aria-pressed={flagged()}
-        data-testid="reader-flag"
-        onClick={() => void app.flagMessage(id(), !flagged())}
-      >
-        {flagged() ? t('mail-unflag-message') : t('mail-flag-message')}
-      </button>
-      <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => void app.archiveMessage(id())}>
-        {t('mail-archive')}
-      </button>
-      <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => void app.trashMessage(id())}>
-        {t('mail-delete')}
-      </button>
-      <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => void app.markSpam(id())}>
-        {t('mail-spam')}
-      </button>
-      <button
-        type="button"
-        class={`btn btn--ghost ${a11y.focusable}`}
-        data-testid="reader-export"
-        onClick={() => void app.exportMessage()}
-      >
-        {t('mail-export')}
-      </button>
-      <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={props.onPrint} title={t('mail-print-help')}><Icon name="print" />{t('mail-print')}</button>
-      <Show when={sender() !== ''}>
-        <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => setSweeping(true)}>
-          {t('mail-sweep-sender')}
-        </button>
-      </Show>
+      <ReaderAction icon="pin" label={pinned()?t('mail-unpin'):t('mail-pin')} help={t('mail-action-help-pin')} pressed={pinned()} onClick={()=>void app.pinMessage(id(),!pinned())}/>
+      <ReaderAction icon={unread()?'mailRead':'mail'} label={unread()?t('mail-mark-read'):t('mail-mark-unread')} help={t('mail-action-help-read')} testId="reader-toggle-read" onClick={()=>void app.markRead(id(),unread())}/>
+      <ReaderAction icon="flag" label={flagged()?t('mail-unflag-message'):t('mail-flag-message')} help={t('mail-action-help-flag')} testId="reader-flag" pressed={flagged()} onClick={()=>void app.flagMessage(id(),!flagged())}/>
+      <ReaderAction icon="archive" label={t('mail-archive')} help={t('mail-action-help-archive')} onClick={()=>void app.archiveMessage(id())}/>
+      <ReaderAction icon="delete" label={t('mail-delete')} help={t('mail-action-help-delete')} onClick={()=>void app.trashMessage(id())}/>
+      <ReaderAction icon="spam" label={t('mail-spam')} help={t('mail-action-help-spam')} onClick={()=>void app.markSpam(id())}/>
+      <ReaderAction icon="download" label={t('mail-export')} help={t('mail-action-help-export')} testId="reader-export" onClick={()=>void app.exportMessage()}/>
+      <ReaderAction icon="print" label={t('mail-print')} help={t('mail-print-help')} onClick={props.onPrint}/>
+      <Show when={sender()!==''}><ReaderAction icon="sweep" label={t('mail-sweep-sender')} help={t('mail-action-help-sweep')} onClick={()=>setSweeping(true)}/></Show>
       {/* Max-security opening switch (plan §7.2): drives the body render mode
           (full / no-media / plain-text) for this sender. Per-sender + global
           policy, admin floor clamps up. */}
@@ -1049,7 +987,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                 </Show>
               </div>
               <MessageTimes sent={email().sentAt} received={email().receivedAt}/>
-              {/* Security chip → expandable panel (plan §7.3): server verdict merged
+              {/* Security chip → expandable panel: server verdict merged
                   with the client decrypt/verify result. */}
               <Show when={verdict()}>
                 {(v) => {

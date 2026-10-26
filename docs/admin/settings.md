@@ -789,3 +789,7 @@ The server requires an authenticated account and exact contact email, reads at m
 <a id="nextcloud.syncIntervalSecs"></a>
 ### Nextcloud refresh interval (`nextcloud.syncIntervalSecs`)
 Global/domain/user integer, default 300 seconds, range 0–86400. Zero disables periodic refresh. Positive values have a 60-second runtime minimum. Only already connected native-engine accounts with active collection bindings are considered; the scheduler never logs into mailbox accounts. Two account refreshes run concurrently with a 30-second deadline and exponential failure backoff capped at one day. Manual and scheduled refreshes share the same account lock. Current capability, source route and linked credentials are checked again for each DAV operation.
+
+<a id="reader.actionStyle"></a>
+### Message action ribbon (`reader.actionStyle`)
+Global/domain/user enum, default `icons`; `labels` adds visible text beside each native icon. Both styles preserve accessible action names, keyboard activation and themed explanatory tooltips. Mobile controls keep 44-pixel targets. User configuration is in Message display and administrator locks apply.

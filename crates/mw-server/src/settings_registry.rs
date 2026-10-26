@@ -581,6 +581,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("mail.quickReply", Kind::Bool, "false", GDU, "mail", "enable the compact message reply composer"),
     def!("mail.requestReadReceipt", Kind::Bool, "false", GDU, "mail", "request a read receipt by default when composing supported mail"),
     def!("contacts.avatarMode", Kind::Enum(&["off", "initials", "contacts"]), "\"initials\"", GDU, "contacts", "local generated avatars or embedded photos from this account contacts; never remote photo requests"),
+    def!("reader.actionStyle", Kind::Enum(&["icons", "labels"]), "\"icons\"", GDU, "reader", "compact reader actions or icons with visible labels"),
     def!("reader.colorMode", Kind::Enum(&["auto", "original", "adaptive", "invert"]), "\"auto\"", GDU, "reader", "message color adaptation inside the isolated reader"),
     def!("reader.fontSize", int(12, 24), "14", GDU, "reader", "message reading font size in pixels"),
     def!("reader.lineHeight", Kind::Float { min: 1.2, max: 2.2 }, "1.6", GDU, "reader", "message reading line height"),
