@@ -19,6 +19,7 @@ import { isolate, loadCatalog, t } from '../../../i18n';
 import { createFocusTrap, createRovingTabindex } from '../../../components/a11y';
 import type { Can } from './can.ts';
 import { useBranding, brandAssetUrl } from '../../../branding.ts';
+import * as brandCss from '../branding.css.ts';
 import { GROUPS, type SectionDef } from './sections.ts';
 import { fieldPath, hrefFor, sectionPath, type AdminRoute } from './router.ts';
 import { Icon } from './icons.tsx';
@@ -184,7 +185,7 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
         <span />
         <span />
         <span />
-      </span>}>{url=><img src={url()} alt={branding()?.brandName||'Mailwoman'} style={{'max-width':'3rem','max-height':'2rem','object-fit':'contain'}}/>}</Show>
+      </span>}>{url=><img src={url()} alt={branding()?.brandName||'Mailwoman'} class={brandCss.shellLogo}/>}</Show>
       {branding()?.brandName || t('admin-brand')}
     </span>
   );

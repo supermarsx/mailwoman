@@ -21,6 +21,7 @@ import { isolate, t, loadCatalog } from '../../i18n';
 import { AdminTotpRequired, createAdminTotpVerifier, signInAdminPasskey, completeAdminRecovery, type AdminTotpVerifier } from './shell/adminAuth.ts';
 import { passkeySupported } from '../Settings/webauthn.ts';
 import * as css from './admin.css.ts';
+import * as brandCss from './branding.css.ts';
 import { authCard, authPage } from '../../styles/authCard.css.ts';
 import { PasswordInput } from '../../components/PasswordInput.tsx';
 import {useBranding,brandAssetUrl} from '../../branding.ts';
@@ -124,12 +125,13 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
   }
 
   return (
-    <main class={`${css.gate} ${authPage}`} style={{'background-image':brandAssetUrl(branding()?.loginBackgroundUrl)?`url("${brandAssetUrl(branding()?.loginBackgroundUrl)}")`:undefined,'background-size':'cover','background-position':'center'}}>
+    <main class={`${css.gate} ${authPage} ${brandCss.loginBackdropHost}`}>
+      <Show when={brandAssetUrl(branding()?.loginBackgroundUrl)}>{url=><img class={brandCss.loginBackdrop} src={url()} alt="" aria-hidden="true"/>}</Show>
       <Show
         when={pending() !== null}
         fallback={
           <form class={`${css.loginCard} ${authCard}`} onSubmit={(e) => void onSubmit(e)} aria-label={t('admin-login-form')}>
-            <Show when={brandAssetUrl(branding()?.logoUrl)}>{url=><img src={url()} alt={branding()?.brandName||'Mailwoman'} style={{'max-width':'12rem','max-height':'6rem','object-fit':'contain'}}/>}</Show>
+            <Show when={brandAssetUrl(branding()?.logoUrl)}>{url=><img src={url()} alt={branding()?.brandName||'Mailwoman'} class={brandCss.loginLogo}/>}</Show>
             <h1 class={css.heading}>{branding()?.brandName||t('admin-brand')}</h1>
             <p class={css.note}>{t('admin-login-note')}</p>
             <Show when={branding()?.loginNotice}>{notice=><p class={css.note} dir="auto">{notice()}</p>}</Show>
