@@ -8,6 +8,7 @@
 mod security_center;
 pub mod branding;
 pub mod identity_principal;
+mod signin_challenges;
 mod auth_logs;
 mod hosting_connections;
 pub use hosting_connections::{HostingConnectionRow, HostingCredentialChange, HostingMutation};

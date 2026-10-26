@@ -588,6 +588,10 @@ Global, hot. Default 50,000; range 1,000–100,000. Oldest entries are removed o
 
 ### Message display
 
+<a id="mail.quickReply"></a>
+`mail.quickReply` defaults to `false`. This checkpoint registers the preference only; the compact reply composer is not wired yet.
+It supports global/domain defaults, administrator locks and user overrides.
+
 <a id="mail.requestReadReceipt"></a>
 `mail.requestReadReceipt` defaults to `false` and sets the composing default for
 requesting a receipt on supported outgoing mail. It does not compel a recipient
@@ -607,14 +611,19 @@ These keys support global and domain defaults, administrator locks and user over
 
 Automatic colors adapt in dark themes and preserve original colors in light themes. Inversion reverses message colors while counter-inverting images. Adaptive mode removes sender foreground/background overrides while preserving layout and media sources. Loader delay affects only feedback, never delivery.
 
-<a id="mail.quoteStyle"></a>
-### `mail.quoteStyle`
+<a id="login.showDomainHint"></a>
+### `login.showDomainHint`
 
-Default `classic`; choose `outlook` for structured From, Sent, To, Cc and Subject headers in replies and forwards. Global, domain and user scope. Administrators can lock the default. Only newly opened compositions change; existing drafts retain their content.
+Global boolean, default `false`. Shows the preferred-domain hint below Email or username on the sign-in page when enabled. Hiding this hint does not change username routing or authentication.
 
 <a id="signin.retryCooldownSecs"></a>
 ### `signin.retryCooldownSecs`
 Global initial password sign-in cooldown, 0–300 seconds, default 3. Applies to mailbox/native and administrator login using the trusted client IP (IPv6 /64). MFA continuation and administrator session expiry are unchanged. Refusals return 429 with Retry-After. Bounded process-local state resets on restart and is independent per replica. Existing failure bans remain in force.
+
+<a id="mail.quoteStyle"></a>
+### `mail.quoteStyle`
+
+Default `classic`; choose `outlook` for structured From, Sent, To, Cc and Subject headers in replies and forwards. Global, domain and user scope. Administrators can lock the default. Only newly opened compositions change; existing drafts retain their content.
 
 <a id="mail.externalRecipientWarning"></a>
 ### `mail.externalRecipientWarning`
@@ -624,11 +633,12 @@ Global/domain/user composer safeguard: `off`, `warn` (default), or `confirm`. Ch
 ### `mail.trustedRecipientDomains`
 Global/domain/user list of up to 100 exact domains, each at most 253 characters. DNS case and IDNA are normalized; invalid entries grant no trust. Subdomains are not implicitly trusted. The selected sending identity's domain is trusted automatically. Administrators can lock both settings to prevent user overrides; an unlocked user list replaces the inherited list.
 
-<a id="login.showDomainHint"></a>
-### `login.showDomainHint`
-
-Global boolean, default `false`. Shows the preferred-domain hint below Email or username on the sign-in page when enabled. Hiding this hint does not change username routing or authentication.
-
-<a id="mail.quickReply"></a>
-`mail.quickReply` defaults to `false`. This checkpoint registers the preference only; the compact reply composer is not wired yet.
-It supports global/domain defaults, administrator locks and user overrides.
+<a id="signin.antiBotMode"></a>
+### `signin.antiBotMode`
+Global self-hosted ALTCHA proof-of-work policy: `off` (default), `mailbox`, `admin`, or `all`. Applies to initial password login, including native clients; MFA continuation remains protected by existing factor attempt limits. The widget and worker are served locally with no external verification service. Passkey ceremonies retain their challenge/signature protections.
+<a id="signin.antiBotDifficulty"></a>
+### `signin.antiBotDifficulty`
+Global solver counter ceiling, 100–20000, default2000. Higher values increase client CPU work; PBKDF2/SHA-256 cost is fixed and server verification uses the signed derived-key fast path.
+<a id="signin.antiBotExpirySecs"></a>
+### `signin.antiBotExpirySecs`
+Global issued challenge lifetime, 60–600seconds, default180. Every proof is consumed atomically once before credential processing and bound to its login surface and trusted client network. At most10000 outstanding challenges and8 per network are retained; issuance also has a bounded process-local rate limit. Expired rows are removed during issuance. Issued proofs are deliberately omitted by migrate-store; users obtain fresh verification after migration. Replicas require the same persistent server key and database.

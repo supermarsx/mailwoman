@@ -1028,6 +1028,7 @@ async fn migrate_store_sqlite_to_postgres() {
 /// deployment, or an admin/deployment surface the operator re-configures on the
 /// new host. `(table, reason)`.
 const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
+    ("signin_challenge", "Ephemeral single-use login proofs are deployment-local; omitting issued nonces fails closed and requires fresh verification."),
     ("identity_serialization", "Structural singleton seeded by migration 0043; contains no identity or authorization data."),
     ("hosting_connection", "Panel host authority and sealed provisioning credentials are deployment-local, like directory and tunnel configuration; re-approve on the new deployment."),
     (

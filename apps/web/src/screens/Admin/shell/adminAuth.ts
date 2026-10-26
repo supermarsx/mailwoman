@@ -73,8 +73,8 @@ function isChallenge(v: unknown): v is AdminTotpChallenge & { twofaRequired: tru
 
 /** The same client, with a TOTP challenge on `login` raised as `AdminTotpRequired`. */
 export function withTotpGate(api: AdminApi): AdminApi {
-  async function login(username: string, password: string): Promise<AdminSession> {
-    const answer: unknown = await api.login(username, password);
+  async function login(username: string, password: string, altcha?: string): Promise<AdminSession> {
+    const answer: unknown = await (altcha ? api.login(username, password, altcha) : api.login(username, password));
     if (isChallenge(answer)) {
       throw new AdminTotpRequired({
         pendingToken: answer.pendingToken,

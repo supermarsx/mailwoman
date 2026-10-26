@@ -15,6 +15,7 @@ name = "mailwoman"
 path = "src/main.rs"
 
 [dependencies]
+altcha = "=1.1.0"
 mw-jmap = { workspace = true }
 mw-store = { workspace = true }
 # t16 (26.16) login second-factor primitives: pure-Rust WebAuthn RP verify + RFC 6238

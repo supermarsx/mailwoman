@@ -379,6 +379,8 @@ admin-settings-help-logs-auth-max-entries = Maximum retained entries. Matching r
 
 admin-settings-key-reader-color-mode = Message colors
 admin-settings-cat-reader = Message display
+admin-settings-key-mail-quick-reply = Quick reply
+admin-settings-help-mail-quick-reply = Reserved preference for the compact reply composer. The composer integration is not implemented in this checkpoint.
 admin-settings-key-mail-request-read-receipt = Request read receipts by default
 admin-settings-help-mail-request-read-receipt = Start supported outgoing messages with a receipt request selected. This is a composing default, not a guarantee that the recipient will send a receipt.
 admin-settings-help-reader-color-mode = Automatic follows dark themes. Choose original, adaptive or inverted rendering inside the isolated message frame.
@@ -393,19 +395,22 @@ admin-settings-help-reader-loading = Placeholder lines, a text indicator or no v
 admin-settings-key-reader-loading-delay-ms = Message loading delay
 admin-settings-help-reader-loading-delay-ms = Delay only the loading indicator, between 0 and 1000 milliseconds. Message delivery is never delayed.
 
-admin-settings-key-mail-quote-style = Reply and forward header style
-admin-settings-help-mail-quote-style = Use classic quoted replies or Outlook-style message headers. This sets the user default; lock it to enforce the style. Existing drafts are unchanged.
+admin-settings-key-login-show-domain-hint = Show preferred domain on sign-in
+admin-settings-help-login-show-domain-hint = Show which domain accepts a username without an email suffix. Hidden by default. This only changes the hint; signing in with a username still works.
 
 admin-settings-key-signin-retry-cooldown-secs = Sign-in retry cooldown
 admin-settings-help-signin-retry-cooldown-secs = Minimum seconds between password sign-in attempts from one client network. Default 3; 0 disables the cooldown. Existing failure bans still apply.
 
+admin-settings-key-mail-quote-style = Reply and forward header style
 admin-settings-key-mail-external-recipient-warning = External recipient warning
 admin-settings-help-mail-external-recipient-warning = Off, warn, or require confirmation in the composer. Covers To, Cc and Bcc. This is a composer safeguard, not a server delivery restriction.
 admin-settings-key-mail-trusted-recipient-domains = Trusted recipient domains
 admin-settings-help-mail-trusted-recipient-domains = Up to 100 exact recipient domains. The selected sending identity's domain is also trusted. Invalid entries never grant trust. Lock this setting to prevent user overrides.
+admin-settings-help-mail-quote-style = Use classic quoted replies or Outlook-style message headers. This sets the user default; lock it to enforce the style. Existing drafts are unchanged.
 
-admin-settings-key-login-show-domain-hint = Show preferred domain on sign-in
-admin-settings-help-login-show-domain-hint = Show which domain accepts a username without an email suffix. Hidden by default. This only changes the hint; signing in with a username still works.
-
-admin-settings-key-mail-quick-reply = Quick reply
-admin-settings-help-mail-quick-reply = Reserved preference for the compact reply composer. The composer integration is not implemented in this checkpoint.
+admin-settings-key-signin-anti-bot-mode = Sign-in bot protection
+admin-settings-help-signin-anti-bot-mode = Self-hosted proof-of-work verification: off, mailbox, admin, or all. No external verification service is contacted.
+admin-settings-key-signin-anti-bot-difficulty = Sign-in verification work
+admin-settings-help-signin-anti-bot-difficulty = Maximum solver counter, 100–20000. Higher values require more browser work; default 2000.
+admin-settings-key-signin-anti-bot-expiry-secs = Sign-in verification lifetime
+admin-settings-help-signin-anti-bot-expiry-secs = Seconds a single-use verification remains valid, 60–600; default 180. A fresh verification is needed after each credential attempt.

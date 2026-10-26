@@ -26,7 +26,12 @@ pub(crate) async fn public_config(
     let values = match settings_registry::effective_all(&state.store, &subject, |def| {
         matches!(
             def.key,
-            "appearance.brandName" | "appearance.theme" | "appearance.accent" | "login.notice" | "login.showDomainHint" | "signin.retryCooldownSecs"
+            "appearance.brandName"
+                | "appearance.theme"
+                | "appearance.accent"
+                | "login.notice"
+                | "login.showDomainHint"
+                | "signin.retryCooldownSecs"
         )
     })
     .await
@@ -54,7 +59,12 @@ pub(crate) async fn public_config(
         Ok(branding) => crate::branding_routes::view(&branding),
         Err(_) => return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let anti_bot = match crate::signin_challenge::config(&state).await {
+        Ok(config) => json!({"mailbox":config.enabled(crate::signin_challenge::Surface::Mailbox),"admin":config.enabled(crate::signin_challenge::Surface::Admin)}),
+        Err(_) => return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     let mut response = Json(json!({
+        "antiBot":anti_bot,
         "retryCooldownSecs":value("signin.retryCooldownSecs"),
         "brandName":branding["brandName"], "theme":value("appearance.theme"),
         "accent":value("appearance.accent"), "loginNotice":branding["loginNotice"],

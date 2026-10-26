@@ -205,7 +205,7 @@ export interface AdminApi {
   /** `GET /admin/session` → the session, or `null` on 401 (gate). */
   session(): Promise<AdminSession | null>;
   /** `POST /admin/login` → the session (401 throws `AdminApiError`). */
-  login(username: string, password: string): Promise<AdminSession>;
+  login(username: string, password: string, altcha?: string): Promise<AdminSession>;
   /** `POST /admin/logout`. */
   logout(): Promise<void>;
 
@@ -320,11 +320,11 @@ export function createHttpAdminApi(base = basePath()): AdminApi {
       if (!res.ok) throw new AdminApiError(res.status, `GET /session failed (${res.status})`);
       return (await res.json()) as AdminSession;
     },
-    async login(username, password) {
+    async login(username, password, altcha) {
       const res = await raw('/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, ...(altcha ? { altcha } : {}) }),
       });
       if (res.status === 401) throw new AdminApiError(401, 'invalid admin credentials');
       if (!res.ok) {
@@ -458,7 +458,7 @@ export interface AdminSlice {
   /** Probe `/admin/session` (called once at mount). */
   loadSession(): Promise<void>;
   /** Sign in against the admin session domain. */
-  login(username: string, password: string): Promise<void>;
+  login(username: string, password: string, altcha?: string): Promise<void>;
   /** Sign out of the admin session. */
   logout(): Promise<void>;
 }
@@ -486,8 +486,8 @@ export function createAdminSlice(api: AdminApi): AdminSlice {
     }
   }
 
-  async function login(username: string, password: string): Promise<void> {
-    setSession(await api.login(username, password));
+  async function login(username: string, password: string, altcha?: string): Promise<void> {
+    setSession(await api.login(username, password, altcha));
     setSessionEnded(false);
   }
 

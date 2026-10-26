@@ -18,10 +18,13 @@ export function settingAnchorId(key: string): string {
 
 /** Every key with a label and help sentence in admin-settings.ftl and an anchor in docs/admin/settings.md. */
 export const KNOWN_KEYS: readonly string[] = [
-  'signin.retryCooldownSecs',
   'mail.quoteStyle',
   'mail.externalRecipientWarning',
   'mail.trustedRecipientDomains',
+  'signin.retryCooldownSecs',
+  'signin.antiBotMode',
+  'signin.antiBotDifficulty',
+  'signin.antiBotExpirySecs',
   'mail.quickReply', 'mail.requestReadReceipt',
   'reader.colorMode', 'reader.fontSize', 'reader.lineHeight',
   'reader.contentWidth', 'reader.loading', 'reader.loadingDelayMs',

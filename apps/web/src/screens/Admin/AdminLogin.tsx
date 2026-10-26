@@ -1,3 +1,4 @@
+import { SigninChallenge } from '../../components/SigninChallenge.tsx';
 // Admin sign-in gate (plan §2.5 — SEPARATE session domain). The panel is gated on
 // an admin session distinct from the mailbox cookie; when none is present this
 // form authenticates against `/admin/login` with the operator's username and
@@ -31,6 +32,9 @@ export interface AdminLoginProps {
 
 export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
   const branding=useBranding();
+  const [verificationProof, setVerificationProof] = createSignal<string>();
+  const [verificationReset, setVerificationReset] = createSignal(0);
+  const needsVerification = () => branding()?.antiBot?.admin === true;
   const admin = useAdmin();
   const verify = props.verifyTotp ?? createAdminTotpVerifier();
   const [username, setUsername] = createSignal('');
@@ -58,11 +62,11 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
 
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
-    if (busy() || retrySeconds() > 0) return;
+    if (busy() || retrySeconds() > 0 || (needsVerification() && !verificationProof())) return;
     setError(null);
     setBusy(true);
     try {
-      await admin.login(username(), password());
+      await admin.login(username(), password(), verificationProof());
     } catch (err) {
       if (err instanceof AdminTotpRequired) {
         setPassword('');
@@ -72,7 +76,9 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
       } else {
         if (err instanceof AdminApiError && err.status === 429) waitForRetry(err.retryAfterSecs ?? 3);
         setError(
-          err instanceof AdminApiError && err.status === 401
+          err instanceof AdminApiError && err.status === 403 && needsVerification()
+            ? t('auth-verification-required')
+            : err instanceof AdminApiError && err.status === 401
             ? t('admin-login-invalid')
             : err instanceof AdminApiError && err.status === 429
               ? t('admin-shell-login-throttled')
@@ -81,6 +87,8 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
       }
     } finally {
       setBusy(false);
+      setVerificationProof(undefined);
+      setVerificationReset(value => value + 1);
     }
   }
 
@@ -155,7 +163,8 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
               </p>
             </Show>
             <Show when={retrySeconds() > 0}><p role="status">{t("admin-login-retry-countdown", { seconds: retrySeconds() })}</p></Show>
-            <button type="submit" class="btn btn--primary" disabled={busy() || retrySeconds() > 0}>
+            <Show when={needsVerification()}><SigninChallenge surface="admin" reset={verificationReset()} onProof={setVerificationProof} /></Show>
+            <button type="submit" class="btn btn--primary" disabled={busy() || retrySeconds() > 0 || (needsVerification() && !verificationProof())}>
               {busy() ? t('admin-login-signing-in') : t('admin-login-sign-in')}
             </button>
             <Show when={passkeySupported()}><button type="button" class="btn" disabled={busy()} onClick={()=>void passkeyLogin()}>{t('admin-passkeys-sign-in')}</button></Show>

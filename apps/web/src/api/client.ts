@@ -78,6 +78,7 @@ export class NetworkError extends Error {
  * refused (t32-h9).
  */
 export interface LoginInput {
+  altcha?: string;
   username: string;
   password: string;
   /**
@@ -351,6 +352,7 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
       return guarded(() => withLoginTimeout(async signal => {
         // Only these fields: the server refuses a body that names a mail server.
         const body: LoginInput = { username: input.username, password: input.password };
+        if (input.altcha) body.altcha = input.altcha;
         if (auth) body.clientType = 'native';
         const res = await req(`/api/login`, {
           signal,

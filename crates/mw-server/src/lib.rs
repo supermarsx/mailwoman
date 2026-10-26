@@ -104,6 +104,7 @@ pub(crate) mod alerts;
 pub(crate) mod step_up;
 mod security_center;
 mod signin_cooldown;
+mod signin_challenge;
 mod server_text;
 // t16 (26.16, e10 chain link 3) MOUNT: the anonymizing image proxy + remote-image
 // grants (e6, S7/S8), the account-preferences router (e18, W12/W13/W15), and the
@@ -869,6 +870,7 @@ pub(crate) struct AppState {
     /// In-process session idle/absolute-timeout tracking.
     sessions: Arc<SessionGuard>,
     signin_cooldown: Arc<signin_cooldown::Cooldown>,
+    signin_challenges: Arc<signin_challenge::IssuanceLimiter>,
     hardening: HardeningConfig,
     /// V4 crypto/security endpoint config (plan §3 e7).
     security: SecurityConfig,
@@ -1302,6 +1304,7 @@ async fn build_app_inner(
         push: push.clone(),
         sessions: Arc::new(SessionGuard::new()),
         signin_cooldown: Arc::new(signin_cooldown::Cooldown::default()),
+        signin_challenges: Arc::new(signin_challenge::IssuanceLimiter::default()),
         hardening: config.hardening,
         security: config.security,
         native_auth: NativeAuthConfig::from_env(),
@@ -1417,6 +1420,7 @@ fn router(
 
     let app = Router::new()
         .route("/api/public-config", get(client_config::public_config))
+        .route("/api/signin/challenge", get(signin_challenge::issue))
         .merge(v6)
         // t16 (26.16, e3): 2FA login-step / enrolment / recovery + session management.
         // `/api/login/2fa*` are pre-auth (pending-token) and CSRF-exempt like
@@ -2035,6 +2039,8 @@ fn add_cors_headers(h: &mut HeaderMap, origin: HeaderValue) {
 struct LoginReq {
     username: String,
     password: String,
+    #[serde(default)]
+    altcha: Option<String>,
     /// V5 native-auth mode (plan §2.2): a native shell sends `"native"` to get a
     /// bearer-token session (a `native_sessions` row, NO cookie) in the response
     /// body instead of the cookie. ADDITIVE — absent for browser logins, so the
@@ -2117,6 +2123,9 @@ async fn login(
         return client_server_refused();
     }
     if let Some(response) = signin_cooldown::check(&state, &headers, &ext).await {
+        return response;
+    }
+    if let Some(response) = signin_challenge::verify(&state, signin_challenge::Surface::Mailbox, &headers, &ext, body.altcha.as_deref()).await {
         return response;
     }
     // A2 (header-auth trusted proxy): if the deployment trusts an upstream that has

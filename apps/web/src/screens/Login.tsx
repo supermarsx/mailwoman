@@ -1,3 +1,4 @@
+import { SigninChallenge } from '../components/SigninChallenge.tsx';
 import { LoginTimeoutError } from '../api/loginTimeout.ts';
 import { rememberedSignins, forgetSignin } from '../api/rememberedSignins.ts';
 import { Icon } from '../components/Icon.tsx';
@@ -40,6 +41,9 @@ export function Login(): JSX.Element {
   const [passkeyAvailable, setPasskeyAvailable] = createSignal(false);
   onMount(() => { if (!native) void passwordlessAvailable().then(setPasskeyAvailable).catch(() => undefined); });
   const [config, setConfig] = createSignal<PublicConfig | null>(null);
+  const [verificationProof, setVerificationProof] = createSignal<string>();
+  const [verificationReset, setVerificationReset] = createSignal(0);
+  const needsVerification = () => config()?.antiBot?.mailbox === true;
   onMount(() => { void publicConfig().then(value => { setConfig(value); applyBranding(value); }).catch(() => undefined); });
   const [email, setEmail] = createSignal('');
   const [remembered, setRemembered] = createSignal(rememberedSignins());
@@ -102,19 +106,21 @@ export function Login(): JSX.Element {
 
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
-    if (busy() || retryWait() > 0) return;
+    if (busy() || retryWait() > 0 || (needsVerification() && !verificationProof())) return;
     setError(null);
     setRefused(false);
     setReference(null);
     setBusy(true);
     waitBeforeRetry(config()?.retryCooldownSecs ?? 3);
     try {
-      await app.login({ username: email().trim(), password: password() });
+      await app.login({ username: email().trim(), password: password(), ...(verificationProof() ? { altcha: verificationProof()! } : {}) });
     } catch (err) {
       if (err instanceof ApiError) setReference(err.requestId ?? null);
       if (err instanceof ApiError && err.status === 429) {
         waitBeforeRetry(err.retryAfterSecs ?? config()?.retryCooldownSecs ?? 3);
         setError(t('auth-login-rate-limited'));
+      } else if (err instanceof ApiError && (err.code === 'signinChallengeRequired' || err.code === 'signinChallengeRejected')) {
+        setError(t('auth-verification-required'));
       } else if (err instanceof LoginTimeoutError || (err instanceof ApiError && err.status === 504)) {
         setError(t('auth-login-timeout'));
       } else if (err instanceof TwoFactorRequired) {
@@ -136,6 +142,8 @@ export function Login(): JSX.Element {
       }
     } finally {
       setBusy(false);
+      setVerificationProof(undefined);
+      setVerificationReset(value => value + 1);
     }
   }
 
@@ -216,7 +224,8 @@ export function Login(): JSX.Element {
             </p>
           )}
         </Show>
-        <button type="submit" class="btn btn--primary" disabled={busy() || retryWait() > 0}>
+        <Show when={needsVerification()}><SigninChallenge surface="mailbox" reset={verificationReset()} onProof={setVerificationProof} /></Show>
+        <button type="submit" class="btn btn--primary" disabled={busy() || retryWait() > 0 || (needsVerification() && !verificationProof())}>
           {busy() ? t('auth-signing-in') : retryWait() > 0 ? t('auth-retry-countdown', { seconds: retryWait() }) : t('auth-sign-in')}
         </button>
         <Show when={passkeyAvailable()}>

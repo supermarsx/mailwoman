@@ -679,6 +679,9 @@ pub static REGISTRY: &[SettingDef] = &[
         "upstream",
         "proxy per-request timeout (lib.rs)"
     ),
+    def!("signin.antiBotMode", Kind::Enum(&["off", "mailbox", "admin", "all"]), "\"off\"", G, "signin", "initial sign-in proof-of-work policy"),
+    def!("signin.antiBotDifficulty", int(100, 20000), "2000", G, "signin", "maximum proof-of-work solver counter"),
+    def!("signin.antiBotExpirySecs", int(60, 600), "180", G, "signin", "single-use challenge lifetime"),
     def!("signin.retryCooldownSecs", int(0, 300), "3", G, "signin", "initial sign-in retry cooldown"),
     // ── Sign-in (e66, e70b) ──────────────────────────────────────────────────
     dedicated(
@@ -2112,7 +2115,7 @@ mod tests {
 
     #[test]
     fn signin_keys_name_a_dedicated_route_and_limits_are_per_address() {
-        for d in REGISTRY.iter().filter(|d| d.key.starts_with("signin.") && d.key != "signin.retryCooldownSecs") {
+        for d in REGISTRY.iter().filter(|d| d.key.starts_with("signin.") && !matches!(d.key, "signin.retryCooldownSecs" | "signin.antiBotMode" | "signin.antiBotDifficulty" | "signin.antiBotExpirySecs")) {
             let r = refuse_if_dedicated(d).unwrap_err();
             assert_eq!((r.status, r.code), (403, "useDedicatedRoute"), "{}", d.key);
             assert!(r.body()["route"].as_str().unwrap().starts_with('/'));

@@ -71,7 +71,7 @@ async fn trusted_peer_cooldown_is_shared_and_hot_configurable() {
         let response = client
             .post(format!("{base}{path}"))
             .header("x-forwarded-for", "203.0.113.7")
-            .json(&json!({"username":"root","password":"hunter2","native":true}))
+            .json(&json!({"username":"root","password":"hunter2","clientType":"native"}))
             .send()
             .await
             .unwrap();

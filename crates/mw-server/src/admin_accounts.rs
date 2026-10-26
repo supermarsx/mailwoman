@@ -417,6 +417,8 @@ fn new_token() -> String {
 struct LoginReq {
     username: String,
     password: String,
+    #[serde(default)]
+    altcha: Option<String>,
 }
 
 /// What the credentials of a sign-in turn out to be.
@@ -505,6 +507,9 @@ async fn login(
         return error.into_response();
     }
     if let Some(response) = crate::signin_cooldown::check(&state, &headers, &ext).await {
+        return response;
+    }
+    if let Some(response) = crate::signin_challenge::verify(&state, crate::signin_challenge::Surface::Admin, &headers, &ext, body.altcha.as_deref()).await {
         return response;
     }
     match check_credentials(&state, &body.username, &body.password).await {

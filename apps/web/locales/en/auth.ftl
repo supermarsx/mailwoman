@@ -8,6 +8,8 @@
 # enters or sees one.
 auth-app-name = Mailwoman
 auth-email = Email or username
+auth-login-rate-limited = Too many sign-in attempts. Please wait before trying again.
+auth-retry-countdown = Try again in { $seconds }s
 auth-password = Password
 auth-sign-in = Sign in
 auth-signing-in = Signing in…
@@ -59,5 +61,7 @@ auth-remembered-help = Addresses used successfully on this device. Choosing one 
 auth-forget-address = Forget { $address } on this device
 auth-login-timeout = Sign-in timed out. No automatic retry was made. Check the connection and try again when ready.
 
-auth-login-rate-limited = Too many sign-in attempts. Please wait before trying again.
-auth-retry-countdown = Try again in { $seconds }s
+auth-verification-title = Sign-in verification
+auth-verification-loading = Loading sign-in verification…
+auth-verification-error = Verification could not be completed. Try the verification again before signing in.
+auth-verification-required = Complete a new sign-in verification before trying again.

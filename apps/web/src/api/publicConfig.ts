@@ -11,6 +11,7 @@ export interface PublicConfig {
   loginNotice: string | null;
   showDomainHint?: boolean;
   retryCooldownSecs?: number;
+  antiBot?: { mailbox: boolean; admin: boolean };
   usernameDomainHint: string | null;
 }
 
