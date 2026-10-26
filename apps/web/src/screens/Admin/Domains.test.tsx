@@ -35,6 +35,26 @@ describe('Admin Domains editor', () => {
     await waitFor(()=>expect(api.renameAlias).toHaveBeenCalledWith(domain.name,'old.example.net','new.example.net','"m1"'));
     expect(api.mapping).not.toHaveBeenCalled();
   });
+  it('keeps compact alias actions inside the named row and opens the dedicated clone editor',async()=>{
+    const api=service({detail:vi.fn(async()=>({...domain,aliases:['first.example.net','second.example.net']}))});
+    await open(api);await page('Domain aliases');
+    const table=screen.getByRole('table',{name:'Domain aliases'});
+    const row=within(table).getByRole('rowheader',{name:'second.example.net'}).closest('tr')!;
+    expect(within(row).getByRole('button',{name:'Edit alias'})).toBeEnabled();
+    expect(within(row).getByRole('button',{name:'Remove second.example.net'})).toBeEnabled();
+    fireEvent.click(within(row).getByRole('button',{name:'Clone alias'}));
+    expect(screen.getByRole('textbox',{name:'Alias domain'})).toHaveValue('second.example.net');
+    expect(screen.queryByRole('table',{name:'Domain aliases'})).toBeNull();
+    expect(api.mapping).not.toHaveBeenCalled();
+  });
+  it('keeps alias names visible without management actions for read-only administrators',async()=>{
+    const api=service({capabilities:vi.fn(async()=>['domains.read']),detail:vi.fn(async()=>({...domain,aliases:['readonly.example.net']}))});
+    await open(api);await page('Domain aliases');
+    const table=screen.getByRole('table',{name:'Domain aliases'});
+    expect(within(table).getByRole('rowheader',{name:'readonly.example.net'})).toBeVisible();
+    expect(within(table).queryByRole('button')).toBeNull();
+    expect(screen.queryByRole('button',{name:'Add alias'})).toBeNull();
+  });
   it('shows aliases in a searchable domain table and keeps actions within their row', async () => {
     const api = service({ list: vi.fn(async () => [{ ...domain, aliases: ['brand.example.net'] }]) });
     renderDomains(api);
