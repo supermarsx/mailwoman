@@ -301,10 +301,11 @@ export function drainOutbox(
   store: OutboxStore,
   client: Client,
   tracking: DrainTracking = defaultTracking,
+  active: () => boolean = () => true,
 ): Promise<DrainResult> {
   const running = draining.get(store);
   if (running !== undefined) return running;
-  const run = withQueueLock(() => drainOnce(store, client, tracking)).finally(() => draining.delete(store));
+  const run = withQueueLock(() => drainOnce(store, client, tracking, active)).finally(() => draining.delete(store));
   draining.set(store, run);
   return run;
 }
@@ -340,11 +341,12 @@ const defaultTracking: DrainTracking = {
   bind: (token, emailId) => bindTrackingToken(token, emailId),
 };
 
-async function drainOnce(store: OutboxStore, client: Client, tracking: DrainTracking): Promise<DrainResult> {
+async function drainOnce(store: OutboxStore, client: Client, tracking: DrainTracking, active: () => boolean): Promise<DrainResult> {
   const pending = ((await store.all()) as QueuedItem[]).filter((i) => i.state === 'queued');
   let sent = 0;
   let failed = 0;
   for (const item of pending) {
+    if (!active()) break;
     try {
       // A tracked send mints its token now. If none can be minted the item is
       // refused (below), never sent untracked; no network stops the drain.
@@ -358,13 +360,14 @@ async function drainOnce(store: OutboxStore, client: Client, tracking: DrainTrac
       } else {
         request = outboundToRequest(item);
       }
+      if (!active()) break;
       const res = await client.jmap(request);
       if (outboundApplied(item, res)) {
         await store.delete(item.id);
         sent += 1;
         if (token !== null) {
           const emailId = responseFor<EmailSetResponse>(res, 'set').created?.['draft']?.id;
-          if (emailId !== undefined) await tracking.bind(token, emailId);
+          if (emailId !== undefined && active()) await tracking.bind(token, emailId);
         }
       } else {
         const lastError = outboundRejection(item, res);
@@ -378,7 +381,7 @@ async function drainOnce(store: OutboxStore, client: Client, tracking: DrainTrac
         failed += 1;
       }
     } catch (err) {
-      if (err instanceof NetworkError) break;
+      if (!active() || err instanceof NetworkError) break;
       if (err instanceof TrackingUnavailable) {
         if (err.reason === 'network') break;
         const refused: QueuedItem = {

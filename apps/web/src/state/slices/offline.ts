@@ -10,7 +10,9 @@
 // (`EmailSubmission/query`, server-held send-later / undo-send). See
 // offline/outbox.ts for the full boundary note.
 
-import { createSignal, type Accessor } from 'solid-js';
+import { createSignal, getOwner, onCleanup, type Accessor } from 'solid-js';
+import { observePreferenceAccount, preferenceAccount, preferenceAccountIsCurrent, type PreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
+import { accountOutbox } from '../../offline/accountOutbox.ts';
 import type { Email } from '../../api/jmap-types.ts';
 import type { OutboundType } from '../../contracts/offline.ts';
 import { t } from '../../i18n/index.ts';
@@ -72,27 +74,45 @@ export function createOfflineSlice(ctx: SliceContext, deps: OfflineSliceDeps = {
   // IndexedDB in the browser; an in-memory queue under jsdom / unsupported envs.
   const store: OutboxStore = deps.store ?? (idbAvailable() ? idbOutboxStore() : memoryOutboxStore());
 
+  const accountStores = new Map<string, OutboxStore>();
+  function scoped(account: PreferenceAccount): OutboxStore {
+    let scopedStore = accountStores.get(account.id);
+    if (!scopedStore) { scopedStore = accountOutbox(store, account.id); accountStores.set(account.id, scopedStore); }
+    return scopedStore;
+  }
+  function authority(): PreferenceAccount {
+    const account = preferenceAccount();
+    if (!account) throw new Error('Sign in before changing the offline queue');
+    return account;
+  }
+
   /** Re-read the queue into the two signals the UI shows. */
   async function refresh(): Promise<void> {
-    const items = (await store.all()) as QueuedItem[];
+    const account = preferenceAccount();
+    if (!account) return;
+    const items = (await scoped(account).all()) as QueuedItem[];
+    if (!preferenceAccountIsCurrent(account)) return;
     setPending(items.filter((i) => i.state === 'queued').length);
     setFailed(items.filter((i) => i.state === 'failed'));
   }
 
   async function enqueueOffline(type: OutboundType, payload: unknown): Promise<string> {
-    const item = await enqueueOutbound(store, { type, payload });
+    const item = await enqueueOutbound(scoped(authority()), { type, payload });
     await refresh();
     return item.id;
   }
 
   async function dequeueOffline(id: string): Promise<boolean> {
-    const removed = await removeQueued(store, id);
+    const removed = await removeQueued(scoped(authority()), id);
     await refresh();
     return removed;
   }
 
   async function replayOffline(): Promise<DrainResult> {
-    const result = await drainOutbox(store, client);
+    const account = preferenceAccount();
+    if (!account) return { sent: 0, failed: 0 };
+    const result = await drainOutbox(scoped(account), client, undefined, () => preferenceAccountIsCurrent(account));
+    if (!preferenceAccountIsCurrent(account)) return result;
     await refresh();
     if (result.sent > 0) showToast('success', t('mail-queue-sent', { count: result.sent }));
     if (result.failed > 0) showToast('error', t('mail-queue-failed', { count: result.failed }));
@@ -100,12 +120,12 @@ export function createOfflineSlice(ctx: SliceContext, deps: OfflineSliceDeps = {
   }
 
   async function retryOffline(id: string): Promise<void> {
-    if (await retryOutbound(store, id)) await replayOffline();
+    if (await retryOutbound(scoped(authority()), id)) await replayOffline();
     else await refresh();
   }
 
   async function discardOffline(id: string): Promise<void> {
-    await discardOutbound(store, id);
+    await discardOutbound(scoped(authority()), id);
     await refresh();
     showToast('info', t('mail-queue-discarded'));
   }
@@ -115,13 +135,13 @@ export function createOfflineSlice(ctx: SliceContext, deps: OfflineSliceDeps = {
   }
 
   function cacheHeaders(headers: Email[]): void {
-    setCachedHeaders(headers);
+    if (preferenceAccount()) setCachedHeaders(headers);
   }
 
   // Replay only on an offline→online transition (client.onNetwork fires `up` on
   // every successful request, so gate on the recovery edge).
   let wasOffline = false;
-  client.onNetwork((up) => {
+  const stopNetwork = client.onNetwork((up) => {
     if (!up) {
       wasOffline = true;
       return;
@@ -134,12 +154,19 @@ export function createOfflineSlice(ctx: SliceContext, deps: OfflineSliceDeps = {
   // The browser's own reconnect signal, independent of in-flight requests. It
   // usually fires together with the edge above; `drainOutbox` runs one drain at
   // a time, so the two do not replay the queue twice.
-  if (typeof window !== 'undefined') {
-    window.addEventListener('online', () => void replayOffline());
-  }
+  const online = (): void => { void replayOffline(); };
+  if (typeof window !== 'undefined') window.addEventListener('online', online);
+  const stopAccount = observePreferenceAccount(account => {
+    setPending(0); setFailed([]); setCachedHeaders([]);
+    if (account) void refresh();
+  });
+  if (getOwner()) onCleanup(() => {
+    stopAccount(); stopNetwork();
+    if (typeof window !== 'undefined') window.removeEventListener('online', online);
+  });
 
   // Hydrate the counts + register the SW; both no-op under jsdom tests.
-  if (deps.store !== undefined || idbAvailable()) void refresh();
+
   void registerServiceWorker();
 
   return {

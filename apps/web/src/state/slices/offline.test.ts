@@ -1,4 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { activateAccountPreferences, suspendAccountPreferences } from '../../api/accountPreferenceLifecycle.ts';
+beforeEach(() => activateAccountPreferences('acct1'));
+afterEach(() => suspendAccountPreferences());
 import { createRoot } from 'solid-js';
 import { createOfflineSlice, type OfflineSlice } from './offline.ts';
 import type { SliceContext } from './context.ts';
@@ -73,6 +76,24 @@ function submissions(jmap: Rig['jmap']): JmapRequest[] {
 }
 
 describe('offline slice — queue and undo', () => {
+  it('clears visible data and cannot replay or mutate another account queue', async () => {
+    await withSlice(async ({ offline, store, jmap }) => {
+      const id = await offline.enqueueOffline('move', move);
+      offline.cacheHeaders([mkEmail('private')]);
+      suspendAccountPreferences();
+      expect(offline.offlineQueuePending()).toBe(0);
+      expect(await offline.replayOffline()).toEqual({ sent: 0, failed: 0 });
+      activateAccountPreferences('other');
+      expect(await offline.dequeueOffline(id)).toBe(false);
+      await offline.replayOffline();
+      expect(jmap).not.toHaveBeenCalled();
+      expect(await store.all()).toHaveLength(1);
+      await expect(offline.enqueueOffline('move', move)).rejects.toThrow('active account');
+      activateAccountPreferences('acct1');
+      await vi.waitFor(() => expect(offline.offlineQueuePending()).toBe(1));
+    });
+  });
+
   it('enqueue resolves to the item id and counts it; dequeue removes it before it is sent', async () => {
     await withSlice(async ({ offline, store, jmap }) => {
       const id = await offline.enqueueOffline('move', move);
