@@ -1,3 +1,4 @@
+import { FolderCountBadge } from '../components/FolderCountBadge.tsx';
 import { AppearanceCustomizationRuntime } from '../components/AppearanceCustomizationRuntime.tsx';
 import {createSharingAccess} from '../api/mailboxSharing.ts';
 import {createConfiguredClient} from '../api/transport.ts';
@@ -462,7 +463,7 @@ export function MailboxScreen(): JSX.Element {
                 }}
               >
                 <Icon name={folderIcon(box(),accountUiPreferences())}/><span class="sidebar__box-name">{box().name}</span>
-                <Show when={Number.isFinite(box().totalEmails)}><span class="sidebar__badge" data-secondary={box().role !== 'inbox' ? 'true' : undefined} title={t('mail-folder-counts',{unread:box().unreadEmails,total:box().totalEmails})} aria-label={t('mail-folder-counts',{unread:box().unreadEmails,total:box().totalEmails})}>{box().unreadEmails}<span class="sidebar__total"> / {box().totalEmails}</span></span></Show>
+                <FolderCountBadge folder={box()}/>
               </button>
               </FolderContextMenu>
             );}}

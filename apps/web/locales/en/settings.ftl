@@ -428,3 +428,12 @@ settings-mail-modifier-selection = Select messages with modifier keys
 settings-mail-modifier-selection-help = Ctrl or Command toggles separate messages. Shift selects a range, and Shift with arrow keys extends it. The visible selection button remains available when this is off.
 settings-mail-drag-folder = Drag messages to folders
 settings-mail-drag-folder-help = Drag a selected message to move the selection, or an unselected message to move just that message. Only folders in this account are accepted. Touch and keyboard users can use the selection toolbar instead.
+
+settings-folder-counts = Folder counts
+settings-folder-counts-none = Hide counts
+settings-folder-counts-unread = Unread messages
+settings-folder-counts-total = Total messages
+settings-folder-counts-both = Unread and total messages
+settings-folder-counts-compact = Smaller badges outside Inbox
+settings-folder-counts-reset = Inherit folder counts
+settings-folder-counts-reset-size = Inherit badge size

@@ -991,3 +991,6 @@ body {
 .reader__security-line { display:flex; align-items:center; gap:.4rem; min-inline-size:0; flex-wrap:nowrap; margin-block:.25rem; }
 .reader__security-line > :first-child { min-inline-size:0; flex-shrink:1; }
 .reader__security-line .spam-score__empty { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+.sidebar__box-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sidebar__badge { flex-shrink:0; white-space:nowrap; }

@@ -594,6 +594,8 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("mail.requestDeliveryReceipt", Kind::Bool, "false", GDU, "mail", "request delivery status notifications by default when the account supports DSN"),
     def!("mail.modifierSelection", Kind::Bool, "true", GDU, "mail", "select messages with Ctrl, Command, Shift and arrow keys"),
     def!("mail.dragToFolder", Kind::Bool, "true", GDU, "mail", "move selected messages by dragging them to a folder"),
+    def!("mail.folderCounts", Kind::Enum(&["none", "unread", "total", "both"]), "\"both\"", GDU, "mail", "counts displayed beside mail folders"),
+    def!("mail.compactFolderBadges", Kind::Bool, "true", GDU, "mail", "smaller count badges for folders other than Inbox"),
     def!("contacts.avatarMode", Kind::Enum(&["off", "initials", "contacts"]), "\"initials\"", GDU, "contacts", "local generated avatars or embedded photos from this account contacts; never remote photo requests"),
     def!("reader.actionStyle", Kind::Enum(&["icons", "labels"]), "\"icons\"", GDU, "reader", "compact reader actions or icons with visible labels"),
     def!("reader.colorMode", Kind::Enum(&["auto", "original", "adaptive", "invert"]), "\"auto\"", GDU, "reader", "message color adaptation inside the isolated reader"),

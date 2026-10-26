@@ -599,3 +599,8 @@ admin-settings-key-mail-modifier-selection = Message modifier-key selection
 admin-settings-help-mail-modifier-selection = Allow Ctrl, Command and Shift range selection. Lock this value to enforce it; visible selection controls remain available.
 admin-settings-key-mail-drag-to-folder = Drag messages to folders
 admin-settings-help-mail-drag-to-folder = Allow account-bound message dragging to real folders. This does not grant mailbox write permission; the server still authorizes each move.
+
+admin-settings-key-mail-folder-counts = Folder counts
+admin-settings-help-mail-folder-counts = Choose hidden, unread, total, or both counts beside folders. Set global, domain, or user defaults, and lock the choice when required.
+admin-settings-key-mail-compact-folder-badges = Compact secondary folder badges
+admin-settings-help-mail-compact-folder-badges = Show smaller badges outside Inbox. Users can choose their own size unless this setting is locked.
