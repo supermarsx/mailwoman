@@ -530,3 +530,14 @@ mail-action-help-delete = Move this message to the trash folder. You can undo th
 mail-action-help-spam = Mark this message as junk and move it to the configured spam folder.
 mail-action-help-export = Open the export page to download this message in a format you choose.
 mail-action-help-sweep = Review actions for other messages from this sender before applying them.
+
+mail-empty-trash = Empty trash
+mail-trash-help = Review and permanently delete messages currently in Trash. This cannot be undone.
+mail-trash-preparing = Preparing a snapshot of the messages in Trash…
+mail-trash-prepare-failed = The Trash preview could not be prepared. Check your connection and reopen it. No messages were deleted.
+mail-trash-confirm = Permanently delete { $count } messages from Trash? This cannot be undone. Messages arriving after this preview are excluded; messages moved out of Trash are skipped.
+mail-trash-limit = This operation includes up to { $count } messages. More remain in Trash; review another operation afterward to remove them.
+mail-trash-permanent = Delete permanently
+mail-trash-stop = Stop after the current request
+mail-trash-progress = Deleted { $deleted }; skipped { $skipped } messages no longer in Trash; { $remaining } still in this preview.
+mail-trash-stopped = Deletion stopped. Confirmed deleted: { $deleted }; skipped: { $skipped }; not deleted or not confirmed: { $remaining }. Check Trash before starting another operation.

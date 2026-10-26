@@ -1,0 +1,20 @@
+import {test,expect} from '../csrf.ts';
+import {signInManually,messageRow,drawerButton} from '../helpers.ts';
+import {sendRawSmtp} from '../crypto-helpers.ts';
+
+// Run only against a dedicated disposable mailbox: this action destroys Trash.
+test('empty trash requires review, leaves Inbox intact and confirms actual deletion @phone',async({page},info)=>{
+ test.skip(process.env['MW_E2E_DISPOSABLE_TRASH']!=='true','Requires an isolated disposable mailbox');
+ const subject=`Trash acceptance ${Date.now()}`;const sentinel=`Inbox retained ${Date.now()}`;for(const title of [subject,sentinel])await sendRawSmtp({from:'trash-check@example.org',message:`From: trash-check@example.org\r\nTo: testuser@example.org\r\nSubject: ${title}\r\nMessage-ID: <${title.replaceAll(' ','-')}@example.org>\r\n\r\nDisposable test message.\r\n`});
+ await signInManually(page,{username:'testuser',password:'testpass'});await messageRow(page,subject).click();
+ const session=await(await page.request.get('/jmap/session')).json();const accountId=session.primaryAccounts['urn:ietf:params:jmap:mail'];
+ const call=async(name:string,args:Record<string,unknown>)=>{const response=await page.request.post('/jmap/api',{data:{using:['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'],methodCalls:[[name,{accountId,...args},'c']]}});expect(response.ok(),await response.text()).toBe(true);const body=await response.json();expect(body.methodResponses[0][0]).toBe(name);return body.methodResponses[0][1];};
+ let boxes=await call('Mailbox/get',{});let trash=boxes.list.find((box:{role:string})=>box.role==='trash');
+ if(!trash){const created=await call('Mailbox/set',{create:{trash:{name:'Trash'}}});expect(created.created?.trash,JSON.stringify(created)).toBeTruthy();boxes=await call('Mailbox/get',{});trash=boxes.list.find((box:{role:string})=>box.role==='trash');}expect(trash,JSON.stringify(boxes)).toBeTruthy();
+ const query=await call('Email/query',{filter:{subject}});expect(query.ids).toHaveLength(1);const id=query.ids[0];await call('Email/set',{update:{[id]:{mailboxIds:{[trash.id]:true}}}});
+ await page.reload();if(info.project.name==='phone')await drawerButton(page).click();await page.getByRole('navigation',{name:'Mailboxes'}).getByRole('button',{name:/Trash/}).click();
+ await expect(messageRow(page,subject)).toBeVisible();await page.getByRole('button',{name:'Empty trash',exact:true}).click();const dialog=page.getByRole('alertdialog',{name:'Empty trash'});await expect(dialog.getByRole('button',{name:'Delete permanently'})).toBeEnabled();
+ await dialog.getByRole('button',{name:'Close',exact:true}).click();expect((await call('Email/get',{ids:[id]})).list).toHaveLength(1);
+ await page.getByRole('button',{name:'Empty trash',exact:true}).click();await expect(dialog.getByRole('button',{name:'Delete permanently'})).toBeEnabled();await page.screenshot({path:info.outputPath('trash-confirm.png'),fullPage:true});await dialog.getByRole('button',{name:'Delete permanently'}).click();
+ await expect(dialog.getByRole('status')).toContainText('Deleted 1');expect((await call('Email/get',{ids:[id]})).notFound).toContain(id);expect((await call('Email/query',{filter:{subject:sentinel}})).ids).toHaveLength(1);await dialog.getByRole('button',{name:'Close',exact:true}).click();await expect(messageRow(page,subject)).toHaveCount(0);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1&&document.documentElement.scrollHeight<=innerHeight+1)).toBe(true);
+});
