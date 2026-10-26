@@ -1,3 +1,4 @@
+import {AsyncPending,AsyncError} from './AsyncState.tsx';
 import {RemoteImageDownloads} from './RemoteImageDownloads.tsx';
 import {SaveToNextcloud} from '../modules/nextcloud/SaveToNextcloud.tsx';
 import {
@@ -245,7 +246,7 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
   onMount(()=>{void loadCatalog('nextcloud');void app.nextcloud.ensureEnabled();});
   createEffect(on(()=>props.email.id,()=>setCloudItem(null),{defer:true}));
 
-  const [attachmentPolicy]=createResource(()=>((props.email as {attachments?:AttachmentPart[]}).attachments?.length??0)>0?props.email.id:undefined,loadAttachmentPolicy);
+  const [attachmentPolicy,{refetch:retryPolicy}]=createResource(()=>((props.email as {attachments?:AttachmentPart[]}).attachments?.length??0)>0?props.email.id:undefined,loadAttachmentPolicy);
   const [acknowledged,setAcknowledged]=createSignal(false);
   const decision=(item:StripItem)=>attachmentPolicy.state==='ready'?attachmentDecision(attachmentPolicy()!,item):undefined;
   const [openItem, setOpenItem] = createSignal<StripItem | null>(null);
@@ -311,12 +312,14 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
   return (
     <Show when={items().length > 0}>
       <section class="reader__attachments" aria-label={t('mail-attachments')} data-testid="reader-attachments">
+        <Show when={attachmentPolicy.state==='ready'} fallback={<Show when={attachmentPolicy.error} fallback={<AsyncPending message={t('mail-attachment-policy-loading')}/>}><AsyncError message={t('mail-attachment-policy-unavailable')} onRetry={()=>{void retryPolicy();}}/></Show>}>
         <ThumbnailStrip
           items={items()}
           selectedBlobId={openItem()?.blobId ?? ''}
           onSelect={(it) => {setAcknowledged(false); if(props.onOpenAttachment)props.onOpenAttachment(it);else setOpenItem(it);}}
           resolveThumb={(item)=>blobUrlFor(item)}
         />
+        </Show>
         <Show when={app.nextcloud.enabled() && cloudAccount===app.accountId()}>
           <div aria-label={t('nextcloud-save-options')}><For each={items()}>{item=><button type="button" class="btn" disabled={!decision(item)?.allowed} onClick={()=>setCloudItem(item)}>{t('nextcloud-save-attachment',{name:isolate(item.name)})}</button>}</For></div>
           <Show when={cloudItem()} keyed>{item=><section aria-label={t('nextcloud-save-options')}><button type="button" class="btn" onClick={()=>setCloudItem(null)}>{t('nextcloud-save-close')}</button><SaveToNextcloud {...(cloudAccount?{accountId:cloudAccount}:{})} attachment={{emailId:props.email.id,blobId:item.blobId,name:item.name}} service={app.nextcloud.service} onSaved={()=>setCloudItem(null)}/></section>}</Show>

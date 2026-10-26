@@ -79,6 +79,7 @@ describe('OfflineQueueNotice', () => {
 
   it('renders nothing while no queued change has failed, including with one still pending', async () => {
     const { app } = renderWithApp(() => <OfflineQueueNotice />);
+    await app.login({username:'me@example.org',password:'p'});
     expect(screen.queryByTestId('offline-queue-failed')).toBeNull();
     await app.enqueueOffline('move', move);
     expect(app.offlineQueuePending()).toBe(1);
@@ -87,6 +88,7 @@ describe('OfflineQueueNotice', () => {
 
   it('lists each failed change with what it was and why it failed', async () => {
     const { app, client } = renderWithApp(() => <OfflineQueueNotice />);
+    await app.login({username:'me@example.org',password:'p'});
     await twoFailures(app, client);
 
     const notice = await screen.findByRole('region', { name: 'Changes that could not be applied' });
@@ -102,6 +104,7 @@ describe('OfflineQueueNotice', () => {
 
   it('Retry replays that change; once the server applies it, it leaves the notice', async () => {
     const { app, client } = renderWithApp(() => <OfflineQueueNotice />);
+    await app.login({username:'me@example.org',password:'p'});
     const server = await twoFailures(app, client);
     await screen.findByTestId('offline-queue-failed');
     expect(server.replays()).toBe(2);
@@ -118,6 +121,7 @@ describe('OfflineQueueNotice', () => {
 
   it('Discard removes that change without sending it, and the notice goes when none is left', async () => {
     const { app, client } = renderWithApp(() => <OfflineQueueNotice />);
+    await app.login({username:'me@example.org',password:'p'});
     const server = await twoFailures(app, client);
     await screen.findByTestId('offline-queue-failed');
 

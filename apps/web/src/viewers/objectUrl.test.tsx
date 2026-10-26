@@ -20,7 +20,7 @@
 // exported from `Reader.tsx` for exactly this. Only the app context is a double.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, waitFor, fireEvent } from '@solidjs/testing-library';
+import { render, waitFor, fireEvent, screen } from '@solidjs/testing-library';
 import { AppContext } from '../state/context.ts';
 import type { AppState } from '../state/store.ts';
 import type { Email } from '../api/jmap-types.ts';
@@ -29,6 +29,7 @@ import { ThumbnailStrip, type StripItem } from './ThumbnailStrip.tsx';
 import { fetchObjectUrl } from './attachments.ts';
 import { createObjectUrlOwner } from './objectUrl.ts';
 
+const allowedPolicy={previewAllowed:true,downloadAllowed:true,maxBytes:1024,allowedExtensions:[],blockedExtensions:[],warnExtensions:[],allowedMimeTypes:[],blockedMimeTypes:[],warnMimeTypes:[]};
 let created = 0;
 let revoked = 0;
 /** URLs minted and not yet handed back — the live set the tab would be pinning. */
@@ -52,10 +53,10 @@ beforeEach(() => {
   });
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => ({
+    vi.fn(async (input:RequestInfo | URL) => String(input).endsWith('/api/attachments/policy') ? new Response(JSON.stringify(allowedPolicy),{status:200,headers:{'content-type':'application/json'}}) : ({
       ok: true,
       blob: async () => new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }),
-      text: async () => 'x',
+      text: async ():Promise<string> => 'x',
     })),
   );
 });
@@ -73,11 +74,12 @@ function items(n: number, mime: string): StripItem[] {
   }));
 }
 
-/** The two accessors `<AttachmentsPane>` reads off the app state. */
+/** Minimal authenticated attachment context; policy is fetched through the real loader. */
 function appDouble(): AppState {
   return {
     downloadUrl: () => '/jmap/download/{accountId}/{blobId}/{name}',
     accountId: () => 'acct1',
+    nextcloud:{enabled:()=>false,ensureEnabled:vi.fn(async()=>{})},
   } as unknown as AppState;
 }
 
@@ -153,6 +155,7 @@ describe('object-URL ownership — the balance (t22 L6)', () => {
       </AppContext.Provider>
     ));
 
+    await waitFor(()=>expect(container.querySelectorAll('.mw-thumb')).toHaveLength(12));
     const thumbs = container.querySelectorAll<HTMLButtonElement>('.mw-thumb');
     expect(thumbs.length).toBe(12);
     expect(created).toBe(0);
@@ -182,6 +185,7 @@ describe('object-URL ownership — the balance (t22 L6)', () => {
         <AttachmentsPane email={emailWith(parts)} />
       </AppContext.Provider>
     ));
+    await waitFor(()=>expect(container.querySelectorAll('.mw-thumb')).toHaveLength(4));
     fireEvent.click(container.querySelector<HTMLButtonElement>('.mw-thumb')!);
     await waitFor(() => expect(created).toBe(1));
     expect(revoked).toBe(0);
@@ -236,4 +240,34 @@ describe('createObjectUrlOwner', () => {
     expect(revoked).toBe(0);
     unmount();
   });
+});
+
+describe('attachment policy admission before object URLs',()=>{
+ it('waits for the actual policy response before creating image previews',async()=>{
+  let resolve!:(value:Response)=>void;
+  vi.mocked(fetch).mockImplementationOnce(()=>new Promise<Response>(done=>{resolve=done;}));
+  const {container,unmount}=render(()=><AppContext.Provider value={appDouble()}><AttachmentsPane email={emailWith(items(2,'image/png'))}/></AppContext.Provider>);
+  expect(screen.getByTestId('async-pending')).toBeInTheDocument();
+  expect(container.querySelector('.mw-thumb')).toBeNull();expect(created).toBe(0);expect(fetch).toHaveBeenCalledTimes(1);
+  resolve(new Response(JSON.stringify(allowedPolicy),{status:200}));
+  await waitFor(()=>expect(created).toBe(2));
+  unmount();expect(revoked).toBe(2);expect(live.size).toBe(0);
+ });
+ it('refuses previews on policy failure and retries policy before fetching any attachment',async()=>{
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(null,{status:503}));
+  const {container,unmount}=render(()=><AppContext.Provider value={appDouble()}><AttachmentsPane email={emailWith(items(2,'image/png'))}/></AppContext.Provider>);
+  expect(await screen.findByRole('alert')).toBeInTheDocument();
+  expect(container.querySelector('.mw-thumb')).toBeNull();expect(created).toBe(0);expect(fetch).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button',{name:'Retry'}));
+  await waitFor(()=>expect(created).toBe(2));
+  unmount();expect(revoked).toBe(2);expect(live.size).toBe(0);
+ });
+ it('keeps explicitly disabled previews closed without creating object URLs',async()=>{
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({...allowedPolicy,previewAllowed:false}),{status:200}));
+  const {container,unmount}=render(()=><AppContext.Provider value={appDouble()}><AttachmentsPane email={emailWith(items(1,'image/png'))}/></AppContext.Provider>);
+  await waitFor(()=>expect(container.querySelector('.mw-thumb')).not.toBeNull());
+  fireEvent.click(container.querySelector<HTMLButtonElement>('.mw-thumb')!);
+  await waitFor(()=>expect(screen.getByText(/Attachment previews are disabled/)).toBeInTheDocument());
+  expect(created).toBe(0);expect(fetch).toHaveBeenCalledTimes(1);unmount();expect(live.size).toBe(0);
+ });
 });
