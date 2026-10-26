@@ -1,10 +1,11 @@
+import {workspaceLayout,type WorkspaceLayout,type WorkspaceViewAssignments} from './workspaceLayout.ts';
 /** Account-bound tab references only. Bodies, recipients, titles, URLs and keys
  * belong to their existing authorized stores and never enter this record. */
 export const WORKSPACE_STORAGE_KEY='mw.workspace.v2';
 export const MAX_WORKSPACE_TABS=32;
 export type WorkspaceKind='messages'|'composer'|'settings'|'attachment'|'module'|'attachments'|'outbox'|'sharing';
 export interface WorkspaceReference {id:string;kind:WorkspaceKind;pinned:boolean;reference?:string;messageId?:string}
-export interface WorkspaceSnapshot {version:2;accountId:string;storageAuthority:string;tabs:WorkspaceReference[];activeId:string;layout:'tabs'|'side-by-side'|'stack'}
+export interface WorkspaceSnapshot {version:2;accountId:string;storageAuthority:string;tabs:WorkspaceReference[];activeId:string;layout:WorkspaceLayout;viewAssignments?:WorkspaceViewAssignments}
 const kinds=new Set<WorkspaceKind>(['messages','composer','settings','attachment','module','attachments','outbox','sharing']);
 const modules=new Set(['calendar','tasks','notes','contacts','keys']);
 const identifier=(value:unknown):value is string=>typeof value==='string'&&value.length>0&&value.length<=512&&![...value].some(character=>character.charCodeAt(0)<32||character.charCodeAt(0)===127);
@@ -25,8 +26,10 @@ export function parseWorkspace(raw:string,accountId:string,storageAuthority:stri
    if(tab.kind==='messages'&&tab.id!=='mail'&&!tab.reference)return null;
    seen.add(tab.id);tabs.push({id:tab.id,kind:tab.kind as WorkspaceKind,pinned:tab.pinned,...(typeof tab.reference==='string'?{reference:tab.reference}:{}),...(typeof tab.messageId==='string'?{messageId:tab.messageId}:{})});
   }
-  const layout=record.layout==='side-by-side'||record.layout==='stack'?record.layout:'tabs';
-  return {version:2,accountId,storageAuthority,tabs,activeId:typeof record.activeId==='string'&&seen.has(record.activeId)?record.activeId:'mail',layout};
+  const layout=workspaceLayout(record.layout);
+  const rawViews=record.viewAssignments;
+  const viewAssignments:WorkspaceViewAssignments|undefined=Array.isArray(rawViews)&&rawViews.length===2&&rawViews.every(id=>id===null||(typeof id==='string'&&id!=='mail'&&seen.has(id)))&&(rawViews[0]===null||rawViews[0]!==rawViews[1])?[rawViews[0] as string|null,rawViews[1] as string|null]:undefined;
+  return {version:2,accountId,storageAuthority,tabs,activeId:typeof record.activeId==='string'&&seen.has(record.activeId)?record.activeId:'mail',layout,...(viewAssignments?{viewAssignments}:{})};
  }catch{return null;}
 }
 export function readWorkspace(accountId:string,storageAuthority:string):WorkspaceSnapshot|null {

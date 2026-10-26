@@ -85,14 +85,15 @@ describe('SubTabStrip', () => {
     expect(toasts()[0]?.message).toContain('Inbox');
   });
 
-  it('the tear-off button opens a window and closes the tab locally', () => {
-    const openWindow = vi.fn(() => ({}));
-    const controller = createRealtimeController({ subTabs: { openWindow } });
+  it('offers detach only with a real retained-pane handler and keeps the tab owned', () => {
+    const controller = createRealtimeController();
     controller.subTabs.open({ id: 'm-1', kind: 'messages', title: 'Inbox' });
-    renderStrip(controller);
-    fireEvent.click(screen.getByRole('button', { name: 'Open Inbox in a new window' }));
-    expect(openWindow).toHaveBeenCalledWith('?tab=m-1', '_blank');
-    expect(screen.queryByRole('tab')).toBeNull();
+    const detach=vi.fn();
+    const mounted=renderStrip(controller);
+    expect(screen.queryByRole('button',{name:'Open Inbox in a new window'})).toBeNull();mounted.unmount();
+    render(()=><RealtimeContext.Provider value={controller}><SubTabStrip onDetach={detach}/></RealtimeContext.Provider>);
+    fireEvent.click(screen.getByRole('button',{name:'Open Inbox in a new window'}));
+    expect(detach).toHaveBeenCalledWith('m-1');expect(controller.subTabs.tabs()).toHaveLength(1);
   });
 
   it('Arrow keys cycle the active tab', () => {

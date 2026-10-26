@@ -122,3 +122,21 @@ it('does not dismiss help when pointer movement happens outside its anchor and b
   await settle(150);
   expect(screen.getByRole('tooltip')).toBeInTheDocument();
 });
+
+it('uses the detached document for hover, native title adoption, and cleanup', async()=>{
+  const frame=document.createElement('iframe');document.body.append(frame);
+  const child=frame.contentDocument!;
+  const button=child.createElement('button');button.title='Detached action';child.body.append(button);
+  const adopted=document.createElement('button');adopted.setAttribute('data-tooltip','Adopted action');child.body.append(adopted);
+  const mounted=render(()=><TooltipLayer document={child}/>);
+  expect(button).not.toHaveAttribute('title');
+  fireEvent.pointerOver(button,{pointerType:'mouse'});await settle();
+  expect(child.querySelector('[role="tooltip"]')?.textContent).toBe('Detached action');
+  expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  fireEvent.pointerOver(adopted,{pointerType:'mouse'});
+  expect(child.querySelector('[role="tooltip"]')?.textContent).toBe('Adopted action');
+  mounted.unmount();
+  expect(child.querySelector('[role="tooltip"]')).toBeNull();
+  expect(button).toHaveAttribute('title','Detached action');
+  frame.remove();
+});

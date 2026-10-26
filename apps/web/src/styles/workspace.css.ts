@@ -60,3 +60,26 @@ globalStyle('.mail-workspace .mail-pane > .list', { borderInlineEnd: 0 });
 globalStyle('.workspace-panes[data-layout="tabs"]', { gridTemplateRows: 'minmax(0,1fr)' });
 globalStyle('.workspace-pane', { alignSelf: 'stretch', background: vars.color.bg });
 globalStyle('.workspace-body--split[data-reading-pane="bottom"] > .mail-pane', { borderInlineEnd: 0, borderBlockEnd: `1px solid ${vars.color.border}` });
+
+// Five view arrangements keep the same retained pane elements.
+globalStyle('.workspace-layout-modes',{display:'flex',alignItems:'center',gap:'2px',flex:'0 0 auto',paddingInline:'4px',borderInlineStart:`1px solid ${vars.color.border}`,borderInlineEnd:`1px solid ${vars.color.border}`});
+globalStyle('.workspace-bar .workspace-layout-mode',{padding:'4px',width:'32px',minWidth:'32px','@media':{'(pointer: coarse)':{width:'44px',minWidth:'44px',minHeight:'44px'}}});
+globalStyle('.workspace-layout-mode[aria-pressed="true"]',{background:vars.color.accent,color:vars.color.accentText,borderColor:vars.color.accent});
+globalStyle('.workspace-panes[data-layout="side-by-side"] > [data-view-slot="0"]',{gridColumn:'1',gridRow:'1'});
+globalStyle('.workspace-panes[data-layout="side-by-side"] > [data-view-slot="1"]',{gridColumn:'3',gridRow:'1'});
+globalStyle('.workspace-panes[data-layout="side-by-side"] > [role="separator"]',{gridColumn:'2',gridRow:'1'});
+globalStyle('.workspace-panes[data-layout="stack"] > [data-view-slot="0"]',{gridColumn:'1',gridRow:'1'});
+globalStyle('.workspace-panes[data-layout="stack"] > [data-view-slot="1"]',{gridColumn:'1',gridRow:'3'});
+globalStyle('.workspace-panes[data-layout="stack"] > [role="separator"]',{gridColumn:'1',gridRow:'2'});
+globalStyle('.workspace-view-empty',{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:vars.space[4],minWidth:0,minHeight:0,color:vars.color.textDim,border:`1px dashed ${vars.color.border}`,textAlign:'center'});
+globalStyle('.workspace-panes [data-drop-target="true"]',{outline:`2px solid ${vars.color.accent}`,outlineOffset:'-2px'});
+globalStyle('.workspace-panes:is([data-layout="masonry-side-by-side"],[data-layout="masonry-stack"])',{containerType:'inline-size',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,280px),1fr))',gridTemplateRows:'none',gridAutoRows:'minmax(220px,1fr)',gridAutoFlow:'row dense',gap:vars.space[2],padding:vars.space[2],alignContent:'start'});
+globalStyle('.workspace-panes:is([data-layout="masonry-side-by-side"],[data-layout="masonry-stack"]) > .workspace-pane',{border:`1px solid ${vars.color.border}`,borderRadius:vars.radius.sm});
+globalStyle('.workspace-panes[data-layout="masonry-side-by-side"] > .workspace-pane:nth-of-type(3n+1)',{gridRow:'span 2'});
+globalStyle('.workspace-panes[data-layout="masonry-stack"] > .workspace-pane:nth-of-type(3n+1)',{'@container':{'(min-width: 576px)':{gridColumn:'span 2'}}});
+
+// Keep account actions reachable while the folder and application lists scroll.
+globalStyle('.sidebar',{overflow:'hidden'});
+globalStyle('.sidebar__scroll',{flex:'1 1 auto',minHeight:0,overflowY:'auto',overflowX:'hidden'});
+globalStyle('.sidebar__footer',{display:'flex',flexDirection:'column',gap:vars.space[1],flex:'0 0 auto',marginTop:'auto'});
+globalStyle('.sidebar__footer .sidebar__settings',{marginInlineStart:0,padding:'0.5rem 0.6rem',justifyContent:'flex-start'});

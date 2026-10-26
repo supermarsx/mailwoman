@@ -153,4 +153,13 @@ async fn authenticated_preferences_use_cas_and_reject_foreign_authority_fields()
         [200, 412],
         "only one concurrent device may replace the same version"
     );
+    for layout in ["tabs", "side-by-side", "stack", "masonry-side-by-side", "masonry-stack"] {
+        let current = client.get(&endpoint).send().await.unwrap();
+        let tag = current.headers()["etag"].clone();
+        let document = json!({"version":1,"preferences":{"workspaceLayout":layout}});
+        let saved = client.put(&endpoint).header("x-mailwoman-storage-authority", authority)
+            .header("if-match", tag).json(&document).send().await.unwrap();
+        assert_eq!(saved.status(), 200, "{layout}");
+        assert_eq!(client.get(&endpoint).send().await.unwrap().json::<Value>().await.unwrap(), document);
+    }
 }

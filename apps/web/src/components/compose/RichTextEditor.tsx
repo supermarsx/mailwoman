@@ -95,6 +95,7 @@ export interface InlineImageSupport {
 export interface RichTextEditorProps {
   /** Initial HTML to seed the document (from the composer's `bodyHtml`). */
   initialHtml: string;
+  ribbonTab?: () => 'format'|'insert'|null;
   /** External plain-text source (dictation / Assist) reconciled into the doc. */
   externalText?: () => string;
   /** Reports the serialized HTML + plain-text projection after every change. */
@@ -116,7 +117,8 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   const [activeState, setActiveState] = createSignal<EditorState | null>(null);
   const [linkOpen, setLinkOpen] = createSignal(false);
   const [linkUrl, setLinkUrl] = createSignal('');
-  const [ribbonTab,setRibbonTab]=createSignal<'format'|'insert'>('format');
+  const [localRibbonTab,setRibbonTab]=createSignal<'format'|'insert'>('format');
+  const ribbonTab=()=>props.ribbonTab ? props.ribbonTab() : localRibbonTab();
   function fontValue(name:string):string {
     const state=activeState();if(!state)return '';
     if(state.selection.empty)return String((state.storedMarks??state.selection.$from.marks()).find(mark=>mark.type.name===name)?.attrs['value']??'');
@@ -162,7 +164,9 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
     props.onChange(html, text);
   }
 
+  const updateDocumentRoot = () => view?.updateRoot();
   onMount(() => {
+    host.addEventListener('mailwoman:documentchange', updateDocumentRoot);
     const state = EditorState.create({
       doc: docFromHtml(props.initialHtml, owned()),
       plugins: [
@@ -242,7 +246,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
     });
   });
 
-  onCleanup(() => view?.destroy());
+  onCleanup(() => { host.removeEventListener('mailwoman:documentchange', updateDocumentRoot); view?.destroy(); });
 
   // Reconcile external plain-text edits (dictation / Assist rewrite) into the
   // document. Tracks `externalText()`; only replaces the doc when it diverges
@@ -280,8 +284,8 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
 
   return (
     <div class="compose-rt" data-testid="compose-rt">
-      <div class="compose-rt__tabs" role="tablist" aria-label={t('mail-compose-ribbon')}><For each={['format','insert'] as const}>{tab=><button type="button" role="tab" aria-selected={ribbonTab()===tab} onClick={()=>setRibbonTab(tab)}>{t(`mail-compose-ribbon-${tab}`)}</button>}</For></div>
-      <div class="compose-rt__toolbar" role="toolbar" aria-label={t('mail-compose-rt-toolbar')}>
+      <Show when={!props.ribbonTab}><div data-detached-local class="compose-rt__tabs" role="tablist" aria-label={t('mail-compose-ribbon')}><For each={['format','insert'] as const}>{tab=><button type="button" role="tab" aria-selected={ribbonTab()===tab} onClick={()=>setRibbonTab(tab)}>{t(`mail-compose-ribbon-${tab}`)}</button>}</For></div></Show>
+      <div data-detached-local hidden={ribbonTab()===null} class="compose-rt__toolbar" role="toolbar" aria-label={t('mail-compose-rt-toolbar')}>
         <button type="button" class="compose-rt__btn" aria-label={t('mail-compose-undo')} title={t('mail-compose-undo')} onMouseDown={event=>{event.preventDefault();run(undo);}}><Icon name="back"/></button>
         <button type="button" class="compose-rt__btn" aria-label={t('mail-compose-redo')} title={t('mail-compose-redo')} onMouseDown={event=>{event.preventDefault();run(redo);}}><Icon name="forward"/></button>
         <Show when={ribbonTab()==='format'}>
@@ -356,7 +360,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
       </div>
 
       {linkOpen() && (
-        <div class="compose-rt__link" data-testid="rt-link-row">
+        <div data-detached-local class="compose-rt__link" data-testid="rt-link-row">
           <input
             type="url"
             class={a11y.focusable}

@@ -1,3 +1,4 @@
+import type {WorkspaceLayout} from '../realtime/workspaceLayout.ts';
 import { storageAuthorityHeaders } from './storageAuthority.ts';
 import { createSignal } from 'solid-js';
 import { apiFetch } from './http.ts';
@@ -16,7 +17,7 @@ export interface AccountUiPreferences {
   offlineBudgetMb?: number;
   offlineRetentionDays?: number;
   eviction?: 'lru' | 'oldest' | 'manual';
-  workspaceLayout?: 'tabs' | 'side-by-side' | 'stack';
+  workspaceLayout?: WorkspaceLayout;
   folderSidebarMode?: 'expanded' | 'compact' | 'hidden';
   folderSidebarWidth?: number;
   messageListWidth?: number;

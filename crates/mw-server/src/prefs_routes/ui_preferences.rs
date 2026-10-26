@@ -100,7 +100,7 @@ fn valid(document: &Document) -> bool {
             &p.keyboard_preset,
             &["default", "gmail", "outlook", "vim", "off"],
         )
-        && choices(&p.workspace_layout, &["tabs", "side-by-side", "stack"])
+        && choices(&p.workspace_layout, &["tabs", "side-by-side", "stack", "masonry-side-by-side", "masonry-stack"])
         && choices(&p.folder_sidebar_mode, &["expanded", "compact", "hidden"])
         && p.folder_sidebar_width
             .is_none_or(|v| (160..=600).contains(&v))
@@ -222,6 +222,15 @@ pub(super) async fn save(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn five_workspace_modes_are_valid_but_unknown_layouts_are_rejected() {
+        for layout in ["tabs", "side-by-side", "stack", "masonry-side-by-side", "masonry-stack"] {
+            let document: super::Document = serde_json::from_value(serde_json::json!({"version":1,"preferences":{"workspaceLayout":layout}})).unwrap();
+            assert!(super::valid(&document), "{layout}");
+        }
+        let document: super::Document = serde_json::from_value(serde_json::json!({"version":1,"preferences":{"workspaceLayout":"unsupported"}})).unwrap();
+        assert!(!super::valid(&document));
+    }
     #[test]
     fn all_fifty_native_icons_are_valid_account_preferences() {
         assert_eq!(super::FOLDER_ICONS.len(), 50);

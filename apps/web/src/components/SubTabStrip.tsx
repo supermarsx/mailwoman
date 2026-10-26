@@ -20,7 +20,7 @@ function tabDomId(id: string): string {
   return `subtab-tab-${id}`;
 }
 
-export function SubTabStrip(props: { onClose?: (id:string)=>void; allowTearOff?: boolean; canClose?: (id:string)=>boolean } = {}): JSX.Element {
+export function SubTabStrip(props: { onClose?: (id:string)=>void; allowTearOff?: boolean; onDetach?: (id:string)=>void; canDetach?: (id:string)=>boolean; canClose?: (id:string)=>boolean } = {}): JSX.Element {
   const { subTabs } = useRealtime();
   onCleanup(endWorkspaceTabDrag);
   function canDrop(event:DragEvent):boolean {
@@ -76,7 +76,7 @@ export function SubTabStrip(props: { onClose?: (id:string)=>void; allowTearOff?:
   );
 }
 
-function SubTabButton(props: { tab: SubTab; active: boolean; onClose?: (id:string)=>void; allowTearOff?: boolean; canClose?: (id:string)=>boolean;onDragStart:(event:DragEvent)=>void;onDragEnd:()=>void;onDragOver:(event:DragEvent)=>void;onDrop:(event:DragEvent)=>void }): JSX.Element {
+function SubTabButton(props: { tab: SubTab; active: boolean; onClose?: (id:string)=>void; allowTearOff?: boolean; onDetach?: (id:string)=>void; canDetach?: (id:string)=>boolean; canClose?: (id:string)=>boolean;onDragStart:(event:DragEvent)=>void;onDragEnd:()=>void;onDragOver:(event:DragEvent)=>void;onDrop:(event:DragEvent)=>void }): JSX.Element {
   const { subTabs } = useRealtime();
   const id = (): string => props.tab.id;
   let label:HTMLButtonElement|undefined;
@@ -120,11 +120,11 @@ function SubTabButton(props: { tab: SubTab; active: boolean; onClose?: (id:strin
       >
         <Icon name={props.tab.pinned ? 'star' : 'starOutline'} />
       </button>
-      <Show when={props.allowTearOff !== false}><button
+      <Show when={props.onDetach && props.allowTearOff !== false && props.canDetach?.(id()) !== false}><button
         type="button"
         class={`subtab__tearoff ${a11y.iconButton}`}
         aria-label={t('mail-subtab-tearoff', { title: props.tab.title })}
-        onClick={() => subTabs.tearOff(id())}
+        onClick={() => props.onDetach?.(id())}
       >
         <Icon name="clone" />
       </button></Show>
