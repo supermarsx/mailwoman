@@ -47,3 +47,21 @@ async fn limits_and_reference_conflicts_refuse_before_account_dispatch() {
     }
     assert_eq!(response["createdIds"], json!({"prior":"stable"}));
 }
+
+#[test]
+fn references_use_first_response_for_the_call_id_before_checking_its_name() {
+    // RFC8620 section3.7 steps1–2, also unchanged in the inline-errata text:
+    // an implicit response sharing the call id is not searched by name.
+    let responses = vec![
+        json!(["MDN/send",{"sent":{"one":{}}},"call"]),
+        json!(["Email/set",{"updated":{"email":null}},"call"]),
+    ];
+    let mut implicit = json!({"#updated":{"resultOf":"call","name":"Email/set","path":"/updated"}});
+    assert_eq!(
+        mw_engine::jmap::resolve_references(&mut implicit, &responses),
+        Err("invalidResultReference")
+    );
+    let mut first = json!({"#sent":{"resultOf":"call","name":"MDN/send","path":"/sent"}});
+    assert!(mw_engine::jmap::resolve_references(&mut first, &responses).is_ok());
+    assert_eq!(first, json!({"sent":{"one":{}}}));
+}
