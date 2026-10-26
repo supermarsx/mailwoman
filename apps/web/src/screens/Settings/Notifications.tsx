@@ -1,5 +1,7 @@
-// Notification rules + quiet hours (t16 e15 — W15). Backed by the `mw-store` 0017
-// `notification_rules` row (rule_json + quiet_hours_json + enabled). Rules match a
+import { preferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
+import { PersonalAccountBoundary } from './PersonalAccountBoundary.tsx';
+// Notification rules + quiet hours use verified-owner personal_notification_rules.
+// Rules match a
 // substring on sender/mailbox/subject and either surface or mute a notification;
 // quiet hours suppress all notifications within a local time window.
 
@@ -27,6 +29,10 @@ function newRuleId(): string {
 }
 
 export function Notifications(props: NotificationsProps): JSX.Element {
+ return <PersonalAccountBoundary>{()=> <OwnedNotifications {...props}/>}</PersonalAccountBoundary>;
+}
+function OwnedNotifications(props: NotificationsProps): JSX.Element {
+  const owner=preferenceAccount();
   const service = props.service ?? new SettingsService();
   onMount(() => void loadCatalog('settings'));
   onMount(() => void loadCatalog('settings-policy'));
@@ -84,10 +90,12 @@ export function Notifications(props: NotificationsProps): JSX.Element {
   }
 
   async function save(): Promise<void> {
+    if(owner!==preferenceAccount())return;
     setError('');
     setBusy(true);
     try {
       await service.saveNotifications(view());
+      if(owner!==preferenceAccount())return;
       window.dispatchEvent(new Event('mw:notifications-changed'));
       setSaved(true);
     } catch (e) {

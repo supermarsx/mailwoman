@@ -1,3 +1,4 @@
+import { PersonalAccountBoundary } from './PersonalAccountBoundary.tsx';
 // Saved searches → search folders (t16 e15 — W13). Reuses the FROZEN `mw-store`
 // 0003 `saved_searches` rows (id, name, query_json, as_folder) — NOT a new table.
 // A saved search whose `as_folder` is on surfaces as a virtual folder in the
@@ -19,6 +20,9 @@ export interface SavedSearchesProps {
 }
 
 export function SavedSearches(props: SavedSearchesProps): JSX.Element {
+ return <PersonalAccountBoundary>{()=> <OwnedSavedSearches {...props}/>}</PersonalAccountBoundary>;
+}
+function OwnedSavedSearches(props: SavedSearchesProps): JSX.Element {
   const service = props.service ?? new SettingsService();
   onMount(() => void loadCatalog('settings'));
 

@@ -838,7 +838,7 @@ async fn sender_authority_rejects_unconfigured_from_before_smtp() {
 }
 
 async fn sender_test_identity(h: &Harness, id: &str, address: &str) {
-    h.engine.store().upsert_identity(&mw_store::IdentityRow {
+    h.engine.store().upsert_native_personal_identity(&mw_store::IdentityRow {
         id: id.into(), account_id: h.account_id.clone(), name: "Test".into(), email: address.into(),
         reply_to: None, signature_html: None, signature_text: None, signature_name: None,
         sent_mailbox_id: None, source: "configured".into(),
@@ -907,7 +907,7 @@ async fn sender_authority_foreign_identity_is_indistinguishable_from_missing() {
     let foreign=h.engine.store().create_account(&NewAccount {
         kind:AccountKind::Imap,host:"other.example.org",port:993,tls:"implicit",username:"other@example.org",sync_policy_json:"{}",
     },&Credentials{username:"other@example.org".into(),password:"pw".into()}).await.unwrap();
-    h.engine.store().upsert_identity(&mw_store::IdentityRow {
+    h.engine.store().upsert_native_personal_identity(&mw_store::IdentityRow {
         id:"foreign-identity".into(),account_id:foreign,name:"Private name".into(),email:"me@example.org".into(),
         reply_to:None,signature_html:None,signature_text:None,signature_name:None,sent_mailbox_id:None,source:"configured".into(),
     }).await.unwrap();
@@ -946,9 +946,9 @@ async fn sender_authority_malformed_actual_from_never_falls_back_to_primary() {
 async fn named_signature_is_account_scoped_and_resolved_at_identity_read() {
     let h=setup(SentAppend::Accept,Smtp::Deliver).await;
     sender_test_identity(&h,"primary-template","me@example.org").await;
-    let mut identity=h.engine.store().get_identity("primary-template").await.unwrap().unwrap();
+    let mut identity=h.engine.store().get_native_personal_identity(&h.account_id,"primary-template").await.unwrap().unwrap();
     identity.signature_name=Some("work".into());
-    h.engine.store().upsert_identity(&identity).await.unwrap();
+    h.engine.store().upsert_native_personal_identity(&identity).await.unwrap();
     let owner=h.engine.store().native_personal_subject(&h.account_id).await.unwrap().unwrap();
     let mut template=mw_store::SignatureRow { html: None, text: None, text_edited: false,account_id:owner.clone(),name:"work".into(),body:"Literal <team> & me".into(),is_default:false,rule_json:String::new(),updated_at:String::new()};
     h.engine.store().upsert_personal_signature(&template).await.unwrap();

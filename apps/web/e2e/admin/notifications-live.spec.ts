@@ -12,7 +12,9 @@ async function openNotifications(page: Page): Promise<void> {
 test('notification settings persist with explicit device permissions and rule limits @phone', async ({ page }) => {
   await page.goto('/'); await signInManually(page, { username: 'testuser', password: 'testpass' });
   await expect(page.getByRole('toolbar', { name: 'Workspace layout' })).toBeVisible({ timeout: 60_000 });
-  const reset = await page.request.put('/api/account/notifications', { data: { enabled: false, rules: [], quietHours: { enabled: false, start: '22:00', end: '07:00', timezone: 'UTC' } } });
+  const me = await (await page.request.get('/api/me')).json();
+  expect(me.storageAuthority).toMatch(/^msa1_/);
+  const reset = await page.request.put('/api/account/notifications', { headers: { 'X-Mailwoman-Storage-Authority': me.storageAuthority }, data: { enabled: false, rules: [], quietHours: { enabled: false, start: '22:00', end: '07:00', timezone: 'UTC' } } });
   expect(reset.ok()).toBe(true); await openNotifications(page);
   const section = page.getByRole('region', { name: 'Notifications', exact: true });
   await expect(section.getByRole('checkbox', { name: 'Show notifications for new mail' })).not.toBeChecked();

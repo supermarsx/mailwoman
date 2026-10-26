@@ -205,7 +205,7 @@ export class SettingsService {
     }finally{unsubscribe();}
   }
 
-  private async signatureFetch(input:string,init?:RequestInit):Promise<Response> {
+  private async personalRecordFetch(input:string,init?:RequestInit):Promise<Response> {
     const account=preferenceAccount();
     const headers=new Headers(init?.headers);
     if(account)headers.set('X-Mailwoman-Account',account.id);
@@ -218,46 +218,46 @@ export class SettingsService {
   // ── Signatures (W12) ─────────────────────────────────────────────────────
 
   async listSignatures(): Promise<Signature[]> {
-    const out = await jsonOrThrow<{ signatures: Signature[] }>(await this.signatureFetch.bind(this)(withBase('/api/account/signatures')));
+    const out = await jsonOrThrow<{ signatures: Signature[] }>(await this.personalRecordFetch.bind(this)(withBase('/api/account/signatures')));
     return out.signatures;
   }
 
   async upsertSignature(sig: Signature): Promise<void> {
-    await okOrThrow(await postJson(this.signatureFetch.bind(this), withBase('/api/account/signatures'), sig));
+    await okOrThrow(await postJson(this.personalRecordFetch.bind(this), withBase('/api/account/signatures'), sig));
   }
 
   async deleteSignature(name: string): Promise<void> {
     await okOrThrow(
-      await this.signatureFetch.bind(this)(withBase(`/api/account/signatures/${encodeURIComponent(name)}`), { method: 'DELETE' }),
+      await this.personalRecordFetch.bind(this)(withBase(`/api/account/signatures/${encodeURIComponent(name)}`), { method: 'DELETE' }),
     );
   }
 
   // ── Identities ───────────────────────────────────────────────────────────
 
   async listIdentities(): Promise<Identity[]> {
-    const out = await jsonOrThrow<{ identities: Identity[] }>(await this.fetcher(withBase('/api/account/identities')));
+    const out = await jsonOrThrow<{ identities: Identity[] }>(await this.personalRecordFetch.bind(this)(withBase('/api/account/identities')));
     return out.identities;
   }
 
   async upsertIdentity(identity: Identity): Promise<void> {
-    await okOrThrow(await postJson(this.fetcher, withBase('/api/account/identities'), identity));
+    await okOrThrow(await postJson(this.personalRecordFetch.bind(this), withBase('/api/account/identities'), identity));
   }
 
   async deleteIdentity(id: string): Promise<void> {
     await okOrThrow(
-      await this.fetcher(withBase(`/api/account/identities/${encodeURIComponent(id)}`), { method: 'DELETE' }),
+      await this.personalRecordFetch.bind(this)(withBase(`/api/account/identities/${encodeURIComponent(id)}`), { method: 'DELETE' }),
     );
   }
 
   // ── Notification rules + quiet hours (W15) ───────────────────────────────
 
   async notifications(): Promise<NotificationConfig> {
-    return jsonOrThrow<NotificationConfig>(await this.fetcher(withBase('/api/account/notifications')));
+    return jsonOrThrow<NotificationConfig>(await this.personalRecordFetch.bind(this)(withBase('/api/account/notifications')));
   }
 
   async saveNotifications(config: NotificationConfig): Promise<void> {
     await okOrThrow(
-      await this.fetcher(withBase('/api/account/notifications'), {
+      await this.personalRecordFetch.bind(this)(withBase('/api/account/notifications'), {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(config),
@@ -269,14 +269,14 @@ export class SettingsService {
 
   async listSavedSearches(): Promise<SavedSearch[]> {
     const out = await jsonOrThrow<{ savedSearches: SavedSearch[] }>(
-      await this.signatureFetch(withBase('/api/account/saved-searches')),
+      await this.personalRecordFetch(withBase('/api/account/saved-searches')),
     );
     return out.savedSearches;
   }
 
   async upsertSavedSearch(search: SavedSearch): Promise<void> {
     await okOrThrow(
-      await this.signatureFetch(withBase('/api/account/saved-searches'), {
+      await this.personalRecordFetch(withBase('/api/account/saved-searches'), {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(search),
@@ -286,7 +286,7 @@ export class SettingsService {
 
   async deleteSavedSearch(id: string): Promise<void> {
     await okOrThrow(
-      await this.signatureFetch(withBase(`/api/account/saved-searches/${encodeURIComponent(id)}`), { method: 'DELETE' }),
+      await this.personalRecordFetch(withBase(`/api/account/saved-searches/${encodeURIComponent(id)}`), { method: 'DELETE' }),
     );
   }
 }

@@ -21,3 +21,10 @@ it('rejects a late personal-record acknowledgement after a same-id realm replace
  const pending=service.listSignatures();const rejected=expect(pending).rejects.toThrow();
  suspendAccountPreferences();activateAccountPreferences('1','msa1_second_verified_authority');finish(new Response('{"signatures":[]}',{status:200}));await rejected;
 });
+
+it('fences identity and notification calls with verified realm authority',async()=>{
+ activateAccountPreferences('1','msa1_first_verified_authority');
+ const fetcher=vi.fn(async(_input:string,_init?:RequestInit)=>new Response('{"identities":[],"enabled":false,"rules":[],"quietHours":{}}',{status:200}));
+ const service=new SettingsService(fetcher);await service.listIdentities();await service.notifications();
+ for(const call of fetcher.mock.calls)expect(new Headers(call[1]?.headers).get('x-mailwoman-storage-authority')).toBe('msa1_first_verified_authority');
+});

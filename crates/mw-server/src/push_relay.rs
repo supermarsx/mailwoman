@@ -230,6 +230,7 @@ pub(crate) async fn push_subscribe(
         Ok(s) => s,
         Err(resp) => return resp,
     };
+    let owner=match crate::prefs_routes::personal_storage::record_owner(&state,&session,&headers,true).await {Ok(owner)=>owner,Err(response)=>return response};
     let subject = match crate::settings_routes::UserSubject::resolved(&state.store, &session).await
     {
         Ok(subject) => subject,
@@ -241,7 +242,7 @@ pub(crate) async fn push_subscribe(
         "notifications.pushAllowed",
     )
     .await;
-    let config = crate::notification_policy::for_subject(&state.store, &subject.as_subject()).await;
+    let config = crate::notification_policy::for_subject(&state.store, &subject.as_subject(),&owner).await;
     match (allowed, config) {
         (Ok(true), Ok(config)) if config.enabled => {}
         (Err(_), _) | (_, Err(_)) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
@@ -290,7 +291,7 @@ pub(crate) async fn push_subscribe(
     }
     let existing = match state
         .store
-        .list_push_subscriptions(&session.account_id)
+        .list_personal_push_subscriptions(&owner)
         .await
     {
         Ok(rows) => rows,
@@ -316,7 +317,7 @@ pub(crate) async fn push_subscribe(
     };
     let row = PushSubscriptionRow {
         id: uuid::Uuid::new_v4().to_string(),
-        account_id: session.account_id.clone(),
+        account_id: owner.clone(),
         transport: req.transport,
         endpoint: req.endpoint,
         p256dh,
@@ -326,7 +327,7 @@ pub(crate) async fn push_subscribe(
         created_at: now_rfc3339(),
         last_wake_at: None,
     };
-    if let Err(e) = state.store.upsert_push_subscription(&row).await {
+    if let Err(e) = state.store.upsert_personal_push_subscription(&row).await {
         if matches!(e, mw_store::StoreError::NotFound) {
             return (
                 StatusCode::CONFLICT,
@@ -362,6 +363,7 @@ pub(crate) async fn push_permission(
         Ok(session) => session,
         Err(response) => return response,
     };
+    let owner=match crate::prefs_routes::personal_storage::record_owner(&state,&session,&headers,false).await {Ok(owner)=>owner,Err(response)=>return response};
     if query.endpoint_hash.len() != 64
         || !query
             .endpoint_hash
@@ -370,49 +372,25 @@ pub(crate) async fn push_permission(
     {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    let allowed = async {
-        let subject = crate::settings_routes::UserSubject::resolved(&state.store, &session).await?;
-        let config =
-            crate::notification_policy::for_subject(&state.store, &subject.as_subject()).await?;
-        if !config.enabled
-            || !config.rules.is_empty()
-            || crate::notification_policy::quiet_at(&config.quiet_hours, chrono::Utc::now())
-            || quiet_now(&state.store).await
-            || !crate::notification_policy::allowed(
-                &state.store,
-                &subject.as_subject(),
-                "notifications.pushAllowed",
-            )
-            .await?
-        {
-            return Ok::<bool, mw_store::StoreError>(false);
-        }
-        Ok(state
-            .store
-            .list_push_subscriptions(&session.account_id)
-            .await?
-            .iter()
-            .any(|row| {
-                let hash = Sha256::digest(row.endpoint.as_bytes())
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect::<String>();
-                hash == query.endpoint_hash
-                    && row.expires_at.as_ref().is_none_or(|expiry| {
-                        chrono::DateTime::parse_from_rfc3339(expiry)
-                            .is_ok_and(|expiry| expiry > chrono::Utc::now())
-                    })
-            }))
+    let status = async {
+        let registered=state.store.list_personal_push_subscriptions(&owner).await?.iter().any(|row| {
+            let hash=Sha256::digest(row.endpoint.as_bytes()).iter().map(|byte|format!("{byte:02x}")).collect::<String>();
+            hash==query.endpoint_hash && row.expires_at.as_ref().is_none_or(|expiry|chrono::DateTime::parse_from_rfc3339(expiry).is_ok_and(|expiry|expiry>chrono::Utc::now()))
+        });
+        if !registered {return Ok::<(bool,bool),mw_store::StoreError>((false,false));}
+        let subject=crate::settings_routes::UserSubject::resolved(&state.store,&session).await?;
+        let config=crate::notification_policy::for_subject(&state.store,&subject.as_subject(),&owner).await?;
+        let allowed=config.enabled && config.rules.is_empty()
+            && !crate::notification_policy::quiet_at(&config.quiet_hours,chrono::Utc::now())
+            && !quiet_now(&state.store).await
+            && crate::notification_policy::allowed(&state.store,&subject.as_subject(),"notifications.pushAllowed").await?;
+        Ok((true,allowed))
+    }.await;
+    match status {
+        Ok((registered,allowed))=>([(header::CACHE_CONTROL,"private, no-store")],Json(json!({"registered":registered,"allowed":allowed}))).into_response(),
+        Err(_)=>StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
-    .await;
-    match allowed {
-        Ok(allowed) => (
-            [(header::CACHE_CONTROL, "private, no-store")],
-            Json(json!({ "allowed": allowed })),
-        )
-            .into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
-    }
+
 }
 
 /// `POST /api/push/unsubscribe {id|endpoint}`. Removes the subscription. Cookie- or
@@ -434,6 +412,7 @@ pub(crate) async fn push_unsubscribe(
         Ok(session) => session,
         Err(resp) => return resp,
     };
+    let owner=match crate::prefs_routes::personal_storage::record_owner(&state,&session,&headers,true).await {Ok(owner)=>owner,Err(response)=>return response};
     let req: UnsubscribeReq = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(e) => {
@@ -453,8 +432,8 @@ pub(crate) async fn push_unsubscribe(
     }
     let outcome = state
         .store
-        .delete_account_push_subscription(
-            &session.account_id,
+        .delete_personal_push_subscription(
+            &owner,
             req.endpoint.as_deref(),
             req.id.as_deref(),
         )
@@ -501,7 +480,8 @@ async fn dispatch_wakes(store: &Store, change: &StateChange) {
     else {
         return;
     };
-    let Ok(config) = crate::notification_policy::for_subject(store, &subject.as_subject()).await
+    let Ok(Some(owner))=store.native_personal_subject(&change.account_id).await else {return;};
+    let Ok(config) = crate::notification_policy::for_subject(store, &subject.as_subject(),&owner).await
     else {
         return;
     };
@@ -523,7 +503,7 @@ async fn dispatch_wakes(store: &Store, change: &StateChange) {
     {
         return;
     }
-    let subs = match store.list_push_subscriptions(&change.account_id).await {
+    let subs = match store.list_personal_push_subscriptions(&owner).await {
         Ok(s) => s,
         Err(e) => {
             tracing::warn!("push dispatcher: subscription lookup failed: {e}");
@@ -543,7 +523,7 @@ async fn dispatch_wakes(store: &Store, change: &StateChange) {
                 .map_or(true, |expiry| expiry <= chrono::Utc::now())
         }) {
             let _ = store
-                .delete_account_push_subscription(&sub.account_id, None, Some(&sub.id))
+                .delete_personal_push_subscription(&sub.account_id, None, Some(&sub.id))
                 .await;
             continue;
         }
@@ -560,11 +540,11 @@ async fn dispatch_wakes(store: &Store, change: &StateChange) {
             // Gone / not found: the endpoint expired — drop the subscription.
             Ok(status) if status == 404 || status == 410 => {
                 let _ = store
-                    .delete_account_push_subscription(&sub.account_id, None, Some(&sub.id))
+                    .delete_personal_push_subscription(&sub.account_id, None, Some(&sub.id))
                     .await;
             }
             Ok(_) => {
-                let _ = store.touch_push_wake(&sub.id, &now_rfc3339()).await;
+                let _ = store.touch_personal_push_wake(&sub.account_id,&sub.id, &now_rfc3339()).await;
             }
             // The subscription id, never the endpoint: endpoints are capability
             // URLs, and send errors carry no URL (`without_url`).

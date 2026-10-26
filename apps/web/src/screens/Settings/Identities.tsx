@@ -1,3 +1,4 @@
+import { PersonalAccountBoundary } from './PersonalAccountBoundary.tsx';
 import { AsyncPending } from '../../components/AsyncState.tsx';
 import { createResource, createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog, isolate } from '../../i18n';
@@ -8,6 +9,9 @@ import { useEntityNavigation } from './entityEditor.tsx';
 import * as css from './styles.css.ts';
 export interface IdentitiesProps { service?:SettingsService }
 export function Identities(props:IdentitiesProps):JSX.Element {
+ return <PersonalAccountBoundary>{()=> <OwnedIdentities {...props}/>}</PersonalAccountBoundary>;
+}
+function OwnedIdentities(props:IdentitiesProps):JSX.Element {
  const service=props.service??new SettingsService();const navigation=useEntityNavigation('identities');const [identities,{refetch}]=createResource(()=>service.listIdentities());const [busy,setBusy]=createSignal(false);
  onMount(()=>void loadCatalog('settings'));
  const editor=()=>navigation.route().section==='identities'?navigation.route().editor:undefined;

@@ -319,6 +319,8 @@ describe('prefs — persistence + junk tolerance', () => {
 // ── service transport ───────────────────────────────────────────────────────────
 
 describe('SettingsService — endpoints + error surfacing', () => {
+  beforeEach(()=>{suspendAccountPreferences();activateAccountPreferences('account','msa1_verified_settings_authority');});
+  afterEach(()=>suspendAccountPreferences());
   it('POSTs a TOTP confirm and revokes all other sessions', async () => {
     const fetcher = vi.fn(async (input: string) => {
       if (input === '/api/account/2fa/totp/confirm') return okJson({ ok: true, recoveryCodes: ['x'] });

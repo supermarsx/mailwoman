@@ -1,0 +1,33 @@
+import {afterEach,expect,it,vi} from 'vitest';
+import {render,screen,fireEvent,waitFor} from '@solidjs/testing-library';
+import {Signatures} from './Signatures.tsx';
+import {Notifications} from './Notifications.tsx';
+import {activateAccountPreferences,suspendAccountPreferences,preferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
+import type {SettingsService} from './service.ts';
+import type {NotificationConfig} from './types.ts';
+afterEach(()=>suspendAccountPreferences());
+it('disposes unsaved private editor state when only verified realm changes',async()=>{
+ activateAccountPreferences('1','msa1_first_verified_authority');
+ const service={listSignatures:vi.fn(async()=>[{name:preferenceAccount()?.storageAuthority==='msa1_first_verified_authority'?'Private first':'Second realm',body:'Original',isDefault:false}])} as unknown as SettingsService;
+ render(()=><Signatures service={service}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Edit'}));
+ fireEvent.input(screen.getByLabelText('Signature'),{target:{value:'Unsaved private first'}});
+ suspendAccountPreferences();activateAccountPreferences('1','msa1_second_verified_authority');
+ await screen.findByText('Second realm');
+ expect(screen.queryByDisplayValue('Unsaved private first')).not.toBeInTheDocument();
+ expect(screen.queryByText('Private first')).not.toBeInTheDocument();
+});
+it('cannot hydrate a new realm with a delayed old notification response',async()=>{
+ activateAccountPreferences('1','msa1_first_verified_authority');
+ const defaults:NotificationConfig={enabled:false,rules:[],quietHours:{enabled:false,start:'22:00',end:'07:00'}};
+ let finish:(value:NotificationConfig)=>void=()=>{};
+ const service={notifications:vi.fn(()=>preferenceAccount()?.storageAuthority==='msa1_first_verified_authority'?new Promise<NotificationConfig>(resolve=>{finish=resolve;}):Promise.resolve(defaults))} as unknown as SettingsService;
+ render(()=><Notifications service={service}/>);
+ suspendAccountPreferences();activateAccountPreferences('1','msa1_second_verified_authority');
+ const enabled=await screen.findByRole('checkbox',{name:'Show notifications for new mail'});
+ await waitFor(()=>expect(enabled).not.toBeDisabled());
+ finish({...defaults,enabled:true,rules:[{id:'secret',label:'Private first realm rule',match:'private@example.test',action:'notify'}]});
+ await Promise.resolve();await Promise.resolve();
+ expect(enabled).not.toBeChecked();
+ expect(screen.queryByDisplayValue('private@example.test')).not.toBeInTheDocument();
+});

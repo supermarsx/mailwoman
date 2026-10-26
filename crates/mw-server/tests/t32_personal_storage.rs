@@ -53,6 +53,41 @@ async fn personal_documents_are_realm_bound_and_legacy_values_remain_inert() {
     let own:Value=clients[0].get(&search_url).send().await.unwrap().json().await.unwrap();assert_eq!(own["savedSearches"][0]["name"],"Private");
     assert_eq!(store.list_signatures("1").await.unwrap().len(),1);
     assert!(store.get_saved_search("legacy-search").await.unwrap().is_some());
+    let owner_a=store.session_personal_subject(&sessions[0]).await.unwrap().unwrap();
+    let owner_b=store.session_personal_subject(&sessions[1]).await.unwrap().unwrap();
+    for (owner,name) in [(&owner_a,"Realm A"),(&owner_b,"Realm B")] {
+        store.upsert_personal_identity(&mw_store::IdentityRow{id:"same-profile-id".into(),account_id:owner.clone(),name:name.into(),email:"allowed@example.test".into(),reply_to:None,signature_html:None,signature_text:None,signature_name:None,sent_mailbox_id:None,source:"configured".into()}).await.unwrap();
+    }
+    let identities_url=format!("{base}/api/account/identities");
+    for (client,name) in [(&clients[0],"Realm A"),(&clients[1],"Realm B")] {
+        let identities:Value=client.get(&identities_url).send().await.unwrap().json().await.unwrap();assert_eq!(identities["identities"][0]["name"],name);
+    }
+    assert_eq!(clients[1].delete(format!("{identities_url}/same-profile-id")).send().await.unwrap().status(),200);
+    assert!(store.get_personal_identity(&owner_a,"same-profile-id").await.unwrap().is_some());
+    let missing_identity=reqwest::Client::new().post(&identities_url).header("cookie",format!("mw_session={}",sessions[0])).json(&json!({"id":"","name":"No proof","email":"allowed@example.test"})).send().await.unwrap();
+    assert_eq!(missing_identity.status(),428);
+    let notification_url=format!("{base}/api/account/notifications");
+    let config=json!({"enabled":true,"rules":[],"quietHours":{"enabled":false,"start":"22:00","end":"07:00"}});
+    store.put_notification_rules(&mw_store::NotificationRulesRow{account_id:"1".into(),enabled:true,rule_json:"[]".into(),quiet_hours_json:config["quietHours"].to_string(),updated_at:String::new()}).await.unwrap();
+    for client in &clients {let body:Value=client.get(&notification_url).send().await.unwrap().json().await.unwrap();assert_eq!(body["enabled"],false);}
+    for client in &clients {
+        let settings:Value=client.get(format!("{base}/api/settings")).send().await.unwrap().json().await.unwrap();
+        assert_ne!(settings["settings"]["notifications.enabled"]["source"], "user", "legacy notification rows must not reappear through effective settings");
+    }
+    assert_eq!(clients[0].put(&notification_url).json(&config).send().await.unwrap().status(),200);
+    let settings:Value=clients[0].get(format!("{base}/api/settings")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(settings["settings"]["notifications.enabled"]["value"],true);
+    assert_eq!(settings["settings"]["notifications.enabled"]["source"],"user");
+    let other:Value=clients[1].get(&notification_url).send().await.unwrap().json().await.unwrap();assert_eq!(other["enabled"],false);
+    let subscription=json!({"transport":"unifiedpush","endpoint":"https://push.example.test/owned-realms"});
+    let push_url=format!("{base}/api/push/subscribe");
+    assert_eq!(clients[1].post(&push_url).header("x-mailwoman-storage-authority",&authorities[0]).json(&subscription).send().await.unwrap().status(),409);
+    let registered=clients[0].post(&push_url).json(&subscription).send().await.unwrap();assert_eq!(registered.status(),200,"{}",registered.text().await.unwrap());
+    assert_eq!(clients[1].put(&notification_url).json(&config).send().await.unwrap().status(),200);
+    assert_eq!(clients[1].post(&push_url).json(&subscription).send().await.unwrap().status(),409);
+    assert_eq!(clients[1].post(format!("{base}/api/push/unsubscribe")).json(&json!({"endpoint":subscription["endpoint"]})).send().await.unwrap().status(),204);
+    assert_eq!(store.list_personal_push_subscriptions(&owner_a).await.unwrap().len(),1);
+    assert!(store.list_personal_push_subscriptions(&owner_b).await.unwrap().is_empty());
     let endpoint=format!("{base}/api/account/preferences");
     for client in &clients {
         let response=client.get(&endpoint).send().await.unwrap(); assert_eq!(response.status(),200);

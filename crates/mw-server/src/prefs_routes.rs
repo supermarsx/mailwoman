@@ -127,11 +127,7 @@ async fn personal_record_owner(state: &AppState, headers: &HeaderMap, mutation: 
     if headers.get("x-mailwoman-account").is_some_and(|expected| expected.to_str().ok() != Some(session.account_id.as_str())) {
         return Err((StatusCode::FORBIDDEN, Json(json!({"error":"The authenticated account changed", "code":"accountChanged"}))).into_response());
     }
-    personal_storage::owner(state, &session, headers, mutation).await?;
-    match state.store.session_personal_subject(&session.id).await {
-        Ok(Some(owner)) => Ok(owner),
-        _ => Err(StatusCode::SERVICE_UNAVAILABLE.into_response()),
-    }
+    personal_storage::record_owner(state,&session,headers,mutation).await
 }
 
 async fn signatures_list(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -190,6 +186,7 @@ async fn notifications_get(State(state): State<AppState>, headers: HeaderMap) ->
         Ok(s) => s,
         Err(r) => return r,
     };
+    let owner=match personal_storage::record_owner(&state,&session,&headers,false).await {Ok(owner)=>owner,Err(response)=>return response};
     let held = match held(&state, &session, "notifications.enabled").await {
         Ok(h) => h,
         Err(r) => return r,
@@ -219,7 +216,7 @@ async fn notifications_get(State(state): State<AppState>, headers: HeaderMap) ->
         Ok(value) => value,
         Err(error) => return server_error("storage policy", error),
     };
-    match crate::notification_policy::for_subject(&state.store, &subject.as_subject()).await {
+    match crate::notification_policy::for_subject(&state.store, &subject.as_subject(),&owner).await {
         Ok(mut cfg) => {
             let mut locked = Vec::new();
             if let Some(v) = held.as_ref().and_then(|e| e.value.as_bool()) {
@@ -248,7 +245,7 @@ async fn notifications_put(
     if let Err(error) = crate::notification_policy::validate(&body) {
         return bad_request(error);
     }
-    let account = session.account_id.clone();
+    let account=match personal_storage::record_owner(&state,&session,&headers,true).await {Ok(owner)=>owner,Err(response)=>return response};
     match held(&state, &session, "notifications.enabled").await {
         Ok(Some(e)) if e.value.as_bool() != Some(body.enabled) => {
             return setting_locked("notifications.enabled");
@@ -323,7 +320,7 @@ async fn saved_searches_delete(
 // ─────────────────────────────────────────────────────────────────────────────
 
 async fn identities_list(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let account = match account_id(&state, &headers).await {
+    let account = match personal_record_owner(&state, &headers, false).await {
         Ok(a) => a,
         Err(r) => return r,
     };
@@ -345,13 +342,13 @@ async fn identities_upsert(
     if body.name.trim().is_empty() || body.email.trim().is_empty() {
         return bad_request("an identity needs a name and an email");
     }
-    let account = &session.account_id;
+    let account = match personal_record_owner(&state,&headers,true).await {Ok(owner)=>owner,Err(response)=>return response};
     match identity_address_allowed(&state, &session, &body.email).await {
         Ok(true) => {},
         Ok(false) => return (StatusCode::FORBIDDEN, Json(json!({"error":"This address is not authorized for sending. Choose your account address or an administrator-approved alias.", "code":"forbiddenFrom"}))).into_response(),
         Err(()) => return (StatusCode::BAD_GATEWAY, Json(json!({"error":"Sending identity authority could not be verified. Try again.", "code":"identityAuthorityUnavailable"}))).into_response(),
     }
-    match do_upsert_identity(&state.store, account, &body).await {
+    match do_upsert_identity(&state.store, &account, &body).await {
         Ok(Some(id)) => Json(json!({ "ok": true, "id": id })).into_response(),
         Ok(None) => not_found("no such identity"),
         Err(StoreError::NotFound) => not_found("no such identity"),
@@ -363,7 +360,10 @@ async fn identities_upsert(
 /// the current authenticated provider; native identities use runtime authority.
 async fn identity_address_allowed(state: &AppState, session: &mw_store::Session, address: &str) -> Result<bool, ()> {
     if address.is_empty() || address.trim() != address || address.chars().any(char::is_control) { return Ok(false); }
-    if let Some(engine) = &state.engine {
+    let owner=state.store.session_personal_subject(&session.id).await.map_err(|_| ())?.ok_or(())?;
+    let native=state.store.native_personal_subject(&session.account_id).await.map_err(|_| ())?;
+    if native.as_deref()==Some(owner.as_str()) {
+        let engine=state.engine.as_ref().ok_or(())?;
         crate::engine_mode::ensure_account(engine, &session.account_id).await.map_err(|_| ())?;
         return engine.sender_address_allowed(&session.account_id, address).await.map_err(|_| ());
     }
@@ -384,7 +384,7 @@ async fn identities_delete(
     headers: HeaderMap,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
-    let account = match account_id(&state, &headers).await {
+    let account = match personal_record_owner(&state, &headers, true).await {
         Ok(a) => a,
         Err(r) => return r,
     };
@@ -732,7 +732,7 @@ async fn do_get_notifications(
     store: &Store,
     account: &str,
 ) -> Result<NotificationConfigDto, StoreError> {
-    Ok(match store.get_notification_rules(account).await? {
+    Ok(match store.get_personal_notification_rules(account).await? {
         Some(row) => notifications_to_dto(&row),
         // Unset account → sensible defaults (off, no rules, off quiet-hours).
         None => NotificationConfigDto::default(),
@@ -745,7 +745,7 @@ async fn do_put_notifications(
     cfg: &NotificationConfigDto,
 ) -> Result<(), StoreError> {
     store
-        .put_notification_rules(&notifications_from_dto(account, cfg))
+        .put_personal_notification_rules(&notifications_from_dto(account, cfg))
         .await
 }
 
@@ -804,7 +804,7 @@ async fn do_delete_saved_search(
 
 async fn do_list_identities(store: &Store, account: &str) -> Result<Vec<IdentityDto>, StoreError> {
     Ok(store
-        .list_identities(account)
+        .list_personal_identities(account)
         .await?
         .iter()
         .map(identity_to_dto)
@@ -820,15 +820,15 @@ async fn do_upsert_identity(
     account: &str,
     dto: &IdentityDto,
 ) -> Result<Option<String>, StoreError> {
-    let existing = if dto.id.trim().is_empty() { None } else { store.get_identity(&dto.id).await? };
-    if existing.as_ref().is_some_and(|row| row.account_id != account) { return Ok(None); }
+    let existing = if dto.id.trim().is_empty() { None } else { store.get_personal_identity(account,&dto.id).await? };
+    if !dto.id.trim().is_empty() && existing.is_none() { return Ok(None); }
     let id = if dto.id.trim().is_empty() {
         new_id()
     } else {
         dto.id.clone()
     };
     store
-        .upsert_identity(&IdentityRow {
+        .upsert_personal_identity(&IdentityRow {
             id: id.clone(),
             account_id: account.to_string(),
             name: dto.name.clone(),
@@ -846,7 +846,7 @@ async fn do_upsert_identity(
 
 /// Delete an identity iff it belongs to `account`. `Ok(false)` = absent or foreign.
 async fn do_delete_identity(store: &Store, account: &str, id: &str) -> Result<bool, StoreError> {
-    store.delete_identity(account, id).await
+    store.delete_personal_identity(account, id).await
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -972,11 +972,6 @@ pub(crate) fn prefs_router() -> Router<AppState> {
         .merge(contact_photo::router())
         // t32-e10b (f01): the settings model C, user side.
         .merge(crate::settings_routes::user_router())
-}
-
-/// The authenticated caller's account id, or an early auth `Response` to return.
-async fn account_id(state: &AppState, headers: &HeaderMap) -> Result<String, Response> {
-    crate::authed(state, headers).await.map(|s| s.account_id)
 }
 
 /// The authenticated caller's session, or an early auth `Response` to return.
@@ -1410,9 +1405,9 @@ mod tests {
     async fn identity_profile_edit_preserves_provider_signature_bodies() {
         let s=store().await;
         let account=seed_account(&s,"primary@example.org").await;
-        s.upsert_identity(&IdentityRow{id:"provider-profile".into(),account_id:account.clone(),name:"Before".into(),email:"primary@example.org".into(),reply_to:None,signature_html:Some("<p>Provider</p>".into()),signature_text:Some("Provider text".into()),signature_name:None,sent_mailbox_id:Some("sent".into()),source:"server".into()}).await.unwrap();
+        s.upsert_personal_identity(&IdentityRow{id:"provider-profile".into(),account_id:account.clone(),name:"Before".into(),email:"primary@example.org".into(),reply_to:None,signature_html:Some("<p>Provider</p>".into()),signature_text:Some("Provider text".into()),signature_name:None,sent_mailbox_id:Some("sent".into()),source:"server".into()}).await.unwrap();
         do_upsert_identity(&s,&account,&IdentityDto{id:"provider-profile".into(),name:"After".into(),email:"primary@example.org".into(),reply_to:None,signature_name:Some("local-template".into())}).await.unwrap();
-        let row=s.get_identity("provider-profile").await.unwrap().unwrap();
+        let row=s.get_personal_identity(&account,"provider-profile").await.unwrap().unwrap();
         assert_eq!(row.signature_html.as_deref(),Some("<p>Provider</p>"));
         assert_eq!(row.signature_text.as_deref(),Some("Provider text"));
         assert_eq!(row.sent_mailbox_id.as_deref(),Some("sent"));

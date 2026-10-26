@@ -981,6 +981,7 @@ async fn delete_user(
 /// from the session's sign-in name, and the account id.
 pub(crate) struct UserSubject {
     pub personal_owner: Option<String>,
+    pub record_owner: Option<String>,
     pub domain: String,
     pub account_id: String,
     pub address: String,
@@ -995,6 +996,7 @@ impl UserSubject {
         };
         UserSubject {
             personal_owner: None,
+            record_owner: None,
             domain,
             account_id: session.account_id.clone(),
             address,
@@ -1009,6 +1011,7 @@ impl UserSubject {
         let canonical = store.canonical_setting_subject(&raw.as_subject()).await?;
         Ok(Self {
             personal_owner: store.session_storage_authority(&session.id).await?,
+            record_owner: store.session_personal_subject(&session.id).await?,
             domain: canonical.domain,
             account_id: canonical.account_id,
             address: canonical.address,
@@ -1068,7 +1071,7 @@ async fn user_entry(
     subject: &UserSubject,
     key: &str,
 ) -> Result<Effective, Response> {
-    let extra = user_layer_rows(state, &subject.account_id, subject.personal_owner.as_deref())
+    let extra = user_layer_rows(state, &subject.account_id, subject.personal_owner.as_deref(), subject.record_owner.as_deref())
         .await
         .map_err(server_error)?;
     match registry::effective_for_with(&state.store, key, &subject.as_subject(), &extra).await {
@@ -1130,6 +1133,7 @@ pub(crate) async fn user_layer_rows(
     state: &AppState,
     account_id: &str,
     personal_owner: Option<&str>,
+    record_owner: Option<&str>,
 ) -> Result<Vec<SettingValueRow>, mw_store::StoreError> {
     let mut rows = Vec::new();
     if account_id.is_empty() {
@@ -1168,7 +1172,8 @@ pub(crate) async fn user_layer_rows(
     {
         rows.push(user_row(account_id, "mail.readReceipts", json!(policy)));
     }
-    if let Some(n) = state.store.get_notification_rules(account_id).await? {
+    if let Some(owner) = record_owner
+        && let Some(n) = state.store.get_personal_notification_rules(owner).await? {
         rows.push(user_row(
             account_id,
             "notifications.enabled",
@@ -1186,7 +1191,7 @@ pub(crate) async fn effective_for_session(
     key: &str,
 ) -> Result<Option<Effective>, mw_store::StoreError> {
     let subject = UserSubject::resolved(&state.store, session).await?;
-    let extra = user_layer_rows(state, &subject.account_id, subject.personal_owner.as_deref()).await?;
+    let extra = user_layer_rows(state, &subject.account_id, subject.personal_owner.as_deref(), subject.record_owner.as_deref()).await?;
     registry::effective_for_with(&state.store, key, &subject.as_subject(), &extra).await
 }
 
@@ -1199,7 +1204,7 @@ async fn user_list(State(state): State<AppState>, headers: HeaderMap) -> Respons
         Ok(s) => s,
         Err(e) => return server_error(e),
     };
-    let extra = match user_layer_rows(&state, &subject.account_id, subject.personal_owner.as_deref()).await {
+    let extra = match user_layer_rows(&state, &subject.account_id, subject.personal_owner.as_deref(), subject.record_owner.as_deref()).await {
         Ok(rows) => rows,
         Err(e) => return server_error(e),
     };

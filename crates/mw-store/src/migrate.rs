@@ -333,6 +333,45 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "personal_identity",
+        select: "SELECT id, owner_subject, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name FROM personal_identity",
+        insert: "INSERT INTO personal_identity (id, owner_subject, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        map: |r| vec![t(r,"id"),t(r,"owner_subject"),t(r,"name"),t(r,"email"),ot(r,"reply_to"),ot(r,"signature_html"),ot(r,"signature_text"),ot(r,"sent_mailbox_id"),t(r,"source"),ot(r,"signature_name")],
+    },
+    TableSpec {
+        name: "personal_notification_rules",
+        select: "SELECT owner_subject, rule_json, quiet_hours_json, enabled, updated_at FROM personal_notification_rules",
+        insert: "INSERT INTO personal_notification_rules (owner_subject, rule_json, quiet_hours_json, enabled, updated_at) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "owner_subject"),
+                t(r, "rule_json"),
+                t(r, "quiet_hours_json"),
+                i(r, "enabled"),
+                t(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "personal_push_subscription",
+        select: "SELECT id, owner_subject, transport, endpoint, p256dh, auth, app_id, expires_at, created_at, last_wake_at FROM personal_push_subscription",
+        insert: "INSERT INTO personal_push_subscription (id, owner_subject, transport, endpoint, p256dh, auth, app_id, expires_at, created_at, last_wake_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "owner_subject"),
+                t(r, "transport"),
+                t(r, "endpoint"),
+                ot(r, "p256dh"),
+                ot(r, "auth"),
+                ot(r, "app_id"),
+                ot(r, "expires_at"),
+                t(r, "created_at"),
+                ot(r, "last_wake_at"),
+            ]
+        },
+    },
+    TableSpec {
         name: "personal_signature",
         // User-authored content. The `identities.signature_*` columns beside it were
         // always copied, so leaving these behind lost half of one feature.

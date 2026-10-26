@@ -440,3 +440,4 @@ settings-folder-counts-reset-size = Inherit badge size
 
 settings-mail-resume-tabs = Resume my open tabs
 settings-mail-resume-tabs-help = Restore account-owned tab references after reopening Mailwoman. Message bodies and attachment URLs are not saved in the workspace record.
+settings-permissions-push-other-registration = This browser has a subscription that is not registered to this account. Remove it before registering again.

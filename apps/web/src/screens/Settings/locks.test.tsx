@@ -1,8 +1,9 @@
+import {activateAccountPreferences,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
 // Account settings an administrator holds (worker f01): the notifications
 // switch and the offline budget/retention are disabled, noted, and use the held
 // value; a refused save shows localised text.
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
 import { clearSettings, loadSettings, type Fetcher } from '../../api/settings.ts';
@@ -19,7 +20,9 @@ function json(status: number, body: unknown): Response {
 const held = (value: unknown) => ({ value, source: 'domain', locked: true, lockedBy: 'domain' });
 
 describe('held account settings', () => {
+  afterEach(()=>suspendAccountPreferences());
   beforeEach(() => {
+    suspendAccountPreferences();activateAccountPreferences('account','msa1_verified_settings_authority');
     clearSettings();
     localStorage.clear();
   });

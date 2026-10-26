@@ -1,3 +1,4 @@
+import {preferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
 import { createSignal, Show, type JSX, createResource, For } from 'solid-js';
 import type { Identity } from './types.ts';
 import type { SettingsService } from './service.ts';
@@ -7,8 +8,9 @@ import { useEditorGuard } from './entityEditor.tsx';
 import * as css from './styles.css.ts';
 import * as layout from './editor.css.ts';
 export function IdentityEditor(props:{initial?:Identity;service:SettingsService;onSaved:()=>void|Promise<void>;onCancel:()=>void|Promise<void>}):JSX.Element {
+const owner=preferenceAccount();
 const [draft,setDraft]=createSignal<Identity>(structuredClone(props.initial??{id:'',name:'',email:''}));const [baseline,setBaseline]=createSignal(JSON.stringify(draft()));const [busy,setBusy]=createSignal(false);const [fieldError,setFieldError]=createSignal('');const guard=useEditorGuard(()=>JSON.stringify(draft())!==baseline(),busy);const [signatures]=createResource(()=>props.service.listSignatures().catch(()=>[]));
-async function save():Promise<void>{if(busy())return;if(draft().name.trim()===''||! /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(draft().email.trim())){setFieldError(t('settings-ident-error-fields'));return;}setFieldError('');setBusy(true);try{await props.service.upsertIdentity({...draft(),name:draft().name.trim(),email:draft().email.trim()});setBaseline(JSON.stringify(draft()));toast.success(t('settings-saved'));await props.onSaved();}catch{toast.error(t('settings-ident-error-generic'));}finally{setBusy(false);}}
+async function save():Promise<void>{if(busy())return;if(owner!==preferenceAccount()){setFieldError(t('settings-sig-account-changed'));return;}if(draft().name.trim()===''||! /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(draft().email.trim())){setFieldError(t('settings-ident-error-fields'));return;}setFieldError('');setBusy(true);try{await props.service.upsertIdentity({...draft(),name:draft().name.trim(),email:draft().email.trim()});if(owner!==preferenceAccount())return;setBaseline(JSON.stringify(draft()));toast.success(t('settings-saved'));await props.onSaved();}catch{toast.error(t('settings-ident-error-generic'));}finally{setBusy(false);}}
 return <section class={css.section} aria-label={t(props.initial?'settings-ident-edit-title':'settings-ident-new')}><h2 class={css.heading}>{t(props.initial?'settings-ident-edit-title':'settings-ident-new')}</h2>
 <form onSubmit={event=>{event.preventDefault();void save();}} class={css.field} data-testid="identity-editor"><fieldset disabled={busy()} class={layout.fields}>
           <label class={css.field}>

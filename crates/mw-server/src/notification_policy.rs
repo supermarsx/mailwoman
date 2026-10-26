@@ -122,8 +122,9 @@ pub(crate) fn quiet_at(quiet: &QuietHoursDto, now: chrono::DateTime<chrono::Utc>
 pub(crate) async fn for_subject(
     store: &Store,
     subject: &SettingSubject<'_>,
+    owner: &str,
 ) -> Result<NotificationConfigDto, StoreError> {
-    let row = store.get_notification_rules(subject.account_id).await?;
+    let row = store.get_personal_notification_rules(owner).await?;
     let mut config = match &row {
         Some(row) => NotificationConfigDto {
             enabled: row.enabled,
@@ -164,16 +165,7 @@ pub(crate) async fn account_subject(
 ) -> Result<Option<crate::settings_routes::UserSubject>, StoreError> {
     let username = match store.get_account(account).await {
         Ok(row) => row.username,
-        Err(StoreError::NotFound) => {
-            let mut names = std::collections::BTreeSet::new();
-            for row in store.session_names_by_account(account).await? {
-                names.insert(store.canonical_policy_address(&row.username).await?);
-            }
-            if names.len() != 1 {
-                return Ok(None);
-            }
-            names.into_iter().next().unwrap()
-        }
+        Err(StoreError::NotFound) => return Ok(None),
         Err(error) => return Err(error),
     };
     let subject = SettingSubject {
@@ -187,6 +179,7 @@ pub(crate) async fn account_subject(
     let canonical = store.canonical_setting_subject(&subject).await?;
     Ok(Some(crate::settings_routes::UserSubject {
         personal_owner: None,
+        record_owner: store.native_personal_subject(account).await?,
         account_id: canonical.account_id,
         address: canonical.address,
         domain: canonical.domain,
@@ -237,7 +230,7 @@ mod tests {
             address: "a@example.org",
             domain: "example.org",
         };
-        assert!(!for_subject(&store, &subject).await.unwrap().enabled);
+        assert!(!for_subject(&store, &subject,"a").await.unwrap().enabled);
         assert!(
             allowed(&store, &subject, "notifications.pushAllowed")
                 .await
@@ -259,7 +252,7 @@ mod tests {
             })
             .await
             .unwrap();
-        assert!(for_subject(&store, &subject).await.unwrap().enabled);
+        assert!(for_subject(&store, &subject,"a").await.unwrap().enabled);
         store
             .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
                 key: "notifications.pushAllowed".into(),

@@ -1,3 +1,4 @@
+import { PersonalAccountBoundary } from './PersonalAccountBoundary.tsx';
 import { AsyncPending } from '../../components/AsyncState.tsx';
 import { createResource, createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
@@ -8,6 +9,9 @@ import { useEntityNavigation } from './entityEditor.tsx';
 import * as css from './styles.css.ts';
 export interface SignaturesProps { service?:SettingsService }
 export function Signatures(props:SignaturesProps):JSX.Element {
+ return <PersonalAccountBoundary>{()=> <OwnedSignatures {...props}/>}</PersonalAccountBoundary>;
+}
+function OwnedSignatures(props:SignaturesProps):JSX.Element {
  const service=props.service??new SettingsService();const navigation=useEntityNavigation('signatures');const [signatures,{refetch}]=createResource(()=>service.listSignatures());const [busy,setBusy]=createSignal(false);
  onMount(()=>void loadCatalog('settings'));
  const editor=()=>navigation.route().section==='signatures'?navigation.route().editor:undefined;

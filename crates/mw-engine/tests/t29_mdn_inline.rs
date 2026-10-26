@@ -1472,7 +1472,7 @@ async fn receipt_contact_mode_uses_owned_vcards_and_organisation_mode_uses_login
 async fn standard_identity(h: &Harness) -> String {
     let id = format!("standard-{}", h.account_id);
     h.store
-        .upsert_identity(&mw_store::IdentityRow {
+        .upsert_native_personal_identity(&mw_store::IdentityRow {
             id: id.clone(),
             account_id: h.account_id.clone(),
             name: "Me".into(),

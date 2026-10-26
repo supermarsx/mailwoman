@@ -52,7 +52,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Every store table, for TRUNCATE between Postgres runs.
-const ALL_TABLES: &str = "request_metrics_bucket, personal_signature, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
+const ALL_TABLES: &str = "personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, personal_signature, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
@@ -2094,6 +2094,18 @@ mod admin_controls_0033 {
     /// Every table 0033 creates, FK parents before their children.
     #[rustfmt::skip]
     const NEW_TABLES: &[NewTable] = &[
+        NewTable {name:"personal_identity",copied:true,cols:&[
+            ("owner_subject",'T',"!","po1-delivery-owner"),("id",'T',"!","owned-profile"),("name",'T',"=","Work"),("email",'T',"!","owner@example.test"),
+            ("reply_to",'T',"~","reply@example.test"),("signature_html",'T',"~","<p>Rich</p>"),("signature_text",'T',"~","Plain"),("signature_name",'T',"~","Work"),
+            ("sent_mailbox_id",'T',"~","sent-personal"),("source",'T',"=configured","configured"),
+        ]},
+        NewTable {name:"personal_notification_rules",copied:true,cols:&[
+            ("owner_subject",'T',"!","po1-delivery-owner"),("rule_json",'T',"!","[]"),("quiet_hours_json",'T',"!","{}"),("enabled",'I',"=0","1"),("updated_at",'T',"!",TS),
+        ]},
+        NewTable {name:"personal_push_subscription",copied:true,cols:&[
+            ("id",'T',"!","owned-push"),("owner_subject",'T',"!","po1-delivery-owner"),("transport",'T',"!","webpush"),("endpoint",'T',"!","https://push.example.test/owned"),
+            ("p256dh",'T',"~","public-key"),("auth",'T',"~","synthetic-auth"),("app_id",'T',"~","app"),("expires_at",'T',"~",TS),("created_at",'T',"!",TS),("last_wake_at",'T',"~",TS),
+        ]},
         NewTable {name:"personal_signature",copied:true,cols:&[
             ("owner_subject",'T',"!","po1-owner"),("name",'T',"!","Professional"),("body",'T',"=","plain"),
             ("is_default",'I',"=0","1"),("rule_json",'T',"=","{}"),("updated_at",'T',"!",TS),

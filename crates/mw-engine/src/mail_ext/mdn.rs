@@ -655,7 +655,7 @@ impl Engine {
         original: &mw_jmap::Email,
     ) -> Option<String> {
         let mut own = vec![identity.to_string()];
-        match self.store().list_identities(account_id).await {
+        match self.store().list_native_personal_identities(account_id).await {
             Ok(rows) => own.extend(rows.into_iter().map(|r| r.email)),
             Err(e) => tracing::warn!("reading identities for a receipt failed: {e}"),
         }
@@ -738,7 +738,7 @@ impl Engine {
             ));
         }
         if let Some((id, email)) = &delivery.identity {
-            let current = self.store().get_identity(id).await?;
+            let current = self.store().get_native_personal_identity(&msg.account_id,id).await?;
             if !current.is_some_and(|identity| {
                 identity.account_id == msg.account_id && same_mailbox(&identity.email, email)
             }) {

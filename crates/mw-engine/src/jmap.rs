@@ -2276,7 +2276,7 @@ impl Engine {
         if email.from.as_ref().is_none_or(|from| from.len() != 1 || from[0].email.is_empty()) { return Err(denied()); }
         let sender = sender_of(email, rt);
         if let Some(id) = identity_id {
-            let row = self.store().get_identity(id).await.map_err(|_| json!({"type":"serverFail", "description":"identity authority could not be checked"}))?;
+            let row = self.store().get_native_personal_identity(account_id,id).await.map_err(|_| json!({"type":"serverFail", "description":"identity authority could not be checked"}))?;
             if !row.is_some_and(|identity| identity.account_id == account_id && identity.email.eq_ignore_ascii_case(&sender)) {
                 return Err(json!({"type":"invalidProperties", "properties":["identityId"], "description":"The sending identity is unavailable or does not match this message."}));
             }
@@ -2761,7 +2761,7 @@ impl Engine {
     // ---- Identity ------------------------------------------------------
 
     async fn authorized_identities(&self, account_id: &str, rt: &AccountRuntime) -> Result<Vec<IdentityRow>> {
-        let rows = self.store().list_identities(account_id).await?;
+        let rows = self.store().list_native_personal_identities(account_id).await?;
         let mut allowed = Vec::new();
         for row in rows {
             if crate::identity::sender_address_allowed(self.store(), account_id, &rt.identity, &row.email).await? {
@@ -2839,7 +2839,7 @@ impl Engine {
     async fn ensure_default_identity(&self, account_id: &str, rt: &AccountRuntime) {
         let existing = self
             .store()
-            .list_identities(account_id)
+            .list_native_personal_identities(account_id)
             .await
             .unwrap_or_default();
         if existing.iter().any(|row| row.email.eq_ignore_ascii_case(&rt.identity)) || rt.identity.is_empty() {
@@ -2854,7 +2854,7 @@ impl Engine {
             .map(|m| m.id);
         let _ = self
             .store()
-            .upsert_identity(&IdentityRow {
+            .upsert_native_personal_identity(&IdentityRow {
                 id: format!("identity-{account_id}"),
                 account_id: account_id.to_string(),
                 name: String::new(),
@@ -2882,7 +2882,7 @@ impl Engine {
         }
         let existing = self
             .store()
-            .list_identities(account_id)
+            .list_native_personal_identities(account_id)
             .await
             .unwrap_or_default();
         // Reuse the Sent mailbox the configured identity resolved (if any).
@@ -2897,7 +2897,7 @@ impl Engine {
             }
             let _ = self
                 .store()
-                .upsert_identity(&IdentityRow {
+                .upsert_native_personal_identity(&IdentityRow {
                     id: format!("identity-server-{account_id}-{}", identity_slug(email)),
                     account_id: account_id.to_string(),
                     name: si.name.clone(),
