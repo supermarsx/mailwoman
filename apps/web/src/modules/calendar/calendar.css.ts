@@ -577,3 +577,11 @@ export const mobileSidebarClosed=style({'@media':{'screen and (max-width: 40rem)
 globalStyle(body,{'@media':{'screen and (max-width: 40rem)':{flexDirection:'column'}}});
 globalStyle(sidebar,{'@media':{'screen and (max-width: 40rem)':{width:'auto',maxHeight:'40%',borderInlineEnd:0,borderBlockEnd:rule}}});
 globalStyle(main,{'@media':{'screen and (max-width: 40rem)':{minHeight:0}}});
+
+// The retained pane may be narrower than the viewport in split/masonry mode.
+globalStyle(module,{containerType:'inline-size',containerName:'mw-calendar'});
+globalStyle(mobileSidebarToggle,{'@container':{'mw-calendar (max-width: 40rem)':{display:'inline-flex',alignSelf:'flex-start',margin:vars.space[2]}}});
+globalStyle(mobileSidebarClosed,{'@container':{'mw-calendar (max-width: 40rem)':{display:'none'}}});
+globalStyle(body,{'@container':{'mw-calendar (max-width: 40rem)':{flexDirection:'column'}}});
+globalStyle(sidebar,{'@container':{'mw-calendar (max-width: 40rem)':{width:'auto',maxHeight:'40%',borderInlineEnd:0,borderBlockEnd:rule}}});
+globalStyle(main,{'@container':{'mw-calendar (max-width: 40rem)':{minHeight:0}}});

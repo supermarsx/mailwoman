@@ -233,3 +233,9 @@ export const empty = style({
 globalStyle(layout,{'@media':{'screen and (max-width: 40rem)':{gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'minmax(6rem,30%) minmax(0,1fr)',gap:vars.space[3],padding:vars.space[3],minHeight:0}}});
 globalStyle(sidebar,{'@media':{'screen and (max-width: 40rem)':{minHeight:0,overflow:'auto',borderInlineEnd:0,borderBlockEnd:rule,paddingInlineEnd:0}}});
 globalStyle(main,{'@media':{'screen and (max-width: 40rem)':{minWidth:0,minHeight:0,overflow:'auto'}}});
+
+// Scope containment to this module's existing shell host; no global layout changes.
+globalStyle('.module-pane[data-surface="tasks"]',{containerType:'inline-size',containerName:'mw-tasks'});
+globalStyle(layout,{'@container':{'mw-tasks (max-width: 40rem)':{gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'minmax(6rem,30%) minmax(0,1fr)',gap:vars.space[3],padding:vars.space[3],minHeight:0}}});
+globalStyle(sidebar,{'@container':{'mw-tasks (max-width: 40rem)':{minHeight:0,overflow:'auto',borderInlineEnd:0,borderBlockEnd:rule,paddingInlineEnd:0}}});
+globalStyle(main,{'@container':{'mw-tasks (max-width: 40rem)':{minWidth:0,minHeight:0,overflow:'auto'}}});
