@@ -10,6 +10,8 @@ export type ReplyMode = 'reply' | 'reply-all' | 'forward';
 
 /** What a composer opened from a message starts with. */
 export interface ComposeInitial {
+  /** Open the same safe composer with recipient fields initially collapsed. */
+  compact?: boolean;
   mode: ReplyMode;
   /** Recipient fields in the composer's own syntax (`Name <addr>, …`). */
   to: string;

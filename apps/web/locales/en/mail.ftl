@@ -490,3 +490,7 @@ mail-external-count = { $count } recipient(s) outside trusted domains
 mail-external-help = Check the To, Cc and Bcc recipients before sending confidential information. Trust is based on the selected sending identity and your effective domain policy.
 mail-external-reviewed = I have checked these external recipients.
 mail-external-confirm-required = Review and confirm the external recipients before sending.
+
+mail-quick-reply = Quick reply
+mail-quick-reply-help = Offer a compact reply tab with recipients already filled in. Off by default. The normal safety checks and send options still apply.
+mail-quick-reply-expand = Edit recipients and subject

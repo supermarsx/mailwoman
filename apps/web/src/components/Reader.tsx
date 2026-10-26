@@ -898,7 +898,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
 
   /** Toolbar entry point. One preparation at a time; a failure (the quote's
    *  chunk could not be loaded) is reported and opens nothing. */
-  async function startReply(mode: ReplyMode): Promise<void> {
+  async function startReply(mode: ReplyMode, compact = false): Promise<void> {
     const email = app.openEmail();
     if (email === null || preparing() || props.onCompose === undefined) return;
     setPreparing(true);
@@ -909,7 +909,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       // The reader moved on while this was prepared: do not open a composer
       // about a message that is no longer the one on screen.
       if (app.openEmail()?.id !== email.id) return;
-      props.onCompose(initial);
+      props.onCompose(compact ? {...initial, compact: true} : initial);
     } catch {
       app.showToast('error', t('mail-reply-failed'));
     } finally {
@@ -1015,6 +1015,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <Show when={app.accountId()}><DeliveryStatus accountId={app.accountId()!} emailId={email().id} enabled={policy().inlineParts === true}/></Show>
               <Show when={email().blobId && app.downloadUrl() && app.accountId()}><SpamScore url={buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'})}/></Show>
               <ReaderToolbar email={email()} onReply={(mode) => void startReply(mode)} preparing={preparing()} onPrint={() => printMessage(email(), displayedContent(email()).source)} />
+              <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
               <AutoTagSection email={email()} />
             </header>
             <AttachmentsPane email={email()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} />

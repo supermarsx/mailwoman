@@ -32,4 +32,12 @@ it('disables both controls when an administrator locks them', () => {
   expect(screen.getByLabelText('External recipient warnings')).toBeDisabled();
   expect(screen.getByLabelText('Trusted recipient domains')).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Save trusted domains' })).toBeDisabled();
+  expect(screen.getByLabelText('Quick reply')).toBeDisabled();
+});
+
+it('keeps quick replies off by default and saves an explicit account opt-in', () => {
+  render(() => <ComposePreferences />);
+  expect(screen.getByLabelText('Quick reply')).not.toBeChecked();
+  fireEvent.click(screen.getByLabelText('Quick reply'));
+  expect(handles.save).toHaveBeenCalledWith('mail.quickReply', true);
 });

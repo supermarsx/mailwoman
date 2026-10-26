@@ -8,8 +8,10 @@ import { AppContext } from '../state/context.ts';
 import type { ComposeInitial } from './compose/reply.ts';
 import type { Email, Identity, JmapRequest, JmapResponse } from '../api/jmap-types.ts';
 import { formatDateTime } from '../i18n/format.ts';
+import { clearSettings, loadSettings } from '../api/settings.ts';
 // These tests count threading downloads; spam-header fetching has its own suite.
 vi.mock('./security/SpamScore.tsx', () => ({ SpamScore: () => null }));
+vi.mock('./security/DeliveryStatus.tsx', () => ({ DeliveryStatus: () => null }));
 
 // Reply / Reply all / Forward from the reader toolbar: what the composer is
 // handed. The reader's own requests outside the app client (security verdict,
@@ -166,6 +168,17 @@ describe('Reader: Reply, Reply all, Forward', () => {
     expect(buttons.slice(0, 3).map((b) => b.textContent)).toEqual(['Reply', 'Reply all', 'Forward']);
     expect(buttons.slice(0, 3).every((b) => b.tabIndex === 0 && !(b as HTMLButtonElement).disabled)).toBe(true);
     expect(screen.getByText(/^Cc: /)).toHaveTextContent('carol@example.org, alias@corp.example');
+  });
+
+  it('offers quick reply only after opt-in and preserves the standard reply metadata', async () => {
+    const { onCompose } = await openReader(ORIGINAL);
+    expect(screen.queryByRole('button', { name: 'Quick reply' })).toBeNull();
+    try {
+      await loadSettings({ refresh: true, fetcher: async () => new Response(JSON.stringify({ settings: { 'mail.quickReply': { value: true, source: 'user', locked: false } } }), { headers: { 'content-type': 'application/json' } }) });
+      fireEvent.click(screen.getByRole('button', { name: 'Quick reply' }));
+      await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1));
+      expect(onCompose.mock.calls[0]?.[0]).toMatchObject({ compact: true, mode: 'reply', to: 'Alice Example <alice@example.org>', inReplyTo: ['orig@example.org'], source: { emailId: 'm1', keyword: '$answered' } });
+    } finally { clearSettings(); }
   });
 
   it('Reply: the author only, one Re:, the thread ids from the raw message, the sanitised body quoted', async () => {

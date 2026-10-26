@@ -589,7 +589,7 @@ Global, hot. Default 50,000; range 1,000–100,000. Oldest entries are removed o
 ### Message display
 
 <a id="mail.quickReply"></a>
-`mail.quickReply` defaults to `false`. This checkpoint registers the preference only; the compact reply composer is not wired yet.
+`mail.quickReply` defaults to `false`. When enabled, the reader offers a compact reply tab with prefilled recipients and subject. Users can expand those fields without losing the draft. The same composer handles signatures, threading, encryption, DLP, external-recipient confirmation and submission.
 It supports global/domain defaults, administrator locks and user overrides.
 
 <a id="mail.requestReadReceipt"></a>

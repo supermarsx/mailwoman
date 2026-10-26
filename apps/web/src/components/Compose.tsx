@@ -127,6 +127,8 @@ export function Compose(props: {
   const app = useApp();
   const composeId=createUniqueId();
   const initial = props.initial;
+  const [expanded, setExpanded] = createSignal(false);
+  const compact = () => initial?.compact === true && !expanded();
   const [to, setTo] = createSignal(initial?.to ?? '');
   const [cc, setCc] = createSignal(initial?.cc ?? '');
   const [bcc, setBcc] = createSignal('');
@@ -156,7 +158,7 @@ export function Compose(props: {
   const plainBody = (): JSX.Element => (
     <textarea
       aria-label={t('mail-compose-body')}
-      rows="10"
+      rows={compact() ? 4 : 10}
       value={body()}
       onInput={(e) => {
         // Keep `bodyHtml` in step, so an editor that mounts later (its chunk
@@ -493,6 +495,7 @@ export function Compose(props: {
 
   /** Resume a locally auto-saved draft (W9) into this composer. */
   function resumeDraft(d: StoredDraft): void {
+    setExpanded(true);
     setTo(d.to);
     setCc(d.cc ?? '');
     setBcc(d.bcc ?? '');
@@ -878,7 +881,7 @@ export function Compose(props: {
       ref={backdropEl}
       onKeyDown={onDialogKeyDown}
     >
-      <form class="compose" onSubmit={(e) => void onSubmit(e)}>
+      <form class="compose" classList={{'compose--compact':compact()}} onSubmit={(e) => void onSubmit(e)}>
         <header class="compose__header">
           <h2>{t(initial !== undefined ? TITLE_KEY[initial.mode] : 'mail-compose-title')}</h2>
           <div class="compose__header-actions">
@@ -917,6 +920,8 @@ export function Compose(props: {
           <RecallPanel submissions={app.cancelableOutbox} onRecall={recallSubmission} />
         </Show>
 
+        <Show when={compact()}><section class="compose__quick-summary" aria-label={t('mail-quick-reply')}><p><strong>{t('mail-compose-to')}:</strong> {to()}<Show when={cc()}> · Cc: {cc()}</Show><Show when={bcc()}> · Bcc: {bcc()}</Show></p><p>{subject()}</p><button type="button" class="btn btn--ghost" onClick={() => setExpanded(true)}>{t('mail-quick-reply-expand')}</button></section></Show>
+        <Show when={!compact()}>
         <Show when={app.identities().length > 0}>
           <label class="field">
             <span>{t('mail-compose-from')}</span>
@@ -1008,11 +1013,12 @@ export function Compose(props: {
           </label>
         </Show>
 
-        <Show when={externalMode()!=='off' && outside().length>0}><section class="compose-external" aria-label={t('mail-external-recipients')}><details><summary><Icon name="alert"/> {t('mail-external-count',{count:outside().length})}</summary><p>{t('mail-external-help')}</p><ul><For each={outside()}>{address=><li>{address}</li>}</For></ul></details><Show when={externalMode()==='confirm'}><label><input type="checkbox" checked={reviewedRecipients()===recipientReviewKey()} onChange={event=>setReviewedRecipients(event.currentTarget.checked?recipientReviewKey():'')}/>{t('mail-external-reviewed')}</label></Show></section></Show>
         <label class="field">
           <span>{t('mail-compose-subject')}</span>
           <input type="text" value={subject()} onInput={(e) => setSubject(e.currentTarget.value)} />
         </label>
+        </Show>
+        <Show when={externalMode()!=='off' && outside().length>0}><section class="compose-external" aria-label={t('mail-external-recipients')}><details><summary><Icon name="alert"/> {t('mail-external-count',{count:outside().length})}</summary><p>{t('mail-external-help')}</p><ul><For each={outside()}>{address=><li>{address}</li>}</For></ul></details><Show when={externalMode()==='confirm'}><label><input type="checkbox" checked={reviewedRecipients()===recipientReviewKey()} onChange={event=>setReviewedRecipients(event.currentTarget.checked?recipientReviewKey():'')}/>{t('mail-external-reviewed')}</label></Show></section></Show>
         <div class="field field--grow">
           <div class="compose__body-head">
             <span>{t('mail-compose-body')}</span>

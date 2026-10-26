@@ -136,6 +136,20 @@ describe('Compose', () => {
     expect(within(select).getByRole('option', { name: /Personal/ })).toBeInTheDocument();
   });
 
+  it('expands a quick reply without losing its draft or external-recipient safeguard', async () => {
+    const { app } = renderWithApp(() => <Compose embedded initial={{ compact: true, mode: 'reply', to: 'alice@outside.test', cc: '', subject: 'Re: Plans', bodyText: 'Quoted text', bodyHtml: '<p>Quoted text</p>', inReplyTo: ['original@example.org'], references: [], attachments: [], quotesDecrypted: false }} onClose={() => undefined} />, { identities: IDENTITIES });
+    await app.login({ username: 'me@example.org', password: 'p' });
+    expect(screen.queryByLabelText('To')).toBeNull();
+    expect(screen.getByRole('region', { name: 'Quick reply' })).toHaveTextContent('alice@outside.test');
+    expect(screen.getByText('1 recipient(s) outside trusted domains')).toBeVisible();
+    fireEvent.click(screen.getByTestId('format-toggle'));
+    fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'My quick reply\nQuoted text' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit recipients and subject' }));
+    expect(screen.getByLabelText('To')).toHaveValue('alice@outside.test');
+    expect(screen.getByLabelText('Subject')).toHaveValue('Re: Plans');
+    expect(screen.getByLabelText('Body')).toHaveValue('My quick reply\nQuoted text');
+  });
+
   it('sends via the chosen identity', async () => {
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES });
     await app.login({ username: 'me@example.org', password: 'p' });
