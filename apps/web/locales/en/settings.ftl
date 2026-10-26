@@ -450,3 +450,6 @@ settings-draft-periodic = At regular intervals
 settings-draft-manual = Only when I choose Save
 settings-draft-debounce = Typing pause (milliseconds)
 settings-draft-interval = Save interval (seconds)
+
+settings-show-from = Show From when composing
+settings-show-from-help = Start with the From field visible. You can also show it for one message from the ribbon. Only authorized sending addresses are accepted.

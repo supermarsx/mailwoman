@@ -365,6 +365,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.quickreply"></a>`mail.quickReply` | mail | global+domain+user | false | plain |  | yes | enable the compact message reply composer |
 | <a id="mail.requestreadreceipt"></a>`mail.requestReadReceipt` | mail | global+domain+user | false | plain |  | yes | request a read receipt by default when composing supported mail |
 | <a id="mail.requestdeliveryreceipt"></a>`mail.requestDeliveryReceipt` | mail | global+domain+user | false | plain |  | yes | request delivery status notifications by default when the account supports DSN |
+| <a id="mail.showfrom"></a>`mail.showFrom` | mail | global+domain+user | false | plain |  | yes | show the From field by default when composing; sending authority is unchanged |
 | <a id="mail.modifierselection"></a>`mail.modifierSelection` | mail | global+domain+user | true | plain |  | yes | select messages with Ctrl, Command, Shift and arrow keys |
 | <a id="mail.draftsavemode"></a>`mail.draftSaveMode` | mail | global+domain+user | "realtime" | plain |  | yes | account draft save scheduling; manual disables automatic upstream writes |
 | <a id="mail.draftdebouncems"></a>`mail.draftDebounceMs` | mail | global+domain+user | 1000 | plain |  | yes | idle milliseconds before saving an edited account draft |

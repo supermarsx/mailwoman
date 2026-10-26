@@ -593,6 +593,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("mail.quickReply", Kind::Bool, "false", GDU, "mail", "enable the compact message reply composer"),
     def!("mail.requestReadReceipt", Kind::Bool, "false", GDU, "mail", "request a read receipt by default when composing supported mail"),
     def!("mail.requestDeliveryReceipt", Kind::Bool, "false", GDU, "mail", "request delivery status notifications by default when the account supports DSN"),
+    def!("mail.showFrom", Kind::Bool, "false", GDU, "mail", "show the From field by default when composing; sending authority is unchanged"),
     def!("mail.modifierSelection", Kind::Bool, "true", GDU, "mail", "select messages with Ctrl, Command, Shift and arrow keys"),
     def!("mail.draftSaveMode", Kind::Enum(&["realtime", "periodic", "manual"]), "\"realtime\"", GDU, "mail", "account draft save scheduling; manual disables automatic upstream writes"),
     def!("mail.draftDebounceMs", int(500,10000), "1000", GDU, "mail", "idle milliseconds before saving an edited account draft"),
@@ -2186,6 +2187,17 @@ mod tests {
 
     fn no_env(_: &str) -> Option<String> {
         None
+    }
+
+    #[test]
+    fn composer_from_visibility_is_hidden_by_default_and_user_overridable() {
+        let def = lookup("mail.showFrom").unwrap();
+        assert_eq!(def.default, "false");
+        assert_eq!(def.scopes, Scopes::GlobalDomainUser);
+        assert!(def.user_visible());
+        assert!(def.user_override);
+        assert!(validate(def, &serde_json::json!(true), "/value").is_ok());
+        assert!(validate(def, &serde_json::json!("true"), "/value").is_err());
     }
 
     #[test]

@@ -41,3 +41,17 @@ it('keeps quick replies off by default and saves an explicit account opt-in', ()
   fireEvent.click(screen.getByLabelText('Quick reply'));
   expect(handles.save).toHaveBeenCalledWith('mail.quickReply', true);
 });
+
+it('keeps From hidden by default and saves an explicit account preference', () => {
+  render(() => <ComposePreferences />);
+  const input = screen.getByLabelText('Show From when composing');
+  expect(input).not.toBeChecked();
+  fireEvent.click(input);
+  expect(handles.save).toHaveBeenCalledWith('mail.showFrom', true);
+});
+
+it('preserves the administrator lock on the default From visibility', () => {
+  handles.locked = true;
+  render(() => <ComposePreferences />);
+  expect(screen.getByLabelText('Show From when composing')).toBeDisabled();
+});

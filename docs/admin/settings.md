@@ -1012,3 +1012,7 @@ Global seconds, default 2,592,000 (30 days); bounded from 3,600 to 34,560,000. T
 <a id="mail.draftIntervalSecs"></a>
 
 Account draft saving supports global, domain and user defaults and administrator locks. `mail.draftSaveMode` defaults to `realtime` (after a typing pause), with `periodic` and `manual` alternatives. `mail.draftDebounceMs` defaults to 1000 and accepts 500–10000 milliseconds; `mail.draftIntervalSecs` defaults to 30 and accepts 5–3600 seconds. Manual mode disables scheduled upstream writes. These settings do not grant backend capabilities: a mapped, writable native IMAP Drafts folder and confirmed APPENDUID are required. Unsupported backends remain explicit. Interrupted or unconfirmed saves retain a durable uncertain claim and are never automatically repeated.
+
+<a id="mail.showFrom"></a>
+
+`mail.showFrom` is a global/domain/user boolean, default false. It controls the initial visibility of the composer From field. A per-compose ribbon action can reveal the field; visibility never grants permission to send as an address. Typed one-message addresses must pass current native or upstream sender authorization and are not saved as identities.

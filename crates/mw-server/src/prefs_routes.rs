@@ -62,6 +62,7 @@ mod ui_preferences;
 pub(crate) mod personal_storage;
 mod receipt_preferences;
 mod contact_photo;
+mod sender_resolution;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Wire shapes (mirror apps/web/src/screens/Settings/types.ts exactly)
@@ -359,13 +360,18 @@ async fn identities_upsert(
 /// Editable profile rows are not permission grants. Proxy identities come from
 /// the current authenticated provider; native identities use runtime authority.
 async fn identity_address_allowed(state: &AppState, session: &mw_store::Session, address: &str) -> Result<bool, ()> {
-    if address.is_empty() || address.trim() != address || address.chars().any(char::is_control) { return Ok(false); }
+    Ok(resolve_sender_identity(state, session, address).await?.is_some())
+}
+
+/// Outer None is denied; inner None is native authority without a saved profile.
+async fn resolve_sender_identity(state: &AppState, session: &mw_store::Session, address: &str) -> Result<Option<Option<String>>, ()> {
+    if address.is_empty() || address.trim() != address || address.chars().any(char::is_control) { return Ok(None); }
     let owner=state.store.session_personal_subject(&session.id).await.map_err(|_| ())?.ok_or(())?;
     let native=state.store.native_personal_subject(&session.account_id).await.map_err(|_| ())?;
     if native.as_deref()==Some(owner.as_str()) {
         let engine=state.engine.as_ref().ok_or(())?;
         crate::engine_mode::ensure_account(engine, &session.account_id).await.map_err(|_| ())?;
-        return engine.sender_address_allowed(&session.account_id, address).await.map_err(|_| ());
+        return engine.sender_address_allowed(&session.account_id, address).await.map(|allowed| allowed.then_some(None)).map_err(|_| ());
     }
     let client = crate::upstream_client(&state.security, &session.jmap_url, &session.api_url, &session.credentials).await.map_err(|_| ())?;
     let request = json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:submission"],"methodCalls":[["Identity/get",{"accountId":session.account_id,"properties":["id","email"]},"identities"]]});
@@ -376,7 +382,11 @@ async fn identity_address_allowed(state: &AppState, session: &mw_store::Session,
     if value[1]["accountId"].as_str()!=Some(session.account_id.as_str()) { return Err(()); }
     let identities = value[1]["list"].as_array().ok_or(())?;
     if identities.len()>1024 { return Err(()); }
-    Ok(identities.iter().any(|identity|identity["email"].as_str().is_some_and(|email|email.eq_ignore_ascii_case(address))))
+    let matching = identities.iter().find(|identity|identity["email"].as_str().is_some_and(|email|email.eq_ignore_ascii_case(address)));
+    match matching {
+        None => Ok(None),
+        Some(identity) => identity["id"].as_str().filter(|id| !id.is_empty() && id.len() <= 1024 && !id.chars().any(char::is_control)).map(|id| Some(Some(id.to_owned()))).ok_or(()),
+    }
 }
 
 async fn identities_delete(
@@ -955,6 +965,7 @@ pub(crate) fn prefs_router() -> Router<AppState> {
             get(identities_list).post(identities_upsert),
         )
         .route("/api/account/identities/{id}", delete(identities_delete))
+        .route("/api/account/sender/resolve", axum::routing::post(sender_resolution::resolve))
         // t19 e13 (SPEC §17.3): per-user appearance, one opaque object on the
         // existing settings KV. DELETE resets to the deployment default.
         .route(

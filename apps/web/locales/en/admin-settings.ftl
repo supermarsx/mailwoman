@@ -636,3 +636,6 @@ admin-settings-key-mail-draft-debounce-ms = Draft typing pause (milliseconds)
 admin-settings-help-mail-draft-debounce-ms = Wait 500 to 10000 milliseconds after editing before saving in realtime mode.
 admin-settings-key-mail-draft-interval-secs = Draft save interval (seconds)
 admin-settings-help-mail-draft-interval-secs = Save edited drafts every 5 to 3600 seconds in periodic mode. Unchanged drafts are not written again.
+
+admin-settings-key-mail-show-from = Show the composer From field
+admin-settings-help-mail-show-from = Show From by default in new composers. Users can reveal it for one message; only authorized addresses can send.

@@ -970,3 +970,19 @@ async fn named_signature_is_account_scoped_and_resolved_at_identity_read() {
     h.engine.store().delete_personal_signature(&owner,"work").await.unwrap();
     assert!(result(&jmap(&h,get()).await,"get")["list"][0]["signatureText"].is_null());
 }
+
+#[tokio::test]
+async fn sender_authority_one_shot_owned_alias_sends_without_saved_identity() {
+    let h=setup(SentAppend::Accept,Smtp::Deliver).await;
+    h.engine.store().put_masked_email(&mw_store::MaskedEmailRow {
+        id:"one-shot-alias".into(),account_id:h.account_id.clone(),alias_addr:"alias@example.org".into(),
+        target_desc:"me@example.org".into(),state:"enabled".into(),created_at:"2026-01-01T00:00:00Z".into(),last_used_at:None,
+    }).await.unwrap();
+    let mut draft=draft_create();draft[1]["create"]["draft"]["from"]=json!([{"email":"alias@example.org"}]);
+    let response=jmap(&h,json!([draft,["EmailSubmission/set",{"create":{"s1":{
+        "emailId":"#draft","mailwomanHoldSeconds":0
+    }}},"send"]])).await;
+    assert!(result(&response,"send")["created"]["s1"].is_object(),"{response}");
+    assert_eq!(h.submitter.calls(),1);
+    assert!(h.engine.store().list_native_personal_identities(&h.account_id).await.unwrap().is_empty());
+}
