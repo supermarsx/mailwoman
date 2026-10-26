@@ -422,3 +422,9 @@ settings-search-sections = Search settings
 settings-search-no-sections = No matching settings sections.
 settings-time-local = Local device time zone
 settings-time-none = No comparison time zone
+
+settings-mail-interactions = Message selection and moving
+settings-mail-modifier-selection = Select messages with modifier keys
+settings-mail-modifier-selection-help = Ctrl or Command toggles separate messages. Shift selects a range, and Shift with arrow keys extends it. The visible selection button remains available when this is off.
+settings-mail-drag-folder = Drag messages to folders
+settings-mail-drag-folder-help = Drag a selected message to move the selection, or an unselected message to move just that message. Only folders in this account are accepted. Touch and keyboard users can use the selection toolbar instead.

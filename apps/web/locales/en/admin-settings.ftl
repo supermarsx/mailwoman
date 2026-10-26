@@ -594,3 +594,8 @@ admin-settings-key-appearance-customCssEnabled = Allow personal appearance CSS
 admin-settings-help-appearance-customCssEnabled = Allow restricted visual styles in the owner’s workspace. Disabled by default; enforced mailbox appearance locks pause these styles.
 admin-settings-key-appearance-customJsEnabled = Allow personal appearance scripts
 admin-settings-help-appearance-customJsEnabled = Allow isolated scripts that can only request appearance changes. Disabled by default; scripts cannot access mail, account data, or the application DOM.
+
+admin-settings-key-mail-modifier-selection = Message modifier-key selection
+admin-settings-help-mail-modifier-selection = Allow Ctrl, Command and Shift range selection. Lock this value to enforce it; visible selection controls remain available.
+admin-settings-key-mail-drag-to-folder = Drag messages to folders
+admin-settings-help-mail-drag-to-folder = Allow account-bound message dragging to real folders. This does not grant mailbox write permission; the server still authorizes each move.

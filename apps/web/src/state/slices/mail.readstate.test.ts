@@ -425,3 +425,11 @@ describe('authoritative folder count reconciliation',()=>{
     });
   });
 });
+
+it('related subject search keeps operator-like metadata out of the query parser',async()=>{
+ await withSlice([msg('a')],async(mail,server)=>{
+  server.jmap.mockClear();await mail.searchMessageField('subject','a " OR from:other');
+  const query=server.jmap.mock.calls.flatMap(call=>(call[0] as JmapRequest).methodCalls).find(call=>call[0]==='Email/query');
+  expect(query?.[1]['filter']).toEqual({subject:'a " OR from:other'});
+ });
+});

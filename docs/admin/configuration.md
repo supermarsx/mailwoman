@@ -362,6 +362,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.quickreply"></a>`mail.quickReply` | mail | global+domain+user | false | plain |  | yes | enable the compact message reply composer |
 | <a id="mail.requestreadreceipt"></a>`mail.requestReadReceipt` | mail | global+domain+user | false | plain |  | yes | request a read receipt by default when composing supported mail |
 | <a id="mail.requestdeliveryreceipt"></a>`mail.requestDeliveryReceipt` | mail | global+domain+user | false | plain |  | yes | request delivery status notifications by default when the account supports DSN |
+| <a id="mail.modifierselection"></a>`mail.modifierSelection` | mail | global+domain+user | true | plain |  | yes | select messages with Ctrl, Command, Shift and arrow keys |
+| <a id="mail.dragtofolder"></a>`mail.dragToFolder` | mail | global+domain+user | true | plain |  | yes | move selected messages by dragging them to a folder |
 | <a id="contacts.avatarmode"></a>`contacts.avatarMode` | contacts | global+domain+user | "initials" | plain |  | yes | local generated avatars or embedded photos from this account contacts; never remote photo requests |
 | <a id="reader.actionstyle"></a>`reader.actionStyle` | reader | global+domain+user | "icons" | plain |  | yes | compact reader actions or icons with visible labels |
 | <a id="reader.colormode"></a>`reader.colorMode` | reader | global+domain+user | "auto" | plain |  | yes | message color adaptation inside the isolated reader |

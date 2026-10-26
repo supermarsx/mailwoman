@@ -2,6 +2,7 @@ import {onCleanup,type Accessor} from 'solid-js';
 import {useApp} from '../state/context.ts';
 import {observePreferenceAccount,preferenceAccount} from '../api/accountPreferenceLifecycle.ts';
 import {t} from '../i18n';
+import {relatedSearchValue} from './messageSearch.ts';
 import type {Email} from '../api/jmap-types.ts';
 import {snoozePresets} from './MessageActions.tsx';
 import {createContextMenu,type ContextAction} from './ContextMenu.tsx';
@@ -17,6 +18,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>) {
    {id:'flag',label:t(message.keywords?.$flagged?'mail-unflag-message':'mail-flag-message'),icon:'flag',run:()=>app.flagMessage(id,!message.keywords?.$flagged)},
    {id:'pin',label:t(message.pinned?'mail-unpin':'mail-pin'),icon:'pin',run:()=>app.pinMessage(id,!message.pinned)},
   ];
+  for(const field of ['from','subject'] as const){const value=relatedSearchValue(message,field);if(value)rows.push({id:`search:${field}`,label:t(field==='from'?'mail-context-search-sender':'mail-context-search-subject'),icon:'search',run:()=>app.searchMessageField(field,value)});}
   for(const [role,label,icon,run] of [
    ['archive','mail-archive','archive',()=>app.archiveMessage(id)],
    ['junk','mail-mark-spam','spam',()=>app.markSpam(id)],

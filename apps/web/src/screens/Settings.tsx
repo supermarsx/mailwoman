@@ -58,6 +58,7 @@ import { SecurityCenter } from './Settings/SecurityCenter.tsx';
 import { Privacy } from './Settings/Privacy.tsx';
 import { AnalyticsConsent } from './Settings/AnalyticsConsent.tsx';
 import { ComposePreferences } from './Settings/ComposePreferences.tsx';
+import {MailInteractionPreferences} from './Settings/MailInteractionPreferences.tsx';
 import { KeyboardShortcuts } from './Settings/KeyboardShortcuts.tsx';
 import { TimeZones } from './Settings/TimeZones.tsx';
 import { Packages } from './Settings/Packages.tsx';
@@ -305,7 +306,7 @@ export function Settings(props: SettingsProps): JSX.Element {
               <Show when={visible('mail-transfer')}><AsyncBoundary><MailTransfer accountId={accountId()} mailboxes={app.mailboxes()} onImported={()=>void app.refreshFolders()}/></AsyncBoundary></Show>
               <Show when={visible('receipts')}><AsyncBoundary><Receipts accountId={accountId()}/></AsyncBoundary></Show>
               <Show when={visible('compose')}><AsyncBoundary><ComposePreferences /></AsyncBoundary></Show>
-              <Show when={visible('shortcuts')}><AsyncBoundary><KeyboardShortcuts navigation={navigation}/></AsyncBoundary></Show>
+              <Show when={visible('shortcuts')}><AsyncBoundary><KeyboardShortcuts navigation={navigation}/><MailInteractionPreferences/></AsyncBoundary></Show>
               <Show when={visible('time')}><AsyncBoundary><TimeZones navigation={navigation}/></AsyncBoundary></Show>
               <Show when={visible('packages')}><AsyncBoundary><Packages accountId={accountId()} navigation={navigation}/></AsyncBoundary></Show>
               <Show when={visible('labels')}><AsyncBoundary><Labels navigation={navigation}/></AsyncBoundary></Show>

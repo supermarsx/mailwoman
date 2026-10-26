@@ -588,3 +588,7 @@ mail-sharing-unavailable = Folder sharing is unavailable or you no longer have p
 
 mail-trash-cancelling = Stopping after the current request. Confirmed deleted: { $deleted }; skipped: { $skipped }; remaining: { $remaining }. Deletions already accepted cannot be undone.
 mail-trash-already-running = Trash deletion is already running. Use its progress notification to stop future batches.
+
+mail-context-search-sender = Search this sender
+mail-context-search-subject = Search the same subject
+mail-drag-too-many = Drag up to { $count } messages at a time. Select a smaller group before moving.

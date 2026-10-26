@@ -178,6 +178,7 @@ export interface MailSlice {
    *  optional `semantic` flag (V7 §14.3) requests embedding re-ranking; it is only
    *  ever set when the Assist semantic-search toggle is on. */
   searchMessages(query: string, opts?: { semantic?: boolean }): Promise<void>;
+  searchMessageField(field:'from'|'subject',value:string):Promise<void>;
   /** Clear search and reload the selected mailbox. */
   clearSearch(): Promise<void>;
   /** Refetch the current mailbox list in place (push/peer-sync), preserving the
@@ -1489,6 +1490,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     await loadFirstPage(acct, { kind: 'search', filter });
   }
 
+  /** Message metadata uses typed filters, never query-language interpolation. */
+  async function searchMessageField(field:'from'|'subject',value:string):Promise<void> {
+    const acct=accountId();
+    if(acct===null||!value.trim()||value.length>4096||[...value].some(character=>character.charCodeAt(0)<32||character.charCodeAt(0)===127))return;
+    clearSelection();setSearch(`${field}: ${value}`);setSearchActive(true);
+    await loadFirstPage(acct,{kind:'search',filter:{[field]:value}});
+  }
+
   async function listAttachments(): Promise<AttachmentItem[]> {
     const acct = accountId();
     if (acct === null) return [];
@@ -1807,6 +1816,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     search,
     searchActive,
     searchMessages,
+    searchMessageField,
     clearSearch,
     refreshCurrentMailbox,
     refreshFolders,

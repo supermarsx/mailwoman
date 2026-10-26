@@ -2,6 +2,8 @@ import { AppearanceCustomizationRuntime } from '../components/AppearanceCustomiz
 import {createSharingAccess} from '../api/mailboxSharing.ts';
 import {createConfiguredClient} from '../api/transport.ts';
 import {FolderContextMenu} from '../components/FolderContextMenu.tsx';
+import {peekMessageDrag,takeMessageDrag} from '../components/messageDrag.ts';
+import {folderDropTarget} from '../components/messageDrag.css.ts';
 import { ResizeHandle } from '../components/ResizeHandle.tsx';
 import { accountUiPreferences, setAccountUiPreferences } from '../api/accountPreferences.ts';
 import { readingPane } from '../components/readingPane.ts';
@@ -113,6 +115,22 @@ export function MailboxScreen(): JSX.Element {
   const setWorkspaceLayout=(value:'tabs'|'side-by-side'|'stack'):void=>setAccountUiPreferences({workspaceLayout:value});
   const folderMode=()=>accountUiPreferences().folderSidebarMode ?? 'expanded';
   const [folderDrag,setFolderDrag]=createSignal<number|null>(null);
+  const [dropFolder,setDropFolder]=createSignal<string|null>(null);
+  function acceptsMessageDrop(event:DragEvent,id:string):boolean {
+    if(app.listLoading())return false;
+    const box=app.mailboxes().find(item=>item.id===id);
+    const ids=peekMessageDrag(event,app.accountId());
+    return !!box&&box.mailwomanSearchQuery===undefined&&!!ids&&ids.every(messageId=>app.messages().some(message=>message.id===messageId));
+  }
+  function dropMessages(event:DragEvent,id:string):void {
+    setDropFolder(null);if(!acceptsMessageDrop(event,id))return;
+    const ids=takeMessageDrag(event,app.accountId());if(!ids)return;
+    event.preventDefault();
+    const moving=ids.filter(messageId=>!app.messages().find(message=>message.id===messageId)?.mailboxIds[id]);
+    if(moving.length)void app.moveMessage(moving,id);
+  }
+  onMount(()=>{const clear=()=>setDropFolder(null);window.addEventListener('dragend',clear);onCleanup(()=>window.removeEventListener('dragend',clear));});
+
   const [listDrag,setListDrag]=createSignal<number|null>(null);
   const [tileDrag,setTileDrag]=createSignal<number|null>(null);
   const [viewport,setViewport]=createSignal({width:window.innerWidth,height:window.innerHeight});
@@ -433,7 +451,9 @@ export function MailboxScreen(): JSX.Element {
               <button
                 type="button"
                 class={`sidebar__box ${a11y.focusable}`}
-                classList={{ 'sidebar__box--active': surface() === 'mail' && app.selectedMailboxId() === box().id }}
+                classList={{ 'sidebar__box--active': surface() === 'mail' && app.selectedMailboxId() === box().id,[folderDropTarget]:dropFolder()===box().id }}
+                onDragOver={event=>{if(acceptsMessageDrop(event,box().id)){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move';setDropFolder(box().id);}}}
+                onDragLeave={()=>setDropFolder(null)} onDrop={event=>dropMessages(event,box().id)}
                 aria-label={box().name} title={[box().name,...(accountUiPreferences().folderLabels?.[box().id]??[]).map(id=>app.tagByKeyword(id)?.name??id)].join(' · ')}
                 onClick={() => {
                   router.navigate('mail');

@@ -13,6 +13,8 @@ import { t, isolate } from '../i18n/index.ts';
 import { formatDateWith } from '../i18n/format.ts';
 import { messageTimeZone } from './TimeHelpers.tsx';
 import { useActions } from '../keymap/index.ts';
+import {modifierSelectionEnabled,dragToFolderEnabled} from './mailInteractions.ts';
+import {beginMessageDrag,clearMessageDrag} from './messageDrag.ts';
 import { computeWindow, projectedRowCount, sameWindow, splitWindow } from './virtual.ts';
 import { TagChips } from './TagChips.tsx';
 import { MessageActions } from './MessageActions.tsx';
@@ -122,6 +124,7 @@ type MessageMenu = {open:(event:MouseEvent,email:Email)=>void;keydown:(event:Key
 
 function MessageRow(props: {
   contextMenu:MessageMenu;
+  onDragStart:(event:DragEvent)=>void;
   email: Email;
   top: number;
   height: number;
@@ -161,6 +164,7 @@ function MessageRow(props: {
         aria-current={app.openEmail()?.id === email().id ? 'true' : undefined}
         data-index={props.index}
         onClick={(e) => props.onClick(e)}
+        draggable={dragToFolderEnabled()&&!app.listLoading()} onDragStart={props.onDragStart} onDragEnd={clearMessageDrag}
         data-email-id={email().id} onContextMenu={e=>props.contextMenu.open(e,email())} onKeyDown={e=>props.contextMenu.keydown(e,email())}
       >
         <Show when={unread()}>
@@ -229,6 +233,7 @@ function PlaceholderRow(props: { top: number; height: number; index: number; tot
  *  the toggle expands/collapses the members in place. */
 function ThreadHeadRow(props: {
   contextMenu:MessageMenu;
+  onDragStart:(event:DragEvent)=>void;
   row: ThreadVisualRow;
   top: number;
   height: number;
@@ -281,6 +286,7 @@ function ThreadHeadRow(props: {
         data-index={props.index}
         data-testid="thread-head"
         onClick={(e) => props.onClick(e)}
+        draggable={dragToFolderEnabled()&&!app.listLoading()} onDragStart={props.onDragStart} onDragEnd={clearMessageDrag}
         data-email-id={rep().id} onContextMenu={e=>props.contextMenu.open(e,rep())} onKeyDown={e=>props.contextMenu.keydown(e,rep())}
       >
         <Show when={props.row.unread}>
@@ -493,17 +499,25 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
   function onRowClick(e: MouseEvent, index: number, row: ThreadVisualRow): void {
     if (app.listLoading()) return;
     setCursor(index);
-    if (e.shiftKey) {
+    if (e.shiftKey && modifierSelectionEnabled()) {
       selectRange(anchor() ?? index, index, e.ctrlKey || e.metaKey);
       return;
     }
     setAnchor(index);
-    if (e.ctrlKey || e.metaKey || selecting()) {
+    if (((e.ctrlKey || e.metaKey) && modifierSelectionEnabled()) || selecting()) {
       app.toggleSelection(idsOf(row));
       return;
     }
     app.clearSelection();
     void (props.onOpenMessage ? props.onOpenMessage(row.email.id) : app.openMessage(row.email.id));
+  }
+
+  function dragRow(event:DragEvent,row:ThreadVisualRow):void {
+    const selected=app.selectedIds();
+    const ids=idsOf(row);
+    const targets=ids.some(id=>selected.has(id))?[...selected]:ids;
+    if(targets.length>1000){event.preventDefault();app.showToast('error',t('mail-drag-too-many',{count:1000}));return;}
+    beginMessageDrag(event,app.accountId(),targets);
   }
 
   let scroller: HTMLDivElement | undefined;
@@ -605,8 +619,8 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
     // buttons, which have their own meaning for Space.
     const onRow = e.target instanceof Element && e.target.classList.contains('list__row');
     const mod = e.ctrlKey || e.metaKey;
-    if (e.key === 'ArrowDown' && e.shiftKey) extendTo(cursor() + 1);
-    else if (e.key === 'ArrowUp' && e.shiftKey) extendTo(cursor() - 1);
+    if (e.key === 'ArrowDown' && e.shiftKey && modifierSelectionEnabled()) extendTo(cursor() + 1);
+    else if (e.key === 'ArrowUp' && e.shiftKey && modifierSelectionEnabled()) extendTo(cursor() - 1);
     else if (e.key === 'ArrowDown') moveCursor(cursor() + 1);
     else if (e.key === 'ArrowUp') moveCursor(cursor() - 1);
     else if (e.key === 'Home') moveCursor(0);
@@ -616,7 +630,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
       if (row === undefined) return;
       setAnchor(cursor());
       app.toggleSelection(idsOf(row));
-    } else if ((e.key === 'a' || e.key === 'A') && mod && onRow) app.selectAllInView();
+    } else if ((e.key === 'a' || e.key === 'A') && mod && onRow && modifierSelectionEnabled()) app.selectAllInView();
     else if (e.key === 'Escape' && app.selectedIds().size > 0) app.clearSelection();
     else return;
     e.preventDefault();
@@ -725,6 +739,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
                           threadChild={row.kind === 'child'}
                           setRef={setRef}
                           onClick={(e) => onRowClick(e, index(), row)}
+                          onDragStart={event=>dragRow(event,row)}
                         />
                       }
                     >
@@ -739,6 +754,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
                         onToggle={() => toggleThread(row.key)}
                         setRef={setRef}
                         onClick={(e) => onRowClick(e, index(), row)}
+                        onDragStart={event=>dragRow(event,row)}
                       />
                     </Show>
                   );

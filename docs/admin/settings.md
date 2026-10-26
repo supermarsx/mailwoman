@@ -945,3 +945,8 @@ Global switch, disabled by default. Enables restricted, parsed visual CSS scoped
 ### Personal appearance scripts (`appearance.customJsEnabled`)
 
 Global switch, disabled by default. Scripts run in a time-limited worker inside an opaque sandbox and can request only supported appearance changes. They receive no mail or account identifiers and have no application DOM access. This is an appearance API, not general application JavaScript.
+
+<a id="mail.modifierSelection"></a>
+<a id="mail.dragToFolder"></a>
+
+`mail.modifierSelection` and `mail.dragToFolder` default to true and support global, domain and user values. Administrators can lock either interaction. Disabling modifier selection leaves the explicit selection toolbar available. Disabling drag does not disable the ordinary Move action. Dragging carries only a temporary local token, is fenced to the current account generation, and accepts real loaded folders only; it never grants permission beyond the server-authorized move.
