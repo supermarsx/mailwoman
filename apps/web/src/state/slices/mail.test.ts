@@ -1591,3 +1591,47 @@ describe('search folder catalogue refresh', () => {
   });
  });
 });
+
+// Session discovery and folder reads may finish after a newer authority wins.
+describe('mail bootstrap authority', () => {
+  it('ignores session discovery that finishes after logout', async () => {
+    const {client, jmap} = makeClient(() => []);
+    let release!: (value:JmapSession) => void;
+    const discovery = new Promise<JmapSession>(resolve => { release=resolve; });
+    client.session = vi.fn(() => discovery);
+    await createRoot(async dispose => {
+      try {
+        const mail=createMailSlice({client,showToast:vi.fn()});
+        const loading=mail.login({username:'me@example.org',password:'p'});
+        await vi.waitFor(() => expect(client.session).toHaveBeenCalledOnce());
+        await mail.logout();
+        release(SESSION);
+        await loading;
+        expect(mail.accountId()).toBeNull();
+        expect(mail.mailboxes()).toEqual([]);
+        expect(jmap).not.toHaveBeenCalled();
+      } finally { dispose(); }
+    });
+  });
+  it('ignores old folders after a same-ID different-authority login', async () => {
+    const {client,jmap}=makeClient(() => []);
+    let release!: (value:JmapResponse) => void;
+    const folders=new Promise<JmapResponse>(resolve => { release=resolve; });
+    jmap.mockImplementationOnce(() => folders);
+    await createRoot(async dispose => {
+      try {
+        const mail=createMailSlice({client,showToast:vi.fn()});
+        const old=mail.login({username:'old@example.org',password:'p'});
+        await vi.waitFor(() => expect(jmap).toHaveBeenCalledOnce());
+        client.login=vi.fn(async()=>({username:'new@example.org',accountId:'acct1',storageAuthority:'msa1_new_verified_authority'}));
+        await mail.login({username:'new@example.org',password:'p'});
+        const current=mail.mailboxes();
+        release({methodResponses:[['Mailbox/get',{accountId:'acct1',state:'old',list:[{...MAILBOXES[0],id:'foreign',name:'Old realm'}],notFound:[]},'c0']],sessionState:'old'});
+        await old;
+        expect(mail.me()?.username).toBe('new@example.org');
+        expect(mail.mailboxes()).toEqual(current);
+        expect(mail.selectedMailboxId()).not.toBe('foreign');
+      } finally { dispose(); }
+    });
+  });
+});

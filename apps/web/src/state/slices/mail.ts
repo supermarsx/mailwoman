@@ -1216,7 +1216,11 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   async function loadMailboxes(): Promise<void> {
+    const authority = preferenceAccount();
+    if (authority === null) return;
+    const current = () => preferenceAccountIsCurrent(authority);
     const session = await client.session();
+    if (!current()) return;
     setDownloadUrl(session.downloadUrl);
     const primary = session.primaryAccounts[CAP_MAIL];
     const acct = primary ?? Object.keys(session.accounts)[0] ?? null;
@@ -1226,6 +1230,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       return;
     }
     const res = await client.jmap(mailboxGet(acct));
+    if (!current()) return;
     const boxes = sortMailboxes(responseFor<MailboxGetResponse>(res, 'c0').list);
     setMailboxes(boxes);
     const inbox = boxes.find((m) => m.role === 'inbox') ?? boxes[0];
