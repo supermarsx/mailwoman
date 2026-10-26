@@ -1,7 +1,6 @@
 // Styles of the theme and accent picker in Settings → Appearance (t32 V).
 //
-// The gallery cards keep the size they had as inline styles (9.5rem wide,
-// 0.5rem padding); the classes double their own selector (`&&`) so they win over
+// Compact gallery cards double their selector (`&&`) so they win over
 // the shared `option` button class whatever order the two stylesheets load in.
 // Only colours that depend on the pack or the accent stay inline, set through
 // the CSSOM by Solid, which the CSP allows.
@@ -14,26 +13,29 @@ export const card = style({
     '&&': {
       display: 'flex',
       flexDirection: 'column',
-      gap: '6px',
+      gap: '3px',
       alignItems: 'stretch',
       textAlign: 'start',
-      width: '9.5rem',
-      padding: '0.5rem',
+      width: '7.5rem',
+      minWidth: 0,
+      maxWidth: '100%',
+      lineHeight: 1.2,
+      padding: '0.3rem',
     },
   },
 });
 
-export const cardName = style({ fontWeight: 600 });
+export const cardName = style({ fontWeight: 600, fontSize: '0.78rem' });
 
-export const cardDescription = style({ fontSize: '0.72rem', opacity: 0.85 });
+export const cardDescription = style({ display: 'none' });
 
 export const cardMeta = style({ fontSize: '0.7rem', opacity: 0.7 });
 
 /** The miniature of a pack; its colours are set inline from the pack palette. */
 export const preview = style({
   display: 'block',
-  height: '3rem',
-  padding: '0.3rem',
+  height: '1.5rem',
+  padding: '0.15rem',
   borderRadius: vars.radius.sm,
   borderWidth: vars.border.hair,
   borderStyle: 'solid',
@@ -41,20 +43,20 @@ export const preview = style({
 
 export const previewPanel = style({
   display: 'block',
-  height: '0.85rem',
-  marginBottom: '0.3rem',
+  height: '0.4rem',
+  marginBottom: '0.1rem',
 });
 
 export const previewText = style({
   display: 'block',
-  height: '0.35rem',
+  height: '0.15rem',
   width: '70%',
-  marginBottom: '0.25rem',
+  marginBottom: '0.1rem',
 });
 
 export const previewAccent = style({
   display: 'block',
-  height: '0.35rem',
+  height: '0.15rem',
   width: '35%',
 });
 

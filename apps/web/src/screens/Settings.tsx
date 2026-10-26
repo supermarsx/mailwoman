@@ -483,6 +483,7 @@ function ThemeGallery(props: { locked: boolean }): JSX.Element {
                       // detail, not part of what the control is called.
                       aria-label={t(entry.labelId)}
                       data-tooltip={t(entry.descriptionId)}
+                      data-tooltip={t(entry.descriptionId)}
                       aria-pressed={app.theme() === entry.id}
                       aria-describedby={props.locked ? 'settings-theme-lock' : undefined}
                       disabled={props.locked}
