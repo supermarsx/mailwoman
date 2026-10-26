@@ -1,4 +1,7 @@
 import { Icon } from './Icon.tsx';
+import {Portal} from 'solid-js/web';
+import {wireDialogFocus} from '../modules/contacts/dialogFocus.ts';
+import './sweepDialog.css.ts';
 import { createMemo, createSignal, For, Show, onMount, onCleanup, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t, isolate } from '../i18n/index.ts';
@@ -27,12 +30,9 @@ export function SweepDialog(props: { fromEmail: string; onClose: () => void }): 
   // Dialog focus management (self-contained per t8-e1): move focus in on open,
   // restore it on close, Escape closes.
   let dialogEl: HTMLDivElement | undefined;
-  let previouslyFocused: HTMLElement | null = null;
   onMount(() => {
-    previouslyFocused = document.activeElement as HTMLElement | null;
-    dialogEl?.querySelector<HTMLElement>('input, button')?.focus();
+    if(dialogEl)onCleanup(wireDialogFocus(dialogEl,props.onClose));
   });
-  onCleanup(() => previouslyFocused?.focus());
 
   async function run(): Promise<void> {
     setBusy(true);
@@ -45,18 +45,12 @@ export function SweepDialog(props: { fromEmail: string; onClose: () => void }): 
   }
 
   return (
-    <div
+    <Portal><div
       class="sweep__backdrop"
       role="dialog"
       aria-modal="true"
       aria-label={t('mail-sweep-label')}
       ref={dialogEl}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          props.onClose();
-        }
-      }}
     >
       <div class="sweep">
         <header class="sweep__header">
@@ -122,6 +116,6 @@ export function SweepDialog(props: { fromEmail: string; onClose: () => void }): 
           </button>
         </footer>
       </div>
-    </div>
+    </div></Portal>
   );
 }

@@ -7,6 +7,7 @@ import {emptyTrash,prepareTrash,TRASH_LIMIT,type TrashResult,type TrashSnapshot}
 import {wireDialogFocus} from '../modules/contacts/dialogFocus.ts';
 import {t} from '../i18n';
 import {Icon} from './Icon.tsx';
+import './sweepDialog.css.ts';
 
 function EmptyTrashDialog(props:{mailboxId:string;onClose:()=>void}):JSX.Element {
  const app=useApp(),owner=preferenceAccount(),accountId=app.accountId();const controller=new AbortController();const client=createConfiguredClient();
