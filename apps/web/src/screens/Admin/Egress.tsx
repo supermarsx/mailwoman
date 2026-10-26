@@ -1,5 +1,5 @@
 import {AsyncPending} from '../../components/AsyncState.tsx';
-import { controls, field } from './Egress.css.ts';
+import { controls, field, fields, editor, group, choices, check, actions } from './Egress.css.ts';
 // Egress-proxy routes admin (26.20 t22-e16), over t22-e12's API (`2eede09`):
 //
 //   GET  /admin/egress/proxies              → { proxies: ProxyView[] }
@@ -521,7 +521,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
                     <>
                     <tr data-testid={`egress-row-${row.id}`} data-active={String(row.active)}>
                       <td class={css.mono}>{row.id}</td>
-                      <td class={css.mono}>{`${row.scheme}://${row.host}:${row.port}`}<Show when={row.scope}><p>{row.scope}</p></Show><Show when={row.trafficClasses?.length}><p>{row.trafficClasses?.map(value => value.replaceAll('_', ' ')).join(', ')}</p></Show></td>
+                      <td class={css.mono}>{`${row.scheme}://${row.host}:${row.port}`}<Show when={row.scope}><p>{row.scope}</p></Show><Show when={row.trafficClasses?.length}><p>{row.trafficClasses?.map(value => t(`admin-egress-class-${value}`)).join(', ')}</p></Show></td>
                       <td>{row.username}</td>
                       <td>
                         {/* The only credential fact the server will state, and the
@@ -532,7 +532,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
                       <td data-testid={`egress-state-${row.id}`}>
                         {row.active ? t('admin-egress-state-active') : t('admin-egress-state-inactive')}
                       </td>
-                      <td>
+                      <td><div class={actions}>
                         <button
                           type="button"
                           class={`btn btn--ghost ${a11y.focusable}`}
@@ -575,7 +575,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
                         >
                           {t('common-delete')}
                         </button>
-                      </td>
+                      </div></td>
                     </tr>
                     <Show when={verdicts()[row.id] !== undefined}>
                       {(_present) => {
@@ -649,11 +649,11 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
 
       </Show>
       <Show when={showEditor()}>
-      <form class={css.card} onSubmit={(e) => void save(e)}>
+      <form class={`${css.card} ${editor}`} onSubmit={(e) => void save(e)}>
         <h3 class={css.heading}>
           {editingId() !== null ? t('admin-egress-edit-heading') : t('admin-egress-add-heading')}
         </h3>
-        <div class={css.grid}>
+        <div class={fields}>
           <label class={field}>
             <span>{t('admin-egress-id')}</span>
             <input
@@ -668,7 +668,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
           <label class={field}>
             <span>{t('admin-egress-scheme')}</span>
             <select value={scheme()} onChange={(e) => setScheme(e.currentTarget.value)} data-testid="egress-scheme">
-              <For each={SCHEMES}>{(s) => <option value={s}>{s}</option>}</For>
+              <For each={SCHEMES}>{(s) => <option value={s}>{s === 'http' ? 'HTTP CONNECT' : 'SOCKS5'}</option>}</For>
             </select>
           </label>
           <label class={field}>
@@ -709,8 +709,8 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
           </label>
         </div>
         <label class={field}><span>{t('admin-egress-scope')}</span><input value={scope()} onInput={event=>setScope(event.currentTarget.value)}/><small>{t('admin-egress-scope-help')}</small></label>
-        <fieldset><legend>{t('admin-egress-classes')}</legend><p>{t('admin-egress-classes-help')}</p><For each={TRAFFIC_CLASSES}>{value=><label><input type="checkbox" checked={trafficClasses().includes(value)} onChange={event=>setTrafficClasses(previous=>event.currentTarget.checked?[...previous,value]:previous.filter(item=>item!==value))}/>{t(`admin-egress-class-${value}`)}</label>}</For></fieldset>
-        <label>
+        <fieldset class={group}><legend>{t('admin-egress-classes')}</legend><p class={css.note}>{t('admin-egress-classes-help')}</p><div class={choices}><For each={TRAFFIC_CLASSES}>{value=><label class={check}><input type="checkbox" checked={trafficClasses().includes(value)} onChange={event=>setTrafficClasses(previous=>event.currentTarget.checked?[...previous,value]:previous.filter(item=>item!==value))}/>{t(`admin-egress-class-${value}`)}</label>}</For></div></fieldset>
+        <label class={check}>
           <input
             type="checkbox"
             checked={allowPlaintext()}
@@ -720,7 +720,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
           <span>{t('admin-egress-allow-plaintext')}</span>
         </label>
         <p class={css.note}>{t('admin-egress-allow-plaintext-note')}</p>
-        <div>
+        <div class={actions}>
           <button type="submit" class={`btn btn--primary ${a11y.focusable}`} data-testid="egress-save">
             {editingId() !== null ? t('common-save') : t('common-add')}
           </button>
