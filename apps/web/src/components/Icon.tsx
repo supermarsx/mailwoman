@@ -10,6 +10,7 @@
 import type { JSX } from 'solid-js';
 
 export type IconName =
+  | 'shield'
   | 'print'
   | 'preferences'
   | 'dashboard'
@@ -104,6 +105,7 @@ const S = { fill: 'none', stroke: 'currentColor', 'stroke-width': '2' } as const
 const F = { fill: 'currentColor' } as const;
 
 const PATHS: Record<IconName, () => JSX.Element> = {
+  shield: () => <><path d="M8 1L2 3v5c0 3 3 5 6 7 3-2 6-4 6-7V3z" {...S}/><path d="M5 8l2 2 4-4" {...S}/></>,
   refresh: () => <path d="M13 6 A5.5 5.5 0 1 0 13 11 M13 2 V6 H9" {...S} />,
   microphone: () => <path d="M5 4 A3 3 0 0 1 11 4 V7 A3 3 0 0 1 5 7 Z M2 6 V7 A6 6 0 0 0 14 7 V6 M8 13 V15 M5 15 H11" {...S} />,
   back: () => <path d="M7 2 L1 8 L7 14 M1 8 H15" {...S} />,

@@ -454,3 +454,11 @@ mail-folder-counts = { $unread } unread, { $total } messages
 
 mail-print = Print / Save as PDF
 mail-print-help = Print this message or choose Save as PDF in the print dialog. External images stay blocked.
+
+mail-spam-score = Spam analysis
+mail-spam-score-loading = Checking spam headers…
+mail-spam-score-unavailable = Spam score unavailable
+mail-spam-score-unverified = Reported by message headers, not independently verified. Sender-supplied headers can be forged.
+mail-spam-score-positive = The header reports spam.
+mail-spam-score-negative = The header reports a non-spam result.
+mail-spam-score-unknown = No verdict was supplied with this score.

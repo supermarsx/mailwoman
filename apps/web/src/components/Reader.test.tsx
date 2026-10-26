@@ -8,6 +8,8 @@ import { AppContext } from '../state/context.ts';
 import type { ComposeInitial } from './compose/reply.ts';
 import type { Email, Identity, JmapRequest, JmapResponse } from '../api/jmap-types.ts';
 import { formatDateTime } from '../i18n/format.ts';
+// These tests count threading downloads; spam-header fetching has its own suite.
+vi.mock('./security/SpamScore.tsx', () => ({ SpamScore: () => null }));
 
 // Reply / Reply all / Forward from the reader toolbar: what the composer is
 // handed. The reader's own requests outside the app client (security verdict,
