@@ -1,0 +1,4 @@
+-- Keep integration relationships deferrable during atomic cross-store copy.
+ALTER TABLE nextcloud_account_link ALTER CONSTRAINT nextcloud_account_link_instance_id_fkey DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE nextcloud_pim_binding ALTER CONSTRAINT nextcloud_pim_binding_instance_id_fkey DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE package_account ALTER CONSTRAINT package_account_native_account_id_fkey DEFERRABLE INITIALLY DEFERRED;
