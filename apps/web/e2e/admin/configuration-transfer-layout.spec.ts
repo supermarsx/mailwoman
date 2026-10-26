@@ -1,0 +1,27 @@
+import {readFile} from 'node:fs/promises';
+import path from 'node:path';
+import {test,expect} from '../csrf.ts';
+import {adminLogin} from './admin-login.ts';
+
+test('configuration transfer keyboard and bounded layout @phone',async({page},info)=>{
+ const dist=path.resolve('../../.orchestration/reports/codex-guided-advanced-web');
+ await page.route('**/*',async route=>{
+  const url=new URL(route.request().url());if(url.pathname!=='/admin'&&!url.pathname.startsWith('/assets/'))return route.continue();
+  const file=path.resolve(dist,url.pathname==='/admin'?'index.html':url.pathname.slice(1));if(!file.startsWith(dist+path.sep))return route.abort();
+  try{const body=await readFile(file);await route.fulfill({status:200,body,contentType:file.endsWith('.html')?'text/html':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.woff2')?'font/woff2':'application/octet-stream'});}catch{await route.continue();}
+ });
+
+ await page.route('**/admin/config/export',route=>route.fulfill({json:{bundle:{format:'mailwoman-settings',version:1,entries:[]},excluded:['secrets']}}));
+ await page.route('**/admin/config/import',route=>route.fulfill({json:{changes:[{key:'mail.trustedRecipientDomains',before:{globalValue:['previous.example']},after:{globalValue:['a-very-long-configured-destination-name.example.test','second.example.test']},impact:{}}],revisions:{'mail.trustedRecipientDomains':'"v1"'}}}));
+ await adminLogin(page);await page.goto('/admin#/configuration-transfer');
+ const first=page.getByRole('tab',{name:'Export settings'});await first.focus();await page.keyboard.press('ArrowRight');await expect(page.getByRole('tab',{name:'Import settings'})).toBeFocused();await expect(page.getByRole('tabpanel',{name:'Import settings'})).toBeVisible();
+ await page.getByLabel('Settings JSON file').setInputFiles({name:'settings.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'mailwoman-settings',version:1,entries:[]}))});
+ await expect(page.getByRole('region',{name:'Review settings changes'})).toBeVisible();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+ expect(await page.getByRole('region',{name:'Review settings changes'}).locator('pre').first().evaluate(element=>element.getBoundingClientRect().width)).toBeGreaterThanOrEqual(200);
+ const button=await page.getByRole('button',{name:'Apply reviewed changes'}).boundingBox();expect(button!.width).toBeLessThan(300);
+ await page.screenshot({path:info.outputPath('transfer-import.png'),fullPage:true});
+ await page.getByRole('tab',{name:'Import settings'}).focus();await page.keyboard.press('End');await expect(page.getByRole('tabpanel',{name:'Backup destinations'})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+ await page.screenshot({path:info.outputPath('transfer-backups.png'),fullPage:true});
+ await page.keyboard.press('Home');await expect(first).toBeFocused();const downloaded=page.waitForEvent('download');await page.getByRole('button',{name:'Download settings',exact:true}).click();expect((await downloaded).suggestedFilename()).toBe('mailwoman-settings.json');
+});

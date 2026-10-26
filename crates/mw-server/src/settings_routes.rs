@@ -59,9 +59,12 @@ use crate::settings_registry::{
 };
 
 // ─── registration ─────────────────────────────────────────────────────────────
+#[path = "settings_transfer.rs"]
+mod transfer;
 
 /// The admin settings routes, registered through `admin_router::endpoints`.
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
+    transfer::register(r);
     r.admin_endpoint(Method::GET, "/settings", Capability::SettingsRead, list);
     r.admin_endpoint(
         Method::GET,
