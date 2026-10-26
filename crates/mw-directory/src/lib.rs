@@ -414,10 +414,10 @@ impl Directory {
 
     // ── Bind DN resolution ───────────────────────────────────────────────────
 
-    async fn resolve_user_dn(&self, rt: &EndpointRuntime, user: &str) -> Option<String> {
+    async fn resolve_user_dn(&self, rt: &EndpointRuntime, user: &str) -> Result<Option<String>> {
         if user.contains('=') {
             // Already a DN.
-            return Some(user.to_string());
+            return Ok(Some(user.to_string()));
         }
         let map = &rt.endpoint.attr_map;
         let esc = escape_filter_value(user);
@@ -435,12 +435,12 @@ impl Directory {
             limit: 2,
             service_bind: service_bind(rt),
         };
-        let entries = rt.backend.search(req).await.ok()?;
+        let entries = rt.backend.search(req).await?;
         // Exactly one match resolves an unambiguous DN.
         if entries.len() == 1 {
-            Some(entries[0].dn.clone())
+            Ok(Some(entries[0].dn.clone()))
         } else {
-            None
+            Ok(None)
         }
     }
 }
@@ -537,15 +537,27 @@ impl DirectorySource for Directory {
         if pass.is_empty() {
             return Ok(BindOutcome::Denied);
         }
+        let mut unavailable = None;
         for rt in &self.runtimes {
-            let Some(dn) = self.resolve_user_dn(rt, user).await else {
-                continue;
+            let dn = match self.resolve_user_dn(rt, user).await {
+                Ok(Some(dn)) => dn,
+                Ok(None) => continue,
+                Err(error) => {
+                    unavailable = Some(error);
+                    continue;
+                }
             };
             match rt.backend.bind(&dn, pass).await {
                 Ok(true) => return Ok(BindOutcome::Ok { dn }),
                 Ok(false) => continue,
-                Err(_) => continue,
+                Err(error) => {
+                    unavailable = Some(error);
+                    continue;
+                }
             }
+        }
+        if let Some(error) = unavailable {
+            return Err(error);
         }
         Ok(BindOutcome::Denied)
     }

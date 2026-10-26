@@ -2159,9 +2159,9 @@ async fn login(
     }
     // A1 (LDAP-bind login backend, §18.3): an env-gated pre-check against the
     // directory. Off by default → the mail backend remains the sole authority.
-    if let Err(resp) = directory_bind_gate(&state, &body.username, &body.password).await {
-        security_center::record_failure_backend(&state,None,&body.username,&security_center::device(&headers,&ext,body.client_type.as_deref()),"password","directory-rejected",Some("ldap")).await;
-        return resp;
+    if let Err(reason) = directory_bind_gate(&state, &body.username, &body.password).await {
+        security_center::record_failure_backend(&state,None,&body.username,&security_center::device(&headers,&ext,body.client_type.as_deref()),"password",reason,Some("ldap")).await;
+        return unauthorized();
     }
     let upstream = match upstream_resolve::resolve_upstream(&state, &body.username).await {
         Ok(u) => u,
@@ -2430,16 +2430,31 @@ fn header_auth_peer_allowed_with(raw_list: &str, peer: Option<std::net::IpAddr>)
 /// handle's `bind_auth` BEFORE the mail-backend credential check; a denied
 /// bind (or, fail-closed, a bind error while enabled) is the uniform 401. Off by
 /// default → `Ok(())`, leaving the mail backend as the sole authority.
-async fn directory_bind_gate(state: &AppState, user: &str, pass: &str) -> Result<(), Response> {
+async fn directory_bind_gate(state: &AppState, user: &str, pass: &str) -> Result<(), &'static str> {
     if !env_flag("MW_LDAP_BIND_AUTH") {
         return Ok(());
     }
-    match state.directory.bind_auth(user, pass).await {
+    directory_bind_result(state.directory.bind_auth(user, pass).await)
+}
+
+fn directory_bind_result(result: mw_directory::Result<BindOutcome>) -> Result<(), &'static str> {
+    match result {
         Ok(BindOutcome::Ok { .. }) => Ok(()),
-        Ok(BindOutcome::Denied) => Err(unauthorized()),
-        Err(e) => {
-            tracing::warn!("ldap bind auth error (failing closed): {e}");
-            Err(unauthorized())
+        Ok(BindOutcome::Denied) => Err("auth-rejected"),
+        Err(_) => Err("directory-unavailable"),
+    }
+}
+
+#[cfg(test)]
+mod directory_login_classification_tests {
+    #[test]
+    fn outages_never_count_as_password_rejections() {
+        use mw_directory::{BindOutcome, DirectoryError};
+        assert_eq!(super::directory_bind_result(Ok(BindOutcome::Denied)), Err("auth-rejected"));
+        for error in [DirectoryError::NotConfigured, DirectoryError::Transport("secret-bearing diagnostic".into()), DirectoryError::Auth("service bind error".into()), DirectoryError::Protocol("unavailable".into())] {
+            let reason=super::directory_bind_result(Err(error)).unwrap_err();
+            assert_eq!(reason,"directory-unavailable");
+            assert!(!crate::signin_guard::credential_rejection(reason));
         }
     }
 }

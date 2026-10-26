@@ -744,3 +744,58 @@ fn futures_block<F: std::future::Future>(fut: F) -> F::Output {
         .unwrap()
         .block_on(fut)
 }
+
+#[tokio::test]
+async fn bind_auth_preserves_lookup_and_bind_outages() {
+    struct Unavailable {
+        search_fails: bool,
+    }
+    #[async_trait]
+    impl LdapBackend for Unavailable {
+        async fn search(&self, _: SearchReq<'_>) -> Result<Vec<RawEntry>> {
+            if self.search_fails {
+                return Err(DirectoryError::Transport("fixture lookup outage".into()));
+            }
+            Ok(vec![person("alice", "alice@example.com", "Alice").to_raw()])
+        }
+        async fn bind(&self, _: &str, _: &str) -> Result<bool> {
+            Err(DirectoryError::Transport("fixture bind outage".into()))
+        }
+    }
+    for search_fails in [true, false] {
+        let mut directory = mk(
+            vec![(ep("ldap://fixture", 0), MockBackend::new(vec![]))],
+            None,
+            DirectoryOptions::default(),
+        );
+        directory.runtimes[0].backend = Arc::new(Unavailable { search_fails });
+        assert!(
+            matches!(
+                directory.bind_auth("alice@example.com", "password").await,
+                Err(DirectoryError::Transport(_))
+            ),
+            "an outage must not be a credential rejection"
+        );
+        let mut alice = person("alice", "alice@example.com", "Alice");
+        alice.password = Some("correct".into());
+        directory.runtimes.push(EndpointRuntime {
+            endpoint: ep("ldap://healthy-secondary", 1),
+            backend: MockBackend::new(vec![alice]),
+            service_bind_pw: None,
+        });
+        assert!(
+            matches!(
+                directory.bind_auth("alice@example.com", "correct").await,
+                Ok(BindOutcome::Ok { .. })
+            ),
+            "a healthy secondary still authenticates"
+        );
+        assert!(
+            directory
+                .bind_auth("alice@example.com", "wrong")
+                .await
+                .is_err(),
+            "a partial outage cannot prove rejection by all directories"
+        );
+    }
+}

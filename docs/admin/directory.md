@@ -21,3 +21,9 @@ Passwords are sealed at rest using the server key and are never returned to the 
 `MW_DIRECTORY_BIND_DN` and `MW_DIRECTORY_BIND_PW` together pin the credential for that bind DN. The page shows the pin without revealing the password. Retargeting that endpoint or changing the pinned password requires changing the environment and restarting. Passwords are injected per endpoint, so another server using the same DN does not inherit the stored credential.
 
 Directory configuration and credentials describe the deployment's network and remain excluded from `migrate-store`, consistent with the pre-existing directory configuration exclusion. Reconfigure them on the destination deployment.
+
+## Sign-in failure classification
+
+When LDAP bind authentication is enabled, a verified invalid credential counts toward the mailbox source lock. Only LDAP `invalidCredentials` (result code 49) is classified as a bind rejection; busy, unavailable, TLS/configuration and other protocol failures do not count. Lookup errors remain errors rather than being converted to an unknown user. A healthy secondary directory may still authenticate; if no directory succeeds and any directory was unavailable, the result remains unavailable rather than proving bad credentials. This follows the result-code distinction in [RFC 4511](https://www.rfc-editor.org/info/rfc4511/).
+
+Public sign-in failures remain generic. Privileged history receives the bounded `auth-rejected` or `directory-unavailable` reason and LDAP backend label, without raw server diagnostic text. An empty password remains rejected before attempting an anonymous LDAP bind.

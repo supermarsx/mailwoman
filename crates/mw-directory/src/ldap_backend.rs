@@ -296,8 +296,33 @@ impl LdapBackend for Ldap3Backend {
             .simple_bind(dn, password)
             .await
             .map_err(|e| DirectoryError::Auth(e.to_string()))?;
-        let ok = res.rc == 0;
+        let outcome = bind_result(res.rc);
         let _ = ldap.unbind().await;
-        Ok(ok)
+        outcome
+    }
+}
+
+// RFC4511: only invalidCredentials is a verified credential rejection.
+// Busy, unavailable, strongerAuthRequired and other failures must not feed a
+// password lockout counter. Never include the server's diagnostic text.
+fn bind_result(code: u32) -> Result<bool> {
+    match code {
+        0 => Ok(true),
+        49 => Ok(false),
+        _ => Err(DirectoryError::Protocol(format!(
+            "LDAP bind result code {code}"
+        ))),
+    }
+}
+
+#[cfg(test)]
+mod bind_result_tests {
+    #[test]
+    fn only_invalid_credentials_is_a_rejection() {
+        assert!(super::bind_result(0).unwrap());
+        assert!(!super::bind_result(49).unwrap());
+        for code in [1, 2, 8, 13, 34, 48, 50, 51, 52, 53, 80, 999] {
+            assert!(super::bind_result(code).is_err(), "code {code}");
+        }
     }
 }
