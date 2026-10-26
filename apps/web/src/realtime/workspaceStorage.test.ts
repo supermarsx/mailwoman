@@ -3,6 +3,13 @@ import {MAX_WORKSPACE_TABS,parseWorkspace,readWorkspace,saveWorkspace,WORKSPACE_
 import {WORKSPACE_LAYOUTS} from './workspaceLayout.ts';
 afterEach(()=>localStorage.clear());
 const snapshot={version:2 as const,storageAuthority:'test-storage-authority-a',accountId:'a',tabs:[{id:'mail',kind:'messages' as const,pinned:true},{id:'module:contacts',kind:'module' as const,pinned:false,reference:'contacts'}],activeId:'module:contacts',layout:'tabs' as const};
+it('stores folder IDs without row content and refuses another authority',()=>{
+ const folder={id:'folder:a:inbox',kind:'folder' as const,pinned:false,reference:'inbox'};
+ saveWorkspace({...snapshot,tabs:[...snapshot.tabs,folder]});
+ expect(readWorkspace('a','test-storage-authority-a')?.tabs.at(-1)).toEqual(folder);
+ expect(parseWorkspace(JSON.stringify({...snapshot,tabs:[{...folder,reference:undefined}]}),'a','test-storage-authority-a')).toBeNull();
+ expect(readWorkspace('a','different-verified-authority')).toBeNull();
+});
 it('preserves all five modes and only owned view assignments',()=>{
  for(const layout of WORKSPACE_LAYOUTS){saveWorkspace({...snapshot,layout,viewAssignments:['module:contacts',null]});expect(readWorkspace('a','test-storage-authority-a')).toEqual({...snapshot,layout,viewAssignments:['module:contacts',null]});}
  expect(parseWorkspace(JSON.stringify({...snapshot,viewAssignments:['foreign',null]}),'a','test-storage-authority-a')?.viewAssignments).toBeUndefined();

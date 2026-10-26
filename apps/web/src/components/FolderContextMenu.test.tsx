@@ -7,6 +7,14 @@ import {AppContext} from '../state/context.ts';
 import {accountUiPreferences} from '../api/accountPreferences.ts';
 import {suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 afterEach(()=>{cleanup();localStorage.clear();});
+it('opens a dedicated folder tab without selecting the main folder',async()=>{
+ const app=createAppState(makeClient()),openTab=vi.fn();
+ render(()=><AppContext.Provider value={app}><FolderContextMenu box={MAILBOXES[0]!} onOpen={()=>{}} onOpenTab={openTab} onSettings={()=>{}} onShare={()=>{}} canShare={()=>false} onProbe={()=>{}}><button>Folder target</button></FolderContextMenu></AppContext.Provider>);
+ await app.login({username:'me@example.org',password:'p'});const select=vi.spyOn(app,'selectMailbox');select.mockClear();
+ fireEvent.keyDown(screen.getByText('Folder target'),{key:'F10',shiftKey:true});
+ fireEvent.click(await screen.findByRole('menuitem',{name:'Open in new tab'}));
+ expect(openTab).toHaveBeenCalledOnce();expect(select).not.toHaveBeenCalled();
+});
 it('offers pin and real folder actions without navigating on open',async()=>{
  const app=createAppState(makeClient()),open=vi.fn(),settings=vi.fn(),share=vi.fn();
  render(()=><AppContext.Provider value={app}><FolderContextMenu box={MAILBOXES[0]!} onOpen={open} onSettings={settings} onShare={share} canShare={()=>false} onProbe={()=>{}}><button>Inbox target</button></FolderContextMenu></AppContext.Provider>);await app.login({username:'me@example.org',password:'p'});await waitFor(()=>expect(app.mailboxes()).toHaveLength(3));

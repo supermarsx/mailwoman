@@ -8,7 +8,7 @@
 
 import { createSignal, type Accessor } from 'solid-js';
 
-export type SubTabKind = 'messages' | 'composer' | 'settings' | 'attachment' | 'module' | 'attachments' | 'outbox' | 'sharing';
+export type SubTabKind = 'messages' | 'composer' | 'settings' | 'attachment' | 'module' | 'attachments' | 'outbox' | 'sharing' | 'folder';
 
 export interface SubTab {
   id: string;

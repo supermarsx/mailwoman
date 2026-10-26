@@ -1,14 +1,15 @@
-import {createSignal,onCleanup,Show,type JSX} from 'solid-js';
+import {createSignal,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {useApp} from '../state/context.ts';
 import {accountUiPreferences,setAccountUiPreferences} from '../api/accountPreferences.ts';
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import type {Mailbox} from '../api/jmap-types.ts';
-import {t} from '../i18n';
+import {loadCatalog,t} from '../i18n';
 import {EmptyTrashDialog} from './EmptyTrash.tsx';
 import {createContextMenu,type ContextAction} from './ContextMenu.tsx';
 import * as css from './contextMenu.css.ts';
-export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen:()=>void;onSettings:()=>void;onShare:()=>void;canShare:()=>boolean;onProbe:()=>void}):JSX.Element {
+export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen:()=>void;onOpenTab?:()=>void;onSettings:()=>void;onShare:()=>void;canShare:()=>boolean;onProbe:()=>void}):JSX.Element {
  const app=useApp();const [trash,setTrash]=createSignal(false);
+ onMount(()=>void loadCatalog('folder-tabs'));
  async function selectThen(run:()=>void):Promise<void>{const owner=preferenceAccount();if(!owner)return;await app.selectMailbox(props.box.id);if(preferenceAccountIsCurrent(owner)&&app.selectedMailboxId()===props.box.id)run();}
  const context=createContextMenu({label:()=>props.box.name,scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}:${props.box.id}`,actions:()=>{
   const owner=preferenceAccount();if(!owner||owner.id!==app.accountId())return [];
@@ -18,6 +19,7 @@ export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen
    {id:'pin',label:t(pinned.includes(box.id)?'mail-unpin':'mail-pin'),icon:'pin',run:()=>{const current=accountUiPreferences().folderPinned??[];setAccountUiPreferences({folderPinned:current.includes(box.id)?current.filter(id=>id!==box.id):[...current,box.id]});}},
    {id:'refresh',label:t('mail-context-refresh'),icon:'refresh',run:()=>selectThen(()=>{void app.refreshCurrentMailbox();})},
    {id:'settings',label:t('mail-context-folder-settings'),icon:'settings',run:props.onSettings}];
+  if(props.onOpenTab)rows.splice(1,0,{id:'open-tab',label:t('folder-tabs-open'),icon:'folder',run:props.onOpenTab});
   if(box.mailwomanSearchQuery===undefined&&props.canShare())rows.push({id:'sharing',label:t('mail-nav-sharing'),icon:'users',run:()=>selectThen(props.onShare)});
   if(box.role==='trash')rows.push({id:'trash',label:t('mail-empty-trash'),icon:'delete',run:()=>selectThen(()=>{if(app.mailboxes().some(value=>value.id===box.id&&value.role==='trash'))setTrash(true);})});
   return rows;

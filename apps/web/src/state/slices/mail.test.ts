@@ -1594,6 +1594,19 @@ describe('search folder catalogue refresh', () => {
 
 // Session discovery and folder reads may finish after a newer authority wins.
 describe('mail bootstrap authority', () => {
+  it('marks an independently loaded reader without replacing the main folder list', async () => {
+    await withInbox([email('main')],async(mail,{jmap})=>{
+      const reader=mail.createReaderView();
+      jmap.mockResolvedValueOnce({sessionState:'s',methodResponses:[['Email/get',{accountId:'acct1',state:'s',list:[email('other-folder',{mailboxIds:{archive:true}})],notFound:[]},'g']]});
+      await reader.openMessage('other-folder');
+      expect(mail.messages().map(item=>item.id)).toEqual(['main']);
+      await mail.markRead('other-folder',true);
+      expect(jmap.mock.calls.some(call=>(call[0] as JmapRequest).methodCalls.some(method=>method[0]==='Email/set'&&JSON.stringify(method[1]).includes('other-folder')))).toBe(true);
+      expect(reader.openEmail()?.keywords?.['$seen']).toBe(true);
+      expect(mail.selectedMailboxId()).toBe('inbox');
+      reader.dispose();
+    });
+  });
   it('ignores session discovery that finishes after logout', async () => {
     const {client, jmap} = makeClient(() => []);
     let release!: (value:JmapSession) => void;

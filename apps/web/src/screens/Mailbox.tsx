@@ -14,6 +14,8 @@ import { preferenceAccount, preferenceAccountIsCurrent, observePreferenceAccount
 import { AppearanceCustomizationRuntime } from '../components/AppearanceCustomizationRuntime.tsx';
 import {createSharingAccess} from '../api/mailboxSharing.ts';
 import {createConfiguredClient} from '../api/transport.ts';
+import {FolderPane} from '../components/FolderPane.tsx';
+import {actions as sidebarFooterActions} from '../components/sidebarFooter.css.ts';
 import {FolderContextMenu} from '../components/FolderContextMenu.tsx';
 import {peekMessageDrag,takeMessageDrag} from '../components/messageDrag.ts';
 import {folderDropTarget} from '../components/messageDrag.css.ts';
@@ -122,7 +124,7 @@ export function MailboxScreen(): JSX.Element {
   const branding=useBranding();
   const app = useApp();
   const { subTabs } = useRealtime();
-  interface Pane { detach?:DetachedPaneHandle; beforeClose?:()=>Promise<boolean>; id:string; kind:'messages'|'composer'|'settings'|'attachment'|'module'|'outbox'|'attachments'|'sharing'; title:string; surface?:ShellSurface; reference?:string; draftId?:string; accountId?:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
+  interface Pane { refresh?:()=>void; detach?:DetachedPaneHandle; beforeClose?:()=>Promise<boolean>; id:string; kind:'messages'|'composer'|'settings'|'attachment'|'module'|'outbox'|'attachments'|'sharing'|'folder'; title:string; surface?:ShellSurface; reference?:string; draftId?:string; accountId?:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
   const [panes,setPanes]=createSignal<Pane[]>([]);
   const [workspaceReady,setWorkspaceReady]=createSignal(false);
   const [draftRevision,setDraftRevision]=createSignal(0);
@@ -194,6 +196,17 @@ export function MailboxScreen(): JSX.Element {
     setPanes(old=>[...old,{id,kind:'composer',title,...(resumeDraftId?{draftId:resumeDraftId}:{}),...(initial ? {initial} : {})}]);
   }
   function openNewMessage():void {openComposer();}
+  function openFolderTab(mailboxId:string,restoring=false):void {
+    const owner=preferenceAccount(),box=app.mailboxes().find(item=>item.id===mailboxId);
+    if(!owner||owner.id!==app.accountId()||!box)return;
+    const id=`folder:${owner.id}:${mailboxId}`;
+    if(!canOpenPane(id))return;
+    if(!restoring)noteWorkspaceIntent();
+    if(!restoring)setNavOpen(false);
+    router.navigate('mail');
+    if(!panes().some(pane=>pane.id===id))setPanes(old=>[...old,{id,kind:'folder',title:box.name,reference:mailboxId}]);
+    subTabs.open({id,kind:'folder',title:box.name});
+  }
   function openAttachmentTab(item:StripItem,restoring=false):void {
     if(!restoring)noteWorkspaceIntent();
     const accountId=app.accountId();const template=app.downloadUrl();
@@ -312,6 +325,7 @@ export function MailboxScreen(): JSX.Element {
           if(tab.id==='mail')continue;
           try {
           if(tab.kind==='messages'&&tab.reference)openMessageTab(tab.reference,true);
+          else if(tab.kind==='folder'&&tab.reference)openFolderTab(tab.reference,true);
           else if(tab.kind==='settings')openSettings(true);
           else if(tab.kind==='composer'&&tab.reference&&listDrafts(owner.id,owner.storageAuthority).some(draft=>draft.id===tab.reference))openComposer(undefined,tab.reference,tab.id);
           else if(tab.kind==='sharing'&&tab.reference)await openSharing(tab.reference,restoreCurrent,true);
@@ -454,7 +468,7 @@ export function MailboxScreen(): JSX.Element {
   }
   useActions({
     settings: () => { openSettings(); return true; },
-    refresh: () => { if (surface() !== 'mail') return false; void app.refreshCurrentMailbox(); return true; },
+    refresh: () => { if (surface() !== 'mail') return false; if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox(); return true; },
     trash: () => shortcutMailAction(ids => app.trashMessage(ids)),
     markRead: () => shortcutMailAction(ids => app.markRead(ids, true)),
     markUnread: () => shortcutMailAction(ids => app.markRead(ids, false)),
@@ -562,7 +576,7 @@ export function MailboxScreen(): JSX.Element {
         <nav class="sidebar__nav" aria-label={t('mail-nav-mailboxes')}>
           <For each={orderedFolders(app.mailboxes(),accountUiPreferences()).map(box=>box.id)}>
             {(id) => {const box=createMemo(()=>app.mailboxes().find(value=>value.id===id)!);return (
-              <FolderContextMenu box={box()} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
+              <FolderContextMenu box={box()} onOpenTab={()=>openFolderTab(box().id)} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
               <button
                 type="button"
                 class={`sidebar__box ${a11y.focusable}`}
@@ -640,12 +654,14 @@ export function MailboxScreen(): JSX.Element {
         </nav></Show>
         </div>
         <div class="sidebar__footer">
-        <button type="button" class={`btn btn--ghost sidebar__settings ${a11y.focusable}`} aria-label={t('mail-nav-settings')} data-tooltip={t('mail-nav-settings')} onClick={()=>openSettings()}>
-          <Icon name="settings"/><span class="sidebar__box-name">{t('mail-nav-settings')}</span>
+        <div class={sidebarFooterActions}>
+        <button type="button" class={`btn btn--ghost sidebar__settings ${a11y.focusable} ${a11y.iconButton}`} aria-label={t('mail-nav-settings')} data-tooltip={t('mail-nav-settings')} onClick={()=>openSettings()}>
+          <Icon name="settings"/>
         </button>
         <button type="button" class={`btn btn--ghost sidebar__logout ${a11y.focusable}`} aria-label={t('mail-logout')} title={t('mail-logout')} onClick={() => void app.logout()}>
           <Icon name="signOut"/><span class="sidebar__box-name">{t('mail-logout')}</span>
         </button>
+        </div>
         <Show when={!app.online()}>
           <span class="sidebar__offline" aria-live="polite">
             {t('mail-offline')}
@@ -666,7 +682,7 @@ export function MailboxScreen(): JSX.Element {
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-pressed={!accountUiPreferences().readerCollapsed} aria-label={t('mail-toggle-reader')} title={t('mail-toggle-reader')} onClick={()=>setAccountUiPreferences({readerCollapsed:!accountUiPreferences().readerCollapsed,messageListCollapsed:false})}><Icon name="eye"/></button>
 
           <WorkspaceLayoutControls value={workspaceLayout()} onChange={setWorkspaceLayout}/>
-          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} title={t('mail-workspace-refresh')} aria-label={t('mail-workspace-refresh')} onClick={()=>void app.refreshCurrentMailbox()}><Icon name="refresh" /></button>
+          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} title={t('mail-workspace-refresh')} aria-label={t('mail-workspace-refresh')} onClick={()=>{if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox();}}><Icon name="refresh" /></button>
         </div>
         <Show when={app.layout()==='ribbon'}><Ribbon onCompose={openNewMessage} onOpenSettings={openSettings}/></Show>
         <div class="workspace-body" ref={bodyElement} data-reading-pane={readingPane()} classList={{'workspace-body--split':splitVisible()}}>
@@ -684,6 +700,7 @@ export function MailboxScreen(): JSX.Element {
               <Show when={pane.kind==='messages' && pane.view}>{view=><><Show when={view().error()}><p role="alert">{t('mail-workspace-load-error')}</p></Show><Reader view={view()} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} onCompose={openReply} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)}/></>}</Show>
               <Show when={pane.kind==='attachment' && pane.attachment}>{item=><AttachmentTab item={item()}/>}</Show>
               <Show when={pane.kind==='composer'}><Compose embedded registerBeforeClose={handler=>{pane.beforeClose=handler;}} onSubjectChange={subject=>subTabs.rename(pane.id,subject.trim()||t('mail-compose'))} onDraftIdChange={id=>{if(pane.draftId!==id){pane.draftId=id;setDraftRevision(value=>value+1);}}} {...(pane.draftId?{resumeDraftId:pane.draftId}:{})} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
+              <Show when={pane.kind==='folder'&&pane.reference}><FolderPane mailboxId={pane.reference!} registerRefresh={refresh=>{pane.refresh=refresh;}} active={subTabs.activeId()===pane.id} onOpen={id=>void openDraftOrMessage(id)}/></Show>
               <Show when={pane.kind==='outbox'}><Outbox/></Show>
               <Show when={pane.kind==='attachments'}><Attachments loadPage={position=>app.listAttachmentsPage(position)} onOpen={openAttachmentTab} onOpenMessage={item=>openMessageTab(item.emailId)}/></Show>
               <Show when={pane.kind==='sharing'&&pane.reference&&pane.accountId}><SharingDialog embedded mailboxId={pane.reference!} accountId={pane.accountId!} mailboxName={pane.title} onClose={()=>void closePane(pane.id)}/></Show>

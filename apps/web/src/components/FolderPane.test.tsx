@@ -1,0 +1,23 @@
+import {render,screen,waitFor,cleanup} from '@solidjs/testing-library';
+import {createSignal} from 'solid-js';
+import {afterEach,expect,it,vi} from 'vitest';
+import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
+const doubles=vi.hoisted(()=>({actions:{} as Record<string,()=>boolean>,jmap:vi.fn()}));
+vi.mock('../keymap/index.ts',()=>({useActions:(actions:Record<string,()=>boolean>)=>{doubles.actions=actions;}}));
+vi.mock('../api/transport.ts',()=>({createConfiguredClient:()=>({jmap:doubles.jmap})}));
+vi.mock('../state/context.ts',()=>({useApp:()=>({mailboxes:()=>[{id:'folder',name:'Folder'}]})}));
+import {FolderPane} from './FolderPane.tsx';
+afterEach(()=>{cleanup();suspendAccountPreferences();});
+it('routes active shortcuts to its own folder and leaves inactive panes alone',async()=>{
+ activateAccountPreferences('same','msa1_verified_parent');
+ doubles.jmap.mockResolvedValue({sessionState:'s',methodResponses:[['Email/query',{accountId:'same',ids:['one','two'],position:0,total:2},'q'],['Email/get',{accountId:'same',list:[{id:'one',subject:'First',from:[],keywords:{}},{id:'two',subject:'Second',from:[],keywords:{$seen:true}}]},'g']]});
+ const [active,setActive]=createSignal(true),open=vi.fn();
+ render(()=><FolderPane mailboxId="folder" active={active()} onOpen={open}/>);
+ await screen.findByText('First');
+ expect(doubles.actions['next']?.()).toBe(true);expect(open).toHaveBeenLastCalledWith('one');
+ expect(doubles.actions['next']?.()).toBe(true);expect(open).toHaveBeenLastCalledWith('two');
+ expect(screen.getByText('First').closest('li')).toHaveAttribute('data-unread','true');
+ expect(screen.getByText('Second').closest('li')).toHaveAttribute('data-unread','false');
+ setActive(false);open.mockClear();expect(doubles.actions['next']?.()).toBe(false);expect(open).not.toHaveBeenCalled();
+ setActive(true);expect(doubles.actions['refresh']?.()).toBe(true);await waitFor(()=>expect(doubles.jmap).toHaveBeenCalledTimes(2));
+});

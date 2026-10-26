@@ -1,0 +1,9 @@
+folder-tabs-open = Open in new tab
+folder-tabs-unavailable = Folder unavailable
+folder-tabs-refresh = Refresh
+folder-tabs-error = Could not load this folder. Refresh to try again.
+folder-tabs-empty = No messages in this folder.
+folder-tabs-select = Select { $subject }
+folder-tabs-previous = Previous page
+folder-tabs-next = Next page
+folder-tabs-position = { $start }–{ $end } of { $total } · { $selected } selected
