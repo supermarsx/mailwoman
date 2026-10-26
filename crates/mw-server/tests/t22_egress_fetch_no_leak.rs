@@ -56,7 +56,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
-use mw_server::{AppConfig, build_app};
+use mw_server::AppConfig;
 use mw_store::{ServerKey, Store};
 
 mod common;
@@ -253,7 +253,17 @@ async fn spawn_server(db_path: &str) -> SocketAddr {
             ..mw_server::SecurityConfig::default()
         },
     };
-    let app = build_app(config).await.expect("build_app");
+    let (app, _) = mw_server::build_app_full(
+        config,
+        mw_server::V6Config {
+            admin_enabled: true,
+            admin_username: Some("root".into()),
+            admin_password: Some("fixture-admin-proof".into()),
+            redis_url: None,
+        },
+    )
+    .await
+    .expect("build_app");
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -319,6 +329,16 @@ async fn put_route(
     with_credentials: bool,
     bodies: &mut Vec<String>,
 ) {
+    assert_eq!(
+        c.post(format!("{base}/admin/step-up"))
+            .header("cookie", format!("mw_admin_session={ADMIN_TOKEN}"))
+            .json(&json!({"password":"fixture-admin-proof"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
     let mut payload = json!({
         "id": id,
         "scheme": "http",

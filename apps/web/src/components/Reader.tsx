@@ -1,3 +1,4 @@
+import {SaveToNextcloud} from '../modules/nextcloud/SaveToNextcloud.tsx';
 import {
   createEffect,
   For,
@@ -295,6 +296,11 @@ function ReaderToolbar(props: {
  *  preview jail (the AttachmentViewer sandbox), never as original bytes (§7.2). */
 export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item: StripItem) => void }): JSX.Element {
   const app = useApp();
+  const cloudAccount=app.accountId();
+  const [cloudItem,setCloudItem]=createSignal<StripItem|null>(null);
+  onMount(()=>{void loadCatalog('nextcloud');void app.nextcloud.ensureEnabled();});
+  createEffect(on(()=>props.email.id,()=>setCloudItem(null),{defer:true}));
+
   const [attachmentPolicy]=createResource(()=>((props.email as {attachments?:AttachmentPart[]}).attachments?.length??0)>0?props.email.id:undefined,loadAttachmentPolicy);
   const [acknowledged,setAcknowledged]=createSignal(false);
   const decision=(item:StripItem)=>attachmentPolicy.state==='ready'?attachmentDecision(attachmentPolicy()!,item):undefined;
@@ -367,6 +373,10 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
           onSelect={(it) => {setAcknowledged(false); if(props.onOpenAttachment)props.onOpenAttachment(it);else setOpenItem(it);}}
           resolveThumb={(item)=>blobUrlFor(item)}
         />
+        <Show when={app.nextcloud.enabled() && cloudAccount===app.accountId()}>
+          <div aria-label={t('nextcloud-save-options')}><For each={items()}>{item=><button type="button" class="btn" disabled={!decision(item)?.allowed} onClick={()=>setCloudItem(item)}>{t('nextcloud-save-attachment',{name:isolate(item.name)})}</button>}</For></div>
+          <Show when={cloudItem()} keyed>{item=><section aria-label={t('nextcloud-save-options')}><button type="button" class="btn" onClick={()=>setCloudItem(null)}>{t('nextcloud-save-close')}</button><SaveToNextcloud {...(cloudAccount?{accountId:cloudAccount}:{})} attachment={{emailId:props.email.id,blobId:item.blobId,name:item.name}} service={app.nextcloud.service} onSaved={()=>setCloudItem(null)}/></section>}</Show>
+        </Show>
         <Show when={openItem()}>
           {(item) => (
             <div

@@ -223,23 +223,15 @@ async fn approved_ca_account_link_files_and_attachment_policy_are_enforced_end_t
         records,
         reject,
     } = cloud_proxy().await;
-    mw_egress::plan::install(
-        mw_egress::plan::EgressPlan::new(
-            vec![mw_egress::plan::PlanRoute {
-                scope: mw_egress::plan::RouteScope::Global,
-                classes: [mw_egress::TrafficClass::Nextcloud].into_iter().collect(),
-                route: mw_egress::proxy::ProxyRoute {
-                    id: "fixture".into(),
-                    scheme: mw_egress::proxy::ProxyScheme::HttpConnect,
-                    host: "127.0.0.1".into(),
-                    port,
-                    auth: None,
-                    allow_plaintext: false,
-                },
-            }],
-            mw_egress::InternalAllowList::empty(),
-        )
-        .unwrap(),
+    assert_eq!(admin.post(format!("{base}/admin/egress/proxies")).json(&json!({"id":"cloud-proxy","scheme":"http","host":"127.0.0.1","port":port,"scope":"global","trafficClasses":["nextcloud"]})).send().await.unwrap().status(),200);
+    assert_eq!(
+        admin
+            .post(format!("{base}/admin/egress/proxies/cloud-proxy/activate"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
     );
     tokio::time::sleep(std::time::Duration::from_secs(4)).await;
     let user = reqwest::Client::builder()
@@ -288,6 +280,22 @@ async fn approved_ca_account_link_files_and_attachment_policy_are_enforced_end_t
         .await
         .unwrap();
     assert_eq!(linked.status(), 200, "{}", linked.text().await.unwrap());
+    let before_foreign = records.lock().unwrap().len();
+    for path in [
+        "/api/nextcloud/list?accountId=foreign",
+        "/api/nextcloud/files?instanceId=cloud&accountId=foreign",
+    ] {
+        assert_eq!(
+            user.get(format!("{base}{path}"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            409
+        );
+    }
+    assert_eq!(records.lock().unwrap().len(), before_foreign);
+
     let files = user
         .get(format!(
             "{base}/api/nextcloud/files?instanceId=cloud&path=/"

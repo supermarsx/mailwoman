@@ -9,7 +9,9 @@ import { NextcloudAttach } from './NextcloudAttach.tsx';
 import { ShareLinkComposer } from './ShareLinkComposer.tsx';
 import { SaveToNextcloud } from './SaveToNextcloud.tsx';
 import { ToastRegion, toasts } from '../../components/toast/index.ts';
-import type { AttachedFile, WebDavEntry } from './service.ts';
+import type { AttachedFile, WebDavEntry, Fetcher } from './service.ts';
+
+function withLinks(fetcher:Fetcher):Fetcher{return (input,init)=>input==='/api/account/nextcloud'?Promise.resolve(okJson({accountId:'test-account',instances:[{id:'cloud',name:'Cloud'}],links:[{instanceId:'cloud',ready:true}]})):fetcher(input.replace('/api/nextcloud/files?instanceId=cloud&','/api/nextcloud/list?'),init);}
 
 function okJson(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -29,7 +31,7 @@ describe('attach-from-Nextcloud (WebDAV picker)', () => {
       return okJson({});
     });
     let got: AttachedFile[] | null = null;
-    render(() => <NextcloudAttach fetcher={fetcher} onAttached={(f) => (got = f)} />);
+    render(() => <NextcloudAttach fetcher={withLinks(fetcher)} onAttached={(f) => (got = f)} />);
 
     await waitFor(() => expect(screen.getByText('report.pdf')).toBeInTheDocument());
     // a11y: rows are real buttons (keyboard-operable, focusable), not click-only <li>.
@@ -59,7 +61,7 @@ describe('share-link composer — password + expiry controls', () => {
       }
       return okJson({});
     });
-    render(() => <ShareLinkComposer path="/report.pdf" fetcher={fetcher} onCreated={() => {}} />);
+    render(() => <ShareLinkComposer path="/report.pdf" fetcher={withLinks(fetcher)} onCreated={() => {}} />);
 
     // Fields are hidden until their toggle is checked.
     expect(screen.queryByLabelText('Share password')).not.toBeInTheDocument();
@@ -72,6 +74,7 @@ describe('share-link composer — password + expiry controls', () => {
 
     fireEvent.input(screen.getByLabelText('Share password'), { target: { value: 's3cret' } });
     fireEvent.input(screen.getByLabelText('Expiry date'), { target: { value: '2026-12-31' } });
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Create link'})).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Create link' }));
 
     await waitFor(() => expect(screen.getByTestId('nc-share-url')).toBeInTheDocument());
@@ -82,25 +85,27 @@ describe('share-link composer — password + expiry controls', () => {
       password?: string;
       expiresAt?: string;
     };
-    expect(body).toEqual({ accountId:'test-account', path: '/report.pdf', password: 's3cret', expiresAt: '2026-12-31' });
+    expect(body).toEqual({ accountId:'test-account', instanceId:'cloud', path: '/report.pdf', password: 's3cret', expiresAt: '2026-12-31' });
   });
 
   it('omits password + expiry when their toggles are off', async () => {
     const fetcher = vi.fn(async (_input: string, _init?: RequestInit) =>
       okJson({ url: 'https://nc.example/s/XyZ', expiresAt: null, passwordProtected: false }),
     );
-    render(() => <ShareLinkComposer path="/big.zip" fetcher={fetcher} onCreated={() => {}} />);
+    render(() => <ShareLinkComposer path="/big.zip" fetcher={withLinks(fetcher)} onCreated={() => {}} />);
 
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Create link'})).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Create link' }));
     await waitFor(() => expect(screen.getByTestId('nc-share-url')).toBeInTheDocument());
     const body = JSON.parse((fetcher.mock.calls[0]?.[1]?.body as string) ?? '{}') as Record<string, unknown>;
-    expect(body).toEqual({ accountId:'test-account', path: '/big.zip' });
+    expect(body).toEqual({ accountId:'test-account', instanceId:'cloud', path: '/big.zip' });
   });
 
   it('validates that a chosen password is not empty', async () => {
     const fetcher = vi.fn(async () => okJson({}));
-    render(() => <ShareLinkComposer path="/a" fetcher={fetcher} onCreated={() => {}} />);
+    render(() => <ShareLinkComposer path="/a" fetcher={withLinks(fetcher)} onCreated={() => {}} />);
     fireEvent.click(screen.getByLabelText('Protect with a password'));
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Create link'})).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Create link' }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/password/));
     expect(fetcher).not.toHaveBeenCalled();
@@ -112,12 +117,13 @@ describe('share-link composer — password + expiry controls', () => {
     const fetcher = vi.fn(async () => new Response('', { status: 502 }));
     render(() => (
       <>
-        <ShareLinkComposer path="/a" fetcher={fetcher} onCreated={() => {}} />
+        <ShareLinkComposer path="/a" fetcher={withLinks(fetcher)} onCreated={() => {}} />
         <ToastRegion />
       </>
     ));
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Create link'})).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Create link' }));
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('nextcloud request failed: 502'));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Nextcloud request refused (502).'));
     expect(toasts().map((i) => i.tone)).toEqual(['error']);
   });
 });
@@ -132,10 +138,11 @@ describe('results as toasts (t32 f39)', () => {
     });
     render(() => (
       <>
-        <SaveToNextcloud attachment={{ emailId:'message-1', blobId: 'b1', name: 'a.pdf' }} fetcher={fetcher} />
+        <SaveToNextcloud attachment={{ emailId:'message-1', blobId: 'b1', name: 'a.pdf' }} fetcher={withLinks(fetcher)} />
         <ToastRegion />
       </>
     ));
+    await waitFor(()=>expect(screen.getByRole('button',{name:/Save here/})).toBeEnabled());
     fireEvent.click(await screen.findByRole('button', { name: /Save here/ }));
     await waitFor(() => expect(screen.getByTestId('nc-saved')).toHaveAttribute('role', 'status'));
     expect(screen.getByTestId('nc-saved')).toHaveTextContent('/Docs/a.pdf');
@@ -148,7 +155,7 @@ describe('results as toasts (t32 f39)', () => {
     });
     render(() => (
       <>
-        <NextcloudAttach fetcher={fetcher} onAttached={() => {}} />
+        <NextcloudAttach fetcher={withLinks(fetcher)} onAttached={() => {}} />
         <ToastRegion />
       </>
     ));
@@ -158,7 +165,7 @@ describe('results as toasts (t32 f39)', () => {
     expect(toasts()).toEqual([]);
     fireEvent.click(screen.getByText('report.pdf'));
     fireEvent.click(screen.getByRole('button', { name: /Attach 1 file/ }));
-    await waitFor(() => expect(toasts().map((i) => [i.tone, i.message])).toEqual([['error', 'nextcloud request failed: 500']]));
+    await waitFor(() => expect(toasts().map((i) => [i.tone, i.message])).toEqual([['error', 'Nextcloud request refused (500).']]));
   });
 });
 
@@ -166,12 +173,30 @@ describe('results as toasts (t32 f39)', () => {
 describe('picker loading isolation',()=>{
   it('keeps the containing workspace mounted while listing and after refusal',async()=>{
     let reject!:(error:Error)=>void;
-    const service=new NextcloudService(()=>new Promise<Response>((_resolve,fail)=>{reject=fail;}));
+    const service=new NextcloudService(withLinks(()=>new Promise<Response>((_resolve,fail)=>{reject=fail;})));
     render(()=><Suspense fallback={<p>Workspace suspended</p>}><span>Retained workspace</span><FilePicker service={service} mode="files"/></Suspense>);
     expect(screen.getByText('Retained workspace')).toBeVisible();
     expect(screen.queryByText('Workspace suspended')).not.toBeInTheDocument();
+    await waitFor(()=>expect(reject).toBeDefined());
     reject(new Error('Access refused'));
     await screen.findByRole('alert');
     expect(screen.getByText('Retained workspace')).toBeVisible();
+  });
+});
+
+
+describe('Nextcloud attachment warning acknowledgment',()=>{
+  it('never automatically retries a warning and requires a deliberate acknowledgment',async()=>{
+    const writes:Record<string,unknown>[]=[];
+    const fetcher:Fetcher=async(path,init)=>{
+      if(path.startsWith('/api/nextcloud/list'))return okJson({entries:[]});
+      const body=JSON.parse(init?.body as string) as Record<string,unknown>;writes.push(body);
+      return body['acknowledgeWarning']===true?okJson({entry:{name:'note.txt',path:'/note.txt',size:1,isDir:false}}):new Response(JSON.stringify({code:'attachmentWarningRequired'}),{status:403});
+    };
+    render(()=><SaveToNextcloud accountId="test-account" attachment={{emailId:'message',blobId:'blob',name:'note.txt'}} fetcher={withLinks(fetcher)}/>);
+    const save=screen.getByRole('button',{name:/Save here/});await waitFor(()=>expect(save).toBeEnabled());fireEvent.click(save);
+    await screen.findByRole('alert');expect(writes).toHaveLength(1);expect(save).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox',{name:/I understand the attachment warning/}));fireEvent.click(save);
+    await waitFor(()=>expect(writes).toHaveLength(2));expect(writes[0]?.['acknowledgeWarning']).toBeUndefined();expect(writes[1]?.['acknowledgeWarning']).toBe(true);
   });
 });

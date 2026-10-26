@@ -16,7 +16,9 @@ export function createNextcloudSlice(fetcher?:Fetcher):NextcloudSlice {
   const [enabled,setEnabled]=createSignal(false);
   let generation=0;let pending:Promise<void>|undefined;
   const stop=observePreferenceAccount(()=>{generation++;pending=undefined;setEnabled(false);});
-  if(getOwner())onCleanup(stop);
+  const refresh=():void=>{generation++;pending=undefined;setEnabled(false);void ensureEnabled();};
+  globalThis.addEventListener?.('mw-nextcloud-links-changed',refresh);
+  if(getOwner())onCleanup(()=>{stop();globalThis.removeEventListener?.('mw-nextcloud-links-changed',refresh);});
   function ensureEnabled():Promise<void>{
     const account=preferenceAccount();if(!account)return Promise.resolve();
     if(pending)return pending;

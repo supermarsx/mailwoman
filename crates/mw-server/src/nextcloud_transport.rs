@@ -63,7 +63,9 @@ pub(crate) async fn call(
         if url.origin() != base.origin() || !url.path().starts_with(base.path()) {
             return Err("invalid instance target");
         }
-        let plan = mw_egress::plan::current().ok_or("egress unavailable")?;
+        let plan = crate::image_proxy::load_plan(&state.store)
+            .await
+            .map_err(|_| "egress unavailable")?;
         let authorization = format!(
             "Basic {}",
             base64::engine::general_purpose::STANDARD.encode(format!("{username}:{password}"))

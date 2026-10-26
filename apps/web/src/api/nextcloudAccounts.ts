@@ -23,8 +23,8 @@ export interface NextcloudAccountsApi {
 }
 export const nextcloudAccountsApi:NextcloudAccountsApi={
   account:()=>request(withBase('/api/account/nextcloud')),
-  link:(id,username,appPassword,accountId,etag)=>request(withBase(`/api/account/nextcloud/links/${encodeURIComponent(id)}`),'PUT',{username,appPassword,accountId},etag),
-  unlink:(id,accountId,etag)=>request(withBase(`/api/account/nextcloud/links/${encodeURIComponent(id)}`),'DELETE',{accountId},etag),
+  link:async(id,username,appPassword,accountId,etag)=>{const result=await request<CloudLink>(withBase(`/api/account/nextcloud/links/${encodeURIComponent(id)}`),'PUT',{username,appPassword,accountId},etag);globalThis.dispatchEvent(new Event('mw-nextcloud-links-changed'));return result;},
+  unlink:async(id,accountId,etag)=>{await request(withBase(`/api/account/nextcloud/links/${encodeURIComponent(id)}`),'DELETE',{accountId},etag);globalThis.dispatchEvent(new Event('mw-nextcloud-links-changed'));},
   instances:()=>request(adminUrl('/nextcloud/instances')),
   save:(id,value,etag)=>request(adminUrl(`/nextcloud/instances/${encodeURIComponent(id)}`),'PUT',value,etag,etag===undefined),
 };

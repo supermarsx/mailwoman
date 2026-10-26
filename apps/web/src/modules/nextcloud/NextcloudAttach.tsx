@@ -56,7 +56,7 @@ export function NextcloudAttach(props: NextcloudAttachProps): JSX.Element {
   return (
     <div class={css.panel} data-module="nextcloud" aria-label={t('nextcloud-attach-title')}>
       <h2 class={css.heading}>{t('nextcloud-attach-title')}</h2>
-      <FilePicker service={service} mode="files" selected={selected()} onToggleFile={toggle} />
+      <FilePicker disabled={busy()} service={service} mode="files" selected={selected()} onToggleFile={toggle} onInstanceChange={()=>setSelected(new Set())} />
       <button type="button" class={css.button} disabled={busy()} onClick={() => void attach()}>
         {t('nextcloud-attach-action', { count: selected().size })}
       </button>

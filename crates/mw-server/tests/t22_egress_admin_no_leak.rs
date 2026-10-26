@@ -149,6 +149,16 @@ async fn the_password_reaches_neither_the_logs_nor_any_response_body() {
         .expect("cookie name=value")
         .to_string();
 
+    assert_eq!(
+        c.post(format!("{base}/admin/step-up"))
+            .header("cookie", &cookie)
+            .json(&json!({"password":ADMIN_PASS}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
     let mut bodies = Vec::new();
 
     // Create a route carrying the credential.

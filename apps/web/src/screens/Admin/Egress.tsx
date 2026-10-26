@@ -1,4 +1,4 @@
-import { controls } from './Egress.css.ts';
+import { controls, field } from './Egress.css.ts';
 // Egress-proxy routes admin (26.20 t22-e16), over t22-e12's API (`2eede09`):
 //
 //   GET  /admin/egress/proxies              → { proxies: ProxyView[] }
@@ -47,7 +47,7 @@ import { controls } from './Egress.css.ts';
 // both rendered, because "refused by policy at the tunnel" and "auth rejected at
 // connect" are different problems with different fixes.
 
-import { createSignal, For, onMount, Show, type JSX } from 'solid-js';
+import { createSignal, createEffect, on, For, onMount, Show, type JSX } from 'solid-js';
 import { basePath } from '../../api/basePath.ts';
 import { adminUrl } from '../../api/adminPath.ts';
 import { apiFetch } from '../../api/http.ts';
@@ -82,6 +82,8 @@ export interface EgressProxyView {
  * value is the same defect as returning the secret, arrived at from the other end.
  */
 export interface PutProxyInput {
+  scope?:string;
+  trafficClasses?:string[];
   id: string;
   scheme: string;
   host: string;
@@ -256,8 +258,12 @@ function stageLabel(stage: string): string {
 }
 
 const SCHEMES = ['http', 'socks5'] as const;
+const TRAFFIC_CLASSES=['remote_content','ics_feeds','keyservers','webhooks','admin_detect','pki','dns_auth','unsubscribe','siem','oauth','update_check','sieve','analytics','nextcloud','push'] as const;
 
 export interface AdminEgressProps {
+  editor?:string|undefined;
+  onNavigate?:(id?:string)=>void;
+  onDirty?:(dirty:boolean)=>void;
   readOnly?: boolean;
   /** Injected by tests; defaults to the production HTTP client. */
   api?: EgressAdminApi;
@@ -277,6 +283,11 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
   const [host, setHost] = createSignal('');
   const [port, setPort] = createSignal('');
   const [username, setUsername] = createSignal('');
+  const [scope,setScope]=createSignal('global');
+  const [trafficClasses,setTrafficClasses]=createSignal<string[]>(['remote_content','ics_feeds']);
+  const [baseline,setBaseline]=createSignal('');
+  const [saving,setSaving]=createSignal(false);
+  const showEditor=()=>!props.onNavigate||!!props.editor;
   const [allowPlaintext, setAllowPlaintext] = createSignal(false);
   // Always blank — on first render and on every load-for-edit. There is no value
   // to seed it from, by design, and seeding it with a mask is what this must not do.
@@ -341,10 +352,11 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
     setUsername('');
     setAllowPlaintext(false);
     setPassword('');
+    setScope('global');setTrafficClasses(['remote_content','ics_feeds']);setBaseline(JSON.stringify(buildInput()));
   }
 
   /** Load a route into the form. The password stays blank — see the file header. */
-  function edit(row: EgressProxyView): void {
+  function loadEdit(row: EgressProxyView): void {
     setEditingId(row.id);
     setId(row.id);
     setScheme(row.scheme);
@@ -353,7 +365,11 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
     setUsername(row.username);
     setAllowPlaintext(row.allowPlaintext);
     setPassword('');
+    setScope(row.scope??'global');setTrafficClasses(row.trafficClasses??['remote_content','ics_feeds']);setBaseline(JSON.stringify(buildInput()));
   }
+  function edit(row:EgressProxyView):void{loadEdit(row);props.onNavigate?.(row.id);}
+  createEffect(on(()=>[props.editor,loaded()] as const,([editor,ready])=>{if(!props.onNavigate||!ready)return;if(editor&&editor!=='new'){const row=routes().find(row=>row.id===editor);if(row)loadEdit(row);}else resetForm();}));
+  createEffect(()=>props.onDirty?.(showEditor()&&JSON.stringify(buildInput())!==baseline()));
 
   /**
    * Build the request. The password key is present ONLY when the admin typed
@@ -368,6 +384,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
       port: Number(port()),
       username: username().trim(),
       allowPlaintext: allowPlaintext(),
+      scope:scope(),trafficClasses:trafficClasses(),
     };
     const typed = password();
     if (typed !== '') input.password = typed;
@@ -376,6 +393,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
 
   async function save(e: Event): Promise<void> {
     e.preventDefault();
+    if(saving())return;
     const input = buildInput();
     if (input.id === '' || input.host === '' || !Number.isFinite(input.port) || input.port <= 0) {
       setError(t('admin-egress-invalid'));
@@ -387,14 +405,16 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
       setError(t('admin-egress-username-required'));
       return;
     }
+    setSaving(true);
     try {
       await api.put(input);
       setError(null);
       resetForm();
       await reload();
+      props.onNavigate?.();
     } catch {
       setError(t('admin-egress-save-error'));
-    }
+    } finally {setSaving(false);}
   }
 
   async function activate(row: EgressProxyView): Promise<void> {
@@ -433,7 +453,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
 
   return (
     <section class={css.section} data-testid="admin-egress">
-      <fieldset disabled={props.readOnly} class={controls}>
+      <fieldset disabled={props.readOnly||saving()} class={controls}>
       <h2 class={css.heading}>{t('admin-egress-heading')}</h2>
       <p class={css.note}>{t('admin-egress-intro')}</p>
 
@@ -443,6 +463,8 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
         </p>
       </Show>
 
+      <Show when={!props.onNavigate||!showEditor()}>
+      <Show when={props.onNavigate}><button type="button" class="btn" onClick={()=>props.onNavigate?.('new')}>{t('admin-egress-add-heading')}</button></Show>
       <Show when={loaded()} fallback={<p class={css.note}>{t('common-loading')}</p>}>
         <Show
           when={routes().length > 0}
@@ -624,12 +646,14 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
 
       <p class={css.note}>{t('admin-egress-test-scope')}</p>
 
+      </Show>
+      <Show when={showEditor()}>
       <form class={css.card} onSubmit={(e) => void save(e)}>
         <h3 class={css.heading}>
           {editingId() !== null ? t('admin-egress-edit-heading') : t('admin-egress-add-heading')}
         </h3>
         <div class={css.grid}>
-          <label>
+          <label class={field}>
             <span>{t('admin-egress-id')}</span>
             <input
               value={id()}
@@ -640,17 +664,17 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
               disabled={editingId() !== null}
             />
           </label>
-          <label>
+          <label class={field}>
             <span>{t('admin-egress-scheme')}</span>
             <select value={scheme()} onChange={(e) => setScheme(e.currentTarget.value)} data-testid="egress-scheme">
               <For each={SCHEMES}>{(s) => <option value={s}>{s}</option>}</For>
             </select>
           </label>
-          <label>
+          <label class={field}>
             <span>{t('admin-egress-host')}</span>
             <input value={host()} onInput={(e) => setHost(e.currentTarget.value)} data-testid="egress-host" />
           </label>
-          <label>
+          <label class={field}>
             <span>{t('admin-egress-port')}</span>
             <input
               type="number"
@@ -659,7 +683,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
               data-testid="egress-port"
             />
           </label>
-          <label>
+          <label class={field}>
             <span>{t('admin-egress-username')}</span>
             <input
               value={username()}
@@ -668,7 +692,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
               autocomplete="off"
             />
           </label>
-          <label>
+          <label class={field}>
             <span>{t('admin-egress-password')}</span>
             <input
               type="password"
@@ -683,6 +707,8 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
             />
           </label>
         </div>
+        <label class={field}><span>{t('admin-egress-scope')}</span><input value={scope()} onInput={event=>setScope(event.currentTarget.value)}/><small>{t('admin-egress-scope-help')}</small></label>
+        <fieldset><legend>{t('admin-egress-classes')}</legend><p>{t('admin-egress-classes-help')}</p><For each={TRAFFIC_CLASSES}>{value=><label><input type="checkbox" checked={trafficClasses().includes(value)} onChange={event=>setTrafficClasses(previous=>event.currentTarget.checked?[...previous,value]:previous.filter(item=>item!==value))}/>{t(`admin-egress-class-${value}`)}</label>}</For></fieldset>
         <label>
           <input
             type="checkbox"
@@ -697,18 +723,19 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
           <button type="submit" class={`btn btn--primary ${a11y.focusable}`} data-testid="egress-save">
             {editingId() !== null ? t('common-save') : t('common-add')}
           </button>
-          <Show when={editingId() !== null}>
+          <Show when={editingId() !== null||props.onNavigate}>
             <button
               type="button"
               class={`btn btn--ghost ${a11y.focusable}`}
               data-testid="egress-cancel"
-              onClick={() => resetForm()}
+              onClick={() => props.onNavigate?props.onNavigate():resetForm()}
             >
               {t('common-cancel')}
             </button>
           </Show>
         </div>
       </form>
+      </Show>
       </fieldset>
     </section>
   );

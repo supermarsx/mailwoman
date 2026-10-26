@@ -11,8 +11,11 @@ export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
 const defaultFetcher: Fetcher = (input, init) => apiFetch(input, { credentials: 'same-origin', ...init });
 
+export class NextcloudRequestError extends Error {
+  constructor(readonly status:number,readonly code:string){super(`Nextcloud request refused (${status}).`);this.name='NextcloudRequestError';}
+}
 async function jsonOrThrow<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(`nextcloud request failed: ${res.status}`);
+  if (!res.ok) {const problem=await res.json().catch(()=>null) as {code?:unknown}|null;throw new NextcloudRequestError(res.status,typeof problem?.code==='string'?problem.code:'requestFailed');}
   return (await res.json()) as T;
 }
 
@@ -64,19 +67,30 @@ export class NextcloudService {
   constructor(private readonly fetcher: Fetcher = defaultFetcher, private readonly expectedAccountId?:string) {}
   forAccount(accountId:string|undefined):NextcloudService { return new NextcloudService(this.fetcher,accountId); }
 
+  private instanceId:string|undefined;
+  private selectionEpoch=0;
+  selectInstance(id:string):void { if(this.instanceId!==id){this.instanceId=id;this.selectionEpoch++;} }
+  async instances():Promise<{id:string;name:string}[]> {
+    const account=await this.request<{accountId:string;instances:{id:string;name:string}[];links:{instanceId:string;ready:boolean}[]}>('/api/account/nextcloud');
+    if(account.accountId!==preferenceAccount()?.id)throw new Error('The active account changed. Sign in again.');
+    return account.instances.filter(instance=>account.links.some(link=>link.instanceId===instance.id&&link.ready));
+  }
   private async request<T>(path:string, body?:Record<string,unknown>):Promise<T> {
     const account=preferenceAccount();
     if(!account)throw new Error('Sign in before using Nextcloud.');
     if(this.expectedAccountId&&this.expectedAccountId!==account.id)throw new Error('The draft belongs to a different account.');
-    const response=await this.fetcher(withBase(path),body===undefined?undefined:{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...body,accountId:account.id})});
+    const epoch=this.selectionEpoch;
+    const target=body===undefined&&path.startsWith('/api/nextcloud/')?`${path}${path.includes('?')?'&':'?'}accountId=${encodeURIComponent(account.id)}`:path;
+    const response=await this.fetcher(withBase(target),body===undefined?undefined:{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...body,accountId:account.id,...(this.instanceId?{instanceId:this.instanceId}:{})})});
     const result=await jsonOrThrow<T>(response);
+    if(epoch!==this.selectionEpoch)throw new Error('The selected Nextcloud instance changed. Try again.');
     if(!preferenceAccountIsCurrent(account))throw new Error('The active account changed. Open the picker again.');
     return result;
   }
 
   /** Browse a WebDAV directory (default the account root). */
   async list(path = '/'): Promise<WebDavEntry[]> {
-    const out = await this.request<{entries:WebDavEntry[]}>(`/api/nextcloud/list?path=${encodeURIComponent(path)}`);
+    const out = await this.request<{entries:WebDavEntry[]}>(this.instanceId?`/api/nextcloud/files?instanceId=${encodeURIComponent(this.instanceId)}&path=${encodeURIComponent(path)}`:`/api/nextcloud/list?path=${encodeURIComponent(path)}`);
     return out.entries;
   }
 
@@ -87,8 +101,8 @@ export class NextcloudService {
   }
 
   /** Save an existing message attachment (by blob id) to a Nextcloud folder. */
-  async saveTo(blobId: string, dir: string, emailId: string): Promise<WebDavEntry> {
-    const out = await this.request<{entry:WebDavEntry}>('/api/nextcloud/save',{blobId,path:dir,emailId});
+  async saveTo(blobId: string, dir: string, emailId: string, acknowledgeWarning=false): Promise<WebDavEntry> {
+    const out = await this.request<{entry:WebDavEntry}>('/api/nextcloud/save',{blobId,path:dir,emailId,...(acknowledgeWarning?{acknowledgeWarning:true}:{})});
     return out.entry;
   }
 

@@ -87,3 +87,14 @@ nextcloud-admin-enable = Allow users to link this instance
 
 nextcloud-admin-ca = Additional certificate authorities (PEM)
 nextcloud-admin-ca-help = Optional private CA certificates for this Nextcloud server. Public trust remains available and hostname verification stays required. Changes require users to verify their links again; proxy certificate trust is separate.
+
+nextcloud-instance-select = Nextcloud instance
+nextcloud-instance-placeholder = Choose a linked instance
+nextcloud-instances-empty = No verified Nextcloud links. Add or verify a link in User settings → Nextcloud.
+nextcloud-instances-error = Linked instances could not be loaded. Reopen the picker to try again.
+
+nextcloud-save-warning = Your administrator requires confirmation before this attachment can leave the mailbox.
+nextcloud-save-acknowledge = I understand the attachment warning and want to save this file to the selected Nextcloud instance.
+nextcloud-save-attachment = Save { $name } to Nextcloud
+nextcloud-save-close = Close Nextcloud destination
+nextcloud-save-options = Save attachments to Nextcloud

@@ -586,3 +586,35 @@ admin-session-console-metadata = Administrator device, IP and location metadata 
 
 admin-session-current = This session
 admin-session-revoke = Revoke session
+
+admin-egress-scope = Route scope
+admin-egress-scope-help = Use global or domain:example.org for an existing configured domain. Domain aliases use their canonical domain. Only selected traffic classes use this route.
+admin-egress-classes = Traffic carried by this route
+admin-egress-classes-help = Select at least one class. Other classes keep their own route decision. Push remains HTTPS and public-address only; selecting a proxy never permits private push targets.
+admin-egress-class-remote_content = Remote message images and files
+admin-egress-class-ics_feeds = Calendar subscription feeds
+admin-egress-class-keyservers = Public key servers
+admin-egress-class-webhooks = Outgoing webhooks
+admin-egress-class-admin_detect = Administrator discovery and probes
+admin-egress-class-pki = Certificate infrastructure
+admin-egress-class-dns_auth = Mail authentication DNS requests
+admin-egress-class-unsubscribe = List unsubscribe requests
+admin-egress-class-siem = Security event collectors
+admin-egress-class-analytics = Optional usage analytics
+admin-egress-class-nextcloud = Nextcloud files and DAV requests
+admin-egress-class-oauth = OAuth provider requests
+admin-egress-class-update_check = Update checks
+admin-egress-class-sieve = ManageSieve rules transport
+admin-egress-class-push = Browser push delivery
+
+admin-obs-ban-expiry = Expiry (this device's local time)
+admin-obs-ban-expiry-help = Leave empty for a permanent ban. Expiry must be in the future. Health checks remain available, but this can block your own active session.
+admin-obs-ban-expired = Expired
+admin-obs-ban-until = Active until
+admin-obs-ban-permanent = Active until removed
+admin-obs-ban-save = Save IP ban
+admin-obs-ban-cancel = Cancel
+admin-obs-ban-invalid-expiry = Choose a future expiry or leave it empty.
+admin-obs-ban-status = Status and expiry
+admin-obs-ban-search = Search IP bans
+admin-obs-ban-active-only = Active bans only

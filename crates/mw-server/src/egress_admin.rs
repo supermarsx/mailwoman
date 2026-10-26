@@ -117,6 +117,10 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PutProxyReq {
+    #[serde(default)]
+    traffic_classes: Option<Vec<String>>,
+    #[serde(default)]
+    scope: Option<String>,
     id: String,
     scheme: String,
     host: String,
@@ -133,6 +137,8 @@ impl fmt::Debug for PutProxyReq {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PutProxyReq")
             .field("id", &self.id)
+            .field("traffic_classes", &self.traffic_classes)
+            .field("scope", &self.scope)
             .field("scheme", &self.scheme)
             .field("host", &self.host)
             .field("port", &self.port)
@@ -272,11 +278,38 @@ async fn list_proxies(State(state): State<AppState>, _ctx: AdminCtx) -> Response
     }
 }
 
+async fn require_route_change(state: &AppState, ctx: &AdminCtx) -> Result<(), Response> {
+    ctx.require_unscoped(Capability::EgressWrite)
+        .map_err(IntoResponse::into_response)?;
+    crate::step_up::require_admin(state, ctx, crate::step_up::StepUpAction::IntegrationManage)
+        .await
+        .map_err(IntoResponse::into_response)
+}
+fn classes(input: Option<Vec<String>>, fallback: Vec<String>) -> Result<Vec<String>, &'static str> {
+    let Some(mut values) = input else {
+        return Ok(fallback);
+    };
+    if values.is_empty()
+        || values.len() > mw_egress::TrafficClass::ALL.len()
+        || values
+            .iter()
+            .any(|value| mw_egress::TrafficClass::parse(value).is_none())
+    {
+        return Err("select one or more supported traffic classes");
+    }
+    values.sort();
+    values.dedup();
+    Ok(values)
+}
+
 async fn put_proxy(
     State(state): State<AppState>,
     ctx: AdminCtx,
     Json(body): Json<PutProxyReq>,
 ) -> Response {
+    if let Err(response) = require_route_change(&state, &ctx).await {
+        return response;
+    }
     let admin = ctx.username.clone();
     if body.id.trim().is_empty() {
         return bad_request("id is required");
@@ -296,10 +329,8 @@ async fn put_proxy(
         return bad_request("username is required when a password is set");
     }
 
-    // The 0033 route policy (scope, classes, TLS to the proxy, remote DNS, tunnel,
-    // chain) is not part of this request: it is carried over from the stored row
-    // so an edit from this form cannot reset it, and a new route starts with the
-    // migration defaults (global, remote content and ICS feeds).
+    // Omitted policy fields retain the existing authority and legacy defaults.
+    // Explicit changes require the same fresh proof as endpoint changes.
     let existing = match state.store.get_egress_proxy(&body.id).await {
         Ok(r) => r,
         Err(e) => return store_failed("put lookup", &e),
@@ -327,6 +358,29 @@ async fn put_proxy(
         created_at: String::new(),
         updated_at: String::new(),
     });
+    let traffic_classes = match classes(body.traffic_classes, policy.traffic_classes) {
+        Ok(values) => values,
+        Err(message) => return bad_request(message),
+    };
+    let scope = match body.scope {
+        None => policy.scope,
+        Some(value) if value == "global" => value,
+        Some(value) => {
+            let Some(domain) = value.strip_prefix("domain:") else {
+                return bad_request("scope must be global or domain:<configured-domain>");
+            };
+            let canonical = match state.store.canonical_policy_domain(domain).await {
+                Ok(value) => value,
+                Err(_) => return bad_request("scope domain is invalid"),
+            };
+            match state.store.get_domain_config(&canonical).await {
+                Ok(Some(_)) => {}
+                Ok(None) => return bad_request("configure the scope domain first"),
+                Err(error) => return store_failed("scope lookup", &error),
+            }
+            format!("domain:{canonical}")
+        }
+    };
     let row = EgressProxyRow {
         id: body.id.clone(),
         kind: body.scheme.clone(),
@@ -345,8 +399,8 @@ async fn put_proxy(
         remote_dns_risk_accepted_at: None,
         tunnel_id: policy.tunnel_id,
         chain_next_id: policy.chain_next_id,
-        scope: policy.scope,
-        traffic_classes: policy.traffic_classes,
+        scope,
+        traffic_classes,
         created_at: String::new(),
         updated_at: String::new(),
     };
@@ -363,6 +417,9 @@ async fn delete_proxy(
     ctx: AdminCtx,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
+    if let Err(response) = require_route_change(&state, &ctx).await {
+        return response;
+    }
     let admin = ctx.username.clone();
     match state.store.delete_egress_proxy(&id).await {
         // Audit what HAPPENED, not what was asked: deleting an absent id removed
@@ -390,6 +447,9 @@ async fn activate_proxy(
     ctx: AdminCtx,
     UrlPath(id): UrlPath<String>,
 ) -> Response {
+    if let Err(response) = require_route_change(&state, &ctx).await {
+        return response;
+    }
     let admin = ctx.username.clone();
     let row = match state.store.get_egress_proxy(&id).await {
         Ok(Some(r)) => r,
@@ -425,6 +485,9 @@ async fn activate_proxy(
 /// particular row, and naming an id would imply a per-route toggle that 0027 does
 /// not permit.
 async fn deactivate_proxies(State(state): State<AppState>, ctx: AdminCtx) -> Response {
+    if let Err(response) = require_route_change(&state, &ctx).await {
+        return response;
+    }
     let admin = ctx.username.clone();
     // What was live BEFORE, so the audit row names what actually changed rather than
     // recording an anonymous "egress deactivated" that a reader cannot act on.
@@ -787,6 +850,23 @@ mod tests {
     }
 
     #[test]
+    fn explicit_route_classes_are_validated_without_resetting_omitted_policy() {
+        assert_eq!(
+            classes(None, vec!["ics_feeds".into()]).unwrap(),
+            vec!["ics_feeds"]
+        );
+        assert_eq!(
+            classes(
+                Some(vec!["nextcloud".into(), "push".into(), "nextcloud".into()]),
+                vec![]
+            )
+            .unwrap(),
+            vec!["nextcloud", "push"]
+        );
+        assert!(classes(Some(vec![]), vec![]).is_err());
+        assert!(classes(Some(vec!["unknown".into()]), vec![]).is_err());
+    }
+    #[test]
     fn the_audit_detail_carries_no_secret() {
         // `audit_log` is append-only by design, so a secret here could never be
         // redacted. This is the assertion that keeps that true.
@@ -827,6 +907,8 @@ mod tests {
         // The request struct is what an axum rejection or a `?` in a handler is most
         // likely to render — so it needs the same care as the stored row.
         let req = PutProxyReq {
+            traffic_classes: None,
+            scope: None,
             id: "corp".into(),
             scheme: "http".into(),
             host: "proxy.corp.example".into(),

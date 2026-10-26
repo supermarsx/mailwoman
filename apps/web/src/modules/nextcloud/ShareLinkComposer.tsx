@@ -1,3 +1,4 @@
+import {InstanceSelector} from './InstanceSelector.tsx';
 // Large-attachment share-link composer (SPEC §18.4, plan §3 e7): create a public
 // Nextcloud share link for a file, with the optional password + expiry controls.
 // EXPORTED for e14 to wire into the composer's "share instead of attach" path (large
@@ -21,7 +22,8 @@ export interface ShareLinkComposerProps {
 
 export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
   onMount(() => void loadCatalog('nextcloud'));
-  const service = props.service ?? new NextcloudService(props.fetcher);
+  const service = (props.service ?? new NextcloudService(props.fetcher)).forAccount(undefined);
+  const [ready,setReady]=createSignal(false);
   const [withPassword, setWithPassword] = createSignal(false);
   const [password, setPassword] = createSignal('');
   const [withExpiry, setWithExpiry] = createSignal(false);
@@ -32,6 +34,7 @@ export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
   const [error, setError] = createSignal('');
 
   async function create(): Promise<void> {
+    if(!ready())return;
     setError('');
     if (withPassword() && password().trim() === '') {
       setError(t('nextcloud-error-need-password'));
@@ -59,6 +62,7 @@ export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
 
   return (
     <div class={css.panel} data-module="nextcloud" aria-label={t('nextcloud-share-panel-label')}>
+      <InstanceSelector disabled={busy()} service={service} onChange={()=>{setReady(true);setLink(null);}}/>
       <h2 class={css.heading}>{t('nextcloud-share-title')}</h2>
       <p class={css.meta}>{t('nextcloud-share-intro', { path: isolate(props.path) })}</p>
 
@@ -107,7 +111,7 @@ export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
         </label>
       </Show>
 
-      <button type="button" class={css.button} disabled={busy()} onClick={() => void create()}>
+      <button type="button" class={css.button} disabled={busy()||!ready()} onClick={() => void create()}>
         {t('nextcloud-create-link')}
       </button>
 

@@ -3785,6 +3785,8 @@ async fn assist_admin_kill(
 
 #[derive(Debug, Deserialize)]
 struct ListQuery {
+    #[serde(rename="accountId")]
+    account_id:Option<String>,
     #[serde(default)]
     path: String,
 }
@@ -3795,9 +3797,8 @@ async fn nextcloud_list(
     headers: HeaderMap,
     Query(q): Query<ListQuery>,
 ) -> Response {
-    if let Err(resp) = crate::user_router::feature_session(&state, &headers, "integrations.nextcloud").await {
-        return resp;
-    }
+    let session=match crate::user_router::feature_session(&state,&headers,"integrations.nextcloud").await {Ok(session)=>session,Err(response)=>return response};
+    if q.account_id.as_deref().is_some_and(|id|id!=session.account_id.as_str()){return (StatusCode::CONFLICT,Json(json!({"error":"active account changed"}))).into_response();}
     let nc=match crate::nextcloud_gateway::resolve(&state,&headers,None).await {Ok(gateway)=>gateway,Err(response)=>return response};
     match nc.list(&q.path).await {
         Ok(entries) => Json(json!({ "entries": entries })).into_response(),

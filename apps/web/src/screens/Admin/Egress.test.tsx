@@ -1,3 +1,4 @@
+import {createSignal} from 'solid-js';
 // Egress routes admin (26.20 t22-e16).
 //
 // The load-bearing assertions here are about what is NOT sent. `ProxyView` has no
@@ -197,6 +198,7 @@ describe('egress routes — credentials are write-only from this end too', () =>
     fireEvent.click(screen.getByTestId('egress-save'));
     await waitFor(() => expect(puts).toHaveLength(1));
 
+    await waitFor(()=>expect(screen.getByTestId('egress-edit-corp')).toBeEnabled());
     // Now edit again and change only the host.
     fireEvent.click(await screen.findByTestId('egress-edit-corp'));
     expect((screen.getByTestId('egress-password') as HTMLInputElement).value).toBe('');
@@ -515,5 +517,27 @@ describe('egress routes — a test reports what happened, not whether a request 
   it('the client DOES throw when the test itself could not run', async () => {
     globalThis.fetch = vi.fn(async () => new Response('{}', { status: 503 })) as unknown as typeof fetch;
     await expect(createHttpEgressAdminApi('').test('corp')).rejects.toThrow(/503/);
+  });
+});
+
+
+describe('dedicated outbound route editor',()=>{
+  it('keeps the list separate and persists explicit class and domain choices',async()=>{
+    const {api,puts}=fakeApi();const [editor,setEditor]=createSignal<string>();
+    render(()=><AdminEgress api={api} editor={editor()} onNavigate={setEditor}/>);
+    await screen.findByTestId('egress-row-corp');expect(screen.queryByTestId('egress-save')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Add a route'}));
+    expect(screen.queryByTestId('egress-row-corp')).not.toBeInTheDocument();
+    fireEvent.input(screen.getByTestId('egress-id'),{target:{value:'cloud-route'}});
+    fireEvent.input(screen.getByTestId('egress-host'),{target:{value:'proxy.example'}});
+    fireEvent.input(screen.getByTestId('egress-port'),{target:{value:'3128'}});
+    fireEvent.input(screen.getByLabelText(/^Route scope/),{target:{value:'domain:example.org'}});
+    fireEvent.click(screen.getByRole('checkbox',{name:'Nextcloud files and DAV requests'}));
+    fireEvent.click(screen.getByRole('checkbox',{name:'Browser push delivery'}));
+    fireEvent.click(screen.getByTestId('egress-save'));
+    await waitFor(()=>expect(puts).toHaveLength(1));
+    expect(puts[0]?.scope).toBe('domain:example.org');expect(puts[0]?.trafficClasses).toEqual(['remote_content','ics_feeds','nextcloud','push']);
+    await waitFor(()=>expect(screen.queryByTestId('egress-save')).not.toBeInTheDocument());
+    expect(screen.getByTestId('egress-row-corp')).toBeVisible();
   });
 });

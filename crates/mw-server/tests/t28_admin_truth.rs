@@ -141,6 +141,16 @@ async fn admin_login(c: &reqwest::Client, base: &str) -> Login {
         .to_str()
         .unwrap()
         .to_string();
+    assert_eq!(
+        c.post(format!("{base}/admin/step-up"))
+            .header("cookie", set_cookie.split(';').next().unwrap())
+            .json(&json!({"password":ADMIN_PASS}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
     Login {
         cookie: set_cookie.split(';').next().unwrap().to_string(),
         set_cookie,
@@ -277,16 +287,19 @@ async fn an_idle_admin_session_is_refused_on_every_admin_gate() {
     assert_eq!(resp.status(), 401, "an idle session is refused");
     let body: Value = resp.json().await.unwrap();
     assert_eq!(body["error"], "admin authentication required");
-    assert!(
-        deadlines(&pool, &hash).await.is_none(),
-        "the expired row is deleted"
-    );
+    // Expired rows may remain for session history; retention must never revive
+    // authorization. The persisted deadline remains expired if the row exists.
+    if let Some((idle, _)) = deadlines(&pool, &hash).await {
+        assert!(idle < unix_now(), "expired history must not be refreshed");
+    }
     for path in gates {
         let resp = get(&c, format!("{base}{path}"), &login.cookie).await;
         assert_eq!(resp.status(), 401, "{path} refuses the expired session");
     }
 
     // The refusal is about that session, not the route: a new login works.
+    // Respect the shared trusted-client sign-in cooldown before a new attempt.
+    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
     let again = admin_login(&c, &base).await;
     assert_ne!(again.token(), login.token());
     let resp = get(&c, format!("{base}/admin/session"), &again.cookie).await;
@@ -764,6 +777,9 @@ async fn activating_a_route_is_what_makes_the_image_proxy_use_it() {
         .no_proxy()
         .build()
         .unwrap();
+    // Admin and mailbox sign-ins share the trusted-client cooldown. Respect it
+    // before this separate successful mailbox login instead of retrying secrets.
+    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
     let me: Value = user
         .post(format!("{base}/api/login"))
         .json(&json!({
@@ -1109,8 +1125,8 @@ async fn a_domain_is_its_name_and_registering_it_again_keeps_what_was_stored() {
         .await
         .unwrap();
 
-    // Register a new name (no body), and re-register the old one with the body an
-    // older client would send.
+    // Register a new name and re-register the old name without a body. An
+    // omitted field preserves stored policy; explicitly supplied fields replace it.
     let resp = c
         .put(format!("{base}/admin/domains/new.example"))
         .header(reqwest::header::COOKIE, &login.cookie)
@@ -1121,7 +1137,6 @@ async fn a_domain_is_its_name_and_registering_it_again_keeps_what_was_stored() {
     let resp = c
         .put(format!("{base}/admin/domains/old.example"))
         .header(reqwest::header::COOKIE, &login.cookie)
-        .json(&json!({ "name": "old.example", "upstreamJson": "{}", "allowlist": [], "blocklist": [] }))
         .send()
         .await
         .unwrap();
@@ -1132,14 +1147,29 @@ async fn a_domain_is_its_name_and_registering_it_again_keeps_what_was_stored() {
         .json()
         .await
         .unwrap();
-    assert_eq!(
-        list,
-        json!([{ "name": "new.example" }, { "name": "old.example" }]),
-        "a domain is sent as its name and nothing else"
-    );
+    let domains = list.as_array().expect("domain list");
+    assert_eq!(domains.len(), 2);
+    assert_eq!(domains.iter().map(|row| row["name"].as_str().unwrap()).collect::<Vec<_>>(),
+        vec!["new.example", "old.example"]);
+    for row in domains {
+        assert!(row["enabled"].is_boolean());
+        assert!(row["aliases"].is_array());
+        assert!(row["upstream"].is_object());
+        assert!(row.get("upstreamJson").is_none(), "no legacy unvalidated raw JSON");
+    }
 
     // The stored columns of the old row were not overwritten by the re-register.
     let kept = store.get_domain("old.example").await.unwrap().unwrap();
     assert_eq!(kept.upstream_json, "{\"imap\":\"mail.old.example\"}");
     assert_eq!(kept.allowlist_json, "[\"a@old.example\"]");
+    // The legacy JSON representation remains a supported explicit update, not
+    // a name-only registration: its supplied fields must take effect.
+    let response = c.put(format!("{base}/admin/domains/old.example"))
+        .header(reqwest::header::COOKIE, &login.cookie)
+        .json(&json!({"name":"old.example","upstreamJson":"{}","allowlist":[],"blocklist":[]}))
+        .send().await.unwrap();
+    assert_eq!(response.status(), 204);
+    let updated = store.get_domain("old.example").await.unwrap().unwrap();
+    assert_eq!(updated.upstream_json, "{}");
+    assert_eq!(updated.allowlist_json, "[]");
 }

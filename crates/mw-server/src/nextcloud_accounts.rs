@@ -326,6 +326,7 @@ async fn unlink(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct FilesQuery {
+    account_id: Option<String>,
     instance_id: String,
     #[serde(default)]
     path: String,
@@ -341,6 +342,13 @@ async fn files(
             Ok(session) => session,
             Err(response) => return response,
         };
+    if query
+        .account_id
+        .as_deref()
+        .is_some_and(|id| id != session.account_id.as_str())
+    {
+        return failure(StatusCode::CONFLICT, "active account changed");
+    }
     let (instance, link, password) = match state
         .store
         .nextcloud_authority(&session.account_id, &query.instance_id)

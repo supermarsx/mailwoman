@@ -1,3 +1,4 @@
+import {InstanceSelector} from './InstanceSelector.tsx';
 import { AsyncPending } from '../../components/AsyncState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 // A minimal WebDAV directory picker (SPEC §18.4, plan §3 e7). Browses Nextcloud
@@ -15,18 +16,21 @@ export interface FilePickerProps {
   /** 'files' → clicking a file toggles selection; 'dirs' → only navigation, the
    *  current directory is the selection. */
   mode: 'files' | 'dirs';
+  disabled?:boolean;
   /** Selected file paths (files mode). */
   selected?: Set<string>;
   /** A file was toggled (files mode). */
   onToggleFile?: (entry: WebDavEntry) => void;
   /** The browsed directory changed (both modes). */
   onDirChange?: (path: string) => void;
+  onInstanceChange?:()=>void;
 }
 
 export function FilePicker(props: FilePickerProps): JSX.Element {
   onMount(() => void loadCatalog('nextcloud'));
   const [dir, setDir] = createSignal('/');
-  const [entries] = createResource(dir, (path) => props.service.list(path));
+  const [instance,setInstance]=createSignal('');
+  const [entries] = createResource(()=>instance()?{path:dir(),instance:instance()}:undefined, ({path}) => props.service.list(path));
 
   const loaded=():WebDavEntry[]=>entries.loading||entries.error?[]:entries()??[];
 
@@ -43,11 +47,12 @@ export function FilePicker(props: FilePickerProps): JSX.Element {
 
   return (
     <div class={css.panel} data-testid="nc-picker">
+      <InstanceSelector disabled={props.disabled} service={props.service} onChange={id=>{setDir('/');setInstance(id);props.onDirChange?.('/');props.onInstanceChange?.();}}/>
       <div class={css.bar}>
         <button
           type="button"
           class={css.ghost}
-          disabled={dir() === '/'}
+          disabled={props.disabled||dir() === '/'}
           aria-label={t('nextcloud-up')}
           onClick={() => navigate(parentOf(dir()))}
         >
@@ -67,7 +72,7 @@ export function FilePicker(props: FilePickerProps): JSX.Element {
         </p>
       </Show>
 
-      <Show when={!entries.loading && !entries.error && loaded().length === 0}>
+      <Show when={!!instance() && !entries.loading && !entries.error && loaded().length === 0}>
         <p class={css.meta}>{t('nextcloud-empty')}</p>
       </Show>
 
@@ -100,6 +105,7 @@ export function FilePicker(props: FilePickerProps): JSX.Element {
                     <button
                       type="button"
                       class={css.row}
+                      disabled={props.disabled}
                       aria-label={
                         entry.isDir
                           ? t('nextcloud-open-folder', { name: isolate(entry.name) })
