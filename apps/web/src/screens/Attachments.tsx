@@ -17,15 +17,18 @@ import {
   formatSize,
   parseAttachmentQuery,
   type AttachmentItem,
+  type AttachmentPage,
   type TypeCategory,
 } from '../viewers/attachments.ts';
 
 export interface AttachmentsProps {
   /** Live loader (e.g. `() => loadAttachments(client, accountId)`). */
   load?: () => Promise<AttachmentItem[]>;
+  loadPage?: (position: number) => Promise<AttachmentPage>;
   /** Preloaded rows (tests / offline slice); used when `load` is absent. */
   items?: AttachmentItem[];
   onOpen?: (item: AttachmentItem) => void;
+  onOpenMessage?: (item: AttachmentItem) => void;
 }
 
 const CATEGORIES: Array<TypeCategory | 'all'> = [
@@ -45,15 +48,18 @@ function catLabel(c: TypeCategory | 'all'): string {
 }
 
 export function Attachments(props: AttachmentsProps): JSX.Element {
-  const [data,{refetch}] = createResource(async () =>
-    props.load !== undefined ? await props.load() : (props.items ?? []),
+  const [positions, setPositions] = createSignal([0]);
+  const position = () => positions().at(-1) ?? 0;
+  const [data,{refetch}] = createResource(position, async (offset): Promise<AttachmentPage> =>
+    props.loadPage ? props.loadPage(offset) : {items: props.load ? await props.load() : props.items ?? [], position: 0, nextPosition: null},
   );
   const [query, setQuery] = createSignal('');
   const [cat, setCat] = createSignal<TypeCategory | 'all'>('all');
 
   // The module owns its loading state. Reading a pending resource here would
   // suspend the enclosing mailbox route and replace the entire app with Loading.
-  const all = (): AttachmentItem[] => data.error || data.state === 'pending' || data.state === 'unresolved' ? (props.items ?? []) : data.latest ?? props.items ?? [];
+  const current = () => data.error || data.state === 'pending' || data.state === 'unresolved' ? undefined : data.latest;
+  const all = (): AttachmentItem[] => current()?.items ?? props.items ?? [];
   const icons:Partial<Record<TypeCategory,IconName>>={image:'image',pdf:'filePdf',text:'file',audio:'fileAudio',video:'fileVideo',message:'mail'};
 
   const filtered = createMemo<AttachmentItem[]>(() => {
@@ -66,6 +72,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
     <section class="mw-attach" data-mw-surface aria-label={t('common-attach-title')}>
       <header class="mw-attach__bar">
         <h2 class="mw-attach__title">{t('common-attach-title')}</h2>
+        <button type="button" class={table.name} aria-label={t('common-attach-refresh')} title={t('common-attach-refresh')} disabled={data.loading} onClick={()=>void refetch()}><Icon name="refresh"/></button>
         <input
           class="mw-attach__search"
           type="search"
@@ -83,6 +90,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
           <For each={CATEGORIES}>{(c) => <option value={c}>{catLabel(c)}</option>}</For>
         </select>
       </header>
+      <Show when={props.loadPage}><p class="mw-attach__status">{t('common-attach-page-filter-note')}</p></Show>
 
       <Show when={!data.error} fallback={<AsyncError error={data.error} onRetry={()=>void refetch()}/> }><Show
         when={!data.loading||all().length>0}
@@ -105,13 +113,18 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
                   >
                     <Icon name={icons[categoryOf(item.mime)]??'file'}/><span>{item.name}</span>
                   </button>
-                  </td><td>{catLabel(categoryOf(item.mime))}</td><td>{formatSize(item.size)}</td><td>{item.from}</td><td>{item.subject}</td><td>{Number.isNaN(Date.parse(item.receivedAt))?'—':new Date(item.receivedAt).toLocaleDateString()}</td>
+                  </td><td title={item.mime}>{catLabel(categoryOf(item.mime))}</td><td>{formatSize(item.size)}</td><td>{item.from}</td><td><Show when={props.onOpenMessage} fallback={item.subject}><button type="button" class={table.name} onClick={()=>props.onOpenMessage?.(item)} title={t('common-attach-open-message')}>{item.subject}</button></Show></td><td>{Number.isNaN(Date.parse(item.receivedAt))?'—':new Date(item.receivedAt).toLocaleDateString()}</td>
                 </tr>
               )}
             </For>
           </tbody></table></div>
         </Show>
       </Show></Show>
+      <Show when={props.loadPage}><nav class={table.paging} aria-label={t('common-attach-pages')}>
+        <button type="button" disabled={data.loading || positions().length===1} onClick={()=>setPositions(old=>old.slice(0,-1))}>{t('common-attach-previous')}</button>
+        <span>{t('common-attach-page',{page:positions().length})}</span>
+        <button type="button" disabled={data.loading || current()?.nextPosition == null} onClick={()=>{const next=current()?.nextPosition;if(next!=null)setPositions(old=>[...old,next]);}}>{t('common-attach-next')}</button>
+      </nav></Show>
     </section>
   );
 }

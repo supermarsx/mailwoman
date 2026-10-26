@@ -1,8 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import type { Client } from '../api/client.ts';
 import { CAP_CORE, CAP_MAIL, type Email, type Invocation } from '../api/jmap-types.ts';
 import { viewerKindFor } from '../contracts/viewer.ts';
 import {
   attachmentsQuery,
+  loadAttachmentPage,
   buildDownloadUrl,
   categoryOf,
   filterAttachments,
@@ -33,6 +35,22 @@ describe('viewerKindFor — MIME dispatch (frozen §2.4)', () => {
 });
 
 describe('attachmentsQuery', () => {
+  it('uses the message count for the next page even when one message has multiple files', async () => {
+    const client = {jmap:vi.fn(async()=>({methodResponses:[
+      ['Email/query',{accountId:'a',position:50,ids:['e1'],total:52},'aq'],
+      ['Email/get',{accountId:'a',list:[email({attachments:[{blobId:'b1',type:'image/png',size:1},{blobId:'b2',type:'image/png',size:1}]})]},'ag'],
+    ]}))} as unknown as Client;
+    const page = await loadAttachmentPage(client,'a',50);
+    expect(page.items).toHaveLength(2);
+    expect(page.nextPosition).toBe(51);
+  });
+  it('rejects a response belonging to a different account', async () => {
+    const client = {jmap:vi.fn(async()=>({methodResponses:[
+      ['Email/query',{accountId:'other',position:0,ids:[]},'aq'],
+      ['Email/get',{accountId:'a',list:[]},'ag'],
+    ]}))} as unknown as Client;
+    await expect(loadAttachmentPage(client,'a')).rejects.toThrow('requested account');
+  });
   it('builds Email/query{hasAttachment:true} + a chained Email/get', () => {
     const req = attachmentsQuery('acct1', 50);
     expect(req.using).toEqual([CAP_CORE, CAP_MAIL]);

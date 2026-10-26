@@ -549,8 +549,9 @@ export function MailboxScreen(): JSX.Element {
       </Show>
       <Show when={surface() === 'attachments'}>
         <Attachments
-          load={() => app.listAttachments()}
-          onOpen={(item) => {
+          loadPage={(position) => app.listAttachmentsPage(position)}
+          onOpen={openAttachmentTab}
+          onOpenMessage={(item) => {
             router.navigate('mail');
             openMessageTab(item.emailId);
           }}

@@ -82,6 +82,13 @@ common-nav-close = Close folders and apps
 # -- Attachments (global, cross-account view; rides the entry bundle so the
 #    account-wide attachments screen needs no extra catalog fetch) ------------
 common-attach-title = Attachments
+common-attach-refresh = Refresh attachments
+common-attach-open-message = Open the message containing this attachment
+common-attach-page-filter-note = Filters apply to this page. Use Next to browse older messages with attachments.
+common-attach-pages = Attachment pages
+common-attach-previous = Previous
+common-attach-next = Next
+common-attach-page = Page { $page }
 common-attach-column-name = File
 common-attach-column-type = Type
 common-attach-column-size = Size

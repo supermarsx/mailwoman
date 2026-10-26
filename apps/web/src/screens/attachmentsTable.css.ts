@@ -8,3 +8,4 @@ globalStyle(`${table} td:first-child`,{minInlineSize:'12rem',maxInlineSize:'28re
 globalStyle(`${table} td:nth-child(3), ${table} td:last-child`,{whiteSpace:'nowrap',fontVariantNumeric:'tabular-nums'});
 export const name=style({display:'inline-flex',alignItems:'center',gap:vars.space[2],maxInlineSize:'100%',border:0,background:'transparent',color:vars.color.link,textAlign:'start',font:'inherit',cursor:'pointer',padding:vars.space[1],':hover':{textDecoration:'underline'},':focus-visible':{outline:`${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`,outlineOffset:'2px'}});
 globalStyle(`${name} svg`,{flexShrink:0});
+export const paging=style({display:'flex',alignItems:'center',gap:vars.space[3],padding:vars.space[3],flexShrink:0});

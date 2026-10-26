@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { Attachments } from './Attachments.tsx';
 import type { AttachmentItem } from '../viewers/attachments.ts';
@@ -11,6 +11,27 @@ const items: AttachmentItem[] = [
 ];
 
 describe('Attachments module', () => {
+  it('opens the file independently from its parent message', async () => {
+    const open = vi.fn(), parent = vi.fn();
+    render(() => <Attachments items={items} onOpen={open} onOpenMessage={parent}/>);
+    fireEvent.click(await screen.findByRole('button',{name:'Q3-report.pdf'}));
+    expect(open).toHaveBeenCalledWith(items[0]);
+    expect(parent).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button',{name:'Q3'}));
+    expect(parent).toHaveBeenCalledWith(items[0]);
+  });
+  it('pages by server message positions and permits returning to the previous page', async () => {
+    const load = vi.fn(async (position:number) => ({items:position===0?[items[0]!]:[items[1]!],position,nextPosition:position===0?50:null}));
+    render(()=><Attachments loadPage={load}/>);
+    await screen.findByText('Q3-report.pdf');
+    fireEvent.click(screen.getByRole('button',{name:'Next'}));
+    await screen.findByText('logo.png');
+    expect(load).toHaveBeenLastCalledWith(50);
+    expect(screen.getByRole('button',{name:'Next'})).toBeDisabled();
+    fireEvent.click(screen.getByRole('button',{name:'Previous'}));
+    await screen.findByText('Q3-report.pdf');
+    expect(load).toHaveBeenLastCalledWith(0);
+  });
   it('keeps the surrounding app visible while the attachment query is pending', async () => {
     let finish!: (value: AttachmentItem[]) => void;
     const pending = new Promise<AttachmentItem[]>(resolve => { finish = resolve; });

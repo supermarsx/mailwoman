@@ -33,6 +33,8 @@ import {
   buildDownloadUrl,
   fetchObjectUrl,
   loadAttachments,
+  loadAttachmentPage,
+  type AttachmentPage,
   type AttachmentItem,
 } from '../../viewers/attachments.ts';
 import {
@@ -221,6 +223,7 @@ export interface MailSlice {
 
   /** Load every attachment across the account for the Attachments module. */
   listAttachments(): Promise<AttachmentItem[]>;
+  listAttachmentsPage(position: number): Promise<AttachmentPage>;
   /** Export the open message as an `.eml` and trigger a browser download. */
   exportMessage(id?: Id): Promise<void>;
 
@@ -1492,6 +1495,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     return loadAttachments(client, acct);
   }
 
+  async function listAttachmentsPage(position: number): Promise<AttachmentPage> {
+    const acct = accountId();
+    if (acct === null) return {items: [], position, nextPosition: null};
+    const page = await loadAttachmentPage(client, acct, position);
+    if (accountId() !== acct) throw new Error('Account changed while loading attachments');
+    return page;
+  }
+
   function triggerDownload(objectUrl: string, name: string): void {
     if (typeof document === 'undefined') return;
     const a = document.createElement('a');
@@ -1807,6 +1818,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     loadMore,
 
     listAttachments,
+    listAttachmentsPage,
     exportMessage,
 
     visibleMessages,

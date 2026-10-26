@@ -16,6 +16,7 @@ import {
   type EmailAddress,
   type EmailBodyPart,
   type EmailGetResponse,
+  type EmailQueryResponse,
   type Id,
   type JmapRequest,
 } from '../api/jmap-types.ts';
@@ -52,7 +53,7 @@ function firstFrom(from: EmailAddress[] | null): string {
 }
 
 /** One-round-trip query for every message with an attachment + its attachment list. */
-export function attachmentsQuery(accountId: Id, limit = 200): JmapRequest {
+export function attachmentsQuery(accountId: Id, limit = 200, position = 0): JmapRequest {
   return {
     using: [CAP_CORE, CAP_MAIL],
     methodCalls: [
@@ -63,6 +64,8 @@ export function attachmentsQuery(accountId: Id, limit = 200): JmapRequest {
           filter: { hasAttachment: true },
           sort: [{ property: 'receivedAt', isAscending: false }],
           limit,
+          position,
+          calculateTotal: true,
         },
         'aq',
       ],
@@ -105,6 +108,29 @@ export async function loadAttachments(client: Client, accountId: Id): Promise<At
   const res = await client.jmap(attachmentsQuery(accountId));
   const got = responseFor<EmailGetResponse>(res, 'ag');
   return parseAttachments(got.list as EmailWithAttachments[]);
+}
+
+export interface AttachmentPage {
+  items: AttachmentItem[];
+  position: number;
+  nextPosition: number | null;
+}
+
+/** Page by messages, not flattened files: one message can contain many files. */
+export async function loadAttachmentPage(client: Client, accountId: Id, position = 0): Promise<AttachmentPage> {
+  const limit = 50;
+  const res = await client.jmap(attachmentsQuery(accountId, limit, position));
+  const query = responseFor<EmailQueryResponse>(res, 'aq');
+  const got = responseFor<EmailGetResponse>(res, 'ag');
+  if (query.accountId !== accountId || got.accountId !== accountId || query.position !== position) {
+    throw new Error('Attachment response does not match the requested account or page');
+  }
+  const next = position + query.ids.length;
+  return {
+    items: parseAttachments(got.list as EmailWithAttachments[]),
+    position,
+    nextPosition: query.ids.length === 0 || (query.total !== undefined ? next >= query.total : query.ids.length < limit) ? null : next,
+  };
 }
 
 // ── Download URL + blob fetch ───────────────────────────────────────────────
