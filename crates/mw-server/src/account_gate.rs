@@ -386,7 +386,7 @@ async fn applicable(
 /// of a login name.
 async fn gate_for(store: &Store, ids: &[&str], names: &[&str]) -> Result<AccountGate, StoreError> {
     let mut gate = AccountGate::default();
-    let subject = mw_store::settings_policy::SettingSubject { domain: "", account_id: "", address: "" };
+    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None, domain: "", account_id: "", address: "" };
     let listed = crate::settings_registry::effective_for(store, "signin.domainMode", &subject).await?
         .is_some_and(|value| value.value == "listed");
     for name in names {

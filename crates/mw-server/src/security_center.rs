@@ -33,7 +33,7 @@ pub(crate) async fn policy(
     address: &str,
 ) -> Result<Policy, Response> {
     let domain = address.rsplit_once('@').map_or("", |(_, d)| d);
-    let subject = mw_store::settings_policy::SettingSubject {
+    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
         domain,
         account_id: account,
         address,

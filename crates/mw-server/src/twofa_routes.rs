@@ -405,7 +405,7 @@ async fn policy_requires(
     {
         return Ok(true);
     }
-    let subject = mw_store::settings_policy::SettingSubject {
+    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
         domain: username.rsplit_once('@').map_or("", |(_, d)| d),
         account_id,
         address: username,

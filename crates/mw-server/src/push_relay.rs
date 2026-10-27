@@ -861,7 +861,7 @@ async fn send_guarded<'a>(
 /// absent/unparseable → never quiet (the default). One indexed settings read per
 /// change — cheap enough to honor per the plan's "if cheap".
 async fn quiet_now(store: &Store) -> bool {
-    let subject = mw_store::settings_policy::SettingSubject {
+    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
         account_id: "",
         address: "",
         domain: "",

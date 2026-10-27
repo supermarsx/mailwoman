@@ -53,7 +53,7 @@ impl ManagedTransport {
             .canonical_policy_address(&address)
             .await
             .map_err(|_| refused("account identity unavailable"))?;
-        let subject = mw_store::settings_policy::SettingSubject {
+        let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
             account_id: &self.account,
             address: &canonical,
             domain: canonical.rsplit_once('@').map(|(_, d)| d).unwrap_or(""),

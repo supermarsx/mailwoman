@@ -23,7 +23,7 @@ pub(crate) async fn context(
         .map_err(|_| upstream("could not resolve Sieve account identity"))?;
     let username = &account.username;
     let domain = crate::upstream_resolve::domain_of(username).unwrap_or_default();
-    let subject = mw_store::settings_policy::SettingSubject {
+    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
         domain: &domain,
         account_id: &session.account_id,
         address: username,
@@ -228,7 +228,7 @@ pub(crate) async fn upload_limit(
         .await
         .map_err(|_| upstream("could not resolve Sieve account"))?;
     let domain = crate::upstream_resolve::domain_of(&account.username).unwrap_or_default();
-    let subject = mw_store::settings_policy::SettingSubject {
+    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
         domain: &domain,
         account_id: &session.account_id,
         address: &account.username,

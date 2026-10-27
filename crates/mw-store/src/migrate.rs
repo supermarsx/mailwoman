@@ -402,6 +402,12 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "personal_setting_value",
+        select: "SELECT owner_subject,key,value,updated_at FROM personal_setting_value",
+        insert: "INSERT INTO personal_setting_value(owner_subject,key,value,updated_at) VALUES(?1,?2,?3,?4)",
+        map: |r| vec![t(r,"owner_subject"),t(r,"key"),t(r,"value"),i(r,"updated_at")],
+    },
+    TableSpec {
         name: "personal_signature",
         // User-authored content. The `identities.signature_*` columns beside it were
         // always copied, so leaving these behind lost half of one feature.

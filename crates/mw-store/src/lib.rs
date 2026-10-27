@@ -24,6 +24,8 @@ pub use hosting_connections::{HostingConnectionRow, HostingCredentialChange, Hos
 pub use auth_logs::{AuthLogEvent, AuthLogLimits, AuthLogQuery, AuthSurface};
 pub mod groups;
 pub mod feature_profiles;
+pub mod feature_governance;
+pub mod personal_settings;
 pub mod diagnostics;
 pub mod diag;
 pub mod audit_identity;

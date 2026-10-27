@@ -1887,10 +1887,10 @@ pub fn resolve_loaded(
     values: &[SettingValueRow],
     lookup_env: &dyn Fn(&str) -> Option<String>,
 ) -> Effective {
-    let user_id = match def.scope_id {
+    let user_id = subject.personal_owner.unwrap_or(match def.scope_id {
         ScopeId::Account => subject.account_id,
         ScopeId::Address => subject.address,
-    };
+    });
     let mine: Vec<&SettingValueRow> = values
         .iter()
         .filter(|v| v.key == key && def.scopes.allows(v.scope))
@@ -2479,7 +2479,7 @@ mod tests {
 
     #[test]
     fn admin_only_keys_ignore_user_rows_and_limits_use_the_address() {
-        let subject = SettingSubject {
+        let subject = SettingSubject { personal_owner: None,
             domain: "example.org",
             account_id: "acct-1",
             address: "alice@example.org",
@@ -2693,7 +2693,7 @@ mod tests {
         s.put_domain_alias("alias.test", "canonical.test")
             .await
             .unwrap();
-        let subject = SettingSubject {
+        let subject = SettingSubject { personal_owner: None,
             domain: "alias.test",
             account_id: "unchanged-account",
             address: "USER@alias.test",

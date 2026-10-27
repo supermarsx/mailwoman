@@ -18,7 +18,7 @@ pub(crate) async fn public_config(
         Ok(identity) => identity,
         Err(_) => return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
-    let subject = mw_store::settings_policy::SettingSubject {
+    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
         domain: &identity.domain,
         address: "",
         account_id: "",

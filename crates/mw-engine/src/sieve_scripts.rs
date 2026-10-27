@@ -14,7 +14,7 @@ impl Engine {
         use mw_store::settings_policy::{ResolveInput, SettingScope, SettingSubject, resolve};
         let identity = self.store().get_account(account).await?.username;
         let domain = identity.rsplit_once('@').map_or("", |(_, d)| d);
-        let subject = SettingSubject {
+        let subject = SettingSubject { personal_owner: None,
             domain,
             account_id: account,
             address: &identity,

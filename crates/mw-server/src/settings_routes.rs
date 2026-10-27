@@ -983,6 +983,7 @@ async fn delete_user(
 /// The resolution subject of a signed-in user: the domain and canonical address
 /// from the session's sign-in name, and the account id.
 pub(crate) struct UserSubject {
+    pub proxy_policy_owner: Option<String>,
     pub personal_owner: Option<String>,
     pub record_owner: Option<String>,
     pub domain: String,
@@ -991,13 +992,14 @@ pub(crate) struct UserSubject {
 }
 
 impl UserSubject {
-    pub(crate) fn of(session: &mw_store::Session) -> Self {
+    fn of(session: &mw_store::Session) -> Self {
         let name = session.username.trim().to_ascii_lowercase();
         let (address, domain) = match name.rsplit_once('@') {
             Some((_, d)) if !d.is_empty() => (name.clone(), d.to_string()),
             _ => (String::new(), String::new()),
         };
         UserSubject {
+            proxy_policy_owner: None,
             personal_owner: None,
             record_owner: None,
             domain,
@@ -1010,9 +1012,19 @@ impl UserSubject {
         store: &mw_store::Store,
         session: &mw_store::Session,
     ) -> Result<Self, mw_store::StoreError> {
+        let policy = store
+            .session_policy_subject(&session.id)
+            .await?
+            .ok_or_else(|| {
+                mw_store::StoreError::Corrupt("verified policy subject unavailable".into())
+            })?;
         let raw = Self::of(session);
         let canonical = store.canonical_setting_subject(&raw.as_subject()).await?;
         Ok(Self {
+            proxy_policy_owner: policy
+                .native_account
+                .is_none()
+                .then_some(policy.personal_subject),
             personal_owner: store.session_storage_authority(&session.id).await?,
             record_owner: store.session_personal_subject(&session.id).await?,
             domain: canonical.domain,
@@ -1023,6 +1035,7 @@ impl UserSubject {
 
     pub(crate) fn as_subject(&self) -> SettingSubject<'_> {
         SettingSubject {
+            personal_owner: self.proxy_policy_owner.as_deref(),
             domain: &self.domain,
             account_id: &self.account_id,
             address: &self.address,
@@ -1074,9 +1087,15 @@ async fn user_entry(
     subject: &UserSubject,
     key: &str,
 ) -> Result<Effective, Response> {
-    let extra = user_layer_rows(state, &subject.account_id, subject.personal_owner.as_deref(), subject.record_owner.as_deref())
-        .await
-        .map_err(server_error)?;
+    let extra = user_layer_rows(
+        state,
+        &subject.account_id,
+        subject.personal_owner.as_deref(),
+        subject.record_owner.as_deref(),
+        subject.proxy_policy_owner.as_deref(),
+    )
+    .await
+    .map_err(server_error)?;
     match registry::effective_for_with(&state.store, key, &subject.as_subject(), &extra).await {
         Ok(Some(e)) => Ok(e),
         Ok(None) => Err(user_error(
@@ -1137,6 +1156,7 @@ pub(crate) async fn user_layer_rows(
     account_id: &str,
     personal_owner: Option<&str>,
     record_owner: Option<&str>,
+    proxy_policy_owner: Option<&str>,
 ) -> Result<Vec<SettingValueRow>, mw_store::StoreError> {
     let mut rows = Vec::new();
     if account_id.is_empty() {
@@ -1144,12 +1164,15 @@ pub(crate) async fn user_layer_rows(
     }
     if let Some(owner) = personal_owner
         && let Some(prefs) = state
-        .store
-        .get_setting(&crate::prefs_routes::personal_storage::key("appearance", owner))
-        .await?
-        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-        .and_then(|env| env.get("prefs").cloned())
-        .filter(Value::is_object)
+            .store
+            .get_setting(&crate::prefs_routes::personal_storage::key(
+                "appearance",
+                owner,
+            ))
+            .await?
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .and_then(|env| env.get("prefs").cloned())
+            .filter(Value::is_object)
     {
         let chosen = prefs.get("chosen").and_then(Value::as_bool) != Some(false);
         if chosen && let Some(theme) = prefs.get("theme").and_then(Value::as_str) {
@@ -1167,21 +1190,28 @@ pub(crate) async fn user_layer_rows(
             rows.push(user_row(account_id, "appearance.font", json!(font)));
         }
     }
-    if let Some(policy) = state
-        .store
-        .get_setting(&mw_engine::Engine::mdn_policy_key(account_id))
-        .await?
-        .filter(|p| mw_engine::Engine::MDN_POLICIES.contains(&p.as_str()))
+    if proxy_policy_owner.is_none()
+        && let Some(policy) = state
+            .store
+            .get_setting(&mw_engine::Engine::mdn_policy_key(account_id))
+            .await?
+            .filter(|p| mw_engine::Engine::MDN_POLICIES.contains(&p.as_str()))
     {
         rows.push(user_row(account_id, "mail.readReceipts", json!(policy)));
     }
     if let Some(owner) = record_owner
-        && let Some(n) = state.store.get_personal_notification_rules(owner).await? {
+        && let Some(n) = state.store.get_personal_notification_rules(owner).await?
+    {
         rows.push(user_row(
             account_id,
             "notifications.enabled",
             json!(n.enabled),
         ));
+    }
+    if let Some(owner) = proxy_policy_owner {
+        for row in &mut rows {
+            row.scope_id = owner.to_string();
+        }
     }
     Ok(rows)
 }
@@ -1194,7 +1224,14 @@ pub(crate) async fn effective_for_session(
     key: &str,
 ) -> Result<Option<Effective>, mw_store::StoreError> {
     let subject = UserSubject::resolved(&state.store, session).await?;
-    let extra = user_layer_rows(state, &subject.account_id, subject.personal_owner.as_deref(), subject.record_owner.as_deref()).await?;
+    let extra = user_layer_rows(
+        state,
+        &subject.account_id,
+        subject.personal_owner.as_deref(),
+        subject.record_owner.as_deref(),
+        subject.proxy_policy_owner.as_deref(),
+    )
+    .await?;
     registry::effective_for_with(&state.store, key, &subject.as_subject(), &extra).await
 }
 
@@ -1207,7 +1244,15 @@ async fn user_list(State(state): State<AppState>, headers: HeaderMap) -> Respons
         Ok(s) => s,
         Err(e) => return server_error(e),
     };
-    let extra = match user_layer_rows(&state, &subject.account_id, subject.personal_owner.as_deref(), subject.record_owner.as_deref()).await {
+    let extra = match user_layer_rows(
+        &state,
+        &subject.account_id,
+        subject.personal_owner.as_deref(),
+        subject.record_owner.as_deref(),
+        subject.proxy_policy_owner.as_deref(),
+    )
+    .await
+    {
         Ok(rows) => rows,
         Err(e) => return server_error(e),
     };
@@ -1245,6 +1290,8 @@ async fn user_put(
         Ok(s) => s,
         Err(r) => return r,
     };
+    if let Err(response)=crate::prefs_routes::personal_storage::owner(&state,&session,&headers,true).await {return response;}
+
     let def = match user_def(&key) {
         Ok(d) => d,
         Err(r) => return r,
@@ -1295,7 +1342,15 @@ async fn user_put(
         updated_by: subject.account_id.clone(),
         updated_at: now(),
     };
-    if let Err(e) = state.store.put_setting_value(&row).await {
+    let saved = if let Some(owner) = &subject.proxy_policy_owner {
+        state
+            .store
+            .put_personal_setting(owner, &key, &row.value)
+            .await
+    } else {
+        state.store.put_setting_value(&row).await
+    };
+    if let Err(e) = saved {
         return server_error(e);
     }
     match user_entry(&state, &subject, &key).await {
@@ -1313,6 +1368,8 @@ async fn user_delete(
         Ok(s) => s,
         Err(r) => return r,
     };
+    if let Err(response)=crate::prefs_routes::personal_storage::owner(&state,&session,&headers,true).await {return response;}
+
     if let Err(r) = user_def(&key).and_then(|_| refuse_elsewhere(&key)) {
         return r;
     }
@@ -1320,11 +1377,16 @@ async fn user_delete(
         Ok(s) => s,
         Err(e) => return server_error(e),
     };
-    if let Err(e) = state
-        .store
-        .delete_setting_value(SettingScope::User, &subject.account_id, &key)
-        .await
-    {
+    let deleted = if let Some(owner) = &subject.proxy_policy_owner {
+        state.store.delete_personal_setting(owner, &key).await
+    } else {
+        state
+            .store
+            .delete_setting_value(SettingScope::User, &subject.account_id, &key)
+            .await
+            .map(|_| ())
+    };
+    if let Err(e) = deleted {
         return server_error(e);
     }
     match user_entry(&state, &subject, &key).await {

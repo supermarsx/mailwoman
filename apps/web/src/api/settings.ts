@@ -23,6 +23,7 @@
 import { createSignal } from 'solid-js';
 import { withBase } from './basePath.ts';
 import { apiFetch } from './http.ts';
+import { preferenceAccount, preferenceAccountIsCurrent } from './accountPreferenceLifecycle.ts';
 
 /** Where an effective value came from (`SettingSource::as_str` on the server). */
 export type SettingSource =
@@ -116,6 +117,11 @@ async function failure(res: Response): Promise<SettingsApiError> {
 const url = (key?: string): string =>
   withBase(key === undefined ? '/api/settings' : `/api/settings/${encodeURIComponent(key)}`);
 
+function mutationHeaders(): Record<string, string> {
+  const authority = preferenceAccount()?.storageAuthority;
+  return authority ? {'x-mailwoman-storage-authority': authority} : {};
+}
+
 /** `GET /api/settings`. */
 export async function fetchSettings(fetcher: Fetcher = defaultFetcher): Promise<SettingsMap> {
   const res = await fetcher(url());
@@ -147,7 +153,7 @@ export async function putSetting(
   return entryOrThrow(
     await fetcher(url(key), {
       method: 'PUT',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...mutationHeaders(), 'content-type': 'application/json' },
       body: JSON.stringify({ value }),
     }),
   );
@@ -155,7 +161,7 @@ export async function putSetting(
 
 /** `DELETE /api/settings/<key>`: back to what the administrator or the default says. */
 export async function deleteSetting(key: string, fetcher: Fetcher = defaultFetcher): Promise<SettingEntry> {
-  return entryOrThrow(await fetcher(url(key), { method: 'DELETE' }));
+  return entryOrThrow(await fetcher(url(key), { method: 'DELETE', headers: mutationHeaders() }));
 }
 
 // ── shared state ─────────────────────────────────────────────────────────────
@@ -233,19 +239,21 @@ function store(key: string, entry: SettingEntry): void {
  */
 function mutateSetting(key: string, operation: (fetcher: Fetcher) => Promise<SettingEntry>): Promise<SettingEntry> {
   const current = generation;
+  const owner = preferenceAccount();
+  const currentOwner = (): boolean => current === generation && (owner ? preferenceAccountIsCurrent(owner) : preferenceAccount() === null);
   const fetcher = activeFetcher;
   const revision = (revisions.get(key) ?? 0) + 1;
   revisions.set(key, revision);
   const previous = mutations.get(key);
   const execute = async (): Promise<SettingEntry> => {
     // A queued request must never run with another account's session cookie.
-    if (current !== generation) throw new SettingsApiError(401, 'account_changed', null);
+    if (!currentOwner()) throw new SettingsApiError(401, 'account_changed', null);
     try {
       const entry = await operation(fetcher);
-      if (current === generation && revisions.get(key) === revision) store(key, entry);
+      if (currentOwner() && revisions.get(key) === revision) store(key, entry);
       return entry;
     } catch (e) {
-      if (current === generation && revisions.get(key) === revision && e instanceof SettingsApiError && e.code === 'setting_locked') {
+      if (currentOwner() && revisions.get(key) === revision && e instanceof SettingsApiError && e.code === 'setting_locked') {
         mutations.delete(key);
         void loadSettings({ refresh: true });
       }

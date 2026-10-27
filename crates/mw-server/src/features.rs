@@ -14,6 +14,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
+use mw_store::feature_governance::{FeatureMutation, FeatureSnapshot, FeatureWriteError};
 use mw_store::feature_profiles::{FeatureProfile, ProfileAssignment, ProfileValue};
 use mw_store::groups::UserGroup;
 use serde::{Deserialize, Serialize};
@@ -45,29 +46,14 @@ pub(crate) async fn plugin_policy_admit(
     } else {
         match store.get_account(account).await {
             Ok(row) => row.username,
-            Err(mw_store::StoreError::NotFound) => {
-                let rows = store
-                    .session_names_by_account(account)
-                    .await
-                    .map_err(|_| "plugin identity unavailable")?;
-                let mut names = std::collections::BTreeSet::new();
-                for row in rows {
-                    names.insert(
-                        store
-                            .canonical_policy_address(&row.username)
-                            .await
-                            .map_err(|_| "plugin identity invalid")?,
-                    );
-                }
-                if names.len() != 1 {
-                    return Err("plugin identity missing or ambiguous".into());
-                }
-                names.into_iter().next().unwrap()
-            }
+            // Account-scoped plugin hosts are native account capabilities. A raw
+            // upstream account ID or a guessed session name cannot establish one.
+            Err(mw_store::StoreError::NotFound) => return Err("native plugin identity unavailable".into()),
             Err(_) => return Err("plugin identity unavailable".into()),
         }
     };
     let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
         account_id: account,
         domain: username.rsplit_once('@').map(|(_, d)| d).unwrap_or(""),
         address: &username,
@@ -311,7 +297,15 @@ async fn admin_features(
             value
         })
         .collect();
-    Ok(Json(json!({"catalogue":catalogue,"integrationPolicyKeys":plugin_keys,"profiles":state.store.feature_profiles().await?,"groups":state.store.user_groups().await?,"assignments":state.store.feature_profile_assignments().await?})).into_response())
+    let snapshot = state.store.feature_governance_snapshot().await?;
+    let mut value = serde_json::to_value(&snapshot)
+        .map_err(|_| AdminApiError::internal("invalid feature catalogue"))?;
+    if !ctx.has_unscoped(Capability::SettingsUserValues) {
+        value["nativeTargets"] = json!([]);
+    }
+    value["catalogue"] = json!(catalogue);
+    value["integrationPolicyKeys"] = json!(plugin_keys);
+    Ok(catalogue_response(&snapshot.revision, value))
 }
 
 #[derive(Deserialize)]
@@ -323,10 +317,12 @@ struct ProfileInput {
 async fn put_profile(
     State(state): State<AppState>,
     ctx: AdminCtx,
+    headers: HeaderMap,
     Path(id): Path<String>,
     AdminJson(mut input): AdminJson<ProfileInput>,
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::SettingsWrite)?;
+    let expected = expected_revision(&headers)?;
     if input.name.trim().is_empty() || input.name.len() > 128 || input.values.len() > 256 {
         return Err(AdminApiError::invalid(
             "invalidProfile",
@@ -357,31 +353,43 @@ async fn put_profile(
         value.value = registry::validate(def, &value.value, &format!("/values/{key}/value"))
             .map_err(refusal)?;
     }
-    state
+    let changed = state
         .store
-        .put_feature_profile(
-            &FeatureProfile {
+        .mutate_feature_governance(
+            &expected,
+            FeatureMutation::PutProfile(FeatureProfile {
                 id: id.clone(),
                 name: input.name,
                 values: input.values,
                 builtin: false,
                 updated_at: chrono::Utc::now().timestamp(),
-            },
+            }),
             &ctx.username,
         )
-        .await?;
+        .await
+        .map_err(feature_error)?;
     audit(&state, &ctx, "profile-changed", &id).await;
-    Ok(Json(json!({"ok":true})).into_response())
+    Ok(write_response(changed))
 }
 async fn delete_profile(
     State(state): State<AppState>,
     ctx: AdminCtx,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::SettingsWrite)?;
-    state.store.delete_feature_profile(&id).await?;
+    let expected = expected_revision(&headers)?;
+    let changed = state
+        .store
+        .mutate_feature_governance(
+            &expected,
+            FeatureMutation::DeleteProfile(id.clone()),
+            &ctx.username,
+        )
+        .await
+        .map_err(feature_error)?;
     audit(&state, &ctx, "profile-deleted", &id).await;
-    Ok(Json(json!({"ok":true})).into_response())
+    Ok(write_response(changed))
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -393,10 +401,12 @@ struct GroupInput {
 async fn put_group(
     State(state): State<AppState>,
     ctx: AdminCtx,
+    headers: HeaderMap,
     Path(id): Path<String>,
     AdminJson(input): AdminJson<GroupInput>,
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::SettingsWrite)?;
+    let expected = expected_revision(&headers)?;
     if input.name.trim().is_empty() || input.name.len() > 128 {
         return Err(AdminApiError::invalid(
             "invalidGroup",
@@ -416,29 +426,44 @@ async fn put_group(
             "directory group cannot be edited manually",
         ));
     }
-    state
+    let changed = state
         .store
-        .put_user_group(&UserGroup {
-            id: id.clone(),
-            name: input.name,
-            domain: input.domain,
-            source: "manual".into(),
-            ldap_dn: None,
-            created_at: chrono::Utc::now().timestamp(),
-        })
-        .await?;
+        .mutate_feature_governance(
+            &expected,
+            FeatureMutation::PutGroup(UserGroup {
+                id: id.clone(),
+                name: input.name,
+                domain: input.domain,
+                source: "manual".into(),
+                ldap_dn: None,
+                created_at: chrono::Utc::now().timestamp(),
+            }),
+            &ctx.username,
+        )
+        .await
+        .map_err(feature_error)?;
     audit(&state, &ctx, "group-changed", &id).await;
-    Ok(Json(json!({"ok":true})).into_response())
+    Ok(write_response(changed))
 }
 async fn delete_group(
     State(state): State<AppState>,
     ctx: AdminCtx,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::SettingsWrite)?;
-    state.store.delete_user_group(&id).await?;
+    let expected = expected_revision(&headers)?;
+    let changed = state
+        .store
+        .mutate_feature_governance(
+            &expected,
+            FeatureMutation::DeleteGroup(id.clone()),
+            &ctx.username,
+        )
+        .await
+        .map_err(feature_error)?;
     audit(&state, &ctx, "group-deleted", &id).await;
-    Ok(Json(json!({"ok":true})).into_response())
+    Ok(write_response(changed))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -451,18 +476,25 @@ async fn get_members(
     Path(id): Path<String>,
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::SettingsRead)?;
-    if !state.store.user_groups().await?.iter().any(|g| g.id == id) {
-        return Err(AdminApiError::not_found("unknown group"));
-    }
-    Ok(Json(json!({"members":state.store.user_group_members(&id).await?})).into_response())
+    let snapshot = state.store.feature_governance_snapshot().await?;
+    let members = snapshot
+        .memberships
+        .get(&id)
+        .ok_or_else(|| AdminApiError::not_found("unknown group"))?;
+    Ok(catalogue_response(
+        &snapshot.revision,
+        json!({"members":members,"revision":snapshot.revision}),
+    ))
 }
 async fn put_members(
     State(state): State<AppState>,
     ctx: AdminCtx,
+    headers: HeaderMap,
     Path(id): Path<String>,
     AdminJson(input): AdminJson<MembersInput>,
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::SettingsUserValues)?;
+    let expected = expected_revision(&headers)?;
     let group = state
         .store
         .user_groups()
@@ -488,79 +520,113 @@ async fn put_members(
             "/members",
         ));
     }
-    state
+    let changed = state
         .store
-        .replace_user_group_members(&id, &input.members)
-        .await?;
+        .mutate_feature_governance(
+            &expected,
+            FeatureMutation::Members {
+                group: id.clone(),
+                members: input.members,
+            },
+            &ctx.username,
+        )
+        .await
+        .map_err(feature_error)?;
     audit(&state, &ctx, "group-members-changed", &id).await;
-    Ok(Json(json!({"ok":true})).into_response())
+    Ok(write_response(changed))
 }
 async fn put_assignment(
     State(state): State<AppState>,
     ctx: AdminCtx,
+    headers: HeaderMap,
     AdminJson(input): AdminJson<ProfileAssignment>,
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::SettingsUserValues)?;
-    validate_assignment(&state, &input).await?;
-    state.store.put_feature_profile_assignment(&input).await?;
+    let expected = expected_revision(&headers)?;
+    let changed = state
+        .store
+        .mutate_feature_governance(
+            &expected,
+            FeatureMutation::PutAssignment(input.clone()),
+            &ctx.username,
+        )
+        .await
+        .map_err(feature_error)?;
     audit(&state, &ctx, "profile-assigned", &input.profile_id).await;
-    Ok(Json(json!({"ok":true})).into_response())
+    Ok(write_response(changed))
 }
 async fn delete_assignment(
     State(state): State<AppState>,
     ctx: AdminCtx,
+    headers: HeaderMap,
     AdminJson(input): AdminJson<ProfileAssignment>,
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::SettingsUserValues)?;
-    validate_assignment(&state, &input).await?;
-    state
+    let expected = expected_revision(&headers)?;
+    let changed = state
         .store
-        .delete_feature_profile_assignment(&input)
-        .await?;
+        .mutate_feature_governance(
+            &expected,
+            FeatureMutation::DeleteAssignment(input.clone()),
+            &ctx.username,
+        )
+        .await
+        .map_err(feature_error)?;
     audit(&state, &ctx, "profile-unassigned", &input.profile_id).await;
-    Ok(Json(json!({"ok":true})).into_response())
+    Ok(write_response(changed))
 }
 
-async fn validate_assignment(
-    state: &AppState,
-    input: &ProfileAssignment,
-) -> Result<(), AdminApiError> {
-    if !matches!(input.scope_kind.as_str(), "domain" | "group" | "user")
-        || input.scope_id.is_empty()
-        || input.scope_id.len() > 256
+fn expected_revision(headers: &HeaderMap) -> Result<String, AdminApiError> {
+    let value = headers.get(axum::http::header::IF_MATCH).ok_or_else(|| {
+        AdminApiError::new(
+            axum::http::StatusCode::PRECONDITION_REQUIRED,
+            "preconditionRequired",
+            "reload the feature catalogue before saving",
+        )
+    })?;
+    let value = value.to_str().unwrap_or("");
+    if headers.get_all(axum::http::header::IF_MATCH).iter().count() != 1
+        || value.len() != 70
+        || !value.starts_with("\"fg1_")
+        || !value.ends_with('"')
+        || !value[5..69].bytes().all(|b| b.is_ascii_hexdigit())
     {
-        return Err(AdminApiError::invalid(
-            "invalidAssignment",
-            "invalid assignment scope",
-            "/scopeKind",
+        return Err(AdminApiError::new(
+            axum::http::StatusCode::PRECONDITION_FAILED,
+            "preconditionFailed",
+            "the catalogue revision must match exactly",
         ));
     }
-    if !state
-        .store
-        .feature_profiles()
-        .await?
-        .iter()
-        .any(|p| p.id == input.profile_id)
-    {
-        return Err(AdminApiError::not_found("unknown profile"));
-    }
-    if input.scope_kind == "group"
-        && !state
-            .store
-            .user_groups()
-            .await?
-            .iter()
-            .any(|g| g.id == input.scope_id)
-    {
-        return Err(AdminApiError::not_found("unknown group"));
-    }
-    if input.scope_kind == "domain" {
-        let domain = state.store.canonical_policy_domain(&input.scope_id).await?;
-        if state.store.get_domain_config(&domain).await?.is_none() {
-            return Err(AdminApiError::not_found("unknown domain"));
+    Ok(value[1..value.len() - 1].to_string())
+}
+fn feature_error(error: FeatureWriteError) -> AdminApiError {
+    match error {
+        FeatureWriteError::Store(error) => error.into(),
+        FeatureWriteError::Stale => AdminApiError::new(
+            axum::http::StatusCode::PRECONDITION_FAILED,
+            "preconditionFailed",
+            "the feature catalogue changed; reload before saving",
+        ),
+        FeatureWriteError::Invalid(code) => {
+            AdminApiError::invalid(code, "invalid feature governance change", "/")
         }
     }
-    Ok(())
+}
+fn catalogue_response(revision: &str, value: Value) -> Response {
+    (
+        [
+            (axum::http::header::ETAG, format!("\"{revision}\"")),
+            (axum::http::header::CACHE_CONTROL, "no-store".into()),
+        ],
+        Json(value),
+    )
+        .into_response()
+}
+fn write_response(snapshot: FeatureSnapshot) -> Response {
+    catalogue_response(
+        &snapshot.revision,
+        json!({"ok":true,"revision":snapshot.revision}),
+    )
 }
 async fn audit(state: &AppState, ctx: &AdminCtx, action: &str, id: &str) {
     let entry = mw_admin::AuditLogEntry {

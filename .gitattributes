@@ -58,3 +58,7 @@ crates/mw-store/migrations_pg/0068_linked_accounts.sql -text
 # Default-signature repair migrations are immutable LF.
 crates/mw-store/migrations/0069_signature_default.sql -text
 crates/mw-store/migrations_pg/0069_signature_default.sql -text
+
+# Typed proxy personal settings are immutable LF.
+crates/mw-store/migrations/0070_personal_settings.sql -text
+crates/mw-store/migrations_pg/0070_personal_settings.sql -text

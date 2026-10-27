@@ -1092,7 +1092,7 @@ async fn deployment_default(
     state: &AppState,
     session: &mw_store::Session,
 ) -> Result<DeploymentAppearanceDto, StoreError> {
-    let subject = crate::settings_routes::UserSubject::of(session);
+    let subject = crate::settings_routes::UserSubject::resolved(&state.store, session).await?;
     let value = |e: Option<crate::settings_registry::Effective>| {
         e.and_then(|e| e.value.as_str().map(str::to_string))
     };

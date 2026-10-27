@@ -345,7 +345,7 @@ impl Engine {
             .held_setting(
                 key,
                 floor,
-                &mw_store::settings_policy::SettingSubject {
+                &mw_store::settings_policy::SettingSubject { personal_owner: None,
                     domain: &domain,
                     account_id,
                     address: &address,

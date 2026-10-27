@@ -1,7 +1,8 @@
 // The settings model C client (worker f01): wire parsing, the shared map, and
 // how refusals reach the UI (codes, never server English).
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import {activateAccountPreferences,suspendAccountPreferences} from './accountPreferenceLifecycle.ts';
 import {
   clearSettings,
   deleteSetting,
@@ -26,6 +27,30 @@ const FREE = { value: 'cozy', source: 'default', locked: false };
 
 describe('api/settings', () => {
   beforeEach(() => clearSettings());
+  afterEach(() => suspendAccountPreferences());
+
+  it('binds settings saves and resets to the verified storage authority', async () => {
+    activateAccountPreferences('account','msa1_settings_authority_one');
+    const fetcher=vi.fn<Fetcher>(async()=>json(200,FREE));
+    await putSetting('density','compact',fetcher);
+    await deleteSetting('density',fetcher);
+    for(const [,init] of fetcher.mock.calls) expect(new Headers(init?.headers).get('x-mailwoman-storage-authority')).toBe('msa1_settings_authority_one');
+  });
+
+  it('refuses queued writes after same-ID authority replacement even before map cleanup', async () => {
+    activateAccountPreferences('account','msa1_settings_authority_one');
+    let finish!:(response:Response)=>void;
+    const fetcher=vi.fn<Fetcher>(async (_url,init)=>init?.method
+      ? new Promise<Response>(resolve=>{finish=resolve;}) : json(200,{settings:{}}));
+    await loadSettings({fetcher});
+    const first=writeSetting('density','compact');
+    const queued=resetSetting('density');
+    const rejected=expect(queued).rejects.toMatchObject({code:'account_changed'});
+    activateAccountPreferences('account','msa1_settings_authority_two');
+    finish(json(200,FREE));await first;await rejected;
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(settings()).toEqual({});
+  });
 
   it('serializes rapid same-key edits and does not flash intermediate acknowledgements', async () => {
     const replies: Array<(response: Response) => void> = [];

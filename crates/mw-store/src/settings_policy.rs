@@ -234,6 +234,7 @@ impl Store {
         let address = self.canonical_policy_address(subject.address).await?;
         let domain = self.canonical_policy_domain(subject.domain).await?;
         Ok(CanonicalSettingSubject {
+            personal_owner: subject.personal_owner.map(str::to_owned),
             domain,
             account_id: subject.account_id.to_owned(),
             address,
@@ -511,7 +512,14 @@ impl Store {
         let canonical = self.canonical_setting_subject(subject).await?;
         let subject = &canonical.as_subject();
         let (profiles, groups) = self
-            .setting_profile_and_group_ids(subject.account_id, subject.domain)
+            .setting_profile_and_group_ids(
+                if subject.personal_owner.is_some() {
+                    ""
+                } else {
+                    subject.account_id
+                },
+                subject.domain,
+            )
             .await?;
         let rows = q(
             "SELECT scope_kind, scope_id, key, value, locked, updated_by, updated_at
@@ -521,14 +529,25 @@ impl Store {
                              AND ((scope_id = ?2 AND ?2 <> '') OR (scope_id = ?3 AND ?3 <> '')))",
         )
         .bind(subject.domain)
-        .bind(subject.account_id)
-        .bind(subject.address)
+        .bind(if subject.personal_owner.is_some() {
+            ""
+        } else {
+            subject.account_id
+        })
+        .bind(if subject.personal_owner.is_some() {
+            ""
+        } else {
+            subject.address
+        })
         .fetch_all(&self.backend)
         .await?;
         let mut out = rows
             .iter()
             .map(value_from_row)
             .collect::<Result<Vec<_>, _>>()?;
+        if let Some(owner) = subject.personal_owner {
+            out.extend(self.personal_setting_values(owner).await?);
+        }
         for id in &profiles {
             out.extend(self.setting_values_at(SettingScope::Profile, id).await?);
         }
@@ -620,6 +639,9 @@ impl Store {
 /// Who a value is resolved for. Empty strings mean "not known".
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SettingSubject<'a> {
+    /// Verified typed proxy owner. When present, legacy account/address rows and
+    /// raw account group membership are never read. Native callers leave None.
+    pub personal_owner: Option<&'a str>,
     /// The canonical (lower-case) domain.
     pub domain: &'a str,
     /// The account id (`accounts.id`): the per-user scope id of most keys.
@@ -632,6 +654,7 @@ pub struct SettingSubject<'a> {
 /// identifiers are never rewritten in persisted authentication state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalSettingSubject {
+    pub personal_owner: Option<String>,
     pub domain: String,
     pub account_id: String,
     pub address: String,
@@ -640,6 +663,7 @@ pub struct CanonicalSettingSubject {
 impl CanonicalSettingSubject {
     pub fn as_subject(&self) -> SettingSubject<'_> {
         SettingSubject {
+            personal_owner: self.personal_owner.as_deref(),
             domain: &self.domain,
             account_id: &self.account_id,
             address: &self.address,
@@ -1094,6 +1118,7 @@ mod tests {
     async fn held_setting_answers_only_when_the_user_may_not_choose() {
         let s = store().await;
         let subject = SettingSubject {
+            personal_owner: None,
             domain: "example.org",
             account_id: "acct-1",
             address: "alice@example.org",
@@ -1157,6 +1182,7 @@ mod tests {
         }
         let got = s
             .setting_values_for_subject(&SettingSubject {
+                personal_owner: None,
                 domain: "example.org",
                 account_id: "acct-1",
                 address: "alice@example.org",
@@ -1237,6 +1263,7 @@ mod tests {
         .await
         .unwrap();
         let subject = SettingSubject {
+            personal_owner: None,
             domain: "ALIAS.TEST",
             account_id: "Opaque-Account-ID",
             address: "User@Alias.Test",
@@ -1260,6 +1287,7 @@ mod tests {
             vec!["alias.test", "canonical.test"]
         );
         let bare = SettingSubject {
+            personal_owner: None,
             domain: "",
             account_id: "Opaque-Account-ID",
             address: "User",

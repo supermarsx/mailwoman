@@ -59,7 +59,7 @@ impl SelectedEws {
             .canonical_policy_address(&self.login_address)
             .await
             .map_err(|_| "provider identity unavailable")?;
-        let subject = mw_store::settings_policy::SettingSubject {
+        let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
             account_id: account.unwrap_or(""),
             domain: &self.policy_domain,
             address: &policy_address,

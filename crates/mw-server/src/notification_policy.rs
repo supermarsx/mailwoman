@@ -139,7 +139,7 @@ pub(crate) async fn for_subject(
     let extra = row
         .map(|row| SettingValueRow {
             scope: SettingScope::User,
-            scope_id: subject.account_id.into(),
+            scope_id: subject.personal_owner.unwrap_or(subject.account_id).into(),
             key: "notifications.enabled".into(),
             value: row.enabled.to_string(),
             locked: false,
@@ -168,7 +168,7 @@ pub(crate) async fn account_subject(
         Err(StoreError::NotFound) => return Ok(None),
         Err(error) => return Err(error),
     };
-    let subject = SettingSubject {
+    let subject = SettingSubject { personal_owner: None,
         account_id: account,
         address: &username,
         domain: username
@@ -178,6 +178,7 @@ pub(crate) async fn account_subject(
     };
     let canonical = store.canonical_setting_subject(&subject).await?;
     Ok(Some(crate::settings_routes::UserSubject {
+        proxy_policy_owner: None,
         personal_owner: None,
         record_owner: store.native_personal_subject(account).await?,
         account_id: canonical.account_id,
@@ -225,7 +226,7 @@ mod tests {
         let store = Store::open_in_memory(mw_store::ServerKey::generate())
             .await
             .unwrap();
-        let subject = SettingSubject {
+        let subject = SettingSubject { personal_owner: None,
             account_id: "a",
             address: "a@example.org",
             domain: "example.org",

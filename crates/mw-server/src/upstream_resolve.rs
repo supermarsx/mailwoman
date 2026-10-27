@@ -72,7 +72,7 @@ pub(crate) async fn resolve_for(
     let identity = crate::domain_config::canonical(store, username, None)
         .await
         .map_err(|_| ResolveError::NotConfigured)?;
-    let subject = mw_store::settings_policy::SettingSubject {
+    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
         domain: &identity.domain,
         account_id: "",
         address: &identity.address,
