@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { composeSurface } from './helpers.ts';
 import { engineLogin, gotoModule, reloadToShell, uid } from './pim-helpers.ts';
 
 /**
@@ -80,8 +81,9 @@ test.describe('Contacts module through the real UI (engine mode)', () => {
     await createContact(page, name, email);
 
     // Compose loads contacts on open, then ranks the in-progress recipient token.
+    // On the desktop workspace it opens as a tab region, not a dialog (24fb6149).
     await page.getByRole('button', { name: 'Compose' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Compose message' });
+    const dialog = composeSurface(page);
     await expect(dialog).toBeVisible();
     await dialog.getByLabel('To', { exact: true }).fill(`ada${tag}`);
 

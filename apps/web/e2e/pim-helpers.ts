@@ -48,7 +48,7 @@ export async function gotoModule(
 export async function reloadToShell(page: Page): Promise<void> {
   await page.reload();
   const compose = page.getByRole('button', { name: 'Compose' });
-  const signIn = page.getByRole('button', { name: 'Sign in' });
+  const signIn = page.getByRole('button', { name: 'Sign in', exact: true });
   await expect(compose.or(signIn)).toBeVisible();
   if (await signIn.isVisible().catch(() => false)) {
     await engineLogin(page);

@@ -33,7 +33,7 @@ async function slowNetwork(page: Page, ms: number): Promise<void> {
 async function openShell(page: Page): Promise<void> {
   await page.goto('/');
   const compose = page.getByRole('button', { name: 'Compose' });
-  const signIn = page.getByRole('button', { name: 'Sign in' });
+  const signIn = page.getByRole('button', { name: 'Sign in', exact: true });
   await expect(compose.or(signIn)).toBeVisible();
   if (await signIn.isVisible().catch(() => false)) await engineLogin(page);
   await expect(compose).toBeVisible();
