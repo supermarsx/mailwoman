@@ -23,6 +23,7 @@ export function createFolderView(client:Client,mailboxId:string,allowed:()=>bool
    if(!current()||generation!==request)return;
    const query=responseFor<EmailQueryResponse>(response,'q'),result=responseFor<EmailGetResponse>(response,'g');
    if(query.accountId!==owner!.id||result.accountId!==owner!.id||!Array.isArray(query.ids)||!Array.isArray(result.list)||query.ids.length>100)throw new Error('Invalid folder page');
+   if(query.ids.length===0&&next>0&&query.total!==undefined){const last=Math.max(0,Math.floor((query.total-1)/100)*100);if(last<next){await load(last);return;}}
    const byId=new Map(result.list.map(email=>[email.id,email]));
    setMessages(query.ids.flatMap(id=>{const email=byId.get(id);return email?[email]:[];}));
    if(next!==position()){setSelection(new Set<string>());setScroll(0);}
@@ -37,5 +38,7 @@ export function createFolderView(client:Client,mailboxId:string,allowed:()=>bool
   if(extend&&previous){const a=rows.findIndex(row=>row.id===previous),b=rows.findIndex(row=>row.id===id);if(a>=0){setSelection(new Set(rows.slice(Math.min(a,b),Math.max(a,b)+1).map(row=>row.id)));return;}}
   setSelection(old=>{if(!toggle)return new Set<string>([id]);const next=new Set<string>(old);if(next.has(id))next.delete(id);else next.add(id);return next;});
  }
- return {messages,position,total,loading,error,selection,scroll,setScroll,load,select,current};
+ function retainSelection(ids:readonly string[]){setSelection(old=>new Set([...old].filter(id=>ids.includes(id))));}
+ function selectAll(){if(current())setSelection(new Set(messages().map(email=>email.id)));}
+ return {messages,position,total,loading,error,selection,scroll,setScroll,load,select,current,retainSelection,selectAll};
 }

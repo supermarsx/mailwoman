@@ -45,3 +45,14 @@ it('refuses a removed mailbox and preserves unknown totals honestly',async()=>{
   allowed=false;await view.load();expect(view.messages()).toEqual([]);expect(jmap).toHaveBeenCalledOnce();
  }finally{dispose();}});
 });
+it('returns to the last remaining page after deletion without retrying an unchanged empty page',async()=>{
+ activateAccountPreferences('same','msa1_verified_parent');
+ const empty=result('a',100,100);(empty.methodResponses[0]![1] as {ids:string[]}).ids=[];(empty.methodResponses[1]![1] as {list:unknown[]}).list=[];
+ const jmap=vi.fn().mockResolvedValueOnce(empty).mockResolvedValueOnce(result('a',0,100));
+ await createRoot(async dispose=>{try{
+  const view=createFolderView({jmap} as unknown as Client,'a',()=>true);await view.load(100);
+  expect(view.position()).toBe(0);expect(jmap).toHaveBeenCalledTimes(2);
+  (empty.methodResponses[0]![1] as {total:number}).total=200;jmap.mockResolvedValue(empty);await view.load(100);
+  expect(jmap).toHaveBeenCalledTimes(3);expect(view.loading()).toBe(false);
+ }finally{dispose();}});
+});
