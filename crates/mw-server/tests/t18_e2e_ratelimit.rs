@@ -13,7 +13,10 @@
 //! We drive the fetch with a target the SSRF gate refuses (`127.0.0.1`) so no real
 //! upstream is needed: the rate check runs BEFORE the fetch, so each request still
 //! charges a token and returns `403` until the bucket is drained, at which point the
-//! request short-circuits to `429` before the fetch. (A blocked target is never cached,
+//! request short-circuits to `429` before the fetch. Both accounts present a
+//! remote-image grant on a seeded message ([`seed_grant`]), so their requests take the
+//! real fetch path (grant gate passed, rate check, egress gate) rather than the
+//! ungranted refusal, and B's admitted request is identified by the EGRESS body. (A blocked target is never cached,
 //! so every request is a genuine cache MISS that charges — exactly the fetch budget R6
 //! caps.)
 //!
@@ -118,7 +121,7 @@ fn client() -> reqwest::Client {
         .unwrap()
 }
 
-async fn login_cookie(c: &reqwest::Client, base: &str, _mock: &str) {
+async fn login_cookie(c: &reqwest::Client, base: &str, _mock: &str) -> String {
     let body: Value = c
         .post(format!("{base}/api/login"))
         .json(&json!({ "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
@@ -129,40 +132,134 @@ async fn login_cookie(c: &reqwest::Client, base: &str, _mock: &str) {
         .await
         .unwrap();
     assert_eq!(body["ok"], json!(true), "plain login (no 2FA): {body}");
+    body["accountId"]
+        .as_str()
+        .expect("login names the session's accountId")
+        .to_string()
 }
 
-/// Seed a real session for a DISTINCT account (its own rate-limit bucket).
-async fn seed_session(db_path: &str, account_id: &str) -> String {
+/// Seed a real session for a DISTINCT account (its own rate-limit bucket). It names
+/// the server's configured upstream (`upstream`) and the mock's credentials, as a
+/// login would store them: a session whose stored upstream differs from the
+/// configured one is re-validated against it on every request (`refresh_session`),
+/// and made-up credentials are then refused with `401`.
+async fn seed_session(db_path: &str, account_id: &str, upstream: &str) -> String {
     let store = Store::open(db_path, ServerKey::from_hex(KEY_HEX).unwrap())
         .await
         .unwrap();
-    store
+    let cookie = store
         .create_session(
             account_id,
-            "b@example.org",
-            "http://upstream.invalid",
-            "http://upstream.invalid",
+            mw_mock_jmap::USER,
+            upstream,
+            upstream,
             &Credentials {
-                username: "b@example.org".into(),
-                password: "pw".into(),
+                username: mw_mock_jmap::USER.into(),
+                password: mw_mock_jmap::PASS.into(),
             },
         )
         .await
+        .unwrap();
+    // A session carries a verified primary identity since the 0033 identity model;
+    // without one every policy read for it is refused ("privacy policy unavailable").
+    // Bound exactly as a password login binds it (precedent: t19_e2e.rs).
+    store
+        .set_session_authentication(&cookie, "password")
+        .await
+        .expect("session authentication method");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
+        .as_secs() as i64;
+    store
+        .bind_verified_primary(
+            &cookie,
+            mw_store::identity_principal::VerifiedPrimary {
+                account_id,
+                kind: "mailbox",
+                authority: upstream,
+                subject: account_id,
+            },
+            now,
+        )
+        .await
+        .expect("bind the verified identity")
+        .expect("the session takes the verified identity");
+    cookie
 }
 
-/// One `/api/image-proxy` GET for a blocked (SSRF-refused) target, with an explicit
-/// session cookie (so we can drive two distinct accounts).
-async fn proxy_get(c: &reqwest::Client, base: &str, cookie: &str) -> u16 {
-    c.get(format!(
-        "{base}/api/image-proxy?url=http%3A%2F%2F127.0.0.1%2Fx.png"
-    ))
-    .header("Cookie", format!("mw_session={cookie}"))
-    .send()
+/// A message on `account`, covered by an `all` remote-image grant. The `accounts`
+/// row is raw-inserted with the session's account id (`messages` has a foreign key to
+/// it and `create_account` mints a random id; precedent `t22_egress_fetch_no_leak.rs`).
+async fn seed_grant(db: &str, account: &str) -> String {
+    let opts = sqlx::sqlite::SqliteConnectOptions::new().filename(db);
+    let raw = sqlx::SqlitePool::connect_with(opts).await.unwrap();
+    sqlx::query(
+        "INSERT INTO accounts (id, kind, host, port, tls, username, sealed_creds, sync_policy_json)
+         VALUES (?1, 'imap', 'mail.example', 993, 1, ?1, X'00', '{}')",
+    )
+    .bind(account)
+    .execute(&raw)
     .await
-    .unwrap()
-    .status()
-    .as_u16()
+    .expect("seed account row");
+    raw.close().await;
+    let store = Store::open(db, ServerKey::from_hex(KEY_HEX).unwrap())
+        .await
+        .unwrap();
+    let mailbox = store
+        .upsert_mailbox(&mw_store::MailboxUpsert {
+            account_id: account,
+            name: "INBOX",
+            role: Some("inbox"),
+            uidvalidity: 1,
+            uidnext: 2,
+            highestmodseq: 1,
+            total: 1,
+            unread: 0,
+            parent_id: None,
+        })
+        .await
+        .expect("seed mailbox");
+    let id = store
+        .upsert_message(&mw_store::MessageUpsert {
+            account_id: account,
+            mailbox_id: &mailbox,
+            uid: 1,
+            uidvalidity: 1,
+            message_id: Some("<ratelimit-grant@test>"),
+            thread_id: None,
+            internaldate: Some("2026-08-16T12:00:00Z"),
+            size: 42,
+            flags_json: "[]",
+            envelope: None,
+            blob_ref: None,
+        })
+        .await
+        .expect("seed message");
+    store
+        .grant_remote_image(account, "all", "")
+        .await
+        .expect("grant remote images");
+    id
+}
+
+/// The egress gate's refusal body (`image_proxy.rs::refusal_response`, `Blocked`).
+const EGRESS_REFUSAL: &str = "target address is not permitted";
+
+/// One `/api/image-proxy` GET for a blocked (SSRF-refused) target, with an explicit
+/// session cookie (so we can drive two distinct accounts) and that account's granted
+/// message.
+async fn proxy_get(c: &reqwest::Client, base: &str, cookie: &str, email_id: &str) -> (u16, String) {
+    let resp = c
+        .get(format!(
+            "{base}/api/image-proxy?url=http%3A%2F%2F127.0.0.1%2Fx.png&emailId={email_id}"
+        ))
+        .header("Cookie", format!("mw_session={cookie}"))
+        .send()
+        .await
+        .unwrap();
+    let status = resp.status().as_u16();
+    (status, resp.text().await.unwrap())
 }
 
 #[tokio::test]
@@ -175,10 +272,11 @@ async fn image_proxy_rate_limits_per_account_with_429() {
     // Account A: log in through the mock (cookie stored in its jar). Recover the raw
     // cookie value so we can send it explicitly alongside account B.
     let ca = client();
-    login_cookie(&ca, &base, &mock).await;
+    let account_a = login_cookie(&ca, &base, &mock).await;
+    let email_a = seed_grant(&db, &account_a).await;
     let cookie_a = ca
         .get(format!(
-            "{base}/api/image-proxy?url=http%3A%2F%2F127.0.0.1%2Fx.png"
+            "{base}/api/image-proxy?url=http%3A%2F%2F127.0.0.1%2Fx.png&emailId={email_a}"
         ))
         .send()
         .await
@@ -194,7 +292,8 @@ async fn image_proxy_rate_limits_per_account_with_429() {
     let a_cookie = login_raw_cookie(&base, &mock).await;
 
     // Account B: a DISTINCT account with its own bucket.
-    let b_cookie = seed_session(&db, "acct-ratelimit-b").await;
+    let b_cookie = seed_session(&db, "acct-ratelimit-b", &mock).await;
+    let email_b = seed_grant(&db, "acct-ratelimit-b").await;
 
     // Hammer the proxy as account A until it returns 429 (or a generous cap). Count the
     // non-429 responses that preceded the first 429 — that is the admitted burst.
@@ -202,7 +301,7 @@ async fn image_proxy_rate_limits_per_account_with_429() {
     let mut preceding_non_429 = 1usize; // the probe above already spent one token
     let mut got_429_at: Option<usize> = None;
     for i in 2..=200 {
-        let status = proxy_get(&c, &base, &a_cookie).await;
+        let (status, _) = proxy_get(&c, &base, &a_cookie, &email_a).await;
         if status == 429 {
             got_429_at = Some(i);
             break;
@@ -226,13 +325,14 @@ async fn image_proxy_rate_limits_per_account_with_429() {
 
     // Account B (independent bucket) is NOT limited by A's spend: a normal reader under
     // the threshold is fine. Its target is still SSRF-refused → 403, crucially NOT 429.
-    let status_b = proxy_get(&c, &base, &b_cookie).await;
+    let (status_b, body_b) = proxy_get(&c, &base, &b_cookie, &email_b).await;
     assert_ne!(
         status_b, 429,
         "a second account must have its own budget (got {status_b}) — the limit is per-account"
     );
     assert_eq!(
-        status_b, 403,
+        (status_b, body_b.as_str()),
+        (403, EGRESS_REFUSAL),
         "account B's request is admitted (403 from the SSRF gate), proving it was not rate-limited"
     );
     eprintln!("[t18 ratelimit] account B (independent bucket) → {status_b} (not 429)");

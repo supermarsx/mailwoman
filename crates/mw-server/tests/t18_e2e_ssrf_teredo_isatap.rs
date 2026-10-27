@@ -17,16 +17,17 @@
 //!
 //! # Why every assertion here reads the BODY (26.20, t22-e7 P3)
 //! The route now has TWO gates that both answer `403` on the path this suite drives:
-//! the egress/SSRF policy and the remote-image grant gate (`ungranted_response`),
-//! which refuses because this suite's session holds no grant. A bare
-//! `assert_eq!(status, 403)` therefore no longer distinguishes them — **every
-//! smuggling leg below would stay green with the Teredo/ISATAP decode deleted**,
-//! refused by the grant gate instead of by the thing this file exists to test. The two
-//! refusals carry different bodies ([`EGRESS_REFUSAL`] / [`GRANT_REFUSAL`]), so the
-//! body is what makes each leg mean what its name says. The last assertion in the
-//! test checks that the two bodies actually differ *in this run*, because a reword or
-//! a refactor routing both gates through one message would silently degrade every
-//! assertion above back to "this route returns 403".
+//! the egress/SSRF policy and the remote-image grant gate (`ungranted_response`).
+//! A bare `assert_eq!(status, 403)` therefore does not distinguish them — every
+//! smuggling leg below would stay green with the decode deleted, refused by the grant
+//! gate instead of by the thing this file exists to test. And the grant gate runs
+//! FIRST and now refuses without consulting the egress policy at all, so an
+//! ungranted request never reaches the code under test. So the session here holds an
+//! `all` grant on a seeded message ([`seed_grant`]) and the legs pass its id: a
+//! smuggled address must then be refused with [`EGRESS_REFUSAL`], and a public one
+//! must get neither refusal. One ungranted request checks, live, that the two bodies
+//! differ, because a reword or a refactor routing both gates through one message
+//! would silently degrade every assertion back to "this route returns 403".
 //!
 //! Run:
 //!   cargo test -p mw-server --test t18_e2e_ssrf_teredo_isatap -- --nocapture --test-threads=1
@@ -40,6 +41,8 @@ use mw_server::{AppConfig, build_app};
 
 mod common;
 use common::test_db;
+
+const KEY_HEX: &str = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0";
 
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW</div>";
 
@@ -78,14 +81,16 @@ async fn spawn_mock() -> String {
     origin
 }
 
-async fn spawn_server() -> SocketAddr {
+async fn spawn_server() -> (SocketAddr, String) {
     let base = test_db::unique_dir("mw-t18-teredo");
+    let db = base.join("mw.db").to_string_lossy().into_owned();
     let web = base.join("web");
     std::fs::create_dir_all(&web).unwrap();
     std::fs::write(web.join("index.html"), INDEX_HTML).unwrap();
     let config = AppConfig {
-        db_path: base.join("mw.db").to_string_lossy().into_owned(),
-        server_key_hex: None,
+        db_path: db.clone(),
+        // FIXED key so the grant fixture can open the same store (`seed_grant`).
+        server_key_hex: Some(KEY_HEX.to_string()),
         web_dir: Some(web as PathBuf),
         cookie_secure: false,
         mode: mw_server::ServerMode::Proxy,
@@ -102,7 +107,7 @@ async fn spawn_server() -> SocketAddr {
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    addr
+    (addr, db)
 }
 
 fn client() -> reqwest::Client {
@@ -112,7 +117,7 @@ fn client() -> reqwest::Client {
         .unwrap()
 }
 
-async fn login(c: &reqwest::Client, base: &str, _mock: &str) {
+async fn login(c: &reqwest::Client, base: &str, _mock: &str) -> String {
     let body: Value = c
         .post(format!("{base}/api/login"))
         .json(&json!({ "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
@@ -123,6 +128,74 @@ async fn login(c: &reqwest::Client, base: &str, _mock: &str) {
         .await
         .unwrap();
     assert_eq!(body["ok"], json!(true), "plain login (no 2FA): {body}");
+    body["accountId"]
+        .as_str()
+        .expect("login names the session's accountId")
+        .to_string()
+}
+
+/// A message on the session's account, covered by an `all` remote-image grant, so
+/// requests carrying its id pass the grant gate and reach the EGRESS gate.
+///
+/// `ungranted_response` now refuses WITHOUT running the egress policy (no DNS
+/// or network I/O for an ungranted request), so an ungranted request can no longer
+/// tell us anything about the address. The legs below therefore present a grant: the
+/// product order is grant first, then egress, and a granted request is exactly the
+/// one whose target the egress gate has to judge.
+///
+/// The `accounts` row is raw-inserted with the SESSION's account id: `messages` has a
+/// foreign key to `accounts(id)` and the public `create_account` mints a random id
+/// (same precedent as `t22_egress_fetch_no_leak.rs`).
+async fn seed_grant(db: &str, account: &str) -> String {
+    let opts = sqlx::sqlite::SqliteConnectOptions::new().filename(db);
+    let raw = sqlx::SqlitePool::connect_with(opts).await.unwrap();
+    sqlx::query(
+        "INSERT INTO accounts (id, kind, host, port, tls, username, sealed_creds, sync_policy_json)
+         VALUES (?1, 'imap', 'mail.example', 993, 1, ?1, X'00', '{}')",
+    )
+    .bind(account)
+    .execute(&raw)
+    .await
+    .expect("seed account row");
+    raw.close().await;
+    let store = mw_store::Store::open(db, mw_store::ServerKey::from_hex(KEY_HEX).unwrap())
+        .await
+        .expect("open store");
+    let mailbox = store
+        .upsert_mailbox(&mw_store::MailboxUpsert {
+            account_id: account,
+            name: "INBOX",
+            role: Some("inbox"),
+            uidvalidity: 1,
+            uidnext: 2,
+            highestmodseq: 1,
+            total: 1,
+            unread: 0,
+            parent_id: None,
+        })
+        .await
+        .expect("seed mailbox");
+    let id = store
+        .upsert_message(&mw_store::MessageUpsert {
+            account_id: account,
+            mailbox_id: &mailbox,
+            uid: 1,
+            uidvalidity: 1,
+            message_id: Some("<ssrf-grant@test>"),
+            thread_id: None,
+            internaldate: Some("2026-08-16T12:00:00Z"),
+            size: 42,
+            flags_json: "[]",
+            envelope: None,
+            blob_ref: None,
+        })
+        .await
+        .expect("seed message");
+    store
+        .grant_remote_image(account, "all", "")
+        .await
+        .expect("grant remote images");
+    id
 }
 
 fn urlencoding(s: &str) -> String {
@@ -143,15 +216,24 @@ fn urlencoding(s: &str) -> String {
 /// file is about.
 const EGRESS_REFUSAL: &str = "target address is not permitted";
 /// The refusal the 26.20 remote-image GRANT gate returns
-/// (`image_proxy.rs::ungranted_response`). Reaching it proves the egress policy
-/// PERMITTED the address: `ungranted_response` runs that policy first and returns its
-/// refusal if there is one, so this body is unreachable for a blocked address.
+/// (`image_proxy.rs::ungranted_response`). That path now refuses without
+/// running the egress policy (no DNS or network I/O for an ungranted request), so this
+/// body says nothing about the address: every leg that is about the address presents
+/// a grant ([`seed_grant`]) and must NOT see this body.
 const GRANT_REFUSAL: &str = "no remote-image grant covers this message";
 
 /// Drive the real route and return both halves of the answer. The status alone is no
 /// longer a sufficient instrument — see the module docs.
-async fn proxy_get(c: &reqwest::Client, base: &str, target: &str) -> (reqwest::StatusCode, String) {
-    let url = format!("{base}/api/image-proxy?url={}", urlencoding(target));
+async fn proxy_get(
+    c: &reqwest::Client,
+    base: &str,
+    target: &str,
+    email_id: Option<&str>,
+) -> (reqwest::StatusCode, String) {
+    let mut url = format!("{base}/api/image-proxy?url={}", urlencoding(target));
+    if let Some(id) = email_id {
+        url.push_str(&format!("&emailId={}", urlencoding(id)));
+    }
     let resp = c.get(url).send().await.unwrap();
     let status = resp.status();
     (status, resp.text().await.unwrap())
@@ -160,10 +242,12 @@ async fn proxy_get(c: &reqwest::Client, base: &str, target: &str) -> (reqwest::S
 #[tokio::test]
 async fn teredo_and_isatap_smuggled_private_targets_are_refused_live() {
     let mock = spawn_mock().await;
-    let addr = spawn_server().await;
+    let (addr, db) = spawn_server().await;
     let base = format!("http://{addr}");
     let c = client();
-    login(&c, &base, &mock).await;
+    let account = login(&c, &base, &mock).await;
+    let granted = seed_grant(&db, &account).await;
+    let granted = Some(granted.as_str());
 
     // Each of these embeds a forbidden IPv4 (127.0.0.1 / 169.254.169.254 / 10.0.0.1 /
     // 192.168.1.1) inside a Teredo (2001:0000::/32) or ISATAP (…:{0,200}:5efe:v4)
@@ -197,7 +281,7 @@ async fn teredo_and_isatap_smuggled_private_targets_are_refused_live() {
             "ISATAP wrapping 169.254.169.254 metadata",
         ),
     ] {
-        let (status, body) = proxy_get(&c, &base, target).await;
+        let (status, body) = proxy_get(&c, &base, target, granted).await;
         assert_eq!(
             status, 403,
             "SSRF R4: {what} ({target}) must be refused live (got {status})"
@@ -218,12 +302,9 @@ async fn teredo_and_isatap_smuggled_private_targets_are_refused_live() {
     // A Teredo address whose BOTH embedded v4s are public (server 65.54.227.120 +
     // client 8.8.8.8), and a public-wrapping ISATAP (8.8.8.8), are PERMITTED by the
     // SSRF gate — the decode re-checks each v4, it does not blanket-refuse the
-    // transitional prefix. These used to be asserted as "not a 403"; since 26.20 the
-    // request is then refused by the grant gate (this session holds none), so the
-    // address-level statement moves to the body, where it is strictly more specific
-    // than the status ever was: not merely "some other status", but "refused by the
-    // OTHER gate, having passed this one".
-    let mut permitted_body = String::new();
+    // transitional prefix. With the grant presented the request passes both gates and
+    // the server attempts the fetch, so whatever it answers, it must be neither
+    // refusal: not the egress one (the address was permitted) and not the grant one.
     for (target, what) in [
         (
             "http://[2001:0:4136:e378:8000:ffff:f7f7:f7f7]/x.png",
@@ -234,38 +315,46 @@ async fn teredo_and_isatap_smuggled_private_targets_are_refused_live() {
             "ISATAP wrapping public 8.8.8.8",
         ),
     ] {
-        let (status, body) = proxy_get(&c, &base, target).await;
+        let (status, body) = proxy_get(&c, &base, target, granted).await;
         assert_ne!(
             body, EGRESS_REFUSAL,
-            "a public-wrapping {what} ({target}) must NOT be refused by the SSRF gate \
-             (got {status} {body:?})"
+            "a public-wrapping {what} ({target}) must NOT be refused by the SSRF gate              (got {status} {body:?})"
         );
-        assert_eq!(
+        assert_ne!(
             body, GRANT_REFUSAL,
-            "a public-wrapping {what} ({target}) must reach the grant gate, which only \
-             runs once the egress policy has permitted the address (got {status} \
-             {body:?})"
+            "the granted request for {what} must pass the grant gate (got {status}              {body:?}) — otherwise this leg never reached the egress gate"
         );
-        permitted_body = body;
     }
 
     // THE INSTRUMENT ITSELF. Everything above distinguishes two refusals by their
     // body text; that is a valid instrument only while the two texts actually differ.
-    // Both of these were produced by the real route moments ago, so if a reword or a
-    // refactor ever routes both gates through one message, this fails here rather than
-    // quietly turning every assertion above back into "the route returns 403".
+    // The same smuggled target WITHOUT the grant is refused by the grant gate, live, so
+    // if a reword or a refactor ever routes both gates through one message, this fails
+    // here rather than quietly turning every assertion above back into "the route
+    // returns 403". It also shows the grant gate still runs first.
+    let (ungranted_status, ungranted_body) =
+        proxy_get(&c, &base, "http://[2001:470::5efe:7f00:1]/x.png", None).await;
+    assert_eq!(ungranted_status, 403);
+    assert_eq!(
+        ungranted_body, GRANT_REFUSAL,
+        "without a covering grant the request is refused by the grant gate"
+    );
     assert_ne!(
-        denied_body, permitted_body,
-        "the egress refusal and the grant refusal must be distinguishable, or every \
-         assertion in this test degrades to a bare status check"
+        denied_body, ungranted_body,
+        "the egress refusal and the grant refusal must be distinguishable, or every          assertion in this test degrades to a bare status check"
     );
 
     // Neither body is reachable without a session: `proxy_image` calls `crate::authed`
     // before both gates, so an unauthenticated caller is told nothing about the
     // address. (Between two AUTHENTICATED sessions the distinction IS visible — that
     // is precisely what the assertions above depend on.)
-    let (anon_status, anon_body) =
-        proxy_get(&client(), &base, "http://[2001:470::5efe:7f00:1]/x.png").await;
+    let (anon_status, anon_body) = proxy_get(
+        &client(),
+        &base,
+        "http://[2001:470::5efe:7f00:1]/x.png",
+        granted,
+    )
+    .await;
     assert_eq!(
         anon_status, 401,
         "the image proxy requires a session (got {anon_status})"
