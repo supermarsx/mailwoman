@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
 use mw_egress::TrafficClass;
-use mw_server::{AppConfig, build_app};
+use mw_server::AppConfig;
 use mw_store::{ServerKey, Store};
 
 mod common;
@@ -65,7 +65,19 @@ async fn spawn_server(db_path: &str, mock: &str) -> SocketAddr {
             ..mw_server::SecurityConfig::default()
         },
     };
-    let app = build_app(config).await.expect("build_app");
+    // The admin panel must be on for the seeded admin session to be honoured
+    // (`AdminCtx::resolve` answers 401 while it is off), as in t22_egress_fetch_no_leak.
+    let (app, _) = mw_server::build_app_full(
+        config,
+        mw_server::V6Config {
+            admin_enabled: true,
+            admin_username: Some("root".into()),
+            admin_password: Some("fixture-admin-proof".into()),
+            redis_url: None,
+        },
+    )
+    .await
+    .expect("build_app");
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -239,6 +251,17 @@ async fn a_route_carries_only_its_classes_and_the_plan_follows_admin_changes() {
 
     // An operator route, through the real admin API, made live.
     let admin = reqwest::Client::builder().no_proxy().build().unwrap();
+    // Egress route writes are sensitive (`integrationManage` step-up, 7e9af0d0/12ca557d):
+    // confirm the admin's password for this session first, through the real route.
+    let admin_cookie = format!("mw_admin_session={ADMIN_TOKEN}");
+    let step_up = admin
+        .post(format!("{base}/admin/step-up"))
+        .header("cookie", &admin_cookie)
+        .json(&json!({ "password": "fixture-admin-proof" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(step_up.status(), 200, "admin step-up");
     let put = admin
         .post(format!("{base}/admin/egress/proxies"))
         .header("cookie", format!("mw_admin_session={ADMIN_TOKEN}"))

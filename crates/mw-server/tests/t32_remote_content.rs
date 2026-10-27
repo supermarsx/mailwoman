@@ -1134,14 +1134,33 @@ async fn domain_alias_inherits_hot_locks_direct_capability_and_scoped_egress_wit
     let policy: Value = response.json().await.unwrap();
     assert_eq!(policy["mode"], "block");
     assert_eq!(policy["locked"]["mode"], true);
+    // A personal settings write must name the session's storage authority (0a11b581,
+    // 428 `storageAuthorityRequired` otherwise), so the refusal below is the lock's.
+    let me: Value = f
+        .user
+        .get(format!("{}/api/me", f.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let write = f
         .user
         .put(format!("{}/api/settings/privacy.remoteContent", f.base))
+        .header(
+            "x-mailwoman-storage-authority",
+            me["storageAuthority"]
+                .as_str()
+                .expect("/api/me names a storageAuthority"),
+        )
         .json(&json!({"value":"direct"}))
         .send()
         .await
         .unwrap();
     assert_eq!(write.status(), 403, "alias cannot override canonical lock");
+    let refusal: Value = write.json().await.unwrap();
+    assert_eq!(refusal["code"], "setting_locked", "{refusal}");
     locked_policy(&f, "privacy.allowDirect", json!(true)).await;
     store
         .put_setting_value(&value("privacy.remoteContent", json!("direct")))
