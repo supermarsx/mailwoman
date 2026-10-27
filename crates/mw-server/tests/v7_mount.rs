@@ -124,7 +124,7 @@ async fn v7_mailbox_routes_are_wired() {
     let mock = spawn_mock().await;
     let server = spawn_server(ServerMode::Proxy).await;
     let c = client();
-    let _account = login(&c, &server, &mock).await;
+    let account = login(&c, &server, &mock).await;
 
     // ── directory/GAL: unconfigured ⇒ 501 (route mounted + extension injected) ──
     let gal = c
@@ -203,23 +203,36 @@ async fn v7_mailbox_routes_are_wired() {
     );
 
     // ── nextcloud: unlinked ⇒ 501 for every route incl. the extra list picker ──
+    // Since ed9aed37 the routes are account-linked: the request names the active
+    // account, and with no linked Nextcloud instance the handler answers 409 and
+    // asks the user to link one.
     let share = c
         .post(format!("{server}/api/nextcloud/share-link"))
-        .json(&json!({ "path": "/x.zip" }))
+        .json(&json!({ "path": "/x.zip", "accountId": account }))
         .send()
         .await
         .unwrap();
     assert_eq!(
         share.status(),
-        501,
-        "nextcloud share-link mounted (unlinked ⇒ 501)"
+        409,
+        "nextcloud share-link mounted (unlinked ⇒ 409)"
+    );
+    assert!(
+        share.json::<Value>().await.unwrap()["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("Link a Nextcloud account")),
+        "the unlinked answer comes from the gateway resolver"
     );
     let list = c
         .get(format!("{server}/api/nextcloud/list?path=/"))
         .send()
         .await
         .unwrap();
-    assert_eq!(list.status(), 501, "extra nextcloud list endpoint mounted");
+    assert_eq!(
+        list.status(),
+        409,
+        "extra nextcloud list endpoint mounted (unlinked ⇒ 409)"
+    );
 }
 
 /// The admin-gated V7 surfaces: unauthenticated ⇒ 401; authenticated ⇒ the real
@@ -353,6 +366,21 @@ async fn headless_rest_read_resolves_in_proxy_mode() {
         "mail": true, "pim": false, "ip_allowlist": [], "expires_at": null,
         "rate_limit": null, "mcp_tools": [], "unattended_send": false,
     });
+    // Minting a key needs a fresh step-up proof (7e9af0d0); confirm the password
+    // through the real route first.
+    let step_up = c
+        .post(format!("{server}/api/security/step-up"))
+        .json(&json!({ "password": mw_mock_jmap::PASS }))
+        .send()
+        .await
+        .unwrap();
+    let step_up_status = step_up.status();
+    let step_up_body: Value = step_up.json().await.unwrap();
+    assert_eq!(
+        (step_up_status.as_u16(), &step_up_body["ok"]),
+        (200, &json!(true)),
+        "step-up: {step_up_body}"
+    );
     let mint: Value = c
         .post(format!("{server}/api/keys"))
         .json(&json!({ "label": "headless", "accountId": account_id, "scope": scope }))
