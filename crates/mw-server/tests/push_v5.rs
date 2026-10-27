@@ -229,7 +229,7 @@ async fn subscription_round_trips_and_vapid_public_is_served() {
     let mock = spawn_mock().await;
     let (server, _addr, _push) = spawn_server().await;
     let c = client();
-    login_cookie(&c, &server, &mock).await;
+    let authority = login_cookie(&c, &server, &mock).await;
 
     // VAPID public key is served (generated on first boot).
     let vapid: Value = c
@@ -249,6 +249,7 @@ async fn subscription_round_trips_and_vapid_public_is_served() {
     // Subscribe → { id, vapidPublicKey }; the served key matches.
     let sub: Value = c
         .post(format!("{server}/api/push/subscribe"))
+        .header("x-mailwoman-storage-authority", &authority)
         .json(&json!({
             "transport": "webpush",
             "endpoint": "https://push.example/abc",
@@ -266,6 +267,7 @@ async fn subscription_round_trips_and_vapid_public_is_served() {
     // Re-subscribing the same endpoint is idempotent (still succeeds).
     let resub = c
         .post(format!("{server}/api/push/subscribe"))
+        .header("x-mailwoman-storage-authority", &authority)
         .json(&json!({
             "transport": "webpush",
             "endpoint": "https://push.example/abc",
@@ -279,6 +281,7 @@ async fn subscription_round_trips_and_vapid_public_is_served() {
     // Unsubscribe by endpoint → 204.
     let unsub = c
         .post(format!("{server}/api/push/unsubscribe"))
+        .header("x-mailwoman-storage-authority", &authority)
         .json(&json!({ "endpoint": "https://push.example/abc" }))
         .send()
         .await
@@ -292,12 +295,13 @@ async fn client_supplied_private_push_endpoint_never_receives_a_wake() {
     let (server, _addr, push) = spawn_server().await;
     let (fake_endpoint, mut rx) = spawn_fake_push().await;
     let c = client();
-    login_cookie(&c, &server, &mock).await;
+    let authority = login_cookie(&c, &server, &mock).await;
 
     // Subscribe with the fake endpoint as the push target.
     let (p256dh, auth) = sample_keys();
     let resp = c
         .post(format!("{server}/api/push/subscribe"))
+        .header("x-mailwoman-storage-authority", &authority)
         .json(&json!({
             "transport": "webpush",
             "endpoint": fake_endpoint,
@@ -373,7 +377,9 @@ async fn cors_answers_only_the_native_shell_origins() {
 // ── helpers ────────────────────────────────────────────────────────────────
 
 /// Log in (browser/cookie path) so the reqwest cookie jar carries the session.
-async fn login_cookie(c: &reqwest::Client, server: &str, _mock: &str) {
+/// Returns the login's storage authority, which personal-settings and push
+/// subscription writes carry (0a11b581).
+async fn login_cookie(c: &reqwest::Client, server: &str, _mock: &str) -> String {
     let resp = c
         .post(format!("{server}/api/login"))
         .json(&json!({
@@ -384,6 +390,12 @@ async fn login_cookie(c: &reqwest::Client, server: &str, _mock: &str) {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200, "login should succeed");
-    let saved=c.put(format!("{server}/api/account/notifications")).json(&json!({"enabled":true,"rules":[],"quietHours":{"enabled":false,"start":"22:00","end":"07:00","timezone":"UTC"}})).send().await.unwrap();
+    // A personal-settings write carries the login's storage authority (0a11b581).
+    let login: Value = resp.json().await.unwrap();
+    let authority = login["storageAuthority"]
+        .as_str()
+        .expect("login names a storageAuthority");
+    let saved=c.put(format!("{server}/api/account/notifications")).header("x-mailwoman-storage-authority", authority).json(&json!({"enabled":true,"rules":[],"quietHours":{"enabled":false,"start":"22:00","end":"07:00","timezone":"UTC"}})).send().await.unwrap();
     assert_eq!(saved.status(), 200, "explicit account notification opt-in");
+    authority.to_string()
 }
