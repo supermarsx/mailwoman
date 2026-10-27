@@ -48,22 +48,33 @@ fn personal_subject(parts: Vec<String>) -> String {
     use sha2::{Digest, Sha256};
     let mut digest = Sha256::new();
     digest.update(b"mailwoman-personal-subject-v1\0");
-    for part in parts { digest.update((part.len() as u64).to_be_bytes()); digest.update(part.as_bytes()); }
-    let encoded: String = digest.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+    for part in parts {
+        digest.update((part.len() as u64).to_be_bytes());
+        digest.update(part.as_bytes());
+    }
+    let encoded: String = digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     format!("po1_{encoded}")
 }
 
 impl Store {
     /// Opaque browser-storage namespace. Raw upstream account IDs are not globally
     /// unique and must never serve as an authority for persisted private data.
-    async fn verified_personal_parts(&self, session: &str) -> Result<Option<Vec<String>>, StoreError> {
+    async fn verified_personal_parts(
+        &self,
+        session: &str,
+    ) -> Result<Option<Vec<String>>, StoreError> {
         let Some(value) = q("SELECT sp.binding_id,sp.primary_account_id,s.jmap_url,s.api_url,b.kind,CAST(CASE WHEN a.id IS NULL THEN 0 ELSE 1 END AS BIGINT) AS native_account FROM session_principal sp JOIN sessions s ON s.id=sp.session_id AND s.account_id=sp.primary_account_id JOIN identity_principal p ON p.id=sp.principal_id JOIN identity_binding b ON b.id=sp.binding_id AND b.principal_id=p.id LEFT JOIN accounts a ON a.id=sp.primary_account_id WHERE sp.session_id=?1 AND p.state='active' AND b.retired_at IS NULL")
             .bind(session).fetch_optional(&self.backend).await? else { return Ok(None) };
         let account = value.get_string("primary_account_id");
         let binding = value.get_string("binding_id");
         let service = value.get_string("jmap_url");
         let api = value.get_string("api_url");
-        let native = ((service == "engine" && api == "engine") || (service == "sso" && api == "sso"))
+        let native = ((service == "engine" && api == "engine")
+            || (service == "sso" && api == "sso"))
             && value.get_i64("native_account") == 1;
         let parts = if native {
             vec!["native".to_owned(), account]
@@ -72,9 +83,16 @@ impl Store {
         } else {
             let mut parts = vec!["proxy".to_owned(), binding, account];
             for endpoint in [&service, &api] {
-                let Ok(mut url) = url::Url::parse(endpoint) else { return Ok(None) };
-                if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none()
-                    || !url.username().is_empty() || url.password().is_some() { return Ok(None); }
+                let Ok(mut url) = url::Url::parse(endpoint) else {
+                    return Ok(None);
+                };
+                if !matches!(url.scheme(), "http" | "https")
+                    || url.host_str().is_none()
+                    || !url.username().is_empty()
+                    || url.password().is_some()
+                {
+                    return Ok(None);
+                }
                 url.set_fragment(None);
                 parts.push(url.to_string());
             }
@@ -83,8 +101,13 @@ impl Store {
         Ok(Some(parts))
     }
 
-    pub async fn session_storage_authority(&self, session: &str) -> Result<Option<String>, StoreError> {
-        let Some(parts) = self.verified_personal_parts(session).await? else { return Ok(None) };
+    pub async fn session_storage_authority(
+        &self,
+        session: &str,
+    ) -> Result<Option<String>, StoreError> {
+        let Some(parts) = self.verified_personal_parts(session).await? else {
+            return Ok(None);
+        };
         // Length-prefixed fields prevent delimiter ambiguity. Neither realm URLs
         // nor external subjects are exposed to the browser.
         let mut message = Vec::new();
@@ -92,29 +115,59 @@ impl Store {
             message.extend_from_slice(&(part.len() as u64).to_be_bytes());
             message.extend_from_slice(part.as_bytes());
         }
-        let digest: String = crate::seal::hmac_sha256(&self.key.derive("mw-client-storage-authority-v1"), &message)
-            .iter().map(|byte| format!("{byte:02x}")).collect();
+        let digest: String =
+            crate::seal::hmac_sha256(&self.key.derive("mw-client-storage-authority-v1"), &message)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
         Ok(Some(format!("msa1_{digest}")))
     }
 
     /// Durable database subject independent of the encryption key. Migration
     /// copies the verified tuple; this identifier is never an authorization credential.
-    pub async fn session_personal_subject(&self, session: &str) -> Result<Option<String>, StoreError> {
-        Ok(self.verified_personal_parts(session).await?.map(personal_subject))
+    pub async fn session_personal_subject(
+        &self,
+        session: &str,
+    ) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .verified_personal_parts(session)
+            .await?
+            .map(personal_subject))
     }
 
-    pub async fn session_policy_subject(&self, session: &str) -> Result<Option<VerifiedPolicySubject>, StoreError> {
-        let Some(parts) = self.verified_personal_parts(session).await? else { return Ok(None) };
-        let native_account = (parts.first().map(String::as_str) == Some("native"))
-            .then(|| parts[1].clone());
-        Ok(Some(VerifiedPolicySubject { personal_subject: personal_subject(parts), native_account }))
+    pub async fn session_policy_subject(
+        &self,
+        session: &str,
+    ) -> Result<Option<VerifiedPolicySubject>, StoreError> {
+        let Some(parts) = self.verified_personal_parts(session).await? else {
+            return Ok(None);
+        };
+        let native_account =
+            (parts.first().map(String::as_str) == Some("native")).then(|| parts[1].clone());
+        Ok(Some(VerifiedPolicySubject {
+            personal_subject: personal_subject(parts),
+            native_account,
+        }))
     }
 
     /// Only native engine/background callers with authoritative account access
     /// may use this adapter. Session routes must use session_personal_subject.
-    pub async fn native_personal_subject(&self, account: &str) -> Result<Option<String>, StoreError> {
-        if q("SELECT id FROM accounts WHERE id=?1").bind(account).fetch_optional(&self.backend).await?.is_none() { return Ok(None); }
-        Ok(Some(personal_subject(vec!["native".into(), account.into()])))
+    pub async fn native_personal_subject(
+        &self,
+        account: &str,
+    ) -> Result<Option<String>, StoreError> {
+        if q("SELECT id FROM accounts WHERE id=?1")
+            .bind(account)
+            .fetch_optional(&self.backend)
+            .await?
+            .is_none()
+        {
+            return Ok(None);
+        }
+        Ok(Some(personal_subject(vec![
+            "native".into(),
+            account.into(),
+        ])))
     }
 
     /// Atomically attach a verified primary identity, or refuse stale, retired,
@@ -224,96 +277,384 @@ mod tests {
 
     #[tokio::test]
     async fn storage_authority_separates_realms_and_survives_rotation() {
-        storage_authority_exercise(Store::open_in_memory(crate::ServerKey::generate()).await.unwrap()).await;
+        storage_authority_exercise(
+            Store::open_in_memory(crate::ServerKey::generate())
+                .await
+                .unwrap(),
+        )
+        .await;
     }
 
     #[tokio::test]
     async fn storage_authority_postgres() {
         use sqlx::Connection;
-        let Ok(dsn) = std::env::var("MW_TEST_PG") else { eprintln!("SKIP: MW_TEST_PG absent"); return; };
+        let Ok(dsn) = std::env::var("MW_TEST_PG") else {
+            eprintln!("SKIP: MW_TEST_PG absent");
+            return;
+        };
         let schema = format!("storage_authority_{}", uuid::Uuid::new_v4().simple());
         let mut admin = sqlx::PgConnection::connect(&dsn).await.unwrap();
-        sqlx::query(&format!("CREATE SCHEMA {schema}")).execute(&mut admin).await.unwrap();
+        sqlx::query(&format!("CREATE SCHEMA {schema}"))
+            .execute(&mut admin)
+            .await
+            .unwrap();
         let mut scoped = url::Url::parse(&dsn).unwrap();
-        scoped.query_pairs_mut().append_pair("options", &format!("-csearch_path={schema}"));
-        storage_authority_exercise(Store::open(scoped.as_str(), crate::ServerKey::generate()).await.unwrap()).await;
-        sqlx::query(&format!("DROP SCHEMA {schema} CASCADE")).execute(&mut admin).await.unwrap();
+        scoped
+            .query_pairs_mut()
+            .append_pair("options", &format!("-csearch_path={schema}"));
+        storage_authority_exercise(
+            Store::open(scoped.as_str(), crate::ServerKey::generate())
+                .await
+                .unwrap(),
+        )
+        .await;
+        sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+            .execute(&mut admin)
+            .await
+            .unwrap();
     }
 
     async fn storage_authority_exercise(store: Store) {
         let mut ids = Vec::new();
         // Same trusted-header binding and raw account ID, different actual services.
-        for service in ["https://mail.test/a/session", "https://mail.test/b/session", "https://mail.test/a/session#ignored"] {
-            let id = store.create_session("1", "same@example.test", service, "https://mail.test/api",
-                &crate::Credentials { username: "same".into(), password: "synthetic".into() }).await.unwrap();
-            assert!(store.session_storage_authority(&id).await.unwrap().is_none());
-            store.set_session_authentication(&id, "header-auth").await.unwrap();
-            store.bind_verified_primary(&id, VerifiedPrimary { account_id: "1", kind: "header", authority: "trusted-header", subject: "verified" }, 100).await.unwrap().unwrap();
+        for service in [
+            "https://mail.test/a/session",
+            "https://mail.test/b/session",
+            "https://mail.test/a/session#ignored",
+        ] {
+            let id = store
+                .create_session(
+                    "1",
+                    "same@example.test",
+                    service,
+                    "https://mail.test/api",
+                    &crate::Credentials {
+                        username: "same".into(),
+                        password: "synthetic".into(),
+                    },
+                )
+                .await
+                .unwrap();
+            assert!(
+                store
+                    .session_storage_authority(&id)
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+            store
+                .set_session_authentication(&id, "header-auth")
+                .await
+                .unwrap();
+            store
+                .bind_verified_primary(
+                    &id,
+                    VerifiedPrimary {
+                        account_id: "1",
+                        kind: "header",
+                        authority: "trusted-header",
+                        subject: "verified",
+                    },
+                    100,
+                )
+                .await
+                .unwrap()
+                .unwrap();
             ids.push(id);
         }
-        let owner_a = store.session_personal_subject(&ids[0]).await.unwrap().unwrap();
-        let owner_b = store.session_personal_subject(&ids[1]).await.unwrap().unwrap();
-        assert_ne!(owner_a,owner_b);
-        let policy_a = store.session_policy_subject(&ids[0]).await.unwrap().unwrap();
-        let policy_b = store.session_policy_subject(&ids[1]).await.unwrap().unwrap();
+        let owner_a = store
+            .session_personal_subject(&ids[0])
+            .await
+            .unwrap()
+            .unwrap();
+        let owner_b = store
+            .session_personal_subject(&ids[1])
+            .await
+            .unwrap()
+            .unwrap();
+        assert_ne!(owner_a, owner_b);
+        let policy_a = store
+            .session_policy_subject(&ids[0])
+            .await
+            .unwrap()
+            .unwrap();
+        let policy_b = store
+            .session_policy_subject(&ids[1])
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(policy_a.personal_subject, owner_a);
         assert_eq!(policy_b.personal_subject, owner_b);
         assert!(policy_a.native_account.is_none() && policy_b.native_account.is_none());
-        assert_eq!(Some(owner_a.clone()),store.session_personal_subject(&ids[2]).await.unwrap());
+        assert_eq!(
+            Some(owner_a.clone()),
+            store.session_personal_subject(&ids[2]).await.unwrap()
+        );
         // Even a legacy raw upstream ID equal to the new typed subject cannot be adopted.
-        let signature = crate::SignatureRow { account_id:owner_a.clone(),name:"work".into(),body:"legacy secret".into(),html:Some("<b>rich</b>".into()),text:Some("plain".into()),text_edited:true,is_default:true,rule_json:String::new(),updated_at:String::new() };
+        let signature = crate::SignatureRow {
+            account_id: owner_a.clone(),
+            name: "work".into(),
+            body: "legacy secret".into(),
+            html: Some("<b>rich</b>".into()),
+            text: Some("plain".into()),
+            text_edited: true,
+            is_default: true,
+            rule_json: String::new(),
+            updated_at: String::new(),
+        };
         store.upsert_signature(&signature).await.unwrap();
-        assert!(store.list_personal_signatures(&owner_a).await.unwrap().is_empty());
+        assert!(
+            store
+                .list_personal_signatures(&owner_a)
+                .await
+                .unwrap()
+                .is_empty()
+        );
         store.upsert_personal_signature(&signature).await.unwrap();
-        assert!(store.list_personal_signatures(&owner_b).await.unwrap().is_empty());
-        store.delete_personal_signature(&owner_b,"work").await.unwrap();
-        let typed=store.list_personal_signatures(&owner_a).await.unwrap();
-        assert_eq!(typed[0].html,signature.html); assert_eq!(typed[0].text,signature.text); assert!(typed[0].text_edited);
-        let mut search=crate::SavedSearchRow{id:"personal-test-search".into(),user:owner_a.clone(),name:"Private".into(),query_json:"{}".into(),as_folder:true};
+        assert!(
+            store
+                .list_personal_signatures(&owner_b)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        store
+            .delete_personal_signature(&owner_b, "work")
+            .await
+            .unwrap();
+        let typed = store.list_personal_signatures(&owner_a).await.unwrap();
+        assert_eq!(typed[0].html, signature.html);
+        assert_eq!(typed[0].text, signature.text);
+        assert!(typed[0].text_edited);
+        let mut search = crate::SavedSearchRow {
+            id: "personal-test-search".into(),
+            user: owner_a.clone(),
+            name: "Private".into(),
+            query_json: "{}".into(),
+            as_folder: true,
+        };
         store.upsert_saved_search(&search).await.unwrap();
-        assert!(store.list_personal_saved_searches(&owner_a).await.unwrap().is_empty());
+        assert!(
+            store
+                .list_personal_saved_searches(&owner_a)
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert!(store.upsert_personal_saved_search(&search).await.unwrap());
-        search.user=owner_b.clone(); search.name="Hijacked".into();
+        search.user = owner_b.clone();
+        search.name = "Hijacked".into();
         assert!(!store.upsert_personal_saved_search(&search).await.unwrap());
-        assert!(!store.delete_personal_saved_search(&owner_b,&search.id).await.unwrap());
-        assert_eq!(store.get_personal_saved_search(&search.id).await.unwrap().unwrap().name,"Private");
-        assert!(store.delete_personal_saved_search(&owner_a,&search.id).await.unwrap());
-        assert!(store.get_saved_search(&search.id).await.unwrap().is_some(),"legacy bytes remain intact");
-        let a = store.session_storage_authority(&ids[0]).await.unwrap().unwrap();
+        assert!(
+            !store
+                .delete_personal_saved_search(&owner_b, &search.id)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            store
+                .get_personal_saved_search(&search.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .name,
+            "Private"
+        );
+        assert!(
+            store
+                .delete_personal_saved_search(&owner_a, &search.id)
+                .await
+                .unwrap()
+        );
+        assert!(
+            store.get_saved_search(&search.id).await.unwrap().is_some(),
+            "legacy bytes remain intact"
+        );
+        let a = store
+            .session_storage_authority(&ids[0])
+            .await
+            .unwrap()
+            .unwrap();
         assert!(a.starts_with("msa1_") && a.len() == 69);
-        assert_ne!(Some(a.clone()), store.session_storage_authority(&ids[1]).await.unwrap());
-        assert_eq!(Some(a.clone()), store.session_storage_authority(&ids[2]).await.unwrap());
-        let other_api = store.create_session("1", "same@example.test", "https://mail.test/a/session", "https://mail.test/other-api",
-            &crate::Credentials { username: "same".into(), password: "synthetic".into() }).await.unwrap();
-        store.set_session_authentication(&other_api, "header-auth").await.unwrap();
-        store.bind_verified_primary(&other_api, VerifiedPrimary { account_id: "1", kind: "header", authority: "trusted-header", subject: "verified" }, 100).await.unwrap().unwrap();
-        assert_ne!(Some(a.clone()), store.session_storage_authority(&other_api).await.unwrap());
-        q("UPDATE sessions SET api_url=?2 WHERE id=?1").bind(&other_api).bind("https://user:secret@mail.test/api").execute(&store.backend).await.unwrap();
-        assert!(store.session_storage_authority(&other_api).await.unwrap().is_none(), "credential-bearing endpoints cannot establish a storage realm");
-        let replacement = store.create_session("1", "same@example.test", "https://mail.test/a/session", "https://mail.test/api",
-            &crate::Credentials { username: "same".into(), password: "synthetic".into() }).await.unwrap();
-        assert!(store.rotate_session_security(&ids[0], &replacement).await.unwrap());
-        assert_eq!(Some(a.clone()), store.session_storage_authority(&replacement).await.unwrap());
-        assert!(store.session_storage_authority(&ids[0]).await.unwrap().is_none());
+        assert_ne!(
+            Some(a.clone()),
+            store.session_storage_authority(&ids[1]).await.unwrap()
+        );
+        assert_eq!(
+            Some(a.clone()),
+            store.session_storage_authority(&ids[2]).await.unwrap()
+        );
+        let other_api = store
+            .create_session(
+                "1",
+                "same@example.test",
+                "https://mail.test/a/session",
+                "https://mail.test/other-api",
+                &crate::Credentials {
+                    username: "same".into(),
+                    password: "synthetic".into(),
+                },
+            )
+            .await
+            .unwrap();
+        store
+            .set_session_authentication(&other_api, "header-auth")
+            .await
+            .unwrap();
+        store
+            .bind_verified_primary(
+                &other_api,
+                VerifiedPrimary {
+                    account_id: "1",
+                    kind: "header",
+                    authority: "trusted-header",
+                    subject: "verified",
+                },
+                100,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_ne!(
+            Some(a.clone()),
+            store.session_storage_authority(&other_api).await.unwrap()
+        );
+        q("UPDATE sessions SET api_url=?2 WHERE id=?1")
+            .bind(&other_api)
+            .bind("https://user:secret@mail.test/api")
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        assert!(
+            store
+                .session_storage_authority(&other_api)
+                .await
+                .unwrap()
+                .is_none(),
+            "credential-bearing endpoints cannot establish a storage realm"
+        );
+        let replacement = store
+            .create_session(
+                "1",
+                "same@example.test",
+                "https://mail.test/a/session",
+                "https://mail.test/api",
+                &crate::Credentials {
+                    username: "same".into(),
+                    password: "synthetic".into(),
+                },
+            )
+            .await
+            .unwrap();
+        assert!(
+            store
+                .rotate_session_security(&ids[0], &replacement)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            Some(a.clone()),
+            store.session_storage_authority(&replacement).await.unwrap()
+        );
+        assert!(
+            store
+                .session_storage_authority(&ids[0])
+                .await
+                .unwrap()
+                .is_none()
+        );
         // Merely colliding with a native account ID does not enter its namespace.
         q("INSERT INTO accounts(id,kind,host,port,tls,username,sealed_creds) VALUES('1','imap','native.test',993,'implicit','same',?1)")
             .bind(vec![0u8]).execute(&store.backend).await.unwrap();
-        assert_eq!(Some(a), store.session_storage_authority(&replacement).await.unwrap());
+        assert_eq!(
+            Some(a),
+            store.session_storage_authority(&replacement).await.unwrap()
+        );
         let native = session(&store, "1").await;
-        store.bind_verified_primary(&native, proof("1", "imap:native.test:993"), 100).await.unwrap().unwrap();
-        assert_eq!(store.native_personal_subject("1").await.unwrap(),store.session_personal_subject(&native).await.unwrap());
-        assert_eq!(store.session_policy_subject(&native).await.unwrap().unwrap().native_account.as_deref(), Some("1"));
-        assert!(store.session_policy_subject(&replacement).await.unwrap().unwrap().native_account.is_none());
-        assert_ne!(store.native_personal_subject("1").await.unwrap(),store.session_personal_subject(&replacement).await.unwrap());
-        let native_key = store.session_storage_authority(&native).await.unwrap().unwrap();
-        assert_ne!(Some(native_key.clone()), store.session_storage_authority(&replacement).await.unwrap());
-        let sso = store.create_session("1", "same@example.test", "sso", "sso",
-            &crate::Credentials { username: "same".into(), password: String::new() }).await.unwrap();
+        store
+            .bind_verified_primary(&native, proof("1", "imap:native.test:993"), 100)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            store.native_personal_subject("1").await.unwrap(),
+            store.session_personal_subject(&native).await.unwrap()
+        );
+        assert_eq!(
+            store
+                .session_policy_subject(&native)
+                .await
+                .unwrap()
+                .unwrap()
+                .native_account
+                .as_deref(),
+            Some("1")
+        );
+        assert!(
+            store
+                .session_policy_subject(&replacement)
+                .await
+                .unwrap()
+                .unwrap()
+                .native_account
+                .is_none()
+        );
+        assert_ne!(
+            store.native_personal_subject("1").await.unwrap(),
+            store.session_personal_subject(&replacement).await.unwrap()
+        );
+        let native_key = store
+            .session_storage_authority(&native)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_ne!(
+            Some(native_key.clone()),
+            store.session_storage_authority(&replacement).await.unwrap()
+        );
+        let sso = store
+            .create_session(
+                "1",
+                "same@example.test",
+                "sso",
+                "sso",
+                &crate::Credentials {
+                    username: "same".into(),
+                    password: String::new(),
+                },
+            )
+            .await
+            .unwrap();
         store.set_session_authentication(&sso, "sso").await.unwrap();
-        let principal = store.bind_verified_primary(&sso, VerifiedPrimary { account_id: "1", kind: "sso", authority: "verified-issuer", subject: "verified-subject" }, 100).await.unwrap().unwrap();
-        assert_eq!(Some(native_key), store.session_storage_authority(&sso).await.unwrap());
-        store.retire_principal(&principal.principal_id, 200).await.unwrap();
-        assert!(store.session_storage_authority(&sso).await.unwrap().is_none());
+        let principal = store
+            .bind_verified_primary(
+                &sso,
+                VerifiedPrimary {
+                    account_id: "1",
+                    kind: "sso",
+                    authority: "verified-issuer",
+                    subject: "verified-subject",
+                },
+                100,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            Some(native_key),
+            store.session_storage_authority(&sso).await.unwrap()
+        );
+        store
+            .retire_principal(&principal.principal_id, 200)
+            .await
+            .unwrap();
+        assert!(
+            store
+                .session_storage_authority(&sso)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     async fn session(store: &Store, account: &str) -> String {

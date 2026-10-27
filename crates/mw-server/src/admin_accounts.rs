@@ -448,7 +448,9 @@ async fn check_credentials(
         if acc.disabled || (acc.source == "env-bootstrap" && !env_login_enabled()) {
             return Ok(Checked::Disabled);
         }
-        if !verify_password(password, phc).await { return Ok(Checked::Refused); }
+        if !verify_password(password, phc).await {
+            return Ok(Checked::Refused);
+        }
         return totp_step(state, acc).await;
     }
     if !env_login_enabled() || !env_credential_matches(state, username, password) {
@@ -508,14 +510,36 @@ async fn login(
     if let Some(response) = crate::signin_cooldown::check(&state, &headers, &ext).await {
         return response;
     }
-    if let Some(response) = crate::signin_challenge::verify(&state, crate::signin_challenge::Surface::Admin, &headers, &ext, body.altcha.as_deref()).await {
+    if let Some(response) = crate::signin_challenge::verify(
+        &state,
+        crate::signin_challenge::Surface::Admin,
+        &headers,
+        &ext,
+        body.altcha.as_deref(),
+    )
+    .await
+    {
         return response;
     }
     match check_credentials(&state, &body.username, &body.password).await {
         Ok(Checked::Ok(username)) => {
-            let response=start_session(&state, &username).await;
-            if response.status().is_success() { record_login_success(&state, &username, source).await; }
-            crate::auth_logs::record_admin_reason(&state, &username, source, "password", response.status().is_success(), if response.status().is_success() { "" } else { "session-refused" }).await;
+            let response = start_session(&state, &username).await;
+            if response.status().is_success() {
+                record_login_success(&state, &username, source).await;
+            }
+            crate::auth_logs::record_admin_reason(
+                &state,
+                &username,
+                source,
+                "password",
+                response.status().is_success(),
+                if response.status().is_success() {
+                    ""
+                } else {
+                    "session-refused"
+                },
+            )
+            .await;
             response
         }
         Ok(Checked::NeedsTotp {
@@ -564,7 +588,15 @@ async fn login(
             .into_response()
         }
         Ok(Checked::Disabled) => {
-            crate::auth_logs::record_admin_reason(&state, &body.username, source, "password", false, "account-disabled").await;
+            crate::auth_logs::record_admin_reason(
+                &state,
+                &body.username,
+                source,
+                "password",
+                false,
+                "account-disabled",
+            )
+            .await;
             AdminApiError::unauthenticated().into_response()
         }
         Ok(Checked::Refused) => {
@@ -644,9 +676,23 @@ async fn login_totp(
                 _ => return AdminApiError::unauthenticated().into_response(),
             }
             lock(&PENDING).remove(&body.pending_token);
-            let response=start_session(&state, &username).await;
-            if response.status().is_success() { record_login_success(&state, &username, source).await; }
-            crate::auth_logs::record_admin_reason(&state, &username, source, "password+totp", response.status().is_success(), if response.status().is_success() { "" } else { "session-refused" }).await;
+            let response = start_session(&state, &username).await;
+            if response.status().is_success() {
+                record_login_success(&state, &username, source).await;
+            }
+            crate::auth_logs::record_admin_reason(
+                &state,
+                &username,
+                source,
+                "password+totp",
+                response.status().is_success(),
+                if response.status().is_success() {
+                    ""
+                } else {
+                    "session-refused"
+                },
+            )
+            .await;
             response
         }
         Ok(false) => {
@@ -691,7 +737,7 @@ pub(crate) async fn check_login_source(
     state: &AppState,
     source: Option<std::net::IpAddr>,
 ) -> Result<(), AdminApiError> {
-    crate::signin_guard::check(state,mw_store::AuthSurface::Admin,source).await?;
+    crate::signin_guard::check(state, mw_store::AuthSurface::Admin, source).await?;
     if let Some(ip) = source {
         match state.v6.admin.is_banned(&ip.to_string()).await {
             Ok(true) => return Err(AdminApiError::unauthenticated()),
@@ -725,7 +771,12 @@ pub(crate) async fn record_admin_login_failure(
     if source.is_none() {
         warn_no_source_once();
     }
-    match state.v6.admin.record_login_failure_without_monitor(username, source).await {
+    match state
+        .v6
+        .admin
+        .record_login_failure_without_monitor(username, source)
+        .await
+    {
         Ok(outcome) => {
             if let Some(line) = outcome.log_line {
                 // Deliberately the raw line, unstructured: a jail reads it verbatim.
@@ -907,9 +958,16 @@ async fn put_prefs(
     }
     let key = prefs_key(&ctx);
     let raw = state.store.get_setting(&key).await?;
-    let current: Value = raw.as_deref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_else(|| json!({}));
+    let current: Value = raw
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_else(|| json!({}));
     check_if_match(&headers, &etag_of(&current), None, None)?;
-    if !state.store.compare_and_set_setting(&key, raw.as_deref(), &text).await? {
+    if !state
+        .store
+        .compare_and_set_setting(&key, raw.as_deref(), &text)
+        .await?
+    {
         return Err(AdminApiError::stale(None, None));
     }
     let tag = etag_of(&body);
@@ -1586,7 +1644,9 @@ async fn admin_passkeys_delete(
         .await?;
     let acc = find(&state, &id).await?;
     require_can_manage(&state, &ctx, &acc).await?;
-    if !state.store.revoke_admin_passkeys(&id).await? { return Err(last_super_error()); }
+    if !state.store.revoke_admin_passkeys(&id).await? {
+        return Err(last_super_error());
+    }
     invalidate_pending(&id);
     audit(
         &state,

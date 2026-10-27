@@ -156,19 +156,53 @@ const TABLES: &[TableSpec] = &[
         name: "account_draft",
         select: "SELECT owner,id,account_id,revision,email_id,sealed_state,sealed_summary,updated_at,operation_id,request_hash,operation_state,sealed_pending_state,sealed_pending_summary,cleanup_email_id FROM account_draft",
         insert: "INSERT INTO account_draft(owner,id,account_id,revision,email_id,sealed_state,sealed_summary,updated_at,operation_id,request_hash,operation_state,sealed_pending_state,sealed_pending_summary,cleanup_email_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
-        map: |r| vec![t(r,"owner"),t(r,"id"),t(r,"account_id"),ot(r,"revision"),ot(r,"email_id"),ob(r,"sealed_state"),ob(r,"sealed_summary"),i(r,"updated_at"),t(r,"operation_id"),t(r,"request_hash"),t(r,"operation_state"),ob(r,"sealed_pending_state"),ob(r,"sealed_pending_summary"),ot(r,"cleanup_email_id")],
+        map: |r| {
+            vec![
+                t(r, "owner"),
+                t(r, "id"),
+                t(r, "account_id"),
+                ot(r, "revision"),
+                ot(r, "email_id"),
+                ob(r, "sealed_state"),
+                ob(r, "sealed_summary"),
+                i(r, "updated_at"),
+                t(r, "operation_id"),
+                t(r, "request_hash"),
+                t(r, "operation_state"),
+                ob(r, "sealed_pending_state"),
+                ob(r, "sealed_pending_summary"),
+                ot(r, "cleanup_email_id"),
+            ]
+        },
     },
     TableSpec {
         name: "identity_principal",
         select: "SELECT id,state,created_at,retired_at FROM identity_principal",
         insert: "INSERT INTO identity_principal(id,state,created_at,retired_at) VALUES(?1,?2,?3,?4)",
-        map: |r| vec![t(r,"id"),t(r,"state"),i(r,"created_at"),oi(r,"retired_at")],
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "state"),
+                i(r, "created_at"),
+                oi(r, "retired_at"),
+            ]
+        },
     },
     TableSpec {
         name: "identity_binding",
         select: "SELECT id,principal_id,kind,authority,subject,created_at,retired_at FROM identity_binding",
         insert: "INSERT INTO identity_binding(id,principal_id,kind,authority,subject,created_at,retired_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",
-        map: |r| vec![t(r,"id"),t(r,"principal_id"),t(r,"kind"),t(r,"authority"),t(r,"subject"),i(r,"created_at"),oi(r,"retired_at")],
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "principal_id"),
+                t(r, "kind"),
+                t(r, "authority"),
+                t(r, "subject"),
+                i(r, "created_at"),
+                oi(r, "retired_at"),
+            ]
+        },
     },
     TableSpec {
         name: "settings",
@@ -207,19 +241,47 @@ const TABLES: &[TableSpec] = &[
         name: "session_principal",
         select: "SELECT session_id,principal_id,binding_id,primary_account_id,auth_time,authentication_method FROM session_principal",
         insert: "INSERT INTO session_principal(session_id,principal_id,binding_id,primary_account_id,auth_time,authentication_method) VALUES(?1,?2,?3,?4,?5,?6)",
-        map: |r| vec![t(r,"session_id"),t(r,"principal_id"),t(r,"binding_id"),t(r,"primary_account_id"),i(r,"auth_time"),t(r,"authentication_method")],
+        map: |r| {
+            vec![
+                t(r, "session_id"),
+                t(r, "principal_id"),
+                t(r, "binding_id"),
+                t(r, "primary_account_id"),
+                i(r, "auth_time"),
+                t(r, "authentication_method"),
+            ]
+        },
     },
     TableSpec {
         name: "linked_account",
         select: "SELECT id,owner_principal_id,child_principal_id,child_subject,account_id,display_name,sealed_session,revision,created_at FROM linked_account",
         insert: "INSERT INTO linked_account(id,owner_principal_id,child_principal_id,child_subject,account_id,display_name,sealed_session,revision,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
-        map: |r| vec![t(r,"id"),t(r,"owner_principal_id"),t(r,"child_principal_id"),t(r,"child_subject"),t(r,"account_id"),t(r,"display_name"),b(r,"sealed_session"),t(r,"revision"),i(r,"created_at")],
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "owner_principal_id"),
+                t(r, "child_principal_id"),
+                t(r, "child_subject"),
+                t(r, "account_id"),
+                t(r, "display_name"),
+                b(r, "sealed_session"),
+                t(r, "revision"),
+                i(r, "created_at"),
+            ]
+        },
     },
     TableSpec {
         name: "linked_context",
         select: "SELECT session_id,owner_session_id,link_id,link_revision FROM linked_context",
         insert: "INSERT INTO linked_context(session_id,owner_session_id,link_id,link_revision) VALUES(?1,?2,?3,?4)",
-        map: |r| vec![t(r,"session_id"),t(r,"owner_session_id"),t(r,"link_id"),t(r,"link_revision")],
+        map: |r| {
+            vec![
+                t(r, "session_id"),
+                t(r, "owner_session_id"),
+                t(r, "link_id"),
+                t(r, "link_revision"),
+            ]
+        },
     },
     // MFA continuations are process-local. Drop challenges on store migration;
     // never copy a stale pending token and pretend it can complete on a new node.
@@ -246,7 +308,21 @@ const TABLES: &[TableSpec] = &[
         name: "account_provider",
         select: "SELECT account_id,provider,endpoint_url,backend_username,login_address,domain_binding,ca_pem,sealed_credential,revision,created_at,updated_at FROM account_provider",
         insert: "INSERT INTO account_provider(account_id,provider,endpoint_url,backend_username,login_address,domain_binding,ca_pem,sealed_credential,revision,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
-        map: |r| vec![t(r,"account_id"),t(r,"provider"),t(r,"endpoint_url"),t(r,"backend_username"),t(r,"login_address"),t(r,"domain_binding"),ot(r,"ca_pem"),b(r,"sealed_credential"),t(r,"revision"),i(r,"created_at"),i(r,"updated_at")],
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "provider"),
+                t(r, "endpoint_url"),
+                t(r, "backend_username"),
+                t(r, "login_address"),
+                t(r, "domain_binding"),
+                ot(r, "ca_pem"),
+                b(r, "sealed_credential"),
+                t(r, "revision"),
+                i(r, "created_at"),
+                i(r, "updated_at"),
+            ]
+        },
     },
     // `quotas` and `zeroaccess_accounts` are keyed by `account_id` but declare no
     // `REFERENCES accounts(id)` in either dialect, so nothing constrains their
@@ -366,7 +442,20 @@ const TABLES: &[TableSpec] = &[
         name: "personal_identity",
         select: "SELECT id, owner_subject, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name FROM personal_identity",
         insert: "INSERT INTO personal_identity (id, owner_subject, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
-        map: |r| vec![t(r,"id"),t(r,"owner_subject"),t(r,"name"),t(r,"email"),ot(r,"reply_to"),ot(r,"signature_html"),ot(r,"signature_text"),ot(r,"sent_mailbox_id"),t(r,"source"),ot(r,"signature_name")],
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "owner_subject"),
+                t(r, "name"),
+                t(r, "email"),
+                ot(r, "reply_to"),
+                ot(r, "signature_html"),
+                ot(r, "signature_text"),
+                ot(r, "sent_mailbox_id"),
+                t(r, "source"),
+                ot(r, "signature_name"),
+            ]
+        },
     },
     TableSpec {
         name: "personal_notification_rules",
@@ -405,7 +494,14 @@ const TABLES: &[TableSpec] = &[
         name: "personal_setting_value",
         select: "SELECT owner_subject,key,value,updated_at FROM personal_setting_value",
         insert: "INSERT INTO personal_setting_value(owner_subject,key,value,updated_at) VALUES(?1,?2,?3,?4)",
-        map: |r| vec![t(r,"owner_subject"),t(r,"key"),t(r,"value"),i(r,"updated_at")],
+        map: |r| {
+            vec![
+                t(r, "owner_subject"),
+                t(r, "key"),
+                t(r, "value"),
+                i(r, "updated_at"),
+            ]
+        },
     },
     TableSpec {
         name: "personal_signature",
@@ -1234,19 +1330,43 @@ const TABLES: &[TableSpec] = &[
         name: "request_metrics_bucket",
         select: "SELECT instance_id,bucket_seconds,bucket_start,observed_from,observed_to,counts_json FROM request_metrics_bucket",
         insert: "INSERT INTO request_metrics_bucket(instance_id,bucket_seconds,bucket_start,observed_from,observed_to,counts_json) VALUES(?1,?2,?3,?4,?5,?6)",
-        map: |r| vec![t(r,"instance_id"),i(r,"bucket_seconds"),i(r,"bucket_start"),i(r,"observed_from"),i(r,"observed_to"),t(r,"counts_json")],
+        map: |r| {
+            vec![
+                t(r, "instance_id"),
+                i(r, "bucket_seconds"),
+                i(r, "bucket_start"),
+                i(r, "observed_from"),
+                i(r, "observed_to"),
+                t(r, "counts_json"),
+            ]
+        },
     },
     TableSpec {
         name: "package_provider",
         select: "SELECT id,enabled,refresh_secs,sealed_key,revision FROM package_provider",
         insert: "INSERT INTO package_provider(id,enabled,refresh_secs,sealed_key,revision) VALUES(?1,?2,?3,?4,?5)",
-        map: |r| vec![t(r,"id"),i(r,"enabled"),i(r,"refresh_secs"),b(r,"sealed_key"),t(r,"revision")],
+        map: |r| {
+            vec![
+                t(r, "id"),
+                i(r, "enabled"),
+                i(r, "refresh_secs"),
+                b(r, "sealed_key"),
+                t(r, "revision"),
+            ]
+        },
     },
     TableSpec {
         name: "package_account",
         select: "SELECT account_id,state,revision,native_account_id FROM package_account",
         insert: "INSERT INTO package_account(account_id,state,revision,native_account_id) VALUES(?1,?2,?3,?4)",
-        map: |r| vec![t(r,"account_id"),t(r,"state"),t(r,"revision"),ot(r,"native_account_id")],
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "state"),
+                t(r, "revision"),
+                ot(r, "native_account_id"),
+            ]
+        },
     },
     // `audit_log` and `twofa_policy` reference nothing and are referenced by
     // nothing, so their position is unconstrained; they go last rather than being
@@ -1528,19 +1648,40 @@ const TABLES: &[TableSpec] = &[
         name: "admin_webauthn_credentials",
         select: "SELECT credential_id,account_id,cose_public_key,sign_count,transports,label,created_at,backup_eligible,backup_state,uv_initialized,state_revision FROM admin_webauthn_credentials",
         insert: "INSERT INTO admin_webauthn_credentials(credential_id,account_id,cose_public_key,sign_count,transports,label,created_at,backup_eligible,backup_state,uv_initialized,state_revision) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
-        map: |r|vec![t(r,"credential_id"),t(r,"account_id"),b(r,"cose_public_key"),i(r,"sign_count"),t(r,"transports"),t(r,"label"),t(r,"created_at"),i(r,"backup_eligible"),i(r,"backup_state"),i(r,"uv_initialized"),i(r,"state_revision")],
+        map: |r| {
+            vec![
+                t(r, "credential_id"),
+                t(r, "account_id"),
+                b(r, "cose_public_key"),
+                i(r, "sign_count"),
+                t(r, "transports"),
+                t(r, "label"),
+                t(r, "created_at"),
+                i(r, "backup_eligible"),
+                i(r, "backup_state"),
+                i(r, "uv_initialized"),
+                i(r, "state_revision"),
+            ]
+        },
     },
     TableSpec {
         name: "admin_recovery_codes",
         select: "SELECT account_id,code_hash,used FROM admin_recovery_codes",
         insert: "INSERT INTO admin_recovery_codes(account_id,code_hash,used) VALUES(?1,?2,?3)",
-        map: |r|vec![t(r,"account_id"),t(r,"code_hash"),i(r,"used")],
+        map: |r| vec![t(r, "account_id"), t(r, "code_hash"), i(r, "used")],
     },
     TableSpec {
         name: "admin_role",
         select: "SELECT id, name, builtin, description FROM admin_role",
         insert: "INSERT INTO admin_role (id, name, builtin, description) VALUES (?1,?2,?3,?4)",
-        map: |r| vec![t(r, "id"), t(r, "name"), i(r, "builtin"), t(r, "description")],
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "name"),
+                i(r, "builtin"),
+                t(r, "description"),
+            ]
+        },
     },
     TableSpec {
         name: "admin_role_capability",
@@ -1681,7 +1822,12 @@ const TABLES: &[TableSpec] = &[
                 t(r, "ip"),
                 t(r, "user_agent"),
                 ot(r, "geo_country"),
-                t(r, "reason"), t(r, "surface"), ot(r, "backend"), i(r, "last_seen"), i(r, "repeat_count"), ot(r, "aggregate_key"),
+                t(r, "reason"),
+                t(r, "surface"),
+                ot(r, "backend"),
+                i(r, "last_seen"),
+                i(r, "repeat_count"),
+                ot(r, "aggregate_key"),
             ]
         },
     },
@@ -1689,25 +1835,62 @@ const TABLES: &[TableSpec] = &[
         name: "signin_identity",
         select: "SELECT account_id,address,seen_at,event_id FROM signin_identity",
         insert: "INSERT INTO signin_identity(account_id,address,seen_at,event_id) VALUES(?1,?2,?3,?4)",
-        map: |r| vec![t(r,"account_id"),t(r,"address"),i(r,"seen_at"),t(r,"event_id")],
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "address"),
+                i(r, "seen_at"),
+                t(r, "event_id"),
+            ]
+        },
     },
     TableSpec {
         name: "auth_source_failure",
         select: "SELECT surface,source_ip,attempts_json,locked_until,expires_at,revision FROM auth_source_failure",
         insert: "INSERT INTO auth_source_failure(surface,source_ip,attempts_json,locked_until,expires_at,revision) VALUES(?1,?2,?3,?4,?5,?6)",
-        map: |r| vec![t(r,"surface"),t(r,"source_ip"),t(r,"attempts_json"),i(r,"locked_until"),i(r,"expires_at"),t(r,"revision")],
+        map: |r| {
+            vec![
+                t(r, "surface"),
+                t(r, "source_ip"),
+                t(r, "attempts_json"),
+                i(r, "locked_until"),
+                i(r, "expires_at"),
+                t(r, "revision"),
+            ]
+        },
     },
     TableSpec {
-        name:"request_protection_subject",
-        select:"SELECT subject_key,subject_kind,state_json,updated_at,expires_at,revision FROM request_protection_subject",
-        insert:"INSERT INTO request_protection_subject(subject_key,subject_kind,state_json,updated_at,expires_at,revision) VALUES(?1,?2,?3,?4,?5,?6)",
-        map:|r|vec![t(r,"subject_key"),t(r,"subject_kind"),t(r,"state_json"),i(r,"updated_at"),i(r,"expires_at"),t(r,"revision")],
+        name: "request_protection_subject",
+        select: "SELECT subject_key,subject_kind,state_json,updated_at,expires_at,revision FROM request_protection_subject",
+        insert: "INSERT INTO request_protection_subject(subject_key,subject_kind,state_json,updated_at,expires_at,revision) VALUES(?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "subject_key"),
+                t(r, "subject_kind"),
+                t(r, "state_json"),
+                i(r, "updated_at"),
+                i(r, "expires_at"),
+                t(r, "revision"),
+            ]
+        },
     },
     TableSpec {
-        name:"request_protection_event",
-        select:"SELECT id,subject_key,subject_kind,observed_at,reason,action,enforced,retry_after_secs,counts_json FROM request_protection_event",
-        insert:"INSERT INTO request_protection_event(id,subject_key,subject_kind,observed_at,reason,action,enforced,retry_after_secs,counts_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
-        map:|r|vec![t(r,"id"),t(r,"subject_key"),t(r,"subject_kind"),i(r,"observed_at"),t(r,"reason"),t(r,"action"),i(r,"enforced"),i(r,"retry_after_secs"),t(r,"counts_json")],
+        name: "request_protection_event",
+        select: "SELECT id,subject_key,subject_kind,observed_at,reason,action,enforced,retry_after_secs,counts_json FROM request_protection_event",
+        insert: "INSERT INTO request_protection_event(id,subject_key,subject_kind,observed_at,reason,action,enforced,retry_after_secs,counts_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "subject_key"),
+                t(r, "subject_kind"),
+                i(r, "observed_at"),
+                t(r, "reason"),
+                t(r, "action"),
+                i(r, "enforced"),
+                i(r, "retry_after_secs"),
+                t(r, "counts_json"),
+            ]
+        },
     },
     TableSpec {
         name: "remembered_device",
@@ -2392,19 +2575,47 @@ const TABLES: &[TableSpec] = &[
         name: "nextcloud_instance",
         select: "SELECT id,name,base_url,enabled,revision,ca_pem FROM nextcloud_instance",
         insert: "INSERT INTO nextcloud_instance(id,name,base_url,enabled,revision,ca_pem) VALUES(?1,?2,?3,?4,?5,?6)",
-        map: |r| vec![t(r, "id"), t(r, "name"), t(r, "base_url"), i(r, "enabled"), t(r, "revision"), t(r, "ca_pem")],
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "name"),
+                t(r, "base_url"),
+                i(r, "enabled"),
+                t(r, "revision"),
+                t(r, "ca_pem"),
+            ]
+        },
     },
     TableSpec {
         name: "nextcloud_account_link",
         select: "SELECT account_id,instance_id,instance_revision,username,sealed_password,revision FROM nextcloud_account_link",
         insert: "INSERT INTO nextcloud_account_link(account_id,instance_id,instance_revision,username,sealed_password,revision) VALUES(?1,?2,?3,?4,?5,?6)",
-        map: |r| vec![t(r, "account_id"), t(r, "instance_id"), t(r, "instance_revision"), t(r, "username"), b(r, "sealed_password"), t(r, "revision")],
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "instance_id"),
+                t(r, "instance_revision"),
+                t(r, "username"),
+                b(r, "sealed_password"),
+                t(r, "revision"),
+            ]
+        },
     },
     TableSpec {
         name: "nextcloud_pim_binding",
         select: "SELECT account_id,collection_id,kind,instance_id,link_revision,href,enabled FROM nextcloud_pim_binding",
         insert: "INSERT INTO nextcloud_pim_binding(account_id,collection_id,kind,instance_id,link_revision,href,enabled) VALUES(?1,?2,?3,?4,?5,?6,?7)",
-        map: |r| vec![t(r,"account_id"),t(r,"collection_id"),t(r,"kind"),t(r,"instance_id"),t(r,"link_revision"),t(r,"href"),i(r,"enabled")],
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                t(r, "collection_id"),
+                t(r, "kind"),
+                t(r, "instance_id"),
+                t(r, "link_revision"),
+                t(r, "href"),
+                i(r, "enabled"),
+            ]
+        },
     },
     TableSpec {
         name: "metric_rollup",

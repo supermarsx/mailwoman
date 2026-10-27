@@ -632,24 +632,78 @@ async fn session_revocation_refuses_a_stale_selected_account_before_mutating() {
     let addr = spawn_server(&db).await;
     let base = format!("http://{addr}");
     let store = seed_store(&db).await;
-    store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
-        key:"signin.retryCooldownSecs".into(), global_value:Some("0".into()),
-        allow_user_override:false,global_locked:false,updated_by:"fixture".into(),updated_at:1,
-    }).await.unwrap();
-    let first=client();let other=client();
-    for client in [&first,&other] {
-        assert_eq!(post(client,format!("{base}/api/login"),login_body(&mock)).await.status(),200);
+    store
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "signin.retryCooldownSecs".into(),
+            global_value: Some("0".into()),
+            allow_user_override: false,
+            global_locked: false,
+            updated_by: "fixture".into(),
+            updated_at: 1,
+        })
+        .await
+        .unwrap();
+    let first = client();
+    let other = client();
+    for client in [&first, &other] {
+        assert_eq!(
+            post(client, format!("{base}/api/login"), login_body(&mock))
+                .await
+                .status(),
+            200
+        );
     }
-    let me:Value=first.get(format!("{base}/api/me")).send().await.unwrap().json().await.unwrap();
-    let response=first.post(format!("{base}/api/account/sessions/revoke"))
-        .header("x-mailwoman-account","not-the-authenticated-account").json(&json!({"all":true})).send().await.unwrap();
-    assert_eq!(response.status(),409);
-    assert_eq!(other.get(format!("{base}/api/me")).send().await.unwrap().status(),200);
-    let response=first.post(format!("{base}/api/account/sessions/revoke"))
-        .header("x-mailwoman-account",me["accountId"].as_str().unwrap()).json(&json!({"all":true})).send().await.unwrap();
-    assert_eq!(response.status(),200);
-    assert_eq!(other.get(format!("{base}/api/me")).send().await.unwrap().status(),401);
-    assert_eq!(first.get(format!("{base}/api/me")).send().await.unwrap().status(),200);
+    let me: Value = first
+        .get(format!("{base}/api/me"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let response = first
+        .post(format!("{base}/api/account/sessions/revoke"))
+        .header("x-mailwoman-account", "not-the-authenticated-account")
+        .json(&json!({"all":true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 409);
+    assert_eq!(
+        other
+            .get(format!("{base}/api/me"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let response = first
+        .post(format!("{base}/api/account/sessions/revoke"))
+        .header("x-mailwoman-account", me["accountId"].as_str().unwrap())
+        .json(&json!({"all":true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        other
+            .get(format!("{base}/api/me"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    assert_eq!(
+        first
+            .get(format!("{base}/api/me"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
 }
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
@@ -752,15 +806,36 @@ async fn passkey_status_defaults_enabled_and_reports_explicit_effective_policy()
     let login = post(&browser, format!("{base}/api/login"), login_body(&mock)).await;
     assert_eq!(login.status(), 200);
     assert!(set_session_cookie(&login));
-    let status: Value = browser.get(format!("{base}/api/account/2fa")).send().await.unwrap().json().await.unwrap();
+    let status: Value = browser
+        .get(format!("{base}/api/account/2fa"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(status["passkeysEnabled"], true);
     let store = seed_store(&db).await;
     for enabled in [false, true] {
-        store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
-            key: "twofa.passkeysEnabled".into(), global_value: Some(enabled.to_string()),
-            allow_user_override: false, global_locked: true, updated_by: "fixture".into(), updated_at: 1,
-        }).await.unwrap();
-        let status: Value = browser.get(format!("{base}/api/account/2fa")).send().await.unwrap().json().await.unwrap();
+        store
+            .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+                key: "twofa.passkeysEnabled".into(),
+                global_value: Some(enabled.to_string()),
+                allow_user_override: false,
+                global_locked: true,
+                updated_by: "fixture".into(),
+                updated_at: 1,
+            })
+            .await
+            .unwrap();
+        let status: Value = browser
+            .get(format!("{base}/api/account/2fa"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
         assert_eq!(status["passkeysEnabled"], enabled);
     }
 }

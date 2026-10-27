@@ -48,7 +48,9 @@ pub(crate) async fn plugin_policy_admit(
             Ok(row) => row.username,
             // Account-scoped plugin hosts are native account capabilities. A raw
             // upstream account ID or a guessed session name cannot establish one.
-            Err(mw_store::StoreError::NotFound) => return Err("native plugin identity unavailable".into()),
+            Err(mw_store::StoreError::NotFound) => {
+                return Err("native plugin identity unavailable".into());
+            }
             Err(_) => return Err("plugin identity unavailable".into()),
         }
     };

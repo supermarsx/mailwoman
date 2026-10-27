@@ -3,7 +3,58 @@
 use super::*;
 use std::collections::{BTreeMap, HashSet};
 
-const FOLDER_ICONS: &[&str] = &["folder","star","flag","tag","clock","calendar","file","image","lock","users","archive","mail","attachment","check","alert","inbox","sent","edit","delete","spam","search","pin","link","shield","unlock","fileAudio","fileVideo","filePdf","fileCode","print","download","preferences","dashboard","analytics","nextcloud","domains","twofactor","assistant","integrations","logs","home","briefcase","heart","shopping","education","travel","coffee","gift","bank","book"];
+const FOLDER_ICONS: &[&str] = &[
+    "folder",
+    "star",
+    "flag",
+    "tag",
+    "clock",
+    "calendar",
+    "file",
+    "image",
+    "lock",
+    "users",
+    "archive",
+    "mail",
+    "attachment",
+    "check",
+    "alert",
+    "inbox",
+    "sent",
+    "edit",
+    "delete",
+    "spam",
+    "search",
+    "pin",
+    "link",
+    "shield",
+    "unlock",
+    "fileAudio",
+    "fileVideo",
+    "filePdf",
+    "fileCode",
+    "print",
+    "download",
+    "preferences",
+    "dashboard",
+    "analytics",
+    "nextcloud",
+    "domains",
+    "twofactor",
+    "assistant",
+    "integrations",
+    "logs",
+    "home",
+    "briefcase",
+    "heart",
+    "shopping",
+    "education",
+    "travel",
+    "coffee",
+    "gift",
+    "bank",
+    "book",
+];
 
 const MAX_BYTES: usize = 65_536;
 
@@ -61,7 +112,7 @@ pub(super) struct Preferences {
     #[serde(skip_serializing_if = "Option::is_none")]
     tags: Option<BTreeMap<String, Tag>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    folder_labels: Option<BTreeMap<String,Vec<String>>>,
+    folder_labels: Option<BTreeMap<String, Vec<String>>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -100,7 +151,16 @@ fn valid(document: &Document) -> bool {
             &p.keyboard_preset,
             &["default", "gmail", "outlook", "vim", "off"],
         )
-        && choices(&p.workspace_layout, &["tabs", "side-by-side", "stack", "masonry-side-by-side", "masonry-stack"])
+        && choices(
+            &p.workspace_layout,
+            &[
+                "tabs",
+                "side-by-side",
+                "stack",
+                "masonry-side-by-side",
+                "masonry-stack",
+            ],
+        )
         && choices(&p.folder_sidebar_mode, &["expanded", "compact", "hidden"])
         && p.folder_sidebar_width
             .is_none_or(|v| (160..=600).contains(&v))
@@ -119,20 +179,43 @@ fn valid(document: &Document) -> bool {
         && p.offline_retention_days.is_none_or(|v| v <= 36_500)
         && valid_ids(&p.folder_pinned)
         && valid_ids(&p.folder_order)
-        && p.folder_labels.as_ref().is_none_or(|folders|folders.len()<=500 && folders.iter().all(|(id,labels)|valid_id(id) && labels.len()<=32 && labels.iter().collect::<HashSet<_>>().len()==labels.len() && labels.iter().all(|keyword|!keyword.is_empty()&&keyword.len()<=255&&keyword.bytes().all(|byte|byte.is_ascii_alphanumeric()||b"_-".contains(&byte)))))
-        && p.tags.as_ref().is_none_or(|tags|tags.len()<=100 && tags.iter().all(|(id,tag)| {
-            !id.is_empty() && id.len()<=255 && id.bytes().all(|byte|byte.is_ascii_alphanumeric()||b"_-".contains(&byte))
-            && !tag.name.trim().is_empty() && tag.name.chars().count()<=128 && !tag.name.chars().any(char::is_control)
-            && tag.color.len()==7 && tag.color.starts_with('#') && tag.color[1..].bytes().all(|byte|byte.is_ascii_hexdigit())
-            && FOLDER_ICONS.contains(&tag.icon.as_str())
-        }))
+        && p.folder_labels.as_ref().is_none_or(|folders| {
+            folders.len() <= 500
+                && folders.iter().all(|(id, labels)| {
+                    valid_id(id)
+                        && labels.len() <= 32
+                        && labels.iter().collect::<HashSet<_>>().len() == labels.len()
+                        && labels.iter().all(|keyword| {
+                            !keyword.is_empty()
+                                && keyword.len() <= 255
+                                && keyword.bytes().all(|byte| {
+                                    byte.is_ascii_alphanumeric() || b"_-".contains(&byte)
+                                })
+                        })
+                })
+        })
+        && p.tags.as_ref().is_none_or(|tags| {
+            tags.len() <= 100
+                && tags.iter().all(|(id, tag)| {
+                    !id.is_empty()
+                        && id.len() <= 255
+                        && id
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+                        && !tag.name.trim().is_empty()
+                        && tag.name.chars().count() <= 128
+                        && !tag.name.chars().any(char::is_control)
+                        && tag.color.len() == 7
+                        && tag.color.starts_with('#')
+                        && tag.color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+                        && FOLDER_ICONS.contains(&tag.icon.as_str())
+                })
+        })
         && p.folder_icons.as_ref().is_none_or(|icons| {
             icons.len() <= 500
-                && icons.iter().all(|(id, icon)| {
-                    valid_id(id)
-                        && FOLDER_ICONS
-                        .contains(&icon.as_str())
-                })
+                && icons
+                    .iter()
+                    .all(|(id, icon)| valid_id(id) && FOLDER_ICONS.contains(&icon.as_str()))
         })
 }
 
@@ -152,7 +235,10 @@ pub(super) async fn load(State(state): State<AppState>, headers: HeaderMap) -> R
         Ok(v) => v,
         Err(r) => return r,
     };
-    let account = match personal_storage::owner(&state, &session, &headers, false).await { Ok(owner) => owner, Err(response) => return response };
+    let account = match personal_storage::owner(&state, &session, &headers, false).await {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
     match state.store.get_setting(&key(&account)).await {
         Ok(Some(raw)) => match serde_json::from_str::<Stored>(&raw) {
             Ok(stored) => response(stored.document, &stored.revision),
@@ -178,7 +264,10 @@ pub(super) async fn save(
         Ok(v) => v,
         Err(r) => return r,
     };
-    let account = match personal_storage::owner(&state, &session, &headers, true).await { Ok(owner) => owner, Err(response) => return response };
+    let account = match personal_storage::owner(&state, &session, &headers, true).await {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
     if !valid(&document) {
         return bad_request("invalid UI preferences");
     }
@@ -224,11 +313,23 @@ pub(super) async fn save(
 mod tests {
     #[test]
     fn five_workspace_modes_are_valid_but_unknown_layouts_are_rejected() {
-        for layout in ["tabs", "side-by-side", "stack", "masonry-side-by-side", "masonry-stack"] {
-            let document: super::Document = serde_json::from_value(serde_json::json!({"version":1,"preferences":{"workspaceLayout":layout}})).unwrap();
+        for layout in [
+            "tabs",
+            "side-by-side",
+            "stack",
+            "masonry-side-by-side",
+            "masonry-stack",
+        ] {
+            let document: super::Document = serde_json::from_value(
+                serde_json::json!({"version":1,"preferences":{"workspaceLayout":layout}}),
+            )
+            .unwrap();
             assert!(super::valid(&document), "{layout}");
         }
-        let document: super::Document = serde_json::from_value(serde_json::json!({"version":1,"preferences":{"workspaceLayout":"unsupported"}})).unwrap();
+        let document: super::Document = serde_json::from_value(
+            serde_json::json!({"version":1,"preferences":{"workspaceLayout":"unsupported"}}),
+        )
+        .unwrap();
         assert!(!super::valid(&document));
     }
     #[test]

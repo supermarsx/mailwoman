@@ -762,7 +762,13 @@ async fn saved_search_folder_runs_its_filter() {
     let h = setup().await;
     h.engine.resync(&h.account_id).await.unwrap();
 
-    let owner = h.engine.store().native_personal_subject(&h.account_id).await.unwrap().unwrap();
+    let owner = h
+        .engine
+        .store()
+        .native_personal_subject(&h.account_id)
+        .await
+        .unwrap()
+        .unwrap();
     // Register a saved search "attachments" as a folder, then query it.
     h.engine
         .store()
@@ -838,7 +844,7 @@ async fn saved_search_folder_runs_its_filter() {
         }
         h.engine
             .store()
-            .delete_personal_saved_search(&user,"ss-private")
+            .delete_personal_saved_search(&user, "ss-private")
             .await
             .unwrap();
     }

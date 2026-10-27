@@ -569,7 +569,15 @@ async fn native_preferences_expose_etags_and_allow_cas_without_widening_origins(
     let base = spawn_server(&mock).await;
     let c = client();
     let token = native_login(&c, &base, &mock, TAURI).await;
-    let me: serde_json::Value = c.get(format!("{base}/api/me")).bearer_auth(&token).send().await.unwrap().json().await.unwrap();
+    let me: serde_json::Value = c
+        .get(format!("{base}/api/me"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let authority = me["storageAuthority"].as_str().unwrap();
     let endpoint = format!("{base}/api/account/preferences");
     let preflight = c
@@ -591,7 +599,13 @@ async fn native_preferences_expose_etags_and_allow_cas_without_widening_origins(
             .split(',')
             .any(|v| v.trim() == "if-match")
     );
-    assert!(preflight.headers()["access-control-allow-headers"].to_str().unwrap().split(',').any(|value| value.trim()=="x-mailwoman-account"));
+    assert!(
+        preflight.headers()["access-control-allow-headers"]
+            .to_str()
+            .unwrap()
+            .split(',')
+            .any(|value| value.trim() == "x-mailwoman-account")
+    );
     let loaded = c
         .get(&endpoint)
         .header("origin", TAURI)
@@ -603,7 +617,8 @@ async fn native_preferences_expose_etags_and_allow_cas_without_widening_origins(
     assert_eq!(loaded.headers()["access-control-expose-headers"], "etag");
     let etag = loaded.headers()["etag"].clone();
     let saved = c
-        .put(&endpoint).header("x-mailwoman-storage-authority", authority)
+        .put(&endpoint)
+        .header("x-mailwoman-storage-authority", authority)
         .header("origin", TAURI)
         .bearer_auth(&token)
         .header("if-match", etag)

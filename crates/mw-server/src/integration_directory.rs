@@ -646,7 +646,12 @@ mod tests {
             updated_at: String::new(),
         };
         store.put_egress_proxy(&proxy).await.unwrap();
-        assert!(store.set_active_egress_proxy(Some(&proxy.id)).await.unwrap());
+        assert!(
+            store
+                .set_active_egress_proxy(Some(&proxy.id))
+                .await
+                .unwrap()
+        );
         assert!(
             live.search_gal("alice", 0).await.is_err(),
             "a running directory must not bypass a newly active proxy"

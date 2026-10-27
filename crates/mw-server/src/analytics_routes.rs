@@ -56,7 +56,12 @@ async fn user_status(State(state): State<AppState>, headers: HeaderMap) -> Respo
         Ok(session) => session,
         Err(response) => return response,
     };
-    let storage_owner = match crate::prefs_routes::personal_storage::owner(&state, &session, &headers, false).await { Ok(owner) => owner, Err(response) => return response };
+    let storage_owner =
+        match crate::prefs_routes::personal_storage::owner(&state, &session, &headers, false).await
+        {
+            Ok(owner) => owner,
+            Err(response) => return response,
+        };
     let enabled = analytics_config::load(&state.store)
         .await
         .is_ok_and(|config| config.enabled);
@@ -71,7 +76,12 @@ async fn event(
         Ok(session) => session,
         Err(response) => return response,
     };
-    let storage_owner = match crate::prefs_routes::personal_storage::owner(&state, &session, &headers, false).await { Ok(owner) => owner, Err(response) => return response };
+    let storage_owner =
+        match crate::prefs_routes::personal_storage::owner(&state, &session, &headers, false).await
+        {
+            Ok(owner) => owner,
+            Err(response) => return response,
+        };
     if analytics_runtime::privacy_signal(&headers)
         || !analytics_runtime::consent(&state.store, &storage_owner).await
     {

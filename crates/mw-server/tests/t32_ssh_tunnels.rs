@@ -247,15 +247,34 @@ async fn saved_tunnel_pins_and_https_authority_are_enforced_end_to_end() {
     )
     .await;
     // Discover an unsaved authority without credentials or saved trust.
-    let inspection = json!({"host":"127.0.0.1","port":ssh_port,"allowPrivate":true,"connectTimeoutMs":3000});
-    let (_, discovered) = body(client.post(format!("{url}/inspect-host-key")).json(&inspection).send().await.unwrap(), 200).await;
+    let inspection =
+        json!({"host":"127.0.0.1","port":ssh_port,"allowPrivate":true,"connectTimeoutMs":3000});
+    let (_, discovered) = body(
+        client
+            .post(format!("{url}/inspect-host-key"))
+            .json(&inspection)
+            .send()
+            .await
+            .unwrap(),
+        200,
+    )
+    .await;
     assert_eq!(discovered, pin);
     assert_eq!(auth.load(Ordering::SeqCst), 0);
     let (_, unsaved) = body(client.get(&url).send().await.unwrap(), 200).await;
     assert!(unsaved["tunnels"].as_array().unwrap().is_empty());
     let mut refused = inspection.clone();
     refused["allowPrivate"] = json!(false);
-    assert_eq!(client.post(format!("{url}/inspect-host-key")).json(&refused).send().await.unwrap().status(), 409);
+    assert_eq!(
+        client
+            .post(format!("{url}/inspect-host-key"))
+            .json(&refused)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        409
+    );
     let (etag, row) = body(client.post(&url).json(&config).send().await.unwrap(), 201).await;
     assert!(!row.to_string().contains("ssh-test-secret"));
     let saved = format!("{url}/{}", row["id"].as_str().unwrap());

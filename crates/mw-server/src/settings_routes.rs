@@ -427,18 +427,40 @@ fn camel(scope: SettingScope) -> &'static str {
 
 fn require_last_superadmin_match(headers: &HeaderMap, current: &str) -> Result<(), AdminApiError> {
     match headers.get(axum::http::header::IF_MATCH) {
-        None => Err(AdminApiError::new(StatusCode::PRECONDITION_REQUIRED, "preconditionRequired", "Read this setting and send its exact If-Match version before changing last Super admin protection.")),
+        None => Err(AdminApiError::new(
+            StatusCode::PRECONDITION_REQUIRED,
+            "preconditionRequired",
+            "Read this setting and send its exact If-Match version before changing last Super admin protection.",
+        )),
         Some(value) if value.to_str().ok() == Some(current) => Ok(()),
         Some(_) => Err(AdminApiError::stale(None, None)),
     }
 }
 
-async fn require_last_superadmin_policy_writer(state: &AppState, ctx: &AdminCtx) -> Result<(), AdminApiError> {
-    let id = ctx.account_id.as_deref().ok_or_else(|| AdminApiError::new(StatusCode::FORBIDDEN, "superAdminRequired", "A full Super admin account is required."))?;
-    let account = state.store.get_admin_account(id).await?
-        .ok_or_else(|| AdminApiError::new(StatusCode::FORBIDDEN, "superAdminRequired", "A full Super admin account is required."))?;
+async fn require_last_superadmin_policy_writer(
+    state: &AppState,
+    ctx: &AdminCtx,
+) -> Result<(), AdminApiError> {
+    let id = ctx.account_id.as_deref().ok_or_else(|| {
+        AdminApiError::new(
+            StatusCode::FORBIDDEN,
+            "superAdminRequired",
+            "A full Super admin account is required.",
+        )
+    })?;
+    let account = state.store.get_admin_account(id).await?.ok_or_else(|| {
+        AdminApiError::new(
+            StatusCode::FORBIDDEN,
+            "superAdminRequired",
+            "A full Super admin account is required.",
+        )
+    })?;
     if !crate::admin_roles::is_full_super(state, &account).await? {
-        return Err(AdminApiError::new(StatusCode::FORBIDDEN, "superAdminRequired", "A full Super admin account is required."));
+        return Err(AdminApiError::new(
+            StatusCode::FORBIDDEN,
+            "superAdminRequired",
+            "A full Super admin account is required.",
+        ));
     }
     crate::step_up::require_admin(state, ctx, crate::step_up::StepUpAction::AdminRoleChange).await
 }
@@ -455,7 +477,9 @@ async fn put_global(
     registry::refuse_if_dedicated(def).map_err(refusal)?;
     let current = state.store.get_setting_policy(&key).await?;
     let stored = policy_json(current.as_ref());
-    if key == "admin.allowLastSuperadminLoss" && !body.dry_run { require_last_superadmin_match(&headers, &etag_of(&stored))?; }
+    if key == "admin.allowLastSuperadminLoss" && !body.dry_run {
+        require_last_superadmin_match(&headers, &etag_of(&stored))?;
+    }
     check_if_match(
         &headers,
         &etag_of(&stored),
@@ -522,8 +546,15 @@ async fn put_global(
     }
     if key == "admin.allowLastSuperadminLoss" {
         require_last_superadmin_policy_writer(&state, &ctx).await?;
-        if global_value.as_deref() == Some("true") && current.as_ref().and_then(|p| p.global_value.as_deref()) != Some("true") && !body.confirm_last_superadmin_loss {
-            return Err(AdminApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "confirmationRequired", "Confirm that subsequent changes may leave this deployment without any Super admin access."));
+        if global_value.as_deref() == Some("true")
+            && current.as_ref().and_then(|p| p.global_value.as_deref()) != Some("true")
+            && !body.confirm_last_superadmin_loss
+        {
+            return Err(AdminApiError::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "confirmationRequired",
+                "Confirm that subsequent changes may leave this deployment without any Super admin access.",
+            ));
         }
     }
     let row = SettingPolicyRow {
@@ -534,10 +565,16 @@ async fn put_global(
         updated_by: ctx.username.clone(),
         updated_at: now(),
     };
-    if !state.store.compare_setting_policy(&key, current.as_ref(), Some(&row)).await? {
+    if !state
+        .store
+        .compare_setting_policy(&key, current.as_ref(), Some(&row))
+        .await?
+    {
         return Err(AdminApiError::stale(None, None));
     }
-    if key.starts_with("security.protection.") { state.request_protection.invalidate(); }
+    if key.starts_with("security.protection.") {
+        state.request_protection.invalidate();
+    }
     audit(
         &state,
         &ctx,
@@ -557,22 +594,32 @@ async fn delete_global(
     UrlPath(key): UrlPath<String>,
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::SettingsWrite)?;
-    if key == "admin.allowLastSuperadminLoss" { require_last_superadmin_policy_writer(&state, &ctx).await?; }
+    if key == "admin.allowLastSuperadminLoss" {
+        require_last_superadmin_policy_writer(&state, &ctx).await?;
+    }
     let def = def_of(&key)?;
     registry::refuse_if_dedicated(def).map_err(refusal)?;
     let current = state.store.get_setting_policy(&key).await?;
     let stored = policy_json(current.as_ref());
-    if key == "admin.allowLastSuperadminLoss" { require_last_superadmin_match(&headers, &etag_of(&stored))?; }
+    if key == "admin.allowLastSuperadminLoss" {
+        require_last_superadmin_match(&headers, &etag_of(&stored))?;
+    }
     check_if_match(
         &headers,
         &etag_of(&stored),
         current.as_ref().map(|p| p.updated_by.as_str()),
         current.as_ref().map(|p| p.updated_at),
     )?;
-    if !state.store.compare_setting_policy(&key, current.as_ref(), None).await? {
+    if !state
+        .store
+        .compare_setting_policy(&key, current.as_ref(), None)
+        .await?
+    {
         return Err(AdminApiError::stale(None, None));
     }
-    if key.starts_with("security.protection.") { state.request_protection.invalidate(); }
+    if key.starts_with("security.protection.") {
+        state.request_protection.invalidate();
+    }
     if current.is_some() {
         audit(
             &state,
@@ -1290,7 +1337,11 @@ async fn user_put(
         Ok(s) => s,
         Err(r) => return r,
     };
-    if let Err(response)=crate::prefs_routes::personal_storage::owner(&state,&session,&headers,true).await {return response;}
+    if let Err(response) =
+        crate::prefs_routes::personal_storage::owner(&state, &session, &headers, true).await
+    {
+        return response;
+    }
 
     let def = match user_def(&key) {
         Ok(d) => d,
@@ -1368,7 +1419,11 @@ async fn user_delete(
         Ok(s) => s,
         Err(r) => return r,
     };
-    if let Err(response)=crate::prefs_routes::personal_storage::owner(&state,&session,&headers,true).await {return response;}
+    if let Err(response) =
+        crate::prefs_routes::personal_storage::owner(&state, &session, &headers, true).await
+    {
+        return response;
+    }
 
     if let Err(r) = user_def(&key).and_then(|_| refuse_elsewhere(&key)) {
         return r;

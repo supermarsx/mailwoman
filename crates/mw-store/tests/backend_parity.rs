@@ -649,7 +649,10 @@ async fn run_ops(s: &Store) -> Vec<String> {
             .map(|c| c.force_change)
     ));
 
-    s.upsert_signature(&SignatureRow { html: Some("<p>Rich signature</p>".into()), text: Some("Independent plain signature".into()), text_edited: true,
+    s.upsert_signature(&SignatureRow {
+        html: Some("<p>Rich signature</p>".into()),
+        text: Some("Independent plain signature".into()),
+        text_edited: true,
         account_id: account.clone(),
         name: "work".into(),
         body: "-- \nSent from Mailwoman".into(),
@@ -1028,19 +1031,58 @@ async fn migrate_store_sqlite_to_postgres() {
 /// deployment, or an admin/deployment surface the operator re-configures on the
 /// new host. `(table, reason)`.
 const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
-    ("linked_challenge", "MFA continuations reference process-local pending proofs; sign in again after a store move."),
-    ("oidc_browser_flow", "0057: short-lived browser-bound pre-login requests expire and must restart after deployment migration."),
-    ("oidc_provider_config", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
-    ("oidc_client", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
-    ("oidc_signing_key", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
-    ("oidc_consent", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
-    ("oidc_authorization", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
-    ("oidc_grant", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
-    ("oidc_code", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
-    ("oidc_token", "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination."),
-    ("signin_challenge", "Ephemeral single-use login proofs are deployment-local; omitting issued nonces fails closed and requires fresh verification."),
-    ("identity_serialization", "Structural singleton seeded by migration 0043; contains no identity or authorization data."),
-    ("hosting_connection", "Panel host authority and sealed provisioning credentials are deployment-local, like directory and tunnel configuration; re-approve on the new deployment."),
+    (
+        "linked_challenge",
+        "MFA continuations reference process-local pending proofs; sign in again after a store move.",
+    ),
+    (
+        "oidc_browser_flow",
+        "0057: short-lived browser-bound pre-login requests expire and must restart after deployment migration.",
+    ),
+    (
+        "oidc_provider_config",
+        "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination.",
+    ),
+    (
+        "oidc_client",
+        "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination.",
+    ),
+    (
+        "oidc_signing_key",
+        "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination.",
+    ),
+    (
+        "oidc_consent",
+        "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination.",
+    ),
+    (
+        "oidc_authorization",
+        "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination.",
+    ),
+    (
+        "oidc_grant",
+        "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination.",
+    ),
+    (
+        "oidc_code",
+        "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination.",
+    ),
+    (
+        "oidc_token",
+        "0056: OIDC issuer/client/key/consent and live token authority belongs to the old deployment, like excluded oauth_clients; reconfigure and reauthorize on the destination.",
+    ),
+    (
+        "signin_challenge",
+        "Ephemeral single-use login proofs are deployment-local; omitting issued nonces fails closed and requires fresh verification.",
+    ),
+    (
+        "identity_serialization",
+        "Structural singleton seeded by migration 0043; contains no identity or authorization data.",
+    ),
+    (
+        "hosting_connection",
+        "Panel host authority and sealed provisioning credentials are deployment-local, like directory and tunnel configuration; re-approve on the new deployment.",
+    ),
     (
         "admin_users",
         "0007: the admin panel is a separate identity domain from mail accounts; the \
@@ -1788,12 +1830,14 @@ async fn assert_carried_surfaces(dest: &Store, account: &str, stable_id: &str, r
     }
 
     let sigs = dest.list_signatures(account).await.unwrap();
-    if !sigs
-        .iter()
-        .any(|s| s.name == "work" && s.body.contains("Sent from Mailwoman") && s.is_default
+    if !sigs.iter().any(|s| {
+        s.name == "work"
+            && s.body.contains("Sent from Mailwoman")
+            && s.is_default
             && s.html.as_deref() == Some("<p>Rich signature</p>")
-            && s.text.as_deref() == Some("Independent plain signature") && s.text_edited)
-    {
+            && s.text.as_deref() == Some("Independent plain signature")
+            && s.text_edited
+    }) {
         lost.push(format!(
             "signatures: the user's authored signature is gone ({} row(s) present)",
             sigs.len()
@@ -3677,7 +3721,9 @@ mod admin_controls_0033 {
                 res.is_ok() && violations == Some(1)
             } else {
                 let mut statements = vec![del, orphan];
-                if *child == "account_provider" { statements.push(("SET CONSTRAINTS ALL IMMEDIATE".into(), vec![])); }
+                if *child == "account_provider" {
+                    statements.push(("SET CONSTRAINTS ALL IMMEDIATE".into(), vec![]));
+                }
                 let (res, _) = c.in_rollback(&statements, None).await;
                 res.is_err()
             };

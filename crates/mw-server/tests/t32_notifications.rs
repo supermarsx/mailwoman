@@ -61,8 +61,8 @@ async fn notification_policy_and_push_ownership_are_enforced_hot() {
         .await
         .unwrap();
     assert_eq!(login.status(), 200);
-    let logged_in=login.json::<Value>().await.unwrap();
-    let authority=logged_in["storageAuthority"].as_str().unwrap();
+    let logged_in = login.json::<Value>().await.unwrap();
+    let authority = logged_in["storageAuthority"].as_str().unwrap();
     let config_url = format!("{base}/api/account/notifications");
     let config: Value = client
         .get(&config_url)
@@ -79,7 +79,8 @@ async fn notification_policy_and_push_ownership_are_enforced_hot() {
     assert_eq!(
         client
             .post(format!("{base}/api/push/subscribe"))
-            .header("x-mailwoman-storage-authority",authority).json(&subscribe)
+            .header("x-mailwoman-storage-authority", authority)
+            .json(&subscribe)
             .send()
             .await
             .unwrap()
@@ -90,7 +91,8 @@ async fn notification_policy_and_push_ownership_are_enforced_hot() {
     assert_eq!(
         client
             .put(&config_url)
-            .header("x-mailwoman-storage-authority",authority).json(&config)
+            .header("x-mailwoman-storage-authority", authority)
+            .json(&config)
             .send()
             .await
             .unwrap()
@@ -99,7 +101,8 @@ async fn notification_policy_and_push_ownership_are_enforced_hot() {
     );
     let first: Value = client
         .post(format!("{base}/api/push/subscribe"))
-        .header("x-mailwoman-storage-authority",authority).json(&subscribe)
+        .header("x-mailwoman-storage-authority", authority)
+        .json(&subscribe)
         .send()
         .await
         .unwrap()
@@ -107,10 +110,16 @@ async fn notification_policy_and_push_ownership_are_enforced_hot() {
         .await
         .unwrap();
     assert!(first["id"].is_string());
-    let owner:String=sqlx::query_scalar("SELECT owner_subject FROM personal_push_subscription WHERE id=?1").bind(first["id"].as_str().unwrap()).fetch_one(&pool).await.unwrap();
+    let owner: String =
+        sqlx::query_scalar("SELECT owner_subject FROM personal_push_subscription WHERE id=?1")
+            .bind(first["id"].as_str().unwrap())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let again: Value = client
         .post(format!("{base}/api/push/subscribe"))
-        .header("x-mailwoman-storage-authority",authority).json(&subscribe)
+        .header("x-mailwoman-storage-authority", authority)
+        .json(&subscribe)
         .send()
         .await
         .unwrap()
@@ -136,7 +145,8 @@ async fn notification_policy_and_push_ownership_are_enforced_hot() {
         assert_eq!(
             client
                 .post(format!("{base}/api/push/unsubscribe"))
-                .header("x-mailwoman-storage-authority",authority).json(&body)
+                .header("x-mailwoman-storage-authority", authority)
+                .json(&body)
                 .send()
                 .await
                 .unwrap()
@@ -155,15 +165,23 @@ async fn notification_policy_and_push_ownership_are_enforced_hot() {
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
     let foreign = client
-        .get(format!("{base}/api/push/permission?endpointHash={foreign_hash}"))
-        .send().await.unwrap().json::<Value>().await.unwrap();
+        .get(format!(
+            "{base}/api/push/permission?endpointHash={foreign_hash}"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
     assert_eq!(foreign["allowed"], false);
     assert_eq!(foreign["registered"], false);
 
     assert_eq!(
         client
             .post(format!("{base}/api/push/subscribe"))
-            .header("x-mailwoman-storage-authority",authority).json(&json!({"transport":"unifiedpush","endpoint":"https://push.example/foreign"}))
+            .header("x-mailwoman-storage-authority", authority)
+            .json(&json!({"transport":"unifiedpush","endpoint":"https://push.example/foreign"}))
             .send()
             .await
             .unwrap()
@@ -185,7 +203,8 @@ async fn notification_policy_and_push_ownership_are_enforced_hot() {
     assert_eq!(
         client
             .post(format!("{base}/api/push/subscribe"))
-            .header("x-mailwoman-storage-authority",authority).json(&subscribe)
+            .header("x-mailwoman-storage-authority", authority)
+            .json(&subscribe)
             .send()
             .await
             .unwrap()
@@ -197,7 +216,8 @@ async fn notification_policy_and_push_ownership_are_enforced_hot() {
     assert_eq!(
         client
             .put(&config_url)
-            .header("x-mailwoman-storage-authority",authority).json(&config)
+            .header("x-mailwoman-storage-authority", authority)
+            .json(&config)
             .send()
             .await
             .unwrap()
@@ -219,7 +239,8 @@ async fn notification_policy_and_push_ownership_are_enforced_hot() {
     assert_eq!(
         client
             .put(&config_url)
-            .header("x-mailwoman-storage-authority",authority).json(&config)
+            .header("x-mailwoman-storage-authority", authority)
+            .json(&config)
             .send()
             .await
             .unwrap()
@@ -229,7 +250,8 @@ async fn notification_policy_and_push_ownership_are_enforced_hot() {
     assert_eq!(
         client
             .post(format!("{base}/api/push/subscribe"))
-            .header("x-mailwoman-storage-authority",authority).json(&json!({"transport":"unifiedpush","endpoint":"https://127.0.0.1/private"}))
+            .header("x-mailwoman-storage-authority", authority)
+            .json(&json!({"transport":"unifiedpush","endpoint":"https://127.0.0.1/private"}))
             .send()
             .await
             .unwrap()
@@ -239,18 +261,20 @@ async fn notification_policy_and_push_ownership_are_enforced_hot() {
     assert_eq!(
         client
             .post(format!("{base}/api/push/unsubscribe"))
-            .header("x-mailwoman-storage-authority",authority).json(&json!({"id":first["id"]}))
+            .header("x-mailwoman-storage-authority", authority)
+            .json(&json!({"id":first["id"]}))
             .send()
             .await
             .unwrap()
             .status(),
         204
     );
-    let count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM personal_push_subscription WHERE owner_subject=?1")
-            .bind(&owner)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM personal_push_subscription WHERE owner_subject=?1",
+    )
+    .bind(&owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(count, 0);
 }

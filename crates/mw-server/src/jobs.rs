@@ -142,7 +142,10 @@ impl Registry {
             valid_kind(kind),
             "job kind {kind:?} must match [a-z][a-z0-9_]{{0,47}}"
         );
-        assert!(!self.0.contains_key(kind), "job kind {kind} registered twice");
+        assert!(
+            !self.0.contains_key(kind),
+            "job kind {kind} registered twice"
+        );
         self.0.insert(kind.to_string(), spec);
     }
 }
@@ -182,8 +185,7 @@ fn valid_kind(kind: &str) -> bool {
     !b.is_empty()
         && b.len() <= 48
         && b[0].is_ascii_lowercase()
-        && b
-            .iter()
+        && b.iter()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'_')
 }
 
@@ -232,11 +234,24 @@ pub fn kinds() -> Vec<(String, JobSpec)> {
 /// `{"monthly":{"day":1,"at":"03:00","tz":"UTC"}}`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Schedule {
-    Every { secs: u64 },
-    Daily { daily_at: String, tz: String },
-    Weekly { days: Vec<Weekday>, at: String, tz: String },
+    Every {
+        secs: u64,
+    },
+    Daily {
+        daily_at: String,
+        tz: String,
+    },
+    Weekly {
+        days: Vec<Weekday>,
+        at: String,
+        tz: String,
+    },
     /// `day` 1-31; in a shorter month the task runs on its last day.
-    Monthly { day: u32, at: String, tz: String },
+    Monthly {
+        day: u32,
+        at: String,
+        tz: String,
+    },
 }
 
 /// Bounds of `everySecs`: one minute to 31 days.
@@ -471,7 +486,9 @@ pub fn local_at(tz: chrono_tz::Tz, date: NaiveDate, time: NaiveTime) -> Option<D
         match tz.from_local_datetime(&naive) {
             chrono::LocalResult::Single(t) => return Some(t.with_timezone(&Utc)),
             chrono::LocalResult::Ambiguous(first, _) => return Some(first.with_timezone(&Utc)),
-            chrono::LocalResult::None => naive = naive.checked_add_signed(chrono::Duration::minutes(1))?,
+            chrono::LocalResult::None => {
+                naive = naive.checked_add_signed(chrono::Duration::minutes(1))?
+            }
         }
     }
     None
@@ -492,7 +509,10 @@ pub fn tick() -> Duration {
 /// Test seam: change the loop interval of every scheduler in this process.
 #[doc(hidden)]
 pub fn set_tick(d: Duration) {
-    TICK_MS.store(d.as_millis().clamp(10, u64::MAX as u128) as u64, Ordering::Relaxed);
+    TICK_MS.store(
+        d.as_millis().clamp(10, u64::MAX as u128) as u64,
+        Ordering::Relaxed,
+    );
 }
 
 /// The running scheduler of one app.
@@ -547,7 +567,13 @@ fn host_name() -> String {
 fn next_instance() -> String {
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let n = SEQ.fetch_add(1, Ordering::Relaxed);
-    let base = format!("{}@{}:{}:{}", host_name(), process_start(), std::process::id(), uuid::Uuid::new_v4());
+    let base = format!(
+        "{}@{}:{}:{}",
+        host_name(),
+        process_start(),
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    );
     if n == 0 { base } else { format!("{base}/{n}") }
 }
 
@@ -625,10 +651,7 @@ pub(crate) async fn pass(state: &AppState, instance: &str) -> Result<(), mw_stor
         let Some(job) = spec(&t.kind) else {
             // A kind this build does not know (a downgrade, a removed plugin): move
             // the task on so it does not come up on every pass.
-            if store
-                .claim_task_lease(&t.id, instance, ts, ts + 60)
-                .await?
-            {
+            if store.claim_task_lease(&t.id, instance, ts, ts + 60).await? {
                 let next = task_schedule(&t).and_then(|s| s.next_after(now));
                 store
                     .release_task_lease(
@@ -651,11 +674,15 @@ pub(crate) async fn pass(state: &AppState, instance: &str) -> Result<(), mw_stor
         }
         // The editable snapshot may have changed between the due query and
         // lease acquisition. Start/heartbeat also fence concurrent later edits.
-        let Some(t) = store.get_scheduled_task(&t.id).await? else { continue };
+        let Some(t) = store.get_scheduled_task(&t.id).await? else {
+            continue;
+        };
         let schedule = task_schedule(&t);
         let params = serde_json::from_str::<Value>(&t.params_json).ok();
         if schedule.is_none() || !params.as_ref().is_some_and(Value::is_object) {
-            store.release_task_lease(&t.id, instance, None, Some("invalidConfiguration"), None).await?;
+            store
+                .release_task_lease(&t.id, instance, None, Some("invalidConfiguration"), None)
+                .await?;
             continue;
         }
         let next = schedule
@@ -682,7 +709,16 @@ pub(crate) async fn pass(state: &AppState, instance: &str) -> Result<(), mw_stor
         let instance = instance.to_string();
         let task = t.clone();
         tokio::spawn(async move {
-            let status = execute(&state, job, run, params, Some(&task.id), task.only_in_window, &instance).await;
+            let status = execute(
+                &state,
+                job,
+                run,
+                params,
+                Some(&task.id),
+                task.only_in_window,
+                &instance,
+            )
+            .await;
             let done = Utc::now();
             let next = schedule
                 .as_ref()
@@ -740,7 +776,10 @@ async fn in_maintenance_window(state: &AppState, now: i64) -> bool {
     let hook = WINDOW_HOOK.get().copied();
     match hook {
         Some(f) => f(state.clone(), now).await,
-        None => state.store.scheduler_windows().await
+        None => state
+            .store
+            .scheduler_windows()
+            .await
             .is_ok_and(|rows| rows.iter().any(|row| window::active(row, now))),
     }
 }
@@ -770,11 +809,26 @@ async fn execute(
     let lease = job.lease_secs();
     let beat = Duration::from_millis(((lease * 1000) / 3).clamp(200, 30_000) as u64);
     let now = Utc::now().timestamp();
-    if !matches!(tokio::time::timeout(beat, state.store.renew_job_ownership(
-        &run.id, instance, task_id, now, now + lease,
-    )).await, Ok(Ok(true))) {
-        let _ = state.store.finish_job_run(&run.id, JobStatus::Cancelled, now,
-            Some("ownership lost before execution"), None).await;
+    if !matches!(
+        tokio::time::timeout(
+            beat,
+            state
+                .store
+                .renew_job_ownership(&run.id, instance, task_id, now, now + lease,)
+        )
+        .await,
+        Ok(Ok(true))
+    ) {
+        let _ = state
+            .store
+            .finish_job_run(
+                &run.id,
+                JobStatus::Cancelled,
+                now,
+                Some("ownership lost before execution"),
+                None,
+            )
+            .await;
         return JobStatus::Cancelled;
     }
     let ctx = JobCtx {
@@ -808,9 +862,22 @@ async fn execute(
     let (status, summary, detail) = match outcome {
         None => {
             tracing::warn!(kind = %run.kind, run = %run.id, "job stopped: ownership or maintenance window lost");
-            let _ = state.store.finish_job_run(&run.id, JobStatus::Cancelled,
-                Utc::now().timestamp(), Some("ownership or maintenance window lost"), None).await;
-            return state.store.get_job_run(&run.id).await.ok().flatten()
+            let _ = state
+                .store
+                .finish_job_run(
+                    &run.id,
+                    JobStatus::Cancelled,
+                    Utc::now().timestamp(),
+                    Some("ownership or maintenance window lost"),
+                    None,
+                )
+                .await;
+            return state
+                .store
+                .get_job_run(&run.id)
+                .await
+                .ok()
+                .flatten()
                 .map_or(JobStatus::Cancelled, |row| row.status);
         }
         Some(Ok(Ok(out))) => (JobStatus::Ok, out.summary, out.detail),
@@ -828,11 +895,26 @@ async fn execute(
     let finished = Utc::now().timestamp();
     // Fence even a fast completion: loss between the last heartbeat and the
     // result must never be recorded as success.
-    if !matches!(tokio::time::timeout(beat, state.store.renew_job_ownership(
-        &run.id, instance, task_id, finished, finished + lease,
-    )).await, Ok(Ok(true))) {
-        let _ = state.store.finish_job_run(&run.id, JobStatus::Cancelled, finished,
-            Some("ownership lost before completion"), None).await;
+    if !matches!(
+        tokio::time::timeout(
+            beat,
+            state
+                .store
+                .renew_job_ownership(&run.id, instance, task_id, finished, finished + lease,)
+        )
+        .await,
+        Ok(Ok(true))
+    ) {
+        let _ = state
+            .store
+            .finish_job_run(
+                &run.id,
+                JobStatus::Cancelled,
+                finished,
+                Some("ownership lost before completion"),
+                None,
+            )
+            .await;
         return JobStatus::Cancelled;
     }
     let detail = (!detail.is_null()).then(|| detail.to_string());
@@ -870,13 +952,7 @@ pub(crate) async fn run_now(
 ) -> Result<String, RunNowError> {
     let job = spec(kind).ok_or(RunNowError::UnknownKind)?;
     let instance = state.scheduler.instance().to_string();
-    let run = new_run(
-        kind,
-        None,
-        &instance,
-        Utc::now().timestamp(),
-        triggered_by,
-    );
+    let run = new_run(kind, None, &instance, Utc::now().timestamp(), triggered_by);
     match state.store.start_job_run(&run).await {
         Ok(true) => {}
         Ok(false) => return Err(RunNowError::AlreadyRunning),
@@ -892,7 +968,10 @@ pub(crate) async fn run_now(
 
 /// Record a run of a loop that schedules itself (it is not started by the
 /// scheduler): `started_at` to now, with its status and summary.
-#[expect(dead_code, reason = "registered self-scheduling observers land in subsequent lanes")]
+#[expect(
+    dead_code,
+    reason = "registered self-scheduling observers land in subsequent lanes"
+)]
 pub(crate) async fn observe(
     state: &AppState,
     kind: &str,
@@ -901,13 +980,7 @@ pub(crate) async fn observe(
     summary: Option<&str>,
 ) {
     let now = Utc::now().timestamp();
-    let mut run = new_run(
-        kind,
-        None,
-        state.scheduler.instance(),
-        started_at,
-        "loop",
-    );
+    let mut run = new_run(kind, None, state.scheduler.instance(), started_at, "loop");
     run.heartbeat_at = now;
     run.finished_at = Some(now);
     run.status = status;
@@ -962,9 +1035,14 @@ async fn reindex(ctx: JobCtx) -> Result<JobOutput, String> {
         .rebuild_search_index_all()
         .await
         .map_err(|e| format!("reindex failed: {e}"))?;
-    if s.failed > 0 { return Err(format!("reindex failed for {} message(s)", s.failed)); }
+    if s.failed > 0 {
+        return Err(format!("reindex failed for {} message(s)", s.failed));
+    }
     Ok(JobOutput::new(
-        format!("{} message(s) indexed in {} account(s)", s.indexed, s.accounts),
+        format!(
+            "{} message(s) indexed in {} account(s)",
+            s.indexed, s.accounts
+        ),
         json!({
             "accounts": s.accounts,
             "messages": s.messages,
@@ -1013,7 +1091,10 @@ async fn rethread_all(ctx: JobCtx) -> Result<JobOutput, String> {
         return Err(format!("rethread failed for {failed} account(s)"));
     }
     Ok(JobOutput::new(
-        format!("{} account(s) re-threaded, {reassigned} message(s) moved", accounts.len()),
+        format!(
+            "{} account(s) re-threaded, {reassigned} message(s) moved",
+            accounts.len()
+        ),
         out,
     ))
 }
@@ -1149,10 +1230,15 @@ mod tests {
     fn duplicate_kind_panics_without_erasing_existing_jobs() {
         let before = spec("vacuum").unwrap().default_schedule;
         let failed = std::panic::catch_unwind(|| {
-            register("vacuum", JobSpec::new(|_| Box::pin(async { Ok(JobOutput::default()) })));
+            register(
+                "vacuum",
+                JobSpec::new(|_| Box::pin(async { Ok(JobOutput::default()) })),
+            );
         });
         assert!(failed.is_err());
         assert_eq!(spec("vacuum").unwrap().default_schedule, before);
-        for kind in ["gc_uploads", "reindex", "rethread_all"] { assert!(spec(kind).is_some()); }
+        for kind in ["gc_uploads", "reindex", "rethread_all"] {
+            assert!(spec(kind).is_some());
+        }
     }
 }

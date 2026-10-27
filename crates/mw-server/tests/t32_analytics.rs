@@ -255,7 +255,14 @@ async fn analytics_is_off_by_default_and_configuration_requires_fresh_proof_and_
             .status(),
         204
     );
-    let me: Value = user.get(format!("{base}/api/me")).send().await.unwrap().json().await.unwrap();
+    let me: Value = user
+        .get(format!("{base}/api/me"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let authority = me["storageAuthority"].as_str().unwrap();
     let response = user
         .get(format!("{base}/api/account/preferences"))
@@ -264,7 +271,8 @@ async fn analytics_is_off_by_default_and_configuration_requires_fresh_proof_and_
         .unwrap();
     let tag = response.headers()["etag"].to_str().unwrap().to_owned();
     assert_eq!(
-        user.put(format!("{base}/api/account/preferences")).header("x-mailwoman-storage-authority", authority)
+        user.put(format!("{base}/api/account/preferences"))
+            .header("x-mailwoman-storage-authority", authority)
             .header("if-match", tag)
             .json(&json!({"version":1,"preferences":{"analyticsConsent":true}}))
             .send()

@@ -155,11 +155,16 @@ impl Store {
         let rows = q("SELECT starts_at, ends_at, tz, recurrence_json, occurrence_ended_at
             FROM maintenance_window WHERE scope_kind = 'global' AND scope_id = '' AND cancelled_at IS NULL")
             .fetch_all(&self.backend).await?;
-        Ok(rows.into_iter().map(|r| SchedulerWindow {
-            starts_at: r.get_i64("starts_at"), ends_at: r.get_opt_i64("ends_at"),
-            tz: r.get_string("tz"), recurrence_json: r.get_opt_string("recurrence_json"),
-            occurrence_ended_at: r.get_opt_i64("occurrence_ended_at"),
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| SchedulerWindow {
+                starts_at: r.get_i64("starts_at"),
+                ends_at: r.get_opt_i64("ends_at"),
+                tz: r.get_string("tz"),
+                recurrence_json: r.get_opt_string("recurrence_json"),
+                occurrence_ended_at: r.get_opt_i64("occurrence_ended_at"),
+            })
+            .collect())
     }
     // ── scheduled_task ──────────────────────────────────────────────────────
 
@@ -194,9 +199,11 @@ impl Store {
         &self,
         id: &str,
     ) -> Result<Option<ScheduledTaskRow>, StoreError> {
-        let row = q("SELECT id, kind, schedule_json, params_json, enabled, only_in_window, \
+        let row = q(
+            "SELECT id, kind, schedule_json, params_json, enabled, only_in_window, \
              created_by, created_at, updated_at, last_run_at, last_status, next_run_at, \
-             lease_owner, lease_until FROM scheduled_task WHERE id = ?1")
+             lease_owner, lease_until FROM scheduled_task WHERE id = ?1",
+        )
         .bind(id)
         .fetch_optional(&self.backend)
         .await?;
@@ -205,9 +212,11 @@ impl Store {
 
     /// Every task row, oldest first.
     pub async fn list_scheduled_tasks(&self) -> Result<Vec<ScheduledTaskRow>, StoreError> {
-        let rows = q("SELECT id, kind, schedule_json, params_json, enabled, only_in_window, \
+        let rows = q(
+            "SELECT id, kind, schedule_json, params_json, enabled, only_in_window, \
              created_by, created_at, updated_at, last_run_at, last_status, next_run_at, \
-             lease_owner, lease_until FROM scheduled_task ORDER BY created_at, id")
+             lease_owner, lease_until FROM scheduled_task ORDER BY created_at, id",
+        )
         .fetch_all(&self.backend)
         .await?;
         Ok(rows.iter().map(task_from_row).collect())
@@ -217,10 +226,12 @@ impl Store {
     /// run). Run history is retained. Editing revokes the old lease so a worker
     /// cannot overwrite the new schedule or continue with stale parameters.
     pub async fn update_scheduled_task(&self, t: &ScheduledTaskRow) -> Result<bool, StoreError> {
-        let n = q("UPDATE scheduled_task SET schedule_json = ?2, params_json = ?3, enabled = ?4,
+        let n = q(
+            "UPDATE scheduled_task SET schedule_json = ?2, params_json = ?3, enabled = ?4,
                only_in_window = ?5, updated_at = ?6, next_run_at = ?7,
                lease_owner = NULL, lease_until = NULL
-           WHERE id = ?1")
+           WHERE id = ?1",
+        )
         .bind(&t.id)
         .bind(&t.schedule_json)
         .bind(&t.params_json)
@@ -245,11 +256,13 @@ impl Store {
     /// Enabled tasks whose next run is at or before `now`, earliest first.
     /// Includes tasks another process holds a live lease on; the claim decides.
     pub async fn due_scheduled_tasks(&self, now: i64) -> Result<Vec<ScheduledTaskRow>, StoreError> {
-        let rows = q("SELECT id, kind, schedule_json, params_json, enabled, only_in_window, \
+        let rows = q(
+            "SELECT id, kind, schedule_json, params_json, enabled, only_in_window, \
              created_by, created_at, updated_at, last_run_at, last_status, next_run_at, \
              lease_owner, lease_until FROM scheduled_task \
              WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?1 \
-             ORDER BY next_run_at, id")
+             ORDER BY next_run_at, id",
+        )
         .bind(now)
         .fetch_all(&self.backend)
         .await?;
@@ -258,10 +271,12 @@ impl Store {
 
     /// Enabled tasks with no next run yet (just enabled, or written without one).
     pub async fn unscheduled_tasks(&self) -> Result<Vec<ScheduledTaskRow>, StoreError> {
-        let rows = q("SELECT id, kind, schedule_json, params_json, enabled, only_in_window, \
+        let rows = q(
+            "SELECT id, kind, schedule_json, params_json, enabled, only_in_window, \
              created_by, created_at, updated_at, last_run_at, last_status, next_run_at, \
              lease_owner, lease_until FROM scheduled_task \
-             WHERE enabled = 1 AND next_run_at IS NULL ORDER BY created_at, id")
+             WHERE enabled = 1 AND next_run_at IS NULL ORDER BY created_at, id",
+        )
         .fetch_all(&self.backend)
         .await?;
         Ok(rows.iter().map(task_from_row).collect())
@@ -293,9 +308,11 @@ impl Store {
         if until <= now || owner.is_empty() {
             return Ok(false);
         }
-        let n = q("UPDATE scheduled_task SET lease_owner = ?2, lease_until = ?4
+        let n = q(
+            "UPDATE scheduled_task SET lease_owner = ?2, lease_until = ?4
            WHERE id = ?1 AND enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?3
-             AND (lease_owner IS NULL OR lease_until IS NULL OR lease_until <= ?3)")
+             AND (lease_owner IS NULL OR lease_until IS NULL OR lease_until <= ?3)",
+        )
         .bind(id)
         .bind(owner)
         .bind(now)
@@ -334,11 +351,13 @@ impl Store {
         last_status: Option<&str>,
         next_run_at: Option<i64>,
     ) -> Result<bool, StoreError> {
-        let n = q("UPDATE scheduled_task SET lease_owner = NULL, lease_until = NULL,
+        let n = q(
+            "UPDATE scheduled_task SET lease_owner = NULL, lease_until = NULL,
                last_run_at = COALESCE(?3, last_run_at),
                last_status = COALESCE(?4, last_status),
                next_run_at = ?5
-           WHERE id = ?1 AND lease_owner = ?2")
+           WHERE id = ?1 AND lease_owner = ?2",
+        )
         .bind(id)
         .bind(owner)
         .bind(last_run_at)
@@ -445,21 +464,41 @@ impl Store {
     /// Renew a run and its task lease in one transaction. A stale owner cannot
     /// resurrect an expired lease or refresh a cancelled/replaced run.
     pub async fn renew_job_ownership(
-        &self, run_id: &str, owner: &str, task_id: Option<&str>, now: i64, until: i64,
+        &self,
+        run_id: &str,
+        owner: &str,
+        task_id: Option<&str>,
+        now: i64,
+        until: i64,
     ) -> Result<bool, StoreError> {
-        if until <= now { return Ok(false); }
+        if until <= now {
+            return Ok(false);
+        }
         let mut tx = self.backend.begin().await?;
         let n = q("UPDATE job_run SET heartbeat_at = ?3
             WHERE id = ?1 AND instance = ?2 AND status = 'running'
               AND ((task_id IS NULL AND ?4 IS NULL) OR task_id = ?4)")
-            .bind(run_id).bind(owner).bind(now).bind(task_id)
-            .execute_tx(&mut tx).await?;
-        if n != 1 { return Ok(false); }
+        .bind(run_id)
+        .bind(owner)
+        .bind(now)
+        .bind(task_id)
+        .execute_tx(&mut tx)
+        .await?;
+        if n != 1 {
+            return Ok(false);
+        }
         if let Some(id) = task_id {
             let n = q("UPDATE scheduled_task SET lease_until = ?4
                 WHERE id = ?1 AND lease_owner = ?2 AND enabled = 1 AND lease_until > ?3")
-                .bind(id).bind(owner).bind(now).bind(until).execute_tx(&mut tx).await?;
-            if n != 1 { return Ok(false); }
+            .bind(id)
+            .bind(owner)
+            .bind(now)
+            .bind(until)
+            .execute_tx(&mut tx)
+            .await?;
+            if n != 1 {
+                return Ok(false);
+            }
         }
         tx.commit().await?;
         Ok(true)
@@ -476,11 +515,15 @@ impl Store {
         detail_json: Option<&str>,
     ) -> Result<bool, StoreError> {
         if status == JobStatus::Running {
-            return Err(StoreError::Corrupt("finished job cannot remain running".into()));
+            return Err(StoreError::Corrupt(
+                "finished job cannot remain running".into(),
+            ));
         }
-        let n = q("UPDATE job_run SET status = ?2, finished_at = ?3, heartbeat_at = ?3,
+        let n = q(
+            "UPDATE job_run SET status = ?2, finished_at = ?3, heartbeat_at = ?3,
                summary = ?4, detail_json = ?5
-           WHERE id = ?1 AND status = 'running'")
+           WHERE id = ?1 AND status = 'running'",
+        )
         .bind(id)
         .bind(status.as_str())
         .bind(finished_at)
@@ -499,20 +542,24 @@ impl Store {
         cutoff: i64,
         now: i64,
     ) -> Result<u64, StoreError> {
-        Ok(q("UPDATE job_run SET status = 'abandoned', finished_at = ?3,
+        Ok(
+            q("UPDATE job_run SET status = 'abandoned', finished_at = ?3,
                   summary = COALESCE(summary, 'heartbeat stopped')
               WHERE kind = ?1 AND status = 'running' AND heartbeat_at < ?2")
-        .bind(kind)
-        .bind(cutoff)
-        .bind(now)
-        .execute(&self.backend)
-        .await?)
+            .bind(kind)
+            .bind(cutoff)
+            .bind(now)
+            .execute(&self.backend)
+            .await?,
+        )
     }
 
     /// One run.
     pub async fn get_job_run(&self, id: &str) -> Result<Option<JobRunRow>, StoreError> {
-        let row = q("SELECT id, task_id, kind, instance, started_at, heartbeat_at, finished_at, \
-             status, summary, detail_json, triggered_by FROM job_run WHERE id = ?1")
+        let row = q(
+            "SELECT id, task_id, kind, instance, started_at, heartbeat_at, finished_at, \
+             status, summary, detail_json, triggered_by FROM job_run WHERE id = ?1",
+        )
         .bind(id)
         .fetch_optional(&self.backend)
         .await?;
@@ -521,9 +568,11 @@ impl Store {
 
     /// Every `running` row.
     pub async fn running_job_runs(&self) -> Result<Vec<JobRunRow>, StoreError> {
-        let rows = q("SELECT id, task_id, kind, instance, started_at, heartbeat_at, finished_at, \
+        let rows = q(
+            "SELECT id, task_id, kind, instance, started_at, heartbeat_at, finished_at, \
              status, summary, detail_json, triggered_by FROM job_run \
-             WHERE status = 'running' ORDER BY started_at, id")
+             WHERE status = 'running' ORDER BY started_at, id",
+        )
         .fetch_all(&self.backend)
         .await?;
         rows.iter().map(run_from_row).collect()
@@ -531,9 +580,11 @@ impl Store {
 
     /// The newest run of `kind` (any status).
     pub async fn last_job_run(&self, kind: &str) -> Result<Option<JobRunRow>, StoreError> {
-        let row = q("SELECT id, task_id, kind, instance, started_at, heartbeat_at, finished_at, \
+        let row = q(
+            "SELECT id, task_id, kind, instance, started_at, heartbeat_at, finished_at, \
              status, summary, detail_json, triggered_by FROM job_run WHERE kind = ?1 \
-             ORDER BY started_at DESC, id DESC LIMIT 1")
+             ORDER BY started_at DESC, id DESC LIMIT 1",
+        )
         .bind(kind)
         .fetch_optional(&self.backend)
         .await?;
@@ -546,12 +597,14 @@ impl Store {
             Some((ts, id)) => (Some(*ts), Some(id.clone())),
             None => (None, None),
         };
-        let rows = q("SELECT id, task_id, kind, instance, started_at, heartbeat_at, finished_at, \
+        let rows = q(
+            "SELECT id, task_id, kind, instance, started_at, heartbeat_at, finished_at, \
              status, summary, detail_json, triggered_by FROM job_run \
              WHERE (?1 IS NULL OR kind = ?1) AND (?2 IS NULL OR status = ?2) \
                AND (?3 IS NULL OR task_id = ?3) \
                AND (?4 IS NULL OR started_at < ?4 OR (started_at = ?4 AND id < ?5)) \
-             ORDER BY started_at DESC, id DESC LIMIT ?6")
+             ORDER BY started_at DESC, id DESC LIMIT ?6",
+        )
         .bind(query.kind.clone())
         .bind(query.status.map(|s| s.as_str().to_string()))
         .bind(query.task_id.clone())
@@ -625,7 +678,10 @@ mod tests {
         // Disabled and unscheduled tasks are never due.
         assert!(s.due_scheduled_tasks(99).await.unwrap().is_empty());
         let due = s.due_scheduled_tasks(100).await.unwrap();
-        assert_eq!(due.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["t1"]);
+        assert_eq!(
+            due.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            ["t1"]
+        );
         let un = s.unscheduled_tasks().await.unwrap();
         assert_eq!(un.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["t2"]);
         assert!(s.set_task_first_run("t2", 500).await.unwrap());
@@ -649,7 +705,9 @@ mod tests {
     }
 
     async fn lease(s: &Store) {
-        s.insert_scheduled_task(&task("L", Some(100))).await.unwrap();
+        s.insert_scheduled_task(&task("L", Some(100)))
+            .await
+            .unwrap();
         // Not due yet: nobody may claim it.
         assert!(!s.claim_task_lease("L", "a", 99, 160).await.unwrap());
         assert!(s.claim_task_lease("L", "a", 100, 160).await.unwrap());
@@ -661,17 +719,37 @@ mod tests {
         assert!(!s.claim_task_lease("L", "b", 199, 260).await.unwrap());
         assert!(s.claim_task_lease("L", "b", 200, 260).await.unwrap());
         assert!(!s.renew_task_lease("L", "a", 300).await.unwrap());
-        assert!(!s.release_task_lease("L", "a", Some(1), Some("ok"), Some(9)).await.unwrap());
-        assert!(s.release_task_lease("L", "b", Some(210), Some("ok"), Some(3800)).await.unwrap());
+        assert!(
+            !s.release_task_lease("L", "a", Some(1), Some("ok"), Some(9))
+                .await
+                .unwrap()
+        );
+        assert!(
+            s.release_task_lease("L", "b", Some(210), Some("ok"), Some(3800))
+                .await
+                .unwrap()
+        );
         let t = s.get_scheduled_task("L").await.unwrap().unwrap();
         assert_eq!(
-            (t.lease_owner, t.lease_until, t.last_run_at, t.last_status.as_deref(), t.next_run_at),
+            (
+                t.lease_owner,
+                t.lease_until,
+                t.last_run_at,
+                t.last_status.as_deref(),
+                t.next_run_at
+            ),
             (None, None, Some(210), Some("ok"), Some(3800))
         );
         // A claim given back without a run keeps the last run.
-        s.release_task_lease("L", "nobody", None, None, Some(1)).await.unwrap();
+        s.release_task_lease("L", "nobody", None, None, Some(1))
+            .await
+            .unwrap();
         assert!(s.claim_task_lease("L", "c", 3800, 3860).await.unwrap());
-        assert!(s.release_task_lease("L", "c", None, None, Some(7200)).await.unwrap());
+        assert!(
+            s.release_task_lease("L", "c", None, None, Some(7200))
+                .await
+                .unwrap()
+        );
         let t = s.get_scheduled_task("L").await.unwrap().unwrap();
         assert_eq!((t.last_run_at, t.next_run_at), (Some(210), Some(7200)));
         s.delete_scheduled_task("L").await.unwrap();
@@ -690,13 +768,26 @@ mod tests {
         assert!(s.start_job_run(&run("r3", "vacuum", 101)).await.unwrap());
         assert!(s.heartbeat_job_run("r1", 130).await.unwrap());
         // Heartbeat newer than the cutoff: kept.
-        assert_eq!(s.abandon_stale_job_runs("reindex", 130, 200).await.unwrap(), 0);
-        assert_eq!(s.abandon_stale_job_runs("reindex", 131, 200).await.unwrap(), 1);
+        assert_eq!(
+            s.abandon_stale_job_runs("reindex", 130, 200).await.unwrap(),
+            0
+        );
+        assert_eq!(
+            s.abandon_stale_job_runs("reindex", 131, 200).await.unwrap(),
+            1
+        );
         let r1 = s.get_job_run("r1").await.unwrap().unwrap();
-        assert_eq!((r1.status, r1.finished_at), (JobStatus::Abandoned, Some(200)));
+        assert_eq!(
+            (r1.status, r1.finished_at),
+            (JobStatus::Abandoned, Some(200))
+        );
         // The kind is free again; the late finish of the abandoned run is refused.
         assert!(s.start_job_run(&run("r4", "reindex", 201)).await.unwrap());
-        assert!(!s.finish_job_run("r1", JobStatus::Ok, 202, None, None).await.unwrap());
+        assert!(
+            !s.finish_job_run("r1", JobStatus::Ok, 202, None, None)
+                .await
+                .unwrap()
+        );
         assert!(!s.heartbeat_job_run("r1", 202).await.unwrap());
         assert!(
             s.finish_job_run("r4", JobStatus::Failed, 205, Some("boom"), Some("{}"))
@@ -709,7 +800,9 @@ mod tests {
             (last.id.as_str(), last.status, last.summary.as_deref()),
             ("r4", JobStatus::Failed, Some("boom"))
         );
-        s.finish_job_run("r3", JobStatus::Ok, 206, None, None).await.unwrap();
+        s.finish_job_run("r3", JobStatus::Ok, 206, None, None)
+            .await
+            .unwrap();
         let mut observed = run("r5", "measure", 300);
         observed.status = JobStatus::Ok;
         observed.finished_at = Some(301);
@@ -726,17 +819,26 @@ mod tests {
             }
         };
         let p1 = s.list_job_runs(&page(None, None, None)).await.unwrap();
-        assert_eq!(p1.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["r5", "r4"]);
+        assert_eq!(
+            p1.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            ["r5", "r4"]
+        );
         let p2 = s
             .list_job_runs(&page(None, None, Some((201, "r4".into()))))
             .await
             .unwrap();
-        assert_eq!(p2.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["r3", "r1"]);
+        assert_eq!(
+            p2.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            ["r3", "r1"]
+        );
         let fails = s
             .list_job_runs(&page(Some("reindex"), Some(JobStatus::Failed), None))
             .await
             .unwrap();
-        assert_eq!(fails.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["r4"]);
+        assert_eq!(
+            fails.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            ["r4"]
+        );
     }
 
     fn pg_dsn() -> Option<String> {
@@ -752,70 +854,155 @@ mod tests {
         s.insert_scheduled_task(&task).await.unwrap();
         assert!(!s.claim_task_lease("owned", "a", 100, 100).await.unwrap());
         let mut r = run("owned_run", "owned_kind", 100);
-        r.task_id = Some("owned".into()); r.instance = "a".into();
+        r.task_id = Some("owned".into());
+        r.instance = "a".into();
         assert!(!s.start_job_run(&r).await.unwrap(), "no run without lease");
         assert!(s.claim_task_lease("owned", "a", 100, 150).await.unwrap());
         assert!(s.start_job_run(&r).await.unwrap());
-        assert!(!s.renew_job_ownership(&r.id,"b",Some("owned"),110,160).await.unwrap());
-        assert!(s.renew_job_ownership(&r.id,"a",Some("owned"),110,160).await.unwrap());
-        assert!(!s.renew_job_ownership(&r.id,"a",Some("owned"),160,210).await.unwrap(), "expired lease cannot resurrect");
-        assert_eq!(s.get_job_run(&r.id).await.unwrap().unwrap().heartbeat_at,110, "failed lease renewal rolled back heartbeat");
-        assert!(s.claim_task_lease("owned","b",160,210).await.unwrap());
-        assert!(!s.renew_job_ownership(&r.id,"a",Some("owned"),161,211).await.unwrap());
-        assert!(!s.release_task_lease("owned","a",Some(161),Some("ok"),Some(999)).await.unwrap());
-        let mut edited=s.get_scheduled_task("owned").await.unwrap().unwrap();
-        edited.next_run_at=Some(900);edited.params_json="{\"changed\":true}".into();
+        assert!(
+            !s.renew_job_ownership(&r.id, "b", Some("owned"), 110, 160)
+                .await
+                .unwrap()
+        );
+        assert!(
+            s.renew_job_ownership(&r.id, "a", Some("owned"), 110, 160)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !s.renew_job_ownership(&r.id, "a", Some("owned"), 160, 210)
+                .await
+                .unwrap(),
+            "expired lease cannot resurrect"
+        );
+        assert_eq!(
+            s.get_job_run(&r.id).await.unwrap().unwrap().heartbeat_at,
+            110,
+            "failed lease renewal rolled back heartbeat"
+        );
+        assert!(s.claim_task_lease("owned", "b", 160, 210).await.unwrap());
+        assert!(
+            !s.renew_job_ownership(&r.id, "a", Some("owned"), 161, 211)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !s.release_task_lease("owned", "a", Some(161), Some("ok"), Some(999))
+                .await
+                .unwrap()
+        );
+        let mut edited = s.get_scheduled_task("owned").await.unwrap().unwrap();
+        edited.next_run_at = Some(900);
+        edited.params_json = "{\"changed\":true}".into();
         s.update_scheduled_task(&edited).await.unwrap();
-        assert!(!s.release_task_lease("owned","b",Some(162),Some("ok"),Some(800)).await.unwrap(),"an edited task revokes the old run's schedule write");
-        assert_eq!(s.get_scheduled_task("owned").await.unwrap().unwrap().next_run_at,Some(900));
-        assert!(s.finish_job_run(&r.id,JobStatus::Cancelled,162,None,None).await.unwrap());
-        assert!(!s.heartbeat_job_run(&r.id,163).await.unwrap());
-        assert!(s.insert_job_run(&run("bad_observed","other",1)).await.is_err());
-        assert!(s.finish_job_run(&r.id,JobStatus::Running,164,None,None).await.is_err());
+        assert!(
+            !s.release_task_lease("owned", "b", Some(162), Some("ok"), Some(800))
+                .await
+                .unwrap(),
+            "an edited task revokes the old run's schedule write"
+        );
+        assert_eq!(
+            s.get_scheduled_task("owned")
+                .await
+                .unwrap()
+                .unwrap()
+                .next_run_at,
+            Some(900)
+        );
+        assert!(
+            s.finish_job_run(&r.id, JobStatus::Cancelled, 162, None, None)
+                .await
+                .unwrap()
+        );
+        assert!(!s.heartbeat_job_run(&r.id, 163).await.unwrap());
+        assert!(
+            s.insert_job_run(&run("bad_observed", "other", 1))
+                .await
+                .is_err()
+        );
+        assert!(
+            s.finish_job_run(&r.id, JobStatus::Running, 164, None, None)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
-    async fn ownership_renewal_is_atomic_and_fenced() { ownership(&store().await).await; }
+    async fn ownership_renewal_is_atomic_and_fenced() {
+        ownership(&store().await).await;
+    }
 
     #[tokio::test]
     async fn lease_process_child() {
-        let Ok(dsn) = std::env::var("MW_JOB_CHILD_DSN") else { return };
-        let id=std::env::var("MW_JOB_CHILD_ID").unwrap();
-        let s=Store::open(&dsn,ServerKey::generate()).await.unwrap();
-        let owner=format!("child-{}", std::process::id());
-        if s.claim_task_lease(&id,&owner,100,1000).await.unwrap() { println!("LEASE_WON"); }
+        let Ok(dsn) = std::env::var("MW_JOB_CHILD_DSN") else {
+            return;
+        };
+        let id = std::env::var("MW_JOB_CHILD_ID").unwrap();
+        let s = Store::open(&dsn, ServerKey::generate()).await.unwrap();
+        let owner = format!("child-{}", std::process::id());
+        if s.claim_task_lease(&id, &owner, 100, 1000).await.unwrap() {
+            println!("LEASE_WON");
+        }
     }
 
     async fn processes(s: &Store, dsn: &str) {
-        let id=format!("proc_{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
-        s.insert_scheduled_task(&task(&id,Some(100))).await.unwrap();
-        let dsn=dsn.to_owned();
-        let outputs=tokio::task::spawn_blocking(move || {
-            let mut children=Vec::new();
+        let id = format!(
+            "proc_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        s.insert_scheduled_task(&task(&id, Some(100)))
+            .await
+            .unwrap();
+        let dsn = dsn.to_owned();
+        let outputs = tokio::task::spawn_blocking(move || {
+            let mut children = Vec::new();
             for _ in 0..4 {
-                children.push(std::process::Command::new(std::env::current_exe().unwrap())
-                    .args(["--exact","jobs::tests::lease_process_child","--nocapture"])
-                    .env("MW_JOB_CHILD_DSN",&dsn).env("MW_JOB_CHILD_ID",&id)
-                    .stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped())
-                    .spawn().unwrap());
+                children.push(
+                    std::process::Command::new(std::env::current_exe().unwrap())
+                        .args(["--exact", "jobs::tests::lease_process_child", "--nocapture"])
+                        .env("MW_JOB_CHILD_DSN", &dsn)
+                        .env("MW_JOB_CHILD_ID", &id)
+                        .stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::piped())
+                        .spawn()
+                        .unwrap(),
+                );
             }
-            children.into_iter().map(|child|child.wait_with_output().unwrap()).collect::<Vec<_>>()
-        }).await.unwrap();
-        let mut won=0;
+            children
+                .into_iter()
+                .map(|child| child.wait_with_output().unwrap())
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap();
+        let mut won = 0;
         for output in outputs {
-            assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
-            won+=usize::from(String::from_utf8_lossy(&output.stdout).contains("LEASE_WON"));
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            won += usize::from(String::from_utf8_lossy(&output.stdout).contains("LEASE_WON"));
         }
-        assert_eq!(won,1,"exactly one OS process claims lease");
+        assert_eq!(won, 1, "exactly one OS process claims lease");
     }
 
     #[tokio::test]
     async fn sqlite_processes_claim_once() {
-        let dir=std::env::temp_dir().join(format!("mw-jobs-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let dir = std::env::temp_dir().join(format!(
+            "mw-jobs-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
-        let dsn=dir.join("jobs.sqlite").to_string_lossy().into_owned();
-        let s=Store::open(&dsn,ServerKey::generate()).await.unwrap();
-        processes(&s,&dsn).await;
+        let dsn = dir.join("jobs.sqlite").to_string_lossy().into_owned();
+        let s = Store::open(&dsn, ServerKey::generate()).await.unwrap();
+        processes(&s, &dsn).await;
     }
 
     /// The Postgres legs, env-gated like the rest of the crate (`MW_REQUIRE_LIVE`
@@ -844,14 +1031,16 @@ mod tests {
         lease(&s).await;
         runs(&s).await;
         ownership(&s).await;
-        processes(&s,&dsn).await;
+        processes(&s, &dsn).await;
         // Concurrent starts of one kind on Postgres: exactly one wins.
         q("DELETE FROM job_run").execute(&s.backend).await.unwrap();
         let mut handles = Vec::new();
         for i in 0..8 {
             let s = s.clone();
             handles.push(tokio::spawn(async move {
-                s.start_job_run(&run(&format!("c{i}"), "race", 1)).await.unwrap()
+                s.start_job_run(&run(&format!("c{i}"), "race", 1))
+                    .await
+                    .unwrap()
             }));
         }
         let mut won = 0;

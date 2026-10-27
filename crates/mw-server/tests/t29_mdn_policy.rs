@@ -394,7 +394,10 @@ async fn the_engine_reads_the_policy_the_route_stores() {
     let attempted = jmap(&c, base, "MDN/send", automatic.clone()).await;
     assert_eq!(attempted["type"], "serverFail", "under always: {attempted}");
     assert_eq!(receipt_state(&c, base, &id).await["sent"], true);
-    assert_eq!(jmap(&c, base, "MDN/send", automatic).await["type"], "mdnAlreadySent");
+    assert_eq!(
+        jmap(&c, base, "MDN/send", automatic).await["type"],
+        "mdnAlreadySent"
+    );
 
     // Without a session neither verb is answered, and nothing changes.
     let anonymous = browser();
@@ -548,21 +551,77 @@ async fn sender_rules_require_authority_current_revision_and_real_account() {
     let client = browser();
     let account = engine_login(&client, &srv.base, &imap).await;
     let url = format!("{}/api/account/mdn-senders", srv.base);
-    assert_eq!(browser().get(&url).send().await.unwrap().status(),401);
-    let first=client.get(&url).send().await.unwrap();assert_eq!(first.status(),200);
-    let etag=first.headers()["etag"].to_str().unwrap().to_owned();
-    assert_eq!(first.json::<Value>().await.unwrap()["rules"],json!([]));
-    let body=json!({"address":ANN,"decision":"always"});
-    assert_eq!(client.put(&url).json(&body).send().await.unwrap().status(),428);
-    let response=client.put(&url).header("if-match",&etag).json(&body).send().await.unwrap();assert_eq!(response.status(),200);
-    assert_eq!(client.put(&url).header("if-match",&etag).json(&json!({"address":ANN,"decision":null})).send().await.unwrap().status(),412);
-    let current=client.get(&url).send().await.unwrap();let etag=current.headers()["etag"].to_str().unwrap().to_owned();
-    assert_eq!(current.json::<Value>().await.unwrap()["rules"][0]["address"],ANN);
-    let store=srv.store().await;
-    assert_eq!(store.receipt_sender_decision(&account,ANN).await.unwrap(),Some(mw_store::receipts::SenderDecision::Always));
-    store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow{key:"mail.readReceipts".into(),global_value:Some("\"ask\"".into()),allow_user_override:false,global_locked:true,updated_by:"fixture".into(),updated_at:0}).await.unwrap();
-    assert_eq!(client.put(&url).header("if-match",&etag).json(&body).send().await.unwrap().status(),403);
-    assert_eq!(client.get(format!("{}/api/account/mdn-decision/unknown",srv.base)).send().await.unwrap().status(),404);
+    assert_eq!(browser().get(&url).send().await.unwrap().status(), 401);
+    let first = client.get(&url).send().await.unwrap();
+    assert_eq!(first.status(), 200);
+    let etag = first.headers()["etag"].to_str().unwrap().to_owned();
+    assert_eq!(first.json::<Value>().await.unwrap()["rules"], json!([]));
+    let body = json!({"address":ANN,"decision":"always"});
+    assert_eq!(
+        client.put(&url).json(&body).send().await.unwrap().status(),
+        428
+    );
+    let response = client
+        .put(&url)
+        .header("if-match", &etag)
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        client
+            .put(&url)
+            .header("if-match", &etag)
+            .json(&json!({"address":ANN,"decision":null}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        412
+    );
+    let current = client.get(&url).send().await.unwrap();
+    let etag = current.headers()["etag"].to_str().unwrap().to_owned();
+    assert_eq!(
+        current.json::<Value>().await.unwrap()["rules"][0]["address"],
+        ANN
+    );
+    let store = srv.store().await;
+    assert_eq!(
+        store.receipt_sender_decision(&account, ANN).await.unwrap(),
+        Some(mw_store::receipts::SenderDecision::Always)
+    );
+    store
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "mail.readReceipts".into(),
+            global_value: Some("\"ask\"".into()),
+            allow_user_override: false,
+            global_locked: true,
+            updated_by: "fixture".into(),
+            updated_at: 0,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        client
+            .put(&url)
+            .header("if-match", &etag)
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        client
+            .get(format!("{}/api/account/mdn-decision/unknown", srv.base))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
 }
 
 #[tokio::test]
@@ -574,61 +633,63 @@ async fn rfc9007_authenticated_http_sends_once_with_null_envelope_and_parses_rep
     let smtp = tokio::spawn(async move {
         tokio::time::timeout(std::time::Duration::from_secs(30), async move {
             loop {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (read, mut write) = stream.into_split();
-            let mut read = BufReader::new(read);
-            write.write_all(b"220 fixture ready\r\n").await.unwrap();
-            let mut envelope = false;
-            let mut recipient = false;
-            let mut data = Vec::new();
-            loop {
-                let mut line = String::new();
-                assert!(read.read_line(&mut line).await.unwrap() > 0);
-                assert!(line.len() < 8192);
-                let command = line.trim_end();
-                if command.starts_with("EHLO") {
-                    write
-                        .write_all(b"250-fixture\r\n250 AUTH PLAIN\r\n")
-                        .await
-                        .unwrap();
-                } else if command.starts_with("AUTH PLAIN") {
-                    write.write_all(b"235 authenticated\r\n").await.unwrap();
-                } else if command.starts_with("MAIL FROM:") {
-                    assert_eq!(command, "MAIL FROM:<>");
-                    envelope = true;
-                    write.write_all(b"250 sender accepted\r\n").await.unwrap();
-                } else if command.starts_with("RCPT TO:") {
-                    assert!(envelope);
-                    assert_eq!(command, "RCPT TO:<ann@example.org>");
-                    recipient = true;
-                    write
-                        .write_all(b"250 recipient accepted\r\n")
-                        .await
-                        .unwrap();
-                } else if command == "DATA" {
-                    assert!(recipient);
-                    write.write_all(b"354 send data\r\n").await.unwrap();
-                    loop {
-                        let mut line = Vec::new();
-                        assert!(read.read_until(b'\n', &mut line).await.unwrap() > 0);
-                        if line == b".\r\n" {
-                            break;
+                let (stream, _) = listener.accept().await.unwrap();
+                let (read, mut write) = stream.into_split();
+                let mut read = BufReader::new(read);
+                write.write_all(b"220 fixture ready\r\n").await.unwrap();
+                let mut envelope = false;
+                let mut recipient = false;
+                let mut data = Vec::new();
+                loop {
+                    let mut line = String::new();
+                    assert!(read.read_line(&mut line).await.unwrap() > 0);
+                    assert!(line.len() < 8192);
+                    let command = line.trim_end();
+                    if command.starts_with("EHLO") {
+                        write
+                            .write_all(b"250-fixture\r\n250 AUTH PLAIN\r\n")
+                            .await
+                            .unwrap();
+                    } else if command.starts_with("AUTH PLAIN") {
+                        write.write_all(b"235 authenticated\r\n").await.unwrap();
+                    } else if command.starts_with("MAIL FROM:") {
+                        assert_eq!(command, "MAIL FROM:<>");
+                        envelope = true;
+                        write.write_all(b"250 sender accepted\r\n").await.unwrap();
+                    } else if command.starts_with("RCPT TO:") {
+                        assert!(envelope);
+                        assert_eq!(command, "RCPT TO:<ann@example.org>");
+                        recipient = true;
+                        write
+                            .write_all(b"250 recipient accepted\r\n")
+                            .await
+                            .unwrap();
+                    } else if command == "DATA" {
+                        assert!(recipient);
+                        write.write_all(b"354 send data\r\n").await.unwrap();
+                        loop {
+                            let mut line = Vec::new();
+                            assert!(read.read_until(b'\n', &mut line).await.unwrap() > 0);
+                            if line == b".\r\n" {
+                                break;
+                            }
+                            if line.starts_with(b"..") {
+                                line.remove(0);
+                            }
+                            data.extend(line);
+                            assert!(data.len() <= 9 * 1024 * 1024);
                         }
-                        if line.starts_with(b"..") {
-                            line.remove(0);
-                        }
-                        data.extend(line);
-                        assert!(data.len() <= 9 * 1024 * 1024);
+                        write.write_all(b"250 queued\r\n").await.unwrap();
+                    } else if command == "QUIT" {
+                        write.write_all(b"221 bye\r\n").await.unwrap();
+                        break;
+                    } else {
+                        panic!("unexpected fixture command");
                     }
-                    write.write_all(b"250 queued\r\n").await.unwrap();
-                } else if command == "QUIT" {
-                    write.write_all(b"221 bye\r\n").await.unwrap();
-                    break;
-                } else {
-                    panic!("unexpected fixture command");
                 }
-            }
-            if !data.is_empty() { break data; }
+                if !data.is_empty() {
+                    break data;
+                }
             }
         })
         .await
@@ -644,10 +705,23 @@ async fn rfc9007_authenticated_http_sends_once_with_null_envelope_and_parses_rep
     let server = spawn(ServerMode::Engine, imap.url()).await;
     let client = browser();
     let account = engine_login(&client, &server.base, &imap).await;
-    let session: Value = client.get(format!("{}/jmap/session",server.base))
-        .send().await.unwrap().json().await.unwrap();
-    assert_eq!(session["capabilities"][mw_engine::Engine::STANDARD_MDN_CAPABILITY],json!({}));
-    assert_eq!(session["accounts"][&account]["accountCapabilities"][mw_engine::Engine::STANDARD_MDN_CAPABILITY],json!({}));
+    let session: Value = client
+        .get(format!("{}/jmap/session", server.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        session["capabilities"][mw_engine::Engine::STANDARD_MDN_CAPABILITY],
+        json!({})
+    );
+    assert_eq!(
+        session["accounts"][&account]["accountCapabilities"]
+            [mw_engine::Engine::STANDARD_MDN_CAPABILITY],
+        json!({})
+    );
     let id = import_asking(&client, &server.base, &account).await;
     let identities = jmap(
         &client,
@@ -723,127 +797,385 @@ async fn rfc9007_authenticated_http_sends_once_with_null_envelope_and_parses_rep
 #[tokio::test]
 async fn dsn_http_capability_probe_is_truthful_and_changed_support_never_sends_plain() {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    let _guard=serial().await;
-    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port=listener.local_addr().unwrap().port();
-    let smtp=tokio::spawn(async move {
-        tokio::time::timeout(std::time::Duration::from_secs(30),async move {
-            let mut commands=Vec::new();
+    let _guard = serial().await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let smtp = tokio::spawn(async move {
+        tokio::time::timeout(std::time::Duration::from_secs(30), async move {
+            let mut commands = Vec::new();
             for attempt in 0..2 {
-                let (stream,_)=listener.accept().await.unwrap();
-                let (read,mut write)=stream.into_split(); let mut read=BufReader::new(read);
+                let (stream, _) = listener.accept().await.unwrap();
+                let (read, mut write) = stream.into_split();
+                let mut read = BufReader::new(read);
                 write.write_all(b"220 fixture ready\r\n").await.unwrap();
                 loop {
-                    let mut line=String::new();
-                    if read.read_line(&mut line).await.unwrap()==0 {break;}
-                    assert!(line.len()<8192); let command=line.trim_end();
+                    let mut line = String::new();
+                    if read.read_line(&mut line).await.unwrap() == 0 {
+                        break;
+                    }
+                    assert!(line.len() < 8192);
+                    let command = line.trim_end();
                     commands.push(command.to_owned());
                     if command.starts_with("EHLO") {
-                        write.write_all(if attempt==0 {b"250-fixture\r\n250-DSN\r\n250 AUTH PLAIN\r\n"} else {b"250-fixture\r\n250 AUTH PLAIN\r\n"}).await.unwrap();
-                    } else if command.starts_with("AUTH PLAIN") {write.write_all(b"235 authenticated\r\n").await.unwrap();}
-                    else if command=="QUIT" {write.write_all(b"221 bye\r\n").await.unwrap();break;}
-                    else {panic!("unsupported DSN must stop before any message command");}
+                        write
+                            .write_all(if attempt == 0 {
+                                b"250-fixture\r\n250-DSN\r\n250 AUTH PLAIN\r\n"
+                            } else {
+                                b"250-fixture\r\n250 AUTH PLAIN\r\n"
+                            })
+                            .await
+                            .unwrap();
+                    } else if command.starts_with("AUTH PLAIN") {
+                        write.write_all(b"235 authenticated\r\n").await.unwrap();
+                    } else if command == "QUIT" {
+                        write.write_all(b"221 bye\r\n").await.unwrap();
+                        break;
+                    } else {
+                        panic!("unsupported DSN must stop before any message command");
+                    }
                 }
             }
             commands
-        }).await.unwrap()
+        })
+        .await
+        .unwrap()
     });
     // SAFETY: serialized environment fixture, no parallel mutation.
-    unsafe { std::env::set_var("MW_SMTP_HOST","127.0.0.1"); std::env::set_var("MW_SMTP_PORT",port.to_string()); std::env::set_var("MW_SMTP_SECURITY","plaintext"); }
-    let imap=MockImap::start(ENGINE_USER,ENGINE_PASS).await;
-    let server=spawn(ServerMode::Engine,imap.url()).await; let client=browser();
-    let account=engine_login(&client,&server.base,&imap).await;
-    let session:Value=client.get(format!("{}/jmap/session",server.base)).send().await.unwrap().json().await.unwrap();
-    assert_eq!(session["accounts"][&account]["accountCapabilities"]["urn:ietf:params:jmap:submission"]["submissionExtensions"],json!({"DSN":[]}));
+    unsafe {
+        std::env::set_var("MW_SMTP_HOST", "127.0.0.1");
+        std::env::set_var("MW_SMTP_PORT", port.to_string());
+        std::env::set_var("MW_SMTP_SECURITY", "plaintext");
+    }
+    let imap = MockImap::start(ENGINE_USER, ENGINE_PASS).await;
+    let server = spawn(ServerMode::Engine, imap.url()).await;
+    let client = browser();
+    let account = engine_login(&client, &server.base, &imap).await;
+    let session: Value = client
+        .get(format!("{}/jmap/session", server.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        session["accounts"][&account]["accountCapabilities"]["urn:ietf:params:jmap:submission"]["submissionExtensions"],
+        json!({"DSN":[]})
+    );
     let draft=jmap(&client,&server.base,"Email/set",json!({"accountId":account,"create":{"draft":{"from":[{"email":ENGINE_USER}],"to":[{"email":"friend@example.org"}],"subject":"DSN required","bodyValues":{"1":{"value":"hello"}},"textBody":[{"partId":"1","type":"text/plain"}]}}})).await;
-    let id=draft["created"]["draft"]["id"].as_str().expect("draft created");
+    let id = draft["created"]["draft"]["id"]
+        .as_str()
+        .expect("draft created");
     let response:Value=client.post(format!("{}/jmap/api",server.base)).json(&json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail","urn:ietf:params:jmap:submission"],"methodCalls":[["EmailSubmission/set",{"accountId":account,"create":{"send":{"emailId":id,"envelope":{"mailFrom":{"email":ENGINE_USER},"rcptTo":[{"email":"friend@example.org","parameters":{"NOTIFY":"SUCCESS,FAILURE"}}]}}}},"send"]]})).send().await.unwrap().json().await.unwrap();
-    assert!(response["methodResponses"][0][1]["notCreated"]["send"].is_object(),"{response}");
-    let commands=smtp.await.unwrap();
-    assert_eq!(commands.iter().filter(|line|line.starts_with("AUTH PLAIN")).count(),2);
-    assert!(!commands.iter().any(|line|line.starts_with("MAIL") || line.starts_with("RCPT") || line=="DATA"));
-    let session:Value=client.get(format!("{}/jmap/session",server.base)).send().await.unwrap().json().await.unwrap();
-    assert_eq!(session["accounts"][&account]["accountCapabilities"]["urn:ietf:params:jmap:submission"]["submissionExtensions"],json!({}));
-    unsafe {std::env::remove_var("MW_SMTP_HOST");std::env::remove_var("MW_SMTP_PORT");std::env::remove_var("MW_SMTP_SECURITY");}
+    assert!(
+        response["methodResponses"][0][1]["notCreated"]["send"].is_object(),
+        "{response}"
+    );
+    let commands = smtp.await.unwrap();
+    assert_eq!(
+        commands
+            .iter()
+            .filter(|line| line.starts_with("AUTH PLAIN"))
+            .count(),
+        2
+    );
+    assert!(
+        !commands
+            .iter()
+            .any(|line| line.starts_with("MAIL") || line.starts_with("RCPT") || line == "DATA")
+    );
+    let session: Value = client
+        .get(format!("{}/jmap/session", server.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        session["accounts"][&account]["accountCapabilities"]["urn:ietf:params:jmap:submission"]["submissionExtensions"],
+        json!({})
+    );
+    unsafe {
+        std::env::remove_var("MW_SMTP_HOST");
+        std::env::remove_var("MW_SMTP_PORT");
+        std::env::remove_var("MW_SMTP_SECURITY");
+    }
 }
 
 #[tokio::test]
 async fn dsn_default_is_account_preference_with_admin_lock_and_readonly_permission() {
-    let _guard=serial().await;
-    let imap=MockImap::start(ENGINE_USER,ENGINE_PASS).await;
-    let server=spawn(ServerMode::Engine,imap.url()).await;
-    let client=browser();let _account=engine_login(&client,&server.base,&imap).await;
-    let url=format!("{}/api/settings",server.base);
-    let initial:Value=client.get(&url).send().await.unwrap().json().await.unwrap();
-    assert_eq!(initial["settings"]["mail.requestDeliveryReceipt"]["value"],false);
-    assert_eq!(initial["settings"]["receipts.dsnAllowed"]["value"],true);
-    let own=format!("{url}/mail.requestDeliveryReceipt");
-    assert_eq!(client.put(&own).json(&json!({"value":true})).send().await.unwrap().status(),200);
-    let saved:Value=client.get(&url).send().await.unwrap().json().await.unwrap();
-    assert_eq!(saved["settings"]["mail.requestDeliveryReceipt"]["value"],true);
-    let forbidden=client.put(format!("{url}/receipts.dsnAllowed")).json(&json!({"value":true})).send().await.unwrap();
-    assert_eq!(forbidden.status(),403);
-    assert_eq!(forbidden.json::<Value>().await.unwrap()["code"],"setting_locked");
-    server.store().await.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow{
-        key:"mail.requestDeliveryReceipt".into(),global_value:Some("false".into()),
-        allow_user_override:false,global_locked:true,updated_by:"fixture".into(),updated_at:0,
-    }).await.unwrap();
-    let locked:Value=client.get(&url).send().await.unwrap().json().await.unwrap();
-    assert_eq!(locked["settings"]["mail.requestDeliveryReceipt"]["value"],false);
-    assert_eq!(locked["settings"]["mail.requestDeliveryReceipt"]["locked"],true);
-    assert_eq!(client.put(&own).json(&json!({"value":true})).send().await.unwrap().status(),403);
+    let _guard = serial().await;
+    let imap = MockImap::start(ENGINE_USER, ENGINE_PASS).await;
+    let server = spawn(ServerMode::Engine, imap.url()).await;
+    let client = browser();
+    let _account = engine_login(&client, &server.base, &imap).await;
+    let url = format!("{}/api/settings", server.base);
+    let initial: Value = client.get(&url).send().await.unwrap().json().await.unwrap();
+    assert_eq!(
+        initial["settings"]["mail.requestDeliveryReceipt"]["value"],
+        false
+    );
+    assert_eq!(initial["settings"]["receipts.dsnAllowed"]["value"], true);
+    let own = format!("{url}/mail.requestDeliveryReceipt");
+    assert_eq!(
+        client
+            .put(&own)
+            .json(&json!({"value":true}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let saved: Value = client.get(&url).send().await.unwrap().json().await.unwrap();
+    assert_eq!(
+        saved["settings"]["mail.requestDeliveryReceipt"]["value"],
+        true
+    );
+    let forbidden = client
+        .put(format!("{url}/receipts.dsnAllowed"))
+        .json(&json!({"value":true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), 403);
+    assert_eq!(
+        forbidden.json::<Value>().await.unwrap()["code"],
+        "setting_locked"
+    );
+    server
+        .store()
+        .await
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "mail.requestDeliveryReceipt".into(),
+            global_value: Some("false".into()),
+            allow_user_override: false,
+            global_locked: true,
+            updated_by: "fixture".into(),
+            updated_at: 0,
+        })
+        .await
+        .unwrap();
+    let locked: Value = client.get(&url).send().await.unwrap().json().await.unwrap();
+    assert_eq!(
+        locked["settings"]["mail.requestDeliveryReceipt"]["value"],
+        false
+    );
+    assert_eq!(
+        locked["settings"]["mail.requestDeliveryReceipt"]["locked"],
+        true
+    );
+    assert_eq!(
+        client
+            .put(&own)
+            .json(&json!({"value":true}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
 }
 
 #[tokio::test]
 async fn sending_identity_creation_requires_current_address_authority() {
-    let _guard=serial().await;
-    let imap=MockImap::start(ENGINE_USER,ENGINE_PASS).await;
-    let server=spawn(ServerMode::Engine,imap.url()).await;
-    let client=browser();let account=engine_login(&client,&server.base,&imap).await;
-    let url=format!("{}/api/account/identities",server.base);
-    let denied=client.post(&url).json(&json!({"name":"Unverified","email":"unverified@example.net","source":"server"})).send().await.unwrap();
-    assert_eq!(denied.status(),403);
-    assert_eq!(denied.json::<Value>().await.unwrap()["code"],"forbiddenFrom");
-    let saved=client.post(&url).json(&json!({"name":"My identity","email":ENGINE_USER})).send().await.unwrap();
-    assert_eq!(saved.status(),200);
-    let id=saved.json::<Value>().await.unwrap()["id"].as_str().unwrap().to_string();
-    let denied=client.post(&url).json(&json!({"id":id,"name":"Changed","email":"unverified@example.net"})).send().await.unwrap();
-    assert_eq!(denied.status(),403);
-    let row=server.store().await.get_identity(&id).await.unwrap().unwrap();
-    assert_eq!(row.account_id,account);assert_eq!(row.email,ENGINE_USER);
+    let _guard = serial().await;
+    let imap = MockImap::start(ENGINE_USER, ENGINE_PASS).await;
+    let server = spawn(ServerMode::Engine, imap.url()).await;
+    let client = browser();
+    let account = engine_login(&client, &server.base, &imap).await;
+    let url = format!("{}/api/account/identities", server.base);
+    let denied = client
+        .post(&url)
+        .json(&json!({"name":"Unverified","email":"unverified@example.net","source":"server"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 403);
+    assert_eq!(
+        denied.json::<Value>().await.unwrap()["code"],
+        "forbiddenFrom"
+    );
+    let saved = client
+        .post(&url)
+        .json(&json!({"name":"My identity","email":ENGINE_USER}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), 200);
+    let id = saved.json::<Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let denied = client
+        .post(&url)
+        .json(&json!({"id":id,"name":"Changed","email":"unverified@example.net"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 403);
+    let row = server
+        .store()
+        .await
+        .get_identity(&id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.account_id, account);
+    assert_eq!(row.email, ENGINE_USER);
 }
 
 #[tokio::test]
 async fn signature_formats_http_sanitizes_and_fences_account_switch() {
-    let _guard=serial().await;
-    let imap=MockImap::start(ENGINE_USER,ENGINE_PASS).await;
-    let server=spawn(ServerMode::Engine,imap.url()).await;
-    let client=browser();let account=engine_login(&client,&server.base,&imap).await;
-    let me:Value=client.get(format!("{}/api/me",server.base)).send().await.unwrap().json().await.unwrap();
-    let authority=me["storageAuthority"].as_str().unwrap();
-    let owner=server.store().await.native_personal_subject(&account).await.unwrap().unwrap();
-    let url=format!("{}/api/account/signatures",server.base);
-    let dto=json!({"name":"format-test","body":"Legacy plain","html":"<p onclick=evil()>Rich <strong>signature</strong><script>evil()</script></p>","text":"Independent <plain> & text","textEdited":true,"isDefault":false});
-    let denied=client.post(&url).header("X-Mailwoman-Account","other-account").json(&dto).send().await.unwrap();
-    assert_eq!(denied.status(),403);
-    assert!(server.store().await.list_personal_signatures(&owner).await.unwrap().is_empty());
-    let mut too_large=dto.clone();too_large["html"]=json!("x".repeat(32*1024+1));
-    assert_eq!(client.post(&url).header("X-Mailwoman-Account",&account).header("x-mailwoman-storage-authority",authority).json(&too_large).send().await.unwrap().status(),400);
-    let saved=client.post(&url).header("X-Mailwoman-Account",&account).header("x-mailwoman-storage-authority",authority).json(&dto).send().await.unwrap();assert_eq!(saved.status(),200);
-    let response=client.get(&url).header("X-Mailwoman-Account",&account).header("x-mailwoman-storage-authority",authority).send().await.unwrap();assert_eq!(response.status(),200);
-    let body=response.json::<Value>().await.unwrap();
-    assert_eq!(body["signatures"][0]["html"],"<p>Rich <strong>signature</strong></p>");
-    assert_eq!(body["signatures"][0]["text"],"Independent <plain> & text");
-    let denied=client.delete(format!("{url}/format-test")).header("X-Mailwoman-Account","other-account").send().await.unwrap();assert_eq!(denied.status(),403);
-    assert_eq!(server.store().await.list_personal_signatures(&owner).await.unwrap().len(),1);
-    let mut first_default=dto.clone();first_default["isDefault"]=json!(true);
-    assert_eq!(client.post(&url).header("X-Mailwoman-Account",&account).header("x-mailwoman-storage-authority",authority).json(&first_default).send().await.unwrap().status(),200);
-    let mut second_default=first_default.clone();second_default["name"]=json!("second-default");
-    assert_eq!(client.post(&url).header("X-Mailwoman-Account",&account).header("x-mailwoman-storage-authority",authority).json(&second_default).send().await.unwrap().status(),200);
-    let body=client.get(&url).header("X-Mailwoman-Account",&account).header("x-mailwoman-storage-authority",authority).send().await.unwrap().json::<Value>().await.unwrap();
-    let signatures=body["signatures"].as_array().unwrap();
-    assert_eq!(signatures.len(),2);
-    assert_eq!(signatures.iter().filter(|row|row["isDefault"]==true).count(),1);
-    assert!(signatures.iter().any(|row|row["name"]=="second-default"&&row["isDefault"]==true));
-    for row in signatures {assert_eq!(row["html"],"<p>Rich <strong>signature</strong></p>");assert_eq!(row["text"],"Independent <plain> & text");}
+    let _guard = serial().await;
+    let imap = MockImap::start(ENGINE_USER, ENGINE_PASS).await;
+    let server = spawn(ServerMode::Engine, imap.url()).await;
+    let client = browser();
+    let account = engine_login(&client, &server.base, &imap).await;
+    let me: Value = client
+        .get(format!("{}/api/me", server.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let authority = me["storageAuthority"].as_str().unwrap();
+    let owner = server
+        .store()
+        .await
+        .native_personal_subject(&account)
+        .await
+        .unwrap()
+        .unwrap();
+    let url = format!("{}/api/account/signatures", server.base);
+    let dto = json!({"name":"format-test","body":"Legacy plain","html":"<p onclick=evil()>Rich <strong>signature</strong><script>evil()</script></p>","text":"Independent <plain> & text","textEdited":true,"isDefault":false});
+    let denied = client
+        .post(&url)
+        .header("X-Mailwoman-Account", "other-account")
+        .json(&dto)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 403);
+    assert!(
+        server
+            .store()
+            .await
+            .list_personal_signatures(&owner)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let mut too_large = dto.clone();
+    too_large["html"] = json!("x".repeat(32 * 1024 + 1));
+    assert_eq!(
+        client
+            .post(&url)
+            .header("X-Mailwoman-Account", &account)
+            .header("x-mailwoman-storage-authority", authority)
+            .json(&too_large)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        400
+    );
+    let saved = client
+        .post(&url)
+        .header("X-Mailwoman-Account", &account)
+        .header("x-mailwoman-storage-authority", authority)
+        .json(&dto)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), 200);
+    let response = client
+        .get(&url)
+        .header("X-Mailwoman-Account", &account)
+        .header("x-mailwoman-storage-authority", authority)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body = response.json::<Value>().await.unwrap();
+    assert_eq!(
+        body["signatures"][0]["html"],
+        "<p>Rich <strong>signature</strong></p>"
+    );
+    assert_eq!(body["signatures"][0]["text"], "Independent <plain> & text");
+    let denied = client
+        .delete(format!("{url}/format-test"))
+        .header("X-Mailwoman-Account", "other-account")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 403);
+    assert_eq!(
+        server
+            .store()
+            .await
+            .list_personal_signatures(&owner)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    let mut first_default = dto.clone();
+    first_default["isDefault"] = json!(true);
+    assert_eq!(
+        client
+            .post(&url)
+            .header("X-Mailwoman-Account", &account)
+            .header("x-mailwoman-storage-authority", authority)
+            .json(&first_default)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let mut second_default = first_default.clone();
+    second_default["name"] = json!("second-default");
+    assert_eq!(
+        client
+            .post(&url)
+            .header("X-Mailwoman-Account", &account)
+            .header("x-mailwoman-storage-authority", authority)
+            .json(&second_default)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let body = client
+        .get(&url)
+        .header("X-Mailwoman-Account", &account)
+        .header("x-mailwoman-storage-authority", authority)
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    let signatures = body["signatures"].as_array().unwrap();
+    assert_eq!(signatures.len(), 2);
+    assert_eq!(
+        signatures
+            .iter()
+            .filter(|row| row["isDefault"] == true)
+            .count(),
+        1
+    );
+    assert!(
+        signatures
+            .iter()
+            .any(|row| row["name"] == "second-default" && row["isDefault"] == true)
+    );
+    for row in signatures {
+        assert_eq!(row["html"], "<p>Rich <strong>signature</strong></p>");
+        assert_eq!(row["text"], "Independent <plain> & text");
+    }
 }

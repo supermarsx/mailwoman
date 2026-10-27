@@ -95,7 +95,8 @@ pub(crate) async fn prepare(store: &Store, security: &SecurityConfig, engine: bo
             domain_config::UpstreamConfig::parse(&row.upstream_json)
                 .is_ok_and(|c| c.mail().is_some() || c.jmap.is_some())
         });
-        let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
+        let subject = mw_store::settings_policy::SettingSubject {
+            personal_owner: None,
             domain: "",
             account_id: "",
             address: "",

@@ -83,8 +83,10 @@ fn part_blob_decodes_a_base64_attachment() {
 fn part_blob_refuses_containers() {
     assert_eq!(part_blob(MIXED, 0), None, "multipart root is not a blob");
 
-    let nested = (1u32..12).filter_map(|id| part_blob(MIXED, id))
-        .find(|part| part.content_type == "message/rfc822").expect("attached message resolves");
+    let nested = (1u32..12)
+        .filter_map(|id| part_blob(MIXED, id))
+        .find(|part| part.content_type == "message/rfc822")
+        .expect("attached message resolves");
     assert!(nested.bytes.starts_with(b"From: inner@example.org\r\n"));
     assert!(nested.bytes.ends_with(b"inner body"));
     assert!(!nested.bytes.windows(3).any(|part| part == b"--B"));

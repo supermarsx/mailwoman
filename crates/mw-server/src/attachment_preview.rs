@@ -35,9 +35,17 @@ async fn preview(
     headers: HeaderMap,
     Json(body): Json<PreviewRequest>,
 ) -> Response {
-    let session=match super::authed(&state,&headers).await {Ok(s)=>s,Err(r)=>return r};
-    let policy=match crate::attachment_policy::effective(&state,&session).await {Ok(p)=>p,Err(r)=>return r};
-    if !policy.preview_allowed || !policy.download_allowed {return crate::attachment_policy::refusal("attachmentPreviewDisabled");}
+    let session = match super::authed(&state, &headers).await {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let policy = match crate::attachment_policy::effective(&state, &session).await {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    if !policy.preview_allowed || !policy.download_allowed {
+        return crate::attachment_policy::refusal("attachmentPreviewDisabled");
+    }
     if !matches!(body.format.as_str(), "eml" | "tnef") {
         return error(StatusCode::BAD_REQUEST, "unsupported preview format");
     }
@@ -50,7 +58,9 @@ async fn preview(
             );
         }
     };
-    if policy.max_bytes>0 && bytes.len() as u64>policy.max_bytes {return crate::attachment_policy::refusal("attachmentTooLarge");}
+    if policy.max_bytes > 0 && bytes.len() as u64 > policy.max_bytes {
+        return crate::attachment_policy::refusal("attachmentTooLarge");
+    }
     drop(bytes);
     let Some(bin) = &state.render_bin else {
         return super::render_unavailable();
@@ -66,10 +76,22 @@ async fn preview(
         Ok(Ok(mut value)) => {
             // The worker parses these fields from the supplied MIME bytes;
             // caller-selected names/format are not attachment metadata.
-            if let Some(files)=value["preview"]["attachments"].as_array_mut() {
+            if let Some(files) = value["preview"]["attachments"].as_array_mut() {
                 files.retain(|file| {
-                    let metadata=crate::attachment_policy::Metadata {name:file["name"].as_str().unwrap_or("").into(),mime:file["mime"].as_str().unwrap_or("application/octet-stream").into(),size:file["size"].as_u64().unwrap_or(u64::MAX)};
-                    crate::attachment_policy::authorize(&policy,&metadata,&crate::attachment_policy::DownloadQuery::default()).is_ok()
+                    let metadata = crate::attachment_policy::Metadata {
+                        name: file["name"].as_str().unwrap_or("").into(),
+                        mime: file["mime"]
+                            .as_str()
+                            .unwrap_or("application/octet-stream")
+                            .into(),
+                        size: file["size"].as_u64().unwrap_or(u64::MAX),
+                    };
+                    crate::attachment_policy::authorize(
+                        &policy,
+                        &metadata,
+                        &crate::attachment_policy::DownloadQuery::default(),
+                    )
+                    .is_ok()
                 });
             }
             let mut response = Json(value).into_response();

@@ -268,10 +268,17 @@ mod tests {
     #[test]
     fn installed_app_icons_fit_the_image_jail() {
         for (name, bytes) in [
-            ("192px", include_bytes!("../../../apps/web/public/icons/icon-192.png").as_slice()),
-            ("512px", include_bytes!("../../../apps/web/public/icons/icon-512.png").as_slice()),
+            (
+                "192px",
+                include_bytes!("../../../apps/web/public/icons/icon-192.png").as_slice(),
+            ),
+            (
+                "512px",
+                include_bytes!("../../../apps/web/public/icons/icon-512.png").as_slice(),
+            ),
         ] {
-            let image = super::reencode_image(bytes).unwrap_or_else(|error| panic!("{name} installed app icon: {error}"));
+            let image = super::reencode_image(bytes)
+                .unwrap_or_else(|error| panic!("{name} installed app icon: {error}"));
             assert!(image.starts_with(b"\x89PNG"));
         }
     }

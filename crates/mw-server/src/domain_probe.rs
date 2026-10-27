@@ -565,8 +565,12 @@ pub(crate) async fn diagnostic_backend(
             "credentialsSent":false,"selectedReason":"authenticated-provider-probe-required"});
     }
     let protocol = match backend.protocol {
-        Protocol::Imap => "imap", Protocol::Pop3 => "pop3", Protocol::Jmap => "jmap",
-        Protocol::Smtp => "smtp", Protocol::Sieve => "sieve", Protocol::Ews => "ews",
+        Protocol::Imap => "imap",
+        Protocol::Pop3 => "pop3",
+        Protocol::Jmap => "jmap",
+        Protocol::Smtp => "smtp",
+        Protocol::Sieve => "sieve",
+        Protocol::Ews => "ews",
     };
     let probe = if let Some(endpoint) = &backend.endpoint {
         probe_mail(protocol, endpoint, domain, plan).await
@@ -580,7 +584,12 @@ pub(crate) async fn diagnostic_backend(
         "capabilityCount":probe.capabilities.len(),"selectedReason":probe.selected_reason})
 }
 
-pub(crate) async fn diagnostic_http_service(domain: &str, protocol: &str, url: &str, plan: &mw_egress::plan::EgressPlan) -> Value {
+pub(crate) async fn diagnostic_http_service(
+    domain: &str,
+    protocol: &str,
+    url: &str,
+    plan: &mw_egress::plan::EgressPlan,
+) -> Value {
     let probe = probe_http(protocol, url, domain, plan).await;
     json!({"protocol":protocol,"reachable":probe.reachable,"tls":probe.tls,"credentialsSent":false})
 }

@@ -37,7 +37,10 @@ impl MockPop3 {
     }
 
     /// Keep message enumeration pending while authentication and STAT remain usable.
-    pub async fn start_accounts_with_index_gate(accounts: &[(&str, &str)], gate: Option<Arc<tokio::sync::Semaphore>>) -> MockPop3 {
+    pub async fn start_accounts_with_index_gate(
+        accounts: &[(&str, &str)],
+        gate: Option<Arc<tokio::sync::Semaphore>>,
+    ) -> MockPop3 {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let accepted = Arc::new(AtomicUsize::new(0));
@@ -127,7 +130,7 @@ async fn serve(
                     let _permit = gate.acquire().await.unwrap();
                 }
                 b"+OK\r\n.\r\n"
-            },
+            }
             "NOOP" if authed => b"+OK\r\n",
             "QUIT" => {
                 write.write_all(b"+OK bye\r\n").await?;

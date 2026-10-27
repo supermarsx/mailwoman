@@ -54,24 +54,64 @@ async fn active_webmail_sessions(
     snapshot: &mw_store::diag::DashboardSnapshot,
     allowed: Option<&BTreeSet<String>>,
 ) -> Result<u64, &'static str> {
-    if snapshot.limited.contains("aliases") { return Err("Domain alias snapshot is incomplete."); }
-    let rows = state.store.list_security_sessions(None, 1000).await.map_err(|_| "Session storage is unavailable.")?;
-    if rows.len() == 1000 { return Err("Session query limit was reached; incomplete totals are not reported."); }
+    if snapshot.limited.contains("aliases") {
+        return Err("Domain alias snapshot is incomplete.");
+    }
+    let rows = state
+        .store
+        .list_security_sessions(None, 1000)
+        .await
+        .map_err(|_| "Session storage is unavailable.")?;
+    if rows.len() == 1000 {
+        return Err("Session query limit was reached; incomplete totals are not reported.");
+    }
     let mut policies = std::collections::BTreeMap::new();
     let now = chrono::Utc::now();
     let mut count = 0;
     for row in rows {
-        let Some(domain) = snapshot.address_domain(&row.username).and_then(|d| snapshot.canonical_domain(&d)) else { continue };
-        if allowed.is_some_and(|domains| !domains.contains(&domain)) { continue; }
-        if snapshot.domains.iter().any(|configured| configured.name == domain && !configured.enabled) { continue; }
+        let Some(domain) = snapshot
+            .address_domain(&row.username)
+            .and_then(|d| snapshot.canonical_domain(&d))
+        else {
+            continue;
+        };
+        if allowed.is_some_and(|domains| !domains.contains(&domain)) {
+            continue;
+        }
+        if snapshot
+            .domains
+            .iter()
+            .any(|configured| configured.name == domain && !configured.enabled)
+        {
+            continue;
+        }
         let key = (row.account_id.clone(), row.username.clone());
         if !policies.contains_key(&key) {
-            let policy = crate::security_center::policy(state, &row.account_id, &row.username).await.map_err(|_| "Session expiry policy is unavailable.")?;
-            let gate = crate::account_gate::for_login(&state.store, &row.account_id, &row.username, &row.username).await.map_err(|_| "Account access policy is unavailable.")?;
+            let policy = crate::security_center::policy(state, &row.account_id, &row.username)
+                .await
+                .map_err(|_| "Session expiry policy is unavailable.")?;
+            let gate = crate::account_gate::for_login(
+                &state.store,
+                &row.account_id,
+                &row.username,
+                &row.username,
+            )
+            .await
+            .map_err(|_| "Account access policy is unavailable.")?;
             policies.insert(key.clone(), (policy, gate.disabled));
         }
         let (policy, disabled) = &policies[&key];
-        if !disabled && !crate::security_center::session_deadline_passed(&row.created_at, &row.last_activity, now, policy.idle_secs, policy.absolute_secs) { count += 1; }
+        if !disabled
+            && !crate::security_center::session_deadline_passed(
+                &row.created_at,
+                &row.last_activity,
+                now,
+                policy.idle_secs,
+                policy.absolute_secs,
+            )
+        {
+            count += 1;
+        }
     }
     Ok(count)
 }
@@ -91,10 +131,18 @@ async fn summary(State(state): State<AppState>, ctx: AdminCtx) -> Result<Respons
             None
         };
         let mut unavailable = serde_json::Map::new();
-        let active_sessions = match tokio::time::timeout(Duration::from_millis(800), active_webmail_sessions(&state, &snapshot, scope)).await {
+        let active_sessions = match tokio::time::timeout(
+            Duration::from_millis(800),
+            active_webmail_sessions(&state, &snapshot, scope),
+        )
+        .await
+        {
             Ok(Ok(count)) => Some(count),
             result => {
-                let reason = match result { Ok(Err(reason)) => reason, _ => "Session count query budget was exceeded." };
+                let reason = match result {
+                    Ok(Err(reason)) => reason,
+                    _ => "Session count query budget was exceeded.",
+                };
                 unavailable.insert("counts.activeSessions".into(), json!(reason));
                 None
             }

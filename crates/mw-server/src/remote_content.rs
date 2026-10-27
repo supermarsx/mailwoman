@@ -73,10 +73,10 @@ const MAX_URL_LEN: usize = 4096;
 const MAX_BLOB_ID_LEN: usize = 256;
 const MAX_PART_RAW_BYTES: usize = 32 * 1024 * 1024;
 
-#[path = "remote_tracker_stats.rs"]
-mod tracker_stats;
 #[path = "remote_membership.rs"]
 mod membership;
+#[path = "remote_tracker_stats.rs"]
+mod tracker_stats;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -108,8 +108,11 @@ pub(crate) async fn message_stats(
     let (count, limited) = tracker_stats::read(&session.account_id, &tag, &query.email_id);
     (
         [(header::CACHE_CONTROL, "no-store")],
-        Json(json!({"decodedTrackersReplaced":count,"limited":limited,"windowSecs":IMAGE_TTL_SECS})),
-    ).into_response()
+        Json(
+            json!({"decodedTrackersReplaced":count,"limited":limited,"windowSecs":IMAGE_TTL_SECS}),
+        ),
+    )
+        .into_response()
 }
 
 async fn image_allowed(
@@ -418,9 +421,16 @@ pub(crate) async fn sign(
         Err(r) => return r,
     };
     if !body.image_downloads.is_empty()
-        && headers.get("x-mailwoman-account").and_then(|value| value.to_str().ok()) != Some(session.account_id.as_str())
+        && headers
+            .get("x-mailwoman-account")
+            .and_then(|value| value.to_str().ok())
+            != Some(session.account_id.as_str())
     {
-        return (StatusCode::CONFLICT, Json(json!({"error":"accountChanged"}))).into_response();
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({"error":"accountChanged"})),
+        )
+            .into_response();
     }
     let policy = match crate::remote_policy::effective(&state, &session).await {
         Ok(p) => p,
@@ -433,7 +443,11 @@ pub(crate) async fn sign(
         )
             .into_response();
     }
-    if body.urls.len() > MAX_SIGN || body.parts.len() > MAX_SIGN || body.files.len() > MAX_SIGN || body.image_downloads.len() > MAX_SIGN {
+    if body.urls.len() > MAX_SIGN
+        || body.parts.len() > MAX_SIGN
+        || body.files.len() > MAX_SIGN
+        || body.image_downloads.len() > MAX_SIGN
+    {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "too many references in one request" })),
@@ -460,9 +474,12 @@ pub(crate) async fn sign(
     if !body.image_downloads.is_empty() && !policy.remote_image_downloads {
         return forbidden("remote image downloads are disabled");
     }
-    let references = if body.files.is_empty() && body.image_downloads.is_empty() { None } else {
+    let references = if body.files.is_empty() && body.image_downloads.is_empty() {
+        None
+    } else {
         match membership::owned(&state, &session, &body.email_id, policy.clean_links).await {
-            Ok(refs) => Some(refs), Err(response) => return response,
+            Ok(refs) => Some(refs),
+            Err(response) => return response,
         }
     };
 
@@ -511,8 +528,13 @@ pub(crate) async fn sign(
             refused.push(json!({ "url": url, "reason": "scheme" }));
             continue;
         }
-        let Some(normalized) = membership::normalized_url(url).filter(|value| references.as_ref().is_some_and(|refs| refs.links.contains(value))) else {
-            refused.push(json!({"url":url,"reason":"message"})); continue;
+        let Some(normalized) = membership::normalized_url(url).filter(|value| {
+            references
+                .as_ref()
+                .is_some_and(|refs| refs.links.contains(value))
+        }) else {
+            refused.push(json!({"url":url,"reason":"message"}));
+            continue;
         };
         let token = mint(&key, &claims(Kind::File, &normalized, PART_TTL_SECS));
         files.push(json!({
@@ -522,11 +544,27 @@ pub(crate) async fn sign(
     }
     let mut image_downloads = Vec::new();
     for url in &body.image_downloads {
-        let Some(normalized) = membership::normalized_url(url) else { refused.push(json!({"url":url,"reason":"scheme"})); continue; };
-        let Some(tracker) = references.as_ref().and_then(|refs| refs.images.get(&normalized)) else { refused.push(json!({"url":url,"reason":"message"})); continue; };
-        if policy.trackers && *tracker { refused.push(json!({"url":url,"reason":"tracker"})); continue; }
-        let token = mint(&key, &claims(Kind::ImageDownload, &normalized, PART_TTL_SECS));
-        image_downloads.push(json!({"url":url,"src":format!("{}/api/rc/d/{token}",state.base_path)}));
+        let Some(normalized) = membership::normalized_url(url) else {
+            refused.push(json!({"url":url,"reason":"scheme"}));
+            continue;
+        };
+        let Some(tracker) = references
+            .as_ref()
+            .and_then(|refs| refs.images.get(&normalized))
+        else {
+            refused.push(json!({"url":url,"reason":"message"}));
+            continue;
+        };
+        if policy.trackers && *tracker {
+            refused.push(json!({"url":url,"reason":"tracker"}));
+            continue;
+        }
+        let token = mint(
+            &key,
+            &claims(Kind::ImageDownload, &normalized, PART_TTL_SECS),
+        );
+        image_downloads
+            .push(json!({"url":url,"src":format!("{}/api/rc/d/{token}",state.base_path)}));
     }
     let allowed_parts = if body.parts.is_empty() {
         Vec::new()
@@ -740,7 +778,13 @@ pub(crate) async fn image(
     fetch_image(state, session, claims, policy, headers).await
 }
 
-async fn fetch_image(state: AppState, session: mw_store::Session, claims: Claims, policy: crate::remote_policy::PrivacyPolicy, headers: HeaderMap) -> Response {
+async fn fetch_image(
+    state: AppState,
+    session: mw_store::Session,
+    claims: Claims,
+    policy: crate::remote_policy::PrivacyPolicy,
+    headers: HeaderMap,
+) -> Response {
     let plan = match load_plan(&state.store).await {
         Ok(p) => p,
         Err(()) => return internal("egress route lookup"),
@@ -824,33 +868,85 @@ async fn fetch_image(state: AppState, session: mw_store::Session, claims: Claims
         return unsupported(why);
     }
     let response = reencode_and_answer(raw, Some(key), &policy).await;
-    if response.headers().get("x-mw-remote-content").is_some_and(|value| value == "tracker") {
+    if response
+        .headers()
+        .get("x-mw-remote-content")
+        .is_some_and(|value| value == "tracker")
+    {
         tracker_stats::record(&claims.a, &claims.s, &claims.e, &claims.u, claims.x);
     }
     response
 }
 
 /// A manual, policy-enabled image download through the same guarded image decoder.
-pub(crate) async fn image_download(State(state): State<AppState>, UrlPath(token): UrlPath<String>, headers: HeaderMap) -> Response {
-    let (claims, session) = match admit(&state, &token, Kind::ImageDownload).await { Ok(value) => value, Err(response) => return response };
-    let current = match crate::authed(&state, &headers).await { Ok(value) => value, Err(response) => return response };
-    if current.id != session.id || current.account_id != session.account_id
-        || headers.get("x-mailwoman-account").is_some_and(|value| value.to_str().ok() != Some(session.account_id.as_str()))
+pub(crate) async fn image_download(
+    State(state): State<AppState>,
+    UrlPath(token): UrlPath<String>,
+    headers: HeaderMap,
+) -> Response {
+    let (claims, session) = match admit(&state, &token, Kind::ImageDownload).await {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let current = match crate::authed(&state, &headers).await {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    if current.id != session.id
+        || current.account_id != session.account_id
+        || headers
+            .get("x-mailwoman-account")
+            .is_some_and(|value| value.to_str().ok() != Some(session.account_id.as_str()))
     {
-        return (StatusCode::CONFLICT, Json(json!({"error":"accountChanged"}))).into_response();
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({"error":"accountChanged"})),
+        )
+            .into_response();
     }
-    let policy = match crate::remote_policy::effective(&state, &session).await { Ok(value) => value, Err(response) => return response };
-    if !policy.remote_image_downloads { return forbidden("remote image downloads are disabled"); }
-    let refs = match membership::owned(&state, &session, &claims.e, policy.clean_links).await { Ok(value) => value, Err(response) => return response };
-    let Some(url) = membership::normalized_url(&claims.u) else { return forbidden("invalid image URL"); };
-    let Some(tracker) = refs.images.get(&url) else { return forbidden("URL is not an image in this message"); };
-    if policy.trackers && *tracker { return forbidden("tracker blocked by policy"); }
+    let policy = match crate::remote_policy::effective(&state, &session).await {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    if !policy.remote_image_downloads {
+        return forbidden("remote image downloads are disabled");
+    }
+    let refs = match membership::owned(&state, &session, &claims.e, policy.clean_links).await {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let Some(url) = membership::normalized_url(&claims.u) else {
+        return forbidden("invalid image URL");
+    };
+    let Some(tracker) = refs.images.get(&url) else {
+        return forbidden("URL is not an image in this message");
+    };
+    if policy.trackers && *tracker {
+        return forbidden("tracker blocked by policy");
+    }
     let mut response = fetch_image(state, session, claims, policy, HeaderMap::new()).await;
-    if !response.status().is_success() { return response; }
-    if response.headers().get("x-mw-remote-content").is_some_and(|value| value == "tracker") { return forbidden("tracker blocked by policy"); }
-    response.headers_mut().insert(header::CONTENT_DISPOSITION, HeaderValue::from_static("attachment; filename=\"message-image.png\""));
-    response.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
-    response.headers_mut().insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("sandbox; default-src 'none'"));
+    if !response.status().is_success() {
+        return response;
+    }
+    if response
+        .headers()
+        .get("x-mw-remote-content")
+        .is_some_and(|value| value == "tracker")
+    {
+        return forbidden("tracker blocked by policy");
+    }
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_static("attachment; filename=\"message-image.png\""),
+    );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("sandbox; default-src 'none'"),
+    );
     response
 }
 
@@ -899,20 +995,56 @@ pub(crate) async fn part(
         Ok(_) => return forbidden("not a part of this message"),
         Err(()) => return internal("part membership check"),
     }
-    let attachment_policy=match crate::attachment_policy::effective(&state,&session).await {Ok(p)=>p,Err(r)=>return r};
-    if !attachment_policy.preview_allowed || !attachment_policy.download_allowed {return crate::attachment_policy::refusal("attachmentPreviewDisabled");}
-    let attachment_query=crate::attachment_policy::DownloadQuery{email_id:Some(claims.e.clone()),preview:Some(true),acknowledge_warning:None};
-    let metadata=if state.engine.is_none() && attachment_policy.restricts_content() {
-        match crate::attachment_policy::proxy_metadata(&state,&session,&claims.u,&attachment_query).await {Ok(parts)=>parts,Err(r)=>return r}
-    } else {Vec::new()};
-    for part in &metadata {if let Err(r)=crate::attachment_policy::authorize(&attachment_policy,part,&attachment_query) {return r;}}
+    let attachment_policy = match crate::attachment_policy::effective(&state, &session).await {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    if !attachment_policy.preview_allowed || !attachment_policy.download_allowed {
+        return crate::attachment_policy::refusal("attachmentPreviewDisabled");
+    }
+    let attachment_query = crate::attachment_policy::DownloadQuery {
+        email_id: Some(claims.e.clone()),
+        preview: Some(true),
+        acknowledge_warning: None,
+    };
+    let metadata = if state.engine.is_none() && attachment_policy.restricts_content() {
+        match crate::attachment_policy::proxy_metadata(
+            &state,
+            &session,
+            &claims.u,
+            &attachment_query,
+        )
+        .await
+        {
+            Ok(parts) => parts,
+            Err(r) => return r,
+        }
+    } else {
+        Vec::new()
+    };
+    for part in &metadata {
+        if let Err(r) =
+            crate::attachment_policy::authorize(&attachment_policy, part, &attachment_query)
+        {
+            return r;
+        }
+    }
     let _permit = match fetch_semaphore().try_acquire() {
         Ok(p) => p,
         Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "remote content busy").into_response(),
     };
     let (bytes, content_type, filename) = match tokio::time::timeout(
         std::time::Duration::from_secs(15),
-        read_part(&state, &session, &claims.u, if attachment_policy.max_bytes>0 {policy.max_bytes.min(attachment_policy.max_bytes as usize)} else {policy.max_bytes}),
+        read_part(
+            &state,
+            &session,
+            &claims.u,
+            if attachment_policy.max_bytes > 0 {
+                policy.max_bytes.min(attachment_policy.max_bytes as usize)
+            } else {
+                policy.max_bytes
+            },
+        ),
     )
     .await
     {
@@ -921,13 +1053,33 @@ pub(crate) async fn part(
         Ok(Err(r)) => return r,
         Err(_) => return (StatusCode::GATEWAY_TIMEOUT, "part download timed out").into_response(),
     };
-    if let Some(name)=filename {
-        let actual=crate::attachment_policy::Metadata{name,mime:content_type.clone().unwrap_or_else(||"application/octet-stream".into()),size:bytes.len() as u64};
-        if let Err(r)=crate::attachment_policy::authorize(&attachment_policy,&actual,&attachment_query) {return r;}
+    if let Some(name) = filename {
+        let actual = crate::attachment_policy::Metadata {
+            name,
+            mime: content_type
+                .clone()
+                .unwrap_or_else(|| "application/octet-stream".into()),
+            size: bytes.len() as u64,
+        };
+        if let Err(r) =
+            crate::attachment_policy::authorize(&attachment_policy, &actual, &attachment_query)
+        {
+            return r;
+        }
     }
     for part in &metadata {
-        let actual=crate::attachment_policy::Metadata{name:part.name.clone(),mime:content_type.clone().unwrap_or_else(||"application/octet-stream".into()),size:bytes.len() as u64};
-        if let Err(r)=crate::attachment_policy::authorize(&attachment_policy,&actual,&attachment_query) {return r;}
+        let actual = crate::attachment_policy::Metadata {
+            name: part.name.clone(),
+            mime: content_type
+                .clone()
+                .unwrap_or_else(|| "application/octet-stream".into()),
+            size: bytes.len() as u64,
+        };
+        if let Err(r) =
+            crate::attachment_policy::authorize(&attachment_policy, &actual, &attachment_query)
+        {
+            return r;
+        }
     }
     let declared = mw_egress::declared_media_type(content_type.as_deref());
     if let Some(why) = type_refusal(declared.as_deref(), &bytes) {
@@ -976,8 +1128,10 @@ pub(crate) async fn file(
         Ok(None) => return forbidden("no such message"),
         Err(()) => return internal("remote-file message check"),
     }
-    let references = match membership::owned(&state, &session, &claims.e, policy.clean_links).await {
-        Ok(refs) => refs, Err(response) => return response,
+    let references = match membership::owned(&state, &session, &claims.e, policy.clean_links).await
+    {
+        Ok(refs) => refs,
+        Err(response) => return response,
     };
     if !membership::normalized_url(&claims.u).is_some_and(|url| references.links.contains(&url)) {
         return forbidden("URL is not a link in this message");
@@ -1098,7 +1252,11 @@ pub(crate) async fn read_part(
             .fetch_blob_limited(&session.account_id, blob_id, MAX_PART_RAW_BYTES, limit)
             .await
         {
-            Ok(Some(blob)) => Ok(Some((blob.bytes, Some(blob.content_type), Some(blob.filename)))),
+            Ok(Some(blob)) => Ok(Some((
+                blob.bytes,
+                Some(blob.content_type),
+                Some(blob.filename),
+            ))),
             Ok(None) => Ok(None),
             Err(e) => {
                 tracing::warn!("part fetch failed: {e}");

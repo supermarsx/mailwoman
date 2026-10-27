@@ -14,7 +14,8 @@ impl Engine {
         use mw_store::settings_policy::{ResolveInput, SettingScope, SettingSubject, resolve};
         let identity = self.store().get_account(account).await?.username;
         let domain = identity.rsplit_once('@').map_or("", |(_, d)| d);
-        let subject = SettingSubject { personal_owner: None,
+        let subject = SettingSubject {
+            personal_owner: None,
             domain,
             account_id: account,
             address: &identity,
@@ -134,7 +135,13 @@ impl Engine {
         email: &mw_jmap::Email,
         raw: &[u8],
     ) -> Result<bool> {
-        if self.effective_mailbox(account_id, mailbox_id).await?.role.as_deref() != Some("inbox") {
+        if self
+            .effective_mailbox(account_id, mailbox_id)
+            .await?
+            .role
+            .as_deref()
+            != Some("inbox")
+        {
             return Ok(false);
         }
         let scripts = self.store().list_sieve_scripts(account_id).await?;

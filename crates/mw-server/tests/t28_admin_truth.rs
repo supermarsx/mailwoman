@@ -1149,13 +1149,21 @@ async fn a_domain_is_its_name_and_registering_it_again_keeps_what_was_stored() {
         .unwrap();
     let domains = list.as_array().expect("domain list");
     assert_eq!(domains.len(), 2);
-    assert_eq!(domains.iter().map(|row| row["name"].as_str().unwrap()).collect::<Vec<_>>(),
-        vec!["new.example", "old.example"]);
+    assert_eq!(
+        domains
+            .iter()
+            .map(|row| row["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["new.example", "old.example"]
+    );
     for row in domains {
         assert!(row["enabled"].is_boolean());
         assert!(row["aliases"].is_array());
         assert!(row["upstream"].is_object());
-        assert!(row.get("upstreamJson").is_none(), "no legacy unvalidated raw JSON");
+        assert!(
+            row.get("upstreamJson").is_none(),
+            "no legacy unvalidated raw JSON"
+        );
     }
 
     // The stored columns of the old row were not overwritten by the re-register.
@@ -1164,10 +1172,13 @@ async fn a_domain_is_its_name_and_registering_it_again_keeps_what_was_stored() {
     assert_eq!(kept.allowlist_json, "[\"a@old.example\"]");
     // The legacy JSON representation remains a supported explicit update, not
     // a name-only registration: its supplied fields must take effect.
-    let response = c.put(format!("{base}/admin/domains/old.example"))
+    let response = c
+        .put(format!("{base}/admin/domains/old.example"))
         .header(reqwest::header::COOKIE, &login.cookie)
         .json(&json!({"name":"old.example","upstreamJson":"{}","allowlist":[],"blocklist":[]}))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(response.status(), 204);
     let updated = store.get_domain("old.example").await.unwrap().unwrap();
     assert_eq!(updated.upstream_json, "{}");

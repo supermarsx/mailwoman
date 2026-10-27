@@ -26,8 +26,8 @@
 
 mod build;
 mod check;
-mod header_privacy;
 mod dsn;
+mod header_privacy;
 mod mdn;
 mod mdn_standard;
 mod parse;
@@ -35,13 +35,14 @@ mod parse;
 pub use build::{
     Attachment, ComposeExtras, ComposeRequest, InlinePart, build, build_with, html_cid_references,
 };
-pub use header_privacy::{strip_mailer_headers, HeaderPrivacyError};
 pub use check::{generate_content_id, validate_content_id, validate_mailbox};
 pub use dsn::{DsnRecipient, DsnReport, parse_dsn};
-pub use mdn_standard::{MdnDocument, parse_mdn_document};
+pub use header_privacy::{HeaderPrivacyError, strip_mailer_headers};
 pub use mdn::{
-    MdnActionMode, MdnDisposition, MdnInput, MdnOptions, MdnReport, MdnSendingMode, build_mdn, build_mdn_with_options, parse_mdn,
+    MdnActionMode, MdnDisposition, MdnInput, MdnOptions, MdnReport, MdnSendingMode, build_mdn,
+    build_mdn_with_options, parse_mdn,
 };
+pub use mdn_standard::{MdnDocument, parse_mdn_document};
 pub use parse::{
     Parsed, ParsedEnvelope, PartBlob, ReceiptHeaders, decode_charset, parse, part_blob,
 };

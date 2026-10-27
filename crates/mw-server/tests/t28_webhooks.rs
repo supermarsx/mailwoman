@@ -169,36 +169,98 @@ async fn inbound_calls_are_signed_per_webhook_and_cannot_be_replayed() {
         .await
         .unwrap();
     let id = made["webhook"]["id"].as_str().expect("id").to_string();
-    let secret = made["secret"].as_str().expect("secret shown once").to_string();
+    let secret = made["secret"]
+        .as_str()
+        .expect("secret shown once")
+        .to_string();
     assert_eq!(secret.len(), 64);
 
     // Accepted once, for the webhook's own account.
-    let (s, body) = call(&server, &id, &secret, now(), "nonce-aaaaaaaaaaaa-1", &run_rules()).await;
+    let (s, body) = call(
+        &server,
+        &id,
+        &secret,
+        now(),
+        "nonce-aaaaaaaaaaaa-1",
+        &run_rules(),
+    )
+    .await;
     assert_eq!(s, 202, "a correctly signed call is accepted: {body}");
     assert_eq!(body["dispatched"], true);
     let fired = sink.dispatched();
     assert_eq!(fired.len(), 1);
-    assert_eq!(fired[0].0, "alice@example.org", "the webhook's bound account");
+    assert_eq!(
+        fired[0].0, "alice@example.org",
+        "the webhook's bound account"
+    );
     assert!(matches!(fired[0].1, InboundAction::RunRules { .. }));
 
     // The same signed request again: refused, and nothing runs.
     let ts = now();
-    let (s, _) = call(&server, &id, &secret, ts, "nonce-bbbbbbbbbbbb-2", &run_rules()).await;
+    let (s, _) = call(
+        &server,
+        &id,
+        &secret,
+        ts,
+        "nonce-bbbbbbbbbbbb-2",
+        &run_rules(),
+    )
+    .await;
     assert_eq!(s, 202, "precondition: a fresh nonce is accepted");
-    let (s, body) = call(&server, &id, &secret, ts, "nonce-bbbbbbbbbbbb-2", &run_rules()).await;
+    let (s, body) = call(
+        &server,
+        &id,
+        &secret,
+        ts,
+        "nonce-bbbbbbbbbbbb-2",
+        &run_rules(),
+    )
+    .await;
     assert_eq!(s, 409, "the replay is refused: {body}");
     assert_eq!(sink.dispatched().len(), 2, "the replay ran nothing");
 
     // A stale timestamp, correctly signed: 401. Just inside the window: accepted.
-    let (s, _) = call(&server, &id, &secret, now() - 301, "nonce-cccccccccccc-3", &run_rules()).await;
+    let (s, _) = call(
+        &server,
+        &id,
+        &secret,
+        now() - 301,
+        "nonce-cccccccccccc-3",
+        &run_rules(),
+    )
+    .await;
     assert_eq!(s, 401, "a timestamp five minutes old is refused");
-    let (s, _) = call(&server, &id, &secret, now() - 290, "nonce-dddddddddddd-4", &run_rules()).await;
+    let (s, _) = call(
+        &server,
+        &id,
+        &secret,
+        now() - 290,
+        "nonce-dddddddddddd-4",
+        &run_rules(),
+    )
+    .await;
     assert_eq!(s, 202, "inside the window is accepted");
 
     // Wrong secret, unknown id: the same 401.
-    let (s, _) = call(&server, &id, "0".repeat(64).as_str(), now(), "nonce-eeeeeeeeeeee-5", &run_rules()).await;
+    let (s, _) = call(
+        &server,
+        &id,
+        "0".repeat(64).as_str(),
+        now(),
+        "nonce-eeeeeeeeeeee-5",
+        &run_rules(),
+    )
+    .await;
     assert_eq!(s, 401);
-    let (s, _) = call(&server, "whin_nope", &secret, now(), "nonce-ffffffffffff-6", &run_rules()).await;
+    let (s, _) = call(
+        &server,
+        "whin_nope",
+        &secret,
+        now(),
+        "nonce-ffffffffffff-6",
+        &run_rules(),
+    )
+    .await;
     assert_eq!(s, 401);
 
     // Another account, or an action the webhook was not given: 403.
@@ -230,7 +292,15 @@ async fn inbound_calls_are_signed_per_webhook_and_cannot_be_replayed() {
         .await
         .unwrap();
     assert_eq!(gone.status(), 204);
-    let (s, _) = call(&server, &id, &secret, now(), "nonce-jjjjjjjjjjjj-10", &run_rules()).await;
+    let (s, _) = call(
+        &server,
+        &id,
+        &secret,
+        now(),
+        "nonce-jjjjjjjjjjjj-10",
+        &run_rules(),
+    )
+    .await;
     assert_eq!(s, 401, "a deleted webhook accepts nothing");
 
     webhooks::set_inbound_dispatcher(None);
@@ -265,7 +335,11 @@ async fn admin_registration_checks_the_url_and_audits() {
     let body: Value = r.json().await.unwrap();
     assert_eq!(body["code"], "webhookUrlRefused", "{body}");
     assert_eq!(body["field"], "/url");
-    for url in ["http://169.254.169.254/latest", "http://[::1]/x", "http://10.0.0.5/x"] {
+    for url in [
+        "http://169.254.169.254/latest",
+        "http://[::1]/x",
+        "http://10.0.0.5/x",
+    ] {
         let r = admin
             .post(format!("{server}/admin/webhooks"))
             .json(&json!({
@@ -280,10 +354,22 @@ async fn admin_registration_checks_the_url_and_audits() {
 
     // Unknown event, no event, unknown direction: 422 with the field.
     for (body, field) in [
-        (json!({ "direction": "outbound", "accountId": "a", "url": "https://1.1.1.1/h", "events": ["nope"] }), "/events"),
-        (json!({ "direction": "outbound", "accountId": "a", "url": "https://1.1.1.1/h", "events": [] }), "/events"),
-        (json!({ "direction": "sideways", "accountId": "a" }), "/direction"),
-        (json!({ "direction": "inbound", "accountId": "", "actions": ["run_rules"] }), "/accountId"),
+        (
+            json!({ "direction": "outbound", "accountId": "a", "url": "https://1.1.1.1/h", "events": ["nope"] }),
+            "/events",
+        ),
+        (
+            json!({ "direction": "outbound", "accountId": "a", "url": "https://1.1.1.1/h", "events": [] }),
+            "/events",
+        ),
+        (
+            json!({ "direction": "sideways", "accountId": "a" }),
+            "/direction",
+        ),
+        (
+            json!({ "direction": "inbound", "accountId": "", "actions": ["run_rules"] }),
+            "/accountId",
+        ),
     ] {
         let r = admin
             .post(format!("{server}/admin/webhooks"))
@@ -352,7 +438,12 @@ async fn admin_registration_checks_the_url_and_audits() {
     assert!(!list.to_string().contains(made["secret"].as_str().unwrap()));
     assert_eq!(header_etag, list["etag"].as_str().unwrap());
     assert_ne!(list["etag"], json!(etag0));
-    assert!(list["eventKinds"].as_array().unwrap().contains(&json!("message.received")));
+    assert!(
+        list["eventKinds"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("message.received"))
+    );
 
     // A write against the old etag: 412 naming who changed it.
     let r = admin
@@ -398,7 +489,10 @@ async fn admin_registration_checks_the_url_and_audits() {
         .filter(|e| e["target"] == target.as_str())
         .map(|e| e["action"].as_str().unwrap())
         .collect();
-    assert!(actions.contains(&"webhook.create") && actions.contains(&"webhook.delete"), "{audit}");
+    assert!(
+        actions.contains(&"webhook.create") && actions.contains(&"webhook.delete"),
+        "{audit}"
+    );
     assert!(!audit.to_string().contains(made["secret"].as_str().unwrap()));
 }
 
@@ -410,8 +504,14 @@ async fn the_removed_global_inbound_secret_stops_start_up() {
     unsafe { std::env::set_var("MW_WEBHOOK_INBOUND_SECRET", "old") };
     let result = build_app_full(config(), admin_v6()).await;
     unsafe { std::env::remove_var("MW_WEBHOOK_INBOUND_SECRET") };
-    let err = result.err().expect("start-up refuses the variable").to_string();
-    assert!(err.contains("MW_WEBHOOK_INBOUND_SECRET is set but is no longer read"), "{err}");
+    let err = result
+        .err()
+        .expect("start-up refuses the variable")
+        .to_string();
+    assert!(
+        err.contains("MW_WEBHOOK_INBOUND_SECRET is set but is no longer read"),
+        "{err}"
+    );
 }
 
 // ── typed events through the production dispatcher ───────────────────────────
@@ -477,7 +577,13 @@ impl AccountBackend for ScriptedBackend {
                 uid: *u,
             })
             .collect();
-        let next = inbox.iter().max().copied().unwrap_or(0).max(from.saturating_sub(1)) + 1;
+        let next = inbox
+            .iter()
+            .max()
+            .copied()
+            .unwrap_or(0)
+            .max(from.saturating_sub(1))
+            + 1;
         Ok(MailboxDelta {
             added,
             flag_changes: Vec::new(),
@@ -661,11 +767,18 @@ async fn a_message_received_webhook_fires_on_ingest_and_not_on_a_flag_change() {
 
     // A flag change: the flags endpoint is called, the received one is not.
     let mailboxes = engine
-        .handle_jmap(&account_id, &json!({ "methodCalls": [["Mailbox/get", {}, "m"]] }))
+        .handle_jmap(
+            &account_id,
+            &json!({ "methodCalls": [["Mailbox/get", {}, "m"]] }),
+        )
         .await;
     let inbox = mailboxes["methodResponses"][0][1]["list"]
-        .as_array().expect("mailboxes")
-        .iter().find(|m| m["role"] == "inbox").expect("inbox")["id"].clone();
+        .as_array()
+        .expect("mailboxes")
+        .iter()
+        .find(|m| m["role"] == "inbox")
+        .expect("inbox")["id"]
+        .clone();
     let ids = engine
         .handle_jmap(
             &account_id,

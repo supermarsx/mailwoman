@@ -304,7 +304,12 @@ pub(crate) async fn account_matches_upstream(
 ) -> Result<bool, String> {
     if account.kind == AccountKind::Ews {
         let selected = crate::domain_provider::stored_selection(store, &account.id).await?;
-        return Ok(selected.is_some_and(|selected| selected.config.endpoint().is_ok_and(|endpoint| endpoint.as_str() == url)));
+        return Ok(selected.is_some_and(|selected| {
+            selected
+                .config
+                .endpoint()
+                .is_ok_and(|endpoint| endpoint.as_str() == url)
+        }));
     }
     let expected = parse_mail_url(url).ok_or("invalid configured mail URL")?;
     let configured = crate::domain_config::upstream_for(store, &account.username).await?;
@@ -741,7 +746,10 @@ async fn register(
     );
     runtime.credential_revision = credential_revision;
     runtime.dav = Some(crate::nextcloud_pim::config());
-    runtime.dav_transport = Some(crate::nextcloud_pim_transport::ManagedTransport::runtime(engine.store().clone(), account_id.into()));
+    runtime.dav_transport = Some(crate::nextcloud_pim_transport::ManagedTransport::runtime(
+        engine.store().clone(),
+        account_id.into(),
+    ));
     engine.register_backend(account_id.to_string(), runtime);
 }
 
@@ -792,13 +800,18 @@ async fn register_and_sync(
             Ok(mailboxes) => mailboxes,
             Err(error) => {
                 if matches!(error, mw_engine::backend::EngineError::Auth(_)) {
-                    engine.reject_runtime_credentials(account_id, &backend).await;
+                    engine
+                        .reject_runtime_credentials(account_id, &backend)
+                        .await;
                 }
                 return Err(error.to_string());
             }
         },
     };
-    engine.cache_mailbox_list(account_id, mailboxes).await.map_err(|error|error.to_string())?;
+    engine
+        .cache_mailbox_list(account_id, mailboxes)
+        .await
+        .map_err(|error| error.to_string())?;
     engine.start_initial_sync(account_id);
     first_sync.finished = true;
     Ok(())
@@ -1014,11 +1027,20 @@ async fn engine_login_inner(
         .await
         .map_err(|_| LoginFailure::new(LoginFailureReason::Storage))?;
     let current_gate = crate::account_gate::for_account(engine.store(), &account_id)
-        .await.map_err(|_| LoginFailure::new(LoginFailureReason::Storage))?;
-    if current_gate.disabled { return Err(LoginFailure::new(LoginFailureReason::Disabled)); }
-    let current_binding = crate::domain_config::upstream_for(engine.store(), username).await?
-        .as_ref().map(|configuration|configuration.binding()).transpose()?.flatten();
-    if current_binding != policy.domain_binding { return Err("account authentication policy changed; sign in again".into()); }
+        .await
+        .map_err(|_| LoginFailure::new(LoginFailureReason::Storage))?;
+    if current_gate.disabled {
+        return Err(LoginFailure::new(LoginFailureReason::Disabled));
+    }
+    let current_binding = crate::domain_config::upstream_for(engine.store(), username)
+        .await?
+        .as_ref()
+        .map(|configuration| configuration.binding())
+        .transpose()?
+        .flatten();
+    if current_binding != policy.domain_binding {
+        return Err("account authentication policy changed; sign in again".into());
+    }
     register_and_sync(
         engine,
         &account_id,
@@ -1073,10 +1095,15 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
         return Err("authentication rejected; fresh sign-in required".into());
     }
     if account.kind == AccountKind::Ews {
-        if crate::domain_provider::stored_selection(engine.store(), account_id).await?.is_none() {
+        if crate::domain_provider::stored_selection(engine.store(), account_id)
+            .await?
+            .is_none()
+        {
             return Err("provider identity unavailable".into());
         }
-        return if engine.is_registered(account_id) { Ok(()) } else {
+        return if engine.is_registered(account_id) {
+            Ok(())
+        } else {
             Err("provider runtime unavailable; fresh sign-in required".into())
         };
     }

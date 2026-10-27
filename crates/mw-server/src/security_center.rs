@@ -33,7 +33,8 @@ pub(crate) async fn policy(
     address: &str,
 ) -> Result<Policy, Response> {
     let domain = address.rsplit_once('@').map_or("", |(_, d)| d);
-    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
         domain,
         account_id: account,
         address,
@@ -273,12 +274,17 @@ pub(crate) async fn enforce_session(
     state: &AppState,
     session: &mw_store::Session,
 ) -> Result<(), Response> {
-    match state.store.linked_session_kind(&session.id).await.map_err(|e| error("session authority",e))? {
-        Some(0) => {},
-        Some(2) => crate::linked_accounts::enforce_context(state,session).await?,
+    match state
+        .store
+        .linked_session_kind(&session.id)
+        .await
+        .map_err(|e| error("session authority", e))?
+    {
+        Some(0) => {}
+        Some(2) => crate::linked_accounts::enforce_context(state, session).await?,
         _ => return Err(crate::unauthorized()),
     }
-    enforce_session_clock(state,session).await
+    enforce_session_clock(state, session).await
 }
 pub(crate) async fn enforce_session_clock(
     state: &AppState,
@@ -339,8 +345,12 @@ async fn renew_activity(State(state): State<AppState>, headers: HeaderMap) -> Re
         Ok(session) => session,
         Err(response) => return response,
     };
-    match crate::linked_accounts::record_activity(&state, &session, &chrono::Utc::now().to_rfc3339())
-        .await
+    match crate::linked_accounts::record_activity(
+        &state,
+        &session,
+        &chrono::Utc::now().to_rfc3339(),
+    )
+    .await
     {
         Ok(true) => (
             [(header::CACHE_CONTROL, "private, no-store")],

@@ -284,7 +284,9 @@ mod tests {
         let (client, mut server) = tokio::io::duplex(4096);
         let received = tokio::spawn(async move {
             let mut bytes = Vec::new();
-            while !bytes.ends_with(b"\r\n\r\n") { bytes.push(server.read_u8().await.unwrap()); }
+            while !bytes.ends_with(b"\r\n\r\n") {
+                bytes.push(server.read_u8().await.unwrap());
+            }
             server.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 11\r\nSet-Cookie: upstream=secret\r\nConnection: close\r\n\r\n{\"error\":1}").await.unwrap();
             String::from_utf8(bytes).unwrap()
         });
@@ -292,11 +294,22 @@ mod tests {
         let headers = vec![("Authorization".into(), "Bearer fixture-token".into())];
         let out = Outgoing {
             response_metadata: Some(&metadata),
-            authorized_plugin: Some(crate::PluginHttp { additional_roots: &[], method: "GET", headers: &headers }),
-            authorized_api: None, authorized_dav: None, web_push: None,
-            response_limit: 128, accept: "application/json", user_agent: "Mailwoman", body: None,
+            authorized_plugin: Some(crate::PluginHttp {
+                additional_roots: &[],
+                method: "GET",
+                headers: &headers,
+            }),
+            authorized_api: None,
+            authorized_dav: None,
+            web_push: None,
+            response_limit: 128,
+            accept: "application/json",
+            user_agent: "Mailwoman",
+            body: None,
         };
-        let response = exchange_with(client, &url("https://approved.test/token"), &out).await.unwrap();
+        let response = exchange_with(client, &url("https://approved.test/token"), &out)
+            .await
+            .unwrap();
         assert!(matches!(response, Hop::Body(bytes) if bytes == b"{\"error\":1}"));
         assert_eq!(metadata.snapshot().unwrap().status, 400);
         let sent = received.await.unwrap().to_ascii_lowercase();

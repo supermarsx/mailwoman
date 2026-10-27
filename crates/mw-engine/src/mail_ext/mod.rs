@@ -26,8 +26,8 @@ use serde_json::{Value, json};
 use crate::backend::{EngineError, Result};
 use crate::engine::Engine;
 
-pub mod dispatch;
 mod contact_photo;
+pub mod dispatch;
 pub mod dsn;
 pub mod email_ext;
 pub mod mdn;

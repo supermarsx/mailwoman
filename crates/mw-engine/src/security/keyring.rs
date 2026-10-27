@@ -431,7 +431,8 @@ impl Engine {
         rt: &AccountRuntime,
         args: &Value,
     ) -> Value {
-        self.mail_rule_set_managed(account_id, Some(rt), args, None).await
+        self.mail_rule_set_managed(account_id, Some(rt), args, None)
+            .await
     }
 
     pub(crate) async fn mail_rule_set_managed(
@@ -506,7 +507,10 @@ impl Engine {
 
         if !changed_ids.is_empty() {
             if let Some(context) = context
-                && let Err(error) = self.persist_managed_rules(account_id, &rules, context).await {
+                && let Err(error) = self
+                    .persist_managed_rules(account_id, &rules, context)
+                    .await
+            {
                 return error;
             }
             if let Err(e) = self.set_rules(account_id, &rules).await {

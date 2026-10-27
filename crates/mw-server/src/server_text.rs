@@ -17,7 +17,8 @@ pub(crate) async fn account_notice(state: &AppState, account: &str, kind: AlertK
         .flatten()
         .unwrap_or_default();
     let domain = address.rsplit_once('@').map_or("", |(_, domain)| domain);
-    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
         account_id: account,
         address: &address,
         domain,

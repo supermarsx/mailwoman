@@ -58,11 +58,11 @@ use mw_store::{
 
 use crate::AppState;
 
-mod ui_preferences;
+mod contact_photo;
 pub(crate) mod personal_storage;
 mod receipt_preferences;
-mod contact_photo;
 mod sender_resolution;
+mod ui_preferences;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Wire shapes (mirror apps/web/src/screens/Settings/types.ts exactly)
@@ -123,12 +123,23 @@ struct IdentityDto {
 // Signatures (W12)
 // ─────────────────────────────────────────────────────────────────────────────
 
-async fn personal_record_owner(state: &AppState, headers: &HeaderMap, mutation: bool) -> Result<String, Response> {
+async fn personal_record_owner(
+    state: &AppState,
+    headers: &HeaderMap,
+    mutation: bool,
+) -> Result<String, Response> {
     let session = session_of(state, headers).await?;
-    if headers.get("x-mailwoman-account").is_some_and(|expected| expected.to_str().ok() != Some(session.account_id.as_str())) {
-        return Err((StatusCode::FORBIDDEN, Json(json!({"error":"The authenticated account changed", "code":"accountChanged"}))).into_response());
+    if headers
+        .get("x-mailwoman-account")
+        .is_some_and(|expected| expected.to_str().ok() != Some(session.account_id.as_str()))
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error":"The authenticated account changed", "code":"accountChanged"})),
+        )
+            .into_response());
     }
-    personal_storage::record_owner(state,&session,headers,mutation).await
+    personal_storage::record_owner(state, &session, headers, mutation).await
 }
 
 async fn signatures_list(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -151,10 +162,22 @@ async fn signatures_upsert(
         Ok(a) => a,
         Err(r) => return r,
     };
-    if body.name.trim().is_empty() || body.name.len() > 200 || body.name.chars().any(char::is_control) {
+    if body.name.trim().is_empty()
+        || body.name.len() > 200
+        || body.name.chars().any(char::is_control)
+    {
         return bad_request("a signature needs a valid name of at most 200 bytes");
     }
-    if body.body.len() > 64 * 1024 || body.html.as_ref().is_some_and(|value| value.len() > 32 * 1024) || body.text.as_ref().is_some_and(|value| value.len() > 64 * 1024) {
+    if body.body.len() > 64 * 1024
+        || body
+            .html
+            .as_ref()
+            .is_some_and(|value| value.len() > 32 * 1024)
+        || body
+            .text
+            .as_ref()
+            .is_some_and(|value| value.len() > 64 * 1024)
+    {
         return bad_request("a signature must not exceed 32 KiB HTML or 64 KiB plain text");
     }
     match do_upsert_signature(&state.store, &account, &body).await {
@@ -187,7 +210,10 @@ async fn notifications_get(State(state): State<AppState>, headers: HeaderMap) ->
         Ok(s) => s,
         Err(r) => return r,
     };
-    let owner=match personal_storage::record_owner(&state,&session,&headers,false).await {Ok(owner)=>owner,Err(response)=>return response};
+    let owner = match personal_storage::record_owner(&state, &session, &headers, false).await {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
     let held = match held(&state, &session, "notifications.enabled").await {
         Ok(h) => h,
         Err(r) => return r,
@@ -217,7 +243,8 @@ async fn notifications_get(State(state): State<AppState>, headers: HeaderMap) ->
         Ok(value) => value,
         Err(error) => return server_error("storage policy", error),
     };
-    match crate::notification_policy::for_subject(&state.store, &subject.as_subject(),&owner).await {
+    match crate::notification_policy::for_subject(&state.store, &subject.as_subject(), &owner).await
+    {
         Ok(mut cfg) => {
             let mut locked = Vec::new();
             if let Some(v) = held.as_ref().and_then(|e| e.value.as_bool()) {
@@ -246,7 +273,10 @@ async fn notifications_put(
     if let Err(error) = crate::notification_policy::validate(&body) {
         return bad_request(error);
     }
-    let account=match personal_storage::record_owner(&state,&session,&headers,true).await {Ok(owner)=>owner,Err(response)=>return response};
+    let account = match personal_storage::record_owner(&state, &session, &headers, true).await {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
     match held(&state, &session, "notifications.enabled").await {
         Ok(Some(e)) if e.value.as_bool() != Some(body.enabled) => {
             return setting_locked("notifications.enabled");
@@ -343,7 +373,10 @@ async fn identities_upsert(
     if body.name.trim().is_empty() || body.email.trim().is_empty() {
         return bad_request("an identity needs a name and an email");
     }
-    let account = match personal_record_owner(&state,&headers,true).await {Ok(owner)=>owner,Err(response)=>return response};
+    let account = match personal_record_owner(&state, &headers, true).await {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
     match identity_address_allowed(&state, &session, &body.email).await {
         Ok(true) => {},
         Ok(false) => return (StatusCode::FORBIDDEN, Json(json!({"error":"This address is not authorized for sending. Choose your account address or an administrator-approved alias.", "code":"forbiddenFrom"}))).into_response(),
@@ -359,33 +392,98 @@ async fn identities_upsert(
 
 /// Editable profile rows are not permission grants. Proxy identities come from
 /// the current authenticated provider; native identities use runtime authority.
-async fn identity_address_allowed(state: &AppState, session: &mw_store::Session, address: &str) -> Result<bool, ()> {
-    Ok(resolve_sender_identity(state, session, address).await?.is_some())
+async fn identity_address_allowed(
+    state: &AppState,
+    session: &mw_store::Session,
+    address: &str,
+) -> Result<bool, ()> {
+    Ok(resolve_sender_identity(state, session, address)
+        .await?
+        .is_some())
 }
 
 /// Outer None is denied; inner None is native authority without a saved profile.
-async fn resolve_sender_identity(state: &AppState, session: &mw_store::Session, address: &str) -> Result<Option<Option<String>>, ()> {
-    if address.is_empty() || address.trim() != address || address.chars().any(char::is_control) { return Ok(None); }
-    let owner=state.store.session_personal_subject(&session.id).await.map_err(|_| ())?.ok_or(())?;
-    let native=state.store.native_personal_subject(&session.account_id).await.map_err(|_| ())?;
-    if native.as_deref()==Some(owner.as_str()) {
-        let engine=state.engine.as_ref().ok_or(())?;
-        crate::engine_mode::ensure_account(engine, &session.account_id).await.map_err(|_| ())?;
-        return engine.sender_address_allowed(&session.account_id, address).await.map(|allowed| allowed.then_some(None)).map_err(|_| ());
+async fn resolve_sender_identity(
+    state: &AppState,
+    session: &mw_store::Session,
+    address: &str,
+) -> Result<Option<Option<String>>, ()> {
+    if address.is_empty() || address.trim() != address || address.chars().any(char::is_control) {
+        return Ok(None);
     }
-    let client = crate::upstream_client(&state.security, &session.jmap_url, &session.api_url, &session.credentials).await.map_err(|_| ())?;
+    let owner = state
+        .store
+        .session_personal_subject(&session.id)
+        .await
+        .map_err(|_| ())?
+        .ok_or(())?;
+    let native = state
+        .store
+        .native_personal_subject(&session.account_id)
+        .await
+        .map_err(|_| ())?;
+    if native.as_deref() == Some(owner.as_str()) {
+        let engine = state.engine.as_ref().ok_or(())?;
+        crate::engine_mode::ensure_account(engine, &session.account_id)
+            .await
+            .map_err(|_| ())?;
+        return engine
+            .sender_address_allowed(&session.account_id, address)
+            .await
+            .map(|allowed| allowed.then_some(None))
+            .map_err(|_| ());
+    }
+    let client = crate::upstream_client(
+        &state.security,
+        &session.jmap_url,
+        &session.api_url,
+        &session.credentials,
+    )
+    .await
+    .map_err(|_| ())?;
     let request = json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:submission"],"methodCalls":[["Identity/get",{"accountId":session.account_id,"properties":["id","email"]},"identities"]]});
-    let (status, bytes) = tokio::time::timeout(std::time::Duration::from_secs(10), client.request_raw_limited(&session.api_url, axum::body::Bytes::from(request.to_string()), 256*1024)).await.map_err(|_| ())?.map_err(|_| ())?;
-    if !status.is_success() { return Err(()); }
+    let (status, bytes) = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        client.request_raw_limited(
+            &session.api_url,
+            axum::body::Bytes::from(request.to_string()),
+            256 * 1024,
+        ),
+    )
+    .await
+    .map_err(|_| ())?
+    .map_err(|_| ())?;
+    if !status.is_success() {
+        return Err(());
+    }
     let response: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| ())?;
-    let value = response["methodResponses"].as_array().and_then(|calls|calls.iter().find(|call|call[0]=="Identity/get" && call[2]=="identities")).ok_or(())?;
-    if value[1]["accountId"].as_str()!=Some(session.account_id.as_str()) { return Err(()); }
+    let value = response["methodResponses"]
+        .as_array()
+        .and_then(|calls| {
+            calls
+                .iter()
+                .find(|call| call[0] == "Identity/get" && call[2] == "identities")
+        })
+        .ok_or(())?;
+    if value[1]["accountId"].as_str() != Some(session.account_id.as_str()) {
+        return Err(());
+    }
     let identities = value[1]["list"].as_array().ok_or(())?;
-    if identities.len()>1024 { return Err(()); }
-    let matching = identities.iter().find(|identity|identity["email"].as_str().is_some_and(|email|email.eq_ignore_ascii_case(address)));
+    if identities.len() > 1024 {
+        return Err(());
+    }
+    let matching = identities.iter().find(|identity| {
+        identity["email"]
+            .as_str()
+            .is_some_and(|email| email.eq_ignore_ascii_case(address))
+    });
     match matching {
         None => Ok(None),
-        Some(identity) => identity["id"].as_str().filter(|id| !id.is_empty() && id.len() <= 1024 && !id.chars().any(char::is_control)).map(|id| Some(Some(id.to_owned()))).ok_or(()),
+        Some(identity) => identity["id"]
+            .as_str()
+            .filter(|id| !id.is_empty() && id.len() <= 1024 && !id.chars().any(char::is_control))
+            .map(|id| Some(Some(id.to_owned())))
+            .ok_or(()),
     }
 }
 
@@ -504,7 +602,10 @@ async fn appearance_get(State(state): State<AppState>, headers: HeaderMap) -> Re
         Ok(s) => s,
         Err(r) => return r,
     };
-    let owner = match personal_storage::owner(&state, &session, &headers, false).await { Ok(owner) => owner, Err(response) => return response };
+    let owner = match personal_storage::owner(&state, &session, &headers, false).await {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
     let locks = match appearance_locks(&state, &session).await {
         Ok(l) => l,
         Err(r) => return r,
@@ -548,7 +649,10 @@ async fn appearance_put(
     if serialized_len(&prefs) > MAX_APPEARANCE_BYTES {
         return payload_too_large("appearance preferences are too large");
     }
-    let owner = match personal_storage::owner(&state, &session, &headers, true).await { Ok(owner) => owner, Err(response) => return response };
+    let owner = match personal_storage::owner(&state, &session, &headers, true).await {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
     let locks = match appearance_locks(&state, &session).await {
         Ok(l) => l,
         Err(r) => return r,
@@ -575,7 +679,10 @@ async fn appearance_delete(State(state): State<AppState>, headers: HeaderMap) ->
         Ok(a) => a,
         Err(r) => return r,
     };
-    let account = match personal_storage::owner(&state, &session, &headers, true).await { Ok(owner) => owner, Err(response) => return response };
+    let account = match personal_storage::owner(&state, &session, &headers, true).await {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
     match do_put_appearance(&state.store, &account, None, now_ms()).await {
         Ok(updated_at) => Json(json!({ "ok": true, "updatedAt": updated_at })).into_response(),
         Err(e) => server_error("delete appearance", e),
@@ -666,7 +773,9 @@ async fn mdn_policy_put(
         return no_mdn_policy();
     }
     if !mw_engine::Engine::MDN_POLICIES.contains(&body.policy.as_str()) {
-        return bad_request("policy must be one of: ask, never, always, contactsOnly, orgOnly, orgAlwaysAskOthers");
+        return bad_request(
+            "policy must be one of: ask, never, always, contactsOnly, orgOnly, orgAlwaysAskOthers",
+        );
     }
     match held(&state, &session, "mail.readReceipts").await {
         Ok(Some(e)) if e.value.as_str() != Some(body.policy.as_str()) => {
@@ -742,11 +851,13 @@ async fn do_get_notifications(
     store: &Store,
     account: &str,
 ) -> Result<NotificationConfigDto, StoreError> {
-    Ok(match store.get_personal_notification_rules(account).await? {
-        Some(row) => notifications_to_dto(&row),
-        // Unset account → sensible defaults (off, no rules, off quiet-hours).
-        None => NotificationConfigDto::default(),
-    })
+    Ok(
+        match store.get_personal_notification_rules(account).await? {
+            Some(row) => notifications_to_dto(&row),
+            // Unset account → sensible defaults (off, no rules, off quiet-hours).
+            None => NotificationConfigDto::default(),
+        },
+    )
 }
 
 async fn do_put_notifications(
@@ -830,8 +941,14 @@ async fn do_upsert_identity(
     account: &str,
     dto: &IdentityDto,
 ) -> Result<Option<String>, StoreError> {
-    let existing = if dto.id.trim().is_empty() { None } else { store.get_personal_identity(account,&dto.id).await? };
-    if !dto.id.trim().is_empty() && existing.is_none() { return Ok(None); }
+    let existing = if dto.id.trim().is_empty() {
+        None
+    } else {
+        store.get_personal_identity(account, &dto.id).await?
+    };
+    if !dto.id.trim().is_empty() && existing.is_none() {
+        return Ok(None);
+    }
     let id = if dto.id.trim().is_empty() {
         new_id()
     } else {
@@ -847,7 +964,9 @@ async fn do_upsert_identity(
             signature_html: existing.as_ref().and_then(|row| row.signature_html.clone()),
             signature_text: existing.as_ref().and_then(|row| row.signature_text.clone()),
             signature_name: dto.signature_name.clone(),
-            sent_mailbox_id: existing.as_ref().and_then(|row| row.sent_mailbox_id.clone()),
+            sent_mailbox_id: existing
+                .as_ref()
+                .and_then(|row| row.sent_mailbox_id.clone()),
             source: "configured".to_string(),
         })
         .await?;
@@ -865,7 +984,9 @@ async fn do_delete_identity(store: &Store, account: &str, id: &str) -> Result<bo
 
 fn signature_to_dto(row: &SignatureRow) -> SignatureDto {
     SignatureDto {
-        html: row.html.clone(), text: row.text.clone(), text_edited: row.text_edited,
+        html: row.html.clone(),
+        text: row.text.clone(),
+        text_edited: row.text_edited,
         name: row.name.clone(),
         body: row.body.clone(),
         is_default: row.is_default,
@@ -880,7 +1001,8 @@ fn signature_to_dto(row: &SignatureRow) -> SignatureDto {
 fn signature_from_dto(account: &str, dto: &SignatureDto) -> SignatureRow {
     SignatureRow {
         html: dto.html.as_deref().map(mw_sanitize::sanitize_email_html),
-        text: dto.text.clone(), text_edited: dto.text_edited,
+        text: dto.text.clone(),
+        text_edited: dto.text_edited,
         account_id: account.to_string(),
         name: dto.name.clone(),
         body: dto.body.clone(),
@@ -965,7 +1087,10 @@ pub(crate) fn prefs_router() -> Router<AppState> {
             get(identities_list).post(identities_upsert),
         )
         .route("/api/account/identities/{id}", delete(identities_delete))
-        .route("/api/account/sender/resolve", axum::routing::post(sender_resolution::resolve))
+        .route(
+            "/api/account/sender/resolve",
+            axum::routing::post(sender_resolution::resolve),
+        )
         // t19 e13 (SPEC §17.3): per-user appearance, one opaque object on the
         // existing settings KV. DELETE resets to the deployment default.
         .route(
@@ -1182,7 +1307,10 @@ mod tests {
         do_upsert_signature(
             &s,
             "a1",
-            &SignatureDto { html: None, text: None, text_edited: false,
+            &SignatureDto {
+                html: None,
+                text: None,
+                text_edited: false,
                 name: "work".into(),
                 body: "Regards".into(),
                 is_default: true,
@@ -1194,7 +1322,10 @@ mod tests {
         do_upsert_signature(
             &s,
             "a1",
-            &SignatureDto { html: None, text: None, text_edited: false,
+            &SignatureDto {
+                html: None,
+                text: None,
+                text_edited: false,
                 name: "personal".into(),
                 body: "Cheers".into(),
                 is_default: false,
@@ -1223,7 +1354,10 @@ mod tests {
         do_upsert_signature(
             &s,
             "a1",
-            &SignatureDto { html: None, text: None, text_edited: false,
+            &SignatureDto {
+                html: None,
+                text: None,
+                text_edited: false,
                 name: "work".into(),
                 body: "b".into(),
                 is_default: false,
@@ -1402,27 +1536,74 @@ mod tests {
 
     #[tokio::test]
     async fn signature_formats_sanitize_html_preserve_plain_and_scope() {
-        let store=store().await;
-        let dto=SignatureDto{name:"work".into(),body:"Legacy plain".into(),is_default:false,rule:None,
-            html:Some("<p onclick=evil()>Hello <strong>team</strong><script>evil()</script></p>".into()),text:Some("Independent <plain> & team".into()),text_edited:true};
-        do_upsert_signature(&store,"owner",&dto).await.unwrap();
-        assert!(do_list_signatures(&store,"other").await.unwrap().is_empty());
-        let saved=do_list_signatures(&store,"owner").await.unwrap().remove(0);
-        assert_eq!(saved.text.as_deref(),Some("Independent <plain> & team"));assert!(saved.text_edited);
-        assert_eq!(saved.html.as_deref(),Some("<p>Hello <strong>team</strong></p>"));
+        let store = store().await;
+        let dto = SignatureDto {
+            name: "work".into(),
+            body: "Legacy plain".into(),
+            is_default: false,
+            rule: None,
+            html: Some(
+                "<p onclick=evil()>Hello <strong>team</strong><script>evil()</script></p>".into(),
+            ),
+            text: Some("Independent <plain> & team".into()),
+            text_edited: true,
+        };
+        do_upsert_signature(&store, "owner", &dto).await.unwrap();
+        assert!(
+            do_list_signatures(&store, "other")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let saved = do_list_signatures(&store, "owner").await.unwrap().remove(0);
+        assert_eq!(saved.text.as_deref(), Some("Independent <plain> & team"));
+        assert!(saved.text_edited);
+        assert_eq!(
+            saved.html.as_deref(),
+            Some("<p>Hello <strong>team</strong></p>")
+        );
     }
 
     #[tokio::test]
     async fn identity_profile_edit_preserves_provider_signature_bodies() {
-        let s=store().await;
-        let account=seed_account(&s,"primary@example.org").await;
-        s.upsert_personal_identity(&IdentityRow{id:"provider-profile".into(),account_id:account.clone(),name:"Before".into(),email:"primary@example.org".into(),reply_to:None,signature_html:Some("<p>Provider</p>".into()),signature_text:Some("Provider text".into()),signature_name:None,sent_mailbox_id:Some("sent".into()),source:"server".into()}).await.unwrap();
-        do_upsert_identity(&s,&account,&IdentityDto{id:"provider-profile".into(),name:"After".into(),email:"primary@example.org".into(),reply_to:None,signature_name:Some("local-template".into())}).await.unwrap();
-        let row=s.get_personal_identity(&account,"provider-profile").await.unwrap().unwrap();
-        assert_eq!(row.signature_html.as_deref(),Some("<p>Provider</p>"));
-        assert_eq!(row.signature_text.as_deref(),Some("Provider text"));
-        assert_eq!(row.sent_mailbox_id.as_deref(),Some("sent"));
-        assert_eq!(row.signature_name.as_deref(),Some("local-template"));
+        let s = store().await;
+        let account = seed_account(&s, "primary@example.org").await;
+        s.upsert_personal_identity(&IdentityRow {
+            id: "provider-profile".into(),
+            account_id: account.clone(),
+            name: "Before".into(),
+            email: "primary@example.org".into(),
+            reply_to: None,
+            signature_html: Some("<p>Provider</p>".into()),
+            signature_text: Some("Provider text".into()),
+            signature_name: None,
+            sent_mailbox_id: Some("sent".into()),
+            source: "server".into(),
+        })
+        .await
+        .unwrap();
+        do_upsert_identity(
+            &s,
+            &account,
+            &IdentityDto {
+                id: "provider-profile".into(),
+                name: "After".into(),
+                email: "primary@example.org".into(),
+                reply_to: None,
+                signature_name: Some("local-template".into()),
+            },
+        )
+        .await
+        .unwrap();
+        let row = s
+            .get_personal_identity(&account, "provider-profile")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.signature_html.as_deref(), Some("<p>Provider</p>"));
+        assert_eq!(row.signature_text.as_deref(), Some("Provider text"));
+        assert_eq!(row.sent_mailbox_id.as_deref(), Some("sent"));
+        assert_eq!(row.signature_name.as_deref(), Some("local-template"));
     }
 
     #[tokio::test]

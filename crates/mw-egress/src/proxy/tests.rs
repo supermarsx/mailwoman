@@ -38,7 +38,8 @@ async fn plugin_calls_use_selected_connect_route_and_never_follow_redirects() {
     let headers = vec![("Authorization".into(), "Bearer fixture-token".into())];
     let out = Outgoing {
         response_metadata: Some(&metadata),
-        authorized_plugin: Some(crate::PluginHttp { additional_roots: &[],
+        authorized_plugin: Some(crate::PluginHttp {
+            additional_roots: &[],
             method: "GET",
             headers: &headers,
         }),

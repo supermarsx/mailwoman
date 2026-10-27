@@ -18,7 +18,8 @@ pub(crate) async fn public_config(
         Ok(identity) => identity,
         Err(_) => return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
-    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
         domain: &identity.domain,
         address: "",
         account_id: "",
@@ -62,7 +63,9 @@ pub(crate) async fn public_config(
         Err(_) => return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
     let anti_bot = match crate::signin_challenge::config(&state).await {
-        Ok(config) => json!({"mailbox":config.enabled(crate::signin_challenge::Surface::Mailbox),"admin":config.enabled(crate::signin_challenge::Surface::Admin)}),
+        Ok(config) => {
+            json!({"mailbox":config.enabled(crate::signin_challenge::Surface::Mailbox),"admin":config.enabled(crate::signin_challenge::Surface::Admin)})
+        }
         Err(_) => return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
     let maintenance = match crate::maintenance_mode::config(&state).await {

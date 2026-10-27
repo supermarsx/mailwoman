@@ -100,11 +100,18 @@ impl Store {
         let held = q("SELECT address FROM mail_user WHERE status IN ('disabled','deleting','deleted') ORDER BY address LIMIT 5001")
             .fetch_all_tx(&mut tx).await?;
         if held.len() > 5000 {
-            return Err(StoreError::Corrupt("directory access holds exceed bounded lookup limit".into()));
+            return Err(StoreError::Corrupt(
+                "directory access holds exceed bounded lookup limit".into(),
+            ));
         }
-        let identities = [crate::user_lifecycle::access_identity(policy_address)?, crate::user_lifecycle::access_identity(s.address)?];
+        let identities = [
+            crate::user_lifecycle::access_identity(policy_address)?,
+            crate::user_lifecycle::access_identity(s.address)?,
+        ];
         for row in held {
-            if identities.contains(&crate::user_lifecycle::access_identity(&row.get_string("address"))?) {
+            if identities.contains(&crate::user_lifecycle::access_identity(
+                &row.get_string("address"),
+            )?) {
                 return Ok(false);
             }
         }

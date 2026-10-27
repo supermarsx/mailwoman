@@ -155,7 +155,10 @@ pub(crate) fn require_can_grant(ctx: &AdminCtx, caps: &[Capability]) -> Result<(
 }
 
 /// Does `account` hold Super admin for all domains, enabled?
-pub(crate) async fn is_full_super(state: &AppState, account: &AdminAccountRow) -> Result<bool, AdminApiError> {
+pub(crate) async fn is_full_super(
+    state: &AppState,
+    account: &AdminAccountRow,
+) -> Result<bool, AdminApiError> {
     if account.disabled
         || state
             .store
@@ -181,7 +184,9 @@ pub(crate) async fn last_super_admin_guard(
     account: &AdminAccountRow,
 ) -> Result<(), AdminApiError> {
     let (last, allow_loss) = state.store.admin_superadmin_protection(&account.id).await?;
-    if !last || allow_loss { return Ok(()); }
+    if !last || allow_loss {
+        return Ok(());
+    }
     Err(AdminApiError::conflict(
         "lastSuperAdmin",
         "This is the last enabled Super admin. Give another account Super admin first.",
@@ -242,8 +247,17 @@ async fn validate_role(
     id: Option<&str>,
 ) -> Result<(String, Vec<Capability>), AdminApiError> {
     let name = body.name.trim().to_string();
-    if body.description.as_ref().is_some_and(|value| value.chars().count() > 1024 || value.chars().any(|c| c.is_control() && c != '\n' && c != '\t')) {
-        return Err(AdminApiError::invalid("invalidDescription", "A role description has at most 1024 characters and no control characters.", "/description"));
+    if body.description.as_ref().is_some_and(|value| {
+        value.chars().count() > 1024
+            || value
+                .chars()
+                .any(|c| c.is_control() && c != '\n' && c != '\t')
+    }) {
+        return Err(AdminApiError::invalid(
+            "invalidDescription",
+            "A role description has at most 1024 characters and no control characters.",
+            "/description",
+        ));
     }
     if name.is_empty() || name.chars().count() > 64 {
         return Err(AdminApiError::invalid(
@@ -295,7 +309,10 @@ async fn create_role(
     }
     let id = uuid::Uuid::new_v4().to_string();
     let ids: Vec<String> = caps.iter().map(|c| c.as_str().to_string()).collect();
-    state.store.put_admin_role_description(&id, &name, &ids, body.description.as_deref().map(str::trim)).await?;
+    state
+        .store
+        .put_admin_role_description(&id, &name, &ids, body.description.as_deref().map(str::trim))
+        .await?;
     crate::admin_accounts::audit(
         &state,
         &ctx,
@@ -353,7 +370,10 @@ async fn update_role(
         return Ok(axum::Json(json!({ "impact": { "accounts": holders.len() } })).into_response());
     }
     let ids: Vec<String> = caps.iter().map(|c| c.as_str().to_string()).collect();
-    state.store.put_admin_role_description(&id, &name, &ids, body.description.as_deref().map(str::trim)).await?;
+    state
+        .store
+        .put_admin_role_description(&id, &name, &ids, body.description.as_deref().map(str::trim))
+        .await?;
     let role = custom_role(&state, &id).await?;
     let after = role_view(&state, &role).await?;
     crate::admin_accounts::audit(

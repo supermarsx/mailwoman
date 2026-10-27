@@ -169,9 +169,14 @@ fn build_entry_from_row(row: &mw_store::SsoConfigRow) -> Result<SsoEntry, mw_sso
         SsoConfig::Oidc(config) => &config.issuer_url,
         SsoConfig::Saml(config) => &config.idp_sso_url,
     };
-    if realm.is_empty() { return Err(mw_sso::SsoError::Config("missing identity provider authority".into())); }
-    let identity_authority = serde_json::to_string(&(row.id.as_str(), config.kind().as_db(), realm))
-        .map_err(|_| mw_sso::SsoError::Config("invalid identity provider authority".into()))?;
+    if realm.is_empty() {
+        return Err(mw_sso::SsoError::Config(
+            "missing identity provider authority".into(),
+        ));
+    }
+    let identity_authority =
+        serde_json::to_string(&(row.id.as_str(), config.kind().as_db(), realm))
+            .map_err(|_| mw_sso::SsoError::Config("invalid identity provider authority".into()))?;
     let meta = SsoMeta {
         identity_authority,
         display_name: row.display_name.clone(),
@@ -340,7 +345,9 @@ async fn begin(
         &state,
         mw_store::AuthSurface::Webmail,
         crate::scope_mw::proxy::client_ip(&headers, &ext),
-    ).await {
+    )
+    .await
+    {
         return error.into_response();
     }
     let Some(entry) = source.resolve(&state.store, &id).await else {
@@ -374,7 +381,16 @@ async fn callback(
     headers: HeaderMap,
     ext: axum::http::Extensions,
 ) -> Response {
-    complete_flow(&state, &source, &pending, &id, params, "state", (&headers, &ext)).await
+    complete_flow(
+        &state,
+        &source,
+        &pending,
+        &id,
+        params,
+        "state",
+        (&headers, &ext),
+    )
+    .await
 }
 
 // ── POST /api/sso/{id}/acs (SAML) ────────────────────────────────────────────
@@ -390,7 +406,16 @@ async fn acs(
     ext: axum::http::Extensions,
     Form(params): Form<BTreeMap<String, String>>,
 ) -> Response {
-    complete_flow(&state, &source, &pending, &id, params, "RelayState", (&headers, &ext)).await
+    complete_flow(
+        &state,
+        &source,
+        &pending,
+        &id,
+        params,
+        "RelayState",
+        (&headers, &ext),
+    )
+    .await
 }
 
 /// Shared completion path for OIDC callback + SAML ACS: resolve the one-shot pending
@@ -411,7 +436,9 @@ async fn complete_flow(
         state,
         mw_store::AuthSurface::Webmail,
         crate::scope_mw::proxy::client_ip(headers, ext),
-    ).await {
+    )
+    .await
+    {
         return error.into_response();
     }
     let Some(entry) = source.resolve(&state.store, id).await else {
@@ -447,11 +474,7 @@ async fn complete_flow(
         Ok(identity) => identity.login_name,
         Err(_) => return sso_unauthorized(),
     };
-    let Some(account) = resolve_login_account(
-        login,
-        &pairs,
-        entry.meta.first_login_policy,
-    ) else {
+    let Some(account) = resolve_login_account(login, &pairs, entry.meta.first_login_policy) else {
         // First-login denied (allowlist default): uniform 401, content-free audit.
         let _ = state
             .store
@@ -467,7 +490,9 @@ async fn complete_flow(
 
     match crate::domain_config::signin_allowed(&state.store, &account.username).await {
         Ok(true) => {}
-        Ok(false) => return audit_and_401(state, id, entry.meta.kind, &subject_hash, "domain_policy").await,
+        Ok(false) => {
+            return audit_and_401(state, id, entry.meta.kind, &subject_hash, "domain_policy").await;
+        }
         Err(error) => return crate::account_gate::unavailable("sso domain policy", error),
     }
 
@@ -533,20 +558,36 @@ async fn complete_flow(
     };
     state.sessions.begin(&session_id);
     let device = crate::security_center::device(headers, ext, None);
-    if state.store.set_session_authentication(&session_id, "sso").await.is_err() {
+    if state
+        .store
+        .set_session_authentication(&session_id, "sso")
+        .await
+        .is_err()
+    {
         let _ = state.store.delete_session(&session_id).await;
         state.sessions.forget(&session_id);
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
     let primary = crate::primary_identity::VerifiedLoginIdentity {
-        kind: "sso", authority: entry.meta.identity_authority.clone(), subject: identity.subject.clone(),
+        kind: "sso",
+        authority: entry.meta.identity_authority.clone(),
+        subject: identity.subject.clone(),
     };
     if primary.bind(state, &session_id, &account.id).await.is_err() {
         let _ = state.store.delete_session(&session_id).await;
         state.sessions.forget(&session_id);
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
-    if let Err(response) = crate::security_center::record_login(state, &session_id, &account.id, &account.username, &device, "sso").await {
+    if let Err(response) = crate::security_center::record_login(
+        state,
+        &session_id,
+        &account.id,
+        &account.username,
+        &device,
+        "sso",
+    )
+    .await
+    {
         let _ = state.store.delete_session(&session_id).await;
         state.sessions.forget(&session_id);
         return response;
@@ -695,7 +736,11 @@ fn resolve_account(
     resolve_login_account(login, accounts, policy)
 }
 
-fn resolve_login_account(login: String, accounts: &[(String, String)], policy: FirstLoginPolicy) -> Option<ResolvedAccount> {
+fn resolve_login_account(
+    login: String,
+    accounts: &[(String, String)],
+    policy: FirstLoginPolicy,
+) -> Option<ResolvedAccount> {
     if let Some((id, username)) = accounts
         .iter()
         .find(|(_, u)| u.eq_ignore_ascii_case(&login))

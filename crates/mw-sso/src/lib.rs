@@ -33,8 +33,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub mod oidc;
 pub mod issuer;
+pub mod oidc;
 pub mod saml;
 pub mod state;
 

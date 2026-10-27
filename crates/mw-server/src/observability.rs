@@ -203,13 +203,16 @@ impl ObservabilityConfig {
     }
 
     pub async fn from_store(store: &mw_store::Store) -> anyhow::Result<Self> {
-        let (telemetry, _) = crate::telemetry_config::load(store).await?
+        let (telemetry, _) = crate::telemetry_config::load(store)
+            .await?
             .with_environment(|key| std::env::var(key).ok())
             .map_err(|(_, message)| anyhow::anyhow!(message))?;
         let mut config = Self::from_env();
         config.otlp_endpoint = telemetry.enabled.then(|| telemetry.endpoint.clone());
         config.service_name = telemetry.service_name.clone();
-        if !telemetry.prometheus_enabled { config.metrics_token = None; }
+        if !telemetry.prometheus_enabled {
+            config.metrics_token = None;
+        }
         config.telemetry = telemetry;
         Ok(config)
     }
@@ -230,7 +233,9 @@ impl OtelGuard {
     /// Bind this SDK tracer explicitly: the tracing bridge defaults to a no-op.
     pub fn tracer(&self) -> Option<opentelemetry_sdk::trace::SdkTracer> {
         use opentelemetry::trace::TracerProvider as _;
-        self.tracer.as_ref().map(|provider| provider.tracer("mw-server"))
+        self.tracer
+            .as_ref()
+            .map(|provider| provider.tracer("mw-server"))
     }
 }
 
@@ -249,24 +254,38 @@ impl Drop for OtelGuard {
 /// first; build_app initializes providers after loading the persisted settings.
 static OTLP_INITIALIZED: OnceLock<()> = OnceLock::new();
 static OTLP_INIT_LOCK: Mutex<()> = Mutex::new(());
-type TracerBridge = Box<dyn Fn(opentelemetry_sdk::trace::SdkTracer) -> Result<(), String> + Send + Sync>;
+type TracerBridge =
+    Box<dyn Fn(opentelemetry_sdk::trace::SdkTracer) -> Result<(), String> + Send + Sync>;
 static TRACER_BRIDGE: OnceLock<TracerBridge> = OnceLock::new();
 static OTEL_GUARD: Mutex<Option<OtelGuard>> = Mutex::new(None);
-static HTTP_INSTRUMENTS: OnceLock<(opentelemetry::metrics::Counter<u64>, opentelemetry::metrics::Histogram<f64>)> = OnceLock::new();
+static HTTP_INSTRUMENTS: OnceLock<(
+    opentelemetry::metrics::Counter<u64>,
+    opentelemetry::metrics::Histogram<f64>,
+)> = OnceLock::new();
 pub fn record_http(class: &'static str, status: &'static str, seconds: f64) {
     if let Some((counter, duration)) = HTTP_INSTRUMENTS.get() {
-        let attributes = [opentelemetry::KeyValue::new("route.class", class), opentelemetry::KeyValue::new("status.class", status)];
+        let attributes = [
+            opentelemetry::KeyValue::new("route.class", class),
+            opentelemetry::KeyValue::new("status.class", status),
+        ];
         counter.add(1, &attributes);
         duration.record(seconds, &attributes);
     }
 }
 
 /// The CLI installs its reloadable tracing layer before opening the store.
-pub fn install_tracer_bridge(bridge: impl Fn(opentelemetry_sdk::trace::SdkTracer) -> Result<(), String> + Send + Sync + 'static) {
+pub fn install_tracer_bridge(
+    bridge: impl Fn(opentelemetry_sdk::trace::SdkTracer) -> Result<(), String> + Send + Sync + 'static,
+) {
     let _ = TRACER_BRIDGE.set(Box::new(bridge));
 }
-pub fn retain_otlp(guard: OtelGuard) { *OTEL_GUARD.lock().expect("OTLP guard lock") = Some(guard); }
-pub fn shutdown_otlp() { let guard = OTEL_GUARD.lock().expect("OTLP guard lock").take(); drop(guard); }
+pub fn retain_otlp(guard: OtelGuard) {
+    *OTEL_GUARD.lock().expect("OTLP guard lock") = Some(guard);
+}
+pub fn shutdown_otlp() {
+    let guard = OTEL_GUARD.lock().expect("OTLP guard lock").take();
+    drop(guard);
+}
 
 /// Initialise OTLP export from configuration. When `otlp_endpoint` is set, build a
 /// tonic (rustls) span + metric exporter, wrap each in an SDK provider, and
@@ -290,50 +309,80 @@ pub fn init_otlp(config: &ObservabilityConfig) -> anyhow::Result<Option<OtelGuar
 
     let resource = opentelemetry_sdk::Resource::builder()
         .with_service_name(config.service_name.clone())
-        .with_attribute(opentelemetry::KeyValue::new("deployment.environment.name", config.telemetry.environment.clone()))
+        .with_attribute(opentelemetry::KeyValue::new(
+            "deployment.environment.name",
+            config.telemetry.environment.clone(),
+        ))
         .build();
     let timeout = std::time::Duration::from_millis(config.telemetry.export_timeout_ms);
     let tracer_provider = if config.telemetry.traces {
-      let span_exporter = opentelemetry_otlp::SpanExporter::builder()
-        .with_tonic()
-        .with_endpoint(endpoint.clone())
-        .with_timeout(timeout)
-        .build()?;
-      let batch = opentelemetry_sdk::trace::BatchConfigBuilder::default()
-        .with_max_queue_size(config.telemetry.span_queue_size)
-        .with_max_export_batch_size(config.telemetry.span_batch_size)
-        .with_scheduled_delay(std::time::Duration::from_millis(config.telemetry.span_export_delay_ms))
-        .build();
-      let processor = opentelemetry_sdk::trace::BatchSpanProcessor::builder(span_exporter).with_batch_config(batch).build();
-      Some(opentelemetry_sdk::trace::SdkTracerProvider::builder()
-        .with_span_processor(processor)
-        .with_sampler(opentelemetry_sdk::trace::Sampler::ParentBased(Box::new(opentelemetry_sdk::trace::Sampler::TraceIdRatioBased(config.telemetry.sample_ratio))))
-        .with_resource(resource.clone())
-        .build())
-    } else { None };
+        let span_exporter = opentelemetry_otlp::SpanExporter::builder()
+            .with_tonic()
+            .with_endpoint(endpoint.clone())
+            .with_timeout(timeout)
+            .build()?;
+        let batch = opentelemetry_sdk::trace::BatchConfigBuilder::default()
+            .with_max_queue_size(config.telemetry.span_queue_size)
+            .with_max_export_batch_size(config.telemetry.span_batch_size)
+            .with_scheduled_delay(std::time::Duration::from_millis(
+                config.telemetry.span_export_delay_ms,
+            ))
+            .build();
+        let processor = opentelemetry_sdk::trace::BatchSpanProcessor::builder(span_exporter)
+            .with_batch_config(batch)
+            .build();
+        Some(
+            opentelemetry_sdk::trace::SdkTracerProvider::builder()
+                .with_span_processor(processor)
+                .with_sampler(opentelemetry_sdk::trace::Sampler::ParentBased(Box::new(
+                    opentelemetry_sdk::trace::Sampler::TraceIdRatioBased(
+                        config.telemetry.sample_ratio,
+                    ),
+                )))
+                .with_resource(resource.clone())
+                .build(),
+        )
+    } else {
+        None
+    };
     // Register the provider for direct OTel instrumentation. The tracing bridge
     // must explicitly use OtelGuard::tracer; its default tracer is a no-op.
     let meter_provider = if config.telemetry.metrics {
-      let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
-        .with_tonic()
-        .with_endpoint(endpoint)
-        .with_timeout(timeout)
-        .build()?;
-      let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter)
-        .with_interval(std::time::Duration::from_secs(config.telemetry.metrics_interval_secs)).build();
-      Some(opentelemetry_sdk::metrics::SdkMeterProvider::builder()
-        .with_reader(reader)
-        .with_resource(resource)
-        .build())
-    } else { None };
+        let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
+            .with_tonic()
+            .with_endpoint(endpoint)
+            .with_timeout(timeout)
+            .build()?;
+        let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter)
+            .with_interval(std::time::Duration::from_secs(
+                config.telemetry.metrics_interval_secs,
+            ))
+            .build();
+        Some(
+            opentelemetry_sdk::metrics::SdkMeterProvider::builder()
+                .with_reader(reader)
+                .with_resource(resource)
+                .build(),
+        )
+    } else {
+        None
+    };
     if let Some(provider) = &tracer_provider {
-        if let Some(bridge) = TRACER_BRIDGE.get() { bridge(provider.tracer("mw-server")).map_err(anyhow::Error::msg)?; }
+        if let Some(bridge) = TRACER_BRIDGE.get() {
+            bridge(provider.tracer("mw-server")).map_err(anyhow::Error::msg)?;
+        }
         opentelemetry::global::set_tracer_provider(provider.clone());
     }
     if let Some(provider) = &meter_provider {
         opentelemetry::global::set_meter_provider(provider.clone());
         let meter = opentelemetry::global::meter("mw-server");
-        let _ = HTTP_INSTRUMENTS.set((meter.u64_counter("mailwoman.http.requests").build(), meter.f64_histogram("mailwoman.http.duration").with_unit("s").build()));
+        let _ = HTTP_INSTRUMENTS.set((
+            meter.u64_counter("mailwoman.http.requests").build(),
+            meter
+                .f64_histogram("mailwoman.http.duration")
+                .with_unit("s")
+                .build(),
+        ));
     }
     let _ = OTLP_INITIALIZED.set(());
 

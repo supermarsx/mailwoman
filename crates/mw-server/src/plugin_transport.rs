@@ -52,7 +52,9 @@ pub(super) async fn fetch(
             let address = if let Some(selected) = &provider {
                 selected.login_address.clone()
             } else {
-                store.security_account_address(account).await
+                store
+                    .security_account_address(account)
+                    .await
                     .map_err(|_| "account identity unavailable")?
                     .ok_or("account identity unavailable")?
             };
@@ -65,17 +67,17 @@ pub(super) async fn fetch(
                     endpoint_grant = url == selected.config.endpoint()?;
                     additional_roots = selected.config.roots()?;
                 } else {
-                let credential = store
-                    .get_ews_account_cred(account)
-                    .await
-                    .map_err(|_| "account credentials unavailable")?
-                    .ok_or("account credentials unavailable")?;
-                let endpoint = reqwest::Url::parse(&credential.endpoint)
-                    .map_err(|_| "invalid account endpoint")?;
-                endpoint_grant = credential.enabled
-                    && url.origin() == endpoint.origin()
-                    && url.path() == endpoint.path()
-                    && url.query() == endpoint.query();
+                    let credential = store
+                        .get_ews_account_cred(account)
+                        .await
+                        .map_err(|_| "account credentials unavailable")?
+                        .ok_or("account credentials unavailable")?;
+                    let endpoint = reqwest::Url::parse(&credential.endpoint)
+                        .map_err(|_| "invalid account endpoint")?;
+                    endpoint_grant = credential.enabled
+                        && url.origin() == endpoint.origin()
+                        && url.path() == endpoint.path()
+                        && url.query() == endpoint.query();
                 }
                 if !endpoint_grant {
                     return Err("account endpoint mismatch".into());
@@ -124,7 +126,8 @@ pub(super) async fn fetch(
         });
         let mut request = mw_egress::plan::Request::plugin(
             mw_egress::TrafficClass::Plugins,
-            mw_egress::PluginHttp { additional_roots: &additional_roots,
+            mw_egress::PluginHttp {
+                additional_roots: &additional_roots,
                 method: &req.method,
                 headers: &req.headers,
             },
@@ -292,27 +295,55 @@ mod tests {
     async fn verified_provider_can_apply_egress_before_login_audit_projection() {
         let store = fixture().await;
         let endpoint = "https://127.0.0.1:9/EWS.asmx";
-        store.put_domain_config(&mw_store::DomainConfigRow {
-            name: "example.test".into(), enabled: true, preferred: false,
-            upstream_json: serde_json::json!({"version":2,"backends":[{
-                "id":"ews","role":"mail","protocol":"ews",
-                "ews":{"endpointUrl":endpoint,"authentication":"basic"}
-            }]}).to_string(),
-            allowlist_json: "[]".into(), blocklist_json: "[]".into(),
-            settings_json: "{}".into(), updated_at: 1,
-        }).await.unwrap();
-        let selected = crate::domain_provider::SelectedEws::for_login(&store,"owner@example.test")
-            .await.unwrap().unwrap();
-        let account = store.enroll_verified_ews(mw_store::provider_accounts::VerifiedEwsEnrollment {
-            endpoint_url: endpoint, backend_username: &selected.wire_username,
-            login_address: &selected.login_address, domain_binding: &selected.binding,
-            ca_pem: None, password: "fixture",
-        }).await.unwrap();
-        assert!(store.security_account_address(&account.account_id).await.unwrap().is_none());
+        store
+            .put_domain_config(&mw_store::DomainConfigRow {
+                name: "example.test".into(),
+                enabled: true,
+                preferred: false,
+                upstream_json: serde_json::json!({"version":2,"backends":[{
+                    "id":"ews","role":"mail","protocol":"ews",
+                    "ews":{"endpointUrl":endpoint,"authentication":"basic"}
+                }]})
+                .to_string(),
+                allowlist_json: "[]".into(),
+                blocklist_json: "[]".into(),
+                settings_json: "{}".into(),
+                updated_at: 1,
+            })
+            .await
+            .unwrap();
+        let selected = crate::domain_provider::SelectedEws::for_login(&store, "owner@example.test")
+            .await
+            .unwrap()
+            .unwrap();
+        let account = store
+            .enroll_verified_ews(mw_store::provider_accounts::VerifiedEwsEnrollment {
+                endpoint_url: endpoint,
+                backend_username: &selected.wire_username,
+                login_address: &selected.login_address,
+                domain_binding: &selected.binding,
+                ca_pem: None,
+                password: "fixture",
+            })
+            .await
+            .unwrap();
+        assert!(
+            store
+                .security_account_address(&account.account_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
         // The request reaches the egress refusal using authoritative enrollment;
         // it neither needs a later sign-in audit row nor bypasses private-IP policy.
-        let error = fetch(&store,"bridge-ews",Some(&account.account_id),request(endpoint))
-            .await.unwrap_err();
+        let error = fetch(
+            &store,
+            "bridge-ews",
+            Some(&account.account_id),
+            request(endpoint),
+        )
+        .await
+        .unwrap_err();
         assert!(error.contains("egress"), "{error}");
     }
 

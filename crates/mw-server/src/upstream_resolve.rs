@@ -60,7 +60,13 @@ pub(crate) async fn resolve_upstream(
     state: &AppState,
     username: &str,
 ) -> Result<Upstream, ResolveError> {
-    resolve_for(&state.store, &state.security, state.engine.is_some(), username).await
+    resolve_for(
+        &state.store,
+        &state.security,
+        state.engine.is_some(),
+        username,
+    )
+    .await
 }
 
 pub(crate) async fn resolve_for(
@@ -72,16 +78,16 @@ pub(crate) async fn resolve_for(
     let identity = crate::domain_config::canonical(store, username, None)
         .await
         .map_err(|_| ResolveError::NotConfigured)?;
-    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
         domain: &identity.domain,
         account_id: "",
         address: &identity.address,
     };
-    let listed =
-        crate::settings_registry::effective_for(store, "signin.domainMode", &subject)
-            .await
-            .map_err(|_| ResolveError::NotConfigured)?
-            .is_some_and(|v| v.value == "listed");
+    let listed = crate::settings_registry::effective_for(store, "signin.domainMode", &subject)
+        .await
+        .map_err(|_| ResolveError::NotConfigured)?
+        .is_some_and(|v| v.value == "listed");
     let row = crate::domain_config::configured_row(store, &identity)
         .await
         .map_err(|_| ResolveError::NotConfigured)?;
@@ -94,8 +100,14 @@ pub(crate) async fn resolve_for(
                 .map_err(|_| ResolveError::NotConfigured)?;
             if let Some(ews) = &config.ews {
                 return if engine {
-                    Ok(Upstream::Ews(ews.endpoint().map_err(|_| ResolveError::NotConfigured)?.to_string()))
-                } else { Err(ResolveError::NotConfigured) };
+                    Ok(Upstream::Ews(
+                        ews.endpoint()
+                            .map_err(|_| ResolveError::NotConfigured)?
+                            .to_string(),
+                    ))
+                } else {
+                    Err(ResolveError::NotConfigured)
+                };
             }
             if config.selection.is_some() && config.mail().is_none() && config.jmap.is_none() {
                 return Err(ResolveError::NotConfigured);

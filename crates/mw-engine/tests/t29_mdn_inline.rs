@@ -324,7 +324,9 @@ impl MailSubmitter for RecordingSubmitter {
                 .push(flags.contains("$mdnsent"));
         }
         if self.down.load(Ordering::SeqCst) {
-            return Err(EngineError::Auth("authentication refused before MAIL FROM".into()));
+            return Err(EngineError::Auth(
+                "authentication refused before MAIL FROM".into(),
+            ));
         }
         let accepted = msg.rcpt_to.clone();
         self.handed.lock().unwrap().push(msg);
@@ -1346,80 +1348,205 @@ fn the_mime_and_smtp_mailbox_validators_agree() {
 async fn incoming_dsn_is_explicit_read_only_and_account_scoped() {
     let h = setup().await;
     let id = find(&h, "Delivery failure fixture").await;
-    let request = json!([["Email/get", {"ids":[id], "properties":["id","mailwomanDsnReport"]}, "dsn"]]);
+    let request =
+        json!([["Email/get", {"ids":[id], "properties":["id","mailwomanDsnReport"]}, "dsn"]]);
     let response = jmap(&h, request.clone()).await;
     let report = &result(&response, "dsn")["list"][0]["mailwomanDsnReport"];
     assert_eq!(report["recipients"][0]["action"], "failed");
     assert_eq!(report["recipients"][0]["status"], "5.1.1");
     let ordinary = jmap(&h, json!([["Email/get", {"ids":[id]}, "plain"]])).await;
-    assert!(result(&ordinary, "plain")["list"][0].get("mailwomanDsnReport").is_none());
+    assert!(
+        result(&ordinary, "plain")["list"][0]
+            .get("mailwomanDsnReport")
+            .is_none()
+    );
     let stranger = new_account(&h.store, "stranger@example.org").await;
-    let denied = h.engine.handle_jmap(&stranger, &json!({"methodCalls":request})).await;
-    assert!(result(&denied, "dsn")["list"].as_array().is_none_or(|list| list.is_empty()), "{denied}");
+    let denied = h
+        .engine
+        .handle_jmap(&stranger, &json!({"methodCalls":request}))
+        .await;
+    assert!(
+        result(&denied, "dsn")["list"]
+            .as_array()
+            .is_none_or(|list| list.is_empty()),
+        "{denied}"
+    );
     assert!(h.submitter.handed().is_empty());
 }
 
 #[tokio::test]
 async fn held_never_blocks_manual_receipts_before_smtp() {
-    let h=setup().await;let id=find(&h,"request").await;
-    set_policy(&h,"always").await;
-    h.store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
-        key:"mail.readReceipts".into(),global_value:Some("\"never\"".into()),allow_user_override:false,global_locked:true,updated_by:"admin".into(),updated_at:1,
-    }).await.unwrap();
-    for automatic in [None,Some(false),Some(true)] {
-        let result=mdn_send(&h,&id,automatic).await;
-        assert_eq!(result["type"],"forbidden","{result}");
+    let h = setup().await;
+    let id = find(&h, "request").await;
+    set_policy(&h, "always").await;
+    h.store
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "mail.readReceipts".into(),
+            global_value: Some("\"never\"".into()),
+            allow_user_override: false,
+            global_locked: true,
+            updated_by: "admin".into(),
+            updated_at: 1,
+        })
+        .await
+        .unwrap();
+    for automatic in [None, Some(false), Some(true)] {
+        let result = mdn_send(&h, &id, automatic).await;
+        assert_eq!(result["type"], "forbidden", "{result}");
     }
     assert!(h.submitter.handed().is_empty());
 }
 #[tokio::test]
 async fn uncertain_receipt_keeps_claim_and_never_retries_smtp() {
-    let h=setup().await;let id=find(&h,"request").await;
-    h.submitter.uncertain.store(true,Ordering::SeqCst);
-    let first=mdn_send(&h,&id,None).await;
-    h.submitter.uncertain.store(false,Ordering::SeqCst);
-    let second=mdn_send(&h,&id,None).await;
-    assert_eq!(h.submitter.handed().len(),1,"an unknown SMTP outcome must not permit a duplicate: {first}, {second}");
-    assert_eq!(first["type"],"serverFail");
-    assert_eq!(second["type"],"mdnAlreadySent");
+    let h = setup().await;
+    let id = find(&h, "request").await;
+    h.submitter.uncertain.store(true, Ordering::SeqCst);
+    let first = mdn_send(&h, &id, None).await;
+    h.submitter.uncertain.store(false, Ordering::SeqCst);
+    let second = mdn_send(&h, &id, None).await;
+    assert_eq!(
+        h.submitter.handed().len(),
+        1,
+        "an unknown SMTP outcome must not permit a duplicate: {first}, {second}"
+    );
+    assert_eq!(first["type"], "serverFail");
+    assert_eq!(second["type"], "mdnAlreadySent");
 }
 
 #[tokio::test]
 async fn held_never_blocks_hand_built_mdn_submission_before_enqueue() {
-    let raw=String::from_utf8(report_asking_for_a_receipt()).unwrap().replace(ANN,ME).into_bytes();
-    let h=setup_with_backend(ME, FakeBackend { mail:HashMap::from([("INBOX".into(),vec![raw])]), appended:Mutex::default() }).await;
-    let inbox=h.store.list_mailboxes(&h.account_id).await.unwrap().into_iter().find(|m|m.role.as_deref()==Some("inbox")).unwrap();
-    let id=h.store.list_message_ids(&inbox.id,1,0).await.unwrap().remove(0);
-    h.store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
-        key:"mail.readReceipts".into(),global_value:Some("\"never\"".into()),allow_user_override:false,global_locked:true,updated_by:"admin".into(),updated_at:1,
-    }).await.unwrap();
-    let response=jmap(&h,json!([["EmailSubmission/set",{"create":{"report":{"emailId":id}}},"s"]])).await;
-    assert_eq!(result(&response,"s")["notCreated"]["report"]["type"],"forbidden","{response}");
+    let raw = String::from_utf8(report_asking_for_a_receipt())
+        .unwrap()
+        .replace(ANN, ME)
+        .into_bytes();
+    let h = setup_with_backend(
+        ME,
+        FakeBackend {
+            mail: HashMap::from([("INBOX".into(), vec![raw])]),
+            appended: Mutex::default(),
+        },
+    )
+    .await;
+    let inbox = h
+        .store
+        .list_mailboxes(&h.account_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|m| m.role.as_deref() == Some("inbox"))
+        .unwrap();
+    let id = h
+        .store
+        .list_message_ids(&inbox.id, 1, 0)
+        .await
+        .unwrap()
+        .remove(0);
+    h.store
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "mail.readReceipts".into(),
+            global_value: Some("\"never\"".into()),
+            allow_user_override: false,
+            global_locked: true,
+            updated_by: "admin".into(),
+            updated_at: 1,
+        })
+        .await
+        .unwrap();
+    let response = jmap(
+        &h,
+        json!([["EmailSubmission/set",{"create":{"report":{"emailId":id}}},"s"]]),
+    )
+    .await;
+    assert_eq!(
+        result(&response, "s")["notCreated"]["report"]["type"],
+        "forbidden",
+        "{response}"
+    );
     assert!(h.submitter.handed().is_empty());
 }
 
 #[tokio::test]
 async fn delivery_receipt_policy_is_rechecked_when_delayed_mail_dispatches() {
-    let h=setup().await;
-    let id=created_id(&create(&h,json!({"to":[{"email":ANN}]})).await);
+    let h = setup().await;
+    let id = created_id(&create(&h, json!({"to":[{"email":ANN}]})).await);
     let queued=jmap(&h,json!([["EmailSubmission/set",{"create":{"send":{"emailId":id,"mailwomanHoldSeconds":30,"envelope":{"mailFrom":{"email":ME,"parameters":{"RET":"HDRS"}},"rcptTo":[{"email":ANN,"parameters":{"NOTIFY":"FAILURE"}}]}}}},"s"]])).await;
-    assert!(result(&queued,"s")["created"]["send"]["id"].is_string(),"{queued}");
-    h.store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow { key:"receipts.dsnAllowed".into(),global_value:Some("false".into()),allow_user_override:false,global_locked:true,updated_by:"admin".into(),updated_at:1 }).await.unwrap();
-    h.engine.dispatch_tick_at(chrono::Utc::now()+chrono::Duration::days(1)).await.unwrap();
-    assert!(h.submitter.handed().is_empty(),"a queued DSN request must obey the new held policy");
+    assert!(
+        result(&queued, "s")["created"]["send"]["id"].is_string(),
+        "{queued}"
+    );
+    h.store
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "receipts.dsnAllowed".into(),
+            global_value: Some("false".into()),
+            allow_user_override: false,
+            global_locked: true,
+            updated_by: "admin".into(),
+            updated_at: 1,
+        })
+        .await
+        .unwrap();
+    h.engine
+        .dispatch_tick_at(chrono::Utc::now() + chrono::Duration::days(1))
+        .await
+        .unwrap();
+    assert!(
+        h.submitter.handed().is_empty(),
+        "a queued DSN request must obey the new held policy"
+    );
 }
 
 #[tokio::test]
 async fn read_receipt_policy_is_rechecked_when_delayed_raw_report_dispatches() {
-    let raw=String::from_utf8(report_asking_for_a_receipt()).unwrap().replace(ANN,ME).into_bytes();
-    let h=setup_with_backend(ME, FakeBackend { mail:HashMap::from([("INBOX".into(),vec![raw])]), appended:Mutex::default() }).await;
-    let inbox=h.store.list_mailboxes(&h.account_id).await.unwrap().into_iter().find(|m|m.role.as_deref()==Some("inbox")).unwrap();
-    let id=h.store.list_message_ids(&inbox.id,1,0).await.unwrap().remove(0);
+    let raw = String::from_utf8(report_asking_for_a_receipt())
+        .unwrap()
+        .replace(ANN, ME)
+        .into_bytes();
+    let h = setup_with_backend(
+        ME,
+        FakeBackend {
+            mail: HashMap::from([("INBOX".into(), vec![raw])]),
+            appended: Mutex::default(),
+        },
+    )
+    .await;
+    let inbox = h
+        .store
+        .list_mailboxes(&h.account_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|m| m.role.as_deref() == Some("inbox"))
+        .unwrap();
+    let id = h
+        .store
+        .list_message_ids(&inbox.id, 1, 0)
+        .await
+        .unwrap()
+        .remove(0);
     let queued=jmap(&h,json!([["EmailSubmission/set",{"create":{"send":{"emailId":id,"mailwomanHoldSeconds":30}}},"s"]])).await;
-    assert!(result(&queued,"s")["created"]["send"]["id"].is_string(),"{queued}");
-    h.store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow { key:"mail.readReceipts".into(),global_value:Some("\"never\"".into()),allow_user_override:false,global_locked:true,updated_by:"admin".into(),updated_at:1 }).await.unwrap();
-    h.engine.dispatch_tick_at(chrono::Utc::now()+chrono::Duration::days(1)).await.unwrap();
-    assert!(h.submitter.handed().is_empty(),"a queued raw report must obey the new held policy");
+    assert!(
+        result(&queued, "s")["created"]["send"]["id"].is_string(),
+        "{queued}"
+    );
+    h.store
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "mail.readReceipts".into(),
+            global_value: Some("\"never\"".into()),
+            allow_user_override: false,
+            global_locked: true,
+            updated_by: "admin".into(),
+            updated_at: 1,
+        })
+        .await
+        .unwrap();
+    h.engine
+        .dispatch_tick_at(chrono::Utc::now() + chrono::Duration::days(1))
+        .await
+        .unwrap();
+    assert!(
+        h.submitter.handed().is_empty(),
+        "a queued raw report must obey the new held policy"
+    );
 }
 
 #[tokio::test]
@@ -1427,20 +1554,71 @@ async fn receipt_sender_exception_is_account_owned_and_rechecked_for_automatic_s
     use mw_store::receipts::{SenderDecision, SenderRuleWrite};
     let h = setup().await;
     let id = find(&h, "request").await;
-    h.engine.fetch_blob(&h.account_id, &id).await.unwrap().unwrap();
+    h.engine
+        .fetch_blob(&h.account_id, &id)
+        .await
+        .unwrap()
+        .unwrap();
     set_policy(&h, "ask").await;
-    let revision = h.store.receipt_sender_rules(&h.account_id).await.unwrap().revision;
-    assert!(matches!(h.store.write_receipt_sender_rule(&h.account_id, ANN, Some(SenderDecision::Always), &revision).await.unwrap(), SenderRuleWrite::Applied(_)));
-    let decision = h.engine.receipt_response_decision(&h.account_id, &id).await.unwrap().unwrap();
+    let revision = h
+        .store
+        .receipt_sender_rules(&h.account_id)
+        .await
+        .unwrap()
+        .revision;
+    assert!(matches!(
+        h.store
+            .write_receipt_sender_rule(&h.account_id, ANN, Some(SenderDecision::Always), &revision)
+            .await
+            .unwrap(),
+        SenderRuleWrite::Applied(_)
+    ));
+    let decision = h
+        .engine
+        .receipt_response_decision(&h.account_id, &id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(decision["action"], "automatic");
-    assert!(h.engine.receipt_response_decision("another-account", &id).await.unwrap().is_none());
+    assert!(
+        h.engine
+            .receipt_response_decision("another-account", &id)
+            .await
+            .unwrap()
+            .is_none()
+    );
     set_policy(&h, "never").await;
-    assert_eq!(h.engine.receipt_response_decision(&h.account_id, &id).await.unwrap().unwrap()["action"], "none");
-    assert_eq!(mdn_send(&h, &id, Some(true)).await["type"], "mdnAutomaticRefused");
+    assert_eq!(
+        h.engine
+            .receipt_response_decision(&h.account_id, &id)
+            .await
+            .unwrap()
+            .unwrap()["action"],
+        "none"
+    );
+    assert_eq!(
+        mdn_send(&h, &id, Some(true)).await["type"],
+        "mdnAutomaticRefused"
+    );
     set_policy(&h, "ask").await;
-    let revision = h.store.receipt_sender_rules(&h.account_id).await.unwrap().revision;
-    h.store.write_receipt_sender_rule(&h.account_id, ANN, Some(SenderDecision::Never), &revision).await.unwrap();
-    assert_eq!(h.engine.receipt_response_decision(&h.account_id, &id).await.unwrap().unwrap()["action"], "none");
+    let revision = h
+        .store
+        .receipt_sender_rules(&h.account_id)
+        .await
+        .unwrap()
+        .revision;
+    h.store
+        .write_receipt_sender_rule(&h.account_id, ANN, Some(SenderDecision::Never), &revision)
+        .await
+        .unwrap();
+    assert_eq!(
+        h.engine
+            .receipt_response_decision(&h.account_id, &id)
+            .await
+            .unwrap()
+            .unwrap()["action"],
+        "none"
+    );
     assert!(h.submitter.handed().is_empty());
 }
 
@@ -1448,25 +1626,117 @@ async fn receipt_sender_exception_is_account_owned_and_rechecked_for_automatic_s
 async fn receipt_contact_mode_uses_owned_vcards_and_organisation_mode_uses_login_domain() {
     let h = setup().await;
     let id = find(&h, "request").await;
-    h.engine.fetch_blob(&h.account_id, &id).await.unwrap().unwrap();
+    h.engine
+        .fetch_blob(&h.account_id, &id)
+        .await
+        .unwrap()
+        .unwrap();
     set_policy(&h, "contactsOnly").await;
     let action = |value: Value| value["action"].as_str().unwrap().to_owned();
-    assert_eq!(action(h.engine.receipt_response_decision(&h.account_id, &id).await.unwrap().unwrap()), "none");
+    assert_eq!(
+        action(
+            h.engine
+                .receipt_response_decision(&h.account_id, &id)
+                .await
+                .unwrap()
+                .unwrap()
+        ),
+        "none"
+    );
     let foreign = new_account(&h.store, "other@elsewhere.example").await;
-    h.store.upsert_address_book(&mw_store::AddressBookRow {id:"receipt-other-book".into(),account_id:foreign,name:"Other".into(),is_default:true,carddav_url:None,sync_token:None,ctag:None}).await.unwrap();
-    let mut card = mw_store::ContactRow {id:"receipt-card".into(),address_book_id:"receipt-other-book".into(),uid:"receipt-card".into(),etag:None,vcard_raw:format!("BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ann\r\nEMAIL:{ANN}\r\nEND:VCARD\r\n"),json:None,full_name:"Ann".into(),is_favorite:false,photo_blob_id:None,pgp_key:None,smime_cert:None};
+    h.store
+        .upsert_address_book(&mw_store::AddressBookRow {
+            id: "receipt-other-book".into(),
+            account_id: foreign,
+            name: "Other".into(),
+            is_default: true,
+            carddav_url: None,
+            sync_token: None,
+            ctag: None,
+        })
+        .await
+        .unwrap();
+    let mut card = mw_store::ContactRow {
+        id: "receipt-card".into(),
+        address_book_id: "receipt-other-book".into(),
+        uid: "receipt-card".into(),
+        etag: None,
+        vcard_raw: format!("BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ann\r\nEMAIL:{ANN}\r\nEND:VCARD\r\n"),
+        json: None,
+        full_name: "Ann".into(),
+        is_favorite: false,
+        photo_blob_id: None,
+        pgp_key: None,
+        smime_cert: None,
+    };
     h.store.upsert_contact(&card).await.unwrap();
-    assert_eq!(action(h.engine.receipt_response_decision(&h.account_id, &id).await.unwrap().unwrap()), "none");
-    h.store.upsert_address_book(&mw_store::AddressBookRow {id:"receipt-own-book".into(),account_id:h.account_id.clone(),name:"Own".into(),is_default:true,carddav_url:None,sync_token:None,ctag:None}).await.unwrap();
-    card.id="receipt-own-card".into(); card.uid=card.id.clone();card.address_book_id="receipt-own-book".into();
+    assert_eq!(
+        action(
+            h.engine
+                .receipt_response_decision(&h.account_id, &id)
+                .await
+                .unwrap()
+                .unwrap()
+        ),
+        "none"
+    );
+    h.store
+        .upsert_address_book(&mw_store::AddressBookRow {
+            id: "receipt-own-book".into(),
+            account_id: h.account_id.clone(),
+            name: "Own".into(),
+            is_default: true,
+            carddav_url: None,
+            sync_token: None,
+            ctag: None,
+        })
+        .await
+        .unwrap();
+    card.id = "receipt-own-card".into();
+    card.uid = card.id.clone();
+    card.address_book_id = "receipt-own-book".into();
     h.store.upsert_contact(&card).await.unwrap();
-    assert_eq!(action(h.engine.receipt_response_decision(&h.account_id, &id).await.unwrap().unwrap()), "automatic");
+    assert_eq!(
+        action(
+            h.engine
+                .receipt_response_decision(&h.account_id, &id)
+                .await
+                .unwrap()
+                .unwrap()
+        ),
+        "automatic"
+    );
     set_policy(&h, "orgOnly").await;
-    assert_eq!(action(h.engine.receipt_response_decision(&h.account_id, &id).await.unwrap().unwrap()), "automatic");
+    assert_eq!(
+        action(
+            h.engine
+                .receipt_response_decision(&h.account_id, &id)
+                .await
+                .unwrap()
+                .unwrap()
+        ),
+        "automatic"
+    );
     let list = find(&h, "list mail").await;
-    h.engine.fetch_blob(&h.account_id, &list).await.unwrap().unwrap();
-    assert_eq!(action(h.engine.receipt_response_decision(&h.account_id, &list).await.unwrap().unwrap()), "ask");
-    assert!(h.submitter.handed().is_empty(), "eligibility alone never sends");
+    h.engine
+        .fetch_blob(&h.account_id, &list)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        action(
+            h.engine
+                .receipt_response_decision(&h.account_id, &list)
+                .await
+                .unwrap()
+                .unwrap()
+        ),
+        "ask"
+    );
+    assert!(
+        h.submitter.handed().is_empty(),
+        "eligibility alone never sends"
+    );
 }
 
 async fn standard_identity(h: &Harness) -> String {

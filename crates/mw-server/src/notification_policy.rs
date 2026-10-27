@@ -168,7 +168,8 @@ pub(crate) async fn account_subject(
         Err(StoreError::NotFound) => return Ok(None),
         Err(error) => return Err(error),
     };
-    let subject = SettingSubject { personal_owner: None,
+    let subject = SettingSubject {
+        personal_owner: None,
         account_id: account,
         address: &username,
         domain: username
@@ -226,12 +227,13 @@ mod tests {
         let store = Store::open_in_memory(mw_store::ServerKey::generate())
             .await
             .unwrap();
-        let subject = SettingSubject { personal_owner: None,
+        let subject = SettingSubject {
+            personal_owner: None,
             account_id: "a",
             address: "a@example.org",
             domain: "example.org",
         };
-        assert!(!for_subject(&store, &subject,"a").await.unwrap().enabled);
+        assert!(!for_subject(&store, &subject, "a").await.unwrap().enabled);
         assert!(
             allowed(&store, &subject, "notifications.pushAllowed")
                 .await
@@ -253,7 +255,7 @@ mod tests {
             })
             .await
             .unwrap();
-        assert!(for_subject(&store, &subject,"a").await.unwrap().enabled);
+        assert!(for_subject(&store, &subject, "a").await.unwrap().enabled);
         store
             .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
                 key: "notifications.pushAllowed".into(),

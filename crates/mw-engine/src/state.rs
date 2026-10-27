@@ -1241,7 +1241,11 @@ pub(crate) mod session_state_tests {
             "three change-log statements are sessionState's; got {stmts:#?}"
         );
 
-        assert_eq!(stmts.against("FROM setting_policy"), 1, "all six role policies share one query: {stmts:#?}");
+        assert_eq!(
+            stmts.against("FROM setting_policy"),
+            1,
+            "all six role policies share one query: {stmts:#?}"
+        );
 
         // Named individually, so a regression says WHICH read came back rather
         // than only that the total moved.

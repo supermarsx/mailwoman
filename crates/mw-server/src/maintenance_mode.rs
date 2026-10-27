@@ -78,14 +78,27 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
 }
 fn management_snapshot(raw: Option<&str>) -> (Config, bool, String) {
     match Config::parse(raw) {
-        Ok(value) => { let tag = etag_of(&json!(value)); (value, false, tag) }
-        Err(_) => (Config { enabled: true, ..Config::default() }, true,
-            etag_of(&json!({"invalidMaintenanceConfig":raw}))),
+        Ok(value) => {
+            let tag = etag_of(&json!(value));
+            (value, false, tag)
+        }
+        Err(_) => (
+            Config {
+                enabled: true,
+                ..Config::default()
+            },
+            true,
+            etag_of(&json!({"invalidMaintenanceConfig":raw})),
+        ),
     }
 }
 async fn read(State(state): State<AppState>, ctx: AdminCtx) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::MaintenanceRead)?;
-    let raw = state.store.get_setting(KEY).await.map_err(AdminApiError::internal)?;
+    let raw = state
+        .store
+        .get_setting(KEY)
+        .await
+        .map_err(AdminApiError::internal)?;
     let (value, invalid, tag) = management_snapshot(raw.as_deref());
     let mut body = json!(value);
     body["configurationInvalid"] = json!(invalid);
@@ -239,7 +252,10 @@ mod tests {
     #[test]
     fn defaults_and_message_bounds_are_explicit() {
         assert!(!Config::parse(None).unwrap().enabled);
-        let mut value = Config { message: "<b>Planned work</b>".into(), ..Config::default() };
+        let mut value = Config {
+            message: "<b>Planned work</b>".into(),
+            ..Config::default()
+        };
         assert!(value.validate().is_ok());
         value.message = "bad\r\nheader".into();
         assert!(value.validate().is_err());

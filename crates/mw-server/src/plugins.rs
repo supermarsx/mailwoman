@@ -67,18 +67,48 @@ This message was sent by the Mailwoman admin panel to test the spam classifier.\
 pub(crate) fn register_admin(r: &mut impl AdminRegistrar) {
     r.admin_endpoint(Method::GET, "/plugins", AdminCap::PluginsRead, list);
     r.admin_endpoint(Method::POST, "/plugins", AdminCap::PluginsWrite, register);
-    r.admin_endpoint(Method::POST, "/plugins/{id}/approve", AdminCap::PluginsWrite, approve);
-    r.admin_endpoint(Method::POST, "/plugins/{id}/enable", AdminCap::PluginsWrite, enable);
-    r.admin_endpoint(Method::POST, "/plugins/{id}/disable", AdminCap::PluginsWrite, disable);
-    r.admin_endpoint(Method::POST, "/plugins/{id}/grant", AdminCap::PluginsWrite, grant);
+    r.admin_endpoint(
+        Method::POST,
+        "/plugins/{id}/approve",
+        AdminCap::PluginsWrite,
+        approve,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/plugins/{id}/enable",
+        AdminCap::PluginsWrite,
+        enable,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/plugins/{id}/disable",
+        AdminCap::PluginsWrite,
+        disable,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/plugins/{id}/grant",
+        AdminCap::PluginsWrite,
+        grant,
+    );
     r.admin_endpoint(
         Method::POST,
         "/plugins/{id}/allow-unsigned",
         AdminCap::PluginsWrite,
         allow_unsigned,
     );
-    r.admin_endpoint(Method::POST, "/plugins/{id}/settings", AdminCap::PluginsWrite, settings);
-    r.admin_endpoint(Method::POST, "/plugins/{id}/test", AdminCap::PluginsWrite, test_classifier);
+    r.admin_endpoint(
+        Method::POST,
+        "/plugins/{id}/settings",
+        AdminCap::PluginsWrite,
+        settings,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/plugins/{id}/test",
+        AdminCap::PluginsWrite,
+        test_classifier,
+    );
 }
 
 // ── responses ────────────────────────────────────────────────────────────────

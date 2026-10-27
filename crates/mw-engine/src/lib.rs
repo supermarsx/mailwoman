@@ -8,17 +8,15 @@
 //! [`backend`] seam; the orchestration itself is filled in by e6.
 
 pub mod account;
-mod sieve_scripts;
-pub mod sieve_jmap;
 pub mod acl;
 pub mod backend;
 pub mod change;
 pub mod dispatcher;
 pub mod engine;
 pub mod folder_roles;
+mod header_privacy;
 pub mod identity;
 mod initial_sync;
-mod header_privacy;
 pub mod jmap;
 pub mod maintenance;
 pub mod mapping;
@@ -32,6 +30,8 @@ pub mod search_index;
 /// carries `filter.semantic == true`.
 pub mod search_semantic;
 pub mod security;
+pub mod sieve_jmap;
+mod sieve_scripts;
 pub mod state;
 pub mod submission;
 pub mod thread;

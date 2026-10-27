@@ -35,7 +35,10 @@ impl Default for Runtime {
 }
 pub async fn consent(store: &mw_store::Store, account: &str) -> bool {
     store
-        .get_setting(&crate::prefs_routes::personal_storage::key("ui-preferences", account))
+        .get_setting(&crate::prefs_routes::personal_storage::key(
+            "ui-preferences",
+            account,
+        ))
         .await
         .ok()
         .flatten()
@@ -108,8 +111,16 @@ impl Runtime {
         tokio::spawn(async move {
             let outcome = tokio::time::timeout(Duration::from_secs(10), async {
                 let _slot = runtime.slots.acquire().await.map_err(|_| ())?;
-                if state.store.session_storage_authority(&session_id).await.ok().flatten().as_deref() != Some(storage_owner.as_str())
-                    || !consent(&state.store, &storage_owner).await {
+                if state
+                    .store
+                    .session_storage_authority(&session_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .as_deref()
+                    != Some(storage_owner.as_str())
+                    || !consent(&state.store, &storage_owner).await
+                {
                     return Err(());
                 }
                 let mut current = state.store.get_session(&session_id).await.map_err(|_| ())?;
@@ -147,8 +158,16 @@ impl Runtime {
                     ),
                     None => None,
                 };
-                if state.store.session_storage_authority(&session_id).await.ok().flatten().as_deref() != Some(storage_owner.as_str())
-                    || !current_consent_and_config(&state.store, &storage_owner, &config).await {
+                if state
+                    .store
+                    .session_storage_authority(&session_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .as_deref()
+                    != Some(storage_owner.as_str())
+                    || !current_consent_and_config(&state.store, &storage_owner, &config).await
+                {
                     return Err(());
                 }
                 analytics_adapter::deliver(&state.store, &config, screen, domain.as_deref())
@@ -206,7 +225,13 @@ mod tests {
             r#"{"document":{"version":2,"preferences":{"analyticsConsent":true}}}"#,
             r#"{"document":{"version":1,"preferences":{"analyticsConsent":"true"}}}"#,
         ] {
-            store.set_setting(&crate::prefs_routes::personal_storage::key("ui-preferences", "a"), value).await.unwrap();
+            store
+                .set_setting(
+                    &crate::prefs_routes::personal_storage::key("ui-preferences", "a"),
+                    value,
+                )
+                .await
+                .unwrap();
             assert!(!consent(&store, "a").await);
         }
         store

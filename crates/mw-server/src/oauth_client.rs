@@ -301,7 +301,8 @@ impl FormPoster for ReqwestPoster {
             let metadata = mw_egress::ResponseMetadata::default();
             let mut request = mw_egress::plan::Request::plugin(
                 mw_egress::TrafficClass::Oauth,
-                mw_egress::PluginHttp { additional_roots: &[],
+                mw_egress::PluginHttp {
+                    additional_roots: &[],
                     method: "POST",
                     headers: &headers,
                 },
@@ -729,7 +730,8 @@ async fn enforce_integration_policy(store: &Store, account: &str) -> Result<(), 
         .or_else(|| Provider::from_bridge_id(&binding.bridge_id))
         .ok_or("bridge OAuth provider unknown")?;
     let domain = username.rsplit_once('@').map(|(_, d)| d).unwrap_or("");
-    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
         account_id: account,
         domain,
         address: &username,

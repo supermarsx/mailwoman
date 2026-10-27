@@ -158,7 +158,11 @@ async fn list(State(state): State<AppState>, ctx: AdminCtx) -> Result<Json<Value
     let keys = state.store.list_admin_passkeys(account(&ctx)?).await?;
     let id = account(&ctx)?;
     let (last, allowed) = state.store.admin_superadmin_protection(id).await?;
-    let has_password = state.store.get_admin_account(id).await?.is_some_and(|a| a.password_hash.is_some_and(|p| !p.is_empty()));
+    let has_password = state
+        .store
+        .get_admin_account(id)
+        .await?
+        .is_some_and(|a| a.password_hash.is_some_and(|p| !p.is_empty()));
     let removal_protected = last && !allowed && !has_password && keys.len() <= 1;
     Ok(Json(
         json!({"removalProtected":removal_protected,"passkeys":keys.iter().map(|k|json!({"credentialId":k.credential.credential_id,"label":k.credential.label,"createdAt":k.credential.created_at,"backupEligible":k.state.backup_eligible,"backedUp":k.state.backup_state})).collect::<Vec<_>>(),"recoveryRemaining":state.store.admin_recovery_hashes(account(&ctx)?).await?.len()}),
@@ -277,7 +281,13 @@ async fn remove(
     if !state
         .store
         .delete_admin_passkey(account(&ctx)?, &body.credential_id)
-        .await?.ok_or_else(|| AdminApiError::conflict("lastSuperAdmin", "This is the last usable sign-in credential for the last Super admin."))?
+        .await?
+        .ok_or_else(|| {
+            AdminApiError::conflict(
+                "lastSuperAdmin",
+                "This is the last usable sign-in credential for the last Super admin.",
+            )
+        })?
     {
         return Err(AdminApiError::new(
             StatusCode::NOT_FOUND,
@@ -440,7 +450,9 @@ async fn login_finish(
                 Ok(Some(key)) => key,
                 Ok(None) => return Err(AdminApiError::unauthenticated()),
                 Err(error) => {
-                    if error.status.is_server_error() { failure_reason = "storage"; }
+                    if error.status.is_server_error() {
+                        failure_reason = "storage";
+                    }
                     return Err(error);
                 }
             };
@@ -450,7 +462,8 @@ async fn login_finish(
                 .get_admin_account(&key.credential.account_id)
                 .await?;
             failure_reason = "account-disabled";
-            let account = account.filter(|a| {
+            let account = account
+                .filter(|a| {
                     !a.disabled
                         && (a.source != "env-bootstrap"
                             || crate::admin_accounts::env_login_enabled())
@@ -465,7 +478,15 @@ async fn login_finish(
             if crate::signin_guard::credential_rejection(failure_reason) {
                 crate::admin_accounts::record_admin_login_failure(&state, "passkey", source).await;
             }
-            crate::auth_logs::record_admin_reason(&state, "", source, "passkey", false, failure_reason).await;
+            crate::auth_logs::record_admin_reason(
+                &state,
+                "",
+                source,
+                "passkey",
+                false,
+                failure_reason,
+            )
+            .await;
             return Err(error);
         }
     };
@@ -484,7 +505,11 @@ async fn login_finish(
         source,
         "passkey",
         response.status().is_success(),
-        if response.status().is_success() { "" } else { "session-refused" },
+        if response.status().is_success() {
+            ""
+        } else {
+            "session-refused"
+        },
     )
     .await;
     Ok(response)
@@ -537,14 +562,21 @@ async fn login_recovery(
 ) -> Result<Response, AdminApiError> {
     let source = crate::scope_mw::proxy::client_ip(&headers, &ext);
     crate::admin_accounts::check_login_source(&state, source).await?;
-    let pending = async {
-        crate::admin_accounts::take_password_pending(&state, &body.pending_token).await
-    }
-    .await;
+    let pending =
+        async { crate::admin_accounts::take_password_pending(&state, &body.pending_token).await }
+            .await;
     let account = match pending {
         Ok(account) => account,
         Err(error) => {
-            crate::auth_logs::record_admin_reason(&state, "", source, "password+recovery", false, "challenge-rejected").await;
+            crate::auth_logs::record_admin_reason(
+                &state,
+                "",
+                source,
+                "password+recovery",
+                false,
+                "challenge-rejected",
+            )
+            .await;
             return Err(error);
         }
     };
@@ -575,7 +607,11 @@ async fn login_recovery(
                 source,
                 "password+recovery",
                 response.status().is_success(),
-                if response.status().is_success() { "" } else { "session-refused" },
+                if response.status().is_success() {
+                    ""
+                } else {
+                    "session-refused"
+                },
             )
             .await;
             return Ok(response);

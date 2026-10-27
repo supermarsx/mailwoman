@@ -204,7 +204,10 @@ pub fn sanitize_email_html_with(input: &str, opts: &SanitizeOptions) -> String {
 
 /// Return the exact image/link references accepted by the same sanitizer pass.
 /// Callers handling untrusted remote bodies must bound input bytes beforehand.
-pub fn sanitize_email_html_and_references(input: &str, opts: &SanitizeOptions) -> (String, RemoteReferences) {
+pub fn sanitize_email_html_and_references(
+    input: &str,
+    opts: &SanitizeOptions,
+) -> (String, RemoteReferences) {
     // S9 side-channel: the attribute filter runs inside ammonia's single parse and
     // cannot ADD attributes to an element, so it records each stripped remote
     // `<img src>` (and, in placeholder mode, each kept reference and cleaned link)
@@ -297,12 +300,18 @@ pub fn sanitize_email_html_and_references(input: &str, opts: &SanitizeOptions) -
             return None;
         }
         if element == "a" && attribute == "href" {
-            if rec.opts.clean_links && let Some(cleaned) = remote::clean_link(value) {
+            if rec.opts.clean_links
+                && let Some(cleaned) = remote::clean_link(value)
+            {
                 rec.links.push((value.to_string(), cleaned.clone()));
-                if remote::is_http_url(&cleaned) { rec.link_urls.push(cleaned.clone()); }
+                if remote::is_http_url(&cleaned) {
+                    rec.link_urls.push(cleaned.clone());
+                }
                 return Some(Cow::Owned(cleaned));
             }
-            if remote::is_http_url(value) { rec.link_urls.push(value.to_string()); }
+            if remote::is_http_url(value) {
+                rec.link_urls.push(value.to_string());
+            }
             return Some(Cow::Borrowed(value));
         }
         if attribute == "style" {
@@ -389,7 +398,10 @@ pub fn sanitize_email_html_and_references(input: &str, opts: &SanitizeOptions) -
         };
         format!("<div class=\"{CONTAINER_CLASS}\">{style}{body}{markers}</div>")
     };
-    let references = RemoteReferences { images: std::mem::take(&mut rec.refs), links: std::mem::take(&mut rec.link_urls) };
+    let references = RemoteReferences {
+        images: std::mem::take(&mut rec.refs),
+        links: std::mem::take(&mut rec.link_urls),
+    };
     (html, references)
 }
 
@@ -1512,9 +1524,19 @@ mod remote_reference_tests {
     #[test]
     fn references_come_from_accepted_resources_not_forged_markers() {
         let source = r#"<img src="https://images.example/real.png?a=1&amp;b=2"><img src="https://images.example/pixel.png" width="1" height="1"><a href="https://files.example/report.pdf?utm_source=mail&amp;id=7">file</a><span data-mw-rc="0" data-mw-rc-url="https://attacker.example/fake.png"></span><a href="javascript:alert(1)">bad</a><img src="file:///private">"#;
-        let (_, refs) = sanitize_email_html_and_references(source, &SanitizeOptions { remote_images: RemoteImages::Placeholder, block_trackers: false, clean_links: true });
+        let (_, refs) = sanitize_email_html_and_references(
+            source,
+            &SanitizeOptions {
+                remote_images: RemoteImages::Placeholder,
+                block_trackers: false,
+                clean_links: true,
+            },
+        );
         assert_eq!(refs.images.len(), 2);
-        assert_eq!(refs.images[0].url, "https://images.example/real.png?a=1&b=2");
+        assert_eq!(
+            refs.images[0].url,
+            "https://images.example/real.png?a=1&b=2"
+        );
         assert!(!refs.images[0].tracker);
         assert!(refs.images[1].tracker);
         assert_eq!(refs.links, ["https://files.example/report.pdf?id=7"]);

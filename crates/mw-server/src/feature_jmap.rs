@@ -70,10 +70,14 @@ pub(crate) async fn admit(
     }
     if proxy_submission {
         crate::dlp::admit_proxy(state, request).await?;
-        let dsn = crate::settings_routes::effective_for_session(state, session, "receipts.dsnAllowed")
-            .await.map_err(|_| axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response())?
-            .ok_or_else(|| axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response())?;
-        if dsn.value.as_bool()!=Some(true) && !receipt_proxy::allows_without_dsn(request,&session.account_id) {
+        let dsn =
+            crate::settings_routes::effective_for_session(state, session, "receipts.dsnAllowed")
+                .await
+                .map_err(|_| axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response())?
+                .ok_or_else(|| axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response())?;
+        if dsn.value.as_bool() != Some(true)
+            && !receipt_proxy::allows_without_dsn(request, &session.account_id)
+        {
             return Err((axum::http::StatusCode::FORBIDDEN,axum::Json(serde_json::json!({"error":"delivery status requests are disabled by administrator policy"}))).into_response());
         }
     }

@@ -201,7 +201,12 @@ fn merge_newest(lists: Vec<Vec<Value>>, limit: usize) -> Vec<Value> {
         })
         .collect();
     all.sort_by(|a, b| {
-        let at = |v: &Value| v.get("receivedAt").and_then(Value::as_str).unwrap_or("").to_string();
+        let at = |v: &Value| {
+            v.get("receivedAt")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
         at(b).cmp(&at(a))
     });
     all.truncate(limit);

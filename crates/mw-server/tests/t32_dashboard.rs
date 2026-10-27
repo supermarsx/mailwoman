@@ -13,8 +13,15 @@ async fn server() -> (String, mw_store::Store, sqlx::SqlitePool) {
     let web = test_db::unique_dir("dashboard-web");
     std::fs::write(web.join("index.html"), "<!doctype html><title>Test</title>").unwrap();
     let db = test_db::unique_db_path("dashboard");
-    let store = mw_store::Store::open(db.to_str().unwrap(),mw_store::ServerKey::from_hex(KEY).unwrap()).await.unwrap();
-    let pool = sqlx::SqlitePool::connect(&format!("sqlite://{}",db.display())).await.unwrap();
+    let store = mw_store::Store::open(
+        db.to_str().unwrap(),
+        mw_store::ServerKey::from_hex(KEY).unwrap(),
+    )
+    .await
+    .unwrap();
+    let pool = sqlx::SqlitePool::connect(&format!("sqlite://{}", db.display()))
+        .await
+        .unwrap();
     let config = AppConfig {
         db_path: db.to_string_lossy().into(),
         server_key_hex: Some(KEY.into()),
@@ -131,7 +138,7 @@ async fn dashboard_is_real_bounded_and_scope_filtered() {
     assert_eq!(data["counts"]["domainsDisabled"], 2);
     assert!(data["server"]["startedAt"].as_u64().unwrap() > 0);
     assert!(data["health"]["dbPingMs"].as_f64().unwrap() >= 0.0);
-    assert_eq!(data["counts"]["activeSessions"],0);
+    assert_eq!(data["counts"]["activeSessions"], 0);
     assert!(data["unavailable"].get("counts.activeSessions").is_none());
     assert!(!data["recentAudit"].as_array().unwrap().is_empty());
     assert!(data["recentAudit"][0]["id"].is_string());
@@ -233,26 +240,84 @@ async fn dashboard_counts_unexpired_sessions_without_extending_activity() {
     let (base, store, pool) = server().await;
     let root = root(&base).await;
     for domain in ["active.test", "disabled.test"] {
-        store.put_domain_config(&mw_store::DomainConfigRow{name:domain.into(),enabled:domain=="active.test",upstream_json:json!({"imap":{"host":"localhost","port":993}}).to_string(),allowlist_json:"[]".into(),blocklist_json:"[]".into(),preferred:false,settings_json:"{}".into(),updated_at:0}).await.unwrap();
+        store
+            .put_domain_config(&mw_store::DomainConfigRow {
+                name: domain.into(),
+                enabled: domain == "active.test",
+                upstream_json: json!({"imap":{"host":"localhost","port":993}}).to_string(),
+                allowlist_json: "[]".into(),
+                blocklist_json: "[]".into(),
+                preferred: false,
+                settings_json: "{}".into(),
+                updated_at: 0,
+            })
+            .await
+            .unwrap();
     }
-    store.put_domain_alias("alias.test","active.test").await.unwrap();
-    let mut ids=Vec::new();
-    for username in ["live@active.test","alias@alias.test","idle@active.test","old@active.test","blocked@active.test","off@disabled.test"] {
-        let id=store.create_session(username,username,"engine","engine",&mw_store::Credentials{username:username.into(),password:"fixture".into()}).await.unwrap();
+    store
+        .put_domain_alias("alias.test", "active.test")
+        .await
+        .unwrap();
+    let mut ids = Vec::new();
+    for username in [
+        "live@active.test",
+        "alias@alias.test",
+        "idle@active.test",
+        "old@active.test",
+        "blocked@active.test",
+        "off@disabled.test",
+    ] {
+        let id = store
+            .create_session(
+                username,
+                username,
+                "engine",
+                "engine",
+                &mw_store::Credentials {
+                    username: username.into(),
+                    password: "fixture".into(),
+                },
+            )
+            .await
+            .unwrap();
         ids.push(id);
     }
-    let old=(chrono::Utc::now()-chrono::Duration::days(16)).to_rfc3339();
-    sqlx::query("UPDATE sessions SET activity_at=?1 WHERE id=?2").bind(&old).bind(&ids[2]).execute(&pool).await.unwrap();
-    sqlx::query("UPDATE sessions SET created_at=?1 WHERE id=?2").bind(&old).bind(&ids[3]).execute(&pool).await.unwrap();
-    store.set_setting("v6:admin:flags:blocked@active.test",r#"{"disabled":true}"#).await.unwrap();
-    let before=store.session_activity_clock(&ids[0]).await.unwrap();
-    let response=root.get(format!("{base}/admin/dashboard")).send().await.unwrap();
-    assert_eq!(response.status(),200);
-    let value:Value=response.json().await.unwrap();
-    assert_eq!(value["counts"]["activeSessions"],2,"{value}");
+    let old = (chrono::Utc::now() - chrono::Duration::days(16)).to_rfc3339();
+    sqlx::query("UPDATE sessions SET activity_at=?1 WHERE id=?2")
+        .bind(&old)
+        .bind(&ids[2])
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE sessions SET created_at=?1 WHERE id=?2")
+        .bind(&old)
+        .bind(&ids[3])
+        .execute(&pool)
+        .await
+        .unwrap();
+    store
+        .set_setting("v6:admin:flags:blocked@active.test", r#"{"disabled":true}"#)
+        .await
+        .unwrap();
+    let before = store.session_activity_clock(&ids[0]).await.unwrap();
+    let response = root
+        .get(format!("{base}/admin/dashboard"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let value: Value = response.json().await.unwrap();
+    assert_eq!(value["counts"]["activeSessions"], 2, "{value}");
     assert!(value["unavailable"].get("counts.activeSessions").is_none());
-    assert_eq!(store.session_activity_clock(&ids[0]).await.unwrap(),before);
+    assert_eq!(store.session_activity_clock(&ids[0]).await.unwrap(), before);
     store.delete_session(&ids[0]).await.unwrap();
-    let value:Value=root.get(format!("{base}/admin/dashboard")).send().await.unwrap().json().await.unwrap();
-    assert_eq!(value["counts"]["activeSessions"],1);
+    let value: Value = root
+        .get(format!("{base}/admin/dashboard"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(value["counts"]["activeSessions"], 1);
 }

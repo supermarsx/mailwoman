@@ -150,21 +150,32 @@ pub(crate) async fn get(State(state): State<AppState>, headers: HeaderMap) -> Re
 /// Static, public wrapper: message HTML is delivered only through browser
 /// postMessage and never enters this endpoint or a server log.
 #[derive(Clone)]
-pub(crate) struct ReaderFrameResponse { pub compatible: bool }
+pub(crate) struct ReaderFrameResponse {
+    pub compatible: bool,
+}
 
 #[derive(Default, Deserialize)]
-pub(crate) struct ReaderFrameQuery { coep: Option<String> }
+pub(crate) struct ReaderFrameQuery {
+    coep: Option<String>,
+}
 
 pub(crate) async fn frame(Query(query): Query<ReaderFrameQuery>) -> Response {
     use base64::Engine as _;
     use sha2::Digest;
-    let script = include_str!("remote-frame.js").replace("\r\n", "\n").replace('\r', "\n");
-    let hash = base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(script.as_bytes()));
+    let script = include_str!("remote-frame.js")
+        .replace("\r\n", "\n")
+        .replace('\r', "\n");
+    let hash =
+        base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(script.as_bytes()));
     let compatible = query.coep.as_deref() == Some("require-corp");
     // Unlike credentialless, require-corp does not omit credentials on direct
     // third-party images. Keep that fallback limited to our image proxy/parts
     // and embedded data, rather than silently sending third-party cookies.
-    let images = if compatible { "'self' data: blob:" } else { "'self' https: data: blob:" };
+    let images = if compatible {
+        "'self' data: blob:"
+    } else {
+        "'self' https: data: blob:"
+    };
     let csp = format!(
         "default-src 'none'; script-src 'sha256-{hash}'; style-src 'unsafe-inline'; frame-src 'self'; img-src {images}; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
     );
@@ -194,6 +205,8 @@ pub(crate) async fn frame(Query(query): Query<ReaderFrameQuery>) -> Response {
         html,
     )
         .into_response();
-    response.extensions_mut().insert(ReaderFrameResponse { compatible });
+    response
+        .extensions_mut()
+        .insert(ReaderFrameResponse { compatible });
     response
 }

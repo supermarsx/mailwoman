@@ -18,7 +18,8 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
     r.admin_endpoint(Method::GET, "/logs/auth", Capability::LogsRead, history);
 }
 pub(crate) async fn limits(store: &mw_store::Store) -> AuthLogLimits {
-    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
         account_id: "",
         domain: "",
         address: "",
@@ -48,7 +49,7 @@ pub(crate) async fn record(
     surface: AuthSurface,
     backend: Option<&str>,
 ) {
-    crate::signin_guard::observe(state,event,surface).await;
+    crate::signin_guard::observe(state, event, surface).await;
     if state
         .store
         .record_auth_event(event, surface, backend, limits(&state.store).await)

@@ -748,70 +748,127 @@ async fn uncertain_delivery_is_terminal_and_restart_does_not_resend() {
     let draft = create_draft(&h).await;
     enqueue_due(&h, "sub-uncertain", &draft).await;
     h.engine.dispatch_tick().await.unwrap();
-    assert_eq!(h.submitter.calls(),1);
-    let row = submission(&h,"sub-uncertain").await;
-    assert_eq!(row["mailwomanDeliveryUncertain"],true,"{row}");
-    assert_eq!(row["mailwomanFailed"],false);
+    assert_eq!(h.submitter.calls(), 1);
+    let row = submission(&h, "sub-uncertain").await;
+    assert_eq!(row["mailwomanDeliveryUncertain"], true, "{row}");
+    assert_eq!(row["mailwomanFailed"], false);
     assert!(row["mailwomanNextAttemptAt"].is_null());
     let restarted = Arc::new(Engine::new(h.engine.store().clone()));
     let submitter = CountingSubmitter::new(Smtp::Deliver);
-    restarted.register_backend(h.account_id.clone(),AccountRuntime::new(
-        Arc::new(FakeBackend::new(SentAppend::Accept)),submitter.clone(),"me@example.org"));
+    restarted.register_backend(
+        h.account_id.clone(),
+        AccountRuntime::new(
+            Arc::new(FakeBackend::new(SentAppend::Accept)),
+            submitter.clone(),
+            "me@example.org",
+        ),
+    );
     for day in 1..4 {
-        restarted.dispatch_tick_at(Utc::now()+chrono::Duration::days(day)).await.unwrap();
+        restarted
+            .dispatch_tick_at(Utc::now() + chrono::Duration::days(day))
+            .await
+            .unwrap();
     }
-    assert_eq!(submitter.calls(),0);
+    assert_eq!(submitter.calls(), 0);
 }
 
 #[tokio::test]
 async fn abandoned_sending_claim_is_never_retried_after_restart() {
-    let h=setup(SentAppend::Accept,Smtp::Deliver).await;
-    let draft=create_draft(&h).await;
-    enqueue_due(&h,"sub-abandoned",&draft).await;
-    let row=h.engine.store().get_submission("sub-abandoned").await.unwrap().unwrap();
-    assert!(h.engine.store().claim_submission_attempt(&row,None,None,"sending:dead-process").await.unwrap());
-    h.engine.dispatch_tick_at(Utc::now()+chrono::Duration::days(10)).await.unwrap();
-    assert_eq!(h.submitter.calls(),0);
-    let projected=submission(&h,"sub-abandoned").await;
-    assert_eq!(projected["mailwomanDeliveryUncertain"],true,"{projected}");
+    let h = setup(SentAppend::Accept, Smtp::Deliver).await;
+    let draft = create_draft(&h).await;
+    enqueue_due(&h, "sub-abandoned", &draft).await;
+    let row = h
+        .engine
+        .store()
+        .get_submission("sub-abandoned")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        h.engine
+            .store()
+            .claim_submission_attempt(&row, None, None, "sending:dead-process")
+            .await
+            .unwrap()
+    );
+    h.engine
+        .dispatch_tick_at(Utc::now() + chrono::Duration::days(10))
+        .await
+        .unwrap();
+    assert_eq!(h.submitter.calls(), 0);
+    let projected = submission(&h, "sub-abandoned").await;
+    assert_eq!(projected["mailwomanDeliveryUncertain"], true, "{projected}");
 }
 
 #[tokio::test]
 async fn actual_smtp_lost_acceptance_is_not_retransmitted() {
-    use tokio::io::{AsyncBufReadExt,AsyncWriteExt,BufReader};
-    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr=listener.local_addr().unwrap();
-    let server=tokio::spawn(async move {
-        let (socket,_)=listener.accept().await.unwrap();
-        let mut socket=BufReader::new(socket);
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.unwrap();
+        let mut socket = BufReader::new(socket);
         socket.get_mut().write_all(b"220 test\r\n").await.unwrap();
         loop {
-            let mut line=String::new();
-            assert_ne!(socket.read_line(&mut line).await.unwrap(),0);
+            let mut line = String::new();
+            assert_ne!(socket.read_line(&mut line).await.unwrap(), 0);
             if line == "DATA\r\n" {
-                socket.get_mut().write_all(b"354 content\r\n").await.unwrap();
+                socket
+                    .get_mut()
+                    .write_all(b"354 content\r\n")
+                    .await
+                    .unwrap();
                 loop {
-                    line.clear(); assert_ne!(socket.read_line(&mut line).await.unwrap(),0);
-                    if line == ".\r\n" { return; }
+                    line.clear();
+                    assert_ne!(socket.read_line(&mut line).await.unwrap(), 0);
+                    if line == ".\r\n" {
+                        return;
+                    }
                 }
             }
             socket.get_mut().write_all(b"250 OK\r\n").await.unwrap();
         }
     });
-    let h=setup(SentAppend::Accept,Smtp::Deliver).await;
-    let draft=create_draft(&h).await;
-    h.engine.register_backend(h.account_id.clone(),AccountRuntime::new(
-        Arc::new(FakeBackend::new(SentAppend::Accept)),
-        Arc::new(mw_smtp::Submitter::new(mw_smtp::SubmitConfig {
-            host:addr.ip().to_string(),port:addr.port(),security:mw_smtp::Security::Plaintext,
-            credentials:mw_smtp::Credentials::None,ehlo_name:"client.test".into(),
-        })),"me@example.org"));
-    enqueue_due(&h,"sub-real-unknown",&draft).await;
-    tokio::time::timeout(std::time::Duration::from_secs(5),h.engine.dispatch_tick()).await.unwrap().unwrap();
+    let h = setup(SentAppend::Accept, Smtp::Deliver).await;
+    let draft = create_draft(&h).await;
+    h.engine.register_backend(
+        h.account_id.clone(),
+        AccountRuntime::new(
+            Arc::new(FakeBackend::new(SentAppend::Accept)),
+            Arc::new(mw_smtp::Submitter::new(mw_smtp::SubmitConfig {
+                host: addr.ip().to_string(),
+                port: addr.port(),
+                security: mw_smtp::Security::Plaintext,
+                credentials: mw_smtp::Credentials::None,
+                ehlo_name: "client.test".into(),
+            })),
+            "me@example.org",
+        ),
+    );
+    enqueue_due(&h, "sub-real-unknown", &draft).await;
+    tokio::time::timeout(std::time::Duration::from_secs(5), h.engine.dispatch_tick())
+        .await
+        .unwrap()
+        .unwrap();
     server.await.unwrap();
-    assert_eq!(submission(&h,"sub-real-unknown").await["mailwomanDeliveryUncertain"],true);
-    h.engine.dispatch_tick_at(Utc::now()+chrono::Duration::days(365)).await.unwrap();
-    assert_eq!(h.engine.store().get_submission_attempts("sub-real-unknown").await.unwrap().unwrap().attempts,1);
+    assert_eq!(
+        submission(&h, "sub-real-unknown").await["mailwomanDeliveryUncertain"],
+        true
+    );
+    h.engine
+        .dispatch_tick_at(Utc::now() + chrono::Duration::days(365))
+        .await
+        .unwrap();
+    assert_eq!(
+        h.engine
+            .store()
+            .get_submission_attempts("sub-real-unknown")
+            .await
+            .unwrap()
+            .unwrap()
+            .attempts,
+        1
+    );
 }
 
 #[tokio::test]
@@ -823,8 +880,15 @@ async fn sender_authority_rejects_unknown_identity_before_smtp() {
             "emailId":"#draft", "identityId":"foreign-or-missing-identity", "mailwomanHoldSeconds":0
         }}}, "send"]
     ])).await;
-    assert_eq!(h.submitter.calls(), 0, "an unowned identity reached SMTP: {response}");
-    assert!(result(&response,"send")["notCreated"]["s1"].is_object(), "{response}");
+    assert_eq!(
+        h.submitter.calls(),
+        0,
+        "an unowned identity reached SMTP: {response}"
+    );
+    assert!(
+        result(&response, "send")["notCreated"]["s1"].is_object(),
+        "{response}"
+    );
 }
 
 #[tokio::test]
@@ -836,179 +900,404 @@ async fn sender_authority_rejects_unconfigured_from_before_smtp() {
         draft,
         ["EmailSubmission/set", {"create":{"s1":{"emailId":"#draft", "mailwomanHoldSeconds":0}}}, "send"]
     ])).await;
-    assert_eq!(h.submitter.calls(), 0, "an unconfigured sender reached SMTP: {response}");
-    assert!(result(&response,"send")["notCreated"]["s1"].is_object(), "{response}");
+    assert_eq!(
+        h.submitter.calls(),
+        0,
+        "an unconfigured sender reached SMTP: {response}"
+    );
+    assert!(
+        result(&response, "send")["notCreated"]["s1"].is_object(),
+        "{response}"
+    );
 }
 
 async fn sender_test_identity(h: &Harness, id: &str, address: &str) {
-    h.engine.store().upsert_native_personal_identity(&mw_store::IdentityRow {
-        id: id.into(), account_id: h.account_id.clone(), name: "Test".into(), email: address.into(),
-        reply_to: None, signature_html: None, signature_text: None, signature_name: None,
-        sent_mailbox_id: None, source: "configured".into(),
-    }).await.unwrap();
+    h.engine
+        .store()
+        .upsert_native_personal_identity(&mw_store::IdentityRow {
+            id: id.into(),
+            account_id: h.account_id.clone(),
+            name: "Test".into(),
+            email: address.into(),
+            reply_to: None,
+            signature_html: None,
+            signature_text: None,
+            signature_name: None,
+            sent_mailbox_id: None,
+            source: "configured".into(),
+        })
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 async fn sender_authority_allows_matching_primary_identity_and_rejects_mismatch() {
     let h = setup(SentAppend::Accept, Smtp::Deliver).await;
-    sender_test_identity(&h,"primary", "me@example.org").await;
-    let response = jmap(&h,json!([draft_create(),["EmailSubmission/set",{"create":{"s1":{
+    sender_test_identity(&h, "primary", "me@example.org").await;
+    let response = jmap(
+        &h,
+        json!([draft_create(),["EmailSubmission/set",{"create":{"s1":{
         "emailId":"#draft","identityId":"primary","mailwomanHoldSeconds":0
-    }}},"send"]])).await;
-    assert!(result(&response,"send")["created"]["s1"].is_object(), "{response}");
-    assert_eq!(h.submitter.calls(),1);
-    sender_test_identity(&h,"unverified", "other@example.net").await;
-    let response = jmap(&h,json!([draft_create(),["EmailSubmission/set",{"create":{"s1":{
+    }}},"send"]]),
+    )
+    .await;
+    assert!(
+        result(&response, "send")["created"]["s1"].is_object(),
+        "{response}"
+    );
+    assert_eq!(h.submitter.calls(), 1);
+    sender_test_identity(&h, "unverified", "other@example.net").await;
+    let response = jmap(
+        &h,
+        json!([draft_create(),["EmailSubmission/set",{"create":{"s1":{
         "emailId":"#draft","identityId":"unverified","mailwomanHoldSeconds":0
-    }}},"send"]])).await;
-    assert!(result(&response,"send")["notCreated"]["s1"].is_object(), "{response}");
-    assert_eq!(h.submitter.calls(),1);
+    }}},"send"]]),
+    )
+    .await;
+    assert!(
+        result(&response, "send")["notCreated"]["s1"].is_object(),
+        "{response}"
+    );
+    assert_eq!(h.submitter.calls(), 1);
 }
 
 #[tokio::test]
 async fn sender_authority_editable_identity_does_not_grant_address_permission() {
     let h = setup(SentAppend::Accept, Smtp::Deliver).await;
-    sender_test_identity(&h,"unverified", "other@example.net").await;
-    let mut draft=draft_create();draft[1]["create"]["draft"]["from"]=json!([{"email":"other@example.net"}]);
-    let response=jmap(&h,json!([draft,["EmailSubmission/set",{"create":{"s1":{
+    sender_test_identity(&h, "unverified", "other@example.net").await;
+    let mut draft = draft_create();
+    draft[1]["create"]["draft"]["from"] = json!([{"email":"other@example.net"}]);
+    let response = jmap(
+        &h,
+        json!([draft,["EmailSubmission/set",{"create":{"s1":{
         "emailId":"#draft","identityId":"unverified","mailwomanHoldSeconds":0
-    }}},"send"]])).await;
-    assert_eq!(result(&response,"send")["notCreated"]["s1"]["type"],"forbiddenFrom", "{response}");
-    assert_eq!(h.submitter.calls(),0);
+    }}},"send"]]),
+    )
+    .await;
+    assert_eq!(
+        result(&response, "send")["notCreated"]["s1"]["type"],
+        "forbiddenFrom",
+        "{response}"
+    );
+    assert_eq!(h.submitter.calls(), 0);
 }
 
 #[tokio::test]
 async fn sender_authority_revoked_masked_alias_cannot_dispatch_queued_message() {
-    let h=setup(SentAppend::Accept,Smtp::Deliver).await;
-    h.engine.store().put_masked_email(&mw_store::MaskedEmailRow {
-        id:"owned-alias".into(),account_id:h.account_id.clone(),alias_addr:"alias@example.org".into(),
-        target_desc:"me@example.org".into(),state:"enabled".into(),created_at:"2026-01-01T00:00:00Z".into(),last_used_at:None,
-    }).await.unwrap();
-    let mut draft=draft_create();draft[1]["create"]["draft"]["from"]=json!([{"email":"alias@example.org"}]);
-    let response=jmap(&h,json!([draft])).await;
-    let id=result(&response,"c1")["created"]["draft"]["id"].as_str().unwrap();
-    enqueue_due(&h,"revoked-alias",id).await;
-    h.engine.store().set_masked_email_state("owned-alias","disabled").await.unwrap();
+    let h = setup(SentAppend::Accept, Smtp::Deliver).await;
+    h.engine
+        .store()
+        .put_masked_email(&mw_store::MaskedEmailRow {
+            id: "owned-alias".into(),
+            account_id: h.account_id.clone(),
+            alias_addr: "alias@example.org".into(),
+            target_desc: "me@example.org".into(),
+            state: "enabled".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            last_used_at: None,
+        })
+        .await
+        .unwrap();
+    let mut draft = draft_create();
+    draft[1]["create"]["draft"]["from"] = json!([{"email":"alias@example.org"}]);
+    let response = jmap(&h, json!([draft])).await;
+    let id = result(&response, "c1")["created"]["draft"]["id"]
+        .as_str()
+        .unwrap();
+    enqueue_due(&h, "revoked-alias", id).await;
+    h.engine
+        .store()
+        .set_masked_email_state("owned-alias", "disabled")
+        .await
+        .unwrap();
     h.engine.dispatch_tick().await.unwrap();
-    assert_eq!(h.submitter.calls(),0);
+    assert_eq!(h.submitter.calls(), 0);
 }
 
 #[tokio::test]
 async fn sender_authority_publication_hides_unverified_rows_and_keeps_primary() {
-    let h=setup(SentAppend::Accept,Smtp::Deliver).await;
-    sender_test_identity(&h,"unverified","other@example.net").await;
-    let response=jmap(&h,json!([["Identity/get",{},"get"],["Identity/query",{},"query"]])).await;
-    let list=result(&response,"get")["list"].as_array().unwrap();
-    assert!(list.iter().any(|row|row["email"]=="me@example.org"));
-    assert!(!list.iter().any(|row|row["id"]=="unverified"));
-    assert!(!result(&response,"query")["ids"].as_array().unwrap().iter().any(|id|id=="unverified"));
+    let h = setup(SentAppend::Accept, Smtp::Deliver).await;
+    sender_test_identity(&h, "unverified", "other@example.net").await;
+    let response = jmap(
+        &h,
+        json!([["Identity/get", {}, "get"], ["Identity/query", {}, "query"]]),
+    )
+    .await;
+    let list = result(&response, "get")["list"].as_array().unwrap();
+    assert!(list.iter().any(|row| row["email"] == "me@example.org"));
+    assert!(!list.iter().any(|row| row["id"] == "unverified"));
+    assert!(
+        !result(&response, "query")["ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|id| id == "unverified")
+    );
 }
 
 #[tokio::test]
 async fn sender_authority_foreign_identity_is_indistinguishable_from_missing() {
-    let h=setup(SentAppend::Accept,Smtp::Deliver).await;
-    let foreign=h.engine.store().create_account(&NewAccount {
-        kind:AccountKind::Imap,host:"other.example.org",port:993,tls:"implicit",username:"other@example.org",sync_policy_json:"{}",
-    },&Credentials{username:"other@example.org".into(),password:"pw".into()}).await.unwrap();
-    h.engine.store().upsert_native_personal_identity(&mw_store::IdentityRow {
-        id:"foreign-identity".into(),account_id:foreign,name:"Private name".into(),email:"me@example.org".into(),
-        reply_to:None,signature_html:None,signature_text:None,signature_name:None,sent_mailbox_id:None,source:"configured".into(),
-    }).await.unwrap();
-    let draft=create_draft(&h).await;
-    let response=jmap(&h,json!([["EmailSubmission/set",{"create":{
+    let h = setup(SentAppend::Accept, Smtp::Deliver).await;
+    let foreign = h
+        .engine
+        .store()
+        .create_account(
+            &NewAccount {
+                kind: AccountKind::Imap,
+                host: "other.example.org",
+                port: 993,
+                tls: "implicit",
+                username: "other@example.org",
+                sync_policy_json: "{}",
+            },
+            &Credentials {
+                username: "other@example.org".into(),
+                password: "pw".into(),
+            },
+        )
+        .await
+        .unwrap();
+    h.engine
+        .store()
+        .upsert_native_personal_identity(&mw_store::IdentityRow {
+            id: "foreign-identity".into(),
+            account_id: foreign,
+            name: "Private name".into(),
+            email: "me@example.org".into(),
+            reply_to: None,
+            signature_html: None,
+            signature_text: None,
+            signature_name: None,
+            sent_mailbox_id: None,
+            source: "configured".into(),
+        })
+        .await
+        .unwrap();
+    let draft = create_draft(&h).await;
+    let response = jmap(
+        &h,
+        json!([["EmailSubmission/set",{"create":{
         "missing":{"emailId":draft,"identityId":"missing","mailwomanHoldSeconds":0},
         "foreign":{"emailId":draft,"identityId":"foreign-identity","mailwomanHoldSeconds":0}
-    }},"send"]])).await;
-    let errors=&result(&response,"send")["notCreated"];
-    assert_eq!(errors["missing"],errors["foreign"]);
-    assert_eq!(errors["foreign"]["type"],"invalidProperties");
-    assert_eq!(h.submitter.calls(),0);
+    }},"send"]]),
+    )
+    .await;
+    let errors = &result(&response, "send")["notCreated"];
+    assert_eq!(errors["missing"], errors["foreign"]);
+    assert_eq!(errors["foreign"]["type"], "invalidProperties");
+    assert_eq!(h.submitter.calls(), 0);
 }
 
 #[tokio::test]
 async fn sender_authority_malformed_actual_from_never_falls_back_to_primary() {
-    for header in ["From:\r\n", "From: undisclosed:;\r\n", "From: invalid <>\r\n"] {
-        let h=setup(SentAppend::Accept,Smtp::Deliver).await;
-        let id=create_draft(&h).await;
-        let row=h.engine.store().get_message(&id).await.unwrap();
-        let raw=format!("{header}To: friend@example.org\r\nSubject: malformed sender\r\n\r\nbody\r\n");
-        let blob=h.engine.store().put_body(&h.account_id,raw.as_bytes()).await.unwrap();
-        let updated=h.engine.store().upsert_message(&mw_store::MessageUpsert {
-            account_id:&row.account_id,mailbox_id:&row.mailbox_id,uid:row.uid,uidvalidity:row.uidvalidity,
-            message_id:row.message_id.as_deref(),thread_id:row.thread_id.as_deref(),internaldate:row.internaldate.as_deref(),
-            size:raw.len() as u64,flags_json:&row.flags_json,envelope:None,blob_ref:Some(&blob),
-        }).await.unwrap();
-        assert_eq!(updated,id);
-        enqueue_due(&h,"malformed-sender",&id).await;
+    for header in [
+        "From:\r\n",
+        "From: undisclosed:;\r\n",
+        "From: invalid <>\r\n",
+    ] {
+        let h = setup(SentAppend::Accept, Smtp::Deliver).await;
+        let id = create_draft(&h).await;
+        let row = h.engine.store().get_message(&id).await.unwrap();
+        let raw =
+            format!("{header}To: friend@example.org\r\nSubject: malformed sender\r\n\r\nbody\r\n");
+        let blob = h
+            .engine
+            .store()
+            .put_body(&h.account_id, raw.as_bytes())
+            .await
+            .unwrap();
+        let updated = h
+            .engine
+            .store()
+            .upsert_message(&mw_store::MessageUpsert {
+                account_id: &row.account_id,
+                mailbox_id: &row.mailbox_id,
+                uid: row.uid,
+                uidvalidity: row.uidvalidity,
+                message_id: row.message_id.as_deref(),
+                thread_id: row.thread_id.as_deref(),
+                internaldate: row.internaldate.as_deref(),
+                size: raw.len() as u64,
+                flags_json: &row.flags_json,
+                envelope: None,
+                blob_ref: Some(&blob),
+            })
+            .await
+            .unwrap();
+        assert_eq!(updated, id);
+        enqueue_due(&h, "malformed-sender", &id).await;
         h.engine.dispatch_tick().await.unwrap();
-        assert_eq!(h.submitter.calls(),0,"malformed raw header reached SMTP: {header:?}");
+        assert_eq!(
+            h.submitter.calls(),
+            0,
+            "malformed raw header reached SMTP: {header:?}"
+        );
     }
 }
 
 #[tokio::test]
 async fn named_signature_is_account_scoped_and_resolved_at_identity_read() {
-    let h=setup(SentAppend::Accept,Smtp::Deliver).await;
-    sender_test_identity(&h,"primary-template","me@example.org").await;
-    let mut identity=h.engine.store().get_native_personal_identity(&h.account_id,"primary-template").await.unwrap().unwrap();
-    identity.signature_name=Some("work".into());
-    h.engine.store().upsert_native_personal_identity(&identity).await.unwrap();
-    let owner=h.engine.store().native_personal_subject(&h.account_id).await.unwrap().unwrap();
-    let mut template=mw_store::SignatureRow { html: None, text: None, text_edited: false,account_id:owner.clone(),name:"work".into(),body:"Literal <team> & me".into(),is_default:false,rule_json:String::new(),updated_at:String::new()};
-    h.engine.store().upsert_personal_signature(&template).await.unwrap();
-    let get=||json!([["Identity/get",{"ids":["primary-template"]},"get"]]);
-    let response=jmap(&h,get()).await;
-    assert_eq!(result(&response,"get")["list"][0]["signatureText"],"Literal <team> & me");
-    assert!(result(&response,"get")["list"][0]["signatureHtml"].is_null());
-    template.body="Updated template".into();h.engine.store().upsert_personal_signature(&template).await.unwrap();
-    assert_eq!(result(&jmap(&h,get()).await,"get")["list"][0]["signatureText"],"Updated template");
+    let h = setup(SentAppend::Accept, Smtp::Deliver).await;
+    sender_test_identity(&h, "primary-template", "me@example.org").await;
+    let mut identity = h
+        .engine
+        .store()
+        .get_native_personal_identity(&h.account_id, "primary-template")
+        .await
+        .unwrap()
+        .unwrap();
+    identity.signature_name = Some("work".into());
+    h.engine
+        .store()
+        .upsert_native_personal_identity(&identity)
+        .await
+        .unwrap();
+    let owner = h
+        .engine
+        .store()
+        .native_personal_subject(&h.account_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut template = mw_store::SignatureRow {
+        html: None,
+        text: None,
+        text_edited: false,
+        account_id: owner.clone(),
+        name: "work".into(),
+        body: "Literal <team> & me".into(),
+        is_default: false,
+        rule_json: String::new(),
+        updated_at: String::new(),
+    };
+    h.engine
+        .store()
+        .upsert_personal_signature(&template)
+        .await
+        .unwrap();
+    let get = || json!([["Identity/get",{"ids":["primary-template"]},"get"]]);
+    let response = jmap(&h, get()).await;
+    assert_eq!(
+        result(&response, "get")["list"][0]["signatureText"],
+        "Literal <team> & me"
+    );
+    assert!(result(&response, "get")["list"][0]["signatureHtml"].is_null());
+    template.body = "Updated template".into();
+    h.engine
+        .store()
+        .upsert_personal_signature(&template)
+        .await
+        .unwrap();
+    assert_eq!(
+        result(&jmap(&h, get()).await, "get")["list"][0]["signatureText"],
+        "Updated template"
+    );
     template.html=Some("<p onclick=bad()>Rich <strong>signature</strong><script>bad()</script><img src=https://tracker.example/x></p>".into());
-    template.text=Some("Independent plain signature".into());template.text_edited=true;
-    h.engine.store().upsert_personal_signature(&template).await.unwrap();
-    let response=jmap(&h,get()).await;
-    let published=&result(&response,"get")["list"][0];
-    assert_eq!(published["signatureText"],"Independent plain signature");
-    let html=published["signatureHtml"].as_str().unwrap();
+    template.text = Some("Independent plain signature".into());
+    template.text_edited = true;
+    h.engine
+        .store()
+        .upsert_personal_signature(&template)
+        .await
+        .unwrap();
+    let response = jmap(&h, get()).await;
+    let published = &result(&response, "get")["list"][0];
+    assert_eq!(published["signatureText"], "Independent plain signature");
+    let html = published["signatureHtml"].as_str().unwrap();
     assert!(html.contains("<strong>signature</strong>"));
-    assert!(!html.contains("onclick") && !html.contains("<script") && !html.contains("src=\"https://tracker"));
-    h.engine.store().delete_personal_signature(&owner,"work").await.unwrap();
-    assert!(result(&jmap(&h,get()).await,"get")["list"][0]["signatureText"].is_null());
+    assert!(
+        !html.contains("onclick")
+            && !html.contains("<script")
+            && !html.contains("src=\"https://tracker")
+    );
+    h.engine
+        .store()
+        .delete_personal_signature(&owner, "work")
+        .await
+        .unwrap();
+    assert!(result(&jmap(&h, get()).await, "get")["list"][0]["signatureText"].is_null());
 }
 
 #[tokio::test]
 async fn sender_authority_one_shot_owned_alias_sends_without_saved_identity() {
-    let h=setup(SentAppend::Accept,Smtp::Deliver).await;
-    h.engine.store().put_masked_email(&mw_store::MaskedEmailRow {
-        id:"one-shot-alias".into(),account_id:h.account_id.clone(),alias_addr:"alias@example.org".into(),
-        target_desc:"me@example.org".into(),state:"enabled".into(),created_at:"2026-01-01T00:00:00Z".into(),last_used_at:None,
-    }).await.unwrap();
-    let mut draft=draft_create();draft[1]["create"]["draft"]["from"]=json!([{"email":"alias@example.org"}]);
-    let response=jmap(&h,json!([draft,["EmailSubmission/set",{"create":{"s1":{
+    let h = setup(SentAppend::Accept, Smtp::Deliver).await;
+    h.engine
+        .store()
+        .put_masked_email(&mw_store::MaskedEmailRow {
+            id: "one-shot-alias".into(),
+            account_id: h.account_id.clone(),
+            alias_addr: "alias@example.org".into(),
+            target_desc: "me@example.org".into(),
+            state: "enabled".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            last_used_at: None,
+        })
+        .await
+        .unwrap();
+    let mut draft = draft_create();
+    draft[1]["create"]["draft"]["from"] = json!([{"email":"alias@example.org"}]);
+    let response = jmap(
+        &h,
+        json!([draft,["EmailSubmission/set",{"create":{"s1":{
         "emailId":"#draft","mailwomanHoldSeconds":0
-    }}},"send"]])).await;
-    assert!(result(&response,"send")["created"]["s1"].is_object(),"{response}");
-    assert_eq!(h.submitter.calls(),1);
-    assert!(h.engine.store().list_native_personal_identities(&h.account_id).await.unwrap().is_empty());
+    }}},"send"]]),
+    )
+    .await;
+    assert!(
+        result(&response, "send")["created"]["s1"].is_object(),
+        "{response}"
+    );
+    assert_eq!(h.submitter.calls(), 1);
+    assert!(
+        h.engine
+            .store()
+            .list_native_personal_identities(&h.account_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[tokio::test]
 async fn importance_headers_reach_smtp_as_a_matching_pair() {
-    for selection in [None,Some(("high","1")),Some(("normal","3")),Some(("low","5"))] {
-        let h=setup(SentAppend::Accept,Smtp::Deliver).await;
-        let mut draft=draft_create();
-        if let Some((importance,priority))=selection {
-            draft[1]["create"]["draft"]["header:Importance:asText"]=json!(importance);
-            draft[1]["create"]["draft"]["header:X-Priority:asText"]=json!(priority);
+    for selection in [
+        None,
+        Some(("high", "1")),
+        Some(("normal", "3")),
+        Some(("low", "5")),
+    ] {
+        let h = setup(SentAppend::Accept, Smtp::Deliver).await;
+        let mut draft = draft_create();
+        if let Some((importance, priority)) = selection {
+            draft[1]["create"]["draft"]["header:Importance:asText"] = json!(importance);
+            draft[1]["create"]["draft"]["header:X-Priority:asText"] = json!(priority);
         }
         let response=jmap(&h,json!([draft,["EmailSubmission/set",{"create":{"s1":{"emailId":"#draft","mailwomanHoldSeconds":0}}},"send"]])).await;
-        assert!(result(&response,"send")["created"]["s1"].is_object(),"{response}");
-        let messages=h.submitter.raw_messages.lock().unwrap();
-        assert_eq!(messages.len(),1);
-        let raw=String::from_utf8_lossy(&messages[0]);
-        let headers=raw.split("\r\n\r\n").next().unwrap();
-        if let Some((importance,priority))=selection {
-            assert!(headers.lines().any(|line|line==format!("Importance: {importance}")),"{headers}");
-            assert!(headers.lines().any(|line|line==format!("X-Priority: {priority}")),"{headers}");
-        } else { assert!(!headers.contains("Importance:")); assert!(!headers.contains("X-Priority:")); }
+        assert!(
+            result(&response, "send")["created"]["s1"].is_object(),
+            "{response}"
+        );
+        let messages = h.submitter.raw_messages.lock().unwrap();
+        assert_eq!(messages.len(), 1);
+        let raw = String::from_utf8_lossy(&messages[0]);
+        let headers = raw.split("\r\n\r\n").next().unwrap();
+        if let Some((importance, priority)) = selection {
+            assert!(
+                headers
+                    .lines()
+                    .any(|line| line == format!("Importance: {importance}")),
+                "{headers}"
+            );
+            assert!(
+                headers
+                    .lines()
+                    .any(|line| line == format!("X-Priority: {priority}")),
+                "{headers}"
+            );
+        } else {
+            assert!(!headers.contains("Importance:"));
+            assert!(!headers.contains("X-Priority:"));
+        }
     }
 }
 
@@ -1022,10 +1311,18 @@ async fn importance_headers_refuse_injection_duplicates_and_conflicting_pairs_be
         json!({"header:Importance:asText":"high","header:importance:asText":"low","header:X-Priority:asText":"1"}),
         json!({"header:Importance":"high","header:X-Priority:asText":"1"}),
     ] {
-        let h=setup(SentAppend::Accept,Smtp::Deliver).await;
-        let mut draft=draft_create(); draft[1]["create"]["draft"].as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-        let response=jmap(&h,json!([draft])).await;
-        assert_eq!(result(&response,"c1")["notCreated"]["draft"]["type"],"invalidProperties","{response}");
-        assert_eq!(h.submitter.calls(),0);
+        let h = setup(SentAppend::Accept, Smtp::Deliver).await;
+        let mut draft = draft_create();
+        draft[1]["create"]["draft"]
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        let response = jmap(&h, json!([draft])).await;
+        assert_eq!(
+            result(&response, "c1")["notCreated"]["draft"]["type"],
+            "invalidProperties",
+            "{response}"
+        );
+        assert_eq!(h.submitter.calls(), 0);
     }
 }

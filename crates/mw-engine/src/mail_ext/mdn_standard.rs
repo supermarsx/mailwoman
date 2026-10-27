@@ -305,7 +305,11 @@ impl Engine {
         let Some(identity_id) = args.get("identityId").and_then(Value::as_str) else {
             return (refusal("invalidArguments", "identityId is required"), None);
         };
-        let identity = match self.store().list_native_personal_identities(account_id).await {
+        let identity = match self
+            .store()
+            .list_native_personal_identities(account_id)
+            .await
+        {
             Ok(identities) => match identities
                 .into_iter()
                 .find(|identity| identity.id == identity_id)

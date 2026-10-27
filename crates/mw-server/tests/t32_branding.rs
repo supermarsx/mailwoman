@@ -99,10 +99,18 @@ async fn branding_publishes_only_committed_safe_assets_and_requires_cas() {
     v.as_object_mut().unwrap().remove("assets");
     let mut wrong_size = v.clone();
     wrong_size["images"]["pwa512Id"] = json!(icon_id);
-    let refused = c.put(format!("{base}/admin/branding"))
-        .header("If-Match", &tag).json(&wrong_size).send().await.unwrap();
+    let refused = c
+        .put(format!("{base}/admin/branding"))
+        .header("If-Match", &tag)
+        .json(&wrong_size)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(refused.status(), 422);
-    assert_eq!(refused.json::<Value>().await.unwrap()["code"], "brandingConflict");
+    assert_eq!(
+        refused.json::<Value>().await.unwrap()["code"],
+        "brandingConflict"
+    );
     assert_eq!(
         c.put(format!("{base}/admin/branding"))
             .json(&v)

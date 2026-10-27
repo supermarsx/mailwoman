@@ -97,7 +97,10 @@ impl BackendConfig {
             }
             backend.username.validate()?;
             match (backend.role, backend.protocol) {
-                (ServiceRole::Mail, Protocol::Imap | Protocol::Pop3 | Protocol::Jmap | Protocol::Ews)
+                (
+                    ServiceRole::Mail,
+                    Protocol::Imap | Protocol::Pop3 | Protocol::Jmap | Protocol::Ews,
+                )
                 | (ServiceRole::Submission, Protocol::Smtp)
                 | (ServiceRole::Rules, Protocol::Sieve) => {}
                 _ => return Err("the backend protocol does not implement its service role".into()),
@@ -109,7 +112,11 @@ impl BackendConfig {
                 if backend.endpoint.is_some() || backend.session_url.is_some() {
                     return Err("EWS uses its configured HTTPS endpoint only".into());
                 }
-                backend.ews.as_ref().ok_or("EWS needs its endpoint configuration")?.validate()?;
+                backend
+                    .ews
+                    .as_ref()
+                    .ok_or("EWS needs its endpoint configuration")?
+                    .validate()?;
             } else if backend.protocol == Protocol::Jmap {
                 if backend.username != UsernameFormat::FullEmail {
                     return Err(
@@ -161,9 +168,16 @@ impl BackendConfig {
                 return Err("choose at most one preferred backend per service role".into());
             }
         }
-        if self.selected(ServiceRole::Mail).is_some_and(|backend| backend.protocol == Protocol::Ews)
-            && (self.selected(ServiceRole::Submission).is_some() || self.selected(ServiceRole::Rules).is_some()) {
-            return Err("the EWS backend owns submission and cannot use a separate SMTP or Sieve backend".into());
+        if self
+            .selected(ServiceRole::Mail)
+            .is_some_and(|backend| backend.protocol == Protocol::Ews)
+            && (self.selected(ServiceRole::Submission).is_some()
+                || self.selected(ServiceRole::Rules).is_some())
+        {
+            return Err(
+                "the EWS backend owns submission and cannot use a separate SMTP or Sieve backend"
+                    .into(),
+            );
         }
         Ok(())
     }
@@ -235,13 +249,18 @@ mod tests {
             "endpointUrl":"https://exchange.example/EWS/Exchange.asmx","authentication":"basic"
         }});
         let selected = config(json!([row.clone()])).resolve().unwrap();
-        assert_eq!(selected.ews.unwrap().endpoint_url,"https://exchange.example/EWS/Exchange.asmx");
+        assert_eq!(
+            selected.ews.unwrap().endpoint_url,
+            "https://exchange.example/EWS/Exchange.asmx"
+        );
         for replacement in [
             json!({"id":"exchange","role":"submission","protocol":"ews","ews":row["ews"]}),
             json!({"id":"exchange","role":"mail","protocol":"ews"}),
             json!({"id":"exchange","role":"mail","protocol":"ews","sessionUrl":"https://elsewhere.example","ews":row["ews"]}),
             json!({"id":"exchange","role":"mail","protocol":"imap","ews":row["ews"],"endpoint":{"host":"mail.example","port":993,"tls":"implicit"}}),
-        ] { assert!(config(json!([replacement])).validate().is_err()); }
+        ] {
+            assert!(config(json!([replacement])).validate().is_err());
+        }
     }
     fn endpoint(id: &str, priority: u16, preferred: bool) -> serde_json::Value {
         json!({"id":id,"role":"mail","protocol":"imap","priority":priority,"preferred":preferred,"endpoint":{"host":"mail.example.test","port":993,"tls":"implicit"}})

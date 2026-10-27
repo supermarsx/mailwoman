@@ -68,7 +68,9 @@ async fn drafts_confirm_upstream_and_fence_replay_authority_and_partial_content(
         .json()
         .await
         .unwrap();
-    let blob = upload["blobId"].as_str().unwrap_or_else(||panic!("{upload}"));
+    let blob = upload["blobId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{upload}"));
     let endpoint = format!("{base}/api/account/drafts/draft-test");
     let input = json!({"operationId":"operation-one","expectedRevision":null,"state":{"version":1,"bodyFormat":"plain","subject":"Saved across devices","bodyText":"Never sent","to":"incomplete, valid@example.test","bcc":"private@example.test","attachments":[{"blobId":blob,"name":"note.txt","size":1,"contentType":"text/plain"}]}});
     assert_eq!(

@@ -92,7 +92,8 @@ mod tests {
                 vec!["g1".into()]
             )
         );
-        let subject = SettingSubject { personal_owner: None,
+        let subject = SettingSubject {
+            personal_owner: None,
             domain: "alias.test",
             account_id: "account",
             address: "a@alias.test",

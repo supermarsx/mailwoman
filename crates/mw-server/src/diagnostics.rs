@@ -194,7 +194,8 @@ struct HistoryInput {
     cursor: Option<String>,
 }
 async fn prune_history(store: &mw_store::Store) -> Result<(), mw_store::StoreError> {
-    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
         account_id: "",
         domain: "",
         address: "",

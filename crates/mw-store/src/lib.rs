@@ -5,55 +5,55 @@
 //! DSN in [`Store::open`]. Queries are authored once in the SQLite `?n` style and
 //! translated per-backend by the [`backend`]/[`dialect`] helpers (no `sqlx::Any`).
 
-mod security_center;
 pub mod analytics_secret;
+pub mod auth_failures;
+mod auth_logs;
 pub mod branding;
+mod hosting_connections;
 pub mod identity_principal;
 pub mod linked_accounts;
-pub mod personal_records;
-pub mod personal_delivery;
-pub mod provider_accounts;
 pub mod oidc_provider;
-mod signin_challenges;
-pub mod request_protection_model;
+pub mod personal_delivery;
+pub mod personal_records;
+pub mod provider_accounts;
 pub mod request_protection;
-mod auth_logs;
-pub mod auth_failures;
-mod hosting_connections;
-pub use hosting_connections::{HostingConnectionRow, HostingCredentialChange, HostingMutation};
+pub mod request_protection_model;
+mod security_center;
+mod signin_challenges;
 pub use auth_logs::{AuthLogEvent, AuthLogLimits, AuthLogQuery, AuthSurface};
-pub mod groups;
-pub mod feature_profiles;
-pub mod feature_governance;
-pub mod personal_settings;
-pub mod diagnostics;
-pub mod diag;
+pub use hosting_connections::{HostingConnectionRow, HostingCredentialChange, HostingMutation};
 pub mod audit_identity;
+pub mod diag;
+pub mod diagnostics;
+mod directory_display;
+pub mod feature_governance;
+pub mod feature_profiles;
+pub mod groups;
+pub mod jobs;
+pub mod personal_settings;
+pub mod request_metrics;
 pub mod user_directory;
 pub mod user_lifecycle;
-mod directory_display;
-pub mod request_metrics;
-pub mod jobs;
-pub use security_center::{SessionDevice, SecuritySession, SigninEvent, RememberedDevice};
+pub use security_center::{RememberedDevice, SecuritySession, SessionDevice, SigninEvent};
 mod admin_accounts;
 mod admin_passkeys;
 pub use admin_passkeys::{AdminPasskey, AdminSessionFactor};
-mod ssh_tunnels;
+pub mod account_drafts;
+pub mod contact_photos;
 pub mod nextcloud_links;
 pub mod nextcloud_pim;
 pub mod package_tracking;
 pub mod receipts;
-pub mod account_drafts;
-pub mod contact_photos;
+mod ssh_tunnels;
 pub use ssh_tunnels::{SshCredentialChange, SshTunnelDelete, SshTunnelMutation, SshTunnelRow};
 mod domain_config;
 pub use domain_config::{
     DomainAccount, DomainConfigRow, DomainMutation, DomainSigninState, SessionAuthority,
 };
 mod sieve_scripts;
-pub use sieve_scripts::{SieveScriptRow, SieveReplaceResult};
-mod cache;
+pub use sieve_scripts::{SieveReplaceResult, SieveScriptRow};
 mod account_query;
+mod cache;
 pub use admin_accounts::{AdminAccountRow, AdminRoleGrant, AdminRoleRow, AdminSessionRow};
 mod redact;
 mod seal;
@@ -76,8 +76,8 @@ mod v6;
 mod v7;
 // V7 (0008) admin-config persistence (t7-e14 MOUNT): directory/plugins/assist
 // config rows + the content-free assist audit sink.
-mod v7_config;
 mod directory_admin;
+mod v7_config;
 pub use directory_admin::{DirectoryAdminRow, DirectoryAdminWrite, DirectoryPasswordChange};
 // V8 (0009) SSO config + content-free login-audit persistence (t9-e0). New `Store`
 // methods over the sso_config/sso_login_audit tables; sealed secret column.
@@ -164,7 +164,9 @@ pub use open_tracking::{
 pub use plugin_allowlist::{PluginAllowlistError, PluginAllowlistRow, new_allowlist_pin};
 pub use plugin_kv::{PluginKvError, PluginKvLimits};
 pub use sso::SsoConfigRow;
-pub use twofa::{SessionMeta, TotpSecret, TwofaPolicyRow, WebauthnCredentialRow, WebauthnState, session_handle};
+pub use twofa::{
+    SessionMeta, TotpSecret, TwofaPolicyRow, WebauthnCredentialRow, WebauthnState, session_handle,
+};
 pub use upload::{FsUploadBackend, Upload, UploadBackend, UploadError};
 pub use user_prefs::{NotificationRulesRow, SignatureRow};
 pub use v6::{
@@ -484,9 +486,12 @@ impl Store {
         let row=q("SELECT id,account_id,username,jmap_url,api_url,sealed_creds FROM sessions WHERE id=?1 AND linked_internal=0")
             .bind(id).fetch_optional(&self.backend).await?.ok_or(StoreError::NotFound)?;
         Ok(Session {
-            id:row.get_string("id"),account_id:row.get_string("account_id"),username:row.get_string("username"),
-            jmap_url:row.get_string("jmap_url"),api_url:row.get_string("api_url"),
-            credentials:decode_creds(&self.key.open(&row.get_blob("sealed_creds"))?)?,
+            id: row.get_string("id"),
+            account_id: row.get_string("account_id"),
+            username: row.get_string("username"),
+            jmap_url: row.get_string("jmap_url"),
+            api_url: row.get_string("api_url"),
+            credentials: decode_creds(&self.key.open(&row.get_blob("sealed_creds"))?)?,
         })
     }
 

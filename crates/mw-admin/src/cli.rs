@@ -110,21 +110,46 @@ pub enum DomainVerb {
     /// List all domains.
     List,
     /// Show one domain.
-    Show { name: String },
+    Show {
+        name: String,
+    },
     /// Register a domain name. An existing domain is left as it is.
-    Create { name: String },
+    Create {
+        name: String,
+    },
     /// Delete a domain.
-    Delete { name: String },
+    Delete {
+        name: String,
+    },
     /// Replace upstream configuration with a validated JSON object.
-    SetUpstream { name: String, json: String },
-    Enable { name: String },
-    Disable { name: String },
-    Prefer { name: String },
+    SetUpstream {
+        name: String,
+        json: String,
+    },
+    Enable {
+        name: String,
+    },
+    Disable {
+        name: String,
+    },
+    Prefer {
+        name: String,
+    },
     Unprefer,
     /// Map an alias, or remove it with --remove.
-    Alias { name: String, alias: String, #[arg(long)] remove: bool },
+    Alias {
+        name: String,
+        alias: String,
+        #[arg(long)]
+        remove: bool,
+    },
     /// Map a web host, or remove it with --remove.
-    Host { name: String, host: String, #[arg(long)] remove: bool },
+    Host {
+        name: String,
+        host: String,
+        #[arg(long)]
+        remove: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -333,9 +358,15 @@ pub async fn run(admin: &Admin, command: AdminCommand, actor: &str) -> Result<St
 
 async fn domains(admin: &Admin, verb: DomainVerb, actor: &str) -> Result<String, AdminError> {
     match verb {
-        DomainVerb::SetUpstream { .. } | DomainVerb::Enable { .. } | DomainVerb::Disable { .. }
-        | DomainVerb::Prefer { .. } | DomainVerb::Unprefer | DomainVerb::Alias { .. } | DomainVerb::Host { .. } =>
-            Err(AdminError::Invalid("This domain command requires the server store adapter.".into())),
+        DomainVerb::SetUpstream { .. }
+        | DomainVerb::Enable { .. }
+        | DomainVerb::Disable { .. }
+        | DomainVerb::Prefer { .. }
+        | DomainVerb::Unprefer
+        | DomainVerb::Alias { .. }
+        | DomainVerb::Host { .. } => Err(AdminError::Invalid(
+            "This domain command requires the server store adapter.".into(),
+        )),
         DomainVerb::List => Ok(admin
             .list_domains()
             .await?

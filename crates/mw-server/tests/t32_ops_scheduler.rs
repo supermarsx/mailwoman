@@ -170,21 +170,33 @@ async fn two_processes_on_one_database_run_a_due_task_once() {
     .await;
     // Several more passes of both schedulers.
     tokio::time::sleep(Duration::from_millis(800)).await;
-    assert_eq!(ONCE_RUNS.load(Ordering::SeqCst), 1, "the task ran more than once");
+    assert_eq!(
+        ONCE_RUNS.load(Ordering::SeqCst),
+        1,
+        "the task ran more than once"
+    );
     let runs = runs_of(&store, "t_once").await;
     assert_eq!(runs.len(), 1, "{runs:?}");
     let r = &runs[0];
     assert_eq!(r.task_id.as_deref(), Some("once"));
     assert_eq!(r.triggered_by, "scheduler");
     assert_eq!(r.summary.as_deref(), Some("counted"));
-    assert!(r.instance.contains('@'), "instance = host@start: {}", r.instance);
-    let detail: serde_json::Value = serde_json::from_str(r.detail_json.as_deref().unwrap()).unwrap();
+    assert!(
+        r.instance.contains('@'),
+        "instance = host@start: {}",
+        r.instance
+    );
+    let detail: serde_json::Value =
+        serde_json::from_str(r.detail_json.as_deref().unwrap()).unwrap();
     assert_eq!(detail["params"], json!({"n": 1}));
     let t = store.get_scheduled_task("once").await.unwrap().unwrap();
     assert_eq!(t.last_status.as_deref(), Some("ok"));
     assert_eq!((t.lease_owner, t.lease_until), (None, None));
     let next = t.next_run_at.unwrap();
-    assert!(next >= now + 3590, "next run an hour later: {next} vs {now}");
+    assert!(
+        next >= now + 3590,
+        "next run an hour later: {next} vs {now}"
+    );
 }
 
 static TAKEOVER_RUNS: AtomicUsize = AtomicUsize::new(0);
@@ -224,7 +236,11 @@ async fn a_live_lease_is_respected_and_an_expired_one_is_taken_over() {
     };
     assert!(store.start_job_run(&held).await.unwrap());
     tokio::time::sleep(Duration::from_millis(1200)).await;
-    assert_eq!(TAKEOVER_RUNS.load(Ordering::SeqCst), 0, "ran under a live lease");
+    assert_eq!(
+        TAKEOVER_RUNS.load(Ordering::SeqCst),
+        0,
+        "ran under a live lease"
+    );
     // The other process dies: its lease expires (2 s) and its heartbeat ages past
     // 3x the lease (6 s). Then this process abandons the row and runs the task.
     wait_for("the abandoned row", || async {
@@ -291,7 +307,11 @@ async fn a_run_marked_abandoned_elsewhere_is_stopped() {
         1
     );
     tokio::time::sleep(Duration::from_millis(5500)).await;
-    assert_eq!(STOPPED_FINISHED.load(Ordering::SeqCst), 0, "the run kept going");
+    assert_eq!(
+        STOPPED_FINISHED.load(Ordering::SeqCst),
+        0,
+        "the run kept going"
+    );
     let run = store.get_job_run(&run.id).await.unwrap().unwrap();
     assert_eq!(run.status, JobStatus::Abandoned);
 }
@@ -351,22 +371,39 @@ static WINDOW_RUNS: AtomicUsize = AtomicUsize::new(0);
 
 #[tokio::test]
 async fn builtin_jobs_perform_store_work_and_report_engine_unavailable() {
-    let db=new_db("t32-jobs-builtin");let (_apps,store)=apps(&db,1).await;
-    assert!(store.list_scheduled_tasks().await.unwrap().is_empty(),"nothing enabled by default");
-    let now=Utc::now().timestamp();
-    for kind in ["vacuum","gc_uploads","reindex","rethread_all"] {
-        store.insert_scheduled_task(&task(kind,kind,now-1)).await.unwrap();
+    let db = new_db("t32-jobs-builtin");
+    let (_apps, store) = apps(&db, 1).await;
+    assert!(
+        store.list_scheduled_tasks().await.unwrap().is_empty(),
+        "nothing enabled by default"
+    );
+    let now = Utc::now().timestamp();
+    for kind in ["vacuum", "gc_uploads", "reindex", "rethread_all"] {
+        store
+            .insert_scheduled_task(&task(kind, kind, now - 1))
+            .await
+            .unwrap();
     }
-    wait_for("builtins",||async {
-        let runs=store.list_job_runs(&JobRunQuery{limit:10,..Default::default()}).await.unwrap();
-        runs.len()==4 && runs.iter().all(|r|r.status!=JobStatus::Running)
-    }).await;
-    for kind in ["vacuum","gc_uploads"] {
-        assert_eq!(store.last_job_run(kind).await.unwrap().unwrap().status,JobStatus::Ok);
+    wait_for("builtins", || async {
+        let runs = store
+            .list_job_runs(&JobRunQuery {
+                limit: 10,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        runs.len() == 4 && runs.iter().all(|r| r.status != JobStatus::Running)
+    })
+    .await;
+    for kind in ["vacuum", "gc_uploads"] {
+        assert_eq!(
+            store.last_job_run(kind).await.unwrap().unwrap().status,
+            JobStatus::Ok
+        );
     }
-    for kind in ["reindex","rethread_all"] {
-        let r=store.last_job_run(kind).await.unwrap().unwrap();
-        assert_eq!(r.status,JobStatus::Failed);
+    for kind in ["reindex", "rethread_all"] {
+        let r = store.last_job_run(kind).await.unwrap().unwrap();
+        assert_eq!(r.status, JobStatus::Failed);
         assert!(r.summary.unwrap().contains("requires engine mode"));
     }
 }
@@ -374,42 +411,105 @@ async fn builtin_jobs_perform_store_work_and_report_engine_unavailable() {
 static LOST_LEASE_FINISHED: AtomicUsize = AtomicUsize::new(0);
 #[tokio::test]
 async fn losing_task_lease_cancels_work_and_cannot_release_new_owner() {
-    jobs::register("t_lease_lost", JobSpec::new(|_| Box::pin(async {
-        tokio::time::sleep(Duration::from_secs(4)).await;
-        LOST_LEASE_FINISHED.fetch_add(1,Ordering::SeqCst);
-        Ok(JobOutput::new("too late",json!({})))
-    })).lease(Duration::from_secs(1)));
-    let db=new_db("t32-jobs-lease-loss");let (_apps,store)=apps(&db,1).await;
-    let now=Utc::now().timestamp();
-    store.insert_scheduled_task(&task("lost","t_lease_lost",now-1)).await.unwrap();
-    wait_for("running",||async{runs_of(&store,"t_lease_lost").await.iter().any(|r|r.status==JobStatus::Running)}).await;
-    assert!(store.claim_task_lease("lost","replacement",now+10,now+100).await.unwrap());
-    wait_for("lease cancellation",||async{runs_of(&store,"t_lease_lost").await.iter().any(|r|r.status==JobStatus::Cancelled)}).await;
+    jobs::register(
+        "t_lease_lost",
+        JobSpec::new(|_| {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_secs(4)).await;
+                LOST_LEASE_FINISHED.fetch_add(1, Ordering::SeqCst);
+                Ok(JobOutput::new("too late", json!({})))
+            })
+        })
+        .lease(Duration::from_secs(1)),
+    );
+    let db = new_db("t32-jobs-lease-loss");
+    let (_apps, store) = apps(&db, 1).await;
+    let now = Utc::now().timestamp();
+    store
+        .insert_scheduled_task(&task("lost", "t_lease_lost", now - 1))
+        .await
+        .unwrap();
+    wait_for("running", || async {
+        runs_of(&store, "t_lease_lost")
+            .await
+            .iter()
+            .any(|r| r.status == JobStatus::Running)
+    })
+    .await;
+    assert!(
+        store
+            .claim_task_lease("lost", "replacement", now + 10, now + 100)
+            .await
+            .unwrap()
+    );
+    wait_for("lease cancellation", || async {
+        runs_of(&store, "t_lease_lost")
+            .await
+            .iter()
+            .any(|r| r.status == JobStatus::Cancelled)
+    })
+    .await;
     tokio::time::sleep(Duration::from_secs(4)).await;
-    assert_eq!(LOST_LEASE_FINISHED.load(Ordering::SeqCst),0);
-    assert_eq!(store.get_scheduled_task("lost").await.unwrap().unwrap().lease_owner.as_deref(),Some("replacement"));
+    assert_eq!(LOST_LEASE_FINISHED.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        store
+            .get_scheduled_task("lost")
+            .await
+            .unwrap()
+            .unwrap()
+            .lease_owner
+            .as_deref(),
+        Some("replacement")
+    );
 }
 
 static WINDOW_FINISHED: AtomicUsize = AtomicUsize::new(0);
 #[tokio::test]
 async fn persisted_global_window_allows_run_and_cancellation_stops_it() {
-    jobs::register("t_window_end",JobSpec::new(|_|Box::pin(async{
-        tokio::time::sleep(Duration::from_secs(4)).await;
-        WINDOW_FINISHED.fetch_add(1,Ordering::SeqCst);
-        Ok(JobOutput::new("too late",json!({})))
-    })).lease(Duration::from_secs(1)));
-    let db=new_db("t32-jobs-window-end");let (_apps,store)=apps(&db,1).await;
-    let pool=sqlx::SqlitePool::connect_with(sqlx::sqlite::SqliteConnectOptions::new().filename(&db)).await.unwrap();
-    let now=Utc::now().timestamp();
+    jobs::register(
+        "t_window_end",
+        JobSpec::new(|_| {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_secs(4)).await;
+                WINDOW_FINISHED.fetch_add(1, Ordering::SeqCst);
+                Ok(JobOutput::new("too late", json!({})))
+            })
+        })
+        .lease(Duration::from_secs(1)),
+    );
+    let db = new_db("t32-jobs-window-end");
+    let (_apps, store) = apps(&db, 1).await;
+    let pool =
+        sqlx::SqlitePool::connect_with(sqlx::sqlite::SqliteConnectOptions::new().filename(&db))
+            .await
+            .unwrap();
+    let now = Utc::now().timestamp();
     sqlx::query("INSERT INTO maintenance_window (id,mode,starts_at,ends_at,created_by,created_at,updated_by,updated_at) VALUES ('window','full',?1,?2,'root',?1,'root',?1)")
         .bind(now-1).bind(now+60).execute(&pool).await.unwrap();
-    let mut t=task("window_task","t_window_end",now-1);t.only_in_window=true;
+    let mut t = task("window_task", "t_window_end", now - 1);
+    t.only_in_window = true;
     store.insert_scheduled_task(&t).await.unwrap();
-    wait_for("window run",||async{runs_of(&store,"t_window_end").await.iter().any(|r|r.status==JobStatus::Running)}).await;
-    sqlx::query("UPDATE maintenance_window SET cancelled_at = ?1 WHERE id = 'window'").bind(now).execute(&pool).await.unwrap();
-    wait_for("window cancellation",||async{runs_of(&store,"t_window_end").await.iter().any(|r|r.status==JobStatus::Cancelled)}).await;
+    wait_for("window run", || async {
+        runs_of(&store, "t_window_end")
+            .await
+            .iter()
+            .any(|r| r.status == JobStatus::Running)
+    })
+    .await;
+    sqlx::query("UPDATE maintenance_window SET cancelled_at = ?1 WHERE id = 'window'")
+        .bind(now)
+        .execute(&pool)
+        .await
+        .unwrap();
+    wait_for("window cancellation", || async {
+        runs_of(&store, "t_window_end")
+            .await
+            .iter()
+            .any(|r| r.status == JobStatus::Cancelled)
+    })
+    .await;
     tokio::time::sleep(Duration::from_secs(4)).await;
-    assert_eq!(WINDOW_FINISHED.load(Ordering::SeqCst),0);
+    assert_eq!(WINDOW_FINISHED.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]

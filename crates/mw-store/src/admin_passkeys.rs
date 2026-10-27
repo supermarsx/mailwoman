@@ -16,14 +16,31 @@ pub enum AdminSessionFactor<'a> {
 // Call after the invariant lock and before any account row lock. Recovery
 // codes and TOTP require a password in the admin login flow; they are not an
 // independent replacement for the last passwordless passkey.
-async fn protects_credential_removal(tx: &mut crate::backend::Tx, account: &str, credential: Option<&str>) -> Result<bool, StoreError> {
-    if !crate::admin_accounts::last_super_protected(tx, account).await? { return Ok(false); }
-    let rows = q("SELECT password_hash FROM admin_account WHERE id=?1").bind(account).fetch_all_tx(tx).await?;
-    if rows.first().and_then(|r| r.get_opt_string("password_hash")).is_some_and(|p| !p.is_empty()) { return Ok(false); }
+async fn protects_credential_removal(
+    tx: &mut crate::backend::Tx,
+    account: &str,
+    credential: Option<&str>,
+) -> Result<bool, StoreError> {
+    if !crate::admin_accounts::last_super_protected(tx, account).await? {
+        return Ok(false);
+    }
+    let rows = q("SELECT password_hash FROM admin_account WHERE id=?1")
+        .bind(account)
+        .fetch_all_tx(tx)
+        .await?;
+    if rows
+        .first()
+        .and_then(|r| r.get_opt_string("password_hash"))
+        .is_some_and(|p| !p.is_empty())
+    {
+        return Ok(false);
+    }
     if let Some(credential) = credential {
         let others = q("SELECT credential_id FROM admin_webauthn_credentials WHERE account_id=?1 AND credential_id<>?2")
             .bind(account).bind(credential).fetch_all_tx(tx).await?;
-        if !others.is_empty() { return Ok(false); }
+        if !others.is_empty() {
+            return Ok(false);
+        }
     }
     Ok(true)
 }
@@ -98,7 +115,9 @@ impl Store {
     pub async fn revoke_admin_passkeys(&self, account: &str) -> Result<bool, StoreError> {
         let mut tx = self.backend.begin().await?;
         crate::admin_accounts::lock_admin_accounts(&mut tx).await?;
-        if protects_credential_removal(&mut tx, account, None).await? { return Ok(false); }
+        if protects_credential_removal(&mut tx, account, None).await? {
+            return Ok(false);
+        }
         q("UPDATE admin_account SET updated_at=updated_at WHERE id=?1")
             .bind(account)
             .execute_tx(&mut tx)
@@ -190,14 +209,28 @@ impl Store {
     }
     /// None means the final superadmin credential is protected; Some(false)
     /// means no owned credential matched. The decision and delete are atomic.
-    pub async fn delete_admin_passkey(&self, account: &str, credential: &str) -> Result<Option<bool>, StoreError> {
+    pub async fn delete_admin_passkey(
+        &self,
+        account: &str,
+        credential: &str,
+    ) -> Result<Option<bool>, StoreError> {
         let mut tx = self.backend.begin().await?;
         crate::admin_accounts::lock_admin_accounts(&mut tx).await?;
         // Serialize with verified-factor session minting, which locks this row.
-        q("UPDATE admin_account SET updated_at=updated_at WHERE id=?1").bind(account).execute_tx(&mut tx).await?;
-        if protects_credential_removal(&mut tx, account, Some(credential)).await? { return Ok(None); }
-        let removed = q("DELETE FROM admin_webauthn_credentials WHERE account_id=?1 AND credential_id=?2")
-            .bind(account).bind(credential).execute_tx(&mut tx).await? == 1;
+        q("UPDATE admin_account SET updated_at=updated_at WHERE id=?1")
+            .bind(account)
+            .execute_tx(&mut tx)
+            .await?;
+        if protects_credential_removal(&mut tx, account, Some(credential)).await? {
+            return Ok(None);
+        }
+        let removed =
+            q("DELETE FROM admin_webauthn_credentials WHERE account_id=?1 AND credential_id=?2")
+                .bind(account)
+                .bind(credential)
+                .execute_tx(&mut tx)
+                .await?
+                == 1;
         tx.commit().await?;
         Ok(Some(removed))
     }
@@ -346,7 +379,8 @@ mod tests {
             !store
                 .delete_admin_passkey("wrong-account", &key.credential.credential_id)
                 .await
-                .unwrap().unwrap()
+                .unwrap()
+                .unwrap()
         );
         let (a, b) = tokio::join!(
             store.consume_admin_recovery(&id, "recovery-hash"),

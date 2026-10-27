@@ -13,7 +13,8 @@ pub(crate) fn spawn(engine: &Arc<Engine>, store: Store) {
 async fn interval(store: &Store, account: &str) -> Option<Duration> {
     let address = store.security_account_address(account).await.ok()??;
     let address = store.canonical_policy_address(&address).await.ok()?;
-    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
         account_id: account,
         address: &address,
         domain: address.rsplit_once('@').map(|(_, d)| d).unwrap_or(""),

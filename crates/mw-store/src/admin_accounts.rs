@@ -113,14 +113,24 @@ pub(crate) async fn lock_admin_accounts(tx: &mut crate::backend::Tx) -> Result<(
 
 pub(crate) const ALLOW_LAST_SUPERADMIN_LOSS: &str = "admin.allowLastSuperadminLoss";
 
-pub(crate) async fn allow_last_superadmin_loss(tx: &mut crate::backend::Tx) -> Result<bool, StoreError> {
+pub(crate) async fn allow_last_superadmin_loss(
+    tx: &mut crate::backend::Tx,
+) -> Result<bool, StoreError> {
     let rows = q("SELECT global_value FROM setting_policy WHERE key=?1")
-        .bind(ALLOW_LAST_SUPERADMIN_LOSS).fetch_all_tx(tx).await?;
-    Ok(rows.first().and_then(|r| r.get_opt_string("global_value"))
-        .and_then(|v| serde_json::from_str::<bool>(&v).ok()) == Some(true))
+        .bind(ALLOW_LAST_SUPERADMIN_LOSS)
+        .fetch_all_tx(tx)
+        .await?;
+    Ok(rows
+        .first()
+        .and_then(|r| r.get_opt_string("global_value"))
+        .and_then(|v| serde_json::from_str::<bool>(&v).ok())
+        == Some(true))
 }
 
-pub(crate) async fn last_super_protected(tx: &mut crate::backend::Tx, id: &str) -> Result<bool, StoreError> {
+pub(crate) async fn last_super_protected(
+    tx: &mut crate::backend::Tx,
+    id: &str,
+) -> Result<bool, StoreError> {
     Ok(is_last_super(tx, id).await? && !allow_last_superadmin_loss(tx).await?)
 }
 
@@ -480,9 +490,10 @@ impl Store {
 
     /// Every role with its stored capabilities, built-in roles first, then by name.
     pub async fn list_admin_roles(&self) -> Result<Vec<AdminRoleRow>, StoreError> {
-        let rows = q("SELECT id, name, description, builtin FROM admin_role ORDER BY builtin DESC, name")
-            .fetch_all(&self.backend)
-            .await?;
+        let rows =
+            q("SELECT id, name, description, builtin FROM admin_role ORDER BY builtin DESC, name")
+                .fetch_all(&self.backend)
+                .await?;
         let caps = q("SELECT role_id, capability FROM admin_role_capability \
                       ORDER BY role_id, capability")
         .fetch_all(&self.backend)
@@ -522,7 +533,8 @@ impl Store {
         name: &str,
         capabilities: &[String],
     ) -> Result<(), StoreError> {
-        self.put_admin_role_description(id, name, capabilities, None).await
+        self.put_admin_role_description(id, name, capabilities, None)
+            .await
     }
 
     /// Omission preserves the existing purpose; an explicit empty string clears it.

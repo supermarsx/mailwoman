@@ -800,83 +800,165 @@ async fn the_declared_size_is_the_size_of_what_is_transmitted() {
 #[tokio::test]
 async fn dsn_capability_probe_authenticates_without_envelope_and_caches() {
     for supported in [false, true] {
-        let ehlo = if supported {"250-mock\r\n250-DSN\r\n250 AUTH PLAIN\r\n"} else {"250-mock\r\n250 AUTH PLAIN\r\n"};
-        let mock = common::start(vec!["220 ready\r\n".into(), ehlo.into(), "235 accepted\r\n".into(), "221 bye\r\n".into()]).await;
-        let sub = submitter(mock.addr, Credentials::Plain {user:"alice".into(),pass:"secret".into()});
+        let ehlo = if supported {
+            "250-mock\r\n250-DSN\r\n250 AUTH PLAIN\r\n"
+        } else {
+            "250-mock\r\n250 AUTH PLAIN\r\n"
+        };
+        let mock = common::start(vec![
+            "220 ready\r\n".into(),
+            ehlo.into(),
+            "235 accepted\r\n".into(),
+            "221 bye\r\n".into(),
+        ])
+        .await;
+        let sub = submitter(
+            mock.addr,
+            Credentials::Plain {
+                user: "alice".into(),
+                pass: "secret".into(),
+            },
+        );
         assert!(!sub.cached_dsn_support(), "unknown never advertises DSN");
         let (first, second) = tokio::join!(sub.probe_dsn(), sub.probe_dsn());
-        assert_eq!(first.unwrap(), supported); assert_eq!(second.unwrap(), supported);
+        assert_eq!(first.unwrap(), supported);
+        assert_eq!(second.unwrap(), supported);
         assert_eq!(sub.cached_dsn_support(), supported);
         assert_eq!(mock.connections(), 1);
-        let commands=mock.captured();
-        assert!(commands.iter().any(|line|line.starts_with("AUTH PLAIN")));
-        assert!(commands.iter().any(|line|line=="QUIT"));
-        assert!(!commands.iter().any(|line|line.starts_with("MAIL") || line.starts_with("RCPT") || line=="DATA"));
-        assert!(!sub.clone().with_dialer(None).cached_dsn_support(), "new transport authority discards observation");
+        let commands = mock.captured();
+        assert!(commands.iter().any(|line| line.starts_with("AUTH PLAIN")));
+        assert!(commands.iter().any(|line| line == "QUIT"));
+        assert!(
+            !commands
+                .iter()
+                .any(|line| line.starts_with("MAIL") || line.starts_with("RCPT") || line == "DATA")
+        );
+        assert!(
+            !sub.clone().with_dialer(None).cached_dsn_support(),
+            "new transport authority discards observation"
+        );
         mock.join().await;
     }
 }
 
 #[tokio::test]
 async fn dsn_probe_failed_auth_never_publishes_ehlo_support() {
-    let mock=common::start(vec!["220 ready\r\n".into(),"250-mock\r\n250-DSN\r\n250 AUTH PLAIN\r\n".into(),"535 rejected\r\n".into()]).await;
-    let sub=submitter(mock.addr, Credentials::Plain{user:"alice".into(),pass:"wrong".into()});
-    assert!(sub.probe_dsn().await.is_err()); assert!(!sub.cached_dsn_support());
-    assert!(!sub.probe_dsn().await.unwrap(), "failed observation is briefly cached without retrying credentials");
-    assert_eq!(mock.connections(),1); mock.join().await;
+    let mock = common::start(vec![
+        "220 ready\r\n".into(),
+        "250-mock\r\n250-DSN\r\n250 AUTH PLAIN\r\n".into(),
+        "535 rejected\r\n".into(),
+    ])
+    .await;
+    let sub = submitter(
+        mock.addr,
+        Credentials::Plain {
+            user: "alice".into(),
+            pass: "wrong".into(),
+        },
+    );
+    assert!(sub.probe_dsn().await.is_err());
+    assert!(!sub.cached_dsn_support());
+    assert!(
+        !sub.probe_dsn().await.unwrap(),
+        "failed observation is briefly cached without retrying credentials"
+    );
+    assert_eq!(mock.connections(), 1);
+    mock.join().await;
 }
 
 #[tokio::test]
 async fn lost_final_data_reply_is_delivery_unknown() {
     let mock = common::start(vec![
-        "220 test\r\n".into(), "250 test\r\n".into(),
-        "250 sender\r\n".into(), "250 recipient\r\n".into(),
+        "220 test\r\n".into(),
+        "250 test\r\n".into(),
+        "250 sender\r\n".into(),
+        "250 recipient\r\n".into(),
         "354 content\r\n".into(),
-    ]).await;
-    let error = submitter(mock.addr, Credentials::None).submit(Outgoing {
-        mail_from:SENDER.into(), rcpt_to:vec!["good@example.com".into()], raw:body_with_dot_line(),
-    }).await.unwrap_err();
-    assert!(mock.captured().iter().any(|line| line == "."), "server consumed complete message");
-    assert!(error.to_string().contains("delivery status unknown"), "{error}");
+    ])
+    .await;
+    let error = submitter(mock.addr, Credentials::None)
+        .submit(Outgoing {
+            mail_from: SENDER.into(),
+            rcpt_to: vec!["good@example.com".into()],
+            raw: body_with_dot_line(),
+        })
+        .await
+        .unwrap_err();
+    assert!(
+        mock.captured().iter().any(|line| line == "."),
+        "server consumed complete message"
+    );
+    assert!(
+        error.to_string().contains("delivery status unknown"),
+        "{error}"
+    );
     mock.join().await;
 }
 
 #[tokio::test]
 async fn explicit_data_refusal_is_not_delivery_unknown() {
-    let mock=common::start(vec!["220 test\r\n".into(),"250 test\r\n".into(),
-        "250 sender\r\n".into(),"250 recipient\r\n".into(),"354 content\r\n".into(),
-        "550 refused\r\n".into()]).await;
-    let error=submitter(mock.addr,Credentials::None).submit(Outgoing{
-        mail_from:SENDER.into(),rcpt_to:vec!["good@example.com".into()],raw:body_with_dot_line(),
-    }).await.unwrap_err();
-    assert!(matches!(error,SmtpError::Protocol(_)),"{error}");
+    let mock = common::start(vec![
+        "220 test\r\n".into(),
+        "250 test\r\n".into(),
+        "250 sender\r\n".into(),
+        "250 recipient\r\n".into(),
+        "354 content\r\n".into(),
+        "550 refused\r\n".into(),
+    ])
+    .await;
+    let error = submitter(mock.addr, Credentials::None)
+        .submit(Outgoing {
+            mail_from: SENDER.into(),
+            rcpt_to: vec!["good@example.com".into()],
+            raw: body_with_dot_line(),
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(error, SmtpError::Protocol(_)), "{error}");
     mock.join().await;
 }
 
 #[tokio::test]
 async fn lost_final_bdat_reply_is_delivery_unknown() {
-    use tokio::io::{AsyncBufReadExt,AsyncReadExt,AsyncWriteExt,BufReader};
-    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr=listener.local_addr().unwrap();
-    let task=tokio::spawn(async move {
-        let (socket,_)=listener.accept().await.unwrap();
-        let mut socket=BufReader::new(socket);
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.unwrap();
+        let mut socket = BufReader::new(socket);
         socket.get_mut().write_all(b"220 test\r\n").await.unwrap();
         loop {
-            let mut line=String::new(); assert_ne!(socket.read_line(&mut line).await.unwrap(),0);
+            let mut line = String::new();
+            assert_ne!(socket.read_line(&mut line).await.unwrap(), 0);
             if line.starts_with("BDAT ") {
-                let size:usize=line.split_whitespace().nth(1).unwrap().parse().unwrap();
-                let mut body=vec![0;size]; socket.read_exact(&mut body).await.unwrap();
-                assert!(body.windows(7).any(|w| w==b"Subject"));
+                let size: usize = line.split_whitespace().nth(1).unwrap().parse().unwrap();
+                let mut body = vec![0; size];
+                socket.read_exact(&mut body).await.unwrap();
+                assert!(body.windows(7).any(|w| w == b"Subject"));
                 return;
             }
-            let reply=if line.starts_with("EHLO ") { &b"250-test\r\n250 CHUNKING\r\n"[..] } else { &b"250 OK\r\n"[..] };
+            let reply = if line.starts_with("EHLO ") {
+                &b"250-test\r\n250 CHUNKING\r\n"[..]
+            } else {
+                &b"250 OK\r\n"[..]
+            };
             socket.get_mut().write_all(reply).await.unwrap();
         }
     });
-    let error=submitter(addr,Credentials::None).submit_with(Outgoing{
-        mail_from:SENDER.into(),rcpt_to:vec!["good@example.com".into()],raw:body_with_dot_line(),
-    },SubmitOptions {use_chunking:true,..SubmitOptions::default()}).await.unwrap_err();
-    assert!(matches!(error,SmtpError::DeliveryUncertain(_)),"{error}");
+    let error = submitter(addr, Credentials::None)
+        .submit_with(
+            Outgoing {
+                mail_from: SENDER.into(),
+                rcpt_to: vec!["good@example.com".into()],
+                raw: body_with_dot_line(),
+            },
+            SubmitOptions {
+                use_chunking: true,
+                ..SubmitOptions::default()
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(error, SmtpError::DeliveryUncertain(_)), "{error}");
     task.await.unwrap();
 }

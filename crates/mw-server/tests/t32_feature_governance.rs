@@ -80,7 +80,8 @@ async fn feature_catalogue_cas_and_verified_proxy_policy() {
             .status(),
         200
     );
-    let profile = json!({"name":"Work","values":{"cap.pim.contacts":{"value":false,"locked":false}}});
+    let profile =
+        json!({"name":"Work","values":{"cap.pim.contacts":{"value":false,"locked":false}}});
     let (_, initial) = catalogue(&admin, &base).await;
     let path = format!("{base}/admin/features/profiles/work");
     assert_eq!(
@@ -116,10 +117,10 @@ async fn feature_catalogue_cas_and_verified_proxy_policy() {
             .json(&json!({"name":"Other","values":{}}))
             .send()
     );
-    let (a,b)=(a.unwrap(),b.unwrap());
-    let (a_status,b_status)=(a.status().as_u16(),b.status().as_u16());
-    let details=format!("{} / {}",a.text().await.unwrap(),b.text().await.unwrap());
-    let (a,b)=(a_status,b_status);
+    let (a, b) = (a.unwrap(), b.unwrap());
+    let (a_status, b_status) = (a.status().as_u16(), b.status().as_u16());
+    let details = format!("{} / {}", a.text().await.unwrap(), b.text().await.unwrap());
+    let (a, b) = (a_status, b_status);
     assert!(
         matches!((a, b), (200, 412) | (412, 200)),
         "atomic catalogue writers: {a}/{b}: {details}"
@@ -170,7 +171,8 @@ async fn feature_catalogue_cas_and_verified_proxy_policy() {
     let raw = me["accountId"].as_str().unwrap();
     let authority = me["storageAuthority"].as_str().unwrap();
     // A native account row deliberately collides with the authenticated proxy ID.
-    let pool = sqlx::sqlite::SqlitePoolOptions::new().connect_with(sqlx::sqlite::SqliteConnectOptions::new().filename(&db))
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .connect_with(sqlx::sqlite::SqliteConnectOptions::new().filename(&db))
         .await
         .unwrap();
     sqlx::query("INSERT INTO accounts(id,kind,host,port,tls,username,sealed_creds) VALUES(?1,'imap','native.test',993,'implicit',?2,?3)").bind(raw).bind(mw_mock_jmap::USER).bind(vec![0u8]).execute(&pool).await.unwrap();
@@ -294,11 +296,31 @@ async fn feature_catalogue_cas_and_verified_proxy_policy() {
         "legacy rows remain inert, not deleted"
     );
     // Global hard disable remains authoritative for both display and admission.
-    assert_eq!(admin.put(format!("{base}/admin/settings/cap.pim.contacts")).json(&json!({"globalValue":false,"locked":true,"allowUserOverride":false})).send().await.unwrap().status(),200);
-    let features:Value=user.get(format!("{base}/api/features")).send().await.unwrap().json().await.unwrap();
-    assert_eq!(features["features"]["contacts"]["enabled"],false);
+    assert_eq!(
+        admin
+            .put(format!("{base}/admin/settings/cap.pim.contacts"))
+            .json(&json!({"globalValue":false,"locked":true,"allowUserOverride":false}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let features: Value = user
+        .get(format!("{base}/api/features"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(features["features"]["contacts"]["enabled"], false);
     let denied=user.post(format!("{base}/jmap/api")).json(&json!({"using":["urn:ietf:params:jmap:core"],"methodCalls":[["ContactCard/get",{"accountId":raw,"ids":[]},"c"]]})).send().await.unwrap();
-    assert_eq!(denied.status(),403,"feature policy must refuse before forwarding");
+    assert_eq!(
+        denied.status(),
+        403,
+        "feature policy must refuse before forwarding"
+    );
     // A domain-scoped administrator cannot read or mutate this global catalogue.
     let mut scoped = store
         .list_admin_accounts()
@@ -362,27 +384,109 @@ async fn feature_catalogue_cas_and_verified_proxy_policy() {
 
 #[tokio::test]
 async fn native_policy_compatibility_and_user_override_are_preserved() {
-    let mail=common::mock_mail::MockPop3::start("native@example.test","native-pass").await;
-    let db=common::test_db::unique_db_path("feature-native-policy");
-    let store=Store::open(db.to_str().unwrap(),ServerKey::from_hex(KEY).unwrap()).await.unwrap();
+    let mail = common::mock_mail::MockPop3::start("native@example.test", "native-pass").await;
+    let db = common::test_db::unique_db_path("feature-native-policy");
+    let store = Store::open(db.to_str().unwrap(), ServerKey::from_hex(KEY).unwrap())
+        .await
+        .unwrap();
     store.put_domain_config(&mw_store::DomainConfigRow{name:"example.test".into(),upstream_json:json!({"pop3":{"host":"127.0.0.1","port":mail.addr.port(),"tls":"none","allowPrivate":true}}).to_string(),allowlist_json:"[]".into(),blocklist_json:"[]".into(),enabled:true,preferred:false,settings_json:"{}".into(),updated_at:1}).await.unwrap();
-    let app=mw_server::build_app(AppConfig{db_path:db.to_string_lossy().into(),server_key_hex:Some(KEY.into()),web_dir:None,cookie_secure:false,mode:ServerMode::Engine,hardening:HardeningConfig::default(),security:SecurityConfig{upstream_default:Some(mail.url()),..Default::default()}}).await.unwrap();
-    let base=serve(app).await;
-    let user=client();
-    let response=user.post(format!("{base}/api/login")).json(&json!({"username":"native@example.test","password":"native-pass"})).send().await.unwrap();
-    assert_eq!(response.status(),200);
-    let me:Value=response.json().await.unwrap();
-    let raw=me["accountId"].as_str().unwrap();
-    let authority=me["storageAuthority"].as_str().unwrap();
-    let setting=SettingValueRow{scope:SettingScope::AdminUser,scope_id:raw.into(),key:"mail.showFrom".into(),value:"true".into(),locked:false,updated_by:"test".into(),updated_at:1};
+    let app = mw_server::build_app(AppConfig {
+        db_path: db.to_string_lossy().into(),
+        server_key_hex: Some(KEY.into()),
+        web_dir: None,
+        cookie_secure: false,
+        mode: ServerMode::Engine,
+        hardening: HardeningConfig::default(),
+        security: SecurityConfig {
+            upstream_default: Some(mail.url()),
+            ..Default::default()
+        },
+    })
+    .await
+    .unwrap();
+    let base = serve(app).await;
+    let user = client();
+    let response = user
+        .post(format!("{base}/api/login"))
+        .json(&json!({"username":"native@example.test","password":"native-pass"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let me: Value = response.json().await.unwrap();
+    let raw = me["accountId"].as_str().unwrap();
+    let authority = me["storageAuthority"].as_str().unwrap();
+    let setting = SettingValueRow {
+        scope: SettingScope::AdminUser,
+        scope_id: raw.into(),
+        key: "mail.showFrom".into(),
+        value: "true".into(),
+        locked: false,
+        updated_by: "test".into(),
+        updated_at: 1,
+    };
     store.put_setting_value(&setting).await.unwrap();
-    let settings:Value=user.get(format!("{base}/api/settings")).send().await.unwrap().json().await.unwrap();
-    assert_eq!(settings["settings"]["mail.showFrom"]["value"],true);
-    assert_eq!(settings["settings"]["mail.showFrom"]["source"],"admin_user");
-    assert_eq!(user.put(format!("{base}/api/settings/mail.showFrom")).header("X-Mailwoman-Storage-Authority",authority).json(&json!({"value":false})).send().await.unwrap().status(),200);
-    assert_eq!(store.get_setting_value(SettingScope::User,raw,"mail.showFrom").await.unwrap().unwrap().value,"false");
-    let owner=store.native_personal_subject(raw).await.unwrap().unwrap();
-    assert!(store.personal_setting_values(&owner).await.unwrap().is_empty(),"native existing namespace remains compatible");
-    store.put_setting_value(&SettingValueRow{scope:SettingScope::Domain,scope_id:"example.test".into(),key:"mail.showFrom".into(),value:"true".into(),locked:true,updated_by:"test".into(),updated_at:2}).await.unwrap();
-    assert_eq!(user.put(format!("{base}/api/settings/mail.showFrom")).header("X-Mailwoman-Storage-Authority",authority).json(&json!({"value":false})).send().await.unwrap().status(),403);
+    let settings: Value = user
+        .get(format!("{base}/api/settings"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(settings["settings"]["mail.showFrom"]["value"], true);
+    assert_eq!(
+        settings["settings"]["mail.showFrom"]["source"],
+        "admin_user"
+    );
+    assert_eq!(
+        user.put(format!("{base}/api/settings/mail.showFrom"))
+            .header("X-Mailwoman-Storage-Authority", authority)
+            .json(&json!({"value":false}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        store
+            .get_setting_value(SettingScope::User, raw, "mail.showFrom")
+            .await
+            .unwrap()
+            .unwrap()
+            .value,
+        "false"
+    );
+    let owner = store.native_personal_subject(raw).await.unwrap().unwrap();
+    assert!(
+        store
+            .personal_setting_values(&owner)
+            .await
+            .unwrap()
+            .is_empty(),
+        "native existing namespace remains compatible"
+    );
+    store
+        .put_setting_value(&SettingValueRow {
+            scope: SettingScope::Domain,
+            scope_id: "example.test".into(),
+            key: "mail.showFrom".into(),
+            value: "true".into(),
+            locked: true,
+            updated_by: "test".into(),
+            updated_at: 2,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        user.put(format!("{base}/api/settings/mail.showFrom"))
+            .header("X-Mailwoman-Storage-Authority", authority)
+            .json(&json!({"value":false}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
 }

@@ -230,7 +230,13 @@ pub(crate) async fn push_subscribe(
         Ok(s) => s,
         Err(resp) => return resp,
     };
-    let owner=match crate::prefs_routes::personal_storage::record_owner(&state,&session,&headers,true).await {Ok(owner)=>owner,Err(response)=>return response};
+    let owner =
+        match crate::prefs_routes::personal_storage::record_owner(&state, &session, &headers, true)
+            .await
+        {
+            Ok(owner) => owner,
+            Err(response) => return response,
+        };
     let subject = match crate::settings_routes::UserSubject::resolved(&state.store, &session).await
     {
         Ok(subject) => subject,
@@ -242,7 +248,8 @@ pub(crate) async fn push_subscribe(
         "notifications.pushAllowed",
     )
     .await;
-    let config = crate::notification_policy::for_subject(&state.store, &subject.as_subject(),&owner).await;
+    let config =
+        crate::notification_policy::for_subject(&state.store, &subject.as_subject(), &owner).await;
     match (allowed, config) {
         (Ok(true), Ok(config)) if config.enabled => {}
         (Err(_), _) | (_, Err(_)) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
@@ -289,11 +296,7 @@ pub(crate) async fn push_subscribe(
         )
             .into_response();
     }
-    let existing = match state
-        .store
-        .list_personal_push_subscriptions(&owner)
-        .await
-    {
+    let existing = match state.store.list_personal_push_subscriptions(&owner).await {
         Ok(rows) => rows,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
@@ -363,7 +366,14 @@ pub(crate) async fn push_permission(
         Ok(session) => session,
         Err(response) => return response,
     };
-    let owner=match crate::prefs_routes::personal_storage::record_owner(&state,&session,&headers,false).await {Ok(owner)=>owner,Err(response)=>return response};
+    let owner = match crate::prefs_routes::personal_storage::record_owner(
+        &state, &session, &headers, false,
+    )
+    .await
+    {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
     if query.endpoint_hash.len() != 64
         || !query
             .endpoint_hash
@@ -373,24 +383,50 @@ pub(crate) async fn push_permission(
         return StatusCode::BAD_REQUEST.into_response();
     }
     let status = async {
-        let registered=state.store.list_personal_push_subscriptions(&owner).await?.iter().any(|row| {
-            let hash=Sha256::digest(row.endpoint.as_bytes()).iter().map(|byte|format!("{byte:02x}")).collect::<String>();
-            hash==query.endpoint_hash && row.expires_at.as_ref().is_none_or(|expiry|chrono::DateTime::parse_from_rfc3339(expiry).is_ok_and(|expiry|expiry>chrono::Utc::now()))
-        });
-        if !registered {return Ok::<(bool,bool),mw_store::StoreError>((false,false));}
-        let subject=crate::settings_routes::UserSubject::resolved(&state.store,&session).await?;
-        let config=crate::notification_policy::for_subject(&state.store,&subject.as_subject(),&owner).await?;
-        let allowed=config.enabled && config.rules.is_empty()
-            && !crate::notification_policy::quiet_at(&config.quiet_hours,chrono::Utc::now())
+        let registered = state
+            .store
+            .list_personal_push_subscriptions(&owner)
+            .await?
+            .iter()
+            .any(|row| {
+                let hash = Sha256::digest(row.endpoint.as_bytes())
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>();
+                hash == query.endpoint_hash
+                    && row.expires_at.as_ref().is_none_or(|expiry| {
+                        chrono::DateTime::parse_from_rfc3339(expiry)
+                            .is_ok_and(|expiry| expiry > chrono::Utc::now())
+                    })
+            });
+        if !registered {
+            return Ok::<(bool, bool), mw_store::StoreError>((false, false));
+        }
+        let subject = crate::settings_routes::UserSubject::resolved(&state.store, &session).await?;
+        let config =
+            crate::notification_policy::for_subject(&state.store, &subject.as_subject(), &owner)
+                .await?;
+        let allowed = config.enabled
+            && config.rules.is_empty()
+            && !crate::notification_policy::quiet_at(&config.quiet_hours, chrono::Utc::now())
             && !quiet_now(&state.store).await
-            && crate::notification_policy::allowed(&state.store,&subject.as_subject(),"notifications.pushAllowed").await?;
-        Ok((true,allowed))
-    }.await;
-    match status {
-        Ok((registered,allowed))=>([(header::CACHE_CONTROL,"private, no-store")],Json(json!({"registered":registered,"allowed":allowed}))).into_response(),
-        Err(_)=>StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            && crate::notification_policy::allowed(
+                &state.store,
+                &subject.as_subject(),
+                "notifications.pushAllowed",
+            )
+            .await?;
+        Ok((true, allowed))
     }
-
+    .await;
+    match status {
+        Ok((registered, allowed)) => (
+            [(header::CACHE_CONTROL, "private, no-store")],
+            Json(json!({"registered":registered,"allowed":allowed})),
+        )
+            .into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
 }
 
 /// `POST /api/push/unsubscribe {id|endpoint}`. Removes the subscription. Cookie- or
@@ -412,7 +448,13 @@ pub(crate) async fn push_unsubscribe(
         Ok(session) => session,
         Err(resp) => return resp,
     };
-    let owner=match crate::prefs_routes::personal_storage::record_owner(&state,&session,&headers,true).await {Ok(owner)=>owner,Err(response)=>return response};
+    let owner =
+        match crate::prefs_routes::personal_storage::record_owner(&state, &session, &headers, true)
+            .await
+        {
+            Ok(owner) => owner,
+            Err(response) => return response,
+        };
     let req: UnsubscribeReq = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(e) => {
@@ -432,11 +474,7 @@ pub(crate) async fn push_unsubscribe(
     }
     let outcome = state
         .store
-        .delete_personal_push_subscription(
-            &owner,
-            req.endpoint.as_deref(),
-            req.id.as_deref(),
-        )
+        .delete_personal_push_subscription(&owner, req.endpoint.as_deref(), req.id.as_deref())
         .await;
     match outcome {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -480,8 +518,11 @@ async fn dispatch_wakes(store: &Store, change: &StateChange) {
     else {
         return;
     };
-    let Ok(Some(owner))=store.native_personal_subject(&change.account_id).await else {return;};
-    let Ok(config) = crate::notification_policy::for_subject(store, &subject.as_subject(),&owner).await
+    let Ok(Some(owner)) = store.native_personal_subject(&change.account_id).await else {
+        return;
+    };
+    let Ok(config) =
+        crate::notification_policy::for_subject(store, &subject.as_subject(), &owner).await
     else {
         return;
     };
@@ -544,7 +585,9 @@ async fn dispatch_wakes(store: &Store, change: &StateChange) {
                     .await;
             }
             Ok(_) => {
-                let _ = store.touch_personal_push_wake(&sub.account_id,&sub.id, &now_rfc3339()).await;
+                let _ = store
+                    .touch_personal_push_wake(&sub.account_id, &sub.id, &now_rfc3339())
+                    .await;
             }
             // The subscription id, never the endpoint: endpoints are capability
             // URLs, and send errors carry no URL (`without_url`).
@@ -861,7 +904,8 @@ async fn send_guarded<'a>(
 /// absent/unparseable → never quiet (the default). One indexed settings read per
 /// change — cheap enough to honor per the plan's "if cheap".
 async fn quiet_now(store: &Store) -> bool {
-    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
         account_id: "",
         address: "",
         domain: "",

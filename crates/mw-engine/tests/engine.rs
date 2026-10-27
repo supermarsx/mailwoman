@@ -45,7 +45,10 @@ struct FakeBackend {
     draft_uidplus: AtomicBool,
     held_draft_append: Mutex<Option<Arc<HeldDraftAppend>>>,
 }
-struct HeldDraftAppend { entered: tokio::sync::Notify, release: tokio::sync::Notify }
+struct HeldDraftAppend {
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
 
 impl FakeBackend {
     fn new() -> Self {
@@ -89,7 +92,8 @@ impl FakeBackend {
 impl AccountBackend for FakeBackend {
     async fn capabilities(&self) -> Result<BackendCaps> {
         Ok(BackendCaps {
-            uidplus: self.import_supported.load(Ordering::SeqCst) && self.draft_uidplus.load(Ordering::SeqCst),
+            uidplus: self.import_supported.load(Ordering::SeqCst)
+                && self.draft_uidplus.load(Ordering::SeqCst),
             r#move: true,
             special_use: true,
             ..BackendCaps::default()
@@ -251,7 +255,10 @@ impl AccountBackend for FakeBackend {
     ) -> Result<MessageRef> {
         let reference = self.append(mbox, raw, flags).await?;
         let gate = self.held_draft_append.lock().unwrap().clone();
-        if let Some(gate) = gate { gate.entered.notify_one(); gate.release.notified().await; }
+        if let Some(gate) = gate {
+            gate.entered.notify_one();
+            gate.release.notified().await;
+        }
         let MessageRef::Imap { uid, .. } = reference else {
             unreachable!()
         };
@@ -267,13 +274,27 @@ impl AccountBackend for FakeBackend {
         Ok(reference)
     }
 
-    async fn expunge_messages(&self,refs:&[MessageRef])->Result<()> {
-        if !self.draft_cleanup_supported.load(Ordering::SeqCst){return Err(mw_engine::EngineError::Unsupported("test expunge disabled".into()))}
-        let mut state=self.state.lock().unwrap();
-        for reference in refs {if let MessageRef::Imap{mailbox,uidvalidity,uid}=reference {
-            assert_eq!(*uidvalidity,self.uidvalidity.load(Ordering::SeqCst));
-            if let Some(messages)=state.messages.get_mut(&mailbox.name){messages.retain(|row|row.0!=*uid);}
-        }}Ok(())
+    async fn expunge_messages(&self, refs: &[MessageRef]) -> Result<()> {
+        if !self.draft_cleanup_supported.load(Ordering::SeqCst) {
+            return Err(mw_engine::EngineError::Unsupported(
+                "test expunge disabled".into(),
+            ));
+        }
+        let mut state = self.state.lock().unwrap();
+        for reference in refs {
+            if let MessageRef::Imap {
+                mailbox,
+                uidvalidity,
+                uid,
+            } = reference
+            {
+                assert_eq!(*uidvalidity, self.uidvalidity.load(Ordering::SeqCst));
+                if let Some(messages) = state.messages.get_mut(&mailbox.name) {
+                    messages.retain(|row| row.0 != *uid);
+                }
+            }
+        }
+        Ok(())
     }
     async fn watch(&self, _sink: ChangeSink) -> Result<WatchHandle> {
         let (tx, _rx) = tokio::sync::watch::channel(false);
@@ -1123,63 +1144,172 @@ async fn local_vacation_submits_once_to_envelope_sender_and_suppresses_automatic
     let cases = [
         ("sender@example.net", "me@example.org", ""),
         ("sender@example.net", "me@example.org", ""),
-        ("list@example.net", "me@example.org", "List-Id: <list.example.net>\r\n"),
-        ("auto@example.net", "me@example.org", "Auto-Submitted: auto-generated\r\n"),
+        (
+            "list@example.net",
+            "me@example.org",
+            "List-Id: <list.example.net>\r\n",
+        ),
+        (
+            "auto@example.net",
+            "me@example.org",
+            "Auto-Submitted: auto-generated\r\n",
+        ),
         ("bulk@example.net", "me@example.org", "Precedence: bulk\r\n"),
         ("", "me@example.org", ""),
         ("me@example.org", "me@example.org", ""),
         ("hidden@example.net", "somebody@example.org", ""),
-        ("loop@example.net", "me@example.org", "X-Mailwoman-Loop: vacation\r\n"),
+        (
+            "loop@example.net",
+            "me@example.org",
+            "X-Mailwoman-Loop: vacation\r\n",
+        ),
     ];
     let messages = cases.iter().enumerate().map(|(i,(sender,to,extra))| {
         ((i+1) as u32,format!("Message-ID: <vacation-{i}@example.net>\r\nReturn-Path: <{sender}>\r\nFrom: forged@example.net\r\nTo: {to}\r\nSubject: Hello\r\n{extra}\r\nHello").into_bytes(),vec![],"2026-07-01T09:00:00Z".into())
     }).collect();
     let h = setup_with(Arc::new(FakeBackend::with_inbox(messages))).await;
-    h.engine.store().put_setting_value(&mw_store::settings_policy::SettingValueRow {
-        scope:mw_store::settings_policy::SettingScope::AdminUser, scope_id:h.account_id.clone(),key:"sieve.vacationAllowed".into(),value:"true".into(),locked:true,updated_by:"test".into(),updated_at:0,
-    }).await.unwrap();
-    h.engine.put_local_sieve_script(&h.account_id,"vacation",r#"require "vacation"; vacation :days 7 :subject "Away" "Back soon";"#,true,
-        &mw_sieve::policy::Policy {raw_edit:true,vacation_allowed:true,..Default::default()},mw_sieve::policy::EditKind::Raw).await.unwrap();
+    h.engine
+        .store()
+        .put_setting_value(&mw_store::settings_policy::SettingValueRow {
+            scope: mw_store::settings_policy::SettingScope::AdminUser,
+            scope_id: h.account_id.clone(),
+            key: "sieve.vacationAllowed".into(),
+            value: "true".into(),
+            locked: true,
+            updated_by: "test".into(),
+            updated_at: 0,
+        })
+        .await
+        .unwrap();
+    h.engine
+        .put_local_sieve_script(
+            &h.account_id,
+            "vacation",
+            r#"require "vacation"; vacation :days 7 :subject "Away" "Back soon";"#,
+            true,
+            &mw_sieve::policy::Policy {
+                raw_edit: true,
+                vacation_allowed: true,
+                ..Default::default()
+            },
+            mw_sieve::policy::EditKind::Raw,
+        )
+        .await
+        .unwrap();
     h.engine.resync(&h.account_id).await.unwrap();
-    assert_eq!(h.submitter.calls.load(Ordering::SeqCst),1);
-    assert_eq!(*h.submitter.last_rcpt.lock().unwrap(),vec!["sender@example.net"]);
-    assert_eq!(*h.submitter.last_sender.lock().unwrap(),"");
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        *h.submitter.last_rcpt.lock().unwrap(),
+        vec!["sender@example.net"]
+    );
+    assert_eq!(*h.submitter.last_sender.lock().unwrap(), "");
     let raw = String::from_utf8(h.submitter.last_raw.lock().unwrap().clone()).unwrap();
-    assert!(raw.contains("Auto-Submitted: auto-replied"),"{raw}");
-    assert!(raw.contains("Back soon"),"{raw}");
-    assert!(raw.contains("In-Reply-To:"),"{raw}");
+    assert!(raw.contains("Auto-Submitted: auto-replied"), "{raw}");
+    assert!(raw.contains("Back soon"), "{raw}");
+    assert!(raw.contains("In-Reply-To:"), "{raw}");
     // A second sync and a UID epoch reset do not replay historical mail.
     h.engine.resync(&h.account_id).await.unwrap();
-    h.backend.uidvalidity.store(200,Ordering::SeqCst);
+    h.backend.uidvalidity.store(200, Ordering::SeqCst);
     h.engine.resync(&h.account_id).await.unwrap();
-    assert_eq!(h.submitter.calls.load(Ordering::SeqCst),1);
-    h.engine.store().put_setting_value(&mw_store::settings_policy::SettingValueRow {
-        scope:mw_store::settings_policy::SettingScope::AdminUser, scope_id:h.account_id.clone(),key:"sieve.vacationAllowed".into(),value:"false".into(),locked:true,updated_by:"test".into(),updated_at:1,
-    }).await.unwrap();
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 1);
+    h.engine
+        .store()
+        .put_setting_value(&mw_store::settings_policy::SettingValueRow {
+            scope: mw_store::settings_policy::SettingScope::AdminUser,
+            scope_id: h.account_id.clone(),
+            key: "sieve.vacationAllowed".into(),
+            value: "false".into(),
+            locked: true,
+            updated_by: "test".into(),
+            updated_at: 1,
+        })
+        .await
+        .unwrap();
     h.backend.state.lock().unwrap().messages.get_mut("INBOX").unwrap().push((20,b"Message-ID: <after-revocation@example.net>\r\nReturn-Path: <new@example.net>\r\nFrom: new@example.net\r\nTo: me@example.org\r\n\r\nNew mail".to_vec(),vec![],"2026-07-01T09:00:00Z".into()));
     let _ = h.engine.resync(&h.account_id).await;
-    assert_eq!(h.submitter.calls.load(Ordering::SeqCst),1,"revoked vacation authority must apply at delivery");
+    assert_eq!(
+        h.submitter.calls.load(Ordering::SeqCst),
+        1,
+        "revoked vacation authority must apply at delivery"
+    );
 }
 
 #[tokio::test]
 async fn local_redirect_copy_uses_smtp_and_hot_revocation_prevents_later_forwarding() {
     let message = b"Message-ID: <forward-1@example.net>\r\nReturn-Path: <sender@example.net>\r\nFrom: sender@example.net\r\nTo: me@example.org\r\nSubject: Forward\r\n\r\nHello".to_vec();
-    let h=setup_with(Arc::new(FakeBackend::with_inbox(vec![(1,message.clone(),vec![],"2026-07-01T09:00:00Z".into())]))).await;
+    let h = setup_with(Arc::new(FakeBackend::with_inbox(vec![(
+        1,
+        message.clone(),
+        vec![],
+        "2026-07-01T09:00:00Z".into(),
+    )])))
+    .await;
     let setting = |value: &str| mw_store::settings_policy::SettingValueRow {
-        scope:mw_store::settings_policy::SettingScope::AdminUser,scope_id:h.account_id.clone(),key:"cap.sieve.forward_external".into(),value:value.into(),locked:true,updated_by:"test".into(),updated_at:0,
+        scope: mw_store::settings_policy::SettingScope::AdminUser,
+        scope_id: h.account_id.clone(),
+        key: "cap.sieve.forward_external".into(),
+        value: value.into(),
+        locked: true,
+        updated_by: "test".into(),
+        updated_at: 0,
     };
-    h.engine.store().put_setting_value(&setting("true")).await.unwrap();
-    h.engine.put_local_sieve_script(&h.account_id,"forward",r#"require "copy"; redirect :copy "target@external.test";"#,true,
-        &mw_sieve::policy::Policy {raw_edit:true,forward_external:true,..Default::default()},mw_sieve::policy::EditKind::Raw).await.unwrap();
+    h.engine
+        .store()
+        .put_setting_value(&setting("true"))
+        .await
+        .unwrap();
+    h.engine
+        .put_local_sieve_script(
+            &h.account_id,
+            "forward",
+            r#"require "copy"; redirect :copy "target@external.test";"#,
+            true,
+            &mw_sieve::policy::Policy {
+                raw_edit: true,
+                forward_external: true,
+                ..Default::default()
+            },
+            mw_sieve::policy::EditKind::Raw,
+        )
+        .await
+        .unwrap();
     h.engine.resync(&h.account_id).await.unwrap();
-    assert_eq!(h.submitter.calls.load(Ordering::SeqCst),1);
-    assert_eq!(*h.submitter.last_rcpt.lock().unwrap(),vec!["target@external.test"]);
-    assert!(h.submitter.last_raw.lock().unwrap().starts_with(b"X-Mailwoman-Loop: local-sieve\r\n"));
-    assert_eq!(h.backend.move_calls.load(Ordering::SeqCst),0);
-    h.engine.store().put_setting_value(&setting("false")).await.unwrap();
-    h.backend.state.lock().unwrap().messages.get_mut("INBOX").unwrap().push((2,String::from_utf8(message).unwrap().replace("forward-1","forward-2").into_bytes(),vec![],"2026-07-01T09:00:00Z".into()));
-    let _=h.engine.resync(&h.account_id).await;
-    assert_eq!(h.submitter.calls.load(Ordering::SeqCst),1);
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        *h.submitter.last_rcpt.lock().unwrap(),
+        vec!["target@external.test"]
+    );
+    assert!(
+        h.submitter
+            .last_raw
+            .lock()
+            .unwrap()
+            .starts_with(b"X-Mailwoman-Loop: local-sieve\r\n")
+    );
+    assert_eq!(h.backend.move_calls.load(Ordering::SeqCst), 0);
+    h.engine
+        .store()
+        .put_setting_value(&setting("false"))
+        .await
+        .unwrap();
+    h.backend
+        .state
+        .lock()
+        .unwrap()
+        .messages
+        .get_mut("INBOX")
+        .unwrap()
+        .push((
+            2,
+            String::from_utf8(message)
+                .unwrap()
+                .replace("forward-1", "forward-2")
+                .into_bytes(),
+            vec![],
+            "2026-07-01T09:00:00Z".into(),
+        ));
+    let _ = h.engine.resync(&h.account_id).await;
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
@@ -1249,12 +1379,19 @@ async fn rejected_revision_stays_blocked_when_durable_marker_cannot_be_written()
     let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
     let engine = Arc::new(Engine::new(store));
     let backend: Arc<dyn AccountBackend> = Arc::new(ReconnectBackend {
-        watch_calls: AtomicUsize::new(0), reject_reconnect: true,
+        watch_calls: AtomicUsize::new(0),
+        reject_reconnect: true,
     });
-    let mut runtime = AccountRuntime::new(backend.clone(), Arc::new(FakeSubmitter::new()), "me@example.org");
+    let mut runtime = AccountRuntime::new(
+        backend.clone(),
+        Arc::new(FakeSubmitter::new()),
+        "me@example.org",
+    );
     runtime.credential_revision = Some(vec![1, 2, 3]);
     engine.register_backend("missing-store-row", runtime);
-    engine.reject_runtime_credentials("missing-store-row", &backend).await;
+    engine
+        .reject_runtime_credentials("missing-store-row", &backend)
+        .await;
     assert!(engine.credential_revision_rejected("missing-store-row", &[1, 2, 3]));
     assert!(!engine.credential_revision_rejected("missing-store-row", &[4, 5, 6]));
     assert!(!engine.is_registered("missing-store-row"));
@@ -1524,118 +1661,285 @@ async fn dlp_encryption_requirement_refuses_matching_plaintext_submission() {
 
 #[tokio::test]
 async fn dsn_unknown_is_unadvertised_and_refusal_never_falls_back_to_plain_send() {
-    let h=setup().await;
+    let h = setup().await;
     h.engine.resync(&h.account_id).await.unwrap();
-    assert_eq!(h.engine.submission_extensions(&h.account_id),json!({}));
+    assert_eq!(h.engine.submission_extensions(&h.account_id), json!({}));
     assert!(!h.engine.dsn_offered(&h.account_id).await.unwrap());
     // An obsolete process-persistent observation is not authority for this runtime.
-    h.engine.store().set_setting(&format!("smtp_dsn:{}",h.account_id),"true").await.unwrap();
+    h.engine
+        .store()
+        .set_setting(&format!("smtp_dsn:{}", h.account_id), "true")
+        .await
+        .unwrap();
     assert!(!h.engine.dsn_offered(&h.account_id).await.unwrap());
     let response=jmap(&h,json!([
         ["Email/set",{"create":{"draft":{"from":[{"email":"me@example.org"}],"to":[{"email":"friend@example.org"}],"subject":"DSN must be honored","bodyValues":{"1":{"value":"hello"}},"textBody":[{"partId":"1","type":"text/plain"}]}}},"draft"],
         ["EmailSubmission/set",{"create":{"send":{"emailId":"#draft","envelope":{"mailFrom":{"email":"me@example.org"},"rcptTo":[{"email":"friend@example.org","parameters":{"NOTIFY":"SUCCESS,FAILURE"}}]}}}},"send"]
     ])).await;
-    assert!(method_result(&response,"send")["notCreated"]["send"].is_object(),"{response}");
-    assert_eq!(h.submitter.calls.load(Ordering::SeqCst),0,"unsupported DSN must never retry an ordinary submission");
+    assert!(
+        method_result(&response, "send")["notCreated"]["send"].is_object(),
+        "{response}"
+    );
+    assert_eq!(
+        h.submitter.calls.load(Ordering::SeqCst),
+        0,
+        "unsupported DSN must never retry an ordinary submission"
+    );
 }
 
 #[tokio::test]
 async fn dsn_probe_cannot_publish_a_replaced_runtime_authority() {
-    struct HeldProbe { entered: tokio::sync::Notify, release: tokio::sync::Notify }
+    struct HeldProbe {
+        entered: tokio::sync::Notify,
+        release: tokio::sync::Notify,
+    }
     #[async_trait]
     impl MailSubmitter for HeldProbe {
-        fn cached_dsn_support(&self) -> bool { true }
-        async fn probe_dsn(&self) -> Result<bool> { self.entered.notify_one(); self.release.notified().await; Ok(true) }
-        async fn submit(&self, _:Outgoing)->Result<SubmissionResult>{panic!("probe must never submit")}
+        fn cached_dsn_support(&self) -> bool {
+            true
+        }
+        async fn probe_dsn(&self) -> Result<bool> {
+            self.entered.notify_one();
+            self.release.notified().await;
+            Ok(true)
+        }
+        async fn submit(&self, _: Outgoing) -> Result<SubmissionResult> {
+            panic!("probe must never submit")
+        }
     }
-    let h=setup().await;
-    let probe=Arc::new(HeldProbe{entered:tokio::sync::Notify::new(),release:tokio::sync::Notify::new()});
-    h.engine.register_backend(h.account_id.clone(),AccountRuntime::new(h.backend.clone(),probe.clone(),"me@example.org"));
-    assert_eq!(h.engine.submission_extensions(&h.account_id),json!({"DSN":[]}));
-    let engine=h.engine.clone(); let account=h.account_id.clone();
-    let probing=tokio::spawn(async move {engine.dsn_offered(&account).await.unwrap()});
+    let h = setup().await;
+    let probe = Arc::new(HeldProbe {
+        entered: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+    });
+    h.engine.register_backend(
+        h.account_id.clone(),
+        AccountRuntime::new(h.backend.clone(), probe.clone(), "me@example.org"),
+    );
+    assert_eq!(
+        h.engine.submission_extensions(&h.account_id),
+        json!({"DSN":[]})
+    );
+    let engine = h.engine.clone();
+    let account = h.account_id.clone();
+    let probing = tokio::spawn(async move { engine.dsn_offered(&account).await.unwrap() });
     probe.entered.notified().await;
-    h.engine.register_backend(h.account_id.clone(),AccountRuntime::new(h.backend.clone(),h.submitter.clone(),"me@example.org"));
-    probe.release.notify_one(); assert!(!probing.await.unwrap());
-    assert_eq!(h.engine.submission_extensions(&h.account_id),json!({}));
+    h.engine.register_backend(
+        h.account_id.clone(),
+        AccountRuntime::new(h.backend.clone(), h.submitter.clone(), "me@example.org"),
+    );
+    probe.release.notify_one();
+    assert!(!probing.await.unwrap());
+    assert_eq!(h.engine.submission_extensions(&h.account_id), json!({}));
 }
 
 #[tokio::test]
 async fn account_draft_confirmed_append_is_unsent_and_resumable() {
-    let h=setup().await;
+    let h = setup().await;
     h.engine.resync(&h.account_id).await.unwrap();
-    let spec=json!({"subject":"Unsent draft","textBody":[{"partId":"body"}],"bodyValues":{"body":{"value":"editable body"}},"keywords":{"$draft":true}});
-    let prepared=h.engine.prepare_account_draft(&h.account_id,&spec,None).await.unwrap();
-    assert_eq!(h.backend.append_calls.load(Ordering::SeqCst),0);
-    let id=h.engine.persist_account_draft(prepared).await.unwrap();
-    assert_eq!(h.backend.append_calls.load(Ordering::SeqCst),1);
-    assert_eq!(h.submitter.calls.load(Ordering::SeqCst),0);
-    let row=h.engine.store().get_message(&id).await.unwrap();
-    assert!(row.uid>0&&row.uidvalidity>0);
-    assert_eq!(h.engine.store().get_mailbox(&row.mailbox_id).await.unwrap().role.as_deref(),Some("drafts"));
-    let upstream=h.backend.state.lock().unwrap();
-    let messages=upstream.messages.get("Drafts").unwrap();
-    assert_eq!(messages.len(),1);assert!(messages[0].2.contains(&Flag::Draft));
+    let spec = json!({"subject":"Unsent draft","textBody":[{"partId":"body"}],"bodyValues":{"body":{"value":"editable body"}},"keywords":{"$draft":true}});
+    let prepared = h
+        .engine
+        .prepare_account_draft(&h.account_id, &spec, None)
+        .await
+        .unwrap();
+    assert_eq!(h.backend.append_calls.load(Ordering::SeqCst), 0);
+    let id = h.engine.persist_account_draft(prepared).await.unwrap();
+    assert_eq!(h.backend.append_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 0);
+    let row = h.engine.store().get_message(&id).await.unwrap();
+    assert!(row.uid > 0 && row.uidvalidity > 0);
+    assert_eq!(
+        h.engine
+            .store()
+            .get_mailbox(&row.mailbox_id)
+            .await
+            .unwrap()
+            .role
+            .as_deref(),
+        Some("drafts")
+    );
+    let upstream = h.backend.state.lock().unwrap();
+    let messages = upstream.messages.get("Drafts").unwrap();
+    assert_eq!(messages.len(), 1);
+    assert!(messages[0].2.contains(&Flag::Draft));
     assert!(String::from_utf8_lossy(&messages[0].1).contains("editable body"));
 }
 
 #[tokio::test]
 async fn account_draft_runtime_replacement_after_append_refuses_cache_publication() {
-    let h=setup().await;h.engine.resync(&h.account_id).await.unwrap();
-    let spec=json!({"subject":"Held draft","textBody":[{"partId":"body"}],"bodyValues":{"body":{"value":"private draft"}}});
-    let prepared=h.engine.prepare_account_draft(&h.account_id,&spec,None).await.unwrap();
-    let gate=Arc::new(HeldDraftAppend{entered:tokio::sync::Notify::new(),release:tokio::sync::Notify::new()});
-    *h.backend.held_draft_append.lock().unwrap()=Some(gate.clone());
-    let engine=h.engine.clone();let saving=tokio::spawn(async move{engine.persist_account_draft(prepared).await});
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let spec = json!({"subject":"Held draft","textBody":[{"partId":"body"}],"bodyValues":{"body":{"value":"private draft"}}});
+    let prepared = h
+        .engine
+        .prepare_account_draft(&h.account_id, &spec, None)
+        .await
+        .unwrap();
+    let gate = Arc::new(HeldDraftAppend {
+        entered: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+    });
+    *h.backend.held_draft_append.lock().unwrap() = Some(gate.clone());
+    let engine = h.engine.clone();
+    let saving = tokio::spawn(async move { engine.persist_account_draft(prepared).await });
     gate.entered.notified().await;
-    let replacement=Arc::new(FakeBackend::new());
-    h.engine.register_backend(h.account_id.clone(),AccountRuntime::new(replacement.clone(),h.submitter.clone(),"me@example.org"));
+    let replacement = Arc::new(FakeBackend::new());
+    h.engine.register_backend(
+        h.account_id.clone(),
+        AccountRuntime::new(replacement.clone(), h.submitter.clone(), "me@example.org"),
+    );
     gate.release.notify_one();
-    assert!(saving.await.unwrap().is_err(),"accepted old-runtime APPEND must remain uncertain after replacement");
-    assert_eq!(h.backend.append_calls.load(Ordering::SeqCst),1);
-    assert_eq!(replacement.append_calls.load(Ordering::SeqCst),0);
-    assert_eq!(h.submitter.calls.load(Ordering::SeqCst),0);
-    let response=jmap(&h,json!([["Email/query",{"filter":{"subject":"Held draft"}},"query"]])).await;
-    assert_eq!(method_result(&response,"query")["ids"],json!([]),"accepted coordinates from the replaced runtime must not enter the cache");
+    assert!(
+        saving.await.unwrap().is_err(),
+        "accepted old-runtime APPEND must remain uncertain after replacement"
+    );
+    assert_eq!(h.backend.append_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(replacement.append_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 0);
+    let response = jmap(
+        &h,
+        json!([["Email/query",{"filter":{"subject":"Held draft"}},"query"]]),
+    )
+    .await;
+    assert_eq!(
+        method_result(&response, "query")["ids"],
+        json!([]),
+        "accepted coordinates from the replaced runtime must not enter the cache"
+    );
 }
 #[tokio::test]
 async fn account_draft_unsupported_and_foreign_blobs_never_append_or_submit() {
-    let h=setup().await;h.engine.resync(&h.account_id).await.unwrap();
-    let spec=json!({"subject":"unsent","textBody":[{"partId":"body"}],"bodyValues":{"body":{"value":"body"}}});
-    h.backend.import_supported.store(false,Ordering::SeqCst);
-    assert!(h.engine.prepare_account_draft(&h.account_id,&spec,None).await.is_err());
-    h.backend.import_supported.store(true,Ordering::SeqCst);
-    h.backend.draft_uidplus.store(false,Ordering::SeqCst);
-    assert!(h.engine.prepare_account_draft(&h.account_id,&spec,None).await.is_err());
-    h.backend.draft_uidplus.store(true,Ordering::SeqCst);
-    let mut foreign=spec.clone();foreign["attachments"]=json!([{"blobId":"Uforeign-owned","name":"secret.txt","size":1,"type":"text/plain"}]);
-    assert!(h.engine.prepare_account_draft(&h.account_id,&foreign,None).await.is_err());
-    assert_eq!(h.backend.append_calls.load(Ordering::SeqCst),0);assert_eq!(h.submitter.calls.load(Ordering::SeqCst),0);
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let spec = json!({"subject":"unsent","textBody":[{"partId":"body"}],"bodyValues":{"body":{"value":"body"}}});
+    h.backend.import_supported.store(false, Ordering::SeqCst);
+    assert!(
+        h.engine
+            .prepare_account_draft(&h.account_id, &spec, None)
+            .await
+            .is_err()
+    );
+    h.backend.import_supported.store(true, Ordering::SeqCst);
+    h.backend.draft_uidplus.store(false, Ordering::SeqCst);
+    assert!(
+        h.engine
+            .prepare_account_draft(&h.account_id, &spec, None)
+            .await
+            .is_err()
+    );
+    h.backend.draft_uidplus.store(true, Ordering::SeqCst);
+    let mut foreign = spec.clone();
+    foreign["attachments"] =
+        json!([{"blobId":"Uforeign-owned","name":"secret.txt","size":1,"type":"text/plain"}]);
+    assert!(
+        h.engine
+            .prepare_account_draft(&h.account_id, &foreign, None)
+            .await
+            .is_err()
+    );
+    assert_eq!(h.backend.append_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
-async fn account_draft_is_retained_while_queued_and_removed_only_after_confirmed_send(){
- use mw_store::account_drafts::{DraftSave,DraftClaim};
- let h=setup().await;h.backend.draft_cleanup_supported.store(true,Ordering::SeqCst);h.engine.resync(&h.account_id).await.unwrap();
- let owner=h.engine.store().native_personal_subject(&h.account_id).await.unwrap().unwrap();
- let input=DraftSave{owner:&owner,account_id:&h.account_id,id:"logical-draft",expected_revision:None,operation_id:"save-one",state:b"editable state",summary:b"subject",now:1};
- assert!(matches!(h.engine.store().claim_account_draft(&input).await.unwrap(),DraftClaim::Claimed));
- let spec=json!({"subject":"Draft finality","to":[{"email":"you@example.org"}],"textBody":[{"partId":"body"}],"bodyValues":{"body":{"value":"hello"}}});
- let prepared=h.engine.prepare_account_draft(&h.account_id,&spec,None).await.unwrap();let email=h.engine.persist_account_draft(prepared).await.unwrap();
- let saved=h.engine.store().complete_account_draft(&owner,"logical-draft","save-one",&email,2).await.unwrap().unwrap();
- let response=jmap(&h,json!([["Email/set",{"create":{"outgoing":spec}},"d"],["EmailSubmission/set",{"create":{"send":{"emailId":"#outgoing","mailwomanHoldSeconds":3600,"mailwomanAccountDraft":{"id":"logical-draft","revision":saved.revision}}}},"s"]])).await;
- let submission=method_result(&response,"s")["created"]["send"]["id"].as_str().unwrap_or_else(||panic!("{response}")).to_string();
- assert_eq!(h.submitter.calls.load(Ordering::SeqCst),0);assert!(h.engine.store().account_draft(&owner,"logical-draft").await.unwrap().is_some());
- let response=jmap(&h,json!([["EmailSubmission/set",{"update":{submission.clone():{"sendAt":null,"mailwomanHoldSeconds":0}}},"s"]])).await;
- assert!(method_result(&response,"s")["notUpdated"].get(&submission).is_none(),"{response}");
- assert_eq!(h.submitter.calls.load(Ordering::SeqCst),1);
- assert!(h.engine.store().account_draft(&owner,"logical-draft").await.unwrap().is_none());
+async fn account_draft_is_retained_while_queued_and_removed_only_after_confirmed_send() {
+    use mw_store::account_drafts::{DraftClaim, DraftSave};
+    let h = setup().await;
+    h.backend
+        .draft_cleanup_supported
+        .store(true, Ordering::SeqCst);
+    h.engine.resync(&h.account_id).await.unwrap();
+    let owner = h
+        .engine
+        .store()
+        .native_personal_subject(&h.account_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let input = DraftSave {
+        owner: &owner,
+        account_id: &h.account_id,
+        id: "logical-draft",
+        expected_revision: None,
+        operation_id: "save-one",
+        state: b"editable state",
+        summary: b"subject",
+        now: 1,
+    };
+    assert!(matches!(
+        h.engine.store().claim_account_draft(&input).await.unwrap(),
+        DraftClaim::Claimed
+    ));
+    let spec = json!({"subject":"Draft finality","to":[{"email":"you@example.org"}],"textBody":[{"partId":"body"}],"bodyValues":{"body":{"value":"hello"}}});
+    let prepared = h
+        .engine
+        .prepare_account_draft(&h.account_id, &spec, None)
+        .await
+        .unwrap();
+    let email = h.engine.persist_account_draft(prepared).await.unwrap();
+    let saved = h
+        .engine
+        .store()
+        .complete_account_draft(&owner, "logical-draft", "save-one", &email, 2)
+        .await
+        .unwrap()
+        .unwrap();
+    let response=jmap(&h,json!([["Email/set",{"create":{"outgoing":spec}},"d"],["EmailSubmission/set",{"create":{"send":{"emailId":"#outgoing","mailwomanHoldSeconds":3600,"mailwomanAccountDraft":{"id":"logical-draft","revision":saved.revision}}}},"s"]])).await;
+    let submission = method_result(&response, "s")["created"]["send"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{response}"))
+        .to_string();
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 0);
+    assert!(
+        h.engine
+            .store()
+            .account_draft(&owner, "logical-draft")
+            .await
+            .unwrap()
+            .is_some()
+    );
+    let response=jmap(&h,json!([["EmailSubmission/set",{"update":{submission.clone():{"sendAt":null,"mailwomanHoldSeconds":0}}},"s"]])).await;
+    assert!(
+        method_result(&response, "s")["notUpdated"]
+            .get(&submission)
+            .is_none(),
+        "{response}"
+    );
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 1);
+    assert!(
+        h.engine
+            .store()
+            .account_draft(&owner, "logical-draft")
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[tokio::test]
-async fn account_draft_zero_access_never_appends_plaintext(){
- let h=setup().await;h.engine.resync(&h.account_id).await.unwrap();
- h.engine.store().upsert_zeroaccess(&mw_store::ZeroAccessRow{account_id:h.account_id.clone(),enabled:true,wrapped_root_key:vec![1],kdf_params_json:"{}".into(),recovery_wrapped:None,paired_devices_json:"[]".into()}).await.unwrap();
- let spec=json!({"subject":"private","textBody":[{"partId":"body"}],"bodyValues":{"body":{"value":"private body"}}});
- assert!(h.engine.prepare_account_draft(&h.account_id,&spec,None).await.is_err());assert_eq!(h.backend.append_calls.load(Ordering::SeqCst),0);assert_eq!(h.submitter.calls.load(Ordering::SeqCst),0);
+async fn account_draft_zero_access_never_appends_plaintext() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    h.engine
+        .store()
+        .upsert_zeroaccess(&mw_store::ZeroAccessRow {
+            account_id: h.account_id.clone(),
+            enabled: true,
+            wrapped_root_key: vec![1],
+            kdf_params_json: "{}".into(),
+            recovery_wrapped: None,
+            paired_devices_json: "[]".into(),
+        })
+        .await
+        .unwrap();
+    let spec = json!({"subject":"private","textBody":[{"partId":"body"}],"bodyValues":{"body":{"value":"private body"}}});
+    assert!(
+        h.engine
+            .prepare_account_draft(&h.account_id, &spec, None)
+            .await
+            .is_err()
+    );
+    assert_eq!(h.backend.append_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 0);
 }

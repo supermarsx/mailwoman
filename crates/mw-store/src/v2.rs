@@ -493,8 +493,11 @@ impl Store {
     /// The expected scheduling snapshot prevents stale cancellation/release reads
     /// from authorizing a send. Orphaned claims are deliberately never retried.
     pub async fn claim_submission_attempt(
-        &self, row: &SubmissionRow, on_success: Option<&str>,
-        next_attempt_at: Option<&str>, claim: &str,
+        &self,
+        row: &SubmissionRow,
+        on_success: Option<&str>,
+        next_attempt_at: Option<&str>,
+        claim: &str,
     ) -> Result<bool, StoreError> {
         let affected = q("UPDATE submissions SET undo_status = ?2
             WHERE id = ?1 AND account_id = ?3 AND email_id = ?4
@@ -503,30 +506,54 @@ impl Store {
               AND hold_seconds = ?6 AND created_at = ?7
               AND (on_success = ?8 OR (on_success IS NULL AND ?8 IS NULL))
               AND (next_attempt_at = ?9 OR (next_attempt_at IS NULL AND ?9 IS NULL))")
-            .bind(&row.id).bind(claim).bind(&row.account_id).bind(&row.email_id)
-            .bind(row.send_at.as_deref()).bind(row.hold_seconds as i64).bind(&row.created_at)
-            .bind(on_success).bind(next_attempt_at).execute(&self.backend).await?;
+        .bind(&row.id)
+        .bind(claim)
+        .bind(&row.account_id)
+        .bind(&row.email_id)
+        .bind(row.send_at.as_deref())
+        .bind(row.hold_seconds as i64)
+        .bind(&row.created_at)
+        .bind(on_success)
+        .bind(next_attempt_at)
+        .execute(&self.backend)
+        .await?;
         Ok(affected == 1)
     }
 
     /// Only the owner of this exact attempt may record its result.
     pub async fn finish_submission_attempt(
-        &self, id: &str, claim: &str, error: &str,
-        next_attempt_at: Option<&str>, status: &str,
+        &self,
+        id: &str,
+        claim: &str,
+        error: &str,
+        next_attempt_at: Option<&str>,
+        status: &str,
     ) -> Result<bool, StoreError> {
         let affected = q("UPDATE submissions SET attempts = attempts + 1,
             last_error = ?3, next_attempt_at = ?4, undo_status = ?5
             WHERE id = ?1 AND undo_status = ?2")
-            .bind(id).bind(claim).bind(error).bind(next_attempt_at).bind(status)
-            .execute(&self.backend).await?;
+        .bind(id)
+        .bind(claim)
+        .bind(error)
+        .bind(next_attempt_at)
+        .bind(status)
+        .execute(&self.backend)
+        .await?;
         Ok(affected == 1)
     }
 
     /// Persist confirmed SMTP acceptance only for the exact durable attempt.
-    pub async fn accept_submission_attempt(&self, id: &str, claim: &str) -> Result<bool, StoreError> {
+    pub async fn accept_submission_attempt(
+        &self,
+        id: &str,
+        claim: &str,
+    ) -> Result<bool, StoreError> {
         let affected = q("UPDATE submissions SET undo_status = 'final',
             last_error = NULL, next_attempt_at = NULL WHERE id = ?1 AND undo_status = ?2")
-            .bind(id).bind(claim).execute(&self.backend).await?;
+        .bind(id)
+        .bind(claim)
+        .execute(&self.backend)
+        .await?;
         Ok(affected == 1)
     }
 
@@ -658,7 +685,9 @@ impl Store {
         .bind(&i.source)
         .execute(&self.backend)
         .await?;
-        if affected == 0 { return Err(StoreError::NotFound); }
+        if affected == 0 {
+            return Err(StoreError::NotFound);
+        }
         Ok(())
     }
 
@@ -689,7 +718,8 @@ impl Store {
     /// Delete a sending identity only under its current account owner.
     pub async fn delete_identity(&self, account_id: &str, id: &str) -> Result<bool, StoreError> {
         let affected = q("DELETE FROM identities WHERE id = ?1 AND account_id = ?2")
-            .bind(id).bind(account_id)
+            .bind(id)
+            .bind(account_id)
             .execute(&self.backend)
             .await?;
         Ok(affected == 1)
@@ -1668,40 +1698,113 @@ mod tests {
     async fn assert_durable_submission_claim(s: &Store) {
         let (account_id, _, email_id) = seed_msg(s).await;
         let row = SubmissionRow {
-            id: format!("claim-{account_id}"), account_id, email_id,
-            identity_id: None, send_at: None, undo_status: "pending".into(),
-            hold_seconds: 0, created_at: "2026-07-01T10:00:00Z".into(),
+            id: format!("claim-{account_id}"),
+            account_id,
+            email_id,
+            identity_id: None,
+            send_at: None,
+            undo_status: "pending".into(),
+            hold_seconds: 0,
+            created_at: "2026-07-01T10:00:00Z".into(),
         };
         s.insert_submission(&row).await.unwrap();
-        let mut foreign = row.clone(); foreign.account_id = "other-account".into();
-        assert!(!s.claim_submission_attempt(&foreign, None, None, "sending:foreign").await.unwrap());
-        let mut stale = row.clone(); stale.hold_seconds = 99;
-        assert!(!s.claim_submission_attempt(&stale,None,None,"sending:stale").await.unwrap());
-        assert!(!s.claim_submission_attempt(&row,Some("changed-envelope"),None,"sending:stale").await.unwrap());
-        assert!(!s.claim_submission_attempt(&row,None,Some("2999-01-01T00:00:00Z"),"sending:stale").await.unwrap());
-        let (a,b) = tokio::join!(
+        let mut foreign = row.clone();
+        foreign.account_id = "other-account".into();
+        assert!(
+            !s.claim_submission_attempt(&foreign, None, None, "sending:foreign")
+                .await
+                .unwrap()
+        );
+        let mut stale = row.clone();
+        stale.hold_seconds = 99;
+        assert!(
+            !s.claim_submission_attempt(&stale, None, None, "sending:stale")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !s.claim_submission_attempt(&row, Some("changed-envelope"), None, "sending:stale")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !s.claim_submission_attempt(&row, None, Some("2999-01-01T00:00:00Z"), "sending:stale")
+                .await
+                .unwrap()
+        );
+        let (a, b) = tokio::join!(
             s.claim_submission_attempt(&row, None, None, "sending:a"),
             s.claim_submission_attempt(&row, None, None, "sending:b"),
         );
-        let a = a.unwrap(); let b = b.unwrap(); assert_ne!(a,b);
+        let a = a.unwrap();
+        let b = b.unwrap();
+        assert_ne!(a, b);
         let winner = if a { "sending:a" } else { "sending:b" };
         let loser = if a { "sending:b" } else { "sending:a" };
-        assert!(!s.pending_submissions().await.unwrap().iter().any(|r| r.id == row.id));
-        assert!(!s.transition_submission(&row.id,"pending","canceled").await.unwrap());
-        assert!(!s.finish_submission_attempt(&row.id,loser,"stale",None,"failed").await.unwrap());
-        assert!(s.finish_submission_attempt(&row.id,winner,"delivery status unknown",None,"uncertain").await.unwrap());
-        assert!(!s.claim_submission_attempt(&row,None,None,"sending:retry").await.unwrap());
-        assert!(!s.pending_submissions().await.unwrap().iter().any(|r| r.id == row.id));
-        assert_eq!(s.get_submission(&row.id).await.unwrap().unwrap().undo_status,"uncertain");
+        assert!(
+            !s.pending_submissions()
+                .await
+                .unwrap()
+                .iter()
+                .any(|r| r.id == row.id)
+        );
+        assert!(
+            !s.transition_submission(&row.id, "pending", "canceled")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !s.finish_submission_attempt(&row.id, loser, "stale", None, "failed")
+                .await
+                .unwrap()
+        );
+        assert!(
+            s.finish_submission_attempt(
+                &row.id,
+                winner,
+                "delivery status unknown",
+                None,
+                "uncertain"
+            )
+            .await
+            .unwrap()
+        );
+        assert!(
+            !s.claim_submission_attempt(&row, None, None, "sending:retry")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !s.pending_submissions()
+                .await
+                .unwrap()
+                .iter()
+                .any(|r| r.id == row.id)
+        );
+        assert_eq!(
+            s.get_submission(&row.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .undo_status,
+            "uncertain"
+        );
     }
 
     #[tokio::test]
-    async fn durable_submission_claim() { assert_durable_submission_claim(&store().await).await; }
+    async fn durable_submission_claim() {
+        assert_durable_submission_claim(&store().await).await;
+    }
 
     #[tokio::test]
     async fn postgres_durable_submission_claim() {
-        let Some(dsn) = pg_dsn() else { skip("durable SMTP claim: Postgres"); return; };
-        let s=Store::open_postgres(&dsn,crate::ServerKey::generate()).await.unwrap();
+        let Some(dsn) = pg_dsn() else {
+            skip("durable SMTP claim: Postgres");
+            return;
+        };
+        let s = Store::open_postgres(&dsn, crate::ServerKey::generate())
+            .await
+            .unwrap();
         assert_durable_submission_claim(&s).await;
     }
 
@@ -1952,35 +2055,72 @@ mod tests {
     }
 
     async fn assert_identity_owner_is_atomic(store: &Store) {
-        let (owner,_,_)=seed_msg(store).await;
-        let (other,_,_)=seed_msg(store).await;
-        let row=IdentityRow {id:format!("identity-{}",crate::seal::random_token()),account_id:owner.clone(),
-            name:"Owner".into(),email:"owner@example.org".into(),reply_to:None,signature_html:None,
-            signature_text:None,signature_name:None,sent_mailbox_id:None,source:"configured".into()};
+        let (owner, _, _) = seed_msg(store).await;
+        let (other, _, _) = seed_msg(store).await;
+        let row = IdentityRow {
+            id: format!("identity-{}", crate::seal::random_token()),
+            account_id: owner.clone(),
+            name: "Owner".into(),
+            email: "owner@example.org".into(),
+            reply_to: None,
+            signature_html: None,
+            signature_text: None,
+            signature_name: None,
+            sent_mailbox_id: None,
+            source: "configured".into(),
+        };
         store.upsert_identity(&row).await.unwrap();
-        let mut foreign=row.clone();foreign.account_id=other;foreign.name="Foreign overwrite".into();
-        assert!(matches!(store.upsert_identity(&foreign).await,Err(StoreError::NotFound)));
-        assert_eq!(store.get_identity(&row.id).await.unwrap(),Some(row.clone()));
-        let mut changed=row.clone();changed.name="Owner edit".into();
+        let mut foreign = row.clone();
+        foreign.account_id = other;
+        foreign.name = "Foreign overwrite".into();
+        assert!(matches!(
+            store.upsert_identity(&foreign).await,
+            Err(StoreError::NotFound)
+        ));
+        assert_eq!(
+            store.get_identity(&row.id).await.unwrap(),
+            Some(row.clone())
+        );
+        let mut changed = row.clone();
+        changed.name = "Owner edit".into();
         store.upsert_identity(&changed).await.unwrap();
-        assert_eq!(store.get_identity(&row.id).await.unwrap(),Some(changed));
-        assert!(!store.delete_identity(&foreign.account_id,&row.id).await.unwrap());
-        assert!(store.delete_identity(&owner,&row.id).await.unwrap());
-        let mut left=row.clone();left.id=format!("identity-race-{}",crate::seal::random_token());
-        let mut right=foreign.clone();right.id=left.id.clone();
-        let (first,second)=tokio::join!(store.upsert_identity(&left),store.upsert_identity(&right));
-        assert_ne!(first.is_ok(),second.is_ok(), "only one owner may claim an identity ID");
-        let winner=if first.is_ok(){left}else{right};
-        assert_eq!(store.get_identity(&winner.id).await.unwrap(),Some(winner));
+        assert_eq!(store.get_identity(&row.id).await.unwrap(), Some(changed));
+        assert!(
+            !store
+                .delete_identity(&foreign.account_id, &row.id)
+                .await
+                .unwrap()
+        );
+        assert!(store.delete_identity(&owner, &row.id).await.unwrap());
+        let mut left = row.clone();
+        left.id = format!("identity-race-{}", crate::seal::random_token());
+        let mut right = foreign.clone();
+        right.id = left.id.clone();
+        let (first, second) =
+            tokio::join!(store.upsert_identity(&left), store.upsert_identity(&right));
+        assert_ne!(
+            first.is_ok(),
+            second.is_ok(),
+            "only one owner may claim an identity ID"
+        );
+        let winner = if first.is_ok() { left } else { right };
+        assert_eq!(store.get_identity(&winner.id).await.unwrap(), Some(winner));
     }
 
     #[tokio::test]
-    async fn identity_owner_is_atomic() { assert_identity_owner_is_atomic(&store().await).await; }
+    async fn identity_owner_is_atomic() {
+        assert_identity_owner_is_atomic(&store().await).await;
+    }
 
     #[tokio::test]
     async fn postgres_identity_owner_is_atomic() {
-        let Some(dsn)=pg_dsn() else {skip("identity atomic ownership: Postgres");return;};
-        let store=Store::open_postgres(&dsn,ServerKey::generate()).await.unwrap();
+        let Some(dsn) = pg_dsn() else {
+            skip("identity atomic ownership: Postgres");
+            return;
+        };
+        let store = Store::open_postgres(&dsn, ServerKey::generate())
+            .await
+            .unwrap();
         assert_identity_owner_is_atomic(&store).await;
     }
 

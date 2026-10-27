@@ -166,7 +166,8 @@ impl Engine {
     pub async fn mailbox_role_view(&self, account: &str) -> Result<RoleView> {
         use mw_store::settings_policy::{ResolveInput, SettingSubject, resolve};
         let identity = self.store().get_account(account).await?.username;
-        let subject = SettingSubject { personal_owner: None,
+        let subject = SettingSubject {
+            personal_owner: None,
             domain: identity.rsplit_once('@').map_or("", |(_, domain)| domain),
             account_id: account,
             address: &identity,

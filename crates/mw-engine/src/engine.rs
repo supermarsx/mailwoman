@@ -270,14 +270,29 @@ impl Engine {
             }
             controls.insert(account_id.clone(), Arc::downgrade(&runtime.pim_sync));
         }
-        if let Some(previous) = self.accounts.lock().expect("accounts lock").insert(account_id, runtime) {
+        if let Some(previous) = self
+            .accounts
+            .lock()
+            .expect("accounts lock")
+            .insert(account_id, runtime)
+        {
             previous.initial_sync.cancel();
         }
     }
 
     /// Install a guarded transport without replacing mailbox state or watch handles.
-    pub fn configure_dav_transport(&self, account: &str, config: mw_dav::DavConfig, transport: Arc<dyn mw_dav::DavTransport>) {
-        if let Some(runtime) = self.accounts.lock().expect("accounts lock").get_mut(account) {
+    pub fn configure_dav_transport(
+        &self,
+        account: &str,
+        config: mw_dav::DavConfig,
+        transport: Arc<dyn mw_dav::DavTransport>,
+    ) {
+        if let Some(runtime) = self
+            .accounts
+            .lock()
+            .expect("accounts lock")
+            .get_mut(account)
+        {
             runtime.dav = Some(config);
             runtime.dav_transport = Some(transport);
         }
@@ -285,15 +300,22 @@ impl Engine {
 
     /// Explicit bounded caller-driven refresh of all configured PIM collections.
     pub fn pim_sync_due(&self, account: &str, interval: Duration) -> bool {
-        self.runtime(account).is_some_and(|rt| rt.pim_sync.due(interval))
+        self.runtime(account)
+            .is_some_and(|rt| rt.pim_sync.due(interval))
     }
 
     pub async fn sync_current_pim(&self, account: &str) -> Result<()> {
         let runtime = self.require_runtime(account)?;
         let mut run = runtime.pim_sync.begin().await;
-        let selected = self.store().active_nextcloud_pim_bindings(account).await?
-            .into_iter().map(|binding|binding.collection_id).collect();
-        self.sync_pim_selected(account, &runtime, Some(&selected)).await?;
+        let selected = self
+            .store()
+            .active_nextcloud_pim_bindings(account)
+            .await?
+            .into_iter()
+            .map(|binding| binding.collection_id)
+            .collect();
+        self.sync_pim_selected(account, &runtime, Some(&selected))
+            .await?;
         run.succeeded();
         Ok(())
     }
@@ -353,11 +375,14 @@ impl Engine {
 
     /// Drop an account's runtime (stopping any watch loop on the last `Arc`).
     pub fn unregister(&self, account_id: &str) -> Option<AccountRuntime> {
-        let previous = self.accounts
+        let previous = self
+            .accounts
             .lock()
             .expect("accounts lock")
             .remove(account_id);
-        if let Some(runtime) = &previous { runtime.initial_sync.cancel(); }
+        if let Some(runtime) = &previous {
+            runtime.initial_sync.cancel();
+        }
         previous
     }
 
@@ -394,10 +419,18 @@ impl Engine {
         self.resync(account_id).await
     }
 
-    pub(crate) async fn ensure_cached_date_upgrade(&self, account_id: &str) -> std::result::Result<(), mw_store::StoreError> {
-        self.cached_date_upgrade.ensure(account_id, || async {
-            self.store.normalize_cached_imap_dates(account_id).await.map(|_| ())
-        }).await
+    pub(crate) async fn ensure_cached_date_upgrade(
+        &self,
+        account_id: &str,
+    ) -> std::result::Result<(), mw_store::StoreError> {
+        self.cached_date_upgrade
+            .ensure(account_id, || async {
+                self.store
+                    .normalize_cached_imap_dates(account_id)
+                    .await
+                    .map(|_| ())
+            })
+            .await
     }
 
     /// Full sync: enumerate mailboxes, upsert them, then incrementally sync each
@@ -412,7 +445,9 @@ impl Engine {
         self.ensure_cached_date_upgrade(account_id).await?;
         let mailboxes = rt.backend.list_mailboxes().await?;
         self.require_runtime_generation(account_id, rt)?;
-        let pairs = self.reconcile_mailbox_list(account_id, rt, mailboxes).await?;
+        let pairs = self
+            .reconcile_mailbox_list(account_id, rt, mailboxes)
+            .await?;
         for (rm, mailbox_id) in &pairs {
             self.require_runtime_generation(account_id, rt)?;
             self.sync_one(account_id, rt, rm, mailbox_id).await?;
@@ -421,20 +456,36 @@ impl Engine {
     }
 
     fn require_runtime_generation(&self, account: &str, expected: &AccountRuntime) -> Result<()> {
-        if expected.initial_sync.cancelled() || !self.runtime(account).is_some_and(|current| Arc::ptr_eq(&current.initial_sync, &expected.initial_sync)) {
-            return Err(EngineError::Transport("account runtime was replaced".into()));
+        if expected.initial_sync.cancelled()
+            || !self
+                .runtime(account)
+                .is_some_and(|current| Arc::ptr_eq(&current.initial_sync, &expected.initial_sync))
+        {
+            return Err(EngineError::Transport(
+                "account runtime was replaced".into(),
+            ));
         }
         Ok(())
     }
 
     /// Cache the authenticated LIST result without downloading message bodies.
-    pub async fn cache_mailbox_list(&self, account_id: &str, mailboxes: Vec<RawMailbox>) -> Result<()> {
+    pub async fn cache_mailbox_list(
+        &self,
+        account_id: &str,
+        mailboxes: Vec<RawMailbox>,
+    ) -> Result<()> {
         let rt = self.require_runtime(account_id)?;
-        self.reconcile_mailbox_list(account_id, &rt, mailboxes).await?;
+        self.reconcile_mailbox_list(account_id, &rt, mailboxes)
+            .await?;
         Ok(())
     }
 
-    async fn reconcile_mailbox_list(&self, account_id: &str, rt: &AccountRuntime, mailboxes: Vec<RawMailbox>) -> Result<Vec<(RawMailbox, String)>> {
+    async fn reconcile_mailbox_list(
+        &self,
+        account_id: &str,
+        rt: &AccountRuntime,
+        mailboxes: Vec<RawMailbox>,
+    ) -> Result<Vec<(RawMailbox, String)>> {
         let cached_mailboxes = self.store.list_mailboxes(account_id).await?;
         // Upsert every mailbox first so ingest-time rules (plan §0.6) can target
         // any folder even when it sorts after the inbox in the backend's list.
@@ -1230,11 +1281,15 @@ impl Engine {
         raw_limit: usize,
         html_limit: usize,
     ) -> Result<Option<Vec<String>>> {
-        let Some(raw) = self.stored_raw_limited(account_id, stable_id, raw_limit).await? else {
+        let Some(raw) = self
+            .stored_raw_limited(account_id, stable_id, raw_limit)
+            .await?
+        else {
             return Ok(None);
         };
         tokio::task::spawn_blocking(move || {
-            let message = mail_parser::MessageParser::default().parse(&raw)
+            let message = mail_parser::MessageParser::default()
+                .parse(&raw)
                 .ok_or_else(|| EngineError::Protocol("message body cannot be parsed".into()))?;
             if message.html_body.len() > 64 {
                 return Err(EngineError::Unsupported("too many HTML body parts".into()));
@@ -1242,15 +1297,21 @@ impl Engine {
             let mut total = 0usize;
             let mut bodies = Vec::new();
             for index in 0..message.html_body.len() {
-                let Some(html) = message.body_html(index) else { continue; };
-                total = total.checked_add(html.len()).ok_or_else(|| EngineError::Unsupported("HTML body limit exceeded".into()))?;
+                let Some(html) = message.body_html(index) else {
+                    continue;
+                };
+                total = total
+                    .checked_add(html.len())
+                    .ok_or_else(|| EngineError::Unsupported("HTML body limit exceeded".into()))?;
                 if total > html_limit {
                     return Err(EngineError::Unsupported("HTML body limit exceeded".into()));
                 }
                 bodies.push(html.into_owned());
             }
             Ok(Some(bodies))
-        }).await.map_err(|_| EngineError::Protocol("message body task failed".into()))?
+        })
+        .await
+        .map_err(|_| EngineError::Protocol("message body task failed".into()))?
     }
 
     /// CID membership from the same bounded, account-scoped source as downloads.
@@ -1439,7 +1500,9 @@ impl Engine {
                 Arc::ptr_eq(&current.initial_sync, &rt.initial_sync) && !rt.initial_sync.cancelled()
             }) else {
                 handle.stop();
-                return Err(EngineError::Transport("account runtime was replaced".into()));
+                return Err(EngineError::Transport(
+                    "account runtime was replaced".into(),
+                ));
             };
             current.watch = Some(Arc::new(WatchHandle::new(stop_tx)));
         }

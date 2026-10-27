@@ -77,13 +77,48 @@ pub(crate) fn ui_plugins_router() -> Router<AppState> {
 
 /// The UI-plugin admin routes (registered by `admin_router`).
 pub(crate) fn register_admin(r: &mut impl AdminRegistrar) {
-    r.admin_endpoint(Method::GET, "/ui-plugins", AdminCap::PluginsRead, list_admin);
-    r.admin_endpoint(Method::POST, "/ui-plugins", AdminCap::UiPluginsWrite, register);
-    r.admin_endpoint(Method::POST, "/ui-plugins/{id}/approve", AdminCap::UiPluginsWrite, approve);
-    r.admin_endpoint(Method::POST, "/ui-plugins/{id}/enable", AdminCap::UiPluginsWrite, enable);
-    r.admin_endpoint(Method::POST, "/ui-plugins/{id}/grant", AdminCap::UiPluginsWrite, grant);
-    r.admin_endpoint(Method::POST, "/ui-plugins/{id}/disable", AdminCap::UiPluginsWrite, disable);
-    r.admin_endpoint(Method::DELETE, "/ui-plugins/{id}", AdminCap::UiPluginsWrite, remove);
+    r.admin_endpoint(
+        Method::GET,
+        "/ui-plugins",
+        AdminCap::PluginsRead,
+        list_admin,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/ui-plugins",
+        AdminCap::UiPluginsWrite,
+        register,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/ui-plugins/{id}/approve",
+        AdminCap::UiPluginsWrite,
+        approve,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/ui-plugins/{id}/enable",
+        AdminCap::UiPluginsWrite,
+        enable,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/ui-plugins/{id}/grant",
+        AdminCap::UiPluginsWrite,
+        grant,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/ui-plugins/{id}/disable",
+        AdminCap::UiPluginsWrite,
+        disable,
+    );
+    r.admin_endpoint(
+        Method::DELETE,
+        "/ui-plugins/{id}",
+        AdminCap::UiPluginsWrite,
+        remove,
+    );
 }
 
 // ── manifest model (server view of the frozen §2.3 `ui-plugin.json`) ────────────
@@ -533,8 +568,17 @@ async fn list_public(State(state): State<AppState>, headers: HeaderMap) -> Respo
         if r.approved_by.is_none() || !r.enabled {
             continue; // deny-by-default: only approved+enabled plugins are served.
         }
-        if let Err(response) = crate::user_router::require_key(&state, &session, &crate::features::ui_plugin_policy_key(&r.id), &format!("plugins.ui.{}",r.id)).await {
-            if response.status() == StatusCode::FORBIDDEN { continue; }
+        if let Err(response) = crate::user_router::require_key(
+            &state,
+            &session,
+            &crate::features::ui_plugin_policy_key(&r.id),
+            &format!("plugins.ui.{}", r.id),
+        )
+        .await
+        {
+            if response.status() == StatusCode::FORBIDDEN {
+                continue;
+            }
             return response;
         }
         let manifest: Value =
@@ -597,7 +641,14 @@ async fn broker_rpc(
     if req.v != RPC_PROTOCOL_VERSION {
         return rpc_err(&req.id, "bad-request", "unsupported RPC protocol version");
     }
-    if let Err(response) = crate::user_router::require_key(&state, &session, &crate::features::ui_plugin_policy_key(&plugin_id), &format!("plugins.ui.{plugin_id}")).await {
+    if let Err(response) = crate::user_router::require_key(
+        &state,
+        &session,
+        &crate::features::ui_plugin_policy_key(&plugin_id),
+        &format!("plugins.ui.{plugin_id}"),
+    )
+    .await
+    {
         return response;
     }
     // The plugin must exist + be approved + enabled.

@@ -116,9 +116,16 @@ impl Engine {
     async fn fire_due_submissions(&self, now: DateTime<Utc>) -> Result<()> {
         // Acceptance is already known in this process: retry only persistence,
         // even though the durable claim correctly excludes this row from pending.
-        let accepted: Vec<String> = self.accepted_submissions.lock()
-            .expect("accepted submissions lock").keys().cloned().collect();
-        for id in accepted { self.attempt_submission(&id, now).await?; }
+        let accepted: Vec<String> = self
+            .accepted_submissions
+            .lock()
+            .expect("accepted submissions lock")
+            .keys()
+            .cloned()
+            .collect();
+        for id in accepted {
+            self.attempt_submission(&id, now).await?;
+        }
         let pending = self.store().pending_submissions().await?;
         for row in pending {
             // The scan's copy of the row carries no hold, so this is the time
@@ -158,29 +165,43 @@ impl Engine {
         // Read after the claim, so the row is the one this attempt acts on: a
         // cancel that landed since the scan must win (source of truth is the
         // row, plan risk #5), and so must a send that has just finished.
-        let Some(row) = self
-            .store()
-            .get_submission(id)
-            .await?
-        else {
-            self.accepted_submissions.lock().expect("accepted submissions lock").remove(id);
+        let Some(row) = self.store().get_submission(id).await? else {
+            self.accepted_submissions
+                .lock()
+                .expect("accepted submissions lock")
+                .remove(id);
             return Ok(None);
         };
         // SMTP accepted this one earlier in this process but the `final`
         // write failed. Retry the write, never the send.
-        let accepted_claim = self.accepted_submissions.lock()
-            .expect("accepted submissions lock").get(id).cloned();
+        let accepted_claim = self
+            .accepted_submissions
+            .lock()
+            .expect("accepted submissions lock")
+            .get(id)
+            .cloned();
         if let Some(claim) = accepted_claim {
             if let Ok(recorded) = self.store().accept_submission_attempt(id, &claim).await {
-                self.accepted_submissions.lock().expect("accepted submissions lock").remove(id);
+                self.accepted_submissions
+                    .lock()
+                    .expect("accepted submissions lock")
+                    .remove(id);
                 if recorded {
-                    self.record_change(&row.account_id, ChangeType::EmailSubmission, id, ChangeOp::Updated).await?;
+                    self.record_change(
+                        &row.account_id,
+                        ChangeType::EmailSubmission,
+                        id,
+                        ChangeOp::Updated,
+                    )
+                    .await?;
                     self.broadcast_state(&row.account_id).await;
                 }
             }
             return Ok(None);
         }
-        if row.undo_status != SUBMISSION_PENDING { return Ok(None); }
+        if row.undo_status != SUBMISSION_PENDING {
+            return Ok(None);
+        }
         // A hold that cannot be read is a hold: the row is not sent.
         let hold = self
             .store()
@@ -216,9 +237,13 @@ impl Engine {
             // Delivered: `send_submission` has recorded `final` and the change.
             Ok(filed) => Some(filed),
             Err(not_sent) => {
-                let Some(claim) = &not_sent.claim else { return Ok(None); };
+                let Some(claim) = &not_sent.claim else {
+                    return Ok(None);
+                };
                 let attempt = attempts.attempts.saturating_add(1);
-                let give_up = not_sent.uncertain() || not_sent.permanent || attempt >= MAX_SUBMISSION_ATTEMPTS;
+                let give_up = not_sent.uncertain()
+                    || not_sent.permanent
+                    || attempt >= MAX_SUBMISSION_ATTEMPTS;
                 let (status, next_at) = if not_sent.uncertain() {
                     ("uncertain", None)
                 } else if give_up {
@@ -325,31 +350,93 @@ mod tests {
     #[tokio::test]
     async fn accepted_recovery_is_engine_scoped_and_claim_bound() {
         async fn fixture() -> Engine {
-            let store = mw_store::Store::open_in_memory(mw_store::ServerKey::generate()).await.unwrap();
-            let account = store.create_account(&mw_store::NewAccount {
-                kind: mw_store::AccountKind::Imap, host: "imap.test", port: 993,
-                tls: "implicit", username: "me@test.example", sync_policy_json: "{}",
-            }, &mw_store::Credentials { username: "me@test.example".into(), password: "test".into() }).await.unwrap();
-            store.insert_submission(&mw_store::SubmissionRow {
-                id: "same-id".into(), account_id: account, email_id: "draft".into(),
-                identity_id: None, send_at: None, undo_status: "sending:same-claim".into(),
-                hold_seconds: 0, created_at: "2000-01-01T00:00:00Z".into(),
-            }).await.unwrap();
+            let store = mw_store::Store::open_in_memory(mw_store::ServerKey::generate())
+                .await
+                .unwrap();
+            let account = store
+                .create_account(
+                    &mw_store::NewAccount {
+                        kind: mw_store::AccountKind::Imap,
+                        host: "imap.test",
+                        port: 993,
+                        tls: "implicit",
+                        username: "me@test.example",
+                        sync_policy_json: "{}",
+                    },
+                    &mw_store::Credentials {
+                        username: "me@test.example".into(),
+                        password: "test".into(),
+                    },
+                )
+                .await
+                .unwrap();
+            store
+                .insert_submission(&mw_store::SubmissionRow {
+                    id: "same-id".into(),
+                    account_id: account,
+                    email_id: "draft".into(),
+                    identity_id: None,
+                    send_at: None,
+                    undo_status: "sending:same-claim".into(),
+                    hold_seconds: 0,
+                    created_at: "2000-01-01T00:00:00Z".into(),
+                })
+                .await
+                .unwrap();
             Engine::new(store)
         }
         let owner = fixture().await;
         let other = fixture().await;
-        owner.accepted_submissions.lock().unwrap().insert("same-id".into(), "sending:same-claim".into());
+        owner
+            .accepted_submissions
+            .lock()
+            .unwrap()
+            .insert("same-id".into(), "sending:same-claim".into());
         other.dispatch_tick().await.unwrap();
-        assert_eq!(other.store().get_submission("same-id").await.unwrap().unwrap().undo_status,"sending:same-claim");
-        assert_eq!(owner.accepted_submissions.lock().unwrap().len(),1);
+        assert_eq!(
+            other
+                .store()
+                .get_submission("same-id")
+                .await
+                .unwrap()
+                .unwrap()
+                .undo_status,
+            "sending:same-claim"
+        );
+        assert_eq!(owner.accepted_submissions.lock().unwrap().len(), 1);
         owner.dispatch_tick().await.unwrap();
-        assert_eq!(owner.store().get_submission("same-id").await.unwrap().unwrap().undo_status,"final");
+        assert_eq!(
+            owner
+                .store()
+                .get_submission("same-id")
+                .await
+                .unwrap()
+                .unwrap()
+                .undo_status,
+            "final"
+        );
         assert!(owner.accepted_submissions.lock().unwrap().is_empty());
-        owner.store().transition_submission("same-id","final","sending:replacement").await.unwrap();
-        owner.accepted_submissions.lock().unwrap().insert("same-id".into(),"sending:same-claim".into());
+        owner
+            .store()
+            .transition_submission("same-id", "final", "sending:replacement")
+            .await
+            .unwrap();
+        owner
+            .accepted_submissions
+            .lock()
+            .unwrap()
+            .insert("same-id".into(), "sending:same-claim".into());
         owner.dispatch_tick().await.unwrap();
-        assert_eq!(owner.store().get_submission("same-id").await.unwrap().unwrap().undo_status,"sending:replacement");
+        assert_eq!(
+            owner
+                .store()
+                .get_submission("same-id")
+                .await
+                .unwrap()
+                .unwrap()
+                .undo_status,
+            "sending:replacement"
+        );
         assert!(owner.accepted_submissions.lock().unwrap().is_empty());
     }
 

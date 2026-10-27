@@ -119,12 +119,21 @@ async fn builder_policy_failure_does_not_persist_or_activate() {
 
 #[tokio::test]
 async fn editing_a_partial_builder_projection_cannot_drop_hidden_conditions() {
-    let (e,mut c)=setup().await;
+    let (e, mut c) = setup().await;
     let source = "require [\"fileinto\",\"body\"];\n# mailwoman:rule legacy begin\n# rule: Rich rule\nif allof (address :contains \"from\" \"news\", body :text :contains \"private\") { fileinto \"News\"; }\n# mailwoman:rule legacy end\n";
-    e.store().put_sieve_script("alice","legacy",source,true).await.unwrap();
+    e.store()
+        .put_sieve_script("alice", "legacy", source, true)
+        .await
+        .unwrap();
     let response=call(&e,&mut c,"MailRule/set",json!({"accountId":"alice","update":{"legacy":{"name":"Renamed","conditions":[{"type":"from","op":"contains","value":"news"}],"actions":[{"type":"move","value":"News"}]}}})).await;
-    assert_eq!(response[1]["notUpdated"]["legacy"]["type"],"invalidProperties","{response}");
-    assert_eq!(e.store().list_sieve_scripts("alice").await.unwrap()[0].content,source);
+    assert_eq!(
+        response[1]["notUpdated"]["legacy"]["type"], "invalidProperties",
+        "{response}"
+    );
+    assert_eq!(
+        e.store().list_sieve_scripts("alice").await.unwrap()[0].content,
+        source
+    );
 }
 
 #[tokio::test]
@@ -220,23 +229,35 @@ async fn script_ids_survive_rename_and_activation_obeys_all_success() {
 
 #[tokio::test]
 async fn managed_forward_copy_roundtrips_and_only_real_new_forwarding_sets_alert() {
-    let (e,mut c)=setup().await;
-    c.policy.raw_edit=false;
+    let (e, mut c) = setup().await;
+    c.policy.raw_edit = false;
     let failed=call(&e,&mut c,"MailRule/set",json!({"accountId":"alice","create":{"a":{"conditions":[],"actions":[{"type":"forwardCopy","value":"outside@elsewhere.test"}]}}})).await;
-    assert_eq!(failed[1]["type"],"forbidden","{failed}");
+    assert_eq!(failed[1]["type"], "forbidden", "{failed}");
     assert!(!c.forwarding_added);
     let made=call(&e,&mut c,"MailRule/set",json!({"accountId":"alice","create":{"a":{"conditions":[],"actions":[{"type":"forwardCopy","value":"other@example.test"}]}}})).await;
-    assert_eq!(made[0],"MailRule/set","{made}");
+    assert_eq!(made[0], "MailRule/set", "{made}");
     assert!(c.forwarding_added);
-    let got=call(&e,&mut c,"MailRule/get",json!({"accountId":"alice"})).await;
-    assert_eq!(got[1]["list"][0]["actions"][0]["type"],"forwardCopy");
-    assert_eq!(got[1]["list"][0]["actions"][0]["value"],"other@example.test");
-    c.forwarding_added=false;
-    c.policy.vacation_allowed=true;
-    c.policy.max_script_bytes=Some(65536);
-    let saved=call(&e,&mut c,"VacationResponse/set",json!({"accountId":"alice","update":{"singleton":{"isEnabled":true,"textBody":"Away"}}})).await;
-    assert!(saved[1]["updated"].get("singleton").is_some(),"{saved}");
-    assert!(!c.forwarding_added,"vacation changes preserving redirect targets must not emit a forwarding alert");
+    let got = call(&e, &mut c, "MailRule/get", json!({"accountId":"alice"})).await;
+    assert_eq!(got[1]["list"][0]["actions"][0]["type"], "forwardCopy");
+    assert_eq!(
+        got[1]["list"][0]["actions"][0]["value"],
+        "other@example.test"
+    );
+    c.forwarding_added = false;
+    c.policy.vacation_allowed = true;
+    c.policy.max_script_bytes = Some(65536);
+    let saved = call(
+        &e,
+        &mut c,
+        "VacationResponse/set",
+        json!({"accountId":"alice","update":{"singleton":{"isEnabled":true,"textBody":"Away"}}}),
+    )
+    .await;
+    assert!(saved[1]["updated"].get("singleton").is_some(), "{saved}");
+    assert!(
+        !c.forwarding_added,
+        "vacation changes preserving redirect targets must not emit a forwarding alert"
+    );
 }
 #[tokio::test]
 async fn cross_account_blob_and_account_access_fail_closed() {

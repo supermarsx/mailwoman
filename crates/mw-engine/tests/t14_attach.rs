@@ -249,7 +249,14 @@ async fn setup_with_message(raw: Option<Vec<u8>>) -> Harness {
     });
     let backend = FakeBackend::new();
     if let Some(raw) = raw {
-        backend.state.lock().unwrap().messages.get_mut("INBOX").unwrap()[0].1 = raw;
+        backend
+            .state
+            .lock()
+            .unwrap()
+            .messages
+            .get_mut("INBOX")
+            .unwrap()[0]
+            .1 = raw;
     }
     engine.register_backend(
         account_id.clone(),
@@ -431,22 +438,55 @@ async fn whole_message_forward_is_exact_and_actual_attachment_bytes_are_bounded(
     raw.extend(std::iter::repeat_n(b'x', 1024 * 1024));
     let h = setup_with_message(Some(raw.clone())).await;
     h.engine.resync(&h.account_id).await.unwrap();
-    let mailboxes=jmap(&h,json!([["Mailbox/get",{},"mb"]])).await;
-    let inbox=result(&mailboxes,"mb")["list"].as_array().unwrap().iter().find(|mailbox|mailbox["role"]=="inbox").unwrap()["id"].clone();
-    let query = jmap(&h, json!([["Email/query", {"filter":{"inMailbox":inbox}}, "q"]])).await;
+    let mailboxes = jmap(&h, json!([["Mailbox/get", {}, "mb"]])).await;
+    let inbox = result(&mailboxes, "mb")["list"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|mailbox| mailbox["role"] == "inbox")
+        .unwrap()["id"]
+        .clone();
+    let query = jmap(
+        &h,
+        json!([["Email/query", {"filter":{"inMailbox":inbox}}, "q"]]),
+    )
+    .await;
     let id = result(&query, "q")["ids"][0].as_str().unwrap();
-    let spec = |count| json!([["Email/set", {"create":{"forward":{
+    let spec = |count| {
+        json!([["Email/set", {"create":{"forward":{
         "to":[{"email":"boss@example.org"}], "subject":"Forwarded originals",
         "attachments":(0..count).map(|n|json!({"blobId":id,"name":format!("{n}.eml"),"type":"message/rfc822","size":1})).collect::<Vec<_>>()
-    }}}, "s"]]);
+    }}}, "s"]])
+    };
     let allowed = jmap(&h, spec(1)).await;
-    let blob_id = result(&allowed,"s")["created"]["forward"]["blobId"].as_str().expect("whole-message attachment accepted");
-    let blob = h.engine.fetch_blob(&h.account_id,blob_id).await.unwrap().unwrap();
+    let blob_id = result(&allowed, "s")["created"]["forward"]["blobId"]
+        .as_str()
+        .expect("whole-message attachment accepted");
+    let blob = h
+        .engine
+        .fetch_blob(&h.account_id, blob_id)
+        .await
+        .unwrap()
+        .unwrap();
     let parsed = mw_mime::parse(&blob.bytes).unwrap();
-    let part = parsed.email.attachments.iter().find(|part|part.name.as_deref()==Some("0.eml")).unwrap();
-    let bytes = mw_mime::part_blob(&blob.bytes,part.part_id.as_deref().unwrap().parse().unwrap()).unwrap();
-    assert_eq!(bytes.bytes,raw);
-    let refused = jmap(&h,spec(33)).await;
-    assert!(result(&refused,"s")["created"].get("forward").is_none());
-    assert!(result(&refused,"s")["notCreated"]["forward"]["description"].as_str().unwrap().contains("32 MiB"));
+    let part = parsed
+        .email
+        .attachments
+        .iter()
+        .find(|part| part.name.as_deref() == Some("0.eml"))
+        .unwrap();
+    let bytes = mw_mime::part_blob(
+        &blob.bytes,
+        part.part_id.as_deref().unwrap().parse().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(bytes.bytes, raw);
+    let refused = jmap(&h, spec(33)).await;
+    assert!(result(&refused, "s")["created"].get("forward").is_none());
+    assert!(
+        result(&refused, "s")["notCreated"]["forward"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("32 MiB")
+    );
 }

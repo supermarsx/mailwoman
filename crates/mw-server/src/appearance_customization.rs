@@ -55,7 +55,9 @@ impl Context {
         }
     }
     fn key(self, owner: &str) -> String {
-        if matches!(self, Self::Mailbox) { return crate::prefs_routes::personal_storage::key("customization", owner); }
+        if matches!(self, Self::Mailbox) {
+            return crate::prefs_routes::personal_storage::key("customization", owner);
+        }
         format!(
             "appearance-customization:{}:{owner}",
             match self {
@@ -223,10 +225,21 @@ async fn user_read(
         Ok(value) => value,
         Err(response) => return response,
     };
-    let storage_owner = match crate::prefs_routes::personal_storage::owner(&state, &session, &headers, false).await { Ok(owner) => owner, Err(response) => return response };
-    response(&state, Context::Mailbox, &session.account_id, &storage_owner, locks)
-        .await
-        .unwrap_or_else(IntoResponse::into_response)
+    let storage_owner =
+        match crate::prefs_routes::personal_storage::owner(&state, &session, &headers, false).await
+        {
+            Ok(owner) => owner,
+            Err(response) => return response,
+        };
+    response(
+        &state,
+        Context::Mailbox,
+        &session.account_id,
+        &storage_owner,
+        locks,
+    )
+    .await
+    .unwrap_or_else(IntoResponse::into_response)
 }
 async fn user_write(
     State(state): State<AppState>,
@@ -238,7 +251,14 @@ async fn user_write(
         Ok(value) => value,
         Err(response) => return response,
     };
-    let storage_owner = match crate::prefs_routes::personal_storage::owner(&state, &session, &headers, true).await { Ok(owner) => owner, Err(response) => return response };
+    let storage_owner = match crate::prefs_routes::personal_storage::owner(
+        &state, &session, &headers, true,
+    )
+    .await
+    {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
     if let Err(error) = save(
         &state,
         Context::Mailbox,
@@ -251,9 +271,15 @@ async fn user_write(
     {
         return error.into_response();
     }
-    response(&state, Context::Mailbox, &session.account_id, &storage_owner, locks)
-        .await
-        .unwrap_or_else(IntoResponse::into_response)
+    response(
+        &state,
+        Context::Mailbox,
+        &session.account_id,
+        &storage_owner,
+        locks,
+    )
+    .await
+    .unwrap_or_else(IntoResponse::into_response)
 }
 fn admin_owner(ctx: &AdminCtx, expected: &Expected) -> Result<String, AdminApiError> {
     if expected.username.as_deref() != Some(ctx.username.as_str()) {

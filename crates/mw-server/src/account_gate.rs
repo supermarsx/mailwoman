@@ -249,7 +249,9 @@ pub(crate) struct AccountGate {
 fn subjects(names: &[&str]) -> Vec<String> {
     let mut out: Vec<String> = Vec::with_capacity(names.len());
     for name in names {
-        if name.is_empty() { continue; }
+        if name.is_empty() {
+            continue;
+        }
         let s = flag_subject(name);
         if !s.is_empty() && !out.contains(&s) {
             out.push(s);
@@ -386,11 +388,18 @@ async fn applicable(
 /// of a login name.
 async fn gate_for(store: &Store, ids: &[&str], names: &[&str]) -> Result<AccountGate, StoreError> {
     let mut gate = AccountGate::default();
-    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None, domain: "", account_id: "", address: "" };
-    let listed = crate::settings_registry::effective_for(store, "signin.domainMode", &subject).await?
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
+        domain: "",
+        account_id: "",
+        address: "",
+    };
+    let listed = crate::settings_registry::effective_for(store, "signin.domainMode", &subject)
+        .await?
         .is_some_and(|value| value.value == "listed");
     for name in names {
-        let identity = crate::domain_config::canonical(store, name, None).await
+        let identity = crate::domain_config::canonical(store, name, None)
+            .await
             .map_err(StoreError::Corrupt)?;
         for address in [flag_subject(name), identity.address.clone()] {
             if store.directory_access_held(&address).await? {

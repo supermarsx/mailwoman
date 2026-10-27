@@ -88,7 +88,9 @@ fn scope(account: &str, folders: Value) -> Value {
 async fn mint(c: &reqwest::Client, server: &str, account: &str, folders: Value) -> String {
     let m: Value = c
         .post(format!("{server}/api/keys"))
-        .json(&json!({ "label": "t28-e18", "accountId": account, "scope": scope(account, folders) }))
+        .json(
+            &json!({ "label": "t28-e18", "accountId": account, "scope": scope(account, folders) }),
+        )
         .send()
         .await
         .unwrap()

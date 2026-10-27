@@ -39,18 +39,26 @@ impl VerifiedLoginIdentity {
     pub(crate) async fn engine(state: &AppState, account: &str) -> Result<Self, StoreError> {
         let row = state.store.get_account(account).await?;
         if row.kind == mw_store::AccountKind::Ews {
-            let provider = state.store.provider_account(account).await?
+            let provider = state
+                .store
+                .provider_account(account)
+                .await?
                 .ok_or_else(|| StoreError::Corrupt("missing verified provider binding".into()))?;
             return Ok(Self {
                 kind: "mailbox",
-                authority: format!("ews-url-v1:{}", mw_store::provider_accounts::ews_authority(&provider.endpoint_url)),
+                authority: format!(
+                    "ews-url-v1:{}",
+                    mw_store::provider_accounts::ews_authority(&provider.endpoint_url)
+                ),
                 subject: provider.backend_username,
             });
         }
         let protocol = match row.kind {
             mw_store::AccountKind::Imap => "imap",
             mw_store::AccountKind::Pop3 => "pop3",
-            mw_store::AccountKind::Ews => return Err(StoreError::Corrupt("invalid provider binding".into())),
+            mw_store::AccountKind::Ews => {
+                return Err(StoreError::Corrupt("invalid provider binding".into()));
+            }
         };
         Ok(Self {
             kind: "mailbox",

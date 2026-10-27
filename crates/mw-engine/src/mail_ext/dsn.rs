@@ -221,19 +221,37 @@ impl Engine {
     /// Probe only the current account's submitter, and intersect administrator policy.
     /// Failures never grant a capability or make the rest of the session unavailable.
     pub async fn dsn_offered(&self, account_id: &str) -> Result<bool> {
-        if !self.dsn_allowed(account_id).await { return Ok(false); }
-        let Some(runtime) = self.runtime(account_id) else { return Ok(false); };
-        let offered = tokio::time::timeout(std::time::Duration::from_secs(4), runtime.submitter.probe_dsn())
-            .await.ok().and_then(std::result::Result::ok).unwrap_or(false);
+        if !self.dsn_allowed(account_id).await {
+            return Ok(false);
+        }
+        let Some(runtime) = self.runtime(account_id) else {
+            return Ok(false);
+        };
+        let offered = tokio::time::timeout(
+            std::time::Duration::from_secs(4),
+            runtime.submitter.probe_dsn(),
+        )
+        .await
+        .ok()
+        .and_then(std::result::Result::ok)
+        .unwrap_or(false);
         // Replacement during an awaited probe must not publish the old endpoint's result.
-        Ok(offered && self.runtime(account_id).is_some_and(|current| std::sync::Arc::ptr_eq(&current.submitter, &runtime.submitter)))
+        Ok(offered
+            && self.runtime(account_id).is_some_and(|current| {
+                std::sync::Arc::ptr_eq(&current.submitter, &runtime.submitter)
+            }))
     }
 
     /// Session projection of a fresh, authority-bound SMTP observation.
     pub fn submission_extensions(&self, account_id: &str) -> Value {
-        if self.runtime(account_id).is_some_and(|runtime| runtime.submitter.cached_dsn_support()) {
+        if self
+            .runtime(account_id)
+            .is_some_and(|runtime| runtime.submitter.cached_dsn_support())
+        {
             json!({"DSN": []})
-        } else { json!({}) }
+        } else {
+            json!({})
+        }
     }
 
     /// Whether an administrator allows asking for delivery status

@@ -72,11 +72,23 @@ fn production_environment_reads_are_catalogued() {
 #[test]
 fn legacy_nextcloud_inputs_cannot_claim_active_shared_credentials() {
     use mw_server::knobs::{Class, ValueKind};
-    for id in ["MW_NEXTCLOUD_URL", "MW_NEXTCLOUD_USER", "MW_NEXTCLOUD_APP_PASSWORD"] {
+    for id in [
+        "MW_NEXTCLOUD_URL",
+        "MW_NEXTCLOUD_USER",
+        "MW_NEXTCLOUD_APP_PASSWORD",
+    ] {
         let item = mw_server::knobs::lookup(id).unwrap();
         assert_eq!(item.class, Class::ReadOnly);
-        assert!(item.precedence.is_none(), "ignored inputs never pin account policy");
+        assert!(
+            item.precedence.is_none(),
+            "ignored inputs never pin account policy"
+        );
         assert!(item.what.contains("ignored"));
     }
-    assert_eq!(mw_server::knobs::lookup("MW_NEXTCLOUD_APP_PASSWORD").unwrap().kind, ValueKind::Secret);
+    assert_eq!(
+        mw_server::knobs::lookup("MW_NEXTCLOUD_APP_PASSWORD")
+            .unwrap()
+            .kind,
+        ValueKind::Secret
+    );
 }

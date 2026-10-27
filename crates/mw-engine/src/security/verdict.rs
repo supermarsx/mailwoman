@@ -1023,13 +1023,29 @@ mod tests {
 
     #[test]
     fn admission_country_lookup_distinguishes_missing_database_and_unknown_address() {
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/geoip/GeoIP2-Country-Test.mmdb");
-        assert_eq!(country_lookup_with_path(None, None), CountryLookup::DatabaseUnavailable);
-        assert_eq!(country_lookup_with_path(None, Some(&fixture)), CountryLookup::Unknown);
-        assert_eq!(country_lookup_with_path("127.0.0.1".parse().ok(), Some(&fixture)), CountryLookup::Unknown);
-        assert_eq!(country_lookup_with_path("81.2.69.160".parse().ok(), Some(&fixture)), CountryLookup::Known("GB".into()));
-        let invalid=Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
-        assert_eq!(country_lookup_with_path("81.2.69.160".parse().ok(), Some(&invalid)), CountryLookup::DatabaseUnavailable);
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/geoip/GeoIP2-Country-Test.mmdb");
+        assert_eq!(
+            country_lookup_with_path(None, None),
+            CountryLookup::DatabaseUnavailable
+        );
+        assert_eq!(
+            country_lookup_with_path(None, Some(&fixture)),
+            CountryLookup::Unknown
+        );
+        assert_eq!(
+            country_lookup_with_path("127.0.0.1".parse().ok(), Some(&fixture)),
+            CountryLookup::Unknown
+        );
+        assert_eq!(
+            country_lookup_with_path("81.2.69.160".parse().ok(), Some(&fixture)),
+            CountryLookup::Known("GB".into())
+        );
+        let invalid = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        assert_eq!(
+            country_lookup_with_path("81.2.69.160".parse().ok(), Some(&invalid)),
+            CountryLookup::DatabaseUnavailable
+        );
     }
 
     #[test]

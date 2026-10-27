@@ -715,7 +715,9 @@ async fn export_audit(
 }
 
 async fn list_bans(State(state): State<AppState>, ctx: AdminCtx) -> Response {
-    if let Err(error) = ctx.require_unscoped(Capability::BansRead) { return error.into_response(); }
+    if let Err(error) = ctx.require_unscoped(Capability::BansRead) {
+        return error.into_response();
+    }
     match state.v6.admin.list_bans().await {
         Ok(list) => Json(
             list.into_iter()
@@ -747,8 +749,14 @@ async fn add_ban(
     ctx: AdminCtx,
     Json(body): Json<BanReq>,
 ) -> Response {
-    if let Err(error) = ctx.require_unscoped(Capability::BansWrite) { return error.into_response(); }
-    if let Err(error) = crate::step_up::require_admin(&state, &ctx, crate::step_up::StepUpAction::BanManage).await { return error.into_response(); }
+    if let Err(error) = ctx.require_unscoped(Capability::BansWrite) {
+        return error.into_response();
+    }
+    if let Err(error) =
+        crate::step_up::require_admin(&state, &ctx, crate::step_up::StepUpAction::BanManage).await
+    {
+        return error.into_response();
+    }
     let actor = ctx.username.clone();
     match state
         .v6
@@ -757,7 +765,11 @@ async fn add_ban(
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(AdminError::Invalid(reason)) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"code":"invalidBan","error":reason}))).into_response(),
+        Err(AdminError::Invalid(reason)) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({"code":"invalidBan","error":reason})),
+        )
+            .into_response(),
         Err(e) => err500(e),
     }
 }
@@ -767,12 +779,22 @@ async fn remove_ban(
     ctx: AdminCtx,
     UrlPath(ip): UrlPath<String>,
 ) -> Response {
-    if let Err(error) = ctx.require_unscoped(Capability::BansWrite) { return error.into_response(); }
-    if let Err(error) = crate::step_up::require_admin(&state, &ctx, crate::step_up::StepUpAction::BanManage).await { return error.into_response(); }
+    if let Err(error) = ctx.require_unscoped(Capability::BansWrite) {
+        return error.into_response();
+    }
+    if let Err(error) =
+        crate::step_up::require_admin(&state, &ctx, crate::step_up::StepUpAction::BanManage).await
+    {
+        return error.into_response();
+    }
     let actor = ctx.username.clone();
     match state.v6.admin.unban_ip(&actor, &ip).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(AdminError::Invalid(reason)) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"code":"invalidBan","error":reason}))).into_response(),
+        Err(AdminError::Invalid(reason)) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({"code":"invalidBan","error":reason})),
+        )
+            .into_response(),
         Err(e) => err500(e),
     }
 }
@@ -1003,7 +1025,9 @@ mod tests {
         let app = build_app_full(config, v6).await.expect("server boots").0;
         // These cases isolate the failed-credential monitor; initial-attempt
         // pacing has its own real HTTP suite.
-        let pool = sqlx::SqlitePool::connect(&format!("sqlite:{}", db.display())).await.unwrap();
+        let pool = sqlx::SqlitePool::connect(&format!("sqlite:{}", db.display()))
+            .await
+            .unwrap();
         sqlx::query("INSERT INTO setting_policy(key,global_value,updated_by,updated_at) VALUES('signin.retryCooldownSecs','0','test',0)").execute(&pool).await.unwrap();
         app
     }
@@ -1079,11 +1103,18 @@ mod tests {
         );
     }
 
-    async fn automatic_locks(_c: &reqwest::Client, base: &str, cookie: &str) -> Vec<serde_json::Value> {
+    async fn automatic_locks(
+        _c: &reqwest::Client,
+        base: &str,
+        cookie: &str,
+    ) -> Vec<serde_json::Value> {
         // An already authenticated observer can review the temporary sign-in lock.
         // Manual global source bans have separate middleware acceptance tests.
-        let observer = reqwest::Client::builder().no_proxy()
-            .local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127,0,0,2))).build().unwrap();
+        let observer = reqwest::Client::builder()
+            .no_proxy()
+            .local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 2)))
+            .build()
+            .unwrap();
         let resp = observer
             .get(format!("{base}/admin/bans/automatic"))
             .header(reqwest::header::COOKIE, cookie)
@@ -1091,7 +1122,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), 200);
-        let body:serde_json::Value=resp.json().await.unwrap();
+        let body: serde_json::Value = resp.json().await.unwrap();
         body["locks"].as_array().unwrap().clone()
     }
 
@@ -1186,7 +1217,10 @@ mod tests {
             bad_login(&c, &base, None).await;
         }
         let cookie = good_login(&c, &base).await;
-        assert!(automatic_locks(&c, &base, &cookie).await.is_empty(), "four is under 5");
+        assert!(
+            automatic_locks(&c, &base, &cookie).await.is_empty(),
+            "four is under 5"
+        );
 
         // Four more failures after the success must not trip the threshold either.
         for _ in 0..4 {

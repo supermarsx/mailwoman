@@ -1436,9 +1436,7 @@ mod tests {
         *rec.last_body.lock().unwrap() = body.to_vec();
         if rec
             .fail_times
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
-                n.checked_sub(1)
-            })
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
             .is_ok()
         {
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();

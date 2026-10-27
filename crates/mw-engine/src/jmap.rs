@@ -129,7 +129,9 @@ impl Engine {
         request: &Value,
         mut sieve: Option<&mut crate::sieve_jmap::SieveContext>,
     ) -> Value {
-        if let Err(problem) = core::validate(request, 0, false) { return problem; }
+        if let Err(problem) = core::validate(request, 0, false) {
+            return problem;
+        }
         let rt = self.runtime(account_id);
         let empty = Vec::new();
         let calls = request
@@ -140,8 +142,17 @@ impl Engine {
         let mut responses: Vec<Value> = Vec::new();
         // Tracks Email/set creation-id → stable id so EmailSubmission/set can
         // reference a just-created draft as `#clientId`.
-        let mut created_ids: HashMap<String, String> = request.get("createdIds").and_then(Value::as_object)
-            .map(|ids| ids.iter().filter_map(|(key, value)| value.as_str().map(|value| (key.clone(), value.to_owned()))).collect()).unwrap_or_default();
+        let mut created_ids: HashMap<String, String> = request
+            .get("createdIds")
+            .and_then(Value::as_object)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|(key, value)| {
+                        value.as_str().map(|value| (key.clone(), value.to_owned()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
         for call in calls {
             let Some(arr) = call.as_array() else { continue };
@@ -166,12 +177,18 @@ impl Engine {
                 continue;
             }
             let using = request.get("using").and_then(Value::as_array);
-            if name.starts_with("MDN/") && using.is_some_and(|caps| caps.iter().any(|cap| cap == Self::STANDARD_MDN_CAPABILITY)) {
-                if !using.is_some_and(|caps| caps.iter().any(|cap| cap == "urn:ietf:params:jmap:mail")) {
+            if name.starts_with("MDN/")
+                && using
+                    .is_some_and(|caps| caps.iter().any(|cap| cap == Self::STANDARD_MDN_CAPABILITY))
+            {
+                if !using
+                    .is_some_and(|caps| caps.iter().any(|cap| cap == "urn:ietf:params:jmap:mail"))
+                {
                     responses.push(json!(["error", {"type":"unknownMethod"}, call_id]));
                     continue;
                 }
-                let (response, implicit) = self.mdn_standard_dispatch(account_id, name, &args).await;
+                let (response, implicit) =
+                    self.mdn_standard_dispatch(account_id, name, &args).await;
                 if let Some(created) = response.get("created").and_then(Value::as_object) {
                     for (creation_id, object) in created {
                         if let Some(id) = object.get("id").and_then(Value::as_str) {
@@ -179,7 +196,11 @@ impl Engine {
                         }
                     }
                 }
-                let response_name = if response.get("type").is_some() { "error" } else { name };
+                let response_name = if response.get("type").is_some() {
+                    "error"
+                } else {
+                    name
+                };
                 responses.push(json!([response_name, response, call_id]));
                 if let Some(email_set) = implicit {
                     responses.push(json!(["Email/set", email_set, call_id]));
@@ -239,8 +260,21 @@ impl Engine {
                     "description": "account is not connected in engine mode"
                 }),
             };
-            let resp = if name.ends_with("/get") && resp.get("list").and_then(Value::as_array).is_some_and(|items| items.len() > core::MAX_OBJECTS) { json!({"type":"requestTooLarge"}) } else { resp };
-            let response_name = if resp.get("type").is_some() { "error" } else { name };
+            let resp = if name.ends_with("/get")
+                && resp
+                    .get("list")
+                    .and_then(Value::as_array)
+                    .is_some_and(|items| items.len() > core::MAX_OBJECTS)
+            {
+                json!({"type":"requestTooLarge"})
+            } else {
+                resp
+            };
+            let response_name = if resp.get("type").is_some() {
+                "error"
+            } else {
+                name
+            };
             responses.push(json!([response_name, resp, call_id]));
             if let Some(email_set) = implicit {
                 responses.push(json!(["Email/set", email_set, call_id]));
@@ -350,11 +384,25 @@ impl Engine {
             .and_then(Value::as_str)
             .unwrap_or("0");
         let role_view = if kind == ChangeType::Mailbox {
-            match self.mailbox_role_view(account_id).await { Ok(view) => Some(view), Err(error) => return server_fail(&error) }
-        } else { None };
+            match self.mailbox_role_view(account_id).await {
+                Ok(view) => Some(view),
+                Err(error) => return server_fail(&error),
+            }
+        } else {
+            None
+        };
         let since = if let Some(view) = &role_view {
-            match view.base_state(since) { Some(base) => base, None => return cannot_calculate_changes("folder role mappings changed; refetch Mailbox/get") }
-        } else { since };
+            match view.base_state(since) {
+                Some(base) => base,
+                None => {
+                    return cannot_calculate_changes(
+                        "folder role mappings changed; refetch Mailbox/get",
+                    );
+                }
+            }
+        } else {
+            since
+        };
         let max_changes = args
             .get("maxChanges")
             .and_then(Value::as_u64)
@@ -379,7 +427,9 @@ impl Engine {
                     obj.insert("accountId".into(), json!(account_id));
                     if let Some(view) = &role_view {
                         for field in ["oldState", "newState"] {
-                            if let Some(state) = obj.get(field).and_then(Value::as_str) { obj.insert(field.into(), json!(view.state(state))); }
+                            if let Some(state) = obj.get(field).and_then(Value::as_str) {
+                                obj.insert(field.into(), json!(view.state(state)));
+                            }
                         }
                     }
                 }
@@ -447,8 +497,17 @@ impl Engine {
         }
         // Saved searches surface as virtual folders (role:null +
         // mailwomanSearchQuery). Querying one runs its stored filter (§2.1).
-        let owner = match self.store().native_personal_subject(account_id).await { Ok(Some(owner)) => owner, Ok(None) => return json!({"type":"serverFail","description":"Personal owner unavailable"}), Err(error) => return server_fail(&error) };
-        let saved = match self.store().list_personal_saved_searches(&owner).await { Ok(saved) => saved, Err(error) => return server_fail(&error) };
+        let owner = match self.store().native_personal_subject(account_id).await {
+            Ok(Some(owner)) => owner,
+            Ok(None) => {
+                return json!({"type":"serverFail","description":"Personal owner unavailable"});
+            }
+            Err(error) => return server_fail(&error),
+        };
+        let saved = match self.store().list_personal_saved_searches(&owner).await {
+            Ok(saved) => saved,
+            Err(error) => return server_fail(&error),
+        };
         for s in &saved {
             if !s.as_folder {
                 continue;
@@ -596,7 +655,9 @@ impl Engine {
                 Err(mw_store::StoreError::NotFound) => {
                     let owner = self.store().native_personal_subject(account_id).await?;
                     match self.store().get_personal_saved_search(&mailbox).await? {
-                        Some(saved) if owner.as_deref() == Some(saved.user.as_str()) && saved.as_folder => {
+                        Some(saved)
+                            if owner.as_deref() == Some(saved.user.as_str()) && saved.as_folder =>
+                        {
                             let stored = EmailFilter::parse_saved_json(&saved.query_json)
                                 .map_err(QueryFail::InvalidFilter)?;
                             filter.in_mailbox = None;
@@ -622,14 +683,29 @@ impl Engine {
         };
         if matches!(route, QueryRoute::Account) {
             let start = match anchor {
-                Some(id) => self.store().message_position_in_account(account_id, id).await?
-                    .ok_or(QueryFail::AnchorNotFound)?.saturating_add_signed(anchor_offset),
+                Some(id) => self
+                    .store()
+                    .message_position_in_account(account_id, id)
+                    .await?
+                    .ok_or(QueryFail::AnchorNotFound)?
+                    .saturating_add_signed(anchor_offset),
                 None => position,
             };
             return Ok(QueryPage {
-                ids: self.store().list_account_message_ids(account_id, sql_limit, start.min(i64::MAX as u64) as i64).await?,
+                ids: self
+                    .store()
+                    .list_account_message_ids(
+                        account_id,
+                        sql_limit,
+                        start.min(i64::MAX as u64) as i64,
+                    )
+                    .await?,
                 position: start,
-                total: if want_total { Some(self.store().count_account_messages(account_id).await?) } else { None },
+                total: if want_total {
+                    Some(self.store().count_account_messages(account_id).await?)
+                } else {
+                    None
+                },
                 total_truncated: false,
             });
         }
@@ -870,7 +946,8 @@ impl Engine {
     async fn email_query_changes(&self, account_id: &str, args: &Value) -> Value {
         // Never turn malformed filters into an unrestricted account query.
         if let Some(filter) = args.get("filter").filter(|filter| !filter.is_null())
-            && let Err(message) = EmailFilter::parse_saved_json(&filter.to_string()) {
+            && let Err(message) = EmailFilter::parse_saved_json(&filter.to_string())
+        {
             return json!({"type":"invalidArguments","description":message});
         }
         let since = args
@@ -1005,18 +1082,36 @@ impl Engine {
             let sort = search_index::sort_from_comparator(comparator.as_ref());
             let custom_sort = sort != mw_search::Sort::received_desc();
             if matches!(query_route(&filter, custom_sort), QueryRoute::Account)
-                && let Some(p) = self.store().message_position_in_account(account_id, id).await? {
-                return Ok(self.store().list_account_message_ids(account_id, p.saturating_add(1).min(i64::MAX as u64) as i64, 0).await?);
+                && let Some(p) = self
+                    .store()
+                    .message_position_in_account(account_id, id)
+                    .await?
+            {
+                return Ok(self
+                    .store()
+                    .list_account_message_ids(
+                        account_id,
+                        p.saturating_add(1).min(i64::MAX as u64) as i64,
+                        0,
+                    )
+                    .await?);
             }
             if let QueryRoute::Sql(mb) = query_route(&filter, custom_sort) {
                 match self.store().get_mailbox(&mb).await {
                     Ok(mailbox) if mailbox.account_id != account_id => return Ok(Vec::new()),
                     Ok(_) => {
                         if let Some(p) = self.store().message_position_in_mailbox(&mb, id).await? {
-                            return Ok(self.store().list_message_ids(&mb, p.saturating_add(1).min(i64::MAX as u64) as i64, 0).await?);
+                            return Ok(self
+                                .store()
+                                .list_message_ids(
+                                    &mb,
+                                    p.saturating_add(1).min(i64::MAX as u64) as i64,
+                                    0,
+                                )
+                                .await?);
                         }
                     }
-                    Err(mw_store::StoreError::NotFound) => {}, // A saved folder is resolved below.
+                    Err(mw_store::StoreError::NotFound) => {} // A saved folder is resolved below.
                     Err(error) => return Err(error.into()),
                 }
             }
@@ -1049,11 +1144,15 @@ impl Engine {
             object.insert("position".into(), json!(0));
             object.insert("limit".into(), json!(0));
         }
-        self.query_page(account_id, &query).await.map_err(|error| match error {
-            QueryFail::Engine(error) => error,
-            QueryFail::InvalidFilter(message) => EngineError::Protocol(message.into()),
-            QueryFail::AnchorNotFound => EngineError::Protocol("query total anchor unavailable".into()),
-        })
+        self.query_page(account_id, &query)
+            .await
+            .map_err(|error| match error {
+                QueryFail::Engine(error) => error,
+                QueryFail::InvalidFilter(message) => EngineError::Protocol(message.into()),
+                QueryFail::AnchorNotFound => {
+                    EngineError::Protocol("query total anchor unavailable".into())
+                }
+            })
     }
 
     // ---- Email/get ------------------------------------------------------
@@ -1311,8 +1410,8 @@ impl Engine {
             Err(error) => return server_fail(&error),
         };
         match args.get("ifInState") {
-            None | Some(Value::Null) => {},
-            Some(Value::String(expected)) if expected == &old_state => {},
+            None | Some(Value::Null) => {}
+            Some(Value::String(expected)) if expected == &old_state => {}
             Some(Value::String(_)) => return json!({"type":"stateMismatch"}),
             Some(_) => return json!({"type":"invalidArguments","arguments":["ifInState"]}),
         }
@@ -1320,17 +1419,33 @@ impl Engine {
             if required != "trash" || args.get("create").is_some() || args.get("update").is_some() {
                 return json!({"type":"invalidArguments","arguments":["mailwomanRequireMailboxRole"]});
             }
-            let Some(ids) = args.get("destroy").and_then(Value::as_array).filter(|ids| ids.iter().all(Value::is_string)) else {
+            let Some(ids) = args
+                .get("destroy")
+                .and_then(Value::as_array)
+                .filter(|ids| ids.iter().all(Value::is_string))
+            else {
                 return json!({"type":"invalidArguments","arguments":["destroy"]});
             };
-            let view = match self.mailbox_role_view(account_id).await { Ok(view) => view, Err(error) => return server_fail(&error) };
-            let Some(trash) = view.mailboxes.iter().find(|mailbox| mailbox.role.as_deref() == Some("trash") && mailbox.uidvalidity != 0) else {
+            let view = match self.mailbox_role_view(account_id).await {
+                Ok(view) => view,
+                Err(error) => return server_fail(&error),
+            };
+            let Some(trash) = view.mailboxes.iter().find(|mailbox| {
+                mailbox.role.as_deref() == Some("trash") && mailbox.uidvalidity != 0
+            }) else {
                 return json!({"type":"forbidden","description":"Trash mapping is unavailable or conflicting"});
             };
             for id in ids {
-                match self.store().get_message(id.as_str().expect("validated id")).await {
-                    Ok(message) if message.account_id == account_id && message.mailbox_id == trash.id => {},
-                    Ok(_) | Err(mw_store::StoreError::NotFound) => return json!({"type":"stateMismatch","description":"Trash membership changed; preview again"}),
+                match self
+                    .store()
+                    .get_message(id.as_str().expect("validated id"))
+                    .await
+                {
+                    Ok(message)
+                        if message.account_id == account_id && message.mailbox_id == trash.id => {}
+                    Ok(_) | Err(mw_store::StoreError::NotFound) => {
+                        return json!({"type":"stateMismatch","description":"Trash membership changed; preview again"});
+                    }
                     Err(error) => return server_fail(&error),
                 }
             }
@@ -1711,7 +1826,9 @@ impl Engine {
                 })?;
                 attachment_bytes = attachment_bytes.saturating_add(blob.bytes.len());
                 if attachment_bytes > 32 * 1024 * 1024 {
-                    return Err(EngineError::Protocol("attachments exceed the 32 MiB composition limit".into()));
+                    return Err(EngineError::Protocol(
+                        "attachments exceed the 32 MiB composition limit".into(),
+                    ));
                 }
                 // Prefer the client-declared type/name; fall back to what the
                 // stored part reports (fetch_blob derives both from the MIME part).
@@ -2278,14 +2395,30 @@ impl Engine {
         Ok(sub.id)
     }
 
-    async fn authorize_submission_sender(&self, account_id: &str, rt: &AccountRuntime, email: &mw_jmap::Email, identity_id: Option<&str>) -> std::result::Result<(), Value> {
+    async fn authorize_submission_sender(
+        &self,
+        account_id: &str,
+        rt: &AccountRuntime,
+        email: &mw_jmap::Email,
+        identity_id: Option<&str>,
+    ) -> std::result::Result<(), Value> {
         let denied = || json!({"type":"forbiddenFrom", "description":"This sending address is not authorized for this account. Choose an authorized identity."});
-        if email.from.as_ref().is_none_or(|from| from.len() != 1 || from[0].email.is_empty()) { return Err(denied()); }
+        if email
+            .from
+            .as_ref()
+            .is_none_or(|from| from.len() != 1 || from[0].email.is_empty())
+        {
+            return Err(denied());
+        }
         let sender = sender_of(email, rt);
         if let Some(id) = identity_id {
             let row = self.store().get_native_personal_identity(account_id,id).await.map_err(|_| json!({"type":"serverFail", "description":"identity authority could not be checked"}))?;
-            if !row.is_some_and(|identity| identity.account_id == account_id && identity.email.eq_ignore_ascii_case(&sender)) {
-                return Err(json!({"type":"invalidProperties", "properties":["identityId"], "description":"The sending identity is unavailable or does not match this message."}));
+            if !row.is_some_and(|identity| {
+                identity.account_id == account_id && identity.email.eq_ignore_ascii_case(&sender)
+            }) {
+                return Err(
+                    json!({"type":"invalidProperties", "properties":["identityId"], "description":"The sending identity is unavailable or does not match this message."}),
+                );
             }
         }
         if !crate::identity::sender_address_allowed(self.store(), account_id, &rt.identity, &sender).await
@@ -2304,7 +2437,10 @@ impl Engine {
         origin: Option<&str>,
         on_success: Option<&OnSuccess>,
     ) -> std::result::Result<CreatedSubmission, Value> {
-        if spec.get("identityId").is_some_and(|value| !value.is_string()) {
+        if spec
+            .get("identityId")
+            .is_some_and(|value| !value.is_string())
+        {
             return Err(json!({"type":"invalidProperties", "properties":["identityId"]}));
         }
         let identity_id = spec
@@ -2317,14 +2453,18 @@ impl Engine {
                 _ => json!({"type":"serverFail", "description":"message ownership could not be checked"}),
             })?;
         if owned_message.account_id != account_id {
-            return Err(json!({"type":"invalidProperties", "properties":["emailId"], "description":"message not found"}));
+            return Err(
+                json!({"type":"invalidProperties", "properties":["emailId"], "description":"message not found"}),
+            );
         }
         let sender_email = self.store().get_envelope(email_id).await
             .map_err(|_| json!({"type":"serverFail", "description":"sender authority could not be checked"}))?
             .ok_or_else(|| json!({"type":"invalidProperties", "properties":["emailId"], "description":"message not found"}))?;
-        let sender_email: mw_jmap::Email = serde_json::from_slice(&sender_email)
-            .map_err(|_| json!({"type":"serverFail", "description":"message metadata could not be checked"}))?;
-        self.authorize_submission_sender(account_id, rt, &sender_email, identity_id.as_deref()).await?;
+        let sender_email: mw_jmap::Email = serde_json::from_slice(&sender_email).map_err(
+            |_| json!({"type":"serverFail", "description":"message metadata could not be checked"}),
+        )?;
+        self.authorize_submission_sender(account_id, rt, &sender_email, identity_id.as_deref())
+            .await?;
         // A `sendAt` that is not a time, or is already in the past, fails the
         // create (26.20 t28-e1). Both used to count as "not a future send",
         // which with no hold window meant the message went out at once.
@@ -2334,10 +2474,19 @@ impl Engine {
             .and_then(Value::as_u64)
             .unwrap_or(0) as u32;
         let hold = checked_hold(spec)?;
-        if !self.mdn_sending_allowed(account_id).await.map_err(|_|json!({"type":"serverFail","description":"receipt policy could not be checked"}))? {
-            let raw=self.fetch_blob(account_id,email_id).await.map_err(|_|json!({"type":"serverFail","description":"message could not be checked"}))?;
-            if raw.as_ref().is_some_and(|blob|mail_ext::mdn::is_mdn_report(&blob.bytes)) {
-                return Err(json!({"type":"forbidden","description":"read receipts are disabled by administrator policy"}));
+        if !self.mdn_sending_allowed(account_id).await.map_err(
+            |_| json!({"type":"serverFail","description":"receipt policy could not be checked"}),
+        )? {
+            let raw = self.fetch_blob(account_id, email_id).await.map_err(
+                |_| json!({"type":"serverFail","description":"message could not be checked"}),
+            )?;
+            if raw
+                .as_ref()
+                .is_some_and(|blob| mail_ext::mdn::is_mdn_report(&blob.bytes))
+            {
+                return Err(
+                    json!({"type":"forbidden","description":"read receipts are disabled by administrator policy"}),
+                );
             }
         }
         // `envelope` (RFC 8621 §7.5). Its recipients are kept on the row and
@@ -2398,12 +2547,19 @@ impl Engine {
         // submission is enqueued. A `block` verdict fails this create with a
         // structured `dlpBlocked` error and the message is never queued; the
         // redacted audit row is written by `evaluate`.
-        let dlp_verdicts = crate::security::dlp::evaluate(self, account_id, email_id).await
-            .map_err(|error| { tracing::warn!(code = error.code(), "DLP submission inspection unavailable"); error.jmap_error() })?;
+        let dlp_verdicts = crate::security::dlp::evaluate(self, account_id, email_id)
+            .await
+            .map_err(|error| {
+                tracing::warn!(code = error.code(), "DLP submission inspection unavailable");
+                error.jmap_error()
+            })?;
         if let Some(err) = dlp_block_error(&dlp_verdicts) {
             return Err(err);
         }
-        let account_draft=self.account_draft_submission_reference(account_id,spec.get("mailwomanAccountDraft")).await.map_err(|e|set_error(&e))?;
+        let account_draft = self
+            .account_draft_submission_reference(account_id, spec.get("mailwomanAccountDraft"))
+            .await
+            .map_err(|e| set_error(&e))?;
         self.enqueue_submission(
             account_id,
             rt,
@@ -2414,7 +2570,12 @@ impl Engine {
                 hold_seconds,
                 hold,
                 origin,
-                at_send: at_send_json(on_success, rcpt_to.as_deref(), dsn.as_ref(), account_draft.as_ref()),
+                at_send: at_send_json(
+                    on_success,
+                    rcpt_to.as_deref(),
+                    dsn.as_ref(),
+                    account_draft.as_ref(),
+                ),
             },
         )
         .await
@@ -2483,9 +2644,7 @@ impl Engine {
         // Fire now (preserves the V1 synchronous send shape). The status follows
         // what SMTP did: `send_submission` has already recorded `final` if the
         // message was accepted, whatever happened to the Sent copy afterwards.
-        let sent = self
-            .send_submission(&row, rt, None)
-            .await;
+        let sent = self.send_submission(&row, rt, None).await;
         drop(claim);
         match sent {
             Ok(filed) => Ok(CreatedSubmission {
@@ -2498,10 +2657,19 @@ impl Engine {
                 // An uncertain attempt is terminal and must not invite an
                 // automatic retry. Only this attempt's durable owner records it.
                 if let Some(claim) = &not_sent.claim {
-                    self.store().finish_submission_attempt(
-                        &sub_id, claim, &not_sent.error.to_string(), None,
-                        if not_sent.uncertain() { "uncertain" } else { SUBMISSION_FAILED },
-                    ).await?;
+                    self.store()
+                        .finish_submission_attempt(
+                            &sub_id,
+                            claim,
+                            &not_sent.error.to_string(),
+                            None,
+                            if not_sent.uncertain() {
+                                "uncertain"
+                            } else {
+                                SUBMISSION_FAILED
+                            },
+                        )
+                        .await?;
                 }
                 self.record_change(
                     account_id,
@@ -2612,7 +2780,17 @@ impl Engine {
             self.store()
                 .set_submission_on_success(
                     id,
-                    at_send_json(Some(on_success), rcpt_to.as_deref(), dsn.as_ref(), stored.as_deref().and_then(|s|serde_json::from_str::<Value>(s).ok()).and_then(|v|v.get("accountDraft").cloned()).as_ref()).as_deref(),
+                    at_send_json(
+                        Some(on_success),
+                        rcpt_to.as_deref(),
+                        dsn.as_ref(),
+                        stored
+                            .as_deref()
+                            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                            .and_then(|v| v.get("accountDraft").cloned())
+                            .as_ref(),
+                    )
+                    .as_deref(),
                 )
                 .await?;
         }
@@ -2768,11 +2946,25 @@ impl Engine {
 
     // ---- Identity ------------------------------------------------------
 
-    async fn authorized_identities(&self, account_id: &str, rt: &AccountRuntime) -> Result<Vec<IdentityRow>> {
-        let rows = self.store().list_native_personal_identities(account_id).await?;
+    async fn authorized_identities(
+        &self,
+        account_id: &str,
+        rt: &AccountRuntime,
+    ) -> Result<Vec<IdentityRow>> {
+        let rows = self
+            .store()
+            .list_native_personal_identities(account_id)
+            .await?;
         let mut allowed = Vec::new();
         for row in rows {
-            if crate::identity::sender_address_allowed(self.store(), account_id, &rt.identity, &row.email).await? {
+            if crate::identity::sender_address_allowed(
+                self.store(),
+                account_id,
+                &rt.identity,
+                &row.email,
+            )
+            .await?
+            {
                 allowed.push(row);
             }
         }
@@ -2789,7 +2981,13 @@ impl Engine {
             Err(e) => return server_fail(&e),
         };
         if rows.iter().any(|row| row.signature_name.is_some()) {
-            let owner = match self.store().native_personal_subject(account_id).await { Ok(Some(owner)) => owner, Ok(None) => return json!({"type":"serverFail","description":"Personal owner unavailable"}), Err(error) => return server_fail(&error) };
+            let owner = match self.store().native_personal_subject(account_id).await {
+                Ok(Some(owner)) => owner,
+                Ok(None) => {
+                    return json!({"type":"serverFail","description":"Personal owner unavailable"});
+                }
+                Err(error) => return server_fail(&error),
+            };
             let templates = match self.store().list_personal_signatures(&owner).await {
                 Ok(templates) => templates,
                 Err(error) => return server_fail(&error),
@@ -2799,8 +2997,15 @@ impl Engine {
                     // The owning account's explicit formats only. A removed
                     // template must not resurrect an old provider signature.
                     let template = templates.iter().find(|template| &template.name == name);
-                    row.signature_text = template.map(|template| template.text.clone().unwrap_or_else(|| template.body.clone()));
-                    row.signature_html = template.and_then(|template| template.html.as_deref()).map(mw_sanitize::sanitize_email_html);
+                    row.signature_text = template.map(|template| {
+                        template
+                            .text
+                            .clone()
+                            .unwrap_or_else(|| template.body.clone())
+                    });
+                    row.signature_html = template
+                        .and_then(|template| template.html.as_deref())
+                        .map(mw_sanitize::sanitize_email_html);
                 }
             }
         }
@@ -2850,7 +3055,11 @@ impl Engine {
             .list_native_personal_identities(account_id)
             .await
             .unwrap_or_default();
-        if existing.iter().any(|row| row.email.eq_ignore_ascii_case(&rt.identity)) || rt.identity.is_empty() {
+        if existing
+            .iter()
+            .any(|row| row.email.eq_ignore_ascii_case(&rt.identity))
+            || rt.identity.is_empty()
+        {
             return;
         }
         let sent = self
@@ -2963,13 +3172,30 @@ impl Engine {
         let dsn = stored.as_deref().and_then(stored_dsn);
         let on_success = stored.as_deref().and_then(OnSuccess::from_json);
         let claim = format!("sending:{}", gen_token());
-        if !self.store().claim_submission_attempt(row, stored.as_deref(), next_attempt_at, &claim)
-            .await.map_err(|e| NotSent::transient(e.into()))? {
-            return Err(NotSent::permanent(EngineError::Protocol("submission is no longer available for sending".into())));
+        if !self
+            .store()
+            .claim_submission_attempt(row, stored.as_deref(), next_attempt_at, &claim)
+            .await
+            .map_err(|e| NotSent::transient(e.into()))?
+        {
+            return Err(NotSent::permanent(EngineError::Protocol(
+                "submission is no longer available for sending".into(),
+            )));
         }
         let sent = self
-            .transmit_draft(account_id, rt, email_id, row.identity_id.as_deref(), rcpt_to, dsn)
-            .await.map_err(|mut error| { error.claim = Some(claim.clone()); error })?;
+            .transmit_draft(
+                account_id,
+                rt,
+                email_id,
+                row.identity_id.as_deref(),
+                rcpt_to,
+                dsn,
+            )
+            .await
+            .map_err(|mut error| {
+                error.claim = Some(claim.clone());
+                error
+            })?;
         self.record_delivered(sub_id, &claim).await;
         self.emit_event(
             crate::change::EventKind::SubmissionSent,
@@ -2996,9 +3222,16 @@ impl Engine {
                 None => note,
             });
         }
-        if let Some(reference)=stored.as_deref().and_then(|s|serde_json::from_str::<Value>(s).ok()).and_then(|v|v.get("accountDraft").filter(|v|!v.is_null()).cloned())
-            && self.cleanup_account_draft_after_send(account_id,&reference).await.is_err() {
-            problem=Some("sent; saved account draft cleanup is pending; inspect Drafts".into());
+        if let Some(reference) = stored
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+            .and_then(|v| v.get("accountDraft").filter(|v| !v.is_null()).cloned())
+            && self
+                .cleanup_account_draft_after_send(account_id, &reference)
+                .await
+                .is_err()
+        {
+            problem = Some("sent; saved account draft cleanup is pending; inspect Drafts".into());
         }
         if let Some(note) = problem {
             tracing::warn!("submission {sub_id} was {note}; filing will not be retried");
@@ -3373,13 +3606,19 @@ impl Engine {
     async fn record_delivered(&self, sub_id: &str, claim: &str) {
         const DELAYS_MS: [u64; 3] = [0, 50, 250];
         for delay in DELAYS_MS {
-            if delay > 0 { tokio::time::sleep(std::time::Duration::from_millis(delay)).await; }
+            if delay > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+            }
             match self.store().accept_submission_attempt(sub_id, claim).await {
                 Ok(_) => return, // A replaced/removed claim cannot authorize another row.
-                Err(error) => tracing::warn!("recording accepted submission {sub_id} failed: {error}"),
+                Err(error) => {
+                    tracing::warn!("recording accepted submission {sub_id} failed: {error}")
+                }
             }
         }
-        self.accepted_submissions.lock().expect("accepted submissions lock")
+        self.accepted_submissions
+            .lock()
+            .expect("accepted submissions lock")
             .insert(sub_id.to_string(), claim.to_string());
     }
 
@@ -3425,11 +3664,20 @@ impl Engine {
                 NotSent::permanent(EngineError::Protocol("draft body missing".into()))
             })?;
 
-        if mail_ext::mdn::is_mdn_report(&raw) && !self.mdn_sending_allowed(account_id).await.map_err(NotSent::transient)? {
-            return Err(NotSent::permanent(EngineError::Unsupported("read receipts forbidden by policy".into())));
+        if mail_ext::mdn::is_mdn_report(&raw)
+            && !self
+                .mdn_sending_allowed(account_id)
+                .await
+                .map_err(NotSent::transient)?
+        {
+            return Err(NotSent::permanent(EngineError::Unsupported(
+                "read receipts forbidden by policy".into(),
+            )));
         }
         if dsn.is_some() && !self.dsn_allowed(account_id).await {
-            return Err(NotSent::permanent(EngineError::Unsupported("delivery reports forbidden by policy".into())));
+            return Err(NotSent::permanent(EngineError::Unsupported(
+                "delivery reports forbidden by policy".into(),
+            )));
         }
 
         // Envelope addresses drive MAIL FROM / RCPT TO.
@@ -3442,16 +3690,45 @@ impl Engine {
             Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
             None => mw_mime::parse(&raw).map(|p| p.email).unwrap_or_default(),
         };
-        let parsed_headers = mail_parser::MessageParser::default().parse(&raw)
-            .ok_or_else(|| NotSent::permanent(EngineError::Protocol("message headers could not be checked".into())))?;
-        if parsed_headers.headers().iter().filter(|header| header.name.as_str().eq_ignore_ascii_case("From")).count() != 1 {
-            return Err(NotSent::permanent(EngineError::Unsupported("message must have exactly one From header".into())));
+        let parsed_headers = mail_parser::MessageParser::default()
+            .parse(&raw)
+            .ok_or_else(|| {
+                NotSent::permanent(EngineError::Protocol(
+                    "message headers could not be checked".into(),
+                ))
+            })?;
+        if parsed_headers
+            .headers()
+            .iter()
+            .filter(|header| header.name.as_str().eq_ignore_ascii_case("From"))
+            .count()
+            != 1
+        {
+            return Err(NotSent::permanent(EngineError::Unsupported(
+                "message must have exactly one From header".into(),
+            )));
         }
-        let actual_email = mw_mime::parse(&raw).map_err(|_| NotSent::permanent(EngineError::Protocol("message headers could not be checked".into())))?.email;
-        self.authorize_submission_sender(account_id, rt, &actual_email, identity_id).await
-            .map_err(|error| NotSent::permanent(EngineError::Unsupported(error["description"].as_str().unwrap_or("sender is not authorized").into())))?;
+        let actual_email = mw_mime::parse(&raw)
+            .map_err(|_| {
+                NotSent::permanent(EngineError::Protocol(
+                    "message headers could not be checked".into(),
+                ))
+            })?
+            .email;
+        self.authorize_submission_sender(account_id, rt, &actual_email, identity_id)
+            .await
+            .map_err(|error| {
+                NotSent::permanent(EngineError::Unsupported(
+                    error["description"]
+                        .as_str()
+                        .unwrap_or("sender is not authorized")
+                        .into(),
+                ))
+            })?;
         if sender_of(&actual_email, rt) != sender_of(&email, rt) {
-            return Err(NotSent::permanent(EngineError::Unsupported("stored sender does not match the message".into())));
+            return Err(NotSent::permanent(EngineError::Unsupported(
+                "stored sender does not match the message".into(),
+            )));
         }
         let mail_from = sender_of(&email, rt);
         let rcpt_to = envelope_rcpt.unwrap_or_else(|| recipients(&email));
@@ -3474,21 +3751,38 @@ impl Engine {
             return Err(NotSent::permanent(EngineError::Protocol(e.to_string())));
         }
 
-        let verdicts = crate::security::dlp::evaluate_outgoing(self, account_id, &outgoing.raw, &outgoing.rcpt_to)
-            .await.map_err(|error| NotSent::permanent(EngineError::Unsupported(error.code().into())))?;
+        let verdicts = crate::security::dlp::evaluate_outgoing(
+            self,
+            account_id,
+            &outgoing.raw,
+            &outgoing.rcpt_to,
+        )
+        .await
+        .map_err(|error| NotSent::permanent(EngineError::Unsupported(error.code().into())))?;
         if dlp_block_error(&verdicts).is_some() {
-            return Err(NotSent::permanent(EngineError::Unsupported("dlpBlocked".into())));
+            return Err(NotSent::permanent(EngineError::Unsupported(
+                "dlpBlocked".into(),
+            )));
         }
         // A requested extension must be honored, never retried as an ordinary send.
         let result = match dsn {
-            Some(dsn) => rt.submitter.submit_with(outgoing, mw_smtp::SubmitOptions {
-                dsn: Some(dsn.to_smtp()), ..mw_smtp::SubmitOptions::default()
-            }).await,
+            Some(dsn) => {
+                rt.submitter
+                    .submit_with(
+                        outgoing,
+                        mw_smtp::SubmitOptions {
+                            dsn: Some(dsn.to_smtp()),
+                            ..mw_smtp::SubmitOptions::default()
+                        },
+                    )
+                    .await
+            }
             None => rt.submitter.submit(outgoing).await,
         };
         let result = match result {
             Err(error @ EngineError::Auth(_)) => {
-                self.reject_runtime_credentials(account_id, &rt.backend).await;
+                self.reject_runtime_credentials(account_id, &rt.backend)
+                    .await;
                 return Err(NotSent::permanent(error));
             }
             Err(error @ EngineError::Unsupported(_)) => return Err(NotSent::permanent(error)),
@@ -3650,7 +3944,9 @@ impl Engine {
     ) -> Result<(String, String)> {
         let view = self.mailbox_role_view(account_id).await?;
         if view.problems.iter().any(|problem| problem.role == role) {
-            return Err(EngineError::Unsupported("configured folder role is missing or conflicting".into()));
+            return Err(EngineError::Unsupported(
+                "configured folder role is missing or conflicting".into(),
+            ));
         }
         let mailboxes = view.mailboxes;
         if let Some(m) = mailboxes.iter().find(|m| m.role.as_deref() == Some(role)) {
@@ -3734,18 +4030,41 @@ impl Engine {
 /// the value at `path` inside the referenced prior response, stored under the
 /// de-`#`'d key. Ported from the proven `mw-mock-jmap` logic so the byte shape
 /// the web client chains against is identical.
-pub fn resolve_references(args: &mut Value, responses: &[Value]) -> std::result::Result<(), &'static str> {
+pub fn resolve_references(
+    args: &mut Value,
+    responses: &[Value],
+) -> std::result::Result<(), &'static str> {
     let obj = args.as_object_mut().ok_or("invalidArguments")?;
-    let keys: Vec<String> = obj.keys().filter(|key| key.starts_with('#')).cloned().collect();
+    let keys: Vec<String> = obj
+        .keys()
+        .filter(|key| key.starts_with('#'))
+        .cloned()
+        .collect();
     for key in keys {
         let target = &key[1..];
-        if obj.contains_key(target) { return Err("invalidArguments"); }
+        if obj.contains_key(target) {
+            return Err("invalidArguments");
+        }
         let spec = &obj[&key];
-        let result_of = spec.get("resultOf").and_then(Value::as_str).ok_or("invalidResultReference")?;
-        let name = spec.get("name").and_then(Value::as_str).ok_or("invalidResultReference")?;
-        let path = spec.get("path").and_then(Value::as_str).ok_or("invalidResultReference")?;
-        let response = responses.iter().find(|response| response.get(2).and_then(Value::as_str) == Some(result_of)).ok_or("invalidResultReference")?;
-        if response.get(0).and_then(Value::as_str) != Some(name) { return Err("invalidResultReference"); }
+        let result_of = spec
+            .get("resultOf")
+            .and_then(Value::as_str)
+            .ok_or("invalidResultReference")?;
+        let name = spec
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or("invalidResultReference")?;
+        let path = spec
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or("invalidResultReference")?;
+        let response = responses
+            .iter()
+            .find(|response| response.get(2).and_then(Value::as_str) == Some(result_of))
+            .ok_or("invalidResultReference")?;
+        if response.get(0).and_then(Value::as_str) != Some(name) {
+            return Err("invalidResultReference");
+        }
         let value = result_pointer(&response[1], path).ok_or("invalidResultReference")?;
         obj.insert(target.to_owned(), value);
         obj.remove(&key);
@@ -3754,12 +4073,20 @@ pub fn resolve_references(args: &mut Value, responses: &[Value]) -> std::result:
 }
 
 fn result_pointer(value: &Value, path: &str) -> Option<Value> {
-    if path.is_empty() { return Some(value.clone()); }
+    if path.is_empty() {
+        return Some(value.clone());
+    }
     let tokens: Vec<&str> = path.strip_prefix('/')?.split('/').collect();
-    if tokens.len() > 128 { return None; }
+    if tokens.len() > 128 {
+        return None;
+    }
     fn walk(value: &Value, tokens: &[&str]) -> Option<Value> {
-        let Some((token, suffix)) = tokens.split_first() else { return Some(value.clone()); };
-        if *token == "*" && let Some(items) = value.as_array() {
+        let Some((token, suffix)) = tokens.split_first() else {
+            return Some(value.clone());
+        };
+        if *token == "*"
+            && let Some(items) = value.as_array()
+        {
             let mut output = Vec::new();
             for item in items {
                 match walk(item, suffix)? {
@@ -3770,7 +4097,9 @@ fn result_pointer(value: &Value, path: &str) -> Option<Value> {
             return Some(Value::Array(output));
         }
         for (index, byte) in token.bytes().enumerate() {
-            if byte == b'~' && !matches!(token.as_bytes().get(index + 1), Some(b'0' | b'1')) { return None; }
+            if byte == b'~' && !matches!(token.as_bytes().get(index + 1), Some(b'0' | b'1')) {
+                return None;
+            }
         }
         // Only the current token is allocated, never a copy of the remaining
         // path at each recursive level. Escapes follow RFC6901 exactly.
@@ -4001,7 +4330,10 @@ fn compose_base_from_spec(spec: &Value, identity: &str, message_id: &str) -> Com
             })
             .unwrap_or_default(),
         headers: match importance_pair(spec) {
-            Ok(Some((importance, priority))) => vec![("Importance".into(), importance.into()), ("X-Priority".into(), priority.into())],
+            Ok(Some((importance, priority))) => vec![
+                ("Importance".into(), importance.into()),
+                ("X-Priority".into(), priority.into()),
+            ],
             _ => Vec::new(), // Every public composition entry validates the spec first.
         },
         attachments: Vec::new(),
@@ -4131,19 +4463,33 @@ fn check_compose_spec(spec: &Value) -> std::result::Result<(), InvalidProperty> 
 
 /// Only the explicit matching pair is supported. Header names follow JMAP's
 /// case-insensitive matching; duplicate forms never produce ambiguous MIME.
-fn importance_pair(spec: &Value) -> std::result::Result<Option<(&'static str, &'static str)>, InvalidProperty> {
+fn importance_pair(
+    spec: &Value,
+) -> std::result::Result<Option<(&'static str, &'static str)>, InvalidProperty> {
     const IMPORTANCE: &str = "header:Importance:asText";
     const PRIORITY: &str = "header:X-Priority:asText";
-    let invalid = |property| InvalidProperty { property, why: "requires matching high/1, normal/3 or low/5 text headers".into() };
+    let invalid = |property| InvalidProperty {
+        property,
+        why: "requires matching high/1, normal/3 or low/5 text headers".into(),
+    };
     let mut importance = None;
     let mut priority = None;
     if let Some(properties) = spec.as_object() {
         for (key, value) in properties {
-            let Some(header) = key.strip_prefix("header:") else { continue; };
+            let Some(header) = key.strip_prefix("header:") else {
+                continue;
+            };
             let (name, form) = header.split_once(':').unwrap_or((header, ""));
-            let (slot, property) = if name.eq_ignore_ascii_case("Importance") { (&mut importance, IMPORTANCE) }
-                else if name.eq_ignore_ascii_case("X-Priority") { (&mut priority, PRIORITY) } else { continue; };
-            if form != "asText" || slot.is_some() { return Err(invalid(property)); }
+            let (slot, property) = if name.eq_ignore_ascii_case("Importance") {
+                (&mut importance, IMPORTANCE)
+            } else if name.eq_ignore_ascii_case("X-Priority") {
+                (&mut priority, PRIORITY)
+            } else {
+                continue;
+            };
+            if form != "asText" || slot.is_some() {
+                return Err(invalid(property));
+            }
             *slot = Some(value.as_str().ok_or_else(|| invalid(property))?);
         }
     }
@@ -4306,13 +4652,21 @@ fn check_compose_extras(spec: &Value, identity: &str) -> std::result::Result<(),
 
 /// Received delivery reports are sender claims, never verified delivery/read state.
 pub fn dsn_report_json(raw: &[u8]) -> Value {
-    let Some(report) = mw_mime::parse_dsn(raw) else { return Value::Null; };
-    let recipients: Vec<_> = report.recipients.into_iter().map(|r| json!({
-        "finalRecipient": r.final_recipient, "addressType": r.address_type,
-        "originalRecipient": r.original_recipient, "action": r.action,
-        "status": r.status, "diagnostic": r.diagnostic, "remoteMta": r.remote_mta,
-        "lastAttempt": r.last_attempt, "retryUntil": r.retry_until,
-    })).collect();
+    let Some(report) = mw_mime::parse_dsn(raw) else {
+        return Value::Null;
+    };
+    let recipients: Vec<_> = report
+        .recipients
+        .into_iter()
+        .map(|r| {
+            json!({
+                "finalRecipient": r.final_recipient, "addressType": r.address_type,
+                "originalRecipient": r.original_recipient, "action": r.action,
+                "status": r.status, "diagnostic": r.diagnostic, "remoteMta": r.remote_mta,
+                "lastAttempt": r.last_attempt, "retryUntil": r.retry_until,
+            })
+        })
+        .collect();
     json!({"reportingMta": report.reporting_mta, "envelopeId": report.envelope_id,
         "arrivalDate": report.arrival_date, "recipients": recipients})
 }
@@ -4650,8 +5004,12 @@ const THREADING_PROPERTIES: [&str; 3] = ["messageId", "inReplyTo", "references"]
 
 /// The `Email/get` properties read from the stored raw message on request:
 /// the receipt request, a received receipt, and the inline parts (t29-e9).
-const RAW_DERIVED_PROPERTIES: [&str; 4] =
-    ["mailwomanMdn", "mailwomanMdnReport", "mailwomanDsnReport", "mailwomanInlineParts"];
+const RAW_DERIVED_PROPERTIES: [&str; 4] = [
+    "mailwomanMdn",
+    "mailwomanMdnReport",
+    "mailwomanDsnReport",
+    "mailwomanInlineParts",
+];
 
 /// What [`Engine::build_emails`] adds to the stored envelope.
 #[derive(Debug, Clone, Copy)]
@@ -4790,7 +5148,7 @@ fn at_send_json(
     on_success: Option<&OnSuccess>,
     rcpt_to: Option<&[String]>,
     dsn: Option<&mail_ext::dsn::DsnRequest>,
-    account_draft:Option<&Value>,
+    account_draft: Option<&Value>,
 ) -> Option<String> {
     if on_success.is_none() && rcpt_to.is_none() && dsn.is_none() && account_draft.is_none() {
         return None;
@@ -5482,7 +5840,8 @@ mod query_paging_tests {
 
         // The first query performs the bounded legacy-date upgrade once per
         // account. Measure steady-state paging after that separate startup work.
-        f.counted_query(json!({ "filter": f.in_mailbox(), "position": 0, "limit": 1 })).await;
+        f.counted_query(json!({ "filter": f.in_mailbox(), "position": 0, "limit": 1 }))
+            .await;
 
         let (resp, stmts) = f
             .counted_query(json!({ "filter": f.in_mailbox(), "position": 0, "limit": 50 }))
@@ -5580,7 +5939,12 @@ mod query_paging_tests {
         f.store()
             .upsert_personal_saved_search(&SavedSearchRow {
                 id: "ss-folder".into(),
-                user: f.store().native_personal_subject(&f.account).await.unwrap().unwrap(),
+                user: f
+                    .store()
+                    .native_personal_subject(&f.account)
+                    .await
+                    .unwrap()
+                    .unwrap(),
                 name: "Seen".into(),
                 query_json: json!({ "hasKeyword": "$seen" }).to_string(),
                 as_folder: true,
@@ -6041,21 +6405,41 @@ mod query_paging_tests {
         for args in [json!({}), json!({"filter":null}), json!({"filter":{}})] {
             assert_eq!(ids_of(&f.query(args).await), f.ordered);
         }
-        let page = f.query(json!({"position":4,"limit":3,"calculateTotal":true})).await;
+        let page = f
+            .query(json!({"position":4,"limit":3,"calculateTotal":true}))
+            .await;
         assert_eq!(ids_of(&page), f.ordered[4..7]);
         assert_eq!(page["total"], 30);
         assert_eq!(page["position"], 4);
         let empty = f.query(json!({"limit":0,"calculateTotal":true})).await;
         assert!(ids_of(&empty).is_empty());
-        assert_eq!(empty["total"],30);
-        let page = f.query(json!({"anchor":f.ordered[5],"anchorOffset":-2,"limit":2})).await;
-        assert_eq!(ids_of(&page),f.ordered[3..5]);
-        assert_eq!(page["position"],3);
-        assert_eq!(f.query(json!({"anchor":"foreign-or-missing"})).await["type"],"anchorNotFound");
+        assert_eq!(empty["total"], 30);
+        let page = f
+            .query(json!({"anchor":f.ordered[5],"anchorOffset":-2,"limit":2}))
+            .await;
+        assert_eq!(ids_of(&page), f.ordered[3..5]);
+        assert_eq!(page["position"], 3);
+        assert_eq!(
+            f.query(json!({"anchor":"foreign-or-missing"})).await["type"],
+            "anchorNotFound"
+        );
         assert!(ids_of(&f.query(json!({"position":100,"limit":2})).await).is_empty());
-        for filter in [json!(false),json!({"inMailbox":""}),json!({"unsupported":true})] {
-            assert_eq!(f.query(json!({"filter":filter})).await["type"],"invalidArguments");
-            assert_eq!(f.query_changes(json!({"filter":filter,"sinceQueryState":"0","calculateTotal":true})).await["type"],"invalidArguments");
+        for filter in [
+            json!(false),
+            json!({"inMailbox":""}),
+            json!({"unsupported":true}),
+        ] {
+            assert_eq!(
+                f.query(json!({"filter":filter})).await["type"],
+                "invalidArguments"
+            );
+            assert_eq!(
+                f.query_changes(
+                    json!({"filter":filter,"sinceQueryState":"0","calculateTotal":true})
+                )
+                .await["type"],
+                "invalidArguments"
+            );
         }
     }
 
@@ -6063,45 +6447,134 @@ mod query_paging_tests {
     async fn unfiltered_account_query_isolated_across_folders_and_zero_access() {
         struct Zero;
         impl crate::v6::AccountPostureSource for Zero {
-            fn posture(&self, _: &str) -> crate::v6::AccountPosture { crate::v6::AccountPosture::ZeroAccess }
+            fn posture(&self, _: &str) -> crate::v6::AccountPosture {
+                crate::v6::AccountPosture::ZeroAccess
+            }
         }
         let f = Fixture::with(3).await;
-        f.engine.attach_v6(crate::v6::V6Hooks::new().with_posture_source(std::sync::Arc::new(Zero)));
-        assert_eq!(f.engine.account_posture(&f.account),crate::v6::AccountPosture::ZeroAccess);
-        let other = f.store().create_account(&NewAccount { kind:AccountKind::Imap,host:"other",port:993,tls:"implicit",username:"foreign",sync_policy_json:"{}" },&Credentials{username:"foreign".into(),password:"fixture".into()}).await.unwrap();
+        f.engine
+            .attach_v6(crate::v6::V6Hooks::new().with_posture_source(std::sync::Arc::new(Zero)));
+        assert_eq!(
+            f.engine.account_posture(&f.account),
+            crate::v6::AccountPosture::ZeroAccess
+        );
+        let other = f
+            .store()
+            .create_account(
+                &NewAccount {
+                    kind: AccountKind::Imap,
+                    host: "other",
+                    port: 993,
+                    tls: "implicit",
+                    username: "foreign",
+                    sync_policy_json: "{}",
+                },
+                &Credentials {
+                    username: "foreign".into(),
+                    password: "fixture".into(),
+                },
+            )
+            .await
+            .unwrap();
         let mut extra = Vec::new();
-        for (account,name,date) in [(&f.account,"Other",Some("2026-08-01T00:00:00Z")),(&f.account,"Undated",None),(&other,"Foreign",Some("2026-09-01T00:00:00Z"))] {
-            let mailbox=f.store().upsert_mailbox(&MailboxUpsert{account_id:account,name,role:None,uidvalidity:1,uidnext:2,highestmodseq:0,total:1,unread:0,parent_id:None}).await.unwrap();
-            let id=f.store().upsert_message(&MessageUpsert{account_id:account,mailbox_id:&mailbox,uid:1,uidvalidity:1,message_id:None,thread_id:None,internaldate:date,size:1,flags_json:"[]",envelope:None,blob_ref:None}).await.unwrap();
+        for (account, name, date) in [
+            (&f.account, "Other", Some("2026-08-01T00:00:00Z")),
+            (&f.account, "Undated", None),
+            (&other, "Foreign", Some("2026-09-01T00:00:00Z")),
+        ] {
+            let mailbox = f
+                .store()
+                .upsert_mailbox(&MailboxUpsert {
+                    account_id: account,
+                    name,
+                    role: None,
+                    uidvalidity: 1,
+                    uidnext: 2,
+                    highestmodseq: 0,
+                    total: 1,
+                    unread: 0,
+                    parent_id: None,
+                })
+                .await
+                .unwrap();
+            let id = f
+                .store()
+                .upsert_message(&MessageUpsert {
+                    account_id: account,
+                    mailbox_id: &mailbox,
+                    uid: 1,
+                    uidvalidity: 1,
+                    message_id: None,
+                    thread_id: None,
+                    internaldate: date,
+                    size: 1,
+                    flags_json: "[]",
+                    envelope: None,
+                    blob_ref: None,
+                })
+                .await
+                .unwrap();
             extra.push(id);
         }
-        let mut expected=vec![extra[0].clone()]; expected.extend(f.ordered.clone()); expected.push(extra[1].clone());
-        let actual=f.query(json!({"calculateTotal":true})).await;
-        assert_eq!(ids_of(&actual),expected);
-        assert_eq!(actual["total"],5);
-        assert_eq!(f.query(json!({"anchor":extra[2]})).await["type"],"anchorNotFound");
-        let foreign_mailbox=f.store().get_message(&extra[2]).await.unwrap().mailbox_id;
-        let foreign_query=json!({"filter":{"inMailbox":foreign_mailbox},"sinceQueryState":"0","calculateTotal":true});
-        let denied=f.query_changes(foreign_query.clone()).await;
-        assert_eq!(denied["total"],0);
-        assert!(f.engine.query_prefix(&f.account,&foreign_query,Some(&extra[2])).await.unwrap().is_empty());
-        assert!(f.engine.query_prefix(&f.account,&json!({}),Some(&extra[2])).await.unwrap().iter().all(|id|id != &extra[2]));
-        assert_eq!(ids_of(&f.engine.email_query(&other,&json!({})).await),vec![extra[2].clone()]);
-        assert!(ids_of(&f.engine.email_query("missing-account",&json!({})).await).is_empty());
+        let mut expected = vec![extra[0].clone()];
+        expected.extend(f.ordered.clone());
+        expected.push(extra[1].clone());
+        let actual = f.query(json!({"calculateTotal":true})).await;
+        assert_eq!(ids_of(&actual), expected);
+        assert_eq!(actual["total"], 5);
+        assert_eq!(
+            f.query(json!({"anchor":extra[2]})).await["type"],
+            "anchorNotFound"
+        );
+        let foreign_mailbox = f.store().get_message(&extra[2]).await.unwrap().mailbox_id;
+        let foreign_query = json!({"filter":{"inMailbox":foreign_mailbox},"sinceQueryState":"0","calculateTotal":true});
+        let denied = f.query_changes(foreign_query.clone()).await;
+        assert_eq!(denied["total"], 0);
+        assert!(
+            f.engine
+                .query_prefix(&f.account, &foreign_query, Some(&extra[2]))
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            f.engine
+                .query_prefix(&f.account, &json!({}), Some(&extra[2]))
+                .await
+                .unwrap()
+                .iter()
+                .all(|id| id != &extra[2])
+        );
+        assert_eq!(
+            ids_of(&f.engine.email_query(&other, &json!({})).await),
+            vec![extra[2].clone()]
+        );
+        assert!(ids_of(&f.engine.email_query("missing-account", &json!({})).await).is_empty());
     }
 
     #[tokio::test]
     async fn unfiltered_account_query_changes_preserves_prefix_indices_and_total() {
-        let f=Fixture::with(10).await;
-        let since=f.email_state().await;
+        let f = Fixture::with(10).await;
+        let since = f.email_state().await;
         f.touch(3).await;
-        let changed=f.query_changes(json!({"sinceQueryState":since,"upToId":f.ordered[1],"calculateTotal":true})).await;
-        assert_eq!(changed["total"],10);
-        assert_eq!(changed["added"],json!([{"id":f.ordered[0],"index":0},{"id":f.ordered[1],"index":1}]));
-        assert_eq!(changed["removed"].as_array().unwrap().len(),3);
-        let unchanged=f.query_changes(json!({"sinceQueryState":changed["newQueryState"],"calculateTotal":true})).await;
-        assert_eq!(unchanged["added"],json!([]));
-        assert_eq!(unchanged["total"],10);
+        let changed = f
+            .query_changes(
+                json!({"sinceQueryState":since,"upToId":f.ordered[1],"calculateTotal":true}),
+            )
+            .await;
+        assert_eq!(changed["total"], 10);
+        assert_eq!(
+            changed["added"],
+            json!([{"id":f.ordered[0],"index":0},{"id":f.ordered[1],"index":1}])
+        );
+        assert_eq!(changed["removed"].as_array().unwrap().len(), 3);
+        let unchanged = f
+            .query_changes(
+                json!({"sinceQueryState":changed["newQueryState"],"calculateTotal":true}),
+            )
+            .await;
+        assert_eq!(unchanged["added"], json!([]));
+        assert_eq!(unchanged["total"], 10);
     }
 
     /// The cap must land on a **state boundary**, because change rows do not

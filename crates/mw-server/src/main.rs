@@ -455,12 +455,27 @@ async fn main() -> std::process::ExitCode {
     // persisted telemetry configuration creates the SDK and binds the real tracer.
     // CLI health checks and administrative commands never start exporters.
     let obs = mw_server::observability::ObservabilityConfig::from_env();
-    let (otlp_layer, otlp_reload) = tracing_subscriber::reload::Layer::new(None::<tracing_opentelemetry::OpenTelemetryLayer<tracing_subscriber::Registry, opentelemetry_sdk::trace::SdkTracer>>);
-    mw_server::observability::install_tracer_bridge(move |tracer| otlp_reload.reload(Some(tracing_opentelemetry::layer().with_tracer(tracer))).map_err(|error| error.to_string()));
+    let (otlp_layer, otlp_reload) = tracing_subscriber::reload::Layer::new(
+        None::<
+            tracing_opentelemetry::OpenTelemetryLayer<
+                tracing_subscriber::Registry,
+                opentelemetry_sdk::trace::SdkTracer,
+            >,
+        >,
+    );
+    mw_server::observability::install_tracer_bridge(move |tracer| {
+        otlp_reload
+            .reload(Some(tracing_opentelemetry::layer().with_tracer(tracer)))
+            .map_err(|error| error.to_string())
+    });
     tracing_subscriber::registry()
         // Export only our fixed, non-personal request spans. Existing diagnostic
         // tracing events are for local logs, not implicit remote collection.
-        .with(otlp_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| metadata.name() == "mailwoman.http.request")))
+        .with(
+            otlp_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| {
+                metadata.name() == "mailwoman.http.request"
+            })),
+        )
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&obs.log_directives)),

@@ -123,7 +123,9 @@ impl Engine {
         // does NOT — a plain IMAP/POP3/DAV account, or nothing attached — this is a
         // strict no-op (`bridge_calendar`/`bridge_tasks` return `None`) and the
         // standards CalDAV/CardDAV path below runs byte-for-byte unchanged.
-        if selected.is_none() { self.sync_pim_via_bridge(account_id).await?; }
+        if selected.is_none() {
+            self.sync_pim_via_bridge(account_id).await?;
+        }
 
         let Some(_) = rt.dav.as_ref() else {
             return Ok(()); // mail-only account (incl. bridge-only accounts)

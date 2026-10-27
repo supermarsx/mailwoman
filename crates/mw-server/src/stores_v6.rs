@@ -602,11 +602,13 @@ impl AdminBackend for AdminBackendAdapter {
             bans.retain(|b| !b.matches_ip(&ban.ip));
             bans.retain(|b| b.active_at(chrono::Utc::now()));
             bans.push(ban.clone());
-        }).await
+        })
+        .await
     }
 
     async fn remove_ban(&self, ip: &str) -> Result<(), AdminError> {
-        self.mutate_bans(|bans| bans.retain(|b| !b.matches_ip(ip))).await
+        self.mutate_bans(|bans| bans.retain(|b| !b.matches_ip(ip)))
+            .await
     }
 
     async fn list_bans(&self) -> Result<Vec<BanEntry>, AdminError> {
@@ -614,7 +616,11 @@ impl AdminBackend for AdminBackendAdapter {
     }
 
     async fn is_banned(&self, ip: &str) -> Result<bool, AdminError> {
-        Ok(self.load_bans().await?.iter().any(|b| b.matches_ip(ip) && b.active_at(chrono::Utc::now())))
+        Ok(self
+            .load_bans()
+            .await?
+            .iter()
+            .any(|b| b.matches_ip(ip) && b.active_at(chrono::Utc::now())))
     }
 
     /// The global values of the settings keys `appearance.theme`,
@@ -711,13 +717,25 @@ impl AdminBackendAdapter {
     async fn mutate_bans(&self, change: impl Fn(&mut Vec<BanEntry>)) -> Result<(), AdminError> {
         for _ in 0..32 {
             let current = self.store.get_setting(KEY_BANS).await.map_err(admin_err)?;
-            let mut bans: Vec<BanEntry> = current.as_deref().map(serde_json::from_str)
-                .transpose().map_err(admin_err)?.unwrap_or_default();
+            let mut bans: Vec<BanEntry> = current
+                .as_deref()
+                .map(serde_json::from_str)
+                .transpose()
+                .map_err(admin_err)?
+                .unwrap_or_default();
             change(&mut bans);
-            if bans.len() > 10_000 { return Err(AdminError::Invalid("ban list is full".into())); }
+            if bans.len() > 10_000 {
+                return Err(AdminError::Invalid("ban list is full".into()));
+            }
             let next = serde_json::to_string(&bans).map_err(admin_err)?;
-            if self.store.compare_and_set_setting(KEY_BANS, current.as_deref(), &next)
-                .await.map_err(admin_err)? { return Ok(()); }
+            if self
+                .store
+                .compare_and_set_setting(KEY_BANS, current.as_deref(), &next)
+                .await
+                .map_err(admin_err)?
+            {
+                return Ok(());
+            }
             tokio::task::yield_now().await;
         }
         Err(AdminError::Store("concurrent ban update; retry".into()))
@@ -965,18 +983,34 @@ mod source_ban_tests {
     use super::*;
     #[tokio::test]
     async fn concurrent_ban_updates_preserve_each_other_and_expiry() {
-        let store=Store::open_in_memory(mw_store::ServerKey::generate()).await.unwrap();
-        let adapter=AdminBackendAdapter::new(store);
-        let make=|ip:&str| BanEntry { ip:ip.into(),reason:"test".into(),banned_at:chrono::Utc::now().to_rfc3339(),expires_at:None };
-        let (a,b)=tokio::join!(adapter.add_ban(make("192.0.2.1")),adapter.add_ban(make("192.0.2.2")));
-        a.unwrap();b.unwrap();
-        assert_eq!(adapter.list_bans().await.unwrap().len(),2);
-        let (a,b)=tokio::join!(adapter.remove_ban("192.0.2.1"),adapter.add_ban(make("192.0.2.3")));
-        a.unwrap();b.unwrap();
+        let store = Store::open_in_memory(mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        let adapter = AdminBackendAdapter::new(store);
+        let make = |ip: &str| BanEntry {
+            ip: ip.into(),
+            reason: "test".into(),
+            banned_at: chrono::Utc::now().to_rfc3339(),
+            expires_at: None,
+        };
+        let (a, b) = tokio::join!(
+            adapter.add_ban(make("192.0.2.1")),
+            adapter.add_ban(make("192.0.2.2"))
+        );
+        a.unwrap();
+        b.unwrap();
+        assert_eq!(adapter.list_bans().await.unwrap().len(), 2);
+        let (a, b) = tokio::join!(
+            adapter.remove_ban("192.0.2.1"),
+            adapter.add_ban(make("192.0.2.3"))
+        );
+        a.unwrap();
+        b.unwrap();
         assert!(!adapter.is_banned("192.0.2.1").await.unwrap());
         assert!(adapter.is_banned("192.0.2.2").await.unwrap());
         assert!(adapter.is_banned("192.0.2.3").await.unwrap());
-        let mut expired=make("192.0.2.4"); expired.expires_at=Some("2000-01-01T00:00:00Z".into());
+        let mut expired = make("192.0.2.4");
+        expired.expires_at = Some("2000-01-01T00:00:00Z".into());
         adapter.add_ban(expired).await.unwrap();
         assert!(!adapter.is_banned("192.0.2.4").await.unwrap());
     }

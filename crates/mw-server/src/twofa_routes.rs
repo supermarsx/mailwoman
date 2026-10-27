@@ -144,7 +144,8 @@ impl TwofaState {
         self.take_pending(token);
     }
     pub(crate) fn native_link_pending(&self, token: &str) -> bool {
-        self.peek_pending(token).is_some_and(|p|p.args.jmap_url=="engine" && p.args.api_url=="engine")
+        self.peek_pending(token)
+            .is_some_and(|p| p.args.jmap_url == "engine" && p.args.api_url == "engine")
     }
 
     /// A clone of a live pending login without consuming it — used to READ the
@@ -405,7 +406,8 @@ async fn policy_requires(
     {
         return Ok(true);
     }
-    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None,
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
         domain: username.rsplit_once('@').map_or("", |(_, d)| d),
         account_id,
         address: username,
@@ -541,20 +543,38 @@ async fn complete_login(
         Ok(id) => id,
         Err(e) => return server_error("persist session", e),
     };
-    let method = if args.authentication_method == "header-auth" { "header-auth" } else {
-        match stage { Stage::Password => "password", Stage::SecondFactor => "password+factor", Stage::Remembered => "remembered-device", Stage::Passwordless => "passkey" }
+    let method = if args.authentication_method == "header-auth" {
+        "header-auth"
+    } else {
+        match stage {
+            Stage::Password => "password",
+            Stage::SecondFactor => "password+factor",
+            Stage::Remembered => "remembered-device",
+            Stage::Passwordless => "passkey",
+        }
     };
     if let Err(error) = state.store.set_session_authentication(&id, method).await {
         let _ = state.store.delete_session(&id).await;
         return server_error("authentication method", error);
     }
-    if let Err(error) = args.primary_identity.bind(state, &id, &args.account_id).await {
+    if let Err(error) = args
+        .primary_identity
+        .bind(state, &id, &args.account_id)
+        .await
+    {
         let _ = state.store.delete_session(&id).await;
         return server_error("bind primary identity", error);
     }
     if let Err(response) = crate::security_center::record_login(
-        state, &id, &args.account_id, &args.username, device, method,
-    ).await {
+        state,
+        &id,
+        &args.account_id,
+        &args.username,
+        device,
+        method,
+    )
+    .await
+    {
         let _ = state.store.delete_session(&id).await;
         return response;
     }
@@ -602,7 +622,15 @@ async fn passwordless_begin(
     headers: HeaderMap,
     ext: axum::http::Extensions,
 ) -> Response {
-    if let Err(error)=crate::signin_guard::check(&state,mw_store::AuthSurface::Webmail,crate::scope_mw::proxy::client_ip(&headers,&ext)).await { return error.into_response(); }
+    if let Err(error) = crate::signin_guard::check(
+        &state,
+        mw_store::AuthSurface::Webmail,
+        crate::scope_mw::proxy::client_ip(&headers, &ext),
+    )
+    .await
+    {
+        return error.into_response();
+    }
 
     if state.engine.is_none() {
         return (
@@ -663,7 +691,15 @@ async fn passwordless_finish(
     ext: axum::http::Extensions,
     Json(body): Json<PasswordlessFinish>,
 ) -> Response {
-    if let Err(error)=crate::signin_guard::check(&state,mw_store::AuthSurface::Webmail,crate::scope_mw::proxy::client_ip(&headers,&ext)).await { return error.into_response(); }
+    if let Err(error) = crate::signin_guard::check(
+        &state,
+        mw_store::AuthSurface::Webmail,
+        crate::scope_mw::proxy::client_ip(&headers, &ext),
+    )
+    .await
+    {
+        return error.into_response();
+    }
 
     let Some(engine) = &state.engine else {
         return (
@@ -723,14 +759,27 @@ async fn passwordless_finish(
         return rejected_passkey(&state, &device, "credential-rejected").await;
     };
     let credentials = if account.kind == mw_store::AccountKind::Ews {
-        if !matches!(crate::domain_provider::stored_selection(&state.store, &account.id).await, Ok(Some(_))) {
+        if !matches!(
+            crate::domain_provider::stored_selection(&state.store, &account.id).await,
+            Ok(Some(_))
+        ) {
             return rejected_passkey(&state, &device, "credential-rejected").await;
         }
-        state.store.provider_ews_credentials(&account.id).await.and_then(|credentials| {
-            credentials.map(|credentials| mw_store::Credentials { username: account.username.clone(), password: credentials.password })
-                .ok_or(mw_store::StoreError::NotFound)
-        })
-    } else { state.store.account_credentials(&account.id).await };
+        state
+            .store
+            .provider_ews_credentials(&account.id)
+            .await
+            .and_then(|credentials| {
+                credentials
+                    .map(|credentials| mw_store::Credentials {
+                        username: account.username.clone(),
+                        password: credentials.password,
+                    })
+                    .ok_or(mw_store::StoreError::NotFound)
+            })
+    } else {
+        state.store.account_credentials(&account.id).await
+    };
     let Ok(creds) = credentials else {
         return rejected_passkey(&state, &device, "credential-rejected").await;
     };
@@ -742,10 +791,11 @@ async fn passwordless_finish(
     if !policy.passkeys_enabled {
         return rejected_passkey(&state, &device, "credential-rejected").await;
     }
-    let primary_identity = match crate::primary_identity::VerifiedLoginIdentity::engine(&state, &account.id).await {
-        Ok(identity) => identity,
-        Err(error) => return server_error("resolve primary identity", error),
-    };
+    let primary_identity =
+        match crate::primary_identity::VerifiedLoginIdentity::engine(&state, &account.id).await {
+            Ok(identity) => identity,
+            Err(error) => return server_error("resolve primary identity", error),
+        };
     let args = SessionArgs {
         authentication_method: "passkey",
         primary_identity,
@@ -790,18 +840,25 @@ async fn passwordless_finish(
     }
     if !engine.is_registered(&args.account_id) {
         let attempt = if account.kind == mw_store::AccountKind::Ews {
-            match (crate::domain_provider::stored_selection(&state.store, &args.account_id).await,
-                ext.get::<crate::plugins::PluginRegistry>()) {
-                (Ok(Some(selected)), Some(registry)) => crate::domain_provider::login(engine, registry, selected, &args.creds.password).await,
+            match (
+                crate::domain_provider::stored_selection(&state.store, &args.account_id).await,
+                ext.get::<crate::plugins::PluginRegistry>(),
+            ) {
+                (Ok(Some(selected)), Some(registry)) => {
+                    crate::domain_provider::login(engine, registry, selected, &args.creds.password)
+                        .await
+                }
                 _ => return twofa_unauthorized(),
             }
-        } else { crate::engine_mode::engine_login(
-            engine,
-            upstream.url(),
-            &args.creds.username,
-            &args.creds.password,
-        )
-        .await };
+        } else {
+            crate::engine_mode::engine_login(
+                engine,
+                upstream.url(),
+                &args.creds.username,
+                &args.creds.password,
+            )
+            .await
+        };
         match attempt {
             Ok((id, _)) if id == args.account_id => {}
             _ => return twofa_unauthorized(),
@@ -843,12 +900,28 @@ struct VerifyReq {
 
 /// The link wrapper retains and owner-binds the pending token. It cannot change
 /// the original native-client login arguments or bypass normal factor checks.
-pub(crate) async fn verify_link_factor(state:AppState,headers:HeaderMap,ext:axum::http::Extensions,pending:String,mut body:serde_json::Value)->Response {
-    if state.twofa.peek_pending(&pending).is_none(){return (StatusCode::GONE,Json(json!({"code":"linkedChallengeExpired","error":"linkedChallengeExpired"}))).into_response();}
-    let Some(object)=body.as_object_mut() else{return twofa_unauthorized()};
-    object.insert("pendingToken".into(),serde_json::Value::String(pending));
-    let Ok(body)=serde_json::from_value::<VerifyReq>(body) else{return twofa_unauthorized()};
-    verify_2fa(State(state),headers,ext,Json(body)).await
+pub(crate) async fn verify_link_factor(
+    state: AppState,
+    headers: HeaderMap,
+    ext: axum::http::Extensions,
+    pending: String,
+    mut body: serde_json::Value,
+) -> Response {
+    if state.twofa.peek_pending(&pending).is_none() {
+        return (
+            StatusCode::GONE,
+            Json(json!({"code":"linkedChallengeExpired","error":"linkedChallengeExpired"})),
+        )
+            .into_response();
+    }
+    let Some(object) = body.as_object_mut() else {
+        return twofa_unauthorized();
+    };
+    object.insert("pendingToken".into(), serde_json::Value::String(pending));
+    let Ok(body) = serde_json::from_value::<VerifyReq>(body) else {
+        return twofa_unauthorized();
+    };
+    verify_2fa(State(state), headers, ext, Json(body)).await
 }
 
 /// Verify the presented second factor for a pending login and, on success, issue the
@@ -864,7 +937,15 @@ async fn verify_2fa(
     ext: axum::http::Extensions,
     Json(body): Json<VerifyReq>,
 ) -> Response {
-    if let Err(error)=crate::signin_guard::check(&state,mw_store::AuthSurface::Webmail,crate::scope_mw::proxy::client_ip(&headers,&ext)).await { return error.into_response(); }
+    if let Err(error) = crate::signin_guard::check(
+        &state,
+        mw_store::AuthSurface::Webmail,
+        crate::scope_mw::proxy::client_ip(&headers, &ext),
+    )
+    .await
+    {
+        return error.into_response();
+    }
 
     let device = crate::security_center::device(&headers, &ext, None);
     let Some(pending) = state.twofa.peek_pending(&body.pending_token) else {
@@ -1115,7 +1196,15 @@ async fn login_enroll_totp_begin(
     ext: axum::http::Extensions,
     Json(body): Json<PendingTokenReq>,
 ) -> Response {
-    if let Err(error)=crate::signin_guard::check(&state,mw_store::AuthSurface::Webmail,crate::scope_mw::proxy::client_ip(&headers,&ext)).await { return error.into_response(); }
+    if let Err(error) = crate::signin_guard::check(
+        &state,
+        mw_store::AuthSurface::Webmail,
+        crate::scope_mw::proxy::client_ip(&headers, &ext),
+    )
+    .await
+    {
+        return error.into_response();
+    }
 
     let Some(p) = enroll_pending(&state, &body.pending_token) else {
         return twofa_unauthorized();
@@ -1130,7 +1219,15 @@ async fn login_enroll_totp_confirm(
     ext: axum::http::Extensions,
     Json(body): Json<PendingTotpConfirmReq>,
 ) -> Response {
-    if let Err(error)=crate::signin_guard::check(&state,mw_store::AuthSurface::Webmail,crate::scope_mw::proxy::client_ip(&headers,&ext)).await { return error.into_response(); }
+    if let Err(error) = crate::signin_guard::check(
+        &state,
+        mw_store::AuthSurface::Webmail,
+        crate::scope_mw::proxy::client_ip(&headers, &ext),
+    )
+    .await
+    {
+        return error.into_response();
+    }
 
     let Some(p) = enroll_pending(&state, &body.pending_token) else {
         return twofa_unauthorized();
@@ -1166,7 +1263,15 @@ async fn login_enroll_passkey_begin(
     ext: axum::http::Extensions,
     Json(body): Json<PendingTokenReq>,
 ) -> Response {
-    if let Err(error)=crate::signin_guard::check(&state,mw_store::AuthSurface::Webmail,crate::scope_mw::proxy::client_ip(&headers,&ext)).await { return error.into_response(); }
+    if let Err(error) = crate::signin_guard::check(
+        &state,
+        mw_store::AuthSurface::Webmail,
+        crate::scope_mw::proxy::client_ip(&headers, &ext),
+    )
+    .await
+    {
+        return error.into_response();
+    }
 
     let Some(p) = enroll_pending(&state, &body.pending_token) else {
         return twofa_unauthorized();
@@ -1192,7 +1297,15 @@ async fn login_enroll_passkey_finish(
     ext: axum::http::Extensions,
     Json(body): Json<PendingPasskeyFinishReq>,
 ) -> Response {
-    if let Err(error)=crate::signin_guard::check(&state,mw_store::AuthSurface::Webmail,crate::scope_mw::proxy::client_ip(&headers,&ext)).await { return error.into_response(); }
+    if let Err(error) = crate::signin_guard::check(
+        &state,
+        mw_store::AuthSurface::Webmail,
+        crate::scope_mw::proxy::client_ip(&headers, &ext),
+    )
+    .await
+    {
+        return error.into_response();
+    }
 
     let Some(p) = enroll_pending(&state, &body.pending_token) else {
         return twofa_unauthorized();
@@ -1269,7 +1382,13 @@ async fn twofa_status(State(state): State<AppState>, headers: HeaderMap) -> Resp
         Ok(r) => r,
         Err(e) => return server_error("read policy", e),
     };
-    let effective_policy = match crate::security_center::policy(&state, &session.account_id, &session.username).await {
+    let effective_policy = match crate::security_center::policy(
+        &state,
+        &session.account_id,
+        &session.username,
+    )
+    .await
+    {
         Ok(policy) => policy,
         Err(response) => return response,
     };
@@ -1637,7 +1756,10 @@ async fn sessions_revoke_route(
         Ok(s) => s,
         Err(r) => return r,
     };
-    if headers.get("x-mailwoman-account").is_some_and(|expected| expected.to_str().ok() != Some(session.account_id.as_str())) {
+    if headers
+        .get("x-mailwoman-account")
+        .is_some_and(|expected| expected.to_str().ok() != Some(session.account_id.as_str()))
+    {
         return (StatusCode::CONFLICT,Json(json!({"code":"sessionAccountChanged","error":"Account changed; reload sessions before continuing."}))).into_response();
     }
     let current = mw_store::session_handle(&session.id);
@@ -2229,7 +2351,11 @@ mod tests {
     fn args() -> SessionArgs {
         SessionArgs {
             authentication_method: "password",
-            primary_identity: crate::primary_identity::VerifiedLoginIdentity::proxy("https://fixture.example", "a@ex").unwrap(),
+            primary_identity: crate::primary_identity::VerifiedLoginIdentity::proxy(
+                "https://fixture.example",
+                "a@ex",
+            )
+            .unwrap(),
             account_id: "a@ex".into(),
             username: "a@ex".into(),
             jmap_url: "engine".into(),

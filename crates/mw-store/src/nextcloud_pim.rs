@@ -35,7 +35,10 @@ fn binding(row: &Row) -> NextcloudPimBinding {
 }
 impl Store {
     /// Bounded keyset page of accounts with currently authorized collection bindings.
-    pub async fn active_nextcloud_pim_accounts(&self, after:&str)->Result<Vec<String>,StoreError>{
+    pub async fn active_nextcloud_pim_accounts(
+        &self,
+        after: &str,
+    ) -> Result<Vec<String>, StoreError> {
         Ok(q("SELECT DISTINCT b.account_id FROM nextcloud_pim_binding b JOIN nextcloud_account_link l ON l.account_id=b.account_id AND l.instance_id=b.instance_id AND l.revision=b.link_revision JOIN nextcloud_instance i ON i.id=l.instance_id AND i.revision=l.instance_revision WHERE b.account_id>?1 AND b.enabled=1 AND i.enabled=1 ORDER BY b.account_id LIMIT 64")
            .bind(after).fetch_all(&self.backend).await?.iter().map(|row|row.get_string("account_id")).collect())
     }
@@ -239,8 +242,17 @@ mod tests {
         let first = store.apply_nextcloud_pim(input()).await.unwrap().unwrap();
         let same = store.apply_nextcloud_pim(input()).await.unwrap().unwrap();
         assert_eq!(first.collection_id, same.collection_id);
-        assert_eq!(store.active_nextcloud_pim_accounts("").await.unwrap(), vec![account.clone()]);
-        assert!(store.active_nextcloud_pim_accounts(&account).await.unwrap().is_empty());
+        assert_eq!(
+            store.active_nextcloud_pim_accounts("").await.unwrap(),
+            vec![account.clone()]
+        );
+        assert!(
+            store
+                .active_nextcloud_pim_accounts(&account)
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert_eq!(
             store
                 .active_nextcloud_pim_bindings(&account)
@@ -278,7 +290,13 @@ mod tests {
                 .unwrap()
         );
         assert!(!store.nextcloud_pim_bindings(&account).await.unwrap()[0].enabled);
-        assert!(store.active_nextcloud_pim_accounts("").await.unwrap().is_empty());
+        assert!(
+            store
+                .active_nextcloud_pim_accounts("")
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert!(
             store
                 .active_nextcloud_pim_bindings(&account)

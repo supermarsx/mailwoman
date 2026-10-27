@@ -22,10 +22,14 @@ pub trait MailSubmitter: Send + Sync {
     async fn submit(&self, msg: Outgoing) -> Result<SubmissionResult>;
 
     /// A fresh observation from this submitter's immutable transport authority.
-    fn cached_dsn_support(&self) -> bool { false }
+    fn cached_dsn_support(&self) -> bool {
+        false
+    }
 
     /// Probe configured transport capabilities without submitting a message.
-    async fn probe_dsn(&self) -> Result<bool> { Ok(false) }
+    async fn probe_dsn(&self) -> Result<bool> {
+        Ok(false)
+    }
 
     /// Submit with ESMTP options (t32-e46: DSN). A submitter that cannot honour
     /// a DSN request answers [`EngineError::Unsupported`] with
@@ -56,9 +60,13 @@ pub(crate) fn header_text(s: &str) -> String {
 /// Adapt the real `mw-smtp` submitter onto the engine's [`MailSubmitter`] seam.
 #[async_trait]
 impl MailSubmitter for Submitter {
-    fn cached_dsn_support(&self) -> bool { Submitter::cached_dsn_support(self) }
+    fn cached_dsn_support(&self) -> bool {
+        Submitter::cached_dsn_support(self)
+    }
     async fn probe_dsn(&self) -> Result<bool> {
-        Submitter::probe_dsn(self).await.map_err(|_| EngineError::Transport("SMTP capability probe unavailable".into()))
+        Submitter::probe_dsn(self)
+            .await
+            .map_err(|_| EngineError::Transport("SMTP capability probe unavailable".into()))
     }
 
     async fn submit(&self, msg: Outgoing) -> Result<SubmissionResult> {

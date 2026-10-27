@@ -170,7 +170,9 @@ pub enum Kind {
         max_item: usize,
     },
     /// Bounded attachment extension or MIME rules (MIME supports top-level /*).
-    AttachmentList { mime: bool },
+    AttachmentList {
+        mime: bool,
+    },
     /// `{ "start": 0..=23, "end": 0..=23 }` (UTC hours).
     QuietHours,
     /// `[{ "label": "...", "url": "https://..." }]`.
@@ -185,7 +187,9 @@ impl Kind {
         match *self {
             Kind::FolderRole => json!({ "type": "folderRole", "maxLength": 512 }),
             Kind::Bool => json!({ "type": "bool" }),
-            Kind::AttachmentList { .. } => json!({ "type": "stringList", "maxItems": 100, "maxLength": 127 }),
+            Kind::AttachmentList { .. } => {
+                json!({ "type": "stringList", "maxItems": 100, "maxLength": 127 })
+            }
             Kind::StringList { max_len, max_item } => {
                 json!({ "type": "stringList", "maxItems": max_len, "maxLength": max_item })
             }
@@ -264,7 +268,9 @@ impl SettingDef {
 
     /// Whether the value is returned by `GET /api/settings` to the user.
     pub fn user_visible(&self) -> bool {
-        self.scopes == Scopes::GlobalDomainUser || PUBLIC_KEYS.contains(&self.key) || self.key == "receipts.dsnAllowed"
+        self.scopes == Scopes::GlobalDomainUser
+            || PUBLIC_KEYS.contains(&self.key)
+            || self.key == "receipts.dsnAllowed"
     }
 
     /// Whether a value is re-read at the point of use (R-CFG 6).
@@ -305,7 +311,13 @@ impl SettingDef {
 }
 
 /// Global-only keys a signed-in user may still read (branding the client shows).
-const PUBLIC_KEYS: &[&str] = &["appearance.brandName", "login.notice", "login.showDomainHint", "login.rememberSignins", "login.showRememberedHint"];
+const PUBLIC_KEYS: &[&str] = &[
+    "appearance.brandName",
+    "login.notice",
+    "login.showDomainHint",
+    "login.rememberSignins",
+    "login.showRememberedHint",
+];
 
 /// The admin route (console-path suffix) that owns `signin.newUsers`,
 /// `signin.domainMode` and `signin.refusalDetail` (e66): those writes need
@@ -366,41 +378,272 @@ use Scopes::{
 
 /// Every registered key. Order is the admin screen's order within a category.
 pub static REGISTRY: &[SettingDef] = &[
-    def!("accounts.linkingEnabled", Kind::Bool, "false", GDA, "accounts", "Allow verified linked mailbox accounts; global false is a hard ceiling"),
-    def!("accounts.useLinked", Kind::Bool, "true", GDU, "accounts", "Use linked mailboxes when permitted by the administrator"),
-    def!("accounts.maxLinked", int(1,16), "5", G, "accounts", "Maximum verified linked mailboxes per primary identity"),
-    def!("privacy.stripMailerHeaders", Kind::Bool, "true", GDU, "privacy", "remove client fingerprint headers from native outgoing email; preserve message bodies and attached messages"),
-    def!("privacy.remoteImageDownloads", Kind::Bool, "false", GDU, "privacy", "allow deliberate message image downloads through the guarded privacy proxy"),
-    def!("appearance.customCssEnabled", Kind::Bool, "false", G, "appearance", "Allow owner-scoped appearance CSS; disabled by default and paused under enforced mailbox appearance locks"),
-    def!("appearance.customJsEnabled", Kind::Bool, "false", G, "appearance", "Allow owner-written scripts in an opaque appearance-only worker sandbox; disabled by default"),
-    nullable(def!("mail.folderRole.inbox", Kind::FolderRole, "null", GDU, "mail", "inbox folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder")),
-    nullable(def!("mail.folderRole.drafts", Kind::FolderRole, "null", GDU, "mail", "drafts folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder")),
-    nullable(def!("mail.folderRole.sent", Kind::FolderRole, "null", GDU, "mail", "sent folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder")),
-    nullable(def!("mail.folderRole.trash", Kind::FolderRole, "null", GDU, "mail", "trash folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder")),
-    nullable(def!("mail.folderRole.junk", Kind::FolderRole, "null", GDU, "mail", "junk folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder")),
-    nullable(def!("mail.folderRole.archive", Kind::FolderRole, "null", GDU, "mail", "archive folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder")),
-    def!("nextcloud.syncIntervalSecs", int(0,86400), "300", GDU, "integrations", "Nextcloud collection refresh interval; zero is manual only, positive values have a sixty-second minimum"),
-    def!("packages.allowed", Kind::Bool, "true", GDA, "integrations", "Allow package tracking; provider activation and separate account opt-in are still required"),
-    def!("cap.integration.nextcloud", Kind::Bool, "true", GDA, "integrations", "Nextcloud integration"),
-    def!("cap.integration.google", Kind::Bool, "true", GDA, "integrations", "Google OAuth bridge"),
-    def!("cap.integration.microsoft", Kind::Bool, "true", GDA, "integrations", "Microsoft OAuth bridge"),
-    def!("cap.integration.*", Kind::Bool, "true", GDA, "integrations", "Individual integration permission"),
-    def!("cap.ui_plugin.*", Kind::Bool, "true", GDA, "integrations", "Individual UI plugin permission"),
-    def!("cap.ai_assistant", Kind::Bool, "true", GDA, "features", "AI assistant"),
-    def!("cap.plugins", Kind::Bool, "true", GDA, "features", "Plugins"),
-    def!("cap.pim.calendar", Kind::Bool, "true", GDA, "features", "Calendar"),
-    def!("cap.pim.contacts", Kind::Bool, "true", GDA, "features", "Contacts"),
-    def!("cap.pim.tasks", Kind::Bool, "true", GDA, "features", "Tasks"),
-    def!("cap.pim.notes", Kind::Bool, "true", GDA, "features", "Notes"),
+    def!(
+        "accounts.linkingEnabled",
+        Kind::Bool,
+        "false",
+        GDA,
+        "accounts",
+        "Allow verified linked mailbox accounts; global false is a hard ceiling"
+    ),
+    def!(
+        "accounts.useLinked",
+        Kind::Bool,
+        "true",
+        GDU,
+        "accounts",
+        "Use linked mailboxes when permitted by the administrator"
+    ),
+    def!(
+        "accounts.maxLinked",
+        int(1, 16),
+        "5",
+        G,
+        "accounts",
+        "Maximum verified linked mailboxes per primary identity"
+    ),
+    def!(
+        "privacy.stripMailerHeaders",
+        Kind::Bool,
+        "true",
+        GDU,
+        "privacy",
+        "remove client fingerprint headers from native outgoing email; preserve message bodies and attached messages"
+    ),
+    def!(
+        "privacy.remoteImageDownloads",
+        Kind::Bool,
+        "false",
+        GDU,
+        "privacy",
+        "allow deliberate message image downloads through the guarded privacy proxy"
+    ),
+    def!(
+        "appearance.customCssEnabled",
+        Kind::Bool,
+        "false",
+        G,
+        "appearance",
+        "Allow owner-scoped appearance CSS; disabled by default and paused under enforced mailbox appearance locks"
+    ),
+    def!(
+        "appearance.customJsEnabled",
+        Kind::Bool,
+        "false",
+        G,
+        "appearance",
+        "Allow owner-written scripts in an opaque appearance-only worker sandbox; disabled by default"
+    ),
+    nullable(def!(
+        "mail.folderRole.inbox",
+        Kind::FolderRole,
+        "null",
+        GDU,
+        "mail",
+        "inbox folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder"
+    )),
+    nullable(def!(
+        "mail.folderRole.drafts",
+        Kind::FolderRole,
+        "null",
+        GDU,
+        "mail",
+        "drafts folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder"
+    )),
+    nullable(def!(
+        "mail.folderRole.sent",
+        Kind::FolderRole,
+        "null",
+        GDU,
+        "mail",
+        "sent folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder"
+    )),
+    nullable(def!(
+        "mail.folderRole.trash",
+        Kind::FolderRole,
+        "null",
+        GDU,
+        "mail",
+        "trash folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder"
+    )),
+    nullable(def!(
+        "mail.folderRole.junk",
+        Kind::FolderRole,
+        "null",
+        GDU,
+        "mail",
+        "junk folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder"
+    )),
+    nullable(def!(
+        "mail.folderRole.archive",
+        Kind::FolderRole,
+        "null",
+        GDU,
+        "mail",
+        "archive folder role override; null keeps automatic discovery, an exact path or owned ID selects the folder"
+    )),
+    def!(
+        "nextcloud.syncIntervalSecs",
+        int(0, 86400),
+        "300",
+        GDU,
+        "integrations",
+        "Nextcloud collection refresh interval; zero is manual only, positive values have a sixty-second minimum"
+    ),
+    def!(
+        "packages.allowed",
+        Kind::Bool,
+        "true",
+        GDA,
+        "integrations",
+        "Allow package tracking; provider activation and separate account opt-in are still required"
+    ),
+    def!(
+        "cap.integration.nextcloud",
+        Kind::Bool,
+        "true",
+        GDA,
+        "integrations",
+        "Nextcloud integration"
+    ),
+    def!(
+        "cap.integration.google",
+        Kind::Bool,
+        "true",
+        GDA,
+        "integrations",
+        "Google OAuth bridge"
+    ),
+    def!(
+        "cap.integration.microsoft",
+        Kind::Bool,
+        "true",
+        GDA,
+        "integrations",
+        "Microsoft OAuth bridge"
+    ),
+    def!(
+        "cap.integration.*",
+        Kind::Bool,
+        "true",
+        GDA,
+        "integrations",
+        "Individual integration permission"
+    ),
+    def!(
+        "cap.ui_plugin.*",
+        Kind::Bool,
+        "true",
+        GDA,
+        "integrations",
+        "Individual UI plugin permission"
+    ),
+    def!(
+        "cap.ai_assistant",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "AI assistant"
+    ),
+    def!(
+        "cap.plugins",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "Plugins"
+    ),
+    def!(
+        "cap.pim.calendar",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "Calendar"
+    ),
+    def!(
+        "cap.pim.contacts",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "Contacts"
+    ),
+    def!(
+        "cap.pim.tasks",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "Tasks"
+    ),
+    def!(
+        "cap.pim.notes",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "Notes"
+    ),
     def!("cap.export", Kind::Bool, "true", GDA, "features", "Export"),
     def!("cap.import", Kind::Bool, "true", GDA, "features", "Import"),
-    def!("cap.api_keys", Kind::Bool, "true", GDA, "features", "API keys"),
-    def!("cap.oauth_apps", Kind::Bool, "true", GDA, "features", "OAuth applications"),
-    def!("cap.rules", Kind::Bool, "true", GDA, "features", "Mail rules"),
-    def!("cap.rules.forward", Kind::Bool, "true", GDA, "features", "Rule forwarding"),
-    def!("cap.remote_images", Kind::Bool, "true", GDA, "features", "Remote images"),
-    def!("cap.user_background", Kind::Bool, "false", GDA, "features", "Custom background"),
-    def!("cap.user_css", Kind::Bool, "false", GDA, "features", "Custom CSS"),
+    def!(
+        "cap.api_keys",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "API keys"
+    ),
+    def!(
+        "cap.oauth_apps",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "OAuth applications"
+    ),
+    def!(
+        "cap.rules",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "Mail rules"
+    ),
+    def!(
+        "cap.rules.forward",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "Rule forwarding"
+    ),
+    def!(
+        "cap.remote_images",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "Remote images"
+    ),
+    def!(
+        "cap.user_background",
+        Kind::Bool,
+        "false",
+        GDA,
+        "features",
+        "Custom background"
+    ),
+    def!(
+        "cap.user_css",
+        Kind::Bool,
+        "false",
+        GDA,
+        "features",
+        "Custom CSS"
+    ),
     def!(
         "privacy.remoteContent",
         Kind::Enum(&["block", "ask", "proxy", "direct"]),
@@ -572,49 +815,346 @@ pub static REGISTRY: &[SettingDef] = &[
         "sieve",
         "Sieve forwarding outside the account domain"
     ),
-    def!("mail.externalRecipientWarning", Kind::Enum(&["off", "warn", "confirm"]), "\"warn\"", GDU, "mail", "external recipient composer warning"),
-    def!("mail.trustedRecipientDomains", Kind::StringList { max_len: 100, max_item: 253 }, "[]", GDU, "mail", "exact trusted recipient domains for composer warnings"),
-    def!("time.displayZone", text(Text::Plain, 64), "\"local\"", GDU, "time", "preferred message display time zone"),
-    def!("time.comparisonZone", text(Text::Plain, 64), "\"\"", GDU, "time", "optional second time zone for message and event helpers"),
-    def!("time.showHelpers", Kind::Bool, "true", GDU, "time", "show message and event time zone comparisons"),
-    def!("shortcuts.enabled", Kind::Bool, "true", GDU, "shortcuts", "enable application keyboard shortcuts"),
-    def!("shortcuts.compose", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for compose"),
-    def!("shortcuts.archive", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for archive"),
-    def!("shortcuts.reply", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for reply"),
-    def!("shortcuts.replyAll", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for replyAll"),
-    def!("shortcuts.forward", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for forward"),
-    def!("shortcuts.next", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for next"),
-    def!("shortcuts.previous", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for previous"),
-    def!("shortcuts.search", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for search"),
-    def!("shortcuts.refresh", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for refresh"),
-    def!("shortcuts.settings", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for settings"),
-    def!("shortcuts.trash", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for trash"),
-    def!("shortcuts.markRead", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for markRead"),
-    def!("shortcuts.markUnread", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for markUnread"),
-    def!("shortcuts.spam", text(Text::Plain, 64), "\"inherit\"", GDU, "shortcuts", "keyboard binding for spam"),
-    def!("mail.quoteStyle", Kind::Enum(&["classic", "outlook"]), "\"classic\"", GDU, "mail", "reply and forward header style"),
+    def!(
+        "mail.externalRecipientWarning",
+        Kind::Enum(&["off", "warn", "confirm"]),
+        "\"warn\"",
+        GDU,
+        "mail",
+        "external recipient composer warning"
+    ),
+    def!(
+        "mail.trustedRecipientDomains",
+        Kind::StringList {
+            max_len: 100,
+            max_item: 253
+        },
+        "[]",
+        GDU,
+        "mail",
+        "exact trusted recipient domains for composer warnings"
+    ),
+    def!(
+        "time.displayZone",
+        text(Text::Plain, 64),
+        "\"local\"",
+        GDU,
+        "time",
+        "preferred message display time zone"
+    ),
+    def!(
+        "time.comparisonZone",
+        text(Text::Plain, 64),
+        "\"\"",
+        GDU,
+        "time",
+        "optional second time zone for message and event helpers"
+    ),
+    def!(
+        "time.showHelpers",
+        Kind::Bool,
+        "true",
+        GDU,
+        "time",
+        "show message and event time zone comparisons"
+    ),
+    def!(
+        "shortcuts.enabled",
+        Kind::Bool,
+        "true",
+        GDU,
+        "shortcuts",
+        "enable application keyboard shortcuts"
+    ),
+    def!(
+        "shortcuts.compose",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for compose"
+    ),
+    def!(
+        "shortcuts.archive",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for archive"
+    ),
+    def!(
+        "shortcuts.reply",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for reply"
+    ),
+    def!(
+        "shortcuts.replyAll",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for replyAll"
+    ),
+    def!(
+        "shortcuts.forward",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for forward"
+    ),
+    def!(
+        "shortcuts.next",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for next"
+    ),
+    def!(
+        "shortcuts.previous",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for previous"
+    ),
+    def!(
+        "shortcuts.search",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for search"
+    ),
+    def!(
+        "shortcuts.refresh",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for refresh"
+    ),
+    def!(
+        "shortcuts.settings",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for settings"
+    ),
+    def!(
+        "shortcuts.trash",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for trash"
+    ),
+    def!(
+        "shortcuts.markRead",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for markRead"
+    ),
+    def!(
+        "shortcuts.markUnread",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for markUnread"
+    ),
+    def!(
+        "shortcuts.spam",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for spam"
+    ),
+    def!(
+        "mail.quoteStyle",
+        Kind::Enum(&["classic", "outlook"]),
+        "\"classic\"",
+        GDU,
+        "mail",
+        "reply and forward header style"
+    ),
     // ── Interface (user-facing) ──────────────────────────────────────────────
-    def!("mail.quickReply", Kind::Bool, "false", GDU, "mail", "enable the compact message reply composer"),
-    def!("mail.requestReadReceipt", Kind::Bool, "false", GDU, "mail", "request a read receipt by default when composing supported mail"),
-    def!("mail.requestDeliveryReceipt", Kind::Bool, "false", GDU, "mail", "request delivery status notifications by default when the account supports DSN"),
-    def!("mail.showFrom", Kind::Bool, "false", GDU, "mail", "show the From field by default when composing; sending authority is unchanged"),
-    def!("mail.modifierSelection", Kind::Bool, "true", GDU, "mail", "select messages with Ctrl, Command, Shift and arrow keys"),
-    def!("mail.draftSaveMode", Kind::Enum(&["realtime", "periodic", "manual"]), "\"realtime\"", GDU, "mail", "account draft save scheduling; manual disables automatic upstream writes"),
-    def!("mail.draftDebounceMs", int(500,10000), "1000", GDU, "mail", "idle milliseconds before saving an edited account draft"),
-    def!("mail.draftIntervalSecs", int(5,3600), "30", GDU, "mail", "periodic account draft save interval in seconds"),
-    def!("mail.resumeTabs", Kind::Bool, "true", GDU, "mail", "restore account-owned workspace tab references after reload"),
-    def!("mail.dragToFolder", Kind::Bool, "true", GDU, "mail", "move selected messages by dragging them to a folder"),
-    def!("mail.folderCounts", Kind::Enum(&["none", "unread", "total", "both"]), "\"both\"", GDU, "mail", "counts displayed beside mail folders"),
-    def!("mail.compactFolderBadges", Kind::Bool, "true", GDU, "mail", "smaller count badges for folders other than Inbox"),
-    def!("contacts.avatarMode", Kind::Enum(&["off", "initials", "contacts"]), "\"initials\"", GDU, "contacts", "local generated avatars or embedded photos from this account contacts; never remote photo requests"),
-    def!("contacts.senderIcons", Kind::Bool, "true", GDU, "contacts", "bundled sender-domain icons with generated initials fallback; domain hints are not authentication evidence"),
-    def!("reader.actionStyle", Kind::Enum(&["icons", "labels"]), "\"icons\"", GDU, "reader", "compact reader actions or icons with visible labels"),
-    def!("reader.colorMode", Kind::Enum(&["auto", "original", "adaptive", "invert"]), "\"auto\"", GDU, "reader", "message color adaptation inside the isolated reader"),
-    def!("reader.fontSize", int(12, 24), "14", GDU, "reader", "message reading font size in pixels"),
-    def!("reader.lineHeight", Kind::Float { min: 1.2, max: 2.2 }, "1.6", GDU, "reader", "message reading line height"),
-    def!("reader.contentWidth", Kind::Enum(&["comfortable", "wide", "full"]), "\"wide\"", GDU, "reader", "message content width"),
-    def!("reader.loading", Kind::Enum(&["skeleton", "indicator", "none"]), "\"skeleton\"", GDU, "reader", "message loading appearance"),
-    def!("reader.loadingDelayMs", int(0, 1000), "120", GDU, "reader", "delay before showing message loading feedback"),
+    def!(
+        "mail.quickReply",
+        Kind::Bool,
+        "false",
+        GDU,
+        "mail",
+        "enable the compact message reply composer"
+    ),
+    def!(
+        "mail.requestReadReceipt",
+        Kind::Bool,
+        "false",
+        GDU,
+        "mail",
+        "request a read receipt by default when composing supported mail"
+    ),
+    def!(
+        "mail.requestDeliveryReceipt",
+        Kind::Bool,
+        "false",
+        GDU,
+        "mail",
+        "request delivery status notifications by default when the account supports DSN"
+    ),
+    def!(
+        "mail.showFrom",
+        Kind::Bool,
+        "false",
+        GDU,
+        "mail",
+        "show the From field by default when composing; sending authority is unchanged"
+    ),
+    def!(
+        "mail.modifierSelection",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "select messages with Ctrl, Command, Shift and arrow keys"
+    ),
+    def!(
+        "mail.draftSaveMode",
+        Kind::Enum(&["realtime", "periodic", "manual"]),
+        "\"realtime\"",
+        GDU,
+        "mail",
+        "account draft save scheduling; manual disables automatic upstream writes"
+    ),
+    def!(
+        "mail.draftDebounceMs",
+        int(500, 10000),
+        "1000",
+        GDU,
+        "mail",
+        "idle milliseconds before saving an edited account draft"
+    ),
+    def!(
+        "mail.draftIntervalSecs",
+        int(5, 3600),
+        "30",
+        GDU,
+        "mail",
+        "periodic account draft save interval in seconds"
+    ),
+    def!(
+        "mail.resumeTabs",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "restore account-owned workspace tab references after reload"
+    ),
+    def!(
+        "mail.dragToFolder",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "move selected messages by dragging them to a folder"
+    ),
+    def!(
+        "mail.folderCounts",
+        Kind::Enum(&["none", "unread", "total", "both"]),
+        "\"both\"",
+        GDU,
+        "mail",
+        "counts displayed beside mail folders"
+    ),
+    def!(
+        "mail.compactFolderBadges",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "smaller count badges for folders other than Inbox"
+    ),
+    def!(
+        "contacts.avatarMode",
+        Kind::Enum(&["off", "initials", "contacts"]),
+        "\"initials\"",
+        GDU,
+        "contacts",
+        "local generated avatars or embedded photos from this account contacts; never remote photo requests"
+    ),
+    def!(
+        "contacts.senderIcons",
+        Kind::Bool,
+        "true",
+        GDU,
+        "contacts",
+        "bundled sender-domain icons with generated initials fallback; domain hints are not authentication evidence"
+    ),
+    def!(
+        "reader.actionStyle",
+        Kind::Enum(&["icons", "labels"]),
+        "\"icons\"",
+        GDU,
+        "reader",
+        "compact reader actions or icons with visible labels"
+    ),
+    def!(
+        "reader.colorMode",
+        Kind::Enum(&["auto", "original", "adaptive", "invert"]),
+        "\"auto\"",
+        GDU,
+        "reader",
+        "message color adaptation inside the isolated reader"
+    ),
+    def!(
+        "reader.fontSize",
+        int(12, 24),
+        "14",
+        GDU,
+        "reader",
+        "message reading font size in pixels"
+    ),
+    def!(
+        "reader.lineHeight",
+        Kind::Float { min: 1.2, max: 2.2 },
+        "1.6",
+        GDU,
+        "reader",
+        "message reading line height"
+    ),
+    def!(
+        "reader.contentWidth",
+        Kind::Enum(&["comfortable", "wide", "full"]),
+        "\"wide\"",
+        GDU,
+        "reader",
+        "message content width"
+    ),
+    def!(
+        "reader.loading",
+        Kind::Enum(&["skeleton", "indicator", "none"]),
+        "\"skeleton\"",
+        GDU,
+        "reader",
+        "message loading appearance"
+    ),
+    def!(
+        "reader.loadingDelayMs",
+        int(0, 1000),
+        "120",
+        GDU,
+        "reader",
+        "delay before showing message loading feedback"
+    ),
     def!(
         "ui.language",
         Kind::Locale,
@@ -649,7 +1189,16 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "appearance.font",
-        Kind::Enum(&["default", "system", "serif", "mono", "inter", "roboto", "open-sans", "jost"]),
+        Kind::Enum(&[
+            "default",
+            "system",
+            "serif",
+            "mono",
+            "inter",
+            "roboto",
+            "open-sans",
+            "jost"
+        ]),
         "\"default\"",
         GDU,
         "appearance",
@@ -671,8 +1220,22 @@ pub static REGISTRY: &[SettingDef] = &[
         "appearance",
         "public config preferred-domain hint visibility"
     ),
-    def!("login.rememberSignins", Kind::Bool, "true", G, "appearance", "allow this browser to remember successful sign-in addresses; never credentials"),
-    def!("login.showRememberedHint", Kind::Bool, "false", G, "appearance", "show explanatory text for remembered sign-in addresses"),
+    def!(
+        "login.rememberSignins",
+        Kind::Bool,
+        "true",
+        G,
+        "appearance",
+        "allow this browser to remember successful sign-in addresses; never credentials"
+    ),
+    def!(
+        "login.showRememberedHint",
+        Kind::Bool,
+        "false",
+        G,
+        "appearance",
+        "show explanatory text for remembered sign-in addresses"
+    ),
     nullable(def!(
         "login.notice",
         text(Text::Plain, 500),
@@ -691,7 +1254,14 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "mail.readReceipts",
-        Kind::Enum(&["ask", "never", "always", "contactsOnly", "orgOnly", "orgAlwaysAskOthers"]),
+        Kind::Enum(&[
+            "ask",
+            "never",
+            "always",
+            "contactsOnly",
+            "orgOnly",
+            "orgAlwaysAskOthers"
+        ]),
         "\"ask\"",
         GDU,
         "mail",
@@ -765,45 +1335,333 @@ pub static REGISTRY: &[SettingDef] = &[
         "upstream",
         "proxy per-request timeout (lib.rs)"
     ),
-    def!("signin.antiBotMode", Kind::Enum(&["off", "mailbox", "admin", "all"]), "\"off\"", G, "signin", "initial sign-in proof-of-work policy"),
-    def!("signin.antiBotDifficulty", int(100, 20000), "2000", G, "signin", "maximum proof-of-work solver counter"),
-    def!("signin.antiBotExpirySecs", int(60, 600), "180", G, "signin", "single-use challenge lifetime"),
-    def!("security.protection.rateMode", Kind::Enum(&["off", "observe", "enforce"]), "\"off\"", G, "security", "Off by default. Observe records budget exhaustion without refusal; enforce returns a temporary 429. Existing protocol concurrency limits remain independent."),
-    def!("security.protection.adaptiveMode", Kind::Enum(&["off", "observe", "enforce"]), "\"off\"", G, "security", "Off by default. Observe records explainable typed anomalies and proposed actions; enforce applies bounded temporary throttles or blocks. This is a deterministic counter policy, not an AI classifier."),
-    def!("security.protection.clientRequests", int(0, 1000000), "600", G, "security", "Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver."),
-    def!("security.protection.accountRequests", int(0, 1000000), "300", G, "security", "Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver."),
-    def!("security.protection.adminRequests", int(0, 1000000), "120", G, "security", "Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver."),
-    def!("security.protection.rateWindowSecs", int(1, 3600), "60", G, "security", "Fixed request-budget interval. Capacity load shedding and ordinary not-found responses are not adaptive evidence."),
-    def!("security.protection.adaptiveClients", Kind::Bool, "true", G, "security", "Enable this subject dimension when adaptive mode is active. Accounts and administrators are counted only after their identity is verified."),
-    def!("security.protection.adaptiveAccounts", Kind::Bool, "true", G, "security", "Enable this subject dimension when adaptive mode is active. Accounts and administrators are counted only after their identity is verified."),
-    def!("security.protection.adaptiveAdmins", Kind::Bool, "true", G, "security", "Enable this subject dimension when adaptive mode is active. Accounts and administrators are counted only after their identity is verified."),
-    def!("security.protection.shortWindowSecs", int(60, 3600), "300", G, "security", "Rolling observation window. Long windows support hours through thirty days; bucket rounding can retain at most one extra sixty-fourth of a window."),
-    def!("security.protection.shortMinimumSamples", int(1, 1000000), "30", G, "security", "Minimum observed normal plus anomalous requests before the ratio trigger applies. The absolute anomaly threshold is independent of this minimum."),
-    def!("security.protection.shortAbsoluteAnomalies", int(0, 1000000), "20", G, "security", "Trigger when this many selected anomalies accumulate, even when normal requests dilute the ratio. Zero disables this trigger."),
-    def!("security.protection.shortRatioPercent", int(0, 100), "50", G, "security", "Trigger when selected anomalies reach this percentage after the minimum sample count. Either the absolute or ratio trigger suffices. Zero disables this trigger."),
-    def!("security.protection.longWindowSecs", int(3600, 2592000), "604800", G, "security", "Rolling observation window. Long windows support hours through thirty days; bucket rounding can retain at most one extra sixty-fourth of a window."),
-    def!("security.protection.longMinimumSamples", int(1, 1000000), "100", G, "security", "Minimum observed normal plus anomalous requests before the ratio trigger applies. The absolute anomaly threshold is independent of this minimum."),
-    def!("security.protection.longAbsoluteAnomalies", int(0, 1000000), "100", G, "security", "Trigger when this many selected anomalies accumulate, even when normal requests dilute the ratio. Zero disables this trigger."),
-    def!("security.protection.longRatioPercent", int(0, 100), "25", G, "security", "Trigger when selected anomalies reach this percentage after the minimum sample count. Either the absolute or ratio trigger suffices. Zero disables this trigger."),
-    def!("security.protection.normalCapPerBucket", int(1, 1000000), "1000", G, "security", "Bound the normal baseline learned in each rolling-window bucket. Independent absolute anomaly budgets prevent unlimited valid-request padding from hiding abuse."),
-    def!("security.protection.signals", Kind::StringList { max_len: 6, max_item: 32 }, "[\"malformed\",\"oversized\",\"credential-rejected\"]", G, "security", "Select authoritative malformed, oversized, credential-rejected, permission-denied, body-deadline or opt-in admin-route-miss observations. Admin route probing excludes entity-not-found responses and static assets; generic status codes, capacity refusals and user-agent strings do not establish abuse."),
-    def!("security.protection.throttleSecs", int(1, 300), "3", G, "security", "First threshold crossing starts a fixed throttle deadline. Requests during that deadline do not extend it."),
-    def!("security.protection.blockSecs", int(1, 86400), "300", G, "security", "A later threshold crossing before recovery may escalate to this bounded block. No permanent account lock is created."),
-    def!("security.protection.decaySecs", int(3600, 2592000), "86400", G, "security", "After this anomaly-free interval and expiry of the current action, escalation returns to its initial stage. Rolling evidence expires according to its configured windows."),
-    def!("security.protection.exemptClients", Kind::StringList { max_len: 100, max_item: 64 }, "[]", G, "security", "Exact IP addresses or CIDR networks exempt only the client dimension. Verified account limits still apply. Use deliberately for shared NAT networks; forwarded addresses are trusted only through configured proxies."),
-    def!("security.protection.exemptAccounts", Kind::StringList { max_len: 100, max_item: 512 }, "[]", G, "security", "Exact server-verified mailbox account IDs exempt only their account dimension, never the source-client dimension. Email addresses and caller-supplied account parameters are not identity evidence."),
-    def!("security.protection.exemptAdmins", Kind::StringList { max_len: 100, max_item: 512 }, "[]", G, "security", "Exact authenticated administrator IDs exempt only their administrator dimension. Existing sign-in failure locks and strict administrator session deadlines remain unchanged."),
-    def!("security.protection.storageFailure", Kind::Enum(&["closed", "open"]), "\"closed\"", G, "security", "Closed refuses protected work when an enabled enforcement budget cannot be checked. Open temporarily permits it with a bounded operational warning. Observe-only failures never impose an enforcement action."),
-    def!("security.signin.geoEnforceSessions", Kind::Bool, "false", G, "security", "also check current source country on authenticated requests"),
-    def!("security.signin.geoScope", Kind::Enum(&["off", "mailbox", "admin", "all"]), "\"off\"", G, "security", "country policy applies only to new sign-ins"),
-    def!("security.signin.geoMode", Kind::Enum(&["allow", "deny"]), "\"allow\"", G, "security", "allow only listed countries or deny listed countries"),
-    def!("security.signin.geoCountries", Kind::StringList { max_len: 249, max_item: 2 }, "[]", G, "security", "uppercase two-letter country codes"),
-    def!("security.signin.geoUnknown", Kind::Enum(&["allow", "deny"]), "\"deny\"", G, "security", "decision for unmapped addresses in a readable local database"),
-    def!("security.signin.mailboxFailureLimit", int(1, 100), "10", G, "security", "rejected mailbox credentials per source before a temporary lock"),
-    def!("security.signin.adminFailureLimit", int(1, 100), "5", G, "security", "rejected admin credentials per source before a temporary lock"),
-    def!("security.signin.failureWindowSecs", int(30, 86400), "900", G, "security", "rolling failed-credential counting window"),
-    def!("security.signin.lockSecs", int(30, 86400), "900", G, "security", "fixed temporary source lock duration; rejected retries never extend it"),
-    def!("signin.retryCooldownSecs", int(0, 300), "3", G, "signin", "initial sign-in retry cooldown"),
+    def!(
+        "signin.antiBotMode",
+        Kind::Enum(&["off", "mailbox", "admin", "all"]),
+        "\"off\"",
+        G,
+        "signin",
+        "initial sign-in proof-of-work policy"
+    ),
+    def!(
+        "signin.antiBotDifficulty",
+        int(100, 20000),
+        "2000",
+        G,
+        "signin",
+        "maximum proof-of-work solver counter"
+    ),
+    def!(
+        "signin.antiBotExpirySecs",
+        int(60, 600),
+        "180",
+        G,
+        "signin",
+        "single-use challenge lifetime"
+    ),
+    def!(
+        "security.protection.rateMode",
+        Kind::Enum(&["off", "observe", "enforce"]),
+        "\"off\"",
+        G,
+        "security",
+        "Off by default. Observe records budget exhaustion without refusal; enforce returns a temporary 429. Existing protocol concurrency limits remain independent."
+    ),
+    def!(
+        "security.protection.adaptiveMode",
+        Kind::Enum(&["off", "observe", "enforce"]),
+        "\"off\"",
+        G,
+        "security",
+        "Off by default. Observe records explainable typed anomalies and proposed actions; enforce applies bounded temporary throttles or blocks. This is a deterministic counter policy, not an AI classifier."
+    ),
+    def!(
+        "security.protection.clientRequests",
+        int(0, 1000000),
+        "600",
+        G,
+        "security",
+        "Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver."
+    ),
+    def!(
+        "security.protection.accountRequests",
+        int(0, 1000000),
+        "300",
+        G,
+        "security",
+        "Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver."
+    ),
+    def!(
+        "security.protection.adminRequests",
+        int(0, 1000000),
+        "120",
+        G,
+        "security",
+        "Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver."
+    ),
+    def!(
+        "security.protection.rateWindowSecs",
+        int(1, 3600),
+        "60",
+        G,
+        "security",
+        "Fixed request-budget interval. Capacity load shedding and ordinary not-found responses are not adaptive evidence."
+    ),
+    def!(
+        "security.protection.adaptiveClients",
+        Kind::Bool,
+        "true",
+        G,
+        "security",
+        "Enable this subject dimension when adaptive mode is active. Accounts and administrators are counted only after their identity is verified."
+    ),
+    def!(
+        "security.protection.adaptiveAccounts",
+        Kind::Bool,
+        "true",
+        G,
+        "security",
+        "Enable this subject dimension when adaptive mode is active. Accounts and administrators are counted only after their identity is verified."
+    ),
+    def!(
+        "security.protection.adaptiveAdmins",
+        Kind::Bool,
+        "true",
+        G,
+        "security",
+        "Enable this subject dimension when adaptive mode is active. Accounts and administrators are counted only after their identity is verified."
+    ),
+    def!(
+        "security.protection.shortWindowSecs",
+        int(60, 3600),
+        "300",
+        G,
+        "security",
+        "Rolling observation window. Long windows support hours through thirty days; bucket rounding can retain at most one extra sixty-fourth of a window."
+    ),
+    def!(
+        "security.protection.shortMinimumSamples",
+        int(1, 1000000),
+        "30",
+        G,
+        "security",
+        "Minimum observed normal plus anomalous requests before the ratio trigger applies. The absolute anomaly threshold is independent of this minimum."
+    ),
+    def!(
+        "security.protection.shortAbsoluteAnomalies",
+        int(0, 1000000),
+        "20",
+        G,
+        "security",
+        "Trigger when this many selected anomalies accumulate, even when normal requests dilute the ratio. Zero disables this trigger."
+    ),
+    def!(
+        "security.protection.shortRatioPercent",
+        int(0, 100),
+        "50",
+        G,
+        "security",
+        "Trigger when selected anomalies reach this percentage after the minimum sample count. Either the absolute or ratio trigger suffices. Zero disables this trigger."
+    ),
+    def!(
+        "security.protection.longWindowSecs",
+        int(3600, 2592000),
+        "604800",
+        G,
+        "security",
+        "Rolling observation window. Long windows support hours through thirty days; bucket rounding can retain at most one extra sixty-fourth of a window."
+    ),
+    def!(
+        "security.protection.longMinimumSamples",
+        int(1, 1000000),
+        "100",
+        G,
+        "security",
+        "Minimum observed normal plus anomalous requests before the ratio trigger applies. The absolute anomaly threshold is independent of this minimum."
+    ),
+    def!(
+        "security.protection.longAbsoluteAnomalies",
+        int(0, 1000000),
+        "100",
+        G,
+        "security",
+        "Trigger when this many selected anomalies accumulate, even when normal requests dilute the ratio. Zero disables this trigger."
+    ),
+    def!(
+        "security.protection.longRatioPercent",
+        int(0, 100),
+        "25",
+        G,
+        "security",
+        "Trigger when selected anomalies reach this percentage after the minimum sample count. Either the absolute or ratio trigger suffices. Zero disables this trigger."
+    ),
+    def!(
+        "security.protection.normalCapPerBucket",
+        int(1, 1000000),
+        "1000",
+        G,
+        "security",
+        "Bound the normal baseline learned in each rolling-window bucket. Independent absolute anomaly budgets prevent unlimited valid-request padding from hiding abuse."
+    ),
+    def!(
+        "security.protection.signals",
+        Kind::StringList {
+            max_len: 6,
+            max_item: 32
+        },
+        "[\"malformed\",\"oversized\",\"credential-rejected\"]",
+        G,
+        "security",
+        "Select authoritative malformed, oversized, credential-rejected, permission-denied, body-deadline or opt-in admin-route-miss observations. Admin route probing excludes entity-not-found responses and static assets; generic status codes, capacity refusals and user-agent strings do not establish abuse."
+    ),
+    def!(
+        "security.protection.throttleSecs",
+        int(1, 300),
+        "3",
+        G,
+        "security",
+        "First threshold crossing starts a fixed throttle deadline. Requests during that deadline do not extend it."
+    ),
+    def!(
+        "security.protection.blockSecs",
+        int(1, 86400),
+        "300",
+        G,
+        "security",
+        "A later threshold crossing before recovery may escalate to this bounded block. No permanent account lock is created."
+    ),
+    def!(
+        "security.protection.decaySecs",
+        int(3600, 2592000),
+        "86400",
+        G,
+        "security",
+        "After this anomaly-free interval and expiry of the current action, escalation returns to its initial stage. Rolling evidence expires according to its configured windows."
+    ),
+    def!(
+        "security.protection.exemptClients",
+        Kind::StringList {
+            max_len: 100,
+            max_item: 64
+        },
+        "[]",
+        G,
+        "security",
+        "Exact IP addresses or CIDR networks exempt only the client dimension. Verified account limits still apply. Use deliberately for shared NAT networks; forwarded addresses are trusted only through configured proxies."
+    ),
+    def!(
+        "security.protection.exemptAccounts",
+        Kind::StringList {
+            max_len: 100,
+            max_item: 512
+        },
+        "[]",
+        G,
+        "security",
+        "Exact server-verified mailbox account IDs exempt only their account dimension, never the source-client dimension. Email addresses and caller-supplied account parameters are not identity evidence."
+    ),
+    def!(
+        "security.protection.exemptAdmins",
+        Kind::StringList {
+            max_len: 100,
+            max_item: 512
+        },
+        "[]",
+        G,
+        "security",
+        "Exact authenticated administrator IDs exempt only their administrator dimension. Existing sign-in failure locks and strict administrator session deadlines remain unchanged."
+    ),
+    def!(
+        "security.protection.storageFailure",
+        Kind::Enum(&["closed", "open"]),
+        "\"closed\"",
+        G,
+        "security",
+        "Closed refuses protected work when an enabled enforcement budget cannot be checked. Open temporarily permits it with a bounded operational warning. Observe-only failures never impose an enforcement action."
+    ),
+    def!(
+        "security.signin.geoEnforceSessions",
+        Kind::Bool,
+        "false",
+        G,
+        "security",
+        "also check current source country on authenticated requests"
+    ),
+    def!(
+        "security.signin.geoScope",
+        Kind::Enum(&["off", "mailbox", "admin", "all"]),
+        "\"off\"",
+        G,
+        "security",
+        "country policy applies only to new sign-ins"
+    ),
+    def!(
+        "security.signin.geoMode",
+        Kind::Enum(&["allow", "deny"]),
+        "\"allow\"",
+        G,
+        "security",
+        "allow only listed countries or deny listed countries"
+    ),
+    def!(
+        "security.signin.geoCountries",
+        Kind::StringList {
+            max_len: 249,
+            max_item: 2
+        },
+        "[]",
+        G,
+        "security",
+        "uppercase two-letter country codes"
+    ),
+    def!(
+        "security.signin.geoUnknown",
+        Kind::Enum(&["allow", "deny"]),
+        "\"deny\"",
+        G,
+        "security",
+        "decision for unmapped addresses in a readable local database"
+    ),
+    def!(
+        "security.signin.mailboxFailureLimit",
+        int(1, 100),
+        "10",
+        G,
+        "security",
+        "rejected mailbox credentials per source before a temporary lock"
+    ),
+    def!(
+        "security.signin.adminFailureLimit",
+        int(1, 100),
+        "5",
+        G,
+        "security",
+        "rejected admin credentials per source before a temporary lock"
+    ),
+    def!(
+        "security.signin.failureWindowSecs",
+        int(30, 86400),
+        "900",
+        G,
+        "security",
+        "rolling failed-credential counting window"
+    ),
+    def!(
+        "security.signin.lockSecs",
+        int(30, 86400),
+        "900",
+        G,
+        "security",
+        "fixed temporary source lock duration; rejected retries never extend it"
+    ),
+    def!(
+        "signin.retryCooldownSecs",
+        int(0, 300),
+        "3",
+        G,
+        "signin",
+        "initial sign-in retry cooldown"
+    ),
     // ── Sign-in (e66, e70b) ──────────────────────────────────────────────────
     dedicated(
         def!(
@@ -868,7 +1726,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "signin",
         "pending 2FA attempts (twofa_routes.rs)"
     ),
-    def!("admin.allowLastSuperadminLoss", Kind::Bool, "false", G, "admin", "Explicitly allow removing the final Super admin access; requires privileged confirmation"),
+    def!(
+        "admin.allowLastSuperadminLoss",
+        Kind::Bool,
+        "false",
+        G,
+        "admin",
+        "Explicitly allow removing the final Super admin access; requires privileged confirmation"
+    ),
     def!(
         "admin.session.idleSecs",
         int(300, 86_400),
@@ -926,19 +1791,103 @@ pub static REGISTRY: &[SettingDef] = &[
         "password policy: a symbol"
     ),
     // Attachment delivery policy: administrative global/domain scope only.
-    def!("attachments.previewAllowed", Kind::Bool, "true", GD, "attachments", "allow attachment previews"),
-    def!("attachments.downloadAllowed", Kind::Bool, "true", GD, "attachments", "allow original attachment delivery; disabling also prevents raw previews"),
-    def!("attachments.maxBytes", int(0, BYTES_MAX), "0", GD, "attachments", "maximum delivered attachment bytes; zero is unlimited"),
-    def!("attachments.allowedExtensions", Kind::AttachmentList { mime: false }, "[]", GD, "attachments", "attachment allowed Extensions; blocked rules take precedence"),
-    def!("attachments.allowedMimeTypes", Kind::AttachmentList { mime: true }, "[]", GD, "attachments", "attachment allowed MimeTypes; blocked rules take precedence"),
-    def!("attachments.blockedExtensions", Kind::AttachmentList { mime: false }, "[]", GD, "attachments", "attachment blocked Extensions; blocked rules take precedence"),
-    def!("attachments.blockedMimeTypes", Kind::AttachmentList { mime: true }, "[]", GD, "attachments", "attachment blocked MimeTypes; blocked rules take precedence"),
-    def!("attachments.warnExtensions", Kind::AttachmentList { mime: false }, "[]", GD, "attachments", "attachment warn Extensions; blocked rules take precedence"),
-    def!("attachments.warnMimeTypes", Kind::AttachmentList { mime: true }, "[]", GD, "attachments", "attachment warn MimeTypes; blocked rules take precedence"),
+    def!(
+        "attachments.previewAllowed",
+        Kind::Bool,
+        "true",
+        GD,
+        "attachments",
+        "allow attachment previews"
+    ),
+    def!(
+        "attachments.downloadAllowed",
+        Kind::Bool,
+        "true",
+        GD,
+        "attachments",
+        "allow original attachment delivery; disabling also prevents raw previews"
+    ),
+    def!(
+        "attachments.maxBytes",
+        int(0, BYTES_MAX),
+        "0",
+        GD,
+        "attachments",
+        "maximum delivered attachment bytes; zero is unlimited"
+    ),
+    def!(
+        "attachments.allowedExtensions",
+        Kind::AttachmentList { mime: false },
+        "[]",
+        GD,
+        "attachments",
+        "attachment allowed Extensions; blocked rules take precedence"
+    ),
+    def!(
+        "attachments.allowedMimeTypes",
+        Kind::AttachmentList { mime: true },
+        "[]",
+        GD,
+        "attachments",
+        "attachment allowed MimeTypes; blocked rules take precedence"
+    ),
+    def!(
+        "attachments.blockedExtensions",
+        Kind::AttachmentList { mime: false },
+        "[]",
+        GD,
+        "attachments",
+        "attachment blocked Extensions; blocked rules take precedence"
+    ),
+    def!(
+        "attachments.blockedMimeTypes",
+        Kind::AttachmentList { mime: true },
+        "[]",
+        GD,
+        "attachments",
+        "attachment blocked MimeTypes; blocked rules take precedence"
+    ),
+    def!(
+        "attachments.warnExtensions",
+        Kind::AttachmentList { mime: false },
+        "[]",
+        GD,
+        "attachments",
+        "attachment warn Extensions; blocked rules take precedence"
+    ),
+    def!(
+        "attachments.warnMimeTypes",
+        Kind::AttachmentList { mime: true },
+        "[]",
+        GD,
+        "attachments",
+        "attachment warn MimeTypes; blocked rules take precedence"
+    ),
     // ── Limits, quotas, usage (e67) ─────────────────────────────────────────
-    per_address(def!("limit.attachment_bytes", int(0, BYTES_MAX), "50000000", GDA, "limits", "Attachment bytes; 0 = no limit")),
-    per_address(def!("limit.send_per_hour", int(0, 1_000_000), "0", GDA, "limits", "Submissions per hour; 0 = no limit")),
-    per_address(def!("limit.recipients_per_message", int(0, 1_000_000), "0", GDA, "limits", "Recipients per message; 0 = no limit")),
+    per_address(def!(
+        "limit.attachment_bytes",
+        int(0, BYTES_MAX),
+        "50000000",
+        GDA,
+        "limits",
+        "Attachment bytes; 0 = no limit"
+    )),
+    per_address(def!(
+        "limit.send_per_hour",
+        int(0, 1_000_000),
+        "0",
+        GDA,
+        "limits",
+        "Submissions per hour; 0 = no limit"
+    )),
+    per_address(def!(
+        "limit.recipients_per_message",
+        int(0, 1_000_000),
+        "0",
+        GDA,
+        "limits",
+        "Recipients per message; 0 = no limit"
+    )),
     per_address(def!(
         "limit.storage_bytes",
         int(0, BYTES_MAX),
@@ -1342,8 +2291,22 @@ pub static REGISTRY: &[SettingDef] = &[
         "observability",
         "metrics drill-down rows"
     ),
-    def!("metrics.defaultRangeSeconds", int(60, 34560000), "3600", G, "observability", "default request history range"),
-    def!("metrics.maxRangeSeconds", int(3600, 34560000), "2592000", G, "observability", "maximum request history range"),
+    def!(
+        "metrics.defaultRangeSeconds",
+        int(60, 34560000),
+        "3600",
+        G,
+        "observability",
+        "default request history range"
+    ),
+    def!(
+        "metrics.maxRangeSeconds",
+        int(3600, 34560000),
+        "2592000",
+        G,
+        "observability",
+        "maximum request history range"
+    ),
     def!(
         "metrics.rollupDays",
         int(1, 400),
@@ -1368,8 +2331,22 @@ pub static REGISTRY: &[SettingDef] = &[
         "users",
         "data export download window"
     ),
-    def!("logs.auth.retentionDays", int(1,90), "7", G, "observability", "authentication history days kept"),
-    def!("logs.auth.maxEntries", int(1000,100000), "50000", G, "observability", "maximum authentication history entries"),
+    def!(
+        "logs.auth.retentionDays",
+        int(1, 90),
+        "7",
+        G,
+        "observability",
+        "authentication history days kept"
+    ),
+    def!(
+        "logs.auth.maxEntries",
+        int(1000, 100000),
+        "50000",
+        G,
+        "observability",
+        "maximum authentication history entries"
+    ),
     // ── Server text (e70c seam) ──────────────────────────────────────────────
     def!(
         "serverText.*",
@@ -1524,14 +2501,62 @@ fn check_text(shape: Text, s: &str) -> Result<(), &'static str> {
 /// normalised: an integral float is accepted for an int key).
 fn valid_shortcut(value: &str) -> bool {
     let value = value.trim();
-    if matches!(value, "inherit" | "disabled") { return true; }
-    if value.len() > 64 || value.is_empty() { return false; }
-    let (prefix, key) = if value == "+" { ("", "+") }
-        else if let Some(prefix) = value.strip_suffix("++") { (prefix, "+") }
-        else { value.rsplit_once('+').unwrap_or(("", value)) };
-    if !prefix.is_empty() && !prefix.split('+').all(|part| matches!(part.trim().to_ascii_lowercase().as_str(), "ctrl" | "cmd" | "meta" | "mod" | "alt" | "option" | "shift")) { return false; }
+    if matches!(value, "inherit" | "disabled") {
+        return true;
+    }
+    if value.len() > 64 || value.is_empty() {
+        return false;
+    }
+    let (prefix, key) = if value == "+" {
+        ("", "+")
+    } else if let Some(prefix) = value.strip_suffix("++") {
+        (prefix, "+")
+    } else {
+        value.rsplit_once('+').unwrap_or(("", value))
+    };
+    if !prefix.is_empty()
+        && !prefix.split('+').all(|part| {
+            matches!(
+                part.trim().to_ascii_lowercase().as_str(),
+                "ctrl" | "cmd" | "meta" | "mod" | "alt" | "option" | "shift"
+            )
+        })
+    {
+        return false;
+    }
     (key.chars().count() == 1 && !key.chars().any(char::is_control))
-        || matches!(key, "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight" | "Home" | "End" | "PageUp" | "PageDown" | "Delete" | "Del" | "Backspace" | "Insert" | "Escape" | "Esc" | "Tab" | "Enter" | "Space" | "F1" | "F2" | "F3" | "F4" | "F5" | "F6" | "F7" | "F8" | "F9" | "F10" | "F11" | "F12")
+        || matches!(
+            key,
+            "ArrowUp"
+                | "ArrowDown"
+                | "ArrowLeft"
+                | "ArrowRight"
+                | "Home"
+                | "End"
+                | "PageUp"
+                | "PageDown"
+                | "Delete"
+                | "Del"
+                | "Backspace"
+                | "Insert"
+                | "Escape"
+                | "Esc"
+                | "Tab"
+                | "Enter"
+                | "Space"
+                | "F1"
+                | "F2"
+                | "F3"
+                | "F4"
+                | "F5"
+                | "F6"
+                | "F7"
+                | "F8"
+                | "F9"
+                | "F10"
+                | "F11"
+                | "F12"
+        )
 }
 
 pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, Refusal> {
@@ -1543,20 +2568,38 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
         };
     }
     let bad = |detail: String| Err(Refusal::invalid(field, detail));
-    if matches!(def.key, "time.displayZone" | "time.comparisonZone") && !value.as_str().is_some_and(|zone|
-        (def.key == "time.displayZone" && zone == "local") || (def.key == "time.comparisonZone" && zone.is_empty()) || zone.parse::<chrono_tz::Tz>().is_ok()) {
+    if matches!(def.key, "time.displayZone" | "time.comparisonZone")
+        && !value.as_str().is_some_and(|zone| {
+            (def.key == "time.displayZone" && zone == "local")
+                || (def.key == "time.comparisonZone" && zone.is_empty())
+                || zone.parse::<chrono_tz::Tz>().is_ok()
+        })
+    {
         return bad("must be a valid IANA time zone; displayZone also accepts local, comparisonZone also accepts an empty value".into());
     }
-    if def.key.starts_with("shortcuts.") && def.key != "shortcuts.enabled"
-        && !value.as_str().is_some_and(valid_shortcut) {
-        return bad("must be inherit, disabled, or one key with Ctrl, Alt and Shift modifiers".into());
+    if def.key.starts_with("shortcuts.")
+        && def.key != "shortcuts.enabled"
+        && !value.as_str().is_some_and(valid_shortcut)
+    {
+        return bad(
+            "must be inherit, disabled, or one key with Ctrl, Alt and Shift modifiers".into(),
+        );
     }
-    if def.key == "security.signin.geoCountries" && !value.as_array().is_some_and(|items| items.iter().all(|item| item.as_str().is_some_and(|code| code.len()==2 && code.bytes().all(|b|b.is_ascii_uppercase())))) {
+    if def.key == "security.signin.geoCountries"
+        && !value.as_array().is_some_and(|items| {
+            items.iter().all(|item| {
+                item.as_str().is_some_and(|code| {
+                    code.len() == 2 && code.bytes().all(|b| b.is_ascii_uppercase())
+                })
+            })
+        })
+    {
         return bad("must contain uppercase two-letter country codes".into());
     }
     match def.kind {
         Kind::FolderRole => mw_engine::folder_roles::parse_target(value)
-            .map(|_| value.clone()).map_err(|detail| Refusal::invalid(field, detail)),
+            .map(|_| value.clone())
+            .map_err(|detail| Refusal::invalid(field, detail)),
         Kind::Bool => match value {
             Value::Bool(_) => Ok(value.clone()),
             _ => bad("must be true or false".into()),
@@ -1649,11 +2692,17 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
             Ok(value.clone())
         }
         Kind::AttachmentList { mime } => {
-            let Some(items) = value.as_array() else { return bad("must be a list of attachment rules".into()); };
-            if items.len() > 100 { return bad("at most 100 attachment rules are allowed".into()); }
+            let Some(items) = value.as_array() else {
+                return bad("must be a list of attachment rules".into());
+            };
+            if items.len() > 100 {
+                return bad("at most 100 attachment rules are allowed".into());
+            }
             let mut seen = std::collections::BTreeSet::new();
             for item in items {
-                let Some(rule) = item.as_str() else { return bad("attachment rules must be text".into()); };
+                let Some(rule) = item.as_str() else {
+                    return bad("attachment rules must be text".into());
+                };
                 if !crate::attachment_policy::valid_rule(rule, mime) || !seen.insert(rule) {
                     return bad("invalid or duplicate attachment rule; use lowercase extensions or MIME types".into());
                 }
@@ -1678,12 +2727,31 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                 if text.is_empty()
                     || text.len() > max_item
                     || !text.bytes().all(|b| {
-                        if def.key == "security.signin.geoCountries" { b.is_ascii_uppercase() }
-                        else if matches!(def.key, "security.protection.exemptClients" | "security.protection.exemptAccounts" | "security.protection.exemptAdmins") { !b.is_ascii_control() }
-                        else { b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'.') }
+                        if def.key == "security.signin.geoCountries" {
+                            b.is_ascii_uppercase()
+                        } else if matches!(
+                            def.key,
+                            "security.protection.exemptClients"
+                                | "security.protection.exemptAccounts"
+                                | "security.protection.exemptAdmins"
+                        ) {
+                            !b.is_ascii_control()
+                        } else {
+                            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'.')
+                        }
                     })
-                    || (def.key == "security.protection.exemptClients" && crate::scope_mw::proxy::Cidr::parse(text).is_none())
-                    || (def.key == "security.protection.signals" && !matches!(text, "malformed" | "oversized" | "credential-rejected" | "permission-denied" | "body-deadline" | "admin-route-miss"))
+                    || (def.key == "security.protection.exemptClients"
+                        && crate::scope_mw::proxy::Cidr::parse(text).is_none())
+                    || (def.key == "security.protection.signals"
+                        && !matches!(
+                            text,
+                            "malformed"
+                                | "oversized"
+                                | "credential-rejected"
+                                | "permission-denied"
+                                | "body-deadline"
+                                | "admin-route-miss"
+                        ))
                     || !seen.insert(text)
                 {
                     return Err(Refusal::invalid(
@@ -2206,7 +3274,10 @@ mod tests {
 
     #[test]
     fn remembered_signin_policies_are_public_global_booleans() {
-        for (key, default) in [("login.rememberSignins", "true"), ("login.showRememberedHint", "false")] {
+        for (key, default) in [
+            ("login.rememberSignins", "true"),
+            ("login.showRememberedHint", "false"),
+        ] {
             let def = lookup(key).unwrap();
             assert_eq!(def.default, default);
             assert_eq!(def.scopes, Scopes::Global);
@@ -2314,7 +3385,16 @@ mod tests {
 
     #[test]
     fn signin_keys_name_a_dedicated_route_and_limits_are_per_address() {
-        for d in REGISTRY.iter().filter(|d| d.key.starts_with("signin.") && !matches!(d.key, "signin.retryCooldownSecs" | "signin.antiBotMode" | "signin.antiBotDifficulty" | "signin.antiBotExpirySecs")) {
+        for d in REGISTRY.iter().filter(|d| {
+            d.key.starts_with("signin.")
+                && !matches!(
+                    d.key,
+                    "signin.retryCooldownSecs"
+                        | "signin.antiBotMode"
+                        | "signin.antiBotDifficulty"
+                        | "signin.antiBotExpirySecs"
+                )
+        }) {
             let r = refuse_if_dedicated(d).unwrap_err();
             assert_eq!((r.status, r.code), (403, "useDedicatedRoute"), "{}", d.key);
             assert!(r.body()["route"].as_str().unwrap().starts_with('/'));
@@ -2480,7 +3560,8 @@ mod tests {
 
     #[test]
     fn admin_only_keys_ignore_user_rows_and_limits_use_the_address() {
-        let subject = SettingSubject { personal_owner: None,
+        let subject = SettingSubject {
+            personal_owner: None,
             domain: "example.org",
             account_id: "acct-1",
             address: "alice@example.org",
@@ -2694,7 +3775,8 @@ mod tests {
         s.put_domain_alias("alias.test", "canonical.test")
             .await
             .unwrap();
-        let subject = SettingSubject { personal_owner: None,
+        let subject = SettingSubject {
+            personal_owner: None,
             domain: "alias.test",
             account_id: "unchanged-account",
             address: "USER@alias.test",
@@ -2777,8 +3859,21 @@ mod shortcut_validation_tests {
     use super::*;
     #[test]
     fn shortcut_chords_are_bounded_and_match_supported_browser_syntax() {
-        for value in ["inherit", "disabled", "Ctrl+Shift+K", "Cmd+ArrowDown", "Space", "Ctrl++", "+", "↓"] { assert!(valid_shortcut(value), "{value}"); }
-        for value in ["", "Hyper+x", "UnknownKey", "Ctrl+", "Ctrl+Shift+", "\n"] { assert!(!valid_shortcut(value), "{value:?}"); }
+        for value in [
+            "inherit",
+            "disabled",
+            "Ctrl+Shift+K",
+            "Cmd+ArrowDown",
+            "Space",
+            "Ctrl++",
+            "+",
+            "↓",
+        ] {
+            assert!(valid_shortcut(value), "{value}");
+        }
+        for value in ["", "Hyper+x", "UnknownKey", "Ctrl+", "Ctrl+Shift+", "\n"] {
+            assert!(!valid_shortcut(value), "{value:?}");
+        }
         assert!(!valid_shortcut(&"x".repeat(65)));
     }
 }
@@ -2788,8 +3883,14 @@ mod time_zone_validation_tests {
     use super::*;
     #[test]
     fn accepts_only_supported_zones_and_explicit_sentinels() {
-        let display = REGISTRY.iter().find(|def| def.key == "time.displayZone").unwrap();
-        let comparison = REGISTRY.iter().find(|def| def.key == "time.comparisonZone").unwrap();
+        let display = REGISTRY
+            .iter()
+            .find(|def| def.key == "time.displayZone")
+            .unwrap();
+        let comparison = REGISTRY
+            .iter()
+            .find(|def| def.key == "time.comparisonZone")
+            .unwrap();
         for zone in ["Europe/Lisbon", "America/New_York", "UTC", "local"] {
             assert!(validate(display, &serde_json::json!(zone), "/value").is_ok());
         }
@@ -2806,12 +3907,23 @@ mod geography_validation_tests {
     use super::*;
     #[test]
     fn country_lists_are_bounded_uppercase_codes_without_wildcards() {
-        let def=REGISTRY.iter().find(|def|def.key=="security.signin.geoCountries").unwrap();
-        assert!(validate(def,&serde_json::json!(["PT","GB"]),"/value").is_ok());
-        for value in [serde_json::json!(["pt"]),serde_json::json!(["*"]),serde_json::json!(["USA"]),serde_json::json!(["1A"]),serde_json::json!("PT"),serde_json::json!([null]),serde_json::json!(["PT","PT"])] {
-            assert!(validate(def,&value,"/value").is_err(),"{value}");
+        let def = REGISTRY
+            .iter()
+            .find(|def| def.key == "security.signin.geoCountries")
+            .unwrap();
+        assert!(validate(def, &serde_json::json!(["PT", "GB"]), "/value").is_ok());
+        for value in [
+            serde_json::json!(["pt"]),
+            serde_json::json!(["*"]),
+            serde_json::json!(["USA"]),
+            serde_json::json!(["1A"]),
+            serde_json::json!("PT"),
+            serde_json::json!([null]),
+            serde_json::json!(["PT", "PT"]),
+        ] {
+            assert!(validate(def, &value, "/value").is_err(), "{value}");
         }
-        assert!(validate(def,&serde_json::json!(vec!["PT";250]),"/value").is_err());
+        assert!(validate(def, &serde_json::json!(vec!["PT"; 250]), "/value").is_err());
     }
 }
 
@@ -2823,10 +3935,19 @@ mod folder_role_validation_tests {
         for role in mw_engine::folder_roles::ROLES {
             let key = format!("mail.folderRole.{role}");
             let def = REGISTRY.iter().find(|def| def.key == key).unwrap();
-            for value in [json!(null), json!({"id":"owned"}), json!({"path":"INBOX/Deleted Items"})] {
+            for value in [
+                json!(null),
+                json!({"id":"owned"}),
+                json!({"path":"INBOX/Deleted Items"}),
+            ] {
                 assert!(validate(def, &value, "/value").is_ok(), "{key}: {value}");
             }
-            for value in [json!("Trash"), json!({}), json!({"id":"a","path":"Trash"}), json!({"path":"Trash\r\nINBOX"})] {
+            for value in [
+                json!("Trash"),
+                json!({}),
+                json!({"id":"a","path":"Trash"}),
+                json!({"path":"Trash\r\nINBOX"}),
+            ] {
                 assert!(validate(def, &value, "/value").is_err(), "{key}: {value}");
             }
         }

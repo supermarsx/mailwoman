@@ -10,29 +10,59 @@ const KEY: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccdde
 #[tokio::test]
 async fn login_and_me_publish_verified_storage_authority_for_browser_and_native() {
     let mail = MockPop3::start("alice@example.org", "testpass").await;
-    let db = test_db::unique_dir("storage-authority-http").join("mw.db").to_string_lossy().into_owned();
-    let store = Store::open(&db, ServerKey::from_hex(KEY).unwrap()).await.unwrap();
-    store.put_domain_config(&row("example.org", &mail)).await.unwrap();
+    let db = test_db::unique_dir("storage-authority-http")
+        .join("mw.db")
+        .to_string_lossy()
+        .into_owned();
+    let store = Store::open(&db, ServerKey::from_hex(KEY).unwrap())
+        .await
+        .unwrap();
+    store
+        .put_domain_config(&row("example.org", &mail))
+        .await
+        .unwrap();
     let base = server(&db, &mail).await;
-    let browser = reqwest::Client::builder().no_proxy().cookie_store(true).build().unwrap();
+    let browser = reqwest::Client::builder()
+        .no_proxy()
+        .cookie_store(true)
+        .build()
+        .unwrap();
     let response = login(&browser, &base, "alice@example.org").await;
     assert_eq!(response.status(), 200);
     let login_body: Value = response.json().await.unwrap();
     let authority = login_body["storageAuthority"].as_str().unwrap();
     assert!(authority.starts_with("msa1_") && authority.len() == 69);
-    let me: Value = browser.get(format!("{base}/api/me")).send().await.unwrap().json().await.unwrap();
+    let me: Value = browser
+        .get(format!("{base}/api/me"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(me["storageAuthority"], authority);
     assert_eq!(me["accountId"], login_body["accountId"]);
     let native = reqwest::Client::builder().no_proxy().build().unwrap();
-    let response = native.post(format!("{base}/api/login"))
+    let response = native
+        .post(format!("{base}/api/login"))
         .json(&json!({"username":"alice@example.org","password":"testpass","clientType":"native"}))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(response.status(), 200);
     let body: Value = response.json().await.unwrap();
     assert_eq!(body["storageAuthority"], authority);
     assert_eq!(body["accountId"], login_body["accountId"]);
     let token = body["token"].as_str().unwrap();
-    let me: Value = native.get(format!("{base}/api/me")).bearer_auth(token).send().await.unwrap().json().await.unwrap();
+    let me: Value = native
+        .get(format!("{base}/api/me"))
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(me["storageAuthority"], authority);
 }
 
@@ -40,17 +70,49 @@ async fn login_and_me_publish_verified_storage_authority_for_browser_and_native(
 async fn authenticated_login_returns_before_slow_message_enumeration() {
     use std::{sync::Arc, time::Duration};
     let gate = Arc::new(tokio::sync::Semaphore::new(0));
-    let mail = MockPop3::start_accounts_with_index_gate(&[("alice@example.org", "testpass")], Some(gate.clone())).await;
-    let db = test_db::unique_dir("slow-index-login").join("mw.db").to_string_lossy().into_owned();
-    let store = Store::open(&db, ServerKey::from_hex(KEY).unwrap()).await.unwrap();
-    store.put_domain_config(&row("example.org", &mail)).await.unwrap();
+    let mail = MockPop3::start_accounts_with_index_gate(
+        &[("alice@example.org", "testpass")],
+        Some(gate.clone()),
+    )
+    .await;
+    let db = test_db::unique_dir("slow-index-login")
+        .join("mw.db")
+        .to_string_lossy()
+        .into_owned();
+    let store = Store::open(&db, ServerKey::from_hex(KEY).unwrap())
+        .await
+        .unwrap();
+    store
+        .put_domain_config(&row("example.org", &mail))
+        .await
+        .unwrap();
     let base = server(&db, &mail).await;
-    let client = reqwest::Client::builder().no_proxy().cookie_store(true).build().unwrap();
-    let response = tokio::time::timeout(Duration::from_secs(5), login(&client, &base, "alice@example.org")).await.expect("login must not wait for UIDL");
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .cookie_store(true)
+        .build()
+        .unwrap();
+    let response = tokio::time::timeout(
+        Duration::from_secs(5),
+        login(&client, &base, "alice@example.org"),
+    )
+    .await
+    .expect("login must not wait for UIDL");
     assert_eq!(response.status(), 200);
-    assert_eq!(client.get(format!("{base}/api/me")).send().await.unwrap().status(), 200);
+    assert_eq!(
+        client
+            .get(format!("{base}/api/me"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
     let account = store.list_accounts().await.unwrap().remove(0);
-    assert!(!store.list_mailboxes(&account.id).await.unwrap().is_empty(), "authenticated folder metadata must already exist");
+    assert!(
+        !store.list_mailboxes(&account.id).await.unwrap().is_empty(),
+        "authenticated folder metadata must already exist"
+    );
     gate.add_permits(1);
 }
 
@@ -374,11 +436,21 @@ async fn host_mapping_expands_bare_name_and_untrusted_forwarded_host_is_ignored(
         })
         .await
         .unwrap();
-    for (key, value) in [("login.rememberSignins", "false"), ("login.showRememberedHint", "true")] {
-        store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
-            key: key.into(), global_value: Some(value.into()), allow_user_override: false,
-            global_locked: false, updated_by: "test".into(), updated_at: 2,
-        }).await.unwrap();
+    for (key, value) in [
+        ("login.rememberSignins", "false"),
+        ("login.showRememberedHint", "true"),
+    ] {
+        store
+            .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+                key: key.into(),
+                global_value: Some(value.into()),
+                allow_user_override: false,
+                global_locked: false,
+                updated_by: "test".into(),
+                updated_at: 2,
+            })
+            .await
+            .unwrap();
     }
     let opted_in: Value = client
         .get(format!("{base}/api/public-config"))
@@ -394,7 +466,13 @@ async fn host_mapping_expands_bare_name_and_untrusted_forwarded_host_is_ignored(
     assert_eq!(opted_in["rememberSignins"], false);
     assert_eq!(opted_in["showRememberedHint"], true);
     assert_eq!(opted_in.as_object().unwrap().len(), allowed.len());
-    assert!(opted_in.as_object().unwrap().keys().all(|key| allowed.contains(&key.as_str())));
+    assert!(
+        opted_in
+            .as_object()
+            .unwrap()
+            .keys()
+            .all(|key| allowed.contains(&key.as_str()))
+    );
     let response = client
         .post(format!("{base}/api/login"))
         .header("host", "mail.test")

@@ -26,7 +26,15 @@ pub(crate) async fn owner(
 }
 
 /// Durable record owner with the same browser/session authority fence as personal KV.
-pub(crate) async fn record_owner(state:&AppState,session:&mw_store::Session,headers:&HeaderMap,mutation:bool)->Result<String,Response>{
-    owner(state,session,headers,mutation).await?;
-    match state.store.session_personal_subject(&session.id).await {Ok(Some(owner))=>Ok(owner),_=>Err(StatusCode::SERVICE_UNAVAILABLE.into_response())}
+pub(crate) async fn record_owner(
+    state: &AppState,
+    session: &mw_store::Session,
+    headers: &HeaderMap,
+    mutation: bool,
+) -> Result<String, Response> {
+    owner(state, session, headers, mutation).await?;
+    match state.store.session_personal_subject(&session.id).await {
+        Ok(Some(owner)) => Ok(owner),
+        _ => Err(StatusCode::SERVICE_UNAVAILABLE.into_response()),
+    }
 }

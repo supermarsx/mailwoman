@@ -57,7 +57,10 @@ async fn exercise(store: Store) {
             .delete_account_push_subscription(owner, None, Some(&saved.id))
             .await
             .unwrap();
-        let remaining = store.list_push_subscriptions(replacement_owner).await.unwrap();
+        let remaining = store
+            .list_push_subscriptions(replacement_owner)
+            .await
+            .unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].id, replacement.id);
         store

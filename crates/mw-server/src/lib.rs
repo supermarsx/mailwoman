@@ -33,34 +33,34 @@ use mw_engine::Engine;
 use mw_jmap::JmapClient;
 use mw_store::{Credentials, NativeSessionRow, ServerKey, Store};
 
-pub mod arf;
-pub mod dlp;
-pub mod engine_mode;
-mod attachment_preview;
-mod attachment_policy;
-mod notification_policy;
-mod source_bans;
-mod inbound_allowlist;
-mod delivery_status;
-mod branding_routes;
 mod analytics_adapter;
 mod analytics_config;
 mod analytics_routes;
-mod appearance_customization;
 mod analytics_runtime;
-mod login_failure;
+mod appearance_customization;
+pub mod arf;
+mod attachment_policy;
+mod attachment_preview;
+mod branding_routes;
+mod config_routes;
+mod delivery_status;
+pub mod dlp;
+pub mod engine_mode;
 pub mod fonts;
 pub mod hardening;
-pub mod http_metrics;
-mod request_history;
-pub mod knobs;
-mod config_routes;
 pub mod holidays;
+pub mod http_metrics;
+mod inbound_allowlist;
+pub mod inbound_http;
+pub mod knobs;
+mod login_failure;
+mod notification_policy;
 pub mod push;
 pub mod push_relay;
+mod request_history;
 pub mod sharing;
+mod source_bans;
 pub mod tls;
-pub mod inbound_http;
 pub mod watermark;
 pub mod wkd;
 // V6 additive route modules (plan §1.8): the admin console, OAuth authorization
@@ -72,31 +72,31 @@ pub mod errors;
 pub mod mcp;
 pub mod oauth;
 pub mod observability;
+pub mod rest;
 pub mod telemetry_config;
 mod telemetry_routes;
-pub mod rest;
 pub mod webhooks;
 // V7 additive route modules (plan §3): the GAL directory, password self-service,
 // the Assist hook, the plugin registry, and the Nextcloud bridge. All are
 // implemented and mounted into the V7 route group in `router()` below.
 pub mod assist;
 pub mod directory;
+mod jmap_limits;
 pub mod nextcloud;
 mod nextcloud_accounts;
-mod packages;
-mod packages_model;
 mod nextcloud_config;
 mod nextcloud_gateway;
-mod nextcloud_transport;
 mod nextcloud_pim;
-mod nextcloud_pim_transport;
 mod nextcloud_pim_scheduler;
-mod jmap_limits;
+mod nextcloud_pim_transport;
+mod nextcloud_transport;
 mod nextcloud_xml;
-pub mod passwd;
-mod primary_identity;
 mod oidc_provider;
+mod packages;
+mod packages_model;
+pub mod passwd;
 pub mod plugins;
+mod primary_identity;
 // V7 MOUNT/WIRE (plan §3 e14): builds + injects the five V7 extensions, backs the
 // host-service seams, and the extra endpoints. Owned by e14.
 pub mod v7_mount;
@@ -120,44 +120,44 @@ pub mod jobs;
 // and session-management routes over `mw-mfa` + the 0015 store tables. The
 // `gate_login` hook is called from both login branches below; `twofa_router()` is
 // merged into `router()`.
-pub mod twofa_routes;
-pub(crate) mod audit;
 pub(crate) mod alerts;
-pub(crate) mod step_up;
-mod security_center;
-mod user_lifecycle;
-mod signin_cooldown;
-mod request_protection;
-mod signin_guard;
-mod signin_geography;
+pub(crate) mod audit;
 mod deployment_security;
-mod signin_challenge;
+mod request_protection;
+mod security_center;
 mod server_text;
+mod signin_challenge;
+mod signin_cooldown;
+mod signin_geography;
+mod signin_guard;
+pub(crate) mod step_up;
+pub mod twofa_routes;
+mod user_lifecycle;
 // t16 (26.16, e10 chain link 3) MOUNT: the anonymizing image proxy + remote-image
 // grants (e6, S7/S8), the account-preferences router (e18, W12/W13/W15), and the
 // mailbox-import + webcal sync driver (e10, W18). e10 owns the `mod` lines + the
 // merges in `router()`; the module bodies are owned by e6/e18/e10 respectively.
+mod account_drafts;
 pub mod image_proxy;
 pub mod import_routes;
-mod account_drafts;
 mod linked_accounts;
 mod maintenance_mode;
 pub mod prefs_routes;
 // 26.20 t32-e10b (f01): the settings model C — the registry (keys, types,
 // defaults, scopes, environment precedence, the limit ceiling) and its routes.
-pub mod settings_registry;
-pub mod settings_routes;
-mod features;
-mod feature_jmap;
-mod diagnostics;
 mod admin_dashboard;
+pub mod application_logs;
 mod audit_projection;
 mod auth_logs;
+mod diagnostics;
+mod feature_jmap;
+mod features;
 mod hosting_connections;
-mod ssh_tunnels;
 mod hosting_operations;
 mod hosting_transport;
-pub mod application_logs;
+pub mod settings_registry;
+pub mod settings_routes;
+mod ssh_tunnels;
 mod user_router;
 // t16 (26.16, e10) A9: a runtime ManageSieve caller — compile the account's rules to
 // a Sieve script and upload+activate it on the user's ManageSieve server.
@@ -180,22 +180,22 @@ mod account_gate;
 // `/mcp`. Keeps the cookie path unchanged.
 mod scope_mw;
 // t32-h9: the server, never the client, picks the mail upstream for a sign-in.
-mod upstream_resolve;
+mod client_config;
+mod domain_auth;
+pub mod domain_cli;
 pub(crate) mod domain_config;
+mod domain_detect;
+pub mod domain_probe;
 pub(crate) mod domain_provider;
+mod domain_routes;
 mod domain_security;
 mod domain_selection;
-mod domain_auth;
-mod username_format;
-mod domain_detect;
-pub mod domain_cli;
-mod domain_upgrade;
 pub mod domain_transport;
-pub mod domain_probe;
+mod domain_upgrade;
 mod integration_directory;
-mod client_config;
 mod remote_policy;
-mod domain_routes;
+mod upstream_resolve;
+mod username_format;
 // t32-h10: the answer for a request nothing else handled (a page for a browser
 // navigation, `{error, code}` JSON otherwise), plus the return-path and
 // static-path checks.
@@ -204,8 +204,8 @@ mod error_pages;
 // (`AdminCtx`, `AdminApiError`, `If-Match`), and the registry every admin route is
 // mounted through (`admin_router::admin_endpoint`).
 mod admin_accounts;
-mod admin_passkeys;
 pub mod admin_ctx;
+mod admin_passkeys;
 mod admin_roles;
 pub mod admin_router;
 pub mod capabilities;
@@ -1099,7 +1099,12 @@ async fn build_app_inner(
             "mw-render binary not found; /api/sanitize will sanitize in-process (degraded, no jail)"
         ),
     }
-    domain_upgrade::prepare(&store, &config.security, matches!(config.mode, ServerMode::Engine)).await?;
+    domain_upgrade::prepare(
+        &store,
+        &config.security,
+        matches!(config.mode, ServerMode::Engine),
+    )
+    .await?;
     let engine = match config.mode {
         ServerMode::Engine => {
             tracing::info!("engine mode: driving IMAP/POP3 accounts behind the JMAP surface");
@@ -1502,7 +1507,13 @@ fn router(
         .merge(nextcloud_pim::router())
         .merge(packages::router())
         .route("/jmap/session", get(jmap_session))
-        .route("/jmap/api", post(jmap_api).route_layer(middleware::from_fn_with_state(state.clone(), scope_mw::jmap_sieve_scope_guard)))
+        .route(
+            "/jmap/api",
+            post(jmap_api).route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                scope_mw::jmap_sieve_scope_guard,
+            )),
+        )
         .route(
             "/jmap/download/{accountId}/{blobId}/{name}",
             get(jmap_download),
@@ -1550,17 +1561,35 @@ fn router(
             error_pages::json(error_pages::ErrorKind::MethodNotAllowed)
         })
         .fallback(static_handler)
-        .layer(middleware::from_fn_with_state(state.clone(), maintenance_mode::guard))
-        .layer(middleware::from_fn_with_state(state.clone(), linked_accounts::guard))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            maintenance_mode::guard,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            linked_accounts::guard,
+        ))
         // Innermost: reject cross-origin / missing-CSRF writes before handlers.
         .layer(middleware::from_fn_with_state(
             state.clone(),
             state_change_guard,
         ))
-        .layer(middleware::from_fn_with_state(state.clone(), signin_geography::session_guard))
-        .layer(middleware::from_fn_with_state(state.clone(), source_bans::guard))
-        .layer(middleware::from_fn_with_state(state.clone(), inbound_allowlist::guard))
-        .layer(middleware::from_fn_with_state(state.clone(), request_protection::guard))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            signin_geography::session_guard,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            source_bans::guard,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            inbound_allowlist::guard,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            request_protection::guard,
+        ))
         // V5 (plan §2.2; t31 D10): CORS/preflight for the native shell origins
         // (the Tauri origins plus `MW_NATIVE_ORIGINS`). Any other origin passes
         // through untouched, so the browser path emits no `Access-Control-*` headers.
@@ -1576,7 +1605,10 @@ fn router(
             state.clone(),
             security_headers,
         ))
-        .layer(middleware::from_fn_with_state(state.clone(), http_metrics::layer))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            http_metrics::layer,
+        ))
         .with_state(state.clone());
     // t20 B4: also serve the whole thing under `MW_BASE_PATH`. No-op when unset.
     mount_under_base_path(app, &state.base_path)
@@ -1763,10 +1795,17 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
     let mut resp = next.run(req).await;
     // Only fixed public reader/appearance sandboxes may supply an independent policy.
     // A response extension cannot be forged by a request header or upstream.
-    let reader_frame_policy = resp.extensions_mut().remove::<remote_policy::ReaderFrameResponse>();
-    let compatible_reader = reader_frame_policy.as_ref().is_some_and(|policy| policy.compatible);
+    let reader_frame_policy = resp
+        .extensions_mut()
+        .remove::<remote_policy::ReaderFrameResponse>();
+    let compatible_reader = reader_frame_policy
+        .as_ref()
+        .is_some_and(|policy| policy.compatible);
     let reader_frame = reader_frame_policy.is_some();
-    let appearance_frame = resp.extensions_mut().remove::<appearance_customization::AppearanceSandboxResponse>().is_some();
+    let appearance_frame = resp
+        .extensions_mut()
+        .remove::<appearance_customization::AppearanceSandboxResponse>()
+        .is_some();
     let isolated_frame = reader_frame || appearance_frame;
     let h = resp.headers_mut();
     // A handler's own policy (a download's sandbox, t32-h4) is kept as a second
@@ -1781,7 +1820,10 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
             h.append("content-security-policy", v);
         }
     }
-    h.insert("x-frame-options", HeaderValue::from_static(if isolated_frame { "SAMEORIGIN" } else { "DENY" }));
+    h.insert(
+        "x-frame-options",
+        HeaderValue::from_static(if isolated_frame { "SAMEORIGIN" } else { "DENY" }),
+    );
     h.insert(
         "x-content-type-options",
         HeaderValue::from_static("nosniff"),
@@ -1801,8 +1843,18 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
         // Sandboxing gives the bridge an opaque origin in Firefox. It is a
         // public static document; frame-ancestors and its parent handshake
         // still restrict embedding and the delivery of message HTML.
-        h.insert("cross-origin-resource-policy", HeaderValue::from_static("cross-origin"));
-        h.insert("cross-origin-embedder-policy", HeaderValue::from_static(if compatible_reader { "require-corp" } else { "credentialless" }));
+        h.insert(
+            "cross-origin-resource-policy",
+            HeaderValue::from_static("cross-origin"),
+        );
+        h.insert(
+            "cross-origin-embedder-policy",
+            HeaderValue::from_static(if compatible_reader {
+                "require-corp"
+            } else {
+                "credentialless"
+            }),
+        );
     } else if let Some(v) = own_corp {
         h.insert("cross-origin-resource-policy", v);
     }
@@ -1942,7 +1994,9 @@ async fn state_change_guard(State(state): State<AppState>, req: Request, next: N
         // form POST from the IdP legitimately has a foreign/absent Origin). Exempt
         // EXACTLY these paths; every other route (incl. `/api/sso/logout`) stays
         // guarded.
-        if is_sso_idp_callback(req.uri().path()) || matches!(req.uri().path(), "/oidc/token" | "/oidc/revoke") {
+        if is_sso_idp_callback(req.uri().path())
+            || matches!(req.uri().path(), "/oidc/token" | "/oidc/revoke")
+        {
             return next.run(req).await;
         }
         // V5 (plan §2.2): a request whose only authority is its bearer token (the
@@ -1994,7 +2048,9 @@ async fn state_change_guard(State(state): State<AppState>, req: Request, next: N
                 && !hardening::csrf_request_ok(
                     req.headers(),
                     &state.store,
-                    req.uri().path().strip_prefix(&mw_admin::config::admin_path())
+                    req.uri()
+                        .path()
+                        .strip_prefix(&mw_admin::config::admin_path())
                         .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with('/')),
                 )
             {
@@ -2173,11 +2229,27 @@ async fn login(
     if body.names_a_server() {
         return client_server_refused();
     }
-    if let Err(error)=signin_guard::check(&state,mw_store::AuthSurface::Webmail,scope_mw::proxy::client_ip(&headers,&ext)).await { return error.into_response(); }
+    if let Err(error) = signin_guard::check(
+        &state,
+        mw_store::AuthSurface::Webmail,
+        scope_mw::proxy::client_ip(&headers, &ext),
+    )
+    .await
+    {
+        return error.into_response();
+    }
     if let Some(response) = signin_cooldown::check(&state, &headers, &ext).await {
         return response;
     }
-    if let Some(response) = signin_challenge::verify(&state, signin_challenge::Surface::Mailbox, &headers, &ext, body.altcha.as_deref()).await {
+    if let Some(response) = signin_challenge::verify(
+        &state,
+        signin_challenge::Surface::Mailbox,
+        &headers,
+        &ext,
+        body.altcha.as_deref(),
+    )
+    .await
+    {
         return response;
     }
     // A2 (header-auth trusted proxy): if the deployment trusts an upstream that has
@@ -2185,29 +2257,55 @@ async fn login(
     // session from that header without a password. OFF unless configured, and
     // restricted to `MW_HEADER_AUTH_TRUSTED_IPS` peers.
     if ext.get::<linked_accounts::PasswordProof>().is_none()
-        && let Some(resp) = header_auth_login(&state, &headers, &ext, &body).await {
+        && let Some(resp) = header_auth_login(&state, &headers, &ext, &body).await
+    {
         return resp;
     }
     let host = state.external.host(&headers, &ext);
     match domain_config::canonical(&state.store, &body.username, host.as_deref()).await {
         Ok(identity) => body.username = identity.login_name,
         Err(_) => {
-            security_center::record_failure(&state,None,&body.username,&security_center::device(&headers,&ext,body.client_type.as_deref()),"password","not-configured").await;
+            security_center::record_failure(
+                &state,
+                None,
+                &body.username,
+                &security_center::device(&headers, &ext, body.client_type.as_deref()),
+                "password",
+                "not-configured",
+            )
+            .await;
             return address_not_configured();
-        },
+        }
     }
     // A1 (LDAP-bind login backend, §18.3): an env-gated pre-check against the
     // directory. Off by default → the mail backend remains the sole authority.
     if let Err(reason) = directory_bind_gate(&state, &body.username, &body.password).await {
-        security_center::record_failure_backend(&state,None,&body.username,&security_center::device(&headers,&ext,body.client_type.as_deref()),"password",reason,Some("ldap")).await;
+        security_center::record_failure_backend(
+            &state,
+            None,
+            &body.username,
+            &security_center::device(&headers, &ext, body.client_type.as_deref()),
+            "password",
+            reason,
+            Some("ldap"),
+        )
+        .await;
         return unauthorized();
     }
     let upstream = match upstream_resolve::resolve_upstream(&state, &body.username).await {
         Ok(u) => u,
         Err(upstream_resolve::ResolveError::NotConfigured) => {
-            security_center::record_failure(&state,None,&body.username,&security_center::device(&headers,&ext,body.client_type.as_deref()),"password","not-configured").await;
+            security_center::record_failure(
+                &state,
+                None,
+                &body.username,
+                &security_center::device(&headers, &ext, body.client_type.as_deref()),
+                "password",
+                "not-configured",
+            )
+            .await;
             return address_not_configured();
-        },
+        }
     };
     if let Some(engine) = &state.engine {
         return engine_login(&state, &headers, &ext, engine, body, upstream.url()).await;
@@ -2220,12 +2318,24 @@ async fn login(
     // Validate credentials by fetching the upstream Session server-side — under the
     // upstream policy, so a refused upstream is never contacted (t24 B2). A refusal
     // answers with the same 401 as a wrong password.
-    let attempt = tokio::time::timeout(std::time::Duration::from_secs(25), upstream_session(&state.security, &jmap_url, &creds)).await;
+    let attempt = tokio::time::timeout(
+        std::time::Duration::from_secs(25),
+        upstream_session(&state.security, &jmap_url, &creds),
+    )
+    .await;
     let attempt = match attempt {
         Ok(result) => result,
         Err(_) => {
-            security_center::record_failure_backend(&state,None,&body.username,
-                &security_center::device(&headers,&ext,body.client_type.as_deref()),"password","timeout",Some("jmap")).await;
+            security_center::record_failure_backend(
+                &state,
+                None,
+                &body.username,
+                &security_center::device(&headers, &ext, body.client_type.as_deref()),
+                "password",
+                "timeout",
+                Some("jmap"),
+            )
+            .await;
             return StatusCode::GATEWAY_TIMEOUT.into_response();
         }
     };
@@ -2238,21 +2348,52 @@ async fn login(
             }
             let reason = match &e {
                 UpstreamSessionError::Refused(_) => "upstream-policy",
-                UpstreamSessionError::Jmap(mw_jmap::JmapError::Status(status)) if status.as_u16()==401 => "auth-rejected",
-                UpstreamSessionError::Jmap(mw_jmap::JmapError::Status(status)) if status.as_u16()==403 => "upstream-policy",
-                UpstreamSessionError::Jmap(mw_jmap::JmapError::Http(error)) if error.is_timeout() => "timeout",
+                UpstreamSessionError::Jmap(mw_jmap::JmapError::Status(status))
+                    if status.as_u16() == 401 =>
+                {
+                    "auth-rejected"
+                }
+                UpstreamSessionError::Jmap(mw_jmap::JmapError::Status(status))
+                    if status.as_u16() == 403 =>
+                {
+                    "upstream-policy"
+                }
+                UpstreamSessionError::Jmap(mw_jmap::JmapError::Http(error))
+                    if error.is_timeout() =>
+                {
+                    "timeout"
+                }
                 _ => "backend-failure",
             };
-            security_center::record_failure_backend(&state,None,&body.username,
-                &security_center::device(&headers,&ext,body.client_type.as_deref()),"password",reason,Some("jmap")).await;
-            if reason == "timeout" { return StatusCode::GATEWAY_TIMEOUT.into_response(); }
+            security_center::record_failure_backend(
+                &state,
+                None,
+                &body.username,
+                &security_center::device(&headers, &ext, body.client_type.as_deref()),
+                "password",
+                reason,
+                Some("jmap"),
+            )
+            .await;
+            if reason == "timeout" {
+                return StatusCode::GATEWAY_TIMEOUT.into_response();
+            }
             return unauthorized();
         }
     };
     // An upstream may only name URLs on itself.
     if session_urls_on_origin(&jmap_url, &session).is_err() {
         tracing::warn!("proxy login refused by upstream origin policy");
-        security_center::record_failure_backend(&state,None,&body.username,&security_center::device(&headers,&ext,body.client_type.as_deref()),"password","upstream-policy",Some("jmap")).await;
+        security_center::record_failure_backend(
+            &state,
+            None,
+            &body.username,
+            &security_center::device(&headers, &ext, body.client_type.as_deref()),
+            "password",
+            "upstream-policy",
+            Some("jmap"),
+        )
+        .await;
         return unauthorized();
     }
     let account_id = session
@@ -2267,10 +2408,11 @@ async fn login(
     // Resolve the (possibly relative) upstream apiUrl to an absolute URL so
     // server-side proxying can reach it regardless of the browser origin.
     let api_url = resolve_api_url(&jmap_url, &session.api_url);
-    let primary_identity = match primary_identity::VerifiedLoginIdentity::proxy(&jmap_url, &account_id) {
-        Ok(identity) => identity,
-        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
-    };
+    let primary_identity =
+        match primary_identity::VerifiedLoginIdentity::proxy(&jmap_url, &account_id) {
+            Ok(identity) => identity,
+            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        };
     // Credentials validated — hand off to the 2FA gate (DQ2). It either completes the
     // login (no factor enrolled/required) or returns a `twofaRequired` challenge and
     // withholds the session until the second factor clears.
@@ -2360,7 +2502,12 @@ async fn header_auth_login(
     match domain_config::signin_allowed(&state.store, &username).await {
         Ok(true) => {}
         Ok(false) => return Some(unauthorized()),
-        Err(error) => return Some(account_gate::unavailable("header-auth domain policy", error)),
+        Err(error) => {
+            return Some(account_gate::unavailable(
+                "header-auth domain policy",
+                error,
+            ));
+        }
     }
     // Downstream mail access uses a configured service password (empty if unset — the
     // proxy/network is expected to authorize the upstream in this deployment shape).
@@ -2373,13 +2520,13 @@ async fn header_auth_login(
     // `MW_HEADER_AUTH_JMAP_URL`, else the resolver.
     let mut account_id = username.clone();
     let (jmap_url, api_url) = if let Some(engine) = &state.engine {
-        let upstream=match upstream_resolve::resolve_upstream(state,&username).await {
-            Ok(upstream)=>upstream,
-            Err(_)=>return Some(address_not_configured()),
+        let upstream = match upstream_resolve::resolve_upstream(state, &username).await {
+            Ok(upstream) => upstream,
+            Err(_) => return Some(address_not_configured()),
         };
-        match engine_mode::engine_login(engine,upstream.url(),&username,&creds.password).await {
-            Ok((id,_))=>account_id=id,
-            Err(_)=>return Some(unauthorized()),
+        match engine_mode::engine_login(engine, upstream.url(), &username, &creds.password).await {
+            Ok((id, _)) => account_id = id,
+            Err(_) => return Some(unauthorized()),
         }
         ("engine".to_string(), "engine".to_string())
     } else {
@@ -2496,10 +2643,18 @@ mod directory_login_classification_tests {
     #[test]
     fn outages_never_count_as_password_rejections() {
         use mw_directory::{BindOutcome, DirectoryError};
-        assert_eq!(super::directory_bind_result(Ok(BindOutcome::Denied)), Err("auth-rejected"));
-        for error in [DirectoryError::NotConfigured, DirectoryError::Transport("secret-bearing diagnostic".into()), DirectoryError::Auth("service bind error".into()), DirectoryError::Protocol("unavailable".into())] {
-            let reason=super::directory_bind_result(Err(error)).unwrap_err();
-            assert_eq!(reason,"directory-unavailable");
+        assert_eq!(
+            super::directory_bind_result(Ok(BindOutcome::Denied)),
+            Err("auth-rejected")
+        );
+        for error in [
+            DirectoryError::NotConfigured,
+            DirectoryError::Transport("secret-bearing diagnostic".into()),
+            DirectoryError::Auth("service bind error".into()),
+            DirectoryError::Protocol("unavailable".into()),
+        ] {
+            let reason = super::directory_bind_result(Err(error)).unwrap_err();
+            assert_eq!(reason, "directory-unavailable");
             assert!(!crate::signin_guard::credential_rejection(reason));
         }
     }
@@ -2557,7 +2712,9 @@ pub(crate) async fn finish_login_ext(
             "token": id,
         });
         merge_body(&mut body, extra);
-        if let Some(authority) = storage_authority { body["storageAuthority"] = json!(authority); }
+        if let Some(authority) = storage_authority {
+            body["storageAuthority"] = json!(authority);
+        }
         return Json(body).into_response();
     }
     let mut body = json!({
@@ -2566,7 +2723,9 @@ pub(crate) async fn finish_login_ext(
         "username": username,
     });
     merge_body(&mut body, extra);
-    if let Some(authority) = storage_authority { body["storageAuthority"] = json!(authority); }
+    if let Some(authority) = storage_authority {
+        body["storageAuthority"] = json!(authority);
+    }
     authenticated_response(state, id, body)
 }
 
@@ -2590,33 +2749,57 @@ async fn engine_login(
     body: LoginReq,
     server_url: &str,
 ) -> Response {
-    let attempt = match domain_provider::SelectedEws::for_login(&state.store, &body.username).await {
+    let attempt = match domain_provider::SelectedEws::for_login(&state.store, &body.username).await
+    {
         Ok(Some(selected)) => {
-            if !selected.config.endpoint().is_ok_and(|endpoint| endpoint.as_str() == server_url) {
-                Err(login_failure::LoginFailure::new(login_failure::LoginFailureReason::Policy))
+            if !selected
+                .config
+                .endpoint()
+                .is_ok_and(|endpoint| endpoint.as_str() == server_url)
+            {
+                Err(login_failure::LoginFailure::new(
+                    login_failure::LoginFailureReason::Policy,
+                ))
             } else if let Some(registry) = ext.get::<plugins::PluginRegistry>() {
                 domain_provider::login(engine, registry, selected, &body.password).await
             } else {
-                Err(login_failure::LoginFailure::new(login_failure::LoginFailureReason::NotConfigured))
+                Err(login_failure::LoginFailure::new(
+                    login_failure::LoginFailureReason::NotConfigured,
+                ))
             }
         }
-        Ok(None) => engine_mode::engine_login(engine, server_url, &body.username, &body.password).await,
-        Err(_) => Err(login_failure::LoginFailure::new(login_failure::LoginFailureReason::Policy)),
+        Ok(None) => {
+            engine_mode::engine_login(engine, server_url, &body.username, &body.password).await
+        }
+        Err(_) => Err(login_failure::LoginFailure::new(
+            login_failure::LoginFailureReason::Policy,
+        )),
     };
     let (account_id, username) = match attempt {
-            Ok(pair) => pair,
-            Err(error) => {
-                tracing::warn!("engine login failed");
-                security_center::record_failure_backend(state,None,&body.username,
-                    &security_center::device(headers,ext,body.client_type.as_deref()),"password",error.reason.code(),Some("engine")).await;
-                if error.reason == login_failure::LoginFailureReason::Timeout { return StatusCode::GATEWAY_TIMEOUT.into_response(); }
-                return unauthorized();
+        Ok(pair) => pair,
+        Err(error) => {
+            tracing::warn!("engine login failed");
+            security_center::record_failure_backend(
+                state,
+                None,
+                &body.username,
+                &security_center::device(headers, ext, body.client_type.as_deref()),
+                "password",
+                error.reason.code(),
+                Some("engine"),
+            )
+            .await;
+            if error.reason == login_failure::LoginFailureReason::Timeout {
+                return StatusCode::GATEWAY_TIMEOUT.into_response();
             }
-        };
-    let primary_identity = match primary_identity::VerifiedLoginIdentity::engine(state, &account_id).await {
-        Ok(identity) => identity,
-        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            return unauthorized();
+        }
     };
+    let primary_identity =
+        match primary_identity::VerifiedLoginIdentity::engine(state, &account_id).await {
+            Ok(identity) => identity,
+            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        };
     let creds = Credentials {
         username: body.username.clone(),
         password: body.password.clone(),
@@ -2725,7 +2908,9 @@ async fn me(State(state): State<AppState>, headers: HeaderMap) -> Response {
             Ok(Some(authority)) => authority.parent.id,
             _ => return unauthorized(),
         }
-    } else {session.id.clone()};
+    } else {
+        session.id.clone()
+    };
     let token = state.store.session_csrf_token(&csrf_session);
     if let Some(obj) = body.as_object_mut() {
         obj.insert("csrfToken".into(), json!(token));
@@ -2772,13 +2957,13 @@ async fn rotate_session(State(state): State<AppState>, headers: HeaderMap) -> Re
             return (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response();
         }
     };
-    match state.store.rotate_session_security(&old_id,&new_id).await {
-        Ok(true)=>{}
-        result=>{
-            let _=state.store.delete_session(&new_id).await;
+    match state.store.rotate_session_security(&old_id, &new_id).await {
+        Ok(true) => {}
+        result => {
+            let _ = state.store.delete_session(&new_id).await;
             return match result {
-                Err(error)=>account_gate::unavailable("session rotation",error),
-                _=>unauthorized(),
+                Err(error) => account_gate::unavailable("session rotation", error),
+                _ => unauthorized(),
             };
         }
     }
@@ -2791,32 +2976,59 @@ async fn rotate_session(State(state): State<AppState>, headers: HeaderMap) -> Re
 // JMAP proxy
 // ---------------------------------------------------------------------------
 
-async fn jmap_session(State(state): State<AppState>, headers: HeaderMap, ext: axum::http::Extensions) -> Response {
-    let scoped = match scope_mw::sieve_key_session(&state,&headers,&ext,None,None).await {Ok(s)=>s,Err(r)=>return r};
-    let scripts_only=scoped.is_some();
-    let session = match scoped {Some(s)=>s,None=>match authed(&state,&headers).await {Ok(s)=>s,Err(r)=>return r}};
+async fn jmap_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    ext: axum::http::Extensions,
+) -> Response {
+    let scoped = match scope_mw::sieve_key_session(&state, &headers, &ext, None, None).await {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let scripts_only = scoped.is_some();
+    let session = match scoped {
+        Some(s) => s,
+        None => match authed(&state, &headers).await {
+            Ok(s) => s,
+            Err(r) => return r,
+        },
+    };
     if let Some(engine) = &state.engine {
         if let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await {
             tracing::warn!("engine account not available: {e}");
             return upstream_error();
         }
-        let dsn = !scripts_only && engine.dsn_offered(&session.account_id).await.unwrap_or(false);
-        let mut document=engine.session_json_for(&session.account_id,&session.username);
-        if !dsn { document["accounts"][&session.account_id]["accountCapabilities"]["urn:ietf:params:jmap:submission"]["submissionExtensions"]=json!({}); }
+        let dsn = !scripts_only
+            && engine
+                .dsn_offered(&session.account_id)
+                .await
+                .unwrap_or(false);
+        let mut document = engine.session_json_for(&session.account_id, &session.username);
+        if !dsn {
+            document["accounts"][&session.account_id]["accountCapabilities"]["urn:ietf:params:jmap:submission"]
+                ["submissionExtensions"] = json!({});
+        }
         if scripts_only {
-            document["capabilities"].as_object_mut().unwrap().retain(|key,_|key=="urn:ietf:params:jmap:core");
-            document["primaryAccounts"]=json!({});
-            if let Some(accounts)=document["accounts"].as_object_mut(){accounts.retain(|key,_|key==&session.account_id);}
-            document["accounts"][&session.account_id]["accountCapabilities"]=json!({});
+            document["capabilities"]
+                .as_object_mut()
+                .unwrap()
+                .retain(|key, _| key == "urn:ietf:params:jmap:core");
+            document["primaryAccounts"] = json!({});
+            if let Some(accounts) = document["accounts"].as_object_mut() {
+                accounts.retain(|key, _| key == &session.account_id);
+            }
+            document["accounts"][&session.account_id]["accountCapabilities"] = json!({});
         }
-        if let Ok(context)=sieve_sync::context(&state,&session,None).await {
-            let capability=mw_engine::sieve_jmap::CAPABILITY;
-            document["capabilities"][capability]=json!({"implementation":"Mailwoman"});
-            document["accounts"][&session.account_id]["accountCapabilities"][capability]=context.account_capability();
-            document["primaryAccounts"][capability]=session.account_id.clone().into();
+        if let Ok(context) = sieve_sync::context(&state, &session, None).await {
+            let capability = mw_engine::sieve_jmap::CAPABILITY;
+            document["capabilities"][capability] = json!({"implementation":"Mailwoman"});
+            document["accounts"][&session.account_id]["accountCapabilities"][capability] =
+                context.account_capability();
+            document["primaryAccounts"][capability] = session.account_id.clone().into();
         }
-        return Json(prefix_session_urls(document,&state.base_path)).into_response();
-    }    let mut upstream =
+        return Json(prefix_session_urls(document, &state.base_path)).into_response();
+    }
+    let mut upstream =
         match upstream_session(&state.security, &session.jmap_url, &session.credentials).await {
             Ok(s) => s,
             Err(e) => {
@@ -2860,17 +3072,34 @@ fn prefix_session_urls(mut session: Value, base: &str) -> Value {
     session
 }
 
-async fn jmap_api(State(state): State<AppState>, source: Option<Extension<scope_mw::RestSessionSource>>, headers: HeaderMap, body: Body) -> Response {
+async fn jmap_api(
+    State(state): State<AppState>,
+    source: Option<Extension<scope_mw::RestSessionSource>>,
+    headers: HeaderMap,
+    body: Body,
+) -> Response {
     let body = match axum::body::to_bytes(body, mw_engine::jmap::core::MAX_SIZE_REQUEST).await {
         Ok(body) => body,
         Err(error) => {
             request_protection::body_error(&error);
-            return if state.engine.is_some() { jmap_limits::problem(mw_engine::jmap::core::problem("limit", Some("maxSizeRequest")), StatusCode::BAD_REQUEST) } else { StatusCode::PAYLOAD_TOO_LARGE.into_response() };
-        },
+            return if state.engine.is_some() {
+                jmap_limits::problem(
+                    mw_engine::jmap::core::problem("limit", Some("maxSizeRequest")),
+                    StatusCode::BAD_REQUEST,
+                )
+            } else {
+                StatusCode::PAYLOAD_TOO_LARGE.into_response()
+            };
+        }
     };
-    let headless_key = matches!(&source, Some(Extension(scope_mw::RestSessionSource::Key { .. })));
+    let headless_key = matches!(
+        &source,
+        Some(Extension(scope_mw::RestSessionSource::Key { .. }))
+    );
     let key_account = match &source {
-        Some(Extension(scope_mw::RestSessionSource::Key { account_id })) => Some(account_id.clone()),
+        Some(Extension(scope_mw::RestSessionSource::Key { account_id })) => {
+            Some(account_id.clone())
+        }
         _ => None,
     };
     let authenticated = match source {
@@ -2889,7 +3118,7 @@ async fn jmap_api(State(state): State<AppState>, source: Option<Extension<scope_
             // never weakened; a non-admin / non-metadata request falls through to `resp`.
             if !headers.contains_key(linked_accounts::SELECTOR)
                 && let Some(admin_resp) =
-                admin_maintenance::try_admin_jmap_passthrough(&state, &headers, &body).await
+                    admin_maintenance::try_admin_jmap_passthrough(&state, &headers, &body).await
             {
                 return admin_resp;
             }
@@ -2912,21 +3141,36 @@ async fn jmap_api(State(state): State<AppState>, source: Option<Extension<scope_
         Ok(value) => value,
         Err(_) => {
             request_protection::observe(mw_store::request_protection_model::Signal::Malformed);
-            return if state.engine.is_some() { jmap_limits::problem(mw_engine::jmap::core::problem("notJSON", None), StatusCode::BAD_REQUEST) } else { (StatusCode::BAD_REQUEST, "invalid JMAP JSON").into_response() };
-        },
+            return if state.engine.is_some() {
+                jmap_limits::problem(
+                    mw_engine::jmap::core::problem("notJSON", None),
+                    StatusCode::BAD_REQUEST,
+                )
+            } else {
+                (StatusCode::BAD_REQUEST, "invalid JMAP JSON").into_response()
+            };
+        }
     };
     let _native_request_permit = if state.engine.is_some() {
         if let Err(problem) = mw_engine::jmap::core::validate(&request, body.len(), true) {
             return jmap_limits::problem(problem, StatusCode::BAD_REQUEST);
         }
-        match jmap_limits::request() { Ok(permit) => Some(permit), Err(response) => return response }
-    } else { None };
+        match jmap_limits::request() {
+            Ok(permit) => Some(permit),
+            Err(response) => return response,
+        }
+    } else {
+        None
+    };
     if let Err(response) = feature_jmap::admit(&state, &session, &request).await {
         return response;
     }
     if let Some(engine) = &state.engine {
-        let echo_only = request["methodCalls"].as_array().is_some_and(|calls| calls.iter().all(|call| call[0] == "Core/echo"));
-        if !echo_only && let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await {
+        let echo_only = request["methodCalls"]
+            .as_array()
+            .is_some_and(|calls| calls.iter().all(|call| call[0] == "Core/echo"));
+        if !echo_only && let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await
+        {
             tracing::warn!("engine account not available: {e}");
             return upstream_error();
         }
@@ -2936,42 +3180,101 @@ async fn jmap_api(State(state): State<AppState>, source: Option<Extension<scope_
                 return (StatusCode::BAD_REQUEST, format!("bad json: {e}")).into_response();
             }
         };
-        let has_sieve = request.get("methodCalls").and_then(Value::as_array).is_some_and(|calls|
-            calls.iter().any(|call| call.get(0).and_then(Value::as_str).is_some_and(|name|mw_engine::sieve_jmap::is_sieve_method(name) || mw_engine::sieve_jmap::is_managed_method(name))));
+        let has_sieve = request
+            .get("methodCalls")
+            .and_then(Value::as_array)
+            .is_some_and(|calls| {
+                calls.iter().any(|call| {
+                    call.get(0).and_then(Value::as_str).is_some_and(|name| {
+                        mw_engine::sieve_jmap::is_sieve_method(name)
+                            || mw_engine::sieve_jmap::is_managed_method(name)
+                    })
+                })
+            });
         let mut sieve = if has_sieve {
             match sieve_sync::context(&state, &session, Some(&request)).await {
                 Ok(context) => Some(context),
                 Err(response) => return response,
             }
-        } else { None };
-        if request.get("methodCalls").and_then(Value::as_array).is_some_and(|calls| calls.iter().any(|call| call.get(0).and_then(Value::as_str).is_some_and(mw_engine::pim::dispatch::is_pim_method))) {
+        } else {
+            None
+        };
+        if request
+            .get("methodCalls")
+            .and_then(Value::as_array)
+            .is_some_and(|calls| {
+                calls.iter().any(|call| {
+                    call.get(0)
+                        .and_then(Value::as_str)
+                        .is_some_and(mw_engine::pim::dispatch::is_pim_method)
+                })
+            })
+        {
             nextcloud_pim::install(engine, &state.store, &session.account_id);
         }
-        let response = engine.handle_jmap_with_sieve(&session.account_id, &request, sieve.as_mut()).await;
+        let response = engine
+            .handle_jmap_with_sieve(&session.account_id, &request, sieve.as_mut())
+            .await;
         if sieve.as_ref().is_some_and(|ctx| ctx.forwarding_added) {
-            alerts::emit(&state, &session.account_id, alerts::AlertKind::ForwardingAdded, json!({})).await;
+            alerts::emit(
+                &state,
+                &session.account_id,
+                alerts::AlertKind::ForwardingAdded,
+                json!({}),
+            )
+            .await;
         }
         return Json(response).into_response();
     }
-    let mut deferred_sieve_errors=Vec::new();
-    let mut response_order=Vec::new();
-    let body=if let Ok(mut request)=serde_json::from_slice::<Value>(&body) {
-        let has_sieve=request["methodCalls"].as_array().is_some_and(|calls|calls.iter().any(|c|c[0].as_str().is_some_and(mw_engine::sieve_jmap::is_sieve_method)));
+    let mut deferred_sieve_errors = Vec::new();
+    let mut response_order = Vec::new();
+    let body = if let Ok(mut request) = serde_json::from_slice::<Value>(&body) {
+        let has_sieve = request["methodCalls"].as_array().is_some_and(|calls| {
+            calls.iter().any(|c| {
+                c[0].as_str()
+                    .is_some_and(mw_engine::sieve_jmap::is_sieve_method)
+            })
+        });
         if has_sieve {
-            let upstream=match upstream_session(&state.security,&session.jmap_url,&session.credentials).await {Ok(s)=>s,Err(_)=>return upstream_error()};
-            if !upstream.capabilities.contains_key(mw_engine::sieve_jmap::CAPABILITY) {
-                if let Some(calls)=request["methodCalls"].as_array_mut() {
-                    response_order=calls.iter().map(|c|c[2].clone()).collect();
-                    calls.retain(|call| {if call[0].as_str().is_some_and(mw_engine::sieve_jmap::is_sieve_method) {
-                        deferred_sieve_errors.push(json!(["error",{"type":"unknownMethod"},call[2]])); false
-                    }else{true}});
-                    if calls.is_empty(){return Json(json!({"methodResponses":deferred_sieve_errors,"sessionState":upstream.state})).into_response();}
+            let upstream =
+                match upstream_session(&state.security, &session.jmap_url, &session.credentials)
+                    .await
+                {
+                    Ok(s) => s,
+                    Err(_) => return upstream_error(),
+                };
+            if !upstream
+                .capabilities
+                .contains_key(mw_engine::sieve_jmap::CAPABILITY)
+            {
+                if let Some(calls) = request["methodCalls"].as_array_mut() {
+                    response_order = calls.iter().map(|c| c[2].clone()).collect();
+                    calls.retain(|call| {
+                        if call[0]
+                            .as_str()
+                            .is_some_and(mw_engine::sieve_jmap::is_sieve_method)
+                        {
+                            deferred_sieve_errors
+                                .push(json!(["error",{"type":"unknownMethod"},call[2]]));
+                            false
+                        } else {
+                            true
+                        }
+                    });
+                    if calls.is_empty() {
+                        return Json(json!({"methodResponses":deferred_sieve_errors,"sessionState":upstream.state})).into_response();
+                    }
                 }
-                if let Some(using)=request["using"].as_array_mut(){using.retain(|cap|cap!=mw_engine::sieve_jmap::CAPABILITY);}
+                if let Some(using) = request["using"].as_array_mut() {
+                    using.retain(|cap| cap != mw_engine::sieve_jmap::CAPABILITY);
+                }
             }
         }
         Bytes::from(serde_json::to_vec(&request).unwrap_or_default())
-    }else{body};    let client = match upstream_client(
+    } else {
+        body
+    };
+    let client = match upstream_client(
         &state.security,
         &session.jmap_url,
         &session.api_url,
@@ -2987,17 +3290,25 @@ async fn jmap_api(State(state): State<AppState>, source: Option<Extension<scope_
     };
     match client.request_raw(&session.api_url, body).await {
         Ok((status, bytes)) => {
-            let bytes=if status.is_success() && !deferred_sieve_errors.is_empty() {
+            let bytes = if status.is_success() && !deferred_sieve_errors.is_empty() {
                 match serde_json::from_slice::<Value>(&bytes) {
-                    Ok(mut response)=>{
-                        if let Some(responses)=response["methodResponses"].as_array_mut(){
+                    Ok(mut response) => {
+                        if let Some(responses) = response["methodResponses"].as_array_mut() {
                             responses.extend(deferred_sieve_errors);
-                            responses.sort_by_key(|r|response_order.iter().position(|id|id==&r[2]).unwrap_or(usize::MAX));
+                            responses.sort_by_key(|r| {
+                                response_order
+                                    .iter()
+                                    .position(|id| id == &r[2])
+                                    .unwrap_or(usize::MAX)
+                            });
                         }
                         Bytes::from(serde_json::to_vec(&response).unwrap_or_default())
-                    },Err(_)=>return upstream_error(),
+                    }
+                    Err(_) => return upstream_error(),
                 }
-            }else{bytes};
+            } else {
+                bytes
+            };
             let code =
                 StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             let mut resp = Response::new(Body::from(bytes));
@@ -3295,8 +3606,25 @@ async fn jmap_download(
     ext: axum::http::Extensions,
     UrlPath((account_id, blob_id, name)): UrlPath<(String, String, String)>,
 ) -> Response {
-    let scoped=match scope_mw::sieve_key_session(&state,&headers,&ext,Some(&account_id),Some(&blob_id)).await {Ok(s)=>s,Err(r)=>return r};
-    let session=match scoped {Some(s)=>s,None=>match authed(&state,&headers).await {Ok(s)=>s,Err(r)=>return r}};    // A session may only download blobs from its own account.
+    let scoped = match scope_mw::sieve_key_session(
+        &state,
+        &headers,
+        &ext,
+        Some(&account_id),
+        Some(&blob_id),
+    )
+    .await
+    {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let session = match scoped {
+        Some(s) => s,
+        None => match authed(&state, &headers).await {
+            Ok(s) => s,
+            Err(r) => return r,
+        },
+    }; // A session may only download blobs from its own account.
     if account_id != session.account_id {
         return (
             StatusCode::FORBIDDEN,
@@ -3304,15 +3632,35 @@ async fn jmap_download(
         )
             .into_response();
     }
-    let policy = match attachment_policy::effective(&state,&session).await { Ok(p)=>p,Err(r)=>return r };
-    if query.preview==Some(true) && !policy.preview_allowed {return attachment_policy::refusal("attachmentPreviewDisabled");}
-    if !policy.download_allowed {return attachment_policy::refusal("downloadsDisabled");}
+    let policy = match attachment_policy::effective(&state, &session).await {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    if query.preview == Some(true) && !policy.preview_allowed {
+        return attachment_policy::refusal("attachmentPreviewDisabled");
+    }
+    if !policy.download_allowed {
+        return attachment_policy::refusal("downloadsDisabled");
+    }
     if let Some(engine) = &state.engine {
         match engine.fetch_blob(&account_id, &blob_id).await {
             Ok(Some(blob)) => {
-                if blob_id.starts_with('U') && (!policy.allowed_extensions.is_empty() || !policy.blocked_extensions.is_empty() || !policy.warn_extensions.is_empty()) {return attachment_policy::refusal("attachmentMetadataUnavailable");}
-                let metadata=attachment_policy::Metadata {name:blob.filename.clone(),mime:blob.content_type.clone(),size:blob.bytes.len() as u64};
-                let decision=match attachment_policy::authorize(&policy,&metadata,&query) {Ok(d)=>d,Err(r)=>return r};
+                if blob_id.starts_with('U')
+                    && (!policy.allowed_extensions.is_empty()
+                        || !policy.blocked_extensions.is_empty()
+                        || !policy.warn_extensions.is_empty())
+                {
+                    return attachment_policy::refusal("attachmentMetadataUnavailable");
+                }
+                let metadata = attachment_policy::Metadata {
+                    name: blob.filename.clone(),
+                    mime: blob.content_type.clone(),
+                    size: blob.bytes.len() as u64,
+                };
+                let decision = match attachment_policy::authorize(&policy, &metadata, &query) {
+                    Ok(d) => d,
+                    Err(r) => return r,
+                };
                 let filename = if name.is_empty() {
                     &blob.filename
                 } else {
@@ -3320,13 +3668,13 @@ async fn jmap_download(
                 };
                 // The part's type is the sender's word for it, reduced the same
                 // way as a proxied download's (t32-h4).
-                let mut response=blob_response(
+                let mut response = blob_response(
                     &proxied_download_type(Some(&blob.content_type)),
                     filename,
                     blob.bytes,
                     &headers,
                 );
-                attachment_policy::response_headers(&mut response,&decision);
+                attachment_policy::response_headers(&mut response, &decision);
                 response
             }
             Ok(None) => (
@@ -3340,16 +3688,7 @@ async fn jmap_download(
             }
         }
     } else {
-        proxy_download(
-            &state,
-            &session,
-            &blob_id,
-            &name,
-            &headers,
-            &policy,
-            &query,
-        )
-        .await
+        proxy_download(&state, &session, &blob_id, &name, &headers, &policy, &query).await
     }
 }
 
@@ -3377,10 +3716,21 @@ async fn proxy_download(
     policy: &attachment_policy::Policy,
     query: &attachment_policy::DownloadQuery,
 ) -> Response {
-    let security=&state.security;
-    let account_id=&session.account_id;
-    let metadata=if policy.restricts_content() {match attachment_policy::proxy_metadata(state,session,blob_id,query).await {Ok(parts)=>parts,Err(r)=>return r}} else {Vec::new()};
-    for part in &metadata {if let Err(r)=attachment_policy::authorize(policy,part,query) {return r;}}
+    let security = &state.security;
+    let account_id = &session.account_id;
+    let metadata = if policy.restricts_content() {
+        match attachment_policy::proxy_metadata(state, session, blob_id, query).await {
+            Ok(parts) => parts,
+            Err(r) => return r,
+        }
+    } else {
+        Vec::new()
+    };
+    for part in &metadata {
+        if let Err(r) = attachment_policy::authorize(policy, part, query) {
+            return r;
+        }
+    }
     let upstream = match upstream_session(security, &session.jmap_url, &session.credentials).await {
         Ok(s) => s,
         Err(e) => {
@@ -3403,7 +3753,16 @@ async fn proxy_download(
                 return upstream_error();
             }
         };
-    let result=if policy.max_bytes>0 {client.get_bytes_limited(&abs,policy.max_bytes as usize).await} else {client.get_bytes(&abs).await.map(|(status,kind,_,bytes)|(status,kind,bytes))};
+    let result = if policy.max_bytes > 0 {
+        client
+            .get_bytes_limited(&abs, policy.max_bytes as usize)
+            .await
+    } else {
+        client
+            .get_bytes(&abs)
+            .await
+            .map(|(status, kind, _, bytes)| (status, kind, bytes))
+    };
     match result {
         Ok((status, content_type, bytes)) => {
             let code = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
@@ -3411,16 +3770,50 @@ async fn proxy_download(
             // a blob; anything else (redirect, error, or an upstream 206 we did not
             // ask for) is relayed with its status and body only.
             if code == StatusCode::OK {
-                for part in &metadata { let actual=attachment_policy::Metadata{name:part.name.clone(),mime:part.mime.clone(),size:bytes.len() as u64}; if let Err(r)=attachment_policy::authorize(policy,&actual,query) {return r;} }
-                for part in &metadata { let actual=attachment_policy::Metadata{name:part.name.clone(),mime:content_type.clone().unwrap_or_else(|| "application/octet-stream".into()),size:bytes.len() as u64}; if let Err(r)=attachment_policy::authorize(policy,&actual,query) {return r;} }
-                let decision=policy.decide("",content_type.as_deref().unwrap_or("application/octet-stream"),bytes.len() as u64);
-                let mut response=blob_response(
+                for part in &metadata {
+                    let actual = attachment_policy::Metadata {
+                        name: part.name.clone(),
+                        mime: part.mime.clone(),
+                        size: bytes.len() as u64,
+                    };
+                    if let Err(r) = attachment_policy::authorize(policy, &actual, query) {
+                        return r;
+                    }
+                }
+                for part in &metadata {
+                    let actual = attachment_policy::Metadata {
+                        name: part.name.clone(),
+                        mime: content_type
+                            .clone()
+                            .unwrap_or_else(|| "application/octet-stream".into()),
+                        size: bytes.len() as u64,
+                    };
+                    if let Err(r) = attachment_policy::authorize(policy, &actual, query) {
+                        return r;
+                    }
+                }
+                let decision = policy.decide(
+                    "",
+                    content_type
+                        .as_deref()
+                        .unwrap_or("application/octet-stream"),
+                    bytes.len() as u64,
+                );
+                let mut response = blob_response(
                     &proxied_download_type(content_type.as_deref()),
                     name,
                     bytes.to_vec(),
                     req,
                 );
-                attachment_policy::response_headers(&mut response,&attachment_policy::Decision{download_allowed:true,preview_allowed:policy.preview_allowed,warning:decision.warning,reason:None});
+                attachment_policy::response_headers(
+                    &mut response,
+                    &attachment_policy::Decision {
+                        download_allowed: true,
+                        preview_allowed: policy.preview_allowed,
+                        warning: decision.warning,
+                        reason: None,
+                    },
+                );
                 return response;
             }
             let mut resp = Response::new(Body::from(bytes));
@@ -3465,9 +3858,19 @@ async fn jmap_upload(
     UrlPath(account_id): UrlPath<String>,
     body: Body,
 ) -> Response {
-    let scoped=match scope_mw::sieve_key_session(&state,&headers,&ext,Some(&account_id),None).await {Ok(s)=>s,Err(r)=>return r};
-    let scripts_only=scoped.is_some();
-    let session=match scoped {Some(s)=>s,None=>match authed(&state,&headers).await {Ok(s)=>s,Err(r)=>return r}};    // A session may only upload to its own account.
+    let scoped =
+        match scope_mw::sieve_key_session(&state, &headers, &ext, Some(&account_id), None).await {
+            Ok(s) => s,
+            Err(r) => return r,
+        };
+    let scripts_only = scoped.is_some();
+    let session = match scoped {
+        Some(s) => s,
+        None => match authed(&state, &headers).await {
+            Ok(s) => s,
+            Err(r) => return r,
+        },
+    }; // A session may only upload to its own account.
     if account_id != session.account_id {
         return (
             StatusCode::FORBIDDEN,
@@ -3476,8 +3879,13 @@ async fn jmap_upload(
             .into_response();
     }
     let _native_upload_permit = if state.engine.is_some() {
-        match jmap_limits::upload() { Ok(permit) => Some(permit), Err(response) => return response }
-    } else { None };
+        match jmap_limits::upload() {
+            Ok(permit) => Some(permit),
+            Err(response) => return response,
+        }
+    } else {
+        None
+    };
     let content_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -3488,15 +3896,28 @@ async fn jmap_upload(
     // read is bounded here rather than by the default (smaller) extractor limit, and
     // read through [`read_body_capped`] rather than `axum::body::to_bytes` so an
     // over-limit body is drained instead of closed on — see [`DRAIN_BUDGET_BYTES`].
-    let cap=if scripts_only {
-        if !content_type.split(';').next().is_some_and(|v|v.trim().eq_ignore_ascii_case("application/sieve")) {return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();}
-        match sieve_sync::upload_limit(&state,&session).await {Ok(n)=>n,Err(r)=>return r}
-    }else{MAX_UPLOAD_BYTES};
+    let cap = if scripts_only {
+        if !content_type
+            .split(';')
+            .next()
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("application/sieve"))
+        {
+            return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();
+        }
+        match sieve_sync::upload_limit(&state, &session).await {
+            Ok(n) => n,
+            Err(r) => return r,
+        }
+    } else {
+        MAX_UPLOAD_BYTES
+    };
     let bytes = match read_body_capped(body, cap).await {
         Ok(b) => b,
         Err(()) => return upload_too_large(),
     };
-    if scripts_only && (bytes.is_empty() || std::str::from_utf8(&bytes).is_err()) {return StatusCode::BAD_REQUEST.into_response();}
+    if scripts_only && (bytes.is_empty() || std::str::from_utf8(&bytes).is_err()) {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
     let Some(engine) = &state.engine else {
         return proxy_upload(&state.security, &session, &account_id, &content_type, bytes).await;
     };
@@ -3806,11 +4227,18 @@ async fn export_message(
         Ok(s) => s,
         Err(resp) => return resp,
     };
-    if let Err(response) = step_up::require_user(&state, &session, step_up::StepUpAction::DataExport).await {
+    if let Err(response) =
+        step_up::require_user(&state, &session, step_up::StepUpAction::DataExport).await
+    {
         return response;
     }
-    let attachment_policy=match attachment_policy::effective(&state,&session).await {Ok(p)=>p,Err(r)=>return r};
-    if attachment_policy.restricts_content() {return attachment_policy::refusal("attachmentContainerRestricted");}
+    let attachment_policy = match attachment_policy::effective(&state, &session).await {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    if attachment_policy.restricts_content() {
+        return attachment_policy::refusal("attachmentContainerRestricted");
+    }
     let Some(engine) = &state.engine else {
         return (
             StatusCode::NOT_IMPLEMENTED,
@@ -4583,14 +5011,19 @@ async fn static_handler(
     if path == "workspace-popup.html" {
         if !matches!(method, Method::GET | Method::HEAD) {
             let mut response = error(error_pages::ErrorKind::MethodNotAllowed);
-            response.headers_mut().insert(header::ALLOW, HeaderValue::from_static("GET, HEAD"));
+            response
+                .headers_mut()
+                .insert(header::ALLOW, HeaderValue::from_static("GET, HEAD"));
             return response;
         }
         let bytes = include_str!("../../../apps/web/public/workspace-popup.html").as_bytes();
-        let mut response = asset_response(path, "text/html; charset=utf-8", bytes.to_vec(), &headers);
+        let mut response =
+            asset_response(path, "text/html; charset=utf-8", bytes.to_vec(), &headers);
         if method == Method::HEAD {
             if response.status() == StatusCode::OK {
-                response.headers_mut().insert(header::CONTENT_LENGTH, HeaderValue::from(bytes.len()));
+                response
+                    .headers_mut()
+                    .insert(header::CONTENT_LENGTH, HeaderValue::from(bytes.len()));
             }
             *response.body_mut() = Body::empty();
         }
@@ -5207,7 +5640,8 @@ pub(crate) async fn authed_with_gate(
         return Err(unauthorized());
     }
     if let Some(context) = linked_accounts::resolve(state, headers, &session).await? {
-        let gate = account_gate::for_session(&state.store, &context).await
+        let gate = account_gate::for_session(&state.store, &context)
+            .await
             .map_err(|e| account_gate::unavailable("linked session", e))?;
         request_protection::session_account(&context).await?;
         return Ok((context, gate));

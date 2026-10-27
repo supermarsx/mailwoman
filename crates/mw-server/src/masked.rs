@@ -356,12 +356,21 @@ impl MaskedSubmitter {
 
 #[async_trait]
 impl MailSubmitter for MaskedSubmitter {
-    fn cached_dsn_support(&self) -> bool { self.inner.cached_dsn_support() }
-    async fn probe_dsn(&self) -> EngineResult<bool> { self.inner.probe_dsn().await }
-    async fn submit(&self, msg: Outgoing) -> EngineResult<SubmissionResult> {
-        self.submit_with(msg, mw_smtp::SubmitOptions::default()).await
+    fn cached_dsn_support(&self) -> bool {
+        self.inner.cached_dsn_support()
     }
-    async fn submit_with(&self, mut msg: Outgoing, options: mw_smtp::SubmitOptions) -> EngineResult<SubmissionResult> {
+    async fn probe_dsn(&self) -> EngineResult<bool> {
+        self.inner.probe_dsn().await
+    }
+    async fn submit(&self, msg: Outgoing) -> EngineResult<SubmissionResult> {
+        self.submit_with(msg, mw_smtp::SubmitOptions::default())
+            .await
+    }
+    async fn submit_with(
+        &self,
+        mut msg: Outgoing,
+        options: mw_smtp::SubmitOptions,
+    ) -> EngineResult<SubmissionResult> {
         match resolve_from(&self.store, &self.account_id, &msg.mail_from).await {
             // Ordinary sender: envelope untouched, forward as-is.
             Ok(FromDecision::Pass) => {}
@@ -841,28 +850,67 @@ mod tests {
     #[tokio::test]
     async fn dsn_options_delegate_only_after_the_same_alias_authorization() {
         #[derive(Default)]
-        struct ExtensionInner { calls: AtomicUsize }
+        struct ExtensionInner {
+            calls: AtomicUsize,
+        }
         #[async_trait]
         impl MailSubmitter for ExtensionInner {
-            fn cached_dsn_support(&self) -> bool { true }
-            async fn probe_dsn(&self) -> EngineResult<bool> { Ok(true) }
-            async fn submit(&self, _: Outgoing) -> EngineResult<SubmissionResult> { panic!("options must not be discarded"); }
-            async fn submit_with(&self, message: Outgoing, options: mw_smtp::SubmitOptions) -> EngineResult<SubmissionResult> {
-                assert_eq!(options.dsn.unwrap().envid.as_deref(),Some("fixture-envelope"));
-                self.calls.fetch_add(1,Ordering::SeqCst);
-                Ok(SubmissionResult {accepted:message.rcpt_to,rejected:vec![]})
+            fn cached_dsn_support(&self) -> bool {
+                true
+            }
+            async fn probe_dsn(&self) -> EngineResult<bool> {
+                Ok(true)
+            }
+            async fn submit(&self, _: Outgoing) -> EngineResult<SubmissionResult> {
+                panic!("options must not be discarded");
+            }
+            async fn submit_with(
+                &self,
+                message: Outgoing,
+                options: mw_smtp::SubmitOptions,
+            ) -> EngineResult<SubmissionResult> {
+                assert_eq!(
+                    options.dsn.unwrap().envid.as_deref(),
+                    Some("fixture-envelope")
+                );
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                Ok(SubmissionResult {
+                    accepted: message.rcpt_to,
+                    rejected: vec![],
+                })
             }
         }
-        let store=store().await;
-        let alias=create_alias(&store,"acct-a","alice@corp.example",&CreateReq::default()).await.unwrap();
-        let inner=Arc::new(ExtensionInner::default());
-        let options=mw_smtp::SubmitOptions{dsn:Some(mw_smtp::Dsn{envid:Some("fixture-envelope".into()),..Default::default()}),..Default::default()};
-        let allowed=MaskedSubmitter::new(store.clone(),"acct-a".into(),inner.clone());
-        assert!(allowed.cached_dsn_support()); assert!(allowed.probe_dsn().await.unwrap());
-        allowed.submit_with(outgoing(&alias.alias_addr),options.clone()).await.unwrap();
-        let denied=MaskedSubmitter::new(store,"acct-b".into(),inner.clone());
-        assert!(denied.submit_with(outgoing(&alias.alias_addr),options).await.is_err());
-        assert_eq!(inner.calls.load(Ordering::SeqCst),1);
+        let store = store().await;
+        let alias = create_alias(
+            &store,
+            "acct-a",
+            "alice@corp.example",
+            &CreateReq::default(),
+        )
+        .await
+        .unwrap();
+        let inner = Arc::new(ExtensionInner::default());
+        let options = mw_smtp::SubmitOptions {
+            dsn: Some(mw_smtp::Dsn {
+                envid: Some("fixture-envelope".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let allowed = MaskedSubmitter::new(store.clone(), "acct-a".into(), inner.clone());
+        assert!(allowed.cached_dsn_support());
+        assert!(allowed.probe_dsn().await.unwrap());
+        allowed
+            .submit_with(outgoing(&alias.alias_addr), options.clone())
+            .await
+            .unwrap();
+        let denied = MaskedSubmitter::new(store, "acct-b".into(), inner.clone());
+        assert!(
+            denied
+                .submit_with(outgoing(&alias.alias_addr), options)
+                .await
+                .is_err()
+        );
+        assert_eq!(inner.calls.load(Ordering::SeqCst), 1);
     }
-
 }

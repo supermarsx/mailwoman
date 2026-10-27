@@ -161,21 +161,51 @@ mod tests {
     }
 
     async fn assert_signature_formats(store: &Store) {
-        let owner=format!("signature-{}",crate::seal::random_token());
-        let row=SignatureRow{account_id:owner.clone(),name:"work".into(),body:"legacy".into(),html:Some("<p>Rich</p>".into()),text:Some("Plain alternative".into()),text_edited:true,is_default:false,rule_json:String::new(),updated_at:String::new()};
+        let owner = format!("signature-{}", crate::seal::random_token());
+        let row = SignatureRow {
+            account_id: owner.clone(),
+            name: "work".into(),
+            body: "legacy".into(),
+            html: Some("<p>Rich</p>".into()),
+            text: Some("Plain alternative".into()),
+            text_edited: true,
+            is_default: false,
+            rule_json: String::new(),
+            updated_at: String::new(),
+        };
         store.upsert_signature(&row).await.unwrap();
-        let saved=store.list_signatures(&owner).await.unwrap().remove(0);
-        assert_eq!(saved.html,row.html);assert_eq!(saved.text,row.text);assert!(saved.text_edited);
-        assert!(store.list_signatures(&format!("{owner}-foreign")).await.unwrap().is_empty());
-        let mut plain=row;plain.html=None;plain.text=Some("Revised plain".into());store.upsert_signature(&plain).await.unwrap();
-        let saved=store.list_signatures(&owner).await.unwrap().remove(0);assert!(saved.html.is_none());assert_eq!(saved.text.as_deref(),Some("Revised plain"));
+        let saved = store.list_signatures(&owner).await.unwrap().remove(0);
+        assert_eq!(saved.html, row.html);
+        assert_eq!(saved.text, row.text);
+        assert!(saved.text_edited);
+        assert!(
+            store
+                .list_signatures(&format!("{owner}-foreign"))
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let mut plain = row;
+        plain.html = None;
+        plain.text = Some("Revised plain".into());
+        store.upsert_signature(&plain).await.unwrap();
+        let saved = store.list_signatures(&owner).await.unwrap().remove(0);
+        assert!(saved.html.is_none());
+        assert_eq!(saved.text.as_deref(), Some("Revised plain"));
     }
     #[tokio::test]
-    async fn signature_formats_sqlite() {assert_signature_formats(&store().await).await;}
+    async fn signature_formats_sqlite() {
+        assert_signature_formats(&store().await).await;
+    }
     #[tokio::test]
     async fn signature_formats_postgres() {
-        let Ok(dsn)=std::env::var("MW_TEST_PG_DSN") else {return;};
-        let store=Store::open_postgres(&dsn,ServerKey::generate()).await.unwrap();assert_signature_formats(&store).await;
+        let Ok(dsn) = std::env::var("MW_TEST_PG_DSN") else {
+            return;
+        };
+        let store = Store::open_postgres(&dsn, ServerKey::generate())
+            .await
+            .unwrap();
+        assert_signature_formats(&store).await;
     }
 
     #[tokio::test]
@@ -183,7 +213,10 @@ mod tests {
         let s = store().await;
         assert!(s.list_signatures("a1").await.unwrap().is_empty());
 
-        s.upsert_signature(&SignatureRow { html: None, text: None, text_edited: false,
+        s.upsert_signature(&SignatureRow {
+            html: None,
+            text: None,
+            text_edited: false,
             account_id: "a1".into(),
             name: "work".into(),
             body: "Regards".into(),
@@ -193,7 +226,10 @@ mod tests {
         })
         .await
         .unwrap();
-        s.upsert_signature(&SignatureRow { html: None, text: None, text_edited: false,
+        s.upsert_signature(&SignatureRow {
+            html: None,
+            text: None,
+            text_edited: false,
             account_id: "a1".into(),
             name: "personal".into(),
             body: "Cheers".into(),
@@ -211,7 +247,10 @@ mod tests {
         assert!(!work.updated_at.is_empty());
 
         // Upsert updates in place.
-        s.upsert_signature(&SignatureRow { html: None, text: None, text_edited: false,
+        s.upsert_signature(&SignatureRow {
+            html: None,
+            text: None,
+            text_edited: false,
             account_id: "a1".into(),
             name: "work".into(),
             body: "Best".into(),

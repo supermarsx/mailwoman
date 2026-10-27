@@ -46,8 +46,8 @@ use mw_store::{PluginKvLimits, PluginRow, Store};
 use crate::AppState;
 use crate::admin_ctx::AdminCtx;
 use crate::admin_router::AdminRegistrar;
-use crate::capabilities::Capability as AdminCap;
 use crate::assist::AssistHandle;
+use crate::capabilities::Capability as AdminCap;
 use crate::nextcloud::NextcloudGateway;
 use crate::plugins::PluginRegistry;
 
@@ -162,11 +162,20 @@ pub(crate) struct StoreEwsCredProvider {
 #[async_trait]
 impl BasicCredentialProvider for StoreEwsCredProvider {
     async fn credentials(&self, account: &str) -> std::result::Result<BasicCredentials, String> {
-        if let Some(selected) = crate::domain_provider::stored_selection(&self.store, account).await? {
-            let credential = self.store.provider_ews_credentials(account).await.map_err(|_| "provider credentials unavailable")?.ok_or("provider credentials unavailable")?;
+        if let Some(selected) =
+            crate::domain_provider::stored_selection(&self.store, account).await?
+        {
+            let credential = self
+                .store
+                .provider_ews_credentials(account)
+                .await
+                .map_err(|_| "provider credentials unavailable")?
+                .ok_or("provider credentials unavailable")?;
             return Ok(BasicCredentials {
-                user: credential.username, password: credential.password,
-                domain: String::new(), workstation: String::new(),
+                user: credential.username,
+                password: credential.password,
+                domain: String::new(),
+                workstation: String::new(),
                 endpoint: selected.config.endpoint()?.to_string(),
             });
         }
@@ -2466,16 +2475,20 @@ impl mw_engine::account::MailSubmitter for BridgeSubmitter {
         if let Err(e) = self.backend.append(&placeholder, &msg.raw, &[]).await {
             // Surface the failure (never silently drop). Content-free: bridge id + the
             // coarse backend error only.
-            tracing::warn!("bridge '{}' send did not confirm acceptance: {e}", self.bridge_id);
+            tracing::warn!(
+                "bridge '{}' send did not confirm acceptance: {e}",
+                self.bridge_id
+            );
             // The opaque submit export does not expose an HTTP/transport phase.
             // Only explicit authentication/capability refusals establish no send;
             // all other failures may follow acceptance and must not be retried.
             return Err(match e {
                 e @ (mw_engine::backend::EngineError::Auth(_)
-                    | mw_engine::backend::EngineError::Unsupported(_)
-                    | mw_engine::backend::EngineError::SubmissionUncertain(_)) => e,
+                | mw_engine::backend::EngineError::Unsupported(_)
+                | mw_engine::backend::EngineError::SubmissionUncertain(_)) => e,
                 _ => mw_engine::backend::EngineError::SubmissionUncertain(
-                    "the connected provider did not confirm the send outcome".into()),
+                    "the connected provider did not confirm the send outcome".into(),
+                ),
             });
         }
         // The provider transmits to every recipient atomically and reports fatal
@@ -2528,11 +2541,16 @@ mod bridge_submitter_tests {
         }
         async fn append(&self, _: &RawMailboxRef, raw: &[u8], _: &[Flag]) -> Result<MessageRef> {
             let failure = self.failure.lock().unwrap().take();
-            if matches!(failure, Some(EngineError::Auth(_) | EngineError::Unsupported(_))) {
+            if matches!(
+                failure,
+                Some(EngineError::Auth(_) | EngineError::Unsupported(_))
+            ) {
                 return Err(failure.unwrap());
             }
             self.sent.lock().unwrap().push(raw.to_vec());
-            if let Some(error) = failure { return Err(error); }
+            if let Some(error) = failure {
+                return Err(error);
+            }
             Ok(MessageRef::Pop3 {
                 uidl: "sent".into(),
             })
@@ -2572,10 +2590,15 @@ mod bridge_submitter_tests {
 
     #[tokio::test]
     async fn opaque_provider_failures_after_submit_are_uncertain() {
-        for error in [EngineError::Transport("reply lost".into()), EngineError::Protocol("guest trapped".into())] {
+        for error in [
+            EngineError::Transport("reply lost".into()),
+            EngineError::Protocol("guest trapped".into()),
+        ] {
             let (bridge, submitter) = submitter();
             *bridge.failure.lock().unwrap() = Some(error);
-            let outcome = submitter.submit(outgoing("alice@example.test", &["bob@example.test"])).await;
+            let outcome = submitter
+                .submit(outgoing("alice@example.test", &["bob@example.test"]))
+                .await;
             assert!(matches!(outcome, Err(EngineError::SubmissionUncertain(_))));
             assert_eq!(bridge.sent.lock().unwrap().len(), 1);
         }
@@ -2583,11 +2606,19 @@ mod bridge_submitter_tests {
 
     #[tokio::test]
     async fn explicit_provider_auth_and_capability_refusals_remain_definite() {
-        for error in [EngineError::Auth("refused".into()), EngineError::Unsupported("submit".into())] {
+        for error in [
+            EngineError::Auth("refused".into()),
+            EngineError::Unsupported("submit".into()),
+        ] {
             let (bridge, submitter) = submitter();
             *bridge.failure.lock().unwrap() = Some(error);
-            let outcome = submitter.submit(outgoing("alice@example.test", &["bob@example.test"])).await;
-            assert!(matches!(outcome, Err(EngineError::Auth(_) | EngineError::Unsupported(_))));
+            let outcome = submitter
+                .submit(outgoing("alice@example.test", &["bob@example.test"]))
+                .await;
+            assert!(matches!(
+                outcome,
+                Err(EngineError::Auth(_) | EngineError::Unsupported(_))
+            ));
             assert!(bridge.sent.lock().unwrap().is_empty());
         }
     }
@@ -2902,7 +2933,9 @@ pub async fn load_plugin_backends(
 ) -> (usize, Option<Arc<dyn mw_engine::BridgeCapabilitySource>>) {
     let runtime = plugin_runtime(host);
     runtime.engine_mode.store(true, Ordering::SeqCst);
-    let shared_pim = Arc::new(BridgePimSource { accounts: std::sync::RwLock::new(std::collections::HashMap::new()) });
+    let shared_pim = Arc::new(BridgePimSource {
+        accounts: std::sync::RwLock::new(std::collections::HashMap::new()),
+    });
     *runtime.bridge_pim.lock().expect("plugin runtime lock") = Some(Arc::clone(&shared_pim));
     let bindings = match store.list_bridge_accounts().await {
         Ok(b) => b,
@@ -2922,7 +2955,10 @@ pub async fn load_plugin_backends(
     for b in &bindings {
         let provider = match crate::domain_provider::stored_selection(store, &b.account_id).await {
             Ok(provider) => provider,
-            Err(_) => { tracing::warn!("provider authority unavailable at startup"); continue; }
+            Err(_) => {
+                tracing::warn!("provider authority unavailable at startup");
+                continue;
+            }
         };
         // The bound plugin must be a known, approved, ENABLED registry row.
         let Some(row) = plugins.iter().find(|p| p.id == b.bridge_id) else {
@@ -2946,10 +2982,19 @@ pub async fn load_plugin_backends(
             }
         };
         if let Some(provider) = provider {
-            if b.bridge_id != "bridge-ews" { continue; }
-            let Ok(endpoint) = provider.config.endpoint() else { continue; };
+            if b.bridge_id != "bridge-ews" {
+                continue;
+            }
+            let Ok(endpoint) = provider.config.endpoint() else {
+                continue;
+            };
             if let Some(hostname) = endpoint.host_str()
-                && !plan.manifest.net_allowlist.iter().any(|h| h.eq_ignore_ascii_case(hostname)) {
+                && !plan
+                    .manifest
+                    .net_allowlist
+                    .iter()
+                    .any(|h| h.eq_ignore_ascii_case(hostname))
+            {
                 plan.manifest.net_allowlist.push(hostname.into());
             }
         }
@@ -3010,8 +3055,14 @@ pub async fn load_plugin_backends(
             }) as Arc<dyn mw_engine::account::MailSubmitter>,
             identity,
         );
-        if store.get_account(&b.account_id).await.is_ok_and(|account| account.kind == mw_store::AccountKind::Ews) {
-            let Ok(revision) = store.account_credential_revision(&b.account_id).await else { continue; };
+        if store
+            .get_account(&b.account_id)
+            .await
+            .is_ok_and(|account| account.kind == mw_store::AccountKind::Ews)
+        {
+            let Ok(revision) = store.account_credential_revision(&b.account_id).await else {
+                continue;
+            };
             account_runtime.credential_revision = Some(revision);
         }
         engine.register_plugin_backend(b.account_id.clone(), b.bridge_id.clone(), account_runtime);
@@ -3043,25 +3094,58 @@ pub async fn load_plugin_backends(
 
 /// Activate one provider only after credential proof and durable enrollment.
 pub(crate) async fn activate_ews(
-    engine: &Arc<mw_engine::Engine>, host: &PluginRegistry, account: &str,
+    engine: &Arc<mw_engine::Engine>,
+    host: &PluginRegistry,
+    account: &str,
     mailboxes: Vec<mw_engine::RawMailbox>,
 ) -> Result<(), String> {
     let store = engine.store();
-    let selected = crate::domain_provider::stored_selection(store, account).await?.ok_or("provider unavailable")?;
-    let row = store.get_plugin("bridge-ews").await.map_err(|_| "provider registry unavailable")?.ok_or("provider unavailable")?;
-    let mut plan = plan_load(store, &row, Some(account)).await.map_err(|_| "provider grant unavailable")?;
+    let selected = crate::domain_provider::stored_selection(store, account)
+        .await?
+        .ok_or("provider unavailable")?;
+    let row = store
+        .get_plugin("bridge-ews")
+        .await
+        .map_err(|_| "provider registry unavailable")?
+        .ok_or("provider unavailable")?;
+    let mut plan = plan_load(store, &row, Some(account))
+        .await
+        .map_err(|_| "provider grant unavailable")?;
     let endpoint = selected.config.endpoint()?;
     let hostname = endpoint.host_str().ok_or("provider endpoint unavailable")?;
-    if !plan.manifest.net_allowlist.iter().any(|host| host.eq_ignore_ascii_case(hostname)) {
+    if !plan
+        .manifest
+        .net_allowlist
+        .iter()
+        .any(|host| host.eq_ignore_ascii_case(hostname))
+    {
         plan.manifest.net_allowlist.push(hostname.into());
     }
-    let handle = load_planned(host, store, &plan, Some(account)).await.map_err(|_| "provider load failed")?;
-    let backend = handle.as_account_backend().ok_or("provider capability unavailable")?;
-    let identity = store.get_account(account).await.map_err(|_| "provider identity unavailable")?.username;
+    let handle = load_planned(host, store, &plan, Some(account))
+        .await
+        .map_err(|_| "provider load failed")?;
+    let backend = handle
+        .as_account_backend()
+        .ok_or("provider capability unavailable")?;
+    let identity = store
+        .get_account(account)
+        .await
+        .map_err(|_| "provider identity unavailable")?
+        .username;
     let mut account_runtime = mw_engine::account::AccountRuntime::new(
-        backend.clone(), Arc::new(BridgeSubmitter { backend, bridge_id: "bridge-ews".into() }), identity,
+        backend.clone(),
+        Arc::new(BridgeSubmitter {
+            backend,
+            bridge_id: "bridge-ews".into(),
+        }),
+        identity,
     );
-    account_runtime.credential_revision = Some(store.account_credential_revision(account).await.map_err(|_| "provider credential revision unavailable")?);
+    account_runtime.credential_revision = Some(
+        store
+            .account_credential_revision(account)
+            .await
+            .map_err(|_| "provider credential revision unavailable")?,
+    );
     selected.admit(store, Some(account)).await?;
     engine.register_plugin_backend(account.to_owned(), "bridge-ews".to_owned(), account_runtime);
     if engine.cache_mailbox_list(account, mailboxes).await.is_err() {
@@ -3071,8 +3155,17 @@ pub(crate) async fn activate_ews(
     let runtime = plugin_runtime(host);
     runtime.note_loaded(&row, account, &handle);
     let slots = probe_bridge_pim(&handle).await;
-    if let Some(source) = runtime.bridge_pim.lock().expect("plugin runtime lock").as_ref() {
-        source.accounts.write().expect("bridge pim lock").insert(account.into(), slots);
+    if let Some(source) = runtime
+        .bridge_pim
+        .lock()
+        .expect("plugin runtime lock")
+        .as_ref()
+    {
+        source
+            .accounts
+            .write()
+            .expect("bridge pim lock")
+            .insert(account.into(), slots);
     }
     engine.start_initial_sync(account);
     Ok(())
@@ -3152,8 +3245,18 @@ async fn assist_transcribe(
 /// The Assist governance routes, and the allowlist and egress admin routes of the
 /// two submodules (registered by `admin_router`).
 pub(crate) fn register_admin(r: &mut impl AdminRegistrar) {
-    r.admin_endpoint(Method::GET, "/assist", AdminCap::AiAssistantRead, assist_admin_get);
-    r.admin_endpoint(Method::PUT, "/assist", AdminCap::AiAssistantWrite, assist_admin_put);
+    r.admin_endpoint(
+        Method::GET,
+        "/assist",
+        AdminCap::AiAssistantRead,
+        assist_admin_get,
+    );
+    r.admin_endpoint(
+        Method::PUT,
+        "/assist",
+        AdminCap::AiAssistantWrite,
+        assist_admin_put,
+    );
     r.admin_endpoint(
         Method::GET,
         "/assist/status",
@@ -3715,8 +3818,8 @@ async fn assist_admin_kill(
 
 #[derive(Debug, Deserialize)]
 struct ListQuery {
-    #[serde(rename="accountId")]
-    account_id:Option<String>,
+    #[serde(rename = "accountId")]
+    account_id: Option<String>,
     #[serde(default)]
     path: String,
 }
@@ -3727,9 +3830,26 @@ async fn nextcloud_list(
     headers: HeaderMap,
     Query(q): Query<ListQuery>,
 ) -> Response {
-    let session=match crate::user_router::feature_session(&state,&headers,"integrations.nextcloud").await {Ok(session)=>session,Err(response)=>return response};
-    if q.account_id.as_deref().is_some_and(|id|id!=session.account_id.as_str()){return (StatusCode::CONFLICT,Json(json!({"error":"active account changed"}))).into_response();}
-    let nc=match crate::nextcloud_gateway::resolve(&state,&headers,None).await {Ok(gateway)=>gateway,Err(response)=>return response};
+    let session =
+        match crate::user_router::feature_session(&state, &headers, "integrations.nextcloud").await
+        {
+            Ok(session) => session,
+            Err(response) => return response,
+        };
+    if q.account_id
+        .as_deref()
+        .is_some_and(|id| id != session.account_id.as_str())
+    {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({"error":"active account changed"})),
+        )
+            .into_response();
+    }
+    let nc = match crate::nextcloud_gateway::resolve(&state, &headers, None).await {
+        Ok(gateway) => gateway,
+        Err(response) => return response,
+    };
     match nc.list(&q.path).await {
         Ok(entries) => Json(json!({ "entries": entries })).into_response(),
         Err(e) => {
@@ -4536,12 +4656,14 @@ mod tests {
     async fn plugin_fetch_requires_host_selected_instance_context() {
         let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
         let fetcher = ReqwestFetcher { store };
-        let result = fetcher.fetch(HttpReq {
-            method: "GET".into(),
-            url: "http://127.0.0.1:9/".into(),
-            headers: vec![],
-            body: None,
-        }).await;
+        let result = fetcher
+            .fetch(HttpReq {
+                method: "GET".into(),
+                url: "http://127.0.0.1:9/".into(),
+                headers: vec![],
+                body: None,
+            })
+            .await;
         assert!(result.unwrap_err().contains("trusted instance context"));
     }
 
