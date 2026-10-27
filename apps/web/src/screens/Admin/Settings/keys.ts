@@ -131,6 +131,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'limit.recipients_per_message',
   'privacy.remoteContent',
   'privacy.remoteImageDownloads',
+  'privacy.stripMailerHeaders',
   'privacy.trackers',
   'privacy.cleanLinks',
   'privacy.maxBytes',

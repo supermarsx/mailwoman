@@ -253,6 +253,15 @@ impl Engine {
     /// Register (or replace) a connected account's runtime.
     pub fn register_backend(&self, account_id: impl Into<String>, mut runtime: AccountRuntime) {
         let account_id = account_id.into();
+        let transport = runtime
+            .original_submitter
+            .get_or_insert_with(|| runtime.submitter.clone())
+            .clone();
+        runtime.submitter = Arc::new(crate::header_privacy::HeaderPrivacySubmitter::new(
+            self.store.clone(),
+            account_id.clone(),
+            transport,
+        ));
         {
             let mut controls = self.pim_controls.lock().expect("PIM controls");
             controls.retain(|_, control| control.strong_count() > 0);

@@ -1045,3 +1045,8 @@ Account draft saving supports global, domain and user defaults and administrator
 <a id="mail.showFrom"></a>
 
 `mail.showFrom` is a global/domain/user boolean, default false. It controls the initial visibility of the composer From field. A per-compose ribbon action can reveal the field; visibility never grants permission to send as an address. Typed one-message addresses must pass current native or upstream sender authorization and are not saved as identities.
+
+<a id="privacy.stripMailerHeaders"></a>
+### Outgoing mailer header privacy (`privacy.stripMailerHeaders`)
+
+Defaults to true; global, domain and account overrides are supported, with administrator locks. Native SMTP/EWS submissions remove top-level X-Mailer, User-Agent and X-MimeOLE. Bodies, attachments and ARF report payloads are unchanged; upstream JMAP proxy sends are outside this boundary. See [outgoing header privacy](../deploy/outgoing-header-privacy.md) for pre-signed message conflicts and relay limitations.

@@ -18,6 +18,7 @@ pub mod engine;
 pub mod folder_roles;
 pub mod identity;
 mod initial_sync;
+mod header_privacy;
 pub mod jmap;
 pub mod maintenance;
 pub mod mapping;

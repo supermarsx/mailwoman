@@ -97,6 +97,8 @@ pub struct AccountRuntime {
     pub backend: Arc<dyn AccountBackend>,
     /// The submission client for `EmailSubmission/set`.
     pub submitter: Arc<dyn MailSubmitter>,
+    /// Original transport retained so re-registration never stacks policy wrappers.
+    pub(crate) original_submitter: Option<Arc<dyn MailSubmitter>>,
     /// The account's own address, used as `From`/`MAIL FROM` when composing.
     pub identity: String,
     /// A running change-ingestion loop, kept alive so its `Drop`/`stop` fires
@@ -126,6 +128,7 @@ impl AccountRuntime {
         Self {
             backend,
             submitter,
+            original_submitter: None,
             identity: identity.into(),
             watch: None,
             credential_revision: None,

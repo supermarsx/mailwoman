@@ -63,3 +63,6 @@ privacy-image-downloads = Manual remote-image downloads
 privacy-image-download-help = If an image does not display, download a checked copy through this server. The server verifies that it belongs to this message and still applies its privacy and security rules. Client-decrypted images are not available here.
 privacy-image-download-ready = The image is ready and its download has started.
 privacy-image-download-failed = The image could not be downloaded. It may be unavailable or blocked by your privacy policy.
+
+privacy-strip-mailer-headers = Remove outgoing mailer headers
+privacy-strip-mailer-help = Native SMTP and EWS sends remove top-level client fingerprint headers. Message bodies, attached messages and report payloads remain intact. This does not cover upstream JMAP proxy sends or headers added later by a relay. Pre-signed messages covering a removed header require this setting to be disabled before sending.

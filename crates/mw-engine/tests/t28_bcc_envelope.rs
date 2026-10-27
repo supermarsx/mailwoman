@@ -34,6 +34,9 @@ const UIDVALIDITY: u32 = 100;
 /// case, there is a `Resent-Bcc`, and the body has a line that begins `Bcc:`.
 const HOSTILE: &[u8] = b"From: me@example.org\r\n\
 To: visible@example.org\r\n\
+X-Mailer: private client\r\n continued version\r\n\
+User-Agent: private agent\r\n\
+X-MimeOLE: private encoder\r\n\
 Bcc:\r\n hidden-one@example.org,\r\n\thidden-two@example.org\r\n\
 Subject: folded\r\n\
 bCC : hidden-three@example.org\r\n\
