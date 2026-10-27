@@ -1,6 +1,13 @@
 //! Client-supplied ManageSieve destinations are refused before connection.
 //! Private-network access is now an operator endpoint permission; guarded
 //! proxy/pinning behavior is covered in mw-egress plan::sieve_tests.
+//!
+//! Since 7e9af0d0 the refusal is structural: the old `POST /api/account/sieve/sync`
+//! upload route, the one place a request body could name a ManageSieve host, port
+//! and credentials, is removed (`sieve_sync_router` is an empty seam) and ManageSieve
+//! is reached only through the operator-selected endpoint. So the route answers
+//! `404` for every body. The leg also points one body at a live local listener and
+//! checks it is never dialled, which a `404` alone would not prove.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -81,12 +88,13 @@ async fn sieve_sync(
     base: &str,
     cookie: &str,
     host: &str,
+    port: u16,
 ) -> Result<reqwest::StatusCode, reqwest::Error> {
     c.post(format!("{base}/api/account/sieve/sync"))
         .header("Cookie", format!("mw_session={cookie}"))
         .json(&json!({
             "host": host,
-            "port": 4190,
+            "port": port,
             "tls": "plaintext",
             "username": "u",
             "password": "p",
@@ -110,7 +118,27 @@ async fn sieve_refuses_client_selected_destinations_and_credentials() {
         "10.255.255.1",
         "mail.example.org",
     ] {
-        let status = sieve_sync(&client, &base, &cookie, host).await.unwrap();
-        assert_eq!(status.as_u16(), 422, "request body cannot configure {host}");
+        let status = sieve_sync(&client, &base, &cookie, host, 4190)
+            .await
+            .unwrap();
+        assert_eq!(
+            status.as_u16(),
+            404,
+            "request body cannot configure {host}: the client-selected sync route is gone \
+             (7e9af0d0), so no body reaches a ManageSieve dial"
+        );
     }
+
+    // The same body aimed at a real listener: it must never be dialled.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let status = sieve_sync(&client, &base, &cookie, "127.0.0.1", port)
+        .await
+        .unwrap();
+    assert_eq!(status.as_u16(), 404);
+    let dialled = tokio::time::timeout(Duration::from_millis(300), listener.accept()).await;
+    assert!(
+        dialled.is_err(),
+        "a client-named ManageSieve destination was contacted"
+    );
 }
