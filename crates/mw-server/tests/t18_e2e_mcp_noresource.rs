@@ -27,18 +27,24 @@ use sha2::{Digest, Sha256};
 
 use mw_oauth::{Scope, ScopeSelector};
 use mw_server::{AppConfig, build_app};
-use mw_store::{Credentials, OAuthTokenRow, ServerKey, Store};
+use mw_store::{OAuthTokenRow, ServerKey, Store};
 
 const KEY_HEX: &str = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0";
 const PUBLIC_ORIGIN: &str = "https://mcp.example";
 const ACCOUNT: &str = "acct-mcp-nores";
 
 mod common;
+use common::mock_mail::MockPop3;
 use common::test_db;
 
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW</div>";
 
-async fn spawn_engine_server(db_path: &str) -> SocketAddr {
+/// The mailbox the session signs in to, served by a scripted POP3 upstream.
+const USER: &str = "user@example.org";
+const PASS: &str = "pw-mcp-audience";
+
+/// `upstream` is the server's configured mail upstream (`MW_UPSTREAM_DEFAULT`).
+async fn spawn_engine_server(db_path: &str, upstream: String) -> SocketAddr {
     let web = PathBuf::from(db_path)
         .parent()
         .unwrap()
@@ -52,13 +58,22 @@ async fn spawn_engine_server(db_path: &str) -> SocketAddr {
         cookie_secure: false,
         mode: mw_server::ServerMode::Engine, // /mcp is only mounted in engine mode
         hardening: mw_server::HardeningConfig::default(),
-        security: mw_server::SecurityConfig::default(),
+        security: mw_server::SecurityConfig {
+            upstream_default: Some(upstream),
+            ..mw_server::SecurityConfig::default()
+        },
     };
     let app = build_app(config).await.expect("build_app engine mode");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        // Production serving installs ConnectInfo; the sign-in path reads the peer.
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
     });
     addr
 }
@@ -88,25 +103,13 @@ fn sha256_hex(input: &str) -> String {
     s
 }
 
-/// Seed a session (for `/api/keys`) and persist a NO-RESOURCE active access token
-/// directly at the store seam the live authorizer introspects (issuance would refuse
-/// to mint one — that is exactly the anomaly R3 defends against). Returns the raw
-/// bearer for the no-resource token.
-async fn seed(db_path: &str) -> (String, String) {
+/// Persist a NO-RESOURCE active access token for `account_id` directly at the store
+/// seam the live authorizer introspects (issuance would refuse to mint one — that is
+/// exactly the anomaly R3 defends against). Returns the raw bearer. The session that
+/// mints the API key is a real login (a hand-written session row names no configured
+/// upstream and is refused since 7e9af0d0).
+async fn seed(db_path: &str, account_id: &str) -> String {
     let store = Store::open(db_path, ServerKey::from_hex(KEY_HEX).unwrap())
-        .await
-        .unwrap();
-    let cookie = store
-        .create_session(
-            ACCOUNT,
-            "user@example.org",
-            "http://upstream.invalid",
-            "http://upstream.invalid",
-            &Credentials {
-                username: "user@example.org".into(),
-                password: "pw".into(),
-            },
-        )
         .await
         .unwrap();
 
@@ -115,7 +118,7 @@ async fn seed(db_path: &str) -> (String, String) {
         .put_oauth_token(&OAuthTokenRow {
             token_hash: sha256_hex(&bearer),
             client_id: "client-t18".into(),
-            account_id: ACCOUNT.into(),
+            account_id: account_id.into(),
             scopes_json: serde_json::to_string(&mail_search_scope()).unwrap(),
             resource: None, // ← the anomaly: a no-audience OAuth token
             kind: "access".into(),
@@ -126,11 +129,14 @@ async fn seed(db_path: &str) -> (String, String) {
         })
         .await
         .unwrap();
-    (cookie, bearer)
+    bearer
 }
 
 /// Mint an API key (no resource binding) via the server's `/api/keys` route.
 async fn mint_api_key(c: &reqwest::Client, base: &str, cookie: &str) -> String {
+    // Minting a key is a step-up action (7e9af0d0): confirm the password first.
+    let session = format!("mw_session={cookie}");
+    common::auth::user_step_up_with(c, base, PASS, &[("Cookie", &session)]).await;
     let resp: Value = c
         .post(format!("{base}/api/keys"))
         .header("Cookie", format!("mw_session={cookie}"))
@@ -148,14 +154,14 @@ async fn mint_api_key(c: &reqwest::Client, base: &str, cookie: &str) -> String {
 }
 
 /// Call `mail.search` at `/mcp` with a bearer token; return the JSON-RPC response.
-async fn mcp_call(c: &reqwest::Client, base: &str, bearer: &str) -> Value {
+async fn mcp_call(c: &reqwest::Client, base: &str, bearer: &str, account: &str) -> Value {
     c.post(format!("{base}/mcp"))
         .header("Authorization", format!("Bearer {bearer}"))
         .json(&json!({
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
-            "params": { "name": "mail.search", "arguments": { "account": ACCOUNT, "query": "x" } },
+            "params": { "name": "mail.search", "arguments": { "account": account, "query": "x" } },
         }))
         .send()
         .await
@@ -175,18 +181,23 @@ async fn no_resource_oauth_token_is_rejected_at_mcp_and_api_keys_stay_exempt() {
     // SAFETY: env set before build_app (which reads it once), single-threaded test.
     unsafe {
         std::env::set_var("MW_WEBAUTHN_ORIGIN", PUBLIC_ORIGIN);
+        // The scripted POP3 upstream speaks plaintext on loopback.
+        std::env::set_var("MW_ENGINE_TLS", "plaintext");
         std::env::remove_var("MW_MCP_RESOURCE");
     }
 
+    let pop = MockPop3::start(USER, PASS).await;
     let db = temp_db();
-    let addr = spawn_engine_server(&db).await;
+    let addr = spawn_engine_server(&db, pop.url()).await;
     let base = format!("http://{addr}");
-    let (cookie, no_resource_bearer) = seed(&db).await;
+    let owner = common::auth::sign_in(&base, USER, PASS).await;
+    let (cookie, account) = (owner.session.clone(), owner.account_id.clone());
+    let no_resource_bearer = seed(&db, &account).await;
     let c = reqwest::Client::new();
 
     // NO-RESOURCE OAuth token → rejected under default-on enforcement (−32001, scope
     // denied / "missing audience") before any tool runs.
-    let nr_resp = mcp_call(&c, &base, &no_resource_bearer).await;
+    let nr_resp = mcp_call(&c, &base, &no_resource_bearer, &account).await;
     assert_eq!(
         error_code(&nr_resp),
         Some(-32001),
@@ -195,7 +206,7 @@ async fn no_resource_oauth_token_is_rejected_at_mcp_and_api_keys_stay_exempt() {
 
     // API KEY → carries no resource binding by design → EXEMPT (NOT −32001).
     let api_key = mint_api_key(&c, &base, &cookie).await;
-    let key_resp = mcp_call(&c, &base, &api_key).await;
+    let key_resp = mcp_call(&c, &base, &api_key, &account).await;
     assert_ne!(
         error_code(&key_resp),
         Some(-32001),

@@ -28,7 +28,7 @@ use serde_json::{Value, json};
 
 use mw_oauth::{Scope, ScopeSelector, challenge_s256};
 use mw_server::{AppConfig, build_app};
-use mw_store::{Credentials, OAuthClientRow, ServerKey, Store};
+use mw_store::{OAuthClientRow, ServerKey, Store};
 
 const KEY_HEX: &str = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0";
 const PUBLIC_ORIGIN: &str = "https://mcp.example";
@@ -39,11 +39,17 @@ const CLIENT_ID: &str = "client-t17";
 const VERIFIER: &str = "verifier-abc-123-verifier-abc-123-verifier-xyz";
 
 mod common;
+use common::mock_mail::MockPop3;
 use common::test_db;
 
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW</div>";
 
-async fn spawn_engine_server(db_path: &str) -> SocketAddr {
+/// The mailbox the session signs in to, served by a scripted POP3 upstream.
+const USER: &str = "user@example.org";
+const PASS: &str = "pw-mcp-audience";
+
+/// `upstream` is the server's configured mail upstream (`MW_UPSTREAM_DEFAULT`).
+async fn spawn_engine_server(db_path: &str, upstream: String) -> SocketAddr {
     let web = PathBuf::from(db_path)
         .parent()
         .unwrap()
@@ -57,13 +63,22 @@ async fn spawn_engine_server(db_path: &str) -> SocketAddr {
         cookie_secure: false,
         mode: mw_server::ServerMode::Engine, // /mcp is only mounted in engine mode
         hardening: mw_server::HardeningConfig::default(),
-        security: mw_server::SecurityConfig::default(),
+        security: mw_server::SecurityConfig {
+            upstream_default: Some(upstream),
+            ..mw_server::SecurityConfig::default()
+        },
     };
     let app = build_app(config).await.expect("build_app engine mode");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        // Production serving installs ConnectInfo; the sign-in path reads the peer.
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
     });
     addr
 }
@@ -83,7 +98,7 @@ fn mail_search_scope() -> Scope {
 }
 
 /// Seed a session + an approved OAuth client on the same store the server uses.
-async fn seed(db_path: &str) -> String {
+async fn seed(db_path: &str) {
     let store = Store::open(db_path, ServerKey::from_hex(KEY_HEX).unwrap())
         .await
         .unwrap();
@@ -97,19 +112,6 @@ async fn seed(db_path: &str) -> String {
         })
         .await
         .unwrap();
-    store
-        .create_session(
-            ACCOUNT,
-            "user@example.org",
-            "http://upstream.invalid",
-            "http://upstream.invalid",
-            &Credentials {
-                username: "user@example.org".into(),
-                password: "pw".into(),
-            },
-        )
-        .await
-        .unwrap()
 }
 
 /// Minimal percent-decode for a redirect-URI query value.
@@ -188,6 +190,9 @@ async fn mint_oauth_token(c: &reqwest::Client, base: &str, cookie: &str, resourc
 
 /// Mint an API key (no resource binding) via the server's `/api/keys` route.
 async fn mint_api_key(c: &reqwest::Client, base: &str, cookie: &str) -> String {
+    // Minting a key is a step-up action (7e9af0d0): confirm the password first.
+    let session = format!("mw_session={cookie}");
+    common::auth::user_step_up_with(c, base, PASS, &[("Cookie", &session)]).await;
     let resp: Value = c
         .post(format!("{base}/api/keys"))
         .header("Cookie", format!("mw_session={cookie}"))
@@ -205,14 +210,14 @@ async fn mint_api_key(c: &reqwest::Client, base: &str, cookie: &str) -> String {
 }
 
 /// Call `mail.search` at `/mcp` with a bearer token; return the JSON-RPC response.
-async fn mcp_call(c: &reqwest::Client, base: &str, bearer: &str) -> Value {
+async fn mcp_call(c: &reqwest::Client, base: &str, bearer: &str, account: &str) -> Value {
     c.post(format!("{base}/mcp"))
         .header("Authorization", format!("Bearer {bearer}"))
         .json(&json!({
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
-            "params": { "name": "mail.search", "arguments": { "account": ACCOUNT, "query": "x" } },
+            "params": { "name": "mail.search", "arguments": { "account": account, "query": "x" } },
         }))
         .send()
         .await
@@ -232,13 +237,20 @@ async fn mcp_audience_is_enforced_by_default_and_api_keys_are_exempt() {
     // SAFETY: env set before build_app (which reads it once), single-threaded test.
     unsafe {
         std::env::set_var("MW_WEBAUTHN_ORIGIN", PUBLIC_ORIGIN);
+        // The scripted POP3 upstream speaks plaintext on loopback.
+        std::env::set_var("MW_ENGINE_TLS", "plaintext");
         std::env::remove_var("MW_MCP_RESOURCE");
     }
 
+    let pop = MockPop3::start(USER, PASS).await;
     let db = temp_db();
-    let addr = spawn_engine_server(&db).await;
+    let addr = spawn_engine_server(&db, pop.url()).await;
     let base = format!("http://{addr}");
-    let cookie = seed(&db).await;
+    seed(&db).await;
+    // A real login: a hand-written session row names no configured upstream and is
+    // refused since 7e9af0d0.
+    let owner = common::auth::sign_in(&base, USER, PASS).await;
+    let (cookie, account) = (owner.session.clone(), owner.account_id.clone());
     let c = reqwest::Client::new();
 
     // The endpoint's derived canonical resource (default-on): `<origin>/mcp`.
@@ -247,7 +259,7 @@ async fn mcp_audience_is_enforced_by_default_and_api_keys_are_exempt() {
 
     // WRONG audience → rejected by default (−32001), before any tool runs.
     let wrong_token = mint_oauth_token(&c, &base, &cookie, wrong_resource).await;
-    let wrong_resp = mcp_call(&c, &base, &wrong_token).await;
+    let wrong_resp = mcp_call(&c, &base, &wrong_token, &account).await;
     assert_eq!(
         error_code(&wrong_resp),
         Some(-32001),
@@ -258,7 +270,7 @@ async fn mcp_audience_is_enforced_by_default_and_api_keys_are_exempt() {
     // RIGHT audience → passes the audience gate (NOT the −32001 audience denial). The
     // tool may then succeed or fail on backend grounds, but it is NOT an audience reject.
     let right_token = mint_oauth_token(&c, &base, &cookie, &right_resource).await;
-    let right_resp = mcp_call(&c, &base, &right_token).await;
+    let right_resp = mcp_call(&c, &base, &right_token, &account).await;
     assert_ne!(
         error_code(&right_resp),
         Some(-32001),
@@ -267,7 +279,7 @@ async fn mcp_audience_is_enforced_by_default_and_api_keys_are_exempt() {
 
     // API KEY → no resource binding → EXEMPT from the audience check (also NOT −32001).
     let api_key = mint_api_key(&c, &base, &cookie).await;
-    let key_resp = mcp_call(&c, &base, &api_key).await;
+    let key_resp = mcp_call(&c, &base, &api_key, &account).await;
     assert_ne!(
         error_code(&key_resp),
         Some(-32001),

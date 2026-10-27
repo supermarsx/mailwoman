@@ -60,6 +60,19 @@ async fn env(public_url: Option<&str>, base_path: Option<&str>) -> MutexGuard<'s
 struct Server {
     base: String,
     db: String,
+    /// The configured JMAP upstream (an in-process mock). A session row has to name
+    /// it: since 7e9af0d0 every request re-checks a session against the configured
+    /// upstream, and a row naming another one is refused.
+    upstream: String,
+}
+
+async fn spawn_mock_jmap() -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, mw_mock_jmap::router()).await.unwrap();
+    });
+    format!("http://{addr}")
 }
 
 fn sqlite_db() -> String {
@@ -69,6 +82,7 @@ fn sqlite_db() -> String {
 }
 
 async fn serve(db: String) -> Server {
+    let upstream = spawn_mock_jmap().await;
     let dir = test_db::unique_dir("mw-t29e8-web");
     let web: PathBuf = dir.join("web");
     std::fs::create_dir_all(&web).unwrap();
@@ -80,7 +94,11 @@ async fn serve(db: String) -> Server {
         cookie_secure: false,
         mode: ServerMode::Proxy,
         hardening: HardeningConfig::default(),
-        security: SecurityConfig::default(),
+        security: SecurityConfig {
+            jmap_upstreams: Some(vec![upstream.clone()]),
+            upstream_default: Some(upstream.clone()),
+            ..SecurityConfig::default()
+        },
     };
     let app = build_app(config).await.expect("build_app");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -91,20 +109,21 @@ async fn serve(db: String) -> Server {
     Server {
         base: format!("http://{addr}"),
         db,
+        upstream,
     }
 }
 
 /// A real session row for `account_id` in the server's store; returns its cookie.
-async fn seed_session(db: &str, account_id: &str) -> String {
-    let store = Store::open(db, ServerKey::from_hex(KEY_HEX).unwrap())
+async fn seed_session(srv: &Server, account_id: &str) -> String {
+    let store = Store::open(&srv.db, ServerKey::from_hex(KEY_HEX).unwrap())
         .await
         .unwrap();
     let id = store
         .create_session(
             account_id,
             &format!("{account_id}@example.org"),
-            "http://upstream.invalid",
-            "http://upstream.invalid",
+            &srv.upstream,
+            &srv.upstream,
             &Credentials {
                 username: format!("{account_id}@example.org"),
                 password: "pw".into(),
@@ -197,8 +216,8 @@ async fn fetch_image(
 async fn scenario(db: String, email: &str) {
     let srv = serve(db).await;
     let c = http();
-    let owner = seed_session(&srv.db, &format!("acct-owner-{email}")).await;
-    let other = seed_session(&srv.db, &format!("acct-other-{email}")).await;
+    let owner = seed_session(&srv, &format!("acct-owner-{email}")).await;
+    let other = seed_session(&srv, &format!("acct-other-{email}")).await;
 
     let resp = mint(&c, &srv.base, &owner).await;
     assert_eq!(resp.status().as_u16(), 200, "mint");
@@ -312,7 +331,7 @@ async fn image_url_carries_the_base_path() {
     let _g = env(Some(PUBLIC_URL), Some("/mail")).await;
     let srv = serve(sqlite_db()).await;
     let c = http();
-    let owner = seed_session(&srv.db, "acct-subpath").await;
+    let owner = seed_session(&srv, "acct-subpath").await;
     let body: Value = mint(&c, &srv.base, &owner).await.json().await.unwrap();
     let token = body["token"].as_str().unwrap();
     assert_eq!(
@@ -338,7 +357,7 @@ async fn without_public_url_mint_is_refused_and_policy_says_off() {
     let _g = env(None, None).await;
     let srv = serve(sqlite_db()).await;
     let c = http();
-    let owner = seed_session(&srv.db, "acct-nopublic").await;
+    let owner = seed_session(&srv, "acct-nopublic").await;
 
     let resp = mint(&c, &srv.base, &owner).await;
     assert_eq!(resp.status().as_u16(), 409);
@@ -364,7 +383,7 @@ async fn without_public_url_mint_is_refused_and_policy_says_off() {
 async fn with_public_url_policy_says_on() {
     let _g = env(Some(PUBLIC_URL), None).await;
     let srv = serve(sqlite_db()).await;
-    let owner = seed_session(&srv.db, "acct-policy-on").await;
+    let owner = seed_session(&srv, "acct-policy-on").await;
     let policy: Value = http()
         .get(format!("{}/api/policy", srv.base))
         .header("Cookie", &owner)
