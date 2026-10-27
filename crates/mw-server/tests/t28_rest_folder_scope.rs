@@ -86,6 +86,8 @@ fn scope(account: &str, folders: Value) -> Value {
 }
 
 async fn mint(c: &reqwest::Client, server: &str, account: &str, folders: Value) -> String {
+    // Minting a key is a step-up action (7e9af0d0): confirm the password first.
+    common::auth::user_step_up(c, server, mw_mock_jmap::PASS).await;
     let m: Value = c
         .post(format!("{server}/api/keys"))
         .json(

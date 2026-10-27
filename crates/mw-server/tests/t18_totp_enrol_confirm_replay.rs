@@ -191,6 +191,9 @@ async fn enrol_confirm_totp_code_cannot_be_replayed_at_first_login() {
 
     // STEP 2: confirm TOTP enrolment with `code_confirm`. This both confirms the
     // factor AND (the 26.18 fix) advances `last_step` to the confirming code's step.
+    // Enrolling a factor on a password session is a step-up action (7e9af0d0,
+    // twofa_routes::guard_factor_enrollment): the password is confirmed first.
+    common::auth::user_step_up(&c1, &base, mw_mock_jmap::PASS).await;
     let confirm = c1
         .post(format!("{base}/api/account/2fa/totp/confirm"))
         .json(&json!({ "code": code_confirm }))

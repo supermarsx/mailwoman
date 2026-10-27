@@ -105,6 +105,8 @@ async fn spawn_engine() -> Server {
         .await
         .expect("build_app_full")
         .0;
+    // Sign-in pacing is not what this test is about (see common::auth).
+    common::auth::no_signin_cooldown_at(&db, KEY_HEX).await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr: SocketAddr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -169,6 +171,9 @@ async fn mailbox(base: &str, (user, pass): (&str, &str)) -> Mailbox {
         .as_str()
         .expect("login names the account")
         .to_string();
+    // Minting a key is a step-up action (7e9af0d0); every mailbox here confirms its
+    // password once, so a refusal below is about ownership, not a missing proof.
+    common::auth::user_step_up(&client, base, pass).await;
     Mailbox { client, account_id }
 }
 

@@ -264,6 +264,8 @@ impl Fixture {
             "mail": true, "pim": false, "ip_allowlist": [], "expires_at": null,
             "rate_limit": null, "mcp_tools": ["mail.send"], "unattended_send": unattended,
         });
+        // Minting a key is a step-up action (7e9af0d0): confirm the password first.
+        common::auth::user_step_up(&self.owner, &self.base, PASS).await;
         let mint: Value = self
             .owner
             .post(format!("{}/api/keys", self.base))

@@ -448,12 +448,16 @@ async fn export_is_engine_mode_only_in_proxy() {
     do_login(&c, &server, &mock).await;
 
     // Proxy mode has no server-side body store, so /api/export is a clean 501.
+    // Export is a step-up action (7e9af0d0) and the proof is checked first, so the
+    // session confirms its password; the answer is then about the mode.
+    common::auth::user_step_up(&c, &server, mw_mock_jmap::PASS).await;
     let resp = c
         .get(format!("{server}/api/export/e1?format=eml"))
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 501);
+    let status = resp.status();
+    assert_eq!(status, 501, "{}", resp.text().await.unwrap_or_default());
 }
 
 #[tokio::test]
@@ -513,6 +517,9 @@ async fn totp_enrolment_gates_subsequent_logins() {
     assert!(has_session_cookie(&resp), "opt-in user logs in normally");
 
     // 2) Enrol + confirm TOTP; the confirm response reveals the recovery codes once.
+    // Enrolling a factor on a password session is a step-up action (7e9af0d0,
+    // twofa_routes::guard_factor_enrollment): the password is confirmed first.
+    common::auth::user_step_up(&c, &server, mw_mock_jmap::PASS).await;
     let begin: Value = c
         .post(format!("{server}/api/account/2fa/totp/begin"))
         .send()

@@ -311,6 +311,8 @@ impl Session {
             "expires_at": null, "rate_limit": null,
             "mcp_tools": [], "unattended_send": false,
         });
+        // Minting a key is a step-up action (7e9af0d0): confirm the password first.
+        common::auth::user_step_up(&self.client, &self.base, mw_mock_jmap::PASS).await;
         let minted: Value = self
             .client
             .post(format!("{}/api/keys", self.base))

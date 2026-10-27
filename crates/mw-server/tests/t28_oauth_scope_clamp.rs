@@ -111,6 +111,8 @@ async fn spawn_engine() -> Server {
         .await
         .expect("build_app_full")
         .0;
+    // Sign-in pacing is not what this test is about (see common::auth).
+    common::auth::no_signin_cooldown_at(&db, KEY_HEX).await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr: SocketAddr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -163,6 +165,9 @@ async fn mailbox(base: &str) -> Mailbox {
         .as_str()
         .expect("login names the account")
         .to_string();
+    // Minting a key is a step-up action (7e9af0d0); every mailbox here confirms its
+    // password once, so a refusal below is about ownership, not a missing proof.
+    common::auth::user_step_up(&client, base, pass).await;
     Mailbox { client, account_id }
 }
 
@@ -175,6 +180,8 @@ fn registered_scope() -> Value {
         "mail": true, "pim": false, "ip_allowlist": [], "expires_at": null,
         "rate_limit": null, "mcp_tools": ["mail.search"],
         "unattended_send": false,
+        // a9234878: script management is a scope of its own, never implied.
+        "scripts": false,
     })
 }
 
@@ -198,6 +205,7 @@ fn no_scope() -> Value {
         "mail": false, "pim": false, "ip_allowlist": [], "expires_at": null,
         "rate_limit": null, "mcp_tools": [],
         "unattended_send": false,
+        "scripts": false,
     })
 }
 
@@ -445,6 +453,9 @@ async fn consent_never_grants_unattended_send_even_without_a_ceiling() {
 
     let mut expected = over_broad_scope();
     expected["unattended_send"] = json!(false);
+    // `scripts` (a9234878) is never implied: the request does not ask for it, so the
+    // granted scope carries it as `false`.
+    expected["scripts"] = json!(false);
 
     assert_eq!(
         consent_scope(&srv.base, &user, client_id, &over_broad_scope()).await,
