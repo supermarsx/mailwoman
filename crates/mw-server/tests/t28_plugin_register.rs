@@ -222,9 +222,28 @@ fn strings(v: &Value) -> Vec<String> {
 
 /// A loopback stand-in for the rspamd scan worker: answers every request with a
 /// `reject` verdict and counts the requests that reach it.
-async fn fake_rspamd() -> (u16, Arc<AtomicUsize>) {
+/// This host's own non-loopback IPv4 address, for a stand-in daemon the jailed
+/// guest can reach. Since f3e024de plugin traffic goes through the egress plan,
+/// which never admits loopback or link-local addresses (`mw_egress::on_prem_allowed`),
+/// and admits a private one only under an explicit `plugins` destination grant. A
+/// daemon on 127.0.0.1 is therefore unreachable by design. No packet is sent: a
+/// connected UDP socket only selects the outbound interface.
+fn private_host_ip() -> std::net::IpAddr {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
+    socket
+        .connect("192.0.2.1:9")
+        .expect("a route for the outbound interface");
+    let ip = socket.local_addr().unwrap().ip();
+    assert!(
+        !ip.is_loopback() && !ip.is_unspecified(),
+        "this test needs a non-loopback IPv4 interface (got {ip})"
+    );
+    ip
+}
+
+async fn fake_rspamd(ip: std::net::IpAddr) -> (u16, Arc<AtomicUsize>) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = tokio::net::TcpListener::bind((ip, 0)).await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let hits = Arc::new(AtomicUsize::new(0));
     let seen = Arc::clone(&hits);
@@ -274,7 +293,9 @@ fn sha256_hex(bytes: &[u8]) -> String {
 #[tokio::test]
 async fn a_registered_plugin_runs_with_the_stored_grant_and_nothing_more() {
     let base = boot(ServerMode::Engine).await;
-    let (rspamd_port, rspamd_hits) = fake_rspamd().await;
+    let daemon_ip = private_host_ip();
+    let daemon_host = daemon_ip.to_string();
+    let (rspamd_port, rspamd_hits) = fake_rspamd(daemon_ip).await;
     let admin = Admin::login(&base).await;
 
     // Precondition: nothing is registered, and the route is the admin's.
@@ -296,7 +317,7 @@ async fn a_registered_plugin_runs_with_the_stored_grant_and_nothing_more() {
     let p = admin
         .change(
             "/admin/plugins",
-            Some(json!({ "id": "spam-rspamd", "netAllowlist": ["127.0.0.1"] })),
+            Some(json!({ "id": "spam-rspamd", "netAllowlist": [daemon_host] })),
         )
         .await;
     assert_eq!(p["firstParty"], true);
@@ -305,7 +326,7 @@ async fn a_registered_plugin_runs_with_the_stored_grant_and_nothing_more() {
         strings(&p["capabilities"]),
         ["spam-action", "net", "store-kv-scoped"]
     );
-    assert_eq!(strings(&p["netAllowlist"]), ["127.0.0.1"]);
+    assert_eq!(strings(&p["netAllowlist"]), [daemon_host.clone()]);
     assert_eq!(
         p["limits"],
         json!({ "memoryMb": 32, "deadlineMs": 10000, "fuel": null })
@@ -357,7 +378,7 @@ async fn a_registered_plugin_runs_with_the_stored_grant_and_nothing_more() {
     assert_eq!((status, &not_loaded["code"]), (409, &json!("not-loaded")));
 
     // Point the classifier at the stand-in daemon.
-    let endpoint = format!("http://127.0.0.1:{rspamd_port}");
+    let endpoint = format!("http://{daemon_host}:{rspamd_port}");
     let p = admin
         .change(
             "/admin/plugins/spam-rspamd/settings",
@@ -420,6 +441,26 @@ async fn a_registered_plugin_runs_with_the_stored_grant_and_nothing_more() {
         ["spam-action", "store-kv-scoped"],
         "a refused grant request stores nothing"
     );
+
+    // The daemon sits on a private address, which plugin egress reaches only under
+    // an explicit `plugins` destination grant (f3e024de). That grant is an
+    // operator's egress decision and needs a fresh admin step-up; it is not
+    // what makes the call go through below without the `net` capability.
+    let (status, proof) = admin
+        .post("/admin/step-up", Some(json!({ "password": "hunter2" })))
+        .await;
+    assert_eq!((status, &proof["ok"]), (200, &json!(true)), "{proof}");
+    let (status, grant) = admin
+        .post(
+            "/admin/egress/destinations",
+            Some(json!({
+                "trafficClass": "plugins",
+                "destination": format!("{daemon_host}/32"),
+                "note": "t28 stand-in rspamd",
+            })),
+        )
+        .await;
+    assert!(status == 200 || status == 201, "{status}: {grant}");
 
     // Grant `net`: the same call now reaches the daemon and returns its verdict.
     let p = admin
