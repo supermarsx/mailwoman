@@ -19,6 +19,11 @@ use crate::{Capability, PluginError, PluginLimits, Result};
 
 const MIB: usize = 1024 * 1024;
 
+/// The reserved credential handle a guest may pass to mean "the account this
+/// instance is bound to" (equivalent to an empty handle). It never names any other
+/// account.
+pub(crate) const SELF_ACCOUNT_HANDLE: &str = "self";
+
 #[cfg(test)]
 mod live_policy_tests {
     use super::*;
@@ -128,6 +133,34 @@ mod live_policy_tests {
         assert!(
             unbound
                 .basic_credentials("own".into())
+                .await
+                .unwrap()
+                .is_err()
+        );
+        assert_eq!(calls.oauth.load(Ordering::SeqCst), 1);
+        assert_eq!(calls.basic.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn reserved_self_handle_means_the_bound_account_only() {
+        // The shipped Gmail bridge passes "self"; it must reach the bound account's
+        // provider and must not unlock an unbound instance.
+        let calls = Arc::new(Calls::default());
+        let mut guest = state(calls.clone(), None, Some("own"));
+        assert!(guest.oauth_token("self".into()).await.unwrap().is_ok());
+        assert!(
+            guest
+                .basic_credentials(" self ".into())
+                .await
+                .unwrap()
+                .is_ok()
+        );
+        assert_eq!(calls.oauth.load(Ordering::SeqCst), 1);
+        assert_eq!(calls.basic.load(Ordering::SeqCst), 1);
+        let mut unbound = state(calls.clone(), None, None);
+        assert!(unbound.oauth_token("self".into()).await.unwrap().is_err());
+        assert!(
+            unbound
+                .basic_credentials("self".into())
                 .await
                 .unwrap()
                 .is_err()
@@ -532,9 +565,19 @@ impl HostState {
     }
 
     /// Guest arguments cannot select another account's credentials.
+    ///
+    /// A guest names "the account this instance backs" with an empty handle (the
+    /// Graph and EWS bridges) or the reserved handle [`SELF_ACCOUNT_HANDLE`] (the
+    /// shipped Gmail bridge). Both mean the bound account and nothing else; the
+    /// bound account's own id is also accepted. Any other handle, or an unbound
+    /// instance, is denied.
     fn resolve_account(&self, handle: &str) -> std::result::Result<String, WitError> {
+        let handle = handle.trim();
         match self.bound_account.as_deref() {
-            Some(bound) if !bound.is_empty() && (handle.trim().is_empty() || handle == bound) => {
+            Some(bound)
+                if !bound.is_empty()
+                    && (handle.is_empty() || handle == SELF_ACCOUNT_HANDLE || handle == bound) =>
+            {
                 Ok(bound.to_string())
             }
             _ => Err(denied("credential account is not bound to this instance")),
