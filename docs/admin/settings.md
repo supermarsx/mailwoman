@@ -674,7 +674,7 @@ Global boolean, default `false`. Controls explanatory text beside remembered sig
 
 <a id="signin.retryCooldownSecs"></a>
 ### `signin.retryCooldownSecs`
-Global initial password sign-in cooldown, 0–300 seconds, default 3. Applies to mailbox/native and administrator login using the trusted client IP (IPv6 /64). MFA continuation and administrator session expiry are unchanged. Refusals return 429 with Retry-After. Bounded process-local state resets on restart and is independent per replica. Existing failure bans remain in force.
+Global password sign-in retry cooldown, 0–300 seconds, default 3. Applies to mailbox/native and administrator login using the trusted client IP (IPv6 /64). Only an attempt that does not end in a signed-in session starts the wait: a wrong password, unknown user, disabled account, backend error, or a password that only reaches an MFA challenge. Each attempt holds its slot while it runs, so parallel attempts from one source are still refused; a successful sign-in gives its slot back, so the next user behind the same address is not delayed. MFA continuation and administrator session expiry are unchanged. Refusals return 429 with Retry-After. Bounded process-local state resets on restart and is independent per replica. Existing failure bans remain in force.
 
 <a id="mail.quoteStyle"></a>
 ### `mail.quoteStyle`
@@ -797,7 +797,7 @@ Global limits default to 10 rejected mailbox credentials and 5 rejected admin cr
 trusted source IP in a rolling 900-second window. `security.signin.mailboxFailureLimit` and
 `security.signin.adminFailureLimit` accept 1–100. `security.signin.failureWindowSecs` and
 `security.signin.lockSecs` accept 30–86400 seconds and default to 900. These locks are distinct
-from `signin.retryCooldownSecs` (initial attempt pacing) and manual global IP bans. Source counters
+from `signin.retryCooldownSecs` (failed-attempt pacing) and manual global IP bans. Source counters
 are durable across replicas; rejection while locked does not extend expiry. Admin and mailbox
 counters are separate. A successful completed login resets its matching source/surface counter;
 issuing an MFA challenge is not success. Typed network, configuration and unknown-challenge errors

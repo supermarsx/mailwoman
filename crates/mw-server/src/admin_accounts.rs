@@ -507,9 +507,12 @@ async fn login(
         .await;
         return error.into_response();
     }
-    if let Some(response) = crate::signin_cooldown::check(&state, &headers, &ext).await {
-        return response;
-    }
+    // Settled below: only an attempt that starts a session gives its charge back
+    // (t33 D1); every other outcome keeps it by dropping the admission.
+    let admission = match crate::signin_cooldown::check(&state, &headers, &ext).await {
+        Ok(admission) => admission,
+        Err(response) => return response,
+    };
     if let Some(response) = crate::signin_challenge::verify(
         &state,
         crate::signin_challenge::Surface::Admin,
@@ -525,6 +528,7 @@ async fn login(
         Ok(Checked::Ok(username)) => {
             let response = start_session(&state, &username).await;
             if response.status().is_success() {
+                admission.succeeded(&state);
                 record_login_success(&state, &username, source).await;
             }
             crate::auth_logs::record_admin_reason(

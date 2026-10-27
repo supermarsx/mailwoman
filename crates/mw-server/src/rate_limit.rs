@@ -99,6 +99,19 @@ impl KeyedRateLimiter {
         }
     }
 
+    /// Give back one token charged to `key` (refilling for elapsed time first),
+    /// never above `burst`. For a caller that charges up front and later learns the
+    /// request should not have counted. A key that was evicted meanwhile is already
+    /// full, so there is nothing to give back.
+    pub(crate) fn refund_at(&mut self, key: &str, now: Instant) {
+        let (burst, refill) = (self.burst, self.refill_per_sec);
+        if let Some(b) = self.buckets.get_mut(key) {
+            let elapsed = now.saturating_duration_since(b.last).as_secs_f64();
+            b.tokens = (b.tokens + elapsed * refill + 1.0).min(burst);
+            b.last = now;
+        }
+    }
+
     /// Ensure there is room for one more key. See the module docs for why the first
     /// pass is lossless and why both passes are batched rather than per-insert.
     fn make_room(&mut self, now: Instant) {

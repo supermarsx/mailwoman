@@ -2238,133 +2238,52 @@ async fn login(
     {
         return error.into_response();
     }
-    if let Some(response) = signin_cooldown::check(&state, &headers, &ext).await {
-        return response;
-    }
-    if let Some(response) = signin_challenge::verify(
-        &state,
-        signin_challenge::Surface::Mailbox,
-        &headers,
-        &ext,
-        body.altcha.as_deref(),
-    )
-    .await
-    {
-        return response;
-    }
-    // A2 (header-auth trusted proxy): if the deployment trusts an upstream that has
-    // already authenticated the user and asserts it via `X-Remote-User`, mint the
-    // session from that header without a password. OFF unless configured, and
-    // restricted to `MW_HEADER_AUTH_TRUSTED_IPS` peers.
-    if ext.get::<linked_accounts::PasswordProof>().is_none()
-        && let Some(resp) = header_auth_login(&state, &headers, &ext, &body).await
-    {
-        return resp;
-    }
-    let host = state.external.host(&headers, &ext);
-    match domain_config::canonical(&state.store, &body.username, host.as_deref()).await {
-        Ok(identity) => body.username = identity.login_name,
-        Err(_) => {
-            security_center::record_failure(
-                &state,
-                None,
-                &body.username,
-                &security_center::device(&headers, &ext, body.client_type.as_deref()),
-                "password",
-                "not-configured",
-            )
-            .await;
-            return address_not_configured();
-        }
-    }
-    // A1 (LDAP-bind login backend, §18.3): an env-gated pre-check against the
-    // directory. Off by default → the mail backend remains the sole authority.
-    if let Err(reason) = directory_bind_gate(&state, &body.username, &body.password).await {
-        security_center::record_failure_backend(
+    let admission = match signin_cooldown::check(&state, &headers, &ext).await {
+        Ok(admission) => admission,
+        Err(response) => return response,
+    };
+    // Every outcome below is settled against the cooldown: only an attempt that
+    // issued a session gives its charge back (t33 D1, `signin_cooldown`).
+    let response = async {
+        if let Some(response) = signin_challenge::verify(
             &state,
-            None,
-            &body.username,
-            &security_center::device(&headers, &ext, body.client_type.as_deref()),
-            "password",
-            reason,
-            Some("ldap"),
+            signin_challenge::Surface::Mailbox,
+            &headers,
+            &ext,
+            body.altcha.as_deref(),
         )
-        .await;
-        return unauthorized();
-    }
-    let upstream = match upstream_resolve::resolve_upstream(&state, &body.username).await {
-        Ok(u) => u,
-        Err(upstream_resolve::ResolveError::NotConfigured) => {
-            security_center::record_failure(
-                &state,
-                None,
-                &body.username,
-                &security_center::device(&headers, &ext, body.client_type.as_deref()),
-                "password",
-                "not-configured",
-            )
-            .await;
-            return address_not_configured();
+        .await
+        {
+            return response;
         }
-    };
-    if let Some(engine) = &state.engine {
-        return engine_login(&state, &headers, &ext, engine, body, upstream.url()).await;
-    }
-    let jmap_url = upstream.url().to_string();
-    let creds = Credentials {
-        username: body.username.clone(),
-        password: body.password.clone(),
-    };
-    // Validate credentials by fetching the upstream Session server-side — under the
-    // upstream policy, so a refused upstream is never contacted (t24 B2). A refusal
-    // answers with the same 401 as a wrong password.
-    let attempt = tokio::time::timeout(
-        std::time::Duration::from_secs(25),
-        upstream_session(&state.security, &jmap_url, &creds),
-    )
-    .await;
-    let attempt = match attempt {
-        Ok(result) => result,
-        Err(_) => {
-            security_center::record_failure_backend(
-                &state,
-                None,
-                &body.username,
-                &security_center::device(&headers, &ext, body.client_type.as_deref()),
-                "password",
-                "timeout",
-                Some("jmap"),
-            )
-            .await;
-            return StatusCode::GATEWAY_TIMEOUT.into_response();
+        // A2 (header-auth trusted proxy): if the deployment trusts an upstream that has
+        // already authenticated the user and asserts it via `X-Remote-User`, mint the
+        // session from that header without a password. OFF unless configured, and
+        // restricted to `MW_HEADER_AUTH_TRUSTED_IPS` peers.
+        if ext.get::<linked_accounts::PasswordProof>().is_none()
+            && let Some(resp) = header_auth_login(&state, &headers, &ext, &body).await
+        {
+            return resp;
         }
-    };
-    let session = match attempt {
-        Ok(s) => s,
-        Err(e) => {
-            if let UpstreamSessionError::Refused(r) = &e {
-                let _ = r;
-                tracing::warn!("proxy login refused by upstream policy");
+        let host = state.external.host(&headers, &ext);
+        match domain_config::canonical(&state.store, &body.username, host.as_deref()).await {
+            Ok(identity) => body.username = identity.login_name,
+            Err(_) => {
+                security_center::record_failure(
+                    &state,
+                    None,
+                    &body.username,
+                    &security_center::device(&headers, &ext, body.client_type.as_deref()),
+                    "password",
+                    "not-configured",
+                )
+                .await;
+                return address_not_configured();
             }
-            let reason = match &e {
-                UpstreamSessionError::Refused(_) => "upstream-policy",
-                UpstreamSessionError::Jmap(mw_jmap::JmapError::Status(status))
-                    if status.as_u16() == 401 =>
-                {
-                    "auth-rejected"
-                }
-                UpstreamSessionError::Jmap(mw_jmap::JmapError::Status(status))
-                    if status.as_u16() == 403 =>
-                {
-                    "upstream-policy"
-                }
-                UpstreamSessionError::Jmap(mw_jmap::JmapError::Http(error))
-                    if error.is_timeout() =>
-                {
-                    "timeout"
-                }
-                _ => "backend-failure",
-            };
+        }
+        // A1 (LDAP-bind login backend, §18.3): an env-gated pre-check against the
+        // directory. Off by default → the mail backend remains the sole authority.
+        if let Err(reason) = directory_bind_gate(&state, &body.username, &body.password).await {
             security_center::record_failure_backend(
                 &state,
                 None,
@@ -2372,66 +2291,155 @@ async fn login(
                 &security_center::device(&headers, &ext, body.client_type.as_deref()),
                 "password",
                 reason,
+                Some("ldap"),
+            )
+            .await;
+            return unauthorized();
+        }
+        let upstream = match upstream_resolve::resolve_upstream(&state, &body.username).await {
+            Ok(u) => u,
+            Err(upstream_resolve::ResolveError::NotConfigured) => {
+                security_center::record_failure(
+                    &state,
+                    None,
+                    &body.username,
+                    &security_center::device(&headers, &ext, body.client_type.as_deref()),
+                    "password",
+                    "not-configured",
+                )
+                .await;
+                return address_not_configured();
+            }
+        };
+        if let Some(engine) = &state.engine {
+            return engine_login(&state, &headers, &ext, engine, body, upstream.url()).await;
+        }
+        let jmap_url = upstream.url().to_string();
+        let creds = Credentials {
+            username: body.username.clone(),
+            password: body.password.clone(),
+        };
+        // Validate credentials by fetching the upstream Session server-side — under the
+        // upstream policy, so a refused upstream is never contacted (t24 B2). A refusal
+        // answers with the same 401 as a wrong password.
+        let attempt = tokio::time::timeout(
+            std::time::Duration::from_secs(25),
+            upstream_session(&state.security, &jmap_url, &creds),
+        )
+        .await;
+        let attempt = match attempt {
+            Ok(result) => result,
+            Err(_) => {
+                security_center::record_failure_backend(
+                    &state,
+                    None,
+                    &body.username,
+                    &security_center::device(&headers, &ext, body.client_type.as_deref()),
+                    "password",
+                    "timeout",
+                    Some("jmap"),
+                )
+                .await;
+                return StatusCode::GATEWAY_TIMEOUT.into_response();
+            }
+        };
+        let session = match attempt {
+            Ok(s) => s,
+            Err(e) => {
+                if let UpstreamSessionError::Refused(r) = &e {
+                    let _ = r;
+                    tracing::warn!("proxy login refused by upstream policy");
+                }
+                let reason = match &e {
+                    UpstreamSessionError::Refused(_) => "upstream-policy",
+                    UpstreamSessionError::Jmap(mw_jmap::JmapError::Status(status))
+                        if status.as_u16() == 401 =>
+                    {
+                        "auth-rejected"
+                    }
+                    UpstreamSessionError::Jmap(mw_jmap::JmapError::Status(status))
+                        if status.as_u16() == 403 =>
+                    {
+                        "upstream-policy"
+                    }
+                    UpstreamSessionError::Jmap(mw_jmap::JmapError::Http(error))
+                        if error.is_timeout() =>
+                    {
+                        "timeout"
+                    }
+                    _ => "backend-failure",
+                };
+                security_center::record_failure_backend(
+                    &state,
+                    None,
+                    &body.username,
+                    &security_center::device(&headers, &ext, body.client_type.as_deref()),
+                    "password",
+                    reason,
+                    Some("jmap"),
+                )
+                .await;
+                if reason == "timeout" {
+                    return StatusCode::GATEWAY_TIMEOUT.into_response();
+                }
+                return unauthorized();
+            }
+        };
+        // An upstream may only name URLs on itself.
+        if session_urls_on_origin(&jmap_url, &session).is_err() {
+            tracing::warn!("proxy login refused by upstream origin policy");
+            security_center::record_failure_backend(
+                &state,
+                None,
+                &body.username,
+                &security_center::device(&headers, &ext, body.client_type.as_deref()),
+                "password",
+                "upstream-policy",
                 Some("jmap"),
             )
             .await;
-            if reason == "timeout" {
-                return StatusCode::GATEWAY_TIMEOUT.into_response();
-            }
             return unauthorized();
         }
-    };
-    // An upstream may only name URLs on itself.
-    if session_urls_on_origin(&jmap_url, &session).is_err() {
-        tracing::warn!("proxy login refused by upstream origin policy");
-        security_center::record_failure_backend(
-            &state,
-            None,
-            &body.username,
-            &security_center::device(&headers, &ext, body.client_type.as_deref()),
-            "password",
-            "upstream-policy",
-            Some("jmap"),
-        )
-        .await;
-        return unauthorized();
-    }
-    let account_id = session
-        .primary_mail_account()
-        .unwrap_or_default()
-        .to_string();
-    let username = if session.username.is_empty() {
-        body.username.clone()
-    } else {
-        session.username.clone()
-    };
-    // Resolve the (possibly relative) upstream apiUrl to an absolute URL so
-    // server-side proxying can reach it regardless of the browser origin.
-    let api_url = resolve_api_url(&jmap_url, &session.api_url);
-    let primary_identity =
-        match primary_identity::VerifiedLoginIdentity::proxy(&jmap_url, &account_id) {
-            Ok(identity) => identity,
-            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        let account_id = session
+            .primary_mail_account()
+            .unwrap_or_default()
+            .to_string();
+        let username = if session.username.is_empty() {
+            body.username.clone()
+        } else {
+            session.username.clone()
         };
-    // Credentials validated — hand off to the 2FA gate (DQ2). It either completes the
-    // login (no factor enrolled/required) or returns a `twofaRequired` challenge and
-    // withholds the session until the second factor clears.
-    twofa_routes::gate_login(
-        &state,
-        &headers,
-        &ext,
-        twofa_routes::SessionArgs {
-            authentication_method: "password",
-            primary_identity,
-            account_id,
-            username,
-            jmap_url,
-            api_url,
-            creds,
-            client_type: body.client_type.clone(),
-        },
-    )
-    .await
+        // Resolve the (possibly relative) upstream apiUrl to an absolute URL so
+        // server-side proxying can reach it regardless of the browser origin.
+        let api_url = resolve_api_url(&jmap_url, &session.api_url);
+        let primary_identity =
+            match primary_identity::VerifiedLoginIdentity::proxy(&jmap_url, &account_id) {
+                Ok(identity) => identity,
+                Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            };
+        // Credentials validated — hand off to the 2FA gate (DQ2). It either completes the
+        // login (no factor enrolled/required) or returns a `twofaRequired` challenge and
+        // withholds the session until the second factor clears.
+        twofa_routes::gate_login(
+            &state,
+            &headers,
+            &ext,
+            twofa_routes::SessionArgs {
+                authentication_method: "password",
+                primary_identity,
+                account_id,
+                username,
+                jmap_url,
+                api_url,
+                creds,
+                client_type: body.client_type.clone(),
+            },
+        )
+        .await
+    }
+    .await;
+    admission.settle(&state, &response);
+    response
 }
 
 /// Truthy env flag (`"1"`/`"true"`, case-insensitive). Used by the default-off
@@ -2715,7 +2723,11 @@ pub(crate) async fn finish_login_ext(
         if let Some(authority) = storage_authority {
             body["storageAuthority"] = json!(authority);
         }
-        return Json(body).into_response();
+        let mut response = Json(body).into_response();
+        response
+            .extensions_mut()
+            .insert(signin_cooldown::SessionIssued);
+        return response;
     }
     let mut body = json!({
         "ok": true,
@@ -2832,6 +2844,7 @@ fn authenticated_response(state: &AppState, id: &str, mut body: serde_json::Valu
         obj.insert("csrfToken".into(), json!(token));
     }
     let mut resp = Json(body).into_response();
+    resp.extensions_mut().insert(signin_cooldown::SessionIssued);
     let h = resp.headers_mut();
     h.append(header::SET_COOKIE, session_cookie(id, state.cookie_secure));
     h.append(header::SET_COOKIE, csrf_cookie(&token, state.cookie_secure));
