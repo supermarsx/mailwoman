@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequest, type APIRequestContext, type Page } from '@playwright/test';
 import net from 'node:net';
 
 /**
@@ -38,7 +38,70 @@ export async function signInManually(
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   await page.getByLabel('Email or username', { exact: true }).fill(creds.username);
   await page.getByLabel('Password', { exact: true }).fill(creds.password);
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  // mw-server paces sign-ins per client IP (`signin.retryCooldownSecs`, default 3 s,
+  // d94472d7). Every spec signs in from the same address, so a test that starts
+  // within that window of the previous one is answered 429 `signinCooldown` with a
+  // Retry-After. That is the product working as specified, not a failure of the
+  // spec: wait out the window it names and submit the same form again. Stacks that
+  // set the policy to 0 (see `disableSigninCooldown`) never take this branch.
+  for (let attempt = 0; ; attempt += 1) {
+    const answer = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/api/login'),
+    );
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    const res = await answer;
+    if (res.status() !== 429 || attempt >= 3) return;
+    const body = (await res.json().catch(() => null)) as { code?: unknown } | null;
+    if (body?.code !== 'signinCooldown') return;
+    const wait = Number(res.headers()['retry-after'] ?? '3');
+    await page.waitForTimeout((Number.isFinite(wait) ? Math.min(wait, 30) : 3) * 1000 + 250);
+  }
+}
+
+/**
+ * Admin console credentials of the engine stack (`MW_ADMIN_USER` /
+ * `MW_ADMIN_PASSWORD` of `mailwoman-engine` in docker-compose.dev.yml).
+ */
+export const ENGINE_ADMIN = {
+  username: process.env['MW_E2E_ADMIN_USER'] ?? 'root',
+  password: process.env['MW_E2E_ADMIN_PASSWORD'] ?? 'hunter2',
+} as const;
+
+/**
+ * Set the stack's sign-in pacing policy (`signin.retryCooldownSecs`) to 0 through
+ * the admin settings API, so specs that sign in once per test do not each wait out
+ * the per-IP window (see `signInManually`). Test stacks only: it changes a global
+ * policy row. Idempotent (skips the write when the value is already 0) and uses a
+ * request context of its own, so no admin cookie reaches the page under test.
+ *
+ * `factory` is the worker's `playwright.request`; `baseURL` is the stack's origin
+ * (a project's `use.baseURL`).
+ */
+export async function disableSigninCooldown(factory: APIRequest, baseURL: string): Promise<void> {
+  const ctx = await factory.newContext({ baseURL });
+  try {
+    let signedIn = await ctx.post('/admin/login', { data: ENGINE_ADMIN });
+    for (let attempt = 0; signedIn.status() === 429 && attempt < 3; attempt += 1) {
+      const wait = Number(signedIn.headers()['retry-after'] ?? '3');
+      await new Promise((resolve) => setTimeout(resolve, (Number.isFinite(wait) ? Math.min(wait, 30) : 3) * 1000 + 250));
+      signedIn = await ctx.post('/admin/login', { data: ENGINE_ADMIN });
+    }
+    expect(signedIn.status(), 'admin API sign-in for the cooldown policy').toBe(200);
+    const url = '/admin/settings/signin.retryCooldownSecs';
+    const current = await ctx.get(url);
+    expect(current.status(), `GET ${url}`).toBe(200);
+    const policy = (await current.json()) as { stored?: { globalValue?: unknown } | null };
+    if (policy.stored?.globalValue === 0) return;
+    const { cookies } = await ctx.storageState();
+    const csrf = cookies.find((c) => c.name === 'mw_csrf')?.value ?? '';
+    const put = await ctx.put(url, {
+      headers: { 'if-match': current.headers()['etag'] ?? '', 'x-csrf-token': csrf },
+      data: { globalValue: 0 },
+    });
+    expect(put.ok(), `PUT ${url} {globalValue:0} ⇒ ${put.status()} ${await put.text()}`).toBe(true);
+  } finally {
+    await ctx.dispose();
+  }
 }
 
 /**
@@ -304,18 +367,63 @@ function extractAddr(input: string): string {
  *
  * Uses its own request context (the `request` fixture), so it runs before the
  * page has navigated and cannot race the app's own boot-time reconcile.
+ *
+ * The DELETE carries the session's storage authority (see `engineApiSignIn`).
  */
 export async function resetAccountAppearance(request: APIRequestContext): Promise<void> {
+  const authority = await engineApiSignIn(request, 'the appearance reset');
+  const cleared = await request.delete('/api/account/appearance', {
+    headers: { 'x-mailwoman-storage-authority': authority },
+  });
+  expect(
+    [200, 204].includes(cleared.status()),
+    `DELETE /api/account/appearance ⇒ ${cleared.status()} (expected 200 or 204)`,
+  ).toBe(true);
+}
+
+/**
+ * Store an appearance for the engine account on the server, so the NEXT sign-in
+ * in the browser starts on it.
+ *
+ * Seeding `localStorage` before boot does not do this any more: on every account
+ * change (sign-in included) the web client resets the local set to the defaults
+ * and then adopts the account's stored set, server first (`bindAppearanceToAccount`
+ * in `src/api/prefs.ts`, 24fb6149), so one account never inherits another's look.
+ * A spec that wants a given pack on screen after `engineLogin` stores it here.
+ * `appearance` is merged over the defaults by the client (`setAppearancePrefs`).
+ */
+export async function setAccountAppearance(
+  request: APIRequestContext,
+  appearance: Record<string, unknown>,
+): Promise<void> {
+  const authority = await engineApiSignIn(request, 'the appearance seed');
+  const put = await request.put('/api/account/appearance', {
+    headers: { 'x-mailwoman-storage-authority': authority },
+    data: { appearance },
+  });
+  expect(put.ok(), `PUT /api/account/appearance ⇒ ${put.status()} ${await put.text()}`).toBe(true);
+}
+
+/**
+ * Sign `request` in to the engine account over the API and return the session's
+ * storage authority. Personal-settings writes carry it in
+ * `x-mailwoman-storage-authority` (0a11b581; without it the server answers 428
+ * `storageAuthorityRequired`); the web client sends the value `/api/login` or
+ * `/api/me` returned (`src/api/storageAuthority.ts`), and so do these helpers.
+ */
+async function engineApiSignIn(request: APIRequestContext, purpose: string): Promise<string> {
   const login = await request.post('/api/login', {
     data: {
       username: ENGINE_CREDS.username,
       password: ENGINE_CREDS.password,
     },
   });
-  expect(login.status(), 'engine API login for the appearance reset').toBe(200);
-  const cleared = await request.delete('/api/account/appearance');
-  expect(
-    [200, 204].includes(cleared.status()),
-    `DELETE /api/account/appearance ⇒ ${cleared.status()} (expected 200 or 204)`,
-  ).toBe(true);
+  expect(login.status(), `engine API login for ${purpose}`).toBe(200);
+  let authority = ((await login.json().catch(() => null)) as { storageAuthority?: unknown } | null)?.storageAuthority;
+  if (typeof authority !== 'string') {
+    const me = await request.get('/api/me');
+    authority = ((await me.json().catch(() => null)) as { storageAuthority?: unknown } | null)?.storageAuthority;
+  }
+  expect(typeof authority, 'storageAuthority from /api/login or /api/me').toBe('string');
+  return authority as string;
 }
