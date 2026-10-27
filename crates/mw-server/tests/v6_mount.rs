@@ -128,6 +128,23 @@ async fn login(c: &reqwest::Client, server: &str, _mock: &str) -> String {
     body["accountId"].as_str().unwrap().to_string()
 }
 
+/// Confirm the mailbox password for the signed-in session. Minting an API key
+/// answers `403 step_up_required` without a recent proof (7e9af0d0).
+async fn step_up(c: &reqwest::Client, server: &str) {
+    let resp = c
+        .post(format!("{server}/api/security/step-up"))
+        .json(&json!({ "password": mw_mock_jmap::PASS }))
+        .send()
+        .await
+        .unwrap();
+    let status = resp.status();
+    let body: Value = resp.json().await.unwrap_or(Value::Null);
+    assert!(
+        status.is_success() && body["ok"] == json!(true),
+        "step-up must be granted: {status} {body}"
+    );
+}
+
 /// The user-facing V6 surfaces (cookie-authed) + the unauthenticated surfaces, all
 /// mounted through the real proxy-mode server.
 #[tokio::test]
@@ -136,6 +153,7 @@ async fn v6_user_and_unauth_routes_are_wired() {
     let server = spawn_server(ServerMode::Proxy, admin_v6()).await;
     let c = client();
     let account_id = login(&c, &server, &mock).await;
+    step_up(&c, &server).await;
 
     // ── scoped API keys: mint (shown once) → list → revoke ────────────────────
     let scope = json!({
@@ -495,6 +513,7 @@ async fn scoped_key_enforced_on_rest() {
     let server = spawn_server(ServerMode::Proxy, admin_v6()).await;
     let c = client();
     let account_id = login(&c, &server, &mock).await;
+    step_up(&c, &server).await;
 
     // Helper: mint a key for `account_id` with an explicit scope, return the token.
     async fn mint(c: &reqwest::Client, server: &str, account_id: &str, scope: Value) -> String {

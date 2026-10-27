@@ -341,6 +341,13 @@ async fn fresh_trash_state_destroys_the_owned_message_and_stale_state_cannot() {
     store.put_setting_value(&domain_mapping).await.unwrap();
     let automatic = client
         .put(format!("{base}/api/settings/mail.folderRole.trash"))
+        // A personal-settings write carries the login's storage authority (0a11b581).
+        .header(
+            "x-mailwoman-storage-authority",
+            signed["storageAuthority"]
+                .as_str()
+                .expect("login names a storageAuthority"),
+        )
         .json(&json!({"value":null}))
         .send()
         .await

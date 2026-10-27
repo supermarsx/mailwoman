@@ -69,10 +69,10 @@ async fn local_photos_require_opt_in_owned_contacts_and_reencode_to_private_png(
         .await
         .unwrap();
     assert_eq!(login.status(), 200);
-    let account = login.json::<Value>().await.unwrap()["accountId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let login = login.json::<Value>().await.unwrap();
+    let account = login["accountId"].as_str().unwrap().to_owned();
+    // Personal-settings writes carry the login's storage authority (0a11b581).
+    let authority = login["storageAuthority"].as_str().unwrap().to_owned();
     let photo = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNQKHjwHwAElAJwfN7sMwAAAABJRU5ErkJggg==";
     let book = "contact-photo-owned";
     store
@@ -116,6 +116,7 @@ async fn local_photos_require_opt_in_owned_contacts_and_reencode_to_private_png(
     let setting = format!("{base}/api/settings/contacts.avatarMode");
     let enabled = client
         .put(&setting)
+        .header("x-mailwoman-storage-authority", &authority)
         .json(&json!({"value":"contacts"}))
         .send()
         .await
@@ -186,6 +187,7 @@ async fn local_photos_require_opt_in_owned_contacts_and_reencode_to_private_png(
     assert_eq!(
         client
             .put(&setting)
+            .header("x-mailwoman-storage-authority", &authority)
             .json(&json!({"value":"contacts"}))
             .send()
             .await
