@@ -29,7 +29,8 @@
 #      running process has NoNewPrivs 1 and a seccomp filter (Seccomp 2) in /proc/<pid>/status;
 #   5. a first-party plugin (spam-rspamd) is compiled by wasmtime and answers a classifier probe
 #      (this is what decides whether MemoryDenyWriteExecute=true is compatible with the build);
-#   6. POST /api/sanitize returns 200 with the script removed. The render jail is required by
+#   6. after a restart of the same unit in proxy mode (an engine-mode header sign-in needs a mail
+#      server), POST /api/sanitize returns 200 with the script removed. The render jail is required by
 #      default on Linux, so a 200 means the mw-render child ran under the unit's restrictions;
 #   7. `systemd-analyze security` output is printed (informational).
 set -euo pipefail
@@ -244,9 +245,31 @@ t_probe() {
     t_fail "spam-rspamd classifier probe did not run the guest"
 
   # Render: a mailbox session through trusted-header sign-in, then the sanitizer (mw-render).
-  out="$(curl -sS -D - -o /dev/null -H 'X-Remote-User: probe@example.org' \
-    -H 'content-type: application/json' -d '{"username":"","password":""}' \
-    "$b/api/login")"
+  # In engine mode a header sign-in also signs in to the mail upstream (7e9af0d0), and this
+  # test has no mail server. The sanitizer needs only a session, so restart the same unit in
+  # proxy mode, where header-auth sessions take their JMAP URL from MW_HEADER_AUTH_JMAP_URL
+  # (nothing listens there; the probe never calls it).
+  sed -i 's/^MW_MODE=engine$/MW_MODE=proxy/' /etc/mailwoman/mailwoman.env
+  printf 'MW_HEADER_AUTH_JMAP_URL=http://127.0.0.1:9/jmap/session\n' >>/etc/mailwoman/mailwoman.env
+  systemctl restart mailwoman || t_fail "systemctl restart mailwoman (proxy mode) failed"
+  local try wait
+  for try in $(seq 30); do
+    [[ "$(curl -s -o /dev/null -w '%{http_code}' "$b/healthz" || true)" == 200 ]] && break
+    ((try < 30)) || t_fail "no /healthz 200 within 30 s of the restart in proxy mode"
+    sleep 1
+  done
+  printf '[systemd-unit] restarted in proxy mode for the render probe\n'
+  # Sign-ins are paced per client address (signin.retryCooldownSecs, 3 s by default): a
+  # 429 carries Retry-After, so wait that long and sign in again.
+  for try in 1 2 3 4 5; do
+    out="$(curl -sS -D - -o /dev/null -H 'X-Remote-User: probe@example.org' \
+      -H 'content-type: application/json' -d '{"username":"","password":""}' \
+      "$b/api/login")"
+    [[ "$(sed -n 1p <<<"$out")" == *' 429'* ]] || break
+    wait="$(sed -n 's/^[Rr]etry-[Aa]fter: *\([0-9]*\).*/\1/p' <<<"$out" | tr -d '\r')"
+    printf '[systemd-unit] sign-in paced (attempt %s), waiting %ss\n' "$try" "${wait:-3}"
+    sleep "${wait:-3}"
+  done
   ses="$(sed -n 's/^[Ss]et-[Cc]ookie: mw_session=\([^;]*\);.*/\1/p' <<<"$out" | tr -d '\r')"
   ses_csrf="$(sed -n 's/^[Ss]et-[Cc]ookie: mw_csrf=\([^;]*\);.*/\1/p' <<<"$out" | tr -d '\r')"
   [[ -n "$ses" && -n "$ses_csrf" ]] || t_fail "mailbox sign-in set no session: $(sed -n 1p <<<"$out")"

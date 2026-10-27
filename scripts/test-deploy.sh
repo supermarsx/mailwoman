@@ -352,6 +352,10 @@ CODE=$(admin_json --data "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PA
 [[ $CODE == 200 ]] || fail "admin login with the generated password answered $CODE: $(cat "$STATE/admin.body")"
 CSRF=$(awk '$6 == "mw_csrf" {print $7}' "$JAR")
 [[ -n $CSRF ]] || fail 'admin login set no mw_csrf cookie'
+# Ban writes need a live step-up proof for this session (banManage, 7e9af0d0):
+# confirm the password again at {admin}/step-up.
+CODE=$(admin_json --header "x-csrf-token: $CSRF" --data "{\"password\":\"$ADMIN_PASSWORD\"}" "$ADMIN_URL/step-up")
+[[ $CODE == 200 ]] || fail "admin step-up answered $CODE: $(cat "$STATE/admin.body")"
 CODE=$(admin_json --data "$BAN" "$ADMIN_URL/bans")
 [[ $CODE == 403 ]] || fail "an admin write without X-CSRF-Token answered $CODE, expected 403: strict CSRF is not on in the deployed app"
 grep -F 'missing or invalid CSRF token' "$STATE/admin.body" >/dev/null || fail "unexpected refusal: $(cat "$STATE/admin.body")"

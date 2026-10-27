@@ -159,12 +159,30 @@ req() {
 }
 req_json() { req --header 'content-type: application/json' "$@"; }
 
-# Sign in to the admin panel at $BASE with the generated password; sets CSRF from mw_csrf.
+# signin ARGS...: a sign-in request (req_json ARGS...). The server paces sign-ins per
+# client address (signin.retryCooldownSecs, 3 s by default) and answers 429
+# signinCooldown with retryAfterSecs; wait that long and send it again.
+signin() {
+    local try wait
+    for try in 1 2 3 4 5; do
+        req_json "$@"
+        [[ $CODE == 429 && $BODY == *'"signinCooldown"'* ]] || return 0
+        wait=$(sed -n 's/.*"retryAfterSecs":\([0-9]*\).*/\1/p' <<< "$BODY")
+        sleep "${wait:-3}"
+    done
+    fail "sign-in still paced after $try attempts: $BODY"
+}
+
+# Sign in to the admin panel at $BASE with the generated password; sets CSRF from
+# mw_csrf. Then confirm the password again at {admin}/step-up: ban writes need a
+# live step-up proof for this session (banManage, 7e9af0d0).
 admin_login() {
-    req_json --data "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASSWORD\"}" "$BASE/admin/login"
+    signin --data "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASSWORD\"}" "$BASE/admin/login"
     [[ $CODE == 200 ]] || fail "admin login answered $CODE: $BODY"
     CSRF=$("${JAR_CAT[@]}" | awk '$6 == "mw_csrf" {print $7}')
     [[ -n $CSRF ]] || fail 'admin login set no mw_csrf cookie'
+    req_json --header "x-csrf-token: $CSRF" --data "{\"password\":\"$ADMIN_PASSWORD\"}" "$BASE/admin/step-up"
+    [[ $CODE == 200 && $BODY == *'"ok":true'* ]] || fail "admin step-up answered $CODE: $BODY"
 }
 
 # Ban BAN_IP through the admin API under strict CSRF: refused without X-CSRF-Token,
@@ -330,7 +348,7 @@ checks_through_proxy() {
     # The forwarded client address: the app trusts the proxy (deploy.sh writes the
     # trust lines) and must log the client's address, which it never sees directly.
     probe="proxy-probe-$RANDOM$RANDOM"
-    req_json --data "{\"username\":\"$probe\",\"password\":\"not-the-password\"}" "$BASE/admin/login"
+    signin --data "{\"username\":\"$probe\",\"password\":\"not-the-password\"}" "$BASE/admin/login"
     [[ $CODE == 401 ]] || fail "a wrong admin login answered $CODE, expected 401"
     wait_for 10 'log line for the failed admin login' logged_rhost "$probe"
     rhost=$(logged_rhost "$probe")
@@ -341,7 +359,7 @@ checks_through_proxy() {
     # with one. The accept value for this key is the one RFC 6455 section 1.3 gives.
     answer=$(ws_head)
     [[ $answer == 'HTTP/1.1 401'* ]] || fail "a WebSocket request without a session answered: ${answer%%$'\n'*}"
-    req_json --data "{\"username\":\"testuser@example.org\",\"password\":\"testpass\"}" \
+    signin --data "{\"username\":\"testuser@example.org\",\"password\":\"testpass\"}" \
         "$BASE/api/login"
     [[ $CODE == 200 ]] || fail "mailbox login through the proxy answered $CODE: $BODY"
     answer=$(ws_head --cookie /w/cookies)
