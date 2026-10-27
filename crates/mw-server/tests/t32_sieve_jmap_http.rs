@@ -241,8 +241,10 @@ async fn http_sieve_scopes_cookie_native_and_headless_are_account_bound() {
         .send()
         .await
         .unwrap();
-    assert_eq!(download.status(), 200);
-    assert_eq!(download.text().await.unwrap(), "keep;");
+    let status = download.status();
+    let body = download.text().await.unwrap();
+    assert_eq!(status, 200, "the key downloads its Sieve script: {body}");
+    assert_eq!(body, "keep;");
     let unrelated: Value = browser
         .post(format!("{base}/jmap/upload/{account}"))
         .header("content-type", "text/plain")

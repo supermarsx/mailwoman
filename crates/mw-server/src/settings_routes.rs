@@ -1059,12 +1059,33 @@ impl UserSubject {
         store: &mw_store::Store,
         session: &mw_store::Session,
     ) -> Result<Self, mw_store::StoreError> {
-        let policy = store
-            .session_policy_subject(&session.id)
-            .await?
-            .ok_or_else(|| {
-                mw_store::StoreError::Corrupt("verified policy subject unavailable".into())
-            })?;
+        let unavailable =
+            || mw_store::StoreError::Corrupt("verified policy subject unavailable".into());
+        // A scoped API key in engine mode carries no session row: the key was
+        // verified for this account (`scope_mw::sieve_key_session`), which then
+        // clears the id. Its subject is that native account, and only a native
+        // account; a key for anything else still has no subject.
+        let (policy, record_owner) = if session.id.is_empty() {
+            let subject = store
+                .native_personal_subject(&session.account_id)
+                .await?
+                .ok_or_else(unavailable)?;
+            (
+                mw_store::identity_principal::VerifiedPolicySubject {
+                    personal_subject: subject.clone(),
+                    native_account: Some(session.account_id.clone()),
+                },
+                Some(subject),
+            )
+        } else {
+            (
+                store
+                    .session_policy_subject(&session.id)
+                    .await?
+                    .ok_or_else(unavailable)?,
+                store.session_personal_subject(&session.id).await?,
+            )
+        };
         let raw = Self::of(session);
         let canonical = store.canonical_setting_subject(&raw.as_subject()).await?;
         Ok(Self {
@@ -1072,8 +1093,12 @@ impl UserSubject {
                 .native_account
                 .is_none()
                 .then_some(policy.personal_subject),
-            personal_owner: store.session_storage_authority(&session.id).await?,
-            record_owner: store.session_personal_subject(&session.id).await?,
+            personal_owner: if session.id.is_empty() {
+                None
+            } else {
+                store.session_storage_authority(&session.id).await?
+            },
+            record_owner,
             domain: canonical.domain,
             account_id: canonical.account_id,
             address: canonical.address,
