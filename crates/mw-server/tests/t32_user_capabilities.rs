@@ -32,6 +32,20 @@ async fn send(req: reqwest::RequestBuilder) -> (u16, Value) {
         serde_json::from_str(&text).unwrap_or(Value::String(text)),
     )
 }
+/// The feature catalogue's current revision. Every feature-governance write must
+/// carry it as `If-Match` (0e50de6a): a write made from a stale catalogue is refused.
+async fn revision(admin: &reqwest::Client, base: &str) -> String {
+    let r = admin
+        .get(format!("{base}/admin/features"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "admin reads the feature catalogue");
+    r.headers()[reqwest::header::ETAG]
+        .to_str()
+        .unwrap()
+        .to_string()
+}
 #[tokio::test]
 async fn profile_group_and_global_lock_drive_live_feature_admission() {
     let upstream_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -58,7 +72,7 @@ async fn profile_group_and_global_lock_drive_live_feature_admission() {
         hardening: HardeningConfig::default(),
         security: SecurityConfig {
             upstream_default: Some(upstream.clone()),
-            jmap_upstreams: Some(vec![upstream]),
+            jmap_upstreams: Some(vec![upstream.clone()]),
             ..Default::default()
         },
     };
@@ -76,6 +90,22 @@ async fn profile_group_and_global_lock_drive_live_feature_admission() {
             allow_user_override: false,
             global_locked: false,
             updated_by: "feature-fixture".into(),
+            updated_at: 0,
+        })
+        .await
+        .unwrap();
+    // The mailbox's domain is configured, so a profile can be assigned to it: since
+    // 0e50de6a a group member or user assignment must name a native account, and
+    // this proxy-mode mailbox has none.
+    store
+        .put_domain_config(&mw_store::DomainConfigRow {
+            name: "example.org".into(),
+            upstream_json: json!({"jmap":{"sessionUrl":upstream}}).to_string(),
+            allowlist_json: "[]".into(),
+            blocklist_json: "[]".into(),
+            enabled: true,
+            preferred: false,
+            settings_json: "{}".into(),
             updated_at: 0,
         })
         .await
@@ -108,6 +138,8 @@ async fn profile_group_and_global_lock_drive_live_feature_admission() {
     .await;
     assert_eq!(status, 200, "{me}");
     let account = me["accountId"].as_str().unwrap();
+    // Personal-settings writes carry the login's storage authority (0a11b581).
+    let authority = me["storageAuthority"].as_str().unwrap().to_string();
     assert_eq!(
         send(
             admin
@@ -127,9 +159,19 @@ async fn profile_group_and_global_lock_drive_live_feature_admission() {
         200
     );
     let profile = json!({"name":"Restricted","values":{"cap.import":{"value":false,"locked":true},"cap.ai_assistant":{"value":false}}});
+    // Without the catalogue revision the write is refused and changes nothing.
     let (status, body) = send(
         admin
             .put(format!("{base}/admin/features/profiles/restricted"))
+            .json(&profile),
+    )
+    .await;
+    assert_eq!(status, 428, "{body}");
+    assert_eq!(body["code"], "preconditionRequired");
+    let (status, body) = send(
+        admin
+            .put(format!("{base}/admin/features/profiles/restricted"))
+            .header("if-match", revision(&admin, &base).await)
             .json(&profile),
     )
     .await;
@@ -138,23 +180,45 @@ async fn profile_group_and_global_lock_drive_live_feature_admission() {
         send(
             admin
                 .put(format!("{base}/admin/features/groups/team"))
+                .header("if-match", revision(&admin, &base).await)
                 .json(&json!({"name":"Team"}))
         )
         .await
         .0,
         200
     );
+    // A proxy account is not a native account, so it cannot be a group member.
+    let (status, body) = send(
+        admin
+            .put(format!("{base}/admin/features/groups/team/members"))
+            .header("if-match", revision(&admin, &base).await)
+            .json(&json!({"members":[account]})),
+    )
+    .await;
+    assert_eq!(status, 422, "{body}");
     assert_eq!(
         send(
             admin
-                .put(format!("{base}/admin/features/groups/team/members"))
-                .json(&json!({"members":[account]}))
+                .put(format!("{base}/admin/features/assignments"))
+                .header("if-match", revision(&admin, &base).await)
+                .json(&json!({"scopeKind":"group","scopeId":"team","profileId":"restricted","priority":10}))
         )
         .await
         .0,
         200
     );
-    assert_eq!(send(admin.put(format!("{base}/admin/features/assignments")).json(&json!({"scopeKind":"group","scopeId":"team","profileId":"restricted","priority":10}))).await.0,200);
+    let domain_assignment = json!({"scopeKind":"domain","scopeId":"example.org","profileId":"restricted","priority":10});
+    assert_eq!(
+        send(
+            admin
+                .put(format!("{base}/admin/features/assignments"))
+                .header("if-match", revision(&admin, &base).await)
+                .json(&domain_assignment)
+        )
+        .await
+        .0,
+        200
+    );
     let (status, body) = send(user.get(format!("{base}/api/import/formats"))).await;
     assert_eq!(status, 403, "{body}");
     assert_eq!(body["code"], "feature_disabled");
@@ -209,6 +273,7 @@ async fn profile_group_and_global_lock_drive_live_feature_admission() {
     assert_eq!(
         send(
             user.put(format!("{base}/api/settings/cap.import"))
+                .header("x-mailwoman-storage-authority", &authority)
                 .json(&json!({"value":true}))
         )
         .await
@@ -235,6 +300,7 @@ async fn profile_group_and_global_lock_drive_live_feature_admission() {
         send(
             admin
                 .put(format!("{base}/admin/features/profiles/restricted"))
+                .header("if-match", revision(&admin, &base).await)
                 .json(&json!({"name":"Restricted","values":{"cap.import":{"value":"yes"}}}))
         )
         .await
@@ -244,9 +310,24 @@ async fn profile_group_and_global_lock_drive_live_feature_admission() {
     let (_, body) = send(admin.get(format!("{base}/admin/features"))).await;
     assert_eq!(body["profiles"][0]["values"]["cap.import"]["value"], false);
     assert_eq!(
-        send(admin.delete(format!("{base}/admin/features/groups/team")))
-            .await
-            .0,
+        send(
+            admin
+                .delete(format!("{base}/admin/features/assignments"))
+                .header("if-match", revision(&admin, &base).await)
+                .json(&domain_assignment)
+        )
+        .await
+        .0,
+        200
+    );
+    assert_eq!(
+        send(
+            admin
+                .delete(format!("{base}/admin/features/groups/team"))
+                .header("if-match", revision(&admin, &base).await)
+        )
+        .await
+        .0,
         200
     );
     let (_, body) = send(admin.get(format!("{base}/admin/features"))).await;
