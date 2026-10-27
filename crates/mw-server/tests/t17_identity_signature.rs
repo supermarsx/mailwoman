@@ -112,7 +112,9 @@ fn client() -> reqwest::Client {
         .unwrap()
 }
 
-async fn login(c: &reqwest::Client, base: &str, _mock: &str) {
+/// Log in and return the session's `storageAuthority`, which identity writes must
+/// send back (0a11b581).
+async fn login(c: &reqwest::Client, base: &str, _mock: &str) -> String {
     let body: Value = c
         .post(format!("{base}/api/login"))
         .json(&json!({ "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
@@ -123,6 +125,7 @@ async fn login(c: &reqwest::Client, base: &str, _mock: &str) {
         .await
         .unwrap();
     assert_eq!(body["ok"], json!(true), "plain login (no 2FA): {body}");
+    common::auth::storage_authority(&body)
 }
 
 #[tokio::test]
@@ -132,21 +135,25 @@ async fn identity_signature_name_round_trips_through_the_prefs_route() {
     seed_mock_account(&db_path).await;
     let base = format!("http://{addr}");
     let c = client();
-    login(&c, &base, &mock).await;
+    let authority = login(&c, &base, &mock).await;
 
     // POST an identity carrying signatureName (the 26.16-dropped, 26.17-persisted field).
+    // Its address is the upstream's own identity: since 16bc4191 a saved identity must
+    // name an address the upstream's Identity/get lists.
     let create = c
         .post(format!("{base}/api/account/identities"))
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
         .json(&json!({
             "name": "Work",
-            "email": "work@example.org",
+            "email": mw_mock_jmap::USER,
             "signatureName": "work-template",
         }))
         .send()
         .await
         .unwrap();
-    assert_eq!(create.status(), 200, "identity create accepted");
-    let created: Value = create.json().await.unwrap();
+    let status = create.status();
+    let created: Value = create.json().await.unwrap_or(Value::Null);
+    assert_eq!(status, 200, "identity create accepted: {created}");
     assert_eq!(created["ok"], json!(true), "create ok: {created}");
     let id = created["id"]
         .as_str()
@@ -172,13 +179,14 @@ async fn identity_signature_name_round_trips_through_the_prefs_route() {
         json!("work-template"),
         "signatureName persisted + round-tripped through the prefs route: {mine}"
     );
-    assert_eq!(mine["email"], json!("work@example.org"));
+    assert_eq!(mine["email"], json!(mw_mock_jmap::USER));
 
     // An identity POSTed WITHOUT signatureName comes back without it (Option is honoured,
     // not defaulted to a stale value) — proves the column is genuinely per-row.
     let create2: Value = c
         .post(format!("{base}/api/account/identities"))
-        .json(&json!({ "name": "Plain", "email": "plain@example.org" }))
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+        .json(&json!({ "name": "Plain", "email": mw_mock_jmap::USER }))
         .send()
         .await
         .unwrap()

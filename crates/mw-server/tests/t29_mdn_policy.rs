@@ -179,6 +179,21 @@ async fn engine_login(c: &reqwest::Client, base: &str, _pop: &MockImap) -> Strin
         .to_string()
 }
 
+/// The session's `storageAuthority` from `GET /api/me`: personal-settings writes
+/// must send it back (0a11b581), or they answer `428 storageAuthorityRequired`
+/// before any policy or authority check runs.
+async fn storage_authority(c: &reqwest::Client, base: &str) -> String {
+    let me: Value = c
+        .get(format!("{base}/api/me"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    common::auth::storage_authority(&me)
+}
+
 /// A logged-in admin-panel client.
 async fn admin(base: &str) -> reqwest::Client {
     let c = browser();
@@ -910,6 +925,7 @@ async fn dsn_default_is_account_preference_with_admin_lock_and_readonly_permissi
     let server = spawn(ServerMode::Engine, imap.url()).await;
     let client = browser();
     let _account = engine_login(&client, &server.base, &imap).await;
+    let authority = storage_authority(&client, &server.base).await;
     let url = format!("{}/api/settings", server.base);
     let initial: Value = client.get(&url).send().await.unwrap().json().await.unwrap();
     assert_eq!(
@@ -921,6 +937,7 @@ async fn dsn_default_is_account_preference_with_admin_lock_and_readonly_permissi
     assert_eq!(
         client
             .put(&own)
+            .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
             .json(&json!({"value":true}))
             .send()
             .await
@@ -935,6 +952,7 @@ async fn dsn_default_is_account_preference_with_admin_lock_and_readonly_permissi
     );
     let forbidden = client
         .put(format!("{url}/receipts.dsnAllowed"))
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
         .json(&json!({"value":true}))
         .send()
         .await
@@ -969,6 +987,7 @@ async fn dsn_default_is_account_preference_with_admin_lock_and_readonly_permissi
     assert_eq!(
         client
             .put(&own)
+            .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
             .json(&json!({"value":true}))
             .send()
             .await
@@ -985,9 +1004,11 @@ async fn sending_identity_creation_requires_current_address_authority() {
     let server = spawn(ServerMode::Engine, imap.url()).await;
     let client = browser();
     let account = engine_login(&client, &server.base, &imap).await;
+    let authority = storage_authority(&client, &server.base).await;
     let url = format!("{}/api/account/identities", server.base);
     let denied = client
         .post(&url)
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
         .json(&json!({"name":"Unverified","email":"unverified@example.net","source":"server"}))
         .send()
         .await
@@ -999,6 +1020,7 @@ async fn sending_identity_creation_requires_current_address_authority() {
     );
     let saved = client
         .post(&url)
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
         .json(&json!({"name":"My identity","email":ENGINE_USER}))
         .send()
         .await
@@ -1010,20 +1032,30 @@ async fn sending_identity_creation_requires_current_address_authority() {
         .to_string();
     let denied = client
         .post(&url)
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
         .json(&json!({"id":id,"name":"Changed","email":"unverified@example.net"}))
         .send()
         .await
         .unwrap();
     assert_eq!(denied.status(), 403);
-    let row = server
-        .store()
-        .await
-        .get_identity(&id)
+    // Since 0a11b581 identities are personal records, kept under the account's
+    // verified personal subject rather than in the per-account 0003 table.
+    let store = server.store().await;
+    let owner = store
+        .native_personal_subject(&account)
         .await
         .unwrap()
-        .unwrap();
-    assert_eq!(row.account_id, account);
-    assert_eq!(row.email, ENGINE_USER);
+        .expect("the engine account has a personal subject");
+    let row = store
+        .get_personal_identity(&owner, &id)
+        .await
+        .unwrap()
+        .expect("the saved identity is stored under its owner");
+    assert_eq!(row.account_id, owner);
+    assert_eq!(
+        row.email, ENGINE_USER,
+        "the refused change left the address alone"
+    );
 }
 
 #[tokio::test]

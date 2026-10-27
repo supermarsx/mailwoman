@@ -320,6 +320,13 @@ fn dispatch(store: &MailStore, name: &str, args: &Value) -> Value {
             json!({ "accountId": ACCOUNT_ID, "state": "mb-0", "list": list, "notFound": [] })
         }
         "Mailbox/set" => mailbox_set(store, args),
+        // RFC 8621 §6.1: the one sending identity of the test account. The server
+        // asks for it before it saves a sending identity, to check the address.
+        "Identity/get" => json!({
+            "accountId": ACCOUNT_ID, "state": "id-0",
+            "list": [{ "id": "ident-1", "name": "Test User", "email": USER }],
+            "notFound": []
+        }),
         "Email/query" => {
             let inner = store.inner.lock().unwrap();
             let mailbox = args
