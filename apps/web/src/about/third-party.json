@@ -2,7 +2,7 @@
   "schema": "mailwoman-third-party/2",
   "generator": "scripts/about/gen-third-party.mjs",
   "generatedFrom": {
-    "cargoLock": "c30d6fac954ee1be7667bc99513209c92c6523596381c6e747a890886cb0c77c",
+    "cargoLock": "cfda9ee3da6e9892f09b3833646fba13b683caaddee80f5953e18e8dcc4e589f",
     "mediaWasmLock": "ca63d9934f59dc33721e6adee7e152ebff91a84e6738315c3ec9e64c05582494",
     "pnpmLock": "179982caeb5302eec3bbacc0095542f05293475ebef1312b2a05b0ab043708a9"
   },
@@ -732,6 +732,26 @@
         "plugins",
         "desktop",
         "mobile"
+      ]
+    },
+    {
+      "kind": "crate",
+      "name": "base64",
+      "version": "0.23.1",
+      "licence": "MIT OR Apache-2.0",
+      "repository": "https://github.com/marshallpierce/rust-base64",
+      "texts": [
+        {
+          "file": "LICENSE-APACHE",
+          "id": "954f335b8baf5e1a"
+        },
+        {
+          "file": "LICENSE-MIT",
+          "id": "2ff8d973431258f8"
+        }
+      ],
+      "artifacts": [
+        "server"
       ]
     },
     {
@@ -2698,14 +2718,18 @@
     {
       "kind": "crate",
       "name": "datasketches",
-      "version": "0.2.0",
+      "version": "0.5.0",
       "licence": "Apache-2.0",
       "repository": "https://github.com/apache/datasketches-rust",
       "homepage": "https://datasketches.apache.org",
       "texts": [
         {
-          "standard": "Apache-2.0",
-          "id": "6dc0e068dcf3a5bc"
+          "file": "LICENSE",
+          "id": "d349f8b98b2d4e50"
+        },
+        {
+          "file": "NOTICE",
+          "id": "4bfcdb511f37fc50"
         }
       ],
       "artifacts": [
@@ -3769,6 +3793,26 @@
         {
           "file": "LICENSE-MIT",
           "id": "1cf8fcc6a37a63b9"
+        }
+      ],
+      "artifacts": [
+        "server"
+      ]
+    },
+    {
+      "kind": "crate",
+      "name": "frostem",
+      "version": "1.20260821.8",
+      "licence": "BSD-3-Clause",
+      "repository": "https://github.com/Xuanwo/frostem",
+      "texts": [
+        {
+          "file": "LICENSE",
+          "id": "1b483f712041bc2d"
+        },
+        {
+          "file": "LICENSE-SNOWBALL",
+          "id": "eeb8d6b516b3b5ed"
         }
       ],
       "artifacts": [
@@ -5952,7 +5996,7 @@
     {
       "kind": "crate",
       "name": "lru",
-      "version": "0.16.4",
+      "version": "0.18.5",
       "licence": "MIT",
       "repository": "https://github.com/jeromefroe/lru-rs",
       "texts": [
@@ -6012,7 +6056,7 @@
     {
       "kind": "crate",
       "name": "lz4_flex",
-      "version": "0.13.1",
+      "version": "0.14.0",
       "licence": "MIT",
       "repository": "https://github.com/pseitz/lz4_flex",
       "texts": [
@@ -6567,7 +6611,7 @@
     {
       "kind": "crate",
       "name": "murmurhash32",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "licence": "MIT",
       "repository": "https://github.com/quickwit-inc/murmurhash32",
       "texts": [
@@ -9109,22 +9153,6 @@
     },
     {
       "kind": "crate",
-      "name": "rust-stemmers",
-      "version": "1.2.0",
-      "licence": "MIT OR BSD-3-Clause",
-      "repository": "https://github.com/CurrySoftware/rust-stemmers",
-      "texts": [
-        {
-          "file": "LICENSE",
-          "id": "e46379f1aba07707"
-        }
-      ],
-      "artifacts": [
-        "server"
-      ]
-    },
-    {
-      "kind": "crate",
       "name": "rustc-demangle",
       "version": "0.1.28",
       "licence": "MIT OR Apache-2.0",
@@ -9770,6 +9798,22 @@
         "server",
         "desktop",
         "mobile"
+      ]
+    },
+    {
+      "kind": "crate",
+      "name": "serde-tuple-vec-map",
+      "version": "1.0.1",
+      "licence": "MIT",
+      "repository": "https://github.com/daboross/serde-tuple-vec-map",
+      "texts": [
+        {
+          "file": "LICENSE",
+          "id": "16f01125aba06d34"
+        }
+      ],
+      "artifacts": [
+        "server"
       ]
     },
     {
@@ -10698,7 +10742,7 @@
     {
       "kind": "crate",
       "name": "tantivy",
-      "version": "0.26.1",
+      "version": "0.27.0",
       "licence": "MIT",
       "repository": "https://github.com/quickwit-oss/tantivy",
       "texts": [
@@ -10714,7 +10758,7 @@
     {
       "kind": "crate",
       "name": "tantivy-bitpacker",
-      "version": "0.10.0",
+      "version": "0.27.0",
       "licence": "MIT",
       "repository": "https://github.com/quickwit-oss/tantivy",
       "texts": [
@@ -10730,7 +10774,7 @@
     {
       "kind": "crate",
       "name": "tantivy-columnar",
-      "version": "0.7.0",
+      "version": "0.27.0",
       "licence": "MIT",
       "repository": "https://github.com/quickwit-oss/tantivy",
       "texts": [
@@ -10746,7 +10790,7 @@
     {
       "kind": "crate",
       "name": "tantivy-common",
-      "version": "0.11.0",
+      "version": "0.27.0",
       "licence": "MIT",
       "repository": "https://github.com/quickwit-oss/tantivy",
       "texts": [
@@ -10786,7 +10830,7 @@
     {
       "kind": "crate",
       "name": "tantivy-query-grammar",
-      "version": "0.26.0",
+      "version": "0.27.0",
       "licence": "MIT",
       "repository": "https://github.com/quickwit-oss/tantivy",
       "texts": [
@@ -10802,7 +10846,7 @@
     {
       "kind": "crate",
       "name": "tantivy-sstable",
-      "version": "0.7.0",
+      "version": "0.27.0",
       "licence": "MIT",
       "repository": "https://github.com/quickwit-oss/tantivy",
       "texts": [
@@ -10818,7 +10862,7 @@
     {
       "kind": "crate",
       "name": "tantivy-stacker",
-      "version": "0.7.0",
+      "version": "0.27.0",
       "licence": "MIT",
       "repository": "https://github.com/quickwit-oss/tantivy",
       "texts": [
@@ -11882,6 +11926,26 @@
     },
     {
       "kind": "crate",
+      "name": "unwrap-infallible",
+      "version": "1.0.0",
+      "licence": "MIT OR Apache-2.0",
+      "repository": "https://github.com/mzabaluev/unwrap-infallible",
+      "texts": [
+        {
+          "file": "LICENSE-APACHE",
+          "id": "954f335b8baf5e1a"
+        },
+        {
+          "file": "LICENSE-MIT",
+          "id": "b5487e37b1b0b03d"
+        }
+      ],
+      "artifacts": [
+        "server"
+      ]
+    },
+    {
+      "kind": "crate",
       "name": "url",
       "version": "2.5.8",
       "licence": "MIT OR Apache-2.0",
@@ -12911,13 +12975,13 @@
     {
       "kind": "crate",
       "name": "zstd",
-      "version": "0.13.3",
-      "licence": "MIT",
+      "version": "0.14.3",
+      "licence": "BSD-3-Clause",
       "repository": "https://github.com/gyscos/zstd-rs",
       "texts": [
         {
           "file": "LICENSE",
-          "id": "84b7e1b767becaf1"
+          "id": "769153f04f135a5b"
         }
       ],
       "artifacts": [
@@ -12927,21 +12991,13 @@
     {
       "kind": "crate",
       "name": "zstd-safe",
-      "version": "7.2.4",
-      "licence": "MIT OR Apache-2.0",
+      "version": "8.2.0",
+      "licence": "BSD-3-Clause",
       "repository": "https://github.com/gyscos/zstd-rs",
       "texts": [
         {
           "file": "LICENSE",
-          "id": "10b6a2ae8a02143a"
-        },
-        {
-          "file": "LICENSE.Apache-2.0",
-          "id": "4bf96504d6e83ce5"
-        },
-        {
-          "file": "LICENSE.Mit",
-          "id": "84b7e1b767becaf1"
+          "id": "769153f04f135a5b"
         }
       ],
       "artifacts": [
@@ -12951,25 +13007,17 @@
     {
       "kind": "crate",
       "name": "zstd-sys",
-      "version": "2.0.16+zstd.1.5.7",
-      "licence": "MIT OR Apache-2.0",
+      "version": "2.1.2+zstd.1.5.7",
+      "licence": "BSD-3-Clause",
       "repository": "https://github.com/gyscos/zstd-rs",
       "texts": [
         {
           "file": "LICENSE",
-          "id": "10b6a2ae8a02143a"
-        },
-        {
-          "file": "LICENSE.Apache-2.0",
-          "id": "4bf96504d6e83ce5"
+          "id": "769153f04f135a5b"
         },
         {
           "file": "LICENSE.BSD-3-Clause",
-          "id": "30367d9a4eadd6c9"
-        },
-        {
-          "file": "LICENSE.Mit",
-          "id": "84b7e1b767becaf1"
+          "id": "08728d1c12d66320"
         }
       ],
       "artifacts": [

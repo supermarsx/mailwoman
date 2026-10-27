@@ -140,7 +140,7 @@ data-encoding = "2"
 # + `futures-util` back the JMAP WebSocket push server (mw-server, e10).
 # `tokio-rustls-acme` is the ACME/TLS listener, compatible with the tree's
 # rustls 0.23 / tokio-rustls 0.26. `vanilla-extract`/`pdfjs-dist`/`idb` are web-only.
-tantivy = "0.26"
+tantivy = "0.27"
 # 26.19 (t19-e1) dedupe: pinned to the version `axum`'s `ws` feature already
 # resolves, so the tree compiles ONE tokio-tungstenite/tungstenite pair instead of
 # two. This is not a downgrade of anything that faces the network: the production
