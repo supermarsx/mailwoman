@@ -234,17 +234,21 @@ async fn user_identity(
     ctx: &AdminCtx,
     id: &str,
 ) -> Result<mw_store::audit_identity::AuditIdentity, crate::admin_ctx::AdminApiError> {
-    let identity = state
-        .store
-        .audit_identity("user", id)
-        .await?
-        .ok_or_else(|| {
-            crate::admin_ctx::AdminApiError::new(
-                StatusCode::NOT_FOUND,
-                "userNotFound",
-                "User not found.",
-            )
-        })?;
+    // The directory keeps addresses folded; the panel's id may be any spelling of
+    // the login name (the flag record is keyed by the folded name, see
+    // `account_gate::flag_subject`), so a case variant names the same user.
+    let mut identity = state.store.audit_identity("user", id).await?;
+    let folded = mw_store::Store::fold_account_name(id);
+    if identity.is_none() && folded != id {
+        identity = state.store.audit_identity("user", &folded).await?;
+    }
+    let identity = identity.ok_or_else(|| {
+        crate::admin_ctx::AdminApiError::new(
+            StatusCode::NOT_FOUND,
+            "userNotFound",
+            "User not found.",
+        )
+    })?;
     let address = state
         .store
         .canonical_policy_address(identity.address.as_deref().unwrap_or_default())

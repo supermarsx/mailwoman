@@ -113,6 +113,8 @@ async fn spawn_engine(pop: &MockPop3) -> Server {
         .await
         .expect("build_app_full")
         .0;
+    // Sign-in pacing is not what this test is about (see common::auth).
+    common::auth::no_signin_cooldown_at(&db, KEY_HEX).await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr: SocketAddr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -162,6 +164,24 @@ async fn set_disabled(admin: &reqwest::Client, base: &str, id: &str, disabled: b
         .await
         .unwrap();
     assert_eq!(r.status(), 204, "the panel's flag write is accepted");
+}
+
+/// Write `login`'s flags the way the `mailwoman admin` CLI does (`build_admin`):
+/// the panel's backend, without the panel's directory lookup.
+async fn cli_disabled(db: &str, login: &str, disabled: bool) {
+    mw_server::build_admin(db, Some(KEY_HEX))
+        .await
+        .expect("build_admin")
+        .set_feature_flags(
+            "cli-fixture",
+            login,
+            mw_admin::UserFeatureFlags {
+                disabled,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("CLI flag write");
 }
 
 /// `_pop` is the server's configured upstream; the login does not name it.
@@ -250,7 +270,21 @@ async fn a_disabled_name_that_never_logged_in_gets_no_account_row() {
     let admin = admin(base).await;
     let store = srv.store().await;
 
-    set_disabled(&admin, base, USER, true).await;
+    // Since 991223b9 the panel resolves the user before a flag write and answers
+    // `404 userNotFound` for a name it has never seen, so the flag for a name that
+    // never logged in is written the way the `mailwoman admin` CLI writes it: the
+    // same backend the panel ends in, without the directory lookup.
+    let unknown = admin
+        .put(format!("{base}/admin/users/{USER}/flags"))
+        .json(&json!({
+            "zeroAccess": false, "forcePasswordChange": false,
+            "remoteCacheWipe": false, "disabled": true,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), 404, "the panel does not invent a user");
+    cli_disabled(&srv.db, USER, true).await;
     let refused = login(base, &pop, PASS).await;
     assert_eq!(refused.status(), 401, "a disabled account is refused");
     tokio::time::sleep(SETTLE).await;
@@ -266,7 +300,7 @@ async fn a_disabled_name_that_never_logged_in_gets_no_account_row() {
     );
 
     // Control: the same login, enabled, is what writes the row.
-    set_disabled(&admin, base, USER, false).await;
+    cli_disabled(&srv.db, USER, false).await;
     assert_eq!(login(base, &pop, PASS).await.status(), 200);
     assert_eq!(store.list_accounts().await.unwrap().len(), 1);
 }
@@ -288,12 +322,18 @@ async fn disabling_a_connected_account_drops_its_runtime_at_the_flag_write() {
     tokio::time::sleep(SETTLE).await;
 
     // Control: while the account is connected the passthrough reuses its
-    // runtime and connects nothing.
-    let connected = pop.logins_accepted();
+    // runtime. Answering a metadata call on a POP3 account opens one POP3 session
+    // of its own (the backend has no persistent connection), so the cost of a
+    // call on a connected account is measured, and must not grow on a second
+    // call: no call reconnects the account.
+    let before = pop.logins_accepted();
+    assert_eq!(admin_metadata(&admin, base, &account_id).await, 200);
+    let per_call = pop.logins_accepted() - before;
+    let before = pop.logins_accepted();
     assert_eq!(admin_metadata(&admin, base, &account_id).await, 200);
     assert_eq!(
-        pop.logins_accepted(),
-        connected,
+        pop.logins_accepted() - before,
+        per_call,
         "control: a connected account is not connected again"
     );
 
@@ -316,11 +356,12 @@ async fn disabling_a_connected_account_drops_its_runtime_at_the_flag_write() {
         "nothing reached the mail server for the disabled account"
     );
 
-    // Re-enabled: the runtime is gone, so the next caller connects the account.
+    // Re-enabled: the runtime is gone, so the next caller connects the account
+    // first, which costs more than a call on a connected account.
     set_disabled(&admin, base, USER, false).await;
     assert_eq!(admin_metadata(&admin, base, &account_id).await, 200);
     assert!(
-        pop.logins_accepted() > disabled,
+        pop.logins_accepted() - disabled > per_call,
         "the runtime was dropped when the flag was set: re-enabled, the account had to be connected again"
     );
 }

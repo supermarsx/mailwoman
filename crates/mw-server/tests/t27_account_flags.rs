@@ -227,6 +227,8 @@ async fn spawn_proxy_on(mock: String) -> (Server, String) {
         .await
         .expect("build_app_full")
         .0;
+    // Sign-in pacing is not what this test is about (see common::auth).
+    common::auth::no_signin_cooldown_at(&db, KEY_HEX).await;
     let base = serve(app).await;
     (Server { base, db }, mock)
 }
@@ -240,6 +242,8 @@ async fn spawn_engine(pop: &MockPop3) -> Server {
         .await
         .expect("build_app_full")
         .0;
+    // Sign-in pacing is not what this test is about (see common::auth).
+    common::auth::no_signin_cooldown_at(&db, KEY_HEX).await;
     let base = serve(app).await;
     Server { base, db }
 }
@@ -286,6 +290,26 @@ async fn set_flags(admin: &reqwest::Client, base: &str, id: &str, disabled: bool
         .await
         .unwrap();
     assert_eq!(r.status(), 204, "the panel's flag write is accepted");
+}
+
+/// Write `id`'s flags the way the `mailwoman admin` CLI does: the same
+/// `AdminBackend::set_flags` the panel ends in (it revokes the sessions of a
+/// disabled account), without the panel's directory lookup.
+async fn cli_flags(db: &str, id: &str, disabled: bool, force: bool) {
+    mw_server::build_admin(db, Some(KEY_HEX))
+        .await
+        .expect("build_admin")
+        .set_feature_flags(
+            "cli-fixture",
+            id,
+            mw_admin::UserFeatureFlags {
+                disabled,
+                force_password_change: force,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("CLI flag write");
 }
 
 /// `_mock` is the upstream the server was started on. The login does not name
@@ -358,7 +382,10 @@ fn read_scope(account_id: &str) -> Value {
     })
 }
 
-async fn mint_api_key(c: &reqwest::Client, base: &str, account_id: &str) -> String {
+/// Mint a read key as the session in `c`, which signed in with `password`. Minting
+/// is a step-up action (7e9af0d0), so the password is confirmed first.
+async fn mint_api_key(c: &reqwest::Client, base: &str, account_id: &str, password: &str) -> String {
+    common::auth::user_step_up(c, base, password).await;
     let mint: Value = c
         .post(format!("{base}/api/keys"))
         .json(&json!({ "label": "t27", "accountId": account_id, "scope": read_scope(account_id) }))
@@ -1065,7 +1092,7 @@ async fn disabled_account_keys_and_tokens_are_refused_on_rest_mcp_and_refresh() 
         .to_string();
 
     // Credentials issued while the account is enabled.
-    let key = mint_api_key(&c, base, &account_id).await;
+    let key = mint_api_key(&c, base, &account_id, ENGINE_PASS).await;
     let pair = mint_oauth_pair(&c, base, &account_id).await;
     let access = pair["access_token"].as_str().unwrap().to_string();
     let refresh_1 = pair["refresh_token"].as_str().unwrap().to_string();
@@ -1173,7 +1200,7 @@ async fn proxy_mode_key_of_a_disabled_account_reads_nothing() {
         .as_str()
         .unwrap()
         .to_string();
-    let key = mint_api_key(&c, base, &account_id).await;
+    let key = mint_api_key(&c, base, &account_id, pass).await;
     let read = || async {
         bare()
             .get(format!("{base}/api/v1/messages?limit=5"))
@@ -1257,7 +1284,7 @@ async fn a_flag_under_the_typed_name_refuses_every_credential_of_the_account() {
         .await
         .unwrap();
     assert_eq!(canon["accountId"], json!(account_id), "one account");
-    let key = mint_api_key(&c_alias, base, &account_id).await;
+    let key = mint_api_key(&c_alias, base, &account_id, pass).await;
     let read = || async {
         bare()
             .get(format!("{base}/api/v1/messages?limit=5"))
@@ -1277,8 +1304,28 @@ async fn a_flag_under_the_typed_name_refuses_every_credential_of_the_account() {
         .await
         .unwrap();
 
+    // Since 991223b9 the panel resolves the id against the user directory before a
+    // flag write, and the directory knows the account by the name the upstream
+    // reports, not by the typed alias: the panel answers 404 for the alias. The
+    // `mailwoman admin` CLI writes flags under any name, through the same backend
+    // (`build_admin`), so the alias's record is written there.
+    let by_panel = admin
+        .put(format!("{base}/admin/users/{ALIAS}/flags"))
+        .json(&json!({
+            "zeroAccess": false, "forcePasswordChange": true,
+            "remoteCacheWipe": false, "disabled": false,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        by_panel.status(),
+        404,
+        "the directory does not list the alias"
+    );
+
     // The hold, set under the typed name, reaches the key and both sessions.
-    set_flags(&admin, base, ALIAS, false, true).await;
+    cli_flags(&srv.db, ALIAS, false, true).await;
     let held = read().await;
     assert_eq!(held.status(), 403, "the key is held");
     assert_eq!(held.json::<Value>().await.unwrap(), held_body());
@@ -1286,10 +1333,10 @@ async fn a_flag_under_the_typed_name_refuses_every_credential_of_the_account() {
         let held_me: Value = me(c, base).await.json().await.unwrap();
         assert_eq!(held_me["passwordChangeRequired"], json!(true), "{held_me}");
     }
-    set_flags(&admin, base, ALIAS, false, false).await;
+    cli_flags(&srv.db, ALIAS, false, false).await;
     assert_eq!(read().await.status(), 200, "released");
 
-    set_flags(&admin, base, ALIAS, true, false).await;
+    cli_flags(&srv.db, ALIAS, true, false).await;
 
     let after = read().await;
     assert_eq!(
@@ -1320,7 +1367,7 @@ async fn a_flag_under_the_typed_name_refuses_every_credential_of_the_account() {
     );
 
     // Re-enabled under the same name: logins and the key work again.
-    set_flags(&admin, base, ALIAS, false, false).await;
+    cli_flags(&srv.db, ALIAS, false, false).await;
     let c = browser();
     assert_eq!(proxy_login(&c, base, &mock, user, pass).await.status(), 200);
     assert_eq!(me(&c, base).await.status(), 200);
@@ -1520,7 +1567,7 @@ async fn forced_password_change_holds_the_account_until_the_password_is_changed(
         )
         .await
         .unwrap();
-    let key = mint_api_key(&c, base, &account_id).await;
+    let key = mint_api_key(&c, base, &account_id, ENGINE_PASS).await;
     store
         .put_oauth_client(&OAuthClientRow {
             client_id: CLIENT_ID.into(),
