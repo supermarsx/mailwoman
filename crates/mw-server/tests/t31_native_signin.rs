@@ -94,6 +94,24 @@ async fn spawn_server(upstream: &str) -> String {
         admin_password: None,
         redis_url: None,
     };
+    // Not a sign-in pacing test (`signin.retryCooldownSecs`, d94472d7): every
+    // sign-in here comes from 127.0.0.1, and 0 switches the pacing off.
+    mw_store::Store::open(
+        &config.db_path,
+        mw_store::ServerKey::from_hex(KEY_HEX).unwrap(),
+    )
+    .await
+    .unwrap()
+    .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+        key: "signin.retryCooldownSecs".into(),
+        global_value: Some("0".into()),
+        allow_user_override: false,
+        global_locked: false,
+        updated_by: "test-fixture".into(),
+        updated_at: 0,
+    })
+    .await
+    .unwrap();
     let app = build_app_full(config, v6).await.expect("server boots").0;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -161,6 +179,9 @@ struct Req<'a> {
     cookie: Option<&'a str>,
     csrf: Option<&'a str>,
     bearer: Option<&'a str>,
+    /// `x-mailwoman-storage-authority`: a personal-settings write must name the
+    /// storage authority its sign-in returned (0a11b581).
+    authority: Option<&'a str>,
     body: Option<Value>,
 }
 
@@ -177,6 +198,9 @@ async fn send(c: &reqwest::Client, method: &str, url: String, r: Req<'_>) -> Ans
     }
     if let Some(token) = r.bearer {
         req = req.header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    if let Some(authority) = r.authority {
+        req = req.header("x-mailwoman-storage-authority", authority);
     }
     if let Some(body) = r.body {
         req = req.json(&body);
@@ -212,8 +236,13 @@ async fn preflight(c: &reqwest::Client, url: String, origin: &str, method: &str)
 }
 
 /// Sign in from `origin` as the shell does: no cookie, `clientType: "native"`.
-/// Returns the bearer token.
-async fn native_login(c: &reqwest::Client, base: &str, mock: &str, origin: &str) -> String {
+/// Returns the bearer token and the storage authority personal-settings writes carry.
+async fn native_login(
+    c: &reqwest::Client,
+    base: &str,
+    mock: &str,
+    origin: &str,
+) -> (String, String) {
     let a = send(
         c,
         "POST",
@@ -237,10 +266,16 @@ async fn native_login(c: &reqwest::Client, base: &str, mock: &str, origin: &str)
     );
     assert!(a.allow_credentials.is_none(), "no credentialed CORS: {a:?}");
     let body: Value = serde_json::from_str(&a.body).unwrap();
-    body["token"]
-        .as_str()
-        .expect("token in the body")
-        .to_string()
+    (
+        body["token"]
+            .as_str()
+            .expect("token in the body")
+            .to_string(),
+        body["storageAuthority"]
+            .as_str()
+            .expect("storageAuthority in the body")
+            .to_string(),
+    )
 }
 
 #[tokio::test]
@@ -250,7 +285,7 @@ async fn a_tauri_origin_signs_in_without_a_cookie_and_its_token_writes() {
     let c = client();
 
     for origin in TAURI_ORIGINS {
-        let token = native_login(&c, &base, &mock, origin).await;
+        let (token, authority) = native_login(&c, &base, &mock, origin).await;
 
         // The preflight for each write method is answered for this origin.
         for method in ["PUT", "PATCH", "DELETE"] {
@@ -276,6 +311,7 @@ async fn a_tauri_origin_signs_in_without_a_cookie_and_its_token_writes() {
             Req {
                 origin: Some(origin),
                 bearer: Some(&token),
+                authority: Some(&authority),
                 body: Some(json!({ "appearance": { "theme": "dark" } })),
                 ..Req::default()
             },
@@ -321,6 +357,7 @@ async fn a_tauri_origin_signs_in_without_a_cookie_and_its_token_writes() {
             Req {
                 origin: Some(origin),
                 bearer: Some(&token),
+                authority: Some(&authority),
                 ..Req::default()
             },
         )
@@ -334,7 +371,7 @@ async fn signing_out_with_the_token_ends_the_native_session() {
     let mock = spawn_mock().await;
     let base = spawn_server(&mock).await;
     let c = client();
-    let token = native_login(&c, &base, &mock, TAURI).await;
+    let (token, _) = native_login(&c, &base, &mock, TAURI).await;
     let me = |c: &reqwest::Client, token: &str| {
         let url = format!("{base}/api/me");
         let token = token.to_string();
@@ -403,11 +440,17 @@ async fn a_tauri_origin_with_a_session_cookie_is_checked_as_before() {
     let csrf_pair = pick("mw_csrf");
     let csrf = csrf_pair.split_once('=').unwrap().1.to_string();
     let cookies = format!("{session}; {csrf_pair}");
+    let login: Value = serde_json::from_str(&a.body).unwrap();
+    let authority = login["storageAuthority"]
+        .as_str()
+        .expect("storageAuthority in the body")
+        .to_string();
     let put = |origin: Option<&'static str>, with_token: bool| {
         let c = c.clone();
         let url = format!("{base}{APPEARANCE}");
         let cookies = cookies.clone();
         let csrf = csrf.clone();
+        let authority = authority.clone();
         async move {
             send(
                 &c,
@@ -417,6 +460,7 @@ async fn a_tauri_origin_with_a_session_cookie_is_checked_as_before() {
                     origin,
                     cookie: Some(&cookies),
                     csrf: with_token.then_some(csrf.as_str()),
+                    authority: Some(&authority),
                     body: Some(json!({ "appearance": { "theme": "light" } })),
                     ..Req::default()
                 },
@@ -528,7 +572,7 @@ async fn other_origins_are_refused_and_get_no_cors() {
     // Bearer-only from a web origin passes the guard — a bearer token is no
     // ambient authority a forged request could borrow — but gets no CORS headers,
     // so a page could not read the answer even if it held a token.
-    let token = native_login(&c, &base, &mock, TAURI).await;
+    let (token, authority) = native_login(&c, &base, &mock, TAURI).await;
     let r = send(
         &c,
         "PUT",
@@ -536,6 +580,7 @@ async fn other_origins_are_refused_and_get_no_cors() {
         Req {
             origin: Some(EVIL),
             bearer: Some(&token),
+            authority: Some(&authority),
             body: Some(json!({ "appearance": { "theme": "dark" } })),
             ..Req::default()
         },
@@ -568,7 +613,7 @@ async fn native_preferences_expose_etags_and_allow_cas_without_widening_origins(
     let mock = spawn_mock().await;
     let base = spawn_server(&mock).await;
     let c = client();
-    let token = native_login(&c, &base, &mock, TAURI).await;
+    let (token, _) = native_login(&c, &base, &mock, TAURI).await;
     let me: serde_json::Value = c
         .get(format!("{base}/api/me"))
         .bearer_auth(&token)
