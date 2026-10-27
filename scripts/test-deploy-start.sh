@@ -7,8 +7,11 @@ DEPLOY=${DEPLOY_TEST_SCRIPT:-$ROOT/deploy.sh}
 FIXTURE=$(mktemp -d)
 trap 'rm -rf -- "$FIXTURE"' EXIT
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
-STATE="$FIXTURE/state"; ACTIVE="$STATE/active"; TIMEOUT=180
-RESUME_CONTAINER= LAST_BACKUP=
+STATE="$FIXTURE/state"; ACTIVE="$STATE/active"
+# TIMEOUT is read by the sourced snapshot code from deploy.sh.
+# shellcheck disable=SC2034
+TIMEOUT=180
+RESUME_CONTAINER='' LAST_BACKUP=''
 mkdir -p "$ACTIVE" "$FIXTURE/data"
 printf 'retained data\n' > "$FIXTURE/data/message"
 for name in compose.yaml app.env deploy.env release.env; do printf 'fixture\n' > "$ACTIVE/$name"; done
@@ -42,6 +45,7 @@ require_free_ports() { :; }
 ensure_proxy_network() { :; }
 verify() { printf 'verified\n' >> "$TRACE"; }
 # These boundaries are actual function/case markers, not copies of their bodies.
+# shellcheck source=/dev/null # a slice of deploy.sh
 source <(awk '/^snapshot\(\)/ { copying=1 } /^activate\(\)/ { copying=0 } copying { print }' "$DEPLOY")
 declare -F snapshot >/dev/null || fail 'snapshot function not found'
 snapshot

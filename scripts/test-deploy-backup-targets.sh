@@ -7,11 +7,11 @@ trap 'rm -rf -- "$fixture"' EXIT
 trace="$fixture/trace"
 branch=$(awk '/^    backup\)/ {copying=1; next} copying && /^        ;;$/ {exit} copying {print}' "$ROOT/deploy.sh")
 [[ -n $branch ]]
-BACKUP_TARGETS_FILE=/etc/mailwoman/targets.json
-BACKUP_RECIPIENT=fixture-public-key
-BACKUP_HOOK=
-BACKUP_KEEP=7
-BACKUP_KEEP_DAYS=
+# The values are read by the deploy.sh backup branch that is eval'd below.
+# shellcheck disable=SC2034
+BACKUP_TARGETS_FILE=/etc/mailwoman/targets.json BACKUP_RECIPIENT='fixture-public-key' BACKUP_HOOK=''
+# shellcheck disable=SC2034
+BACKUP_KEEP=7 BACKUP_KEEP_DAYS=''
 LAST_BACKUP="$fixture/snapshot.tar.age"
 load_active() { :; }
 snapshot() { printf 'snapshot\n' >> "$trace"; printf 'retained\n' > "$LAST_BACKUP"; }

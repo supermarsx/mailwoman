@@ -3,19 +3,26 @@
 set -Eeuo pipefail
 TEST_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 DEPLOY="$TEST_ROOT/deploy.sh"
+# shellcheck source=/dev/null # a slice of deploy.sh
 source <(awk '/^usage\(\)/ { exit } { print }' "$DEPLOY")
 ROOT=$TEST_ROOT
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 die() { fail "$*"; }
 log() { printf '%s\n' "$*" >&2; }
+# shellcheck source=/dev/null # a slice of deploy.sh
 source <(awk '/^write_config\(\)/ { copy=1 } /^validate_app_env\(\)/ { copy=0 } copy { print }' "$DEPLOY")
+# shellcheck source=/dev/null # a slice of deploy.sh
 source <(awk '/^indent\(\)/ { copy=1 } /^verify\(\)/ { copy=0 } copy { print }' "$DEPLOY")
 mkdir -p "$ROOT/.orchestration/reports"
 FIXTURE=$(mktemp -d "$ROOT/.orchestration/reports/http-protocols.XXXXXX")
+# These globals are read by the sourced render() from deploy.sh.
+# shellcheck disable=SC2034
 PROJECT=codex-http-protocols EXPOSURE=caddy DOMAIN=mail.example.test PUBLIC_URL=https://mail.example.test
 IMAGE_ID=$(docker image inspect --format '{{.Id}}' "${DEPLOY_TEST_CADDY_IMAGE:-caddy:2-alpine}")
-CADDY_ID=$IMAGE_ID DATA_VOLUME=codex-http-protocols-data CPU_LIMIT= MEMORY_LIMIT=
+# shellcheck disable=SC2034
+CADDY_ID=$IMAGE_ID DATA_VOLUME=codex-http-protocols-data CPU_LIMIT='' MEMORY_LIMIT=''
 for protocols in 'h1 h2 h3' 'h1 h2' 'h1'; do
+    # shellcheck disable=SC2034
     CADDY_PROTOCOLS=$protocols
     directory="$FIXTURE/${protocols// /-}"
     mkdir -p "$directory"

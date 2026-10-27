@@ -162,7 +162,7 @@ See docs/deploy/script.md for operations, recovery, and optional integrations.
 HELP
 }
 
-LOG_ACCENT= LOG_RESET= LOG_BOLD= LOG_SUCCESS= LOG_ERROR= LOG_WARNING= LOG_DETAIL=
+LOG_ACCENT='' LOG_RESET='' LOG_BOLD='' LOG_SUCCESS='' LOG_ERROR='' LOG_WARNING='' LOG_DETAIL=''
 PHASE_COLORS=("" "" "" "" "" "")
 if [[ -t 2 && ${TERM:-dumb} != dumb && ! ${NO_COLOR+x} ]]; then
     LOG_ACCENT=$'\033[36m'; LOG_RESET=$'\033[0m'

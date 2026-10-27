@@ -28,6 +28,7 @@ for name in clean dirty staged dirty-unrelated staged-unrelated diverged detache
 printf 'new\n' > "$AUTHOR/version"
 printf 'incoming\n' > "$AUTHOR/conflict"
 # A changed script must be reloaded, not continue executing old parsed code.
+# shellcheck disable=SC2016 # the sed pattern matches a literal $ROOT in the fixture script
 sed -i 's|> "$ROOT/reached"|> "$ROOT/reached-new"|' "$AUTHOR/deploy.sh"
 printf 'reached-new\n' >> "$AUTHOR/.gitignore"
 git -C "$AUTHOR" add .
@@ -131,10 +132,14 @@ if grep -q $'\033' "$FIXTURE/plain.log"; then fail 'redirected progress has colo
 awk '/^LOG_ACCENT=/{copy=1} /^need_value\(\)/{copy=0} copy' "$ROOT/deploy.sh" > "$FIXTURE/progress.sh"
 (
     unset MW_DEPLOY_GIT_SYNCED
+    # ACTION and PROGRESS_STARTED are read by the sourced deploy.sh helpers.
+    # shellcheck disable=SC2034
     ACTION=deploy
+    # shellcheck source=/dev/null # generated above from deploy.sh
     source "$FIXTURE/progress.sh"
     progress_start
     for label in configuration image backup health finalize; do phase "$label"; done
+    # shellcheck disable=SC2034
     PROGRESS_STARTED=$(($(date +%s) - 3661))
     progress_finish
 ) > "$FIXTURE/timing.out" 2> "$FIXTURE/timing.log"
