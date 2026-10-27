@@ -50,12 +50,19 @@ struct MiniImap {
     expunged: Mutex<Vec<(String, u32)>>,
     /// Answer `expunge_messages` with `Unsupported` (no UIDPLUS).
     refuse_expunge: bool,
+    /// The server has a Drafts folder (a fresh Greenmail account has none).
+    has_drafts: bool,
 }
 
 impl MiniImap {
     fn new(refuse_expunge: bool) -> Arc<Self> {
+        Self::with_folders(refuse_expunge, true)
+    }
+
+    fn with_folders(refuse_expunge: bool, has_drafts: bool) -> Arc<Self> {
         let folders = ["INBOX", "Drafts", "Sent"]
             .into_iter()
+            .filter(|f| has_drafts || *f != "Drafts")
             .map(|f| (f.to_string(), Vec::new()))
             .collect();
         Arc::new(Self {
@@ -63,6 +70,7 @@ impl MiniImap {
             next_uid: Mutex::new(1),
             expunged: Mutex::new(Vec::new()),
             refuse_expunge,
+            has_drafts,
         })
     }
 
@@ -111,6 +119,7 @@ impl AccountBackend for MiniImap {
             ("Drafts", MailboxRole::Drafts),
         ]
         .into_iter()
+        .filter(|(name, _)| self.has_drafts || *name != "Drafts")
         .map(|(name, role)| RawMailbox {
             mailbox_ref: RawMailboxRef {
                 name: name.to_string(),
@@ -247,6 +256,10 @@ struct Harness {
 }
 
 async fn setup(refuse_expunge: bool) -> Harness {
+    setup_with(MiniImap::new(refuse_expunge)).await
+}
+
+async fn setup_with(imap: Arc<MiniImap>) -> Harness {
     let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
     let account_id = store
         .create_account(
@@ -265,7 +278,6 @@ async fn setup(refuse_expunge: bool) -> Harness {
         )
         .await
         .unwrap();
-    let imap = MiniImap::new(refuse_expunge);
     let engine = Arc::new(Engine::new(store));
     engine.register_backend(
         account_id.clone(),
@@ -300,6 +312,12 @@ fn result<'a>(resp: &'a Value, call_id: &str) -> &'a Value {
 }
 
 async fn mailbox_id(h: &Harness, role: &str) -> String {
+    find_mailbox(h, role)
+        .await
+        .unwrap_or_else(|| panic!("a {role} mailbox"))
+}
+
+async fn find_mailbox(h: &Harness, role: &str) -> Option<String> {
     let resp = jmap(h, json!([["Mailbox/get", {}, "m"]])).await;
     result(&resp, "m")["list"]
         .as_array()
@@ -307,8 +325,7 @@ async fn mailbox_id(h: &Harness, role: &str) -> String {
         .iter()
         .find(|m| m["role"] == role)
         .and_then(|m| m["id"].as_str())
-        .unwrap_or_else(|| panic!("a {role} mailbox: {resp}"))
-        .to_string()
+        .map(str::to_string)
 }
 
 /// The ids the engine lists in the mailbox with `role`.
@@ -351,7 +368,12 @@ enum Filing {
 
 /// Compose and send in one request, as the web client does (hold 0).
 async fn send(h: &Harness, subject: &str, filing: Filing) -> Value {
-    let drafts = mailbox_id(h, "drafts").await;
+    // With no Drafts folder the web client names the open mailbox instead
+    // (`roleOf(mailboxes, 'drafts') ?? selectedMailboxId()` in state/slices/mail.ts).
+    let drafts = match find_mailbox(h, "drafts").await {
+        Some(id) => id,
+        None => mailbox_id(h, "inbox").await,
+    };
     let sent = mailbox_id(h, "sent").await;
     let mut set = json!({ "create": { "s1": {
         "emailId": "#draft", "mailwomanHoldSeconds": 0,
@@ -514,4 +536,21 @@ async fn a_server_that_cannot_expunge_keeps_the_copy_and_the_send_stands() {
         Value::Null,
         "not reported as a failure: {g}"
     );
+}
+
+/// t33: a server with no Drafts folder (a fresh Greenmail account; any account
+/// whose server does not auto-create one) answers the draft's APPEND with a
+/// tagged NO. Since 7ed83d9c the IMAP client reports that NO as an error instead
+/// of success, and the compose step failed with it, so nothing could be sent
+/// ("APPEND failed. No such folder"). The upstream copy of a draft is
+/// best-effort: the draft lives in the engine's own Drafts folder and the send
+/// goes out.
+#[tokio::test]
+async fn a_server_without_a_drafts_folder_still_sends() {
+    let h = setup_with(MiniImap::with_folders(false, false)).await;
+    send(&h, "No Drafts upstream", Filing::UpdateIntoSent).await;
+    assert_eq!(h.imap.count("Sent"), 1, "the sent copy is on the server");
+    h.engine.resync(&h.account_id).await.unwrap();
+    assert_eq!(listed(&h, "sent").await.len(), 1, "Sent after resync");
+    assert_eq!(listed(&h, "drafts").await, Vec::<String>::new());
 }

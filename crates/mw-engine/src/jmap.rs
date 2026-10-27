@@ -1763,10 +1763,25 @@ impl Engine {
         // (byte-unchanged). Where the server says where it put the copy
         // (UIDPLUS `APPENDUID`), that is remembered, so the copy can be removed
         // once the message is sent ([`Engine::remove_upstream_draft`]).
+        // The upstream copy is best-effort, as the Sent copy is: a refused
+        // APPEND (no Drafts folder on the server — the engine then keeps its
+        // own, see `ensure_role_mailbox` — or a tagged `NO [OVERQUOTA]`) leaves
+        // the draft engine-local instead of failing the compose, and with it
+        // the send. Since the IMAP client reports a tagged NO to APPEND as an
+        // error (7ed83d9c) this is what keeps such an account able to send.
         let upstream = if self.is_plugin_backed(account_id) {
             None
         } else {
-            tolerant(rt.backend.append(&mbref, &raw, &[Flag::Draft]).await)?
+            match tolerant(rt.backend.append(&mbref, &raw, &[Flag::Draft]).await) {
+                Ok(at) => at,
+                Err(e) => {
+                    tracing::warn!(
+                        "draft kept engine-local: upstream APPEND to {:?} failed: {e}",
+                        mbref.name
+                    );
+                    None
+                }
+            }
         };
 
         let sid = self
