@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { login, sidebarInbox } from './helpers.ts';
+import { login, settingsSurface, sidebarInbox } from './helpers.ts';
 
 // t32-h6: in proxy mode every JMAP method goes to the upstream, and the in-repo
 // mock (like third-party JMAP servers) does not implement `ServerMetadata/get`.
@@ -10,12 +10,16 @@ test.describe('settings against an upstream without Mailwoman extensions', () =>
   test('opening Settings keeps the mailbox and contains the missing ServerMetadata/get', async ({ page }) => {
     await login(page);
 
+    await page.getByRole('button', { name: 'Settings' }).click();
+    const dialog = settingsSurface(page);
+    await expect(dialog).toBeVisible();
+
+    // Settings is sectioned (35fdc0ec): the annotations live under "Server
+    // information" and load only when that section opens.
     const answered = page.waitForResponse(
       async (res) => res.url().endsWith('/jmap/api') && (res.request().postData() ?? '').includes('ServerMetadata/get'),
     );
-    await page.getByRole('button', { name: 'Settings' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Settings' });
-    await expect(dialog).toBeVisible();
+    await dialog.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Server information' }).click();
 
     // The upstream really answered unknownMethod (the case this guards).
     expect(await (await answered).text()).toContain('unknownMethod');
@@ -25,8 +29,9 @@ test.describe('settings against an upstream without Mailwoman extensions', () =>
     );
     await expect(page.getByText('Something went wrong')).toHaveCount(0);
 
-    // Close Settings: the mailbox shell is still there.
-    await page.keyboard.press('Escape');
+    // Close Settings: the mailbox shell is still there. Settings is a workspace
+    // tab now (24fb6149), closed by its own button rather than Escape.
+    await dialog.getByRole('button', { name: 'Close settings' }).click();
     await expect(dialog).toBeHidden();
     await expect(page.getByRole('button', { name: 'Compose' })).toBeVisible();
     await expect(sidebarInbox(page)).toBeVisible();

@@ -13,10 +13,19 @@ test.describe('sanitizer wiring', () => {
     await login(page);
 
     await messageRow(page, 'Your invoice is ready').click();
-    const frame = page.locator('iframe[title="Message body"]');
-    await expect(frame).toBeVisible();
+    // Since fbbf97a4 / 99f51b81 the reader is two frames: a fixed wrapper
+    // (/api/rc/frame, `sandbox="allow-scripts"`, opaque origin, runs only its
+    // hash-pinned bridge) and, inside it, the message frame itself, which gets
+    // the sanitized document by postMessage.
+    const wrapper = page.locator('iframe[title="Message body"]');
+    await expect(wrapper).toBeVisible();
+    await expect(wrapper).toHaveAttribute('src', /\/api\/rc\/frame(\?[^#]*)?#/);
+    const wrapperSandbox = await wrapper.getAttribute('sandbox');
+    expect(wrapperSandbox).not.toBeNull();
+    expect(wrapperSandbox).not.toContain('allow-same-origin');
+    const frame = page.frameLocator('iframe[title="Message body"]').locator('iframe[title="Message content"]');
 
-    // The reader iframe is sandboxed WITHOUT allow-scripts / allow-same-origin.
+    // The message frame is sandboxed WITHOUT allow-scripts / allow-same-origin.
     const sandbox = await frame.getAttribute('sandbox');
     expect(sandbox).not.toBeNull();
     expect(sandbox).not.toContain('allow-scripts');
@@ -46,7 +55,15 @@ test.describe('sanitizer wiring', () => {
     expect(srcdoc, 'the block marker must be present and inert').toMatch(
       /<span[^>]*\bhidden\b[^>]*data-mw-blocked-host="tracker\.evil\.example"/,
     );
-    const withoutMarkers = srcdoc.replace(/\sdata-mw-blocked-host="[^"]*"/g, '');
+    // Reader mode (62b88237) also keeps the original URL of every remote image in
+    // a hidden `data-mw-rc-url` marker, so "Load images" can fetch it through the
+    // content proxy later; like the host marker it is inert. Every such marker
+    // must sit on a hidden span, never on a loadable element.
+    const rcUrlCarriers = srcdoc.match(/<[^>]*\sdata-mw-rc-url="[^"]*"[^>]*>/g) ?? [];
+    for (const tag of rcUrlCarriers) {
+      expect(tag, 'a remote-URL marker is a hidden span').toMatch(/^<span\b[^>]*\shidden\b/);
+    }
+    const withoutMarkers = srcdoc.replace(/\sdata-mw-(?:blocked-host|rc-url)="[^"]*"/g, '');
     expect(
       withoutMarkers,
       'outside the hidden marker the tracker host must not appear at all',
@@ -64,7 +81,7 @@ test.describe('sanitizer wiring', () => {
 
     // The sanitized (script-less) body still renders visibly inside the frame.
     await expect(
-      page.frameLocator('iframe[title="Message body"]').getByText('Please review.'),
+      page.frameLocator('iframe[title="Message body"]').frameLocator('iframe[title="Message content"]').getByText('Please review.'),
     ).toBeVisible();
   });
 });
