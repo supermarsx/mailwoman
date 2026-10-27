@@ -368,6 +368,52 @@ impl Corpus {
 
 /// Seed a store (account + session + optional Assist config), then boot a real
 /// engine-mode server over it and return everything a leg needs to drive HTTP.
+/// The session an engine-mode password sign-in writes for `account`: the
+/// `engine` sentinel for its URLs, the sign-in method, and the verified mailbox
+/// identity bound to it. Personal settings and the engine read the account
+/// through that identity (0a11b581, 0acb06be); a bare row has no storage
+/// authority and is refused.
+async fn signed_in_session(store: &Store, account: &str) -> String {
+    let row = store.get_account(account).await.expect("account row");
+    let id = store
+        .create_session(
+            account,
+            "reader@example.org",
+            "engine",
+            "engine",
+            &Credentials {
+                username: "reader@example.org".into(),
+                password: "pw".into(),
+            },
+        )
+        .await
+        .expect("session");
+    store
+        .set_session_authentication(&id, "password")
+        .await
+        .expect("session authentication method");
+    let authority = format!("imap:{}:{}", row.host.to_ascii_lowercase(), row.port);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    store
+        .bind_verified_primary(
+            &id,
+            mw_store::identity_principal::VerifiedPrimary {
+                account_id: account,
+                kind: "mailbox",
+                authority: &authority,
+                subject: account,
+            },
+            now,
+        )
+        .await
+        .expect("bind the verified identity")
+        .expect("the session takes the verified identity");
+    id
+}
+
 async fn fixture(db_path: &str, assist: Option<AssistWiring>) -> Fixture {
     let imap = spawn_imap_mock().await;
     let key = ServerKey::from_hex(KEY_HEX).unwrap();
@@ -415,19 +461,7 @@ async fn fixture(db_path: &str, assist: Option<AssistWiring>) -> Fixture {
             .expect("0008 assist_config row");
     }
 
-    let cookie = store
-        .create_session(
-            &account,
-            "reader@example.org",
-            "http://upstream.invalid",
-            "http://upstream.invalid",
-            &Credentials {
-                username: "reader@example.org".into(),
-                password: "pw".into(),
-            },
-        )
-        .await
-        .expect("session");
+    let cookie = signed_in_session(&store, &account).await;
 
     let base = spawn_server(db_path).await;
     Fixture {
@@ -1308,6 +1342,14 @@ async fn drive_appearance(db_path: &str, dialect: &str) {
     let c = f.client();
     let cookie = format!("mw_session={}", f.cookie);
     let url = format!("{}/api/account/appearance", f.base);
+    // Writes name the session's storage authority (0a11b581), as the web client
+    // sends what the sign-in returned.
+    let authority = f
+        .store
+        .session_storage_authority(&f.cookie)
+        .await
+        .unwrap()
+        .expect("the fixture session has a storage authority");
 
     // Nothing stored yet: the account's own value is null, and the deployment default
     // is reported alongside it (a DEFAULT, never an enforcement).
@@ -1335,6 +1377,7 @@ async fn drive_appearance(db_path: &str, dialect: &str) {
     let prefs = json!({ "theme": "grove-dark", "mode": "system", "density": "cosy" });
     let put: Value = c
         .put(&url)
+        .header("x-mailwoman-storage-authority", &authority)
         .header(reqwest::header::COOKIE, &cookie)
         .json(&json!({ "appearance": prefs }))
         .send()
@@ -1364,20 +1407,7 @@ async fn drive_appearance(db_path: &str, dialect: &str) {
 
     // A fresh session for the same account sees it — it is account state, not
     // device state.
-    let second = f
-        .store
-        .create_session(
-            &f.account,
-            "reader@example.org",
-            "http://upstream.invalid",
-            "http://upstream.invalid",
-            &Credentials {
-                username: "reader@example.org".into(),
-                password: "pw".into(),
-            },
-        )
-        .await
-        .unwrap();
+    let second = signed_in_session(&f.store, &f.account).await;
     let got: Value = c
         .get(&url)
         .header(reqwest::header::COOKIE, format!("mw_session={second}"))
@@ -1396,6 +1426,7 @@ async fn drive_appearance(db_path: &str, dialect: &str) {
     let oversized = json!({ "blob": "x".repeat(9 * 1024) });
     let resp = c
         .put(&url)
+        .header("x-mailwoman-storage-authority", &authority)
         .header(reqwest::header::COOKIE, &cookie)
         .json(&json!({ "appearance": oversized }))
         .send()
@@ -1423,6 +1454,7 @@ async fn drive_appearance(db_path: &str, dialect: &str) {
     // A non-object is refused too (nothing else can round-trip into a preference set).
     let resp = c
         .put(&url)
+        .header("x-mailwoman-storage-authority", &authority)
         .header(reqwest::header::COOKIE, &cookie)
         .json(&json!({ "appearance": "grove-dark" }))
         .send()
@@ -1439,6 +1471,7 @@ async fn drive_appearance(db_path: &str, dialect: &str) {
     // old object would win the next reconcile and resurrect what the user forgot.
     let del: Value = c
         .delete(&url)
+        .header("x-mailwoman-storage-authority", &authority)
         .header(reqwest::header::COOKIE, &cookie)
         .send()
         .await
