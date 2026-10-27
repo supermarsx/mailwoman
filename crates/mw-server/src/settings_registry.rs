@@ -1660,7 +1660,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "3",
         G,
         "signin",
-        "initial sign-in retry cooldown"
+        "wait after a sign-in attempt that does not end in a session (per source network)"
     ),
     // ── Sign-in (e66, e70b) ──────────────────────────────────────────────────
     dedicated(

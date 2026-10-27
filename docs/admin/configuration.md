@@ -443,7 +443,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="security.signin.adminfailurelimit"></a>`security.signin.adminFailureLimit` | security | global | 5 | plain |  | yes | rejected admin credentials per source before a temporary lock |
 | <a id="security.signin.failurewindowsecs"></a>`security.signin.failureWindowSecs` | security | global | 900 | plain |  | yes | rolling failed-credential counting window |
 | <a id="security.signin.locksecs"></a>`security.signin.lockSecs` | security | global | 900 | plain |  | yes | fixed temporary source lock duration; rejected retries never extend it |
-| <a id="signin.retrycooldownsecs"></a>`signin.retryCooldownSecs` | signin | global | 3 | plain |  | yes | initial sign-in retry cooldown |
+| <a id="signin.retrycooldownsecs"></a>`signin.retryCooldownSecs` | signin | global | 3 | plain |  | yes | wait after a sign-in attempt that does not end in a session (per source network) |
 | <a id="signin.newusers"></a>`signin.newUsers` | signin | global+domain | "open" | plain |  | yes | signin_policy::admit new-user rule |
 | <a id="signin.domainmode"></a>`signin.domainMode` | signin | global | "any" | plain |  | yes | domain gate mode (e12) |
 | <a id="signin.refusaldetail"></a>`signin.refusalDetail` | signin | global | "explain" | plain |  | yes | refusal answers: explain (403 codes) or uniform (401) |
