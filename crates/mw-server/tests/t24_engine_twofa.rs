@@ -605,10 +605,15 @@ macro_rules! d5_merge_scenario {
         );
         assert_eq!(one("SELECT COUNT(*) FROM quotas WHERE account_id = 'b-dup'").await, 1);
         assert_eq!(strings("SELECT scope FROM assist_config").await, vec!["user:b-dup"]);
+        // 0028 repointed the session at the survivor, but the store opens to the
+        // newest schema, and 0036 (d7665823) deletes every session written before
+        // it: a pre-0036 row cannot tell a user's password from a header-auth
+        // service password. So the upgraded database has no session at all; the
+        // ACCOUNT_KEYED sweep below still proves none names the removed account.
         assert_eq!(
             strings("SELECT account_id FROM sessions").await,
-            vec!["b-dup"],
-            "an existing session now names the survivor"
+            Vec::<String>::new(),
+            "pre-0036 sessions are signed out by the upgrade"
         );
 
         // Nothing is left pointing at the removed account, or at removed rows.
