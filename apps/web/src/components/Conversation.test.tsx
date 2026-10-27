@@ -7,6 +7,15 @@ vi.mock('../api/transport.ts',()=>({createConfiguredClient:()=>({jmap:state.jmap
 vi.mock('../state/context.ts',()=>({useApp:()=>({accountId:()=> 'a',mailboxes:()=>[{id:'archive',name:'Archive'}],openMessage:state.open})}));
 afterEach(()=>{suspendAccountPreferences();vi.clearAllMocks();});
 describe('reader conversation',()=>{
+ it('names the icon-only conversation disclosure and uses a themed tooltip',()=>{
+  render(()=><Conversation threadId="t" messageId="current" active/>);
+  const trigger=screen.getByRole('button',{name:'View conversation'});
+  expect(trigger.textContent).toBe('');
+  expect(trigger).toHaveAttribute('data-tooltip','View conversation');
+  expect(trigger).toHaveAttribute('aria-haspopup','dialog');
+  expect(trigger).not.toHaveAttribute('title');
+ });
+
  it('opens an explicitly selected member outside the displayed folder',async()=>{
   activateAccountPreferences('a');state.jmap.mockResolvedValueOnce({methodResponses:[['Thread/get',{accountId:'a',list:[{id:'t',emailIds:['x']}]},'thread']]}).mockResolvedValueOnce({methodResponses:[['Email/get',{accountId:'a',list:[{id:'x',threadId:'t',subject:'Archived message',mailboxIds:{archive:true}}]},'members']]});
   render(()=><Conversation threadId="t" messageId="current" active/>);expect(state.jmap).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'View conversation'}));

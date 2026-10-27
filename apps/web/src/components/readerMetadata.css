@@ -1,0 +1,17 @@
+.reader__metadata-line { display:flex; align-items:baseline; gap:.5rem; min-inline-size:0; margin-block:.25rem; font-size:.72rem; }
+.reader__metadata-line > * { min-inline-size:0; }
+.reader__metadata-line .time-helper { margin:0; flex:0 1 auto; }
+.reader__metadata-line .time-helper summary { max-inline-size:100%; }
+.reader__metadata-line .time-helper time { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.reader__metadata-line .spam-score { flex:1 1 0; }
+.reader__metadata-line .spam-score__empty { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.reader__metadata-line .spam-score__item { border:0; background:transparent; min-inline-size:0; }
+.reader__metadata-line .spam-score__item summary { padding-inline:0; }
+.reader__metadata-line .spam-score__source { overflow:hidden; text-overflow:ellipsis; }
+.reader__metadata-line .spam-score__item strong { flex-shrink:0; }
+/* Expanded disclosures keep their original contents and can use the full row. */
+.reader__metadata-line:has(details[open]) { flex-wrap:wrap; }
+.reader__metadata-line .time-helper[open], .reader__metadata-line .spam-score:has(details[open]) { flex-basis:100%; }
+@media (pointer:coarse) {
+ .reader__metadata-line summary { min-block-size:2.75rem; }
+}

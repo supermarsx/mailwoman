@@ -28,6 +28,7 @@ import * as a11y from './mailA11y.css.ts';
 // Reading-pane layout switch (W3): the globalStyle overrides keyed on
 // `:root[data-reading-pane]`. Imported for its side effect so the rules ship.
 import './readerPane.css.ts';
+import './readerMetadata.css';
 import { createNarrowViewport } from './narrowViewport.ts';
 import { SweepDialog } from './SweepDialog.tsx';
 import { ThumbnailStrip, type StripItem } from '../viewers/ThumbnailStrip.tsx';
@@ -980,8 +981,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   <span>{t('mail-reader-cc', { addr: isolate(addressList(email().cc ?? null)) })}</span>
                 </Show>
               </div>
+              <div class="reader__metadata-line">
               <MessageTimes sent={email().sentAt} received={email().receivedAt}/>
-              <div class="reader__security-line">
               {/* Security chip → expandable panel: server verdict merged
                   with the client decrypt/verify result. */}
               <Show when={verdict()}>
@@ -989,6 +990,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   const tid = threadId();
                   return (
                     <SecurityPanel
+                      inline
                       verdict={v()}
                       senderAddress={sender()}
                       {...(tid !== undefined ? { threadId: tid } : {})}

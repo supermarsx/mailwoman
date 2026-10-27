@@ -316,3 +316,9 @@ export const statusLive = style({
   fontSize: '0.8rem',
   minHeight: '1.1rem',
 });
+
+/** Text-sized disclosure, with the same keyboard and coarse-pointer target. */
+export const inlineChip = style({
+  border: 'none', background: 'transparent', paddingInline: 0,
+  selectors: {'&:hover': {boxShadow: 'none', textDecoration: 'underline'}},
+});

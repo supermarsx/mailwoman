@@ -53,6 +53,8 @@ export interface SecurityPanelProps {
   threadId?: string;
   /** Start expanded (default collapsed to the chip). */
   initiallyExpanded?: boolean;
+  /** Compact Reader metadata trigger; full details remain in the same dialog. */
+  inline?: boolean;
   /**
    * Dispatch a sender control. Defaults to a standalone mock (`defaultSenderControl`);
    * e8 passes a real `SenderControl/set` dispatch when it mounts the component.
@@ -90,16 +92,16 @@ export function SecurityPanel(props: SecurityPanelProps): JSX.Element {
       <button
         ref={chipRef}
         type="button"
-        class={`${css.chip} ${css.chipTone[tone()]}`}
+        class={`${css.chip} ${css.chipTone[tone()]} ${props.inline ? css.inlineChip : ''}`}
         aria-expanded={expanded()}
         aria-controls={panelId}
         aria-haspopup="dialog"
         aria-label={props.verdict.plainLanguage}
-        title={props.verdict.plainLanguage}
+        data-tooltip={props.verdict.plainLanguage}
         onClick={() => setExpanded((v) => !v)}
       >
         <span class={`${css.chipDot} ${css.chipDotTone[tone()]}`} aria-hidden="true" />
-        <span class={css.chipLabel}>DKIM · SPF · DMARC</span>
+        <span class={css.chipLabel}>{props.inline ? `DMARC ${t(`security-auth-${props.verdict.auth.dmarc.result}`)}` : 'DKIM · SPF · DMARC'}</span>
         <span class={css.chipCaret} aria-hidden="true">
           <Icon name={expanded() ? 'chevronUp' : 'chevronDown'} />
         </span>

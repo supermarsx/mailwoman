@@ -9,6 +9,8 @@ it('shows explicit comparison with no inferred location',()=>{
  expect(screen.getByText('Time in America/New_York')).toBeInTheDocument();
  expect(screen.getByText(/timestamps do not identify/)).toBeInTheDocument();
  expect(document.querySelector('time')).toHaveAttribute('datetime','2026-07-01T12:00:00Z');
+ expect(document.querySelector('summary')).toHaveAttribute('data-tooltip');
+ expect(document.querySelector('summary')).not.toHaveAttribute('title');
 });
 it('honors the effective helper policy',()=>{
  data.values['time.showHelpers']={value:false};

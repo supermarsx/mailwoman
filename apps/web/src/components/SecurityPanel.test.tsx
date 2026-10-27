@@ -58,6 +58,20 @@ function renderExpanded(overrides: Partial<SecurityVerdict> = {}, props = {}) {
 }
 
 describe('SecurityPanel — collapsed chip', () => {
+  it('uses a subtle named DMARC disclosure without losing authentication details', () => {
+    render(() => <SecurityPanel verdict={baseVerdict()} inline />);
+    const trigger = screen.getByRole('button', {name: baseVerdict().plainLanguage});
+    expect(trigger).toHaveTextContent('DMARC passed');
+    expect(trigger).toHaveAttribute('data-tooltip', baseVerdict().plainLanguage);
+    expect(trigger).not.toHaveAttribute('title');
+    fireEvent.click(trigger);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('region', {name: 'Message security details'})).toBeInTheDocument();
+    fireEvent.keyDown(trigger, {key: 'Escape'});
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(trigger).toHaveFocus();
+  });
+
   it('renders the plain-language chip collapsed by default (panel hidden)', () => {
     render(() => <SecurityPanel verdict={baseVerdict()} />);
     const chip = screen.getByRole('button', { expanded: false });
