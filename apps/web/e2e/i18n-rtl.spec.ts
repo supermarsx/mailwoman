@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { engineLogin } from './helpers.ts';
+import { disableSigninCooldown, engineLogin } from './helpers.ts';
 
 /**
  * Pseudolocale + RTL smoke (1.0 hardening, SPEC §24 / ROADMAP-1.0 L21).
@@ -19,6 +19,12 @@ import { engineLogin } from './helpers.ts';
  *
  * Runs against the engine-mode stack (:8090) via .github/workflows/a11y.yml.
  */
+
+// Each test signs in again from the same address; switch the stack's per-IP
+// sign-in pacing (`signin.retryCooldownSecs`, d94472d7) off once per file.
+test.beforeAll(async ({ playwright }, testInfo) => {
+  await disableSigninCooldown(playwright.request, String(testInfo.project.use.baseURL));
+});
 
 /** Force right-to-left on the document root (mirrors what a real RTL locale does). */
 async function forceRtl(page: Page): Promise<void> {

@@ -1,6 +1,14 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from './csrf.ts';
 import AxeBuilder from '@axe-core/playwright';
-import { engineLogin, injectViaSmtp, waitForInboxMessage, messageRow } from './helpers.ts';
+import {
+  disableSigninCooldown,
+  engineLogin,
+  injectViaSmtp,
+  messageRow,
+  resetAccountAppearance,
+  setAccountAppearance,
+  waitForInboxMessage,
+} from './helpers.ts';
 
 /**
  * axe-core WCAG 2.2 AA gate (1.0 hardening, SPEC §24 / ROADMAP-1.0 L21).
@@ -11,7 +19,7 @@ import { engineLogin, injectViaSmtp, waitForInboxMessage, messageRow } from './h
  * hardened:
  *   • login (pre-auth)              • OAuth consent screen
  *   • admin sign-in gate            • mailbox + Ribbon (WAI-ARIA tablist)
- *   • Settings dialog (aria-modal)  • Calendar month GRID (the §24 flagship)
+ *   • Settings (workspace tab)      • Calendar month GRID (the §24 flagship)
  *   • Security panel (verdict badges + Received chain)
  *
  * FAIL on ANY WCAG 2.2 AA violation. This is a REAL gate, not a rubber stamp: a
@@ -28,6 +36,27 @@ import { engineLogin, injectViaSmtp, waitForInboxMessage, messageRow } from './h
 // 2.2 success criteria (e.g. 2.5.8 target size, 2.4.11 focus not obscured) that the
 // token contract (touch targets) + focus primitives were built to satisfy.
 const WCAG_22_AA = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+
+// Every test signs in again as the same engine account from the same address.
+// The stack's per-IP sign-in pacing (`signin.retryCooldownSecs`, 3 s by default
+// since d94472d7) would answer most of those 429, so it is switched off for the
+// test stack once per file.
+test.beforeAll(async ({ playwright }, testInfo) => {
+  await disableSigninCooldown(playwright.request, String(testInfo.project.use.baseURL));
+});
+
+// Appearance is stored per account on the server and the browser adopts it on
+// sign-in (api/prefs.ts), so a theme one test picks (or the Dark default the first
+// sign-in pushes) would carry into the next test. Start each test from "nothing
+// stored"; see `resetAccountAppearance`.
+test.beforeEach(async ({ request }) => {
+  await resetAccountAppearance(request);
+});
+
+/** The Settings surface: a workspace tab whose panel is a region named "Settings". */
+function settingsSurface(page: Page) {
+  return page.getByRole('tabpanel', { name: 'Settings' }).getByRole('region', { name: 'Settings' });
+}
 
 interface ScanOptions {
   /** Restrict the scan to this selector (e.g. a dialog) instead of the whole page. */
@@ -67,7 +96,7 @@ async function scanAxe(page: Page, screen: string, opts: ScanOptions = {}): Prom
 test.describe('axe WCAG 2.2 AA gate', () => {
   test('login screen (pre-auth)', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
     await scanAxe(page, 'login');
   });
 
@@ -75,7 +104,7 @@ test.describe('axe WCAG 2.2 AA gate', () => {
     // The /admin route lazily mounts the admin panel, which renders a sign-in gate
     // (a real form) before any admin session exists — axe-scannable without creds.
     await page.goto('/admin');
-    await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
     await scanAxe(page, 'admin-signin');
   });
 
@@ -85,7 +114,7 @@ test.describe('axe WCAG 2.2 AA gate', () => {
     // scan whatever the screen presents — the chrome is the owned surface.
     await page.goto('/oauth/authorize');
     // Wait for the consent screen to settle out of its loading state.
-    await expect(page.getByRole('button', { name: 'Sign in' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
     await page.waitForLoadState('networkidle');
     await scanAxe(page, 'consent');
   });
@@ -97,14 +126,15 @@ test.describe('axe WCAG 2.2 AA gate', () => {
     await scanAxe(page, 'mailbox+ribbon');
   });
 
-  test('Settings dialog (aria-modal)', async ({ page }) => {
+  test('Settings (workspace tab)', async ({ page }) => {
     await engineLogin(page);
-    await page.getByRole('button', { name: 'Settings' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Settings' });
-    await expect(dialog).toBeVisible();
-    // Scan the whole page (the modal + its backdrop context) so aria-modal + the
-    // menu/group semantics inside the dialog are covered.
-    await scanAxe(page, 'settings-dialog');
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    // Settings opens as a workspace tab (a labelled region inside the tab panel),
+    // not a modal dialog, since 24fb6149.
+    await expect(settingsSurface(page)).toBeVisible();
+    // Scan the whole page (the tab strip + the panel) so the tab/tabpanel wiring
+    // and the menu/group semantics inside Settings are covered.
+    await scanAxe(page, 'settings');
   });
 
   test('Calendar month grid', async ({ page }) => {
@@ -149,11 +179,14 @@ test.describe('axe WCAG 2.2 AA gate', () => {
 // never bound to a CSS selector, or a surface painted by a token pair the
 // requirement table does not describe.
 
-/** Seed `mw.theme.prefs` before boot so the app starts on a given pack. */
-async function seedTheme(page: Page, theme: string): Promise<void> {
-  await page.addInitScript((t) => {
-    localStorage.setItem('mw.theme.prefs', JSON.stringify({ mode: 'fixed', theme: t }));
-  }, theme);
+/**
+ * Store a fixed pack as the account's appearance so the next sign-in starts on
+ * it. (A `localStorage` seed no longer survives sign-in: the client resets to the
+ * defaults on an account change and adopts the account's stored set; see
+ * `setAccountAppearance`.)
+ */
+async function seedTheme(request: APIRequestContext, theme: string): Promise<void> {
+  await setAccountAppearance(request, { mode: 'fixed', theme, chosen: true });
 }
 
 test.describe('theme contrast in a real browser', () => {
@@ -161,8 +194,8 @@ test.describe('theme contrast in a real browser', () => {
   // palette, the light/dark variants of a family share their structure, and a
   // full-shell axe scan is not cheap. The numeric matrix covers all 13.
   for (const theme of ['light', 'dark', 'slate-dark', 'ocean-light', 'plum-dark', 'grove-light', 'amoled']) {
-    test(`mailbox chrome on ${theme}`, async ({ page }) => {
-      await seedTheme(page, theme);
+    test(`mailbox chrome on ${theme}`, async ({ page, request }) => {
+      await seedTheme(request, theme);
       await engineLogin(page);
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
       await expect(page.getByRole('tablist')).toBeVisible();
@@ -170,19 +203,21 @@ test.describe('theme contrast in a real browser', () => {
     });
   }
 
-  test('Settings dialog on the high-contrast light pack', async ({ page }) => {
-    await seedTheme(page, 'hc-light');
+  test('Settings on the high-contrast light pack', async ({ page, request }) => {
+    await seedTheme(request, 'hc-light');
     await engineLogin(page);
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'hc-light');
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(settingsSurface(page)).toBeVisible();
     await scanAxe(page, 'settings/hc-light');
   });
 
-  test('Settings dialog on the high-contrast dark pack', async ({ page }) => {
-    await seedTheme(page, 'hc-dark');
+  test('Settings on the high-contrast dark pack', async ({ page, request }) => {
+    await seedTheme(request, 'hc-dark');
     await engineLogin(page);
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'hc-dark');
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(settingsSurface(page)).toBeVisible();
     await scanAxe(page, 'settings/hc-dark');
   });
 });
@@ -208,22 +243,22 @@ test.describe('forced colours and reduced motion', () => {
     await scanAxe(page, 'mailbox/forced-colors');
   });
 
-  test('Settings dialog under forced-colors: active', async ({ page }) => {
+  test('Settings under forced-colors: active', async ({ page }) => {
     await page.emulateMedia({ forcedColors: 'active' });
     await engineLogin(page);
-    await page.getByRole('button', { name: 'Settings' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Settings' });
-    await expect(dialog).toBeVisible();
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    const settings = settingsSurface(page);
+    await expect(settings).toBeVisible();
     // The theme picker marks the active pack with `aria-pressed`, not colour
     // alone — which is exactly what keeps it usable when the fill is discarded.
-    await expect(dialog.locator('button[aria-pressed="true"]').first()).toBeVisible();
+    await expect(settings.locator('button[aria-pressed="true"]').first()).toBeVisible();
     await scanAxe(page, 'settings/forced-colors');
   });
 
   test('login screen under forced-colors: active', async ({ page }) => {
     await page.emulateMedia({ forcedColors: 'active' });
     await page.goto('/');
-    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
     await scanAxe(page, 'login/forced-colors');
   });
 
@@ -235,9 +270,9 @@ test.describe('forced colours and reduced motion', () => {
     await engineLogin(page);
     await expect(page.locator('html')).toHaveAttribute('data-reduced-motion', '');
 
-    await page.getByRole('button', { name: 'Settings' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Settings' });
-    await dialog.getByRole('button', { name: 'AMOLED' }).click();
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    const settings = settingsSurface(page);
+    await settings.getByRole('button', { name: 'AMOLED' }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'amoled');
     await expect(page.locator('html')).toHaveAttribute('data-reduced-motion', '');
   });
