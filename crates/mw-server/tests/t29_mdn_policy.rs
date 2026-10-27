@@ -836,4 +836,14 @@ async fn signature_formats_http_sanitizes_and_fences_account_switch() {
     assert_eq!(body["signatures"][0]["text"],"Independent <plain> & text");
     let denied=client.delete(format!("{url}/format-test")).header("X-Mailwoman-Account","other-account").send().await.unwrap();assert_eq!(denied.status(),403);
     assert_eq!(server.store().await.list_personal_signatures(&owner).await.unwrap().len(),1);
+    let mut first_default=dto.clone();first_default["isDefault"]=json!(true);
+    assert_eq!(client.post(&url).header("X-Mailwoman-Account",&account).header("x-mailwoman-storage-authority",authority).json(&first_default).send().await.unwrap().status(),200);
+    let mut second_default=first_default.clone();second_default["name"]=json!("second-default");
+    assert_eq!(client.post(&url).header("X-Mailwoman-Account",&account).header("x-mailwoman-storage-authority",authority).json(&second_default).send().await.unwrap().status(),200);
+    let body=client.get(&url).header("X-Mailwoman-Account",&account).header("x-mailwoman-storage-authority",authority).send().await.unwrap().json::<Value>().await.unwrap();
+    let signatures=body["signatures"].as_array().unwrap();
+    assert_eq!(signatures.len(),2);
+    assert_eq!(signatures.iter().filter(|row|row["isDefault"]==true).count(),1);
+    assert!(signatures.iter().any(|row|row["name"]=="second-default"&&row["isDefault"]==true));
+    for row in signatures {assert_eq!(row["html"],"<p>Rich <strong>signature</strong></p>");assert_eq!(row["text"],"Independent <plain> & text");}
 }
