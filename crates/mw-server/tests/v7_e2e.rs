@@ -505,18 +505,6 @@ async fn plugin_backed_engine() -> (Arc<Engine>, String, Arc<GraphFixtureHttp>) 
         TrustRoot::empty(),
     )
     .unwrap();
-    let handle = host
-        .load(
-            BRIDGE_GRAPH_WASM,
-            &graph_manifest(GRAPH_CAPS.to_vec()),
-            &graph_grant(GRAPH_CAPS.to_vec()),
-        )
-        .unwrap();
-    assert!(handle.is_unsigned(), "unsigned bridge ⇒ banner signal");
-    let backend = handle
-        .as_account_backend()
-        .expect("the account-backend adapter is available");
-
     let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
     let account_id = store
         .create_account(
@@ -535,6 +523,21 @@ async fn plugin_backed_engine() -> (Arc<Engine>, String, Arc<GraphFixtureHttp>) 
         )
         .await
         .unwrap();
+    let handle = host
+        // Bound like `v7_mount::load_plugin_backends`: since 612d4cb6 an unbound
+        // instance gets no credentials from the host.
+        .load_for_account(
+            BRIDGE_GRAPH_WASM,
+            &graph_manifest(GRAPH_CAPS.to_vec()),
+            &graph_grant(GRAPH_CAPS.to_vec()),
+            &account_id,
+        )
+        .unwrap();
+    assert!(handle.is_unsigned(), "unsigned bridge ⇒ banner signal");
+    let backend = handle
+        .as_account_backend()
+        .expect("the account-backend adapter is available");
+
     let engine = Arc::new(Engine::new(store));
     engine.register_plugin_backend(
         account_id.clone(),

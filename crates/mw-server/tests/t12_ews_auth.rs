@@ -130,6 +130,8 @@ async fn seed_basic_account() -> Option<(Store, String)> {
 /// one account" contract: the guest's (empty) handle is ignored and the bound
 /// account's sealed 0011 creds are unsealed from the store. This is exactly the shape
 /// the escalated fix should produce (a per-account-bound provider).
+/// Since 612d4cb6 the host also requires the INSTANCE to be bound
+/// (`load_for_account`); an unbound instance gets no credentials at all.
 struct BoundStoreCreds {
     store: Store,
     account: String,
@@ -320,12 +322,15 @@ async fn ews_basic_per_account_through_jail() {
     let fake = FakeEws::new();
     let services = HostServices {
         http: fake.clone(),
-        basic_creds: Arc::new(BoundStoreCreds { store, account }),
+        basic_creds: Arc::new(BoundStoreCreds {
+            store,
+            account: account.clone(),
+        }),
         ..HostServices::default()
     };
     let host = PluginHost::try_new(services, TrustRoot::empty()).unwrap();
     let handle = host
-        .load(GUEST, &manifest(&[ENDPOINT_HOST]), &grant())
+        .load_for_account(GUEST, &manifest(&[ENDPOINT_HOST]), &grant(), &account)
         .expect("load bridge-ews");
     let backend = handle
         .as_account_backend()
@@ -361,16 +366,20 @@ async fn ews_net_allowlist_admits_only_account_endpoint_host() {
     let fake = FakeEws::new();
     let services = HostServices {
         http: fake.clone(),
-        basic_creds: Arc::new(BoundStoreCreds { store, account }),
+        basic_creds: Arc::new(BoundStoreCreds {
+            store,
+            account: account.clone(),
+        }),
         ..HostServices::default()
     };
     let host = PluginHost::try_new(services, TrustRoot::empty()).unwrap();
     // net_allowlist deliberately EXCLUDES the account's endpoint host.
     let handle = host
-        .load(
+        .load_for_account(
             GUEST,
             &manifest(&["not-the-account-host.example"]),
             &grant(),
+            &account,
         )
         .expect("load bridge-ews");
     let backend = handle.as_account_backend().unwrap();
