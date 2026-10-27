@@ -1,4 +1,4 @@
-import { expect, type APIRequest, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequest, type APIRequestContext, type APIResponse, type Page } from '@playwright/test';
 import net from 'node:net';
 
 /**
@@ -59,6 +59,26 @@ export async function signInManually(
 }
 
 /**
+ * POST a sign-in over the API, waiting out the server's sign-in cooldown (429
+ * `signinCooldown` + Retry-After, see `signInManually`) up to three times.
+ */
+export async function postSignIn(
+  ctx: APIRequestContext,
+  url: string,
+  data: Record<string, unknown>,
+): Promise<APIResponse> {
+  let res = await ctx.post(url, { data });
+  for (let attempt = 0; res.status() === 429 && attempt < 3; attempt += 1) {
+    const body = (await res.json().catch(() => null)) as { code?: unknown } | null;
+    if (body?.code !== 'signinCooldown') break;
+    const wait = Number(res.headers()['retry-after'] ?? '3');
+    await new Promise((resolve) => setTimeout(resolve, (Number.isFinite(wait) ? Math.min(wait, 30) : 3) * 1000 + 250));
+    res = await ctx.post(url, { data });
+  }
+  return res;
+}
+
+/**
  * Admin console credentials of the engine stack (`MW_ADMIN_USER` /
  * `MW_ADMIN_PASSWORD` of `mailwoman-engine` in docker-compose.dev.yml).
  */
@@ -80,12 +100,7 @@ export const ENGINE_ADMIN = {
 export async function disableSigninCooldown(factory: APIRequest, baseURL: string): Promise<void> {
   const ctx = await factory.newContext({ baseURL });
   try {
-    let signedIn = await ctx.post('/admin/login', { data: ENGINE_ADMIN });
-    for (let attempt = 0; signedIn.status() === 429 && attempt < 3; attempt += 1) {
-      const wait = Number(signedIn.headers()['retry-after'] ?? '3');
-      await new Promise((resolve) => setTimeout(resolve, (Number.isFinite(wait) ? Math.min(wait, 30) : 3) * 1000 + 250));
-      signedIn = await ctx.post('/admin/login', { data: ENGINE_ADMIN });
-    }
+    const signedIn = await postSignIn(ctx, '/admin/login', ENGINE_ADMIN);
     expect(signedIn.status(), 'admin API sign-in for the cooldown policy').toBe(200);
     const url = '/admin/settings/signin.retryCooldownSecs';
     const current = await ctx.get(url);
@@ -186,6 +201,17 @@ export function messageSlot(page: Page, subject: string) {
 }
 
 /**
+ * The composer. On the desktop workspace it opens as a tab whose panel is a
+ * region named "Compose message" (24fb6149); the modal dialog of the same name is
+ * accepted too, for layouts that still present it that way.
+ */
+export function composeSurface(page: Page) {
+  return page
+    .getByRole('region', { name: 'Compose message', exact: true })
+    .or(page.getByRole('dialog', { name: 'Compose message', exact: true }));
+}
+
+/**
  * Compose a self-addressed message and click Send. Does NOT wait for delivery —
  * the engine holds the submission for its undo-send window (~10 s) before it
  * dials SMTP, so callers use {@link waitForInboxMessage} to await arrival.
@@ -198,7 +224,7 @@ export async function composeSelf(
   opts: { sendLater?: string } = {},
 ): Promise<void> {
   await page.getByRole('button', { name: 'Compose' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Compose message' });
+  const dialog = composeSurface(page);
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('To', { exact: true }).fill(ENGINE_CREDS.selfAddress);
   await dialog.getByLabel('Subject', { exact: true }).fill(subject);
@@ -208,7 +234,7 @@ export async function composeSelf(
     await expect(dialog.getByRole('button', { name: 'Schedule' })).toBeVisible();
     await dialog.getByRole('button', { name: 'Schedule' }).click();
   } else {
-    await dialog.getByRole('button', { name: 'Send' }).click();
+    await dialog.getByRole('button', { name: 'Send', exact: true }).click();
   }
   await expect(dialog).toBeHidden();
 }
@@ -412,11 +438,9 @@ export async function setAccountAppearance(
  * `/api/me` returned (`src/api/storageAuthority.ts`), and so do these helpers.
  */
 async function engineApiSignIn(request: APIRequestContext, purpose: string): Promise<string> {
-  const login = await request.post('/api/login', {
-    data: {
-      username: ENGINE_CREDS.username,
-      password: ENGINE_CREDS.password,
-    },
+  const login = await postSignIn(request, '/api/login', {
+    username: ENGINE_CREDS.username,
+    password: ENGINE_CREDS.password,
   });
   expect(login.status(), `engine API login for ${purpose}`).toBe(200);
   let authority = ((await login.json().catch(() => null)) as { storageAuthority?: unknown } | null)?.storageAuthority;
