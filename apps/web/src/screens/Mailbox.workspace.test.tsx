@@ -70,7 +70,9 @@ describe('retained mailbox workspace',()=>{
     expect(container.querySelector('[data-surface="contacts"]')).toBe(contacts);
     fireEvent.click(screen.getByRole('tab',{name:'Contacts'}));
     expect(screen.getByRole('tab',{name:'Contacts'})).toHaveAttribute('aria-selected','true');
-    fireEvent.click(screen.getByRole('button',{name:'Close Tasks'}));
+    expect(screen.queryByRole('button',{name:'Close Tasks'})).toBeNull();
+    fireEvent.contextMenu(screen.getByRole('tab',{name:'Tasks'}));
+    fireEvent.click(await screen.findByRole('menuitem',{name:'Close Tasks'}));
     await waitFor(()=>expect(realtime.subTabs.tabs().some(tab=>tab.title==='Tasks')).toBe(false));
     expect(container.querySelector('[data-surface="contacts"]')).toBe(contacts);
   });

@@ -181,7 +181,7 @@
 .compose__header-actions { display:flex; align-items:center; justify-content:flex-end; gap:.25rem; flex-wrap:wrap; margin-inline-start:auto; }
 .compose__header .btn { width:auto; min-block-size:2rem; padding:.3rem .5rem; font-size:.8rem; }
 .compose > :is(.compose__to,.compose__subject), .compose .compose__to { display:grid; grid-template-columns:4rem minmax(0,1fr); align-items:center; gap:.35rem; margin-block:.2rem; }
-.compose :is(.compose__to,.compose__subject) input { min-block-size:2rem; padding:.3rem .45rem; }
+.compose :is(.compose__to,.compose__subject) input:not([type=checkbox]):not([type=radio]) { min-block-size:2rem; padding:.3rem .45rem; }
 .compose [data-testid=account-draft-status] { margin:.2rem 0; font-size:.7rem; }
 .compose-rt__footer { padding:.15rem .35rem; gap:.3rem; }
 
