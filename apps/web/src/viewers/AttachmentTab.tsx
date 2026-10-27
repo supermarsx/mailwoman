@@ -6,7 +6,7 @@ import { AttachmentViewer } from './AttachmentViewer.tsx';
 import { inspectFile } from './fileInfo.ts';
 import type { StripItem } from './ThumbnailStrip.tsx';
 import { formatSize } from './attachments.ts';
-import { t } from '../i18n';
+import { formatNumber, t } from '../i18n';
 import './attachment-tab.css';
 
 export interface AttachmentTabItem extends StripItem { downloadUrl: string }
@@ -51,7 +51,7 @@ export function AttachmentTab(props: { item: AttachmentTabItem }): JSX.Element {
         <dt>{t('mail-file-extension')}</dt><dd>{loaded().info.extension || '—'}</dd>
         <dt>MIME</dt><dd>{props.item.mime || 'application/octet-stream'}</dd>
         <dt>{t('mail-file-detected')}</dt><dd>{loaded().info.detected || t('mail-file-unknown')}</dd>
-        <dt>{t('mail-file-size')}</dt><dd>{formatSize(loaded().size)} ({loaded().size.toLocaleString()} bytes)</dd>
+        <dt>{t('mail-file-size')}</dt><dd>{formatSize(loaded().size)} ({t('mail-file-size-bytes', { count: formatNumber(loaded().size) })})</dd>
         <dt>SHA-256</dt><dd><code>{loaded().digest || t('mail-file-hash-unavailable')}</code></dd>
       </dl><p>{t('mail-file-fingerprint-help')}</p></details>
       <For each={loaded().info.warnings}>{warning => <p class="attachment-tab__warning" role="status"><Icon name="alert"/>{t(`mail-file-warning-${warning}`)}</p>}</For>

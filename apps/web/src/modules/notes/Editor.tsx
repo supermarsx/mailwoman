@@ -10,24 +10,24 @@ import { For, onMount, createEffect, type JSX } from 'solid-js';
 import { t } from '../../i18n';
 import { sanitizeNoteHtml } from './sanitize.ts';
 
-/** One toolbar command: an `execCommand` name + its label/glyph + a11y title key. */
+/** One toolbar command: an `execCommand` name + its icon glyph + a11y title key. */
 interface ToolbarCommand {
   cmd: string;
   value?: string;
-  label: IconName;
+  icon: IconName;
   titleKey: string;
 }
 
 const COMMANDS: readonly ToolbarCommand[] = [
-  { cmd: 'bold', label: 'bold', titleKey: 'notes-fmt-bold' },
-  { cmd: 'italic', label: 'italic', titleKey: 'notes-fmt-italic' },
-  { cmd: 'underline', label: 'underline', titleKey: 'notes-fmt-underline' },
-  { cmd: 'strikeThrough', label: 'strike', titleKey: 'notes-fmt-strike' },
-  { cmd: 'formatBlock', value: 'h2', label: 'heading', titleKey: 'notes-fmt-heading' },
-  { cmd: 'insertUnorderedList', label: 'bulletList', titleKey: 'notes-fmt-ul' },
-  { cmd: 'insertOrderedList', label: 'numberList', titleKey: 'notes-fmt-ol' },
-  { cmd: 'formatBlock', value: 'blockquote', label: 'quote', titleKey: 'notes-fmt-quote' },
-  { cmd: 'removeFormat', label: 'clearFormat', titleKey: 'notes-fmt-clear' },
+  { cmd: 'bold', icon: 'bold', titleKey: 'notes-fmt-bold' },
+  { cmd: 'italic', icon: 'italic', titleKey: 'notes-fmt-italic' },
+  { cmd: 'underline', icon: 'underline', titleKey: 'notes-fmt-underline' },
+  { cmd: 'strikeThrough', icon: 'strike', titleKey: 'notes-fmt-strike' },
+  { cmd: 'formatBlock', value: 'h2', icon: 'heading', titleKey: 'notes-fmt-heading' },
+  { cmd: 'insertUnorderedList', icon: 'bulletList', titleKey: 'notes-fmt-ul' },
+  { cmd: 'insertOrderedList', icon: 'numberList', titleKey: 'notes-fmt-ol' },
+  { cmd: 'formatBlock', value: 'blockquote', icon: 'quote', titleKey: 'notes-fmt-quote' },
+  { cmd: 'removeFormat', icon: 'clearFormat', titleKey: 'notes-fmt-clear' },
 ];
 
 export interface NoteEditorProps {
@@ -112,7 +112,7 @@ export function NoteEditor(props: NoteEditorProps): JSX.Element {
               onMouseDown={(e) => e.preventDefault() /* keep selection */}
               onClick={() => run(c)}
             >
-              <Icon name={c.label} />
+              <Icon name={c.icon} />
             </button>
           )}
         </For>

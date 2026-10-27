@@ -1207,7 +1207,7 @@ export function Compose(props: {
         </Show>
 
         <Show when={!localDraftAuthority()}><p role="status" class="compose__sign-unlock-note">{t('mail-compose-private-storage-unavailable')}</p></Show>
-        <Show when={compact()}><section class="compose__quick-summary" aria-label={t('mail-quick-reply')}><p><strong>{t('mail-compose-to')}:</strong> {to()}<Show when={cc()}> · Cc: {cc()}</Show><Show when={bcc()}> · Bcc: {bcc()}</Show></p><p>{subject()}</p><button type="button" class="btn btn--ghost" onClick={() => setExpanded(true)}>{t('mail-quick-reply-expand')}</button></section></Show>
+        <Show when={compact()}><section class="compose__quick-summary" aria-label={t('mail-quick-reply')}><p><strong>{t('mail-compose-to')}:</strong> {to()}<Show when={cc()}>{' · '}{t('mail-compose-cc')}: {cc()}</Show><Show when={bcc()}>{' · '}{t('mail-compose-bcc')}: {bcc()}</Show></p><p>{subject()}</p><button type="button" class="btn btn--ghost" onClick={() => setExpanded(true)}>{t('mail-quick-reply-expand')}</button></section></Show>
         <Show when={!compact()}>
           <Show when={showFrom()}><label class="field compose__from">
             <span>{t('mail-compose-from')}</span>

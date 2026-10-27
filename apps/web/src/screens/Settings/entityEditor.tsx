@@ -9,7 +9,8 @@ export function useEntityNavigation(section: string) {
  const shared=useSettingsNavigation(); const [local,setLocal]=createSignal<SettingsRoute>({section});
  return { shared, route:()=>shared?.route()??local(), navigate:async(next:SettingsRoute):Promise<boolean>=>{if(shared)return shared.navigate(next);setLocal(next);return true;} };
 }
-export function useEditorGuard(dirty:Accessor<boolean>, busy:Accessor<boolean>) {
+type Flag=Accessor<boolean>;
+export function useEditorGuard(dirty:Flag, busy:Flag) {
  const nav=useSettingsNavigation();const [pending,setPending]=createSignal<((leave:boolean)=>void)>();
  const confirm=():Promise<boolean>=>{if(!dirty())return Promise.resolve(true);if(busy())return Promise.resolve(false);return new Promise(resolve=>setPending(()=>resolve));};
  if(nav)onCleanup(nav.beforeLeave(confirm));

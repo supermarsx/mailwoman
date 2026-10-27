@@ -38,7 +38,7 @@ export function MailExportEditor(props:{accountId:string;emailId:string;api:Mail
   }
   return <><h2 class={css.heading}>{t('mail-transfer-export-title')}</h2><p>{t('mail-transfer-export-detail')}</p>
     <label class={layout.label}>{t('mail-transfer-format')}<select disabled={busy()} class={css.input} value={format()} onChange={event=>setFormat(event.currentTarget.value as MailExportFormat)}>
-      <option value="eml">EML (.eml)</option><option value="mbox">mbox</option><option value="txt">Text (.txt)</option><option value="md">Markdown (.md)</option><option value="msg">Outlook (.msg)</option><option value="docx">Word (.docx)</option>
+      <option value="eml">EML (.eml)</option><option value="mbox">mbox</option><option value="txt">{t('mail-transfer-format-txt')}</option><option value="md">{t('mail-transfer-format-md')}</option><option value="msg">{t('mail-transfer-format-msg')}</option><option value="docx">{t('mail-transfer-format-docx')}</option>
     </select></label>
     <button class={css.button} disabled={busy()} onClick={()=>void download()}>{t(busy()?'mail-transfer-exporting':'mail-transfer-export-submit')}</button>
     <Show when={saved()}><p role="status">{t('mail-transfer-export-saved')}</p></Show><Show when={error()}><p role="alert">{t(error())}</p></Show>

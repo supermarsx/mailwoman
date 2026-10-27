@@ -141,6 +141,7 @@ common-message-preview-too-large = Message attachment previews are limited to 4 
 common-message-preview-failed = This message attachment could not be previewed. The file may be unsupported, damaged, or the preview worker unavailable. You can still download the original.
 common-message-preview-attachments = Files inside this message
 common-message-preview-download = Download file
+common-message-preview-size-bytes = { $count } bytes
 common-attach-cat-message = Messages / Outlook attachments
 
 common-error-retry-help = This section is temporarily unavailable. Try again to reload it.

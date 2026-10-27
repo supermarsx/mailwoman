@@ -163,6 +163,7 @@ admin-auth-search = Account, attempted username or IP
 admin-auth-surface = Sign-in area
 admin-auth-all = All
 admin-auth-admin = Administration
+admin-auth-webmail = Webmail
 admin-auth-result = Result
 admin-auth-success = Success
 admin-auth-failure = Failure

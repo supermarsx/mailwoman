@@ -1,6 +1,6 @@
 import {AsyncPending} from '../../components/AsyncState.tsx';
 import { For, Show, createSignal, onMount, type JSX } from 'solid-js';
-import { t } from '../../i18n';
+import { t, formatDateTime } from '../../i18n';
 import { adminRead, type AdminReadResult } from './shell/adminApi.ts';
 import { Feedback, describeAdminError } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
@@ -82,7 +82,7 @@ export function AuthLogs(props: {
   <h2 class={css.heading}>{t('admin-auth-title')}</h2><p class={css.note}>{t('admin-auth-description', { days: days() })}</p>
   <form class={css.grid} onSubmit={(e) => { e.preventDefault(); void load(); }}>
    <label class="field">{t('admin-auth-search')}<input value={query()} onInput={(e) => setQuery(e.currentTarget.value)} maxlength={128}/></label>
-   <label class="field">{t('admin-auth-surface')}<select value={surface()} onChange={(e) => setSurface(e.currentTarget.value)}><option value="">{t('admin-auth-all')}</option><option value="webmail">Webmail</option><option value="admin">{t('admin-auth-admin')}</option></select></label>
+   <label class="field">{t('admin-auth-surface')}<select value={surface()} onChange={(e) => setSurface(e.currentTarget.value)}><option value="">{t('admin-auth-all')}</option><option value="webmail">{t('admin-auth-webmail')}</option><option value="admin">{t('admin-auth-admin')}</option></select></label>
    <label class="field">{t('admin-auth-result')}<select value={result()} onChange={(e) => setResult(e.currentTarget.value)}><option value="">{t('admin-auth-all')}</option><option value="success">{t('admin-auth-success')}</option><option value="failure">{t('admin-auth-failure')}</option><option value="blocked">{t('admin-auth-blocked')}</option></select></label>
    <label class="field">{t('admin-auth-backend')}<input value={backend()} onInput={(e) => setBackend(e.currentTarget.value)} maxlength={128}/></label>
    <label class="field">{t('admin-auth-reason')}<input value={reason()} onInput={(e) => setReason(e.currentTarget.value)} maxlength={64}/></label>
@@ -90,7 +90,7 @@ export function AuthLogs(props: {
   </form>
   <Show when={busy()}><AsyncPending variant={rows().length ? 'status' : 'table'}/></Show><Feedback kind="error" message={error()}/><Feedback kind="info" message={notice()}/>
   <div class={css.tableWrap} tabindex="0" role="group" aria-label={t('admin-auth-title')}><table class={css.table}><caption>{t('admin-auth-title')}</caption><thead><tr><For each={['time', 'account', 'surface', 'backend', 'result', 'reason', 'method', 'ip', 'count']}>{(key) => <th scope="col">{t(`admin-auth-${key}`)}</th>}</For></tr></thead>
-  <tbody><For each={rows()}>{(row) => <tr><td><time datetime={new Date(row.ts * 1000).toISOString()}>{new Date(row.ts * 1000).toLocaleString()}</time><Show when={row.lastSeen !== row.ts}><br /><small>{t('admin-auth-last')} {new Date(row.lastSeen * 1000).toLocaleString()}</small></Show></td><th scope="row">{row.usernameAttempted || missing()}<Show when={row.accountId}><br /><small>{row.accountId}</small></Show></th><td>{row.surface}</td><td>{row.backend || missing()}</td><td>{row.result}</td><td>{row.reason || '—'}</td><td>{row.method}</td><td>{row.ip || missing()}<Show when={row.userAgent}><details><summary>{t('admin-auth-device')}</summary>{row.userAgent}</details></Show></td><td>{row.repeatCount}</td></tr>}</For></tbody></table></div>
+  <tbody><For each={rows()}>{(row) => <tr><td><time datetime={new Date(row.ts * 1000).toISOString()}>{formatDateTime(new Date(row.ts * 1000), { dateStyle: 'medium', timeStyle: 'medium' })}</time><Show when={row.lastSeen !== row.ts}><br /><small>{t('admin-auth-last')} {formatDateTime(new Date(row.lastSeen * 1000), { dateStyle: 'medium', timeStyle: 'medium' })}</small></Show></td><th scope="row">{row.usernameAttempted || missing()}<Show when={row.accountId}><br /><small>{row.accountId}</small></Show></th><td>{row.surface}</td><td>{row.backend || missing()}</td><td>{row.result}</td><td>{row.reason || '—'}</td><td>{row.method}</td><td>{row.ip || missing()}<Show when={row.userAgent}><details><summary>{t('admin-auth-device')}</summary>{row.userAgent}</details></Show></td><td>{row.repeatCount}</td></tr>}</For></tbody></table></div>
   <Show when={!busy() && !rows().length && !notice() && !error()}><p>{t('admin-auth-empty')}</p></Show>
   <Show when={cursor()}><button class="btn" type="button" disabled={busy()} onClick={() => void load(true)}>{t('admin-auth-more')}</button></Show>
  </section>;

@@ -462,6 +462,7 @@ mail-file-extension = Extension
 mail-file-detected = Detected signature
 mail-file-unknown = No recognized signature
 mail-file-size = Size
+mail-file-size-bytes = { $count } bytes
 mail-file-hash-unavailable = Fingerprint unavailable (requires a secure browser and a file up to 64 MiB).
 mail-file-fingerprint-help = A fingerprint identifies these exact bytes. It does not prove that the file is safe or who created it.
 mail-file-warning-executable = This file may execute programs or change system settings. Only download it if you trust its source.
