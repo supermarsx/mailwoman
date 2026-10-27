@@ -1,9 +1,10 @@
 // Bundle-size budget gate (SPEC §16 / plan §3 e7, e8 asserts it in CI).
 //
-// Budgets: the THIN desktop shell (SPA + Tauri runtime, NO engine) < 21 MB; the
-// SELF-CONTAINED desktop (thin shell + the bundled sibling `mw-server`) < 126 MB.
-// These are the 26.20 measured revision of the original 10 MB / 40 MB numbers —
-// measured × 1.15, the same policy §23 got in 26.9. Basis and measurements:
+// Budgets: the THIN desktop shell (SPA + Tauri runtime, NO engine) < 27 MB; the
+// SELF-CONTAINED desktop (thin shell + the bundled sibling `mw-server`) < 204 MB.
+// History: original 10 MB / 40 MB -> 21 / 126 MB (26.20 measured revision) ->
+// 27 / 204 MB (2026-10-27 / t33 revision). Each step is ceil(measured × 1.15),
+// the same policy §23 got in 26.9. Basis and measurements:
 // docs/perf/size-budget-revision.md.
 // The thin shell carries only the SPA + WebView glue; the engine appears solely as
 // the bundled `mw-server` resource in self-contained mode.
@@ -18,8 +19,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const MB = 1024 * 1024;
-const THIN_BUDGET = 21 * MB;
-const SELF_CONTAINED_BUDGET = 126 * MB;
+const THIN_BUDGET = 27 * MB;
+const SELF_CONTAINED_BUDGET = 204 * MB;
 
 const exeCandidates = [
   join(root, 'target', 'release', 'mailwoman-desktop.exe'),

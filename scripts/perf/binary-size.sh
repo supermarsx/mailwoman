@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 # Server release-binary size gate (SPEC §23 / t9-e5-size 26.9 revision): the
-# shipped `mailwoman` server binary must stay < 91 MB (measured + ~15% headroom).
+# shipped `mailwoman` server binary must stay < 133 MB (measured + ~15% headroom;
+# 2026-10-27 / t33 revision of the 26.9 budget of 91 MB).
 #
 # MEASURED, not asserted: builds the release binary the Docker `runtime` stage
 # ships (`cargo build --release -p mw-server --bin mailwoman`), stats the exact
@@ -18,13 +19,17 @@
 # heavy dep still trips the gate. Rationale + measurement:
 # docs/perf/size-budget-revision.md.
 #
+# 2026-10-27 / t33 REVISED: 133 = ceil(115.06 × 1.15). The binary measured
+# 115.06 MB on CI at 99f51b81 (85.25 MB at 2676f4e8 two days earlier; ~83k lines
+# of new Rust, the russh SSH-tunnel stack among it). Same policy, same file.
+#
 # Budget override (for a coordinator-agreed ceiling): PERF_BINARY_BUDGET_MB.
 # Skip the build if the binary already exists: PERF_SKIP_BUILD=1.
 #
 # Usage: scripts/perf/binary-size.sh
 set -eu
 
-BUDGET_MB="${PERF_BINARY_BUDGET_MB:-91}"
+BUDGET_MB="${PERF_BINARY_BUDGET_MB:-133}"
 BUDGET_BYTES=$((BUDGET_MB * 1024 * 1024))
 BIN="target/release/mailwoman"
 

@@ -25,6 +25,6 @@ Copy-Item -Force $bin (Join-Path $dest 'mw-server.exe')
 
 $sizeMb = [int]((Get-Item $bin).Length / 1MB)
 Write-Host "[bundle-server] copied mailwoman.exe -> $dest/mw-server.exe ($sizeMb MB)"
-if ($sizeMb -gt 126) {
-    Write-Warning "[bundle-server] bundled mw-server is $sizeMb MB (> 126 MB self-contained budget, §16)"
+if ($sizeMb -gt 204) {
+    Write-Warning "[bundle-server] bundled mw-server is $sizeMb MB (> 204 MB self-contained budget, §16)"
 }

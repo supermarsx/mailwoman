@@ -1,7 +1,9 @@
-# Size-budget revisions (SPEC §23 — 26.9; SPEC §16 shells — 26.20)
+# Size-budget revisions (SPEC §23 — 26.9; SPEC §16 shells — 26.20; both — 2026-10-27 / t33)
 
-The §16 shell revision is at the end of this file; the server/image revision
-(§23, 26.9) follows immediately below and is unchanged.
+The server/image revision (§23, 26.9) follows immediately below, then the §16 shell
+revision (26.20), then the 2026-10-27 / t33 revision of the server binary and both
+shell budgets at the end of this file. The earlier sections are kept as written; the
+numbers in force are the ones in the last section.
 
 # Size-budget revision (SPEC §23) — 26.9
 
@@ -157,3 +159,85 @@ every native call (`pnpm`, `node`, `tauri`), and `bundle-server.ps1` after its
 A feature-gated "core" server SKU without the bundled bridges/plugins and the
 wasmtime JIT is the lever that would move the self-contained number materially.
 Nothing here forecloses it; the budget would be revised down with it.
+
+---
+
+# Size-budget revision (SPEC §23 server binary + SPEC §16 shells) — 2026-10-27 / t33
+
+**Status:** measured + revised (t33-e8). User decision D2 of t33: raise the budgets to
+the measured sizes plus headroom; no `[profile.release]` change. The runtime image
+budget (205 MB) is not changed: it measured 174.46 MB and passed.
+
+## TL;DR
+
+| Metric | Previous budget | Measured (CI, 99f51b81, largest platform) | Revised budget = ceil(measure × 1.15) |
+|---|---|---|---|
+| Server binary (Linux, stripped, `perf.yml` `binary-size`) | 91 MB (26.9) | **115.06 MB** (120 653 616 B) | **133 MB** |
+| Thin desktop shell | 21 MB (26.20) | **23.37 MB** (Linux) | **27 MB** |
+| Self-contained desktop (shell + bundled `mw-server`) | 126 MB (26.20) | **176.58 MB** (Windows) | **204 MB** |
+
+## The measurements
+
+All from the completed runs for commit `99f51b81` (2026-10-27): `perf` 40503582582
+(job 122187122243), `packaging` 40503582460 (`build shells + §16 size gate`, jobs
+122187122153/-195/-226) and `ci` 40503582698 (`desktop-shell` x3 and `desktop-e2e`,
+which builds the Windows shell and stops at the same gate). `packaging` and `ci`
+reported identical figures per OS.
+
+| OS | thin shell | bundled `mw-server` | self-contained total |
+|---|---|---|---|
+| ubuntu-latest | **23.37 MB** | 134.46 MB | 157.83 MB |
+| windows-latest | 22.29 MB | 154.29 MB | **176.58 MB** |
+| macos-latest | 18.88 MB | 114.83 MB | 133.71 MB |
+
+Basis, as in 26.20: the largest measurement per budget. Thin 23.37 × 1.15 = 26.88 →
+**27 MB**; self-contained 176.58 × 1.15 = 203.07 → **204 MB**; server binary
+115.06 × 1.15 = 132.32 → **133 MB**.
+
+## Why 15 % headroom
+
+It is the same factor the 26.9 and 26.20 revisions used, so all three ceilings follow
+one rule and anyone can check them from the measurements above. It leaves room for
+ordinary growth between revisions. It does not leave room for another jump like the
+one that triggered this revision: the server binary grew about 35 % in two days
+(below), and a jump that size trips the gate again. A larger factor would stop the gate
+catching that.
+
+## What grew
+
+The perf gate was last green at `2676f4e8` (2026-10-25), with the server binary at
+85.25 MB. In the 355 commits from there to `99f51b81`, `crates/*/src` gained about
+83 500 lines of Rust (about 52 000 of them in `mw-server`). Over the same range,
+`Cargo.lock` added the `russh` SSH stack (`mw-ssh-tunnel`: `russh`, `ssh-key`,
+`ssh-encoding`, `ed25519-dalek`, `curve25519-dalek`, …), `altcha`, `argon2` and
+`bcrypt-pbkdf`, and removed nothing. No per-crate attribution was taken (`cargo bloat`
+was not run for this revision). The growth is new product code, not a lost `strip`
+or a changed profile: `[profile.release]` is the same at both commits.
+
+## Why the bundled server is bigger than the gated server binary
+
+On Linux the bundled `mw-server` (134.46 MB) is 19.4 MB bigger than the `perf` binary
+(115.06 MB), although both are `cargo build --release -p mw-server`. The server embeds
+`apps/web/dist` with `rust-embed` (`crates/mw-server/src/lib.rs`). `build-shells.*`
+builds the SPA first, so the bundled binary carries it (about 20 MB). The `perf` job
+builds no SPA, and the Dockerfile `build` stage compiles against an empty `dist`
+(`.gitkeep` only) and ships the SPA as files in `/usr/lib/mailwoman/web`. So the
+`perf` number is the size of the binary in the container, and the shell number
+includes the SPA. Both are measured correctly for what they gate.
+
+## Enforcement
+
+- `scripts/check-bundle-size.mjs`: `THIN_BUDGET` 27 MB, `SELF_CONTAINED_BUDGET` 204 MB
+  (run by `scripts/build-shells.{sh,ps1}` in ci.yml `desktop-shell`/`desktop-e2e` and
+  packaging.yml `desktop-bundles`). The warning thresholds in `scripts/bundle-server.*`
+  follow it.
+- `.github/workflows/perf.yml` `binary-size`: `PERF_BINARY_BUDGET_MB: "133"`, and the
+  default in `scripts/perf/binary-size.sh` is 133.
+
+## Levers not used (unchanged)
+
+The 26.19 measurement (`docs/perf/build-profile.md`) still applies: `codegen-units = 1`
+with thin LTO saves about 16 % but makes every release build about 3× longer;
+thin LTO on its own made the binary bigger. A feature-gated "core" server SKU is still
+the change that would cut the size materially. When one of these lands, lower the
+budgets here.

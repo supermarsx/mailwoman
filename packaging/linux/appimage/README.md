@@ -9,7 +9,7 @@ Config: `apps/desktop/src-tauri/tauri.conf.json` → `bundle.linux.appimage`.
 ```
 
 `bundleMediaFramework: false` keeps the AppImage within the SPEC §16 thin-shell size
-budget (< 21 MB, 26.20 measured revision); enabling it bundles gstreamer and
+budget (< 27 MB, 2026-10-27 / t33 measured revision); enabling it bundles gstreamer and
 inflates the image well past it.
 
 Build: `pnpm -C apps/desktop exec tauri build` → `…/bundle/appimage/*.AppImage`.
