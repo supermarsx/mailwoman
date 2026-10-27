@@ -872,11 +872,52 @@ mod tests {
             .unwrap();
     }
 
+    /// A NATIVE account (0002 `accounts` row) bound to bridge-graph. Since
+    /// 0e50de6a `features::plugin_policy_admit` resolves an account-scoped plugin's
+    /// identity only from a native account, never from a session name.
+    async fn seed_native_binding(
+        store: &Store,
+        username: &str,
+        oauth_ref: serde_json::Value,
+    ) -> String {
+        let account = store
+            .create_account(
+                &mw_store::NewAccount {
+                    kind: mw_store::AccountKind::Imap,
+                    host: "mail.test",
+                    port: 993,
+                    tls: "implicit",
+                    username,
+                    sync_policy_json: "{}",
+                },
+                &mw_store::Credentials {
+                    username: username.into(),
+                    password: "fixture".into(),
+                },
+            )
+            .await
+            .unwrap();
+        store
+            .put_bridge_account(&mw_store::BridgeAccountRow {
+                account_id: account.clone(),
+                bridge_id: "bridge-graph".into(),
+                oauth_ref: Some(oauth_ref.to_string()),
+                extra_json: "{}".into(),
+            })
+            .await
+            .unwrap();
+        account
+    }
+
     #[tokio::test]
     async fn production_poster_refuses_foreign_binding_revoked_grants_and_changed_authority() {
         let store = store().await;
-        let account = "owner@example.test";
-        seed_binding(&store, account, serde_json::json!({"client_id":"fixture-app","token_endpoint":"https://unapproved.test/token"})).await;
+        let account = seed_native_binding(
+            &store,
+            "owner@example.test",
+            serde_json::json!({"client_id":"fixture-app","token_endpoint":"https://unapproved.test/token"}),
+        )
+        .await;
         store
             .put_plugin(&mw_store::PluginRow {
                 id: "bridge-graph".into(),
@@ -901,7 +942,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let poster = ReqwestPoster::new(store.clone(), account.into());
+        let poster = ReqwestPoster::new(store.clone(), account.clone());
         let secret = [("refresh_token", "fixture-sensitive-token")];
         assert_eq!(
             poster
