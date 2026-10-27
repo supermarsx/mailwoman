@@ -10,6 +10,8 @@
 import type { JSX } from 'solid-js';
 
 export type IconName =
+  | 'tableRowBefore' | 'tableRowAfter' | 'tableRowDelete' | 'tableColumnBefore' | 'tableColumnAfter' | 'tableColumnDelete' | 'tableMerge' | 'tableSplit' | 'tableHeader'
+  | 'cut' | 'paste' | 'table' | 'paragraph' | 'paint'
   | 'home' | 'briefcase' | 'heart' | 'shopping' | 'education' | 'travel' | 'coffee' | 'gift' | 'bank' | 'book'
   | 'identityProvider'
   | 'shield'
@@ -153,6 +155,20 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   busy: () => <path d="M8 1 A7 7 0 1 1 7.99 1 M3 8 H13" {...S} />,
   tentative: () => <path d="M8 1 A7 7 0 1 1 7.99 1 M8 4 V9 M8 11 V13" {...S} />,
 
+  tableRowBefore: () => <path d="M1 6 H15 V15 H1 Z M1 10 H15 M8 6 V15 M5 2 H11 M8 0 V4" {...S}/>,
+  tableRowAfter: () => <path d="M1 1 H15 V10 H1 Z M1 5 H15 M8 1 V10 M5 14 H11 M8 12 V16" {...S}/>,
+  tableRowDelete: () => <path d="M1 2 H15 V14 H1 Z M1 6 H15 M1 10 H15 M6 7 L10 9 M10 7 L6 9" {...S}/>,
+  tableColumnBefore: () => <path d="M6 1 H15 V15 H6 Z M10 1 V15 M6 8 H15 M2 5 V11 M0 8 H4" {...S}/>,
+  tableColumnAfter: () => <path d="M1 1 H10 V15 H1 Z M5 1 V15 M1 8 H10 M14 5 V11 M12 8 H16" {...S}/>,
+  tableColumnDelete: () => <path d="M2 1 H14 V15 H2 Z M6 1 V15 M10 1 V15 M7 6 L9 10 M9 6 L7 10" {...S}/>,
+  tableMerge: () => <path d="M1 2 H15 V14 H1 Z M1 8 H15 M3 5 H7 L5 3 M7 5 L5 7 M13 5 H9 L11 3 M9 5 L11 7" {...S}/>,
+  tableSplit: () => <path d="M1 2 H15 V14 H1 Z M8 2 V14 M3 8 H6 M3 8 L5 6 M3 8 L5 10 M13 8 H10 M13 8 L11 6 M13 8 L11 10" {...S}/>,
+  tableHeader: () => <><path d="M1 2 H15 V14 H1 Z M1 7 H15 M6 7 V14 M11 7 V14" {...S}/><path d="M3 4 H13 V5 H3 Z" fill="currentColor"/></>,
+  cut: () => <><circle cx="4" cy="12" r="2" {...S}/><circle cx="12" cy="12" r="2" {...S}/><path d="M5 10 L13 1 M11 10 L3 1" {...S}/></>,
+  paste: () => <><path d="M5 3 H2 V15 H14 V3 H11 M5 7 H11 M5 10 H11" {...S}/><path d="M5 1 H11 V4 H5 Z" {...S}/></>,
+  table: () => <path d="M1 2 H15 V14 H1 Z M1 6 H15 M6 2 V14 M11 6 V14 M1 10 H15" {...S}/>,
+  paragraph: () => <path d="M13 2 H6 A3 3 0 0 0 6 8 H8 M8 2 V15 M12 2 V15" {...S}/>,
+  paint: () => <path d="M3 1 H13 V5 H3 Z M13 3 H15 V8 H8 V11 M6 11 H10 V15 H6 Z" {...S}/>,
   delete: () => <path d="M3 4 H13 M6 1 H10 M4 4 L5 15 H11 L12 4 M7 7 V12 M9 7 V12" {...S} />,
   clone: () => <path d="M5 5 H14 V14 H5 Z M2 11 V2 H11" {...S} />,
   enable: () => <path d="M3 8 L6 11 L13 4" {...S} />,

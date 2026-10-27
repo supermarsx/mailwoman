@@ -49,7 +49,7 @@ export function InsertAccountItem(props:InsertAccountItemProps){
         <Show when={limited()}><p role="status">{t('mail-insert-account-limited')}</p></Show>
         <label>{t('mail-insert-account-selection')}<select size={6} value={selected()} disabled={busy()||props.disabled} onChange={event=>setSelected(event.currentTarget.value)}><For each={filtered()}>{item=><option value={item.id}>{item.label}</option>}</For></select></label>
         <Show when={!busy()&&filtered().length===0}><p>{t('mail-insert-account-empty')}</p></Show>
-        <button type="button" class="btn btn--primary" disabled={busy()||props.disabled||!selected()} onClick={attach}>{t('mail-insert-account-attach')}</button>
+        <button type="button" class="btn btn--primary" disabled={busy()||props.disabled||!selected()} onClick={attach}><Icon name="attachment"/>{t('mail-insert-account-attach')}</button>
       </Show>
       <Show when={busy()}><p role="status">{t('mail-insert-account-loading')}</p></Show>
       <Show when={error()}><p role="alert">{error()}</p></Show>

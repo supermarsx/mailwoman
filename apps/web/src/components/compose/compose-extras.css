@@ -159,3 +159,54 @@
 .compose-source { display:flex; flex-direction:column; flex:1; min-block-size:12rem; gap:.4rem; }
 .compose-source p { font-size:.75rem; color:var(--text-dim); margin:0; }
 .compose-source textarea { flex:1; min-block-size:10rem; font-family:monospace; }
+
+/* Ribbon controls scroll sideways as groups; the editor remains the sole growing pane. */
+.compose-ribbon__heading { display:flex; align-items:center; min-inline-size:0; overflow:visible; }
+.compose-ribbon__heading .compose-rt__history { flex:none; border:0; }
+.compose-ribbon__heading .compose-rt__tabs { flex:1; min-inline-size:0; overflow-x:auto; border:0; }
+.compose-ribbon__content { display:flex; align-items:stretch; max-inline-size:100%; overflow:auto; }
+.compose-ribbon__panel { flex:none; flex-wrap:nowrap; align-items:start; max-block-size:8rem; padding:.3rem; gap:.4rem; }
+.compose-ribbon__group { display:grid; grid-auto-flow:column; grid-template-rows:repeat(3, minmax(1.5rem,auto)); gap:.2rem; }
+.compose-ribbon__group > span { grid-row:1; }
+.compose-ribbon__editor { flex:none; }
+.compose-ribbon__editor .compose-rt__chrome { display:flex; max-block-size:8rem; overflow:visible; }
+.compose-ribbon__editor .compose-rt__toolbar { flex:none; flex-wrap:nowrap; align-items:start; border:0; }
+.compose-ribbon__editor .compose-rt__advanced { flex-wrap:nowrap; border:0; }
+.compose-ribbon__editor .compose-rt__group { display:grid; grid-auto-flow:column; grid-template-rows:repeat(3, minmax(1.5rem,auto)); flex:none; }
+.compose-ribbon__editor .compose-rt__find { flex-basis:auto; }
+.compose-ribbon__editor .compose-rt__options { flex-wrap:nowrap; }
+.compose-ribbon__editor .compose-rt__paragraph { display:flex; flex-direction:column; gap:.2rem; }
+.compose-rt__group-title { font-size:.7rem; color:var(--text-dim); }
+.compose > .compose__header { gap:.35rem; margin-block-end:.3rem; }
+.compose__header-actions { display:flex; align-items:center; justify-content:flex-end; gap:.25rem; flex-wrap:wrap; margin-inline-start:auto; }
+.compose__header .btn { width:auto; min-block-size:2rem; padding:.3rem .5rem; font-size:.8rem; }
+.compose > :is(.compose__to,.compose__subject), .compose .compose__to { display:grid; grid-template-columns:4rem minmax(0,1fr); align-items:center; gap:.35rem; margin-block:.2rem; }
+.compose :is(.compose__to,.compose__subject) input { min-block-size:2rem; padding:.3rem .45rem; }
+.compose [data-testid=account-draft-status] { margin:.2rem 0; font-size:.7rem; }
+.compose-rt__footer { padding:.15rem .35rem; gap:.3rem; }
+
+
+.compose-ribbon__editor .compose-rt__toolbar { display:flex; }
+.compose-rt__font-group { display:flex; flex-direction:column; gap:.25rem; padding-inline-end:.4rem; border-inline-end:var(--border-hair) solid var(--border); }
+.compose-rt__font-fields,.compose-rt__font-marks { display:flex; align-items:center; gap:.2rem; }
+.compose-rt__font-fields .compose-rt__field { flex:none; }
+.compose-rt__font-fields select { inline-size:9rem; }
+.compose-rt__font-fields .compose-rt__field:last-child select { inline-size:5rem; }
+.compose-ribbon__editor .compose-rt__group { grid-template-columns:repeat(4,max-content); grid-template-rows:auto 2rem 2rem; align-items:center; }
+.compose-ribbon__editor .compose-rt__group > .compose-rt__group-title { grid-column:1/-1; grid-row:1; }
+.compose-ribbon__editor .compose-rt__clipboard { grid-template-columns:repeat(3,max-content); }
+.compose-ribbon__editor .compose-rt__table-group { grid-template-columns:repeat(6,max-content); }
+.compose-ribbon__editor .compose-rt__paragraph { border-inline-end:var(--border-hair) solid var(--border); padding-inline-end:.4rem; flex:none; }
+.compose-ribbon__editor .compose-rt__btn { display:inline-flex; align-items:center; gap:.25rem; white-space:nowrap; }
+.compose-ribbon__heading [role=tab] { white-space:nowrap; }
+.compose > .field--grow:has(> .compose-rt) { flex:1 1 10rem; min-block-size:10rem; }
+.compose > .field--grow > .compose-rt { min-block-size:10rem; }
+.compose > .field--grow .compose-rt__surface { flex:1 1 6rem; min-block-size:6rem; }
+@media(max-width:600px) {
+ .compose > .compose__header { flex-wrap:nowrap; }
+ .compose__header-actions { flex-wrap:nowrap; gap:.2rem; }
+ .compose__header .compose-action--secondary > span,.compose__header [data-testid=open-recall] > span { display:none; }
+ .compose__header .btn { padding:.25rem .35rem; font-size:.75rem; }
+}
+.compose-ribbon__group:not(label) { grid-template-columns:repeat(2,max-content); grid-template-rows:auto 2rem 2rem; align-items:center; }
+.compose-ribbon__group:not(label) > span { grid-column:1/-1; }

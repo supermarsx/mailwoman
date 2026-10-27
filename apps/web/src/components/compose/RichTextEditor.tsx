@@ -1,3 +1,5 @@
+import {ComposerHistory} from './ComposerHistory.tsx';
+import {Portal} from 'solid-js/web';
 import {AdvancedEditorTools} from './AdvancedEditorTools.tsx';
 import {EditorCounts} from './EditorCounts.tsx';
 import {documentCounts,tableLimitPlugin} from './richCommands.ts';
@@ -104,6 +106,8 @@ export interface RichTextEditorProps {
   initialHtml: string;
   ribbonTab?: () => 'format'|'insert'|'table'|null;
   externalHistory?: boolean;
+  /** Stable composer ribbon target; omitted by standalone editors. */
+  toolbarMount?: HTMLElement;
   /** External plain-text source (dictation / Assist) reconciled into the doc. */
   externalText?: () => string;
   /** Reports the serialized HTML + plain-text projection after every change. */
@@ -119,6 +123,7 @@ export interface RichTextEditorProps {
 export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   let host!: HTMLDivElement;
   let view: EditorView | undefined;
+  const [editorApi,setEditorApi]=createSignal<RichTextApi|null>(null);
   // The last plain text WE emitted — used to tell our own edits from external
   // (dictation / Assist) mutations of the shared `body()` signal.
   let lastText = '';
@@ -235,7 +240,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
     });
     emit(view.state);
 
-    props.onReady?.({
+    const api:RichTextApi = {
       undo:()=>run(undo),redo:()=>run(redo),historyDepth:()=>{const state=activeState();return {undo:state?undoDepth(state):0,redo:state?redoDepth(state):0};},
       appendHtml(html: string): void {
         if (view === undefined) return;
@@ -260,7 +265,8 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
           if (url !== null && img.src !== url) img.src = url;
         }
       },
-    });
+    };
+    setEditorApi(api);props.onReady?.(api);
   });
 
   onCleanup(() => { host.removeEventListener('mailwoman:documentchange', updateDocumentRoot); view?.destroy(); view=undefined; });
@@ -299,18 +305,14 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
     run(toggleMark(mLink, { href: url }));
   }
 
-  return (
-    <div class="compose-rt" data-testid="compose-rt" data-markers={markers()}>
-      <div class="compose-rt__chrome"><Show when={!props.externalHistory}><div class="compose-rt__history" data-detached-local>
-        <button type="button" class="compose-rt__btn" disabled={!activeState()||undoDepth(activeState()!)===0} aria-label={t('mail-compose-undo')} onMouseDown={event=>event.preventDefault()} onClick={()=>run(undo)}><Icon name="back"/>{t('mail-compose-undo')}</button>
-        <button type="button" class="compose-rt__btn" disabled={!activeState()||redoDepth(activeState()!)===0} aria-label={t('mail-compose-redo')} onMouseDown={event=>event.preventDefault()} onClick={()=>run(redo)}><Icon name="forward"/>{t('mail-compose-redo')}</button>
-        <label>{t('mail-editor-history')}<select aria-label={t('mail-editor-history')} value="0" disabled={!activeState()||undoDepth(activeState()!)===0} onChange={event=>{const amount=Number(event.currentTarget.value);for(let index=0;index<amount;index++)run(undo);event.currentTarget.value='0';}}><option value="0">{t('mail-editor-history')}</option><For each={Array.from({length:Math.min(20,activeState()?undoDepth(activeState()!):0)},(_,index)=>index+1)}>{amount=><option value={amount}>{t('mail-editor-undo-groups',{count:amount})}</option>}</For></select></label>
-      </div></Show>
+  const chrome = (
+<div class="compose-rt__chrome"><Show when={!props.externalHistory}><ComposerHistory api={editorApi()}/></Show>
       <Show when={!props.ribbonTab}><div data-detached-local class="compose-rt__tabs" role="tablist" aria-label={t('mail-compose-ribbon')}><For each={['format','insert','table'] as const}>{tab=><button type="button" role="tab" aria-selected={ribbonTab()===tab} onClick={()=>setRibbonTab(tab)}>{t(`mail-compose-ribbon-${tab}`)}</button>}</For></div></Show>
       <div data-detached-local hidden={ribbonTab()===null||ribbonTab()==='table'} class="compose-rt__toolbar" role="toolbar" aria-label={t('mail-compose-rt-toolbar')}>
-        <Show when={ribbonTab()==='format'}>
-        <label class="compose-rt__field"><span>{t('mail-compose-font')}</span><select aria-label={t('mail-compose-font')} value={fontValue('fontFamily')} onChange={event=>setTextStyle('fontFamily',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSER_FONTS}>{font=><option value={font.stack}>{font.label}</option>}</For></select></label>
-        <label class="compose-rt__field"><span>{t('mail-compose-font-size')}</span><select aria-label={t('mail-compose-font-size')} value={fontValue('fontSize')} onChange={event=>setTextStyle('fontSize',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSE_FONT_SIZES}>{size=><option value={`${size}pt`}>{size} pt</option>}</For></select></label>
+        <Show when={ribbonTab()==='format'}><div class="compose-rt__font-group" role="group" aria-label={t('mail-compose-font')}><span class="compose-rt__group-title">{t('mail-compose-font')}</span><div class="compose-rt__font-fields">
+        <label class="compose-rt__field"><span class={a11y.srOnly}>{t('mail-compose-font')}</span><select aria-label={t('mail-compose-font')} value={fontValue('fontFamily')} onChange={event=>setTextStyle('fontFamily',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSER_FONTS}>{font=><option value={font.stack}>{font.label}</option>}</For></select></label>
+        <label class="compose-rt__field"><span class={a11y.srOnly}>{t('mail-compose-font-size')}</span><select aria-label={t('mail-compose-font-size')} value={fontValue('fontSize')} onChange={event=>setTextStyle('fontSize',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSE_FONT_SIZES}>{size=><option value={`${size}pt`}>{size} pt</option>}</For></select></label>
+        </div><div class="compose-rt__font-marks">
         <For each={BUTTONS}>
           {(btn) => {
             const state = () => activeState();
@@ -335,7 +337,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
             );
           }}
         </For>
-        </Show><Show when={ribbonTab()==='insert'}>
+        </div></div></Show><Show when={ribbonTab()==='insert'}>
         <button
           type="button"
           class={`compose-rt__btn ${a11y.focusable}`}
@@ -374,7 +376,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
         </Show>
       </div>
 
-      <AdvancedEditorTools state={activeState} view={()=>view} run={run} tab={ribbonTab} owned={owned} report={setEditorError}/>
+      <AdvancedEditorTools state={activeState} view={()=>view} run={run} tab={ribbonTab} owned={owned} report={setEditorError} markers={markers} onMarkers={()=>setMarkers(value=>!value)}/>
       <Show when={editorError()}><p class="compose-rt__error" role="alert">{editorError()}</p></Show>
 
       {linkOpen() && (
@@ -405,8 +407,12 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
       )}
 
       </div>
+  );
+  return (
+    <div class="compose-rt" data-testid="compose-rt" data-markers={markers()}>
+      <Show when={props.toolbarMount} fallback={chrome}>{mount=><Portal mount={mount()}>{chrome}</Portal>}</Show>
       <div class="compose-rt__surface" data-zoom={zoom()} ref={host} />
-      <div class="compose-rt__footer" data-detached-local><EditorCounts counts={counts()}/><label>{t('mail-editor-zoom')}<select aria-label={t('mail-editor-zoom')} value={zoom()} onChange={event=>setZoom(Number(event.currentTarget.value))}><For each={[75,100,125,150,200]}>{value=><option value={value}>{value}%</option>}</For></select></label><button type="button" class="compose-rt__btn" aria-pressed={markers()} onClick={()=>setMarkers(value=>!value)}>{t('mail-editor-markers')}</button></div>
+      <div class="compose-rt__footer" data-detached-local><EditorCounts counts={counts()}/><label>{t('mail-editor-zoom')}<select aria-label={t('mail-editor-zoom')} value={zoom()} onChange={event=>setZoom(Number(event.currentTarget.value))}><For each={[75,100,125,150,200]}>{value=><option value={value}>{value}%</option>}</For></select></label></div>
     </div>
   );
 }

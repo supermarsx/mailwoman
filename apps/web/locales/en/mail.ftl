@@ -778,3 +778,8 @@ mail-editor-case-lower = lowercase
 mail-editor-case-upper = UPPERCASE
 mail-editor-case-title = Title Case
 mail-editor-case-sentence = Sentence case
+
+mail-editor-action-history = { $action } history
+mail-editor-history-empty = No actions available
+mail-editor-redo-groups = Redo { $count } changes
+mail-compose-identities-failed = Sending identities could not be loaded. Close and reopen this draft to retry.

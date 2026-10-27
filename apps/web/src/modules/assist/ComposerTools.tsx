@@ -1,3 +1,4 @@
+import {Icon} from '../../components/Icon.tsx';
 // V7 inline composer tools (SPEC §14.3, plan §3 e6): grammar / rewrite / tone /
 // translate. Each transform is offered as a SUGGESTION the user chooses to apply —
 // nothing is auto-applied, and (like every Assist path) nothing is ever sent.
@@ -107,9 +108,10 @@ export function ComposerTools(props: ComposerToolsProps): JSX.Element {
                   type="button"
                   class={css.ghost}
                   disabled={busy() !== null}
+                  data-tooltip={toolLabel(spec.id)}
                   onClick={() => void run(spec)}
                 >
-                  {busy() === spec.id
+                  <Icon name="assistant"/>{busy() === spec.id
                     ? t('assist-busy', { label: toolLabel(spec.id) })
                     : toolLabel(spec.id)}
                 </button>
@@ -156,10 +158,10 @@ export function ComposerTools(props: ComposerToolsProps): JSX.Element {
                     setPending(null);
                   }}
                 >
-                  {t('assist-apply-draft')}
+                  <Icon name="check"/>{t('assist-apply-draft')}
                 </button>
                 <button type="button" class={css.ghost} onClick={() => setPending(null)}>
-                  {t('assist-discard')}
+                  <Icon name="delete"/>{t('assist-discard')}
                 </button>
               </div>
             </div>

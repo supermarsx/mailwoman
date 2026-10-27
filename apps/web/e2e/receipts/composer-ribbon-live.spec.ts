@@ -1,0 +1,37 @@
+import {test,expect} from '../csrf.ts';
+import {readFile} from 'node:fs/promises';
+import path from 'node:path';
+// Optional current SPA overlay on the isolated mail fixture. API calls remain real;
+// server shell routing is covered separately by t32_workspace_popup.
+test.beforeEach(async({context})=>{
+ const configured=process.env['MW_DETACHED_DIST'];if(!configured)return;
+ const dist=path.resolve(configured);
+ await context.route('**/*',async route=>{
+  const pathname=new URL(route.request().url()).pathname;
+  if(pathname!=='/'&&pathname!=='/workspace-popup.html'&&!pathname.startsWith('/assets/'))return route.continue();
+  const file=path.resolve(dist,pathname==='/'?'index.html':pathname.slice(1));
+  if(!file.startsWith(dist+path.sep))return route.abort();
+  const body=await readFile(file);
+  const response=await route.fetch();
+  await route.fulfill({response,status:200,body,contentType:file.endsWith('.html')?'text/html':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'application/octet-stream'});
+ });
+});
+// The actual fixture keeps the production three-second initial-login cooldown.
+test.beforeEach(async()=>{await new Promise(resolve=>setTimeout(resolve,3100));});
+test('keeps compact ribbon controls above the retained editor and round-trips source',async({page},info)=>{
+ await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('testuser');await page.getByLabel('Password',{exact:true}).fill('testpass');await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();
+ if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();
+ await page.locator('#shell-nav').getByRole('button',{name:'Compose',exact:true}).click();
+ const compose=page.locator('.workspace-compose').last();await compose.getByLabel('Subject',{exact:true}).fill(`Ribbon ${info.project.name}`);
+ const editor=compose.locator('.ProseMirror');await editor.fill('Generated rich HTML');await editor.press('Control+a');await compose.getByRole('button',{name:'Bold',exact:true}).click();await expect(editor.locator('strong')).toHaveText('Generated rich HTML');
+ expect(await compose.locator('.compose-rt > .compose-rt__chrome').count()).toBe(0);
+ await expect(compose.getByRole('button',{name:'Cancel',exact:true})).toHaveCount(0);await expect(compose.getByRole('button',{name:'Close',exact:true})).toHaveCount(0);
+ await compose.getByTestId('format-toggle').selectOption('html');const source=compose.getByLabel('HTML source',{exact:true});await expect(source).toHaveValue(/<strong>Generated rich HTML<\/strong>/);
+ await source.fill('<h2>Edited source</h2><p><em>Preserved</em></p>');await compose.getByTestId('format-toggle').selectOption('rich');await expect(editor.locator('h2')).toHaveText('Edited source');await expect(editor.locator('em')).toHaveText('Preserved');
+ const markers=compose.getByRole('button',{name:'Paragraph marks',exact:true});await markers.click();await expect(markers).toHaveAttribute('aria-pressed','true');await expect(compose.locator('.compose-rt__footer').getByRole('button',{name:'Paragraph marks'})).toHaveCount(0);
+ const geometry=await compose.evaluate(node=>{const ribbon=node.querySelector('.compose-ribbon__content')!,body=node.querySelector('.ProseMirror')!;return {ribbonHeight:ribbon.getBoundingClientRect().height,ribbonBottom:ribbon.getBoundingClientRect().bottom,bodyTop:body.getBoundingClientRect().top,pageOverflow:document.documentElement.scrollWidth-window.innerWidth};});
+ expect(geometry.ribbonHeight).toBeLessThanOrEqual(145);expect(geometry.ribbonBottom).toBeLessThanOrEqual(geometry.bodyTop);expect(geometry.pageOverflow).toBeLessThanOrEqual(1);
+ for(const name of ['Insert','Table','Format text']){await compose.getByRole('tab',{name,exact:true}).click();expect(await compose.locator('.compose-ribbon__content').evaluate(node=>node.getBoundingClientRect().height)).toBeLessThanOrEqual(145);}
+ await compose.locator('.compose-ribbon__content').evaluate(node=>{node.scrollLeft=0;});await page.screenshot({path:info.outputPath('composer-ribbon.png'),fullPage:true});
+});

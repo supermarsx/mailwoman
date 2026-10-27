@@ -376,6 +376,23 @@ describe('Compose', () => {
     expect((screen.getByLabelText('Body') as HTMLElement).tagName).toBe('TEXTAREA');
   });
 
+  it('round-trips generated markup through HTML source and keeps plain text separate', async()=>{
+    renderWithApp(()=><Compose embedded onClose={()=>undefined}/>);
+    await screen.findByTestId('compose-richtext');
+    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'html'}});
+    fireEvent.input(await screen.findByLabelText('HTML source'),{target:{value:'<h2>Heading</h2><p><strong>Bold</strong> text</p>'}});
+    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'rich'}});
+    const editor=await screen.findByTestId('compose-richtext');
+    expect(editor.querySelector('h2')).toHaveTextContent('Heading');
+    expect(editor.querySelector('strong')).toHaveTextContent('Bold');
+    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'html'}});
+    expect(await screen.findByLabelText('HTML source')).toHaveValue('<h2>Heading</h2><p><strong>Bold</strong> text</p>');
+    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'plain'}});
+    expect(screen.getByLabelText('Body')).toHaveValue('Heading\n\nBold text');
+    expect(screen.queryByRole('button',{name:/^Close$/})).toBeNull();
+    expect(screen.queryByRole('button',{name:'Cancel'})).toBeNull();
+  });
+
   it('round-trips the body text between plain and rich modes', async () => {
     renderWithApp(() => <Compose onClose={() => undefined} />);
     await screen.findByTestId('compose-richtext');
@@ -393,13 +410,13 @@ describe('Compose', () => {
   async function composeWithClient(opts: Parameters<typeof makeClient>[0] = {}) {
     const client = makeClient(opts);
     const app = createAppState(client);
+    await app.login({ username: 'me@example.org', password: 'p' });
     const onClose = vi.fn();
     render(() => (
       <AppContext.Provider value={app}>
         <Compose onClose={onClose} />
       </AppContext.Provider>
     ));
-    await app.login({ username: 'me@example.org', password: 'p' });
     return { client, app, onClose };
   }
 

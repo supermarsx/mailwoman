@@ -96,6 +96,7 @@ it('edits real table structure, reverses it with history, and keeps display sett
  expect((html.match(/<td/g)??[]).length).toBe(6);
  fireEvent.click(screen.getByRole('button',{name:'Undo'}));
  expect((html.match(/<td/g)??[]).length).toBe(4);
+ fireEvent.click(screen.getByRole('tab',{name:'Format text'}));
  const before=html;fireEvent.change(screen.getByLabelText('Editor zoom'),{target:{value:'150'}});fireEvent.click(screen.getByRole('button',{name:'Paragraph marks'}));expect(html).toBe(before);
 });
 it('replaces literal text through the accessible controls and leaves unrelated marks intact',()=>{
@@ -103,4 +104,16 @@ it('replaces literal text through the accessible controls and leaves unrelated m
  fireEvent.click(screen.getByText('Find and replace'));
  fireEvent.input(screen.getByLabelText('Find text'),{target:{value:'one'}});fireEvent.input(screen.getByLabelText('Replace with'),{target:{value:'three'}});
  fireEvent.click(screen.getByRole('button',{name:'Replace all matches'}));expect(html).toBe('<p><strong>three</strong> two three</p>');
+});
+
+it('mounts rich controls in the supplied ribbon and keeps one editable document',()=>{
+ const ribbon=document.createElement('div');document.body.append(ribbon);
+ const result=render(()=><RichTextEditor toolbarMount={ribbon} initialHtml="<p>Retained</p>" ariaLabel="Body" onChange={()=>undefined}/>);
+ const editor=screen.getByTestId('compose-richtext');
+ expect(ribbon.querySelector('[data-testid="rt-bold"]')).not.toBeNull();
+ expect(result.container.querySelector('.compose-rt__chrome')).toBeNull();
+ fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
+ expect(screen.getByTestId('compose-richtext')).toBe(editor);
+ expect(editor).toHaveTextContent('Retained');
+ result.unmount();expect(ribbon.children).toHaveLength(0);ribbon.remove();
 });

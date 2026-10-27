@@ -205,6 +205,8 @@ export function Compose(props: {
   const [remoteStatus,setRemoteStatus]=createSignal<DraftSaveStatus>('idle');
   const [remoteDrafts,setRemoteDrafts]=createSignal<AccountDraftDocument[]>([]);
   const [remoteLoading,setRemoteLoading]=createSignal(false);
+  const [discardCurrentOpen,setDiscardCurrentOpen]=createSignal(false);
+  const [discardCurrentBusy,setDiscardCurrentBusy]=createSignal(false);
   const [discardConfirmation,setDiscardConfirmation]=createSignal<AccountDraftDocument|null>(null);
   let remoteWriter:ReturnType<typeof createDraftAutosave>|undefined;
   let remoteWriterId='';
@@ -216,6 +218,7 @@ export function Compose(props: {
   const [importance,setImportance]=createSignal<'high'|'normal'|'low'>('normal');
   const [customFrom, setCustomFrom] = createSignal(false);
   const fromHelpId = createUniqueId();
+  let ribbonTools!: HTMLDivElement;
   const [ribbonTab,setRibbonTab]=createSignal<'format'|'insert'|'table'|'security'|'delivery'>('format');
   createEffect(()=>{if(unlockOpen())setRibbonTab('security');});
   const [fromVisibleOverride,setFromVisibleOverride] = createSignal<boolean|null>(null);
@@ -363,7 +366,7 @@ export function Compose(props: {
     void loadCatalog('mail');
     previouslyFocused = document.activeElement as HTMLElement | null;
     if (props.active !== false) toInputEl?.focus();
-    void app.loadIdentities();
+    void app.loadIdentities().catch(cause=>{if(ownsDraft()&&!(cause instanceof DOMException&&cause.name==='AbortError'))setError(t('mail-compose-identities-failed'));});
     void app.loadContacts().catch(() => undefined);
     // Probe the optional V7 backends ONCE (idempotent, silent on failure): a
     // NotConfigured directory / absent Nextcloud leaves `enabled` false so their
@@ -721,6 +724,44 @@ export function Compose(props: {
       if(draftId===document.id){allowRecoveryClose=true;pendingDraft=undefined;sent=true;props.onClose();}
     }catch{remoteFailure('draftDiscardPending');}finally{if(ownsDraft())setRemoteLoading(false);}
   }
+  async function discardCurrentDraft():Promise<void>{
+    if(!ownsDraft()||busy()||uploading()||discardCurrentBusy())return;
+    const owner=composerAuthority();
+    const id=draftId;
+    const writer=remoteWriter;
+    const current=()=>ownsDraft()&&draftId===id&&remoteWriter===writer;
+    setDiscardCurrentBusy(true);writer?.suspend(true);
+    try{
+      await writer?.settled();
+      if(!current())return;
+      if(remoteStatus()==='uncertain'||remoteStatus()==='conflict'){remoteFailure('draftConflict');return;}
+      // Include our own completed save, but never adopt a revision fetched from
+      // another editor. The DELETE retains the same server-side CAS boundary.
+      const expectedRevision=remoteRevision();
+      if(expectedRevision){
+        if(!owner?.storageAuthority)return;
+        const api=accountDraftApi(owner,remoteAbort?.signal);
+        const document=await api.load(id);
+        if(!current())return;
+        if(remoteRevision()!==expectedRevision||document.id!==id||document.revision!==expectedRevision){
+          remoteFailure('draftConflict');return;
+        }
+        await api.discard(id,expectedRevision);
+        if(!current()||remoteRevision()!==expectedRevision)return;
+        deleteDraft(id,owner.id,owner.storageAuthority);
+        setRemoteDrafts(rows=>rows.filter(row=>row.id!==id));
+        void app.refreshFolders();
+      }else{
+        deleteDraft(id,draftAccount,draftAuthority?.storageAuthority);
+      }
+      clearTimeout(saveTimer);pendingDraft=undefined;
+      sent=true;allowRecoveryClose=true;props.onClose();
+    }catch{if(current())remoteFailure('draftDiscardPending');}
+    finally{
+      setDiscardCurrentBusy(false);setDiscardCurrentOpen(false);
+      if(!sent&&current())writer?.suspend(protectedDraft());
+    }
+  }
   function ensureRemoteWriter():void{
     const owner=composerAuthority();if(!remoteReady()||protectedDraft()||!owner?.storageAuthority||!ownsDraft())return;
     if(remoteWriter&&remoteWriterId===draftId)return;
@@ -962,7 +1003,7 @@ export function Compose(props: {
 
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
-    if(busy()||uploading())return;
+    if(busy()||uploading()||discardCurrentOpen()||discardCurrentBusy())return;
     setBusy(true);
     try {
     remoteWriter?.suspend(true);
@@ -1115,8 +1156,13 @@ export function Compose(props: {
     >
       <form class="compose" classList={{'compose--compact':compact()}} onSubmit={(e) => void onSubmit(e)}>
         <header class="compose__header">
-          <h2>{t(initial !== undefined ? TITLE_KEY[initial.mode] : 'mail-compose-title')}</h2>
+          <button type="submit" class={`btn btn--primary ${a11y.focusable}`} disabled={busy()||discardCurrentOpen()||discardCurrentBusy()}>
+            <Icon name="sent"/> {busy() ? t('mail-compose-sending') : sendAt() !== '' ? t('mail-compose-schedule') : t('mail-compose-send')}
+          </button>
+          <h2 class={a11y.srOnly}>{t(initial !== undefined ? TITLE_KEY[initial.mode] : 'mail-compose-title')}</h2>
           <div class="compose__header-actions">
+            <button type="button" class="btn btn--ghost compose-action--secondary" aria-label={t('mail-draft-discard-account')} disabled={busy()||uploading()||discardCurrentBusy()||remoteStatus()==='uncertain'||remoteStatus()==='conflict'} onClick={()=>setDiscardCurrentOpen(true)} data-tooltip={t('mail-draft-discard-confirm')}><Icon name="delete"/><span>{t('mail-draft-discard-account')}</span></button>
+        <Show when={remoteReady()&&!protectedDraft()}><button type="button" class="btn btn--ghost" disabled={remoteStatus()==='saving'||remoteStatus()==='uncertain'||remoteStatus()==='conflict'} onClick={()=>void remoteWriter?.flush()}><Icon name="file"/>{t('mail-draft-save-now')}</button></Show>
             <button
               type="button"
               class={`btn btn--ghost ${a11y.focusable}`}
@@ -1130,22 +1176,24 @@ export function Compose(props: {
               type="button"
               class={`btn btn--ghost ${a11y.focusable}`}
               data-testid="open-recall"
+              aria-label={t('mail-compose-recall')}
               data-tooltip={t('mail-compose-recall-help')}
               aria-expanded={recallOpen()}
               onClick={() => (recallOpen() ? setRecallOpen(false) : openRecall())}
             >
-              <Icon name="clock"/> {t('mail-compose-recall')}
+              <Icon name="clock"/> <span>{t('mail-compose-recall')}</span>
             </button>
-            <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-compose-close')} onClick={() => void closeWithDraftSave()}>
+            <Show when={!props.embedded}><button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-compose-close')} onClick={() => void closeWithDraftSave()}>
               <Icon name="close" />
-            </button>
+            </button></Show>
           </div>
         </header>
 
         <p role="status" aria-live="polite" class="compose__sign-unlock-note" data-testid="account-draft-status">{t(protectedDraft()?'mail-draft-protected':`mail-draft-status-${remoteStatus()}`)}</p>
         <Show when={['error','uncertain','conflict'].includes(remoteStatus())&&localDraftAuthority()}><button type="button" class="btn btn--ghost" onClick={()=>{allowRecoveryClose=true;props.onClose();}}>{t('mail-draft-close-recovery')}</button></Show>
-        <Show when={remoteReady()&&!protectedDraft()}><button type="button" class="btn btn--ghost" disabled={remoteStatus()==='saving'||remoteStatus()==='uncertain'||remoteStatus()==='conflict'} onClick={()=>void remoteWriter?.flush()}>{t('mail-draft-save-now')}</button></Show>
+
         <Show when={draftsOpen()}><section aria-label={t('mail-draft-account-list')}><h3>{t('mail-draft-account-list')}</h3><p>{t('mail-draft-quota-help')}</p><Show when={remoteLoading()}><p role="status">{t('mail-draft-loading')}</p></Show><For each={remoteDrafts()}>{document=><div><button type="button" class="btn btn--ghost" disabled={remoteLoading()} onClick={()=>void resumeRemoteDraft(document.id)}>{document.summary.subject||t('mail-no-subject')}</button><button type="button" class="btn btn--ghost" disabled={remoteLoading()||document.status==='uncertain'} onClick={()=>setDiscardConfirmation(document)}>{t('mail-draft-discard-account')}</button></div>}</For></section></Show>
+        <Show when={discardCurrentOpen()}><section role="alertdialog" aria-label={t('mail-draft-discard-confirm')}><p>{t('mail-draft-discard-confirm-detail',{subject:subject()||t('mail-no-subject')})}</p><button type="button" class="btn btn--ghost" disabled={discardCurrentBusy()} onClick={()=>setDiscardCurrentOpen(false)}>{t('mail-compose-cancel')}</button><button type="button" class="btn" disabled={discardCurrentBusy()} onClick={()=>void discardCurrentDraft()}>{t('mail-draft-discard-confirm')}</button></section></Show>
         <Show when={discardConfirmation()}>{document=><section role="alertdialog" aria-label={t('mail-draft-discard-confirm')}><p>{t('mail-draft-discard-confirm-detail',{subject:document().summary.subject||t('mail-no-subject')})}</p><button type="button" class="btn btn--ghost" disabled={remoteLoading()} onClick={()=>setDiscardConfirmation(null)}>{t('mail-compose-cancel')}</button><button type="button" class="btn" disabled={remoteLoading()} onClick={()=>{const row=document();setDiscardConfirmation(null);void discardRemoteDraft(row);}}>{t('mail-draft-discard-confirm')}</button></section>}</Show>
         <DraftsDrawer
           open={draftsOpen()}
@@ -1241,7 +1289,7 @@ export function Compose(props: {
           </label>
         </Show>
 
-        <label class="field">
+        <label class="field compose__subject">
           <span>{t('mail-compose-subject')}</span>
           <input type="text" value={subject()} onInput={(e) => setSubject(e.currentTarget.value)} />
         </label>
@@ -1271,10 +1319,11 @@ export function Compose(props: {
 
         <Show when={externalMode()!=='off' && outside().length>0}><section class="compose-external" aria-label={t('mail-external-recipients')}><details><summary><Icon name="alert"/> {t('mail-external-count',{count:outside().length})}</summary><p>{t('mail-external-help')}</p><ul><For each={outside()}>{address=><li>{address}</li>}</For></ul></details><Show when={externalMode()==='confirm'}><label><input type="checkbox" checked={reviewedRecipients()===recipientReviewKey()} onChange={event=>setReviewedRecipients(event.currentTarget.checked?recipientReviewKey():'')}/>{t('mail-external-reviewed')}</label></Show></section></Show>
         <section class="compose-ribbon" aria-label={t('mail-compose-ribbon')}>
-          <Show when={richMode()&&!sourceMode()}><ComposerHistory api={editorApi()}/></Show>
-          <div class="compose-rt__tabs" role="tablist"><For each={richMode()&&!sourceMode()?['format','insert','table','security','delivery'] as const:['format','insert','security','delivery'] as const}>{tab=><button type="button" role="tab" aria-selected={ribbonTab()===tab} onClick={()=>setRibbonTab(tab)}>{t(`mail-compose-ribbon-${tab}`)}</button>}</For></div>
+          <div class="compose-ribbon__heading"><Show when={richMode()&&!sourceMode()}><ComposerHistory api={editorApi()}/></Show>
+          <div class="compose-rt__tabs" role="tablist"><For each={richMode()&&!sourceMode()?['format','insert','table','security','delivery'] as const:['format','insert','security','delivery'] as const}>{tab=><button type="button" role="tab" aria-selected={ribbonTab()===tab} onClick={()=>setRibbonTab(tab)}>{t(`mail-compose-ribbon-${tab}`)}</button>}</For></div></div>
+          <div class="compose-ribbon__content">
           <div class="compose-ribbon__panel" hidden={ribbonTab()!=='format'} inert={ribbonTab()!=='format'}>
-            <div class="compose-ribbon__group"><span>{t('mail-compose-ribbon-recipients')}</span><button type="button" class="btn btn--ghost" onClick={checkNames} data-tooltip={t('mail-compose-check-names-help')}><Icon name="check"/>{t('mail-compose-check-names')}</button><button type="button" class="btn btn--ghost" data-testid="compose-show-cc-bcc" aria-pressed={ccBccOpen()} onClick={()=>setCcBccOpen(!ccBccOpen())}>{t('mail-compose-show-cc-bcc')}</button><button type="button" class="btn btn--ghost" aria-pressed={showFrom()} onClick={()=>setFromVisibleOverride(!showFrom())}>{t('mail-compose-from')}</button></div>
+            <div class="compose-ribbon__group"><span>{t('mail-compose-ribbon-recipients')}</span><button type="button" class="btn btn--ghost" onClick={checkNames} data-tooltip={t('mail-compose-check-names-help')}><Icon name="check"/>{t('mail-compose-check-names')}</button><button type="button" class="btn btn--ghost" data-testid="compose-show-cc-bcc" aria-pressed={ccBccOpen()} onClick={()=>setCcBccOpen(!ccBccOpen())}><Icon name="users"/>{t('mail-compose-show-cc-bcc')}</button><button type="button" class="btn btn--ghost" aria-pressed={showFrom()} onClick={()=>setFromVisibleOverride(!showFrom())}><Icon name="mail"/>{t('mail-compose-from')}</button></div>
             <label class="compose-ribbon__group"><span>{t('mail-compose-ribbon-message-type')}</span><select data-testid="format-toggle" value={!richMode()?'plain':sourceMode()?'html':'rich'} onChange={event=>changeFormat(event.currentTarget.value)}><option value="plain">{t('mail-compose-format-plain')}</option><option value="rich">{t('mail-compose-format-rich')}</option><option value="html">{t('mail-compose-html-source')}</option></select></label>
           </div>
           <div class="compose-ribbon__panel" hidden={ribbonTab()!=='insert'} inert={ribbonTab()!=='insert'}>        <InsertAccountItem onFiles={onFilesPicked} disabled={uploading()||busy()}/><SignaturePicker signatures={signatures} onInsert={insertSignature} />
@@ -1309,7 +1358,7 @@ export function Compose(props: {
             keeps its own button look rather than the native file control. */}
         <div class="compose__attach" data-testid="compose-attach">
           <label class={`btn btn--ghost ${a11y.focusable}`}>
-            {uploading() ? t('mail-compose-uploading') : t('mail-compose-attach-file')}
+            <Icon name="attachment"/>{uploading() ? t('mail-compose-uploading') : t('mail-compose-attach-file')}
             <input
               type="file"
               multiple
@@ -1343,7 +1392,7 @@ export function Compose(props: {
               aria-expanded={ncOpen()}
               onClick={() => setNcOpen((v) => !v)}
             >
-              {ncOpen() ? t('mail-compose-close-nextcloud') : t('mail-compose-attach-nextcloud')}
+              <Icon name="nextcloud"/>{ncOpen() ? t('mail-compose-close-nextcloud') : t('mail-compose-attach-nextcloud')}
             </button>
             <Show when={ncOpen()}>
               <NextcloudAttach
@@ -1462,13 +1511,10 @@ export function Compose(props: {
         </label>
 
 </div>
+          <div class="compose-ribbon__editor" ref={ribbonTools}/>
+          </div>
         </section>
         <div class="field field--grow">
-          <div class="compose__body-head">
-
-            <span>{t('mail-compose-body')}</span>
-
-          </div>
           <Show when={richMode()} fallback={plainBody()}>
             {/* The editor chunk can FAIL to arrive, not just be slow — offline, or
                 a 404 against a tab open across a redeploy. `Suspense` covers only
@@ -1504,6 +1550,7 @@ export function Compose(props: {
               <Suspense fallback={plainBody()}>
                 <Show when={!sourceMode()} fallback={<HtmlSourceEditor initialHtml={bodyHtml()} externalText={body} owned={ownedCids} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
                   externalHistory
+                  toolbarMount={ribbonTools}
                   ribbonTab={()=>ribbonTab() === 'format' || ribbonTab() === 'insert' || ribbonTab() === 'table' ? ribbonTab() as 'format'|'insert'|'table' : null}
                   initialHtml={bodyHtml()}
                   externalText={body}
@@ -1580,14 +1627,7 @@ export function Compose(props: {
             {error()}
           </p>
         </Show>
-        <footer class="compose__footer">
-          <button type="button" class={`btn btn--ghost ${a11y.focusable}`} onClick={() => void closeWithDraftSave()}>
-            {t('mail-compose-cancel')}
-          </button>
-          <button type="submit" class={`btn btn--primary ${a11y.focusable}`} disabled={busy()}>
-            {busy() ? t('mail-compose-sending') : sendAt() !== '' ? t('mail-compose-schedule') : t('mail-compose-send')}
-          </button>
-        </footer>
+
       </form>
     </div>
   );

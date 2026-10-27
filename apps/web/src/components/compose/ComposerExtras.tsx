@@ -30,7 +30,7 @@ export function SignaturePicker(props: {
   return (
     <Show when={props.signatures().length > 0}>
       <label class="field compose-extra__signature" data-testid="compose-signature">
-        <span>{t('mail-compose-signature')}</span>
+        <span><Icon name="edit"/>{t('mail-compose-signature')}</span>
         <select
           aria-label={t('mail-compose-signature')}
           onChange={(e) => {
