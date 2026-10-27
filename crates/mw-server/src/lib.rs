@@ -1763,7 +1763,9 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
     let mut resp = next.run(req).await;
     // Only fixed public reader/appearance sandboxes may supply an independent policy.
     // A response extension cannot be forged by a request header or upstream.
-    let reader_frame = resp.extensions_mut().remove::<remote_policy::ReaderFrameResponse>().is_some();
+    let reader_frame_policy = resp.extensions_mut().remove::<remote_policy::ReaderFrameResponse>();
+    let compatible_reader = reader_frame_policy.as_ref().is_some_and(|policy| policy.compatible);
+    let reader_frame = reader_frame_policy.is_some();
     let appearance_frame = resp.extensions_mut().remove::<appearance_customization::AppearanceSandboxResponse>().is_some();
     let isolated_frame = reader_frame || appearance_frame;
     let h = resp.headers_mut();
@@ -1800,7 +1802,7 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
         // public static document; frame-ancestors and its parent handshake
         // still restrict embedding and the delivery of message HTML.
         h.insert("cross-origin-resource-policy", HeaderValue::from_static("cross-origin"));
-        h.insert("cross-origin-embedder-policy", HeaderValue::from_static("credentialless"));
+        h.insert("cross-origin-embedder-policy", HeaderValue::from_static(if compatible_reader { "require-corp" } else { "credentialless" }));
     } else if let Some(v) = own_corp {
         h.insert("cross-origin-resource-policy", v);
     }

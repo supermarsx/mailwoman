@@ -1,0 +1,2 @@
+import {defineConfig,devices} from '@playwright/test';
+export default defineConfig({testDir:'.',testMatch:'*.spec.ts',workers:1,retries:0,timeout:60000,reporter:'list',outputDir:'../../../../.orchestration/reports/codex-coep-browser',use:{baseURL:process.env['MW_COEP_BASE_URL']??'http://localhost:42221',serviceWorkers:'block',trace:'retain-on-failure'},projects:[{name:'webkit-phone',use:{...devices['iPhone 13']}},{name:'chromium',use:{...devices['Desktop Chrome']}},{name:'firefox',use:{...devices['Desktop Firefox']}}]});

@@ -2,11 +2,11 @@
 use crate::{AppState, settings_registry};
 use axum::{
     Json,
-    extract::State,
+    extract::{Query, State},
     http::HeaderMap,
     response::{IntoResponse, Response},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Serialize)]
@@ -150,15 +150,23 @@ pub(crate) async fn get(State(state): State<AppState>, headers: HeaderMap) -> Re
 /// Static, public wrapper: message HTML is delivered only through browser
 /// postMessage and never enters this endpoint or a server log.
 #[derive(Clone)]
-pub(crate) struct ReaderFrameResponse;
+pub(crate) struct ReaderFrameResponse { pub compatible: bool }
 
-pub(crate) async fn frame() -> Response {
+#[derive(Default, Deserialize)]
+pub(crate) struct ReaderFrameQuery { coep: Option<String> }
+
+pub(crate) async fn frame(Query(query): Query<ReaderFrameQuery>) -> Response {
     use base64::Engine as _;
     use sha2::Digest;
     let script = include_str!("remote-frame.js").replace("\r\n", "\n").replace('\r', "\n");
     let hash = base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(script.as_bytes()));
+    let compatible = query.coep.as_deref() == Some("require-corp");
+    // Unlike credentialless, require-corp does not omit credentials on direct
+    // third-party images. Keep that fallback limited to our image proxy/parts
+    // and embedded data, rather than silently sending third-party cookies.
+    let images = if compatible { "'self' data: blob:" } else { "'self' https: data: blob:" };
     let csp = format!(
-        "default-src 'none'; script-src 'sha256-{hash}'; style-src 'unsafe-inline'; frame-src 'self'; img-src 'self' https: data: blob:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
+        "default-src 'none'; script-src 'sha256-{hash}'; style-src 'unsafe-inline'; frame-src 'self'; img-src {images}; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
     );
     let html = format!(
         "<!doctype html><html><head><meta charset=utf-8><meta name=referrer content=no-referrer><style>html,body{{margin:0;width:100%;height:100%;overflow:hidden}}</style></head><body><script>{script}</script></body></html>"
@@ -186,6 +194,6 @@ pub(crate) async fn frame() -> Response {
         html,
     )
         .into_response();
-    response.extensions_mut().insert(ReaderFrameResponse);
+    response.extensions_mut().insert(ReaderFrameResponse { compatible });
     response
 }

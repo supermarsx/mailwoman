@@ -66,3 +66,4 @@ privacy-image-download-failed = The image could not be downloaded. It may be una
 
 privacy-strip-mailer-headers = Remove outgoing mailer headers
 privacy-strip-mailer-help = Native SMTP and EWS sends remove top-level client fingerprint headers. Message bodies, attached messages and report payloads remain intact. This does not cover upstream JMAP proxy sends or headers added later by a relay. Pre-signed messages covering a removed header require this setting to be disabled before sending.
+privacy-frame-compatible = Compatible viewer: images loaded directly from other sites stay blocked for privacy. Embedded images and images loaded through the server are supported.

@@ -578,6 +578,15 @@ async fn a_tampered_retargeted_or_expired_token_is_refused_before_any_fetch() {
 async fn reader_bridge_has_one_independent_policy_while_shell_stays_restricted() {
     let (proxy, _) = standin_proxy(vec![]).await;
     let f = fixture(proxy, "mw-t32-rc-frame-policy").await;
+    let compatible = f.anon.get(format!("{}/api/rc/frame?coep=require-corp",f.base)).send().await.unwrap();
+    assert_eq!(compatible.status(),200);
+    assert_eq!(compatible.headers()["cross-origin-embedder-policy"],"require-corp");
+    assert_eq!(compatible.headers()["cross-origin-resource-policy"],"cross-origin");
+    assert_eq!(compatible.headers()["x-frame-options"],"SAMEORIGIN");
+    let compatible_csp=compatible.headers()["content-security-policy"].to_str().unwrap();
+    assert!(compatible_csp.contains("img-src 'self' data: blob:;"));
+    assert!(!compatible_csp.contains("https:"));
+    assert!(compatible_csp.contains("frame-ancestors 'self'"));
     let response = f
         .anon
         .get(format!("{}/api/rc/frame", f.base))

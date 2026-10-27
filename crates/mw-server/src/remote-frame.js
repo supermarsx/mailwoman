@@ -26,7 +26,14 @@
       if (content === next && Number.isSafeInteger(revision) && revision > 0)
         parent.postMessage({ type: 'mw-reader-displayed', token, revision }, origin);
     }, { once: true });
-    next.srcdoc = data.html;
+    // Some engines do not inherit the outer document's image CSP into srcdoc.
+    // Install the compatibility restriction before any message markup can load
+    // resources. An additional message CSP can narrow this policy, never relax it.
+    // The leading doctype preserves standards mode for full documents/fragments.
+    const compatible = new URLSearchParams(location.search).get('coep') === 'require-corp';
+    next.srcdoc = compatible
+      ? '<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="img-src ' + origin + ' data: blob:">' + data.html
+      : data.html;
     content.replaceWith(next);
     content = next;
   });
