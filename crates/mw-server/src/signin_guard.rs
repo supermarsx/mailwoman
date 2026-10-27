@@ -147,6 +147,14 @@ async fn list(State(state): State<AppState>, ctx: AdminCtx) -> Result<Response, 
     )
         .into_response())
 }
+/// A sign-in surface name (`mw_store::auth_logs::AuthSurface`), as stored with each
+/// authentication event and lock. The enum is the one source of these names.
+pub(crate) fn is_signin_surface(value: &str) -> bool {
+    use mw_store::AuthSurface;
+    [AuthSurface::Admin, AuthSurface::Webmail]
+        .iter()
+        .any(|s| s.as_str() == value)
+}
 async fn unlock(
     State(state): State<AppState>,
     ctx: AdminCtx,
@@ -155,7 +163,7 @@ async fn unlock(
 ) -> Result<StatusCode, AdminApiError> {
     ctx.require_unscoped(Capability::BansWrite)?;
     crate::step_up::require_admin(&state, &ctx, crate::step_up::StepUpAction::BanManage).await?;
-    if !matches!(surface.as_str(), "admin" | "webmail") {
+    if !is_signin_surface(&surface) {
         return Err(AdminApiError::invalid(
             "invalidSurface",
             "Invalid sign-in surface",

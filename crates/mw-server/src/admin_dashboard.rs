@@ -212,10 +212,13 @@ async fn summary(State(state): State<AppState>, ctx: AdminCtx) -> Result<Respons
         let checklist = if snapshot.limited.contains("domains") {
             Vec::new()
         } else {
+            // Console locations follow `MW_ADMIN_PATH`: the web only renders a
+            // checklist link whose href is under the console path in force.
+            let domains_href = mw_admin::config::admin_route("/domains");
             vec![
-                json!({"id":"domain-exists","done":!domains.is_empty(),"href":"/admin/domains"}),
-                json!({"id":"domain-upstream","done":domains.iter().any(|d|d.enabled&&d.configured),"href":"/admin/domains"}),
-                json!({"id":"preferred-domain","done":domains.iter().any(|d|d.preferred),"href":"/admin/domains","optional":true}),
+                json!({"id":"domain-exists","done":!domains.is_empty(),"href":domains_href}),
+                json!({"id":"domain-upstream","done":domains.iter().any(|d|d.enabled&&d.configured),"href":domains_href}),
+                json!({"id":"preferred-domain","done":domains.iter().any(|d|d.preferred),"href":domains_href,"optional":true}),
             ]
         };
         let mut totals = counts(&snapshot, scope);

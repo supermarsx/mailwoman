@@ -134,7 +134,7 @@ async fn history(
         || input
             .surface
             .as_deref()
-            .is_some_and(|v| !matches!(v, "admin" | "webmail"))
+            .is_some_and(|v| !crate::signin_guard::is_signin_surface(v))
         || input
             .result
             .as_deref()

@@ -229,6 +229,7 @@ pub const RESERVED_ADMIN_SEGMENTS: &[&str] = &[
     "api",
     "jmap",
     "oauth",
+    "oidc",
     ".well-known",
     "dav",
     "caldav",
@@ -254,6 +255,8 @@ pub const RESERVED_ADMIN_SEGMENTS: &[&str] = &[
     "apple-touch-icon.png",
     "pdf.worker.mjs",
     "robots.txt",
+    "font-licenses",
+    "workspace-popup.html",
 ];
 
 static ADMIN_PATH: RwLock<String> = RwLock::new(String::new());

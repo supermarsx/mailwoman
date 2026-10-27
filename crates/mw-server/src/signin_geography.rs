@@ -15,6 +15,8 @@ use mw_engine::security::{CountryLookup, country_lookup};
 use mw_store::AuthSurface;
 use serde_json::{Value, json};
 use std::net::IpAddr;
+/// `security.signin.geoScope` values (the registry's `Kind::Enum` for that key).
+const GEO_SCOPES: [&str; 4] = ["off", "mailbox", "admin", "all"];
 #[derive(Clone)]
 struct Policy {
     scope: String,
@@ -65,7 +67,7 @@ impl Policy {
             .iter()
             .map(|v| v.as_str().map(str::to_owned).ok_or_else(unavailable))
             .collect::<Result<Vec<_>, _>>()?;
-        if !matches!(scope.as_str(), "off" | "admin" | "mailbox" | "all")
+        if !GEO_SCOPES.contains(&scope.as_str())
             || !matches!(mode.as_str(), "allow" | "deny")
             || !matches!(unknown.as_str(), "allow" | "deny")
             || countries
