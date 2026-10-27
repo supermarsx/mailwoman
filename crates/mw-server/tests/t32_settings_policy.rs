@@ -145,10 +145,18 @@ async fn admin(base: &str) -> reqwest::Client {
     c
 }
 
-/// A signed-in mailbox user and their account id.
+/// A signed-in mailbox user and their account id. The client sends the login's
+/// storage authority on every request, as the web client does: a personal-settings
+/// write without it answers `428 storageAuthorityRequired` (0a11b581).
 async fn user(base: &str) -> (reqwest::Client, String) {
-    let c = client();
-    let me: Value = c
+    let jar = std::sync::Arc::new(reqwest::cookie::Jar::default());
+    let login = reqwest::Client::builder()
+        .cookie_provider(jar.clone())
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let me: Value = login
         .post(format!("{base}/api/login"))
         .json(&json!({ "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
         .send()
@@ -158,7 +166,78 @@ async fn user(base: &str) -> (reqwest::Client, String) {
         .await
         .unwrap();
     assert_eq!(me["ok"], json!(true), "mailbox login: {me}");
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        "x-mailwoman-storage-authority",
+        me["storageAuthority"]
+            .as_str()
+            .expect("login names a storageAuthority")
+            .parse()
+            .unwrap(),
+    );
+    let c = reqwest::Client::builder()
+        .cookie_provider(jar)
+        .default_headers(headers)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
     (c, me["accountId"].as_str().unwrap().to_string())
+}
+
+/// An engine-mode server in front of a scripted POP3 upstream, with the mailbox
+/// [`ENGINE_USER`] signed in: a native account. Since 0e50de6a an admin per-user
+/// value and the user-value impact report address native accounts only; a
+/// proxy-mode account id is an unverified upstream id, so its own values are
+/// kept in its personal store instead.
+async fn engine_user(tag: &str) -> (Server, MockPop3, reqwest::Client, String) {
+    // The mock speaks plain POP3; the engine reads MW_ENGINE_TLS per login.
+    // SAFETY: the canonical gate runs this binary with --test-threads=1, and no
+    // test here reads this variable otherwise.
+    unsafe { std::env::set_var("MW_ENGINE_TLS", "plaintext") };
+    let pop = MockPop3::start(ENGINE_USER, ENGINE_PASS).await;
+    let db = new_db(tag);
+    let app = build_app_full(config(&db, ServerMode::Engine, pop.url()), admin_v6())
+        .await
+        .expect("engine server boots")
+        .0;
+    let base = serve(app).await;
+    let jar = std::sync::Arc::new(reqwest::cookie::Jar::default());
+    let login = reqwest::Client::builder()
+        .cookie_provider(jar.clone())
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let me: Value = login
+        .post(format!("{base}/api/login"))
+        .json(&json!({ "username": ENGINE_USER, "password": ENGINE_PASS }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(me["ok"], json!(true), "engine login: {me}");
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        "x-mailwoman-storage-authority",
+        me["storageAuthority"]
+            .as_str()
+            .expect("login names a storageAuthority")
+            .parse()
+            .unwrap(),
+    );
+    let c = reqwest::Client::builder()
+        .cookie_provider(jar)
+        .default_headers(headers)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let account = me["accountId"].as_str().unwrap().to_string();
+    let upstream = pop.url();
+    (Server { base, db, upstream }, pop, c, account)
 }
 
 async fn send(req: reqwest::RequestBuilder) -> (u16, Value) {
@@ -275,9 +354,8 @@ async fn the_overview_describes_every_key_with_an_etag() {
 
 #[tokio::test]
 async fn resolution_follows_the_scope_order_and_locks() {
-    let s = proxy_server("mw-t32-f01-order").await;
+    let (s, _pop, u, account) = engine_user("mw-t32-f01-order").await;
     let a = admin(&s.base).await;
-    let (u, account) = user(&s.base).await;
     let base = &s.base;
     let key = "ui.language";
 
@@ -929,9 +1007,8 @@ async fn a_stale_if_match_is_refused_with_who_and_when() {
 
 #[tokio::test]
 async fn a_lock_over_existing_values_previews_its_impact_without_writing() {
-    let s = proxy_server("mw-t32-f01-impact").await;
+    let (s, _pop, u, account) = engine_user("mw-t32-f01-impact").await;
     let a = admin(&s.base).await;
-    let (u, account) = user(&s.base).await;
     let base = &s.base;
     let key = "offline.retentionDays";
     assert_eq!(
@@ -1082,7 +1159,8 @@ async fn the_deployment_appearance_is_stored_and_served() {
     assert_eq!(mine["appearance"], Value::Null);
     assert_eq!(
         mine["deploymentDefault"],
-        json!({ "theme": "grove-dark", "brandName": "Acme Mail", "accent": "teal" })
+        // The font is served beside the rest since 3b14e7ea; none was set.
+        json!({ "theme": "grove-dark", "font": "default", "brandName": "Acme Mail", "accent": "teal" })
     );
 
     // A second server process on the same database (a restart) serves it too.
