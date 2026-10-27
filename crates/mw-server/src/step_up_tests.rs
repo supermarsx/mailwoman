@@ -96,6 +96,22 @@ async fn spawn() -> Server {
         redis_url: None,
     };
     let app = build_app_full(config, v6).await.expect("server boots").0;
+    // Every client here signs in from 127.0.0.1, and these tests are about step-up,
+    // not sign-in pacing (signin_cooldown.rs has its own tests): switch the pacing
+    // off, as an operator can.
+    Store::open(&db, ServerKey::from_hex(KEY_HEX).unwrap())
+        .await
+        .unwrap()
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "signin.retryCooldownSecs".into(),
+            global_value: Some("0".into()),
+            allow_user_override: false,
+            global_locked: false,
+            updated_by: "step-up-fixture".into(),
+            updated_at: 0,
+        })
+        .await
+        .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {

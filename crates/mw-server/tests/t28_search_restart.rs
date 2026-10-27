@@ -390,6 +390,10 @@ impl Deployment {
 
     /// Start the server and wait until it answers `/healthz`.
     async fn start(&self) -> Server {
+        // Every login here comes from 127.0.0.1, and sign-in pacing is not what
+        // these tests are about (see common::auth). The policy row persists across
+        // restarts of the same deployment.
+        common::auth::no_signin_cooldown_at(&self.db, KEY_HEX).await;
         let server = self.spawn();
         let c = reqwest::Client::builder().no_proxy().build().unwrap();
         let deadline = Instant::now() + Duration::from_secs(60);
@@ -429,7 +433,13 @@ async fn login(c: &reqwest::Client, base: &str, _pop: &Maildrop) {
         .send()
         .await
         .unwrap();
-    assert_eq!(r.status(), 200, "mailbox login");
+    let status = r.status();
+    assert_eq!(
+        status,
+        200,
+        "mailbox login: {}",
+        r.text().await.unwrap_or_default()
+    );
 }
 
 async fn account_id(c: &reqwest::Client, base: &str) -> String {
@@ -625,7 +635,13 @@ async fn a_search_hit_survives_a_restart_without_a_fetch_or_a_rebuild() {
         "the same message is found after the restart\n{}",
         d.log_tail()
     );
-    assert_eq!(d.pop.retrs(), 3, "no message was fetched again");
+    assert_eq!(
+        d.pop.retrs(),
+        3,
+        "no message was fetched again
+{}",
+        d.log_tail()
+    );
     // And it was found in what was on disk, not in a rebuild: this process has
     // not run one.
     let status = index_status(&admin(&second.base).await, &second.base).await;

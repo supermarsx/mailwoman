@@ -75,6 +75,8 @@ async fn boot_with_key(dir: &std::path::Path, upstreams: Vec<String>, key_hex: &
         .await
         .expect("build_app_full")
         .0;
+    // Sign-in pacing is not what this test is about (see common::auth).
+    common::auth::no_signin_cooldown_at(&dir.join("mw.db").to_string_lossy(), key_hex).await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr: SocketAddr = listener.local_addr().unwrap();
     tokio::spawn(async move {

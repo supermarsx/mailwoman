@@ -588,10 +588,14 @@ async fn a_forced_password_change_completes_through_the_webhook_backend() {
         ("MW_PASSWD_WEBHOOK_SECRET", WEBHOOK_SECRET),
     ]);
     let mock = spawn_mock_jmap().await;
-    let app = mw_server::build_app_full(app_config(vec![mock.clone()]), admin_v6())
+    let config = app_config(vec![mock.clone()]);
+    let db = config.db_path.clone();
+    let app = mw_server::build_app_full(config, admin_v6())
         .await
         .expect("build_app_full")
         .0;
+    // Sign-in pacing is not what this test is about (see common::auth).
+    common::auth::no_signin_cooldown_at(&db, KEY_HEX).await;
     let base = serve(app).await;
     let (user, pass) = (mw_mock_jmap::USER, mw_mock_jmap::PASS);
 

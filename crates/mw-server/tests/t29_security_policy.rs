@@ -145,6 +145,8 @@ async fn build(tag: &str) -> anyhow::Result<Server> {
         .to_string_lossy()
         .into_owned();
     let app = build_app_full(config(&mock, &db), admin_v6()).await?.0;
+    // Sign-in pacing is not what this test is about (see common::auth).
+    common::auth::no_signin_cooldown_at(&db, KEY_HEX).await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let served = app.clone();
@@ -723,6 +725,8 @@ async fn environment_dlp_rules_are_listed_separately_and_win_over_a_stored_rule(
     let mut cfg = config(&mock, &db);
     cfg.security.dlp_rules = Some(env_rule.clone());
     let app = build_app_full(cfg, admin_v6()).await.unwrap().0;
+    // Sign-in pacing is not what this test is about (see common::auth).
+    common::auth::no_signin_cooldown_at(&db, KEY_HEX).await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let served = app.clone();
