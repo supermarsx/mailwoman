@@ -72,15 +72,19 @@ describe('SubTabStrip', () => {
     expect(screen.queryByRole('tab')).toBeNull();
   });
 
-  it('the pin button toggles pinned state and names the tab in feedback', () => {
+  it('the context menu stars without an inline toggle and names the tab in feedback', async () => {
     resetToasts();
     const controller = createRealtimeController({ subTabs: { openWindow: vi.fn() } });
     controller.subTabs.open({ kind: 'messages', title: 'Inbox' });
     renderStrip(controller);
-    fireEvent.click(screen.getByRole('button', { name: 'Pin Inbox' }));
+    fireEvent.contextMenu(screen.getByRole('tab',{name:'Inbox'}));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Star' }));
     expect(controller.subTabs.tabs()[0]!.pinned).toBe(true);
     // The label flips to the unpin affordance.
-    expect(screen.getByRole('button', { name: 'Unpin Inbox' })).toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Unpin Inbox'})).toBeNull();
+    expect(screen.getByRole('img',{name:'Starred tab'})).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('tab',{name:'Inbox'}),{key:'F10',shiftKey:true});
+    expect(screen.getByRole('menuitem',{name:'Unstar'})).toBeInTheDocument();
     expect(toasts()[0]?.message).toContain('Pinned tab');
     expect(toasts()[0]?.message).toContain('Inbox');
   });
@@ -92,7 +96,8 @@ describe('SubTabStrip', () => {
     const mounted=renderStrip(controller);
     expect(screen.queryByRole('button',{name:'Open Inbox in a new window'})).toBeNull();mounted.unmount();
     render(()=><RealtimeContext.Provider value={controller}><SubTabStrip onDetach={detach}/></RealtimeContext.Provider>);
-    fireEvent.click(screen.getByRole('button',{name:'Open Inbox in a new window'}));
+    fireEvent.contextMenu(screen.getByRole('tab',{name:'Inbox'}));
+    fireEvent.click(screen.getByRole('menuitem',{name:'Open Inbox in a new window'}));
     expect(detach).toHaveBeenCalledWith('m-1');expect(controller.subTabs.tabs()).toHaveLength(1);
   });
 
@@ -107,4 +112,18 @@ describe('SubTabStrip', () => {
     fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowLeft' });
     expect(controller.subTabs.activeId()).toBe(a);
   });
+});
+
+it('shows close only for the selected tab and closes an inactive tab through its keyboard menu',()=>{
+ const controller=createRealtimeController();controller.subTabs.open({id:'a',kind:'module',title:'A'});controller.subTabs.open({id:'b',kind:'module',title:'B'});renderStrip(controller);
+ expect(screen.queryByRole('button',{name:'Close A'})).toBeNull();expect(screen.getByRole('button',{name:'Close B'})).toBeInTheDocument();
+ fireEvent.keyDown(screen.getByRole('tab',{name:'A'}),{key:'ContextMenu'});expect(controller.subTabs.activeId()).toBe('b');
+ fireEvent.click(screen.getByRole('menuitem',{name:'Close A'}));expect(controller.subTabs.tabs().map(tab=>tab.id)).toEqual(['b']);
+});
+it('reattaches only a detached pane and invalidates an open menu on authority change',()=>{
+ activateAccountPreferences('a','msa1_verified_one');const controller=createRealtimeController();controller.subTabs.open({id:'a',kind:'module',title:'A'});const reattach=vi.fn(),detach=vi.fn();
+ render(()=><RealtimeContext.Provider value={controller}><SubTabStrip onDetach={detach} isDetached={()=>true} onReattach={reattach}/></RealtimeContext.Provider>);
+ fireEvent.contextMenu(screen.getByRole('tab',{name:'A'}));expect(screen.queryByRole('menuitem',{name:'Open A in a new window'})).toBeNull();
+ fireEvent.click(screen.getByRole('menuitem',{name:'Reattach to main window'}));expect(reattach).toHaveBeenCalledWith('a');
+ fireEvent.contextMenu(screen.getByRole('tab',{name:'A'}));activateAccountPreferences('a','msa1_verified_two');expect(screen.queryByRole('menu')).toBeNull();suspendAccountPreferences();
 });
