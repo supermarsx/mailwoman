@@ -140,3 +140,18 @@ it('uses the detached document for hover, native title adoption, and cleanup', a
   expect(button).toHaveAttribute('title','Detached action');
   frame.remove();
 });
+
+it('leaves a frame its title, which is its accessible name, while other titles are still adopted', async () => {
+  render(() => <><iframe title="Message body" /><span title="Unread">3</span><TooltipLayer /></>);
+  await settle();
+  const frame = document.querySelector('iframe')!;
+  expect(frame).toHaveAttribute('title', 'Message body');
+  expect(frame).not.toHaveAttribute('data-tooltip-title');
+  const badge = screen.getByText('3');
+  expect(badge).not.toHaveAttribute('title');
+  expect(badge).toHaveAttribute('data-tooltip-title', 'Unread');
+  // A title set later (the reader re-rendering its frame) is not stripped either.
+  frame.setAttribute('title', 'Message body (updated)');
+  await settle();
+  expect(frame).toHaveAttribute('title', 'Message body (updated)');
+});

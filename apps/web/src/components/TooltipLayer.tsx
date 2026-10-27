@@ -3,7 +3,9 @@ import { Portal } from 'solid-js/web';
 import * as css from './tooltip.css.ts';
 
 const controls = 'button,a[href],input,select,textarea,[role="button"],[role="tab"],[role="switch"],[role="checkbox"],[role="separator"],[title],[data-tooltip],[data-tooltip-title]';
-const excluded = '[contenteditable]:not([contenteditable="false"]),[data-tooltip="off"]';
+// A frame's `title` is its accessible name (WCAG 4.1.2, axe `frame-title`), not a
+// tooltip, so frames keep theirs.
+const excluded = '[contenteditable]:not([contenteditable="false"]),[data-tooltip="off"],iframe,frame';
 
 // Adopted elements and popup-created elements can have different realm prototypes.
 const isElement = (value:unknown):value is HTMLElement => !!value && typeof value==='object' && (value as Node).nodeType===1;
