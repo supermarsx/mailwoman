@@ -34,7 +34,7 @@ export function accountInsertService(owner:PreferenceAccount,fetcher:typeof apiF
   }
   async function json<T>(response:Response,signal:AbortSignal):Promise<T>{return JSON.parse(new TextDecoder().decode(await bytes(response,signal))) as T;}
   async function call<T>(kind:AccountItemKind,method:string,args:Record<string,unknown>,signal:AbortSignal):Promise<T>{
-    const result=await json<JmapResponse>(await request('/jmap',signal,{using:[CAP_CORE,caps[kind]],methodCalls:[[method,{...args,accountId:owner.id},'item']]}),signal);
+    const result=await json<JmapResponse>(await request('/jmap/api',signal,{using:[CAP_CORE,caps[kind]],methodCalls:[[method,{...args,accountId:owner.id},'item']]}),signal);
     const value=responseFor<T&{accountId?:string}>(result,'item');if(value.accountId!==owner.id)throw new Error('accountChanged');return value;
   }
   async function query(kind:AccountItemKind,signal:AbortSignal,calendarId?:string):Promise<{ids:string[];total?:number}>{
@@ -61,7 +61,7 @@ export function accountInsertService(owner:PreferenceAccount,fetcher:typeof apiF
       content=toVCardDocument(result.list);type='text/vcard';extension='vcf';
     }else{
       let ids=[item.id];if(kind==='calendar'){const all=await query('event',signal,item.id);if(all.ids.length>MAX_CALENDAR_EVENTS||(all.total??0)>MAX_CALENDAR_EVENTS)throw new Error('tooManyEvents');ids=all.ids;}
-      const built=eventsExport(owner.id,ids);const result=await json<JmapResponse>(await request('/jmap',signal,built),signal);const exported=responseFor<{accountId:string;blob:string}>(result,'export');if(exported.accountId!==owner.id||!exported.blob.startsWith('BEGIN:VCALENDAR'))throw new Error('invalidExport');
+      const built=eventsExport(owner.id,ids);const result=await json<JmapResponse>(await request('/jmap/api',signal,built),signal);const exported=responseFor<{accountId:string;blob:string}>(result,'export');if(exported.accountId!==owner.id||!exported.blob.startsWith('BEGIN:VCALENDAR'))throw new Error('invalidExport');
       content=exported.blob;type='text/calendar';extension='ics';
     }
     current();signal.throwIfAborted();const filename=(Array.from(item.label).map(char=>char.charCodeAt(0)<32?'_':char).join('').replace(/[\\/:*?"<>|]/g,'_').slice(0,100)||'attachment')+'.'+extension;
