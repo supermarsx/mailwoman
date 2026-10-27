@@ -1230,10 +1230,15 @@ pub(crate) mod session_state_tests {
 
         // The three that are `sessionState`, folded by t22-e0.
         let session_state = stmts.against("changes") - stmts.against("mailboxes");
+        // 0fc5f380 moved saved searches to `personal_saved_search`, keyed by the
+        // verified personal subject; the engine resolves that subject with one
+        // existence read of the account (`native_personal_subject`), so the method
+        // costs four statements now. Still fixed, still independent of the
+        // mailbox count (asserted below).
         assert_eq!(
             stmts.len(),
-            11,
-            "a whole Mailbox/get request: 3 sessionState + 3 method statements + \
+            12,
+            "a whole Mailbox/get request: 3 sessionState + 4 method statements + \
              5 fixed account/policy resolution reads. Got {stmts:#?}"
         );
         assert!(
@@ -1255,10 +1260,16 @@ pub(crate) mod session_state_tests {
             "one mailbox list; got {stmts:#?}"
         );
         assert_eq!(
-            stmts.against("saved_searches"),
+            stmts.against("FROM personal_saved_search"),
             1,
             "saved searches surface as virtual folders, so the method reads them \
              unconditionally — this is one of the two statements e0's 4 omits; \
+             got {stmts:#?}"
+        );
+        assert_eq!(
+            stmts.against("SELECT id FROM accounts WHERE id="),
+            1,
+            "one existence read resolves the saved searches' owner subject; \
              got {stmts:#?}"
         );
 
