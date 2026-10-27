@@ -377,24 +377,31 @@ async fn assert_upgraded(db: &Db) -> Vec<String> {
         ],
     );
 
+    // sessions: 0033 adds the client columns, which an old row would read as NULL.
+    // The full migrator then runs 0036_session_authentication (d7665823), which signs
+    // out every session written before it on purpose: such a row cannot tell a user's
+    // password from a header-auth service password, so it is not kept as user proof.
+    // The upgraded install therefore holds no pre-upgrade session, and the 0033
+    // columns are present.
     check(
-        "sessions row",
-        db.one(
-            "SELECT username, created_at, last_seen, user_agent, ip, client_type, device_label, \
-                    client_version \
-               FROM sessions WHERE id = 'sess-old'",
+        "sessions row (signed out by 0036_session_authentication)",
+        vec![Some(
+            db.count("SELECT CAST(COUNT(*) AS TEXT) FROM sessions WHERE id = 'sess-old'")
+                .await
+                .to_string(),
+        )],
+        vec![s("0")],
+    );
+    check(
+        "sessions 0033 columns readable",
+        db.texts(
+            "SELECT username, created_at, last_seen, user_agent, ip, client_type, device_label,                     client_version, authentication_method                FROM sessions WHERE id = 'sess-old'",
         )
-        .await,
-        vec![
-            s("old@example.test"),
-            s("t0"),
-            s("t1"),
-            None,
-            None,
-            None,
-            None,
-            None,
-        ],
+        .await
+        .into_iter()
+        .flatten()
+        .collect(),
+        vec![],
     );
 
     check(
