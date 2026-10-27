@@ -326,7 +326,7 @@ async fn a_registered_plugin_runs_with_the_stored_grant_and_nothing_more() {
         strings(&p["capabilities"]),
         ["spam-action", "net", "store-kv-scoped"]
     );
-    assert_eq!(strings(&p["netAllowlist"]), [daemon_host.clone()]);
+    assert_eq!(strings(&p["netAllowlist"]), [daemon_host.as_str()]);
     assert_eq!(
         p["limits"],
         json!({ "memoryMb": 32, "deadlineMs": 10000, "fuel": null })
