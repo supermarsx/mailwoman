@@ -52,7 +52,12 @@ async fn saved_search_filters_reject_malformed_and_unsupported_documents() {
         .send()
         .await
         .unwrap();
-    assert_eq!(login.status(), 200, "{}", login.text().await.unwrap());
+    assert_eq!(login.status(), 200);
+    // Personal-settings writes carry the login's storage authority (0a11b581).
+    let authority = login.json::<Value>().await.unwrap()["storageAuthority"]
+        .as_str()
+        .expect("login names a storageAuthority")
+        .to_owned();
     for query in [
         "null".to_string(),
         "broken".into(),
@@ -63,6 +68,7 @@ async fn saved_search_filters_reject_malformed_and_unsupported_documents() {
     ] {
         let response = client
             .put(&endpoint)
+            .header("x-mailwoman-storage-authority", &authority)
             .json(&json!({"name":"Rejected","queryJson":query,"asFolder":true}))
             .send()
             .await
@@ -82,6 +88,7 @@ async fn saved_search_filters_reject_malformed_and_unsupported_documents() {
         .to_string();
     let saved = client
         .put(&endpoint)
+        .header("x-mailwoman-storage-authority", &authority)
         .json(&json!({"name":"Invoices","queryJson":query,"asFolder":true}))
         .send()
         .await
