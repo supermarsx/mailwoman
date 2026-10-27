@@ -72,6 +72,50 @@ impl Wire {
     }
 }
 
+fn hmac_sha256(key: &[u8], msg: &[u8]) -> [u8; 32] {
+    use hmac::{KeyInit as _, Mac as _};
+    let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(key).unwrap();
+    mac.update(msg);
+    mac.finalize().into_bytes().into()
+}
+
+/// The SCRAM-SHA-256 server-final (`v=<ServerSignature>`, RFC 5802 §3) for the
+/// exchange the fake server just ran.
+fn scram_server_final(
+    client_first: &str,
+    server_first: &str,
+    client_final: &str,
+    pass: &str,
+) -> String {
+    let attr = |name: &str| {
+        server_first
+            .split(',')
+            .find_map(|part| part.strip_prefix(name))
+            .unwrap()
+    };
+    let salt = B64.decode(attr("s=")).unwrap();
+    let iterations: u32 = attr("i=").parse().unwrap();
+    // Hi(password, salt, i): PBKDF2-HMAC-SHA-256 with one output block.
+    let mut first_block = salt;
+    first_block.extend_from_slice(&1u32.to_be_bytes());
+    let mut u = hmac_sha256(pass.as_bytes(), &first_block);
+    let mut salted = u;
+    for _ in 1..iterations {
+        u = hmac_sha256(pass.as_bytes(), &u);
+        for (o, x) in salted.iter_mut().zip(u.iter()) {
+            *o ^= *x;
+        }
+    }
+    let server_key = hmac_sha256(&salted, b"Server Key");
+    let client_first_bare = client_first.split_once(",,").unwrap().1;
+    let without_proof = client_final.rsplit_once(",p=").unwrap().0;
+    let auth_message = format!("{client_first_bare},{server_first},{without_proof}");
+    format!(
+        "v={}",
+        B64.encode(hmac_sha256(&server_key, auth_message.as_bytes()))
+    )
+}
+
 /// The full extended-submission ESMTP server. Returns the captured MAIL/RCPT/BDAT
 /// lines + body once the client disconnects.
 async fn run_full_server(listener: TcpListener, captured: Arc<Mutex<Vec<String>>>) {
@@ -92,8 +136,11 @@ async fn run_full_server(listener: TcpListener, captured: Arc<Mutex<Vec<String>>
     )
     .await;
 
-    // SCRAM: echo the client nonce in a well-formed server-first; accept the proof
-    // (the RFC 7677 math is pinned by the mw-smtp vector test).
+    // SCRAM: echo the client nonce in a well-formed server-first, then prove the
+    // server's identity with a real server-final. Since 1e681d96 the client
+    // requires mutual authentication (RFC 5802 §5.1: it MUST verify `v=`), so a
+    // bare `235` without the server signature is refused. The server-final goes
+    // in a `334` and the client answers with an empty line (RFC 4954 §4).
     let auth = w.line().await;
     let ir = auth
         .strip_prefix("AUTH SCRAM-SHA-256 ")
@@ -108,7 +155,15 @@ async fn run_full_server(listener: TcpListener, captured: Arc<Mutex<Vec<String>>
     let server_first = format!("r={client_nonce}SRVNONCE,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096");
     w.send(format!("334 {}\r\n", B64.encode(&server_first)).as_bytes())
         .await;
-    let _client_final = w.line().await;
+    let client_final = String::from_utf8(B64.decode(w.line().await).unwrap()).unwrap();
+    let server_final = scram_server_final(&client_first, &server_first, &client_final, "pencil");
+    w.send(format!("334 {}\r\n", B64.encode(&server_final)).as_bytes())
+        .await;
+    assert_eq!(
+        w.line().await,
+        "",
+        "the client acknowledges the server-final"
+    );
     w.send(b"235 2.7.0 Authentication successful\r\n").await;
 
     // MAIL FROM (capture), RCPT TO (capture), BDAT (capture + body).
