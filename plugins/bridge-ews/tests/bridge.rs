@@ -19,6 +19,10 @@ use mw_plugin::{
 
 const GUEST: &[u8] = include_bytes!("../fixtures/bridge-ews.wasm");
 
+/// The one account each loaded instance backs. Since 612d4cb6 the host hands
+/// credentials only to an instance bound to an account (`load_for_account`).
+const BOUND_ACCOUNT: &str = "bound-account@example.test";
+
 const HIER: &str = include_str!("../fixtures/sync_folder_hierarchy.xml");
 const ITEMS: &str = include_str!("../fixtures/sync_folder_items.xml");
 const GETITEM: &str = include_str!("../fixtures/get_item_mime.xml");
@@ -58,7 +62,11 @@ struct FixtureCreds {
 
 #[async_trait]
 impl BasicCredentialProvider for FixtureCreds {
-    async fn credentials(&self, _account: &str) -> Result<BasicCredentials, String> {
+    async fn credentials(&self, account: &str) -> Result<BasicCredentials, String> {
+        assert_eq!(
+            account, BOUND_ACCOUNT,
+            "the host resolves the guest handle to the bound account"
+        );
         Ok(BasicCredentials {
             user: "svc-mailwoman".into(),
             domain: self.domain.clone(),
@@ -218,7 +226,12 @@ async fn ews_bridge_serves_mail_through_the_engine_with_ntlm() {
     let fake = FakeEws::new();
     let host = host_with_fake(fake.clone());
     let handle = host
-        .load(GUEST, &manifest(&["ews.example.com"]), &grant())
+        .load_for_account(
+            GUEST,
+            &manifest(&["ews.example.com"]),
+            &grant(),
+            BOUND_ACCOUNT,
+        )
         .unwrap();
     let backend = handle
         .as_account_backend()
@@ -283,7 +296,12 @@ async fn ews_bridge_serves_mail_through_basic_auth() {
     let fake = FakeEws::new();
     let host = host_with(fake.clone(), "");
     let handle = host
-        .load(GUEST, &manifest(&["ews.example.com"]), &grant())
+        .load_for_account(
+            GUEST,
+            &manifest(&["ews.example.com"]),
+            &grant(),
+            BOUND_ACCOUNT,
+        )
         .unwrap();
     let backend = handle
         .as_account_backend()
@@ -319,7 +337,12 @@ async fn ews_bridge_serves_mail_through_basic_auth() {
 async fn ews_bridge_resolves_gal_through_addrbook_source() {
     let host = host_with_fake(FakeEws::new());
     let handle = host
-        .load(GUEST, &manifest(&["ews.example.com"]), &grant())
+        .load_for_account(
+            GUEST,
+            &manifest(&["ews.example.com"]),
+            &grant(),
+            BOUND_ACCOUNT,
+        )
         .unwrap();
 
     let hits = handle.call_addrbook_search("john".into()).await.unwrap();
@@ -333,7 +356,12 @@ async fn ews_bridge_denied_when_endpoint_not_in_allowlist() {
     // guest's request before it ever reaches the (fake) network.
     let host = host_with_fake(FakeEws::new());
     let handle = host
-        .load(GUEST, &manifest(&["other.example"]), &grant())
+        .load_for_account(
+            GUEST,
+            &manifest(&["other.example"]),
+            &grant(),
+            BOUND_ACCOUNT,
+        )
         .unwrap();
     let backend = handle.as_account_backend().unwrap();
     assert!(

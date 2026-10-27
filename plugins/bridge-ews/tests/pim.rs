@@ -20,6 +20,10 @@ use mw_plugin::{
 
 const GUEST: &[u8] = include_bytes!("../fixtures/bridge-ews.wasm");
 
+/// The one account each loaded instance backs. Since 612d4cb6 the host hands
+/// credentials only to an instance bound to an account (`load_for_account`).
+const BOUND_ACCOUNT: &str = "bound-account@example.test";
+
 const CAL: &str = include_str!("../fixtures/calendar_events.xml");
 const TASKS: &str = include_str!("../fixtures/tasks.xml");
 const ROOMS: &str = include_str!("../fixtures/room_lists.xml");
@@ -52,7 +56,11 @@ struct FixtureCreds;
 
 #[async_trait]
 impl BasicCredentialProvider for FixtureCreds {
-    async fn credentials(&self, _account: &str) -> Result<BasicCredentials, String> {
+    async fn credentials(&self, account: &str) -> Result<BasicCredentials, String> {
+        assert_eq!(
+            account, BOUND_ACCOUNT,
+            "the host resolves the guest handle to the bound account"
+        );
         Ok(BasicCredentials {
             user: "svc-mailwoman".into(),
             domain: "CORP".into(),
@@ -165,7 +173,9 @@ fn host() -> PluginHost {
 #[tokio::test]
 async fn ews_advertises_honest_pim_support_matrix() {
     let host = host();
-    let handle = host.load(GUEST, &manifest(), &grant()).unwrap();
+    let handle = host
+        .load_for_account(GUEST, &manifest(), &grant(), BOUND_ACCOUNT)
+        .unwrap();
 
     // The component exports the PIM interfaces AND has account-backend granted.
     assert!(
@@ -187,7 +197,9 @@ async fn ews_advertises_honest_pim_support_matrix() {
 #[tokio::test]
 async fn ews_calendar_delta_through_the_exports() {
     let host = host();
-    let handle = host.load(GUEST, &manifest(), &grant()).unwrap();
+    let handle = host
+        .load_for_account(GUEST, &manifest(), &grant(), BOUND_ACCOUNT)
+        .unwrap();
     let calendar = handle
         .as_bridge_calendar()
         .expect("calendar interface bound");
@@ -233,7 +245,9 @@ async fn ews_calendar_delta_through_the_exports() {
 #[tokio::test]
 async fn ews_task_list_through_the_exports() {
     let host = host();
-    let handle = host.load(GUEST, &manifest(), &grant()).unwrap();
+    let handle = host
+        .load_for_account(GUEST, &manifest(), &grant(), BOUND_ACCOUNT)
+        .unwrap();
     let tasks = handle.as_bridge_tasks().expect("tasks interface bound");
 
     // list-tasks ⇒ FindItem over the Tasks distinguished folder, each Task → VTODO.
@@ -255,7 +269,9 @@ async fn ews_task_list_through_the_exports() {
 #[tokio::test]
 async fn ews_recall_is_honestly_unsupported() {
     let host = host();
-    let handle = host.load(GUEST, &manifest(), &grant()).unwrap();
+    let handle = host
+        .load_for_account(GUEST, &manifest(), &grant(), BOUND_ACCOUNT)
+        .unwrap();
 
     // The parity interface is bound (present + account-backend granted), but recall
     // honestly reports Unsupported — EWS has no third-party recall/unsend API.

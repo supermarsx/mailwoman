@@ -25,6 +25,10 @@ use mw_plugin::{
 
 const COMPONENT: &[u8] = include_bytes!("../fixtures/bridge-gmail.wasm");
 
+/// The one account each loaded instance backs. Since 612d4cb6 the host hands
+/// credentials only to an instance bound to an account (`load_for_account`).
+const BOUND_ACCOUNT: &str = "bound-account@example.test";
+
 const LABELS: &str = include_str!("../fixtures/labels.json");
 const PROFILE: &str = include_str!("../fixtures/profile.json");
 const MESSAGES: &str = include_str!("../fixtures/messages_inbox.json");
@@ -80,7 +84,11 @@ impl HttpFetcher for GmailMock {
 struct MockOAuth;
 #[async_trait]
 impl OAuthTokenProvider for MockOAuth {
-    async fn token(&self, _account: &str) -> Result<String, String> {
+    async fn token(&self, account: &str) -> Result<String, String> {
+        assert_eq!(
+            account, BOUND_ACCOUNT,
+            "the host resolves the guest handle to the bound account"
+        );
         // Host mints a short-lived ACCESS token; the guest never holds a refresh token.
         Ok(ACCESS_TOKEN.to_string())
     }
@@ -121,7 +129,9 @@ fn host_and_backend() -> (Arc<GmailMock>, Arc<dyn AccountBackend>) {
         ..HostServices::default()
     };
     let host = PluginHost::try_new(services, TrustRoot::empty()).unwrap();
-    let handle = host.load(COMPONENT, &manifest(), &grant()).unwrap();
+    let handle = host
+        .load_for_account(COMPONENT, &manifest(), &grant(), BOUND_ACCOUNT)
+        .unwrap();
     assert!(
         handle.is_unsigned(),
         "in-tree component is unsigned ⇒ banner signal set"

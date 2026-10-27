@@ -34,6 +34,10 @@ use bridge_graph::fixtures::{FixtureSet, FIXTURE_TOKEN};
 /// The committed component, rebuilt by `build.sh` from `src/guest.rs`.
 const COMPONENT: &[u8] = include_bytes!("fixtures/bridge-graph.wasm");
 
+/// The one account each loaded instance backs. Since 612d4cb6 the host hands
+/// credentials only to an instance bound to an account (`load_for_account`).
+const BOUND_ACCOUNT: &str = "bound-account@example.test";
+
 #[derive(Debug, Clone)]
 struct SeenRequest {
     url: String,
@@ -79,7 +83,11 @@ struct FixtureOAuth {
 
 #[async_trait]
 impl OAuthTokenProvider for FixtureOAuth {
-    async fn token(&self, _account: &str) -> Result<String, String> {
+    async fn token(&self, account: &str) -> Result<String, String> {
+        assert_eq!(
+            account, BOUND_ACCOUNT,
+            "the host resolves the guest handle to the bound account"
+        );
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(FIXTURE_TOKEN.to_string())
     }
@@ -149,7 +157,7 @@ async fn component_loads_unsigned_and_gates_account_backend() {
     let m = manifest(vec![Capability::Net]);
     let handle = h
         .host
-        .load(COMPONENT, &m, &grant(vec![Capability::Net]))
+        .load_for_account(COMPONENT, &m, &grant(vec![Capability::Net]), BOUND_ACCOUNT)
         .unwrap();
     assert!(handle.is_unsigned(), "loaded unsigned ⇒ banner signal");
     assert!(handle.as_account_backend().is_none(), "gated without cap");
@@ -158,7 +166,7 @@ async fn component_loads_unsigned_and_gates_account_backend() {
     let m = manifest(GRAPH_CAPS.to_vec());
     let handle = h
         .host
-        .load(COMPONENT, &m, &grant(GRAPH_CAPS.to_vec()))
+        .load_for_account(COMPONENT, &m, &grant(GRAPH_CAPS.to_vec()), BOUND_ACCOUNT)
         .unwrap();
     assert!(handle.as_account_backend().is_some());
 }
@@ -169,7 +177,7 @@ async fn capabilities_and_mailboxes_through_the_seam() {
     let m = manifest(GRAPH_CAPS.to_vec());
     let handle = h
         .host
-        .load(COMPONENT, &m, &grant(GRAPH_CAPS.to_vec()))
+        .load_for_account(COMPONENT, &m, &grant(GRAPH_CAPS.to_vec()), BOUND_ACCOUNT)
         .unwrap();
     let backend = handle.as_account_backend().unwrap();
 
@@ -217,7 +225,7 @@ async fn message_fetch_by_native_id_round_trips_through_the_jail() {
     let m = manifest(GRAPH_CAPS.to_vec());
     let handle = h
         .host
-        .load(COMPONENT, &m, &grant(GRAPH_CAPS.to_vec()))
+        .load_for_account(COMPONENT, &m, &grant(GRAPH_CAPS.to_vec()), BOUND_ACCOUNT)
         .unwrap();
     let backend = handle.as_account_backend().unwrap();
 
@@ -270,7 +278,7 @@ async fn addrbook_search_serves_contacts_and_gal_through_the_seam() {
     let m = manifest(GRAPH_CAPS.to_vec());
     let handle = h
         .host
-        .load(COMPONENT, &m, &grant(GRAPH_CAPS.to_vec()))
+        .load_for_account(COMPONENT, &m, &grant(GRAPH_CAPS.to_vec()), BOUND_ACCOUNT)
         .unwrap();
 
     let results = handle.call_addrbook_search("car".into()).await.unwrap();

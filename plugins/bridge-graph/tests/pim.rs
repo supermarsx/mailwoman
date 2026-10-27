@@ -31,6 +31,10 @@ use bridge_graph::fixtures::{FixtureSet, FIXTURE_TOKEN};
 /// The committed component, rebuilt by `build.sh` from `src/guest.rs`.
 const COMPONENT: &[u8] = include_bytes!("fixtures/bridge-graph.wasm");
 
+/// The one account each loaded instance backs. Since 612d4cb6 the host hands
+/// credentials only to an instance bound to an account (`load_for_account`).
+const BOUND_ACCOUNT: &str = "bound-account@example.test";
+
 /// An `HttpFetcher` replaying the recorded Graph fixtures, plus two canned answers the
 /// PIM parity reads need that have no standalone JSON fixture: the Focused-Inbox
 /// `inferenceClassification` read (`get-focused`) and the fire-and-forget writes
@@ -76,7 +80,11 @@ struct FixtureOAuth;
 
 #[async_trait]
 impl OAuthTokenProvider for FixtureOAuth {
-    async fn token(&self, _account: &str) -> Result<String, String> {
+    async fn token(&self, account: &str) -> Result<String, String> {
+        assert_eq!(
+            account, BOUND_ACCOUNT,
+            "the host resolves the guest handle to the bound account"
+        );
         Ok(FIXTURE_TOKEN.to_string())
     }
 }
@@ -125,7 +133,9 @@ fn plugin_msg(raw: &str) -> MessageRef {
 
 #[tokio::test]
 async fn probes_as_pim_guest_with_honest_graph_support() {
-    let handle = host().load(COMPONENT, &manifest(), &grant()).unwrap();
+    let handle = host()
+        .load_for_account(COMPONENT, &manifest(), &grant(), BOUND_ACCOUNT)
+        .unwrap();
 
     // The rebuilt component exports the three PIM interfaces ⇒ probed as a PIM guest.
     assert!(handle.advertises_pim(), "bridge-graph advertises PIM");
@@ -146,7 +156,9 @@ async fn probes_as_pim_guest_with_honest_graph_support() {
 
 #[tokio::test]
 async fn calendar_exports_round_trip() {
-    let handle = host().load(COMPONENT, &manifest(), &grant()).unwrap();
+    let handle = host()
+        .load_for_account(COMPONENT, &manifest(), &grant(), BOUND_ACCOUNT)
+        .unwrap();
     let cal = handle.as_bridge_calendar().unwrap();
 
     // list-calendars: own (editable) + shared (read-only).
@@ -191,7 +203,9 @@ async fn calendar_exports_round_trip() {
 
 #[tokio::test]
 async fn tasks_exports_round_trip() {
-    let handle = host().load(COMPONENT, &manifest(), &grant()).unwrap();
+    let handle = host()
+        .load_for_account(COMPONENT, &manifest(), &grant(), BOUND_ACCOUNT)
+        .unwrap();
     let tasks = handle.as_bridge_tasks().unwrap();
 
     // sync-tasks over a specific list ⇒ a deterministic 2-task VTODO snapshot.
@@ -219,7 +233,9 @@ async fn tasks_exports_round_trip() {
 
 #[tokio::test]
 async fn parity_reactions_voting_and_focused_round_trip() {
-    let handle = host().load(COMPONENT, &manifest(), &grant()).unwrap();
+    let handle = host()
+        .load_for_account(COMPONENT, &manifest(), &grant(), BOUND_ACCOUNT)
+        .unwrap();
 
     // reaction set (best-effort write) + get (honest empty — Graph has no read-back).
     let reactions = handle.as_bridge_reactions().unwrap();
@@ -262,7 +278,9 @@ async fn parity_reactions_voting_and_focused_round_trip() {
 
 #[tokio::test]
 async fn recall_honesty_matrix_is_preserved() {
-    let handle = host().load(COMPONENT, &manifest(), &grant()).unwrap();
+    let handle = host()
+        .load_for_account(COMPONENT, &manifest(), &grant(), BOUND_ACCOUNT)
+        .unwrap();
     let recall = handle.as_bridge_recall().unwrap();
 
     // Unread ⇒ the request is accepted for processing, but NEVER guaranteed.
