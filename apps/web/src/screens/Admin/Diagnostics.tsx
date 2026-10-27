@@ -1,5 +1,5 @@
 import { For, Show, createSignal, onMount, onCleanup, type JSX } from 'solid-js';
-import { t } from '../../i18n';
+import { t, formatDateTime } from '../../i18n';
 import { adminRead, adminRequest, type AdminReadResult } from './shell/adminApi.ts';
 import { Feedback, describeAdminError } from './shell/Feedback.tsx';
 import { useShell } from './shell/context.ts';
@@ -114,13 +114,13 @@ function DiagnosticRuns(props: { api?: DiagnosticsApi }): JSX.Element {
     <h3>{t('admin-diag-history')}</h3>
     <DataTable<Run> caption={t('admin-diag-history')} rows={runs()} rowKey={entry => entry.id} state={busy() ? 'loading' : 'ready'} emptyText={t('admin-diag-empty')}
       columns={[
-        {id:'started',header:t('admin-diag-started'),cell:entry=><time dateTime={new Date(entry.startedAt*1000).toISOString()}>{new Date(entry.startedAt*1000).toLocaleString()}</time>},
+        {id:'started',header:t('admin-diag-started'),cell:entry=><time dateTime={new Date(entry.startedAt*1000).toISOString()}>{formatDateTime(new Date(entry.startedAt*1000), { dateStyle: 'medium', timeStyle: 'medium' })}</time>},
         {id:'suite',header:t('admin-diag-suite'),cell:entry=>entry.suite},
         {id:'status',header:t('admin-diag-status'),cell:entry=><span class={css.badge}>{entry.status}</span>},
         {id:'checks',header:t('admin-diag-checks'),cell:entry=>entry.results.length},
         {id:'failed',header:t('admin-diag-failed'),cell:entry=>entry.results.filter(check=>check.status==='fail').length},
       ]}
-      rowActions={entry=><button type="button" class="btn btn--ghost" aria-label={t('admin-diag-open-run',{date:new Date(entry.startedAt*1000).toLocaleString()})} aria-pressed={selected()?.id===entry.id} onClick={()=>setSelected(entry)}><Icon name="eye"/></button>}
+      rowActions={entry=><button type="button" class="btn btn--ghost" aria-label={t('admin-diag-open-run',{date:formatDateTime(new Date(entry.startedAt*1000), { dateStyle: 'medium', timeStyle: 'medium' })})} aria-pressed={selected()?.id===entry.id} onClick={()=>setSelected(entry)}><Icon name="eye"/></button>}
     />
     <Show when={cursor()}><button class="btn" type="button" disabled={busy()} onClick={() => void history(true)}>{t('admin-diag-more')}</button></Show>
   </section>;

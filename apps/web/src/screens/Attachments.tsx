@@ -2,7 +2,7 @@
 // account-wide metadata scan. Attachment bytes are fetched only by the viewer.
 
 import { createEffect, createMemo, createResource, createSignal, onCleanup, For, Show, type JSX } from 'solid-js';
-import { t } from '../i18n';
+import { t, formatDate } from '../i18n';
 import {Icon} from '../components/Icon.tsx';
 import {inspectFile} from '../viewers/fileInfo.ts';
 import {AsyncPending, AsyncError} from '../components/AsyncState.tsx';
@@ -152,7 +152,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
                     <Icon name={inspectFile(item.name,item.mime).icon}/><span>{item.name}</span>
                   </button>
                   <For each={inspectFile(item.name,item.mime).warnings}>{warning=><span class={table.warning} title={t(`mail-file-warning-${warning}`)} aria-label={t(`mail-file-warning-${warning}`)}><Icon name="alert"/></span>}</For>
-                  </td><td title={item.mime}>{catLabel(categoryOf(item.mime))}</td><td>{formatSize(item.size)}</td><td>{item.from}</td><td><Show when={props.onOpenMessage} fallback={item.subject}><button type="button" class={table.name} onClick={()=>props.onOpenMessage?.(item)} title={t('common-attach-open-message')}>{item.subject}</button></Show></td><td>{Number.isNaN(Date.parse(item.receivedAt))?'—':new Date(item.receivedAt).toLocaleDateString()}</td>
+                  </td><td title={item.mime}>{catLabel(categoryOf(item.mime))}</td><td>{formatSize(item.size)}</td><td>{item.from}</td><td><Show when={props.onOpenMessage} fallback={item.subject}><button type="button" class={table.name} onClick={()=>props.onOpenMessage?.(item)} title={t('common-attach-open-message')}>{item.subject}</button></Show></td><td>{Number.isNaN(Date.parse(item.receivedAt))?'—':formatDate(new Date(item.receivedAt))}</td>
                 </tr>
               )}
             </For>

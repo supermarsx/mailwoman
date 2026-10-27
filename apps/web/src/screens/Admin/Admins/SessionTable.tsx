@@ -1,6 +1,6 @@
 import { createSignal, Show, type JSX } from 'solid-js';
 import type { AdminAccount, AdminSession } from '../../../api/admin/admins.ts';
-import { t } from '../../../i18n';
+import { t, formatDateTime } from '../../../i18n';
 import { Icon } from '../../../components/Icon.tsx';
 import { DataTable, type Column } from '../shell/DataTable.tsx';
 
@@ -11,11 +11,11 @@ export function AdminSessionTable(props: { sessions: AdminSession[]; accounts: A
   const shown=():AdminSession[]=>props.sessions.filter(row=>name(row).toLowerCase().includes(query().trim().toLowerCase()));
   const chosen=():AdminSession[]=>shown().filter(row=>selected().has(row.id));
   const toggle=(id:string,checked:boolean):void=>{setSelected(previous=>{const next=new Set(previous);if(checked)next.add(id);else next.delete(id);return next;});};
-  const date = (value: number | undefined): string => value === undefined ? '—' : new Date(value * 1000).toLocaleString();
+  const date = (value: number | undefined): string => value === undefined ? '—' : formatDateTime(new Date(value * 1000));
   const columns = (): Column<AdminSession>[] => [
     ...(props.onRevokeMany?[{id:'select',header:t('admin-session-select'),cell:(row:AdminSession)=><input type="checkbox" aria-label={t('admin-session-select-account',{account:name(row)})} checked={selected().has(row.id)} disabled={props.busy||!props.canRevoke} onChange={event=>toggle(row.id,event.currentTarget.checked)}/>}]:[]),
     { id: 'account', header: t('admin-session-account'), cell: name },
-    { id: 'created', header: t('admin-session-created'), cell: (row) => Number.isNaN(Date.parse(row.createdAt)) ? row.createdAt : new Date(row.createdAt).toLocaleString() },
+    { id: 'created', header: t('admin-session-created'), cell: (row) => Number.isNaN(Date.parse(row.createdAt)) ? row.createdAt : formatDateTime(new Date(row.createdAt)) },
     { id: 'idle', header: t('admin-session-idle-expiry'), cell: (row) => date(row.idleExpiresAt) },
     { id: 'expiry', header: t('admin-session-expiry'), cell: (row) => date(row.expiresAt) },
     { id: 'status', header: t('admin-session-status'), cell: (row) => t(row.current ? 'admin-session-current' : 'admin-session-active') },

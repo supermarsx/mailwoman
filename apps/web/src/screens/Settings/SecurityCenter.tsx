@@ -1,7 +1,7 @@
 import { createResource, createSignal, createUniqueId, For, onMount, Show, type JSX } from 'solid-js';
 import { apiFetch } from '../../api/http.ts';
 import { basePath } from '../../api/basePath.ts';
-import { loadCatalog, t } from '../../i18n';
+import { loadCatalog, t, formatDateTime, formatDate } from '../../i18n';
 import * as css from './styles.css.ts';
 import { TwoFactor } from './TwoFactor.tsx';
 import { Sessions } from './Sessions.tsx';
@@ -62,7 +62,7 @@ export function SecurityCenter(props: { password?: JSX.Element; grants?: JSX.Ele
       <option value="">{t('security-center-all')}</option><option value="success">{t('security-center-success')}</option><option value="failure">{t('security-center-failure')}</option><option value="blocked">{t('security-center-blocked')}</option>
     </select></label>
     <div class={css.actions}><button type="button" disabled={busy()} onClick={() => void action(async () => { await refreshHistory(); })}>{t('security-center-refresh')}</button><button type="button" disabled={busy()} onClick={() => void action(exportHistory)}>{t('security-center-export')}</button></div>
-    <ul class={css.list}><For each={history()?.events}>{(event) => <li class={css.item}><div><time>{new Date(event.ts * 1000).toLocaleString()}</time> · {event.result} · {event.method}<p class={css.meta}>{event.ip} · {event.userAgent}</p></div></li>}</For></ul>
+    <ul class={css.list}><For each={history()?.events}>{(event) => <li class={css.item}><div><time>{formatDateTime(new Date(event.ts * 1000), { dateStyle: 'medium', timeStyle: 'medium' })}</time> · {event.result} · {event.method}<p class={css.meta}>{event.ip} · {event.userAgent}</p></div></li>}</For></ul>
     </div><div {...panel('devices')}>
     <h3 class={css.subheading}>{t('security-center-devices')}</h3>
     <p class={css.prose}>{t('security-center-remember-help')}</p>
@@ -70,7 +70,7 @@ export function SecurityCenter(props: { password?: JSX.Element; grants?: JSX.Ele
       <label class={css.field}>{t('security-center-label')}<input class={css.input} maxLength={128} required value={label()} onInput={(e) => setLabel(e.currentTarget.value)} /></label>
       <button type="submit" disabled={busy()}>{t('security-center-remember')}</button>
     </form>
-    <ul class={css.list}><For each={devices()?.devices}>{(device) => <li class={css.item}><span>{device.label} · {new Date(device.expiresAt * 1000).toLocaleDateString()}</span><button type="button" disabled={busy()} onClick={() => void action(() => request('remembered-devices/revoke', { id: device.id }))}>{t('security-center-revoke')}</button></li>}</For></ul>
+    <ul class={css.list}><For each={devices()?.devices}>{(device) => <li class={css.item}><span>{device.label} · {formatDate(new Date(device.expiresAt * 1000))}</span><button type="button" disabled={busy()} onClick={() => void action(() => request('remembered-devices/revoke', { id: device.id }))}>{t('security-center-revoke')}</button></li>}</For></ul>
     </div><div {...panel('activity')}>
     <h3 class={css.subheading}>{t('security-center-activity')}</h3>
     <ul class={css.list}><For each={activity()?.events}>{(event) => <li class={css.item}>{event.timestamp} · {event.action}</li>}</For></ul>

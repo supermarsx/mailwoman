@@ -1,7 +1,7 @@
 import { createResource, createSignal, Show, useContext, onCleanup, type JSX } from 'solid-js';
 import { adminSessionGeneration } from '../../api/adminSession.ts';
 import { adminRequest } from './shell/adminApi.ts';
-import { t } from '../../i18n';
+import { t, formatDateTime } from '../../i18n';
 import * as css from '../Settings/styles.css.ts';
 import { DataTable, type Column } from './shell/DataTable.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
@@ -46,7 +46,7 @@ export function AdminSessions(): JSX.Element {
       && (!account() || row.accountId === account()) && (!kind() || row.clientType === kind())
       && (!q || [row.username, row.accountId, row.ip, row.userAgent, row.deviceLabel].some((v) => v?.toLowerCase().includes(q))));
   };
-  const date = (value?: string): string => !value ? '—' : Number.isNaN(Date.parse(value)) ? value : new Date(value).toLocaleString();
+  const date = (value?: string): string => !value ? '—' : Number.isNaN(Date.parse(value)) ? value : formatDateTime(new Date(value));
   const chosen=():Session[]=>shown().filter(row=>selected().has(row.handle));
   async function revokeSelected():Promise<void>{
     const rows=batch();if(!rows||!canRevoke()||!authorityCurrent())return;setBusy(true);setError('');setNotice(undefined);
