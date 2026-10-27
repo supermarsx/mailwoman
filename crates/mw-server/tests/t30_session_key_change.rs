@@ -228,33 +228,25 @@ async fn jmap(c: &reqwest::Client, base: &str) -> reqwest::Response {
         .unwrap()
 }
 
-/// A logged-in admin-panel client.
-async fn admin(base: &str) -> reqwest::Client {
-    let c = browser();
-    let r = c
-        .post(format!("{base}/admin/login"))
-        .json(&json!({ "username": "root", "password": "hunter2" }))
-        .send()
+/// Set the `disabled` flag recorded under the login name `id`, as the panel
+/// stored it before the key change. Since 991223b9 the panel's
+/// `PUT /admin/users/{id}/flags` addresses a known user identity (an account id
+/// or a provisioned address), not a name a login once recorded, so the record is
+/// written in the panel's own format (`account_gate` reads it by name).
+async fn set_disabled(store: &Store, id: &str, disabled: bool) {
+    store
+        .set_setting(
+            &format!("v6:admin:flags:{id}"),
+            &json!({
+                "zero_access": false,
+                "force_password_change": false,
+                "remote_cache_wipe": false,
+                "disabled": disabled,
+            })
+            .to_string(),
+        )
         .await
         .unwrap();
-    assert_eq!(r.status(), 200, "admin login");
-    c
-}
-
-/// Set an account's `disabled` flag the way the panel does.
-async fn set_disabled(admin: &reqwest::Client, base: &str, id: &str, disabled: bool) {
-    let r = admin
-        .put(format!("{base}/admin/users/{id}/flags"))
-        .json(&json!({
-            "zeroAccess": false,
-            "forcePasswordChange": false,
-            "remoteCacheWipe": false,
-            "disabled": disabled,
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(r.status(), 204, "the panel's flag write is accepted");
 }
 
 /// A login on the first server, and the same database then served under another
@@ -274,6 +266,21 @@ struct KeyChange {
 
 async fn key_change(mock: String, login_name: &str) -> KeyChange {
     let dep = Deployment::new();
+    // These legs sign in from 127.0.0.1 many times, wrong passwords included, and
+    // are not about sign-in pacing (`signin.retryCooldownSecs`, d94472d7): the
+    // operator setting 0 switches it off.
+    dep.store(KEY_A)
+        .await
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "signin.retryCooldownSecs".into(),
+            global_value: Some("0".into()),
+            allow_user_override: false,
+            global_locked: false,
+            updated_by: "t30-key-change-fixture".into(),
+            updated_at: 0,
+        })
+        .await
+        .unwrap();
     let a = dep.serve(KEY_A, &mock).await;
     let first = login(&browser(), &a, &mock, login_name, mw_mock_jmap::PASS).await;
     assert_eq!(first.status(), 200, "control: login on the first server");
@@ -372,7 +379,6 @@ async fn an_account_disabled_under_a_name_recorded_before_the_key_change_is_refu
     let (user, pass) = (mw_mock_jmap::USER, mw_mock_jmap::PASS);
     let store_a = k.dep.store(KEY_A).await;
     let store_b = k.dep.store(KEY_B).await;
-    let admin = admin(&k.b).await;
 
     // Controls on the second server: the account logs in under the canonical
     // name (the only name this server has seen typed), and its session works.
@@ -386,7 +392,7 @@ async fn an_account_disabled_under_a_name_recorded_before_the_key_change_is_refu
         .await
         .unwrap();
 
-    set_disabled(&admin, &k.b, ALIAS, true).await;
+    set_disabled(&store_b, ALIAS, true).await;
 
     // Disabling deletes the account's session rows. Put one back as the first
     // server would write it, so the refusals below are made with a row present
@@ -431,7 +437,7 @@ async fn an_account_disabled_under_a_name_recorded_before_the_key_change_is_refu
 
     // Re-enabled: the login works again with the unopenable row still present, so
     // the refusals above were the flag and not the row.
-    set_disabled(&admin, &k.b, ALIAS, false).await;
+    set_disabled(&store_b, ALIAS, false).await;
     assert!(store_a.get_session(&dead).await.is_ok());
     assert!(store_b.get_session(&dead).await.is_err());
     assert_eq!(
@@ -454,7 +460,7 @@ async fn an_account_disabled_under_a_name_recorded_before_the_key_change_is_refu
         "flags that cannot be read refuse the login"
     );
     assert!(session_cookie(&unreadable).is_none());
-    set_disabled(&admin, &k.b, ALIAS, false).await;
+    set_disabled(&store_b, ALIAS, false).await;
     assert_eq!(
         login(&browser(), &k.b, &k.mock, user, pass).await.status(),
         200,
@@ -538,6 +544,19 @@ async fn a_key_and_a_password_change_use_the_session_rows_that_open() {
     let second = login(&c, base, &k.mock, user, pass).await;
     assert_eq!(second.status(), 200, "login on the second server");
     let session_b = session_cookie(&second).expect("a session cookie");
+    // Minting a key needs a fresh password proof for this session (7e9af0d0).
+    let step_up = c
+        .post(format!("{base}/api/security/step-up"))
+        .json(&json!({ "password": pass }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        step_up.status(),
+        200,
+        "step-up: {}",
+        step_up.text().await.unwrap()
+    );
 
     // The key, presented with no cookie: its mail read goes upstream with the
     // credentials of the session that opens.

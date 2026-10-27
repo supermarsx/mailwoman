@@ -86,6 +86,22 @@ async fn spawn_engine(spellings: &[&str]) -> (Server, MockPop3) {
     std::fs::create_dir_all(&web).unwrap();
     std::fs::write(web.join("index.html"), INDEX_HTML).unwrap();
     let db = dir.join("mw.db").to_string_lossy().into_owned();
+    // Each refusal here is a failed sign-in, which keeps its pacing charge (t33
+    // D1); these legs are not about pacing (`signin.retryCooldownSecs`,
+    // d94472d7), and 0 switches it off.
+    Store::open(&db, ServerKey::from_hex(KEY_HEX).unwrap())
+        .await
+        .unwrap()
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "signin.retryCooldownSecs".into(),
+            global_value: Some("0".into()),
+            allow_user_override: false,
+            global_locked: false,
+            updated_by: "t32-h16-fixture".into(),
+            updated_at: 0,
+        })
+        .await
+        .unwrap();
     let config = AppConfig {
         db_path: db.clone(),
         server_key_hex: Some(KEY_HEX.to_string()),
@@ -137,32 +153,26 @@ fn browser() -> reqwest::Client {
         .unwrap()
 }
 
-async fn admin(base: &str) -> reqwest::Client {
-    let c = browser();
-    let r = c
-        .post(format!("{base}/admin/login"))
-        .json(&json!({ "username": "root", "password": "hunter2" }))
-        .send()
+/// Set the flags recorded under the address `id`, in the panel's own record
+/// format (`account_gate` reads it under every spelling). Since 991223b9 the
+/// panel's `PUT /admin/users/{id}/flags` addresses a known user identity, and an
+/// address that has never signed in (or only under another spelling) is not one,
+/// so the record is written directly.
+async fn set_flags(srv: &Server, id: &str, disabled: bool, force: bool) {
+    srv.store()
+        .await
+        .set_setting(
+            &format!("v6:admin:flags:{id}"),
+            &json!({
+                "zero_access": false,
+                "force_password_change": force,
+                "remote_cache_wipe": false,
+                "disabled": disabled,
+            })
+            .to_string(),
+        )
         .await
         .unwrap();
-    assert_eq!(r.status(), 200, "admin login");
-    c
-}
-
-/// Set an account's flags the way the panel does.
-async fn set_flags(admin: &reqwest::Client, base: &str, id: &str, disabled: bool, force: bool) {
-    let r = admin
-        .put(format!("{base}/admin/users/{id}/flags"))
-        .json(&json!({
-            "zeroAccess": false,
-            "forcePasswordChange": force,
-            "remoteCacheWipe": false,
-            "disabled": disabled,
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(r.status(), 204, "the panel's flag write is accepted");
 }
 
 /// Sign in as `user` on a fresh client; the client and the response.
@@ -208,13 +218,12 @@ async fn a_disabled_address_is_refused_under_its_bare_and_tagged_spellings() {
     ])
     .await;
     let base = &srv.base;
-    let admin = admin(base).await;
 
     let (_, status, _) = login(base, "alice@example.com").await;
     assert_eq!(status, 200, "control: the address itself signs in");
     assert_eq!(srv.accounts().await, vec!["alice@example.com".to_string()]);
 
-    set_flags(&admin, base, "alice@example.com", true, false).await;
+    set_flags(&srv, "alice@example.com", true, false).await;
 
     for spelling in [
         "alice",
@@ -240,7 +249,7 @@ async fn a_disabled_address_is_refused_under_its_bare_and_tagged_spellings() {
 
     // Clearing the flag lets each refused spelling in: the refusals above were
     // the flag's.
-    set_flags(&admin, base, "alice@example.com", false, false).await;
+    set_flags(&srv, "alice@example.com", false, false).await;
     for spelling in ["alice", "alice+x@example.com", "Alice@Example.COM"] {
         assert_eq!(
             status_of(base, spelling).await,
@@ -258,20 +267,19 @@ async fn a_bare_name_session_and_a_hold_follow_the_address() {
     let _g = serial().await;
     let (srv, _pop) = spawn_engine(&["alice@example.com", "alice"]).await;
     let base = &srv.base;
-    let admin = admin(base).await;
 
     let (session, status, _) = login(base, "alice").await;
     assert_eq!(status, 200, "control: the bare name signs in");
     assert_eq!(me(&session, base).await, 200, "control: its session works");
 
-    set_flags(&admin, base, "alice@example.com", true, false).await;
+    set_flags(&srv, "alice@example.com", true, false).await;
     assert_eq!(
         me(&session, base).await,
         401,
         "the bare-name session is refused once the address is disabled"
     );
 
-    set_flags(&admin, base, "alice@example.com", false, true).await;
+    set_flags(&srv, "alice@example.com", false, true).await;
     let (_, status, body) = login(base, "alice").await;
     assert_eq!(status, 200, "a held account still signs in");
     assert_eq!(
@@ -280,7 +288,7 @@ async fn a_bare_name_session_and_a_hold_follow_the_address() {
         "the hold under the address applies to the bare name: {body}"
     );
 
-    set_flags(&admin, base, "alice@example.com", false, false).await;
+    set_flags(&srv, "alice@example.com", false, false).await;
     let (_, status, body) = login(base, "alice").await;
     assert_eq!(status, 200);
     assert!(body.get("passwordChangeRequired").is_none(), "{body}");
@@ -293,17 +301,16 @@ async fn a_disabled_address_is_refused_under_the_other_form_of_its_domain() {
     let _g = serial().await;
     let (srv, _pop) = spawn_engine(&["carol@bücher.example", "carol@xn--bcher-kva.example"]).await;
     let base = &srv.base;
-    let admin = admin(base).await;
 
-    set_flags(&admin, base, "carol@bücher.example", true, false).await;
+    set_flags(&srv, "carol@bücher.example", true, false).await;
     assert_eq!(status_of(base, "carol@xn--bcher-kva.example").await, 401);
     assert!(srv.accounts().await.is_empty(), "no accounts row");
-    set_flags(&admin, base, "carol@bücher.example", false, false).await;
+    set_flags(&srv, "carol@bücher.example", false, false).await;
     assert_eq!(status_of(base, "carol@xn--bcher-kva.example").await, 200);
 
-    set_flags(&admin, base, "carol@xn--bcher-kva.example", true, false).await;
+    set_flags(&srv, "carol@xn--bcher-kva.example", true, false).await;
     assert_eq!(status_of(base, "carol@bücher.example").await, 401);
-    set_flags(&admin, base, "carol@xn--bcher-kva.example", false, false).await;
+    set_flags(&srv, "carol@xn--bcher-kva.example", false, false).await;
     assert_eq!(status_of(base, "carol@bücher.example").await, 200);
 }
 
@@ -315,13 +322,12 @@ async fn a_bare_name_is_refused_while_any_address_with_its_local_part_is_disable
     let _g = serial().await;
     let (srv, _pop) = spawn_engine(&["dave", "dave@one.example", "dave@two.example"]).await;
     let base = &srv.base;
-    let admin = admin(base).await;
 
     assert_eq!(status_of(base, "dave").await, 200, "control");
-    set_flags(&admin, base, "dave@two.example", true, false).await;
+    set_flags(&srv, "dave@two.example", true, false).await;
     assert_eq!(status_of(base, "dave").await, 401);
     assert_eq!(status_of(base, "dave@one.example").await, 200);
     assert_eq!(status_of(base, "dave@two.example").await, 401);
-    set_flags(&admin, base, "dave@two.example", false, false).await;
+    set_flags(&srv, "dave@two.example", false, false).await;
     assert_eq!(status_of(base, "dave").await, 200);
 }

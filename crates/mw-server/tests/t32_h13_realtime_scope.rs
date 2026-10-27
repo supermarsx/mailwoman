@@ -117,6 +117,21 @@ async fn spawn(hardening: HardeningConfig) -> Server {
         admin_password: Some("hunter2".into()),
         redis_url: None,
     };
+    // Not a sign-in pacing test (`signin.retryCooldownSecs`, d94472d7): every
+    // sign-in here comes from 127.0.0.1, and 0 switches the pacing off.
+    mw_store::Store::open(&db, mw_store::ServerKey::from_hex(KEY_HEX).unwrap())
+        .await
+        .unwrap()
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "signin.retryCooldownSecs".into(),
+            global_value: Some("0".into()),
+            allow_user_override: false,
+            global_locked: false,
+            updated_by: "test-fixture".into(),
+            updated_at: 0,
+        })
+        .await
+        .unwrap();
     let (app, push) = mw_server::build_app_full(config, v6)
         .await
         .expect("build_app_full");

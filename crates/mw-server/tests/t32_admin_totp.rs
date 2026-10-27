@@ -9,12 +9,30 @@ use common::test_db;
 async fn server() -> String {
     let web = test_db::unique_dir("admin-totp-web");
     std::fs::write(web.join("index.html"), "<!doctype html><title>Test</title>").unwrap();
+    let db = test_db::unique_db_path("admin-totp")
+        .to_string_lossy()
+        .into_owned();
+    // A sign-in that stops at the second factor issues no session, so it keeps its
+    // sign-in pacing charge (t33 D1); these legs make several in a row and are not
+    // about pacing (`signin.retryCooldownSecs`, d94472d7). 0 switches it off.
+    let key = "5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b";
+    mw_store::Store::open(&db, mw_store::ServerKey::from_hex(key).unwrap())
+        .await
+        .unwrap()
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "signin.retryCooldownSecs".into(),
+            global_value: Some("0".into()),
+            allow_user_override: false,
+            global_locked: false,
+            updated_by: "admin-totp-fixture".into(),
+            updated_at: 0,
+        })
+        .await
+        .unwrap();
     let (app, _) = build_app_full(
         AppConfig {
-            db_path: test_db::unique_db_path("admin-totp")
-                .to_string_lossy()
-                .into(),
-            server_key_hex: None,
+            db_path: db,
+            server_key_hex: Some(key.into()),
             web_dir: Some(web),
             cookie_secure: false,
             mode: ServerMode::Proxy,
