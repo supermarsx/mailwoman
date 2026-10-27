@@ -57,6 +57,9 @@ use mw_server::{AppConfig, SecurityConfig, build_app};
 mod common;
 use common::test_db;
 
+/// Fixed so the fixture can open the server's store (pacing off, `spawn_server`).
+const KEY_HEX: &str = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0";
+
 const ACCOUNT: &str = "acct-b2";
 
 /// A refusal by policy never dials, so it answers well inside this. The unfixed
@@ -249,9 +252,10 @@ async fn spawn_server(security: SecurityConfig) -> String {
         "<!doctype html><title>t</title>",
     )
     .unwrap();
+    let db = base.join("mw.db").to_string_lossy().into_owned();
     let config = AppConfig {
-        db_path: base.join("mw.db").to_string_lossy().into_owned(),
-        server_key_hex: None,
+        db_path: db.clone(),
+        server_key_hex: Some(KEY_HEX.into()),
         web_dir: Some(web_dir),
         cookie_secure: false,
         mode: mw_server::ServerMode::Proxy,
@@ -259,6 +263,25 @@ async fn spawn_server(security: SecurityConfig) -> String {
         security,
     };
     let app = build_app(config).await.unwrap();
+    // Several legs here expect a refused login and then sign in again: with pacing
+    // on, that second attempt is (correctly) a 429. Pacing is not this file's subject.
+    // (Inline twin of e2's `common::auth::no_signin_cooldown`: policy value 0.)
+    {
+        let store = mw_store::Store::open(&db, mw_store::ServerKey::from_hex(KEY_HEX).unwrap())
+            .await
+            .unwrap();
+        store
+            .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+                key: "signin.retryCooldownSecs".into(),
+                global_value: Some("0".into()),
+                allow_user_override: false,
+                global_locked: false,
+                updated_by: "t24-fixture".into(),
+                updated_at: 0,
+            })
+            .await
+            .unwrap();
+    }
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -785,6 +808,83 @@ const SESSION_URL_READERS: &[(&str, &str, &str)] = &[
         "crates/mw-server/src/twofa_routes.rs",
         "complete_login",
         "stores the URLs login already checked; no request",
+    ),
+    // Readers added since t24 (audited in t33-e4 against each function's body).
+    (
+        "crates/mw-server/src/alerts.rs",
+        "deliver_proxy",
+        "gated: upstream_session, then upstream_client for the api and upload legs",
+    ),
+    (
+        "crates/mw-server/src/domain_upgrade.rs",
+        "refresh_session",
+        "gated: upstream_session + session_urls_on_origin before the row is repointed",
+    ),
+    (
+        "crates/mw-server/src/domain_upgrade.rs",
+        "prepare",
+        "no request: compares/records the stored session URL as a domain import",
+    ),
+    (
+        "crates/mw-server/src/linked_accounts/mod.rs",
+        "supported",
+        "no request: compares the stored URLs with the \"engine\" sentinel",
+    ),
+    (
+        "crates/mw-server/src/prefs_routes.rs",
+        "resolve_sender_identity",
+        "gated: upstream_client",
+    ),
+    (
+        "crates/mw-server/src/remote_content.rs",
+        "authority_tag",
+        "no request: MACs the stored URLs into a cache authority tag",
+    ),
+    (
+        "crates/mw-server/src/remote_content.rs",
+        "message_metadata",
+        "gated: upstream_client",
+    ),
+    (
+        "crates/mw-server/src/remote_content.rs",
+        "read_part",
+        "gated: upstream_client for every discovery hop and for the download URL",
+    ),
+    (
+        "crates/mw-server/src/remote_membership.rs",
+        "owned",
+        "gated: upstream_client",
+    ),
+    (
+        "crates/mw-server/src/step_up.rs",
+        "password_capable",
+        "no request: compares the stored URL with the \"sso\" sentinel",
+    ),
+    (
+        "crates/mw-server/src/twofa_routes.rs",
+        "gate_login",
+        "copies the URLs login already checked into the pending/issued session; no request",
+    ),
+    (
+        "crates/mw-server/src/twofa_routes.rs",
+        "native_link_pending",
+        "no request: compares the pending URLs with the \"engine\" sentinel",
+    ),
+    (
+        "crates/mw-store/src/identity_principal.rs",
+        "verified_personal_parts",
+        "not a request: SQL column names; mw-store has no HTTP client",
+    ),
+    (
+        "crates/mw-store/src/linked_accounts.rs",
+        "attach_verified_link",
+        "not a request: SQL binds of a stored snapshot; mw-store has no HTTP client",
+    ),
+    (
+        "crates/mw-server/src/request_protection.rs",
+        "session_account",
+        "no request: hashes the stored endpoint (already gated at login) with the account \
+         id into a per-service rate-limit key (proxy_account_key)",
     ),
     (
         "crates/mw-passwd/src/dovecot.rs",

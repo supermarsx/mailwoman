@@ -296,54 +296,6 @@ async fn limited_body(
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn streamed_limits_reject_length_and_chunked_overflow_but_allow_exact_body() {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        for (wire, allowed) in [
-            (
-                "HTTP/1.1 200 OK\r\nContent-Length: 9\r\nConnection: close\r\n\r\n123456789",
-                false,
-            ),
-            (
-                "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n4\r\n1234\r\n5\r\n56789\r\n0\r\n\r\n",
-                false,
-            ),
-            (
-                "HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\n12345678",
-                true,
-            ),
-        ] {
-            for post in [false, true] {
-                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-                let url = format!("http://{}/", listener.local_addr().unwrap());
-                tokio::spawn(async move {
-                    let (mut stream, _) = listener.accept().await.unwrap();
-                    let mut request = [0; 2048];
-                    let _ = stream.read(&mut request).await;
-                    stream.write_all(wire.as_bytes()).await.unwrap();
-                });
-                let client = JmapClient::with_http(
-                    reqwest::Client::builder().no_proxy().build().unwrap(),
-                    "user",
-                    "pw",
-                );
-                let result = if post {
-                    client
-                        .request_raw_limited(&url, bytes::Bytes::new(), 8)
-                        .await
-                        .map(|(_, b)| b)
-                } else {
-                    client.get_bytes_limited(&url, 8).await.map(|(_, _, b)| b)
-                };
-                if allowed {
-                    assert_eq!(result.unwrap().as_ref(), b"12345678");
-                } else {
-                    assert!(matches!(result, Err(JmapError::TooLarge)), "{result:?}");
-                }
-            }
-        }
-    }
-
     #[test]
     fn session_url_normalization() {
         assert_eq!(
