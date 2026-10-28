@@ -91,7 +91,7 @@ export function Domains(props: { service?: DomainsApi }): JSX.Element {
   };
   const dirty = () => Object.keys(change()).length > 0;
   useDirtyGuard(() => dirty() || (creating() && !guided() && name().trim().length > 0));
-  createEffect(on(() => [ready(), shell.router.route().rest[0]] as const, ([loaded, target]) => { if (!loaded) return; if (!target) { setSelected(undefined); setCreating(false); return; } if (target === 'new') { setCreating(true); setSelected(undefined); setName(''); return; } if (selected()?.name === target) return; if (rows().some(row => row.name === target)) void run(() => load(target)); else setName(target); }));
+  createEffect(on(() => [ready(), shell.router.route().rest[0]] as const, ([loaded, target]) => { if (!loaded) return; if (!target) { setSelected(undefined); setCreating(false); return; } if (target === 'new') { setCreating(true); setSelected(undefined); setName(''); return; } if (selected()?.name === target) return; if (rows().some(row => row.name === target)) void run(() => load(target)); else { setCreating(true); setSelected(undefined); setName(target); } }));
   function populate(d: DomainDetail): void { setCreating(false); setSelected(d); setUpstream(structuredClone(d.upstream ?? {})); setAllow((d.allowlist ?? []).join('\n')); setBlock((d.blocklist ?? []).join('\n')); setDiscovery(typeof d.settings.discovery === 'string' ? d.settings.discovery : 'off'); setPreview(undefined); setProposal(undefined); setProbe(undefined); setDns(undefined); setAlias(''); setHost(''); }
   function summary(key: string, value: ManagedDomain | null): string {
     if (!value) return t('domain-editor-none');

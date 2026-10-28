@@ -140,6 +140,15 @@ describe('Admin Domains editor', () => {
     await waitFor(() => expect(api.save).toHaveBeenCalledWith('new.example', {}, null));
     await waitFor(() => expect(api.detail).toHaveBeenCalledWith('new.example'));
   });
+  it('opens the add form for a blocked domain that has no configuration yet', async () => {
+    const api = service({ status: vi.fn(async () => ({ mode: 'engine' as const, blockedAccounts: { total: 2, byDomain: [{ domain: 'blocked.example', accounts: 2, seenHost: null }] }, upstreamChoices: [] })) });
+    renderDomains(api);
+    fireEvent.click(await screen.findByRole('link', { name: 'Configure blocked.example' }));
+    const form = await screen.findByRole('form', { name: 'Add domain' });
+    expect(within(form).getByRole('textbox', { name: 'Domain name' })).toHaveValue('blocked.example');
+    fireEvent.submit(form);
+    await waitFor(() => expect(api.save).toHaveBeenCalledWith('blocked.example', {}, null));
+  });
   it('shows a plaintext warning only for explicit unencrypted transport', async () => {
     await open(service());
     expect(screen.queryByText(/without transport encryption/)).toBeNull();
