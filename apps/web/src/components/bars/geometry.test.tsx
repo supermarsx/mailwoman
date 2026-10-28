@@ -110,6 +110,16 @@ describe('assertRibbonGeometry', () => {
     expect(assertRibbonGeometry(document.body, { row: 28, gap: 2, log: false })).toEqual([]);
   });
 
+  it('does not count a collapsible bar root, whose overlay panel hangs below it, as overflow', () => {
+    mountRibbon();
+    const bar = document.createElement('div');
+    bar.setAttribute('data-bar', 'mailTopBar');
+    document.body.append(bar);
+    setScroll(bar, 60, 12);
+    expect(assertRibbonGeometry(document.body, { row: 28, gap: 2, log: false })).toEqual([]);
+    bar.remove();
+  });
+
   it('reports a control outside its group box', () => {
     const [, g2] = mountRibbon();
     const bold = g2!.querySelector('[data-ribbon-item]')!;

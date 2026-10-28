@@ -65,7 +65,17 @@ export const handle = style({
   '@media': { '(pointer: coarse)': { blockSize: '24px', lineHeight: '24px', fontSize: '0.8rem' } },
 });
 
-export const handleText = style({ overflow: 'hidden', textOverflow: 'ellipsis', maxInlineSize: '100%' });
+export const handleText = style({
+  display: 'block',
+  blockSize: '100%',
+  // 10px text keeps the glyph box (ascent + descent) inside the 12px line.
+  lineHeight: '12px',
+  fontSize: '10px',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  maxInlineSize: '100%',
+  '@media': { '(pointer: coarse)': { lineHeight: '24px', fontSize: '0.8rem' } },
+});
 
 export const panel = style({
   display: 'flex',

@@ -290,6 +290,18 @@ describe('CollapsibleBar: touch', () => {
     expect(isOpen()).toBe(false);
   });
 
+  it('a tap whose compatibility mousedown focuses the handle after a delay still opens the bar', () => {
+    stubMedia(['(hover: none)']);
+    mount(fakeBar('auto'));
+    // Chromium's tap: pointerdown, pointerup, later mousedown + focus, then click.
+    fireEvent.pointerDown(handle(), { pointerType: 'touch' });
+    vi.advanceTimersByTime(50);
+    fireEvent.mouseDown(handle());
+    handle().focus();
+    fireEvent.click(handle());
+    expect(isOpen()).toBe(true);
+  });
+
   it('binds hover listeners where hover is available', () => {
     const spy = vi.spyOn(HTMLElement.prototype, 'addEventListener');
     mount(fakeBar('auto'));

@@ -171,6 +171,7 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
   let holds = 0;
   let pointerInside = false;
   let pointerPressed = false;
+  let pressTimer: ReturnType<typeof setTimeout> | undefined;
   let restoringFocus = false;
   let openedByHover = false;
   let openTimer: ReturnType<typeof setTimeout> | undefined;
@@ -308,6 +309,7 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
   onCleanup(() => {
     clearTimers();
     clearTimeout(caretTimer);
+    clearTimeout(pressTimer);
   });
 
   // Pinning closes the transient reveal; the panel is in the flow from then on.
@@ -320,7 +322,14 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
 
   // ── focus and keyboard ──────────────────────────────────────────────────────
   const onPointerDownInside = (): void => {
+    // Touch sends pointerdown, then (later) the compatibility mousedown that
+    // focuses, then click: the press lasts until the click, or 1 s at most.
     pointerPressed = true;
+    clearTimeout(pressTimer);
+    pressTimer = setTimeout(() => (pointerPressed = false), 1000);
+  };
+  const onClickInside = (): void => {
+    clearTimeout(pressTimer);
     setTimeout(() => (pointerPressed = false), 0);
   };
   const onFocusIn = (event: FocusEvent): void => {
@@ -388,6 +397,8 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
         data-reveal={props.revealPolicy}
         data-motion={motion()}
         onPointerDown={onPointerDownInside}
+        onMouseDown={onPointerDownInside}
+        onClick={onClickInside}
         onFocusIn={onFocusIn}
         onFocusOut={onFocusOut}
         onKeyDown={onKeyDown}

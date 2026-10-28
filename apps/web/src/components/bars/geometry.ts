@@ -6,7 +6,8 @@
 //   - `overflow`: an element whose content is taller than its box
 //     (`scrollHeight > clientHeight`), which would scroll or clip vertically;
 //   - `outside`: a control's box sticks out of its group's box (±0.5 px).
-// Hidden subtrees (`[hidden]`, a closed group popover) are skipped. Row and gap
+// Hidden subtrees (`[hidden]`, a closed group popover) are skipped, and so is
+// the overflow check on a `[data-bar]` root, whose overlay panel hangs below it. Row and gap
 // come from the `--mw-ribbon-row` / `--mw-ribbon-gap` custom properties on
 // `root`, or the options (jsdom computes no layout, tests pass them). In dev
 // builds a non-empty result is also logged with `console.error`.
@@ -72,7 +73,8 @@ export function assertRibbonGeometry(root: Element, options: RibbonGeometryOptio
 
   const all = [root, ...Array.from(root.querySelectorAll('*'))];
   for (const element of all) {
-    if (!(element instanceof HTMLElement) || isHidden(element, root)) continue;
+    // A collapsible bar's root is skipped: its open overlay panel lies below it on purpose.
+    if (!(element instanceof HTMLElement) || element.hasAttribute('data-bar') || isHidden(element, root)) continue;
     // scrollHeight is rounded to whole pixels: one pixel of slack.
     if (element.scrollHeight > element.clientHeight + 1 && element.clientHeight > 0) {
       violations.push({

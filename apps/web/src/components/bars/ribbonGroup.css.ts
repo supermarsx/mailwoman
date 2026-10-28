@@ -101,6 +101,12 @@ export const itemLarge = style([
   { gridRow: 'span 3', blockSize: controlsBlock, flexDirection: 'column', justifyContent: 'center' },
 ]);
 
+// A control never makes its row taller: app-wide button and field minimums give way to the row.
+for (const cls of [itemSmall, itemLarge]) {
+  globalStyle(`${cls} > *`, { boxSizing: 'border-box', maxBlockSize: '100%', minBlockSize: 0 });
+}
+globalStyle(`${itemSmall} > *`, { blockSize: '100%', paddingBlock: 0 });
+
 export const caption = style({
   blockSize: 'var(--mw-ribbon-caption)',
   lineHeight: 'var(--mw-ribbon-caption)',
@@ -142,7 +148,10 @@ export const more = style({
 });
 
 export const moreText = style({
+  display: 'block',
   maxInlineSize: '100%',
+  blockSize: '16px',
+  lineHeight: '16px',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
