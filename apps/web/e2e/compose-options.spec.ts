@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import net from 'node:net';
-import { engineLogin } from './helpers.ts';
+import { composeSurface, engineLogin } from './helpers.ts';
 import { uid } from './pim-helpers.ts';
 
 /**
@@ -149,8 +149,8 @@ function htmlOf(raw: string): string {
 
 /** Open the composer, send as `FROM`, address it, give it a subject and body. */
 async function compose(page: Page, to: string, subject: string, body: string): Promise<Locator> {
-  await page.getByRole('button', { name: 'Compose' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Compose message' });
+  await page.getByRole('button', { name: 'Compose', exact: true }).click();
+  const dialog = composeSurface(page);
   await expect(dialog).toBeVisible();
   const from = dialog.getByRole('combobox', { name: 'From', exact: true });
   // The identity whose address is FROM (option text: "<name> <address>").

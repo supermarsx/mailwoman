@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { test, expect, devices, type Browser, type Locator, type Page } from '@playwright/test';
 import {
   ENGINE_CREDS,
+  composeSurface,
   drawerButton as menuButton,
   engineLogin,
   enginePhoneLogin as phoneLogin,
@@ -155,8 +156,8 @@ test.describe('narrow viewport (phone project)', () => {
 
     test('Compose is a full-screen sheet with every field and Send reachable', async ({ page }) => {
       await phoneLogin(page);
-      await page.locator('.shell__bar').getByRole('button', { name: 'Compose' }).click();
-      const dialog = page.getByRole('dialog', { name: 'Compose message' });
+      await page.locator('.shell__bar').getByRole('button', { name: 'Compose', exact: true }).click();
+      const dialog = composeSurface(page);
       await expect(dialog).toBeVisible();
 
       const to = dialog.getByLabel('To', { exact: true });

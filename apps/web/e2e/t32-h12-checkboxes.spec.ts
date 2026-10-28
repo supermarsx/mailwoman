@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { test, expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
-import { engineLogin, enginePhoneLogin, drawerButton } from './helpers.ts';
+import { composeSurface, engineLogin, settingsSurface, enginePhoneLogin, drawerButton } from './helpers.ts';
 
 /**
  * Checkboxes and radios across the web client and the admin console (t32-h12).
@@ -373,14 +373,14 @@ async function targetSize(page: Page): Promise<string[]> {
 }
 
 async function closeSettings(page: Page): Promise<void> {
-  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  const dialog = settingsSurface(page);
   await dialog.getByRole('button', { name: 'Close settings' }).click();
   await expect(dialog).toBeHidden();
 }
 
 async function settingsDialog(page: Page): Promise<Locator> {
-  await page.getByRole('button', { name: 'Settings' }).first().click();
-  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  await page.getByRole('button', { name: 'Settings', exact: true }).first().click();
+  const dialog = settingsSurface(page);
   await expect(dialog).toBeVisible();
   return dialog;
 }
@@ -416,8 +416,8 @@ test.describe('checkboxes in the mail client', () => {
   test('compose: message security options', async ({ page }) => {
     const csp = watchCsp(page);
     await engineLogin(page);
-    await page.getByRole('button', { name: 'Compose' }).first().click();
-    const dialog = page.getByRole('dialog', { name: 'Compose message' });
+    await page.getByRole('button', { name: 'Compose', exact: true }).first().click();
+    const dialog = composeSurface(page);
     await expect(dialog).toBeVisible();
     const problems: string[] = [];
     problems.push(...(await checkControl(page, dialog.getByTestId('sign-toggle'), 'sign', { labelText: true })));
@@ -632,8 +632,8 @@ test.describe('checkboxes under forced colours', () => {
     const dialog = await settingsDialog(page);
     problems.push(...(await checkControl(page, dialog.getByRole('checkbox', { name: 'Search mail' }), 'forced api scope', { labelText: true, forced: true })));
     await closeSettings(page);
-    await page.getByRole('button', { name: 'Compose' }).first().click();
-    const compose = page.getByRole('dialog', { name: 'Compose message' });
+    await page.getByRole('button', { name: 'Compose', exact: true }).first().click();
+    const compose = composeSurface(page);
     problems.push(...(await checkControl(page, compose.getByTestId('sign-toggle'), 'forced sign', { labelText: true, forced: true })));
     expect(problems).toEqual([]);
   });

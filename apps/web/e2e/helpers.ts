@@ -127,7 +127,7 @@ export async function login(page: Page): Promise<void> {
   await signInManually(page, { username: CREDS.username, password: CREDS.password });
 
   // Mailbox shell is up once the sidebar and Inbox mailbox render.
-  await expect(page.getByRole('button', { name: 'Compose' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Compose', exact: true })).toBeVisible();
   await expect(sidebarInbox(page)).toBeVisible();
 }
 
@@ -159,7 +159,7 @@ export async function engineLogin(page: Page): Promise<void> {
     username: ENGINE_CREDS.username,
     password: ENGINE_CREDS.password,
   });
-  await expect(page.getByRole('button', { name: 'Compose' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Compose', exact: true })).toBeVisible();
   await expect(sidebarInbox(page)).toBeVisible();
 }
 
@@ -212,6 +212,19 @@ export function composeSurface(page: Page) {
 }
 
 /**
+ * The Settings surface. On the desktop workspace Settings opens as a tab whose
+ * panel holds a region named "Settings" (24fb6149; its "Close settings" button
+ * closes the tab); the modal dialog of the same name is accepted too, for layouts
+ * that still present it that way.
+ */
+export function settingsSurface(page: Page) {
+  return page
+    .getByRole('tabpanel', { name: 'Settings' })
+    .getByRole('region', { name: 'Settings', exact: true })
+    .or(page.getByRole('dialog', { name: 'Settings', exact: true }));
+}
+
+/**
  * Compose a self-addressed message and click Send. Does NOT wait for delivery —
  * the engine holds the submission for its undo-send window (~10 s) before it
  * dials SMTP, so callers use {@link waitForInboxMessage} to await arrival.
@@ -223,7 +236,7 @@ export async function composeSelf(
   body: string,
   opts: { sendLater?: string } = {},
 ): Promise<void> {
-  await page.getByRole('button', { name: 'Compose' }).click();
+  await page.getByRole('button', { name: 'Compose', exact: true }).click();
   const dialog = composeSurface(page);
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('To', { exact: true }).fill(ENGINE_CREDS.selfAddress);

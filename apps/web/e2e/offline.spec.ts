@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import net from 'node:net';
-import { ENGINE_CREDS, engineLogin, composeSelf, sidebarInbox, messageRow } from './helpers.ts';
+import { ENGINE_CREDS, composeSurface, engineLogin, composeSelf, sidebarInbox, messageRow } from './helpers.ts';
 import { gotoModule, uid } from './pim-helpers.ts';
 
 /**
@@ -167,8 +167,8 @@ test.describe('what a send delivers (engine mode)', () => {
 
   /** Open Compose and return its dialog. */
   async function openCompose(page: Page) {
-    await page.getByRole('button', { name: 'Compose' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Compose message' });
+    await page.getByRole('button', { name: 'Compose', exact: true }).click();
+    const dialog = composeSurface(page);
     await expect(dialog).toBeVisible();
     return dialog;
   }

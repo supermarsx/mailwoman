@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ENGINE_CREDS, engineLogin, messageRow, sidebarInbox } from './helpers.ts';
+import { ENGINE_CREDS, composeSurface, engineLogin, messageRow, sidebarInbox } from './helpers.ts';
 
 /**
  * V1 engine-mode E2E: the SAME unmodified web UI, driven against mw-server in
@@ -40,8 +40,8 @@ test.describe('IMAP account through the unmodified web UI (engine mode)', () => 
     const subject = `V1-E2E ${Date.now()}`;
     const bodyText = `engine-mode round trip ${subject}`;
 
-    await page.getByRole('button', { name: 'Compose' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Compose message' });
+    await page.getByRole('button', { name: 'Compose', exact: true }).click();
+    const dialog = composeSurface(page);
     await expect(dialog).toBeVisible();
     await dialog.getByLabel('To', { exact: true }).fill(ENGINE_CREDS.selfAddress);
     await dialog.getByLabel('Subject', { exact: true }).fill(subject);
