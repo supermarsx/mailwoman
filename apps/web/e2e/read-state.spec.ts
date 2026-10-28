@@ -82,11 +82,16 @@ async function countIn(folder: string, subject: string): Promise<number> {
 
 // ── The app ──────────────────────────────────────────────────────────────────
 
-/** The Inbox's unread badge as a number (0 when the badge is not shown). */
+/**
+ * The Inbox's unread count from its badge (0 when the badge is not shown). The
+ * badge reads "unread / total" by default since 12445b55 (folder count modes), so
+ * the unread count is the number before the slash.
+ */
 async function inboxUnread(page: Page): Promise<number> {
   const badge = sidebarInbox(page).locator('.sidebar__badge');
   if ((await badge.count()) === 0) return 0;
-  return Number((await badge.textContent())?.trim() ?? '0');
+  const text = (await badge.textContent()) ?? '';
+  return Number(text.split('/')[0]!.trim() || '0');
 }
 
 /** Set the per-device preferences the way Settings stores them. */
