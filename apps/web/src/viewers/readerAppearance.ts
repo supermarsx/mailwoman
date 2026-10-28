@@ -23,12 +23,40 @@ export function readerAppearanceCss(value: ReaderAppearance): string {
   return css + '@media print{html{filter:none!important}html,body,body *{color:#000!important;background:transparent!important;filter:none!important}body{max-width:none}}';
 }
 
-/** Drop sender paint overrides only in adaptive mode, retaining layout/media. */
+const PAINT_PROPERTIES = new Set(['color', 'background', 'background-color', 'background-image', 'text-shadow']);
+
+/** Split an inline style into declarations at top-level `;` (not inside quotes or `url(...)`). */
+function declarations(style: string): string[] {
+  const parts: string[] = [];
+  let depth = 0, quote = '', start = 0;
+  for (let i = 0; i < style.length; i++) {
+    const c = style[i]!;
+    if (quote) { if (c === '\\') i++; else if (c === quote) quote = ''; }
+    else if (c === '"' || c === "'") quote = c;
+    else if (c === '(') depth++;
+    else if (c === ')') depth = Math.max(0, depth - 1);
+    else if (c === ';' && depth === 0) { parts.push(style.slice(start, i)); start = i + 1; }
+  }
+  parts.push(style.slice(start));
+  return parts.filter(part => part.trim() !== '');
+}
+
+/** Drop sender paint overrides only in adaptive mode, retaining layout/media.
+ *
+ *  Works on the attribute text, not on `element.style`: a `DOMParser` document
+ *  inherits the app's CSP, and Chromium does not parse inline style attributes
+ *  there under `style-src` without 'unsafe-inline' (its `element.style` is empty),
+ *  so CSSOM removal silently kept every sender colour in Chromium only. */
 export function adaptReaderColors(html: string): string {
   if (typeof DOMParser === 'undefined') return html;
   const doc = new DOMParser().parseFromString(html, 'text/html');
   for (const element of doc.body.querySelectorAll<HTMLElement>('*')) {
-    for (const property of ['color', 'background', 'background-color', 'background-image', 'text-shadow']) element.style?.removeProperty(property);
+    const style = element.getAttribute('style');
+    if (style !== null) {
+      const kept = declarations(style).filter(part => !PAINT_PROPERTIES.has(part.slice(0, part.indexOf(':')).trim().toLowerCase()));
+      if (kept.length) element.setAttribute('style', kept.map(part => part.trim()).join(';'));
+      else element.removeAttribute('style');
+    }
     for (const attribute of ['bgcolor', 'color', 'text']) element.removeAttribute(attribute);
   }
   return doc.body.innerHTML;
