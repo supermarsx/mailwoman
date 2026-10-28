@@ -8,7 +8,7 @@ import {
   waitForInboxMessage,
   openMessage,
 } from './crypto-helpers.ts';
-import { composeSurface } from './helpers.ts';
+import { composeSurface, readerContent } from './helpers.ts';
 
 /**
  * V4 headline live E2E (plan §3 e10, DoD OpenPGP): a full browser-side PGP
@@ -109,12 +109,14 @@ test('PGP: generate → encrypt → send → decrypt-on-receipt (round-trip + in
 
   // The plaintext renders in the sandboxed body iframe. The decrypted HTML was
   // sanitized in-worker: the markers survive, the <script>/handler/alert do NOT.
-  const frame = page.frameLocator('iframe.reader__frame');
+  // (The content frame is nested in the reader's wrapper frame since 99f51b81.)
+  const content = await readerContent(page);
+  const frame = content.contentFrame();
   await expect(frame.getByText(marker)).toBeVisible({ timeout: 20_000 });
   await expect(frame.getByText(boldMarker)).toBeVisible();
 
   // Assert the sanitization stripped the hostile bits from the rendered srcdoc.
-  const srcdoc = await page.locator('iframe.reader__frame').getAttribute('srcdoc');
+  const srcdoc = await (await readerContent(page)).getAttribute('srcdoc');
   expect(srcdoc, 'decrypted body srcdoc').not.toBeNull();
   expect(srcdoc!).not.toContain('<script');
   expect(srcdoc!).not.toContain('__pwned');

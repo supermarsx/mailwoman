@@ -1,4 +1,4 @@
-import { expect, type APIRequest, type APIRequestContext, type APIResponse, type Page } from '@playwright/test';
+import { expect, type APIRequest, type APIRequestContext, type APIResponse, type Locator, type Page } from '@playwright/test';
 import net from 'node:net';
 
 /**
@@ -209,6 +209,27 @@ export function composeSurface(page: Page) {
   return page
     .getByRole('region', { name: 'Compose message', exact: true })
     .or(page.getByRole('dialog', { name: 'Compose message', exact: true }));
+}
+
+/**
+ * The iframe that holds the open message's CONTENT, as an element (for its
+ * `sandbox` / `srcdoc`; `.contentFrame()` for what it shows).
+ *
+ * Since 99f51b81 the reader usually renders through a wrapper: the outer
+ * `iframe.reader__frame` (sandbox="allow-scripts", opaque origin) loads only the
+ * server's fixed bridge (`/api/rc/frame`, crates/mw-server/src/remote-frame.js),
+ * which puts the message into a nested `iframe[title="Message content"]` with
+ * `sandbox=""` and a `srcdoc`. Without the wrapper (native shells, receipt mode)
+ * the outer frame itself is the `sandbox=""` srcdoc frame. Either way the frame
+ * this returns is the one whose sandbox must forbid scripts.
+ */
+export async function readerContent(page: Page): Promise<Locator> {
+  const outer = page.locator('iframe.reader__frame');
+  await expect(outer).toBeVisible();
+  if ((await outer.getAttribute('sandbox')) === '') return outer;
+  const inner = outer.contentFrame().locator('iframe[title="Message content"]');
+  await expect(inner).toBeAttached();
+  return inner;
 }
 
 /**
