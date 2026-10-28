@@ -36,6 +36,10 @@ test('DLP: a payment card number blocks the send with the rule message', async (
   await dialog.getByRole('tab', { name: 'Security', exact: true }).click();
 
   // The compose-time Dlp/scan dry-run surfaces the block inline.
+  // The verdict sits in a popover under the one-line policy chip (t38-e5 ribbon rebuild).
+  const chip = dialog.locator('[data-ribbon-tab=security] .cmpcrypto-chip--block');
+  await expect(chip).toBeVisible({ timeout: 15_000 });
+  await chip.click();
   const block = dialog.locator('[data-testid="dlp-block"]');
   await expect(block).toBeVisible({ timeout: 15_000 });
   await expect(block).toHaveAttribute('data-action', 'block');

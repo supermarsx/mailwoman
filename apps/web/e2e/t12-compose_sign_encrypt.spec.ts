@@ -8,6 +8,7 @@ import {
   waitForInboxMessage,
   openMessage,
 } from './crypto-helpers.ts';
+import { composeSurface, readerContent } from './helpers.ts';
 
 /**
  * 26.12 compose crypto WIRE-ASSERTION live E2E — the §8 security headline (audit #3,
@@ -73,17 +74,22 @@ async function mintKey(page: Page): Promise<void> {
 
 async function openCompose(page: Page, subject: string, body: string): Promise<ReturnType<Page['locator']>> {
   await page.getByRole('button', { name: 'Compose', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Compose message' });
+  // Compose is a workspace tab region since 24fb6149 (helpers.composeSurface).
+  const dialog = composeSurface(page);
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('To', { exact: true }).fill(self);
   await dialog.getByLabel('Subject', { exact: true }).fill(subject);
   await dialog.getByLabel('Body', { exact: true }).fill(body);
+  // The crypto banner and the encrypt/sign toggles are on the ribbon's Security tab (e0c99a79).
+  await dialog.getByRole('tab', { name: 'Security', exact: true }).click();
   return dialog;
 }
 
 /** Unlock the signing key in the composer via the passphrase panel (Enter to unlock —
  *  the submit button sits below the fold in the tall composer). */
 async function unlockSigning(dialog: ReturnType<Page['locator']>): Promise<void> {
+  // The sign toggle lives on the compose ribbon's Security tab.
+  await dialog.getByRole('tab', { name: 'Security', exact: true }).click();
   await dialog.locator('[data-testid="sign-toggle"]').check();
   const panel = dialog.locator('[data-testid="compose-sign-unlock"]');
   await expect(panel).toBeVisible();
@@ -118,9 +124,12 @@ test('encrypt — the wire body is genuinely encrypted (no cleartext leak) and d
   );
 
   await dialog.locator('[data-testid="encrypt-toggle"]').check();
-  await expect(dialog.locator('[data-testid="encrypted-draft-indicator"]')).toBeVisible({
+  // The ribbon shows a check beside the toggle; the text is the toggle's description (t38-e5).
+  await expect(dialog.locator('[data-testid="encrypted-draft-indicator"]')).toHaveText('Draft encrypted on this device.', {
     timeout: 20_000,
   });
+  await expect(dialog.locator('[data-testid="encrypt-toggle"]')).toHaveAccessibleDescription('Draft encrypted on this device.');
+  await expect(dialog.locator('.cmpcrypto-toggle__drafted')).toBeVisible();
 
   const bodies = await captureJmap(page, () => submitCompose(dialog));
 
@@ -140,7 +149,7 @@ test('encrypt — the wire body is genuinely encrypted (no cleartext leak) and d
   await expect(page.locator('[data-testid="reader-decrypt"]')).toBeVisible();
   await page.locator('[data-testid="decrypt-passphrase"]').fill(passphrase);
   await page.locator('[data-testid="decrypt-submit"]').click();
-  await expect(page.frameLocator('iframe.reader__frame').getByText(marker)).toBeVisible({
+  await expect((await readerContent(page)).contentFrame().getByText(marker)).toBeVisible({ // nested content frame since 99f51b81
     timeout: 20_000,
   });
 });
@@ -200,9 +209,12 @@ test('encrypt+sign (folded via signWithKeyRef) produces a signed-and-encrypted d
   await unlockSigning(dialog);
   await dialog.locator('[data-testid="encrypt-toggle"]').check();
   // The fold succeeds now: a signed-and-encrypted draft is produced.
-  await expect(dialog.locator('[data-testid="encrypted-draft-indicator"]')).toBeVisible({
+  // The ribbon shows a check beside the toggle; the text is the toggle's description (t38-e5).
+  await expect(dialog.locator('[data-testid="encrypted-draft-indicator"]')).toHaveText('Draft encrypted on this device.', {
     timeout: 20_000,
   });
+  await expect(dialog.locator('[data-testid="encrypt-toggle"]')).toHaveAccessibleDescription('Draft encrypted on this device.');
+  await expect(dialog.locator('.cmpcrypto-toggle__drafted')).toBeVisible();
 
   const bodies = await captureJmap(page, () => submitCompose(dialog));
 
@@ -222,7 +234,7 @@ test('encrypt+sign (folded via signWithKeyRef) produces a signed-and-encrypted d
   await expect(page.locator('[data-testid="reader-decrypt"]')).toBeVisible();
   await page.locator('[data-testid="decrypt-passphrase"]').fill(passphrase);
   await page.locator('[data-testid="decrypt-submit"]').click();
-  await expect(page.frameLocator('iframe.reader__frame').getByText(marker)).toBeVisible({
+  await expect((await readerContent(page)).contentFrame().getByText(marker)).toBeVisible({ // nested content frame since 99f51b81
     timeout: 20_000,
   });
   // Expand the security chip (the reader header's aria-expanded control) and assert the

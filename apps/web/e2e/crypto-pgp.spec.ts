@@ -87,9 +87,12 @@ test('PGP: generate → encrypt → send → decrypt-on-receipt (round-trip + in
 
   // 3) Toggle encrypt → the worker encrypts the body client-side (real WASM).
   await dialog.locator('[data-testid="encrypt-toggle"]').check();
-  await expect(dialog.locator('[data-testid="encrypted-draft-indicator"]')).toBeVisible({
+  // The ribbon shows a check beside the toggle; the text is the toggle's description (t38-e5).
+  await expect(dialog.locator('[data-testid="encrypted-draft-indicator"]')).toHaveText('Draft encrypted on this device.', {
     timeout: 20_000,
   });
+  await expect(dialog.locator('[data-testid="encrypt-toggle"]')).toHaveAccessibleDescription('Draft encrypted on this device.');
+  await expect(dialog.locator('.cmpcrypto-toggle__drafted')).toBeVisible();
 
   // 4) Send the armored ciphertext; it goes out over SMTP and loops back.
   await dialog.getByRole('button', { name: 'Send', exact: true }).click();
