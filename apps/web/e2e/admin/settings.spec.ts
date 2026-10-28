@@ -1,5 +1,5 @@
 import { test, expect } from '../csrf.ts';
-import { engineLogin } from '../helpers.ts';
+import { drawerButton, engineLogin, enginePhoneLogin, settingsSurface } from '../helpers.ts';
 import { adminPath, ADMIN_PATH } from '../v6-helpers.ts';
 
 /**
@@ -34,7 +34,7 @@ test('lock the theme in the console; the webmail shows it held; the audit lists 
     await page.goto(ADMIN_PATH);
     await page.getByLabel('Admin username').fill(ADMIN_USER);
     await page.getByLabel('Password', { exact: true }).fill(ADMIN_PASSWORD);
-    await page.getByRole('button', { name: 'Sign in' }).click();
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await page.goto(`${ADMIN_PATH}#/settings`);
     await page.getByRole('searchbox', { name: 'Search settings' }).fill('theme');
     await page.getByRole('link', { name: `Open ${KEY}` }).click();
@@ -42,20 +42,25 @@ test('lock the theme in the console; the webmail shows it held; the audit lists 
     await expect(detail).toBeVisible();
     await detail.getByRole('textbox', { name: /^Theme/ }).fill('hc-dark');
     await detail.getByRole('switch').click();
-    await detail.getByRole('button', { name: 'Save' }).click();
+    await detail.getByRole('button', { name: 'Save', exact: true }).click();
     const preview = page.getByRole('alertdialog');
     if (await preview.isVisible().catch(() => false)) {
       await preview.getByRole('button', { name: 'Lock' }).click();
     }
-    await expect(detail.getByText('Saved. It applies within 30 seconds on every server process.')).toBeVisible();
+    // A result is a toast, not text in the detail (t32 f39).
+    await expect(page.getByText('Saved. It applies within 30 seconds on every server process.')).toBeVisible();
     await expect(detail.getByTestId('source-badge').first()).toHaveAttribute('data-source', 'locked');
 
     // The webmail, in a second browser context.
     const mail = await browser.newContext();
     const user = await mail.newPage();
-    await engineLogin(user);
-    await user.getByRole('button', { name: 'Settings' }).click();
-    const dialog = user.getByRole('dialog', { name: 'Settings' });
+    // browser.newContext() takes the project's viewport: at phone width the folders and Settings sit in the drawer.
+    if (test.info().project.name === 'phone') {
+      await enginePhoneLogin(user);
+      await drawerButton(user).click();
+    } else await engineLogin(user);
+    await user.getByRole('button', { name: 'Settings', exact: true }).click();
+    const dialog = settingsSurface(user);
     await expect(dialog.locator('#settings-theme-lock')).toHaveText('Set by your administrator');
     await expect(dialog.getByRole('button', { name: 'Grove Dark' })).toBeDisabled();
     await mail.close();
