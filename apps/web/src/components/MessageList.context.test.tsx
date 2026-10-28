@@ -72,6 +72,7 @@ it('an action chosen from a row menu that re-renders the row gives focus back to
  before.focus();fireEvent.click(before);fireEvent.click(screen.getByRole('menuitem',{name:'Flag for follow-up'}));
  await waitFor(()=>expect(app.messages().find(m=>m.id==='b')?.followUpAt).toBeTruthy());
  expect(screen.queryByRole('menu')).toBeNull();await Promise.resolve();
- // The follow-up patch replaced the row, opener included: focus must not fall to the body.
- expect(before.isConnected).toBe(false);await waitFor(()=>expect(more()).toHaveFocus());
+ // The follow-up patch changes the row's message; rows are keyed by message id (t44),
+ // so the same row and opener stay in the document and keep focus.
+ expect(before.isConnected).toBe(true);await waitFor(()=>expect(more()).toHaveFocus());expect(more()).toBe(before);
 });

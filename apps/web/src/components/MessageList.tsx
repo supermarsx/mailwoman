@@ -422,11 +422,17 @@ function BulkBar(props:{onCompose?:((initial:ComposeInitial)=>void)|undefined;on
 // a spec can assert the map stays bounded by the mounted window instead of
 // growing to one entry per row ever scrolled past. Weak so the seam itself
 // retains nothing once the list unmounts. Not read by application code.
-let liveRowEls: WeakRef<Map<ThreadVisualRow, HTMLButtonElement>> | undefined;
+let liveRowEls: WeakRef<Map<string, HTMLButtonElement>> | undefined;
 
 /** Test-only: how many row refs the mounted list holds (-1 when none is up). */
 export function rowRefCount(): number {
   return liveRowEls?.deref()?.size ?? -1;
+}
+
+/** A visual row's identity across list rebuilds: a conversation head by its
+ *  thread key, any other row by its message. */
+function rowId(row: ThreadVisualRow): string {
+  return row.kind === 'head' ? `h:${row.key}` : `m:${row.email.id}`;
 }
 
 export function MessageList(props: { onOpenMessage?: (id: string) => void; onCompose?: (initial:ComposeInitial)=>void } = {}): JSX.Element {
@@ -535,8 +541,48 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
   // shared by a head and its children — so it is not a usable identity here.
   // Entries are dropped in each row's `onCleanup`: Solid does not invoke a
   // `ref` callback on dispose, so nothing else would ever remove them.
-  const rowEls = new Map<ThreadVisualRow, HTMLButtonElement>();
+  const rowEls = new Map<string, HTMLButtonElement>();
   liveRowEls = new WeakRef(rowEls);
+  // The visual rows by their stable id (t44). `rows()` is rebuilt from scratch on
+  // every list change (a mark-read, a sync, a flag), so the window below is keyed
+  // by these ids, not by row objects: a keyed-by-object `<For>` remounted every
+  // row on each change, focus fell to <body> and the arrow keys went dead.
+  const rowById = createMemo(() => new Map(rows().map((row) => [rowId(row), row] as const)));
+  // The id of the row that last held focus while focus is still in the list, so
+  // a row removed under the focus (trashed, moved) hands it to its neighbour.
+  let focusedRowId: string | null = null;
+  const focusedRowEl = (): [string, HTMLButtonElement] | undefined => {
+    const active = document.activeElement;
+    for (const entry of rowEls) if (entry[1] === active) return entry;
+    return undefined;
+  };
+  createEffect(on(rows, (all) => {
+    const held = focusedRowEl();
+    if (held !== undefined) {
+      // Keep the roving cursor on the focused message when rows above it come or go.
+      const at = all.findIndex((row) => rowId(row) === held[0]);
+      if (at >= 0 && at !== cursor()) setCursor(at);
+      return;
+    }
+    const lost = focusedRowId;
+    const active = document.activeElement;
+    if (lost === null || rowById().has(lost) || (active !== null && active !== document.body)) return;
+    focusedRowId = null;
+    if (all.length > 0) moveCursor(Math.min(cursor(), all.length - 1));
+  }, { defer: true }));
+  function onListFocusIn(e: FocusEvent): void {
+    const entry = focusedRowEl();
+    if (entry !== undefined && entry[1] === e.target) focusedRowId = entry[0];
+  }
+  function onListFocusOut(e: FocusEvent): void {
+    const next = e.relatedTarget;
+    if (next instanceof Node && scroller?.contains(next)) return;
+    const left = e.target;
+    // Focus that moves elsewhere, or a blur that keeps the row in the document,
+    // is the user leaving the list; a row removed from the document is not.
+    if (next !== null) focusedRowId = null;
+    else setTimeout(() => { if (left instanceof Node && left.isConnected && !scroller?.contains(document.activeElement)) focusedRowId = null; }, 0);
+  }
 
   function toggleThread(key: string): void {
     setExpanded((prev) => {
@@ -595,10 +641,12 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
       onScroll();
     }
     // Focus after the window re-renders the target row. Resolve the row object
-    // inside the microtask so the lookup uses the post-render list.
+    // inside the microtask so the lookup uses the post-render list. A key moved
+    // it, so the ring shows: Firefox otherwise keeps a click's no-ring state
+    // for focus a script moves (the option is not in TypeScript's DOM lib yet).
     queueMicrotask(() => {
       const row = rows()[next];
-      if (row !== undefined) rowEls.get(row)?.focus();
+      if (row !== undefined) rowEls.get(rowId(row))?.focus({ focusVisible: true } as FocusOptions);
     });
   }
 
@@ -626,6 +674,10 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
     else if (e.key === 'ArrowUp') moveCursor(cursor() - 1);
     else if (e.key === 'Home') moveCursor(0);
     else if (e.key === 'End') moveCursor(count - 1);
+    else if (e.key === 'PageDown' || e.key === 'PageUp') {
+      const page = Math.max(1, Math.floor((scroller?.clientHeight || viewportH()) / rowHeight()) - 1);
+      moveCursor(cursor() + (e.key === 'PageDown' ? page : -page));
+    }
     else if (e.key === ' ' && onRow && !mod) {
       const row = rows()[cursor()];
       if (row === undefined) return;
@@ -655,7 +707,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
     next: () => step(1), previous: () => step(-1),
     trash: () => {
       const focused = document.activeElement;
-      const row = rows().find(item => rowEls.get(item) === focused);
+      const row = rows().find(item => rowEls.get(rowId(item)) === focused);
       if (!row) return false;
       if (app.listLoading()) return true;
       const selected = app.selectedIds();
@@ -672,7 +724,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
   // from `<For>`'s index accessor plus the window start.
   const slice = createMemo(() => {
     const s = split();
-    return rows().slice(s.loadedStart, s.loadedEnd);
+    return rows().slice(s.loadedStart, s.loadedEnd).map(rowId);
   });
   // The mounted slots with no row yet, as absolute indices. Plain numbers so
   // `<For>` reconciles them by value and reuses the slot elements a scroll keeps.
@@ -712,6 +764,8 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
             ref={scroller}
             onScroll={onScroll}
             onKeyDown={onKeyDown}
+            onFocusIn={onListFocusIn}
+            onFocusOut={onListFocusOut}
           >
             <ul
               class="list__items"
@@ -730,46 +784,50 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
                 )}
               </For>
               <For each={slice()}>
-                {(row, i) => {
+                {(id, i) => {
                   const index = (): number => split().loadedStart + i();
+                  // The current row for this id. The last one is kept for the
+                  // moment between the id leaving the list and this slot's disposal.
+                  let last = rowById().get(id)!;
+                  const row = (): ThreadVisualRow => (last = rowById().get(id) ?? last);
                   const setRef = (el: HTMLButtonElement | undefined): void => {
-                    if (el) rowEls.set(row, el);
-                    else rowEls.delete(row);
+                    if (el) rowEls.set(id, el);
+                    else rowEls.delete(id);
                   };
                   // The only path that removes the ref: Solid never calls a
                   // `ref` callback back on dispose.
-                  onCleanup(() => rowEls.delete(row));
+                  onCleanup(() => rowEls.delete(id));
                   return (
                     <Show
-                      when={row.kind === 'head'}
+                      when={row().kind === 'head'}
                       fallback={
                         <MessageRow contextMenu={messageMenu}
-                          email={row.email}
+                          email={row().email}
                           top={index() * rowHeight()}
                           height={rowHeight()}
                           index={index()}
                           total={spanRows()}
                           focused={index() === cursor()}
-                          selected={isSelected(row)}
-                          threadChild={row.kind === 'child'}
+                          selected={isSelected(row())}
+                          threadChild={row().kind === 'child'}
                           setRef={setRef}
-                          onClick={(e) => onRowClick(e, index(), row)}
-                          onDragStart={event=>dragRow(event,row)}
+                          onClick={(e) => onRowClick(e, index(), row())}
+                          onDragStart={event=>dragRow(event,row())}
                         />
                       }
                     >
                       <ThreadHeadRow contextMenu={messageMenu}
-                        row={row}
+                        row={row()}
                         top={index() * rowHeight()}
                         height={rowHeight()}
                         index={index()}
                         total={spanRows()}
                         focused={index() === cursor()}
-                        selected={isSelected(row)}
-                        onToggle={() => toggleThread(row.key)}
+                        selected={isSelected(row())}
+                        onToggle={() => toggleThread(row().key)}
                         setRef={setRef}
-                        onClick={(e) => onRowClick(e, index(), row)}
-                        onDragStart={event=>dragRow(event,row)}
+                        onClick={(e) => onRowClick(e, index(), row())}
+                        onDragStart={event=>dragRow(event,row())}
                       />
                     </Show>
                   );
