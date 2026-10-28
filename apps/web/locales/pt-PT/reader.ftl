@@ -1,0 +1,33 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: pt-PT · Module: reader. Source: ../en/reader.ftl
+
+reader-settings-title = Apresentação das mensagens
+reader-settings-help = Escolha como as mensagens são apresentadas. As predefinições do administrador aplicam-se até escolher uma alternativa. O conteúdo das mensagens permanece isolado da aplicação.
+reader-colorMode = Cores das mensagens
+reader-colorMode-help = «Automático» adapta as cores das mensagens nos temas escuros. «Original» preserva as cores do remetente; «adaptar» utiliza o tema ativo; «inverter» inverte as cores, mas preserva as cores das imagens.
+reader-fontSize = Tamanho da letra de leitura (px)
+reader-fontSize-help = Tamanho de letra base do texto das mensagens, de 12 a 24 píxeis. A formatação do remetente pode ainda definir o tamanho dos títulos.
+reader-lineHeight = Altura de linha de leitura
+reader-lineHeight-help = Espaço entre as linhas do texto das mensagens, de 1,2 a 2,2 vezes o tamanho da letra.
+reader-contentWidth = Largura de leitura
+reader-contentWidth-help = Limite as linhas longas para uma leitura confortável ou utilize todo o painel da mensagem.
+reader-loading = Aspeto do carregamento
+reader-loading-help = Escolha linhas de marcador discretas, um indicador de texto ou nenhum indicador visual de carregamento. Os leitores de ecrã continuam a receber o estado do carregamento.
+reader-loadingDelayMs = Atraso do indicador de carregamento (ms)
+reader-loadingDelayMs-help = Evita que um indicador pisque em pedidos rápidos. Isto atrasa apenas o indicador, nunca a própria mensagem.
+reader-option-auto = Automático com o tema
+reader-option-original = Cores originais da mensagem
+reader-option-adaptive = Adaptar ao tema
+reader-option-invert = Inverter as cores da mensagem
+reader-option-comfortable = Confortável
+reader-option-wide = Larga
+reader-option-full = Painel inteiro
+reader-option-skeleton = Linhas de marcador
+reader-option-indicator = Indicador de texto
+reader-option-none = Sem indicador visual
+reader-inherit = Utilizar a predefinição do administrador
+
+reader-actionStyle = Friso de ações da mensagem
+reader-actionStyle-help = Os ícones compactos deixam mais espaço para a mensagem. Cada ação mantém o seu nome para o teclado e uma descrição explicativa. Escolha etiquetas visíveis se preferir texto junto aos ícones.
+reader-option-icons = Ícones compactos
+reader-option-labels = Ícones e etiquetas

@@ -1,0 +1,39 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: pt-PT · Module: admin-telemetry. Source: ../en/admin-telemetry.ftl
+
+admin-telemetry-title = Telemetria operacional
+admin-telemetry-help = Exporte traces e métricas operacionais para um coletor compatível com OpenTelemetry, como um OpenTelemetry Collector alojado por si. A exportação está desativada por predefinição. As alterações guardadas aplicam-se após reiniciar o servidor.
+admin-telemetry-back = Voltar à observabilidade
+admin-telemetry-saved = Configuração de telemetria guardada. Reinicie o servidor para aplicar as alterações.
+admin-telemetry-restart = A configuração guardada difere da do servidor em execução. É necessário reiniciar.
+admin-telemetry-reload = Recarregar configuração
+admin-telemetry-save = Guardar configuração de telemetria
+admin-telemetry-collector = Coletor e sinais
+admin-telemetry-collector-help = Só um administrador pode escolher este destino para todo o servidor. Utilize um coletor privado ou HTTPS; o HTTP transmite a telemetria sem encriptação.
+admin-telemetry-enabled = Ativar exportação OTLP
+admin-telemetry-traces = Exportar traces
+admin-telemetry-metrics = Exportar métricas
+admin-telemetry-endpoint = Endpoint OTLP gRPC
+admin-telemetry-endpoint-help = Endereço absoluto HTTP ou HTTPS do coletor, normalmente na porta 4317. Não inclua credenciais, consulta nem fragmento. Este é um endpoint gRPC, não a porta 4318 do OTLP HTTP.
+admin-telemetry-serviceName = Nome do serviço
+admin-telemetry-serviceName-help = Etiqueta de serviço estável utilizada para identificar esta implementação do Mailwoman no seu coletor. Não utilize um endereço de e-mail nem outras informações pessoais.
+admin-telemetry-environment = Ambiente
+admin-telemetry-environment-help = Etiqueta de implementação opcional, como production ou staging. É enviada com a telemetria exportada.
+admin-telemetry-pinned = Os campos desativados são controlados por variáveis de ambiente da implementação. Altere essas variáveis para substituir os respetivos valores.
+admin-telemetry-limits = Amostragem e limites de exportação
+admin-telemetry-limits-help = Limita a memória e o tráfego para o coletor. O tamanho do lote não pode exceder o tamanho da fila. As filas cheias podem descartar spans em vez de bloquear pedidos de correio.
+admin-telemetry-sampleRatio = Taxa de amostragem de traces
+admin-telemetry-sampleRatio-help = Fração de novos traces raiz a reter, de 0 a 1. Os spans filhos seguem a decisão de amostragem do pai.
+admin-telemetry-exportTimeoutMs = Tempo limite de exportação (milissegundos)
+admin-telemetry-exportTimeoutMs-help = Duração máxima de um pedido de exportação para o coletor, de 100 a 30000 milissegundos.
+admin-telemetry-metricsIntervalSecs = Intervalo das métricas (segundos)
+admin-telemetry-metricsIntervalSecs-help = Tempo entre exportações de métricas, de 10 a 3600 segundos.
+admin-telemetry-spanQueueSize = Tamanho da fila de spans
+admin-telemetry-spanQueueSize-help = Número máximo de spans à espera de exportação, de 128 a 32768.
+admin-telemetry-spanBatchSize = Tamanho do lote de spans
+admin-telemetry-spanBatchSize-help = Máximo de spans numa exportação, de 1 a 4096 e não superior ao tamanho da fila.
+admin-telemetry-spanExportDelayMs = Atraso do lote de spans (milissegundos)
+admin-telemetry-spanExportDelayMs-help = Espera normal entre lotes de spans, de 100 a 60000 milissegundos.
+admin-telemetry-prometheus-help = Um endpoint autenticado separado para um scraper compatível com Prometheus. O acesso requer sempre o token de portador MW_METRICS_TOKEN da implementação; o respetivo valor nunca é devolvido a esta página.
+admin-telemetry-prometheusEnabled = Ativar scraping do Prometheus
+admin-telemetry-token-missing = Não está configurado nenhum token de scraping. O endpoint de métricas permanece inacessível até o operador definir MW_METRICS_TOKEN.

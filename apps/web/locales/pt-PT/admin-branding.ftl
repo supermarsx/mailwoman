@@ -1,0 +1,24 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: pt-PT · Module: admin-branding. Source: ../en/admin-branding.ftl
+
+admin-branding-title = Personalização da marca
+admin-branding-description = Defina a identidade global apresentada nos ecrãs de início de sessão, da caixa de correio e de administração. As imagens ficam neste servidor.
+admin-branding-text = Nome e aviso de início de sessão
+admin-branding-name = Nome do produto
+admin-branding-notice = Aviso de início de sessão
+admin-branding-logo = Logótipo
+admin-branding-icon_master = Ícone do navegador
+admin-branding-background = Fundo do início de sessão
+admin-branding-image-help = PNG ou JPEG, até 1 MB e { $pixels } píxeis em cada lado. SVG não é aceite. Os metadados são removidos das imagens.
+admin-branding-upload = Escolher uma imagem local
+admin-branding-remove = Repor predefinição
+admin-branding-image-pending = Imagem carregada de forma privada. Guarde a personalização da marca para a publicar.
+admin-branding-save = Guardar personalização da marca
+admin-branding-reload = Recarregar personalização guardada
+admin-branding-saved = Personalização da marca guardada.
+admin-branding-loading = A carregar a personalização da marca…
+
+admin-branding-pwa_192 = Ícone da aplicação instalada (192 px)
+admin-branding-pwa_512 = Ícone da aplicação instalada (512 px)
+admin-branding-pwa_maskable = Ícone adaptável da aplicação instalada (512 px)
+admin-branding-pwa-image-help = PNG ou JPEG, até 1 MB, exatamente { $pixels } por { $pixels } píxeis. Nos ícones adaptáveis, mantenha os elementos importantes dentro do círculo central de 80%. Guarde a personalização da marca para publicar; as aplicações instaladas podem atualizar a sua identidade mais tarde.

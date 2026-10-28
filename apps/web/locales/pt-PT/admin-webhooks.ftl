@@ -1,0 +1,59 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: pt-PT · Module: admin-webhooks. Source: ../en/admin-webhooks.ftl
+
+admin-webhooks-title = Webhooks
+admin-webhooks-intro = Um webhook de saída envia um aviso assinado para um URL quando algo acontece numa conta. Um webhook de entrada permite que outro sistema execute uma ação de regra de correio numa conta.
+admin-webhooks-empty = Ainda não há webhooks.
+admin-webhooks-unavailable = Este servidor não oferece gestão de webhooks.
+admin-webhooks-load-error = Não foi possível carregar os webhooks.
+admin-webhooks-direction-outbound = De saída
+admin-webhooks-direction-inbound = De entrada
+admin-webhooks-col-direction = Direção
+admin-webhooks-col-label = Nome
+admin-webhooks-col-account = Conta
+admin-webhooks-col-target = Envia para ou permite
+admin-webhooks-col-created = Criado
+admin-webhooks-no-label = (sem nome)
+admin-webhooks-created-by = por { $who }
+admin-webhooks-last-used = Última utilização: { $when }
+admin-webhooks-never-used = Ainda não utilizado
+admin-webhooks-delete = Eliminar
+admin-webhooks-delete-named = Eliminar o webhook { $name }
+admin-webhooks-delete-title = Eliminar o webhook { $name }?
+admin-webhooks-delete-body = As entregas para ele param, ou as chamadas assinadas com o respetivo segredo são recusadas. Não é possível anular esta ação; um novo webhook recebe um novo segredo.
+admin-webhooks-deleted = Webhook eliminado.
+admin-webhooks-add = Adicionar um webhook
+admin-webhooks-add-direction = Direção
+admin-webhooks-add-outbound-help = O Mailwoman chama o seu URL.
+admin-webhooks-add-inbound-help = O seu sistema chama o Mailwoman.
+admin-webhooks-add-account = Conta
+admin-webhooks-add-account-help = A conta cujos eventos são enviados, ou a única conta sobre a qual uma chamada de entrada pode atuar.
+admin-webhooks-add-label = Nome
+admin-webhooks-add-label-help = Para que serve o webhook, para que outros saibam. Opcional.
+admin-webhooks-add-url = URL
+admin-webhooks-add-url-help = Tem de chegar a um endereço público da internet. Os endereços privados, de loopback e link-local são recusados.
+admin-webhooks-add-events = Eventos
+admin-webhooks-add-actions = Ações permitidas
+admin-webhooks-add-submit = Criar webhook
+admin-webhooks-add-saving = A criar…
+admin-webhooks-add-check = Verificar
+admin-webhooks-add-check-ok = O URL passa na verificação. Nada foi guardado.
+admin-webhooks-event-message-received = Nova mensagem
+admin-webhooks-event-message-flags = Mensagem lida, sinalizada ou etiquetada
+admin-webhooks-event-message-moved = Mensagem movida
+admin-webhooks-event-message-deleted = Mensagem eliminada
+admin-webhooks-event-submission-sent = Mensagem enviada
+admin-webhooks-event-submission-failed = Não foi possível enviar a mensagem
+admin-webhooks-event-pim-changed = Calendário, contactos, tarefas ou notas alterados
+admin-webhooks-action-run-rules = Executar as regras de correio da conta sobre a descrição de uma mensagem
+admin-webhooks-action-sieve = Aplicar uma ação de regra a uma mensagem
+admin-webhooks-secret-title = Segredo de { $name }
+admin-webhooks-secret-once = Copie este segredo agora. Não voltará a ser mostrado.
+admin-webhooks-secret-outbound = Cada entrega inclui X-Mailwoman-Signature: sha256= seguido do HMAC-SHA256 do corpo do pedido com este segredo.
+admin-webhooks-secret-inbound = Envie X-Mailwoman-Webhook: { $id }, X-Mailwoman-Timestamp (segundos Unix), X-Mailwoman-Nonce (16 a 128 letras, dígitos, - ou _, nunca reutilizado) e X-Mailwoman-Signature: sha256= seguido do HMAC-SHA256 de timestamp.nonce.body com este segredo. As chamadas com mais de cinco minutos de diferença, ou que reutilizem um nonce, são recusadas.
+admin-webhooks-secret-done = Já o copiei
+admin-webhooks-error-stale = Alguém alterou os webhooks desde que abriu esta página. A lista foi recarregada; tente novamente.
+admin-webhooks-error-account = Introduza a conta.
+admin-webhooks-error-url = Introduza um URL que comece por https:// ou http://.
+admin-webhooks-error-events = Escolha pelo menos um evento.
+admin-webhooks-error-actions = Escolha pelo menos uma ação.

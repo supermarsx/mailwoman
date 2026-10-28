@@ -31,9 +31,10 @@ describe('i18n registry / t()', () => {
 });
 
 describe('locale negotiation + direction', () => {
-  it('ships exactly the 13 gate locales (twelve + ar)', () => {
-    expect(LOCALES).toHaveLength(13);
+  it('ships exactly the 14 locales (the twelve gate locales + ar + pt-PT)', () => {
+    expect(LOCALES).toHaveLength(14);
     expect(LOCALES).toContain('pt-BR');
+    expect(LOCALES).toContain('pt-PT');
     expect(LOCALES).toContain('uk');
     expect(LOCALES).toContain('ar');
   });
@@ -44,6 +45,22 @@ describe('locale negotiation + direction', () => {
     expect(negotiateLocale(['ar'])).toBe('ar');
     expect(negotiateLocale(['ar-EG', 'ar'])).toBe('ar');
     expect(negotiateLocale(['xx-YY'])).toBe('en');
+  });
+
+  it('negotiates European and Brazilian Portuguese apart', () => {
+    expect(negotiateLocale(['pt-PT'])).toBe('pt-PT');
+    expect(negotiateLocale(['pt-PT', 'pt', 'en'])).toBe('pt-PT');
+    expect(negotiateLocale(['pt_PT'])).toBe('pt-PT');
+    expect(negotiateLocale(['pt-pt'])).toBe('pt-PT');
+    // CLDR makes pt-PT the parent of every non-Brazilian region.
+    for (const tag of ['pt-AO', 'pt-MZ', 'pt-CV', 'pt-GW', 'pt-ST', 'pt-TL', 'pt-MO', 'pt-CH', 'pt-LU', 'pt-Latn-AO']) {
+      expect(negotiateLocale([tag, 'en'])).toBe('pt-PT');
+    }
+    expect(negotiateLocale(['pt-BR'])).toBe('pt-BR');
+    expect(negotiateLocale(['pt-Latn-BR'])).toBe('pt-BR');
+    // A bare `pt` keeps its old behaviour: CLDR likely subtags expand it to pt-Latn-BR.
+    expect(negotiateLocale(['pt'])).toBe('pt-BR');
+    expect(negotiateLocale(['en-GB', 'pt-PT'])).toBe('en');
   });
 
   it('resolves LTR for the LTR locales, RTL for ar + he plumbing', () => {

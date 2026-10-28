@@ -1,7 +1,7 @@
 // The shipped locales + RTL/direction plumbing (plan §4, SPEC §24).
 //
 // This is the single source of truth for WHICH locales exist and WHICH way each
-// one reads. The set is the 1.0 gate's twelve plus `ar`; only `ar` is RTL, and
+// one reads. The set is the 1.0 gate's twelve plus `ar` and `pt-PT`; only `ar` is RTL, and
 // the `dir` resolver is written against a general RTL language set so
 // `he`/`fa`/`ur` also become first-class the moment their catalog dirs are added
 // — no code change, just a new `locales/<lang>/` tree. `ar` ships a stub catalog
@@ -9,13 +9,14 @@
 
 import { negotiateLanguages } from '@fluent/langneg';
 
-/** Every locale Mailwoman ships a catalog dir for (the 1.0 gate's twelve + `ar`). */
+/** Every locale Mailwoman ships a catalog dir for (the 1.0 gate's twelve + `ar` + `pt-PT`). */
 export const LOCALES = [
   'en',
   'de',
   'fr',
   'es',
   'pt-BR',
+  'pt-PT',
   'nl',
   'it',
   'pl',
@@ -55,14 +56,33 @@ export function isKnownLocale(locale: string): locale is Locale {
 }
 
 /**
+ * Portuguese has two catalogs. Fluent's region fallback would send every
+ * `pt-<region>` to whichever `pt-*` locale is listed first, so a request for
+ * `pt-AO` or `pt-MZ` would land on Brazilian Portuguese. CLDR's parent-locale
+ * data makes `pt-PT` the parent of every Portuguese region except Brazil
+ * (`pt-AO`, `pt-MZ`, `pt-CV`, `pt-GW`, `pt-ST`, `pt-TL`, `pt-MO`, `pt-CH`,
+ * `pt-LU`, `pt-GQ`), so any region other than `BR` is rewritten to `pt-PT`
+ * before negotiation. A bare `pt` is left alone: CLDR's likely-subtags data
+ * expands it to `pt-Latn-BR`, so it still picks `pt-BR`, as before.
+ */
+function normalizePortuguese(tag: string): string {
+  const parts = tag.replace(/_/g, '-').split('-');
+  if (parts[0]?.toLowerCase() !== 'pt' || parts.length < 2) return tag;
+  const region = parts.slice(1).find((p) => /^([a-z]{2}|\d{3})$/i.test(p));
+  if (region === undefined) return tag;
+  return region.toUpperCase() === 'BR' ? 'pt-BR' : 'pt-PT';
+}
+
+/**
  * Pick the best shipped locale for a set of user-requested tags (typically
  * `navigator.languages`), always ending on `en`. Uses Fluent's language
  * negotiation (filtering strategy) so `pt` matches `pt-BR`, `de-AT` matches `de`,
- * etc. Returns the single best match — the runtime fallback CHAIN (best -> en)
- * is assembled by the registry.
+ * etc.; Portuguese regions go through `normalizePortuguese` first, so `pt-AO`
+ * matches `pt-PT`. Returns the single best match. The registry assembles the
+ * runtime fallback CHAIN (best -> en).
  */
 export function negotiateLocale(requested: readonly string[]): Locale {
-  const [best] = negotiateLanguages(requested as string[], LOCALES as unknown as string[], {
+  const [best] = negotiateLanguages(requested.map(normalizePortuguese), LOCALES as unknown as string[], {
     defaultLocale: SOURCE_LOCALE,
     strategy: 'filtering',
   });

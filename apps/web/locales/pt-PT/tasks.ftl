@@ -1,0 +1,41 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: pt-PT · Module: tasks. Source: ../en/tasks.ftl
+
+tasks-title = Tarefas
+tasks-lists = Listas de tarefas
+tasks-all = Todas as tarefas
+tasks-my-day = O meu dia
+tasks-lists-heading = Listas
+tasks-no-lists = Ainda não há listas.
+tasks-new-title = Título da nova tarefa
+tasks-add-placeholder = Adicionar uma tarefa…
+tasks-my-day-empty = Nada para hoje. Aproveite a calma.
+tasks-convert = Converter:
+tasks-mail-id = ID da mensagem a converter
+tasks-mail-id-placeholder = ID da mensagem
+tasks-mail-to-task = Mensagem → tarefa
+tasks-event-id = ID do evento a converter
+tasks-event-id-placeholder = ID do evento
+tasks-event-to-task = Evento → tarefa
+tasks-followup-mail = Seguimento: mensagem { $id }
+tasks-prep-event = Preparar: evento { $id }
+tasks-list-label = Tarefas
+tasks-subtasks = Subtarefas
+tasks-empty-list = Não há tarefas nesta lista.
+tasks-complete = Concluir { $title }
+tasks-reopen = Reabrir { $title }
+tasks-high-priority = Prioridade alta
+tasks-edit = Editar { $title }
+tasks-field-title = Título
+tasks-field-due = Data limite
+tasks-field-priority = Prioridade
+tasks-priority-none = Nenhuma
+tasks-priority-high = Alta
+tasks-priority-medium = Média
+tasks-priority-low = Baixa
+tasks-delete-confirm = Eliminar esta tarefa? Não é possível anular esta ação.
+tasks-delete-yes = Eliminar tarefa
+tasks-delete-no = Manter tarefa
+tasks-changed-elsewhere = Esta tarefa foi alterada noutro dispositivo ou sessão. As suas edições foram mantidas; «Guardar» aplica apenas os campos que alterou.
+tasks-deleted-elsewhere = «{ $title }» foi eliminada noutro dispositivo ou sessão, pelo que o respetivo formulário de edição foi fechado.
+tasks-notice-dismiss = Dispensar

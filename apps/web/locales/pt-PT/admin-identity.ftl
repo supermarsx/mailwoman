@@ -1,0 +1,40 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: pt-PT · Module: admin-identity. Source: ../en/admin-identity.ftl
+
+admin-identity-title = Fornecedor de identidade
+admin-identity-description = Permita que aplicações aprovadas iniciem sessão com o Mailwoman. Isto é independente dos fornecedores externos de início de sessão e do acesso à API de correio. É obrigatório o código de autorização com PKCE; as outras concessões não estão disponíveis.
+admin-identity-configure = Configurar emissor
+admin-identity-new = Adicionar cliente de identidade
+admin-identity-edit = Editar cliente
+admin-identity-enabled = Ativado
+admin-identity-disabled = Desativado
+admin-identity-all = Todos
+admin-identity-discovery = Abrir documento de descoberta
+admin-identity-search = Pesquisar clientes
+admin-identity-status = Estado
+admin-identity-clients = Clientes de identidade
+admin-identity-client = Identidade do cliente
+admin-identity-client-id = ID de cliente
+admin-identity-name = Nome
+admin-identity-method = Autenticação do cliente
+admin-identity-public = Cliente público (PKCE, sem segredo)
+admin-identity-pkce = Todos os clientes têm de utilizar PKCE S256. Os segredos de clientes confidenciais são gerados aqui e mostrados uma única vez.
+admin-identity-rotate-secret = Substituir o segredo de cliente existente
+admin-identity-redirects = Destinos registados
+admin-identity-redirect-help = Um URI HTTPS exato por linha; HTTP de loopback numérico é permitido para aplicações locais. Carateres universais e fragmentos são recusados.
+admin-identity-callbacks = URI de callback de autorização
+admin-identity-logout-uris = URI de redirecionamento após terminar sessão
+admin-identity-scopes = Âmbitos de identidade permitidos
+admin-identity-actions = Ações
+admin-identity-delete = Eliminar cliente
+admin-identity-delete-confirm = Eliminar o acesso de identidade de { $name }? As concessões de identidade existentes deixam de funcionar e o respetivo registo de cliente apenas de identidade é removido.
+admin-identity-empty = Não há clientes de identidade correspondentes.
+admin-identity-cancel = Cancelar
+admin-identity-save = Guardar
+admin-identity-done = Concluído
+admin-identity-secret = Segredo de cliente gerado
+admin-identity-secret-once = Copie agora este segredo para a aplicação dependente. Não pode voltar a ser apresentado. Nunca coloque um segredo confidencial em código do navegador.
+admin-identity-issuer = URL público HTTPS do emissor
+admin-identity-issuer-help = Utilize a origem HTTPS exata desta implementação e o caminho /oidc, com qualquer prefixo da implementação. Alterar o emissor ou a configuração revoga as concessões de identidade existentes.
+admin-identity-rotate-key = Rodar chave de assinatura
+admin-identity-key-help = A rotação requer uma nova verificação de administrador. As chaves públicas anteriores continuam disponíveis durante 15 minutos para que os tokens emitidos recentemente possam concluir a sua curta duração.
