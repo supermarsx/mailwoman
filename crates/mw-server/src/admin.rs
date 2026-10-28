@@ -1042,6 +1042,7 @@ mod tests {
         let app = build().await;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr: SocketAddr = listener.local_addr().unwrap();
+        serve_observer_listener(app.clone(), addr.port(), true).await;
         tokio::spawn(async move {
             axum::serve(
                 listener,
@@ -1058,10 +1059,52 @@ mod tests {
         let app = build().await;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr: SocketAddr = listener.local_addr().unwrap();
+        serve_observer_listener(app.clone(), addr.port(), false).await;
         tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
         format!("http://{addr}")
+    }
+
+    /// The observer in [`automatic_locks`] must reach the server from a source
+    /// other than `127.0.0.1`, the one the tests lock. Linux and Windows route all
+    /// of 127/8 to loopback, so it binds 127.0.0.2. macOS configures only
+    /// 127.0.0.1 on `lo0` (binding 127.0.0.2 fails with EADDRNOTAVAIL), so there
+    /// the same app also listens on `[::1]` at the same port and the observer
+    /// comes from `::1`.
+    #[cfg(target_os = "macos")]
+    async fn serve_observer_listener(app: axum::Router, port: u16, with_peer: bool) {
+        let listener = tokio::net::TcpListener::bind(("::1", port))
+            .await
+            .expect("macOS: bind [::1] at the IPv4 listener's port for the observer");
+        tokio::spawn(async move {
+            if with_peer {
+                axum::serve(
+                    listener,
+                    app.into_make_service_with_connect_info::<SocketAddr>(),
+                )
+                .await
+                .unwrap();
+            } else {
+                axum::serve(listener, app).await.unwrap();
+            }
+        });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    async fn serve_observer_listener(_app: axum::Router, _port: u16, _with_peer: bool) {}
+
+    /// The observer's client and the base URL it uses (see [`serve_observer_listener`]).
+    fn observer(base: &str) -> (reqwest::Client, String) {
+        let builder = reqwest::Client::builder().no_proxy();
+        #[cfg(target_os = "macos")]
+        let (builder, base) = (builder, base.replacen("127.0.0.1", "[::1]", 1));
+        #[cfg(not(target_os = "macos"))]
+        let (builder, base) = (
+            builder.local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 2))),
+            base.to_string(),
+        );
+        (builder.build().unwrap(), base)
     }
 
     async fn bad_login(c: &reqwest::Client, base: &str, extra: Option<(&str, &str)>) {
@@ -1114,13 +1157,9 @@ mod tests {
     ) -> Vec<serde_json::Value> {
         // An already authenticated observer can review the temporary sign-in lock.
         // Manual global source bans have separate middleware acceptance tests.
-        let observer = reqwest::Client::builder()
-            .no_proxy()
-            .local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 2)))
-            .build()
-            .unwrap();
+        let (observer, observer_base) = observer(base);
         let resp = observer
-            .get(format!("{base}/admin/bans/automatic"))
+            .get(format!("{observer_base}/admin/bans/automatic"))
             .header(reqwest::header::COOKIE, cookie)
             .send()
             .await
