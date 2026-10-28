@@ -15,6 +15,14 @@ settings-badge-color-option = { $color } badges
 settings-font = Interface font
 settings-layout = Layout
 
+# Appearance cards (t47): headings and one-line descriptions.
+settings-appearance-theme-card = Theme and switching
+settings-appearance-theme-card-help = Pick a theme and whether it follows the system or the time of day.
+settings-appearance-colours-card = Colours
+settings-appearance-colours-card-help = The accent used for actions and selection, and the colour of unread counters.
+settings-appearance-text-card = Text and layout
+settings-appearance-text-card-help = How dense the interface is, which font it uses and how mail is laid out.
+
 # Density options
 settings-density-compact = Compact
 settings-density-cozy = Cozy

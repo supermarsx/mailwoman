@@ -223,10 +223,22 @@ export function Settings(props: SettingsProps): JSX.Element {
           <Show when={props.embedded}><nav class={workspace.nav} aria-label={t('settings-sections')}><For each={sections.filter(([id])=>supportedSection(id)).filter(([id,label])=>sectionQuery().trim().toLocaleLowerCase().split(/\s+/).every(term=>`${t(label)} ${sectionTerms[id]??''}`.toLocaleLowerCase().includes(term)))} fallback={<p role="status">{t('settings-search-no-sections')}</p>}>{([id,label])=><button type="button" aria-current={navigation.route().section===id ? "page" : undefined} onClick={()=>void navigation.navigate({section:id})}><Icon name={sectionIcons[id]??'settings'}/><span>{t(label)}</span></button>}</For></nav></Show>
           <div class={workspace.content} ref={settingsContent}>
           <RetainedSettingsSection name="appearance" active={visible('appearance')} accountBound={false}>{()=> <div class={workspace.appearance}>
+        <section class={customizationCss.section} aria-labelledby="settings-appearance-theme-card"><h3 class={customizationCss.heading} id="settings-appearance-theme-card">{t('settings-appearance-theme-card')}</h3><p class={customizationCss.meta}>{t('settings-appearance-theme-card-help')}</p>
         <ThemeMode locked={themeHold.locked()} />
         <ThemeGallery locked={themeHold.locked()} />
         <AppearanceSyncStatus />
+        </section>
 
+        <section class={customizationCss.section} aria-labelledby="settings-appearance-colours-card"><h3 class={customizationCss.heading} id="settings-appearance-colours-card">{t('settings-appearance-colours-card')}</h3><p class={customizationCss.meta}>{t('settings-appearance-colours-card-help')}</p>
+        <AccentPicker locked={accentHold.locked()} />
+        <div class={customizationCss.row}>
+          <label class={customizationCss.field}>{t('appearance-custom-accent')}<input class={customizationCss.input} type="color" disabled={accentHold.locked()} value={app.appearancePrefs().customAccent || '#3366cc'} onChange={event => app.setAppearancePrefs({customAccent: event.currentTarget.value})} /></label>
+          <div class={customizationCss.actions}><button type="button" class={customizationCss.ghost} disabled={accentHold.locked() || !app.appearancePrefs().customAccent} onClick={() => app.setAppearancePrefs({customAccent: ''})}>{t('appearance-custom-accent-reset')}</button></div>
+        </div>
+        <BadgeColorPicker locked={badgeHold.locked()} />
+        </section>
+
+        <section class={customizationCss.section} aria-labelledby="settings-appearance-text-card"><h3 class={customizationCss.heading} id="settings-appearance-text-card">{t('settings-appearance-text-card')}</h3><p class={customizationCss.meta}>{t('settings-appearance-text-card-help')}</p>
         <div class={css.row}>
           <span class={css.label} id="settings-density">
             {t('settings-density')}
@@ -253,13 +265,6 @@ export function Settings(props: SettingsProps): JSX.Element {
           </div>
           <LockNote id="settings-density-lock" locked={densityHold.locked()} />
         </div>
-
-        <AccentPicker locked={accentHold.locked()} />
-        <label class={customizationCss.field}>{t('appearance-custom-accent')}<input class={customizationCss.input} type="color" disabled={accentHold.locked()} value={app.appearancePrefs().customAccent || '#3366cc'} onChange={event => app.setAppearancePrefs({customAccent: event.currentTarget.value})} /></label>
-        <div class={customizationCss.actions}><button class={customizationCss.button} disabled={accentHold.locked() || !app.appearancePrefs().customAccent} onClick={() => app.setAppearancePrefs({customAccent: ''})}>{t('appearance-custom-accent-reset')}</button></div>
-        <BadgeColorPicker locked={badgeHold.locked()} />
-        <Show when={!app.linkedMailboxId?.()}><AppearanceCustomization owner={() => { const accountId = app.accountId(); return accountId ? {kind: 'mailbox', accountId} : null; }} /></Show>
-
         <div class={css.row}>
           <span class={css.label} id="settings-font">
             {t('settings-font')}
@@ -301,6 +306,8 @@ export function Settings(props: SettingsProps): JSX.Element {
             </For>
           </div>
         </div>
+        </section>
+        <Show when={!app.linkedMailboxId?.()}><AppearanceCustomization owner={() => { const accountId = app.accountId(); return accountId ? {kind: 'mailbox', accountId} : null; }} /></Show>
 
         <BarPreferences />
 
