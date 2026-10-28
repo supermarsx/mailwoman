@@ -1,6 +1,6 @@
 import {expect,it,vi} from 'vitest';
 import {CAP_MAIL,type JmapRequest,type JmapResponse,type Mailbox} from './jmap-types.ts';
-import {canEmpty,emptyAbility,expectedOutcome,prepareEmpty,runEmpty,type EmptyPreview} from './emptyFolder.ts';
+import {canEmpty,emptyAbility,expectedOutcome,FolderSyncingError,prepareEmpty,runEmpty,type EmptyPreview} from './emptyFolder.ts';
 
 const box=(id:string,role:string|null,extra:Partial<Mailbox>={}):Mailbox=>({id,name:id[0]!.toUpperCase()+id.slice(1),parentId:null,role,sortOrder:0,totalEmails:3,unreadEmails:0,...extra});
 const MAILBOXES=[box('inbox','inbox'),box('work',null),box('trash','trash'),box('junk','junk'),box('saved',null,{mailwomanSearchQuery:'{}'})];
@@ -43,6 +43,8 @@ it('previews on the server without mutation and adopts its count and outcome whe
  expect(args(jmap,0)).toEqual(['Mailbox/empty',{accountId:'a',mailboxId:'work',outcome:'trash',expectedTotal:3,limit:0},'empty']);
  expect(args(jmap,1)[1]).toMatchObject({expectedTotal:250,outcome:'trash',limit:0});
  expect(args(jmap,2)[1]).toMatchObject({expectedTotal:250,outcome:'destroy',limit:0});
+ jmap.mockReset().mockResolvedValueOnce(reply('error',{type:'forbidden',mailwomanSyncing:true},'empty'));
+ await expect(prepareEmpty({jmap},'a',MAILBOXES[1]!,MAILBOXES,{native:true,moveToTrash:true,destroy:true},authority())).rejects.toBeInstanceOf(FolderSyncingError);
  jmap.mockReset().mockResolvedValueOnce(reply('error',{type:'forbidden'},'empty'));
  await expect(prepareEmpty({jmap},'a',MAILBOXES[1]!,MAILBOXES,{native:true,moveToTrash:true,destroy:true},authority())).rejects.toThrow();
 });

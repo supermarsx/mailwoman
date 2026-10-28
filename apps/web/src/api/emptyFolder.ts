@@ -53,7 +53,9 @@ export function canEmpty(box:Mailbox,mailboxes:readonly Mailbox[],ability:EmptyA
 function admitted(authority:EmptyAuthority):void {if(!authority.current()||authority.signal.aborted)throw new Error('Folder operation is no longer active');}
 
 interface NativeReply {accountId:string;mailboxId:string;outcome:EmptyOutcome;trashId:string|null;total:number;processed:number;remaining:number;notProcessed?:Record<string,unknown>}
-interface NativeRefusal {type:string;description?:string;mailwomanTotal?:number;mailwomanOutcome?:EmptyOutcome}
+interface NativeRefusal {type:string;description?:string;mailwomanTotal?:number;mailwomanOutcome?:EmptyOutcome;mailwomanSyncing?:boolean}
+/** The server has not synchronised this folder yet, so it cannot count it. */
+export class FolderSyncingError extends Error {constructor(){super('Folder still synchronising');}}
 type NativeAnswer={ok:true;reply:NativeReply}|{ok:false;refusal:NativeRefusal};
 
 async function nativeCall(client:Transport,args:Record<string,unknown>,authority:EmptyAuthority):Promise<NativeAnswer> {
@@ -78,6 +80,7 @@ export async function prepareEmpty(client:Transport,accountId:string,box:Mailbox
    const answer=await nativeCall(client,{accountId,mailboxId:box.id,outcome,expectedTotal:total,limit:0},authority);admitted(authority);
    if(answer.ok)return {...base,outcome:answer.reply.outcome,trashId:answer.reply.trashId,total:answer.reply.total};
    const refusal=answer.refusal;
+   if(refusal.mailwomanSyncing===true)throw new FolderSyncingError();
    if(refusal.type!=='stateMismatch')throw new Error(refusal.description??refusal.type);
    if(typeof refusal.mailwomanTotal==='number')total=refusal.mailwomanTotal;
    if(refusal.mailwomanOutcome==='trash'||refusal.mailwomanOutcome==='destroy'){outcome=refusal.mailwomanOutcome;trashId=null;}

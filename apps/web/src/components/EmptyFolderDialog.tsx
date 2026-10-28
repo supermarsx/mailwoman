@@ -10,7 +10,7 @@ import {createSignal,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {useApp} from '../state/context.ts';
 import {createConfiguredClient} from '../api/transport.ts';
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
-import {canEmpty,emptyAbility,prepareEmpty,TYPED_CONFIRMATION_OVER,type EmptyAbility,type EmptyPreview} from '../api/emptyFolder.ts';
+import {canEmpty,emptyAbility,FolderSyncingError,prepareEmpty,TYPED_CONFIRMATION_OVER,type EmptyAbility,type EmptyPreview} from '../api/emptyFolder.ts';
 import type {Mailbox} from '../api/jmap-types.ts';
 import {isolate,loadCatalog,t} from '../i18n';
 import {ConfirmDialog} from '../screens/Admin/shell/ConfirmDialog.tsx';
@@ -71,7 +71,7 @@ export function EmptyFolderDialog(props:{box:Mailbox;ability:EmptyAbility;onClos
     if(value.total===0){toast.info(t('empty-folder-already-empty',{name}));close();return;}
     setPreview(value);
    })
-   .catch(()=>{if(current()&&!controller.signal.aborted){toast.error(t('empty-folder-prepare-failed',{name}));close();}});
+   .catch((error:unknown)=>{if(current()&&!controller.signal.aborted){if(error instanceof FolderSyncingError)toast.info(t('empty-folder-syncing',{name}));else toast.error(t('empty-folder-prepare-failed',{name}));close();}});
  });
  function confirm():void {
   const value=preview();if(!value||!current())return;

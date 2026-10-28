@@ -26,6 +26,7 @@ empty-folder-confirm-destroy = Delete permanently
 empty-folder-cancel = Cancel
 empty-folder-already-empty = “{ $name }” is already empty.
 empty-folder-prepare-failed = “{ $name }” could not be counted, so nothing was changed. Check your connection and try again.
+empty-folder-syncing = “{ $name }” is still being synchronised, so it cannot be counted yet. Nothing was changed; try again in a moment.
 empty-folder-running = A folder is already being emptied. Stop it from its notification before starting another.
 empty-folder-progress-trash = Moving messages from { $name } to Trash: { $done } of { $total }.
 empty-folder-progress-destroy = Deleting messages from { $name }: { $done } of { $total }.
