@@ -595,7 +595,11 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   const app = useApp();
   onMount(() => { void loadCatalog('remote-images'); void loadCatalog('privacy'); });
 
-  const emailId = (): string | null => app.openEmail()?.id ?? null;
+  // A memo, so readers of the id (the decrypt reset, the verdict fetch, the entry
+  // motion) run when ANOTHER message opens, not on every update of the open one:
+  // a keyword write (the automatic mark-read a second after opening) replaces the
+  // openEmail object, and the decrypted body was reset with it.
+  const emailId = createMemo((): string | null => app.openEmail()?.id ?? null);
   const entering = createEntryMotion(emailId);
 
   // Narrow-viewport reading (t28-e6). At phone width the open reader is a

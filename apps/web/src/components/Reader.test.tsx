@@ -344,4 +344,26 @@ describe('Reader: Reply, Reply all, Forward', () => {
     );
     expect(initial.bodyHtml).not.toContain('BEGIN PGP MESSAGE');
   });
+
+  it('a decrypted body survives an update of the same open message (mark read, flag)', async () => {
+    // t33-e10: the automatic mark-read patches the open message (a new object,
+    // same id) about a second after it opens. The reader reset its decrypted
+    // body on that, so the passphrase prompt came back over the plaintext. Any
+    // keyword write does the same; flagging is the one this harness answers.
+    const armored = {
+      ...ORIGINAL,
+      bodyValues: { '1': { value: '<pre>-----BEGIN PGP MESSAGE-----\nabc\n-----END PGP MESSAGE-----</pre>' } },
+    };
+    const { app } = await openReader(armored, { ownKey: true });
+    await app.loadKeys();
+    fireEvent.input(screen.getByTestId('decrypt-passphrase'), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByTestId('decrypt-submit'));
+    await waitFor(() => expect(screen.queryByTestId('reader-decrypt')).toBeNull());
+
+    const before = app.openEmail();
+    await app.flagMessage('m1', true);
+    await waitFor(() => expect(app.openEmail()).not.toBe(before));
+    expect(app.openEmail()?.id).toBe('m1');
+    expect(screen.queryByTestId('reader-decrypt')).toBeNull();
+  });
 });
