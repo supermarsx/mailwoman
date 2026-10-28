@@ -26,7 +26,7 @@ export function ReaderAppearanceSettings(): JSX.Element {
         </Show>
         <p id={`reader-${field.key}-help`} class={css.meta}>{t(`reader-${field.key}-help`)}</p><LockNote locked={setting.locked()} />
         <Show when={setting.error()}><p role="alert">{setting.error()}</p></Show>
-        <button type="button" class={css.button} disabled={disabled()} onClick={() => void setting.reset()}>{t('reader-inherit')}</button>
+        <button type="button" class={css.ghost} disabled={disabled()} onClick={() => void setting.reset()}>{t('reader-inherit')}</button>
       </div>;
     }}</For>
   </section>;

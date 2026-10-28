@@ -13,6 +13,6 @@ export function MailInteractionPreferences():JSX.Element {
   const disabled=()=>!choice.handle.entry()||choice.handle.locked()||choice.handle.saving();
   return <div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={choice.handle.value()} disabled={disabled()} onChange={event=>void choice.handle.set(event.currentTarget.checked)} aria-describedby={`${choice.key}-help`}/>{t(choice.label)}</label>
    <p id={`${choice.key}-help`} class={css.meta}>{t(choice.help)}</p><LockNote locked={choice.handle.locked()}/><Show when={choice.handle.error()}><p role="alert">{choice.handle.error()}</p></Show>
-   <button type="button" class={css.button} disabled={disabled()} onClick={()=>void choice.handle.reset()}>{t('reader-inherit')}</button></div>;
+   <button type="button" class={css.ghost} disabled={disabled()} onClick={()=>void choice.handle.reset()}>{t('reader-inherit')}</button></div>;
  }}</For></section>;
 }
