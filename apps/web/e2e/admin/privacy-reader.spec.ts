@@ -51,12 +51,15 @@ async function setGlobal(api:APIRequestContext,key:string,value:unknown,locked=f
   return async()=>{const current=await api.get(`${adminPath}/settings/${key}`);const put=await api.put(`${adminPath}/settings/${key}`,{data:{globalValue:saved.globalValue??null,locked:saved.globalLocked},headers:{'if-match':current.headers()['etag']!}});expect(put.ok(),await put.text()).toBe(true);};
 }
 // Personal-settings writes carry the session's storage authority (0a11b581).
-async function mailbox(page:Page,mode:string):Promise<void>{await page.waitForTimeout(3100);await signInManually(page,{username:'testuser',password:'testpass'});await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();const response=await page.request.put('/api/settings/privacy.remoteContent',{data:{value:mode},headers:await storageAuthorityHeaders(page.request)});expect(response.ok(),await response.text()).toBe(true);await page.reload();await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();}
-async function resetMailbox(page:Page):Promise<void>{const response=await page.request.delete('/api/settings/privacy.remoteContent',{headers:await storageAuthorityHeaders(page.request)});expect(response.ok(),await response.text()).toBe(true);}
+async function mailbox(page:Page,mine:Record<string,unknown>):Promise<void>{await page.waitForTimeout(3100);await signInManually(page,{username:'testuser',password:'testpass'});await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();for(const [key,value] of Object.entries(mine)){const response=await page.request.put(`/api/settings/${key}`,{data:{value},headers:await storageAuthorityHeaders(page.request)});expect(response.ok(),await response.text()).toBe(true);}await page.reload();await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();}
+async function resetMailbox(page:Page,mine:Record<string,unknown>):Promise<void>{for(const key of Object.keys(mine)){const response=await page.request.delete(`/api/settings/${key}`,{headers:await storageAuthorityHeaders(page.request)});expect(response.ok(),await response.text()).toBe(true);}}
 async function openMessage(page:Page,subject:string):Promise<void>{await expect(async()=>{if(page.viewportSize()!.width<761){await drawerButton(page).click();await sidebarInbox(page).click();}else await sidebarInbox(page).click();await expect(messageRow(page,subject)).toBeVisible({timeout:3000});}).toPass({timeout:45000});await messageRow(page,subject).click();await expect(page.locator('iframe.reader__frame')).toBeVisible();}
 
 test('signed proxy and CID images load without frame cookies; hostile SVG remains an image @phone',async({page,playwright,baseURL},info)=>{
   const admin=await playwright.request.newContext({baseURL:baseURL??''});const fixture=await proxyFixture();
+  // The adaptive colour mode (the default) drops sender background images, CID ones included; read in the
+  // original mode so the CID background is there to check.
+  const mine={'privacy.remoteContent':'proxy','reader.colorMode':'original'};
   const id=`privacy-fixture-${info.project.name}-${Date.now()}`;let active:string|undefined;let configured=false;let signedIn=false;
   try{
   await page.waitForTimeout(3100);await adminLogin(admin);
@@ -67,7 +70,7 @@ test('signed proxy and CID images load without frame cookies; hostile SVG remain
   await seed(subject,'<p>Privacy fixture</p><img alt="remote" src="http://1.2.3.4/fixture.png"><img alt="inline" src="cid:logo@test"><a href="http://1.2.3.4/document.txt">document</a><a href="http://1.2.3.4/fixture.png">unclassified download</a><img alt="tracker" src="http://1.2.3.4/tracker.png"><img alt="cid candidates" srcset="cid:logo@test 1x"><p style="background-image:url(cid:logo@test)">CID background</p>',true);
   const leaks:string[]=[];page.on('request',r=>{if(r.url().includes('svg-leak.invalid'))leaks.push(r.url());});await page.route('**://svg-leak.invalid/**',r=>r.abort());
   await page.addInitScript(()=>{(window as unknown as {svgRan:boolean}).svgRan=false;addEventListener('message',e=>{if(e.data==='SVG_EXEC')(window as unknown as {svgRan:boolean}).svgRan=true;});});
-  await mailbox(page,'proxy');signedIn=true;const signedResponses:{url:string;status:number}[]=[];page.on('response',r=>{if(r.url().includes('/api/rc/i/')||r.url().includes('/api/rc/p/'))signedResponses.push({url:r.url(),status:r.status()});});
+  await mailbox(page,mine);signedIn=true;const signedResponses:{url:string;status:number}[]=[];page.on('response',r=>{if(r.url().includes('/api/rc/i/')||r.url().includes('/api/rc/p/'))signedResponses.push({url:r.url(),status:r.status()});});
   await openMessage(page,subject);const frame=page.frameLocator('iframe.reader__frame').frameLocator('iframe');
   await expect(frame.getByAltText('remote')).toHaveJSProperty('naturalWidth',8,{timeout:30000});await expect(frame.getByAltText('inline')).toHaveJSProperty('naturalWidth',8);
   await expect(frame.getByAltText('cid candidates')).toHaveJSProperty('naturalWidth',8);
@@ -87,7 +90,7 @@ test('signed proxy and CID images load without frame cookies; hostile SVG remain
   const arbitraryDownload=page.waitForEvent('download'); await page.getByRole('button',{name:'Download through the server'}).last().click(); expect((await arbitraryDownload).suggestedFilename()).toBe('fixture.png');
   }finally{
     try{
-      if(signedIn)await resetMailbox(page);
+      if(signedIn)await resetMailbox(page,mine);
       if(configured){expect((await admin.post(active?`${adminPath}/egress/proxies/${active}/activate`:`${adminPath}/egress/proxies/deactivate`)).ok()).toBe(true);expect((await admin.post(`${adminPath}/egress/proxies/${id}/delete`)).ok()).toBe(true);}
     }finally{await admin.dispose();await fixture.close();}
   }
@@ -99,7 +102,7 @@ test('permitted direct content uses a trusted wrapper and still cannot execute m
   await page.waitForTimeout(3100);await adminLogin(admin);restore.push(await setGlobal(admin,'privacy.allowDirect',true));restore.push(await setGlobal(admin,'cap.remote_content.direct',true));
   const subject=`Privacy direct ${info.project.name} ${Date.now()}`;await seed(subject,'<p>Direct fixture</p><img alt="direct" src="https://images.test/direct.png"><img alt="plaintext" src="http://images.test/plain.png">');
   let https=0;let plaintext=0;await page.route('https://images.test/direct.png',r=>{https++;return r.fulfill({contentType:'image/png',body:png()});});await page.route('http://images.test/plain.png',r=>{plaintext++;return r.abort();});
-  await mailbox(page,'direct');signedIn=true;expect((await (await page.request.get('/api/rc/policy')).json() as {mode:string}).mode).toBe('direct');await openMessage(page,subject);
+  await mailbox(page,{'privacy.remoteContent':'direct'});signedIn=true;expect((await (await page.request.get('/api/rc/policy')).json() as {mode:string}).mode).toBe('direct');await openMessage(page,subject);
   const outer=page.locator('iframe.reader__frame');await expect(outer).toHaveAttribute('sandbox','allow-scripts');await expect(outer).toHaveAttribute('src',/\/api\/rc\/frame#/);
   const content=page.frameLocator('iframe.reader__frame').frameLocator('iframe');await expect(content.getByAltText('direct')).toHaveJSProperty('naturalWidth',8);
   expect(https).toBe(1);expect(plaintext).toBe(0);
@@ -107,7 +110,7 @@ test('permitted direct content uses a trusted wrapper and still cannot execute m
   await page.evaluate(()=>{const f=document.querySelector<HTMLIFrameElement>('iframe.reader__frame')!;const token=new URLSearchParams(new URL(f.src).hash.slice(1)).get('token');(window as unknown as {payloadRan:boolean}).payloadRan=false;addEventListener('message',e=>{if(e.data==='MESSAGE_EXEC')(window as unknown as {payloadRan:boolean}).payloadRan=true;});f.contentWindow!.postMessage({type:'mw-reader-frame',token,html:'<p>Sandbox test</p><script>top.postMessage("MESSAGE_EXEC","*")</script>'},'*');});
   await expect(content.getByText('Sandbox test')).toBeVisible();expect(await page.evaluate(()=>(window as unknown as {payloadRan:boolean}).payloadRan)).toBe(false);
   }finally{
-    try{if(signedIn)await resetMailbox(page);for(const undo of restore.reverse())await undo();}finally{await admin.dispose();}
+    try{if(signedIn)await resetMailbox(page,{'privacy.remoteContent':'direct'});for(const undo of restore.reverse())await undo();}finally{await admin.dispose();}
   }
 });
 

@@ -20,10 +20,11 @@ test('folder loading retains its viewport and menus do not blank the page @phone
   await expect(page.locator('.list')).toHaveAttribute('aria-busy', 'false');
   await scroller.evaluate(el => el.setAttribute('data-retained-probe', 'yes'));
   const more = page.getByTestId('msg-more-toggle').first();
-  if (await more.isVisible()) await more.click();
-  else await page.locator('.list__slot').first().hover();
-  await page.getByRole('button', { name: 'Snooze', exact: true }).first().click();
-  const menu = page.getByRole('menu').first();
+  // At narrow width the row's More actions button opens the row menu itself (998dcdb9); on desktop the
+  // hovered row's Snooze button opens its preset menu.
+  let menu = page.getByRole('menu').first();
+  if (await more.isVisible()) { await more.click(); menu = page.getByRole('menu', { name: 'More actions', exact: true }); }
+  else { await page.locator('.list__slot').first().hover(); await page.getByRole('button', { name: 'Snooze', exact: true }).first().click(); }
   await expect(menu).toBeVisible();
   expect(await menu.evaluate(el => Number(getComputedStyle(el).opacity))).toBeGreaterThanOrEqual(.96);
   await page.keyboard.press('Escape');

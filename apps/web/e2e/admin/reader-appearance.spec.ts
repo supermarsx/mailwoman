@@ -37,5 +37,9 @@ test('isolated messages adapt colors, preserve original mode and invert without 
     await expect(outer.locator('iframe')).toHaveAttribute('sandbox', '');
     expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
     await page.screenshot({ path: test.info().outputPath(`reader-${colorMode}.png`), fullPage: true });
+    // A reload restores an open message tab (65b31d47), which at phone width covers the list: close it so
+    // the next mode opens the message from its row again.
+    await page.getByRole('button', { name: `Close ${subject}`, exact: true }).click();
+    await expect(page.getByRole('tab', { name: subject, exact: true })).toHaveCount(0);
   }
 });
