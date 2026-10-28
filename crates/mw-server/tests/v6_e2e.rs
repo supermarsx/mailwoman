@@ -656,6 +656,9 @@ async fn apikey_enforcement_matrix_live() {
     let server = spawn_server(dsn, ServerMode::Proxy, admin_v6(None)).await;
     let c = client();
     let account = login(&c, &server, &mock).await;
+    // Minting a key is a step-up-gated write (`apiKeyCreate`, 7e9af0d0): confirm the
+    // password once; the proof covers this session for five minutes.
+    common::auth::user_step_up(&c, &server, mw_mock_jmap::PASS).await;
 
     async fn mint(c: &reqwest::Client, server: &str, account: &str, scope: Value) -> String {
         let m: Value = c
@@ -1139,7 +1142,8 @@ async fn backend_parity_sqlite_and_postgres_live() {
             .status()
             .as_u16();
 
-        // (2) mint a scoped key.
+        // (2) mint a scoped key, after the step-up `apiKeyCreate` needs (7e9af0d0).
+        common::auth::user_step_up(&c, &server, mw_mock_jmap::PASS).await;
         let mint: Value = c
             .post(format!("{server}/api/keys"))
             .json(&json!({ "label": "parity", "accountId": account, "scope": {
@@ -1210,6 +1214,9 @@ async fn backend_parity_sqlite_and_postgres_live() {
 
     assert_eq!(sqlite.0, 204, "SQLite: provision → 204");
     assert_eq!(postgres.0, 204, "Postgres: provision → 204");
+    // Equal-but-failed mints would also compare equal; each backend must really mint.
+    assert!(sqlite.2, "SQLite: the scoped key mints an mwk_ token");
+    assert!(postgres.2, "Postgres: the scoped key mints an mwk_ token");
     assert_eq!(
         sqlite, postgres,
         "SQLite and Postgres behave identically on the happy path"
