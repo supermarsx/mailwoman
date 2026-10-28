@@ -1,5 +1,5 @@
 import { test, expect, type Page } from './csrf.ts';
-import { engineLogin, injectViaSmtp, messageRow, waitForInboxMessage } from './helpers.ts';
+import { ENGINE_CREDS, engineLogin, injectViaSmtp, messageRow, waitForInboxMessage } from './helpers.ts';
 import { readFile } from 'node:fs/promises';
 
 /**
@@ -54,10 +54,17 @@ test.describe('V2 export (engine mode)', () => {
     await messageRow(page, subject).first().click();
     await expect(page.getByRole('heading', { name: subject })).toBeVisible();
 
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      page.getByTestId('reader-export').click(),
-    ]);
+    // Since d15a2621 the toolbar button opens the dedicated export page, and the
+    // download it starts is a protected action (7e9af0d0): the server asks the user to
+    // confirm their password first.
+    await page.getByTestId('reader-export').click();
+    await expect(page.getByRole('heading', { name: 'Export message', exact: true })).toBeVisible();
+    const pendingDownload = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download selected format', exact: true }).click();
+    const proof = page.getByRole('dialog', { name: 'Confirm it is you' });
+    await proof.getByLabel('Password', { exact: true }).fill(ENGINE_CREDS.password);
+    await proof.getByRole('button', { name: 'Confirm and continue', exact: true }).click();
+    const download = await pendingDownload;
     expect(download.suggestedFilename()).toMatch(/\.eml$/i);
 
     // The downloaded bytes are the real RFC822 message (correct content).
@@ -70,6 +77,14 @@ test.describe('V2 export (engine mode)', () => {
   test('export endpoint serves EML and mbox with correct bytes', async ({ page }) => {
     await engineLogin(page);
     const id = await firstInboxEmailId(page);
+
+    // Export is a protected action (7e9af0d0): without a fresh step-up the server
+    // refuses it and names the confirmation methods; the password confirms it.
+    const refused = await page.request.get(`/api/export/${id}?format=eml`);
+    expect(refused.status()).toBe(403);
+    expect(((await refused.json()) as { code?: string }).code).toBe('step_up_required');
+    const proof = await page.request.post('/api/security/step-up', { data: { password: ENGINE_CREDS.password } });
+    expect(proof.status(), `step-up ⇒ ${proof.status()} ${await proof.text()}`).toBe(200);
 
     // EML: raw RFC822 (has header lines).
     const eml = await page.request.get(`/api/export/${id}?format=eml`);

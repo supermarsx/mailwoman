@@ -64,14 +64,18 @@ test.describe('V2 attachment viewers (engine mode)', () => {
       await expect(page.getByRole('option', { name })).toBeVisible();
     }
 
-    const modal = page.getByTestId('attachment-viewer');
-    const openViewer = async (name: string): Promise<void> => {
+    // Since 3da161a0 an attachment opens in its own workspace tab (a tabpanel
+    // named after the file) rather than in a modal over the reader; the viewer
+    // inside it is the same AttachmentViewer.
+    const openViewer = async (name: string): Promise<Locator> => {
       await page.getByRole('option', { name }).click();
-      await expect(modal).toBeVisible();
+      const tab = page.getByRole('tabpanel', { name, exact: true });
+      await expect(tab).toBeVisible();
+      return tab;
     };
-    const closeViewer = async (): Promise<void> => {
-      await page.getByRole('button', { name: 'Close attachment' }).click();
-      await expect(modal).toBeHidden();
+    const closeViewer = async (name: string): Promise<void> => {
+      await page.getByRole('button', { name: `Close ${name}`, exact: true }).click();
+      await expect(page.getByRole('tabpanel', { name, exact: true })).toHaveCount(0);
     };
     const assertSandboxed = async (frame: Locator): Promise<void> => {
       await expect(frame).toBeVisible();
@@ -82,20 +86,20 @@ test.describe('V2 attachment viewers (engine mode)', () => {
     };
 
     // PDF: pdfjs renders a real canvas page (self-hosted worker) — not the error.
-    await openViewer('doc.pdf');
-    await expect(modal.locator('.mw-viewer[data-viewer-kind="pdf"]')).toBeVisible();
-    await expect(modal.locator('.mw-viewer__pdf-page')).toBeVisible({ timeout: 20_000 });
-    await expect(modal.getByText('Could not render this PDF.')).toHaveCount(0);
-    await closeViewer();
+    let viewer = await openViewer('doc.pdf');
+    await expect(viewer.locator('.mw-viewer[data-viewer-kind="pdf"]')).toBeVisible();
+    await expect(viewer.locator('.mw-viewer__pdf-page')).toBeVisible({ timeout: 20_000 });
+    await expect(viewer.getByText('Could not render this PDF.')).toHaveCount(0);
+    await closeViewer('doc.pdf');
 
     // Image: sandboxed iframe.
-    await openViewer('photo.png');
-    await assertSandboxed(modal.locator('iframe.mw-viewer__frame--image'));
-    await closeViewer();
+    viewer = await openViewer('photo.png');
+    await assertSandboxed(viewer.locator('iframe.mw-viewer__frame--image'));
+    await closeViewer('photo.png');
 
     // Video: sandboxed iframe.
-    await openViewer('clip.mp4');
-    await assertSandboxed(modal.locator('iframe.mw-viewer__frame--video'));
-    await closeViewer();
+    viewer = await openViewer('clip.mp4');
+    await assertSandboxed(viewer.locator('iframe.mw-viewer__frame--video'));
+    await closeViewer('clip.mp4');
   });
 });
