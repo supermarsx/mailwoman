@@ -47,6 +47,11 @@ pub mod saved_drafts;
 #[path = "folders.rs"]
 mod folders;
 
+// `Mailbox/empty` (t45): empty one folder in bounded batches. A child of this
+// module for the same reason as `folders`.
+#[path = "empty_folder.rs"]
+mod empty_folder;
+
 /// Build the JMAP [`Session`](mw_jmap::Session) resource for a connected account,
 /// advertising core + mail + submission and pointing every URL back at us.
 pub fn session_json(account_id: &str, username: &str) -> Value {
@@ -304,6 +309,7 @@ impl Engine {
         match name {
             "Mailbox/get" => self.mailbox_get(account_id, rt, args).await,
             "Mailbox/set" => self.mailbox_set(account_id, rt, args).await,
+            "Mailbox/empty" => self.mailbox_empty(account_id, rt, args).await,
             "Mailbox/changes" => {
                 self.type_changes(account_id, ChangeType::Mailbox, args)
                     .await

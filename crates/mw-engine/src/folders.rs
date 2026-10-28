@@ -271,17 +271,26 @@ impl Engine {
     /// managed. An account with no runtime gets `false`.
     pub fn session_json_for(&self, account_id: &str, username: &str) -> Value {
         let mut session = super::session_json(account_id, username);
-        let manages = self
-            .runtime(account_id)
-            .is_some_and(|rt| self.manages_folders(account_id, &rt));
+        let runtime = self.runtime(account_id);
+        let manages = runtime
+            .as_ref()
+            .is_some_and(|rt| self.manages_folders(account_id, rt));
+        let empty = runtime
+            .as_ref()
+            .map(|rt| self.empty_ability(account_id, rt));
         if let Some(caps) = session
             .pointer_mut(&format!("/accounts/{account_id}/accountCapabilities"))
             .and_then(Value::as_object_mut)
         {
-            caps.insert(
-                "urn:ietf:params:jmap:mail".into(),
-                mail_account_capability(manages),
-            );
+            let mut mail = mail_account_capability(manages);
+            // `Mailbox/empty` (t45): which outcomes this account's backend can
+            // apply. Both false on POP3, `destroy` false on a bridge.
+            mail["mailwomanEmptyMailbox"] = json!({
+                "moveToTrash": empty.is_some_and(|a| a.move_to_trash),
+                "destroy": empty.is_some_and(|a| a.destroy),
+                "maxBatch": super::empty_folder::MAX_BATCH,
+            });
+            caps.insert("urn:ietf:params:jmap:mail".into(), mail);
             // RFC 8621 §1.3.2; `DSN` drives the composer's delivery-report
             // options (t32-e46). `sendAt` has no upper bound here, so the
             // largest value the field can carry in every client is given.
