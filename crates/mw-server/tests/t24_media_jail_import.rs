@@ -235,7 +235,10 @@ mod linux {
         // it when the app is built) or any worker process exists.
         unsafe { std::env::set_var("MW_RENDER_BIN", &worker) };
 
-        let mock = spawn_mock().await;
+        // Started for its side effect: `spawn_server` reads it back as the
+        // configured upstream (`upstream_default`), as a login can no longer name
+        // one (t32-h9, b7904d54).
+        let _mock = spawn_mock().await;
         let server = spawn_server().await;
         let c = reqwest::Client::builder()
             .cookie_store(true)
