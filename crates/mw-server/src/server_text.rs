@@ -31,12 +31,29 @@ pub(crate) async fn account_notice(state: &AppState, account: &str, kind: AlertK
         .unwrap_or_else(|| "en".into());
     notice(&language, kind)
 }
+/// The match key for a language tag: the lower-cased primary subtag, except
+/// that Portuguese is split by region the way the web client negotiates it
+/// (`apps/web/src/i18n/locales.ts`). `pt-BR` and a bare `pt` (which CLDR's
+/// likely subtags expand to `pt-Latn-BR`) are Brazilian, and every other region
+/// (`pt-PT`, `pt-AO`, `pt-MZ` and so on, the regions CLDR parents to `pt-PT`)
+/// is European.
+fn language_key(language: &str) -> String {
+    let mut parts = language.split(['-', '_']);
+    let base = parts.next().unwrap_or("en").to_ascii_lowercase();
+    if base != "pt" {
+        return base;
+    }
+    let region = parts.find(|p| {
+        (p.len() == 2 && p.chars().all(|c| c.is_ascii_alphabetic()))
+            || (p.len() == 3 && p.chars().all(|c| c.is_ascii_digit()))
+    });
+    match region {
+        Some(r) if !r.eq_ignore_ascii_case("BR") => "pt-pt".into(),
+        _ => "pt-br".into(),
+    }
+}
 pub(crate) fn notice(language: &str, kind: AlertKind) -> Notice {
-    let key = language
-        .split(['-', '_'])
-        .next()
-        .unwrap_or("en")
-        .to_ascii_lowercase();
+    let key = language_key(language);
     let index = match kind {
         AlertKind::NewDevice => 0,
         AlertKind::TwoFactorChanged => 1,
@@ -189,9 +206,22 @@ pub(crate) fn notice(language: &str, kind: AlertKind) -> Notice {
             ],
             "Prüfen Sie die letzten Aktivitäten und Sitzungen unter Einstellungen > Sicherheitscenter. Falls Sie diese Änderung nicht erkennen, widerrufen Sie unbekannte Sitzungen und kontaktieren Sie Ihre Administration.",
         ),
-        "pt" => (
-            "pt",
-            "Aviso de segurança Mailwoman",
+        "pt-br" => (
+            "pt-BR",
+            "Aviso de segurança do Mailwoman",
+            [
+                "Sua conta foi acessada de um novo dispositivo.",
+                "Os fatores de autenticação da sua conta foram alterados.",
+                "Foi concedido acesso delegado à sua caixa de correio.",
+                "Foi adicionada uma regra de encaminhamento à sua caixa de correio.",
+                "Foi criada uma chave de aplicativo para sua conta.",
+                "Sua conta foi acessada de um novo país.",
+            ],
+            "Confira a atividade recente e as sessões em Configurações > Central de segurança. Se você não reconhecer esta alteração, revogue as sessões desconhecidas e entre em contato com o administrador.",
+        ),
+        "pt-pt" => (
+            "pt-PT",
+            "Aviso de segurança do Mailwoman",
             [
                 "A sua conta foi acedida a partir de um novo dispositivo.",
                 "Os fatores de autenticação da sua conta foram alterados.",
@@ -233,17 +263,47 @@ mod tests {
         assert!(spanish.description.contains("clave"));
         assert_eq!(notice("not-a-locale", AlertKind::NewDevice).locale, "en");
         for language in [
-            "ar", "de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt-BR", "ru", "uk", "zh",
+            "ar", "de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt-BR", "pt-PT", "ru", "uk",
+            "zh",
         ] {
-            assert_eq!(
-                notice(language, AlertKind::NewDevice).locale,
+            let expected = if language.starts_with("pt-") {
+                language
+            } else {
                 language.split('-').next().unwrap()
-            );
+            };
+            assert_eq!(notice(language, AlertKind::NewDevice).locale, expected);
             for kind in AlertKind::ALL {
                 let text = notice(language, kind);
                 assert!(!text.description.is_empty());
                 assert!(!text.subject.contains(['\r', '\n']));
             }
         }
+    }
+    #[test]
+    fn portuguese_splits_by_region_like_the_web_client() {
+        for tag in [
+            "pt-PT",
+            "pt_PT",
+            "pt-pt",
+            "pt-AO",
+            "pt-MZ",
+            "pt-CV",
+            "pt-Latn-AO",
+        ] {
+            let text = notice(tag, AlertKind::NewDevice);
+            assert_eq!(text.locale, "pt-PT", "{tag}");
+            assert!(text.description.contains("acedida"), "{tag}");
+            assert!(text.guidance.contains("Definições"), "{tag}");
+        }
+        for tag in ["pt-BR", "pt_BR", "pt", "pt-Latn-BR"] {
+            let text = notice(tag, AlertKind::NewDevice);
+            assert_eq!(text.locale, "pt-BR", "{tag}");
+            assert!(text.description.contains("acessada"), "{tag}");
+            assert!(text.guidance.contains("Configurações"), "{tag}");
+        }
+        assert_ne!(
+            notice("pt-PT", AlertKind::NewDevice).guidance,
+            notice("pt-BR", AlertKind::NewDevice).guidance
+        );
     }
 }
