@@ -1716,6 +1716,17 @@ impl Store {
         Ok(rows.into_iter().collect())
     }
 
+    /// Forget an ingested UIDL once its message has left the maildrop, so it is
+    /// no longer part of the [`Store::seen_uidls`] set.
+    pub async fn forget_uidl(&self, account_id: &str, uidl: &str) -> Result<(), StoreError> {
+        q("DELETE FROM pop3_uidl WHERE account_id = ?1 AND uidl = ?2")
+            .bind(account_id)
+            .bind(uidl)
+            .execute(&self.backend)
+            .await?;
+        Ok(())
+    }
+
     /// Map a POP3 UIDL back to its stable id.
     pub async fn stable_id_for_uidl(
         &self,
@@ -3153,6 +3164,15 @@ mod tests {
         );
         assert_eq!(
             s.stable_id_for_uidl(&account_id, "UID-Z").await.unwrap(),
+            None
+        );
+
+        // Forgetting one leaves the other.
+        s.forget_uidl(&account_id, "UID-A").await.unwrap();
+        let seen = s.seen_uidls(&account_id).await.unwrap();
+        assert_eq!(seen.into_iter().collect::<Vec<_>>(), vec!["UID-B"]);
+        assert_eq!(
+            s.stable_id_for_uidl(&account_id, "UID-A").await.unwrap(),
             None
         );
     }

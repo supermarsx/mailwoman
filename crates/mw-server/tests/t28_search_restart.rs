@@ -567,6 +567,18 @@ async fn wait_for_index(
     }
 }
 
+/// Wait until the first sync after a login has stored and indexed `n`
+/// messages. Since dcd88d33 a login only publishes the mailbox list and the
+/// messages are fetched in the background, so a search hit alone does not mean
+/// the sync is over. A restart test stops the process only after it is.
+async fn wait_for_first_sync(d: &Deployment, base: &str, n: u64) {
+    let a = admin(base).await;
+    wait_for_index(&a, base, d, "first sync", |s| {
+        s["documents"] == n && s["messages"] == n && s["rebuilding"] == false
+    })
+    .await;
+}
+
 /// Whether any file under `dir` (at any depth) contains `needle`.
 fn dir_contains(dir: &Path, needle: &str) -> bool {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -624,6 +636,7 @@ async fn a_search_hit_survives_a_restart_without_a_fetch_or_a_rebuild() {
         "the index is on disk beside the database, at {}",
         d.index_dir().display()
     );
+    wait_for_first_sync(&d, &first.base, 3).await;
     first.kill();
 
     let second = d.start().await;
@@ -670,6 +683,7 @@ async fn a_deleted_index_directory_is_rebuilt_from_the_store_at_start() {
         1,
         "precondition: the message is found before the restart"
     );
+    wait_for_first_sync(&d, &first.base, 3).await;
     first.kill();
 
     std::fs::remove_dir_all(d.index_dir()).expect("delete the index directory");

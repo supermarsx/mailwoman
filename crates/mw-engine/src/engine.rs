@@ -555,6 +555,7 @@ impl Engine {
             .await?
             .and_then(|json| cursor_from_json(&json))
             .unwrap_or_else(|| self.initial_cursor_for(account_id));
+        let cursor = self.with_recorded_uidls(account_id, cursor).await?;
         let mut delta: MailboxDelta = rt.backend.sync_mailbox(&rm.mailbox_ref, &cursor).await?;
         self.require_runtime_generation(account_id, rt)?;
         let validity = |cursor: &SyncCursor| match cursor {
@@ -684,6 +685,11 @@ impl Engine {
             if let Some(sid) = self.resolve_ref(account_id, mailbox_id, mref).await? {
                 self.require_runtime_generation(account_id, rt)?;
                 self.store.delete_message(&sid).await?;
+                if let MessageRef::Pop3 { uidl } = mref {
+                    // The UIDL left the maildrop: it is no longer "ingested",
+                    // or the next sync would report its removal again.
+                    self.store.forget_uidl(account_id, uidl).await?;
+                }
                 self.invalidate_message_cache(&sid).await;
                 let _ = self.search.delete(&sid);
                 self.record_change(account_id, ChangeType::Email, &sid, ChangeOp::Destroyed)
@@ -708,6 +714,41 @@ impl Engine {
             .save_cursor(account_id, mailbox_id, &cursor_to_json(&delta.next_cursor))
             .await?;
         Ok(())
+    }
+
+    /// Fold the POP3 UIDLs already ingested into a sync cursor.
+    ///
+    /// The cursor is saved once, after a whole mailbox sync. Each message's UIDL
+    /// is recorded as it is ingested (`pop3_uidl`), so that table is the durable
+    /// record of what was downloaded. A process that stops between the two (a
+    /// restart while the first sync after a login is still running) left a
+    /// cursor that does not know about those messages, and the next sync fetched
+    /// every one of them from the mail server again (t33-e11). Reading the table
+    /// back makes the sync resume where ingest got to.
+    ///
+    /// Only POP3 cursors and the universal first-sync cursor are touched. An IMAP
+    /// account records no UIDLs, and a plugin account's native ids share the
+    /// table but its cursor is the bridge's own, so both pass through unchanged.
+    async fn with_recorded_uidls(
+        &self,
+        account_id: &str,
+        cursor: SyncCursor,
+    ) -> Result<SyncCursor> {
+        let first_sync = cursor == initial_cursor();
+        if !(first_sync || matches!(cursor, SyncCursor::Pop3Uidl { .. }))
+            || self.is_plugin_backed(account_id)
+        {
+            return Ok(cursor);
+        }
+        let recorded = self.store.seen_uidls(account_id).await?;
+        Ok(match cursor {
+            SyncCursor::Pop3Uidl { mut seen } => {
+                seen.extend(recorded);
+                SyncCursor::Pop3Uidl { seen }
+            }
+            _ if !recorded.is_empty() => SyncCursor::Pop3Uidl { seen: recorded },
+            other => other,
+        })
     }
 
     /// The first-sync cursor for `account_id`, when no cursor is persisted yet.
