@@ -165,6 +165,26 @@ impl Browser {
             .unwrap_or_else(|| panic!("no mailbox {upstream}: {got}"))
     }
 
+    /// Wait until the engine's first sync has indexed every mailbox in `ids`
+    /// (`mailwomanSynced`): `Mailbox/empty` counts the cache and refuses a
+    /// folder it has not synchronised yet.
+    async fn wait_synced(&self, ids: &[&str]) {
+        for _ in 0..120 {
+            let got = self
+                .call(
+                    "Mailbox/get",
+                    json!({ "ids": ids, "properties": ["id", "mailwomanSynced"] }),
+                )
+                .await;
+            let list = got["list"].as_array().cloned().unwrap_or_default();
+            if list.len() == ids.len() && list.iter().all(|m| m["mailwomanSynced"] == true) {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        panic!("mailboxes {ids:?} never finished their first sync");
+    }
+
     /// The web client's loop: preview, then batches until empty or no progress.
     async fn empty(&self, mailbox: &str, outcome: &str, limit: u64) -> Vec<Value> {
         let preview = self
@@ -312,6 +332,7 @@ async fn a_folder_empties_into_trash_and_trash_empties_for_good_on_the_server() 
         assert_eq!(cap["destroy"], true, "{addr}: {session}");
         let parent_id = b.mailbox_named(&folder).await;
         let trash_id = b.mailbox_named("Trash").await;
+        b.wait_synced(&[&parent_id, &trash_id]).await;
 
         // A stale count is refused and nothing moves.
         let stale = b

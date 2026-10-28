@@ -193,6 +193,22 @@ impl Engine {
         if let Some(refusal) = self.empty_rights(rt, &mailbox).await {
             return refusal;
         }
+        // The count is the cache's. Before the folder's first sync it would
+        // say "empty" (or too few) of a folder the server still fills, so the
+        // call waits for it (the same signal as `Mailbox/get`'s
+        // `mailwomanSynced`).
+        if self.initial_sync_status(account_id) != "ready"
+            && !matches!(
+                self.store().load_cursor(account_id, &mailbox.id).await,
+                Ok(Some(_))
+            )
+        {
+            return json!({
+                "type": "forbidden",
+                "description": "this folder is still being synchronised; try again shortly",
+                "mailwomanSyncing": true,
+            });
+        }
 
         let total = match self.store().count_messages_in_mailbox(&mailbox.id).await {
             Ok(total) => total,
@@ -242,6 +258,12 @@ impl Engine {
             .count_messages_in_mailbox(&mailbox.id)
             .await
             .unwrap_or_else(|_| total.saturating_sub(processed));
+        if processed > 0 {
+            self.recount(&mailbox.id).await;
+            if let Some(trash) = &trash {
+                self.recount(&trash.id).await;
+            }
+        }
         tracing::info!(
             account = account_id,
             mailbox = %mailbox.id,
@@ -257,6 +279,33 @@ impl Engine {
             response["notProcessed"] = Value::Object(not_processed);
         }
         response
+    }
+
+    /// Set a mailbox's cached `total` to the messages the cache now holds
+    /// there, so `Mailbox/get` shows an emptied folder as empty (and Trash
+    /// with what it received) before the next sync's STATUS. Unread is kept
+    /// (the move and the removal already adjusted it), never above the total.
+    async fn recount(&self, mailbox_id: &str) {
+        let (Ok(row), Ok(total)) = (
+            self.store().get_mailbox(mailbox_id).await,
+            self.store().count_messages_in_mailbox(mailbox_id).await,
+        ) else {
+            return;
+        };
+        let total = u32::try_from(total).unwrap_or(u32::MAX);
+        if let Err(error) = self
+            .store()
+            .update_mailbox_counts(
+                mailbox_id,
+                row.uidnext,
+                row.highestmodseq,
+                total,
+                row.unread.min(total),
+            )
+            .await
+        {
+            tracing::warn!("recounting mailbox {mailbox_id} after Mailbox/empty failed: {error}");
+        }
     }
 
     /// `forbidden` when the mail server says this user may not remove messages

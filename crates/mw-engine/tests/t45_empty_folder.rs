@@ -596,8 +596,14 @@ async fn an_ordinary_folder_moves_to_trash_in_bounded_batches_and_leaves_childre
         h.backend.expunges().is_empty(),
         "a move to Trash expunges nothing itself"
     );
-    // The cache agrees, so the client sees them in Trash.
+    // The cache agrees, so the client sees them in Trash, and the folder
+    // list counts them there at once.
     assert!(email_ids(&h, &work).await.is_empty());
+    let boxes = mailboxes(&h).await;
+    assert_eq!(boxes[&work]["totalEmails"], 0, "{:?}", boxes[&work]);
+    assert_eq!(boxes[&work]["unreadEmails"], 0);
+    assert_eq!(boxes[&trash]["totalEmails"], 250, "{:?}", boxes[&trash]);
+    assert!(boxes[&trash]["unreadEmails"].as_u64().unwrap() <= 250);
     let child = mailbox_id(&h, "Child").await;
     assert_eq!(email_ids(&h, &child).await.len(), 3);
 }
@@ -625,6 +631,7 @@ async fn trash_and_junk_are_emptied_for_good() {
     let r = empty_all(&h, &trash, "destroy", 100).await;
     assert_eq!(r[0]["processed"], 4, "{r:?}");
     assert_eq!(h.backend.count("Trash"), 0);
+    assert_eq!(mailboxes(&h).await[&trash]["totalEmails"], 0);
     let r = empty_all(&h, &junk, "destroy", 100).await;
     assert_eq!(r[0]["processed"], 2, "{r:?}");
     assert_eq!(h.backend.count("Junk"), 0);
