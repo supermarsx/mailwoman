@@ -283,6 +283,12 @@ export const dialog = style({
 export const dialogScrim = style([scrim, { zIndex: 30 }]);
 export const dialogTitle = style({ margin: 0, fontSize: '1.05rem', fontWeight: vars.weight.heavy });
 export const dialogActions = style({ display: 'flex', justifyContent: 'flex-end', gap: vars.space[3], flexWrap: 'wrap' });
+// The destructive action outside the console too (the composer's discard): danger fill.
+globalStyle(`${dialogActions} > .btn--danger`, {
+  background: vars.color.danger,
+  borderColor: vars.color.danger,
+  color: vars.color.accentText,
+});
 // Touch-sized actions on phones and coarse pointers (WCAG 2.5.8 target size, 44px house rule).
 globalStyle(`${dialogActions} > button`, {
   '@media': { '(max-width: 760px), (pointer: coarse)': { minHeight: '44px', flex: '1 1 auto' } },
