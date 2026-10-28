@@ -73,13 +73,27 @@ test.describe('admin panel on a deployed installation', () => {
     expect(await bannedIps(page.request), 'the refused write stored nothing').not.toContain(ip);
 
     // ── 2. the same write through the UI ────────────────────────────────────
-    await nav.getByRole('link', { name: 'Observability' }).click();
-    const addBan = page.getByRole('form', { name: 'Add ban' });
-    await addBan.getByLabel('IP address').fill(ip);
-    await addBan.getByLabel('Reason').fill('deploy guard');
-    await addBan.getByRole('button', { name: 'Ban IP' }).click();
+    // IP bans live in the Security centre with their own editor, and saving one
+    // is a step-up-gated write (`banManage`): ec8c4154, 7e9af0d0.
+    await page.goto(`${BASE}/admin#/security/bans`);
+    await page.getByRole('button', { name: 'Add ban', exact: true }).click();
+    await expect(page).toHaveURL(/#\/security\/bans\/new$/);
+    await page.getByLabel('IP address').fill(ip);
+    await page.getByLabel('Reason', { exact: true }).fill('deploy guard');
+    // The first POST answers 403 step_up_required and opens the proof dialog;
+    // the client repeats it once the password is confirmed.
+    const saved = page.waitForResponse(
+      (r) => r.url().endsWith('/admin/bans') && r.request().method() === 'POST' && r.ok(),
+    );
+    await page.getByRole('button', { name: 'Save IP ban' }).click();
+    const proof = page.getByRole('dialog', { name: 'Confirm it is you' });
+    await proof.getByRole('textbox', { name: 'Password', exact: true }).fill(ADMIN_PASSWORD);
+    await proof.getByRole('button', { name: 'Confirm and continue' }).click();
+    expect((await saved).status(), 'the UI write carries X-CSRF-Token and is stored').toBe(204);
+    await expect(page).toHaveURL(/#\/security\/bans$/);
 
     const unban = page.getByRole('button', { name: `Unban ${ip}` });
+    await page.getByRole('searchbox', { name: 'Search IP bans' }).fill(ip);
     await expect(unban, 'the ban is listed').toBeVisible();
     await expect(page.getByText('Could not add the ban')).toHaveCount(0);
     expect(await bannedIps(page.request), 'the server stored the ban').toContain(ip);
