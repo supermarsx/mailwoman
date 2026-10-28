@@ -31,3 +31,10 @@ it('requires explicit revision-safe legacy clearing without claiming the directo
  fireEvent.click(within(dialog).getByRole('button',{name:'Clear legacy block'}));await waitFor(()=>expect(changed).toHaveBeenCalledOnce());
  expect(adminRequest).toHaveBeenLastCalledWith('/users/opaque/legacy-block',{method:'DELETE',ifMatch:'"revision"'});
 });
+
+it('shows the list row Configure action as an icon-only link with a translated name and tooltip',async()=>{
+ render(()=><UserAccessActions user={user} onChanged={async()=>{}} configureHref="#/users/opaque"/>);
+ const link=screen.getByRole('link',{name:'Configure alice@example.test'});
+ expect(link).toHaveAttribute('href','#/users/opaque');expect(link).toHaveAttribute('data-tooltip','Configure');
+ expect(link.textContent).toBe('');expect(link.querySelector('svg')).not.toBeNull();
+});
