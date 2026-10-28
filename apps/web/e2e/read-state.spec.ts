@@ -1,6 +1,14 @@
-import { test, expect, type Page, type Request } from '@playwright/test';
+import { test, expect, type Page, type Request } from './csrf.ts';
 import net from 'node:net';
-import { ENGINE_CREDS, engineLogin, injectViaSmtp, messageRow, sidebarInbox, waitForInboxMessage } from './helpers.ts';
+import {
+  ENGINE_CREDS,
+  engineLogin,
+  injectViaSmtp,
+  messageRow,
+  settingsSurface,
+  sidebarInbox,
+  waitForInboxMessage,
+} from './helpers.ts';
 import { uid } from './pim-helpers.ts';
 
 /**
@@ -21,7 +29,8 @@ test.describe.configure({ mode: 'serial' });
 
 const IMAP_HOST = process.env['MW_E2E_IMAP_HOST'] ?? '127.0.0.1';
 const IMAP_PORT = Number(process.env['MW_E2E_IMAP_PORT'] ?? 3143);
-const PREFS_KEY = 'mw.settings.prefs.v1';
+/** The preferences this file sets (see `storePrefs`). */
+const PREF_KEYS = ['markRead', 'markReadDelayMs', 'keyboardPreset'];
 
 // ── The mail server, directly ────────────────────────────────────────────────
 
@@ -94,10 +103,50 @@ async function inboxUnread(page: Page): Promise<number> {
   return Number(text.split('/')[0]!.trim() || '0');
 }
 
-/** Set the per-device preferences the way Settings stores them. */
-async function setPrefs(page: Page, prefs: Record<string, unknown>): Promise<void> {
-  await page.evaluate(([key, value]) => localStorage.setItem(key!, value!), [PREFS_KEY, JSON.stringify(prefs)]);
+/**
+ * Store `prefs` as the signed-in account's preferences, the way Settings stores
+ * them. Since 24fb6149 a signed-in client keeps these on the account
+ * (`/api/account/preferences`, src/screens/Settings/prefs.ts `loadPrefs`) and
+ * reads `localStorage` only while signed out. The keys this file sets are
+ * dropped first, so `{}` means their defaults; the account's other preferences
+ * are kept. Resolves false when the page is not signed in.
+ */
+async function storePrefs(page: Page, prefs: Record<string, unknown>): Promise<boolean> {
+  const me = await page.request.get('/api/me');
+  if (!me.ok()) return false;
+  const authority = ((await me.json()) as { storageAuthority?: unknown }).storageAuthority;
+  expect(typeof authority, 'storageAuthority from /api/me').toBe('string');
+  const headers = { 'x-mailwoman-storage-authority': authority as string };
+  const current = await page.request.get('/api/account/preferences', { headers });
+  expect(current.ok(), `GET /api/account/preferences ⇒ ${current.status()}`).toBe(true);
+  const etag = current.headers()['etag'];
+  expect(etag, 'the preferences carry an ETag').toBeTruthy();
+  const next = { ...((await current.json()) as { preferences: Record<string, unknown> }).preferences };
+  for (const key of PREF_KEYS) delete next[key];
+  const put = await page.request.put('/api/account/preferences', {
+    headers: { ...headers, 'if-match': etag! },
+    data: { version: 1, preferences: { ...next, ...prefs } },
+  });
+  expect(put.ok(), `PUT /api/account/preferences ⇒ ${put.status()} ${await put.text()}`).toBe(true);
+  return true;
 }
+
+/** Store `prefs` on the account, then reload so the client adopts them. */
+async function setPrefs(page: Page, prefs: Record<string, unknown>): Promise<void> {
+  await storePrefs(page, prefs);
+  const adopted = page.waitForResponse(
+    (res) => res.request().method() === 'GET' && new URL(res.url()).pathname === '/api/account/preferences',
+  );
+  await page.reload();
+  expect((await adopted).ok()).toBe(true);
+  await expect(sidebarInbox(page)).toBeVisible();
+}
+
+// The account is shared by every engine spec: leave its read and keyboard
+// policy at the defaults whatever a case set (through the API or Settings).
+test.afterEach(async ({ page }) => {
+  await storePrefs(page, {}).catch(() => undefined);
+});
 
 /** Record every JMAP request that carries an `Email/set`. */
 function emailSets(page: Page): Request[] {
@@ -198,10 +247,12 @@ test('with the Gmail preset chosen in Settings, e runs Archive; with shortcuts o
 
   // Gmail, through the Settings screen.
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  // Settings is sectioned; the presets are under "Keyboard & display".
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Keyboard & display', exact: true }).click();
   const kbd = page.getByRole('group', { name: 'Keyboard shortcuts' });
   await kbd.getByRole('button', { name: 'Gmail' }).click();
   await expect(kbd.getByRole('button', { name: 'Gmail' })).toHaveAttribute('aria-pressed', 'true');
-  await page.getByRole('button', { name: 'Close settings' }).click();
+  await settingsSurface(page).getByRole('button', { name: 'Close settings' }).click();
 
   await messageRow(page, subject).click();
   await expect(page.locator('.reader__subject')).toHaveText(subject);
@@ -214,6 +265,10 @@ test('with the Gmail preset chosen in Settings, e runs Archive; with shortcuts o
 
   // Shortcuts off: the same key reaches no action.
   await setPrefs(page, { keyboardPreset: 'off' });
+  // The reload drops focus: put it back where the first press was made.
+  await messageRow(page, subject).click();
+  await expect(page.locator('.reader__subject')).toHaveText(subject);
+  await page.locator('.reader__subject').click();
   await page.keyboard.press('e');
   await page.waitForTimeout(1_500);
   await expect(page.getByText('No Archive folder')).toHaveCount(0);
