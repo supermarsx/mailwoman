@@ -1355,7 +1355,8 @@ export function Compose(props: {
                 <RibbonItem><button type="button" class="btn btn--ghost" data-testid="compose-show-cc-bcc" aria-pressed={ccBccOpen()} onClick={()=>setCcBccOpen(!ccBccOpen())}><Icon name="users"/><span class="compose-rib__text">{t('mail-compose-show-cc-bcc')}</span></button></RibbonItem>
                 <RibbonItem><button type="button" class="btn btn--ghost" aria-pressed={showFrom()} onClick={()=>setFromVisibleOverride(!showFrom())}><Icon name="mail"/><span class="compose-rib__text">{t('mail-compose-from')}</span></button></RibbonItem>
               </RibbonGroup>
-              <RibbonGroup label={t('mail-compose-ribbon-message-type')} priority={60} icon="mail" testId="compose-group-message-type">
+              {/* Above Paragraph: one narrow select that switches the body's mode, which users (and specs) need at any width. */}
+              <RibbonGroup label={t('mail-compose-ribbon-message-type')} priority={85} icon="mail" testId="compose-group-message-type">
                 <RibbonItem><select data-testid="format-toggle" aria-label={t('mail-compose-ribbon-message-type')} value={!richMode()?'plain':sourceMode()?'html':'rich'} onChange={event=>changeFormat(event.currentTarget.value)}><option value="plain">{t('mail-compose-format-plain')}</option><option value="rich">{t('mail-compose-format-rich')}</option><option value="html">{t('mail-compose-html-source')}</option></select></RibbonItem>
               </RibbonGroup>
             </RibbonPanel>
