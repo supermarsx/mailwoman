@@ -74,7 +74,9 @@ export const btn = style({
   color: vars.color.text,
   borderRadius: vars.radius.md,
   cursor: 'pointer',
-  padding: `calc(${vars.space[2]} - 1px) calc(${vars.space[3]} - 1px)`,
+  // No block padding: a ribbon row is fixed (28px fine, 44px coarse) and the
+  // 20px label line is centred in it; block padding would overflow the row.
+  padding: `0 calc(${vars.space[3]} - 1px)`,
   font: 'inherit',
   fontSize: '0.85rem',
   lineHeight: 1.2,
@@ -111,9 +113,17 @@ export const select = style({ inlineSize: '100%', maxInlineSize: 'none' });
 // A label clips with an ellipsis rather than growing the item (long locales).
 export const label = style({
   display: 'block',
+  // A line box taller than the glyphs (0.85rem text needs 18px), so the clip
+  // never cuts a descender and the span never scrolls; it fits a 28px row.
+  lineHeight: '20px',
   minInlineSize: 0,
   maxInlineSize: '100%',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 });
+
+// A folded group's dropdown text: its 16px line clips the 0.75rem glyphs by
+// 1px in Chromium (17 > 16), which reads as vertical overflow. A 18px line
+// still fits the 88px button.
+globalStyle(`${ribbon} [data-ribbon-more] > span`, { blockSize: '18px', lineHeight: '18px' });

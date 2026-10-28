@@ -27,3 +27,18 @@ globalStyle(`.mail-workspace ${panel} ${strip}`, {
   borderBlockEnd: 'none',
   overflowY: 'hidden',
 });
+
+// The handle carries the active tab's title, so on a fine pointer it is 16px
+// rather than the bare 12px handle: the UI font's content box (Jost's ascent
+// plus descent is ~1.45em) must fit the line, or Firefox reports the clipped
+// title as vertical overflow (13 > 12 at 9px). Coarse pointers keep 24px.
+globalStyle(`${root} [data-bar-handle]`, {
+  blockSize: '16px',
+  lineHeight: '16px',
+  '@media': { '(pointer: coarse)': { blockSize: '24px', lineHeight: '24px' } },
+});
+globalStyle(`${root} [data-bar-handle] > span`, {
+  fontSize: '10px',
+  lineHeight: '16px',
+  '@media': { '(pointer: coarse)': { fontSize: '0.75rem', lineHeight: '24px' } },
+});
