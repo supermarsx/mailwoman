@@ -161,6 +161,9 @@ for (const s of SCREENS) {
       await expect(toggle).toHaveAttribute('aria-pressed', 'false');
 
       // Shown again while the error is on screen, then refused a second time.
+      // Since d94472d7 the form holds every retry for the configured cooldown
+      // (3 s by default; the button counts down), so submit once it is offered.
+      await expect(form.getByRole('button', { name: 'Sign in', exact: true })).toBeEnabled({ timeout: 15_000 });
       await toggle.click();
       await expect(field).toHaveAttribute('type', 'text');
       await field.press('Enter');
