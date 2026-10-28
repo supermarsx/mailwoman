@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test';
 import {
+  ENGINE_CREDS,
   engineLogin,
   composeSelf,
+  composeSurface,
   waitForInboxMessage,
   messageRow,
   messageSlot,
@@ -123,8 +125,19 @@ test.describe('V2 modern mail UX (engine mode)', () => {
     const pad = (n: number) => String(n).padStart(2, '0');
     const local = `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}T${pad(when.getHours())}:${pad(when.getMinutes())}`;
 
+    // Not `composeSelf(..., { sendLater })`: since e0c99a79 Send later sits on the
+    // composer ribbon's Delivery tab, so the field is reached through that tab.
     const subject = `SendLater ${Date.now()}`;
-    await composeSelf(page, subject, 'scheduled for tomorrow', { sendLater: local });
+    await page.getByRole('button', { name: 'Compose', exact: true }).click();
+    const dialog = composeSurface(page);
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel('To', { exact: true }).fill(ENGINE_CREDS.selfAddress);
+    await dialog.getByLabel('Subject', { exact: true }).fill(subject);
+    await dialog.getByLabel('Body', { exact: true }).fill('scheduled for tomorrow');
+    await dialog.getByRole('tab', { name: 'Delivery', exact: true }).click();
+    await dialog.getByLabel('Send later', { exact: true }).fill(local);
+    await dialog.getByRole('button', { name: 'Schedule', exact: true }).click();
+    await expect(dialog).toBeHidden();
     await expect(page.getByText('Scheduled to send')).toBeVisible();
 
     await page.getByRole('button', { name: 'Outbox' }).click();

@@ -185,13 +185,13 @@ test.describe('what a send delivers (engine mode)', () => {
     const dialog = await openCompose(page);
     // Precondition: the chunk really was requested and refused, the editor is
     // not there, and Body is the plain fallback while the composer is still in
-    // rich mode (its toggle offers "Plain text").
+    // rich mode (the message-type select, 018d9533, reads "rich").
     await expect.poll(() => blocked).toBeGreaterThan(0);
     const bodyField = dialog.getByLabel('Body', { exact: true });
     await expect(bodyField).toBeVisible();
     await expect(dialog.getByTestId('compose-richtext')).toHaveCount(0);
     expect(await bodyField.evaluate((el) => el.tagName)).toBe('TEXTAREA');
-    await expect(dialog.getByTestId('format-toggle')).toHaveText('Plain text');
+    await expect(dialog.getByTestId('format-toggle')).toHaveValue('rich');
 
     const subject = `Fallback body ${uid()}`;
     const marker = `typed-into-the-fallback-${uid()}`;

@@ -152,7 +152,12 @@ async function compose(page: Page, to: string, subject: string, body: string): P
   await page.getByRole('button', { name: 'Compose', exact: true }).click();
   const dialog = composeSurface(page);
   await expect(dialog).toBeVisible();
+  // Since e0c99a79 the From picker is shown only when the account setting
+  // `mail.showFrom` is on or the ribbon's From toggle shows it for this message.
+  const fromToggle = dialog.getByRole('button', { name: 'From', exact: true });
+  if ((await fromToggle.getAttribute('aria-pressed')) !== 'true') await fromToggle.click();
   const from = dialog.getByRole('combobox', { name: 'From', exact: true });
+  await expect(from).toBeVisible();
   // The identity whose address is FROM (option text: "<name> <address>").
   let value: string | undefined;
   await expect(async () => {
@@ -168,6 +173,8 @@ async function compose(page: Page, to: string, subject: string, body: string): P
   const editor = dialog.getByTestId('compose-richtext');
   await editor.click();
   await editor.pressSequentially(body);
+  // The receipt and open-tracking options are on the ribbon's Delivery tab (e0c99a79).
+  await dialog.getByRole('tab', { name: 'Delivery', exact: true }).click();
   return dialog;
 }
 
@@ -215,6 +222,8 @@ test.describe('compose: read receipt, inline images, open tracking (engine mode)
     await engineLogin(page);
 
     const dialog = await compose(page, rcpt, subject, 'see the image: ');
+    // The image control is on the ribbon's Insert tab (e0c99a79).
+    await dialog.getByRole('tab', { name: 'Insert', exact: true }).click();
     await dialog.getByLabel('Insert an image').setInputFiles({ name: 'dot.png', mimeType: 'image/png', buffer: PNG });
     // Ours only: ProseMirror adds a separator `img` after an inline node at a line end.
     const shown = dialog.getByTestId('compose-richtext').locator('img.compose-rt__img');
