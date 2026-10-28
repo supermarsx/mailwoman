@@ -258,6 +258,7 @@ impl Cell {
             prefix: self.prefix.clone(),
             kind: self.kind.clone(),
             account_id: body["accountId"].as_str().unwrap().to_string(),
+            pass: self.pass.clone(),
             client,
             jar,
             cookie_header,
@@ -273,6 +274,8 @@ struct Ctx {
     prefix: String,
     kind: String,
     account_id: String,
+    /// The password this session signed in with, for the step-up a key mint needs.
+    pass: String,
     client: reqwest::Client,
     /// `client`'s cookie jar.
     jar: Arc<Jar>,
@@ -327,8 +330,24 @@ impl Ctx {
         json!({ "label": "t20-e11", "accountId": self.account_id, "scope": scope })
     }
 
+    /// Confirm the password for this session (`POST /api/security/step-up`), with
+    /// the CSRF header the strict cells require. Minting an API key is a
+    /// step-up-gated write (`apiKeyCreate`, 7e9af0d0): without a fresh proof
+    /// `POST /api/keys` answers 403 `step_up_required`.
+    async fn step_up(&self) {
+        let base = format!("{}{}", self.base, self.prefix);
+        let url = format!("{base}/api/security/step-up");
+        let token = self.csrf_token(&url);
+        let extra: Vec<(&str, &str)> = token
+            .as_deref()
+            .map(|t| vec![(CSRF_HEADER, t)])
+            .unwrap_or_default();
+        common::auth::user_step_up_with(&self.client, &base, &self.pass, &extra).await;
+    }
+
     /// Mint a read-only mail key restricted to `allowlist`.
     async fn key_for(&self, allowlist: &[&str]) -> String {
+        self.step_up().await;
         let minted: Value = self
             .post(&self.url("/api/keys"))
             .json(&self.key_request(allowlist))
@@ -1382,6 +1401,9 @@ async fn sub_path_api_routes_return_json_not_the_spa_shell() {
 async fn a_write_without_the_csrf_token_is_refused() {
     let Some(cell) = Cell::from_env() else { return };
     let ctx = cell.login(cell.base()).await;
+    // A fresh step-up, so the only thing that can refuse the writes below is the
+    // CSRF check and the final write with the token must mint (7e9af0d0).
+    ctx.step_up().await;
     let url = ctx.url("/api/keys");
     let token = ctx.csrf_token(&url).unwrap_or_else(|| {
         panic!(
