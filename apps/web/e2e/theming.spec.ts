@@ -36,6 +36,25 @@ async function bgVar(page: Page): Promise<string> {
   );
 }
 
+/**
+ * Resolves once the account appearance holding `field: value` has been stored.
+ *
+ * A pick is kept on the ACCOUNT (24fb6149): the client writes it with a 600 ms
+ * debounce (`createAppearanceSync`) and, after a reload, starts from the defaults
+ * and adopts what the account holds. A reload before that write lands shows the
+ * defaults, so a spec that reloads waits for the write first. Create this before
+ * the click that makes the pick, and await it before `page.reload()`.
+ */
+function appearanceSaved(page: Page, field: string, value: string): Promise<unknown> {
+  return page.waitForResponse(
+    (r) =>
+      r.request().method() === 'PUT' &&
+      new URL(r.url()).pathname.endsWith('/api/account/appearance') &&
+      r.ok() &&
+      (r.request().postData() ?? '').includes(`"${field}":"${value}"`),
+  );
+}
+
 test.describe('V2 theming via the Settings dialog', () => {
   test('picking Grove Dark flips data-theme + token vars; density switches too', async ({ page }) => {
     await engineLogin(page);
@@ -75,10 +94,12 @@ test.describe('V2 theming via the Settings dialog', () => {
     await engineLogin(page);
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     const dialog = settingsSurface(page);
+    const saved = appearanceSaved(page, 'theme', 'amoled');
     await dialog.getByRole('button', { name: 'AMOLED' }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'amoled');
 
-    // Reload: the theme slice reloads prefs from localStorage and re-applies.
+    // Reload: the account's stored set is adopted and re-applied.
+    await saved;
     await page.reload();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'amoled');
   });
@@ -199,11 +220,13 @@ test.describe('appearance mode tri-state', () => {
 
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     const dialog = settingsSurface(page);
+    const saved = appearanceSaved(page, 'theme', 'ocean-light');
     await dialog.getByRole('button', { name: 'Ocean Light' }).click();
 
     // Picking a light pack while the OS says dark must stick: `setTheme()`
     // switches the mode to `fixed`, otherwise the next OS event would stamp it out.
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'ocean-light');
+    await saved;
     await page.reload();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'ocean-light');
   });
@@ -243,9 +266,11 @@ test.describe('the Dark default', () => {
 
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     const dialog = settingsSurface(page);
+    const saved = appearanceSaved(page, 'mode', 'system');
     await dialog.getByRole('button', { name: 'Follow the system' }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 
+    await saved;
     await page.reload();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   });
@@ -331,10 +356,12 @@ test.describe('named accents', () => {
     await expect(accents.getByRole('button', { name: 'Teal' })).toHaveAttribute('aria-pressed', 'true');
     expect((await accentVars(page)).accent).toBe(accentShade('dark', 'teal').accent);
 
+    const saved = appearanceSaved(page, 'theme', 'paper');
     await dialog.getByRole('button', { name: 'Paper' }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'paper');
     expect((await accentVars(page)).accent).toBe(accentShade('paper', 'teal').accent);
 
+    await saved;
     await page.reload();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'paper');
     await expect(page.locator('html')).toHaveAttribute('data-accent', 'teal');
