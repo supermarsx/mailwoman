@@ -7,7 +7,7 @@ import { getPlatform } from '../../platform/index.ts';
 import { t } from '../../i18n';
 import * as css from './styles.css.ts';
 
-export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boolean; persistentStorageAllowed: boolean }): JSX.Element {
+export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boolean; persistentStorageAllowed: boolean; disabled?: boolean }): JSX.Element {
   const [busy, setBusy] = createSignal(false), [error, setError] = createSignal('');
   const [persistent, setPersistent] = createSignal(false), [subscribed, setSubscribed] = createSignal(false);
   const [browserSubscription,setBrowserSubscription]=createSignal(false);
@@ -60,7 +60,10 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
     }
     if (preferenceAccountIsCurrent(account)) {setSubscribed(false);setBrowserSubscription(false);}
   }
-  return <div class={css.field}>
+  // Two groups (background notifications, browser storage) so the Settings
+  // card rules each off like its other subgroups.
+  return <>
+    <fieldset class={css.group} disabled={props.disabled}>
     <h3 class={css.subheading}>{t('settings-permissions-background-title')}</h3>
     <p class={css.prose}>{t('settings-permissions-background-help')}</p>
     <Show when={pushSupported} fallback={<p>{t('settings-permissions-push-unsupported')}</p>}>
@@ -72,14 +75,19 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
       </div>
       <Show when={!props.pushAllowed}><p>{t('settings-permissions-push-policy')}</p></Show>
     </Show>
+    </fieldset>
+    <fieldset class={css.group} disabled={props.disabled}>
     <h3 class={css.subheading}>{t('settings-permissions-storage-title')}</h3>
     <p class={css.prose}>{t('settings-permissions-storage-help')}</p>
     <Show when={storageSupported} fallback={<p>{t('settings-permissions-storage-unsupported')}</p>}>
       <p role="status">{t(persistent() ? 'settings-permissions-storage-persistent' : 'settings-permissions-storage-evictable')}</p>
       <Show when={usage() !== undefined}><p>{t('settings-permissions-storage-usage', { mib: ((usage() ?? 0) / 1048576).toFixed(1) })}</p></Show>
-      <button type="button" class={css.button} disabled={busy() || persistent() || !props.persistentStorageAllowed} onClick={() => void run(async () => { if (props.persistentStorageAllowed) setPersistent(await navigator.storage.persist()); })}>{t('settings-permissions-storage-request')}</button>
+      <div class={css.actions}>
+        <button type="button" class={css.button} disabled={busy() || persistent() || !props.persistentStorageAllowed} onClick={() => void run(async () => { if (props.persistentStorageAllowed) setPersistent(await navigator.storage.persist()); })}>{t('settings-permissions-storage-request')}</button>
+      </div>
       <Show when={!props.persistentStorageAllowed}><p>{t('settings-permissions-storage-policy')}</p></Show>
     </Show>
     <Show when={error()}><p role="alert" class={css.error}>{error()}</p></Show>
-  </div>;
+    </fieldset>
+  </>;
 }

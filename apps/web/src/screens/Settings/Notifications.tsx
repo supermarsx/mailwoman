@@ -64,6 +64,8 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
     }
   });
 
+  const locked = (): boolean => !hydrated() || busy();
+
   const view = (): NotificationConfig =>
     enabledHold.locked() ? { ...config(), enabled: enabledHold.value() } : config();
 
@@ -110,35 +112,40 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
       <h2 class={css.heading}>{t('settings-notif-title')}</h2>
       <p class={css.prose}>{t('settings-notif-intro')}</p>
 
-      <fieldset disabled={!hydrated() || busy()}>
-      <label class={css.check}>
-        <input
-          class={css.checkbox}
-          type="checkbox"
-          aria-label={t('settings-notif-enabled-label')}
-          aria-describedby={enabledHold.locked() ? 'settings-notif-enabled-lock' : undefined}
-          disabled={enabledHold.locked()}
-          checked={view().enabled}
-          onChange={(e) => patch({ enabled: e.currentTarget.checked })}
-        />
-        <span>{t('settings-notif-enabled-label')}</span>
-      </label>
-      <LockNote id="settings-notif-enabled-lock" locked={enabledHold.locked()} />
+      {/* Each subgroup is its own fieldset so the card rules them off; every one
+          stays disabled until the config loads and while a save runs. */}
+      <fieldset class={css.group} disabled={locked()}>
+        <label class={css.check}>
+          <input
+            class={css.checkbox}
+            type="checkbox"
+            aria-label={t('settings-notif-enabled-label')}
+            aria-describedby={enabledHold.locked() ? 'settings-notif-enabled-lock' : undefined}
+            disabled={enabledHold.locked()}
+            checked={view().enabled}
+            onChange={(e) => patch({ enabled: e.currentTarget.checked })}
+          />
+          <span>{t('settings-notif-enabled-label')}</span>
+        </label>
+        <LockNote id="settings-notif-enabled-lock" locked={enabledHold.locked()} />
+      </fieldset>
 
-      <div class={css.field}>
+      <fieldset class={css.group} disabled={locked()}>
         <h3 class={css.subheading}>{t('settings-notif-device-title')}</h3>
         <p class={css.prose}>{t('settings-notif-device-help')}</p>
         <p role="status">{t(`settings-notif-permission-${permission()}`)}</p>
         <Show when={permission() === 'default'}>
-          <button type="button" class={css.button} disabled={!view().enabled || !hydrated()} onClick={() => void requestNotifications()}>{t('settings-notif-permission-request')}</button>
+          <div class={css.actions}>
+            <button type="button" class={css.button} disabled={!view().enabled || !hydrated()} onClick={() => void requestNotifications()}>{t('settings-notif-permission-request')}</button>
+          </div>
         </Show>
-      </div>
+      </fieldset>
 
-      <BrowserPermissions enabled={config().enabled} pushAllowed={config().pushAllowed === true} persistentStorageAllowed={config().persistentStorageAllowed === true} />
+      <BrowserPermissions disabled={locked()} enabled={config().enabled} pushAllowed={config().pushAllowed === true} persistentStorageAllowed={config().persistentStorageAllowed === true} />
 
       {/* Quiet hours */}
-      <div class={css.field}>
-        <span class={css.subheading}>{t('settings-notif-quiet-title')}</span>
+      <fieldset class={css.group} disabled={locked()}>
+        <h3 class={css.subheading}>{t('settings-notif-quiet-title')}</h3>
         <label class={css.check}>
           <input
             class={css.checkbox}
@@ -178,12 +185,12 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
             <button type="button" class={css.ghost} onClick={() => patchQuiet({ timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })}>{t('settings-notif-timezone-device')}</button>
           </div>
         </Show>
-      </div>
+      </fieldset>
 
-      <Show when={view().rules.length > 0}><p class={css.prose}>{t('settings-notif-background-rules')}</p></Show>
       {/* Rules */}
-      <div class={css.field}>
-        <span class={css.subheading}>{t('settings-notif-rules-title')}</span>
+      <fieldset class={css.group} disabled={locked()}>
+        <h3 class={css.subheading}>{t('settings-notif-rules-title')}</h3>
+        <Show when={view().rules.length > 0}><p class={css.prose}>{t('settings-notif-background-rules')}</p></Show>
         <ul class={css.list} data-testid="notif-rule-list">
           <For each={view().rules}>
             {(rule) => (
@@ -216,19 +223,20 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
             {t('settings-notif-rule-add')}
           </button>
         </div>
-      </div>
+      </fieldset>
 
-      <div class={css.actions}>
-        <button type="button" class={css.button} disabled={busy()} onClick={() => void save()} data-testid="notif-save">
-          {t('settings-save')}
-        </button>
-        <Show when={saved()}>
-          <span class={css.success} role="status" data-testid="notif-saved">
-            {t('settings-saved')}
-          </span>
-        </Show>
-      </div>
-
+      {/* Save applies to every group above, so it sits in its own ruled-off row. */}
+      <fieldset class={css.group} disabled={locked()}>
+        <div class={css.actions}>
+          <button type="button" class={css.button} disabled={busy()} onClick={() => void save()} data-testid="notif-save">
+            {t('settings-save')}
+          </button>
+          <Show when={saved()}>
+            <span class={css.success} role="status" data-testid="notif-saved">
+              {t('settings-saved')}
+            </span>
+          </Show>
+        </div>
       </fieldset>
       <Show when={error() !== ''}>
         <p class={css.error} role="alert">
