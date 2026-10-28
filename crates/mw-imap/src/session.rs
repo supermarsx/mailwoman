@@ -737,14 +737,14 @@ impl Session {
                 .execute(&format!("UID MOVE {set} {}", quote(dest)))
                 .await?
                 .ok()?;
-            Ok(copyuid_outcome(&tagged))
+            Ok(copyuid_outcome(&tagged, uids))
         } else {
             let copy = self
                 .conn
                 .execute(&format!("UID COPY {set} {}", quote(dest)))
                 .await?
                 .ok()?;
-            let outcome = copyuid_outcome(&copy);
+            let outcome = copyuid_outcome(&copy, uids);
             self.conn
                 .execute(&format!("UID STORE {set} +FLAGS.SILENT (\\Deleted)"))
                 .await?
@@ -1535,27 +1535,55 @@ fn collect_fetches(tagged: Tagged) -> Vec<FetchItem> {
         .collect()
 }
 
-fn copyuid_outcome(tagged: &Tagged) -> MoveOutcome {
-    // COPYUID may appear in the tagged completion or an untagged OK.
-    if let Some(ResponseCode::CopyUid(uidvalidity, _src, dst)) = &tagged.code {
-        return MoveOutcome::Uidplus {
-            uidvalidity: *uidvalidity,
-            uids: expand_uidset(dst),
-        };
-    }
+/// The destination UIDs of a COPY/MOVE, parallel to `uids` (the source UIDs
+/// in the order the caller passed them), from every COPYUID the server sent —
+/// the tagged completion and each untagged OK (RFC 6851 lets a MOVE report in
+/// several). The pairs come from the source and destination sets together, so
+/// a server that orders or repeats entries oddly (Greenmail 2.1.4 answers a
+/// three-message move with `COPYUID v 1,1:3 8,8:10`) still maps each source
+/// UID to its own destination. Any source UID left unmapped means the engine
+/// must re-derive the moved messages instead.
+fn copyuid_outcome(tagged: &Tagged, uids: &[u32]) -> MoveOutcome {
+    let mut codes: Vec<(u32, Vec<u32>, Vec<u32>)> = Vec::new();
+    let mut take = |code: &ResponseCode<'_>| {
+        if let ResponseCode::CopyUid(uidvalidity, src, dst) = code {
+            codes.push((*uidvalidity, expand_uidset(src), expand_uidset(dst)));
+        }
+    };
     for resp in &tagged.untagged {
         if let Response::Data {
-            code: Some(ResponseCode::CopyUid(uidvalidity, _src, dst)),
-            ..
+            code: Some(code), ..
         } = resp
         {
-            return MoveOutcome::Uidplus {
-                uidvalidity: *uidvalidity,
-                uids: expand_uidset(dst),
-            };
+            take(code);
         }
     }
-    MoveOutcome::RederiveByMessageId
+    if let Some(code) = &tagged.code {
+        take(code);
+    }
+    match pair_copyuid(&codes, uids) {
+        Some((uidvalidity, uids)) => MoveOutcome::Uidplus { uidvalidity, uids },
+        None => MoveOutcome::RederiveByMessageId,
+    }
+}
+
+/// See [`copyuid_outcome`]: `(uidvalidity, source set, destination set)` per
+/// COPYUID, expanded.
+fn pair_copyuid(codes: &[(u32, Vec<u32>, Vec<u32>)], uids: &[u32]) -> Option<(u32, Vec<u32>)> {
+    let uidvalidity = codes.first()?.0;
+    let mut map: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+    for (validity, src, dst) in codes {
+        if *validity != uidvalidity || src.len() != dst.len() {
+            return None;
+        }
+        for (s, d) in src.iter().zip(dst) {
+            if *map.entry(*s).or_insert(*d) != *d {
+                return None;
+            }
+        }
+    }
+    let out: Option<Vec<u32>> = uids.iter().map(|u| map.get(u).copied()).collect();
+    out.map(|out| (uidvalidity, out))
 }
 
 fn expand_uidset(members: &[UidSetMember]) -> Vec<u32> {
@@ -1843,6 +1871,34 @@ pub(crate) fn quote(s: &str) -> String {
     }
     out.push('"');
     out
+}
+
+#[cfg(test)]
+mod copyuid_tests {
+    use super::pair_copyuid;
+
+    #[test]
+    fn destination_uids_follow_the_source_uids_the_caller_passed() {
+        // Greenmail 2.1.4: `COPYUID 7 1,1:3 8,8:10` for a move of 1:3.
+        let greenmail = [(7, vec![1, 1, 2, 3], vec![8, 8, 9, 10])];
+        assert_eq!(
+            pair_copyuid(&greenmail, &[1, 2, 3]),
+            Some((7, vec![8, 9, 10]))
+        );
+        assert_eq!(pair_copyuid(&greenmail, &[3, 1]), Some((7, vec![10, 8])));
+        // One COPYUID per message (several untagged OKs).
+        let split = [(7, vec![5], vec![20]), (7, vec![6], vec![21])];
+        assert_eq!(pair_copyuid(&split, &[5, 6]), Some((7, vec![20, 21])));
+        // A source UID the server did not report, mismatched sets, or a
+        // contradiction: re-derive.
+        assert_eq!(pair_copyuid(&split, &[5, 9]), None);
+        assert_eq!(pair_copyuid(&[(7, vec![1, 2], vec![3])], &[1]), None);
+        assert_eq!(
+            pair_copyuid(&[(7, vec![1], vec![3]), (7, vec![1], vec![4])], &[1]),
+            None
+        );
+        assert_eq!(pair_copyuid(&[], &[1]), None);
+    }
 }
 
 #[cfg(test)]
