@@ -11,24 +11,15 @@ import { useSetting } from '../../screens/Settings/useSetting.ts';
 import { toast } from '../toast/toast.ts';
 import { t } from '../../i18n/index.ts';
 
-export type BarMode = 'pinned' | 'auto';
+// The bar ids, modes, default and key all live in `api/barSettings.ts` (the
+// single source, shared with Settings -> Toolbars); they are re-exported here.
+import { BAR_MODE_DEFAULT, barSettingKey, isBarMode, type BarId, type BarMode } from '../../api/barSettings.ts';
 
-/** The four bars t38 makes collapsible. */
-export type BarId = 'mailTopBar' | 'workspaceTabs' | 'mailRibbon' | 'composerRibbon';
+export { BAR_IDS, BAR_MODES, BAR_MODE_DEFAULT, barSettingKey, barSlug, isBarMode } from '../../api/barSettings.ts';
+export type { BarId, BarMode } from '../../api/barSettings.ts';
 
-export const BAR_IDS: readonly BarId[] = ['mailTopBar', 'workspaceTabs', 'mailRibbon', 'composerRibbon'];
-
-/** The registry default for every bar (user decision D2). */
-export const DEFAULT_BAR_MODE: BarMode = 'pinned';
-
-/** The settings-registry key that stores a bar's mode. */
-export function barSettingKey(id: BarId): string {
-  return `ui.bar.${id}`;
-}
-
-export function isBarMode(value: unknown): value is BarMode {
-  return value === 'pinned' || value === 'auto';
-}
+/** The registry default for every bar (user decision D2); an alias of `BAR_MODE_DEFAULT`. */
+export const DEFAULT_BAR_MODE: BarMode = BAR_MODE_DEFAULT;
 
 export interface BarModeHandle {
   /** The mode on screen: a pending change first, then the stored value, then `pinned`. */

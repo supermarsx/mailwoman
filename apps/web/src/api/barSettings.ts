@@ -7,6 +7,9 @@
 // default and lock it. Reads and writes go through `api/settings.ts`
 // (`useSetting`), which sends `x-mailwoman-storage-authority` on every write;
 // the settings routes take no `If-Match`. Every bar starts `pinned` (t38 D2).
+//
+// This file is the single source of the bar ids, modes, default and key;
+// `components/bars/useBarMode.ts` re-exports them.
 
 /** A collapsible bar. */
 export type BarId = 'mailTopBar' | 'workspaceTabs' | 'mailRibbon' | 'composerRibbon';
