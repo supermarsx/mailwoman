@@ -17,7 +17,9 @@ globalStyle('.workspace-panes[data-layout="stack"]',{gridTemplateColumns:'minmax
 globalStyle('.workspace-pane',{minWidth:0,minHeight:0,overflow:'auto',borderInlineStart:`${vars.border.hair} solid ${vars.color.border}`});
 globalStyle('.workspace-shell .mail-workspace .reader, :root[data-reading-pane] .mail-workspace .reader.reader--open',{position:'static',inset:'auto',gridColumn:'auto',gridRow:'auto',height:'100%',width:'100%',maxHeight:'none',minHeight:0,zIndex:'auto',display:'flex'});
 globalStyle('.workspace-compose',{height:'100%',minHeight:0,overflow:'auto'});
-globalStyle('.workspace-compose > .compose',{width:'100%',maxWidth:'none',maxHeight:'none',minHeight:'100%',border:0,boxShadow:'none'});
+// The composer is exactly its host's height, not at least it: the message body
+// takes the space left over and scrolls inside itself (t37, compose-extras.css).
+globalStyle('.workspace-compose > .compose',{width:'100%',maxWidth:'none',height:'100%',maxHeight:'none',border:0,boxShadow:'none'});
 
 globalStyle('.workspace-shell > [role="separator"]',{gridColumn:'2',gridRow:'1'});
 globalStyle('.workspace-shell > .sidebar[hidden]',{display:'none'});

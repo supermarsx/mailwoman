@@ -157,7 +157,6 @@ label.compose-rt__btn:focus-within:has(:focus-visible) {
 /* Scroll ribbon controls separately so editor focus cannot hide the footer. */
 .compose-rt__chrome { flex:0 0 auto; max-block-size:12rem; overflow:auto; }
 .compose-rt__surface { flex:1 0 9rem; }
-.compose .field--grow > .compose-rt { min-block-size:26rem; }
 .compose-rt__footer { position:relative; }
 
 .compose-history-split { display:inline-flex; align-items:stretch; border:var(--border-hair) solid var(--border); }

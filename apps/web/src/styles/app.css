@@ -137,9 +137,6 @@ body {
 .field--grow {
   flex: 1;
 }
-.field--grow textarea {
-  resize: vertical;
-}
 
 /* ── Login ────────────────────────────────────────────────────── */
 /* The page behind the card can carry a branding image (--mw-login-bg-image);

@@ -132,8 +132,6 @@
 .compose-external label { display:flex; align-items:center; gap:.5rem; margin-block-start:.75rem; }
 .compose__quick-summary { padding:.75rem; border:var(--border-hair) solid var(--border); display:flex; flex-direction:column; align-items:flex-start; gap:.5rem; overflow-wrap:anywhere; }
 .compose__quick-summary p { margin:0; }
-.compose--compact .field--grow { flex-grow:0; }
-.compose--compact .ProseMirror { min-height:6rem; max-height:14rem; overflow:auto; }
 
 .compose__attachments { display:flex; flex-wrap:wrap; align-items:center; gap:.35rem; list-style:none; margin:.25rem 0; padding:0; max-block-size:7rem; overflow:auto; }
 .compose__attachments li { display:inline-flex; align-items:center; gap:.3rem; padding:.2rem .4rem; max-inline-size:100%; border:var(--border-hair) solid var(--border); background:var(--bg-alt); }
@@ -148,17 +146,26 @@
 .compose-ribbon__group > span { font-size:.7rem; color:var(--text-dim); }
 .compose-ribbon .btn, .compose-ribbon .field { width:auto; flex:0 1 auto; }
 .compose-ribbon .field { min-inline-size:0; }
-.workspace-compose > .compose { height:100%; }
-.compose > .field--grow { flex:1 0 14rem; min-block-size:14rem; display:flex; flex-direction:column; }
-.compose > .field--grow > .compose-rt { flex:1; min-block-size:12rem; }
-.compose > .field--grow:has(> .compose-rt) { flex-basis:28rem; min-block-size:28rem; }
-.compose > .compose__footer { flex:0 0 auto; }
-.compose > .field--grow .compose-rt__surface { flex:1; max-block-size:none; }
-.compose > .field--grow .ProseMirror { min-block-size:100%; }
 
-.compose-source { display:flex; flex-direction:column; flex:1; min-block-size:12rem; gap:.4rem; }
+/* The message body fills the composer (t37). The composer is a flex column the
+   height of its host (workspace tab, split pane, detached window, phone sheet);
+   every row but the body keeps its natural height, and the body takes the rest
+   from a zero basis, so it is the same size empty or full and never grows with
+   what is typed. Each box between the composer and the scrolling control is a
+   flex column with min-block-size:0, so a long body scrolls inside the editor
+   (the ProseMirror surface, the plain textarea or the HTML source textarea)
+   instead of stretching the composer. The 6rem floor (about four lines) only
+   matters when the rows above leave less than that (a short stacked pane):
+   then the composer itself scrolls, as before. */
+.compose > * { flex:none; }
+.compose > .field--grow { flex:1 1 0; min-block-size:6rem; margin-block-end:0; display:flex; flex-direction:column; }
+.compose > .field--grow > :is(.compose-rt,.compose-source,textarea) { flex:1 1 0; min-block-size:0; }
+.compose > .field--grow > textarea { resize:none; }
+.compose > .field--grow .compose-rt__surface { flex:1 1 0; min-block-size:0; max-block-size:none; }
+.compose > .field--grow .ProseMirror { min-block-size:100%; box-sizing:border-box; }
+.compose-source { display:flex; flex-direction:column; gap:.4rem; }
+.compose-source textarea { flex:1 1 0; min-block-size:0; resize:none; font-family:monospace; }
 .compose-source p { font-size:.75rem; color:var(--text-dim); margin:0; }
-.compose-source textarea { flex:1; min-block-size:10rem; font-family:monospace; }
 
 /* Ribbon controls scroll sideways as groups; the editor remains the sole growing pane. */
 .compose-ribbon__heading { display:flex; align-items:center; min-inline-size:0; overflow:visible; }
@@ -199,9 +206,6 @@
 .compose-ribbon__editor .compose-rt__paragraph { border-inline-end:var(--border-hair) solid var(--border); padding-inline-end:.4rem; flex:none; }
 .compose-ribbon__editor .compose-rt__btn { display:inline-flex; align-items:center; gap:.25rem; white-space:nowrap; }
 .compose-ribbon__heading [role=tab] { white-space:nowrap; }
-.compose > .field--grow:has(> .compose-rt) { flex:1 1 10rem; min-block-size:10rem; }
-.compose > .field--grow > .compose-rt { min-block-size:10rem; }
-.compose > .field--grow .compose-rt__surface { flex:1 1 6rem; min-block-size:6rem; }
 @media(max-width:600px) {
  .compose > .compose__header { flex-wrap:nowrap; }
  .compose__header-actions { flex-wrap:nowrap; gap:.2rem; }
