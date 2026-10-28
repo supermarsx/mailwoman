@@ -283,6 +283,10 @@ export const dialog = style({
 export const dialogScrim = style([scrim, { zIndex: 30 }]);
 export const dialogTitle = style({ margin: 0, fontSize: '1.05rem', fontWeight: vars.weight.heavy });
 export const dialogActions = style({ display: 'flex', justifyContent: 'flex-end', gap: vars.space[3], flexWrap: 'wrap' });
+// Touch-sized actions on phones and coarse pointers (WCAG 2.5.8 target size, 44px house rule).
+globalStyle(`${dialogActions} > button`, {
+  '@media': { '(max-width: 760px), (pointer: coarse)': { minHeight: '44px', flex: '1 1 auto' } },
+});
 
 // ── Command palette ────────────────────────────────────────────────────────────
 export const palette = style([dialog, { insetBlockStart: '10vh', width: 'min(calc(100vw - 32px), 560px)' }]);

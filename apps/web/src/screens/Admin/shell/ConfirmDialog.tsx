@@ -10,6 +10,10 @@
 // safe choice), Tab stays inside, Escape cancels, and focus returns to the control
 // that opened it. A failed action keeps the dialog open and says what failed.
 // `children` go under the body, for what exactly is being confirmed (a digest).
+//
+// Shared beyond the console: the composer's draft discard uses it too. `mount`
+// puts the dialog in another document (a detached workspace window), so it
+// opens where the user is working rather than hidden in the opener.
 
 import { Show, createSignal, createUniqueId, type JSX } from 'solid-js';
 import { Portal } from 'solid-js/web';
@@ -33,6 +37,12 @@ export interface ConfirmDialogProps {
   /** May return a promise; a rejection keeps the dialog open with the error. */
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
+  /** The safe button's label (default "Cancel"). */
+  cancelLabel?: string;
+  /** Where the dialog mounts (default: this document's body). */
+  mount?: Node | undefined;
+  /** A test hook on the dialog element. */
+  testId?: string;
   /** Domain-specific safe error wording, e.g. uncertain remote mutations. */
   describeError?: (error: unknown) => string;
 }
@@ -80,7 +90,7 @@ function ConfirmDialogOpen(props: ConfirmDialogProps): JSX.Element {
   }
 
   return (
-    <Portal>
+    <Portal {...(props.mount ? { mount: props.mount } : {})}>
       <div class={css.dialogScrim} onClick={cancel} />
       <form
         ref={setEl}
@@ -90,6 +100,7 @@ function ConfirmDialogOpen(props: ConfirmDialogProps): JSX.Element {
         aria-labelledby={`${id}-title`}
         aria-describedby={props.body ? `${id}-body` : undefined}
         tabindex="-1"
+        data-testid={props.testId}
         onSubmit={(e) => void confirm(e)}
       >
         <h2 id={`${id}-title`} class={css.dialogTitle}>
@@ -121,7 +132,7 @@ function ConfirmDialogOpen(props: ConfirmDialogProps): JSX.Element {
         <Feedback kind="error" message={error()} />
         <div class={css.dialogActions}>
           <button ref={cancelButton} type="button" class="btn btn--ghost" onClick={cancel} disabled={busy()}>
-            {t('admin-shell-cancel')}
+            {props.cancelLabel ?? t('admin-shell-cancel')}
           </button>
           <button
             type="submit"

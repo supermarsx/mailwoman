@@ -63,7 +63,10 @@ export function createFocusTrap(
     const el = container();
     if (!active || !el) return;
 
-    const previouslyFocused = document.activeElement as HTMLElement | null;
+    // The container's own document: a dialog can live in a detached workspace
+    // window, whose focus is separate from the opener's.
+    const doc = el.ownerDocument;
+    const previouslyFocused = doc.activeElement as HTMLElement | null;
 
     // Move focus inside on activation.
     const target = options.initialFocus?.() ?? firstFocusable(el) ?? el;
@@ -77,6 +80,8 @@ export function createFocusTrap(
       if (e.key === 'Escape') {
         if (options.onEscape) {
           e.preventDefault();
+          // A modal's Esc is its own: do not also close what is behind it.
+          e.stopPropagation();
           options.onEscape();
         }
         return;
@@ -92,7 +97,7 @@ export function createFocusTrap(
       }
       const first = focusables[0]!;
       const last = focusables[focusables.length - 1]!;
-      const activeEl = document.activeElement as HTMLElement | null;
+      const activeEl = doc.activeElement as HTMLElement | null;
 
       // Wrap at the ends, and pull stray focus (e.g. on the container) back in.
       if (e.shiftKey) {
@@ -114,8 +119,8 @@ export function createFocusTrap(
       if (options.restoreFocus !== false && previouslyFocused && previouslyFocused.isConnected) {
         // Only restore if focus is still inside the trap (don't yank focus the
         // user has since moved elsewhere).
-        const activeEl = document.activeElement as HTMLElement | null;
-        if (activeEl === null || el.contains(activeEl) || activeEl === document.body) {
+        const activeEl = doc.activeElement as HTMLElement | null;
+        if (activeEl === null || el.contains(activeEl) || activeEl === doc.body) {
           if (isFocusable(previouslyFocused) || previouslyFocused.tabIndex >= 0) {
             previouslyFocused.focus();
           }
