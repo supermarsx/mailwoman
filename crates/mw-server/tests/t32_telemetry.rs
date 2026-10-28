@@ -7,7 +7,15 @@ mod common;
 #[ignore = "requires MW_ACCEPTANCE_OTLP_ENDPOINT and a local collector"]
 async fn persisted_configuration_exports_request_traces_and_metrics() {
     use tracing_subscriber::prelude::*;
-    let endpoint = std::env::var("MW_ACCEPTANCE_OTLP_ENDPOINT").expect("local collector endpoint");
+    let Some(endpoint) = std::env::var("MW_ACCEPTANCE_OTLP_ENDPOINT")
+        .ok()
+        .filter(|v| !v.is_empty())
+    else {
+        common::gate::skip(
+            "[t32 telemetry] MW_ACCEPTANCE_OTLP_ENDPOINT unset — no local collector, not driven.",
+        );
+        return;
+    };
     assert!(endpoint.starts_with("http://127.0.0.1:"));
     let path = common::test_db::unique_db_path("telemetry-collector");
     let key = "22".repeat(32);

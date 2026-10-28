@@ -595,6 +595,14 @@ async fn linked_password_mfa_context_personal_data_and_revocation_are_real() {
 #[tokio::test]
 #[ignore]
 async fn linked_browser_fixture() {
+    // A manual browser fixture: `--ignored` runs in CI reach it, and without its
+    // variable it must report a skip, not panic.
+    let Some(web) = std::env::var_os("MW_LINKED_FIXTURE_WEB").filter(|v| !v.is_empty()) else {
+        common::gate::skip(
+            "[t32 linked fixture] MW_LINKED_FIXTURE_WEB unset — manual fixture not started.",
+        );
+        return;
+    };
     let mail = common::mock_mail::MockPop3::start_accounts(&[
         ("parent@example.org", "parent-pass"),
         ("stranger@example.org", "stranger-pass"),
@@ -634,11 +642,7 @@ async fn linked_browser_fixture() {
     let app = build_app(AppConfig {
         db_path: db.to_string_lossy().into_owned(),
         server_key_hex: Some(KEY.into()),
-        web_dir: Some(
-            std::env::var("MW_LINKED_FIXTURE_WEB")
-                .expect("explicit fixture web directory")
-                .into(),
-        ),
+        web_dir: Some(web.into()),
         cookie_secure: false,
         mode: ServerMode::Engine,
         hardening: mw_server::HardeningConfig {

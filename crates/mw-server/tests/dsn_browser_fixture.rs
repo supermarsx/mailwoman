@@ -48,8 +48,13 @@ async fn upstream(req: Request, next: Next) -> Response {
 #[tokio::test]
 #[ignore = "manual persistent browser fixture, requires MW_DSN_WEB and Greenmail"]
 async fn serve_delivery_report_browser_fixture() {
-    let web =
-        std::path::PathBuf::from(std::env::var("MW_DSN_WEB").expect("explicit built SPA path"));
+    // A manual fixture that serves until it is killed: `--ignored` runs in CI reach
+    // it, and without its variable it must report a skip, not panic or start.
+    let Some(web) = std::env::var_os("MW_DSN_WEB").filter(|v| !v.is_empty()) else {
+        common::gate::skip("[dsn browser fixture] MW_DSN_WEB unset — manual fixture not started.");
+        return;
+    };
+    let web = std::path::PathBuf::from(web);
     assert!(web.join("index.html").is_file());
     let mock = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let mock_url = format!("http://{}", mock.local_addr().unwrap());
