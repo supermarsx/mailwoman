@@ -71,7 +71,11 @@ describe('AdminScreen (gate + shell)', () => {
     expect(api.getObservability).not.toHaveBeenCalled();
   });
 
-  it('a nav click opens the section, puts it in the URL and marks it current', async () => {
+  // The first section opened in this file pays vitest's on-demand transform of
+  // the Observability module graph (3.3 s locally, 5.06 s on a macOS runner in
+  // run 40769576545), so it gets more than the 5 s default. The behaviour
+  // asserted below is unchanged.
+  it('a nav click opens the section, puts it in the URL and marks it current', { timeout: 20_000 }, async () => {
     render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} />);
     fireEvent.click(await within(await screen.findByRole('navigation', { name: 'Admin sections' })).findByRole('link', { name: 'Observability' }));
     expect(await findRegion('Observability')).toBeInTheDocument();
