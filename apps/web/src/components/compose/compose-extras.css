@@ -139,14 +139,6 @@
 
 .compose__from { inline-size:min(32rem, 100%); align-self:flex-start; }
 
-.compose-ribbon { flex:none; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); }
-.compose-ribbon__panel { display:flex; align-items:end; flex-wrap:wrap; gap:.65rem; padding:.5rem; max-block-size:16rem; overflow:auto; }
-.compose-ribbon__panel[hidden], .compose-rt__toolbar[hidden] { display:none; }
-.compose-ribbon__group { display:flex; flex-direction:column; align-items:start; gap:.3rem; padding-inline-end:.65rem; border-inline-end:1px solid var(--border); }
-.compose-ribbon__group > span { font-size:.7rem; color:var(--text-dim); }
-.compose-ribbon .btn, .compose-ribbon .field { width:auto; flex:0 1 auto; }
-.compose-ribbon .field { min-inline-size:0; }
-
 /* The message body fills the composer (t37). The composer is a flex column the
    height of its host (workspace tab, split pane, detached window, phone sheet);
    every row but the body keeps its natural height, and the body takes the rest
@@ -167,23 +159,6 @@
 .compose-source textarea { flex:1 1 0; min-block-size:0; resize:none; font-family:monospace; }
 .compose-source p { font-size:.75rem; color:var(--text-dim); margin:0; }
 
-/* Ribbon controls scroll sideways as groups; the editor remains the sole growing pane. */
-.compose-ribbon__heading { display:flex; align-items:center; min-inline-size:0; overflow:visible; }
-.compose-ribbon__heading .compose-rt__history { flex:none; border:0; }
-.compose-ribbon__heading .compose-rt__tabs { flex:1; min-inline-size:0; overflow-x:auto; border:0; }
-.compose-ribbon__content { display:flex; align-items:stretch; max-inline-size:100%; overflow:auto; }
-.compose-ribbon__panel { flex:none; flex-wrap:nowrap; align-items:start; max-block-size:8rem; padding:.3rem; gap:.4rem; }
-.compose-ribbon__group { display:grid; grid-auto-flow:column; grid-template-rows:repeat(3, minmax(1.5rem,auto)); gap:.2rem; }
-.compose-ribbon__group > span { grid-row:1; }
-.compose-ribbon__editor { flex:none; }
-.compose-ribbon__editor .compose-rt__chrome { display:flex; max-block-size:8rem; overflow:visible; }
-.compose-ribbon__editor .compose-rt__toolbar { flex:none; flex-wrap:nowrap; align-items:start; border:0; }
-.compose-ribbon__editor .compose-rt__advanced { flex-wrap:nowrap; border:0; }
-.compose-ribbon__editor .compose-rt__group { display:grid; grid-auto-flow:column; grid-template-rows:repeat(3, minmax(1.5rem,auto)); flex:none; }
-.compose-ribbon__editor .compose-rt__find { flex-basis:auto; }
-.compose-ribbon__editor .compose-rt__options { flex-wrap:nowrap; }
-.compose-ribbon__editor .compose-rt__paragraph { display:flex; flex-direction:column; gap:.2rem; }
-.compose-rt__group-title { font-size:.7rem; color:var(--text-dim); }
 .compose > .compose__header { gap:.35rem; margin-block-end:.3rem; }
 .compose__header-actions { display:flex; align-items:center; justify-content:flex-end; gap:.25rem; flex-wrap:wrap; margin-inline-start:auto; }
 .compose__header .btn { width:auto; min-block-size:2rem; padding:.3rem .5rem; font-size:.8rem; }
@@ -192,25 +167,69 @@
 .compose [data-testid=account-draft-status] { margin:.2rem 0; font-size:.7rem; }
 .compose-rt__footer { padding:.15rem .35rem; gap:.3rem; }
 
-
-.compose-ribbon__editor .compose-rt__toolbar { display:flex; }
-.compose-rt__font-group { display:flex; flex-direction:column; gap:.25rem; padding-inline-end:.4rem; border-inline-end:var(--border-hair) solid var(--border); }
-.compose-rt__font-fields,.compose-rt__font-marks { display:flex; align-items:center; gap:.2rem; }
-.compose-rt__font-fields .compose-rt__field { flex:none; }
-.compose-rt__font-fields select { inline-size:9rem; }
-.compose-rt__font-fields .compose-rt__field:last-child select { inline-size:5rem; }
-.compose-ribbon__editor .compose-rt__group { grid-template-columns:repeat(4,max-content); grid-template-rows:auto 2rem 2rem; align-items:center; }
-.compose-ribbon__editor .compose-rt__group > .compose-rt__group-title { grid-column:1/-1; grid-row:1; }
-.compose-ribbon__editor .compose-rt__clipboard { grid-template-columns:repeat(3,max-content); }
-.compose-ribbon__editor .compose-rt__table-group { grid-template-columns:repeat(6,max-content); }
-.compose-ribbon__editor .compose-rt__paragraph { border-inline-end:var(--border-hair) solid var(--border); padding-inline-end:.4rem; flex:none; }
-.compose-ribbon__editor .compose-rt__btn { display:inline-flex; align-items:center; gap:.25rem; white-space:nowrap; }
-.compose-ribbon__heading [role=tab] { white-space:nowrap; }
 @media(max-width:600px) {
  .compose > .compose__header { flex-wrap:nowrap; }
  .compose__header-actions { flex-wrap:nowrap; gap:.2rem; }
  .compose__header .compose-action--secondary > span,.compose__header [data-testid=open-recall] > span { display:none; }
  .compose__header .btn { padding:.25rem .35rem; font-size:.75rem; }
 }
-.compose-ribbon__group:not(label) { grid-template-columns:repeat(2,max-content); grid-template-rows:auto 2rem 2rem; align-items:center; }
-.compose-ribbon__group:not(label) > span { grid-column:1/-1; }
+
+/* The composer ribbon (t38). The bar (components/bars) is pinned or auto-hide;
+   its groups are exactly three rows (--mw-ribbon-row, 28px fine / 44px coarse)
+   with a fixed height and nothing that scrolls vertically, so the body below
+   takes exactly the rest. A tab too narrow folds its lowest-priority groups
+   into dropdowns (RibbonPanel). The rules here only size the composer's own
+   controls to one row; the grid itself is the primitive's. The same rules
+   serve the editor's standalone ribbon (the signature editor). */
+.compose-ribbon { border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); }
+.compose-ribbon__heading { display:flex; align-items:center; min-inline-size:0; }
+.compose-ribbon__heading .compose-rt__history { flex:none; border:0; }
+.compose-ribbon__heading .compose-rt__tabs { flex:1; min-inline-size:0; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; border:0; }
+.compose-ribbon__heading [role=tab] { white-space:nowrap; }
+.compose-ribbon__content { min-inline-size:0; }
+.compose-ribbon__panel[hidden] { display:none; }
+
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] { gap:.2rem; font-size:.8rem; }
+.compose-rib__row { display:flex; align-items:center; gap:2px; min-inline-size:0; }
+.compose-rib__text { min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; line-height:1.4; }
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item=small] :is(button,select,input:not([type=checkbox],[type=radio]),label.btn,label.compose-rt__btn):not([data-ribbon-popover] *) {
+  box-sizing:border-box; block-size:var(--mw-ribbon-row); min-block-size:0; max-block-size:var(--mw-ribbon-row);
+  margin:0; padding-block:0; padding-inline:.35rem; font-size:.8rem; line-height:1.2; border-radius:var(--radius-sm);
+}
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] :is(.btn,.compose-rt__btn):not([data-ribbon-popover] *) { display:inline-flex; align-items:center; gap:.3rem; min-inline-size:0; max-inline-size:14rem; white-space:nowrap; }
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] .compose-rt__btn[aria-pressed]:not([data-ribbon-popover] *) { min-inline-size:var(--mw-ribbon-row); justify-content:center; }
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] select:not([data-ribbon-popover] *) { inline-size:auto; max-inline-size:9rem; padding-inline:.25rem; color:var(--text); background:var(--bg); border:var(--border-hair) solid var(--border); }
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] input:not([type=checkbox],[type=radio]):not([data-ribbon-popover] *) { color:var(--text); background:var(--bg); border:var(--border-hair) solid var(--border); }
+.compose-rib__font { inline-size:9rem !important; }
+.compose-rib__size { inline-size:4.75rem !important; }
+
+/* A large item: icon over text, the full three rows. */
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item=large] .compose-rib__large {
+  block-size:100%; max-block-size:100%; flex-direction:column; justify-content:center; gap:.25rem;
+  min-inline-size:3.5rem; max-inline-size:6.5rem; padding-inline:.4rem; text-align:center;
+}
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item=large] .compose-rib__large > svg { inline-size:1.4rem; block-size:1.4rem; flex:none; }
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item=large] .compose-rib__large .compose-rib__text { max-inline-size:100%; }
+
+/* Labelled fields, checkboxes and colour wells on one row. */
+.compose-rib__field { display:flex; align-items:center; gap:.3rem; min-inline-size:0; white-space:nowrap; font-size:.75rem; color:var(--text-dim); }
+.compose-rib__field input[type=number] { inline-size:3.25rem; }
+.compose-rib__field input[type=password] { inline-size:10rem; }
+.compose-rib__color { display:inline-flex; align-items:center; gap:1px; }
+.compose-rib__color input[type=color] { inline-size:1.75rem; padding:1px !important; }
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] :is(.compose-options__toggle,.cmpcrypto-toggle) { display:flex; align-items:center; gap:.35rem; min-inline-size:0; white-space:nowrap; font-size:.8rem; }
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] > label.field { flex-direction:row; align-items:center; gap:.3rem; margin:0; }
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] > label.field > span { display:inline-flex; align-items:center; gap:.2rem; font-size:.7rem; white-space:nowrap; }
+.compose-rib__error { margin:0; padding:0 .35rem; max-inline-size:16rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.75rem; line-height:calc(var(--mw-ribbon-row) - 4px); }
+
+/* The security status and policy chips: one row, the state on the leading edge. */
+.cmpcrypto-chip { border-inline-start:var(--border-heavy) solid var(--text-dim) !important; }
+.cmpcrypto-chip--e2ee { border-inline-start-color:var(--success) !important; }
+.cmpcrypto-chip--mixed,.cmpcrypto-chip--block { border-inline-start-color:var(--danger) !important; }
+.cmpcrypto-chip__status { display:inline-flex; align-items:center; gap:.3rem; min-inline-size:0; max-inline-size:13rem; overflow:hidden; }
+
+/* What opens under a ribbon button: a short form, not a row. */
+.compose-rib__form { display:flex; flex-direction:column; align-items:stretch; gap:.4rem; padding:0; border:0; }
+.compose-rib__form label { display:flex; align-items:center; justify-content:space-between; gap:.5rem; font-size:.8rem; }
+.compose-rib__form select,.compose-rib__form input:not([type=checkbox],[type=radio]) { min-block-size:1.75rem; color:var(--text); background:var(--bg); border:var(--border-hair) solid var(--border); font:inherit; }
+.compose-rib__form .compose-rt__btn { display:inline-flex; align-items:center; gap:.3rem; }

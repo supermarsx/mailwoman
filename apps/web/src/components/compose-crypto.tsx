@@ -1,4 +1,6 @@
 import { Icon } from './Icon.tsx';
+import { RibbonItem } from './bars/index.ts';
+import { RibbonPopover } from './compose/ribbonParts.tsx';
 // Compose crypto + DLP subcomponents (plan §2.5). STANDALONE, self-contained
 // pieces that take props + callbacks so each is independently testable; the host
 // `Compose.tsx` mounts them and reads the reported state on send. Three concerns:
@@ -52,6 +54,8 @@ export function CapabilityBanner(props: {
   capability: TransportCapability;
   recipients: RecipientCapability[];
   loading?: boolean;
+  /** The detail under the composer's status chip (t38): no testid or live role, the chip has them. */
+  detailOnly?: boolean;
 }): JSX.Element {
   const copy = (): { label: string; detail: string } => ({
     label: t(`crypto-banner-${props.capability}-label`),
@@ -62,10 +66,10 @@ export function CapabilityBanner(props: {
     <div
       class="cmpcrypto-banner"
       classList={{ [`cmpcrypto-banner--${props.capability}`]: true }}
-      data-testid="compose-crypto-banner"
+      data-testid={props.detailOnly ? undefined : 'compose-crypto-banner'}
       data-capability={props.capability}
-      role="status"
-      aria-live="polite"
+      role={props.detailOnly ? undefined : 'status'}
+      aria-live={props.detailOnly ? undefined : 'polite'}
     >
       <span class="cmpcrypto-banner__badge" aria-hidden="true">
         <Icon name={props.capability === 'e2ee' ? 'lock' : props.capability === 'mixed' ? 'alert' : 'unlock'} />
@@ -416,33 +420,149 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
     });
   });
 
+  // The Security group's controls, three rows (t38 §2.2): encrypt and sign,
+  // then the live status as a one-line chip whose detail opens in a popover;
+  // the protected-subject option and a policy (DLP) chip take the next column.
+  // Always mounted (the ribbon keeps hidden tabs), so the evaluation is live.
+  const encryptHint = (): string =>
+    !encryptDisabled()
+      ? encrypt() && encryptedDraft() !== null
+        ? t('crypto-encrypt-drafted')
+        : t('crypto-encrypt-hint-default')
+      : normalized().length === 0
+        ? t('crypto-reason-add-recipient')
+        : t('crypto-reason-tls');
   return (
-    <div class="cmpcrypto" data-testid="compose-crypto">
-      <Show when={normalized().length > 0}>
-        <CapabilityBanner
-          capability={capability()}
-          recipients={recipientCaps()}
-          loading={capsData.loading}
-        />
+    <>
+      <RibbonItem><div class="compose-rib__row">
+        <label
+          class="cmpcrypto-toggle"
+          classList={{ 'cmpcrypto-toggle--disabled': encryptDisabled() }}
+          data-tooltip={encryptHint()}
+        >
+          <input
+            type="checkbox"
+            checked={encrypt()}
+            disabled={encryptDisabled()}
+            data-testid="encrypt-toggle"
+            aria-describedby="cmpcrypto-encrypt-hint"
+            onChange={(e) => onEncryptChange(e.currentTarget.checked)}
+          />
+          <span class="cmpcrypto-toggle__label">{t('crypto-encrypt-label')}</span>
+          <Show when={encrypt() && encryptedDraft() !== null}>
+            <span class="cmpcrypto-toggle__drafted" aria-hidden="true">
+              <Icon name="check" />
+            </span>
+          </Show>
+        </label>
+        <span id="cmpcrypto-encrypt-hint" hidden>
+          <Show when={encrypt() && encryptedDraft() !== null} fallback={encryptHint()}>
+            <span data-testid="encrypted-draft-indicator">{t('crypto-encrypt-drafted')}</span>
+          </Show>
+        </span>
+      </div></RibbonItem>
+      <RibbonItem>
+        <label class="cmpcrypto-toggle">
+          <input
+            type="checkbox"
+            checked={sign()}
+            data-testid="sign-toggle"
+            onChange={(e) => onSignChange(e.currentTarget.checked)}
+          />
+          <span class="cmpcrypto-toggle__label">{t('crypto-sign-label')}</span>
+        </label>
+      </RibbonItem>
+      <RibbonItem>
+        <Show when={normalized().length > 0}>
+          <CapabilityChip capability={capability()} recipients={recipientCaps()} loading={capsData.loading} />
+        </Show>
+      </RibbonItem>
+      <Show when={encrypt() && !encryptDisabled()}>
+        <RibbonItem>
+          <label class="cmpcrypto-toggle">
+            <input
+              type="checkbox"
+              checked={protectSubject()}
+              data-testid="protect-subject-toggle"
+              onChange={(e) => onProtectSubjectChange(e.currentTarget.checked)}
+            />
+            <span class="cmpcrypto-toggle__label">{t('crypto-protect-subject')}</span>
+          </label>
+        </RibbonItem>
       </Show>
+      <Show when={verdicts().length > 0}>
+        <RibbonItem>
+          <DlpChip verdicts={verdicts()} loading={dlpData.loading} />
+        </RibbonItem>
+      </Show>
+    </>
+  );
+}
 
-      <EncryptSignToggles
-        encrypt={encrypt()}
-        sign={sign()}
-        protectSubject={protectSubject()}
-        encryptDisabled={encryptDisabled()}
-        encryptDisabledReason={
-          normalized().length === 0
-            ? t('crypto-reason-add-recipient')
-            : t('crypto-reason-tls')
-        }
-        drafted={encryptedDraft() !== null}
-        onEncryptChange={onEncryptChange}
-        onSignChange={onSignChange}
-        onProtectSubjectChange={onProtectSubjectChange}
-      />
+/** The transport status on one line (the Security group's third row); the detail opens below it. */
+export function CapabilityChip(props: {
+  capability: TransportCapability;
+  recipients: RecipientCapability[];
+  loading?: boolean;
+}): JSX.Element {
+  const label = (): string => t(`crypto-banner-${props.capability}-label`);
+  return (
+    <RibbonPopover
+      label={label()}
+      popoverLabel={t('crypto-toggles-legend')}
+      buttonClass={`compose-rt__btn cmpcrypto-chip cmpcrypto-chip--${props.capability}`}
+      content={
+        <span
+          class="cmpcrypto-chip__status"
+          data-testid="compose-crypto-banner"
+          data-capability={props.capability}
+          role="status"
+          aria-live="polite"
+        >
+          <Icon name={props.capability === 'e2ee' ? 'lock' : props.capability === 'mixed' ? 'alert' : 'unlock'} />
+          <span class="compose-rib__text">
+            {label()}
+            <Show when={props.loading}>
+              <span class="cmpcrypto-banner__spin" aria-label={t('crypto-banner-checking-label')}>
+                {' '}
+                {t('crypto-banner-checking')}
+              </span>
+            </Show>
+          </span>
+        </span>
+      }
+    >
+      <CapabilityBanner capability={props.capability} recipients={props.recipients} detailOnly />
+    </RibbonPopover>
+  );
+}
 
-      <DlpWarnings verdicts={verdicts()} loading={dlpData.loading} />
-    </div>
+/** The policy (DLP) result on one line: the most severe verdict; the list opens below it. */
+export function DlpChip(props: { verdicts: DlpVerdict[]; loading?: boolean }): JSX.Element {
+  const worst = (): DlpVerdict | undefined =>
+    props.verdicts.find((v) => v.action === 'block') ?? props.verdicts[0];
+  const blocked = (): boolean => worst()?.action === 'block';
+  const title = (): string => {
+    const v = worst();
+    return v ? t(DLP_ACTION_TITLE_ID[v.action]) : '';
+  };
+  return (
+    <RibbonPopover
+      label={title()}
+      popoverLabel={t('crypto-dlp-aria')}
+      buttonClass={`compose-rt__btn cmpcrypto-chip cmpcrypto-chip--${blocked() ? 'block' : 'warn'}`}
+      content={
+        <span
+          class="cmpcrypto-chip__status"
+          role={blocked() ? 'alert' : 'status'}
+          aria-live={blocked() ? 'assertive' : 'polite'}
+        >
+          <Icon name="alert" />
+          <span class="compose-rib__text">{title()}</span>
+        </span>
+      }
+    >
+      <DlpWarnings verdicts={props.verdicts} {...(props.loading !== undefined ? { loading: props.loading } : {})} />
+    </RibbonPopover>
   );
 }

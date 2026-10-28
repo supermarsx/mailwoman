@@ -28,6 +28,8 @@ import * as a11y from './mailA11y.css.ts';
 import { AsyncBoundary } from './ErrorBoundary.tsx';
 import type { RichTextApi } from './compose/RichTextEditor.tsx';
 import {ComposerHistory} from './compose/ComposerHistory.tsx';
+import {CollapsibleBar,RibbonGroup,RibbonItem,RibbonPanel,useBarMode,useCollapsibleBar,type CollapsibleBarApi} from './bars/index.ts';
+import {RibbonPopover,RibbonSlot,type RibbonSlotTarget} from './compose/ribbonParts.tsx';
 import {
   SignaturePicker,
   RecallPanel,
@@ -218,9 +220,28 @@ export function Compose(props: {
   const [importance,setImportance]=createSignal<'high'|'normal'|'low'>('normal');
   const [customFrom, setCustomFrom] = createSignal(false);
   const fromHelpId = createUniqueId();
-  let ribbonTools!: HTMLDivElement;
-  const [ribbonTab,setRibbonTab]=createSignal<'format'|'insert'|'table'|'security'|'delivery'>('format');
-  createEffect(()=>{if(unlockOpen())setRibbonTab('security');});
+  type RibbonTab='format'|'insert'|'table'|'security'|'delivery';
+  const [ribbonTab,setRibbonTab]=createSignal<RibbonTab>('format');
+  // The composer ribbon (t38): its pin/auto mode, the bar's handle (captured
+  // from inside it), and the slots where the editor's groups join each tab.
+  const ribbonMode=useBarMode('composerRibbon');
+  let ribbonBar:CollapsibleBarApi|undefined;
+  const CaptureRibbonBar=():JSX.Element=>{ribbonBar=useCollapsibleBar();return null;};
+  /** Switch to a tab and, in auto-hide mode, reveal the ribbon (something there needs the user). */
+  const showRibbonTab=(tab:RibbonTab):void=>{setRibbonTab(tab);ribbonBar?.open();};
+  const [slots,setSlots]=createSignal<Partial<Record<'format'|'insert'|'table',RibbonSlotTarget>>>({});
+  const setSlot=(tab:'format'|'insert'|'table')=>(target:RibbonSlotTarget|undefined):void=>{setSlots(cur=>{const next={...cur};if(target)next[tab]=target;else delete next[tab];return next;});};
+  createEffect(()=>{if(unlockOpen())showRibbonTab('security');});
+  const ComposerRibbonTabs=():JSX.Element=>{
+    const bar=useCollapsibleBar();
+    const tabs=():readonly RibbonTab[]=>richMode()&&!sourceMode()?['format','insert','table','security','delivery']:['format','insert','security','delivery'];
+    return <div class="compose-ribbon__heading" data-detached-local><Show when={richMode()&&!sourceMode()}><ComposerHistory api={editorApi()}/></Show>
+      <div class="compose-rt__tabs" role="tablist" aria-label={t('mail-compose-ribbon')}><For each={tabs()}>{tab=><button type="button" role="tab" aria-selected={ribbonTab()===tab} aria-expanded={bar?.mode()==='auto'?(bar.expanded()&&ribbonTab()===tab?'true':'false'):undefined} aria-controls={bar?.panelId} onClick={event=>{
+        // Auto-hide: a tab opens the ribbon on itself; the open tab, clicked again, hides it (Office).
+        if(bar?.mode()==='auto'&&bar.expanded()&&ribbonTab()===tab){bar.close();return;}
+        setRibbonTab(tab);bar?.open(event.currentTarget);
+      }}>{t(`mail-compose-ribbon-${tab}`)}</button>}</For></div></div>;
+  };
   const [fromVisibleOverride,setFromVisibleOverride] = createSignal<boolean|null>(null);
   const showFrom=()=>customFrom() || (fromVisibleOverride() ?? settings()['mail.showFrom']?.value === true);
   const [sendAt, setSendAt] = createSignal('');
@@ -329,7 +350,6 @@ export function Compose(props: {
   // closes; Tab is trapped inside the dialog.
   let backdropEl: HTMLDivElement | undefined;
   let toInputEl: HTMLInputElement | undefined;
-  let cryptoBoxEl: HTMLDivElement | undefined;
   let previouslyFocused: HTMLElement | null = null;
 
   function focusableIn(root: HTMLElement): HTMLElement[] {
@@ -1318,202 +1338,221 @@ export function Compose(props: {
         </Show>
 
         <Show when={externalMode()!=='off' && outside().length>0}><section class="compose-external" aria-label={t('mail-external-recipients')}><details><summary><Icon name="alert"/> {t('mail-external-count',{count:outside().length})}</summary><p>{t('mail-external-help')}</p><ul><For each={outside()}>{address=><li>{address}</li>}</For></ul></details><Show when={externalMode()==='confirm'}><label><input type="checkbox" checked={reviewedRecipients()===recipientReviewKey()} onChange={event=>setReviewedRecipients(event.currentTarget.checked?recipientReviewKey():'')}/>{t('mail-external-reviewed')}</label></Show></section></Show>
-        <section class="compose-ribbon" aria-label={t('mail-compose-ribbon')}>
-          <div class="compose-ribbon__heading"><Show when={richMode()&&!sourceMode()}><ComposerHistory api={editorApi()}/></Show>
-          <div class="compose-rt__tabs" role="tablist"><For each={richMode()&&!sourceMode()?['format','insert','table','security','delivery'] as const:['format','insert','security','delivery'] as const}>{tab=><button type="button" role="tab" aria-selected={ribbonTab()===tab} onClick={()=>setRibbonTab(tab)}>{t(`mail-compose-ribbon-${tab}`)}</button>}</For></div></div>
+        {/* The composer ribbon (t38): pinned, or auto-hide with only the history
+            and tab names showing. It pushes the body down when it opens (never
+            covers it) and has a fixed height, so the body (flex:1, t37) takes
+            exactly what is left. Every group is three rows; a tab too narrow
+            for its groups folds the lowest-priority ones into dropdowns. Hidden
+            tabs stay mounted, so the security evaluation is always live. */}
+        <CollapsibleBar id="composerRibbon" revealPolicy="push" bar={ribbonMode} class="compose-ribbon" label={t('mail-compose-ribbon')} header={<ComposerRibbonTabs/>}>
+          <CaptureRibbonBar/>
           <div class="compose-ribbon__content">
-          <div class="compose-ribbon__panel" hidden={ribbonTab()!=='format'} inert={ribbonTab()!=='format'}>
-            <div class="compose-ribbon__group"><span>{t('mail-compose-ribbon-recipients')}</span><button type="button" class="btn btn--ghost" onClick={checkNames} data-tooltip={t('mail-compose-check-names-help')}><Icon name="check"/>{t('mail-compose-check-names')}</button><button type="button" class="btn btn--ghost" data-testid="compose-show-cc-bcc" aria-pressed={ccBccOpen()} onClick={()=>setCcBccOpen(!ccBccOpen())}><Icon name="users"/>{t('mail-compose-show-cc-bcc')}</button><button type="button" class="btn btn--ghost" aria-pressed={showFrom()} onClick={()=>setFromVisibleOverride(!showFrom())}><Icon name="mail"/>{t('mail-compose-from')}</button></div>
-            <label class="compose-ribbon__group"><span>{t('mail-compose-ribbon-message-type')}</span><select data-testid="format-toggle" value={!richMode()?'plain':sourceMode()?'html':'rich'} onChange={event=>changeFormat(event.currentTarget.value)}><option value="plain">{t('mail-compose-format-plain')}</option><option value="rich">{t('mail-compose-format-rich')}</option><option value="html">{t('mail-compose-html-source')}</option></select></label>
+          <div class="compose-ribbon__panel" data-ribbon-tab="format" hidden={ribbonTab()!=='format'} inert={ribbonTab()!=='format'}>
+            <RibbonPanel label={t('mail-compose-ribbon-format')}>
+              <RibbonSlot name="format" onTarget={setSlot('format')}/>
+              <RibbonGroup label={t('mail-compose-ribbon-recipients')} priority={70} icon="users" testId="compose-group-recipients">
+                <RibbonItem><button type="button" class="btn btn--ghost" onClick={checkNames} data-tooltip={t('mail-compose-check-names-help')}><Icon name="check"/><span class="compose-rib__text">{t('mail-compose-check-names')}</span></button></RibbonItem>
+                <RibbonItem><button type="button" class="btn btn--ghost" data-testid="compose-show-cc-bcc" aria-pressed={ccBccOpen()} onClick={()=>setCcBccOpen(!ccBccOpen())}><Icon name="users"/><span class="compose-rib__text">{t('mail-compose-show-cc-bcc')}</span></button></RibbonItem>
+                <RibbonItem><button type="button" class="btn btn--ghost" aria-pressed={showFrom()} onClick={()=>setFromVisibleOverride(!showFrom())}><Icon name="mail"/><span class="compose-rib__text">{t('mail-compose-from')}</span></button></RibbonItem>
+              </RibbonGroup>
+              <RibbonGroup label={t('mail-compose-ribbon-message-type')} priority={60} icon="mail" testId="compose-group-message-type">
+                <RibbonItem><select data-testid="format-toggle" aria-label={t('mail-compose-ribbon-message-type')} value={!richMode()?'plain':sourceMode()?'html':'rich'} onChange={event=>changeFormat(event.currentTarget.value)}><option value="plain">{t('mail-compose-format-plain')}</option><option value="rich">{t('mail-compose-format-rich')}</option><option value="html">{t('mail-compose-html-source')}</option></select></RibbonItem>
+              </RibbonGroup>
+            </RibbonPanel>
           </div>
-          <div class="compose-ribbon__panel" hidden={ribbonTab()!=='insert'} inert={ribbonTab()!=='insert'}>        <InsertAccountItem onFiles={onFilesPicked} disabled={uploading()||busy()}/><SignaturePicker signatures={signatures} onInsert={insertSignature} />
-
-        {/* V7 inline Assist composer tools + dictation (plan §14.3). Each component
-            self-hides on the capabilities it lacks; the whole block is additionally
-            gated on the gateway being enabled, so a Disabled Assist gateway renders
-            NOTHING here and the composer is unchanged. Nothing is auto-applied or sent. */}
-        <Show when={app.assist.enabled()}>
-          <div class="compose__assist" data-testid="compose-assist">
-            <Dictation
-              config={app.assist.config()}
-              service={app.assist.service}
-              onTranscript={(t) => setBody((cur) => (cur.length > 0 ? `${cur} ${t}` : t))}
-            />
-            <ComposerTools
-              config={app.assist.config()}
-              service={app.assist.service}
-              text={body()}
-              account={app.accountId() ?? ''}
-              onApply={setBody}
-              onDisclosure={(d) => app.assist.recordDisclosure('draft', d)}
-            />
+          <div class="compose-ribbon__panel" data-ribbon-tab="insert" hidden={ribbonTab()!=='insert'} inert={ribbonTab()!=='insert'}>
+            <RibbonPanel label={t('mail-compose-ribbon-insert')}>
+              {/* New-file attach (26.15 §1): pick a local file, upload its bytes to the
+                  account's JMAP upload endpoint, and fold the returned blob into the
+                  shared attachment list. Always available (core compose); the input is
+                  disabled until the session's upload contract has loaded. The file
+                  input is visually hidden behind the styled label. */}
+              <RibbonGroup label={t('mail-compose-attachments')} priority={55} icon="attachment" testId="compose-attach">
+                <RibbonItem size="large">
+                  <label class={`btn btn--ghost compose-rib__large ${a11y.focusable}`}>
+                    <Icon name="attachment"/><span class="compose-rib__text">{uploading() ? t('mail-compose-uploading') : t('mail-compose-attach-file')}</span>
+                    <input
+                      type="file"
+                      multiple
+                      class={a11y.srOnly}
+                      aria-label={t('mail-compose-attach-file')}
+                      disabled={uploading() || uploadUrl() === null || app.accountId() === null}
+                      onChange={(e) => {
+                        const input = e.currentTarget;
+                        void onFilesPicked(input.files).finally(() => {
+                          // Reset so re-selecting the same file fires another change.
+                          input.value = '';
+                        });
+                      }}
+                    />
+                  </label>
+                </RibbonItem>
+                <RibbonItem><InsertAccountItem onFiles={onFilesPicked} disabled={uploading()||busy()}/></RibbonItem>
+                {/* V7 Nextcloud attach (plan §18.4): only when a Nextcloud account is
+                    linked; the picker opens under its button. */}
+                <Show when={app.nextcloud.enabled()}>
+                  <RibbonItem>
+                    <RibbonPopover testId="compose-nextcloud" label={t('mail-compose-attach-nextcloud')} icon="nextcloud" buttonClass={`btn btn--ghost ${a11y.focusable}`} open={ncOpen()} onOpenChange={setNcOpen}>
+                      <Show when={ncOpen()}>
+                        <NextcloudAttach
+                          service={app.nextcloud.service}
+                          {...(app.accountId() !== null ? { accountId: app.accountId()! } : {})}
+                          onAttached={(files) => {
+                            setAttachments((cur) => [...cur, ...files]);
+                            setNcOpen(false);
+                          }}
+                        />
+                      </Show>
+                    </RibbonPopover>
+                  </RibbonItem>
+                </Show>
+                <Show when={attachError()}>
+                  {(message) => <RibbonItem><p class="login__error compose-rib__error" role="alert" data-tooltip={message()}>{message()}</p></RibbonItem>}
+                </Show>
+              </RibbonGroup>
+              <RibbonSlot name="insert" onTarget={setSlot('insert')}/>
+              <Show when={signatures().length > 0}>
+                <RibbonGroup label={t('mail-compose-signature')} priority={40} icon="edit" testId="compose-group-signature">
+                  <RibbonItem><SignaturePicker signatures={signatures} onInsert={insertSignature} /></RibbonItem>
+                </RibbonGroup>
+              </Show>
+              {/* V7 inline Assist composer tools + dictation (plan §14.3). Each component
+                  self-hides on the capabilities it lacks; the whole group is gated on
+                  the gateway being enabled, so a Disabled Assist gateway renders
+                  NOTHING here. Nothing is auto-applied or sent. The tools and their
+                  suggestion open under one button, so they never add a row. */}
+              <Show when={app.assist.enabled()}>
+                <RibbonGroup label={t('mail-compose-group-assist')} priority={35} icon="assistant" testId="compose-group-assist">
+                  <RibbonItem size="large">
+                    <RibbonPopover testId="compose-assist" label={t('mail-compose-group-assist')} icon="assistant" buttonClass={`btn btn--ghost compose-rib__large ${a11y.focusable}`}>
+                      <div class="compose__assist">
+                        <Dictation
+                          config={app.assist.config()}
+                          service={app.assist.service}
+                          onTranscript={(t) => setBody((cur) => (cur.length > 0 ? `${cur} ${t}` : t))}
+                        />
+                        <ComposerTools
+                          config={app.assist.config()}
+                          service={app.assist.service}
+                          text={body()}
+                          account={app.accountId() ?? ''}
+                          onApply={setBody}
+                          onDisclosure={(d) => app.assist.recordDisclosure('draft', d)}
+                        />
+                      </div>
+                    </RibbonPopover>
+                  </RibbonItem>
+                </RibbonGroup>
+              </Show>
+            </RibbonPanel>
           </div>
-        </Show>
-
-        {/* New-file attach (26.15 §1): pick a local file, upload its bytes to the
-            account's JMAP upload endpoint, and fold the returned blob into the
-            shared attachment list below. Always available (core compose); the
-            input is disabled until the session's upload contract has loaded. The
-            file input is visually hidden behind the styled label so the composer
-            keeps its own button look rather than the native file control. */}
-        <div class="compose__attach" data-testid="compose-attach">
-          <label class={`btn btn--ghost ${a11y.focusable}`}>
-            <Icon name="attachment"/>{uploading() ? t('mail-compose-uploading') : t('mail-compose-attach-file')}
-            <input
-              type="file"
-              multiple
-              class={a11y.srOnly}
-              aria-label={t('mail-compose-attach-file')}
-              disabled={uploading() || uploadUrl() === null || app.accountId() === null}
-              onChange={(e) => {
-                const input = e.currentTarget;
-                void onFilesPicked(input.files).finally(() => {
-                  // Reset so re-selecting the same file fires another change.
-                  input.value = '';
-                });
-              }}
-            />
-          </label>
-          <Show when={attachError()}>
-            <p class="login__error" role="alert">
-              {attachError()}
-            </p>
-          </Show>
-        </div>
-
-        {/* V7 Nextcloud attach (plan §18.4): mounted only when a Nextcloud account is
-            linked. Large files are best shared as links (ShareLinkComposer) — here we
-            attach materialised blobs; the picker opens on demand. */}
-        <Show when={app.nextcloud.enabled()}>
-          <div class="compose__nextcloud" data-testid="compose-nextcloud">
-            <button
-              type="button"
-              class={`btn btn--ghost ${a11y.focusable}`}
-              aria-expanded={ncOpen()}
-              onClick={() => setNcOpen((v) => !v)}
-            >
-              <Icon name="nextcloud"/>{ncOpen() ? t('mail-compose-close-nextcloud') : t('mail-compose-attach-nextcloud')}
-            </button>
-            <Show when={ncOpen()}>
-              <NextcloudAttach
-                service={app.nextcloud.service}
-                {...(app.accountId() !== null ? { accountId: app.accountId()! } : {})}
-                onAttached={(files) => {
-                  setAttachments((cur) => [...cur, ...files]);
-                  setNcOpen(false);
-                }}
-              />
-            </Show>
+          <div class="compose-ribbon__panel" data-ribbon-tab="table" hidden={ribbonTab()!=='table'} inert={ribbonTab()!=='table'}>
+            <RibbonPanel label={t('mail-compose-ribbon-table')}>
+              <RibbonSlot name="table" onTarget={setSlot('table')}/>
+            </RibbonPanel>
           </div>
-        </Show>
-
-</div>
-          <div class="compose-ribbon__panel" hidden={ribbonTab()!=='security'} inert={ribbonTab()!=='security'}>        {/* Crypto + DLP (plan §2.5): encrypt/sign toggles, the live E2EE/TLS/mixed
-            banner from real per-recipient CryptoKey/lookup, and the Dlp/scan
-            pre-send warnings. Reports state up via onChange for the send path. */}
-        {/* A boundary of its own, because the panel reads two resources (the
-            per-recipient key lookup and the DLP scan) that go pending every time
-            a recipient or the body changes. Without it the nearest boundary is
-            the one around the whole signed-in shell (`LazyRoute` in App.tsx):
-            each keystroke in the body detached the entire shell for the length
-            of a DLP request, and the editor lost focus after one character.
-            With it only this panel is held back while a request is out, and
-            the placeholder keeps the panel's height so the fields below it do
-            not move. */}
-        <div ref={cryptoBoxEl}>
-          <Suspense
-            fallback={<div aria-hidden="true" style={{ height: `${cryptoBoxEl?.offsetHeight ?? 0}px` }} />}
-          >
-            <ComposeCrypto
-              recipients={() => parseRecipients([to(), cc(), bcc()].join(',')).map((r) => r.email)}
-              subject={() => subject()}
-              bodyText={() => body()}
-              lookupKeys={lookupKeys}
-              scanDlp={scanDlp}
-              signingKeyRef={() => signingSession()?.keyRef ?? null}
-              onRequestSigningKey={() => {setRibbonTab('security');setUnlockOpen(true);}}
-              onChange={setCryptoState}
-            />
-          </Suspense>
-        </div>
-
-        {/* Signing-key unlock (plan §2.5, decision flag 2): opens when the sign
-            toggle is switched on while the key is locked, or on a signed send with
-            no cached session. Unlocks the sending key ONCE — subsequent signed
-            sends this session reuse the cached keyRef with no further prompt. */}
-        <Show when={unlockOpen()}>
-          <section
-            class="compose__sign-unlock"
-            data-testid="compose-sign-unlock"
-            aria-label={t('mail-compose-sign-unlock-title')}
-          >
-            <p class="compose__sign-unlock-note">{t('mail-compose-sign-unlock-note')}</p>
-            <div class="compose__sign-unlock-row">
-              <label class="field">
-                <span>{t('mail-key-passphrase')}</span>
-                <input
-                  type="password"
-                  class={a11y.focusable}
-                  autocomplete="off"
-                  data-testid="sign-passphrase"
-                  value={unlockPass()}
-                  onInput={(e) => setUnlockPass(e.currentTarget.value)}
-                  onKeyDown={(e) => {
-                    // Enter unlocks without submitting the outer compose form.
-                    if (e.key === 'Enter') void unlockSigningKey(e);
-                  }}
+          <div class="compose-ribbon__panel" data-ribbon-tab="security" hidden={ribbonTab()!=='security'} inert={ribbonTab()!=='security'}>
+            <RibbonPanel label={t('mail-compose-ribbon-security')}>
+              {/* Crypto + DLP (plan §2.5): encrypt/sign toggles, the live E2EE/TLS/mixed
+                  status from real per-recipient CryptoKey/lookup, and the Dlp/scan
+                  pre-send warnings. Reports state up via onChange for the send path.
+                  A boundary of its own: the panel reads two resources (the key lookup
+                  and the DLP scan) that go pending on every recipient or body change,
+                  and without it the nearest boundary is the whole signed-in shell
+                  (`LazyRoute` in App.tsx), which detached the editor on each keystroke.
+                  The group's height is fixed, so the fallback needs no placeholder. */}
+              <RibbonGroup label={t('mail-compose-ribbon-security')} priority={20} icon="lock" testId="compose-crypto">
+                <Suspense fallback={<RibbonItem/>}>
+                  <ComposeCrypto
+                    recipients={() => parseRecipients([to(), cc(), bcc()].join(',')).map((r) => r.email)}
+                    subject={() => subject()}
+                    bodyText={() => body()}
+                    lookupKeys={lookupKeys}
+                    scanDlp={scanDlp}
+                    signingKeyRef={() => signingSession()?.keyRef ?? null}
+                    onRequestSigningKey={() => {showRibbonTab('security');setUnlockOpen(true);}}
+                    onChange={setCryptoState}
+                  />
+                </Suspense>
+              </RibbonGroup>
+              {/* Signing-key unlock (plan §2.5, decision flag 2): opens when the sign
+                  toggle is switched on while the key is locked, or on a signed send with
+                  no cached session. Unlocks the sending key ONCE — subsequent signed
+                  sends this session reuse the cached keyRef with no further prompt. */}
+              <Show when={unlockOpen()}>
+                <RibbonGroup label={t('mail-compose-sign-unlock-title')} priority={21} icon="unlock" testId="compose-sign-unlock">
+                  <RibbonItem><div class="compose-rib__row">
+                    <label class="compose-rib__field" data-tooltip={t('mail-compose-sign-unlock-note')}>
+                      <span class="compose-rib__text">{t('mail-key-passphrase')}</span>
+                      <input
+                        type="password"
+                        class={a11y.focusable}
+                        autocomplete="off"
+                        data-testid="sign-passphrase"
+                        aria-describedby="compose-sign-unlock-note"
+                        value={unlockPass()}
+                        onInput={(e) => setUnlockPass(e.currentTarget.value)}
+                        onKeyDown={(e) => {
+                          // Enter unlocks without submitting the outer compose form.
+                          if (e.key === 'Enter') void unlockSigningKey(e);
+                        }}
+                      />
+                    </label>
+                    <span id="compose-sign-unlock-note" hidden>{t('mail-compose-sign-unlock-note')}</span>
+                  </div></RibbonItem>
+                  <RibbonItem>
+                    <button
+                      type="button"
+                      class={`btn btn--primary ${a11y.focusable}`}
+                      data-testid="sign-unlock-submit"
+                      disabled={unlocking()}
+                      onClick={(e) => void unlockSigningKey(e)}
+                    >
+                      <Icon name="unlock"/><span class="compose-rib__text">{unlocking() ? t('mail-compose-sign-unlocking') : t('mail-compose-sign-unlock')}</span>
+                    </button>
+                  </RibbonItem>
+                  <Show when={unlockError()}>
+                    {(message) => <RibbonItem><p class="login__error compose-rib__error" role="alert" data-tooltip={message()}>{message()}</p></RibbonItem>}
+                  </Show>
+                </RibbonGroup>
+              </Show>
+            </RibbonPanel>
+          </div>
+          <div class="compose-ribbon__panel" data-ribbon-tab="delivery" hidden={ribbonTab()!=='delivery'} inert={ribbonTab()!=='delivery'}>
+            <RibbonPanel label={t('mail-compose-ribbon-delivery')}>
+              <RibbonGroup label={t('mail-compose-ribbon-delivery')} priority={10} icon="sent" testId="compose-send-options">
+                <RibbonItem><label class="compose-rib__field"><span class="compose-rib__text">{t('mail-compose-importance')}</span><select value={importance()} onChange={event=>setImportance(event.currentTarget.value as 'high'|'normal'|'low')}><For each={['high','normal','low'] as const}>{value=><option value={value}>{t(`mail-compose-importance-${value}`)}</option>}</For></select></label></RibbonItem>
+                <RibbonItem>
+                  <label class="compose-rib__field">
+                    <span class="compose-rib__text">{t('mail-compose-send-later')}</span>
+                    <input
+                      type="datetime-local"
+                      min={minSendAt()}
+                      value={sendAt()}
+                      onFocus={() => setMinSendAt(nextLocalMinute(new Date()))}
+                      onInput={(e) => setSendAt(e.currentTarget.value)}
+                      // The browser blocks the submit itself for a value under `min`;
+                      // say why in the dialog as well as in its own bubble.
+                      onInvalid={() => {showRibbonTab('delivery');setError(t('mail-compose-send-later-past'));}}
+                    />
+                  </label>
+                </RibbonItem>
+                <SendOptions
+                  deliveryAvailable={deliveryAvailable()}
+                  requestDelivery={requestDelivery()}
+                  onRequestDelivery={setRequestDelivery}
+                  receiptAvailable={receiptAvailable()}
+                  requestReceipt={requestReceipt()}
+                  onRequestReceipt={setRequestReceipt}
+                  trackingAvailable={trackingAvailable()}
+                  tracking={trackOpens()}
+                  onTracking={setTrackOpens}
                 />
-              </label>
-              <button
-                type="button"
-                class={`btn btn--primary ${a11y.focusable}`}
-                data-testid="sign-unlock-submit"
-                disabled={unlocking()}
-                onClick={(e) => void unlockSigningKey(e)}
-              >
-                {unlocking() ? t('mail-compose-sign-unlocking') : t('mail-compose-sign-unlock')}
-              </button>
-            </div>
-            <Show when={unlockError()}>
-              <p class="login__error" role="alert">
-                {unlockError()}
-              </p>
-            </Show>
-          </section>
-        </Show>
-
-</div>
-          <div class="compose-ribbon__panel" hidden={ribbonTab()!=='delivery'} inert={ribbonTab()!=='delivery'}>
-            <label class="field"><span>{t('mail-compose-importance')}</span><select value={importance()} onChange={event=>setImportance(event.currentTarget.value as 'high'|'normal'|'low')}><For each={['high','normal','low'] as const}>{value=><option value={value}>{t(`mail-compose-importance-${value}`)}</option>}</For></select></label>        <SendOptions
-          deliveryAvailable={deliveryAvailable()}
-          requestDelivery={requestDelivery()}
-          onRequestDelivery={setRequestDelivery}
-          receiptAvailable={receiptAvailable()}
-          requestReceipt={requestReceipt()}
-          onRequestReceipt={setRequestReceipt}
-          trackingAvailable={trackingAvailable()}
-          tracking={trackOpens()}
-          onTracking={setTrackOpens}
-        />
-
-        <label class="field">
-          <span>{t('mail-compose-send-later')}</span>
-          <input
-            type="datetime-local"
-            min={minSendAt()}
-            value={sendAt()}
-            onFocus={() => setMinSendAt(nextLocalMinute(new Date()))}
-            onInput={(e) => setSendAt(e.currentTarget.value)}
-            // The browser blocks the submit itself for a value under `min`;
-            // say why in the dialog as well as in its own bubble.
-            onInvalid={() => setError(t('mail-compose-send-later-past'))}
-          />
-        </label>
-
-</div>
-          <div class="compose-ribbon__editor" ref={ribbonTools}/>
+              </RibbonGroup>
+            </RibbonPanel>
           </div>
-        </section>
+          </div>
+        </CollapsibleBar>
         <div class="field field--grow">
           <Show when={richMode()} fallback={plainBody()}>
             {/* The editor chunk can FAIL to arrive, not just be slow — offline, or
@@ -1550,7 +1589,7 @@ export function Compose(props: {
               <Suspense fallback={plainBody()}>
                 <Show when={!sourceMode()} fallback={<HtmlSourceEditor initialHtml={bodyHtml()} externalText={body} owned={ownedCids} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
                   externalHistory
-                  toolbarMount={ribbonTools}
+                  ribbonSlots={slots}
                   ribbonTab={()=>ribbonTab() === 'format' || ribbonTab() === 'insert' || ribbonTab() === 'table' ? ribbonTab() as 'format'|'insert'|'table' : null}
                   initialHtml={bodyHtml()}
                   externalText={body}

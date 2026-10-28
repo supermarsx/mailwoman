@@ -1,9 +1,11 @@
 // Per-message send options: read receipts, delivery notifications, and open tracking.
+// Rendered as rows of the composer ribbon's Delivery group (t38-e5).
 //
 // Receipt defaults come from account settings; a stored draft keeps its own
 // choices. Each option explains its scope beside the checkbox.
 
 import { Show, type JSX } from 'solid-js';
+import { RibbonItem } from '../bars/index.ts';
 import { t } from '../../i18n/index.ts';
 import './compose-extras.css';
 
@@ -21,12 +23,15 @@ export function SendOptions(props: {
   tracking: boolean;
   onTracking: (on: boolean) => void;
 }): JSX.Element {
+  const deliveryHint = (): string =>
+    t(props.deliveryAvailable ? 'mail-compose-request-delivery-hint' : 'mail-compose-delivery-unavailable');
+  // One ribbon row per option (t38): the Delivery group's 3-row grid. Each
+  // hint stays the option's description, read out and shown as its tooltip.
   return (
-    <Show when={props.receiptAvailable || props.trackingAvailable || props.deliveryAvailable !== undefined}>
-      <fieldset class="compose-options" data-testid="compose-send-options">
-        <legend class="compose-options__legend">{t('mail-compose-options')}</legend>
-        <Show when={props.receiptAvailable}>
-          <label class="compose-options__toggle">
+    <>
+      <Show when={props.receiptAvailable}>
+        <RibbonItem><div class="compose-rib__row">
+          <label class="compose-options__toggle" data-tooltip={t('mail-compose-request-receipt-hint')}>
             <input
               type="checkbox"
               checked={props.requestReceipt}
@@ -34,20 +39,27 @@ export function SendOptions(props: {
               aria-describedby="compose-receipt-hint"
               onChange={(e) => props.onRequestReceipt(e.currentTarget.checked)}
             />
-            <span>{t('mail-compose-request-receipt')}</span>
+            <span class="compose-rib__text">{t('mail-compose-request-receipt')}</span>
           </label>
-          <p id="compose-receipt-hint" class="compose-options__hint">
+          <span id="compose-receipt-hint" hidden>
             {t('mail-compose-request-receipt-hint')}
-          </p>
-        </Show>
-        <Show when={props.deliveryAvailable !== undefined}>
-          <label class="compose-options__toggle"><input type="checkbox" checked={props.requestDelivery === true}
-            disabled={!props.deliveryAvailable} data-testid="compose-request-delivery" aria-describedby="compose-delivery-hint"
-            onChange={event=>props.onRequestDelivery?.(event.currentTarget.checked)}/><span>{t('mail-compose-request-delivery')}</span></label>
-          <p id="compose-delivery-hint" class="compose-options__hint">{t(props.deliveryAvailable?'mail-compose-request-delivery-hint':'mail-compose-delivery-unavailable')}</p>
-        </Show>
-        <Show when={props.trackingAvailable}>
-          <label class="compose-options__toggle">
+          </span>
+        </div></RibbonItem>
+      </Show>
+      <Show when={props.deliveryAvailable !== undefined}>
+        <RibbonItem><div class="compose-rib__row">
+          <label class="compose-options__toggle" data-tooltip={deliveryHint()}>
+            <input type="checkbox" checked={props.requestDelivery === true}
+              disabled={!props.deliveryAvailable} data-testid="compose-request-delivery" aria-describedby="compose-delivery-hint"
+              onChange={event=>props.onRequestDelivery?.(event.currentTarget.checked)}/>
+            <span class="compose-rib__text">{t('mail-compose-request-delivery')}</span>
+          </label>
+          <span id="compose-delivery-hint" hidden>{deliveryHint()}</span>
+        </div></RibbonItem>
+      </Show>
+      <Show when={props.trackingAvailable}>
+        <RibbonItem><div class="compose-rib__row">
+          <label class="compose-options__toggle" data-tooltip={t('mail-compose-track-opens-hint')}>
             <input
               type="checkbox"
               checked={props.tracking}
@@ -55,13 +67,13 @@ export function SendOptions(props: {
               aria-describedby="compose-tracking-hint"
               onChange={(e) => props.onTracking(e.currentTarget.checked)}
             />
-            <span>{t('mail-compose-track-opens')}</span>
+            <span class="compose-rib__text">{t('mail-compose-track-opens')}</span>
           </label>
-          <p id="compose-tracking-hint" class="compose-options__hint">
+          <span id="compose-tracking-hint" hidden>
             {t('mail-compose-track-opens-hint')}
-          </p>
-        </Show>
-      </fieldset>
-    </Show>
+          </span>
+        </div></RibbonItem>
+      </Show>
+    </>
   );
 }

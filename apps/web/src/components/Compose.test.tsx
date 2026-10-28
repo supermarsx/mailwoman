@@ -221,6 +221,11 @@ describe('Compose', () => {
     await app.assist.loadConfig();
     expect(await screen.findByTestId('compose-assist')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', {name:'Insert'}));
+    // The tools open under the ribbon's Assist button (t38: nothing adds a fourth row).
+    const assist = within(screen.getByTestId('compose-assist')).getAllByRole('button')[0]!;
+    expect(assist).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(assist);
+    expect(assist).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('button', { name: 'Fix grammar' })).toBeInTheDocument();
   });
 
