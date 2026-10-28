@@ -32,7 +32,21 @@ test.describe('admin console at MW_ADMIN_PATH', () => {
     await expect(loginForm).toBeVisible();
     await loginForm.getByLabel('Admin username').fill(V6.adminUser);
     await loginForm.getByLabel('Password', { exact: true }).fill(V6.adminPass);
-    await loginForm.getByRole('button', { name: 'Sign in' }).click();
+    // A spec before this one signs in wrongly on purpose, which starts the per-IP
+    // sign-in cooldown (failed attempts only, 63d344c0): a 429 signinCooldown names
+    // its wait in Retry-After, and the form counts it down before it can be sent
+    // again. Wait it out the way a person would, as helpers.signInManually does.
+    for (let attempt = 0; ; attempt += 1) {
+      const answer = page.waitForResponse(
+        (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === `${ADMIN_PATH}/login`,
+      );
+      await loginForm.getByRole('button', { name: 'Sign in', exact: true }).click();
+      const res = await answer;
+      if (res.status() !== 429 || attempt >= 3) break;
+      const wait = Number(res.headers()['retry-after'] ?? '3');
+      await page.waitForTimeout((Number.isFinite(wait) ? Math.min(wait, 30) : 3) * 1000 + 250);
+      await expect(loginForm.getByRole('button', { name: 'Sign in', exact: true })).toBeEnabled();
+    }
 
     const nav = page.getByRole('navigation', { name: 'Admin sections' });
     await expect(nav).toBeVisible();

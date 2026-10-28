@@ -1,7 +1,12 @@
 import { test,expect } from '../csrf.ts';
 import { ceremony } from './ceremonies.ts';
+import { disableSigninCooldown } from '../helpers.ts';
 
-test('administrator passkeys use real browser UI, require factors and support one-use recovery',async({page,context})=>{
+test('administrator passkeys use real browser UI, require factors and support one-use recovery',async({page,context,playwright,baseURL})=>{
+  // Earlier specs on the same stack sign in wrongly on purpose, which starts the
+  // per-IP sign-in cooldown (failed attempts only, 63d344c0); the UI sign-in below
+  // would then get 429. Set the policy to 0 first (this spec did so after it).
+  await disableSigninCooldown(playwright.request, baseURL!);
   const cdp=await context.newCDPSession(page);await cdp.send('WebAuthn.enable');
   await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',ctap2Version:'ctap2_1',transport:'internal',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true,defaultBackupEligibility:true,defaultBackupState:true}});
   await page.goto('/admin');

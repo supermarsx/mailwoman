@@ -1,4 +1,5 @@
 import { expect, type APIRequestContext } from '@playwright/test';
+import { postSignIn } from './helpers.ts';
 
 /**
  * Shared helpers for the V6 live E2E specs (plan §3 e13). These specs drive the
@@ -46,9 +47,9 @@ export const PKCE = {
 
 /** Cookie-authenticate the mailbox session against the real server; returns the accountId. */
 export async function mailboxLogin(request: APIRequestContext): Promise<string> {
-  const resp = await request.post('/api/login', {
-    data: { username: V6.mailUser, password: V6.mailPass },
-  });
+  // postSignIn waits out the per-IP sign-in cooldown that a spec's deliberate
+  // failed sign-in starts (signin.retryCooldownSecs, failed attempts only since 63d344c0).
+  const resp = await postSignIn(request, '/api/login', { username: V6.mailUser, password: V6.mailPass });
   expect(resp.status(), 'mailbox login succeeds').toBe(200);
   const body = await resp.json();
   return body.accountId as string;
@@ -56,9 +57,7 @@ export async function mailboxLogin(request: APIRequestContext): Promise<string> 
 
 /** Cookie-authenticate the SEPARATE admin session domain. */
 export async function adminLogin(request: APIRequestContext): Promise<void> {
-  const resp = await request.post(adminPath('/login'), {
-    data: { username: V6.adminUser, password: V6.adminPass },
-  });
+  const resp = await postSignIn(request, adminPath('/login'), { username: V6.adminUser, password: V6.adminPass });
   expect(resp.status(), 'admin login succeeds').toBe(200);
 }
 
@@ -94,6 +93,10 @@ export async function mintKey(
   account: string,
   scopeObj: Record<string, unknown>,
 ): Promise<string> {
+  // Minting a key needs a fresh password confirmation (step-up, ApiKeyCreate,
+  // 7e9af0d0); without it the server answers 403.
+  const stepUp = await request.post('/api/security/step-up', { data: { password: V6.mailPass } });
+  expect(stepUp.status(), 'step-up before minting a key').toBe(200);
   const resp = await request.post('/api/keys', {
     data: { label: 'e13-web', accountId: account, scope: scopeObj },
   });
