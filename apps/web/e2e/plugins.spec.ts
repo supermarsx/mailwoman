@@ -140,27 +140,41 @@ test.describe('Plugin registry (V7) — admin surface on the real server', () =>
 
     await page.goto('/admin');
     await page.getByRole('link', { name: 'Plugins', exact: true }).click();
+    // The Plugins page is a list; registration is its own form (#/plugins/+register, 2ed1eb05).
+    await page.getByRole('main').getByRole('button', { name: 'Register a plugin' }).first().click();
     const form = page.getByRole('form', { name: 'Register a plugin' });
     await form.getByLabel('Component', { exact: true }).selectOption('spam-rspamd');
     await form.getByRole('button', { name: 'Register' }).click();
 
-    const card = page.locator('[data-plugin-id="spam-rspamd"]');
-    await expect(card.getByTestId('trust-chip')).toHaveText('First-party, digest built in');
-    await expect(card.getByTestId('status-chip')).toHaveText('Not loaded');
-    await card.getByRole('button', { name: 'Approve' }).click();
-    await card.getByLabel('Grant spam-action to Rspamd spam classifier').check();
-    await card.getByRole('button', { name: 'Save grants' }).click();
-    await card.getByRole('button', { name: 'Enable' }).click();
+    // Since 2ed1eb05 the Plugins page is a list (approve / enable / disable are
+    // row actions) opening into a detail per plugin (status, grants, ...);
+    // registering lands on the new plugin's detail.
+    const detail = page.getByRole('region', { name: 'Rspamd spam classifier', exact: true });
+    await expect(detail.getByTestId('trust-chip')).toHaveText('First-party, digest built in');
+    await expect(detail.getByTestId('status-chip')).toHaveText('Not loaded');
+    await detail.getByRole('link', { name: 'Back to the list' }).click();
+    const row = page.getByRole('row').filter({ hasText: 'Rspamd spam classifier' });
+    await row.getByRole('button', { name: /^Approve/ }).click();
+    await expect(row.getByRole('button', { name: /^Enable/ })).toBeVisible();
+    await row.getByRole('link').first().click();
+    await detail.getByRole('checkbox', { name: 'spam-action', exact: true }).check();
+    await detail.getByRole('button', { name: 'Save grants' }).click();
+    await expect(detail.getByRole('button', { name: 'Save grants' })).toBeDisabled();
+    await detail.getByRole('link', { name: 'Back to the list' }).click();
+    await row.getByRole('button', { name: /^Enable/ }).click();
     // Enabled on a server that cannot run it: the screen says why, and never "Loaded".
-    await expect(card.getByTestId('status-line')).toHaveText(
+    await expect(row.getByRole('button', { name: /^Disable/ })).toBeVisible();
+    await expect(row.getByTestId('status-chip')).toHaveText('Not loaded');
+    await row.getByRole('link').first().click();
+    await expect(detail.getByRole('status')).toHaveText(
       'Not loaded: this server runs in proxy mode and does not process mail itself.',
     );
-    await expect(card.getByTestId('status-chip')).toHaveText('Not loaded');
-    await expect(card.getByRole('button', { name: 'Disable' })).toBeVisible();
+    await expect(detail.getByTestId('status-chip')).toHaveText('Not loaded');
 
     // The UI plugins screen is reachable from the nav and reads the real route.
     await page.getByRole('link', { name: 'UI plugins' }).click();
     await expect(page.getByRole('region', { name: 'UI plugins' })).toBeVisible();
+    await page.getByRole('region', { name: 'UI plugins' }).getByRole('button', { name: 'Register a UI plugin' }).first().click();
     await expect(page.getByRole('form', { name: 'Register a UI plugin' })).toBeVisible();
 
     await page.request.post('/admin/plugins/spam-rspamd/uninstall');
