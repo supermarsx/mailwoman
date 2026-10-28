@@ -1,8 +1,10 @@
 import { test, expect } from '@playwright/test';
 test('logs show real authentication failures and process diagnostics @phone',async({page,request})=>{
+ // A rejected sign-in starts the 3 s per-IP cooldown (signin.retryCooldownSecs, d94472d7): an earlier spec may end with one, webmail and admin sign-ins share it, and this spec makes two rejected attempts before signing in.
+ const cooldown=()=>new Promise(resolve=>setTimeout(resolve,3100));await cooldown();
  const username=`failed-${Date.now()}@example.org`;
- const webmail=await request.post('/api/login',{data:{username:'testuser',password:'logs-invalid-password'}});expect(webmail.status()).toBe(401);
- await request.post('/admin/login',{data:{username,password:'not-for-the-log'}});
+ const webmail=await request.post('/api/login',{data:{username:'testuser',password:'logs-invalid-password'}});expect(webmail.status()).toBe(401);await cooldown();
+ const rejected=await request.post('/admin/login',{data:{username,password:'not-for-the-log'}});expect(rejected.status()).toBe(401);await cooldown();
  await page.goto('/admin');await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('button',{name:'Sign in',exact:true})).toHaveCount(0);
  await page.goto('/admin#/logs');await expect(page.getByRole('heading',{name:'Authentication logs'})).toBeVisible();
  await page.getByLabel('Account, attempted username or IP').fill(username);await page.getByLabel('Sign-in area').selectOption('admin');
