@@ -15,7 +15,6 @@ use mw_store::{ServerKey, Store};
 #[path = "../../mw-server/tests/common/gate.rs"]
 mod gate;
 
-#[allow(dead_code)]
 #[path = "../src/test_db.rs"]
 mod test_db;
 
