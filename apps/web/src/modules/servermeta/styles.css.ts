@@ -4,7 +4,7 @@
 // with 1px less padding so no box grows (P1), focus is the outline ring,
 // headings heavy, labels small tracked capitals.
 
-import { style } from '@vanilla-extract/css';
+import { globalStyle, style } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
 
 /** The outline ring (forced colours keep it; they drop a box-shadow ring). */
@@ -22,6 +22,15 @@ export const wrap = style({
   gap: vars.space[4],
   fontFamily: vars.font.ui,
   color: vars.color.text,
+});
+
+// In the user's Settings the view is a section card like its neighbours (the
+// Settings `section` primitive); the admin console already frames it in a panel.
+globalStyle(`[data-settings-section] ${wrap}`, {
+  padding: less1(vars.space[5]),
+  borderRadius: vars.radius.lg,
+  background: vars.color.surface,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
 });
 
 export const heading = style({ fontSize: '1rem', fontWeight: vars.weight.heavy, margin: 0 });

@@ -32,6 +32,16 @@ export const panel = style({
   color: vars.color.text,
 });
 
+/** The Rules & filters section as a Settings card (matches the Settings
+ * `section` primitive); the sub-panels inside it stay plain `panel`s. */
+export const card = style([panel, {
+  minInlineSize: 0,
+  padding: less1(vars.space[5]),
+  borderRadius: vars.radius.lg,
+  background: vars.color.surface,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
+}]);
+
 export const heading = style({ fontSize: '1rem', fontWeight: vars.weight.heavy, margin: 0 });
 
 /** Visually hidden but exposed to assistive tech (the `.sr-only` pattern). */

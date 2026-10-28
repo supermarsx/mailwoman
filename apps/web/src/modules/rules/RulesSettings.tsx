@@ -38,7 +38,7 @@ export function RulesSettings(props: RulesSettingsProps): JSX.Element {
     try { await work(); } catch (error) { setEditFailure(error instanceof Error ? error.message : String(error)); }
   }
   function edit(rule: MailRule): void { setEditing({ ...rule }); }
-  return <section class={css.panel} aria-labelledby="rules-heading">
+  return <section class={css.card} aria-labelledby="rules-heading">
     <h2 id="rules-heading" class={css.heading}>{t('rules-title')}</h2>
     <p class={css.prose}>{t('rules-intro')}</p>
     <div class={css.tabs} role="tablist" aria-label={t('rules-panes-label')}>
