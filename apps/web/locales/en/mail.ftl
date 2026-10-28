@@ -631,6 +631,13 @@ mail-draft-limit = This account already has 100 saved drafts. Discard an unwante
 mail-draft-quota-help = Up to 100 account drafts are retained. Discard removes the confirmed upstream copy before releasing its slot.
 mail-draft-discard-confirm = Confirm draft removal
 mail-draft-discard-confirm-detail = Permanently remove “{ $subject }” from account Drafts? Closing the composer instead keeps the draft.
+# The discard confirmation dialog (t42): Keep editing is the safe default.
+mail-draft-discard-title = Discard this draft?
+mail-draft-keep-editing = Keep editing
+mail-draft-discard-action = Discard
+mail-draft-close-title = Discard unsaved changes?
+mail-draft-close-protected = This message holds encrypted or decrypted content, so it is not saved as a draft. Closing it discards these changes. An earlier account draft, if any, stays in Drafts.
+mail-draft-close-unstored = Drafts cannot be saved in this session, so closing this message discards it.
 
 mail-workspace-view-mode = View arrangement
 mail-workspace-tabs-help = Show one active view while keeping the other tabs open.

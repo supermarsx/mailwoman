@@ -1,5 +1,5 @@
 import {afterEach,beforeAll,expect,it,vi} from 'vitest';
-import {render,fireEvent,screen,waitFor} from '@solidjs/testing-library';
+import {render,fireEvent,screen,waitFor,within} from '@solidjs/testing-library';
 import {Compose} from './Compose.tsx';
 import {makeClient} from './appHarness.tsx';
 import {createAppState} from '../state/store.ts';
@@ -42,10 +42,16 @@ it.each(['revision-one','revision-two','switch-draft'])('saves with captured aut
  expect(new Headers(saveCall?.[1]?.headers).get('x-mailwoman-storage-authority')).toBe('test-storage-authority-acct1');success.mockRestore();
  fireEvent.click(screen.getByRole('button',{name:'Discard account draft'}));
  expect(removals).toHaveLength(0);expect(closed).not.toHaveBeenCalled();expect(screen.getByRole('button',{name:'Send'})).toBeDisabled();
- fireEvent.click(screen.getByRole('button',{name:/^Cancel$/}));expect(closed).not.toHaveBeenCalled();
+ // A themed modal (t42): labelled alertdialog, the safe choice focused, Esc cancels.
+ const dialog=await screen.findByRole('alertdialog',{name:'Discard this draft?'});
+ expect(dialog).toHaveAttribute('aria-modal','true');expect(dialog).toHaveAccessibleDescription(/Remote editable/);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Keep editing'})).toHaveFocus());
+ fireEvent.keyDown(dialog,{key:'Escape'});expect(screen.queryByRole('alertdialog')).toBeNull();expect(closed).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Discard account draft'}));
+ fireEvent.click(screen.getByRole('button',{name:'Keep editing'}));expect(closed).not.toHaveBeenCalled();
  fireEvent.click(screen.getByRole('button',{name:'Discard account draft'}));
  const failure=vi.spyOn(toast,'error');
- fireEvent.click(screen.getByRole('button',{name:'Confirm draft removal'}));
+ fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button',{name:'Discard'}));
  if(loadedRevision==='switch-draft'){
   await waitFor(()=>expect(releaseLoad).toBeDefined());
   fireEvent.click(screen.getByRole('button',{name:/^Drafts$/}));

@@ -34,7 +34,7 @@ test('account Drafts resumes on a fresh device and explicit discard removes the 
   await other.getByTestId('open-drafts').click();
   const row=list.locator('div').filter({has:other.getByRole('button',{name:subject,exact:true})});
   await row.getByRole('button',{name:'Discard account draft',exact:true}).click();
-  await other.getByRole('alertdialog').getByRole('button',{name:'Confirm draft removal',exact:true}).click();
+  await other.getByRole('alertdialog',{name:'Discard this draft?'}).getByRole('button',{name:'Discard',exact:true}).click();
   await expect.poll(async()=> (await other.request.get(`/api/account/drafts/${saved.id}`)).status()).toBe(404);
  }finally{await fresh.close();}
 });

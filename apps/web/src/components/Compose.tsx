@@ -88,6 +88,7 @@ import { CAP_CORE } from '../api/jmap-types.ts';
 import { DirectorySearch, GroupExpand, type GalEntry } from '../modules/directory/index.ts';
 import { ComposerTools, Dictation } from '../modules/assist/index.ts';
 import { NextcloudAttach, type AttachedFile } from '../modules/nextcloud/index.ts';
+import { ConfirmDialog } from '../screens/Admin/shell/ConfirmDialog.tsx';
 
 // Advertised in the session only by this server's own engine (mw-engine
 // `session_json`), which is what turns `mailwomanRequestReadReceipt` into a
@@ -210,6 +211,8 @@ export function Compose(props: {
   const [discardCurrentOpen,setDiscardCurrentOpen]=createSignal(false);
   const [discardCurrentBusy,setDiscardCurrentBusy]=createSignal(false);
   const [discardConfirmation,setDiscardConfirmation]=createSignal<AccountDraftDocument|null>(null);
+  // Closing a composer whose content nothing would keep asks first (t42).
+  const [closePrompt,setClosePrompt]=createSignal<{body:string;answer:(leave:boolean)=>void}|null>(null);
   let remoteWriter:ReturnType<typeof createDraftAutosave>|undefined;
   let remoteWriterId='';
   let resumedUncertain=false;
@@ -351,6 +354,8 @@ export function Compose(props: {
   let backdropEl: HTMLDivElement | undefined;
   let toInputEl: HTMLInputElement | undefined;
   let previouslyFocused: HTMLElement | null = null;
+  /** Dialogs open in the document that holds the composer, never hidden in the opener. */
+  const dialogMount=():Node|undefined=>backdropEl?.ownerDocument.body;
 
   function focusableIn(root: HTMLElement): HTMLElement[] {
     return Array.from(
@@ -799,9 +804,26 @@ export function Compose(props: {
     if(resumedUncertain)remoteWriter.seedUncertain();
   }
   let allowRecoveryClose=false;
+  /** Why closing now would lose the message (it is never stored), or null when a draft keeps it. */
+  function unsavedCloseReason():string|null{
+    const content=[to(),cc(),bcc(),subject(),body()].some(value=>value.trim()!=='')||attachments().length>0||inlineImages().length>0;
+    if(!content)return null;
+    if(protectedDraft())return 'mail-draft-close-protected';
+    if(!draftAuthority?.storageAuthority)return 'mail-draft-close-unstored';
+    return null;
+  }
+  function confirmUnsavedClose(reason:string):Promise<boolean>{
+    // The composer may be in a detached window: bring that window forward, the dialog opens there.
+    const view=backdropEl?.ownerDocument.defaultView;if(view&&view!==window)view.focus();
+    return new Promise(resolve=>setClosePrompt({body:t(reason),answer:leave=>{setClosePrompt(null);resolve(leave);}}));
+  }
+  onCleanup(()=>closePrompt()?.answer(false));
   async function beforeDraftClose():Promise<boolean>{
     if(sent||allowRecoveryClose||!ownsDraft())return true;
     if(uploading()||remoteWriter?.isBusy())return false;
+    if(closePrompt())return false;
+    const reason=unsavedCloseReason();
+    if(reason)return confirmUnsavedClose(reason);
     if(settings()['mail.draftSaveMode']?.value!=='manual'&&remoteWriter?.hasPending()&&!await remoteWriter.flush())return false;
     return true;
   }
@@ -1181,7 +1203,7 @@ export function Compose(props: {
           </button>
           <h2 class={a11y.srOnly}>{t(initial !== undefined ? TITLE_KEY[initial.mode] : 'mail-compose-title')}</h2>
           <div class="compose__header-actions">
-            <button type="button" class="btn btn--ghost compose-action--secondary" aria-label={t('mail-draft-discard-account')} disabled={busy()||uploading()||discardCurrentBusy()||remoteStatus()==='uncertain'||remoteStatus()==='conflict'} onClick={()=>setDiscardCurrentOpen(true)} data-tooltip={t('mail-draft-discard-confirm')}><Icon name="delete"/><span>{t('mail-draft-discard-account')}</span></button>
+            <button type="button" class="btn btn--ghost compose-action--secondary" data-detached-local="" aria-haspopup="dialog" aria-label={t('mail-draft-discard-account')} disabled={busy()||uploading()||discardCurrentBusy()||remoteStatus()==='uncertain'||remoteStatus()==='conflict'} onClick={()=>setDiscardCurrentOpen(true)} data-tooltip={t('mail-draft-discard-confirm')}><Icon name="delete"/><span>{t('mail-draft-discard-account')}</span></button>
         <Show when={remoteReady()&&!protectedDraft()}><button type="button" class="btn btn--ghost" disabled={remoteStatus()==='saving'||remoteStatus()==='uncertain'||remoteStatus()==='conflict'} onClick={()=>void remoteWriter?.flush()}><Icon name="file"/>{t('mail-draft-save-now')}</button></Show>
             <button
               type="button"
@@ -1212,9 +1234,21 @@ export function Compose(props: {
         <p role="status" aria-live="polite" class="compose__sign-unlock-note" data-testid="account-draft-status">{t(protectedDraft()?'mail-draft-protected':`mail-draft-status-${remoteStatus()}`)}</p>
         <Show when={['error','uncertain','conflict'].includes(remoteStatus())&&localDraftAuthority()}><button type="button" class="btn btn--ghost" onClick={()=>{allowRecoveryClose=true;props.onClose();}}>{t('mail-draft-close-recovery')}</button></Show>
 
-        <Show when={draftsOpen()}><section aria-label={t('mail-draft-account-list')}><h3>{t('mail-draft-account-list')}</h3><p>{t('mail-draft-quota-help')}</p><Show when={remoteLoading()}><p role="status">{t('mail-draft-loading')}</p></Show><For each={remoteDrafts()}>{document=><div><button type="button" class="btn btn--ghost" disabled={remoteLoading()} onClick={()=>void resumeRemoteDraft(document.id)}>{document.summary.subject||t('mail-no-subject')}</button><button type="button" class="btn btn--ghost" disabled={remoteLoading()||document.status==='uncertain'} onClick={()=>setDiscardConfirmation(document)}>{t('mail-draft-discard-account')}</button></div>}</For></section></Show>
-        <Show when={discardCurrentOpen()}><section role="alertdialog" aria-label={t('mail-draft-discard-confirm')}><p>{t('mail-draft-discard-confirm-detail',{subject:subject()||t('mail-no-subject')})}</p><button type="button" class="btn btn--ghost" disabled={discardCurrentBusy()} onClick={()=>setDiscardCurrentOpen(false)}>{t('mail-compose-cancel')}</button><button type="button" class="btn" disabled={discardCurrentBusy()} onClick={()=>void discardCurrentDraft()}>{t('mail-draft-discard-confirm')}</button></section></Show>
-        <Show when={discardConfirmation()}>{document=><section role="alertdialog" aria-label={t('mail-draft-discard-confirm')}><p>{t('mail-draft-discard-confirm-detail',{subject:document().summary.subject||t('mail-no-subject')})}</p><button type="button" class="btn btn--ghost" disabled={remoteLoading()} onClick={()=>setDiscardConfirmation(null)}>{t('mail-compose-cancel')}</button><button type="button" class="btn" disabled={remoteLoading()} onClick={()=>{const row=document();setDiscardConfirmation(null);void discardRemoteDraft(row);}}>{t('mail-draft-discard-confirm')}</button></section>}</Show>
+        <Show when={draftsOpen()}><section aria-label={t('mail-draft-account-list')}><h3>{t('mail-draft-account-list')}</h3><p>{t('mail-draft-quota-help')}</p><Show when={remoteLoading()}><p role="status">{t('mail-draft-loading')}</p></Show><For each={remoteDrafts()}>{document=><div><button type="button" class="btn btn--ghost" disabled={remoteLoading()} onClick={()=>void resumeRemoteDraft(document.id)}>{document.summary.subject||t('mail-no-subject')}</button><button type="button" class="btn btn--ghost" disabled={remoteLoading()||document.status==='uncertain'} data-detached-local="" aria-haspopup="dialog" onClick={()=>setDiscardConfirmation(document)}>{t('mail-draft-discard-account')}</button></div>}</For></section></Show>
+        {/* Discard confirmations and the unsaved-close prompt share one themed modal,
+            mounted in the composer's own document (a detached window, when torn off). */}
+        <ConfirmDialog open={discardCurrentOpen()} testId="compose-discard-confirm" mount={dialogMount()}
+          title={t('mail-draft-discard-title')} body={t('mail-draft-discard-confirm-detail',{subject:subject()||t('mail-no-subject')})}
+          confirmLabel={t('mail-draft-discard-action')} cancelLabel={t('mail-draft-keep-editing')}
+          onCancel={()=>{if(!discardCurrentBusy())setDiscardCurrentOpen(false);}} onConfirm={discardCurrentDraft}/>
+        <ConfirmDialog open={discardConfirmation()!==null} testId="compose-discard-account-confirm" mount={dialogMount()}
+          title={t('mail-draft-discard-title')} body={t('mail-draft-discard-confirm-detail',{subject:discardConfirmation()?.summary.subject||t('mail-no-subject')})}
+          confirmLabel={t('mail-draft-discard-action')} cancelLabel={t('mail-draft-keep-editing')}
+          onCancel={()=>setDiscardConfirmation(null)} onConfirm={async()=>{const row=discardConfirmation();if(row)await discardRemoteDraft(row);setDiscardConfirmation(null);}}/>
+        <ConfirmDialog open={closePrompt()!==null} testId="compose-close-confirm" mount={dialogMount()}
+          title={t('mail-draft-close-title')} body={closePrompt()?.body??''}
+          confirmLabel={t('mail-draft-discard-action')} cancelLabel={t('mail-draft-keep-editing')}
+          onCancel={()=>closePrompt()?.answer(false)} onConfirm={()=>closePrompt()?.answer(true)}/>
         <DraftsDrawer
           open={draftsOpen()}
           drafts={drafts}
