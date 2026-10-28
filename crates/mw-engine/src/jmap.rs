@@ -463,6 +463,15 @@ impl Engine {
         } else {
             None
         };
+        // First-sync progress. `mailwomanRetryInitialSync` re-arms a job that
+        // used up its attempts; `mailwomanSynced` says whether a mailbox's
+        // messages have been indexed at least once (its sync cursor exists),
+        // so a client can tell "empty" from "not indexed yet".
+        if args.get("mailwomanRetryInitialSync") == Some(&Value::Bool(true)) {
+            self.retry_initial_sync(account_id);
+        }
+        let wants_synced = folders::wants_property(args, "mailwomanSynced");
+        let account_ready = self.initial_sync_status(account_id) == "ready";
         // Optional id filter (the web client usually omits it to list all).
         let wanted: Option<Vec<&str>> = args
             .get("ids")
@@ -493,6 +502,14 @@ impl Engine {
             if let Some(names) = &subscribed {
                 entry["isSubscribed"] = json!(names.contains(&m.name));
             }
+            if wants_synced {
+                let synced = account_ready
+                    || matches!(
+                        self.store().load_cursor(account_id, &m.id).await,
+                        Ok(Some(_))
+                    );
+                entry["mailwomanSynced"] = json!(synced);
+            }
             list.push(entry);
         }
         // Saved searches surface as virtual folders (role:null +
@@ -517,7 +534,7 @@ impl Engine {
             {
                 continue;
             }
-            list.push(json!({
+            let mut entry = json!({
                 "id": s.id,
                 "name": s.name,
                 "parentId": Value::Null,
@@ -529,7 +546,12 @@ impl Engine {
                 "unreadThreads": 0,
                 "myRights": folders::read_only_rights(),
                 "mailwomanSearchQuery": s.query_json,
-            }));
+            });
+            // A search spans every folder, so it is complete only once all are.
+            if wants_synced {
+                entry["mailwomanSynced"] = json!(account_ready);
+            }
+            list.push(entry);
         }
 
         let not_found: Vec<Value> = match &wanted {
