@@ -7,6 +7,7 @@ import {
   openMessage,
   cryptoAccountId,
   waitForMailRule,
+  activeReader,
 } from './crypto-helpers.ts';
 
 /**
@@ -27,6 +28,7 @@ import {
 test('Security panel: renders DKIM verdicts + the Received chain for signed vs unsigned mail', async ({
   page,
 }) => {
+  test.setTimeout(90_000); // two SMTP injects + IMAP sync + two server verdicts
   const token = uid();
   const signedSubject = `DKIM signed ${token}`;
   const plainSubject = `DKIM none ${token}`;
@@ -54,7 +56,7 @@ test('Security panel: renders DKIM verdicts + the Received chain for signed vs u
   // ── Signed message: expand the panel, read the DKIM verdict + delivery path ──
   await waitForInboxMessage(page, signedSubject);
   await openMessage(page, signedSubject);
-  const chip = page.locator('.reader button[aria-expanded]').first();
+  const chip = activeReader(page).locator('button[aria-expanded]').first();
   await expect(chip).toBeVisible({ timeout: 15_000 });
   // The chip carries the plain-language summary.
   await expect(chip).not.toBeEmpty();
@@ -66,10 +68,15 @@ test('Security panel: renders DKIM verdicts + the Received chain for signed vs u
   // The Received chain (delivery path) renders at least one hop.
   await expect(region).toContainText('Delivery path');
   const signedDkim = await region.locator('text=/DKIM (passed|failed|neutral|not present|temporary error|permanent error)/').first().innerText();
+  // The expanded details are a modal dialog (2387e7dd); close it so the mailbox
+  // list is reachable again.
+  const details = page.getByRole('dialog', { name: 'Message security details' });
+  await details.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(details).toBeHidden();
 
   // ── Unsigned message: the DKIM verdict differs (not present) ──
   await openMessage(page, plainSubject);
-  const chip2 = page.locator('.reader button[aria-expanded]').first();
+  const chip2 = activeReader(page).locator('button[aria-expanded]').first();
   await expect(chip2).toBeVisible({ timeout: 15_000 });
   await chip2.click();
   const region2 = page.getByRole('region', { name: 'Message security details' });

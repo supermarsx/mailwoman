@@ -225,9 +225,18 @@ export async function waitForInboxMessage(page: Page, subject: string, timeout =
   }).toPass({ timeout });
 }
 
+/**
+ * The reader of the selected workspace tab. Opened messages stay retained in
+ * their own tabs, so `.reader` alone can match a hidden reader from an earlier
+ * tab; the role query skips hidden ones.
+ */
+export function activeReader(page: Page) {
+  return page.getByRole('region', { name: 'Message', exact: true });
+}
+
 /** Open a message from the Inbox list by (a substring of) its subject. */
 export async function openMessage(page: Page, subject: string): Promise<void> {
   await sidebarInbox(page).click();
   await messageRow(page, subject).first().click();
-  await expect(page.locator('.reader')).toBeVisible();
+  await expect(activeReader(page)).toBeVisible();
 }
