@@ -145,8 +145,12 @@ export const control = style({
   selectors: { ':root[data-appearance="light"] &': { background: vars.color.surface } },
   '@media': { [PHONE]: { paddingBlock: '0.5rem' } },
 });
+// The box sits on the label's FIRST line (a long label wraps under itself). Its
+// 24 px is about one 1.5 line, so no nudge: the former 0.25em top margin put the
+// box about 5 px below the centre of that line (t32-h12-checkboxes, "label text
+// centre is off the box's centre").
 export const checkboxRow = style({ display: 'flex', alignItems: 'flex-start', gap: vars.space[3], lineHeight: 1.5, minInlineSize: 0 });
-globalStyle(`${checkboxRow} > input`, { flexShrink: 0, marginBlockStart: '0.25em' });
+globalStyle(`${checkboxRow} > input`, { flexShrink: 0, margin: 0 });
 export const learnMore = style({
   color: vars.color.link,
   selectors: { '&:focus-visible': focusRing, '&:hover': { textDecoration: 'underline' } },
