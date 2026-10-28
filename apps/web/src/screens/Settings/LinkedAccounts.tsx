@@ -89,6 +89,7 @@ function OwnedLinkedAccounts():JSX.Element {
 }
 function LinkedPreference(props:{onChanged:()=>void}):JSX.Element {
   const setting=useSetting<boolean>('accounts.useLinked',true);
-  return <div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={setting.value()} disabled={!setting.entry()||setting.locked()||setting.saving()} onChange={event=>void setting.set(event.currentTarget.checked).then(saved=>{if(saved)props.onChanged();})}/>{t('linked-accounts-use')}</label><p class={css.meta}>{t('linked-accounts-use-help')}</p><LockNote locked={setting.locked()}/><Show when={setting.error()}><p role="alert" class={css.error}>{setting.error()}</p></Show></div>;
+  // Its own card, like every other Settings block (it sat loose above the list).
+  return <section class={css.section}><div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={setting.value()} disabled={!setting.entry()||setting.locked()||setting.saving()} onChange={event=>void setting.set(event.currentTarget.checked).then(saved=>{if(saved)props.onChanged();})}/>{t('linked-accounts-use')}</label><p class={css.meta}>{t('linked-accounts-use-help')}</p><LockNote locked={setting.locked()}/><Show when={setting.error()}><p role="alert" class={css.error}>{setting.error()}</p></Show></div></section>;
 }
 export default LinkedAccounts;
