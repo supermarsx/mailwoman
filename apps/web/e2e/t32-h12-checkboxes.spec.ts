@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { test, expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
-import { composeSurface, engineLogin, settingsSurface, enginePhoneLogin, drawerButton } from './helpers.ts';
+import { test, expect, type APIRequestContext, type BrowserContext, type Locator, type Page } from './csrf.ts';
+import { composeSurface, engineLogin, settingsSurface, enginePhoneLogin, drawerButton, injectViaSmtp, setAccountAppearance, waitForInboxMessage } from './helpers.ts';
 
 /**
  * Checkboxes and radios across the web client and the admin console (t32-h12).
@@ -57,6 +57,15 @@ async function seedTheme(page: Page, theme: string): Promise<void> {
     },
     [theme] as const,
   );
+}
+
+/**
+ * Store a theme pack (and accent) on the engine account, so the next sign-in starts on it.
+ * The mail client does not keep a seeded `localStorage` look across sign-in: it adopts the
+ * account's server-side appearance (24fb6149; see `setAccountAppearance`).
+ */
+async function seedAccountTheme(request: APIRequestContext, theme: string, accent?: string): Promise<void> {
+  await setAccountAppearance(request, { mode: 'fixed', theme, chosen: true, ...(accent ? { accent } : {}) });
 }
 
 /** Apply a theme pack and accent on the open page, as the appearance settings do. */
@@ -385,11 +394,30 @@ async function settingsDialog(page: Page): Promise<Locator> {
   return dialog;
 }
 
+/**
+ * Open one section of Settings. The workspace tab shows one section at a time, picked
+ * from its "Settings sections" navigation; the modal layout shows them all at once.
+ */
+async function settingsSection(dialog: Locator, name: string): Promise<void> {
+  const nav = dialog.getByRole('navigation', { name: 'Settings sections' });
+  if ((await nav.count()) === 0) return;
+  const button = nav.getByRole('button', { name, exact: true });
+  await button.click();
+  await expect(button).toHaveAttribute('aria-current', 'page');
+}
+
+/** Open a tab of the compose ribbon: the security and delivery options each sit on their own (e0c99a79). */
+async function ribbonTab(compose: Locator, name: 'Security' | 'Delivery'): Promise<void> {
+  const tab = compose.getByRole('tab', { name, exact: true });
+  await tab.click();
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
+}
+
 // ── mail client ─────────────────────────────────────────────────────────────
 
 test.describe('checkboxes in the mail client', () => {
-  test.beforeEach(async ({ page }) => {
-    await seedTheme(page, 'dark');
+  test.beforeEach(async ({ request }) => {
+    await seedAccountTheme(request, 'dark');
   });
 
   test('settings: API key scopes and notifications', async ({ page }) => {
@@ -397,15 +425,19 @@ test.describe('checkboxes in the mail client', () => {
     await engineLogin(page);
     const dialog = await settingsDialog(page);
     const problems: string[] = [];
+    await settingsSection(dialog, 'API access');
     problems.push(...(await checkControl(page, dialog.getByRole('checkbox', { name: 'Search mail' }), 'api key scope', { labelText: true })));
     problems.push(...(await checkControl(page, dialog.getByRole('checkbox', { name: 'Mail', exact: true }), 'api key surface', { labelText: true })));
+    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, 'settings › api access')));
+    await settingsSection(dialog, 'Notifications');
     problems.push(
       ...(await checkControl(page, dialog.getByRole('checkbox', { name: 'Show notifications for new mail' }), 'notifications', {
         toggle: false,
       })),
     );
-    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, 'settings')));
+    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, 'settings › notifications')));
     // The rule builder: condition and action checkboxes in flex and grid rows.
+    await settingsSection(dialog, 'Mail rules');
     await dialog.getByRole('button', { name: 'New rule' }).click();
     await page.waitForTimeout(300);
     problems.push(...(await everyBoxOnItsRow(page, 'settings › new rule')));
@@ -420,14 +452,18 @@ test.describe('checkboxes in the mail client', () => {
     const dialog = composeSurface(page);
     await expect(dialog).toBeVisible();
     const problems: string[] = [];
+    const where = new URL(page.url()).hash || new URL(page.url()).pathname;
+    await ribbonTab(dialog, 'Security');
     problems.push(...(await checkControl(page, dialog.getByTestId('sign-toggle'), 'sign', { labelText: true })));
     problems.push(...(await checkControl(page, dialog.getByTestId('encrypt-toggle'), 'encrypt (disabled)', { toggle: false })));
+    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, `${where} › security`)));
     // t29-e12 send options: the receipt request (engine), and open tracking where the stack has MW_PUBLIC_URL.
+    await ribbonTab(dialog, 'Delivery');
     problems.push(...(await checkControl(page, dialog.getByTestId('compose-request-receipt'), 'request receipt', { labelText: true })));
     if ((await dialog.getByTestId('compose-track-opens').count()) > 0) {
       problems.push(...(await checkControl(page, dialog.getByTestId('compose-track-opens'), 'record opens', { labelText: true })));
     }
-    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, new URL(page.url()).hash || new URL(page.url()).pathname)));
+    problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, `${where} › delivery`)));
     expect(problems).toEqual([]);
     expect(csp, 'inline-style CSP violations').toEqual([]);
   });
@@ -505,9 +541,13 @@ test.describe('checkboxes in the mail client', () => {
   });
 
   test('mailbox: no inline-style CSP violations', async ({ page }) => {
+    // Its own message, so the list has a row on a fresh stack too.
+    const subject = `t32-h12 mailbox ${Date.now()}`;
+    await injectViaSmtp({ from: 'H12 <h12@example.org>', subject, text: `t32-h12 ${subject}` });
     const csp = watchCsp(page);
     await engineLogin(page);
-    await expect(page.locator('.list__row').first()).toBeVisible({ timeout: 45_000 });
+    await waitForInboxMessage(page, subject);
+    await expect(page.locator('.list__row').first()).toBeVisible();
     await page.waitForTimeout(500);
     expect(csp, 'inline-style CSP violations').toEqual([]);
   });
@@ -627,12 +667,14 @@ const LOOKS: Look[] = [
 
 test.describe('checkboxes in other themes, accents and right-to-left', () => {
   for (const look of LOOKS) {
-    test(`${look.theme}${look.accent ? ` + ${look.accent}` : ''}${look.rtl ? ' rtl' : ''}`, async ({ page }) => {
-      await seedTheme(page, look.theme);
+    test(`${look.theme}${look.accent ? ` + ${look.accent}` : ''}${look.rtl ? ' rtl' : ''}`, async ({ page, request }) => {
+      await seedAccountTheme(request, look.theme, look.accent);
       await engineLogin(page);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', look.theme);
       await applyLook(page, look);
       const problems: string[] = [];
       const dialog = await settingsDialog(page);
+      await settingsSection(dialog, 'API access');
       problems.push(...(await checkControl(page, dialog.getByRole('checkbox', { name: 'Search mail' }), `${look.theme} api scope`, { labelText: true })));
       await closeSettings(page);
       await page.getByTestId('nav-calendar').click();
@@ -646,15 +688,17 @@ test.describe('checkboxes in other themes, accents and right-to-left', () => {
 
 test.describe('checkboxes under forced colours', () => {
   test.use({ contextOptions: { forcedColors: 'active' } });
-  test('settings and compose', async ({ page }) => {
-    await seedTheme(page, 'dark');
+  test('settings and compose', async ({ page, request }) => {
+    await seedAccountTheme(request, 'dark');
     await engineLogin(page);
     const problems: string[] = [];
     const dialog = await settingsDialog(page);
+    await settingsSection(dialog, 'API access');
     problems.push(...(await checkControl(page, dialog.getByRole('checkbox', { name: 'Search mail' }), 'forced api scope', { labelText: true, forced: true })));
     await closeSettings(page);
     await page.getByRole('button', { name: 'Compose', exact: true }).first().click();
     const compose = composeSurface(page);
+    await ribbonTab(compose, 'Security');
     problems.push(...(await checkControl(page, compose.getByTestId('sign-toggle'), 'forced sign', { labelText: true, forced: true })));
     expect(problems).toEqual([]);
   });
@@ -662,12 +706,13 @@ test.describe('checkboxes under forced colours', () => {
 
 test.describe('checkboxes at phone width', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
-  test('settings and compose at 390 px', async ({ page }) => {
-    await seedTheme(page, 'dark');
+  test('settings and compose at 390 px', async ({ page, request }) => {
+    await seedAccountTheme(request, 'dark');
     await enginePhoneLogin(page);
     const problems: string[] = [];
     await drawerButton(page).click();
     const dialog = await settingsDialog(page);
+    await settingsSection(dialog, 'API access');
     problems.push(...(await checkControl(page, dialog.getByRole('checkbox', { name: 'Search mail' }), 'phone api scope', { labelText: true })));
     problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, new URL(page.url()).hash || new URL(page.url()).pathname)));
     expect(problems).toEqual([]);
