@@ -56,8 +56,16 @@ fn client() -> reqwest::Client {
         .unwrap()
 }
 async fn raw(addr: SocketAddr, request: &[u8]) -> String {
+    raw_after(addr, request, Duration::ZERO).await
+}
+/// [`raw`], but the client waits `pause` after sending before it reads. A server
+/// that closes with request bytes still unread makes the kernel send a reset, and
+/// a reset that arrives before the read discards the response on macOS and
+/// Windows; the pause makes that ordering certain instead of a race.
+async fn raw_after(addr: SocketAddr, request: &[u8], pause: Duration) -> String {
     let mut socket = TcpStream::connect(addr).await.unwrap();
     socket.write_all(request).await.unwrap();
+    tokio::time::sleep(pause).await;
     let mut bytes = Vec::new();
     tokio::time::timeout(Duration::from_secs(4), socket.read_to_end(&mut bytes))
         .await
@@ -80,6 +88,10 @@ async fn http1_rejects_oversized_headers_and_slow_ingress_then_remains_healthy()
             .await
             .starts_with("HTTP/1.1 431")
     );
+    // The 431 still arrives when the client reads only after the server has
+    // closed: the server lingers over the unread head instead of resetting.
+    let late = raw_after(server.addr, huge.as_bytes(), Duration::from_millis(500)).await;
+    assert!(late.starts_with("HTTP/1.1 431"), "{late}");
     let too_many = format!(
         "GET / HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
         (0..101)

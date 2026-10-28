@@ -89,6 +89,8 @@ where
             cancel_write: cancel.clone(),
             first_request: first_request.clone(),
             first_deadline: Box::pin(tokio::time::sleep(limits.header_timeout)),
+            linger: None,
+            lingered: 0,
         };
         let app = router.clone();
         let requests = requests.clone();
@@ -221,7 +223,15 @@ struct ConnectionIo<I> {
     cancel_write: Cancellation,
     first_request: Arc<AtomicBool>,
     first_deadline: Pin<Box<Sleep>>,
+    /// Set once the write half is shut: the deadline of the lingering close.
+    linger: Option<Pin<Box<Sleep>>>,
+    /// Bytes discarded while lingering.
+    lingered: usize,
 }
+/// How long a closing connection keeps reading what the client still sends.
+const LINGER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+/// How much of it is read and discarded before the socket is closed anyway.
+const LINGER_BYTES: usize = 1024 * 1024;
 impl<I: AsyncRead + Unpin> AsyncRead for ConnectionIo<I> {
     fn poll_read(
         self: Pin<&mut Self>,
@@ -246,7 +256,7 @@ impl<I: AsyncRead + Unpin> AsyncRead for ConnectionIo<I> {
         Pin::new(&mut this.inner).poll_read(cx, buf)
     }
 }
-impl<I: AsyncWrite + Unpin> AsyncWrite for ConnectionIo<I> {
+impl<I: AsyncRead + AsyncWrite + Unpin> AsyncWrite for ConnectionIo<I> {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -276,7 +286,34 @@ impl<I: AsyncWrite + Unpin> AsyncWrite for ConnectionIo<I> {
         if Pin::new(&mut this.cancel_write).poll(cx).is_ready() {
             return Poll::Ready(Ok(()));
         }
-        Pin::new(&mut this.inner).poll_shutdown(cx)
+        if this.linger.is_none() {
+            std::task::ready!(Pin::new(&mut this.inner).poll_shutdown(cx))?;
+            this.linger = Some(Box::pin(tokio::time::sleep(LINGER_TIMEOUT)));
+        }
+        // Lingering close (RFC 9112 §9.6). A response that refuses a request
+        // (431 for an oversized head, 408, Connection: close) can leave request
+        // bytes unread; closing a socket with unread input sends a TCP reset, and
+        // macOS and Windows clients then report the reset instead of the response
+        // already in their buffer. So after the FIN, read and discard until the
+        // client closes, bounded in time and bytes.
+        let mut scratch = [0u8; 8192];
+        loop {
+            if this.lingered >= LINGER_BYTES {
+                return Poll::Ready(Ok(()));
+            }
+            if let Some(deadline) = this.linger.as_mut()
+                && deadline.as_mut().poll(cx).is_ready()
+            {
+                return Poll::Ready(Ok(()));
+            }
+            let mut buf = ReadBuf::new(&mut scratch);
+            match Pin::new(&mut this.inner).poll_read(cx, &mut buf) {
+                Poll::Ready(Ok(())) if buf.filled().is_empty() => return Poll::Ready(Ok(())),
+                Poll::Ready(Ok(())) => this.lingered += buf.filled().len(),
+                Poll::Ready(Err(_)) => return Poll::Ready(Ok(())),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
     }
     fn is_write_vectored(&self) -> bool {
         self.inner.is_write_vectored()
