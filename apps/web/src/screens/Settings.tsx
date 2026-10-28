@@ -56,6 +56,7 @@ import { MetadataView } from '../modules/servermeta/index.ts';
 // account alongside the existing feature modules.
 import { AccountSettings } from './Settings/index.ts';
 import { Language } from './Settings/Language.tsx';
+import { BarPreferences } from './Settings/BarPreferences.tsx';
 import { IdentityGrants } from './Settings/IdentityGrants.tsx';
 import { SecurityCenter } from './Settings/SecurityCenter.tsx';
 import { Privacy } from './Settings/Privacy.tsx';
@@ -293,6 +294,8 @@ export function Settings(props: SettingsProps): JSX.Element {
             </For>
           </div>
         </div>
+
+        <BarPreferences />
 
         <Language />
         </div>}</RetainedSettingsSection>
