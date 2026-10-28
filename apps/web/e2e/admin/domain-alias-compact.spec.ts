@@ -1,11 +1,8 @@
-import {readFile} from 'node:fs/promises';
-import path from 'node:path';
 import {test,expect} from '../csrf.ts';
+import {adminLogin} from './admin-login.ts';
 
 test('compact alias rows retain accessible edit, clone and remove actions @phone',async({page},info)=>{
- const dist=path.resolve('../../.orchestration/reports/codex-alias-compact-web');
- await page.route('**/*',async route=>{const url=new URL(route.request().url());if(url.pathname!=='/admin'&&!url.pathname.startsWith('/assets/'))return route.continue();const file=path.resolve(dist,url.pathname==='/admin'?'index.html':url.pathname.slice(1));if(!file.startsWith(dist+path.sep))return route.abort();try{const body=await readFile(file);await route.fulfill({status:200,body,contentType:file.endsWith('.html')?'text/html':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'application/octet-stream'});}catch{await route.continue();}});
- await page.goto('/admin');await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill(process.env['MW_ALIAS_TEST_PASSWORD']??'AliasFixture-2026!');await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.locator('#admin-main')).toBeVisible();
+ await adminLogin(page);
  const name=`compact-${Date.now()}.example.test`;const aliases=[`first-${name}`,`a-long-but-valid-alias-name-that-wraps-on-small-screens.${name}`];
  expect((await page.request.put(`/admin/domains/${name}`,{data:{enabled:false,upstream:{version:2,backends:[]}}})).ok()).toBe(true);
  try{
