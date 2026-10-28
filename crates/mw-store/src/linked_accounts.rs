@@ -264,6 +264,102 @@ impl Store {
         }))
     }
 
+    /// The link this session's owner marked as the mailbox to open first, as
+    /// stored. It may name a link that was removed since; callers compare it
+    /// with the current verified links before using it.
+    pub async fn linked_primary(&self, parent: &str) -> Result<Option<String>, StoreError> {
+        Ok(q("SELECT lp.link_id FROM linked_primary lp JOIN session_principal sp ON sp.principal_id=lp.owner_principal_id JOIN sessions s ON s.id=sp.session_id AND s.account_id=sp.primary_account_id JOIN identity_principal p ON p.id=sp.principal_id JOIN identity_binding b ON b.id=sp.binding_id AND b.principal_id=p.id WHERE sp.session_id=?1 AND s.linked_internal=0 AND p.state='active' AND b.retired_at IS NULL")
+            .bind(parent).fetch_optional(&self.backend).await?.map(|r| r.get_string("link_id")))
+    }
+
+    /// Mark one of the owner's own links as the mailbox to open first, or clear
+    /// the mark (`None`: the primary account). Returns false when the session
+    /// has no verified owner or the link is not one of that owner's. This only
+    /// records a preference: opening the link still goes through the normal
+    /// switch authorization.
+    pub async fn set_linked_primary(
+        &self,
+        parent: &str,
+        link: Option<&str>,
+        now: i64,
+    ) -> Result<bool, StoreError> {
+        let mut tx = self.backend.begin().await?;
+        serialize(&mut tx).await?;
+        let owner = q("SELECT sp.principal_id FROM session_principal sp JOIN sessions s ON s.id=sp.session_id AND s.account_id=sp.primary_account_id JOIN identity_principal p ON p.id=sp.principal_id JOIN identity_binding b ON b.id=sp.binding_id AND b.principal_id=p.id WHERE sp.session_id=?1 AND s.linked_internal=0 AND p.state='active' AND b.retired_at IS NULL")
+            .bind(parent).fetch_all_tx(&mut tx).await?;
+        let Some(owner) = owner.first().map(|r| r.get_string("principal_id")) else {
+            return Ok(false);
+        };
+        match link {
+            None => {
+                q("DELETE FROM linked_primary WHERE owner_principal_id=?1")
+                    .bind(&owner)
+                    .execute_tx(&mut tx)
+                    .await?;
+            }
+            Some(link) => {
+                let owned = q("SELECT id FROM linked_account WHERE id=?1 AND owner_principal_id=?2")
+                    .bind(link)
+                    .bind(&owner)
+                    .fetch_all_tx(&mut tx)
+                    .await?;
+                if owned.is_empty() {
+                    return Ok(false);
+                }
+                q("INSERT INTO linked_primary(owner_principal_id,link_id,updated_at) VALUES(?1,?2,?3) ON CONFLICT(owner_principal_id) DO UPDATE SET link_id=excluded.link_id,updated_at=excluded.updated_at")
+                    .bind(&owner).bind(link).bind(now).execute_tx(&mut tx).await?;
+            }
+        }
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    /// The owner's stored mailbox arrangement: `(order_json, nicknames_json,
+    /// revision)`. Validation against the current links is the caller's.
+    pub async fn linked_layout(
+        &self,
+        parent: &str,
+    ) -> Result<Option<(String, String, String)>, StoreError> {
+        Ok(q("SELECT ll.order_json,ll.nicknames_json,ll.revision FROM linked_layout ll JOIN session_principal sp ON sp.principal_id=ll.owner_principal_id JOIN sessions s ON s.id=sp.session_id AND s.account_id=sp.primary_account_id JOIN identity_principal p ON p.id=sp.principal_id JOIN identity_binding b ON b.id=sp.binding_id AND b.principal_id=p.id WHERE sp.session_id=?1 AND s.linked_internal=0 AND p.state='active' AND b.retired_at IS NULL")
+            .bind(parent).fetch_optional(&self.backend).await?
+            .map(|r| (r.get_string("order_json"), r.get_string("nicknames_json"), r.get_string("revision"))))
+    }
+
+    /// Replace the arrangement when `expected` is its current revision (`""`
+    /// when none is stored yet). Returns the new revision, or `None` when the
+    /// session has no verified owner or the revision moved on.
+    pub async fn put_linked_layout(
+        &self,
+        parent: &str,
+        expected: &str,
+        order_json: &str,
+        nicknames_json: &str,
+        now: i64,
+    ) -> Result<Option<String>, StoreError> {
+        let mut tx = self.backend.begin().await?;
+        serialize(&mut tx).await?;
+        let owner = q("SELECT sp.principal_id FROM session_principal sp JOIN sessions s ON s.id=sp.session_id AND s.account_id=sp.primary_account_id JOIN identity_principal p ON p.id=sp.principal_id JOIN identity_binding b ON b.id=sp.binding_id AND b.principal_id=p.id WHERE sp.session_id=?1 AND s.linked_internal=0 AND p.state='active' AND b.retired_at IS NULL")
+            .bind(parent).fetch_all_tx(&mut tx).await?;
+        let Some(owner) = owner.first().map(|r| r.get_string("principal_id")) else {
+            return Ok(None);
+        };
+        let current = q("SELECT revision FROM linked_layout WHERE owner_principal_id=?1")
+            .bind(&owner)
+            .fetch_all_tx(&mut tx)
+            .await?
+            .first()
+            .map(|r| r.get_string("revision"))
+            .unwrap_or_default();
+        if current != expected {
+            return Ok(None);
+        }
+        let revision = uuid::Uuid::new_v4().to_string();
+        q("INSERT INTO linked_layout(owner_principal_id,order_json,nicknames_json,revision,updated_at) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(owner_principal_id) DO UPDATE SET order_json=excluded.order_json,nicknames_json=excluded.nicknames_json,revision=excluded.revision,updated_at=excluded.updated_at")
+            .bind(&owner).bind(order_json).bind(nicknames_json).bind(&revision).bind(now).execute_tx(&mut tx).await?;
+        tx.commit().await?;
+        Ok(Some(revision))
+    }
+
     /// Exact-revision unlink. Mailbox data and unrelated child sessions survive.
     pub async fn unlink_account(
         &self,

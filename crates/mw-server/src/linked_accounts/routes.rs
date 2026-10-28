@@ -12,6 +12,8 @@ pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route("/api/accounts", get(list))
         .route("/api/accounts/link", post(link))
+        .route("/api/accounts/primary", axum::routing::put(set_primary))
+        .route("/api/accounts/layout", axum::routing::put(set_layout))
         .route("/api/accounts/challenges/{id}/confirm", post(confirm))
         .route("/api/accounts/{id}/switch", post(switch))
         .route("/api/accounts/{id}", axum::routing::delete(unlink))
@@ -80,7 +82,31 @@ async fn list(State(state): State<AppState>, headers: HeaderMap) -> Result<Respo
     for row in rows {
         accounts.push(entry(&state, &parent, &row).await?);
     }
+    // The stored first mailbox counts only while it is still one of these links
+    // and ready to open; otherwise the primary account opens and the client is
+    // told once (it clears the mark after telling the user).
+    let stored = state
+        .store
+        .linked_primary(&parent.id)
+        .await
+        .map_err(unavailable)?;
+    let primary_mailbox = stored.as_deref().filter(|id| {
+        accounts
+            .iter()
+            .any(|a| a["id"] == json!(id) && a["status"] == json!("ready"))
+    });
+    let primary_fallback = stored.is_some() && primary_mailbox.is_none();
+    let keys = layout_keys(accounts.iter().filter_map(|a| a["id"].as_str()));
+    let layout = layout_view(
+        state
+            .store
+            .linked_layout(&parent.id)
+            .await
+            .map_err(unavailable)?,
+        &keys,
+    );
     Ok(([(axum::http::header::CACHE_CONTROL,"private, no-store")],Json(json!({
+        "primaryMailbox":primary_mailbox,"primaryFallback":primary_fallback,"layout":layout,
         "primary":{"accountId":parent.account_id,"address":parent.username,"storageAuthority":state.store.session_storage_authority(&parent.id).await.map_err(unavailable)?},
         "accounts":accounts,"policy":{"enabled":enabled(&state,&parent).await?,"maxAccounts":maximum(&state).await?,
         "supportedAuthentication":["password","totp","recovery","passkeySecondFactor"],"supportedBackends":["imap","pop3","ews"],
@@ -318,6 +344,239 @@ async fn attach(
         Json(json!({"account":entry(state,parent,&row).await?})),
     )
         .into_response())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PrimaryRequest {
+    link_id: Option<String>,
+}
+
+/// `PUT /api/accounts/primary` — which mailbox opens first: one of the owner's
+/// ready links, or `null` for the primary account. A preference only; opening
+/// the link still needs `/switch` and every check behind it.
+async fn set_primary(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PrimaryRequest>,
+) -> Result<Response, Response> {
+    let parent = parent(&state, &headers, true).await?;
+    if let Some(id) = body.link_id.as_deref() {
+        require_enabled(&state, &parent).await?;
+        let Some(row) = state
+            .store
+            .linked_accounts(&parent.id)
+            .await
+            .map_err(unavailable)?
+            .into_iter()
+            .find(|row| row.id == id)
+        else {
+            return Err(failure(StatusCode::NOT_FOUND, "linkedAccountNotFound"));
+        };
+        if entry(&state, &parent, &row).await?["status"] != json!("ready") {
+            return Err(failure(StatusCode::CONFLICT, "linkedAccountUnavailable"));
+        }
+    }
+    if !state
+        .store
+        .set_linked_primary(
+            &parent.id,
+            body.link_id.as_deref(),
+            chrono::Utc::now().timestamp(),
+        )
+        .await
+        .map_err(unavailable)?
+    {
+        return Err(failure(StatusCode::NOT_FOUND, "linkedAccountNotFound"));
+    }
+    Ok((
+        [(axum::http::header::CACHE_CONTROL, "private, no-store")],
+        Json(json!({"primaryMailbox":body.link_id})),
+    )
+        .into_response())
+}
+
+/// The key of the sign-in account in a mailbox layout; links use their ids.
+const MAIN_KEY: &str = "main";
+/// Longest nickname, in characters, after trimming.
+pub(crate) const NICKNAME_MAX: usize = 64;
+
+fn layout_keys<'a>(links: impl Iterator<Item = &'a str>) -> Vec<String> {
+    std::iter::once(MAIN_KEY.to_owned())
+        .chain(links.map(str::to_owned))
+        .collect()
+}
+
+/// A display-only nickname: trimmed, at most [`NICKNAME_MAX`] characters, and
+/// free of control, zero-width and bidirectional formatting characters (so it
+/// cannot reorder or hide the address shown beside it). `None` = cleared.
+pub(crate) fn nickname(raw: &str) -> Result<Option<String>, &'static str> {
+    let value = raw.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    if value.chars().count() > NICKNAME_MAX {
+        return Err("nicknameTooLong");
+    }
+    if value.chars().any(|c| {
+        c.is_control()
+            || matches!(
+                c,
+                '\u{061C}'
+                    | '\u{200B}'..='\u{200F}'
+                    | '\u{202A}'..='\u{202E}'
+                    | '\u{2060}'..='\u{206F}'
+                    | '\u{FEFF}'
+                    | '\u{FFF9}'..='\u{FFFB}'
+            )
+    }) {
+        return Err("nicknameInvalid");
+    }
+    Ok(Some(value.to_owned()))
+}
+
+/// Order the current keys by `order`: unknown or repeated ids are dropped,
+/// keys it does not name follow in their natural order (a new link lands at
+/// the end; the sign-in account, if unnamed, first).
+pub(crate) fn normalized_order(order: &[String], keys: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(keys.len());
+    for key in order {
+        if keys.contains(key) && !out.contains(key) {
+            out.push(key.clone());
+        }
+    }
+    if !out.iter().any(|k| k == MAIN_KEY) {
+        out.insert(0, MAIN_KEY.to_owned());
+    }
+    for key in keys {
+        if !out.contains(key) {
+            out.push(key.clone());
+        }
+    }
+    out
+}
+
+fn layout_view(stored: Option<(String, String, String)>, keys: &[String]) -> Value {
+    let (order, nicknames, revision) = stored.unwrap_or_default();
+    let order: Vec<String> = serde_json::from_str(&order).unwrap_or_default();
+    let nicknames: std::collections::BTreeMap<String, String> =
+        serde_json::from_str(&nicknames).unwrap_or_default();
+    let nicknames: serde_json::Map<String, Value> = nicknames
+        .into_iter()
+        .filter(|(k, _)| keys.contains(k))
+        .filter_map(|(k, v)| nickname(&v).ok().flatten().map(|v| (k, json!(v))))
+        .collect();
+    json!({"revision":revision,"order":normalized_order(&order,keys),"nicknames":nicknames})
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LayoutRequest {
+    revision: String,
+    order: Vec<String>,
+    nicknames: std::collections::BTreeMap<String, String>,
+}
+
+/// `PUT /api/accounts/layout` — the owner's order and nicknames for their
+/// mailboxes, guarded by the revision they last read (409 when another device
+/// saved first). Display only: nothing here is an identity or reaches upstream.
+async fn set_layout(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<LayoutRequest>,
+) -> Result<Response, Response> {
+    let parent = parent(&state, &headers, true).await?;
+    if body.order.len() > 32 || body.nicknames.len() > 32 || body.revision.len() > 64 {
+        return Err(failure(StatusCode::UNPROCESSABLE_ENTITY, "invalidLayout"));
+    }
+    let rows = state
+        .store
+        .linked_accounts(&parent.id)
+        .await
+        .map_err(unavailable)?;
+    let keys = layout_keys(rows.iter().map(|row| row.id.as_str()));
+    let order = normalized_order(&body.order, &keys);
+    let mut nicknames = std::collections::BTreeMap::new();
+    for (key, raw) in &body.nicknames {
+        let value =
+            nickname(raw).map_err(|code| failure(StatusCode::UNPROCESSABLE_ENTITY, code))?;
+        if let (true, Some(value)) = (keys.contains(key), value) {
+            nicknames.insert(key.clone(), value);
+        }
+    }
+    let order_json = serde_json::to_string(&order).map_err(unavailable)?;
+    let nicknames_json = serde_json::to_string(&nicknames).map_err(unavailable)?;
+    let Some(revision) = state
+        .store
+        .put_linked_layout(
+            &parent.id,
+            &body.revision,
+            &order_json,
+            &nicknames_json,
+            chrono::Utc::now().timestamp(),
+        )
+        .await
+        .map_err(unavailable)?
+    else {
+        return Err(failure(StatusCode::CONFLICT, "layoutConflict"));
+    };
+    Ok((
+        [(axum::http::header::CACHE_CONTROL, "private, no-store")],
+        Json(json!({"layout":{"revision":revision,"order":order,"nicknames":nicknames}})),
+    )
+        .into_response())
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    fn nicknames_are_trimmed_capped_and_refuse_control_and_bidi_characters() {
+        assert_eq!(nickname("  Work  "), Ok(Some("Work".into())));
+        assert_eq!(nickname("   "), Ok(None));
+        assert_eq!(
+            nickname(&"é".repeat(NICKNAME_MAX)),
+            Ok(Some("é".repeat(NICKNAME_MAX)))
+        );
+        assert_eq!(
+            nickname(&"a".repeat(NICKNAME_MAX + 1)),
+            Err("nicknameTooLong")
+        );
+        for bad in [
+            "a\u{202E}b",
+            "a\u{2066}b",
+            "a\u{200F}b",
+            "a\nb",
+            "a\u{0007}b",
+            "a\u{FEFF}b",
+        ] {
+            assert_eq!(nickname(bad), Err("nicknameInvalid"), "{bad:?}");
+        }
+        assert_eq!(
+            nickname("<b>Personal</b>"),
+            Ok(Some("<b>Personal</b>".into())),
+            "kept as text; the client renders it as text"
+        );
+    }
+
+    #[test]
+    fn order_drops_unknown_ids_and_appends_new_links() {
+        let keys = layout_keys(["a", "b", "c"].into_iter());
+        let order = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            normalized_order(&order(&["c", "x", "main", "c"]), &keys),
+            order(&["c", "main", "a", "b"])
+        );
+        assert_eq!(
+            normalized_order(&order(&["b"]), &keys),
+            order(&["main", "b", "a", "c"])
+        );
+        assert_eq!(
+            normalized_order(&[], &keys),
+            order(&["main", "a", "b", "c"])
+        );
+    }
 }
 
 async fn switch(

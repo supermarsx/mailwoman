@@ -262,6 +262,151 @@ async fn linked_password_mfa_context_personal_data_and_revocation_are_real() {
     let link = linked["account"]["id"].as_str().unwrap();
     let revision = linked["account"]["revision"].as_str().unwrap();
     assert_eq!(linked["account"]["storageAuthority"], ca);
+    // The first-opened mailbox: stored per owner, only one of the owner's own
+    // ready links, and never a grant (switching still authorizes).
+    let primary_url = format!("{base}/api/accounts/primary");
+    let listed = |client: reqwest::Client| {
+        let url = format!("{base}/api/accounts");
+        async move { value(client.get(url).send().await.unwrap(), 200).await }
+    };
+    assert_eq!(listed(parent.clone()).await["primaryMailbox"], Value::Null);
+    assert_eq!(listed(parent.clone()).await["primaryFallback"], false);
+    assert_eq!(
+        stranger
+            .put(&primary_url)
+            .header("x-csrf-token", s["csrfToken"].as_str().unwrap())
+            .header("x-mailwoman-storage-authority", s["storageAuthority"].as_str().unwrap())
+            .json(&json!({"linkId": link}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404,
+        "another owner cannot mark this link"
+    );
+    assert_eq!(
+        parent
+            .put(&primary_url)
+            .header("x-mailwoman-storage-authority", pa)
+            .json(&json!({"linkId": "not-a-link"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
+    assert_eq!(
+        parent
+            .put(&primary_url)
+            .header("x-mailwoman-storage-authority", pa)
+            .json(&json!({"linkId": link, "extra": 1}))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        422
+    );
+    let marked = value(
+        parent
+            .put(&primary_url)
+            .header("x-mailwoman-storage-authority", pa)
+            .json(&json!({"linkId": link}))
+            .send()
+            .await
+            .unwrap(),
+        200,
+    )
+    .await;
+    assert_eq!(marked["primaryMailbox"], link);
+    assert_eq!(listed(parent.clone()).await["primaryMailbox"], link);
+    assert_eq!(listed(stranger.clone()).await["primaryMailbox"], Value::Null);
+    // Per user, not per session: a second sign-in of the owner sees the mark.
+    let second = client();
+    let p2 = value(
+        second
+            .post(format!("{base}/api/login"))
+            .json(&json!({"username":"parent@example.org","password":"parent-pass"}))
+            .send()
+            .await
+            .unwrap(),
+        200,
+    )
+    .await;
+    assert_eq!(listed(second.clone()).await["primaryMailbox"], link);
+    assert_eq!(p2["accountId"], p["accountId"]);
+    // Order and nicknames (t40 f/g): per owner, revision-guarded, validated
+    // against the current links, display only.
+    let layout_url = format!("{base}/api/accounts/layout");
+    let initial_layout = listed(parent.clone()).await["layout"].clone();
+    assert_eq!(initial_layout["revision"], "");
+    assert_eq!(initial_layout["order"], json!(["main", link]));
+    assert_eq!(initial_layout["nicknames"], json!({}));
+    let put_layout = |body: Value| {
+        let request = parent
+            .put(&layout_url)
+            .header("x-mailwoman-storage-authority", pa)
+            .json(&body);
+        async move { request.send().await.unwrap() }
+    };
+    let saved = value(
+        put_layout(json!({"revision":"","order":[link,"main","not-a-link",link],
+            "nicknames":{"main":"  Personal ","not-a-link":"Ghost"}}))
+        .await,
+        200,
+    )
+    .await;
+    let revision1 = saved["layout"]["revision"].as_str().unwrap().to_owned();
+    assert_eq!(saved["layout"]["order"], json!([link, "main"]));
+    assert_eq!(saved["layout"]["nicknames"], json!({"main":"Personal"}));
+    assert_eq!(
+        put_layout(json!({"revision":"","order":["main"],"nicknames":{}}))
+            .await
+            .status(),
+        409,
+        "a stale revision loses"
+    );
+    let long = "x".repeat(65);
+    for bad in ["Wo\u{202E}rk", "Line\nbreak", long.as_str()] {
+        assert_eq!(
+            put_layout(json!({"revision":revision1,"order":[],"nicknames":{(link):bad}}))
+                .await
+                .status(),
+            422,
+            "{bad:?}"
+        );
+    }
+    let saved = value(
+        put_layout(json!({"revision":revision1,"order":[link,"main"],"nicknames":{"main":"Personal",(link):"Work"}}))
+            .await,
+        200,
+    )
+    .await;
+    assert_eq!(
+        saved["layout"]["nicknames"],
+        json!({"main":"Personal",(link):"Work"})
+    );
+    // The second device sees the same arrangement; the stranger has none.
+    let seen = listed(second.clone()).await["layout"].clone();
+    assert_eq!(seen["order"], json!([link, "main"]));
+    assert_eq!(seen["nicknames"][link], "Work");
+    assert_eq!(
+        listed(stranger.clone()).await["layout"]["order"],
+        json!(["main"])
+    );
+    // A nickname is never an identity.
+    let me_text = parent
+        .get(format!("{base}/api/me"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(
+        !me_text.contains("Personal") && !me_text.contains("\"Work\""),
+        "{me_text}"
+    );
     let primary_me = value(
         parent.get(format!("{base}/api/me")).send().await.unwrap(),
         200,
@@ -505,6 +650,43 @@ async fn linked_password_mfa_context_personal_data_and_revocation_are_real() {
             .status(),
         204
     );
+    // The marked link is gone: the primary account opens, and the listing says
+    // so until the client clears the mark.
+    let after = listed(parent.clone()).await;
+    assert_eq!(after["primaryMailbox"], Value::Null);
+    assert_eq!(after["primaryFallback"], true);
+    assert_eq!(listed(parent.clone()).await["primaryFallback"], true);
+    assert_eq!(
+        parent
+            .put(&primary_url)
+            .header("x-mailwoman-storage-authority", pa)
+            .json(&json!({"linkId": link}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404,
+        "a removed link cannot be marked again"
+    );
+    assert_eq!(
+        value(
+            parent
+                .put(&primary_url)
+                .header("x-mailwoman-storage-authority", pa)
+                .json(&json!({"linkId": null}))
+                .send()
+                .await
+                .unwrap(),
+            200
+        )
+        .await["primaryMailbox"],
+        Value::Null
+    );
+    assert_eq!(listed(parent.clone()).await["primaryFallback"], false);
+    // The unlinked mailbox leaves the order and its nickname is dropped.
+    let after = listed(parent.clone()).await["layout"].clone();
+    assert_eq!(after["order"], json!(["main"]));
+    assert_eq!(after["nicknames"], json!({"main":"Personal"}));
     assert_eq!(
         parent
             .get(format!("{base}/api/me"))
