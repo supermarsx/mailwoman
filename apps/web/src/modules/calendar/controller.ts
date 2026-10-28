@@ -362,6 +362,34 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
   // is dropped instead of replacing the newer one.
   let loadTicket = 0;
 
+  // Calendar flag writes (visibility, colour) change the list on screen first,
+  // then go to the engine one at a time, in the order they were made: two
+  // `Calendar/set` calls in flight together can land in either order and leave
+  // the stored flag opposite to the one on screen. A `load()` (a pushed change
+  // starts one after every write) whose `Calendar/get` answered before such a
+  // write finished carries the flag from before it, so it leaves the list on
+  // screen alone and the calendar loads again once the writes are done.
+  let calendarWrites: Promise<void> = Promise.resolve();
+  let calendarWriteCount = 0;
+  let calendarWritesPending = 0;
+  let calendarReloadOwed = false;
+
+  function writeCalendar(acct: Id, id: Id, patch: Partial<Calendar>): Promise<void> {
+    calendarWriteCount += 1;
+    calendarWritesPending += 1;
+    const run = calendarWrites.then(async () => {
+      await backend.jmap(calendarSet(acct, { update: { [id]: patch } }));
+    });
+    calendarWrites = run.catch(() => undefined);
+    return run.finally(() => {
+      calendarWritesPending -= 1;
+      if (calendarWritesPending === 0 && calendarReloadOwed) {
+        calendarReloadOwed = false;
+        void load();
+      }
+    });
+  }
+
   async function load(): Promise<void> {
     const acct = await backend.resolveAccount();
     if (acct === null) return;
@@ -373,6 +401,7 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
       if (identity() === null && backend.resolveIdentity !== undefined) {
         setIdentity(await backend.resolveIdentity());
       }
+      const writesBefore = calendarWriteCount;
       const calRes = await backend.jmap(calendarsGet(acct));
       if (stale()) return;
       // `Calendar/get` lists the account's task lists next to its event
@@ -380,7 +409,15 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
       const cals = pimResponse<CalendarGetResponse>(calRes, 'cals').list.filter(
         (c) => (c as CalendarRow).component !== 'VTODO',
       );
-      setCalendars([...cals].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name)));
+      if (calendarWritesPending > 0) {
+        calendarReloadOwed = true;
+      } else if (calendarWriteCount !== writesBefore) {
+        // A write started and finished while this answer was on its way.
+        void load();
+        return;
+      } else {
+        setCalendars([...cals].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name)));
+      }
 
       const w = window();
       const q = queryBounds(w.start, w.end);
@@ -535,14 +572,14 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
     if (cal === undefined) return;
     // Optimistic flip so the overlay toggles instantly; reload reconciles.
     setCalendars((cs) => cs.map((c) => (c.id === id ? { ...c, isVisible: !c.isVisible } : c)));
-    await backend.jmap(calendarSet(acct, { update: { [id]: { isVisible: !cal.isVisible } } }));
+    await writeCalendar(acct, id, { isVisible: !cal.isVisible });
   }
 
   async function setCalendarColor(id: Id, color: string): Promise<void> {
     const acct = await backend.resolveAccount();
     if (acct === null) return;
     setCalendars((cs) => cs.map((c) => (c.id === id ? { ...c, color } : c)));
-    await backend.jmap(calendarSet(acct, { update: { [id]: { color } } }));
+    await writeCalendar(acct, id, { color });
     await load();
   }
 
