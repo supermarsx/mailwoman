@@ -9,7 +9,8 @@ import {createContextMenu,type ContextAction} from './ContextMenu.tsx';
 import * as css from './contextMenu.css.ts';
 export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen:()=>void;onOpenTab?:()=>void;onSettings:()=>void;onShare:()=>void;canShare:()=>boolean;onProbe:()=>void}):JSX.Element {
  const app=useApp();const [empty,setEmpty]=createSignal(false);const ability=useEmptyAbility(),canEmpty=useCanEmpty();
- onMount(()=>{void loadCatalog('folder-tabs');void loadCatalog('empty-folder');});
+ // Ask for the empty-folder ability now, so the first menu opened already has it.
+ onMount(()=>{void loadCatalog('folder-tabs');void loadCatalog('empty-folder');ability();});
  async function selectThen(run:()=>void):Promise<void>{const owner=preferenceAccount();if(!owner)return;await app.selectMailbox(props.box.id);if(preferenceAccountIsCurrent(owner)&&app.selectedMailboxId()===props.box.id)run();}
  const context=createContextMenu({label:()=>props.box.name,scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}:${props.box.id}`,actions:()=>{
   const owner=preferenceAccount();if(!owner||owner.id!==app.accountId())return [];
