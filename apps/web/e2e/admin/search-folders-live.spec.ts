@@ -35,7 +35,8 @@ test('search folders save, appear in the sidebar, and edit on a dedicated page @
   await page.getByRole('navigation',{name:'Mailboxes'}).getByRole('button',{name,exact:true}).click();
   await expect(messageRow(page,name)).toBeVisible();await expect(messageRow(page,other)).toHaveCount(0);
   await expect(page.locator('.list__row')).toHaveCount(1);
-  await page.reload();await page.getByRole('button',{name:'Close Settings',exact:true}).click();if(test.info().project.name==='phone')await drawerButton(page).click();
+  // The reload restores the Settings tab behind Mail; since ba0514c6 only the active tab carries its close button.
+  await page.reload();await page.getByRole('tab',{name:'Settings',exact:true}).click();await page.getByRole('button',{name:'Close Settings',exact:true}).click();await expect(page.getByRole('tab',{name:'Settings',exact:true})).toHaveCount(0);await page.getByRole('tab',{name:'Mail',exact:true}).click();if(test.info().project.name==='phone')await drawerButton(page).click();
   await page.getByRole('navigation',{name:'Mailboxes'}).getByRole('button',{name,exact:true}).click();await expect(messageRow(page,name)).toBeVisible();await expect(page.locator('.list__row')).toHaveCount(1);
   if(test.info().project.name==='phone')await drawerButton(page).click();await page.locator('.sidebar__settings').click();await sections.getByRole('button',{name:/Saved searches|Search folders/}).click();
   await row.getByRole('button', { name: 'Delete', exact: true }).click();
