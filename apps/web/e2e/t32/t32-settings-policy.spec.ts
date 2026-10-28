@@ -1,6 +1,6 @@
 import { test, expect } from '../csrf.ts';
 import type { APIRequestContext, Page } from '@playwright/test';
-import { ENGINE_CREDS, engineLogin, enginePhoneLogin, signInManually } from '../helpers.ts';
+import { ENGINE_CREDS, engineLogin, enginePhoneLogin, settingsSurface, signInManually } from '../helpers.ts';
 import { adminPath } from '../v6-helpers.ts';
 
 /**
@@ -35,6 +35,17 @@ async function release(request: APIRequestContext, key: string): Promise<void> {
   await request.delete(adminPath(`/settings/${key}`));
 }
 
+/**
+ * The browser session's storage authority. Personal-settings writes carry it in
+ * `x-mailwoman-storage-authority` (0a11b581; a write without it is refused 428
+ * `storageAuthorityRequired` before any lock is looked at), as the web client does.
+ */
+async function authorityHeaders(page: Page): Promise<Record<string, string>> {
+  const me = (await (await page.request.get('/api/me')).json()) as { storageAuthority?: unknown };
+  expect(typeof me.storageAuthority, 'storageAuthority from /api/me').toBe('string');
+  return { 'x-mailwoman-storage-authority': me.storageAuthority as string };
+}
+
 async function expectNoServerField(page: Page): Promise<void> {
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
@@ -62,7 +73,9 @@ test.describe('settings model C (t32 f01)', () => {
       await engineLogin(page);
 
       await page.getByRole('button', { name: 'Settings' }).click();
-      const dialog = page.getByRole('dialog', { name: 'Settings' });
+      // A workspace tab since 24fb6149; Language and Density are on its first
+      // section, Appearance.
+      const dialog = settingsSurface(page);
       await expect(dialog).toBeVisible();
       const language = dialog.getByRole('combobox', { name: 'Language' });
       await expect(language).toBeDisabled();
@@ -73,7 +86,8 @@ test.describe('settings model C (t32 f01)', () => {
       await expect(dialog.locator('#settings-density-lock')).toBeVisible();
 
       // The browser's own session cannot change it either.
-      const refused = await page.request.put('/api/settings/ui.language', { data: { value: 'de' } });
+      const headers = await authorityHeaders(page);
+      const refused = await page.request.put('/api/settings/ui.language', { headers, data: { value: 'de' } });
       expect(refused.status()).toBe(403);
       expect((await refused.json()).code).toBe('setting_locked');
       const all = await (await page.request.get('/api/settings')).json();
@@ -81,6 +95,7 @@ test.describe('settings model C (t32 f01)', () => {
 
       // A held appearance field is replaced in what the server stores.
       const put = await page.request.put('/api/account/appearance', {
+        headers,
         data: { appearance: { mode: 'fixed', theme: 'dark', density: 'compact', accentId: '' } },
       });
       expect(put.status()).toBe(200);
@@ -104,7 +119,10 @@ test.describe('settings model C (t32 f01)', () => {
     } else {
       await signInManually(page, { username: ENGINE_CREDS.username, password: ENGINE_CREDS.password });
     }
-    const ok = await page.request.put('/api/settings/ui.language', { data: { value: 'browser' } });
+    const ok = await page.request.put('/api/settings/ui.language', {
+      headers: await authorityHeaders(page),
+      data: { value: 'browser' },
+    });
     expect(ok.status(), await ok.text()).toBe(200);
     expect((await ok.json()).locked).toBe(false);
   });
