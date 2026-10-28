@@ -530,22 +530,32 @@ test.describe('checkboxes in the admin console', () => {
     await seedTheme(page, 'dark');
   });
 
+  // "Disable" is no longer a checkbox: the account page offers it as an access
+  // action (UserAccessActions), so only the two flag checkboxes are measured.
   test('users table: zero-access, disabled and force-change', async ({ page }) => {
     const csp = watchCsp(page);
     await adminSignIn(page);
     await adminSection(page, 'Users');
     const main = page.getByRole('main');
     if ((await main.getByRole('table').count()) === 0) {
+      // An empty list links to the provisioning form (users/+new), which stays
+      // open after a provision; the list is the section's own page.
+      await main.getByRole('link', { name: 'Provision user' }).click();
       await main.getByRole('textbox', { name: 'Username' }).fill('t32h12user');
       await main.getByRole('textbox', { name: 'Domain' }).fill('example.org');
       await main.getByRole('button', { name: 'Provision user' }).click();
+      await page.goto('/admin#/users');
     }
     const table = main.getByRole('table');
     await expect(table).toBeVisible();
+    // The per-account flags moved from the table to the account's own page
+    // (users/<id>, Users.tsx); the table links to it.
+    await table.getByRole('link').first().click();
+    const flags = main.getByRole('checkbox', { name: /^Zero-access for/ }).first();
+    await expect(flags).toBeVisible();
     const problems: string[] = [];
-    problems.push(...(await checkControl(page, table.getByRole('checkbox', { name: /^Zero-access for/ }).first(), 'zero-access')));
-    problems.push(...(await checkControl(page, table.getByRole('checkbox', { name: /^Disable / }).first(), 'disabled')));
-    problems.push(...(await checkControl(page, table.getByRole('checkbox', { name: /^Force password change for/ }).first(), 'force change')));
+    problems.push(...(await checkControl(page, flags, 'zero-access')));
+    problems.push(...(await checkControl(page, main.getByRole('checkbox', { name: /^Force password change for/ }).first(), 'force change')));
     problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, new URL(page.url()).hash || new URL(page.url()).pathname)));
     expect(problems).toEqual([]);
     expect(csp, 'inline-style CSP violations').toEqual([]);
@@ -554,7 +564,8 @@ test.describe('checkboxes in the admin console', () => {
   test('require two-factor: deployment and new domain rule', async ({ page }) => {
     const csp = watchCsp(page);
     await adminSignIn(page);
-    await adminSection(page, 'Require two-factor');
+    // The two-factor policy is on the Security centre's overview tab (SecurityCenter.tsx).
+    await adminSection(page, 'Security centre');
     const main = page.getByRole('main');
     const problems: string[] = [];
     // Turning the deployment-wide requirement on would make every sign-in enrol a factor.
@@ -575,9 +586,19 @@ test.describe('checkboxes in the admin console', () => {
     problems.push(...(await checkControl(page, main.getByRole('checkbox', { name: 'Allow attachments to be sent' }), 'assist ceiling', { labelText: true })));
     problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, new URL(page.url()).hash || new URL(page.url()).pathname)));
     await adminSection(page, 'UI plugins');
-    problems.push(...(await checkControl(page, main.getByRole('checkbox').first(), 'ui plugin unsigned', { labelText: true })));
+    // The unsigned-plugin checkbox is in the registration form, and only once the
+    // manifest read there carries no signature (UiPlugins/index.tsx `allowUnsigned`).
+    await main.getByRole('button', { name: 'Register a UI plugin' }).first().click();
+    await main.getByRole('textbox', { name: 'Or paste the manifest' }).fill(JSON.stringify({ id: 'h12-probe', name: 'H12 probe', version: '1.0.0' }));
+    const unsigned = main.getByRole('checkbox', { name: 'Allow this plugin to register without a signature' });
+    problems.push(...(await checkControl(page, unsigned, 'ui plugin unsigned', { labelText: true })));
     problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, new URL(page.url()).hash || new URL(page.url()).pathname)));
-    await adminSection(page, 'Egress');
+    // Leave the form unchanged, or its unsaved-changes guard holds the next section.
+    await main.getByRole('textbox', { name: 'Or paste the manifest' }).fill('');
+    // Egress is 'Outbound connections' (Outbound.tsx); the plaintext switch is in
+    // the route editor.
+    await adminSection(page, 'Outbound connections');
+    await main.getByRole('button', { name: 'Add a route' }).click();
     problems.push(...(await checkControl(page, main.getByTestId('egress-allow-plaintext'), 'egress plaintext', { labelText: true })));
     problems.push(...(await targetSize(page)), ...(await everyBoxOnItsRow(page, new URL(page.url()).hash || new URL(page.url()).pathname)));
     expect(problems).toEqual([]);
