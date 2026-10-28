@@ -9,6 +9,7 @@ import {
   injectViaSmtp,
   messageRow,
   messageSlot,
+  readerContent,
   sidebarInbox,
   waitForInboxMessageViaDrawer as waitForRowViaDrawer,
 } from './helpers.ts';
@@ -93,18 +94,29 @@ test.describe('narrow viewport (phone project)', () => {
     // The reader takes over the viewport and the BODY text is readable in it.
     await expect(reader).toBeVisible();
     await expect(reader.getByRole('heading', { name: subject })).toBeVisible();
-    const body = page.frameLocator('iframe.reader__frame').getByText(marker);
+    // The text is in the content frame nested in the reader's wrapper (99f51b81).
+    const body = (await readerContent(page)).contentFrame().getByText(marker);
     await expect(body).toBeVisible();
     await expectInsideViewport(page, body, 'the message body text');
     // The body frame is not a sliver under a tall header.
     const frameBox = await page.locator('iframe.reader__frame').boundingBox();
     expect(frameBox!.height).toBeGreaterThan(page.viewportSize()!.height / 3);
 
-    // Focus followed the view change, and the covered list is out of reach.
-    const back = reader.getByRole('button', { name: 'Back' });
-    await expect(back).toBeFocused();
-    await expectInsideViewport(page, back, 'the Back control');
-    await expect(page.locator('.mail-pane')).toHaveAttribute('inert', '');
+    // Focus followed the view change, and the covered list is out of reach. The
+    // reader's own Back button went in 2387e7dd (compact reader): focus lands on
+    // the subject heading, and the message is a workspace tab that its close
+    // control dismisses.
+    await expect(reader.getByRole('heading', { name: subject })).toBeFocused();
+    const back = page.getByRole('button', { name: `Close ${subject}`, exact: true });
+    await expectInsideViewport(page, back, 'the control that closes the message');
+    // Out of reach: inert under the reader, or (the message in its own workspace
+    // tab) not rendered at all.
+    await expect
+      .poll(async () => {
+        const pane = page.locator('.mail-pane');
+        return (await pane.getAttribute('inert')) !== null || !(await pane.isVisible());
+      })
+      .toBe(true);
     // The row is still mounted underneath, but the reader is what a tap in the
     // middle of the screen lands on.
     const size = page.viewportSize()!;
@@ -115,11 +127,13 @@ test.describe('narrow viewport (phone project)', () => {
       ),
     ).toBe(true);
 
-    // Back: the reader goes, the list returns, focus lands on the row just read.
+    // Closing it: the reader goes, the list returns, and focus is not lost: it
+    // lands on the tab that is active again (the ARIA tabs pattern; before the
+    // workspace tabs it went back to the row from the reader's Back button).
     await back.click();
     await expect(reader).toBeHidden();
     await expect(row).toBeVisible();
-    await expect(row).toBeFocused();
+    await expect(page.getByRole('tab', { name: 'Mail', exact: true })).toBeFocused();
     await expect(page.locator('.mail-pane')).not.toHaveAttribute('inert', '');
   });
 
@@ -248,12 +262,14 @@ async function expectTapTarget(
 ): Promise<void> {
   await expect(target, `${what} is visible`).toBeVisible();
   await expectInsideViewport(page, target, what);
-  const onTop = await target.evaluate((el) => {
+  // null when the target is on top; otherwise what is (named in the failure).
+  const covering = await target.evaluate((el) => {
     const r = el.getBoundingClientRect();
     const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-    return hit !== null && (hit === el || el.contains(hit));
+    if (hit !== null && (hit === el || el.contains(hit))) return null;
+    return hit === null ? 'nothing' : hit.outerHTML.slice(0, 200);
   });
-  expect(onTop, `${what} is the element under its own centre`).toBe(true);
+  expect(covering, `${what} is the element under its own centre`).toBeNull();
 
   if (opts.withinRow === undefined) return;
   const box = (await target.boundingBox())!;
@@ -617,7 +633,7 @@ test.describe('desktop viewport (negative control)', () => {
     expect(before.reader).toBeGreaterThan(before.list);
 
     await messageRow(page, subject).click();
-    await expect(page.frameLocator('iframe.reader__frame').getByText(marker)).toBeVisible();
+    await expect((await readerContent(page)).contentFrame().getByText(marker)).toBeVisible();
 
     // Still three panes: the list is on screen and reachable beside the reader,
     // and nothing moved.
