@@ -3182,6 +3182,17 @@ async fn jmap_api(
         let echo_only = request["methodCalls"]
             .as_array()
             .is_some_and(|calls| calls.iter().all(|call| call[0] == "Core/echo"));
+        // A user retry of a failed first sync redials: the failed runtime's
+        // connection is usually what broke, so `ensure_account` below connects
+        // a fresh one and starts a new indexing job.
+        let retry_initial_sync = request["methodCalls"].as_array().is_some_and(|calls| {
+            calls.iter().any(|call| {
+                call[0] == "Mailbox/get" && call[1]["mailwomanRetryInitialSync"] == true
+            })
+        });
+        if retry_initial_sync {
+            engine_mode::redial_failed_initial_sync(engine, &session.account_id).await;
+        }
         if !echo_only && let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await
         {
             tracing::warn!("engine account not available: {e}");

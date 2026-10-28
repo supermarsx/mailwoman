@@ -817,6 +817,28 @@ async fn register_and_sync(
     Ok(())
 }
 
+/// Drop an account runtime whose first sync gave up, so the next
+/// [`ensure_account`] dials a fresh connection and starts indexing again. The
+/// failed job's connection is usually the thing that broke, and retrying on it
+/// cannot succeed. Provider-backed (EWS) runtimes are only re-created by a
+/// sign-in, so they keep the engine's in-place retry instead.
+pub async fn redial_failed_initial_sync(engine: &Arc<Engine>, account_id: &str) {
+    if engine.initial_sync_status(account_id) != "failed" || engine.is_plugin_backed(account_id) {
+        return;
+    }
+    let lock = connect_lock(account_id);
+    let _connecting = lock.lock().await;
+    if engine.initial_sync_status(account_id) != "failed" {
+        return;
+    }
+    match engine.store().get_account(account_id).await {
+        Ok(account) if account.kind != AccountKind::Ews => {
+            engine.unregister(account_id);
+        }
+        _ => {}
+    }
+}
+
 /// Log in an IMAP/POP3 account: parse the URL, dial and authenticate the
 /// backend, find or create the account, cache mailbox metadata and start indexing. Returns `(account_id,
 /// username)` for the session cookie. Any failure is a uniform login error.
