@@ -754,6 +754,9 @@ async fn a_zero_access_account_has_no_text_in_the_index_directory() {
     let c = browser();
     login(&c, &server.base, &d.pop).await;
     let account = account_id(&c, &server.base).await;
+    // The login only publishes the mailbox list; the message is fetched and
+    // indexed in the background (dcd88d33).
+    wait_for_first_sync(&d, &server.base, 1).await;
     // Precondition, and the proof that the scan below can find something: as a
     // standard account, the message's text is in the index directory.
     assert_eq!(search(&c, &server.base, &account, BEFORE).await.len(), 1);
@@ -775,9 +778,21 @@ async fn a_zero_access_account_has_no_text_in_the_index_directory() {
         .unwrap();
     assert_eq!(r.status(), 200, "zero-access is enabled");
 
-    // A message arrives afterwards. Logging in again resyncs the maildrop.
+    // A message arrives afterwards. Logging in again resyncs the maildrop, in
+    // the background (dcd88d33): wait until it is stored, so the scans below
+    // look at a directory the sync has finished with.
     d.pop.deliver("m2", AFTER);
     login(&c, &server.base, &d.pop).await;
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while d.pop.retrs() < 2 || stored(&c, &server.base, &account).await < 2 {
+        assert!(
+            Instant::now() < deadline,
+            "the resync after the second login did not store m2:
+{}",
+            d.log_tail()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     assert_eq!(d.pop.retrs(), 2, "the new message was fetched");
     assert_eq!(
         stored(&c, &server.base, &account).await,
@@ -839,6 +854,7 @@ async fn enabling_zero_access_removes_the_indexed_text_at_once() {
     let c = browser();
     login(&c, &server.base, &d.pop).await;
     let account = account_id(&c, &server.base).await;
+    wait_for_first_sync(&d, &server.base, 1).await;
     assert_eq!(search(&c, &server.base, &account, TOKEN).await.len(), 1);
     assert!(
         dir_contains(&d.index_dir(), TOKEN),
