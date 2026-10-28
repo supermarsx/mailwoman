@@ -13,7 +13,7 @@ import {
   type ChangeReconciler,
   type ReconcileHandler,
 } from './changes.ts';
-import type { StateChange } from '../contracts/push.ts';
+import type { MailboxChange, StateChange } from '../contracts/push.ts';
 
 export interface RealtimeController {
   connection: ConnectionModel;
@@ -27,6 +27,8 @@ export interface RealtimeController {
   reconnect(): void;
   /** Subscribe to decoded state changes (post-reconciliation is the slice's job). */
   onStateChange(handler: (c: StateChange) => void): () => void;
+  /** Subscribe to linked/sign-in mailbox frames (t46; see contracts/push.ts). */
+  onMailboxChange?(handler: (c: MailboxChange) => void): () => void;
 }
 
 export interface RealtimeControllerOptions {
@@ -75,6 +77,9 @@ export function createRealtimeController(
     },
     onStateChange(handler): () => void {
       return push.onStateChange(handler);
+    },
+    onMailboxChange(handler): () => void {
+      return push.onMailboxChange?.(handler) ?? (() => undefined);
     },
   };
 }

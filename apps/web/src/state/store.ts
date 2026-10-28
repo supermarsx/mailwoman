@@ -197,6 +197,12 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
       if (types.includes('Email') || types.includes('Mailbox')) void mail.refreshCurrentMailbox();
       if (types.includes('EmailSubmission')) void outbox.refreshOutbox();
     },
+    // An open linked mailbox (t46) arrives on the same stream, already matched
+    // to the verified link and its storage authority.
+    onActiveLinkedChanged: (types) => {
+      if (types.includes('Email') || types.includes('Mailbox')) void mail.refreshCurrentMailbox();
+      if (types.includes('EmailSubmission')) void outbox.refreshOutbox();
+    },
   });
 
   // Peer-tab sync: an inbound peer ping refetches the current mailbox.

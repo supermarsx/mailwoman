@@ -17,6 +17,13 @@ import {
 import { setGlobalRealtime } from '../../realtime/context.ts';
 import type { ConnectionState } from '../../realtime/connection.ts';
 import type { PushTransport, StateChange } from '../../contracts/push.ts';
+import type { ChangedType } from '../../realtime/changes.ts';
+import { createLinkedLive } from '../../realtime/linkedLive.ts';
+import {
+  activeLinkedMailbox,
+  invalidateLinkedAccounts,
+  primaryMailboxAuthority,
+} from '../../api/linkedMailboxSession.ts';
 import type { SliceContext } from './context.ts';
 
 export interface RealtimeSlice {
@@ -32,6 +39,17 @@ export interface RealtimeSlice {
   reconnectRealtime(): void;
   /** Subscribe to decoded `StateChange`s (integration wires the changes refetch). */
   onRealtimeChange(handler: (change: StateChange) => void): () => void;
+  /**
+   * The live Inbox unread count of a mailbox that is not open (t46): `null` =
+   * the sign-in mailbox, a string = a link id, with the storage authority the
+   * caller holds for that link. `null` while not known. Reactive.
+   */
+  mailboxUnread(linkId: string | null, storageAuthority?: string): number | null;
+}
+
+export interface RealtimeSliceOptions extends RealtimeControllerOptions {
+  /** The open linked mailbox moved (t46): refetch these datatypes. */
+  onActiveLinkedChanged?: (types: ChangedType[]) => void;
 }
 
 /**
@@ -62,7 +80,7 @@ export function wireServiceWorkerWake(
 
 export function createRealtimeSlice(
   ctx: SliceContext,
-  opts: RealtimeControllerOptions = {},
+  opts: RealtimeSliceOptions = {},
 ): RealtimeSlice {
   const controller: RealtimeController = createRealtimeController(opts);
   // Register as the app-wide singleton so components using `useRealtime()`
@@ -88,12 +106,31 @@ export function createRealtimeSlice(
   // layer reports it. The model ignores it unless a session's transport is up.
   ctx.client.onUnauthenticated?.(() => controller.connection.setAuthExpired());
 
+  // Linked mailboxes (t46) ride the same stream: the open one refetches like
+  // the sign-in mailbox does, the others keep a live unread count.
+  const linkedLive = createLinkedLive({
+    active: () => {
+      const active = activeLinkedMailbox();
+      return active ? { linkId: active.linkId, storageAuthority: active.storageAuthority } : null;
+    },
+    primaryAuthority: primaryMailboxAuthority,
+    onActiveChanged: (types) => opts.onActiveLinkedChanged?.(types),
+    // The server's authority for the open link moved: re-list the links so the
+    // picker and the open context are re-verified.
+    onAuthorityMismatch: invalidateLinkedAccounts,
+  });
+  controller.onMailboxChange?.((frame) => linkedLive.apply(frame));
+
   return {
     connectionState: controller.connection.state,
     pushTransport: controller.connection.transport,
     startRealtime: () => controller.start(),
-    stopRealtime: () => controller.stop(),
+    stopRealtime: () => {
+      controller.stop();
+      linkedLive.reset();
+    },
     reconnectRealtime: () => controller.reconnect(),
     onRealtimeChange: (handler) => controller.onStateChange(handler),
+    mailboxUnread: (linkId, storageAuthority) => linkedLive.unread(linkId, storageAuthority),
   };
 }

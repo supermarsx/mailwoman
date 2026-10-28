@@ -32,6 +32,21 @@ export interface StateChange {
   changed: Record<Id, TypeStates>;
 }
 
+/**
+ * Mailwoman extension frame (t46), on the same stream: a linked mailbox's
+ * change, or the sign-in mailbox's (`link: null`) while the stream carries
+ * links. It names the link and the mailbox's opaque storage authority, never a
+ * raw account id. `changed` is empty for a counts-only frame (a link joining
+ * the stream); `inboxUnread` is the Inbox unread count, when known.
+ */
+export interface MailboxChange {
+  '@type': 'MailboxChange';
+  link: string | null;
+  storageAuthority: string;
+  changed: TypeStates;
+  inboxUnread?: number;
+}
+
 /** The transport actually in use, for the connection-status toast (e6). */
 export type PushTransport = 'ws' | 'sse' | 'poll' | 'offline';
 

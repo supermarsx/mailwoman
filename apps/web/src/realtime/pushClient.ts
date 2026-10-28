@@ -21,6 +21,7 @@
 import {
   HEARTBEAT_MS,
   TRANSPORT_LADDER,
+  type MailboxChange,
   type PushClient,
   type PushTransport,
   type StateChange,
@@ -111,6 +112,8 @@ export interface PushClientOptions {
 export interface PushClientImpl extends PushClient {
   /** Drop everything and re-attempt from the top of the ladder now. */
   reconnect(): void;
+  /** Subscribe to decoded `MailboxChange` extension frames (t46). */
+  onMailboxChange?(handler: (change: MailboxChange) => void): () => void;
 }
 
 const PING = JSON.stringify({ '@type': 'ping' });
@@ -119,6 +122,26 @@ function isStateChange(v: unknown): v is StateChange {
   if (typeof v !== 'object' || v === null) return false;
   const o = v as Record<string, unknown>;
   return o['@type'] === 'StateChange' && typeof o['changed'] === 'object' && o['changed'] !== null;
+}
+
+/** A well-formed `MailboxChange` (t46). Anything else is dropped unseen. */
+export function isMailboxChange(v: unknown): v is MailboxChange {
+  if (typeof v !== 'object' || v === null) return false;
+  const o = v as Record<string, unknown>;
+  const link = o['link'];
+  const changed = o['changed'];
+  const unread = o['inboxUnread'];
+  return (
+    o['@type'] === 'MailboxChange' &&
+    (link === null || (typeof link === 'string' && link.length > 0 && link.length <= 128)) &&
+    typeof o['storageAuthority'] === 'string' &&
+    (o['storageAuthority'] as string).startsWith('msa1_') &&
+    typeof changed === 'object' &&
+    changed !== null &&
+    !Array.isArray(changed) &&
+    Object.values(changed).every((state) => typeof state === 'string') &&
+    (unread === undefined || (Number.isSafeInteger(unread) && (unread as number) >= 0))
+  );
 }
 
 type Current =
@@ -143,6 +166,7 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
   const checkSession = opts.checkSession ?? (() => defaultCheckSession(opts.bearer));
 
   const handlers = new Set<(c: StateChange) => void>();
+  const mailboxHandlers = new Set<(c: MailboxChange) => void>();
   let current: Current = null;
   let transport: PushTransport = 'offline';
   let ladderIndex = 0;
@@ -175,12 +199,14 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
       return;
     }
     const changed = isStateChange(obj);
+    const mailbox = isMailboxChange(obj);
     const ping = typeof obj === 'object' && obj !== null && (obj as Record<string, unknown>)['@type'] === 'ping';
-    if (!changed && !ping) return;
+    if (!changed && !mailbox && !ping) return;
     lastActivity = nowFn();
     attemptsOnRung = 0;
     automaticUpgrades = 0;
     if (isStateChange(obj)) emit(obj);
+    else if (isMailboxChange(obj)) for (const h of mailboxHandlers) h(obj);
   }
 
   function stopHeartbeat(): void {
@@ -418,6 +444,10 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
     onStateChange(handler): () => void {
       handlers.add(handler);
       return () => handlers.delete(handler);
+    },
+    onMailboxChange(handler): () => void {
+      mailboxHandlers.add(handler);
+      return () => mailboxHandlers.delete(handler);
     },
     transport(): PushTransport {
       return transport;
