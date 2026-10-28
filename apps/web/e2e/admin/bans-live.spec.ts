@@ -6,10 +6,10 @@ test('IP bans use a dedicated guarded editor and searchable expiry table @phone'
   await page.getByLabel('Password', { exact: true }).fill('hunter2');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
-  await page.goto('/admin#/observability');
+  await page.goto('/admin#/security/bans');
   await expect(page.getByLabel('IP address')).toHaveCount(0);
   await page.getByRole('button', { name: 'Add ban', exact: true }).click();
-  await expect(page).toHaveURL(/#\/observability\/bans\/new$/);
+  await expect(page).toHaveURL(/#\/security\/bans\/new$/);
   await page.getByLabel('IP address').fill('192.0.2.199');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   const leave = page.getByRole('alertdialog', { name: 'Leave this page?' });
@@ -27,7 +27,7 @@ test('IP bans use a dedicated guarded editor and searchable expiry table @phone'
   await proof.getByRole('textbox', { name: 'Password', exact: true }).fill('hunter2');
   await proof.getByRole('button', { name: 'Confirm and continue' }).click();
   expect((await saved).status()).toBe(204);
-  await expect(page).toHaveURL(/#\/observability$/);
+  await expect(page).toHaveURL(/#\/security\/bans$/);
   await page.getByRole('searchbox', { name: 'Search IP bans' }).fill(ip);
   const table = page.getByRole('table', { name: 'IP ban list' });
   await expect(table.getByText(ip, { exact: true })).toBeVisible();

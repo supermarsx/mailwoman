@@ -6,9 +6,9 @@ test('horizontal form actions align below labels and settings cells use availabl
   await page.getByLabel('Password', { exact: true }).fill('hunter2');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
-  await page.goto('/admin#/observability');
-  const form = page.getByRole('form', { name: 'Add ban' });
-  const button = form.getByRole('button', { name: 'Ban IP' });
+  await page.goto('/admin#/security/bans/new');
+  const form = page.getByRole('region', { name: 'Add ban', exact: true }).locator('form');
+  const button = form.getByRole('button', { name: 'Save IP ban' });
   await expect(button).toBeVisible();
   const inputBox = (await form.getByRole('textbox').last().boundingBox())!;
   const buttonBox = (await button.boundingBox())!;
