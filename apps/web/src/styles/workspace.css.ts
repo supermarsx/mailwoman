@@ -1,13 +1,19 @@
 import { globalStyle } from '@vanilla-extract/css';
 import { vars } from '../theme/contract.css.ts';
 const desktop='(min-width: 761px)';
+const fineDesktop='(min-width: 761px) and (pointer: fine)';
 globalStyle('.shell.workspace-shell',{gridTemplateColumns:'var(--folder-width,220px) var(--folder-handle,6px) minmax(0,1fr)' ,gridTemplateRows:'minmax(0,1fr)'});
 globalStyle(':root[data-reading-pane] .shell.workspace-shell',{'@media':{[desktop]:{gridTemplateColumns:'var(--folder-width,220px) var(--folder-handle,6px) minmax(0,1fr)' ,gridTemplateRows:'minmax(0,1fr)'}}});
 globalStyle(':root[data-reading-pane] .workspace-shell > .sidebar',{'@media':{[desktop]:{gridColumn:'1',gridRow:'1'}}});
 globalStyle('.mail-workspace',{display:'flex',flexDirection:'column',minWidth:0,minHeight:0,overflow:'hidden',gridColumn:'3 / -1',gridRow:'1',flex:'1 1 0'});
 globalStyle('.mail-workspace[hidden], .mail-workspace [hidden]',{display:'none'});
-globalStyle('.workspace-bar',{display:'flex',alignItems:'center',gap:vars.space[1],padding:'2px 4px',flexShrink:0,borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}`,overflowX:'auto'});
-globalStyle('.workspace-bar .btn',{flex:'none','@media':{'(min-width: 761px) and (pointer: fine)':{minHeight:'28px',paddingBlock:'2px'}}});
+globalStyle('.workspace-bar',{display:'flex',alignItems:'center',gap:'2px',padding:'2px 4px',flexShrink:0,borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}`,overflowX:'auto','@media':{[fineDesktop]:{paddingBlock:'1px'}}});
+// Compact mail top bar (t38): 24px buttons with 2px padding on a fine pointer,
+// so the bar is 27px tall (26px + its rule). Touch keeps the 44px targets.
+globalStyle('.workspace-bar .btn',{flex:'none','@media':{[fineDesktop]:{blockSize:'24px',minHeight:'24px',minWidth:'24px',padding:'2px 4px',borderRadius:vars.radius.sm}}});
+globalStyle('.workspace-bar .btn svg',{'@media':{[fineDesktop]:{width:'16px',height:'16px'}}});
+globalStyle('.mail-topbar [data-bar-pin]',{'@media':{[fineDesktop]:{margin:'1px'}}});
+globalStyle('.mail-topbar [data-bar-panel]',{alignItems:'center'});
 globalStyle('.workspace-body',{display:'grid',gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'minmax(0,1fr)',alignItems:'stretch',minHeight:0,minWidth:0,flex:'1 1 0',overflow:'hidden'});
 globalStyle('.workspace-body--split',{gridTemplateColumns:'var(--list-size,340px) 6px minmax(0,1fr)'});
 globalStyle(':root[data-reading-pane] .mail-workspace .mail-pane',{gridColumn:'auto',gridRow:'auto',minHeight:0});
@@ -27,7 +33,13 @@ globalStyle('.workspace-shell > .module-pane, .workspace-shell > .outbox, .works
 globalStyle('.workspace-body--split[data-reading-pane="bottom"]',{gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'var(--list-size,320px) 6px minmax(0,1fr)'});
 globalStyle('.workspace-panes[data-pair="true"][data-layout="side-by-side"]',{gridTemplateColumns:'var(--tile-first,50%) 6px minmax(0,1fr)',gridTemplateRows:'minmax(0,1fr)',gridAutoRows:'auto'});
 globalStyle('.workspace-panes[data-pair="true"][data-layout="stack"]',{gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'var(--tile-first,50%) 6px minmax(0,1fr)',gridAutoRows:'auto'});
-globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__box-name, .workspace-shell[data-folder-mode="compact"] .sidebar__brand, .workspace-shell[data-folder-mode="compact"] .sidebar__user',{'@media':{[desktop]:{display:'none'}}});
+globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__box-name, .workspace-shell[data-folder-mode="compact"] .sidebar__brand',{'@media':{[desktop]:{display:'none'}}});
+// The account indicator in the sidebar head (t38 §2.3): the full address with
+// an ellipsis, or the switcher filling the width; one letter in compact mode.
+globalStyle('.sidebar__account',{display:'flex',alignItems:'center',gap:'2px',minWidth:0,maxWidth:'100%',marginBlockStart:'2px',fontSize:'0.75rem',color:vars.color.textDim});
+globalStyle('.sidebar__account[data-variant="icon"]',{justifyContent:'center',color:vars.color.text});
+globalStyle('.sidebar__account > div',{flex:'1 1 auto',minWidth:0});
+globalStyle('.sidebar__account select',{flex:'1 1 0',width:'100%',maxWidth:'100%'});
 globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar',{'@media':{[desktop]:{paddingInline:vars.space[1]}}});
 globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__box',{'@media':{[desktop]:{justifyContent:'center',position:'relative',paddingInline:vars.space[1]}}});
 globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__badge',{'@media':{[desktop]:{fontSize:'0.65rem',paddingInline:'2px'}}});
@@ -55,7 +67,7 @@ globalStyle('.workspace-body--split[data-reading-pane="bottom"] > .mail-pane', {
 
 // Five view arrangements keep the same retained pane elements.
 globalStyle('.workspace-layout-modes',{display:'flex',alignItems:'center',gap:'2px',flex:'0 0 auto',paddingInline:'4px',borderInlineStart:`1px solid ${vars.color.border}`,borderInlineEnd:`1px solid ${vars.color.border}`});
-globalStyle('.workspace-bar .workspace-layout-mode',{padding:'4px',width:'32px',minWidth:'32px','@media':{'(pointer: coarse)':{width:'44px',minWidth:'44px',minHeight:'44px'}}});
+globalStyle('.workspace-bar .workspace-layout-mode',{padding:'4px',width:'32px',minWidth:'32px','@media':{'(pointer: coarse)':{width:'44px',minWidth:'44px',minHeight:'44px'},[fineDesktop]:{padding:'2px',width:'24px',minWidth:'24px'}}});
 globalStyle('.workspace-layout-mode[aria-pressed="true"]',{background:vars.color.accent,color:vars.color.accentText,borderColor:vars.color.accent});
 globalStyle('.workspace-panes[data-layout="side-by-side"] > [data-view-slot="0"]',{gridColumn:'1',gridRow:'1'});
 globalStyle('.workspace-panes[data-layout="side-by-side"] > [data-view-slot="1"]',{gridColumn:'3',gridRow:'1'});

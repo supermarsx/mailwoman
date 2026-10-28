@@ -304,10 +304,6 @@ body {
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
-.sidebar__user {
-  font-size: 0.75rem;
-  color: var(--text-dim);
-}
 .sidebar__nav {
   display: flex;
   flex-direction: column;
@@ -815,6 +811,24 @@ body {
   .shell__bar-compose {
     flex: none;
     min-height: 44px;
+  }
+  /* Only while a linked child mailbox is active (t38): its address, so the
+     user sees which mailbox they act in. Tapping it opens the drawer switcher. */
+  .shell__account-chip {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 42vw;
+    min-height: 44px;
+    gap: 0.3rem;
+    padding-inline: 0.5rem;
+    font-size: 0.8rem;
+    border-color: var(--accent);
+  }
+  .shell__account-chip-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* The drawer. Closed, it is `visibility: hidden` as well as off-canvas, so
