@@ -19,10 +19,11 @@ test('server diagnostics execute real checks and retain history @phone', async (
   expect(report.run.results).toHaveLength(5);
   expect(report.historySaved).toBe(true);
   expect(report.auditSaved).toBe(true);
-  await expect(page.locator('main tbody tr')).toHaveCount(5);
-  await expect(page.locator('main tbody')).toContainText('Server key seals and opens a synthetic sample');
+  const results = page.getByRole('table', { name: 'Check results', exact: true });
+  await expect(results.locator('tbody tr')).toHaveCount(5);
+  await expect(results.locator('tbody')).toContainText('Server key seals and opens a synthetic sample');
   await page.getByLabel('Filter checks, domains or backends').fill('query');
-  await expect(page.locator('main tbody tr')).toHaveCount(1);
+  await expect(results.locator('tbody tr')).toHaveCount(1);
   await page.getByLabel('Filter checks, domains or backends').clear();
   const downloaded=page.waitForEvent('download');
   await page.getByRole('button',{name:'Export troubleshooting report'}).click();

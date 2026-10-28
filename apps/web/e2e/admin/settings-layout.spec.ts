@@ -12,19 +12,14 @@ test('settings actions are icons and the detail fits the scrolling viewport @pho
   const detail = page.getByTestId('list-detail');
   await expect(detail).toBeVisible();
   await expect(detail.getByRole('link', { name: 'Close', exact: true })).toBeVisible();
-  if (page.viewportSize()!.width >= 1200) {
-    const box = (await detail.boundingBox())!;
-    expect(box.height).toBeLessThan(page.viewportSize()!.height - 40);
-    const table = page.getByRole('table', { name: 'Settings', exact: true });
-    expect((await table.boundingBox())!.height).toBeGreaterThan(box.height);
-    await page.locator('#admin-main').evaluate((node) => { node.scrollTop = 600; });
-    await expect.poll(async () => (await detail.boundingBox())!.y).toBeLessThan(60);
-    const after = (await detail.boundingBox())!;
-    expect(after.y).toBeGreaterThanOrEqual(0);
-    expect(after.y + after.height).toBeLessThanOrEqual(page.viewportSize()!.height);
-  }
+  // A detail occupies an exclusive page at every viewport (a5292a0f): the list is not rendered beside it.
+  await expect(page.getByRole('table', { name: 'Settings', exact: true })).toHaveCount(0);
+  const box = (await detail.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: test.info().outputPath('settings-detail.png'), fullPage: true });
   await detail.getByRole('link', { name: 'Close', exact: true }).click();
   await expect(page.getByTestId('list-detail')).toHaveCount(0);
+  await expect(page.getByRole('table', { name: 'Settings', exact: true })).toBeVisible();
 });

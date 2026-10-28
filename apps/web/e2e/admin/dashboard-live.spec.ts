@@ -24,7 +24,7 @@ test('dashboard serves real data and personal widget settings survive reload @ph
     await prefs.getByRole('checkbox', { name: 'HTTP traffic', exact: true }).uncheck();
     await prefs.getByRole('checkbox', { name: 'Server information', exact: true }).check();
     await prefs.getByLabel('Automatic refresh').selectOption('60');
-    await prefs.getByRole('button', { name: 'Move Server information up' }).click();
+    await prefs.getByRole('button', { name: 'Reorder Server information' }).press('ArrowUp');
     await expect.poll(async () => (await (await page.request.get('/admin/me/preferences')).json()).dashboard?.refreshSecs).toBe(60);
     await expect.poll(async () => (await (await page.request.get('/admin/me/preferences')).json()).dashboard?.hidden).toContain('traffic');
     await expect.poll(async () => (await (await page.request.get('/admin/me/preferences')).json()).dashboard?.order?.indexOf('server')).toBe(6);
