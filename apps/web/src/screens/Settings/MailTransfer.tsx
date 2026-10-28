@@ -10,10 +10,10 @@ export interface TransferMailbox {id:string;name:string}
 export function MailTransfer(props:{accountId:string;mailboxes:readonly TransferMailbox[];api?:MailTransferApi;onImported?:()=>void}):JSX.Element {
   const nav=useEntityNavigation('mail-transfer');
   onMount(()=>{void loadCatalog('mail-transfer');});
-  return <section class={layout.section}>
+  return <section class={`${css.section} ${layout.section}`}>
     <Show when={nav.route().editor?.kind==='edit'&&nav.route().editor?.id} fallback={<Show when={nav.route().editor?.kind==='new'} fallback={<>
-      <h2 class={css.heading}>{t('mail-transfer-title')}</h2><p>{t('mail-transfer-summary')}</p>
-      <button class={css.button} onClick={()=>void nav.navigate({section:'mail-transfer',editor:{kind:'new'}})}>{t('mail-transfer-import-open')}</button>
+      <h2 class={css.heading}>{t('mail-transfer-title')}</h2><p class={css.prose}>{t('mail-transfer-summary')}</p>
+      <div class={css.actions}><button class={css.button} onClick={()=>void nav.navigate({section:'mail-transfer',editor:{kind:'new'}})}>{t('mail-transfer-import-open')}</button></div>
       <p class={css.meta}>{t('mail-transfer-export-help')}</p>
     </>}>
       <MailImportEditor accountId={props.accountId} mailboxes={props.mailboxes} api={props.api??mailTransferApi}
@@ -36,13 +36,15 @@ export function MailExportEditor(props:{accountId:string;emailId:string;api:Mail
     }catch(reason){if(epoch===generation)setError(reason instanceof MailTransferError&&reason.status===403?'mail-transfer-export-forbidden':reason instanceof MailTransferError&&reason.status===501?'mail-transfer-export-unavailable':'mail-transfer-export-error');}
     finally{if(epoch===generation)setBusy(false);}
   }
-  return <><h2 class={css.heading}>{t('mail-transfer-export-title')}</h2><p>{t('mail-transfer-export-detail')}</p>
+  return <><h2 class={css.heading}>{t('mail-transfer-export-title')}</h2><p class={css.prose}>{t('mail-transfer-export-detail')}</p>
     <label class={layout.label}>{t('mail-transfer-format')}<select disabled={busy()} class={css.input} value={format()} onChange={event=>setFormat(event.currentTarget.value as MailExportFormat)}>
       <option value="eml">EML (.eml)</option><option value="mbox">mbox</option><option value="txt">{t('mail-transfer-format-txt')}</option><option value="md">{t('mail-transfer-format-md')}</option><option value="msg">{t('mail-transfer-format-msg')}</option><option value="docx">{t('mail-transfer-format-docx')}</option>
     </select></label>
-    <button class={css.button} disabled={busy()} onClick={()=>void download()}>{t(busy()?'mail-transfer-exporting':'mail-transfer-export-submit')}</button>
+    <div class={css.actions}>
+      <button class={css.button} disabled={busy()} onClick={()=>void download()}>{t(busy()?'mail-transfer-exporting':'mail-transfer-export-submit')}</button>
+      <button class={css.ghost} disabled={busy()} onClick={()=>void props.onBack()}>{t('mail-transfer-back')}</button>
+    </div>
     <Show when={saved()}><p role="status">{t('mail-transfer-export-saved')}</p></Show><Show when={error()}><p role="alert">{t(error())}</p></Show>
-    <button class={css.ghost} disabled={busy()} onClick={()=>void props.onBack()}>{t('mail-transfer-back')}</button>
   </>;
 }
 
@@ -78,11 +80,12 @@ export function MailImportEditor(props:{accountId:string;mailboxes:readonly Tran
       if(epoch===generation)setError(reason instanceof MailTransferError&&reason.status===403?'mail-transfer-forbidden':'mail-transfer-import-uncertain');
     }finally{if(epoch===generation)setBusy(false);}
   }
-  return <><h2 class={css.heading}>{t('mail-transfer-import-title')}</h2><p>{t('mail-transfer-import-detail')}</p>
+  const back=()=><button type="button" class={css.ghost} disabled={busy()} onClick={()=>void guard.leave(props.onBack)}>{t('mail-transfer-back')}</button>;
+  return <><h2 class={css.heading}>{t('mail-transfer-import-title')}</h2><p class={css.prose}>{t('mail-transfer-import-detail')}</p>
     <Show when={!formats()&&!error()}><AsyncPending/></Show>
     <Show when={formats()}>{limits=><>
       <Show when={limits().available} fallback={<p role="status">{t('mail-transfer-unavailable')}</p>}>
-        <form onSubmit={event=>void submit(event)}><fieldset disabled={busy()} class={layout.fields}>
+        <form class={layout.fields} onSubmit={event=>void submit(event)}><fieldset disabled={busy()} class={layout.fields}>
           <label class={layout.label}>{t('mail-transfer-format')}<select class={css.input} value={format()} onChange={event=>setFormat(event.currentTarget.value as MailImportFormat)}>
             <option value="eml">EML (.eml)</option><option value="mbox">mbox</option><option value="maildir">Maildir (.tar)</option>
           </select></label>
@@ -91,12 +94,17 @@ export function MailImportEditor(props:{accountId:string;mailboxes:readonly Tran
           </select></label>
           <label class={layout.label}>{t('mail-transfer-file')}<input ref={input} class={css.input} type="file" required onChange={event=>{setFile(event.currentTarget.files?.[0]);setResult(undefined);setError('');}}/></label>
           <p class={css.meta}>{t('mail-transfer-limits',{bytes:limits().maxBytes,messages:limits().maxMessages})}</p>
-          <button class={css.button} type="submit" disabled={!file()||!mailbox()}>{t(busy()?'mail-transfer-importing':'mail-transfer-import-submit')}</button>
-        </fieldset></form>
+        </fieldset>
+          {/* Submit and back share the form's actions row. */}
+          <div class={css.actions}>
+            <button class={css.button} type="submit" disabled={busy()||!file()||!mailbox()}>{t(busy()?'mail-transfer-importing':'mail-transfer-import-submit')}</button>
+            {back()}
+          </div>
+        </form>
       </Show>
     </>}</Show>
     <Show when={result()}>{outcome=><p role="status">{t('mail-transfer-result',{imported:outcome().imported,failed:outcome().failed,total:outcome().total})}</p>}</Show>
     <Show when={error()}><p role="alert">{t(error())}</p></Show>
-    <button class={css.ghost} disabled={busy()} onClick={()=>void guard.leave(props.onBack)}>{t('mail-transfer-back')}</button>{guard.dialog()}
+    <Show when={!formats()?.available}><div class={css.actions}>{back()}</div></Show>{guard.dialog()}
   </>;
 }
