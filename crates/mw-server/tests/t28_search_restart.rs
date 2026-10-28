@@ -620,6 +620,10 @@ async fn a_search_hit_survives_a_restart_without_a_fetch_or_a_rebuild() {
     let c = browser();
     login(&c, &first.base, &d.pop).await;
     let account = account_id(&c, &first.base).await;
+    // The login only publishes the mailbox list; the messages arrive in the
+    // background (dcd88d33). Search once the first sync has indexed all three,
+    // or a slow runner searches an index that does not hold them yet.
+    wait_for_first_sync(&d, &first.base, 3).await;
     let hit = search(&c, &first.base, &account, TOKEN).await;
     assert_eq!(
         hit.len(),
@@ -636,7 +640,6 @@ async fn a_search_hit_survives_a_restart_without_a_fetch_or_a_rebuild() {
         "the index is on disk beside the database, at {}",
         d.index_dir().display()
     );
-    wait_for_first_sync(&d, &first.base, 3).await;
     first.kill();
 
     let second = d.start().await;
@@ -677,13 +680,16 @@ async fn a_deleted_index_directory_is_rebuilt_from_the_store_at_start() {
     let c = browser();
     login(&c, &first.base, &d.pop).await;
     let account = account_id(&c, &first.base).await;
+    // The login only publishes the mailbox list; the messages arrive in the
+    // background (dcd88d33). Search once the first sync has indexed all three,
+    // or a slow runner searches an index that does not hold them yet.
+    wait_for_first_sync(&d, &first.base, 3).await;
     let hit = search(&c, &first.base, &account, TOKEN).await;
     assert_eq!(
         hit.len(),
         1,
         "precondition: the message is found before the restart"
     );
-    wait_for_first_sync(&d, &first.base, 3).await;
     first.kill();
 
     std::fs::remove_dir_all(d.index_dir()).expect("delete the index directory");
