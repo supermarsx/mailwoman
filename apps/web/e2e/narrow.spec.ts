@@ -680,31 +680,26 @@ test.describe('desktop viewport (negative control)', () => {
     const list = page.locator('.list');
     const reader = page.locator('.reader');
 
-    // No narrow chrome, and the reader pane is present before anything is open.
+    // No narrow chrome.
     await expect(page.locator('.shell__bar')).toHaveCount(0);
     await expect(page.locator('.shell__scrim')).toHaveCount(0);
     await expect(sidebar).toBeVisible();
     await expect(list).toBeVisible();
-    await expect(reader).toBeVisible();
 
-    const columns = async (): Promise<{ sidebar: number; list: number; reader: number; sidebarWidth: number }> => {
-      const [s, l, r] = await Promise.all([sidebar.boundingBox(), list.boundingBox(), reader.boundingBox()]);
-      return { sidebar: s!.x, list: l!.x, reader: r!.x, sidebarWidth: s!.width };
-    };
-    const before = await columns();
-    expect(before.sidebar).toBe(0);
-    expect(before.sidebarWidth).toBe(220);
-    expect(before.list).toBe(220);
-    expect(before.reader).toBeGreaterThan(before.list);
-
+    // Opening a message: since the workspace tabs (24fb6149) it opens in a tab
+    // whose pane holds the list beside the reader (before that the reader pane
+    // was there, empty, before anything was open). The negative control is the
+    // same: three panes side by side, the list on screen and reachable.
     await messageRow(page, subject).click();
     await expect((await readerContent(page)).contentFrame().getByText(marker)).toBeVisible();
 
-    // Still three panes: the list is on screen and reachable beside the reader,
-    // and nothing moved.
+    const [s, l, r] = await Promise.all([sidebar.boundingBox(), list.boundingBox(), reader.boundingBox()]);
+    expect(s!.x, 'the sidebar is at the left edge').toBe(0);
+    expect(s!.width, 'the sidebar is not a drawer').toBe(220);
+    expect(l!.x, 'the list starts after the sidebar').toBeGreaterThanOrEqual(s!.x + s!.width);
+    expect(r!.x, 'the reader is beside the list, not over it').toBeGreaterThanOrEqual(l!.x + l!.width - 1);
     await expect(sidebar).toBeVisible();
     await expect(messageRow(page, subject)).toBeVisible();
     await expect(page.locator('.mail-pane')).not.toHaveAttribute('inert', '');
-    expect(await columns()).toEqual(before);
   });
 });
