@@ -213,6 +213,33 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
+/**
+ * The server runs a bounded number of JMAP requests at once and answers the
+ * rest 429 with the RFC 8620 `limit` problem `maxConcurrentRequests` BEFORE
+ * running any of their calls (mw-server `jmap_limits.rs`). Such a refusal
+ * changed nothing, so it is safe to send again; a client with several tabs open
+ * reaches that ceiling in ordinary use (a send racing the open readers' loads).
+ * These are the waits before each retry; a 429 for any other reason is not
+ * retried.
+ */
+const JMAP_BUSY_RETRY_MS = [100, 250, 500, 1000, 2000];
+
+async function isJmapBusy(res: Response): Promise<boolean> {
+  if (res.status !== 429) return false;
+  const body = (await res.clone().json().catch(() => null)) as { type?: unknown; limit?: unknown } | null;
+  return body?.type === 'urn:ietf:params:jmap:error:limit' && body.limit === 'maxConcurrentRequests';
+}
+
+/** Resolve after `ms`, or reject with the signal's reason once it aborts. */
+function pause(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(signal.reason); return; }
+    const onAbort = (): void => { clearTimeout(timer); reject(signal!.reason); };
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 export interface Client {
   login(input: LoginInput): Promise<Me>;
   logout(): Promise<void>;
@@ -411,13 +438,19 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
       if (keepalive) keepaliveInFlight += size;
       return guarded(async () => {
         try {
-          const res = await req(`/jmap/api`, {
+          const send = (): Promise<Response> => req(`/jmap/api`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: text,
             ...(opts?.signal !== undefined ? { signal: opts.signal } : {}),
             ...(keepalive ? { keepalive: true } : {}),
           });
+          let res = await send();
+          for (const wait of JMAP_BUSY_RETRY_MS) {
+            if (!(await isJmapBusy(res))) break;
+            await pause(wait, opts?.signal);
+            res = await send();
+          }
           return await jsonOrGate<JmapResponse>(res);
         } finally {
           if (keepalive) keepaliveInFlight -= size;
