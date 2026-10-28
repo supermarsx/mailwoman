@@ -19,4 +19,15 @@ describe('ComposerHistory',()=>{
   fireEvent.click(within(redoDetails).getByRole('button',{name:'Redo 2 changes'}));expect(redo).toHaveBeenCalledTimes(2);
   details.open=true;fireEvent.keyDown(undoSummary,{key:'Escape'});expect(details.open).toBe(false);expect(undoSummary).toHaveFocus();
  });
+ it('leaves Esc on a closed disclosure to the ribbon around it',()=>{
+  const api:RichTextApi={undo:()=>undefined,redo:()=>undefined,historyDepth:()=>({undo:1,redo:0}),focus:()=>undefined,appendHtml:()=>undefined,setHtml:()=>undefined,refreshImages:()=>undefined};
+  const outer=vi.fn();
+  render(()=><div onKeyDown={event=>outer(event.key)}><ComposerHistory api={api}/></div>);
+  const undoSummary=screen.getByLabelText('Undo history',{selector:'summary'});
+  fireEvent.keyDown(undoSummary,{key:'Escape'});
+  expect(outer).toHaveBeenCalledWith('Escape');
+  outer.mockClear();undoSummary.closest('details')!.open=true;
+  fireEvent.keyDown(undoSummary,{key:'Escape'});
+  expect(outer).not.toHaveBeenCalled();
+ });
 });

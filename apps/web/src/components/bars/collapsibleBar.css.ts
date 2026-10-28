@@ -105,11 +105,18 @@ export const panel = style({
     [`${root}[data-mode="auto"][data-reveal="push"][data-expanded="true"] > &`]: {
       animation: `${slideIn} ${REVEAL_MS}ms ease-out`,
     },
-    [`${root}[data-motion="reduced"] > &`]: { transition: 'none', animation: 'none', transform: 'none' },
-    ':root[data-reduced-motion] &': { transition: 'none', animation: 'none', transform: 'none' },
+    // Reduced motion: no slide, no fade. Each selector carries more attributes
+    // than the auto-hide rules above (four plus the root), so it wins over
+    // their transform, transition and animation rather than losing to them.
+    [`${root}[data-bar][data-mode][data-reveal][data-motion="reduced"] > &`]: { transition: 'none', animation: 'none', transform: 'none' },
+    [`:root[data-reduced-motion] ${root}[data-bar][data-mode][data-reveal] > &`]: { transition: 'none', animation: 'none', transform: 'none' },
   },
   '@media': {
-    '(prefers-reduced-motion: reduce)': { transition: 'none', animation: 'none', transform: 'none' },
+    '(prefers-reduced-motion: reduce)': {
+      selectors: {
+        [`${root}[data-bar][data-mode][data-reveal][data-expanded] > &`]: { transition: 'none', animation: 'none', transform: 'none' },
+      },
+    },
   },
 });
 
