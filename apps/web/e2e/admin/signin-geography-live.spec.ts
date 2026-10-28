@@ -7,8 +7,14 @@ test('sign-in country diagnostic reports real source and missing database honest
  const response=page.waitForResponse(r=>r.url().endsWith('/admin/bans/geography')&&r.request().method()==='GET');
  await page.goto('/admin#/observability/geography');
  const diagnostic=await response;expect(diagnostic.status()).toBe(200);expect(diagnostic.headers()['cache-control']).toBe('private, no-store');
- const body=await diagnostic.json();expect(body.scope).toBe('off');expect(body.database).toBe('unavailable');expect(body.sourceIp).toBe('127.0.0.1');
- await expect(page.getByRole('table',{name:'Sign-in country policy'}).getByText('127.0.0.1',{exact:true})).toBeVisible();
+ const body=await diagnostic.json();expect(body.scope).toBe('off');expect(body.database).toBe('unavailable');
+ // The real source is the address the server attributes to this connection: the one it
+ // recorded for the sign-in just made. 127.0.0.1 on a host-run server; the bridge
+ // gateway on a NAT-published container (Docker, CI), where no proxy is trusted.
+ const history=await page.request.get('/admin/logs/auth?surface=admin&result=success&limit=1');expect(history.status()).toBe(200);
+ const recorded=((await history.json()).events as {ip:string}[])[0]?.ip;expect(recorded).toMatch(/^[0-9a-f.:]+$/i);
+ expect(body.sourceIp).toBe(recorded);
+ await expect(page.getByRole('table',{name:'Sign-in country policy'}).getByText(recorded!,{exact:true})).toBeVisible();
  await expect(page.getByText(/local country database is missing or unreadable/)).toBeVisible();
  await page.screenshot({path:test.info().outputPath('country-policy-diagnostic.png'),fullPage:true});
  await page.getByRole('button',{name:'Configure country policy'}).click();
