@@ -9,12 +9,21 @@ import { Icon } from './Icon.tsx';
 // tear-off-able into its own window via `window.open`. Keyboard: Left/Right (or
 // Ctrl+[Shift+]Tab) cycles focus. Reads `useRealtime()` so it resolves the app
 // singleton or a test-provided controller.
+//
+// t38: the strip is a `CollapsibleBar` (`ui.bar.workspaceTabs`, overlay). In
+// auto-hide mode only a slim handle with the active tab's title stays on
+// screen; hover, a click or keyboard focus slides the strip out over the
+// content and Esc puts it away again. A vertical mouse wheel scrolls the strip
+// sideways (`horizontalWheel`).
 
 import { For, Show, createEffect, onCleanup, onMount, type JSX } from 'solid-js';
 import {beginWorkspaceTabDrag,workspaceTabDragId,endWorkspaceTabDrag} from '../realtime/workspaceTabDrag.ts';
 import { useRealtime } from '../realtime/context.ts';
 import { t,loadCatalog } from '../i18n/index.ts';
 import * as a11y from './mailA11y.css.ts';
+import { CollapsibleBar, useCollapsibleBar, type BarModeHandle } from './bars/index.ts';
+import { horizontalWheel } from './horizontalWheel.ts';
+import * as barCss from './subTabStripBar.css.ts';
 import type { SubTab } from '../realtime/subTabs.ts';
 
 /** DOM id of a sub-tab's `role="tab"` button — referenced by the tablist's aria-owns. */
@@ -22,7 +31,7 @@ function tabDomId(id: string): string {
   return `subtab-tab-${id}`;
 }
 
-export function SubTabStrip(props: { onClose?: (id:string)=>void; allowTearOff?: boolean; onDetach?: (id:string)=>void; isDetached?: (id:string)=>boolean; onReattach?: (id:string)=>void; canDetach?: (id:string)=>boolean; canClose?: (id:string)=>boolean } = {}): JSX.Element {
+export function SubTabStrip(props: { onClose?: (id:string)=>void; allowTearOff?: boolean; onDetach?: (id:string)=>void; isDetached?: (id:string)=>boolean; onReattach?: (id:string)=>void; canDetach?: (id:string)=>boolean; canClose?: (id:string)=>boolean; bar?: BarModeHandle } = {}): JSX.Element {
   const { subTabs } = useRealtime();
   onCleanup(endWorkspaceTabDrag);
   onMount(()=>void loadCatalog('workspace-tabs'));
@@ -59,9 +68,11 @@ export function SubTabStrip(props: { onClose?: (id:string)=>void; allowTearOff?:
   // contract), while the visible strip carries the roving keyboard model — keydown
   // from a focused tab bubbles here. Controls are NOT nested inside the tabs either,
   // which would trip `nested-interactive` (tab has childrenPresentational).
+  const activeTitle = (): string => subTabs.tabs().find((tab) => tab.id === subTabs.activeId())?.title ?? '';
   return (
     <Show when={subTabs.tabs().length > 0}>
-      <div class="subtab-strip" onKeyDown={onKeyDown}>
+      <CollapsibleBar id="workspaceTabs" revealPolicy="overlay" {...(props.bar ? { bar: props.bar } : {})} class={barCss.root} panelClass={barCss.panel} handleLabel={activeTitle()}>
+      <div class={`subtab-strip ${barCss.strip}`} ref={horizontalWheel} onKeyDown={onKeyDown}>
         <div
           class={`subtab-tablist ${a11y.srOnly}`}
           role="tablist"
@@ -75,6 +86,7 @@ export function SubTabStrip(props: { onClose?: (id:string)=>void; allowTearOff?:
             onDrop={event=>drop(event,tab.id)}/>}
         </For>
       </div>
+      </CollapsibleBar>
     </Show>
   );
 }
@@ -101,6 +113,9 @@ function SubTabButton(props: { tab: SubTab; active: boolean; onClose?: (id:strin
     return actions;
   }});
   onCleanup(observePreferenceAccount(()=>context.close(false)));
+  // The menu is portaled out of the bar: keep an auto-hide strip open under it.
+  const bar=useCollapsibleBar();
+  createEffect(()=>{if(context.isOpen()&&bar)onCleanup(bar.hold());});
   return (
     <div
       class="subtab"

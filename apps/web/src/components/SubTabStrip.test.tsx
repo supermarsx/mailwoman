@@ -3,16 +3,73 @@ import { toasts, resetToasts } from './toast/index.ts';
 import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent, screen } from '@solidjs/testing-library';
 import { SubTabStrip } from './SubTabStrip.tsx';
+import { createSignal } from 'solid-js';
+import type { BarMode, BarModeHandle } from './bars/index.ts';
 import { RealtimeContext } from '../realtime/context.ts';
 import { createRealtimeController, type RealtimeController } from '../realtime/controller.ts';
 
-function renderStrip(controller: RealtimeController) {
+function renderStrip(controller: RealtimeController, bar?: BarModeHandle) {
   return render(() => (
     <RealtimeContext.Provider value={controller}>
-      <SubTabStrip />
+      <SubTabStrip {...(bar ? { bar } : {})} />
     </RealtimeContext.Provider>
   ));
 }
+
+function fakeBar(initial: BarMode): BarModeHandle & { calls: BarMode[] } {
+  const [mode, setMode] = createSignal<BarMode>(initial);
+  const calls: BarMode[] = [];
+  return {
+    calls, mode, locked: () => false, saving: () => false, error: () => '',
+    setMode: (m) => { calls.push(m); setMode(m); return Promise.resolve(true); },
+  };
+}
+
+describe('SubTabStrip as the workspaceTabs bar (t38)', () => {
+  const barRoot = (): HTMLElement => document.querySelector('[data-bar="workspaceTabs"]') as HTMLElement;
+  it('pinned: the strip is shown with a pin and no handle', () => {
+    const controller = createRealtimeController({ subTabs: { openWindow: vi.fn() } });
+    controller.subTabs.open({ kind: 'messages', title: 'Inbox' });
+    const bar = fakeBar('pinned');
+    renderStrip(controller, bar);
+    expect(barRoot()).toHaveAttribute('data-mode', 'pinned');
+    expect(barRoot()).toHaveAttribute('data-reveal', 'overlay');
+    expect(document.querySelector('[data-bar-handle]')).toBeNull();
+    fireEvent.click(document.querySelector('[data-bar-pin="workspaceTabs"]')!);
+    expect(bar.calls).toEqual(['auto']);
+  });
+  it('auto: a slim handle names the active tab; focus opens the strip and Esc closes it', () => {
+    const controller = createRealtimeController({ subTabs: { openWindow: vi.fn() } });
+    controller.subTabs.open({ kind: 'messages', title: 'Inbox' });
+    controller.subTabs.open({ kind: 'module', title: 'Contacts' });
+    renderStrip(controller, fakeBar('auto'));
+    const handle = document.querySelector('[data-bar-handle="workspaceTabs"]') as HTMLButtonElement;
+    expect(handle).toHaveTextContent('Contacts');
+    expect(handle).toHaveAttribute('aria-expanded', 'false');
+    expect(barRoot()).toHaveAttribute('data-expanded', 'false');
+    expect(document.getElementById('mw-bar-workspaceTabs')).toHaveAttribute('inert');
+    handle.focus();
+    expect(barRoot()).toHaveAttribute('data-expanded', 'true');
+    expect(handle).toHaveAttribute('aria-expanded', 'true');
+    const tab = screen.getByRole('tab', { name: 'Contacts' });
+    tab.focus();
+    fireEvent.keyDown(tab, { key: 'Escape' });
+    expect(barRoot()).toHaveAttribute('data-expanded', 'false');
+    expect(document.activeElement).toBe(handle);
+  });
+  it('a vertical wheel scrolls the overflowing strip sideways', () => {
+    const controller = createRealtimeController({ subTabs: { openWindow: vi.fn() } });
+    controller.subTabs.open({ kind: 'messages', title: 'Inbox' });
+    renderStrip(controller, fakeBar('pinned'));
+    const strip = document.querySelector('.subtab-strip') as HTMLElement;
+    Object.defineProperty(strip, 'scrollWidth', { configurable: true, value: 900 });
+    Object.defineProperty(strip, 'clientWidth', { configurable: true, value: 300 });
+    const wheel = new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true });
+    strip.dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(true);
+    expect(strip.scrollLeft).toBe(100);
+  });
+});
 
 describe('SubTabStrip', () => {
   it('enables native pointer dragging with an explicit enumerated attribute',()=>{
