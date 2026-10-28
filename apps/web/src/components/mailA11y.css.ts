@@ -8,7 +8,7 @@
 // built on the frozen `vars.a11y.*` contract so focus/motion/high-contrast stay
 // centrally switchable.
 
-import { style } from '@vanilla-extract/css';
+import { globalStyle, style } from '@vanilla-extract/css';
 import { vars } from '../theme/contract.css.ts';
 
 /** Visible focus ring for keyboard users (WCAG 2.2 §2.4.11/2.4.13). Applied next
@@ -21,11 +21,17 @@ export const focusable = style({
       outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`,
       outlineOffset: '2px',
       // Keep the ring visible above neighbouring rows/controls.
-      position: 'relative',
       zIndex: 1,
     },
   },
 });
+
+// A static control is made `relative` so the z-index above applies, at zero
+// specificity: a control that positions itself (the row's absolutely placed
+// More actions toggle) keeps its own `position` when it takes keyboard focus.
+// With this inside the rule above (0,2,0), a focused toggle became relative and
+// jumped out of its row's corner (narrow.spec Follow-up, t33-e15).
+globalStyle(`:where(${focusable}:focus-visible)`, { position: 'relative' });
 
 /** Minimum 24×24 CSS-px interactive target (WCAG 2.2 §2.5.8). For icon-only
  *  controls that would otherwise render smaller than the target floor. */
