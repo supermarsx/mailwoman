@@ -20,6 +20,8 @@ test('mailbox and administrator session tables revoke only selected sessions @ph
     if (test.info().project.name === 'phone') await other.getByRole('button', { name: 'Open folders and apps' }).click();
     await other.getByRole('button', { name: 'Settings', exact: true }).click();
     await other.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Security centre', exact: true }).click();
+    // 2b1695c0 split the Security centre into tabs; the sessions table is on "Sessions & access".
+    await other.getByRole('tablist', { name: 'Security centre' }).getByRole('tab', { name: 'Sessions & access', exact: true }).click();
     await expect(other.getByRole('table', { name: 'Active sessions' })).toBeVisible();
     await expect(other.getByText('This session', { exact: true }).first()).toBeVisible();
     await other.screenshot({ path: test.info().outputPath('account-sessions-table.png'), fullPage: true });

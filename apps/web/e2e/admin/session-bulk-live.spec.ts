@@ -90,6 +90,8 @@ test('mailbox user selects other sessions without ending the current session @ph
   if(test.info().project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();
   await page.getByRole('button',{name:'Settings',exact:true}).click();
   await page.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name:'Security centre',exact:true}).click();
+  // 2b1695c0 split the Security centre into tabs; the sessions table is on "Sessions & access".
+  await page.getByRole('tablist',{name:'Security centre'}).getByRole('tab',{name:'Sessions & access',exact:true}).click();
   const section=page.getByRole('region',{name:'Active sessions',exact:true});
   await expect(section.getByText('This session',{exact:true})).toBeVisible();
   await expect(section.locator('tbody tr').filter({has:page.getByText('This session',{exact:true})}).getByRole('checkbox')).toBeDisabled();
