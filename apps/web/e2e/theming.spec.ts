@@ -1,8 +1,8 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
-import { test, expect, type Page } from './csrf.ts';
-import { engineLogin, resetAccountAppearance } from './helpers.ts';
+import { test, expect, type APIRequestContext, type Page } from './csrf.ts';
+import { engineLogin, resetAccountAppearance, setAccountAppearance, settingsSurface } from './helpers.ts';
 import { THEME_LIST, accentShade } from '../src/theme/registry.ts';
 import { ACCENT_IDS, type AccentId } from '../src/theme/accentMath.ts';
 import type { ThemeName } from '../src/theme/contract.css.ts';
@@ -46,8 +46,8 @@ test.describe('V2 theming via the Settings dialog', () => {
     const beforeTheme = await root.getAttribute('data-theme');
 
     // Open Settings from the sidebar gear.
-    await page.getByRole('button', { name: 'Settings' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Settings' });
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    const dialog = settingsSurface(page);
     await expect(dialog).toBeVisible();
 
     // Pick Grove Dark.
@@ -73,8 +73,8 @@ test.describe('V2 theming via the Settings dialog', () => {
 
   test('the chosen theme persists across a reload', async ({ page }) => {
     await engineLogin(page);
-    await page.getByRole('button', { name: 'Settings' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Settings' });
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    const dialog = settingsSurface(page);
     await dialog.getByRole('button', { name: 'AMOLED' }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'amoled');
 
@@ -96,32 +96,20 @@ test.describe('V2 theming via the Settings dialog', () => {
 // tell the difference, and that is the one thing these specs exist to prove.
 
 /**
- * Seed `mw.theme.prefs` before the app boots, the way a returning user arrives.
+ * Store `prefs` as the engine account's appearance, the way a returning user
+ * arrives: the next sign-in adopts it.
  *
- * Seeds ONLY when the key is absent. `addInitScript` runs on EVERY navigation,
- * not just the first, so an unconditional `setItem` re-stamps the seed on
- * `page.reload()` and silently discards whatever the app stored in between —
- * which is not seeding a returning user, it is overwriting the user's choice.
- *
- * That is what broke "an explicit pick leaves system mode and survives a reload":
- * the test seeded `{mode:'system', darkTheme:'dark'}`, picked Ocean Light, then
- * reloaded — and the init script put the system-mode seed straight back, so the
- * app booted in system mode under `prefers-color-scheme: dark` and painted
- * `dark`. Verified directly: with an unconditional `setItem`, a pick of
- * `{mode:'fixed', theme:'ocean-light'}` reads back as `{mode:'system',
- * darkTheme:'dark'}` after `reload()`.
- *
- * Not the shared-account leak `resetAccountAppearance` handles, and not a product
- * defect — no application can defend against its own storage being rewritten
- * before it boots. The received `data-density="cozy"` (the default, not the
- * `compact` that theming.spec.ts:35 sets) is what rules the account leak out.
+ * Seeding `localStorage` before boot stopped doing this in 24fb6149: on every
+ * account change, the first one at boot included, the web client resets the
+ * local set to the defaults and adopts the ACCOUNT's stored set
+ * (`bindAppearanceToAccount` in src/api/prefs.ts), so one account never inherits
+ * another's look and the login screen shows the defaults. The server blob goes
+ * through the same `parseAppearancePrefs` merge a local one did, legacy shapes
+ * (no `chosen`, a colour accent) included, so these tests keep their meaning;
+ * they now sign in (`engineLogin`) instead of stopping at the login screen.
  */
-async function seedPrefs(page: Page, prefs: Record<string, unknown>): Promise<void> {
-  await page.addInitScript((p) => {
-    if (localStorage.getItem('mw.theme.prefs') === null) {
-      localStorage.setItem('mw.theme.prefs', JSON.stringify(p));
-    }
-  }, prefs);
+async function seedPrefs(request: APIRequestContext, prefs: Record<string, unknown>): Promise<void> {
+  await setAccountAppearance(request, prefs);
 }
 
 /** Read a legacy-bridge custom property off `<html>` (see themes.css.ts). */
@@ -143,9 +131,9 @@ async function bootShell(page: Page): Promise<void> {
 
 test.describe('every built-in pack is bound to real CSS', () => {
   for (const entry of THEME_LIST) {
-    test(`${entry.id} paints its own token values, not the default palette`, async ({ page }) => {
-      await seedPrefs(page, { mode: 'fixed', theme: entry.id, chosen: true });
-      await bootShell(page);
+    test(`${entry.id} paints its own token values, not the default palette`, async ({ page, request }) => {
+      await seedPrefs(request, { mode: 'fixed', theme: entry.id, chosen: true });
+      await engineLogin(page);
 
       await expect(page.locator('html')).toHaveAttribute('data-theme', entry.id);
       // The rendered value must be the value the contrast matrix measured. If
@@ -168,19 +156,19 @@ test.describe('every built-in pack is bound to real CSS', () => {
 });
 
 test.describe('appearance mode tri-state', () => {
-  test('system mode follows an OS scheme flip live, with no reload', async ({ page }) => {
+  test('system mode follows an OS scheme flip live, with no reload', async ({ page, request }) => {
     // The live watcher is the load-bearing half: `watchColorScheme()` subscribes
     // to `matchMedia('(prefers-color-scheme: dark)')` for the page's lifetime, so
     // a user flipping their OS theme sees the app follow immediately. A reload
     // would pass even if the listener were never wired.
-    await seedPrefs(page, {
+    await seedPrefs(request, {
       mode: 'system',
       lightTheme: 'ocean-light',
       darkTheme: 'plum-dark',
       chosen: true,
     });
     await page.emulateMedia({ colorScheme: 'light' });
-    await bootShell(page);
+    await engineLogin(page);
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'ocean-light');
 
     await page.emulateMedia({ colorScheme: 'dark' });
@@ -193,24 +181,24 @@ test.describe('appearance mode tri-state', () => {
     await expect(page.locator('html')).toHaveAttribute('data-appearance', 'light');
   });
 
-  test('fixed mode ignores the OS entirely', async ({ page }) => {
-    await seedPrefs(page, { mode: 'fixed', theme: 'grove-light', chosen: true });
+  test('fixed mode ignores the OS entirely', async ({ page, request }) => {
+    await seedPrefs(request, { mode: 'fixed', theme: 'grove-light', chosen: true });
     await page.emulateMedia({ colorScheme: 'dark' });
-    await bootShell(page);
+    await engineLogin(page);
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'grove-light');
     await expect(page.locator('html')).toHaveAttribute('data-appearance', 'light');
   });
 
-  test('an explicit pick leaves system mode and survives a reload', async ({ page }) => {
+  test('an explicit pick leaves system mode and survives a reload', async ({ page, request }) => {
     // `chosen: true`: a user who picked "Follow the system". Without the flag
     // this exact set is the pre-t32 untouched default, which boots Dark anyway.
-    await seedPrefs(page, { mode: 'system', lightTheme: 'light', darkTheme: 'dark', chosen: true });
+    await seedPrefs(request, { mode: 'system', lightTheme: 'light', darkTheme: 'dark', chosen: true });
     await page.emulateMedia({ colorScheme: 'dark' });
     await engineLogin(page);
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
-    await page.getByRole('button', { name: 'Settings' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Settings' });
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    const dialog = settingsSurface(page);
     await dialog.getByRole('button', { name: 'Ocean Light' }).click();
 
     // Picking a light pack while the OS says dark must stick: `setTheme()`
@@ -227,7 +215,7 @@ test.describe('appearance mode tri-state', () => {
       localStorage.setItem('mw.theme.prefs', '{"mode":"sideways","theme":"not-a-theme"');
     });
     await bootShell(page);
-    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
     expect(await legacyVar(page, '--bg')).not.toBe('');
   });
 });
@@ -253,8 +241,8 @@ test.describe('the Dark default', () => {
     await engineLogin(page);
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
-    await page.getByRole('button', { name: 'Settings' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Settings' });
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    const dialog = settingsSurface(page);
     await dialog.getByRole('button', { name: 'Follow the system' }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 
@@ -262,9 +250,9 @@ test.describe('the Dark default', () => {
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   });
 
-  test('an old untouched default in storage (no chosen flag) boots Dark', async ({ page }) => {
+  test('an old untouched default in storage (no chosen flag) boots Dark', async ({ page, request }) => {
     // What a build before t32 stored for a user who never chose.
-    await seedPrefs(page, {
+    await seedPrefs(request, {
       mode: 'system',
       theme: 'light',
       lightTheme: 'light',
@@ -272,7 +260,7 @@ test.describe('the Dark default', () => {
       density: 'compact',
     });
     await page.emulateMedia({ colorScheme: 'light' });
-    await bootShell(page);
+    await engineLogin(page);
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
     // The fields that are not the theme decision survive.
     await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
@@ -322,9 +310,9 @@ test.describe('named accents', () => {
     expect(wrong).toEqual([]);
   });
 
-  test('without an accent each pack paints its own', async ({ page }) => {
-    await seedPrefs(page, { mode: 'fixed', theme: 'blueprint', chosen: true });
-    await bootShell(page);
+  test('without an accent each pack paints its own', async ({ page, request }) => {
+    await seedPrefs(request, { mode: 'fixed', theme: 'blueprint', chosen: true });
+    await engineLogin(page);
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'blueprint');
     expect(await page.locator('html').getAttribute('data-accent')).toBeNull();
     expect((await accentVars(page)).accent).toBe(accentShade('blueprint', '').accent);
@@ -334,8 +322,8 @@ test.describe('named accents', () => {
     page,
   }) => {
     await engineLogin(page);
-    await page.getByRole('button', { name: 'Settings' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Settings' });
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    const dialog = settingsSurface(page);
     const accents = dialog.getByRole('group', { name: 'Accent' });
 
     await accents.getByRole('button', { name: 'Teal' }).click();
@@ -354,9 +342,10 @@ test.describe('named accents', () => {
 
   test('a colour accent stored by an older build arrives as the nearest named accent', async ({
     page,
+    request,
   }) => {
-    await seedPrefs(page, { mode: 'fixed', theme: 'light', chosen: true, accent: '#7c3aed' });
-    await bootShell(page);
+    await seedPrefs(request, { mode: 'fixed', theme: 'light', chosen: true, accent: '#7c3aed' });
+    await engineLogin(page);
     await expect(page.locator('html')).toHaveAttribute('data-accent', 'violet');
     expect((await accentVars(page)).accent).toBe(accentShade('light', 'violet').accent);
   });
@@ -387,14 +376,15 @@ test.describe('the Bauhaus packs under axe', () => {
     for (const accent of pair) {
       test(`${theme} with ${accent}: no colour-contrast violation on the mailbox or Settings`, async ({
         page,
+    request,
       }) => {
-        await seedPrefs(page, { mode: 'fixed', theme, accentId: accent, chosen: true });
+        await seedPrefs(request, { mode: 'fixed', theme, accentId: accent, chosen: true });
         await engineLogin(page);
         await expect(page.locator('html')).toHaveAttribute('data-accent', accent);
         expect(await contrastViolations(page), `${theme}/${accent} mailbox`).toEqual([]);
 
-        await page.getByRole('button', { name: 'Settings' }).click();
-        await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+        await page.getByRole('button', { name: 'Settings', exact: true }).click();
+        await expect(settingsSurface(page)).toBeVisible();
         expect(await contrastViolations(page), `${theme}/${accent} settings`).toEqual([]);
       });
     }
@@ -414,9 +404,9 @@ test.describe('theme screenshots', () => {
 
   for (const [theme, pair] of SHOT_CELLS) {
     for (const accent of pair) {
-      test(`${theme} with ${accent}`, async ({ page }) => {
+      test(`${theme} with ${accent}`, async ({ page, request }) => {
         await page.setViewportSize({ width: 1280, height: 800 });
-        await seedPrefs(page, { mode: 'fixed', theme, accentId: accent, chosen: true });
+        await seedPrefs(request, { mode: 'fixed', theme, accentId: accent, chosen: true });
         await engineLogin(page);
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
         await expect(page.locator('html')).toHaveAttribute('data-accent', accent);
@@ -431,8 +421,8 @@ test.describe('theme screenshots', () => {
         await expect(page.locator('iframe.reader__frame')).toBeVisible();
         await page.screenshot({ path: join(dir, `${accent}-reader.png`) });
 
-        await page.getByRole('button', { name: 'Settings' }).click();
-        const dialog = page.getByRole('dialog', { name: 'Settings' });
+        await page.getByRole('button', { name: 'Settings', exact: true }).click();
+        const dialog = settingsSurface(page);
         const accents = dialog.getByRole('group', { name: 'Accent' });
         await expect(dialog).toBeVisible();
         await page.screenshot({ path: join(dir, `${accent}-settings.png`) });
