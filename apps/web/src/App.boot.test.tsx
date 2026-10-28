@@ -15,13 +15,22 @@ import { render, screen, waitFor, fireEvent } from '@solidjs/testing-library';
 
 const hooks = vi.hoisted(() => ({
   me: null as null | (() => Promise<unknown>),
+  // Set by a test to have `me()` report network up/down to the store as the real
+  // client's `guarded()` does (api/client.ts): a NetworkError reports down.
+  network: null as null | Set<(up: boolean) => void>,
 }));
 
 vi.mock('./api/transport.ts', () => ({
   createConfiguredClient: () => ({
     login: vi.fn(),
     logout: vi.fn(async () => undefined),
-    me: () => hooks.me!(),
+    me: () => hooks.me!().then(
+      (out) => { hooks.network?.forEach((l) => l(true)); return out; },
+      (err: unknown) => {
+        if (err instanceof Error && err.name === 'NetworkError') hooks.network?.forEach((l) => l(false));
+        throw err;
+      },
+    ),
     session: vi.fn(async () => ({
       capabilities: {},
       accounts: {},
@@ -35,7 +44,10 @@ vi.mock('./api/transport.ts', () => ({
     })),
     jmap: vi.fn(async () => ({ methodResponses: [], sessionState: 's' })),
     sanitize: vi.fn(async (html: string) => html),
-    onNetwork: vi.fn(() => () => undefined),
+    onNetwork: vi.fn((listener: (up: boolean) => void) => {
+      hooks.network?.add(listener);
+      return () => hooks.network?.delete(listener);
+    }),
   }),
 }));
 
@@ -126,16 +138,18 @@ describe('boot in a native shell', () => {
   afterEach(() => {
     delete g.__TAURI_INTERNALS__;
     delete g.__MW_CONFIG__;
+    hooks.network = null;
   });
 
   it('a boot failure offers Retry and the administrator line, and no Change server', async () => {
     g.__TAURI_INTERNALS__ = {};
     g.__MW_CONFIG__ = { serverUrl: 'https://mail.example.org', native: true };
+    hooks.network = new Set();
     hooks.me = () => Promise.reject(new NetworkError('connect ECONNREFUSED'));
 
     render(() => <App />);
 
-    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('async-retry')).toBeTruthy());
     expect(screen.getByTestId('async-retry')).toBeTruthy();
     expect(screen.getByTestId('boot-contact-administrator')).toHaveTextContent(
       'If this keeps happening, contact your administrator.',
@@ -143,8 +157,19 @@ describe('boot in a native shell', () => {
     expect(screen.queryByRole('button', { name: 'Change server' })).toBeNull();
     expect(screen.queryByTestId('boot-change-server')).toBeNull();
     expect(screen.queryByTestId('login-server-address')).toBeNull();
-    // Only Retry: no other control on the card.
-    expect(screen.getAllByRole('button').map((b) => b.getAttribute('data-testid'))).toEqual(['async-retry']);
+    // Only Retry: no other control on the screen. The failed request also raises
+    // the "connection lost" toast, which may add nothing but its close button
+    // (desktop-e2e, CI run 40685037101, found it as an unnamed extra button).
+    const region = screen.getByTestId('toast-region');
+    expect(region.textContent).toContain('Connection lost');
+    const buttons = screen.getAllByRole('button');
+    expect(buttons.filter((b) => !region.contains(b)).map((b) => b.getAttribute('data-testid'))).toEqual(['async-retry']);
+    const toastButtons = buttons.filter((b) => region.contains(b));
+    expect(toastButtons.length).toBeGreaterThan(0);
+    for (const b of toastButtons) {
+      expect(b.hasAttribute('data-toast-close')).toBe(true);
+      expect(b.getAttribute('aria-label')).toBeTruthy();
+    }
   });
 
   it('a browser boot failure has neither Change server nor the administrator line', async () => {

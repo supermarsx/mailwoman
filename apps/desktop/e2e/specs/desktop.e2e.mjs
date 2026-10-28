@@ -104,7 +104,18 @@ async function firstScreen() {
         contactAdmin: root.querySelector('[data-testid="boot-contact-administrator"]')?.textContent.trim() ?? null,
         changeServer: !!root.querySelector('[data-testid="boot-change-server"]'),
         serverField: !!root.querySelector('[data-testid="login-server-address"]'),
-        buttons: [...root.querySelectorAll('button')].map((b) => b.getAttribute('data-testid') || b.textContent.trim()),
+        // A failed boot request also raises the store's "connection lost" toast
+        // (state/store.ts, client.onNetwork), whose close button is icon-only. The
+        // toast region is listed apart from everything else so that a toast may
+        // only add dismissals: any other control there is reported, as is any
+        // unnamed button anywhere.
+        buttons: [...root.querySelectorAll('button')]
+          .filter((b) => !b.closest('[data-testid="toast-region"]'))
+          .map((b) => b.getAttribute('data-testid') || b.getAttribute('aria-label') || b.textContent.trim()),
+        toastButtons: [...root.querySelectorAll('[data-testid="toast-region"] button')].map((b) => ({
+          close: b.hasAttribute('data-toast-close'),
+          name: b.getAttribute('aria-label') || b.textContent.trim(),
+        })),
         lang: document.documentElement.lang,
       };
     }
@@ -332,6 +343,9 @@ describe('Mailwoman desktop shell — live (tauri-driver / WebView2)', () => {
     ).catch(() => undefined);
     assert.equal(screen.kind, 'error', `the boot-error card: ${JSON.stringify(screen)}`);
     assert.deepEqual(screen.buttons, ['async-retry'], 'Retry is the only control');
+    for (const b of screen.toastButtons) {
+      assert.ok(b.close && b.name, `a toast offers only a named close button: ${JSON.stringify(screen.toastButtons)}`);
+    }
     assert.equal(screen.changeServer, false, 'no Change server control');
     assert.equal(screen.serverField, false, 'no server-address field');
     assert.ok(screen.contactAdmin, 'the administrator line is shown');
