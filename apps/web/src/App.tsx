@@ -147,9 +147,11 @@ export function App(): JSX.Element {
   });
 
   // Open the realtime push transport once a session exists, and tear it down on
-  // logout (plan §2.2). Inert under jsdom (no WebSocket/EventSource).
+  // logout (plan §2.2). Inert under jsdom (no WebSocket/EventSource). It stays
+  // open while a linked mailbox is open: the sign-in session's stream carries
+  // every verified link's changes too (t46).
   createEffect(() => {
-    if (inMail()&&!app.linkedMailboxId?.()) app.startRealtime();
+    if (inMail()) app.startRealtime();
     else app.stopRealtime();
   });
 
