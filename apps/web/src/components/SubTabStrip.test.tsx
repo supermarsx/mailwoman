@@ -37,6 +37,20 @@ describe('SubTabStrip', () => {
     expect(controller.subTabs.tabs().map(tab=>tab.id)).toEqual([b,a]);
     expect(controller.subTabs.activeId()).toBe(b);
   });
+  it('closing the active tab with its close button moves focus to the tab that is active next', async () => {
+    // t33-e10: the close button is removed with its tab, so focus fell to <body>.
+    const controller = createRealtimeController({ subTabs: { openWindow: vi.fn() } });
+    controller.subTabs.open({ kind: 'messages', title: 'Inbox' });
+    controller.subTabs.open({ kind: 'module', title: 'Plans' });
+    renderStrip(controller);
+    const closeButton = screen.getByRole('button', { name: 'Close Plans' });
+    closeButton.focus();
+    fireEvent.click(closeButton);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(screen.queryByRole('tab', { name: 'Plans' })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Inbox' }));
+  });
   it('renders nothing while there are no tabs', () => {
     const controller = createRealtimeController({ subTabs: { openWindow: vi.fn() } });
     renderStrip(controller);

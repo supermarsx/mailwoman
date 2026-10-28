@@ -84,7 +84,11 @@ function SubTabButton(props: { tab: SubTab; active: boolean; onClose?: (id:strin
   const id = (): string => props.tab.id;
   let label:HTMLButtonElement|undefined;
   createEffect(()=>{if(props.active)queueMicrotask(()=>{if(props.active)label?.scrollIntoView?.({block:'nearest',inline:'nearest'});});});
-  const close=():void=>{if(props.canClose?.(id())===false) return;if(props.onClose) props.onClose(id());else subTabs.close(id());};
+  // Closing removes the control that had focus (the tab or its close button). Focus
+  // then goes to the tab that is active afterwards, as in the ARIA tabs pattern,
+  // instead of falling to <body> where a keyboard or screen-reader user is lost.
+  const close=():void=>{if(props.canClose?.(id())===false) return;const owned=label?.parentElement?.contains(document.activeElement)??false;if(props.onClose) props.onClose(id());else subTabs.close(id());
+    if(owned)queueMicrotask(()=>{const next=subTabs.activeId();if(next&&next!==id()&&(document.activeElement===null||document.activeElement===document.body))document.getElementById(tabDomId(next))?.focus();});};
   const context=createContextMenu({label:()=>props.tab.title,scope:()=>`${preferenceAccount()?.generation}:${id()}:${subTabs.tabs().some(tab=>tab.id===id())}`,actions:()=>{
     if(!subTabs.tabs().some(tab=>tab.id===id()))return [];
     const actions:ContextAction[]=[{id:'star',label:t(props.tab.pinned?'workspace-tabs-unstar':'workspace-tabs-star'),icon:props.tab.pinned?'star':'starOutline',run:()=>{
