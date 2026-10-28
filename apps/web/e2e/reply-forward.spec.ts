@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import net from 'node:net';
-import { ENGINE_CREDS, composeSurface, engineLogin, messageRow, waitForInboxMessage } from './helpers.ts';
+import { ENGINE_CREDS, composeSurface, engineLogin, messageRow, ribbonControl, waitForInboxMessage } from './helpers.ts';
 import { uid } from './pim-helpers.ts';
 
 /**
@@ -438,7 +438,8 @@ test.describe('reply, reply all, forward, Bcc (engine mode)', () => {
     await page.getByRole('button', { name: 'Compose', exact: true }).click();
     const dialog = composeSurface(page);
     await expect(dialog).toBeVisible();
-    await dialog.getByRole('button', { name: 'Add Cc or Bcc' }).click();
+    // At 1280 px the ribbon folds the Recipients group into its dropdown (t38).
+    await (await ribbonControl(dialog, 'Recipients', dialog.getByRole('button', { name: 'Add Cc or Bcc' }))).click();
     await dialog.getByLabel('To', { exact: true }).fill(frank);
     await dialog.getByLabel('Bcc', { exact: true }).fill(grace);
     await dialog.getByLabel('Subject', { exact: true }).fill(subject);

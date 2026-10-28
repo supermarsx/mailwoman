@@ -72,7 +72,7 @@ test.describe('settings model C (t32 f01)', () => {
       await hold(admin, 'appearance.density', 'relaxed');
       await engineLogin(page);
 
-      await page.getByRole('button', { name: 'Settings' }).click();
+      await page.getByRole('button', { name: 'Settings', exact: true }).click();
       // A workspace tab since 24fb6149; Language and Density are on its first
       // section, Appearance.
       const dialog = settingsSurface(page);
