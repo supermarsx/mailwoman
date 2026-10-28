@@ -8,6 +8,7 @@ import {
   waitForInboxMessage,
   openMessage,
 } from './crypto-helpers.ts';
+import { composeSurface } from './helpers.ts';
 
 /**
  * V4 headline live E2E (plan §3 e10, DoD OpenPGP): a full browser-side PGP
@@ -71,11 +72,15 @@ test('PGP: generate → encrypt → send → decrypt-on-receipt (round-trip + in
 
   // 2) Compose to self; the crypto banner must detect the recipient key (e2ee).
   await page.getByRole('button', { name: 'Compose', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Compose message' });
+  // Compose is a workspace tab region (af880dc1), not a modal dialog.
+  const dialog = composeSurface(page);
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('To', { exact: true }).fill(ENGINE_CREDS.selfAddress);
   await dialog.getByLabel('Subject', { exact: true }).fill(subject);
   await dialog.getByLabel('Body', { exact: true }).fill(plaintextHtml);
+
+  // The crypto/DLP controls sit on the compose ribbon's Security tab (e0c99a79).
+  await dialog.getByRole('tab', { name: 'Security', exact: true }).click();
 
   const banner = dialog.locator('[data-testid="compose-crypto-banner"]');
   await expect(banner).toHaveAttribute('data-capability', 'e2ee', { timeout: 20_000 });
@@ -86,10 +91,8 @@ test('PGP: generate → encrypt → send → decrypt-on-receipt (round-trip + in
     timeout: 20_000,
   });
 
-  // 4) Send the armored ciphertext; it goes out over SMTP and loops back. (The
-  // footer Send sits below the fold in the tall dialog and can't be scrolled into
-  // the viewport; submit the form directly to fire the same onSubmit send path.)
-  await dialog.locator('form.compose').evaluate((f) => (f as HTMLFormElement).requestSubmit());
+  // 4) Send the armored ciphertext; it goes out over SMTP and loops back.
+  await dialog.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(dialog).toBeHidden();
 
   // 5) The received message arrives in the inbox; open it.

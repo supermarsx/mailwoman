@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { engineLogin, ENGINE_CREDS, uid } from './crypto-helpers.ts';
+import { composeSurface } from './helpers.ts';
 
 /**
  * V4 DLP live E2E (plan §3 e10 item 5 / SPEC §7.6): a compose containing a
@@ -24,11 +25,15 @@ test('DLP: a payment card number blocks the send with the rule message', async (
   await engineLogin(page);
 
   await page.getByRole('button', { name: 'Compose', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Compose message' });
+  // Compose is a workspace tab region (af880dc1), not a modal dialog.
+  const dialog = composeSurface(page);
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('To', { exact: true }).fill(ENGINE_CREDS.selfAddress);
   await dialog.getByLabel('Subject', { exact: true }).fill(subject);
   await dialog.getByLabel('Body', { exact: true }).fill(`Please pay using card ${pan} today.`);
+
+  // The crypto/DLP controls sit on the compose ribbon's Security tab (e0c99a79).
+  await dialog.getByRole('tab', { name: 'Security', exact: true }).click();
 
   // The compose-time Dlp/scan dry-run surfaces the block inline.
   const block = dialog.locator('[data-testid="dlp-block"]');
@@ -38,10 +43,8 @@ test('DLP: a payment card number blocks the send with the rule message', async (
   // the committed docker-compose.crypto.yml block rule the CI job runs.
   await expect(block).toContainText('Block card numbers');
 
-  // Send is gated: the compose refuses with the DLP message and stays open. (The
-  // footer Send sits below the fold in the tall dialog and Playwright can't bring it
-  // into the viewport; submit the form directly to fire the same onSubmit gate.)
-  await dialog.locator('form.compose').evaluate((f) => (f as HTMLFormElement).requestSubmit());
+  // Send is gated: the compose refuses with the DLP message and stays open.
+  await dialog.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(dialog.locator('.login__error')).toContainText('data-loss-prevention rule');
   await expect(dialog).toBeVisible();
 });
