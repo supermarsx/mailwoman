@@ -58,7 +58,7 @@ import {
   type MailboxGetResponse,
   type SetError,
 } from '../../api/jmap-types.ts';
-import { t, isolate } from '../../i18n/index.ts';
+import { t, isolate, loadCatalog } from '../../i18n/index.ts';
 import { clearDrafts } from '../../components/compose/drafts-store.ts';
 import { purgeShellCaches } from '../../sw/purge.ts';
 import { toast } from '../../components/toast/index.ts';
@@ -90,6 +90,9 @@ const REFRESH_MAX_ROWS = 500;
 type PageSource =
   | { readonly kind: 'mailbox'; readonly mailboxId: Id }
   | { readonly kind: 'search'; readonly filter: FilterCondition };
+
+/** How long sign-in waits for the linked-mailbox list before opening the sign-in account. */
+const FIRST_MAILBOX_WAIT_MS = 1500;
 
 /** The toast id of the pending undo; a new undo replaces the one on screen. */
 const UNDO_TOAST_ID = 'mail-undo';
@@ -1743,9 +1746,57 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   // refused, and the client reports it here.
   client.onPasswordChangeRequired?.(holdForPasswordChange);
 
+  /**
+   * The mailbox to open first (t40 e): the owner's marked link when the server
+   * still lists it as ready, else the sign-in account. Never an authority: the
+   * link opens through `switchLinkedMailbox`, with every check that implies.
+   */
+  async function firstMailbox(): Promise<{linkId: string | null; fallback: boolean}> {
+    const api = createLinkedAccountsApi();
+    const listed = api.list();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      // Never hold the first paint on this: a slow answer opens the sign-in
+      // account, and a fallback notice it carries is still shown when it lands.
+      const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), FIRST_MAILBOX_WAIT_MS); });
+      const value = await Promise.race([listed, late]);
+      if (value === null) {
+        void listed.then((slow) => { if (slow.primaryFallback === true) void noteFirstMailboxFallback(true); }, () => undefined).finally(api.dispose);
+        return {linkId: null, fallback: false};
+      }
+      api.dispose();
+      return {linkId: value.policy.enabled ? value.primaryMailbox ?? null : null, fallback: value.primaryFallback === true};
+    } catch {
+      api.dispose();
+      return {linkId: null, fallback: false};
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  /** Tell the user once that the marked mailbox is gone, and clear the mark. */
+  async function noteFirstMailboxFallback(clear: boolean): Promise<void> {
+    await loadCatalog('linked-accounts').catch(() => undefined);
+    showToast('info', t('linked-accounts-first-fallback'));
+    if (!clear) return;
+    const api = createLinkedAccountsApi();
+    try { await api.setPrimary(null); } catch { /* the next sign-in reports it again */ } finally { api.dispose(); }
+  }
+
   /** Load mail for a new session, unless the server holds it at the change screen. */
   async function loadMailFor(user: Me): Promise<void> {
     if (mustChangePassword(user)) return;
+    const first = await firstMailbox();
+    if (first.linkId !== null) {
+      try {
+        await switchLinkedMailbox(first.linkId);
+        if (activeLinkedMailbox()?.linkId === first.linkId) return;
+      } catch {
+        // Fall through to the sign-in account below.
+      }
+      void noteFirstMailboxFallback(false);
+    } else if (first.fallback) {
+      void noteFirstMailboxFallback(true);
+    }
     try {
       await loadMailboxes();
     } catch (err) {

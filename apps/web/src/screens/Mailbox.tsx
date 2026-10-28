@@ -1,5 +1,6 @@
 import {LinkedAccountControl} from '../components/accounts/LinkedAccountControl.tsx';
-import {accountIndicatorLabel} from '../components/accounts/AccountIconMenu.tsx';
+import {accountIndicatorLabel} from '../components/accounts/MailboxPicker.tsx';
+import {mailboxNickname} from '../api/mailboxLayout.ts';
 import {CollapsibleBar} from '../components/bars/index.ts';
 import {DetachedWorkspacePane,type DetachedPaneHandle} from '../components/DetachedWorkspacePane.tsx';
 import {WorkspaceLayoutControls} from '../components/WorkspaceLayoutControls.tsx';
@@ -33,7 +34,7 @@ import { AttachmentTab, type AttachmentTabItem } from '../viewers/AttachmentTab.
 import { buildDownloadUrl } from '../viewers/attachments.ts';
 import type { StripItem } from '../viewers/ThumbnailStrip.tsx';
 import { useBranding, brandAssetUrl } from '../branding.ts';
-import { createEffect, createMemo, createSignal, untrack, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
+import { createEffect, createMemo, createSignal, on, untrack, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { useApp } from '../state/context.ts';
 import { createEntryMotion } from '../shell/createEntryMotion.ts';
@@ -236,11 +237,6 @@ export function MailboxScreen(): JSX.Element {
     if(!panes().some(pane=>pane.id===id)) setPanes(old=>[...old,{id,kind:'settings',title:t('mail-nav-settings'),navigation:createSettingsNavigation()}]);
     subTabs.open({id,kind:'settings',title:t('mail-nav-settings')});
   }
-  async function openLinkedAccounts():Promise<void>{
-    openSettings();
-    const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);
-    await pane?.navigation?.navigate({section:'linked-accounts'});
-  }
   async function openExport(messageId:string):Promise<void> {
     const account=app.accountId();
     openSettings();
@@ -404,6 +400,8 @@ export function MailboxScreen(): JSX.Element {
 
   /** Close the drawer. Focus returns to the menu button unless whatever closed
    *  it (Compose, Settings, the sharing dialog) has already taken focus. */
+  // Switching mailbox (from the drawer's picker or anywhere else) closes the drawer.
+  createEffect(on(() => app.linkedMailboxId?.() ?? null, () => closeNav(), { defer: true }));
   function closeNav(): void {
     if (!navOpen()) return;
     setNavOpen(false);
@@ -548,8 +546,8 @@ export function MailboxScreen(): JSX.Element {
               mailbox is active, the phone bar names it (the switcher is in the drawer). */}
           <Show when={app.linkedMailboxId?.() ? app.me()?.username : undefined}>{address=>
             <button type="button" class={`btn btn--ghost shell__account-chip ${a11y.focusable}`} data-account-indicator="chip"
-              aria-label={accountIndicatorLabel(address(),true)} data-tooltip={accountIndicatorLabel(address(),true)} aria-controls="shell-nav" onClick={openNav}>
-              <Icon name="users"/><span class="shell__account-chip-text">{isolate(address())}</span>
+              aria-label={accountIndicatorLabel(address(),true,mailboxNickname(app.linkedMailboxId()))} data-tooltip={accountIndicatorLabel(address(),true,mailboxNickname(app.linkedMailboxId()))} aria-controls="shell-nav" onClick={openNav}>
+              <Icon name="users"/><span class="shell__account-chip-text">{isolate(mailboxNickname(app.linkedMailboxId())??address())}</span>
             </button>}
           </Show>
           <button
@@ -580,18 +578,16 @@ export function MailboxScreen(): JSX.Element {
         ref={sidebarEl}
         onKeyDown={onNavKeyDown}
         onClick={(e) => {
-          if (e.target instanceof Element && e.target.closest('button') !== null) closeNav();
-        }}
-        onChange={(e) => {
-          // Choosing another mailbox in the drawer's switcher also closes the drawer.
-          if (e.target instanceof HTMLSelectElement && e.target.closest('.sidebar__account') !== null) closeNav();
+          // The mailbox picker's trigger only opens its menu; choosing a
+          // mailbox closes the drawer through the switch itself (below).
+          if (e.target instanceof Element && e.target.closest('button') !== null && e.target.closest('.sidebar__account') === null) closeNav();
         }}
       >
         <div class="sidebar__head">
           <span class="sidebar__brand"><Show when={brandAssetUrl(branding()?.logoUrl)}>{url=><img src={url()} alt={branding()?.brandName||'Mailwoman'} class="sidebar__brand-logo"/>}</Show>{branding()?.brandName || t('mail-brand')}</span>
           {/* The one account indicator and switcher (t38 §2.3): text in the
               expanded sidebar, a one-letter button when the folders are compact. */}
-          <Show when={app.me()}><div class="sidebar__account" data-variant={accountIconInSidebar()?'icon':'full'}><LinkedAccountControl variant={accountIconInSidebar()?'icon':'full'} onManage={()=>void openLinkedAccounts()}/></div></Show>
+          <Show when={app.me()}><div class="sidebar__account" data-variant={accountIconInSidebar()?'icon':'full'}><LinkedAccountControl variant={accountIconInSidebar()?'icon':'full'}/></div></Show>
         </div>
         <button type="button" class={`btn btn--primary sidebar__compose ${a11y.focusable}`} aria-label={t('mail-compose')} title={t('mail-compose')} onClick={openNewMessage}>
           <Icon name="edit"/><span class="sidebar__box-name">{t('mail-compose')}</span>
@@ -701,7 +697,7 @@ export function MailboxScreen(): JSX.Element {
         <CollapsibleBar id="mailTopBar" revealPolicy="overlay" class="mail-topbar">
         <div class="workspace-bar" role="toolbar" aria-label={t('mail-workspace-layout')}>
           {/* With the sidebar hidden, its account indicator moves here: exactly one is ever shown. */}
-          <Show when={accountIconInTopBar()}><LinkedAccountControl variant="icon" onManage={()=>void openLinkedAccounts()}/></Show>
+          <Show when={accountIconInTopBar()}><LinkedAccountControl variant="icon"/></Show>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t(folderMode()==='hidden'?'mail-show-folders':'mail-hide-folders')} title={t(folderMode()==='hidden'?'mail-show-folders':'mail-hide-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='hidden'?'expanded':'hidden'})}><Icon name="folder"/></button>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-pressed={folderMode()==='compact'} aria-label={t('mail-compact-folders')} title={t('mail-compact-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='compact'?'expanded':'compact'})}><Icon name="menu"/></button>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-pressed={!accountUiPreferences().messageListCollapsed} aria-label={t('mail-toggle-list')} title={t('mail-toggle-list')} onClick={()=>setAccountUiPreferences({messageListCollapsed:!accountUiPreferences().messageListCollapsed,readerCollapsed:false})}><Icon name="mail"/></button>
@@ -723,7 +719,7 @@ export function MailboxScreen(): JSX.Element {
               inert={!paneVisible(pane.id)} data-tab-id={pane.id} data-view-slot={views.slot(pane.id)??undefined} data-drop-target={dropView()!==null&&dropView()===views.slot(pane.id)}
               onDragOver={event=>dragView(event,views.slot(pane.id))} onDrop={event=>dragView(event,views.slot(pane.id),true)} onDragLeave={()=>setDropView(null)}
               onFocusIn={()=>subTabs.activate(pane.id)} onPointerDown={()=>subTabs.activate(pane.id)}>
-              <DetachedWorkspacePane title={()=>subTabs.tabs().find(tab=>tab.id===pane.id)?.title??pane.title} account={()=>app.me()?.username} register={handle=>{pane.detach=handle;setPaneWindowRevision(value=>value+1);}}>{()=> <>
+              <DetachedWorkspacePane title={()=>subTabs.tabs().find(tab=>tab.id===pane.id)?.title??pane.title} account={()=>mailboxNickname(app.linkedMailboxId())??app.me()?.username} register={handle=>{pane.detach=handle;setPaneWindowRevision(value=>value+1);}}>{()=> <>
               <Show when={pane.kind==='messages' && pane.view}>{view=><><Show when={view().error()}><p role="alert">{t('mail-workspace-load-error')}</p></Show><Reader view={view()} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} onCompose={openReply} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)}/></>}</Show>
               <Show when={pane.kind==='attachment' && pane.attachment}>{item=><AttachmentTab item={item()}/>}</Show>
               <Show when={pane.kind==='composer'}><Compose embedded registerBeforeClose={handler=>{pane.beforeClose=handler;}} onSubjectChange={subject=>subTabs.rename(pane.id,subject.trim()||t('mail-compose'))} onDraftIdChange={id=>{if(pane.draftId!==id){pane.draftId=id;setDraftRevision(value=>value+1);}}} {...(pane.draftId?{resumeDraftId:pane.draftId}:{})} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>

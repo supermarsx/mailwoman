@@ -1,7 +1,6 @@
 linked-accounts-select = Mailbox account
-linked-accounts-primary = Primary
+linked-accounts-primary = Sign-in account
 linked-accounts-unavailable = Unavailable
-linked-accounts-manage = Manage linked mailboxes
 linked-accounts-title = Linked mailboxes
 linked-accounts-description = Access another mailbox while keeping your primary sign-in. Each mailbox keeps its own preferences, identities, signatures, folders, and drafts.
 linked-accounts-add = Link a mailbox
@@ -34,3 +33,23 @@ linked-accounts-primary-preference = Switch to your primary account to change th
 linked-accounts-backend-unsupported = Linked mailboxes currently support verified native IMAP, POP3, and EWS accounts. Proxy and SSO accounts are not supported.
 linked-accounts-verification-required = Complete the sign-in verification, then try again.
 linked-accounts-retry = Retry
+linked-accounts-first = Primary
+linked-accounts-first-help = Opens first after sign-in
+linked-accounts-set-first = Set { $address } as primary
+linked-accounts-set-first-short = Set as primary
+linked-accounts-unread = { $count ->
+    [one] { $count } unread message
+   *[other] { $count } unread messages
+}
+linked-accounts-first-fallback = Your primary mailbox is no longer available, so your sign-in account opened instead.
+linked-accounts-moved = { $name } moved to position { $position } of { $total }.
+linked-accounts-drag = Drag to reorder
+linked-accounts-reorder-help = Drag a mailbox by its handle to change the order. The order is the same on every device.
+linked-accounts-move-handle = Reorder { $name }
+linked-accounts-reorder-keys = Press Alt and the Up or Down arrow to move this mailbox.
+linked-accounts-rename = Rename { $address }
+linked-accounts-rename-short = Rename…
+linked-accounts-nickname = Nickname (only you see it)
+linked-accounts-nickname-for = Nickname for { $address }
+linked-accounts-nickname-invalid = Use up to { $max } characters, without control or text-direction characters.
+linked-accounts-nickname-failed = The nickname could not be saved. Try again.

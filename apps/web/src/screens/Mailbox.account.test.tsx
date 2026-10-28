@@ -23,10 +23,16 @@ const linked={primary:{accountId:'acct1',address:'me@example.org',storageAuthori
 beforeEach(async()=>{suspendAccountPreferences();localStorage.removeItem(WORKSPACE_STORAGE_KEY);history.replaceState(null,'','#/mail');await new Promise(resolve=>setTimeout(resolve,0));});
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();});
 
+const calls:{method:string;path:string;body?:string}[]=[];
 function stubAccounts(list:unknown|null){
   const real=globalThis.fetch;
+  calls.length=0;
   vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
     const url=new URL(input instanceof Request?input.url:String(input),location.href);
+    calls.push({method:init?.method??'GET',path:url.pathname,...(typeof init?.body==='string'?{body:init.body}:{})});
+    if(url.pathname==='/api/accounts/primary')return new Response(init?.body as string,{status:200,headers:{'content-type':'application/json'}});
+    if(url.pathname==='/api/accounts/layout'){const body=JSON.parse(init?.body as string) as Record<string,unknown>;return new Response(JSON.stringify({layout:{...body,revision:'r2'}}),{status:200,headers:{'content-type':'application/json'}});}
+    if(/^\/api\/accounts\/[^/]+\/switch$/.test(url.pathname))return new Response('{}',{status:409});
     if(url.pathname==='/api/accounts')return list===null?new Response('{}',{status:503}):new Response(JSON.stringify(list),{status:200,headers:{'content-type':'application/json'}});
     if(url.pathname.startsWith('/api/settings'))return new Response(JSON.stringify({settings:{}}),{status:200,headers:{'content-type':'application/json'}});
     return real?real(input,init):new Response(null,{status:404});
@@ -66,12 +72,70 @@ describe('one account indicator',()=>{
   it('the switcher works from the sidebar head', async()=>{
     stubAccounts(linked);
     const {app,container}=await mount();
-    const switcher=await within(container.querySelector('.sidebar__head') as HTMLElement).findByRole('combobox',{name:'Mailbox account'});
+    const switcher=await within(container.querySelector('.sidebar__head') as HTMLElement).findByRole('button',{name:/^Mailbox account/});
+    expect(switcher).toHaveAttribute('aria-haspopup','menu');
     const sw=vi.spyOn(app,'switchLinkedMailbox').mockResolvedValue(undefined);
-    fireEvent.change(switcher,{target:{value:'link-1'}});
+    fireEvent.click(switcher);
+    const menu=await screen.findByRole('menu',{name:'Mailbox account'});
+    // No management entry in the picker: linking is managed in Settings.
+    expect(within(menu).queryByText(/Manage/)).toBeNull();
+    expect(within(menu).getAllByRole('menuitemradio')).toHaveLength(2);
+    fireEvent.click(within(menu).getAllByRole('menuitemradio')[1]!);
     await waitFor(()=>expect(sw).toHaveBeenCalledWith('link-1'));
-    expect(within(topBar()).queryByRole('combobox')).toBeNull();
+    expect(within(topBar()).queryByRole('button',{name:/^Mailbox account/})).toBeNull();
     expect(indicators(container)).toHaveLength(1);
+  });
+  it('one mailbox: plain address with no menu in the sidebar, compact and hidden modes', async()=>{
+    stubAccounts({...linked,accounts:[]});
+    const {container}=await mount();
+    const head=container.querySelector('.sidebar__head') as HTMLElement;
+    await waitFor(()=>expect(head.querySelector('[data-account-indicator="plain"]')).not.toBeNull());
+    expect(head.querySelector('[aria-haspopup]')).toBeNull();
+    expect(head.querySelector('select')).toBeNull();
+    setAccountUiPreferences({folderSidebarMode:'compact'});
+    const icon=await waitFor(()=>{const node=head.querySelector('[data-account-indicator="icon"]');expect(node).not.toBeNull();return node as HTMLElement;});
+    expect(icon.tagName).toBe('SPAN');
+    expect(icon).not.toHaveAttribute('aria-haspopup');
+    expect(stripIsolates(icon.getAttribute('aria-label')!)).toBe('Signed in as me@example.org');
+    fireEvent.click(icon);
+    expect(screen.queryByRole('menu')).toBeNull();
+    setAccountUiPreferences({folderSidebarMode:'hidden'});
+    const top=await waitFor(()=>{const node=topBar().querySelector('[data-account-indicator="icon"]');expect(node).not.toBeNull();return node as HTMLElement;});
+    expect(top).not.toHaveAttribute('aria-haspopup');
+  });
+  it('the picker marks a mailbox as primary on the server', async()=>{
+    stubAccounts(linked);
+    const {container}=await mount();
+    fireEvent.click(await within(container.querySelector('.sidebar__head') as HTMLElement).findByRole('button',{name:/^Mailbox account/}));
+    const menu=await screen.findByRole('menu');
+    fireEvent.click(within(menu).getByRole('menuitem',{name:/child@example\.org.*primary/}));
+    await waitFor(()=>expect(calls).toContainEqual({method:'PUT',path:'/api/accounts/primary',body:JSON.stringify({linkId:'link-1'})}));
+  });
+  it('the saved order and nicknames drive the picker; Rename saves through the layout endpoint', async()=>{
+    stubAccounts({...linked,layout:{revision:'r1',order:['link-1','main'],nicknames:{main:'Personal','link-1':'Work'}}});
+    const {container}=await mount();
+    const trigger=await within(container.querySelector('.sidebar__head') as HTMLElement).findByRole('button',{name:'Mailbox account: Personal (me@example.org)'});
+    expect(stripIsolates(trigger.querySelector('[data-mailbox-label]')!.textContent!)).toBe('Personal');
+    fireEvent.click(trigger);
+    const menu=await screen.findByRole('menu');
+    expect(within(menu).getAllByRole('menuitemradio').map(item=>stripIsolates(item.querySelector('[data-mailbox-label]')!.textContent!))).toEqual(['Work','Personal']);
+    fireEvent.click(within(menu).getByRole('menuitem',{name:/Rename .*me@example\.org/}));
+    const input=await within(menu).findByRole('textbox',{name:/Nickname for .*me@example\.org/});
+    fireEvent.input(input,{target:{value:'Home'}});
+    fireEvent.keyDown(input,{key:'Enter'});
+    await waitFor(()=>expect(calls.find(call=>call.path==='/api/accounts/layout')?.body).toBe(JSON.stringify({revision:'r1',order:['link-1','main'],nicknames:{main:'Home','link-1':'Work'}})));
+  });
+  it('sign-in opens the primary mailbox first, through the normal switch', async()=>{
+    stubAccounts({...linked,primaryMailbox:'link-1'});
+    await mount();
+    await waitFor(()=>expect(calls.some(call=>call.method==='POST'&&call.path==='/api/accounts/link-1/switch')).toBe(true));
+  });
+  it('a primary mailbox that is gone falls back to the sign-in account, says so once and clears the mark', async()=>{
+    stubAccounts({...linked,accounts:[],primaryFallback:true});
+    const {app}=await mount();
+    await waitFor(()=>expect(calls).toContainEqual({method:'PUT',path:'/api/accounts/primary',body:JSON.stringify({linkId:null})}));
+    expect(app.linkedMailboxId()).toBeNull();
+    expect(calls.some(call=>call.path.endsWith('/switch'))).toBe(false);
   });
   it('compact folders: an icon button in the sidebar opens the switcher', async()=>{
     stubAccounts(linked);
@@ -81,9 +145,10 @@ describe('one account indicator',()=>{
     expect(stripIsolates(icon.getAttribute('aria-label')!)).toBe('Signed in as me@example.org');
     expect(indicators(container)).toHaveLength(1);
     expect(topBar().querySelector('[data-account-indicator]')).toBeNull();
+    expect(icon).toHaveAttribute('aria-haspopup','menu');
     fireEvent.click(icon);
-    const dialog=await screen.findByRole('dialog');
-    expect(await within(dialog).findByRole('combobox',{name:'Mailbox account'})).toBeInTheDocument();
+    const menu=await screen.findByRole('menu',{name:'Mailbox account'});
+    expect(within(menu).getAllByRole('menuitemradio')).toHaveLength(2);
   });
   it('hidden folders: the icon button moves to the top bar', async()=>{
     stubAccounts(linked);

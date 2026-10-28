@@ -2,6 +2,8 @@ import {createResource,createSignal,onCleanup,onMount,Show,type JSX} from 'solid
 import {createLinkedAccountsApi,type LinkedMailbox,type LinkedMailboxChallenge,type LinkMailboxInput,type LinkMailboxProof} from '../../api/linkedAccounts.ts';
 import {publicConfig} from '../../api/publicConfig.ts';
 import {invalidateLinkedAccounts} from '../../api/linkedMailboxSession.ts';
+import {keyOf,layoutChange,orderedKeys,saveLayout} from '../../api/mailboxLayout.ts';
+import {moveTo} from '../../components/accounts/pointerReorder.ts';
 import {SigninChallenge} from '../../components/SigninChallenge.tsx';
 import {AsyncPending} from '../../components/AsyncState.tsx';
 import {linkedAccountError} from '../../components/accounts/linkedAccountError.ts';
@@ -23,7 +25,7 @@ function OwnedLinkedAccounts():JSX.Element {
   let disposed=false;
   onCleanup(()=>{disposed=true;api.dispose();});
   onMount(()=>{void loadCatalog('linked-accounts');void loadCatalog('settings');});
-  const [list,{refetch}]=createResource(()=>api.list());
+  const [list,{refetch,mutate}]=createResource(()=>api.list());
   const [config]=createResource(()=>publicConfig());
   const [challenge,setChallenge]=createSignal<LinkedMailboxChallenge>();
   const [proof,setProof]=createSignal<string>();
@@ -47,13 +49,37 @@ function OwnedLinkedAccounts():JSX.Element {
     catch(cause){if(!disposed)setError(linkedAccountError(cause));}
     finally{if(!disposed)setBusy(false);}
   }
+  async function setFirst(id:string|null):Promise<void>{
+    if(busy())return;
+    setBusy(true);setError('');
+    try{await api.setPrimary(id);if(disposed)return;invalidateLinkedAccounts();await refetch();}
+    catch(cause){if(!disposed)setError(linkedAccountError(cause));}
+    finally{if(!disposed)setBusy(false);}
+  }
+  function move(from:number,slot:number):void{
+    const current=list();if(!current||busy())return;
+    const order=moveTo(orderedKeys(current),from,slot);
+    mutate({...current,layout:{revision:current.layout?.revision??'',order,nicknames:current.layout?.nicknames??{}}});
+    void layoutAction(()=>saveLayout(api,current,fresh=>layoutChange(fresh,{order})));
+  }
+  async function rename(id:string|null,nickname:string):Promise<boolean>{
+    const current=list();if(!current)return false;
+    return await layoutAction(()=>saveLayout(api,current,fresh=>layoutChange(fresh,{nickname:{key:keyOf(id),value:nickname}})));
+  }
+  async function layoutAction(action:()=>Promise<unknown>):Promise<boolean>{
+    if(busy())return false;
+    setBusy(true);setError('');
+    try{await action();if(disposed)return true;invalidateLinkedAccounts();await refetch();return true;}
+    catch(cause){if(!disposed){setError(linkedAccountError(cause));void refetch();}return false;}
+    finally{if(!disposed)setBusy(false);}
+  }
   return <Show when={challenge()} keyed fallback={<Show when={editing()} fallback={<>
     <Show when={list.loading&&!list()}><AsyncPending variant="list"/></Show>
     <Show when={list.error}><p role="alert" class={css.error}>{linkedAccountError(list.error)}</p><button class={css.button} onClick={()=>void refetch()}>{t('linked-accounts-retry')}</button></Show>
     <Show when={!list.error&&list()}>{value=><>
       <Show when={app.linkedMailboxId()===null} fallback={<p class={css.meta}>{t('linked-accounts-primary-preference')}</p>}><LinkedPreference onChanged={()=>{invalidateLinkedAccounts();void refetch();}}/></Show>
       <Show when={value().policy.reason==='linkedBackendUnsupported'}><p class={css.meta}>{t('linked-accounts-backend-unsupported')}</p></Show>
-      <LinkedAccountList value={value()} activeLinkId={app.linkedMailboxId()} busy={busy()||app.switchingMailbox()} error={error()} onAdd={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'new'}})} onSwitch={id=>void switchTo(id)} onUnlink={account=>void remove(account)}/>
+      <LinkedAccountList value={value()} activeLinkId={app.linkedMailboxId()} busy={busy()||app.switchingMailbox()} error={error()} onAdd={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'new'}})} onSwitch={id=>void switchTo(id)} onUnlink={account=>void remove(account)} onSetFirst={id=>void setFirst(id)} onMove={move} onRename={rename}/>
     </>}</Show>
   </>}><LinkMailboxEditor enabled={!!list()?.policy.enabled&&!config.loading&&!config.error} onVerify={link} onVerified={complete} onCancel={back} errorText={linkedAccountError}
       verificationRequired={config()?.antiBot?.mailbox===true} {...(proof()?{verificationProof:proof()!}:{})}
