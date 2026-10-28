@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '../csrf.ts';
-import { signInManually, drawerButton } from '../helpers.ts';
+import { signInManually, drawerButton, settingsSurface } from '../helpers.ts';
 const baseline = process.env['MW_LAYOUT_BASELINE'] === '1';
 async function capture(page: Page, name: string): Promise<void> {
   await page.screenshot({path:test.info().outputPath(`${name}.png`),fullPage:true});
@@ -10,27 +10,42 @@ async function capture(page: Page, name: string): Promise<void> {
 test('shared admin fields group compactly and preserve readable editors @phone',async({page})=>{
   await page.goto('/admin'); await page.getByLabel('Admin username').fill('root'); await page.getByLabel('Password',{exact:true}).fill('hunter2'); await page.getByRole('button',{name:'Sign in',exact:true}).click();
   await expect(page.getByRole('button',{name:'Sign in',exact:true})).toHaveCount(0);
-  for(const section of ['users','integrations','settings/session.idleSecs']) { await page.goto(`/admin#/${section}`); await expect(page.locator('main').first()).toBeVisible(); await page.locator('main input:visible').first().waitFor(); await capture(page,section.replaceAll('/','-')); }
-  const name=`layout-${Date.now()}.test`; await page.goto(`/admin#/domains/${name}`); await page.getByRole('button',{name:'Create and configure'}).click(); await expect(page.getByRole('heading',{name,exact:true})).toBeVisible();
+  // a5292a0f split Users and Integrations into list pages and dedicated editors; the editors hold the fields.
+  for(const section of ['users/%2Bnew','integrations/webhooks','settings/session.idleSecs']) { await page.goto(`/admin#/${section}`); await expect(page.locator('main').first()).toBeVisible(); await page.locator('main input:visible').first().waitFor(); await capture(page,section.replaceAll('/','-')); }
+  // 618be244 gave each domain dedicated configuration pages: connections hold the IMAP
+  // fields, the sign-in policy page holds the allowlist editor.
+  const name=`layout-${Date.now()}.test`; await page.goto('/admin#/domains/new'); await page.getByRole('textbox',{name:'Domain name',exact:true}).fill(name); await page.getByRole('button',{name:'Create and configure'}).click(); await expect(page.getByRole('heading',{name,exact:true})).toBeVisible();
+  try{
+  const pages=page.getByRole('navigation',{name:'Domain configuration pages'});
+  await pages.getByRole('link',{name:'Connections and discovery',exact:true}).click();
   await page.getByRole('combobox',{name:'Incoming mail protocol'}).selectOption('imap');
   const host=page.getByRole('textbox',{name:'IMAP Host',exact:true});const port=page.getByRole('spinbutton',{name:'IMAP Port',exact:true}); await host.fill('mail.example.test');
-  if(!baseline){ const h=await host.boundingBox(),p=await port.boundingBox();expect(p!.width).toBeLessThanOrEqual(165);if(page.viewportSize()!.width>760)expect(Math.abs(h!.y-p!.y)).toBeLessThan(3);expect((await page.getByRole('textbox',{name:'Allowlist',exact:true}).boundingBox())!.width).toBeGreaterThan(p!.width); }
+  const p=await port.boundingBox();
+  if(!baseline){ const h=await host.boundingBox();expect(p!.width).toBeLessThanOrEqual(165);if(page.viewportSize()!.width>760)expect(Math.abs(h!.y-p!.y)).toBeLessThan(3); }
   await host.locator('xpath=ancestor::fieldset[1]').screenshot({path:test.info().outputPath('domain-fields.png')}); await capture(page,'domains');
+  // The IMAP edit is never saved: leave it through the unsaved-changes guard.
+  await pages.getByRole('link',{name:'Sign-in policy',exact:true}).click();
+  await page.getByRole('alertdialog',{name:'Leave this page?'}).getByRole('button',{name:'Leave and discard changes'}).click();
+  if(!baseline) expect((await page.getByRole('textbox',{name:'Allowlist',exact:true}).boundingBox())!.width).toBeGreaterThan(p!.width);
+  await capture(page,'domain-policy');
+  }finally{ const removed=await page.request.delete(`/admin/domains/${name}`); expect(removed.ok(),await removed.text()).toBe(true); }
 });
 test('user settings controls fit their content while compose retains its editor @phone',async({page})=>{
   await signInManually(page,{username:'testuser',password:'testpass'}); await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();
   if(page.viewportSize()!.width<761)await drawerButton(page).click();
   await page.getByRole('button',{name:'Settings',exact:true}).click();
-  const dialog=page.getByRole('dialog',{name:'Settings',exact:true}); await expect(dialog).toBeVisible();
+  // Settings is a workspace tab (24fb6149) whose sections open one at a time (2b1695c0).
+  const dialog=settingsSurface(page); await expect(dialog).toBeVisible();
+  await dialog.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name:'Privacy',exact:true}).click();
   await page.getByRole('region',{name:'Privacy',exact:true}).scrollIntoViewIfNeeded();
   if(!baseline){const button=page.getByRole('button',{name:'Use inherited setting'}).first();expect((await button.boundingBox())!.width).toBeLessThan((await dialog.boundingBox())!.width*0.8);}
-  await dialog.screenshot({path:test.info().outputPath('user-settings-dialog.png')}); await capture(page,'user-settings'); await page.getByRole('button',{name:'Close settings'}).click();
+  await dialog.screenshot({path:test.info().outputPath('user-settings-dialog.png')}); await capture(page,'user-settings'); await page.getByRole('button',{name:'Close settings',exact:true}).click();
   await page.getByRole('button',{name:'Compose',exact:true}).click(); await capture(page,'compose');
 });
 
 test('shared Bauhaus controls retain native behavior and visible states @phone',async({page})=>{
   await page.goto('/admin'); await page.getByLabel('Admin username').fill('root'); await page.getByLabel('Password',{exact:true}).fill('hunter2'); await page.getByRole('button',{name:'Sign in',exact:true}).click();
-  await expect(page.getByRole('button',{name:'Sign in',exact:true})).toHaveCount(0); await page.goto('/admin#/users'); await page.getByRole('form',{name:'Provision user',exact:true}).waitFor();
+  await expect(page.getByRole('button',{name:'Sign in',exact:true})).toHaveCount(0); await page.goto('/admin#/users/%2Bnew'); await page.getByRole('form',{name:'Provision user',exact:true}).waitFor(); // a5292a0f: provisioning has its own page
   await page.evaluate(()=>{
     const original=document.querySelector<HTMLFormElement>('form[aria-label="Provision user"]')!; const form=document.createElement('form');form.className=original.className;form.id='controls-gallery';form.setAttribute('aria-label','Control gallery');
     const grid=document.createElement('div');grid.className=original.querySelector('div')!.className;

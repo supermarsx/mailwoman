@@ -11,7 +11,8 @@ test('loading stays steady, resolves immediately and respects reduced motion @ph
   await page.goto('/');
   const pending = page.getByTestId('async-pending');
   await expect(pending).toBeVisible();
-  const indicator = pending.locator('span');
+  // The status text is the pending surface's own child span; 81cb511a added skeleton spans below it.
+  const indicator = pending.locator(':scope > span');
   const box = await pending.boundingBox();
   expect(box?.height).toBeGreaterThanOrEqual(44);
   expect(await indicator.evaluate(node => getComputedStyle(node).animationDelay)).toBe('0.12s');
