@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:https';
-import type { Socket } from 'node:net';
+import type { Duplex } from 'node:stream';
 import { test, expect } from '../csrf.ts';
 const certificate=readFileSync(new URL('../../../../crates/mw-server/tests/fixtures/tls/localhost-cert.pem',import.meta.url),'utf8');
 const privateKey=readFileSync(new URL('../../../../crates/mw-server/tests/fixtures/tls/localhost-key.pem',import.meta.url),'utf8');
@@ -13,7 +13,7 @@ const fixtureHost=process.env['MW_E2E_FIXTURE_HOST']??'host.docker.internal';
  * listings, or with the numeric return code for a mutation. */
 async function hestiaFixture(){
   type Account={quota:string;suspended:boolean;aliases:string[];password:string};
-  const domains=new Map<string,{suspended:boolean;accounts:Map<string,Account>}>();const commands:string[]=[];const sockets=new Set<Socket>();
+  const domains=new Map<string,{suspended:boolean;accounts:Map<string,Account>}>();const commands:string[]=[];const sockets=new Set<Duplex>();
   const server=createServer({cert:certificate,key:privateKey},(request,response)=>{
     const chunks:Buffer[]=[];request.on('data',chunk=>chunks.push(chunk as Buffer));request.on('end',()=>{
       const form=new URLSearchParams(Buffer.concat(chunks).toString('utf8'));const cmd=form.get('cmd')??'';const arg=(n:number)=>form.get(`arg${n}`)??'';

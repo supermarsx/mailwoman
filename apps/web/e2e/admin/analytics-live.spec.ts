@@ -71,7 +71,7 @@ test('analytics configuration and account consent persist without enabling colle
     expect(proof.ok,proof.body).toBe(true);
     const response=await request(page,'/admin/analytics');
     // The read model reports apiSecretConfigured; the write model omits it (AnalyticsWrite, 15976cce).
-    const {apiSecretConfigured:_configured,...write}=initial.config;
+    const write={...initial.config};delete write.apiSecretConfigured;
     const restored=await request(page,'/admin/analytics','PUT',write,response.etag!);
     expect(restored.ok,restored.body).toBe(true);
   }
