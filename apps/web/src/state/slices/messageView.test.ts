@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createRoot, createSignal } from 'solid-js';
+import { createEffect, createRoot, createSignal, untrack } from 'solid-js';
 import type { Email } from '../../api/jmap-types.ts';
 import { createMessageView } from './messageView.ts';
 const email=(id:string):Email => ({id,keywords:{},mailboxIds:{}} as Email);
@@ -30,5 +30,16 @@ describe('independent retained message views', () => {
     const pending=view.openMessage('private');change('new');finish({email:email('private'),html:'old private body'});await pending;
     expect(view.openEmail()).toBeNull();expect(view.sanitizedHtml()).toBeNull();expect(view.readLoading()).toBe(false);view.dispose();
   });
-
+  it('keeps a message opened while the view is created inside another computation (a restored tab)', async () => {
+    // The workspace restore creates views and opens them from inside an effect,
+    // where a new effect's first run waits for the outer one to finish.
+    let view!:ReturnType<typeof createMessageView>;let pending!:Promise<void>;let dispose!:()=>void;
+    createRoot(clean => {dispose=clean;createEffect(() => untrack(() => {
+      view=createMessageView({account:()=>'a',load:async (_a,id)=>({email:email(id),html:`body ${id}`}),readDelay:()=>null,markRead:vi.fn()});
+      pending=view.openMessage('restored');
+    }));});
+    await pending;
+    expect(view.openEmail()?.id).toBe('restored');expect(view.sanitizedHtml()).toBe('body restored');
+    view.dispose();dispose();
+  });
 });

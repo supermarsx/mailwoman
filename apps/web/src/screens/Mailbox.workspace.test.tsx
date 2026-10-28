@@ -16,15 +16,19 @@ beforeEach(async()=>{suspendAccountPreferences();localStorage.removeItem(WORKSPA
 
 afterEach(()=>vi.unstubAllGlobals());
 
-function mount(attachment=false) {
+function setup(attachment=false) {
   const first=mkEmail('a');
   if(attachment)Object.assign(first,{attachments:[{partId:'2',blobId:'file-a',name:'report.txt',type:'text/plain',size:4}]});
   const emails=[first,mkEmail('b')];const client=makeClient({emails});
   const original=client.jmap;
   client.jmap=vi.fn(async (request:JmapRequest)=>{const response=await original(request);for(const [method,args,id] of request.methodCalls){if(/^(AddressBook|ContactCard|ContactGroup)\//.test(method)){const index=response.methodResponses.findIndex(call=>call[2]===id);if(index>=0)response.methodResponses[index]=[method,{accountId:args['accountId'],state:'s',list:[],ids:[],notFound:[]},id];}}const ids=request.methodCalls.find(call=>call[0]==='Email/get')?.[1]['ids'];if(Array.isArray(ids)){for(const call of response.methodResponses)if(call[0]==='Email/get')(call[1] as unknown as EmailGetResponse).list=emails.filter(email=>ids.includes(email.id));}return response;});
   const app=createAppState(client);const realtime=createRealtimeController();
-  const result=render(()=><AppContext.Provider value={app}><RealtimeContext.Provider value={realtime}><MailboxScreen/></RealtimeContext.Provider></AppContext.Provider>);
-  return {app,realtime,...result};
+  const show=()=>render(()=><AppContext.Provider value={app}><RealtimeContext.Provider value={realtime}><MailboxScreen/></RealtimeContext.Provider></AppContext.Provider>);
+  return {app,realtime,show};
+}
+function mount(attachment=false) {
+  const {app,realtime,show}=setup(attachment);
+  return {app,realtime,...show()};
 }
 describe('retained mailbox workspace',()=>{
   it('does not overwrite newer user intent when attachment restoration finishes late',async()=>{
@@ -123,5 +127,15 @@ describe('retained mailbox workspace',()=>{
     expect(screen.queryByRole('dialog',{name:'Settings'})).not.toBeInTheDocument();
     fireEvent.click(document.getElementById(`subtab-tab-${first}`)!);
     expect(within(screen.getByRole('tabpanel',{name:'Draft alpha'})).getByLabelText('Subject')).toHaveValue('Draft alpha');
+  });
+  it('restores a message tab when the mailbox mounts signed in (a reload): Mail stays first and the reader loads',async()=>{
+    const {app,realtime,show}=setup();
+    localStorage.setItem(WORKSPACE_STORAGE_KEY,JSON.stringify({version:2,accountId:'acct1',storageAuthority:'test-storage-authority-acct1',tabs:[{id:'mail',kind:'messages',pinned:true},{id:'message:acct1:a',kind:'messages',reference:'a',pinned:false}],activeId:'message:acct1:a',layout:'tabs'}));
+    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{}}),{headers:{'Content-Type':'application/json'}})});
+    await app.login({username:'me@example.org',password:'p'});
+    const {container}=show();
+    await waitFor(()=>expect(realtime.subTabs.tabs().some(tab=>tab.id==='message:acct1:a')).toBe(true));
+    expect(realtime.subTabs.tabs()[0]?.id).toBe('mail');
+    await waitFor(()=>expect(container.querySelector('.workspace-pane .reader__subject')?.textContent).toBe('Subject a'));
   });
 });

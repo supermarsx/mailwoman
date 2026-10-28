@@ -1,4 +1,4 @@
-import { createEffect, createRoot, createSignal, onCleanup, type Accessor } from 'solid-js';
+import { createEffect, createRoot, createSignal, on, onCleanup, type Accessor } from 'solid-js';
 import type { Email } from '../../api/jmap-types.ts';
 
 export interface MessageView {
@@ -42,7 +42,11 @@ export function createMessageView(options: MessageViewOptions): MessageView {
       if(delay===0) run();else timer=setTimeout(run,delay);
     }
     function closeMessage(): void {generation++;cancelRead();setEmail(null);setHtml(null);setLoading(false);setError(undefined);}
-    createEffect(() => {options.account();closeMessage();});
+    // Close on an account CHANGE only. An effect's first run is deferred when the
+    // view is created inside another computation (the workspace restore runs in
+    // one), so closing on that first run discarded the load `openMessage` had
+    // already started and a restored message tab stayed empty.
+    createEffect(on(options.account, closeMessage, {defer:true}));
     onCleanup(cancelRead);
     return {
       openEmail,sanitizedHtml,readLoading,error,

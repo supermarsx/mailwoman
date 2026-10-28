@@ -124,6 +124,16 @@ export function MailboxScreen(): JSX.Element {
   const branding=useBranding();
   const app = useApp();
   const { subTabs } = useRealtime();
+  /** The Mail tab is the strip's first tab. Seeded here, before any effect,
+   *  because the saved-tab restore below runs in an effect that can fire before
+   *  onMount; seeding on mount only when the strip was empty left a reloaded
+   *  workspace with its restored tabs and no Mail tab. */
+  function seedMailTab(): void {
+    if (subTabs.tabs().some(tab => tab.id === 'mail')) return;
+    subTabs.open({ kind: 'messages', title: t('common-module-mail'), id: 'mail', pinned: true });
+    subTabs.move('mail', 0);
+  }
+  seedMailTab();
   interface Pane { refresh?:()=>void; detach?:DetachedPaneHandle; beforeClose?:()=>Promise<boolean>; id:string; kind:'messages'|'composer'|'settings'|'attachment'|'module'|'outbox'|'attachments'|'sharing'|'folder'; title:string; surface?:ShellSurface; reference?:string; draftId?:string; accountId?:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
   const [panes,setPanes]=createSignal<Pane[]>([]);
   const [workspaceReady,setWorkspaceReady]=createSignal(false);
@@ -494,12 +504,6 @@ export function MailboxScreen(): JSX.Element {
     },
   });
 
-  // Seed a single "messages" sub-tab so the multi-surface strip is live.
-  onMount(() => {
-    if (subTabs.tabs().length === 0) {
-      subTabs.open({ kind: 'messages', title: t('common-module-mail'), id: 'mail', pinned: true });
-    }
-  });
 
   // Realtime PIM refetch (plan §1.8): the push controller broadcasts a coarse
   // ping on every PIM mutation (t5-e8); on it, refetch the open PIM module so it
