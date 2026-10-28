@@ -57,6 +57,31 @@ describe('Settings', () => {
     expect(app.accentId()).toBe('green');
   });
 
+  it('picking a badge colour sets data-badge, and the theme default clears it (t40)', () => {
+    const { app } = renderSettings();
+    const group = screen.getByRole('group', { name: 'Unread badge colour' });
+    expect(app.badgeColor()).toBe('default');
+    expect(group.querySelector('[aria-pressed="true"]')).toHaveTextContent('Theme default');
+    fireEvent.click(screen.getByRole('button', { name: 'Green badges' }));
+    expect(app.badgeColor()).toBe('green');
+    expect(document.documentElement).toHaveAttribute('data-badge', 'green');
+    expect(app.appearancePrefs().badgeColor).toBe('green');
+    fireEvent.click(screen.getByRole('button', { name: 'Same as accent' }));
+    expect(document.documentElement).toHaveAttribute('data-badge', 'accent');
+    fireEvent.click(group.querySelector('button')!);
+    expect(document.documentElement).not.toHaveAttribute('data-badge');
+  });
+
+  it('applies an administrator badge colour lock and disables the choices', async () => {
+    await loadSettings({fetcher: async () => new Response(JSON.stringify({settings:{'appearance.badgeColor':{value:'teal',source:'global',locked:true,lockedBy:'global'}}}), {status:200})});
+    const { app } = renderSettings();
+    await vi.waitFor(() => expect(app.badgeColor()).toBe('teal'));
+    const group = screen.getByRole('group', {name:'Unread badge colour'});
+    expect(group.querySelectorAll('button')).toHaveLength(12);
+    for (const button of group.querySelectorAll('button')) expect(button).toBeDisabled();
+    expect(group).toHaveAttribute('aria-describedby','settings-badge-color-lock');
+  });
+
   it('applies an administrator font and disables every font choice', async () => {
     await loadSettings({fetcher: async () => new Response(JSON.stringify({settings:{'appearance.font':{value:'inter',source:'domain',locked:true,lockedBy:'domain'}}}), {status:200})});
     const { app } = renderSettings();

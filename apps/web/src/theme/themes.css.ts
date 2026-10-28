@@ -103,6 +103,31 @@ globalStyle(':root', {
   }
 });
 
+// ── Unread badge colour (t40) ────────────────────────────────────────────────
+// `data-badge="<id>"` on :root, the same plumbing as `data-accent`: one rule per
+// theme × named accent from the generated table, whose ink clears 4.5:1 on its
+// shade in every pack (accents.test.ts checks every cell). `accent` follows the
+// live accent (named, custom or the pack's own), whose ink has the same
+// guarantee. Without the attribute the badges keep the pack's signal colour.
+// `app.css` reads `--mw-badge` / `--mw-badge-text` with the signal fallback.
+(Object.keys(ACCENT_SHADES) as ThemeName[]).forEach((name) => {
+  for (const id of ACCENT_IDS) {
+    const { accent, accentText } = ACCENT_SHADES[name][id];
+    globalStyle(`:root[data-theme="${name}"][data-badge="${id}"]`, {
+      vars: { '--mw-badge': accent, '--mw-badge-text': accentText },
+    });
+  }
+});
+globalStyle(':root[data-badge="accent"]', {
+  vars: {
+    '--mw-badge': `var(${LEGACY_COLOR_PROPERTIES.accent})`,
+    '--mw-badge-text': `var(${LEGACY_COLOR_PROPERTIES.accentText})`,
+  },
+});
+globalStyle(':root[data-badge], :root[data-theme][data-badge]', {
+  '@media': { '(forced-colors: active)': { vars: { '--mw-badge': 'Canvas', '--mw-badge-text': 'CanvasText' } } },
+});
+
 // ── Density (plan §2.3 `data-density`) ───────────────────────────────────────
 // Overrides row height + base font size; cozy is the default.
 globalStyle(':root[data-density="compact"]', {

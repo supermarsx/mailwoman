@@ -9,6 +9,9 @@ settings-close = Close settings
 settings-theme = Theme
 settings-density = Density
 settings-accent = Accent
+settings-badge-color = Unread badge colour
+settings-badge-color-accent = Same as accent
+settings-badge-color-option = { $color } badges
 settings-font = Interface font
 settings-layout = Layout
 

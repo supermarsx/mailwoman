@@ -392,6 +392,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="ui.bar.composerribbon"></a>`ui.bar.composerRibbon` | interface | global+domain+user | "pinned" | plain |  | yes | composer ribbon: always shown, or only its tab names |
 | <a id="appearance.theme"></a>`appearance.theme` | appearance | global+domain+user | "dark" | plain |  | yes | appearance blob theme/lightTheme/darkTheme; deployment default |
 | <a id="appearance.accent"></a>`appearance.accent` | appearance | global+domain+user | "" | plain |  | yes | appearance blob accentId (empty = the theme's own) |
+| <a id="appearance.badgecolor"></a>`appearance.badgeColor` | appearance | global+domain+user | "default" | plain |  | yes | appearance blob badgeColor: unread-count badge colour (default = the theme's signal colour) |
 | <a id="appearance.density"></a>`appearance.density` | appearance | global+domain+user | "cozy" | plain |  | yes | appearance blob density |
 | <a id="appearance.font"></a>`appearance.font` | appearance | global+domain+user | "default" | plain |  | yes | self-hosted interface font; account choice or administrator default/lock |
 | <a id="appearance.brandname"></a>`appearance.brandName` | appearance | global | "Mailwoman" | plain |  | yes | public config brand name |

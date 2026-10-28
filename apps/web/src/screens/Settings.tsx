@@ -76,6 +76,7 @@ import { AsyncBoundary } from '../components/ErrorBoundary.tsx';
 import { createAclClient } from '../api/acl-types.ts';
 import { createConfiguredClient } from '../api/transport.ts';
 import { startAppearanceSync, type SyncStatus } from '../api/prefs.ts';
+import { isBadgeColor, type BadgeColor } from '../theme/appearance.ts';
 import {
   ACCENT_LIST,
   accentShade,
@@ -142,7 +143,7 @@ export function Settings(props: SettingsProps): JSX.Element {
   let settingsContent:HTMLDivElement|undefined;
   useSettingsScroll(navigation.route,()=>settingsContent);
   const [sectionQuery,setSectionQuery]=createSignal('');
-  const sectionTerms:Record<string,string>={'linked-accounts':'mailboxes accounts switch link imap pop3 ews',appearance:'theme dark light color accent css javascript font density branding',reader:'message reading images layout dark mode',compose:'editor reply quote font signature recipients cc bcc',shortcuts:'keyboard display key hotkey drag selection',time:'timezone date clock iana',security:'password passkey totp two factor authentication sessions api keys',privacy:'remote images tracking telemetry',folders:'sidebar mappings count pin order icons spam trash',notifications:'push alerts sound browser', 'mail-transfer':'import export download eml mbox',receipts:'read receipt delivery dsn',nextcloud:'files contacts calendar cloud',rules:'filter automation',access:'sharing permissions acl'};
+  const sectionTerms:Record<string,string>={'linked-accounts':'mailboxes accounts switch link imap pop3 ews',appearance:'theme dark light color accent badge unread counter css javascript font density branding',reader:'message reading images layout dark mode',compose:'editor reply quote font signature recipients cc bcc',shortcuts:'keyboard display key hotkey drag selection',time:'timezone date clock iana',security:'password passkey totp two factor authentication sessions api keys',privacy:'remote images tracking telemetry',folders:'sidebar mappings count pin order icons spam trash',notifications:'push alerts sound browser', 'mail-transfer':'import export download eml mbox',receipts:'read receipt delivery dsn',nextcloud:'files contacts calendar cloud',rules:'filter automation',access:'sharing permissions acl'};
   const linkedSections=new Set(['linked-accounts','appearance','reader','compose','shortcuts','time','labels','signatures','identities','notifications','searches','folders','receipts']);
   const supportedSection=(section:string):boolean=>!app.linkedMailboxId?.()||linkedSections.has(section);
   const visible=(section:string):boolean=>supportedSection(section)&&(!props.embedded || navigation.route().section===section);
@@ -165,6 +166,11 @@ export function Settings(props: SettingsProps): JSX.Element {
   const accentHold = useSetting('appearance.accent', '');
   const densityHold = useSetting('appearance.density', '');
   const fontHold = useSetting('appearance.font', 'default');
+  const badgeHold = useSetting('appearance.badgeColor', 'default');
+  createEffect(() => {
+    const value = badgeHold.value();
+    if (badgeHold.locked() && app.badgeColor() !== value && isBadgeColor(value)) app.setBadgeColor(value);
+  });
   createEffect(() => {
     const value = fontHold.value();
     if (fontHold.locked() && app.uiFont() !== value && FONT_OPTIONS.some(option => option.value === value)) {
@@ -251,6 +257,7 @@ export function Settings(props: SettingsProps): JSX.Element {
         <AccentPicker locked={accentHold.locked()} />
         <label class={customizationCss.field}>{t('appearance-custom-accent')}<input class={customizationCss.input} type="color" disabled={accentHold.locked()} value={app.appearancePrefs().customAccent || '#3366cc'} onChange={event => app.setAppearancePrefs({customAccent: event.currentTarget.value})} /></label>
         <div class={customizationCss.actions}><button class={customizationCss.button} disabled={accentHold.locked() || !app.appearancePrefs().customAccent} onClick={() => app.setAppearancePrefs({customAccent: ''})}>{t('appearance-custom-accent-reset')}</button></div>
+        <BadgeColorPicker locked={badgeHold.locked()} />
         <Show when={!app.linkedMailboxId?.()}><AppearanceCustomization owner={() => { const accountId = app.accountId(); return accountId ? {kind: 'mailbox', accountId} : null; }} /></Show>
 
         <div class={css.row}>
@@ -596,6 +603,62 @@ function AccentPicker(props: { locked: boolean }): JSX.Element {
         </For>
       </div>
       <LockNote id="settings-accent-lock" locked={props.locked} />
+    </div>
+  );
+}
+
+/**
+ * The unread-count badge colour (t40), chosen like the accent: the pack's own
+ * signal colour, the accent, or one of the ten named accents in the ACTIVE
+ * theme's shade. Each swatch shows a count in the ink the badge will use, so
+ * the preview is the contrast the badge gets (4.5:1, from `accents.ts`).
+ */
+function BadgeColorPicker(props: { locked: boolean }): JSX.Element {
+  const app = useApp();
+  const pick = (value: BadgeColor): void => app.setBadgeColor(value);
+  return (
+    <div class={css.row}>
+      <span class={css.label} id="settings-badge-color">
+        {t('settings-badge-color')}
+      </span>
+      <div
+        class={css.options}
+        role="group"
+        aria-labelledby="settings-badge-color"
+        aria-describedby={props.locked ? 'settings-badge-color-lock' : undefined}
+      >
+        <button type="button" class={css.option} aria-pressed={app.badgeColor() === 'default'} disabled={props.locked} onClick={() => pick('default')}>
+          {t(THEME_DEFAULT_ACCENT_LABEL_ID)}
+        </button>
+        <button type="button" class={css.option} aria-pressed={app.badgeColor() === 'accent'} disabled={props.locked} onClick={() => pick('accent')}>
+          {t('settings-badge-color-accent')}
+        </button>
+        <For each={ACCENT_LIST}>
+          {(def) => {
+            const shade = () => accentShade(app.theme(), def.id);
+            return (
+              <button
+                type="button"
+                class={picker.swatch}
+                data-badge-option={def.id}
+                aria-label={t('settings-badge-color-option', { color: t(def.labelId) })}
+                title={t('settings-badge-color-option', { color: t(def.labelId) })}
+                aria-pressed={app.badgeColor() === def.id}
+                disabled={props.locked}
+                style={{ background: shade().accent, color: shade().accentText }}
+                onClick={() => pick(def.id)}
+              >
+                <span aria-hidden="true">
+                  <Show when={app.badgeColor() === def.id} fallback="3">
+                    <Icon name="check" />
+                  </Show>
+                </span>
+              </button>
+            );
+          }}
+        </For>
+      </div>
+      <LockNote id="settings-badge-color-lock" locked={props.locked} />
     </div>
   );
 }

@@ -48,6 +48,7 @@ import {
   resolveThemeName,
   serializeAppearancePrefs,
   type AppearancePrefs,
+  type BadgeColor,
   type LayoutMode,
   type ThemeMode,
   type ThemeSchedule,
@@ -87,6 +88,8 @@ export interface ThemeSlice {
   density: Accessor<Density>;
   /** The named accent, or `''` for the pack's own. */
   accentId: Accessor<AccentId | ''>;
+  /** Unread-count badge colour (`data-badge` on :root). */
+  badgeColor: Accessor<BadgeColor>;
   uiFont: Accessor<UiFont>;
   layout: Accessor<LayoutMode>;
   /**
@@ -107,6 +110,7 @@ export interface ThemeSlice {
   setSchedule(s: ThemeSchedule): void;
   setDensity(d: Density): void;
   setAccentId(id: AccentId | ''): void;
+  setBadgeColor(c: BadgeColor): void;
   setUiFont(f: UiFont): void;
   setLayout(l: LayoutMode): void;
 
@@ -158,6 +162,8 @@ function apply(p: AppearancePrefs, resolved: ThemeName, appearance: Appearance):
   if (p.accentId !== '') root.setAttribute('data-accent', p.accentId);
   else root.removeAttribute('data-accent');
   applyCustomAccent(root, p.customAccent ?? '', resolved);
+  if (p.badgeColor !== 'default') root.setAttribute('data-badge', p.badgeColor);
+  else root.removeAttribute('data-badge');
   const stack = FONT_STACKS[p.font];
   if (stack !== null) root.style.setProperty('--mw-ui-font', stack);
   else root.style.removeProperty('--mw-ui-font');
@@ -176,6 +182,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
   const [density, setDensitySig] = createSignal<Density>(initial.density);
   const [accentId, setAccentIdSig] = createSignal<AccentId | ''>(initial.accentId);
   const [customAccent, setCustomAccentSig] = createSignal(initial.customAccent ?? '');
+  const [badgeColor, setBadgeColorSig] = createSignal<BadgeColor>(initial.badgeColor);
   const [uiFont, setUiFontSig] = createSignal<UiFont>(initial.font);
   const [layout, setLayoutSig] = createSignal<LayoutMode>(initial.layout);
   const [chosen, setChosenSig] = createSignal(initial.chosen);
@@ -197,6 +204,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
       density: density(),
       accentId: accentId(),
       customAccent: customAccent(),
+      badgeColor: badgeColor(),
       font: uiFont(),
       layout: layout(),
       chosen: chosen(),
@@ -259,6 +267,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
     schedule,
     density,
     accentId,
+    badgeColor,
     uiFont,
     layout,
     themeChosen: chosen,
@@ -300,6 +309,10 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
       setCustomAccentSig('');
       persist();
     },
+    setBadgeColor(c) {
+      setBadgeColorSig(c);
+      persist();
+    },
     setUiFont(f) {
       setUiFontSig(f);
       persist();
@@ -325,6 +338,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
       setDensitySig(merged.density);
       setAccentIdSig(merged.accentId);
       setCustomAccentSig(merged.customAccent ?? '');
+      setBadgeColorSig(merged.badgeColor);
       setUiFontSig(merged.font);
       setLayoutSig(merged.layout);
       setChosenSig(merged.chosen);

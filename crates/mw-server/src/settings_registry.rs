@@ -1212,6 +1212,17 @@ pub static REGISTRY: &[SettingDef] = &[
         "appearance blob accentId (empty = the theme's own)"
     ),
     def!(
+        "appearance.badgeColor",
+        Kind::Enum(&[
+            "default", "accent", "red", "orange", "yellow", "green", "teal", "blue", "indigo",
+            "violet", "magenta", "graphite"
+        ]),
+        "\"default\"",
+        GDU,
+        "appearance",
+        "appearance blob badgeColor: unread-count badge colour (default = the theme's signal colour)"
+    ),
+    def!(
         "appearance.density",
         Kind::Enum(&["compact", "cozy", "relaxed"]),
         "\"cozy\"",
@@ -3345,6 +3356,7 @@ mod tests {
             "ui.bar.composerRibbon",
             "appearance.theme",
             "appearance.accent",
+            "appearance.badgeColor",
             "appearance.density",
             "appearance.brandName",
             "login.notice",

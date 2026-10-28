@@ -597,6 +597,58 @@ async fn a_held_appearance_field_is_replaced_in_the_object_and_reported() {
     assert_eq!(body["route"], "/api/account/appearance");
 }
 
+/// t40: the unread badge colour follows the accent's path: a default the
+/// client adopts, a user choice in the appearance object, and a lock that
+/// replaces that choice.
+#[tokio::test]
+async fn badge_colour_defaults_and_locks_apply_to_the_account_blob() {
+    let s = proxy_server("mw-badge-policy").await;
+    let a = admin(&s.base).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    let (u, _) = user(&s.base).await;
+    let base = &s.base;
+    assert_eq!(
+        put_global(&a, base, "appearance.badgeColor", json!({"globalValue":"teal","locked":false}))
+            .await
+            .0,
+        200
+    );
+    let (_, initial) = send(u.get(format!("{base}/api/account/appearance"))).await;
+    assert_eq!(initial["deploymentDefault"]["badgeColor"], "teal");
+    assert_eq!(
+        send(u.put(format!("{base}/api/account/appearance")).json(&json!({"appearance":{"badgeColor":"red"}})))
+            .await
+            .0,
+        200
+    );
+    let all = user_settings(&u, base).await;
+    assert_eq!(all["appearance.badgeColor"]["value"], "red");
+    assert_eq!(all["appearance.badgeColor"]["source"], "user");
+    assert_eq!(
+        put_global(&a, base, "appearance.badgeColor", json!({"globalValue":"#ff0000","locked":true}))
+            .await
+            .0,
+        422
+    );
+    assert_eq!(
+        put_global(&a, base, "appearance.badgeColor", json!({"globalValue":"accent","locked":true}))
+            .await
+            .0,
+        200
+    );
+    let (status, saved) = send(u.put(format!("{base}/api/account/appearance")).json(&json!({"appearance":{"badgeColor":"green"}}))).await;
+    assert_eq!(status, 200);
+    assert_eq!(saved["lockedFields"], json!(["badgeColor"]));
+    let (_, got) = send(u.get(format!("{base}/api/account/appearance"))).await;
+    assert_eq!(got["appearance"]["badgeColor"], "accent");
+    assert_eq!(
+        send(u.put(format!("{base}/api/settings/appearance.badgeColor")).json(&json!({"value":"red"})))
+            .await
+            .0,
+        409
+    );
+}
+
 #[tokio::test]
 async fn font_defaults_and_locks_apply_to_the_account_blob() {
     let s = proxy_server("mw-font-policy").await;
@@ -1159,8 +1211,9 @@ async fn the_deployment_appearance_is_stored_and_served() {
     assert_eq!(mine["appearance"], Value::Null);
     assert_eq!(
         mine["deploymentDefault"],
-        // The font is served beside the rest since 3b14e7ea; none was set.
-        json!({ "theme": "grove-dark", "font": "default", "brandName": "Acme Mail", "accent": "teal" })
+        // The font is served beside the rest since 3b14e7ea, the badge colour
+        // since t40; neither was set.
+        json!({ "theme": "grove-dark", "font": "default", "badgeColor": "default", "brandName": "Acme Mail", "accent": "teal" })
     );
 
     // A second server process on the same database (a restart) serves it too.

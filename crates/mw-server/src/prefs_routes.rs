@@ -586,6 +586,8 @@ struct AppearanceResponse {
 struct DeploymentAppearanceDto {
     theme: String,
     font: String,
+    #[serde(default)]
+    badge_color: String,
     brand_name: String,
     #[serde(default)]
     accent: Option<String>,
@@ -1143,12 +1145,13 @@ async fn held(
 }
 
 /// The appearance keys and the fields of the appearance object each one holds.
-const APPEARANCE_FIELDS: [(&str, &[&str]); 4] = [
+const APPEARANCE_FIELDS: [(&str, &[&str]); 5] = [
     (
         "appearance.theme",
         &["mode", "theme", "lightTheme", "darkTheme"],
     ),
     ("appearance.accent", &["accentId", "customAccent"]),
+    ("appearance.badgeColor", &["badgeColor"]),
     ("appearance.density", &["density"]),
     ("appearance.font", &["font"]),
 ];
@@ -1198,6 +1201,9 @@ fn apply_appearance_locks(
                 obj.insert("accentId".into(), value.clone());
                 obj.insert("customAccent".into(), json!(""));
             }
+            "appearance.badgeColor" => {
+                obj.insert("badgeColor".into(), value.clone());
+            }
             "appearance.density" => {
                 obj.insert("density".into(), value.clone());
             }
@@ -1231,9 +1237,12 @@ async fn deployment_default(
         value(crate::settings_registry::effective_for(store, "appearance.accent", &s).await?);
     let fallback = mw_admin::Appearance::default();
     let font = value(crate::settings_registry::effective_for(store, "appearance.font", &s).await?);
+    let badge_color =
+        value(crate::settings_registry::effective_for(store, "appearance.badgeColor", &s).await?);
     Ok(DeploymentAppearanceDto {
         theme: theme.unwrap_or(fallback.theme),
         font: font.unwrap_or_else(|| "default".into()),
+        badge_color: badge_color.unwrap_or_else(|| "default".into()),
         brand_name: brand.unwrap_or(fallback.brand_name),
         accent: accent.filter(|a| !a.is_empty()),
     })

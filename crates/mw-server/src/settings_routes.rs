@@ -1185,6 +1185,7 @@ async fn user_entry(
 pub(crate) const USER_LAYER_ELSEWHERE: &[(&str, &str)] = &[
     ("appearance.theme", "/api/account/appearance"),
     ("appearance.accent", "/api/account/appearance"),
+    ("appearance.badgeColor", "/api/account/appearance"),
     ("appearance.density", "/api/account/appearance"),
     ("appearance.font", "/api/account/appearance"),
     ("mail.readReceipts", "/api/account/mdn-policy"),
@@ -1254,6 +1255,9 @@ pub(crate) async fn user_layer_rows(
             && !accent.is_empty()
         {
             rows.push(user_row(account_id, "appearance.accent", json!(accent)));
+        }
+        if let Some(badge) = prefs.get("badgeColor").and_then(Value::as_str) {
+            rows.push(user_row(account_id, "appearance.badgeColor", json!(badge)));
         }
         if let Some(density) = prefs.get("density").and_then(Value::as_str) {
             rows.push(user_row(account_id, "appearance.density", json!(density)));

@@ -105,6 +105,11 @@ The colour theme users see until they pick their own. Locking it holds every use
 
 The accent colour of the theme. Empty means the theme's own accent.
 
+<a id="appearance.badgeColor"></a>
+### Unread badge colour (`appearance.badgeColor`)
+
+The colour of the unread-count badges on folders, inbox tabs and the mailbox picker. `default` keeps the theme's signal colour; `accent` follows the account's accent colour; the ten named colours (`red`, `orange`, `yellow`, `green`, `teal`, `blue`, `indigo`, `violet`, `magenta`, `graphite`) use the same per-theme shades as the named accents, so the count text keeps at least 4.5:1 contrast in every theme. Sets the colour for accounts without a saved choice; a lock overrides the account choice and disables the badge colour buttons in user Appearance settings.
+
 <a id="appearance.density"></a>
 ### Density (`appearance.density`)
 

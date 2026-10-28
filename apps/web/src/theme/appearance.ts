@@ -40,6 +40,17 @@ export const THEME_MODES: readonly ThemeMode[] = ['fixed', 'system', 'schedule']
 /** UI-font override choice. */
 export type UiFont = 'default' | 'system' | 'serif' | 'mono' | 'inter' | 'roboto' | 'open-sans' | 'jost';
 
+/**
+ * Unread-count badge colour: `default` keeps the pack's signal colour (the
+ * yellow block), `accent` follows the accent, a named accent id uses that
+ * accent's per-theme shade and ink from `accents.ts` (4.5:1 ink in every pack).
+ */
+export type BadgeColor = 'default' | 'accent' | AccentId;
+
+export function isBadgeColor(value: unknown): value is BadgeColor {
+  return value === 'default' || value === 'accent' || isAccentId(value);
+}
+
 /** Chrome layout preset. */
 export type LayoutMode = 'default' | 'ribbon';
 
@@ -85,6 +96,8 @@ export interface AppearancePrefs {
    */
   accentId: AccentId | '';
   customAccent?: string;
+  /** Unread-count badge colour; see `BadgeColor`. */
+  badgeColor: BadgeColor;
   font: UiFont;
   layout: LayoutMode;
   /**
@@ -114,6 +127,7 @@ export function defaultAppearance(): AppearancePrefs {
     density: 'cozy',
     accentId: '',
     customAccent: '',
+    badgeColor: 'default',
     font: 'default',
     layout: 'default',
     chosen: false,
@@ -274,6 +288,7 @@ export function parseAppearancePrefs(input: unknown): AppearancePrefs {
     density: DENSITY_VALUES.includes(p.density as Density) ? (p.density as Density) : base.density,
     accentId: accentIdOf(p),
     customAccent: customAccentValue(p.customAccent),
+    badgeColor: isBadgeColor(p.badgeColor) ? p.badgeColor : base.badgeColor,
     font: typeof p.font === 'string' && p.font in FONT_STACKS ? (p.font as UiFont) : base.font,
     layout: p.layout === 'ribbon' ? ('ribbon' as const) : ('default' as const),
   };

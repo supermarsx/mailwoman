@@ -155,6 +155,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'appearance.accent',
   'appearance.customCssEnabled',
   'appearance.customJsEnabled',
+  'appearance.badgeColor',
   'appearance.density',
   'appearance.font',
   'packages.allowed',

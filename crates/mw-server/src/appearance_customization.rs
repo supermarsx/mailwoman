@@ -209,6 +209,7 @@ async fn user(
         .filter_map(|(key, _)| match key {
             "appearance.theme" => Some("mode".to_owned()),
             "appearance.accent" => Some("accent".to_owned()),
+            "appearance.badgeColor" => Some("badgeColor".to_owned()),
             "appearance.density" => Some("density".to_owned()),
             "appearance.font" => Some("font".to_owned()),
             _ => None,
