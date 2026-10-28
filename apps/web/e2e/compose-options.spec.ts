@@ -155,8 +155,18 @@ async function compose(page: Page, to: string, subject: string, body: string): P
   // Since e0c99a79 the From picker is shown only when the account setting
   // `mail.showFrom` is on or the ribbon's From toggle shows it for this message.
   const fromToggle = dialog.getByRole('button', { name: 'From', exact: true });
-  if ((await fromToggle.getAttribute('aria-pressed')) !== 'true') await fromToggle.click();
+  // At 1280 px the ribbon folds the Recipients group into a dropdown (t38-e5), and it
+  // can re-fold (closing that dropdown) while it measures itself: retry until the From
+  // picker it toggles is on screen.
+  const moreRecipients = dialog.getByRole('button', { name: 'More Recipients commands', exact: true });
   const from = dialog.getByRole('combobox', { name: 'From', exact: true });
+  await expect(async () => {
+    if (await from.isVisible()) return;
+    if (!(await fromToggle.isVisible()) && (await moreRecipients.isVisible())
+      && (await moreRecipients.getAttribute('aria-expanded')) !== 'true') await moreRecipients.click();
+    if ((await fromToggle.getAttribute('aria-pressed', { timeout: 1_000 })) !== 'true') await fromToggle.click({ timeout: 1_000 });
+    await expect(from).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
   await expect(from).toBeVisible();
   // The identity whose address is FROM (option text: "<name> <address>").
   let value: string | undefined;
