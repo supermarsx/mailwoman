@@ -1,6 +1,8 @@
 import {ComposerHistory} from './ComposerHistory.tsx';
 import {Portal} from 'solid-js/web';
-import {AdvancedEditorTools} from './AdvancedEditorTools.tsx';
+import {createAdvancedEditorTools} from './AdvancedEditorTools.tsx';
+import {RibbonGroup,RibbonItem,RibbonPanel} from '../bars/index.ts';
+import {InRibbonSlot,RibbonPopover,type RibbonSlotTarget} from './ribbonParts.tsx';
 import {EditorCounts} from './EditorCounts.tsx';
 import {documentCounts,tableLimitPlugin} from './richCommands.ts';
 import {tableEditing,goToNextCell} from 'prosemirror-tables';
@@ -31,6 +33,7 @@ import { imageFiles } from './inlineImages.ts';
 import { t } from '../../i18n/index.ts';
 import * as a11y from '../mailA11y.css.ts';
 import './richtext.css';
+import './compose-extras.css';
 
 /** Assert a schema mark/node exists (the composer schema always defines these). */
 function need<T>(value: T | undefined, name: string): T {
@@ -74,6 +77,10 @@ const BUTTONS: readonly ToolbarButton[] = [
   { id: 'ordered', labelKey: 'mail-compose-rt-ordered', glyph: 'numberList', command: wrapInList(nOrdered) },
   { id: 'quote', labelKey: 'mail-compose-rt-quote', glyph: 'quote', command: wrapIn(nQuote) },
 ];
+/** Bold, italic, underline, strike: the Font group's second row. */
+const MARK_BUTTONS = BUTTONS.filter((b) => b.activeMark !== undefined);
+/** Lists and quote: the Paragraph group's first row. */
+const BLOCK_BUTTONS = BUTTONS.filter((b) => b.activeMark === undefined);
 
 /** Imperative handle the composer uses for signature insert (W12) and draft
  *  resume (W9) without remounting the editor / losing rich formatting. */
@@ -106,8 +113,10 @@ export interface RichTextEditorProps {
   initialHtml: string;
   ribbonTab?: () => 'format'|'insert'|'table'|null;
   externalHistory?: boolean;
-  /** Stable composer ribbon target; omitted by standalone editors. */
+  /** One mount point for the editor's own tabbed ribbon; omitted by standalone editors. */
   toolbarMount?: HTMLElement;
+  /** The composer ribbon's slots, one per tab (t38): the editor's groups join each tab's panel. */
+  ribbonSlots?: () => Partial<Record<'format'|'insert'|'table', RibbonSlotTarget>>;
   /** External plain-text source (dictation / Assist) reconciled into the doc. */
   externalText?: () => string;
   /** Reports the serialized HTML + plain-text projection after every change. */
@@ -305,113 +314,89 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
     run(toggleMark(mLink, { href: url }));
   }
 
-  const chrome = (
-<div class="compose-rt__chrome"><Show when={!props.externalHistory}><ComposerHistory api={editorApi()}/></Show>
-      <Show when={!props.ribbonTab}><div data-detached-local class="compose-rt__tabs" role="tablist" aria-label={t('mail-compose-ribbon')}><For each={['format','insert','table'] as const}>{tab=><button type="button" role="tab" aria-selected={ribbonTab()===tab} onClick={()=>setRibbonTab(tab)}>{t(`mail-compose-ribbon-${tab}`)}</button>}</For></div></Show>
-      <div data-detached-local hidden={ribbonTab()===null||ribbonTab()==='table'} class="compose-rt__toolbar" role="toolbar" aria-label={t('mail-compose-rt-toolbar')}>
-        <Show when={ribbonTab()==='format'}><div class="compose-rt__font-group" role="group" aria-label={t('mail-compose-font')}><span class="compose-rt__group-title">{t('mail-compose-font')}</span><div class="compose-rt__font-fields">
-        <label class="compose-rt__field"><span class={a11y.srOnly}>{t('mail-compose-font')}</span><select aria-label={t('mail-compose-font')} value={fontValue('fontFamily')} onChange={event=>setTextStyle('fontFamily',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSER_FONTS}>{font=><option value={font.stack}>{font.label}</option>}</For></select></label>
-        <label class="compose-rt__field"><span class={a11y.srOnly}>{t('mail-compose-font-size')}</span><select aria-label={t('mail-compose-font-size')} value={fontValue('fontSize')} onChange={event=>setTextStyle('fontSize',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSE_FONT_SIZES}>{size=><option value={`${size}pt`}>{size} pt</option>}</For></select></label>
-        </div><div class="compose-rt__font-marks">
-        <For each={BUTTONS}>
-          {(btn) => {
-            const state = () => activeState();
-            const active = () => {
-              const s = state();
-              return s !== null && btn.activeMark !== undefined ? markActive(s, btn.activeMark) : false;
-            };
-            return (
-              <button
-                type="button"
-                class={`compose-rt__btn ${a11y.focusable}`}
-                classList={{ 'compose-rt__btn--active': active() }}
-                aria-pressed={active()}
-                aria-label={t(btn.labelKey)}
-                title={t(btn.labelKey)}
-                data-testid={`rt-${btn.id}`}
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => run(btn.command)}
-              >
-                <Icon name={btn.glyph} />
-              </button>
-            );
-          }}
-        </For>
-        </div></div></Show><Show when={ribbonTab()==='insert'}>
-        <button
-          type="button"
-          class={`compose-rt__btn ${a11y.focusable}`}
-          aria-label={t('mail-compose-rt-link')}
-          title={t('mail-compose-rt-link')}
-          data-testid="rt-link"
-          onMouseDown={e => e.preventDefault()}
-          onClick={() => setLinkOpen(v => !v)}
-        >
-          <Icon name="link" />
-        </button>
-        <Show when={props.inline !== undefined}>
-          <label
-            class={`compose-rt__btn ${a11y.focusable}`}
-            title={t('mail-compose-rt-image')}
-            data-testid="rt-image"
-          >
-            <span aria-hidden="true"><Icon name="image" /></span>
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp"
-              multiple
-              class={a11y.srOnly}
-              aria-label={t('mail-compose-rt-image')}
-              onChange={(e) => {
-                const input = e.currentTarget;
-                const files = Array.from(input.files ?? []);
-                void placeImages(files).finally(() => {
-                  // Reset so choosing the same file again fires another change.
-                  input.value = '';
-                });
-              }}
-            />
+  const tools=createAdvancedEditorTools({state:activeState,view:()=>view,run,owned,report:setEditorError,markers,onMarkers:()=>setMarkers(value=>!value)});
+  const markButton=(btn:ToolbarButton):JSX.Element=>{
+    const active=()=>{const s=activeState();return s!==null&&btn.activeMark!==undefined?markActive(s,btn.activeMark):false;};
+    return <button type="button" class={`compose-rt__btn ${a11y.focusable}`} classList={{'compose-rt__btn--active':active()}} aria-pressed={active()} aria-label={t(btn.labelKey)} title={t(btn.labelKey)} data-testid={`rt-${btn.id}`} onMouseDown={e=>e.preventDefault()} onClick={()=>run(btn.command)}><Icon name={btn.glyph}/></button>;
+  };
+  const row=(...controls:JSX.Element[]):JSX.Element=><div class="compose-rib__row">{controls}</div>;
+
+  // The Format tab: Clipboard, Font, Paragraph and Editing, each exactly three rows (t38 §2.2).
+  const formatGroups=():JSX.Element=><>
+    <RibbonGroup label={t('mail-compose-group-clipboard')} priority={100} icon="paste" testId="rt-group-clipboard">
+      <RibbonItem size="large">{tools.paste()}</RibbonItem>
+      <RibbonItem>{tools.cut()}</RibbonItem><RibbonItem>{tools.copy()}</RibbonItem><RibbonItem>{tools.copyFormat()}</RibbonItem><RibbonItem>{tools.applyFormat()}</RibbonItem>
+    </RibbonGroup>
+    <RibbonGroup label={t('mail-compose-font')} priority={90} icon="bold" testId="rt-group-font">
+      <RibbonItem>{row(
+        <select class="compose-rib__font" aria-label={t('mail-compose-font')} data-tooltip={t('mail-compose-font')} value={fontValue('fontFamily')} onChange={event=>setTextStyle('fontFamily',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSER_FONTS}>{font=><option value={font.stack}>{font.label}</option>}</For></select>,
+        <select class="compose-rib__size" aria-label={t('mail-compose-font-size')} data-tooltip={t('mail-compose-font-size')} value={fontValue('fontSize')} onChange={event=>setTextStyle('fontSize',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSE_FONT_SIZES}>{size=><option value={`${size}pt`}>{size} pt</option>}</For></select>,
+      )}</RibbonItem>
+      <RibbonItem>{row(<For each={MARK_BUTTONS}>{markButton}</For>,tools.changeCase())}</RibbonItem>
+      <RibbonItem>{row(tools.textColor(),tools.clearColor(),tools.highlight(),tools.clearHighlight())}</RibbonItem>
+    </RibbonGroup>
+    <RibbonGroup label={t('mail-compose-group-paragraph')} priority={80} icon="paragraph" testId="rt-group-paragraph">
+      <RibbonItem>{row(<For each={BLOCK_BUTTONS}>{markButton}</For>,tools.sort())}</RibbonItem>
+      <RibbonItem>{tools.style()}</RibbonItem>
+      <RibbonItem>{row(tools.markers(),tools.paragraphOptions())}</RibbonItem>
+    </RibbonGroup>
+    <RibbonGroup label={t('mail-compose-group-editing')} priority={45} icon="search" testId="rt-group-editing">
+      <RibbonItem>{tools.findReplace()}</RibbonItem><RibbonItem>{tools.selectAll()}</RibbonItem><RibbonItem>{tools.clearSelection()}</RibbonItem>
+    </RibbonGroup>
+  </>;
+
+  // The Insert tab: a link and an image, and a new table.
+  const insertGroups=():JSX.Element=><>
+    <RibbonGroup label={t('mail-compose-ribbon-insert')} priority={50} icon="link" testId="rt-group-insert">
+      <RibbonItem>
+        <RibbonPopover label={t('mail-compose-rt-link')} icon="link" keepSelection buttonClass={`compose-rt__btn ${a11y.focusable}`} buttonTestId="rt-link" open={linkOpen()} onOpenChange={setLinkOpen}>
+          <div class="compose-rt__link" data-testid="rt-link-row">
+            <input type="url" class={a11y.focusable} placeholder={t('mail-compose-rt-link-placeholder')} aria-label={t('mail-compose-rt-link')} value={linkUrl()} onInput={(e)=>setLinkUrl(e.currentTarget.value)} onKeyDown={(e)=>{if(e.key==='Enter'){e.preventDefault();applyLink();}}}/>
+            <button type="button" class={`btn btn--ghost ${a11y.focusable}`} data-testid="rt-link-apply" onClick={()=>applyLink()}>{t('mail-compose-rt-link-apply')}</button>
+          </div>
+        </RibbonPopover>
+      </RibbonItem>
+      <Show when={props.inline !== undefined}>
+        <RibbonItem>
+          <label class={`compose-rt__btn ${a11y.focusable}`} title={t('mail-compose-rt-image')} data-testid="rt-image">
+            <span aria-hidden="true"><Icon name="image"/></span><span class="compose-rib__text" aria-hidden="true">{t('mail-compose-rt-image')}</span>
+            <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple class={a11y.srOnly} aria-label={t('mail-compose-rt-image')} onChange={(e)=>{const input=e.currentTarget;const files=Array.from(input.files??[]);void placeImages(files).finally(()=>{input.value='';});}}/>
           </label>
-        </Show>
-        </Show>
-      </div>
+        </RibbonItem>
+      </Show>
+    </RibbonGroup>
+    <RibbonGroup label={t('mail-compose-ribbon-table')} priority={30} icon="table" testId="rt-group-table-insert">
+      <RibbonItem>{tools.tableRows()}</RibbonItem><RibbonItem>{tools.tableColumns()}</RibbonItem><RibbonItem>{tools.insertTable()}</RibbonItem>
+    </RibbonGroup>
+  </>;
 
-      <AdvancedEditorTools state={activeState} view={()=>view} run={run} tab={ribbonTab} owned={owned} report={setEditorError} markers={markers} onMarkers={()=>setMarkers(value=>!value)}/>
-      <Show when={editorError()}><p class="compose-rt__error" role="alert">{editorError()}</p></Show>
+  // The Table tab: the structure commands, then the cell shading (which folds first).
+  const tableGroups=():JSX.Element=><>
+    <RibbonGroup label={t('mail-compose-ribbon-table')} priority={30} icon="table" testId="rt-group-table">
+      <For each={tools.tableActionList}>{([name,command])=><RibbonItem>{tools.tableAction(name,command)}</RibbonItem>}</For>
+    </RibbonGroup>
+    <RibbonGroup label={t('mail-editor-table-shading')} priority={25} icon="paint" testId="rt-group-table-shading">
+      <RibbonItem>{tools.tableShading()}</RibbonItem><RibbonItem>{tools.clearTableShading()}</RibbonItem>
+    </RibbonGroup>
+  </>;
 
-      {linkOpen() && (
-        <div data-detached-local class="compose-rt__link" data-testid="rt-link-row">
-          <input
-            type="url"
-            class={a11y.focusable}
-            placeholder={t('mail-compose-rt-link-placeholder')}
-            aria-label={t('mail-compose-rt-link')}
-            value={linkUrl()}
-            onInput={(e) => setLinkUrl(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                applyLink();
-              }
-            }}
-          />
-          <button
-            type="button"
-            class={`btn btn--ghost ${a11y.focusable}`}
-            data-testid="rt-link-apply"
-            onClick={() => applyLink()}
-          >
-            {t('mail-compose-rt-link-apply')}
-          </button>
-        </div>
-      )}
+  const groupsFor=(tab:'format'|'insert'|'table'):JSX.Element=>tab==='format'?formatGroups():tab==='insert'?insertGroups():tableGroups();
 
-      </div>
+  // Standalone (the signature editor) or one mount point: the editor's own tabs over one ribbon panel.
+  const chrome=():JSX.Element=>(
+    <div class="compose-rt__chrome" data-detached-local><Show when={!props.externalHistory}><ComposerHistory api={editorApi()}/></Show>
+      <Show when={!props.ribbonTab}><div data-detached-local class="compose-rt__tabs" role="tablist" aria-label={t('mail-compose-ribbon')}><For each={['format','insert','table'] as const}>{tab=><button type="button" role="tab" aria-selected={ribbonTab()===tab} onClick={()=>setRibbonTab(tab)}>{t(`mail-compose-ribbon-${tab}`)}</button>}</For></div></Show>
+      <Show when={ribbonTab()} keyed>{tab=><RibbonPanel label={t(`mail-compose-ribbon-${tab}`)} class="compose-rt__ribbon">{groupsFor(tab)}</RibbonPanel>}</Show>
+    </div>
   );
+  const slots=()=>props.ribbonSlots?.();
   return (
     <div class="compose-rt" data-testid="compose-rt" data-markers={markers()}>
-      <Show when={props.toolbarMount} fallback={chrome}>{mount=><Portal mount={mount()}>{chrome}</Portal>}</Show>
+      <Show when={props.ribbonSlots} fallback={<Show when={props.toolbarMount} fallback={chrome()}>{mount=><Portal mount={mount()}>{chrome()}</Portal>}</Show>}>
+        <For each={['format','insert','table'] as const}>{tab=><Show when={slots()?.[tab]} keyed>{target=><InRibbonSlot target={target}>{groupsFor(tab)}</InRibbonSlot>}</Show>}</For>
+      </Show>
       <div class="compose-rt__surface" data-zoom={zoom()} ref={host} />
+      <Show when={editorError()}><p class="compose-rt__error" role="alert">{editorError()}</p></Show>
       <div class="compose-rt__footer" data-detached-local><EditorCounts counts={counts()}/><label>{t('mail-editor-zoom')}<select aria-label={t('mail-editor-zoom')} value={zoom()} onChange={event=>setZoom(Number(event.currentTarget.value))}><For each={[75,100,125,150,200]}>{value=><option value={value}>{value}%</option>}</For></select></label></div>
     </div>
   );
