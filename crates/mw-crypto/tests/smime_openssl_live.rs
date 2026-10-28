@@ -1,6 +1,12 @@
 //! Live outbound S/MIME interoperability. Set MW_SMIME_INTEROP=1; missing
 //! OpenSSL then fails rather than silently skipping. Committed inbound OpenSSL
 //! messages are exercised by smime_e41 on every test run.
+//!
+//! Ed25519 in CMS (RFC 8419) needs OpenSSL 3.2 or later: 3.0 and 3.1 refuse even
+//! their own Ed25519 signatures ("eddsa_digest_signverify_init: invalid digest").
+//! When the `openssl` on PATH is older, the Ed25519 signatures are judged by the
+//! command named in MW_SMIME_OPENSSL_ED25519 instead, and the test fails if that
+//! is unset. No key is left unjudged.
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -21,16 +27,53 @@ fn enabled() -> bool {
 }
 
 fn run(args: &[&str]) -> Vec<u8> {
-    let output = Command::new("openssl")
+    run_with("openssl", args)
+}
+
+fn run_with(tool: &str, args: &[&str]) -> Vec<u8> {
+    let output = Command::new(tool)
         .args(args)
         .output()
-        .expect("OpenSSL on PATH");
+        .unwrap_or_else(|e| panic!("{tool} (OpenSSL): {e}"));
     assert!(
         output.status.success(),
-        "openssl {args:?}: {}",
+        "{tool} {args:?}: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     output.stdout
+}
+
+/// `(major, minor)` from `<tool> version` ("OpenSSL 3.0.13 30 Jan 2024").
+fn openssl_version(tool: &str) -> (u32, u32) {
+    let out = String::from_utf8(run_with(tool, &["version"])).unwrap();
+    let ver = out
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or_else(|| panic!("{tool} version: {out:?}"));
+    let mut parts = ver.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+    (parts.next().unwrap_or(0), parts.next().unwrap_or(0))
+}
+
+/// The OpenSSL that judges Ed25519 CMS: the one on PATH when it is 3.2 or later,
+/// otherwise MW_SMIME_OPENSSL_ED25519, which must then name an OpenSSL 3.2+.
+fn ed25519_openssl() -> String {
+    if openssl_version("openssl") >= (3, 2) {
+        return "openssl".into();
+    }
+    let tool = std::env::var("MW_SMIME_OPENSSL_ED25519")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| {
+            panic!(
+                "the openssl on PATH is older than 3.2 and cannot verify Ed25519 CMS; \
+                 set MW_SMIME_OPENSSL_ED25519 to an OpenSSL 3.2+ command"
+            )
+        });
+    assert!(
+        openssl_version(&tool) >= (3, 2),
+        "MW_SMIME_OPENSSL_ED25519={tool} is older than OpenSSL 3.2"
+    );
+    tool
 }
 
 struct Scratch(PathBuf);
@@ -59,7 +102,13 @@ fn openssl_verifies_mailwoman_signatures() {
     }
     let scratch = Scratch::new("sign");
     let content = scratch.write("body", b"exact bytes\r\n");
+    let ed_tool = ed25519_openssl();
     for name in ["alice", "ecc", "p384", "ed"] {
+        let tool = if name == "ed" {
+            ed_tool.as_str()
+        } else {
+            "openssl"
+        };
         for detached in [true, false] {
             let der = smime_cms::sign(
                 b"exact bytes\r\n",
@@ -86,7 +135,11 @@ fn openssl_verifies_mailwoman_signatures() {
             if detached {
                 args.extend(["-content", &content]);
             }
-            assert_eq!(run(&args), b"exact bytes\r\n", "{name} detached={detached}");
+            assert_eq!(
+                run_with(tool, &args),
+                b"exact bytes\r\n",
+                "{name} detached={detached} ({tool})"
+            );
         }
     }
 }

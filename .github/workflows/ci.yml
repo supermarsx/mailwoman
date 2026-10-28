@@ -1213,9 +1213,18 @@ jobs:
         run: cargo test -p mw-crypto --test smime_generate
       - name: S/MIME certificate and CMS regression fixtures
         run: cargo test -p mw-crypto --locked --test smime_e41 --test smime_e41_red -- --test-threads=1
+      # Ed25519 in CMS needs OpenSSL 3.2+, and this runner's 3.0 refuses even its own
+      # Ed25519 signatures. The test judges those with MW_SMIME_OPENSSL_ED25519 (and
+      # fails if it is unset while the PATH openssl is older): a pinned Alpine 3.22
+      # OpenSSL 3.5 run through Docker. RSA and ECDSA stay judged by the runner's 3.0.
+      - name: OpenSSL 3.2+ for the Ed25519 CMS leg (Docker)
+        run: |
+          scripts/smime/openssl-docker.sh version
+          scripts/smime/openssl-docker.sh version | grep -Eq '^OpenSSL 3\.([2-9]|[1-9][0-9])\.'
       - name: live OpenSSL S/MIME interoperability
         env:
           MW_SMIME_INTEROP: "1"
+          MW_SMIME_OPENSSL_ED25519: ${{ github.workspace }}/scripts/smime/openssl-docker.sh
         run: cargo test -p mw-crypto --locked --test smime_openssl_live -- --test-threads=1
       # Live GnuPG interop (R-X1): keys and messages made by gpg are read by
       # mw-crypto and the other way round. With MW_GPG_INTEROP=1 a missing gpg
