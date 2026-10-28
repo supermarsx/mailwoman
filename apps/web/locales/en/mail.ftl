@@ -701,6 +701,11 @@ mail-compose-names-unresolved = Choose a full email address for these unresolved
 mail-compose-names-checked = Recipient formatting checked; { $count } contact name(s) resolved. Mailbox delivery has not been verified.
 
 mail-compose-ribbon-table = Table
+# Captions of the composer ribbon's 3-row groups (t38); also the folded group's dropdown text.
+mail-compose-group-clipboard = Clipboard
+mail-compose-group-paragraph = Paragraph
+mail-compose-group-editing = Editing
+mail-compose-group-assist = Writing assistant
 mail-editor-counts = Editor statistics
 mail-editor-words = { $count } words
 mail-editor-paragraphs = { $count } paragraphs
