@@ -40,6 +40,7 @@ import type { ThemeName, Density } from '../../theme/contract.css.ts';
 import {
   FONT_STACKS,
   defaultAppearance,
+  legacyRibbonCollapsed,
   mergeAppearancePrefs,
   msUntilNextFlip,
   parseAppearancePrefs,
@@ -61,6 +62,7 @@ import {
   watchColorScheme,
 } from '../../shell/rootAttributes.ts';
 import type { SliceContext } from './context.ts';
+import { noteLegacyRibbonCollapsed } from '../legacyRibbonCollapsed.ts';
 
 // Re-exported so existing importers (`screens/Settings.tsx`) keep their import
 // path; the canonical definitions live in the theme layer.
@@ -87,7 +89,6 @@ export interface ThemeSlice {
   accentId: Accessor<AccentId | ''>;
   uiFont: Accessor<UiFont>;
   layout: Accessor<LayoutMode>;
-  ribbonCollapsed: Accessor<boolean>;
   /**
    * Whether the user has made a theme decision. False means the theme fields
    * are the defaults (Dark), which a deployment default may replace.
@@ -108,7 +109,6 @@ export interface ThemeSlice {
   setAccentId(id: AccentId | ''): void;
   setUiFont(f: UiFont): void;
   setLayout(l: LayoutMode): void;
-  setRibbonCollapsed(v: boolean): void;
 
   /** Current preferences as one serializable object (server sync, export). */
   appearancePrefs(): AppearancePrefs;
@@ -125,7 +125,15 @@ function loadPrefs(): AppearancePrefs {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw === null) return defaultAppearance();
-    return parseAppearancePrefs(JSON.parse(raw));
+    const stored: unknown = JSON.parse(raw);
+    const prefs = parseAppearancePrefs(stored);
+    if (legacyRibbonCollapsed(stored)) {
+      // Hand the old collapse over to the ui.bar.mailRibbon migration, then
+      // drop the field from the stored blob.
+      noteLegacyRibbonCollapsed();
+      savePrefs(prefs);
+    }
+    return prefs;
   } catch {
     return defaultAppearance();
   }
@@ -170,7 +178,6 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
   const [customAccent, setCustomAccentSig] = createSignal(initial.customAccent ?? '');
   const [uiFont, setUiFontSig] = createSignal<UiFont>(initial.font);
   const [layout, setLayoutSig] = createSignal<LayoutMode>(initial.layout);
-  const [ribbonCollapsed, setRibbonCollapsedSig] = createSignal(initial.ribbonCollapsed);
   const [chosen, setChosenSig] = createSignal(initial.chosen);
 
   const [systemDark, setSystemDark] = createSignal(prefersDarkScheme());
@@ -192,7 +199,6 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
       customAccent: customAccent(),
       font: uiFont(),
       layout: layout(),
-      ribbonCollapsed: ribbonCollapsed(),
       chosen: chosen(),
     };
   }
@@ -255,7 +261,6 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
     accentId,
     uiFont,
     layout,
-    ribbonCollapsed,
     themeChosen: chosen,
     setTheme(t) {
       setPickSig(t);
@@ -303,16 +308,14 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
       setLayoutSig(l);
       persist();
     },
-    setRibbonCollapsed(v) {
-      setRibbonCollapsedSig(v);
-      persist();
-    },
     appearancePrefs: snapshot,
     setAppearancePrefs(next) {
       // Validate through the same parser an untrusted payload goes through, so
       // a bad field from the sync endpoint degrades instead of corrupting. A
       // server blob written before t32 has no `chosen`; the merge infers it
       // from that blob's theme fields, not from this device's flag.
+      // A server blob from a build before t38 may still carry `ribbonCollapsed`.
+      if (legacyRibbonCollapsed(next)) noteLegacyRibbonCollapsed();
       const merged = mergeAppearancePrefs(snapshot(), next);
       setModeSig(merged.mode);
       setPickSig(merged.theme);
@@ -324,7 +327,6 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
       setCustomAccentSig(merged.customAccent ?? '');
       setUiFontSig(merged.font);
       setLayoutSig(merged.layout);
-      setRibbonCollapsedSig(merged.ribbonCollapsed);
       setChosenSig(merged.chosen);
       persist();
     },

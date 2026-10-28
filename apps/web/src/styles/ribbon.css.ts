@@ -1,5 +1,5 @@
 // Ribbon layout-preset styles (plan §3 e4: optional collapsible Outlook-style
-// ribbon). Vanilla-extract scoped classes built entirely on the token contract
+// ribbon; t38: groups are bars/RibbonGroup, three rows each). Vanilla-extract scoped classes built entirely on the token contract
 // — this is the "new components use vars.* directly" path (vs the legacy
 // bridge that keeps app.css working).
 //
@@ -9,7 +9,7 @@
 // by a 3px accent bar and a surface field rather than by colour alone (every
 // tab label is already bold, so the active one does not change width).
 
-import { style } from '@vanilla-extract/css';
+import { globalStyle, style } from '@vanilla-extract/css';
 import { vars } from '../theme/contract.css.ts';
 
 export const ribbon = style({
@@ -53,50 +53,15 @@ export const tabActive = style({
   boxShadow: `inset 0 -3px 0 ${vars.color.accent}`,
 });
 
-export const collapseBtn = style({
-  marginInlineStart: 'auto',
-  appearance: 'none',
-  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
-  background: 'transparent',
-  color: vars.color.textDim,
-  borderRadius: vars.radius.sm,
-  cursor: 'pointer',
-  padding: `calc(${vars.space[1]} - 1px) calc(${vars.space[3]} - 1px)`,
-  font: 'inherit',
-});
+// The revealed panel (pinned: in the flow; auto-hide: over the content).
+export const panel = style({ background: vars.color.surface });
 
+// The active tab's groups. No vertical padding: the RibbonPanel inside has
+// a fixed block size, and nothing here may add a fourth row or scroll.
 export const body = style({
-  display: 'flex',
-  alignItems: 'stretch',
-  gap: vars.space[4],
-  padding: vars.space[4],
-  background: vars.color.surface,
-  overflowX: 'auto',
-});
-
-export const group = style({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: vars.space[2],
-  paddingInlineEnd: vars.space[4],
-  borderInlineEnd: `${vars.border.hair} solid ${vars.color.border}`,
-  selectors: {
-    '&:last-child': { borderInlineEnd: 'none' },
-  },
-});
-
-export const groupRow = style({
-  display: 'flex',
-  gap: vars.space[2],
-  flexWrap: 'wrap',
-});
-
-export const groupLabel = style({
-  fontSize: '0.7rem',
-  color: vars.color.textDim,
-  fontWeight: vars.weight.bold,
-  textTransform: 'uppercase',
-  letterSpacing: vars.tracking.label,
+  minInlineSize: 0,
+  paddingInline: vars.space[2],
+  overflow: 'hidden',
 });
 
 export const btn = style({
@@ -112,6 +77,11 @@ export const btn = style({
   padding: `calc(${vars.space[2]} - 1px) calc(${vars.space[3]} - 1px)`,
   font: 'inherit',
   fontSize: '0.85rem',
+  lineHeight: 1.2,
+  maxInlineSize: '12rem',
+  minInlineSize: 0,
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
   selectors: {
     '&:hover': { boxShadow: vars.elevation[1] },
     '&[aria-pressed="true"]': {
@@ -120,4 +90,30 @@ export const btn = style({
       borderColor: vars.color.accent,
     },
   },
+});
+
+// A `large` ribbon item: icon over the label, all three rows high (Office's
+// big Paste button).
+export const btnLarge = style({
+  flexDirection: 'column',
+  justifyContent: 'center',
+  gap: vars.space[1],
+  blockSize: '100%',
+  minInlineSize: '3.5rem',
+  maxInlineSize: '7rem',
+  paddingBlock: 0,
+});
+globalStyle(`${btnLarge} svg`, { inlineSize: '20px', blockSize: '20px' });
+
+// A `small` select fills its row and its item's explicit inline size.
+export const select = style({ inlineSize: '100%', maxInlineSize: 'none' });
+
+// A label clips with an ellipsis rather than growing the item (long locales).
+export const label = style({
+  display: 'block',
+  minInlineSize: 0,
+  maxInlineSize: '100%',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 });

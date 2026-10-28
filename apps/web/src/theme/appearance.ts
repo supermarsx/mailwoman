@@ -87,7 +87,6 @@ export interface AppearancePrefs {
   customAccent?: string;
   font: UiFont;
   layout: LayoutMode;
-  ribbonCollapsed: boolean;
   /**
    * True once the user has made a theme decision: picked a pack, a mode, a
    * pair member or a schedule. While it is false the theme fields are the
@@ -117,7 +116,6 @@ export function defaultAppearance(): AppearancePrefs {
     customAccent: '',
     font: 'default',
     layout: 'default',
-    ribbonCollapsed: false,
     chosen: false,
   };
 }
@@ -278,7 +276,6 @@ export function parseAppearancePrefs(input: unknown): AppearancePrefs {
     customAccent: customAccentValue(p.customAccent),
     font: typeof p.font === 'string' && p.font in FONT_STACKS ? (p.font as UiFont) : base.font,
     layout: p.layout === 'ribbon' ? ('ribbon' as const) : ('default' as const),
-    ribbonCollapsed: p.ribbonCollapsed === true,
   };
 
   if (!chosen) {
@@ -341,6 +338,17 @@ export function mergeAppearancePrefs(
   // device's.
   if (!('accentId' in next) && 'accent' in next) delete merged.accentId;
   return parseAppearancePrefs(merged);
+}
+
+/**
+ * Whether a stored payload carries the legacy `ribbonCollapsed: true` (builds
+ * before t38 kept the mail ribbon's collapse here, device-local). t38 moved it
+ * to the settings-registry key `ui.bar.mailRibbon` (`auto`); the parser drops
+ * the field, so this is the one place that still reads it, for the one-time
+ * migration (`state/legacyRibbonCollapsed.ts`).
+ */
+export function legacyRibbonCollapsed(input: unknown): boolean {
+  return input !== null && typeof input === 'object' && (input as { ribbonCollapsed?: unknown }).ribbonCollapsed === true;
 }
 
 /** The JSON-safe wire/storage form. Round-trips through `parseAppearancePrefs`. */

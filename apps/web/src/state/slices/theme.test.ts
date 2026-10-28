@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createThemeSlice } from './theme.ts';
 import type { SliceContext } from './context.ts';
+import { LEGACY_RIBBON_MARKER } from '../legacyRibbonCollapsed.ts';
 
 // The slice ignores its context; a minimal stub keeps the factory happy.
 const ctx = { client: {}, showToast: vi.fn() } as unknown as SliceContext;
@@ -53,14 +54,30 @@ describe('theme slice', () => {
     expect(root().style.getPropertyValue('--mw-ui-font')).toBe('');
   });
 
-  it('setDensity, setLayout and ribbon collapse round-trip', () => {
+  it('setDensity and setLayout round-trip', () => {
     const s = createThemeSlice(ctx);
     s.setDensity('compact');
     s.setLayout('ribbon');
-    s.setRibbonCollapsed(true);
     expect(root().getAttribute('data-density')).toBe('compact');
     expect(s.layout()).toBe('ribbon');
-    expect(s.ribbonCollapsed()).toBe(true);
+  });
+
+  it('hands a stored legacy ribbonCollapsed to the ui.bar.mailRibbon migration and drops it', () => {
+    localStorage.setItem('mw.theme.prefs', JSON.stringify({ layout: 'ribbon', ribbonCollapsed: true }));
+    const s = createThemeSlice(ctx);
+    expect(s.layout()).toBe('ribbon');
+    expect(localStorage.getItem(LEGACY_RIBBON_MARKER)).toBe('1');
+    expect(JSON.parse(localStorage.getItem('mw.theme.prefs') ?? '{}')).not.toHaveProperty('ribbonCollapsed');
+    expect(s.appearancePrefs()).not.toHaveProperty('ribbonCollapsed');
+  });
+
+  it('leaves no marker for ribbonCollapsed false, and notes one from a synced blob', () => {
+    localStorage.setItem('mw.theme.prefs', JSON.stringify({ layout: 'ribbon', ribbonCollapsed: false }));
+    const s = createThemeSlice(ctx);
+    expect(localStorage.getItem(LEGACY_RIBBON_MARKER)).toBeNull();
+    s.setAppearancePrefs({ ribbonCollapsed: true } as Parameters<typeof s.setAppearancePrefs>[0]);
+    expect(localStorage.getItem(LEGACY_RIBBON_MARKER)).toBe('1');
+    expect(s.appearancePrefs()).not.toHaveProperty('ribbonCollapsed');
   });
 
   it('restores persisted prefs from localStorage', () => {

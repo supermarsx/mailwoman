@@ -356,7 +356,8 @@ describe('appearance preferences', () => {
     expect(p.accentId).toBe('');
     expect(p.font).toBe('default');
     expect(p.layout).toBe('ribbon');
-    expect(p.ribbonCollapsed).toBe(false);
+    // Moved to the settings registry in t38 (ui.bar.mailRibbon); parsing drops it.
+    expect(p).not.toHaveProperty('ribbonCollapsed');
   });
 
   it('round-trips through its serialized form', () => {

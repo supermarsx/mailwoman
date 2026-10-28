@@ -140,7 +140,6 @@ describe('theme mode tri-state', () => {
     untouched.setAccentId('red');
     untouched.setUiFont('mono');
     untouched.setLayout('ribbon');
-    untouched.setRibbonCollapsed(true);
     expect(untouched.themeChosen()).toBe(false);
     expect(untouched.appearancePrefs().chosen).toBe(false);
     expect(untouched.theme()).toBe('dark');
