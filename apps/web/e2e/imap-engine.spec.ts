@@ -61,12 +61,21 @@ test.describe('IMAP account through the unmodified web UI (engine mode)', () => 
 
     // Open it: the raw RFC822 was fetched over IMAP, parsed by mw-mime, and the
     // body sanitized. It renders in the locked-down (no allow-scripts /
-    // allow-same-origin) reader iframe — the same reader component as V0.
+    // allow-same-origin) message iframe — the same reader component as V0.
+    // Since fbbf97a4 / 99f51b81 that frame sits inside a fixed wrapper
+    // (/api/rc/frame, `sandbox="allow-scripts"`, opaque origin, runs only its
+    // bridge) which hands it the sanitized document by postMessage.
     await messageRow(page, subject).click();
     await expect(page.getByRole('heading', { name: subject })).toBeVisible();
 
-    const frame = page.locator('iframe[title="Message body"]');
-    await expect(frame).toBeVisible();
+    const wrapper = page.locator('iframe[title="Message body"]');
+    await expect(wrapper).toBeVisible();
+    await expect(wrapper).toHaveAttribute('src', /\/api\/rc\/frame(\?[^#]*)?#/);
+    const wrapperSandbox = await wrapper.getAttribute('sandbox');
+    expect(wrapperSandbox).not.toBeNull();
+    expect(wrapperSandbox).not.toContain('allow-same-origin');
+
+    const frame = page.frameLocator('iframe[title="Message body"]').locator('iframe[title="Message content"]');
     const sandbox = await frame.getAttribute('sandbox');
     expect(sandbox).not.toBeNull();
     expect(sandbox).not.toContain('allow-scripts');
