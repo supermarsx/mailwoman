@@ -4,12 +4,12 @@ import {accountUiPreferences,setAccountUiPreferences} from '../api/accountPrefer
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import type {Mailbox} from '../api/jmap-types.ts';
 import {loadCatalog,t} from '../i18n';
-import {EmptyTrashDialog} from './EmptyTrash.tsx';
+import {EmptyFolderDialog,useCanEmpty,useEmptyAbility} from './EmptyFolderDialog.tsx';
 import {createContextMenu,type ContextAction} from './ContextMenu.tsx';
 import * as css from './contextMenu.css.ts';
 export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen:()=>void;onOpenTab?:()=>void;onSettings:()=>void;onShare:()=>void;canShare:()=>boolean;onProbe:()=>void}):JSX.Element {
- const app=useApp();const [trash,setTrash]=createSignal(false);
- onMount(()=>void loadCatalog('folder-tabs'));
+ const app=useApp();const [empty,setEmpty]=createSignal(false);const ability=useEmptyAbility(),canEmpty=useCanEmpty();
+ onMount(()=>{void loadCatalog('folder-tabs');void loadCatalog('empty-folder');});
  async function selectThen(run:()=>void):Promise<void>{const owner=preferenceAccount();if(!owner)return;await app.selectMailbox(props.box.id);if(preferenceAccountIsCurrent(owner)&&app.selectedMailboxId()===props.box.id)run();}
  const context=createContextMenu({label:()=>props.box.name,scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}:${props.box.id}`,actions:()=>{
   const owner=preferenceAccount();if(!owner||owner.id!==app.accountId())return [];
@@ -21,9 +21,10 @@ export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen
    {id:'settings',label:t('mail-context-folder-settings'),icon:'settings',run:props.onSettings}];
   if(props.onOpenTab)rows.splice(1,0,{id:'open-tab',label:t('folder-tabs-open'),icon:'folder',run:props.onOpenTab});
   if(box.mailwomanSearchQuery===undefined&&props.canShare())rows.push({id:'sharing',label:t('mail-nav-sharing'),icon:'users',run:()=>selectThen(props.onShare)});
-  if(box.role==='trash')rows.push({id:'trash',label:t('mail-empty-trash'),icon:'delete',run:()=>selectThen(()=>{if(app.mailboxes().some(value=>value.id===box.id&&value.role==='trash'))setTrash(true);})});
+  // Any real folder (t45): ordinary folders move to Trash, Trash and Junk empty for good.
+  if(canEmpty(box))rows.push({id:'empty',label:t('empty-folder-action'),icon:'delete',run:()=>{if(app.mailboxes().some(value=>value.id===box.id)&&canEmpty(box))setEmpty(true);}});
   return rows;
  },onError:()=>app.showToast('error',t('mail-context-failed'))});
- onCleanup(observePreferenceAccount(()=>{context.close(false);setTrash(false);}));
- return <div class={css.folderRow} onContextMenu={e=>{props.onProbe();context.open(e);}} onKeyDown={e=>{if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10'))props.onProbe();context.keydown(e);}}>{props.children}{context.menu()}<Show when={trash()}><EmptyTrashDialog mailboxId={props.box.id} onClose={()=>setTrash(false)}/></Show></div>;
+ onCleanup(observePreferenceAccount(()=>{context.close(false);setEmpty(false);}));
+ return <div class={css.folderRow} onContextMenu={e=>{props.onProbe();context.open(e);}} onKeyDown={e=>{if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10'))props.onProbe();context.keydown(e);}}>{props.children}{context.menu()}<Show when={empty()&&ability()}>{value=><EmptyFolderDialog box={app.mailboxes().find(item=>item.id===props.box.id)??props.box} ability={value()} onClose={()=>setEmpty(false)}/>}</Show></div>;
 }

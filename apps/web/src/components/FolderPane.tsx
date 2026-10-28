@@ -10,6 +10,7 @@ import {useActions} from '../keymap/index.ts';
 import {preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import {mutateFolderMessages,type FolderMutation} from './folderMutations.ts';
 import {startTrashJob} from './emptyTrashJob.ts';
+import {EmptyFolderDialog,useCanEmpty,useEmptyAbility} from './EmptyFolderDialog.tsx';
 import {loadCatalog,t} from '../i18n/index.ts';
 import * as css from './folderPane.css.ts';
 
@@ -21,6 +22,7 @@ export function FolderPane(props:{mailboxId:string;active:boolean;onOpen:(id:str
  const sync=createInitialSync(()=>props.mailboxId,()=>view.load(view.position()));
  const [busy,setBusy]=createSignal(false),[result,setResult]=createSignal(''),[failed,setFailed]=createSignal(false),[destination,setDestination]=createSignal('');
  const [confirmDelete,setConfirmDelete]=createSignal<string[]|null>(null);
+ const emptyAbility=useEmptyAbility(),canEmpty=useCanEmpty();const [emptying,setEmptying]=createSignal(false);
  let refreshTimer:ReturnType<typeof setTimeout>|undefined,dirty=false;
  const admitted=()=>!!owner&&preferenceAccountIsCurrent(owner)&&view.current();
  const disabled=()=>busy()||view.loading()||!admitted();
@@ -52,7 +54,7 @@ export function FolderPane(props:{mailboxId:string;active:boolean;onOpen:(id:str
  onMount(()=>{const stop=app.onRealtimeChange?.(change=>{if(!admitted()||app.linkedMailboxId?.())return;const types=change.changed[owner!.id];if(!types?.Email&&!types?.Mailbox)return;dirty=true;if(refreshTimer)clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>{if(props.active&&!disabled()){dirty=false;void view.load();}},250);});if(stop)onCleanup(stop);});
  let viewport:HTMLDivElement|undefined;
  let previouslyActive=props.active;
- onMount(()=>{props.registerRefresh?.(()=>{if(!disabled())void view.load();});void loadCatalog('folder-tabs');void view.load();});
+ onMount(()=>{props.registerRefresh?.(()=>{if(!disabled())void view.load();});void loadCatalog('folder-tabs');void loadCatalog('empty-folder');void view.load();});
  createEffect(()=>{if(props.active&&viewport)viewport.scrollTop=view.scroll();});
  createEffect(()=>{const active=props.active;if(active&&!previouslyActive)untrack(()=>{if(!disabled())void view.load();});previouslyActive=active;});
  createEffect(()=>{if(props.active&&!busy()&&dirty){dirty=false;void view.load();}});
@@ -72,7 +74,8 @@ export function FolderPane(props:{mailboxId:string;active:boolean;onOpen:(id:str
   if(next!==null){event.preventDefault();const target=rows[Math.max(0,Math.min(rows.length-1,next))];target?.focus();if(modifierSelectionEnabled()&&event.shiftKey&&target?.dataset['folderMessage'])view.select(target.dataset['folderMessage'],true);}
  }
  return <div class={css.pane}>
-  <header class={css.toolbar}><h2>{box()?.name??t('folder-tabs-unavailable')}</h2><button type="button" class="btn btn--ghost" disabled={disabled()} onClick={()=>void view.load()}>{t('folder-tabs-refresh')}</button><button type="button" class="btn btn--ghost" disabled={disabled()||!view.messages().length} onClick={view.selectAll}>{t('folder-tabs-select-page')}</button></header>
+  <header class={css.toolbar}><h2>{box()?.name??t('folder-tabs-unavailable')}</h2><button type="button" class="btn btn--ghost" disabled={disabled()} onClick={()=>void view.load()}>{t('folder-tabs-refresh')}</button><button type="button" class="btn btn--ghost" disabled={disabled()||!view.messages().length} onClick={view.selectAll}>{t('folder-tabs-select-page')}</button><Show when={box()&&canEmpty(box()!)}><button type="button" class="btn btn--ghost" disabled={disabled()} onClick={()=>setEmptying(true)}>{t('empty-folder-action')}</button></Show></header>
+  <Show when={emptying()&&box()&&emptyAbility()}>{ability=><EmptyFolderDialog box={box()!} ability={ability()} onClose={()=>setEmptying(false)} onEmptied={()=>{view.retainSelection([]);void reconcile();}}/>}</Show>
   <Show when={view.selection().size>0}><div class={css.toolbar} role="toolbar" aria-label={t('folder-tabs-actions')}>
    <button type="button" class="btn" disabled={disabled()} onClick={()=>void run({kind:'read',read:true})}>{t('mail-mark-read')}</button>
    <button type="button" class="btn" disabled={disabled()} onClick={()=>void run({kind:'read',read:false})}>{t('mail-mark-unread')}</button>
