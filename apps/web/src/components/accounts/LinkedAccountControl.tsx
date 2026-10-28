@@ -2,7 +2,7 @@ import {createEffect,createResource,createSignal,onCleanup,onMount,Show,type JSX
 import {useApp} from '../../state/context.ts';
 import {observePreferenceAccount,preferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
 import {createLinkedAccountsApi,type LinkedMailboxList} from '../../api/linkedAccounts.ts';
-import {loadCatalog,t} from '../../i18n/index.ts';
+import {loadCatalog} from '../../i18n/index.ts';
 import {confirmShellNavigation} from '../../shell/navigationGuard.ts';
 import {MailboxPicker,MailboxPlain,type MailboxChoice} from './MailboxPicker.tsx';
 import {linkedAccountError} from './linkedAccountError.ts';
@@ -19,8 +19,9 @@ import * as css from './accountIndicator.css.ts';
 export type AccountControlVariant='full'|'icon';
 
 // Last inbox unread count seen per mailbox in this tab (key: layout key). The
-// active mailbox is live; the others show what they had when last open, since
-// a mailbox is only queried while it is active (t46 adds live child counts).
+// active mailbox reads its folder list; the others read the live count the
+// realtime stream carries for them (t46), and fall back to this only until the
+// first frame for that mailbox arrives.
 const [unreadSeen,setUnreadSeen]=createSignal<Readonly<Record<string,number>>>({});
 
 /** The picker entries in the owner's order (also the shape t46 feeds counts into). */
@@ -56,7 +57,13 @@ function OwnedControl(props:{variant?:AccountControlVariant}):JSX.Element {
     const count=activeInboxUnread(),key=keyOf(app.linkedMailboxId());
     if(count!==null&&unreadSeen()[key]!==count)setUnreadSeen(seen=>({...seen,[key]:count}));
   });
-  const unreadFor=(linkId:string|null):number|null=>linkId===app.linkedMailboxId()?activeInboxUnread():unreadSeen()[keyOf(linkId)]??null;
+  const unreadFor=(linkId:string|null):number|null=>{
+    if(linkId===app.linkedMailboxId())return activeInboxUnread();
+    // A live count is read only under the authority this list verified for the link.
+    const authority=linkId===null?undefined:list()?.accounts.find(account=>account.id===linkId&&account.status==='ready')?.storageAuthority;
+    const live=linkId===null||authority?app.mailboxUnread(linkId,authority):null;
+    return live??unreadSeen()[keyOf(linkId)]??null;
+  };
   async function select(id:string|null):Promise<void>{
     if(!await confirmShellNavigation())return;
     setError('');
@@ -87,6 +94,5 @@ function OwnedControl(props:{variant?:AccountControlVariant}):JSX.Element {
     <div class={css.control}>
       <MailboxPicker variant={props.variant??'full'} choices={mailboxChoices(value(),unreadFor)} activeLinkId={app.linkedMailboxId()} firstLinkId={value().primaryMailbox??null}
         busy={app.switchingMailbox()||saving()} error={error()} onSelect={id=>void select(id)} onSetFirst={setFirst} onMove={move} onRename={rename}/>
-      <Show when={props.variant!=='icon'&&app.linkedMailboxId()}><span class={css.refreshHelp} role="status" tabIndex={0} aria-label={t('linked-accounts-refresh-help')} data-tooltip={t('linked-accounts-refresh-help')}>ⓘ</span></Show>
     </div>}</Show>;
 }

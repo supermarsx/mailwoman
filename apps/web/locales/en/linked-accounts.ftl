@@ -20,7 +20,6 @@ linked-accounts-open = Open mailbox
 linked-accounts-unlink-help = This removes access through your primary account. It does not delete the mailbox or its messages.
 linked-accounts-switch-failed = The mailbox could not be opened. Your previous mailbox has not been silently substituted.
 linked-accounts-changed = Your sign-in changed. Reopen linked mailboxes before continuing.
-linked-accounts-refresh-help = Live updates are unavailable for linked mailboxes. Refresh to check for new messages.
 linked-accounts-factor-title = Verify this mailbox
 linked-accounts-factor-help = Complete the linked mailbox’s second factor. This does not change your primary sign-in.
 linked-accounts-error = The mailbox request could not be completed. Try again after checking your account and connection.

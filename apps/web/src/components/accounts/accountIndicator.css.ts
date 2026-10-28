@@ -259,13 +259,3 @@ export const rowAction = style({
 export const error = style({ fontSize: '.8125rem', color: vars.color.danger, overflowWrap: 'anywhere' });
 
 export const control = style({ display: 'flex', alignItems: 'center', gap: vars.space[1], minWidth: 0, maxWidth: '100%' });
-export const refreshHelp = style({
-  flex: 'none',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  inlineSize: '1.75rem',
-  minBlockSize: '1.75rem',
-  color: vars.color.text,
-  '@media': { [coarse]: { inlineSize: '44px', minBlockSize: '44px' } },
-});
