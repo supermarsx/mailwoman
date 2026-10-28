@@ -17,5 +17,9 @@ describe('context menu',()=>{
   render(()=>{const menu=createContextMenu({label:()=> 'Actions',scope:()=> 'a',actions:()=>[{id:'a',label:'Open',icon:'mail',run:()=>{}}]});return <><div onContextMenu={menu.open}><input aria-label="Text"/><span>Selectable</span></div>{menu.menu()}</>;});
   expect(fireEvent.contextMenu(screen.getByRole('textbox'))).toBe(true);expect(screen.queryByRole('menu')).toBeNull();const selection=window.getSelection()!,range=document.createRange();range.selectNodeContents(screen.getByText('Selectable'));selection.removeAllRanges();selection.addRange(range);expect(fireEvent.contextMenu(screen.getByText('Selectable'))).toBe(true);expect(screen.queryByRole('menu')).toBeNull();selection.removeAllRanges();
  });
+ it('exposes an on/off action as a menuitemcheckbox with its state, plain actions as menuitems',()=>{
+  const [on,setOn]=createSignal(false);render(()=>{const menu=createContextMenu({label:()=> 'Actions',scope:()=> 'a',actions:()=>[{id:'a',label:'Open',icon:'mail',run:()=>{}},{id:'tag',label:'Label: Work',icon:on()?'check':'tag',checked:on(),run:()=>{}}]});return <><button onContextMenu={menu.open}>Target</button>{menu.menu()}</>;});
+  fireEvent.contextMenu(screen.getByText('Target'));expect(screen.getByRole('menuitem',{name:'Open'})).not.toHaveAttribute('aria-checked');const work=screen.getByRole('menuitemcheckbox',{name:'Label: Work'});expect(work).toHaveAttribute('aria-checked','false');setOn(true);expect(work).toHaveAttribute('aria-checked','true');fireEvent.keyDown(screen.getByRole('menuitem',{name:'Open'}),{key:'ArrowDown'});expect(work).toHaveFocus();
+ });
  it('clamps menus at narrow viewport edges',()=>{expect(clampMenu(410,790,240,300,420,800)).toEqual({left:172,top:492});expect(clampMenu(-20,-5,900,1000,320,600)).toEqual({left:8,top:8});});
 });

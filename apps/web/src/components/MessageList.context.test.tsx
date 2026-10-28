@@ -64,3 +64,14 @@ it('context searches use the indicated sender or subject as typed field values',
  fireEvent.contextMenu(row);fireEvent.click(screen.getByRole('menuitem',{name:'Search this sender'}));expect(search).toHaveBeenLastCalledWith('from','sender@example.org');
  fireEvent.contextMenu(row);fireEvent.click(screen.getByRole('menuitem',{name:'Search the same subject'}));expect(search).toHaveBeenLastCalledWith('subject','Quoted " OR from:other');
 });
+it('an action chosen from a row menu that re-renders the row gives focus back to that row\'s More actions',async()=>{
+ const app=createAppState(makeClient({emails:[mkEmail('a',{subject:'Focus A'}),mkEmail('b',{subject:'Focus B'})]}));
+ render(()=><AppContext.Provider value={app}><MessageList/></AppContext.Provider>);await app.login({username:'me@example.org',password:'p'});
+ await waitFor(()=>expect(app.messages()).toHaveLength(2));
+ const more=()=>screen.getByText('Focus B').closest('.list__slot')!.querySelector<HTMLElement>('.msg-more__toggle')!;const before=more();
+ before.focus();fireEvent.click(before);fireEvent.click(screen.getByRole('menuitem',{name:'Flag for follow-up'}));
+ await waitFor(()=>expect(app.messages().find(m=>m.id==='b')?.followUpAt).toBeTruthy());
+ expect(screen.queryByRole('menu')).toBeNull();await Promise.resolve();
+ // The follow-up patch replaced the row, opener included: focus must not fall to the body.
+ expect(before.isConnected).toBe(false);await waitFor(()=>expect(more()).toHaveFocus());
+});
