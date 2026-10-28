@@ -262,6 +262,11 @@ services:
       RUST_LOG: "info"
     ports:
       - "8090:8080"
+    # The admin-console specs (apps/web/e2e/admin: hosting, nextcloud-*) run their
+    # upstream fixtures on the host; Docker Desktop resolves host.docker.internal
+    # by itself, Linux (the CI runner) needs this mapping to the bridge gateway.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - mailwoman-engine-data:/data
     depends_on:
