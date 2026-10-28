@@ -11,7 +11,9 @@ test('plain compose preserves literal text and sends Cc and Bcc without exposing
  await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Compose',exact:true}).click();
  const toggle=page.getByTestId('format-toggle');
- if((await toggle.textContent())?.includes('Plain text'))await toggle.click();
+ // The message type is a select (e0c99a79); on a phone its ribbon group is folded into a dropdown (t38-e5).
+ const more=page.getByRole('button',{name:'More Message type commands',exact:true});if(!(await toggle.isVisible())&&await more.isVisible())await more.click();
+ await toggle.selectOption('plain');
  await page.getByTestId('compose-show-cc-bcc').click();
  await page.getByLabel('To',{exact:true}).fill('to@example.org');
  await page.getByLabel('Cc',{exact:true}).fill('copy@example.org');
