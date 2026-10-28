@@ -209,7 +209,7 @@ globalStyle(`[data-screen="admin"] .btn, ${gate} .btn`, {
 // 0.8rem, the same as the shell's FormField. In capitals a label such as "Quota
 // messages (0 = unlimited)" wrapped to two lines in the Users form's columns at
 // 0.8rem and made the form taller than before t32 (P2).
-globalStyle(`[data-screen="admin"] .field > span`, {
+globalStyle(`[data-screen="admin"] .field > span, [data-screen="admin"] .field > label[for]`, {
   fontSize: '0.75rem',
 });
 

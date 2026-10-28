@@ -185,7 +185,7 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
         <h1 class="login__title">{config()?.brandName || t('auth-app-name')}</h1>
         <Show when={config()?.loginNotice}>{(notice) => <p class="login__hint" dir="auto">{notice()}</p>}</Show>
         <Show when={config()?.maintenance?.enabled}><p class="login__hint" role="status" dir="auto">{config()?.maintenance?.message || t('auth-maintenance')}</p></Show>
-        <div class={rememberedCss.field} onFocusOut={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setRememberedOpen(false); }} onKeyDown={event => { if (event.key === 'Escape') { setRememberedOpen(false); usernameInput?.focus(); event.stopPropagation(); } }}>
+        <div class={`field ${rememberedCss.field}`} onFocusOut={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setRememberedOpen(false); }} onKeyDown={event => { if (event.key === 'Escape') { setRememberedOpen(false); usernameInput?.focus(); event.stopPropagation(); } }}>
           <label for="login-username">{t('auth-email')}</label>
           <div class={rememberedCss.inputRow}>
           <input id="login-username" ref={usernameInput} type="text" inputmode="email" required autocomplete="username" autocapitalize="none" spellcheck={false}

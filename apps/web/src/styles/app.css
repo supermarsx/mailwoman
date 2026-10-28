@@ -108,8 +108,12 @@ body {
   gap: 0.3rem;
   margin-bottom: 0.8rem;
 }
-/* Field label: small, uppercase, tracked (0 for ar/ja/zh via the token). */
-.field > span {
+/* Field label: small, uppercase, tracked (0 for ar/ja/zh via the token).
+   The field name is the span in a wrapping `<label class="field">`, or a
+   `<label for>` in a `.field` box whose control cannot sit inside a label
+   (the sign-in username with its remembered-addresses menu); both look alike. */
+.field > span,
+.field > label[for] {
   font-size: 0.8rem;
   font-weight: var(--weight-bold);
   letter-spacing: var(--tracking-label);
