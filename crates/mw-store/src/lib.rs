@@ -972,6 +972,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn read_then_write_transactions_do_not_lock() {
+        // t33-e11: a sign-in registers its directory identity in a transaction
+        // that reads (`SELECT … FROM mail_user`) before it writes. Opened as a
+        // deferred transaction, its read snapshot cannot be upgraded once another
+        // connection has committed, and SQLite answers SQLITE_BUSY_SNAPSHOT
+        // ("database is locked", 517) at once, without waiting out busy_timeout.
+        // An engine-mode login hits exactly that while the first sync of the
+        // account writes messages. Every transaction must take the write lock at
+        // BEGIN so a contended one waits instead of failing.
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("mw-store-rtw-{unique}.sqlite"));
+        let path_str = path.to_string_lossy().to_string();
+        let store = Store::open(&path_str, ServerKey::generate()).await.unwrap();
+
+        let mut handles = Vec::new();
+        for i in 0..8 {
+            // Sign-ins: read-then-write transactions.
+            let s = store.clone();
+            handles.push(tokio::spawn(async move {
+                for j in 0..20 {
+                    let account = format!("acct-{i}");
+                    let address = format!("user{i}@example.test");
+                    let local = format!("user{i}");
+                    let registered = s
+                        .register_successful_signin(crate::user_directory::SuccessfulSignin {
+                            account_id: &account,
+                            address: &address,
+                            domain: "example.test",
+                            local_part: &local,
+                            mode: "engine",
+                            now: j,
+                        })
+                        .await
+                        .expect("a sign-in registration under write contention must not lock");
+                    assert!(registered);
+                }
+            }));
+            // Other writers committing in between (the sync loop's role).
+            let s = store.clone();
+            handles.push(tokio::spawn(async move {
+                for j in 0..40 {
+                    s.set_setting(&format!("w{i}-{j}"), "v")
+                        .await
+                        .expect("a plain write under contention must not lock");
+                }
+            }));
+        }
+        for h in handles {
+            h.await.unwrap();
+        }
+
+        drop(store);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path_str}-wal"));
+        let _ = std::fs::remove_file(format!("{path_str}-shm"));
+    }
+
+    #[tokio::test]
     async fn settings_get_set() {
         let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
         assert_eq!(store.get_setting("theme").await.unwrap(), None);

@@ -43,9 +43,20 @@ impl Backend {
     }
 
     /// Begin a transaction on the active backend.
+    ///
+    /// On SQLite the transaction takes the write lock at `BEGIN` (`BEGIN
+    /// IMMEDIATE`). A deferred transaction starts as a reader and upgrades on its
+    /// first write; when another connection has written in between, SQLite fails
+    /// that upgrade at once with `SQLITE_BUSY` / `SQLITE_BUSY_SNAPSHOT` ("database
+    /// is locked") and never consults `busy_timeout`, because waiting could not
+    /// help a reader holding an old snapshot. Many store transactions read before
+    /// they write (sign-in directory registration among them), and in engine mode
+    /// the sync loop writes all the time, so logins failed with 503 under load
+    /// (t33-e11). Taken up front, the lock is waited for like any other write.
+    /// WAL readers outside a transaction are not blocked by it.
     pub(crate) async fn begin(&self) -> Result<Tx, sqlx::Error> {
         Ok(match self {
-            Backend::Sqlite(p) => Tx::Sqlite(p.begin().await?),
+            Backend::Sqlite(p) => Tx::Sqlite(p.begin_with("BEGIN IMMEDIATE").await?),
             Backend::Postgres(p) => Tx::Postgres(p.begin().await?),
         })
     }
