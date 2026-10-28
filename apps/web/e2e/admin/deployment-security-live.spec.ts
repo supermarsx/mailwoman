@@ -7,7 +7,7 @@ test('deployment assessment reports actual runtime and makes limits visible @pho
  const loaded=page.waitForResponse(r=>r.url().endsWith('/admin/security/deployment')&&r.request().method()==='GET');
  await page.getByRole('link',{name:'Deployment security assessment',exact:true}).click();
  const response=await loaded;expect(response.status()).toBe(200);expect(response.headers()['cache-control']).toBe('private, no-store');
- const body=await response.json();expect(body.scope).toBe('current-process-and-request');expect(body.checks.length).toBe(11);
+ const body=await response.json();expect(body.scope).toBe('current-process-and-request');expect(body.checks.length).toBe(13);
  await expect(page.getByRole('table',{name:'Deployment security assessment'})).toBeVisible();
  await expect(page.getByText(/Public TLS certificates, reverse-proxy configuration/)).toBeVisible();
  await page.getByLabel('Find a check').fill('Administrator session');
