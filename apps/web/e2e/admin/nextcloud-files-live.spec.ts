@@ -1,5 +1,5 @@
 import {test,expect} from '../csrf.ts';
-import {signInManually,storageAuthorityHeaders,composeSurface} from '../helpers.ts';
+import {signInManually,storageAuthorityHeaders,composeSurface,ribbonControl} from '../helpers.ts';
 import {createServer as httpsServer} from 'node:https';
 import {createServer as httpServer} from 'node:http';
 import {connect} from 'node:net';
@@ -70,7 +70,8 @@ test('account-owned Nextcloud link browses and attaches through approved TLS pro
     await page.getByRole('button',{name:'Compose',exact:true}).click();
     // Attachment sources sit on the composer ribbon's Insert tab (e0c99a79).
     await composeSurface(page).getByRole('tab',{name:'Insert',exact:true}).click();
-    await page.getByRole('button',{name:'Attach from Nextcloud',exact:true}).click();
+    // On a phone the Attachments group folds into a dropdown (t38-e5).
+    await (await ribbonControl(composeSurface(page),'Attachments',page.getByRole('button',{name:'Attach from Nextcloud',exact:true}))).click();
     await page.getByRole('combobox',{name:'Nextcloud instance',exact:true}).selectOption(id);
     await page.getByRole('button',{name:/^Select .*Résumé\.txt/}).click();
     await page.getByRole('button',{name:'Attach 1 file',exact:true}).click();

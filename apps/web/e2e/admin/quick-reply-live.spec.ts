@@ -1,5 +1,5 @@
 import { test, expect } from '../csrf.ts';
-import { signInManually, messageRow, sidebarInbox, drawerButton, storageAuthorityHeaders } from '../helpers.ts';
+import { signInManually, messageRow, sidebarInbox, drawerButton, storageAuthorityHeaders, ribbonControl } from '../helpers.ts';
 import { sendRawSmtp } from '../crypto-helpers.ts';
 
 test('opted-in quick reply opens a compact tab and expands without losing text @phone', async ({ page, context }) => {
@@ -25,7 +25,8 @@ test('opted-in quick reply opens a compact tab and expands without losing text @
     const composer = page.getByRole('region', { name: 'Compose message', exact: true });
     await expect(composer.getByLabel('To', { exact: true })).toHaveCount(0);
     await expect(composer.getByRole('region', { name: 'Quick reply', exact: true })).toContainText('sender@example.test');
-    await composer.getByTestId('format-toggle').selectOption('plain'); // the format toggle is a message-type select now (plain | rich | html)
+    // On a phone the Message type group folds into a dropdown (t38-e5).
+    await (await ribbonControl(composer, 'Message type', composer.getByTestId('format-toggle'))).selectOption('plain'); // the format toggle is a message-type select now (plain | rich | html)
     await composer.getByLabel('Body', { exact: true }).fill('My preserved quick reply');
     await composer.getByRole('button', { name: 'Edit recipients and subject' }).click();
     await expect(composer.getByLabel('To', { exact: true })).toHaveValue(/sender@example.test/);

@@ -1,5 +1,5 @@
 import { test, expect } from '../csrf.ts';
-import { signInManually, drawerButton, storageAuthorityHeaders } from '../helpers.ts';
+import { signInManually, drawerButton, storageAuthorityHeaders, ribbonControl } from '../helpers.ts';
 
 test('dedicated shortcut editor persists a custom binding and the live dispatcher uses it @phone', async ({ page, context }) => {
   await signInManually(page, { username: 'testuser', password: 'testpass' });
@@ -27,7 +27,9 @@ test('dedicated shortcut editor persists a custom binding and the live dispatche
     await mailTab.focus();
     await page.keyboard.press('Control+Shift+K');
     await expect(page.getByRole('region', { name: 'Compose message', exact: true })).toBeVisible();
-    const actionWidth = (await page.getByTestId('compose-show-cc-bcc').boundingBox())!.width;
+    // The Recipients group folds into a dropdown at 1280 px and on a phone (t38-e5).
+    const showCcBcc = await ribbonControl(page, 'Recipients', page.getByTestId('compose-show-cc-bcc'));
+    const actionWidth = (await showCcBcc.boundingBox())!.width;
     const composeWidth = (await page.getByRole('region', { name: 'Compose message', exact: true }).boundingBox())!.width;
     expect(actionWidth).toBeLessThan(composeWidth - 40);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

@@ -504,3 +504,21 @@ export async function storageAuthorityHeaders(request: APIRequestContext): Promi
   expect(typeof authority, 'storageAuthority from /api/me').toBe('string');
   return { 'x-mailwoman-storage-authority': authority as string };
 }
+
+/**
+ * Make a composer-ribbon control reachable. Since the t38-e5 ribbon rebuild a group
+ * that does not fit folds into a "More <group> commands" dropdown (on a phone most of
+ * them; at 1280 px Editing and Recipients), and the ribbon can re-fold while it
+ * measures itself, which closes that dropdown. Retries opening `group` until
+ * `control` is visible, then returns it.
+ */
+export async function ribbonControl(scope: Page | Locator, group: string, control: Locator): Promise<Locator> {
+  const more = scope.getByRole('button', { name: `More ${group} commands`, exact: true });
+  await expect(async () => {
+    if (!(await control.isVisible()) && (await more.isVisible()) && (await more.getAttribute('aria-expanded')) !== 'true') {
+      await more.click({ timeout: 1_000 });
+    }
+    await expect(control).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
+  return control;
+}

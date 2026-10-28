@@ -1,5 +1,5 @@
 import { test, expect } from '../csrf.ts';
-import { signInManually } from '../helpers.ts';
+import { signInManually, ribbonControl } from '../helpers.ts';
 test('native SVG controls retain labels and currentColor on desktop and phone @phone', async ({ page }) => {
  await page.goto('/'); await signInManually(page, {username:'testuser',password:'testpass'});
  const compose=page.getByRole('button',{name:'Compose',exact:true}); await expect(compose).toBeVisible();
@@ -13,7 +13,8 @@ test('native SVG controls retain labels and currentColor on desktop and phone @p
  else await compose.click(); const editor=page.locator('.compose').first(); await expect(editor).toBeVisible();
  // The composer opens as a workspace tab (24fb6149) and has no close control of its own any more; the tab's
  // close icon is compact by design (ba0514c6). An icon-only editor control keeps the label and 16 px glyph.
- const iconOnly=editor.locator('button').filter({has:page.locator('svg[data-icon="bold"]')}).first(); await expect(iconOnly).toBeVisible();
+ // On a phone the Font group folds into a dropdown (t38-e5); its trigger carries the same glyph, so pick Bold by name.
+ const iconOnly=await ribbonControl(editor,'Font',editor.getByRole('button',{name:'Bold',exact:true}));
  await expect(iconOnly).toHaveAttribute('aria-label', /.+/);
  expect(await iconOnly.locator('svg').evaluate(svg=>svg.getBoundingClientRect().width)).toBe(16);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
