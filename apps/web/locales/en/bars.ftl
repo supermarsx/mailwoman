@@ -38,3 +38,5 @@ settings-bars-mode-auto = Auto-hide
 ## The active mailbox account indicator.
 mail-account-active = Signed in as { $address }
 mail-account-linked-active = Viewing linked mailbox { $address }
+# A detached workspace window's title: the pane title, then the active mailbox address.
+mail-popup-title = { $title } — { $address }

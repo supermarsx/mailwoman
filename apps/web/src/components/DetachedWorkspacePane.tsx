@@ -4,12 +4,14 @@ import {Portal,delegateEvents,clearDelegatedEvents,DelegatedEvents} from 'solid-
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import {toast} from './toast/index.ts';
 import {TooltipLayer} from './TooltipLayer.tsx';
-import {t} from '../i18n/index.ts';
+import {isolate,loadCatalog,t} from '../i18n/index.ts';
 import './detachedWorkspace.css.ts';
 
 export interface DetachedPaneHandle {detach():void;reattach():void;isDetached():boolean}
 /** The parent owns the component lifetime. Only its existing DOM changes document. */
-export function DetachedWorkspacePane(props:{title:()=>string;register:(handle:DetachedPaneHandle)=>void;children:()=>JSX.Element}):JSX.Element {
+export function DetachedWorkspacePane(props:{title:()=>string;register:(handle:DetachedPaneHandle)=>void;children:()=>JSX.Element;
+  /** The active mailbox address: a torn-off window names its account in its title (t38 §2.3). */
+  account?:()=>string|undefined}):JSX.Element {
   const owner=preferenceAccount();
   const [mount,setMount]=createSignal<HTMLElement>();
   const [detached,setDetached]=createSignal(false);
@@ -18,7 +20,8 @@ export function DetachedWorkspacePane(props:{title:()=>string;register:(handle:D
   let cleanupChild:(()=>void)|undefined;
   let disposed=false;
   let popupLabel:HTMLElement|undefined;
-  createEffect(()=>{const title=props.title();if(detached()&&child){child.document.title=title;if(popupLabel)popupLabel.textContent=title;}});
+  const popupTitle=():string=>{const title=props.title(),address=props.account?.();return address?t('mail-popup-title',{title,address:isolate(address)}):title;};
+  createEffect(()=>{const title=popupTitle();if(detached()&&child){child.document.title=title;if(popupLabel)popupLabel.textContent=title;}});
   createEffect(()=>{const target=mount();if(target)queueMicrotask(()=>{for(const editor of target.querySelectorAll('.compose-rt__surface'))editor.dispatchEvent(new Event('mailwoman:documentchange'));});});
   function reattach():void {
     const previous=child;child=null;cleanupChild?.();cleanupChild=undefined;
@@ -46,7 +49,7 @@ export function DetachedWorkspacePane(props:{title:()=>string;register:(handle:D
         reattach();toast.error(t('mail-popup-unavailable'));return;
       }
     try {
-      const doc=popup.document;doc.title=props.title();
+      const doc=popup.document;doc.title=popupTitle();
       const syncTheme=():void=>{
         for(const name of ['class','lang','dir','data-theme','data-font']){
           const value=document.documentElement.getAttribute(name);
@@ -70,7 +73,7 @@ export function DetachedWorkspacePane(props:{title:()=>string;register:(handle:D
         }
       }
       const header=doc.createElement('header');header.className='detached-workspace__header';
-      const label=doc.createElement('span');label.textContent=props.title();popupLabel=label;
+      const label=doc.createElement('span');label.textContent=popupTitle();popupLabel=label;
       const button=doc.createElement('button');button.type='button';button.className='btn btn--ghost';button.textContent=t('mail-popup-reattach');button.addEventListener('click',reattach);
       header.append(label,button);
       const body=doc.createElement('main');body.className='detached-workspace__content';doc.body.append(header,body);
@@ -113,7 +116,7 @@ export function DetachedWorkspacePane(props:{title:()=>string;register:(handle:D
   props.register({detach,reattach,isDetached:detached});
   const stop=observePreferenceAccount(current=>{if(owner&&current?.generation!==owner.generation)reattach();});
   const parentLeaving=(event:BeforeUnloadEvent):void=>{if(child&&!child.closed){event.preventDefault();event.returnValue='';}};
-  onMount(()=>{setMount(home);window.addEventListener('beforeunload',parentLeaving);window.addEventListener('pagehide',reattach);});
+  onMount(()=>{void loadCatalog('bars');setMount(home);window.addEventListener('beforeunload',parentLeaving);window.addEventListener('pagehide',reattach);});
   onCleanup(()=>{disposed=true;stop();reattach();window.removeEventListener('beforeunload',parentLeaving);window.removeEventListener('pagehide',reattach);});
   return <><div class="detached-workspace__home" ref={home} hidden={detached()}/><Show when={mount()}><Portal mount={mount()!} ref={element=>element.classList.add('detached-workspace__portal')}>{props.children()}</Portal></Show><Show when={detached()&&mount()?.ownerDocument!==document?mount()?.ownerDocument:undefined}>{doc=><TooltipLayer document={doc()}/>}</Show><Show when={detached()}><div class="detached-workspace__placeholder"><p>{t('mail-popup-detached')}</p><button type="button" class="btn btn--ghost" onClick={reattach}>{t('mail-popup-reattach')}</button></div></Show></>;
 }
