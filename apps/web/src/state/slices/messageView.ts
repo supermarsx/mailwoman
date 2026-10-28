@@ -30,11 +30,14 @@ export function createMessageView(options: MessageViewOptions): MessageView {
     let active=false;
     let disposed=false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // The open message the user marked unread: not marked read again until
+    // another message is opened, however often the reader is re-activated.
+    let keptUnread: string | null = null;
     function cancelRead(): void {if(timer!==undefined) clearTimeout(timer);timer=undefined;}
     function scheduleRead(): void {
       cancelRead();
       const email=openEmail();
-      if(!active || !email || email.keywords?.['$seen']) return;
+      if(!active || !email || email.keywords?.['$seen'] || email.id===keptUnread) return;
       const delay=options.readDelay(email);
       if(delay===null) return;
       const account=options.account();const request=generation;
@@ -54,6 +57,7 @@ export function createMessageView(options: MessageViewOptions): MessageView {
         if(disposed) return;
         const account=options.account();if(!account) {closeMessage();return;}
         const request=++generation;cancelRead();setLoading(true);setError(undefined);
+        if(keptUnread!==id) keptUnread=null;
         // Retain a body during a same-message refresh, but never show another message's body.
         if(openEmail()?.id!==id) {setEmail(null);setHtml(null);}
         try {
@@ -65,7 +69,9 @@ export function createMessageView(options: MessageViewOptions): MessageView {
       },
       closeMessage,
       setActive(value) {active=value;scheduleRead();},
-      patch(id,patch) {const email=openEmail();if(email?.id===id) {setEmail({...email,...patch});if(patch.keywords?.['$seen']) cancelRead();}},
+      patch(id,patch) {const email=openEmail();if(email?.id===id) {
+        if(email.keywords?.['$seen'] && patch.keywords && !patch.keywords['$seen']) keptUnread=id;
+        setEmail({...email,...patch});if(patch.keywords?.['$seen']||keptUnread===id) cancelRead();}},
       dispose() {if(disposed) return;disposed=true;closeMessage();disposeRoot();},
     };
   });

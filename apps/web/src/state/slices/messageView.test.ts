@@ -42,4 +42,19 @@ describe('independent retained message views', () => {
     expect(view.openEmail()?.id).toBe('restored');expect(view.sanitizedHtml()).toBe('body restored');
     view.dispose();dispose();
   });
+  it('does not mark again a message the user marked unread while it stays open', async () => {
+    vi.useFakeTimers();
+    const markRead=vi.fn();
+    const view=createMessageView({account:()=>'a',load:async (_a,id)=>({email:email(id),html:id}),readDelay:()=>100,markRead});
+    view.setActive(true);await view.openMessage('one');vi.advanceTimersByTime(100);expect(markRead).toHaveBeenCalledTimes(1);
+    view.patch('one',{keywords:{$seen:true}});
+    view.patch('one',{keywords:{}});
+    // The workspace re-asserts the active reader (setActive) on unrelated updates.
+    view.setActive(false);view.setActive(true);vi.advanceTimersByTime(500);
+    expect(markRead).toHaveBeenCalledTimes(1);
+    // A reload of the same message (a remote-content grant) keeps it unread; another message is read as usual.
+    await view.openMessage('one');vi.advanceTimersByTime(100);expect(markRead).toHaveBeenCalledTimes(1);
+    await view.openMessage('two');vi.advanceTimersByTime(100);expect(markRead).toHaveBeenLastCalledWith('two');
+    view.dispose();vi.useRealTimers();
+  });
 });
