@@ -8,7 +8,7 @@
 // selected option is filled with the accent (plus `aria-pressed` and weight).
 
 import { style, globalStyle } from '@vanilla-extract/css';
-import { registerFieldLayout, registerFieldGrid } from '../../styles/formLayout.css.ts';
+import { registerFieldLayout } from '../../styles/formLayout.css.ts';
 import { vars } from '../../theme/contract.css.ts';
 
 /** The outline ring (forced colours keep it; they drop a box-shadow ring). */
@@ -85,7 +85,7 @@ export const row = style({
 
 export const grow = style({ flex: 1, minWidth: '12rem' });
 
-export const actions = style({ display: 'flex', gap: vars.space[2], flexWrap: 'wrap' });
+export const actions = style({ display: 'flex', gap: vars.space[3], flexWrap: 'wrap', alignItems: 'center' });
 
 export const button = style({
   appearance: 'none',
@@ -99,6 +99,9 @@ export const button = style({
   fontSize: '0.9rem',
   fontWeight: vars.weight.medium,
   minHeight: vars.a11y.touchTarget,
+  // Content-sized in any flex column or grid (which would stretch `auto`).
+  inlineSize: 'fit-content',
+  maxInlineSize: '100%',
   transitionProperty: 'box-shadow, background, color',
   transitionDuration: vars.a11y.motionDuration,
   selectors: {
@@ -122,6 +125,9 @@ export const ghost = style({
   font: 'inherit',
   fontSize: '0.9rem',
   minHeight: vars.a11y.touchTarget,
+  // Content-sized in any flex column or grid (which would stretch `auto`).
+  inlineSize: 'fit-content',
+  maxInlineSize: '100%',
   transitionProperty: 'box-shadow, background, color',
   transitionDuration: vars.a11y.motionDuration,
   selectors: {
@@ -286,13 +292,81 @@ export const previewFrame = style({
   gap: vars.space[2],
 });
 
+// ── Settings layout primitive (t47, the Settings half of t39 L15) ─────────────
+// One layout for every user Settings section:
+//   section card  = `section` + `heading` + optional `prose`/`meta` description
+//   setting row   = `field`: label, control, help text (`meta`/`hint`), actions
+//   group         = `group` + `subheading`: related rows under a subheading
+//   actions       = `actions` (start) or `actionsEnd` (end of the row/group)
+//   destructive   = `dangerZone`: separated by a rule, below the other rows
+// Buttons are content-sized everywhere in Settings: the flex columns and grids
+// that hold them stretch any item whose inline size is `auto`, which is what
+// made actions span the whole card (see the zero-specificity rule below).
+
+/** Related settings under a subheading, ruled off from the rows above. */
+export const group = style({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: vars.space[4],
+  minInlineSize: 0,
+  margin: 0,
+  padding: 0,
+  border: 0,
+});
+
+/** Actions aligned at the end of their row or group. */
+export const actionsEnd = style([actions, { justifyContent: 'flex-end' }]);
+
+/** Destructive actions: kept apart from the ordinary rows by a rule and space. */
+export const dangerZone = style({
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  gap: vars.space[3],
+  marginBlockStart: vars.space[3],
+  paddingBlockStart: vars.space[4],
+  borderBlockStart: `${vars.border.hair} solid ${vars.color.danger}`,
+});
+
 registerFieldLayout(field);
-registerFieldGrid(`${section}:has(> ${field})`, field);
-globalStyle(`${section} > button`, { alignSelf: 'flex-start', maxInlineSize: '100%' });
+// One setting per line: a multi-column auto-fit grid packed unrelated settings
+// (and their help and reset buttons) side by side into a wall of controls.
+globalStyle(`${section}:has(> ${field})`, { display: 'flex', flexDirection: 'column' });
+// The row spans the card (so its rule does); its control and help keep a
+// readable measure.
+globalStyle(`${section} > ${field}`, { maxInlineSize: 'none', marginBlockEnd: 0 });
+globalStyle(`${section} > ${field} > :is(input:not([type='checkbox'], [type='radio']), select)`, { maxInlineSize: '32rem' });
+globalStyle(`${section} > ${field} > :is(p, ${meta})`, { maxInlineSize: '70ch' });
+// Each setting row, and each group, is ruled off from the one before it.
+globalStyle(`${section} > :is(${field}, ${group}) + :is(${field}, ${group})`, {
+  paddingBlockStart: vars.space[4],
+  borderBlockStart: `${vars.border.hair} solid ${vars.color.border}`,
+});
+globalStyle(`${section} > ${field}:has(> :is(h3, h4, ${subheading}))`, { gap: vars.space[3] });
 
 // Column sections stretch content surfaces, but actions retain their natural size.
-globalStyle(`.${section} > button, .${section} > form > button`, { alignSelf: 'flex-start', inlineSize: 'fit-content', maxInlineSize: '100%' });
-globalStyle(`.${section} > form`, { display: 'flex', flexDirection: 'column', gap: vars.space[4] });
+globalStyle(`${section} > button, ${section} > form > button`, { alignSelf: 'flex-start', inlineSize: 'fit-content', maxInlineSize: '100%' });
+globalStyle(`${section} > form`, { display: 'flex', flexDirection: 'column', gap: vars.space[4] });
+// Stacked cards in one Settings section, nested cards, and headings.
+globalStyle(`${section} ${section}`, { background: vars.color.bg, borderWidth: vars.border.hair });
+globalStyle(`${actions} > *, ${options} > *`, { flex: '0 0 auto' });
 
-globalStyle(`.${row}:has(> .${field})`, {alignItems:'end'});
-globalStyle(`.${row} > label:has(> input[type="checkbox"]), .${row} > label:has(> input[type="radio"])`, {alignSelf:'end',alignItems:'center',minBlockSize:'2.5rem',marginBlockEnd:0});
+globalStyle(`${row}:has(> ${field})`, { alignItems: 'end' });
+globalStyle(`${row} > label:has(> input[type="checkbox"]), ${row} > label:has(> input[type="radio"])`, { alignSelf: 'end', alignItems: 'center', minBlockSize: '2.5rem', marginBlockEnd: 0 });
+
+// Every Settings section (`RetainedSettingsSection`) is a column with the same
+// rhythm between its cards, whatever module renders them.
+const settingsSection = '[data-settings-section]:not([hidden])';
+globalStyle(settingsSection, { display: 'flex', flexDirection: 'column', gap: vars.space[5], minInlineSize: 0 });
+// Zero specificity: any component class that sizes a button on purpose (theme
+// cards, table actions, segmented options) still wins; only the `auto` inline
+// size that flex/grid parents stretch is replaced.
+globalStyle(':where([data-settings-section]) :where(button, input[type="submit"], input[type="button"], input[type="reset"])', {
+  inlineSize: 'fit-content',
+  maxInlineSize: '100%',
+});
+// Long labels wrap inside their button instead of overflowing the card.
+globalStyle(':where([data-settings-section]) :where(button)', { overflowWrap: 'anywhere' });
+// Radio and checkbox choices laid out in a row keep a gap between options.
+globalStyle(':where([data-settings-section]) :where(fieldset, [role="radiogroup"])', { minInlineSize: 0 });
+globalStyle(':where([data-settings-section]) :where(fieldset, [role="radiogroup"]) > label + label', { marginInlineStart: vars.space[4] });
