@@ -570,10 +570,6 @@ mail-conversation-error = The conversation could not be loaded. Try again.
 mail-conversation-more = Load more messages
 mail-conversation-limit = This view is limited to { $count } messages.
 
-mail-initial-sync-running = Signed in. Synchronizing your messages in the background…
-mail-initial-sync-retrying = Message synchronization was interrupted. Reconnecting in the background…
-mail-initial-sync-failed = Message synchronization could not finish. Some messages may not be available yet. Sign in again to retry, or ask your administrator to check the connection logs.
-
 mail-compose-request-delivery = Request delivery notifications
 mail-compose-request-delivery-hint = Ask receiving mail servers to report delivery, failure, or delay. This does not request or prove that anyone read the message. Returned reports include headers, not the full body.
 mail-compose-delivery-unavailable = Delivery notifications are unavailable or disabled by your administrator for this account. An explicitly requested notification will not be silently removed.
@@ -796,3 +792,7 @@ mail-editor-action-history = { $action } history
 mail-editor-history-empty = No actions available
 mail-editor-redo-groups = Redo { $count } changes
 mail-compose-identities-failed = Sending identities could not be loaded. Close and reopen this draft to retry.
+
+# First sync after sign-in (shown only when an empty folder could not be indexed).
+mail-initial-sync-error = Your messages could not be synchronized yet.
+mail-initial-sync-error-help = The connection to your mail server was interrupted. Try again, or ask your administrator to check the connection logs if this keeps happening.

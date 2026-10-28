@@ -19,7 +19,7 @@ it('right-click targets its message without changing selection, and account susp
 it('uses one list skeleton for initial loading without a duplicate status overlay',()=>{
  const app=createAppState(makeClient()),[loading,setLoading]=createSignal(true);app.listLoading=loading;
  render(()=><AppContext.Provider value={app}><MessageList/></AppContext.Provider>);
- expect(screen.getByTestId('async-pending').querySelector('[data-skeleton="list"]')).not.toBeNull();expect(document.querySelector('.list__loading')).toBeNull();expect(document.querySelector('.list__empty')).toBeNull();
+ expect(screen.getByTestId('async-pending').querySelector('[data-skeleton="messages"]')).not.toBeNull();expect(document.querySelector('.list__loading')).toBeNull();expect(document.querySelector('.list__empty')).toBeNull();
  setLoading(false);expect(screen.queryByTestId('async-pending')).toBeNull();expect(document.querySelector('.list__empty')).not.toBeNull();
 });
 

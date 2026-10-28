@@ -95,19 +95,39 @@ export function AsyncEmpty(props: { message?: string }): JSX.Element {
  */
 export function AsyncPending(props: {
   message?: string;
-  variant?: 'lines' | 'list' | 'table' | 'page' | 'boot' | 'status';
+  /** `messages`: message-list rows (avatar, sender + date, subject, preview). */
+  variant?: 'lines' | 'list' | 'table' | 'page' | 'boot' | 'status' | 'messages';
   timeoutMs?: number;
   onRetry?: (() => void) | undefined;
+  /** Announce the message to assistive technology only; the shapes carry it visually. */
+  quiet?: boolean;
+  /**
+   * `false` for a wait that the caller bounds itself from a real progress
+   * signal (first-sync indexing), which can legitimately outlast `timeoutMs`.
+   */
+  bounded?: boolean;
+  /** `messages`: the height of one list row, so placeholders match the density. */
+  rowHeight?: number;
+  /** `messages`: how many placeholder rows to draw. */
+  rows?: number;
 }): JSX.Element {
-  const elapsed = createElapsed(props.timeoutMs ?? PENDING_BOUND_MS);
+  const timedOut = createElapsed(props.timeoutMs ?? PENDING_BOUND_MS);
+  const elapsed = (): boolean => props.bounded !== false && timedOut();
   return (
     <Show
       when={!elapsed()}
       fallback={<AsyncError onRetry={props.onRetry} />}
     >
-      <div class={`async-state async-state--pending ${loading.pending} ${props.variant==='status'?'':loading.skeletonPanel} ${props.variant==='boot'?loading.boot:''}`} role="status" aria-live="polite" data-testid="async-pending">
-        <span class={loading.indicator}>{props.message ?? t('common-loading')}</span>
-        <Show when={props.variant!=='status'}><div aria-hidden="true" class={loading.skeletonBody} data-skeleton={props.variant??'lines'}>
+      <div class={`async-state async-state--pending ${loading.pending} ${props.variant==='status'?'':loading.skeletonPanel} ${props.variant==='boot'?loading.boot:''} ${props.variant==='messages'?loading.messagesPanel:''}`} role="status" aria-live="polite" data-testid="async-pending">
+        <span class={props.quiet ? a11y.srOnly : loading.indicator}>{props.message ?? t('common-loading')}</span>
+        <Show when={props.variant==='messages'}><div aria-hidden="true" class={loading.messageSkeletons} data-skeleton="messages">
+          <For each={Array.from({length:props.rows??8},(_,index)=>index)}>{(index)=> <div class={loading.messageSkeleton} style={{'block-size':`${props.rowHeight??72}px`}}>
+            <div class={loading.messageSkeletonHead}><span class={loading.messageSkeletonAvatar}/><span class={loading.skeletonLine} style={{'max-inline-size':`${[42,30,48,36][index%4]}%`}}/><span class={loading.messageSkeletonDate}/></div>
+            <span class={loading.skeletonLine} style={{'max-inline-size':`${[72,58,80,64][index%4]}%`}}/>
+            <span class={`${loading.skeletonLine} ${loading.messageSkeletonDim}`} style={{'max-inline-size':`${[90,84,76,88][index%4]}%`}}/>
+          </div>}</For>
+        </div></Show>
+        <Show when={props.variant!=='status'&&props.variant!=='messages'}><div aria-hidden="true" class={loading.skeletonBody} data-skeleton={props.variant??'lines'}>
           <Show when={props.variant==='page'||props.variant==='boot'}><div class={loading.skeletonCards}><For each={[1,2,3]}>{()=> <span class={loading.skeletonCard}/>}</For></div></Show>
           <For each={Array.from({length:props.variant==='list'||props.variant==='table'?5:3})}>{()=> <div class={loading.skeletonRow}>
             <Show when={props.variant==='list'}><span class={loading.skeletonAvatar}/></Show>

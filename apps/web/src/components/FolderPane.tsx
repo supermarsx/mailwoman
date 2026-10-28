@@ -2,7 +2,8 @@ import {createEffect,createSignal,For,onCleanup,onMount,Show,untrack,type JSX} f
 import {useApp} from '../state/context.ts';
 import {createConfiguredClient} from '../api/transport.ts';
 import {createFolderView} from './folderView.ts';
-import {AsyncPending} from './AsyncState.tsx';
+import {AsyncError,AsyncPending} from './AsyncState.tsx';
+import {createInitialSync} from './initialSync.ts';
 import {senderLabel} from './MessageList.tsx';
 import {modifierSelectionEnabled} from './mailInteractions.ts';
 import {useActions} from '../keymap/index.ts';
@@ -17,6 +18,7 @@ export function FolderPane(props:{mailboxId:string;active:boolean;onOpen:(id:str
  const owner=preferenceAccount(),client=createConfiguredClient(),controller=new AbortController();
  const box=()=>app.mailboxes().find(value=>value.id===props.mailboxId);
  const view=createFolderView(client,props.mailboxId,()=>!!box());
+ const sync=createInitialSync(()=>props.mailboxId,()=>view.load(view.position()));
  const [busy,setBusy]=createSignal(false),[result,setResult]=createSignal(''),[failed,setFailed]=createSignal(false),[destination,setDestination]=createSignal('');
  const [confirmDelete,setConfirmDelete]=createSignal<string[]|null>(null);
  let refreshTimer:ReturnType<typeof setTimeout>|undefined,dirty=false;
@@ -83,9 +85,10 @@ export function FolderPane(props:{mailboxId:string;active:boolean;onOpen:(id:str
   <Show when={confirmDelete()}>{ids=><PermanentConfirmation count={ids().length} onCancel={()=>setConfirmDelete(null)} onConfirm={confirmPermanent}/>}</Show>
   <Show when={result()}><p role={failed()?'alert':'status'}>{result()}</p></Show>
   <Show when={view.error()}><p role="alert">{t('folder-tabs-error')}</p></Show>
-  <Show when={view.loading()&&view.messages().length===0}><AsyncPending variant="list"/></Show>
+  <Show when={view.messages().length===0&&(view.loading()||(!view.error()&&sync.pending()))}><AsyncPending variant="list" quiet message={t('mail-loading')} bounded={!sync.pending()}/></Show>
+  <Show when={!view.loading()&&!view.error()&&view.messages().length===0&&sync.failed()}><AsyncError message={t('mail-initial-sync-error')} detail={t('mail-initial-sync-error-help')} onRetry={()=>sync.retry()}/></Show>
   <div class={css.viewport} ref={viewport} onScroll={event=>view.setScroll(event.currentTarget.scrollTop)}>
-   <ul class={css.list} aria-label={box()?.name??t('folder-tabs-unavailable')}>
+   <ul class={css.list} aria-label={box()?.name??t('folder-tabs-unavailable')} aria-busy={view.loading()||(view.messages().length===0&&sync.pending())}>
     <For each={view.messages()}>{email=><li class={css.row} data-selected={view.selection().has(email.id)} data-unread={!email.keywords?.['$seen']}>
      <input type="checkbox" disabled={busy()} checked={view.selection().has(email.id)} aria-label={t('folder-tabs-select',{subject:email.subject??''})} onChange={()=>view.select(email.id,false,true)}/>
      <button type="button" disabled={busy()} class={css.message} data-folder-message={email.id} onKeyDown={event=>key(event,email.id)} onClick={event=>{const extend=modifierSelectionEnabled()&&event.shiftKey,toggle=modifierSelectionEnabled()&&(event.ctrlKey||event.metaKey);view.select(email.id,extend,toggle);if(!extend&&!toggle&&view.current())props.onOpen(email.id);}}>
@@ -93,7 +96,7 @@ export function FolderPane(props:{mailboxId:string;active:boolean;onOpen:(id:str
      </button>
     </li>}</For>
    </ul>
-   <Show when={!view.loading()&&!view.error()&&view.messages().length===0}><p>{t('folder-tabs-empty')}</p></Show>
+   <Show when={!view.loading()&&!view.error()&&view.messages().length===0&&!sync.pending()&&!sync.failed()}><p>{t('folder-tabs-empty')}</p></Show>
   </div>
   <footer class={css.toolbar}><button type="button" class="btn" disabled={disabled()||view.position()===0} onClick={()=>void view.load(Math.max(0,view.position()-100))}>{t('folder-tabs-previous')}</button><span role="status">{t('folder-tabs-position',{start:view.messages().length?view.position()+1:0,end:view.position()+view.messages().length,total:view.total()??'?',selected:view.selection().size})}</span><button type="button" class="btn" disabled={disabled()||(view.total()===null?view.messages().length<100:view.position()+view.messages().length>=view.total()!)} onClick={()=>void view.load(view.position()+100)}>{t('folder-tabs-next')}</button></footer>
  </div>;

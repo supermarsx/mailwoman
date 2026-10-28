@@ -1,8 +1,9 @@
-import {AsyncPending} from './AsyncState.tsx';
+import {AsyncError,AsyncPending} from './AsyncState.tsx';
+import {createInitialSync} from './initialSync.ts';
+import * as loadingCss from './asyncState.css.ts';
 import {createMessageContextMenu} from './MessageContextMenu.tsx';
 import {PersonAvatar} from './PersonAvatar.tsx';
 import {EmptyTrash} from './EmptyTrash.tsx';
-import {InitialSyncNotice} from './InitialSyncNotice.tsx';
 import { Icon } from './Icon.tsx';
 import {downloadMessages,forwardMessages} from '../api/mailBulk.ts';
 import {preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
@@ -682,15 +683,29 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
     return out;
   });
 
+  // First sync (dcd88d3): an empty folder that the engine has not indexed yet
+  // is "still loading", not "No messages". The list reloads once it is indexed.
+  const sync = createInitialSync(() => (app.searchActive() ? null : app.selectedMailboxId()), () => app.refreshCurrentMailbox());
+  const showSkeleton = (): boolean => rows().length === 0 && (app.listLoading() || app.switchingMailbox() || sync.pending());
+  const skeletonRows = (): number => Math.max(4, Math.min(16, Math.ceil((globalThis.innerHeight || 800) / rowHeight())));
+
   return (
-    <section class="list" aria-label={t('mail-list-label')} aria-busy={app.listLoading()}>
+    <section class="list" aria-label={t('mail-list-label')} aria-busy={app.listLoading() || showSkeleton()}>
       <Show when={app.selectedIds().size > 0} fallback={<ListToolbar selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>}>
         <BulkBar onCompose={props.onCompose} onClear={()=>{app.clearSelection();setSelecting(false);}}/>
       </Show>
       <OfflineQueueNotice />
-      <InitialSyncNotice />
+      <Show when={sync.running() && rows().length > 0}><div class={loadingCss.syncProgress} aria-hidden="true" data-testid="sync-progress" /></Show>
       <Show when={app.listLoading() && rows().length > 0}><div class="list__loading" role="status">{t('mail-loading')}</div></Show>
-        <Show when={rows().length > 0} fallback={<Show when={app.listLoading()} fallback={<p class="list__empty">{t('mail-empty')}</p>}><AsyncPending variant="list" message={t('mail-loading')} onRetry={()=>void app.refreshCurrentMailbox()}/></Show>}>
+        <Show when={rows().length > 0} fallback={
+          <Show when={showSkeleton()} fallback={
+            <Show when={sync.failed()} fallback={<p class="list__empty">{t('mail-empty')}</p>}>
+              <AsyncError message={t('mail-initial-sync-error')} detail={t('mail-initial-sync-error-help')} onRetry={() => sync.retry()} />
+            </Show>
+          }>
+            <AsyncPending variant="messages" quiet bounded={!sync.pending()} rowHeight={rowHeight()} rows={skeletonRows()} message={t('mail-loading')} onRetry={()=>void app.refreshCurrentMailbox()}/>
+          </Show>
+        }>
           <div
             class="list__scroll"
             inert={app.listLoading()}

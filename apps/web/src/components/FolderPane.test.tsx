@@ -6,7 +6,7 @@ import type {JmapRequest} from '../api/jmap-types.ts';
 const doubles=vi.hoisted(()=>({actions:{} as Record<string,()=>boolean>,jmap:vi.fn(),refreshFolders:vi.fn(async()=>{}),trashJob:vi.fn(()=>true)}));
 vi.mock('../keymap/index.ts',()=>({useActions:(actions:Record<string,()=>boolean>)=>{doubles.actions=actions;}}));
 vi.mock('../api/transport.ts',()=>({createConfiguredClient:()=>({jmap:doubles.jmap})}));
-vi.mock('../state/context.ts',()=>({useApp:()=>({mailboxes:()=>[{id:'folder',name:'Folder'},{id:'trash',name:'Trash',role:'trash'},{id:'archive',name:'Archive',role:'archive'}],refreshFolders:doubles.refreshFolders})}));
+vi.mock('../state/context.ts',()=>({useApp:()=>({accountId:()=>null,mailboxes:()=>[{id:'folder',name:'Folder'},{id:'trash',name:'Trash',role:'trash'},{id:'archive',name:'Archive',role:'archive'}],refreshFolders:doubles.refreshFolders})}));
 vi.mock('./emptyTrashJob.ts',()=>({startTrashJob:doubles.trashJob}));
 import {FolderPane} from './FolderPane.tsx';
 afterEach(()=>{cleanup();suspendAccountPreferences();vi.clearAllMocks();});
