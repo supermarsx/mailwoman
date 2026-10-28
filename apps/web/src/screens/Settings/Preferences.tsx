@@ -158,7 +158,7 @@ export function Preferences(props: PreferencesProps): JSX.Element {
             </For>
           </div>
         </div>
-        <div class={css.actions}>
+        <div class={css.dangerZone}>
           <button type="button" class={css.danger} onClick={purgeOfflineCache} data-testid="offline-purge">
             {t('settings-offline-purge')}
           </button>
