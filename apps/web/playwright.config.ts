@@ -200,7 +200,7 @@ export default defineConfig({
         // Anchored: a bare 'admin.spec.ts' glob also matched e2e/passkeys/admin.spec.ts,
         // which belongs to its own config (playwright.passkeys.config.ts: a localhost
         // origin, since WebAuthn refuses an IP address as the relying party).
-        /[\/]e2e[\/]admin\.spec\.ts$/,
+        /[/\\]e2e[/\\]admin\.spec\.ts$/,
         't32-h15-admin-path.spec.ts',
         'oauth-apikey.spec.ts',
         'mcp.spec.ts',
