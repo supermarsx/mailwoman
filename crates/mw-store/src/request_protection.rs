@@ -207,7 +207,7 @@ impl Store {
     /// Admission also reclaims expired subjects before allocating a new identity.
     pub async fn prune_request_protection(&self, now: i64) -> Result<(), StoreError> {
         // OFF deployments with no expired data perform no maintenance writes.
-        let expired = q("SELECT CASE WHEN EXISTS(SELECT 1 FROM request_protection_subject WHERE expires_at<=?1) OR EXISTS(SELECT 1 FROM request_protection_event WHERE observed_at<=?2) THEN 1 ELSE 0 END AS n")
+        let expired = q("SELECT CAST(CASE WHEN EXISTS(SELECT 1 FROM request_protection_subject WHERE expires_at<=?1) OR EXISTS(SELECT 1 FROM request_protection_event WHERE observed_at<=?2) THEN 1 ELSE 0 END AS BIGINT) AS n")
             .bind(now).bind(now.saturating_sub(EVENT_RETENTION_SECS))
             .fetch_one(&self.backend).await?.get_i64("n");
         if expired == 0 {

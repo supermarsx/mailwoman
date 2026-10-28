@@ -77,7 +77,7 @@ impl Store {
         global: bool,
     ) -> Result<DashboardSnapshot, StoreError> {
         let mut limited = BTreeSet::new();
-        let rows=q("SELECT name,enabled,preferred,CASE WHEN upstream_json IN ('{}','null','') THEN 0 ELSE 1 END AS configured FROM domains ORDER BY name LIMIT ?1").bind((ROW_LIMIT+1) as i64).fetch_all(&self.backend).await?;
+        let rows=q("SELECT name,enabled,preferred,CAST(CASE WHEN upstream_json IN ('{}','null','') THEN 0 ELSE 1 END AS BIGINT) AS configured FROM domains ORDER BY name LIMIT ?1").bind((ROW_LIMIT+1) as i64).fetch_all(&self.backend).await?;
         if rows.len() > ROW_LIMIT {
             limited.insert("domains");
         }
