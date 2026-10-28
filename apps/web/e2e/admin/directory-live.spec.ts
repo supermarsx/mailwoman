@@ -3,8 +3,14 @@ import { signInManually } from '../helpers.ts';
 async function admin(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/admin'); await page.getByLabel('Admin username').fill('root'); await page.getByLabel('Password', { exact: true }).fill('hunter2'); await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
-  await page.goto('/admin#/integrations');
+  // The LDAP editor is the Integrations "directory" tab (a5292a0f).
+  await page.goto('/admin#/integrations/directory');
 }
+// The runtime leg needs what CI's compose stack does not have: an LDAPS server at
+// localhost:42412 (dc=example,dc=com, cn=admin/adminpassword, an alice entry) and a server
+// restart between the two tests, since directory changes apply only after a restart.
+// MW_E2E_LDAP_RUNTIME=1 marks such a run; the configure leg then keeps its saved entry.
+const ldapRuntime = Boolean(process.env['MW_E2E_LDAP_RUNTIME']);
 test('configure a real LDAP TLS directory with sealed credentials @configure', async ({ page }) => {
   await admin(page);
   const section = page.getByRole('region', { name: 'LDAP directory configuration', exact: true });
@@ -24,8 +30,19 @@ test('configure a real LDAP TLS directory with sealed credentials @configure', a
   await expect(section.getByText('Configuration saved. Restart the server to apply it.')).toBeVisible();
   await expect(section.getByLabel('New service password')).toHaveCount(0);
   await section.screenshot({ path: test.info().outputPath('directory-saved-restart-required.png') });
+  if (!ldapRuntime) {
+    // Without the restart leg, leave the saved configuration as it was: remove the entry again.
+    const entries = section.getByRole('group');
+    await entries.last().getByRole('button', { name: 'Remove from configuration', exact: true }).click();
+    const cleared = page.waitForResponse(r => r.url().endsWith('/integrations/directory') && r.request().method() === 'PUT');
+    await section.getByRole('button', { name: 'Save directory configuration', exact: true }).click();
+    expect((await cleared).status()).toBe(200);
+    await expect(section.getByText('Configuration saved. Restart the server to apply it.')).toBeVisible();
+    await expect(section.getByLabel('Server URL', { exact: true })).toHaveCount(0);
+  }
 });
 test('restarted directory performs a real TLS search from the saved editor configuration @runtime @phone', async ({ page }) => {
+  test.skip(!ldapRuntime, 'needs an LDAPS fixture at localhost:42412 and a server restart after the configure leg (set MW_E2E_LDAP_RUNTIME=1)');
   await admin(page);
   const section = page.getByRole('region', { name: 'LDAP directory configuration', exact: true });
   await expect(section.getByText('A sealed service password is stored.')).toBeVisible();
