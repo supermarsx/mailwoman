@@ -225,7 +225,7 @@ impl Kind {
 
 /// The shipped web locales (`apps/web/src/i18n/locales.ts`).
 pub const LOCALES: &[&str] = &[
-    "en", "de", "fr", "es", "pt-BR", "nl", "it", "pl", "ru", "uk", "zh", "ja", "ar",
+    "en", "de", "fr", "es", "pt-BR", "pt-PT", "nl", "it", "pl", "ru", "uk", "zh", "ja", "ar",
 ];
 
 fn locale_values() -> Vec<&'static str> {
@@ -3573,6 +3573,7 @@ mod tests {
         assert!(validate(d, &json!("ops@example.org"), "/v").is_err());
         let d = lookup("ui.language").unwrap();
         assert!(validate(d, &json!("pt-BR"), "/v").is_ok());
+        assert!(validate(d, &json!("pt-PT"), "/v").is_ok());
         assert!(validate(d, &json!("xx"), "/v").is_err());
         let d = lookup("push.quietHours").unwrap();
         assert!(validate(d, &json!({ "start": 22, "end": 6 }), "/v").is_ok());

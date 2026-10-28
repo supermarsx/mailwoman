@@ -1,7 +1,7 @@
 // MT-seed placeholder generator (1.0 hardening, SPEC §24 / ROADMAP-1.0 L21).
 //
 // Ensures every non-`en` locale has a catalog file for every `en` module, each
-// carrying an unmistakable `# MT-SEED — NOT REVIEWED` header. The 11 non-`en`
+// carrying an unmistakable `# MT-SEED — NOT REVIEWED` header. The non-`en`
 // locales are populated by HUMAN translators via Weblate (out of autonomous
 // scope); these stubs give Weblate the full component × language matrix so each
 // shows as "needs translation" (0% translated) — NOT as finished work.
@@ -24,7 +24,7 @@ const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 const localesDir = join(repoRoot, 'apps/web/locales');
 
 // Mirror of src/i18n/locales.ts LOCALES (en is the source; the rest are seeded).
-const NON_EN = ['de', 'fr', 'es', 'pt-BR', 'nl', 'it', 'pl', 'ru', 'uk', 'zh', 'ja'];
+const NON_EN = ['de', 'fr', 'es', 'pt-BR', 'pt-PT', 'nl', 'it', 'pl', 'ru', 'uk', 'zh', 'ja'];
 
 /** Does a `.ftl` source contain at least one real (top-level) message id? */
 function hasMessages(source) {

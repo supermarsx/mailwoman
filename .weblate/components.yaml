@@ -2,7 +2,7 @@
 #
 # This describes the translation project so an admin can provision it (via the
 # Weblate API / `wlc`, or the built-in "Component discovery" addon). Source
-# language is `en`; the 12 gate locales are the only translation targets.
+# language is `en`; the 12 gate locales plus `pt-PT` are the translation targets.
 #
 # CATALOG LAYOUT: apps/web/locales/<locale>/<module>.ftl
 #   - `en/<module>.ftl` is the SOURCE template for each component.
@@ -18,13 +18,13 @@ file_format: fluent
 
 # Component discovery: every `en/<module>.ftl` becomes a component; its
 # translations are the sibling `<locale>/<module>.ftl` files. Only the 12 gate
-# locales are accepted as languages.
+# locales and `pt-PT` are accepted as languages.
 discovery:
   file_format: fluent
   match: 'apps/web/locales/(?P<language>[^/]+)/(?P<component>[^/]+)\.ftl'
   template: 'apps/web/locales/en/{{ component }}.ftl'
   new_base: 'apps/web/locales/en/{{ component }}.ftl'
-  language_regex: '^(de|fr|es|pt-BR|nl|it|pl|ru|uk|zh|ja)$'
+  language_regex: '^(de|fr|es|pt-BR|pt-PT|nl|it|pl|ru|uk|zh|ja)$'
 
 # Explicit seed component (the only catalog that exists at e0 time).
 components:
@@ -36,12 +36,13 @@ components:
     template: 'apps/web/locales/en/common.ftl'
     new_base: 'apps/web/locales/en/common.ftl'
 
-# The 12 translation targets (en is the source, not listed here).
+# The translation targets: the 12 gate locales plus pt-PT (en is the source, not listed here).
 languages:
   - de
   - fr
   - es
   - pt-BR
+  - pt-PT
   - nl
   - it
   - pl
