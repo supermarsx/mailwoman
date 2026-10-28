@@ -163,9 +163,14 @@ test.describe('service-worker cache: engine mode', () => {
   const PNG_1x1_B64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
-  const isUserData = (url: string): boolean => {
+  // Public, signed-out endpoints: the login screen itself fetches them.
+  const isPublicApi = (url: string): boolean => {
     const path = new URL(url).pathname;
-    if (path.endsWith('/api/sso/providers') || path.endsWith('/api/push/vapid')) return false;
+    return path.endsWith('/api/sso/providers') || path.endsWith('/api/push/vapid');
+  };
+  const isUserData = (url: string): boolean => {
+    if (isPublicApi(url)) return false;
+    const path = new URL(url).pathname;
     return path.includes('/jmap/') || path.includes('/api/');
   };
 
@@ -177,7 +182,7 @@ test.describe('service-worker cache: engine mode', () => {
     // Reload once it is active: the session cookie keeps us signed in.
     await page.evaluate(() => navigator.serviceWorker.ready);
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Compose' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Compose', exact: true })).toBeVisible();
     // Precondition: the worker controls the page and has cached the build assets.
     expect(await page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
     await expect
@@ -224,11 +229,13 @@ test.describe('service-worker cache: engine mode', () => {
     await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
 
     // Nothing that was cached while signed in survives. (The login screen may
-    // fetch — and the worker may store — assets it had not loaded before.)
+    // fetch — and the worker may store — assets it had not loaded before, and it
+    // fetches the public SSO provider list again as soon as it renders, so that
+    // signed-out response is back in the cache by the time this looks.)
     await expect
       .poll(async () => {
         const after = new Set(await cachedUrls(page));
-        return before.filter((url) => after.has(url));
+        return before.filter((url) => !isPublicApi(url) && after.has(url));
       })
       .toEqual([]);
   });
