@@ -83,3 +83,34 @@ After that it stops automatic attempts until explicit retry, a new sign-in, or a
 explicit push-wake reconnect. A healthy observed connection resets the budget.
 Session-ended responses still stop recovery immediately. This bounds repeated
 connection errors without claiming to repair an unavailable deployment endpoint.
+
+## Linked mailboxes
+
+Linked mailboxes (`/api/accounts`, engine mode only) get live updates over the
+same `/jmap/ws` or `/jmap/eventsource` stream as the sign-in mailbox. There is
+no second connection from the browser and no setting to switch it on: it is on
+whenever linking is allowed for both mailboxes (`accounts.linkingEnabled`,
+`accounts.useLinked`).
+
+Where the changes come from. A linked mailbox is an ordinary engine account, so
+the engine's per-account watch is its push source: an IMAP IDLE connection on
+the Inbox (an IMAP server without IDLE, and POP3, fall back to the timed resync
+poll), with the watch loop's reconnect backoff of 1 s doubling to 60 s. One
+upstream connection serves every user who linked that mailbox. A JMAP upstream
+is a proxy-mode session, which cannot be linked, so there is no JMAP-push leg.
+
+What a stream carries. Each change of a linked mailbox arrives as a
+`MailboxChange` frame (`apps/web/src/contracts/push.ts`) that names the link id
+and the mailbox's opaque storage authority, never its raw account id, plus the
+Inbox unread count for the mailbox picker. While a stream carries links, the
+sign-in mailbox's changes are also repeated in that form with `"link":null`.
+
+Limits and checks. A stream carries at most `accounts.maxLinked` links, the
+same limit that bounds how many a user can create; links past a lowered limit
+leave open streams at their next re-check. The link set is resolved from the
+server's link rows (owner binding, child session clocks, linking policy for
+both accounts, the child's account flags) when the stream opens, whenever a
+link is created or removed, and at every re-check (`MW_REALTIME_RECHECK_SECS`).
+Every linked change is verified again before it is written, so unlinking,
+revoking the child's sessions, signing the parent out, disabling either account
+or a changed authority stops delivery from the next change on.

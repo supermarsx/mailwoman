@@ -1,4 +1,5 @@
 //! Explicit mailbox context selection; the browser's primary identity never changes.
+mod live;
 mod routes;
 mod scope;
 use crate::AppState;
@@ -6,6 +7,9 @@ use axum::{
     Json,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
+};
+pub(crate) use live::{
+    LiveLink, inbox_unread, links_changed, live_links, subscribe_links, verify_link,
 };
 pub(crate) use routes::router;
 pub(crate) use scope::guard;

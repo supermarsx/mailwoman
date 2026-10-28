@@ -46,7 +46,27 @@
 //! alive. Between the session ending and the next re-check (at most one period)
 //! the stream can still carry that account's own changes; nothing is written to
 //! it after a failed re-check.
+//!
+//! ## Linked child mailboxes (t46)
+//! A parent session's stream also carries the changes of its verified linked
+//! mailboxes ([`linked_accounts::live_links`]), as a Mailwoman extension frame
+//! a stock RFC 8887 client ignores:
+//!
+//! ```json
+//! {"@type":"MailboxChange","link":"<link id>","storageAuthority":"msa1_…",
+//!  "changed":{"Email":"…","Mailbox":"…",…},"inboxUnread":3}
+//! ```
+//!
+//! The frame names the link (the selector the client already holds) and the
+//! child's opaque storage authority, never the child's raw account id. While a
+//! stream carries at least one link, each change of the parent's own account is
+//! followed by the same frame with `"link":null`, so the mailbox picker can keep
+//! the sign-in mailbox's count live while a child is open. When a link joins
+//! the stream (at open, on a link/unlink anywhere, at each re-check) a frame
+//! with an empty `changed` reports its current count. Each linked change is
+//! verified again ([`linked_accounts::verify_link`]) before it is written.
 
+use std::collections::VecDeque;
 use std::convert::Infallible;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -59,12 +79,13 @@ use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
 use futures_util::Stream;
 use futures_util::future::BoxFuture;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 use tokio::time::{Interval, MissedTickBehavior};
 
 use mw_engine::StateChange;
 use mw_store::{Session, StoreError};
 
+use crate::linked_accounts::{self, LiveLink};
 use crate::{AppState, account_gate, authed, push_relay};
 
 /// How often an idle connection is nudged so proxies do not reap it (§2.2).
@@ -179,24 +200,200 @@ pub(crate) fn stream_accounts(session: &Session) -> Vec<String> {
 pub(crate) struct ScopedChanges {
     rx: broadcast::Receiver<StateChange>,
     accounts: Vec<String>,
+    /// The parent's linked mailboxes, when the stream carries any (t46).
+    linked: Option<LinkedScope>,
+    /// Wakes when some user's links changed; taken by the stream loop.
+    links_epoch: Option<watch::Receiver<u64>>,
+    /// Frames ready to write ahead of the next change.
+    pending: VecDeque<String>,
+}
+
+/// What one stream needs to deliver its parent's linked mailboxes.
+struct LinkedScope {
+    state: AppState,
+    parent: Session,
+    /// The parent's own storage authority, for its `"link":null` frames.
+    parent_authority: Option<String>,
+    links: Vec<LiveLink>,
+}
+
+/// A change taken off the broadcast for this stream, not yet written.
+#[derive(Debug, PartialEq)]
+enum Incoming {
+    /// A change of one of the session's own accounts.
+    Own(StateChange),
+    /// A change of a linked mailbox, still to be re-verified.
+    Linked(LiveLink, StateChange),
 }
 
 impl ScopedChanges {
     pub(crate) fn new(rx: broadcast::Receiver<StateChange>, accounts: Vec<String>) -> Self {
-        Self { rx, accounts }
+        Self {
+            rx,
+            accounts,
+            linked: None,
+            links_epoch: None,
+            pending: VecDeque::new(),
+        }
     }
 
-    /// The next change for one of this stream's accounts. Cancel-safe, as
-    /// [`broadcast::Receiver::recv`] is: a change for another account is dropped
-    /// whether or not the caller is still waiting.
-    async fn recv(&mut self) -> Result<StateChange, broadcast::error::RecvError> {
+    /// A stream for `parent` that also carries its verified linked mailboxes.
+    /// The link set is resolved here, and the current count of each link is
+    /// queued as the first frames.
+    pub(crate) async fn with_links(
+        rx: broadcast::Receiver<StateChange>,
+        accounts: Vec<String>,
+        state: AppState,
+        parent: Session,
+    ) -> Self {
+        let mut changes = Self::new(rx, accounts);
+        // Subscribed before the first resolution, so a link made meanwhile is
+        // not missed.
+        changes.links_epoch = Some(linked_accounts::subscribe_links());
+        let parent_authority = state
+            .store
+            .session_storage_authority(&parent.id)
+            .await
+            .ok()
+            .flatten();
+        changes.linked = Some(LinkedScope {
+            state,
+            parent,
+            parent_authority,
+            links: Vec::new(),
+        });
+        changes.refresh_links().await;
+        changes
+    }
+
+    /// The next change for one of this stream's accounts or links. Cancel-safe,
+    /// as [`broadcast::Receiver::recv`] is: a change for another account is
+    /// dropped whether or not the caller is still waiting.
+    async fn recv(&mut self) -> Result<Incoming, broadcast::error::RecvError> {
         loop {
             let change = self.rx.recv().await?;
             if self.accounts.contains(&change.account_id) {
-                return Ok(change);
+                return Ok(Incoming::Own(change));
+            }
+            if let Some(link) = self.linked.as_ref().and_then(|scope| {
+                scope
+                    .links
+                    .iter()
+                    .find(|link| link.account_id == change.account_id)
+            }) {
+                return Ok(Incoming::Linked(link.clone(), change));
             }
         }
     }
+
+    /// Queue the frames one incoming change produces. A linked change is
+    /// re-verified first; one that no longer verifies is dropped and its link
+    /// leaves the stream until a later resolution admits it again.
+    async fn admit(&mut self, incoming: Incoming) {
+        match incoming {
+            Incoming::Own(change) => {
+                let wire = change.to_wire().to_string();
+                self.pending.push_back(wire);
+                if let Some(scope) = &self.linked
+                    && !scope.links.is_empty()
+                    && let Some(authority) = &scope.parent_authority
+                {
+                    let unread =
+                        linked_accounts::inbox_unread(&scope.state, &change.account_id).await;
+                    self.pending
+                        .push_back(mailbox_change(None, authority, Some(&change), unread));
+                }
+            }
+            Incoming::Linked(link, change) => {
+                let Some(scope) = self.linked.as_mut() else {
+                    return;
+                };
+                let current =
+                    linked_accounts::verify_link(&scope.state, &scope.parent, &link.link).await;
+                if current.as_ref() != Some(&link) {
+                    scope.links.retain(|l| l.link != link.link);
+                    return;
+                }
+                let unread = linked_accounts::inbox_unread(&scope.state, &link.account_id).await;
+                self.pending.push_back(mailbox_change(
+                    Some(&link.link),
+                    &link.storage_authority,
+                    Some(&change),
+                    unread,
+                ));
+            }
+        }
+    }
+
+    /// Resolve the link set again. Each link that joins queues a counts-only
+    /// frame; when the first link joins, so does the parent's own mailbox.
+    async fn refresh_links(&mut self) {
+        let Some(scope) = self.linked.as_mut() else {
+            return;
+        };
+        let next = linked_accounts::live_links(&scope.state, &scope.parent).await;
+        let had_none = scope.links.is_empty();
+        if had_none
+            && !next.is_empty()
+            && let Some(authority) = &scope.parent_authority
+        {
+            let unread =
+                linked_accounts::inbox_unread(&scope.state, &scope.parent.account_id).await;
+            self.pending
+                .push_back(mailbox_change(None, authority, None, unread));
+        }
+        for link in &next {
+            if !scope.links.contains(link) {
+                let unread = linked_accounts::inbox_unread(&scope.state, &link.account_id).await;
+                self.pending.push_back(mailbox_change(
+                    Some(&link.link),
+                    &link.storage_authority,
+                    None,
+                    unread,
+                ));
+            }
+        }
+        scope.links = next;
+    }
+
+    /// The next queued frame, if any.
+    fn pop_pending(&mut self) -> Option<String> {
+        self.pending.pop_front()
+    }
+}
+
+/// The `MailboxChange` extension frame (see the module header). `change` is
+/// `None` for a counts-only frame.
+fn mailbox_change(
+    link: Option<&str>,
+    storage_authority: &str,
+    change: Option<&StateChange>,
+    inbox_unread: Option<u32>,
+) -> String {
+    let changed = change
+        .map(|c| c.to_wire()["changed"][&c.account_id].clone())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let mut frame = serde_json::json!({
+        "@type": "MailboxChange",
+        "link": link,
+        "storageAuthority": storage_authority,
+        "changed": changed,
+    });
+    if let Some(n) = inbox_unread {
+        frame["inboxUnread"] = n.into();
+    }
+    frame.to_string()
+}
+
+/// Resolves when `epoch` reports that some user's links changed; never when the
+/// stream has no epoch (no linked delivery) or the sender is gone.
+async fn links_moved(epoch: &mut Option<watch::Receiver<u64>>) {
+    if let Some(rx) = epoch
+        && rx.changed().await.is_ok()
+    {
+        return;
+    }
+    std::future::pending().await
 }
 
 /// How often an open stream re-checks its session: [`RECHECK_ENV`] read once
@@ -307,14 +504,20 @@ async fn recheck(state: &AppState, session: &Session, bearer: bool) -> Result<()
 }
 
 /// The scoped subscription and the guard for a stream `session` is opening.
-fn open_stream(
+async fn open_stream(
     state: &AppState,
     headers: &HeaderMap,
     session: Session,
 ) -> (ScopedChanges, StreamGuard) {
     // The same test `authed_with_gate` uses to pick the bearer path.
     let bearer = push_relay::bearer_token(headers).is_some();
-    let changes = ScopedChanges::new(state.push.subscribe(), stream_accounts(&session));
+    let changes = ScopedChanges::with_links(
+        state.push.subscribe(),
+        stream_accounts(&session),
+        state.clone(),
+        session.clone(),
+    )
+    .await;
     (
         changes,
         StreamGuard::for_session(state.clone(), session, bearer),
@@ -353,7 +556,7 @@ pub(crate) async fn jmap_ws(
         Ok(session) => session,
         Err(resp) => return resp,
     };
-    let (changes, guard) = open_stream(&state, &headers, session);
+    let (changes, guard) = open_stream(&state, &headers, session).await;
     negotiated_upgrade(ws, changes, HEARTBEAT, guard)
 }
 
@@ -386,7 +589,16 @@ async fn ws_loop(
 ) {
     let mut beat = idle_beat(heartbeat);
     let mut recheck = idle_beat(guard.period);
+    let mut links_epoch = changes.links_epoch.take();
     loop {
+        // Queued frames first: linked counts at open, and the frames a change
+        // or a link resolution produced.
+        while let Some(frame) = changes.pop_pending() {
+            if socket.send(Message::Text(frame.into())).await.is_err() {
+                return;
+            }
+            beat.reset(); // a real frame is itself proof of life
+        }
         tokio::select! {
             incoming = socket.recv() => match incoming {
                 Some(Ok(Message::Close(_))) | None => break,
@@ -394,16 +606,11 @@ async fn ws_loop(
                 Some(Err(_)) => break,
             },
             change = changes.recv() => match change {
-                Ok(sc) => {
-                    let frame = sc.to_wire().to_string();
-                    if socket.send(Message::Text(frame.into())).await.is_err() {
-                        break;
-                    }
-                    beat.reset();     // a real frame is itself proof of life
-                }
+                Ok(incoming) => changes.admit(incoming).await,
                 Err(broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(broadcast::error::RecvError::Closed) => break,
             },
+            _ = links_moved(&mut links_epoch) => changes.refresh_links().await,
             _ = beat.tick() => {
                 // Protocol Ping first (proxies and native clients watch for it),
                 // then the text frame that is the only half browser JS can see.
@@ -423,6 +630,7 @@ async fn ws_loop(
                     let _ = socket.send(Message::Close(Some(frame))).await;
                     return;
                 }
+                changes.refresh_links().await;
             }
         }
     }
@@ -444,7 +652,7 @@ pub(crate) async fn jmap_eventsource(
         Ok(session) => session,
         Err(resp) => return resp,
     };
-    let (changes, guard) = open_stream(&state, &headers, session);
+    let (changes, guard) = open_stream(&state, &headers, session).await;
     sse_response(changes, HEARTBEAT, guard)
 }
 
@@ -479,30 +687,37 @@ fn change_stream(
     guard: StreamGuard,
 ) -> impl Stream<Item = Result<Event, Infallible>> + Send {
     let recheck = idle_beat(guard.period);
+    let mut changes = changes;
+    let epoch = changes.links_epoch.take();
     futures_util::stream::unfold(
-        (changes, idle_beat(heartbeat), recheck, guard),
-        |(mut changes, mut beat, mut recheck, guard)| async move {
+        (changes, idle_beat(heartbeat), recheck, guard, epoch),
+        |(mut changes, mut beat, mut recheck, guard, mut epoch)| async move {
             loop {
+                // Queued frames first: linked counts at open, and the frames a
+                // change or a link resolution produced.
+                if let Some(frame) = changes.pop_pending() {
+                    beat.reset(); // a real frame is itself proof of life
+                    let ev = Event::default().data(frame);
+                    return Some((Ok(ev), (changes, beat, recheck, guard, epoch)));
+                }
                 tokio::select! {
                     // `ScopedChanges::recv` is cancel-safe, so losing this branch
                     // of the select drops no change for this stream.
                     change = changes.recv() => match change {
-                        Ok(sc) => {
-                            beat.reset();     // a real frame is itself proof of life
-                            let ev = Event::default().data(sc.to_wire().to_string());
-                            return Some((Ok(ev), (changes, beat, recheck, guard)));
-                        }
+                        Ok(incoming) => changes.admit(incoming).await,
                         Err(broadcast::error::RecvError::Lagged(_)) => continue,
                         Err(broadcast::error::RecvError::Closed) => return None,
                     },
+                    _ = links_moved(&mut epoch) => changes.refresh_links().await,
                     _ = beat.tick() => {
                         let ev = Event::default().data(PING_FRAME);
-                        return Some((Ok(ev), (changes, beat, recheck, guard)));
+                        return Some((Ok(ev), (changes, beat, recheck, guard, epoch)));
                     }
                     _ = recheck.tick() => {
                         if !guard.holds().await {
                             return None;
                         }
+                        changes.refresh_links().await;
                     }
                 }
             }
@@ -690,7 +905,36 @@ mod tests {
         h.send(change_for("acct2"));
         h.send(change_for(""));
         h.send(change_for("acct1"));
-        assert_eq!(mine.recv().await.unwrap(), change_for("acct1"));
+        assert_eq!(
+            mine.recv().await.unwrap(),
+            Incoming::Own(change_for("acct1"))
+        );
+    }
+
+    #[test]
+    fn a_mailbox_change_names_the_link_and_authority_not_the_account() {
+        let frame: serde_json::Value = serde_json::from_str(&mailbox_change(
+            Some("link-1"),
+            "msa1_x",
+            Some(&change_for("raw-child-account")),
+            Some(4),
+        ))
+        .unwrap();
+        assert_eq!(frame["@type"], "MailboxChange");
+        assert_eq!(frame["link"], "link-1");
+        assert_eq!(frame["storageAuthority"], "msa1_x");
+        assert_eq!(frame["changed"]["Email"], "7");
+        assert_eq!(frame["changed"]["Mailbox"], "3");
+        assert_eq!(frame["inboxUnread"], 4);
+        assert!(
+            !frame.to_string().contains("raw-child-account"),
+            "the raw account id never reaches the wire: {frame}"
+        );
+        let counts: serde_json::Value =
+            serde_json::from_str(&mailbox_change(None, "msa1_p", None, None)).unwrap();
+        assert_eq!(counts["link"], serde_json::Value::Null);
+        assert_eq!(counts["changed"], serde_json::json!({}));
+        assert!(counts.get("inboxUnread").is_none());
     }
 
     #[test]

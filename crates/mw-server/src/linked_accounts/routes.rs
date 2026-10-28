@@ -110,7 +110,7 @@ async fn list(State(state): State<AppState>, headers: HeaderMap) -> Result<Respo
         "primary":{"accountId":parent.account_id,"address":parent.username,"storageAuthority":state.store.session_storage_authority(&parent.id).await.map_err(unavailable)?},
         "accounts":accounts,"policy":{"enabled":enabled(&state,&parent).await?,"maxAccounts":maximum(&state).await?,
         "supportedAuthentication":["password","totp","recovery","passkeySecondFactor"],"supportedBackends":["imap","pop3","ews"],
-        "reason":if supported(&state,&parent).await?{Value::Null}else{json!("linkedBackendUnsupported")},"childRealtime":false}
+        "reason":if supported(&state,&parent).await?{Value::Null}else{json!("linkedBackendUnsupported")},"childRealtime":true}
     }))).into_response())
 }
 #[derive(Deserialize)]
@@ -338,6 +338,8 @@ async fn attach(
         .delete_native_session(&crate::push_relay::hash_token(token))
         .await
         .map_err(unavailable)?;
+    // Open realtime streams pick the new link up now (t46).
+    links_changed();
     Ok((
         StatusCode::CREATED,
         [(axum::http::header::CACHE_CONTROL, "private, no-store")],
@@ -626,5 +628,8 @@ async fn unlink(
     {
         return Err(failure(StatusCode::PRECONDITION_FAILED, "revisionMismatch"));
     }
+    // Delivery already stops at the next change (it is re-verified); this
+    // drops the link from open streams' sets at once (t46).
+    links_changed();
     Ok(StatusCode::NO_CONTENT.into_response())
 }
