@@ -56,7 +56,8 @@ export const frame = style({
 });
 
 export const sidebarResize = style({
-  position: 'sticky', top: 0, height: '100vh',
+  // A flex box, so the separator (height:auto, align-self:stretch) spans the full height.
+  display: 'flex', position: 'sticky', top: 0, height: '100vh',
   selectors: { [`${frame}[data-sidebar-collapsed] &`]: { display: 'none' } },
   '@media': { [PHONE]: { display: 'none' } },
 });
