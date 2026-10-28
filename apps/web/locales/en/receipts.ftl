@@ -34,5 +34,7 @@ receipts-senders-conflict = Sender exceptions changed elsewhere. Go back and reo
 
 receipts-delivery-title = Delivery notification defaults
 receipts-delivery-edit = Edit delivery notification default
+receipts-delivery-current-on = New messages request delivery notifications.
+receipts-delivery-current-off = New messages do not request delivery notifications.
 receipts-delivery-default = Request delivery notifications for new messages when supported
 receipts-delivery-description = Choose the initial delivery-notification option for new messages. Each message can choose differently. Your administrator can lock this default or prohibit delivery notifications altogether. A server delivery report does not prove anyone read your message.
