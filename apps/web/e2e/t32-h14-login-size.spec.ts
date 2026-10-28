@@ -29,6 +29,12 @@ const MAX = Number(
 );
 const GUTTER = 16;
 const TOL = 0.5;
+// No service worker: the mail sign-in test answers `/api/sso/providers` with
+// `page.route`, and once the worker (public/sw.js) controls the page it fetches
+// that public endpoint itself, where `page.route` never sees it, so the card
+// showed the stack's real (empty) provider list instead of the stubbed one.
+test.use({ serviceWorkers: 'block' });
+
 const SHOT_DIR = process.env['T32_H14_SHOT_DIR'];
 
 interface Look {
@@ -145,7 +151,7 @@ for (const width of WIDTHS) {
 
       await form.getByRole('textbox', { name: 'Email or username' }).fill('testuser@example.org');
       await form.getByLabel('Password', { exact: true }).fill('not-checked');
-      await form.getByRole('button', { name: 'Sign in' }).click();
+      await form.getByRole('button', { name: 'Sign in', exact: true }).click();
       await expect(form).toBeHidden();
       const second = await measure(page);
       expectSized(second, width, 'mail second step');
@@ -170,7 +176,7 @@ for (const width of WIDTHS) {
 
       await form.getByRole('textbox').nth(0).fill('root');
       await form.locator('input[type="password"]').fill('not-checked');
-      await page.getByRole('button', { name: /sign in/i }).click();
+      await page.getByRole('button', { name: 'Sign in', exact: true }).click();
       await expect(page.locator('input[autocomplete="one-time-code"]')).toBeVisible();
       const second = await measure(page);
       expectSized(second, width, 'admin TOTP step');
