@@ -124,3 +124,12 @@ export const hint = style({ margin: 0, fontSize: '0.78rem', color: vars.color.te
 
 // Compact choices stay intrinsic; galleries and text editors retain their width.
 globalStyle(`${row} > select, ${row} > button`, { alignSelf: 'flex-start', maxInlineSize: '100%' });
+
+// t47: in the Settings workspace each appearance row (mode, theme, saving,
+// density, accent, font, layout …) is ruled off from the one before, so the
+// long page reads as separate settings rather than one run of controls.
+globalStyle(`[data-settings-section="appearance"] ${row} + ${row}`, {
+  paddingBlockStart: vars.space[5],
+  borderBlockStart: `${vars.border.hair} solid ${vars.color.border}`,
+});
+globalStyle(`[data-settings-section="appearance"] ${row}`, { gap: vars.space[3] });

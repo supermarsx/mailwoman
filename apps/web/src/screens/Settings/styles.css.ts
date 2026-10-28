@@ -335,7 +335,7 @@ globalStyle(`${section}:has(> ${field})`, { display: 'flex', flexDirection: 'col
 // The row spans the card (so its rule does); its control and help keep a
 // readable measure.
 globalStyle(`${section} > ${field}`, { maxInlineSize: 'none', marginBlockEnd: 0 });
-globalStyle(`${section} > ${field} > :is(input:not([type='checkbox'], [type='radio']), select)`, { maxInlineSize: '32rem' });
+globalStyle(`${section} > ${field} > :is(input:not([type='checkbox'], [type='radio']), select)`, { maxInlineSize: 'min(32rem, 100%)' });
 globalStyle(`${section} > ${field} > :is(p, ${meta})`, { maxInlineSize: '70ch' });
 // Each setting row, and each group, is ruled off from the one before it.
 globalStyle(`${section} > :is(${field}, ${group}) + :is(${field}, ${group})`, {
@@ -351,7 +351,7 @@ globalStyle(`${section} > form`, { display: 'flex', flexDirection: 'column', gap
 globalStyle(`${section} ${section}`, { background: vars.color.bg, borderWidth: vars.border.hair });
 globalStyle(`${actions} > *, ${options} > *`, { flex: '0 0 auto' });
 
-globalStyle(`${row}:has(> ${field})`, { alignItems: 'end' });
+globalStyle(`${row}:has(> ${field})`, { alignItems: 'end', justifyContent: 'flex-start', columnGap: vars.space[5] });
 globalStyle(`${row} > label:has(> input[type="checkbox"]), ${row} > label:has(> input[type="radio"])`, { alignSelf: 'end', alignItems: 'center', minBlockSize: '2.5rem', marginBlockEnd: 0 });
 
 // Every Settings section (`RetainedSettingsSection`) is a column with the same
@@ -369,4 +369,5 @@ globalStyle(':where([data-settings-section]) :where(button, input[type="submit"]
 globalStyle(':where([data-settings-section]) :where(button)', { overflowWrap: 'anywhere' });
 // Radio and checkbox choices laid out in a row keep a gap between options.
 globalStyle(':where([data-settings-section]) :where(fieldset, [role="radiogroup"])', { minInlineSize: 0 });
-globalStyle(':where([data-settings-section]) :where(fieldset, [role="radiogroup"]) > label + label', { marginInlineStart: vars.space[4] });
+// Option rows of radio/checkbox labels need more room than segmented buttons.
+globalStyle(`${options}:has(> label)`, { columnGap: vars.space[5], rowGap: vars.space[2] });
