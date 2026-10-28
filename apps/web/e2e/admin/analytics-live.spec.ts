@@ -4,7 +4,9 @@ import {signInManually} from '../helpers.ts';
 async function request(page:Page,path:string,method='GET',data?:unknown,etag?:string){
   return page.evaluate(async({path,method,data,etag})=>{
     const token=document.cookie.split('; ').find(value=>value.startsWith('mw_csrf='))?.slice(8);
-    const response=await fetch(path,{method,headers:{...(data===undefined?{}:{'content-type':'application/json'}),...(token?{'x-csrf-token':decodeURIComponent(token)}:{}),...(etag?{'if-match':etag}:{})},body:data===undefined?null:JSON.stringify(data)});
+    // Personal-settings writes repeat the session's storage authority (0a11b581), as the web client does.
+    const authority=method!=='GET'&&path.startsWith('/api/account/')?(await (await fetch('/api/me')).json()).storageAuthority as string:undefined;
+    const response=await fetch(path,{method,headers:{...(data===undefined?{}:{'content-type':'application/json'}),...(token?{'x-csrf-token':decodeURIComponent(token)}:{}),...(etag?{'if-match':etag}:{}),...(authority?{'x-mailwoman-storage-authority':authority}:{})},body:data===undefined?null:JSON.stringify(data)});
     const body=await response.text();return {ok:response.ok,status:response.status,etag:response.headers.get('etag'),body,json:body?JSON.parse(body):null};
   },{path,method,data,etag});
 }
@@ -68,7 +70,9 @@ test('analytics configuration and account consent persist without enabling colle
     const proof=await request(page,'/admin/step-up','POST',{password:'hunter2'});
     expect(proof.ok,proof.body).toBe(true);
     const response=await request(page,'/admin/analytics');
-    const restored=await request(page,'/admin/analytics','PUT',initial.config,response.etag!);
+    // The read model reports apiSecretConfigured; the write model omits it (AnalyticsWrite, 15976cce).
+    const {apiSecretConfigured:_configured,...write}=initial.config;
+    const restored=await request(page,'/admin/analytics','PUT',write,response.etag!);
     expect(restored.ok,restored.body).toBe(true);
   }
 });

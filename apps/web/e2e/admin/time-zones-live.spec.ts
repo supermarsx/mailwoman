@@ -1,10 +1,10 @@
 import {test,expect} from '../csrf.ts';
-import {signInManually,drawerButton} from '../helpers.ts';
+import {signInManually,drawerButton,storageAuthorityHeaders} from '../helpers.ts';
 test('time zones persist on the account and validate before save @phone',async({page,context})=>{
  await signInManually(page,{username:'testuser',password:'testpass'});
  await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();
  const csrf=(await context.cookies()).find(cookie=>cookie.name==='mw_csrf')!.value;
- const headers={'X-CSRF-Token':csrf};
+ const headers={'X-CSRF-Token':csrf,...(await storageAuthorityHeaders(page.request))};
  const initial=(await(await page.request.get('/api/settings')).json()).settings;
  try{
   if(test.info().project.name==='phone')await drawerButton(page).click();

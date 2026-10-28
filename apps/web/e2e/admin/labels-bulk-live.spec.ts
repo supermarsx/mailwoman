@@ -1,5 +1,5 @@
 import {test,expect} from '../csrf.ts';
-import {signInManually,messageRow,drawerButton} from '../helpers.ts';
+import {signInManually,messageRow,drawerButton,storageAuthorityHeaders} from '../helpers.ts';
 import {sendRawSmtp} from '../crypto-helpers.ts';
 import {readFile} from 'node:fs/promises';
 
@@ -14,7 +14,7 @@ test('account labels, touch selection, attached forward and one mbox archive wor
     await page.getByRole('button',{name:'New label'}).click();await expect(page.getByRole('table')).toHaveCount(0);
     const name=`Travel ${stamp}`;const keyword=`travel-${stamp}`;await page.getByLabel('Label name',{exact:true}).fill(name);await page.getByLabel('Label colour',{exact:true}).fill('#ffff00');await page.getByLabel('Label icon',{exact:true}).selectOption('star');await page.getByRole('button',{name:'Save label',exact:true}).click();
     await expect(page.getByRole('table')).toContainText(name);await expect.poll(async()=>(await(await page.request.get('/api/account/preferences')).json()).preferences.tags?.[keyword]?.name).toBe(name);
-    await page.reload();await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();
+    await page.reload();await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();await page.getByRole('tab',{name:'Mail',exact:true}).click();
     await page.getByRole('button',{name:'Select messages',exact:true}).click();for(const subject of subjects)await messageRow(page,subject).click();
     const bar=page.getByRole('toolbar',{name:'Selected messages'});await expect(bar).toContainText('2 selected');
     const updated=page.waitForRequest(request=>request.url().endsWith('/jmap/api')&&request.method()==='POST'&&request.postDataJSON()?.methodCalls?.some((call:unknown[])=>call[0]==='Email/set'));
@@ -32,6 +32,6 @@ test('account labels, touch selection, attached forward and one mbox archive wor
     const archive=await download;expect(archive.suggestedFilename()).toBe('messages.mbox');const path=await archive.path();expect(path).toBeTruthy();const text=await readFile(path!,'utf8');for(const subject of subjects)expect(text).toContain(subject);expect(text.match(/^From /gm)).toHaveLength(2);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
   }finally{
-    const current=await page.request.get('/api/account/preferences');const restored=await page.request.put('/api/account/preferences',{headers:{'if-match':current.headers()['etag']!},data:previous});expect(restored.ok(),await restored.text()).toBe(true);
+    const current=await page.request.get('/api/account/preferences');const restored=await page.request.put('/api/account/preferences',{headers:{...(await storageAuthorityHeaders(page.request)),'if-match':current.headers()['etag']!},data:previous});expect(restored.ok(),await restored.text()).toBe(true);
   }
 });

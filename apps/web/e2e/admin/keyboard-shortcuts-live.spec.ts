@@ -1,17 +1,17 @@
 import { test, expect } from '../csrf.ts';
-import { signInManually, drawerButton } from '../helpers.ts';
+import { signInManually, drawerButton, storageAuthorityHeaders } from '../helpers.ts';
 
 test('dedicated shortcut editor persists a custom binding and the live dispatcher uses it @phone', async ({ page, context }) => {
   await signInManually(page, { username: 'testuser', password: 'testpass' });
   await expect(page.getByRole('button', { name: 'Compose', exact: true })).toBeVisible();
   const csrf = (await context.cookies()).find(cookie => cookie.name === 'mw_csrf')!.value;
-  const headers = { 'X-CSRF-Token': csrf };
+  const headers = { 'X-CSRF-Token': csrf, ...(await storageAuthorityHeaders(page.request)) };
   const initial = (await (await page.request.get('/api/settings')).json()).settings;
   const key = 'shortcuts.compose';
   try {
     if (test.info().project.name === 'phone') await drawerButton(page).click();
     await page.locator('.sidebar__settings').click();
-    await page.getByRole('button', { name: 'Keyboard shortcuts', exact: true }).click();
+    await page.getByRole('button', { name: 'Keyboard & display', exact: true }).click(); // section renamed in 2b1695c0
     await page.getByRole('button', { name: 'Edit Compose shortcut', exact: true }).click();
     const editor = page.getByRole('region', { name: 'Edit shortcut', exact: true });
     await expect(editor.getByRole('table')).toHaveCount(0);

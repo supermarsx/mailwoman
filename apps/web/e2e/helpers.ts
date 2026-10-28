@@ -485,3 +485,22 @@ async function engineApiSignIn(request: APIRequestContext, purpose: string): Pro
   expect(typeof authority, 'storageAuthority from /api/login or /api/me').toBe('string');
   return authority as string;
 }
+
+/**
+ * Headers for a personal-settings write a spec makes itself (`page.request`, the
+ * `request` fixture, a context from `playwright.request.newContext()`), with the
+ * session already signed in to the mailbox.
+ *
+ * Since 0a11b581 every write under `/api/settings/*`, `/api/account/*` and the
+ * other personal stores must repeat the session's storage authority in
+ * `x-mailwoman-storage-authority` (else 428 `storageAuthorityRequired`), as the web
+ * client does (`src/api/storageAuthority.ts`). The value comes from `/api/me`.
+ * CSRF is separate: the `./csrf.ts` fixture adds `X-CSRF-Token`.
+ */
+export async function storageAuthorityHeaders(request: APIRequestContext): Promise<Record<string, string>> {
+  const me = await request.get('/api/me');
+  expect(me.ok(), `GET /api/me ⇒ ${me.status()}`).toBe(true);
+  const authority = ((await me.json().catch(() => null)) as { storageAuthority?: unknown } | null)?.storageAuthority;
+  expect(typeof authority, 'storageAuthority from /api/me').toBe('string');
+  return { 'x-mailwoman-storage-authority': authority as string };
+}

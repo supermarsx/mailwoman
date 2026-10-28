@@ -1,12 +1,12 @@
 import { test, expect } from '../csrf.ts';
-import { signInManually } from '../helpers.ts';
+import { signInManually, storageAuthorityHeaders } from '../helpers.ts';
 
 test('account recipient policy persists and resets confirmation after an edit @phone', async ({ page, context }) => {
   await signInManually(page, { username: 'testuser', password: 'testpass' });
   await expect(page.getByRole('button', { name: 'Compose', exact: true })).toBeVisible();
   const csrf = (await context.cookies()).find(cookie => cookie.name === 'mw_csrf')?.value;
   expect(csrf).toBeTruthy();
-  const headers = { 'X-CSRF-Token': csrf! };
+  const headers = { 'X-CSRF-Token': csrf!, ...(await storageAuthorityHeaders(page.request)) };
   const initial = (await (await page.request.get('/api/settings')).json()).settings;
   const keys = ['mail.externalRecipientWarning', 'mail.trustedRecipientDomains'];
   try {
