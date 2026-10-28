@@ -36,6 +36,9 @@ export const header = style({
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
+  // Title, section search and close keep the 8px token apart on a phone.
+  gap: vars.space[3],
+  minInlineSize: 0,
 });
 
 export const row = style({
