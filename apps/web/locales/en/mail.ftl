@@ -794,5 +794,6 @@ mail-editor-redo-groups = Redo { $count } changes
 mail-compose-identities-failed = Sending identities could not be loaded. Close and reopen this draft to retry.
 
 # First sync after sign-in (shown only when an empty folder could not be indexed).
+mail-folders-loading = Loading folders…
 mail-initial-sync-error = Your messages could not be synchronized yet.
 mail-initial-sync-error-help = The connection to your mail server was interrupted. Try again, or ask your administrator to check the connection logs if this keeps happening.

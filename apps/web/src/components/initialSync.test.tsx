@@ -38,10 +38,11 @@ describe('first-sync progress',()=>{
   await vi.advanceTimersByTimeAsync(2000);expect(probe()).toBe('ready|false|false|false');expect(indexed).toHaveBeenCalledTimes(1);
   expect(state.jmap.mock.calls[2]![0].methodCalls[0][1].mailwomanRetryInitialSync).toBeUndefined();
  });
- it('falls back to the list state when progress cannot be read',async()=>{
+ it('reports unanswerable progress as a retryable failure, never as indexed',async()=>{
   vi.useFakeTimers();activateAccountPreferences('a');state.jmap.mockRejectedValue(new Error('offline'));
   render(()=><Probe mailbox={()=>'inbox'} onIndexed={vi.fn()}/>);await vi.advanceTimersByTimeAsync(0);expect(probe()).toMatch(/^unknown\|true/);
-  await vi.advanceTimersByTimeAsync(6000);expect(probe()).toBe('ready|false|false|false');expect(state.jmap).toHaveBeenCalledTimes(3);
+  await vi.advanceTimersByTimeAsync(6000);expect(probe()).toBe('failed|false|true|false');expect(state.jmap).toHaveBeenCalledTimes(3);
+  await vi.advanceTimersByTimeAsync(10000);expect(state.jmap).toHaveBeenCalledTimes(3);
  });
  it('drops a response from an earlier sign-in and starts over for the new account',async()=>{
   vi.useFakeTimers();activateAccountPreferences('a');let finish:(value:unknown)=>void=()=>undefined;

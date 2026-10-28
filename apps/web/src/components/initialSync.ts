@@ -91,9 +91,9 @@ export function createInitialSync(mailbox:Accessor<string|null>,onIndexed:()=>vo
         timer=setTimeout(()=>void poll(),POLL_MS);
       }catch{
         if(!current())return;
-        // The progress probe is advisory: if it cannot be answered, fall back to
-        // what the list itself says instead of pending forever.
-        if(++failures>=MAX_FAILURES){setStatus(sawUnfinished?'failed':'ready');return;}
+        // Unanswerable progress is not "indexed": after a few tries this reads
+        // as a failure the user can retry, never as an empty folder.
+        if(++failures>=MAX_FAILURES){setStatus('failed');return;}
         timer=setTimeout(()=>void poll(),ERROR_POLL_MS);
       }
     }

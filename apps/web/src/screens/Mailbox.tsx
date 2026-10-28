@@ -594,7 +594,8 @@ export function MailboxScreen(): JSX.Element {
           <Icon name="edit"/><span class="sidebar__box-name">{t('mail-compose')}</span>
         </button>
         <div class="sidebar__scroll">
-        <nav class="sidebar__nav" aria-label={t('mail-nav-mailboxes')}>
+        <nav class="sidebar__nav" aria-label={t('mail-nav-mailboxes')} aria-busy={!!app.me()&&app.mailboxes().length===0}>
+          <Show when={app.me()&&app.mailboxes().length===0}><AsyncPending variant="list" quiet message={t('mail-folders-loading')} onRetry={()=>void app.refreshFolders()}/></Show>
           <For each={orderedFolders(app.mailboxes(),accountUiPreferences()).map(box=>box.id)}>
             {(id) => {const box=createMemo(()=>app.mailboxes().find(value=>value.id===id)!);return (
               <FolderContextMenu box={box()} onOpenTab={()=>openFolderTab(box().id)} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
