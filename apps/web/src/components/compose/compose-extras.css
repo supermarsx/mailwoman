@@ -191,15 +191,16 @@
 
 :is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] { gap:.2rem; font-size:.8rem; }
 .compose-rib__row { display:flex; align-items:center; gap:2px; min-inline-size:0; }
-.compose-rib__text { min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; line-height:1.4; }
-:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item=small] :is(button,select,input:not([type=checkbox],[type=radio]),label.btn,label.compose-rt__btn):not([data-ribbon-popover] *) {
+/* line-height 1.6: Jost at .8rem needs 19px, so 1.4 (17.9px) left the clipped span 1px taller than its box in Firefox. */
+.compose-rib__text { min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; line-height:1.6; }
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item=small] :is(button,select,input:not([type=checkbox],[type=radio]),label.btn,label.compose-rt__btn):not([data-ribbon-item] [data-ribbon-popover] *) {
   box-sizing:border-box; block-size:var(--mw-ribbon-row); min-block-size:0; max-block-size:var(--mw-ribbon-row);
   margin:0; padding-block:0; padding-inline:.35rem; font-size:.8rem; line-height:1.2; border-radius:var(--radius-sm);
 }
-:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] :is(.btn,.compose-rt__btn):not([data-ribbon-popover] *) { display:inline-flex; align-items:center; gap:.3rem; min-inline-size:0; max-inline-size:14rem; white-space:nowrap; }
-:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] .compose-rt__btn[aria-pressed]:not([data-ribbon-popover] *) { min-inline-size:var(--mw-ribbon-row); justify-content:center; }
-:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] select:not([data-ribbon-popover] *) { inline-size:auto; max-inline-size:9rem; padding-inline:.25rem; color:var(--text); background:var(--bg); border:var(--border-hair) solid var(--border); }
-:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] input:not([type=checkbox],[type=radio]):not([data-ribbon-popover] *) { color:var(--text); background:var(--bg); border:var(--border-hair) solid var(--border); }
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] :is(.btn,.compose-rt__btn):not([data-ribbon-item] [data-ribbon-popover] *) { display:inline-flex; align-items:center; gap:.3rem; min-inline-size:0; max-inline-size:14rem; white-space:nowrap; }
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] .compose-rt__btn[aria-pressed]:not([data-ribbon-item] [data-ribbon-popover] *) { min-inline-size:var(--mw-ribbon-row); justify-content:center; }
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] select:not([data-ribbon-item] [data-ribbon-popover] *) { inline-size:auto; max-inline-size:9rem; padding-inline:.25rem; color:var(--text); background:var(--bg); border:var(--border-hair) solid var(--border); }
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] input:not([type=checkbox],[type=radio]):not([data-ribbon-item] [data-ribbon-popover] *) { color:var(--text); background:var(--bg); border:var(--border-hair) solid var(--border); }
 .compose-rib__font { inline-size:9rem !important; }
 .compose-rib__size { inline-size:4.75rem !important; }
 

@@ -120,6 +120,21 @@ describe('assertRibbonGeometry', () => {
     bar.remove();
   });
 
+  it('skips the content of a closed <details>, which is not rendered', () => {
+    const [g1] = mountRibbon();
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    const list = document.createElement('div');
+    details.append(summary, list);
+    g1!.querySelector('[data-ribbon-controls] > *')!.append(details);
+    setScroll(list, 19, 17);
+    expect(assertRibbonGeometry(document.body, { row: 28, gap: 2, log: false })).toEqual([]);
+    details.open = true;
+    const violations = assertRibbonGeometry(document.body, { row: 28, gap: 2, log: false });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({ kind: 'overflow', element: list });
+  });
+
   it('reports a control outside its group box', () => {
     const [, g2] = mountRibbon();
     const bold = g2!.querySelector('[data-ribbon-item]')!;

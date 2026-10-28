@@ -6,7 +6,7 @@
 //   - `overflow`: an element whose content is taller than its box
 //     (`scrollHeight > clientHeight`), which would scroll or clip vertically;
 //   - `outside`: a control's box sticks out of its group's box (±0.5 px).
-// Hidden subtrees (`[hidden]`, a closed group popover) are skipped, and so is
+// Hidden subtrees (`[hidden]`, a closed group popover, a closed `<details>`'s content) are skipped, and so is
 // the overflow check on a `[data-bar]` root, whose overlay panel hangs below it. Row and gap
 // come from the `--mw-ribbon-row` / `--mw-ribbon-gap` custom properties on
 // `root`, or the options (jsdom computes no layout, tests pass them). In dev
@@ -39,9 +39,14 @@ function cssPx(element: Element, property: string): number | null {
   return raw.endsWith('px') && Number.isFinite(value) ? value : null;
 }
 
+// `[hidden]`, or the content of a closed `<details>` (everything but its
+// summary): not rendered, though Firefox still reports a box and a
+// scrollHeight for it (the composer's undo/redo history list).
 function isHidden(element: Element, root: Element): boolean {
   for (let el: Element | null = element; el && el !== root.parentElement; el = el.parentElement) {
     if (el.hasAttribute('hidden')) return true;
+    const parent = el.parentElement;
+    if (parent instanceof HTMLDetailsElement && !parent.open && el.tagName !== 'SUMMARY') return true;
   }
   return false;
 }

@@ -147,11 +147,13 @@ export const more = style({
   ':focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
 });
 
+// An 18px line: at 16px the 0.75rem Jost glyphs measure 17px, so the span
+// scrolls by 1px (scrollHeight > clientHeight) in Chromium and Firefox.
 export const moreText = style({
   display: 'block',
   maxInlineSize: '100%',
-  blockSize: '16px',
-  lineHeight: '16px',
+  blockSize: '18px',
+  lineHeight: '18px',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
