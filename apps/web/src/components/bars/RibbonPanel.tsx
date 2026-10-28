@@ -5,7 +5,8 @@
 // open folds into a single dropdown button (on a tie, the one furthest to the
 // inline end goes first). When the panel grows again, groups open in the
 // reverse order, each only once the panel is at least 1 px wider than it was
-// when that group folded, so a group never folds and opens in a loop. Only
+// when that group folded (or than the measured row with it open; see
+// `reopenNeeds`), so a group never folds and opens in a loop. Only
 // when every group has folded and the row still does not fit does the panel
 // scroll sideways, and then the mouse wheel scrolls it (`bindHorizontalWheel`).
 //
@@ -34,11 +35,14 @@ export interface RibbonGroupRegistration {
   element: () => HTMLElement | undefined;
 }
 
-interface RibbonPanelApi {
+export interface RibbonPanelApi {
   register(group: RibbonGroupRegistration): { folded: Accessor<boolean>; dispose: () => void };
 }
 
 const PanelContext = createContext<RibbonPanelApi>();
+
+/** The panel's context, for re-providing it to groups rendered through a portal (the composer's editor groups). */
+export const RibbonPanelContext = PanelContext;
 
 export function useRibbonPanel(): RibbonPanelApi | undefined {
   return useContext(PanelContext);
@@ -63,6 +67,8 @@ interface FoldRecord {
   entry: Entry;
   /** The panel's scrollWidth just before this group folded. */
   needed: number;
+  /** The group's own width just before it folded (0 without a layout engine). */
+  width: number;
 }
 
 const schedule: (cb: () => void) => number =
@@ -109,6 +115,21 @@ export function RibbonPanel(props: RibbonPanelProps): JSX.Element {
     });
   }
 
+  /**
+   * The width the row needs with `record`'s group open again: the scrollWidth
+   * recorded when it folded, or, measured now, the track's width plus what the
+   * group gives back when it opens, whichever is smaller. The recorded width
+   * alone can be stale: a fold made while the layout was still settling (the
+   * editor's groups arriving, a pane still sizing) recorded a wider row than
+   * the panel will ever be, and the group then never opened again.
+   */
+  function reopenNeeds(record: FoldRecord): number {
+    const track = trackEl?.getBoundingClientRect().width ?? 0;
+    const folded = record.entry.element()?.getBoundingClientRect().width ?? 0;
+    if (track <= 0 || record.width <= 0) return record.needed;
+    return Math.min(record.needed, Math.ceil(track + record.width - folded));
+  }
+
   /** One layout decision; schedules the next frame when it changed something. */
   function step(): void {
     const el = panelEl;
@@ -128,7 +149,7 @@ export function RibbonPanel(props: RibbonPanelProps): JSX.Element {
         // Lowest priority first; on a tie the one nearest the inline end.
         open.sort((a, b) => a.priority() - b.priority() || -documentOrder(a, b));
         const victim = open[0]!;
-        stack.push({ entry: victim, needed });
+        stack.push({ entry: victim, needed, width: victim.element()?.getBoundingClientRect().width ?? 0 });
         victim.setFolded(true);
         changed = true;
       } else if (!scrolling()) {
@@ -144,7 +165,7 @@ export function RibbonPanel(props: RibbonPanelProps): JSX.Element {
       if (last && !entries.includes(last.entry)) {
         stack.pop();
         changed = true;
-      } else if (last && available >= last.needed + EXPAND_HYSTERESIS_PX) {
+      } else if (last && available >= reopenNeeds(last) + EXPAND_HYSTERESIS_PX) {
         stack.pop();
         last.entry.setFolded(false);
         changed = true;

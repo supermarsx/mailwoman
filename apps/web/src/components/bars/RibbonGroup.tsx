@@ -135,6 +135,7 @@ export function RibbonGroup(props: RibbonGroupProps): JSX.Element {
             type="button"
             class={css.more}
             data-ribbon-more=""
+            data-detached-local=""
             aria-haspopup="true"
             aria-expanded={popoverOpen() ? 'true' : 'false'}
             aria-controls={popoverId}

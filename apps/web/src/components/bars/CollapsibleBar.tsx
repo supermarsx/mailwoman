@@ -94,6 +94,9 @@ export interface CollapsibleBarApi {
 
 const BarContext = createContext<CollapsibleBarApi>();
 
+/** The bar's context, for re-providing it to controls rendered through a portal (the composer's editor groups). */
+export const CollapsibleBarContext = BarContext;
+
 /** The enclosing bar, or `undefined` outside one (a ribbon group used on its own). */
 export function useCollapsibleBar(): CollapsibleBarApi | undefined {
   return useContext(BarContext);
@@ -412,6 +415,7 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
                 type="button"
                 class={css.handle}
                 data-bar-handle={props.id}
+                data-detached-local=""
                 aria-expanded={expanded() ? 'true' : 'false'}
                 aria-controls={panelId}
                 aria-label={expanded() ? strings().hide : strings().show}
@@ -440,6 +444,7 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
             type="button"
             class={css.pin}
             data-bar-pin={props.id}
+            data-detached-local=""
             aria-pressed={pinned() ? 'true' : 'false'}
             aria-label={pinned() ? strings().unpin : strings().pin}
             data-tooltip={bar.locked() ? t('bars-locked') : pinned() ? strings().unpin : strings().pin}

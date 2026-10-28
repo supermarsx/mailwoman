@@ -2,6 +2,7 @@
 export {
   CollapsibleBar,
   useCollapsibleBar,
+  CollapsibleBarContext,
   HOVER_OPEN_MS,
   LEAVE_CLOSE_MS,
   TYPING_GUARD_MS,
@@ -19,7 +20,14 @@ export {
   type BarMode,
   type BarModeHandle,
 } from './useBarMode.ts';
-export { RibbonPanel, EXPAND_HYSTERESIS_PX, type RibbonPanelProps } from './RibbonPanel.tsx';
+export {
+  RibbonPanel,
+  RibbonPanelContext,
+  useRibbonPanel,
+  EXPAND_HYSTERESIS_PX,
+  type RibbonPanelApi,
+  type RibbonPanelProps,
+} from './RibbonPanel.tsx';
 export { RibbonGroup, RibbonItem, type RibbonGroupProps, type RibbonItemProps } from './RibbonGroup.tsx';
 export { assertRibbonGeometry, type RibbonViolation, type RibbonGeometryOptions } from './geometry.ts';
 export {
