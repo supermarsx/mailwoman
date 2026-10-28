@@ -8,8 +8,8 @@ import { test, expect, type Page } from '@playwright/test';
  *  - Security policy: change the reading floor, save, reload, it is kept (then put back);
  *  - OAuth clients: list a redirect host and turn self-registration on, save, reload, kept
  *    (then put back);
- *  - Single sign-on: add an OIDC provider in the form at #/sso/new, it opens at #/sso/<id>
- *    and is listed; deleting it asks first; SAML metadata uploaded as a file is previewed and
+ *  - Single sign-on: add an OIDC provider in the form at #/sso/new, it is listed and opens
+ *    at #/sso/<id>/edit; deleting it asks first; SAML metadata uploaded as a file is previewed and
  *    fills the sign-in address;
  *  - Plugins: register a first-party component and see the server's word on why it is not
  *    running (or its refusal at the field), uninstall asks for the id;
@@ -110,21 +110,29 @@ test.describe('rebuilt admin sections', () => {
   });
 
   test('Single sign-on: add an OIDC provider, open it, delete it after confirming', async ({ page }) => {
+    // Since 041b9bdb the editor is its own page (#/sso/new, #/sso/<id>/edit) and a
+    // save returns to the provider table; the table no longer shares the screen.
     const id = `f33-e2e-${Date.now().toString(36)}`;
     await open(page, 'sso', 'Single sign-on');
     await page.getByRole('button', { name: 'Add a login backend' }).first().click();
-    const detail = page.getByTestId('list-detail');
+    await expect(page).toHaveURL(/#\/sso\/new$/);
+    const detail = page.getByTestId('sso-editor-page');
     await detail.getByRole('textbox', { name: 'Backend ID' }).fill(id);
     await detail.getByRole('textbox', { name: 'Display name' }).fill('E2E provider');
     await detail.getByRole('textbox', { name: 'Issuer URL' }).fill('https://idp.example.org/realms/e2e');
     await detail.getByRole('textbox', { name: 'Client ID' }).fill('mailwoman');
     await detail.getByRole('button', { name: 'Add backend' }).click();
-    await expect(page).toHaveURL(new RegExp(`#/sso/${id}$`));
-    await expect(detail.getByRole('heading', { name: 'E2E provider' })).toBeVisible();
-    await expect(detail.getByRole('textbox', { name: 'Backend ID' })).toHaveAttribute('readonly', '');
+    await expect(page).toHaveURL(/#\/sso$/);
     const row = page.locator(`[data-row-key="${id}"]`);
     await expect(row).toContainText('E2E provider');
-    await axe(page, 'sso list + detail');
+    await axe(page, 'sso list');
+    await row.getByRole('button', { name: 'Edit E2E provider', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`#/sso/${id}/edit$`));
+    await expect(detail.getByRole('heading', { name: 'E2E provider' })).toBeVisible();
+    await expect(detail.getByRole('textbox', { name: 'Backend ID' })).toHaveAttribute('readonly', '');
+    await axe(page, 'sso detail');
+    await detail.getByRole('button', { name: 'Back to sign-in providers' }).click();
+    await expect(page).toHaveURL(/#\/sso$/);
     await row.getByRole('button', { name: /^Delete/ }).click();
     const dialog = page.getByRole('alertdialog');
     await expect(dialog).toContainText('Delete');
@@ -135,7 +143,7 @@ test.describe('rebuilt admin sections', () => {
   test('Single sign-on: SAML metadata from a file is previewed and fills the sign-in address', async ({ page }) => {
     const xml = `<?xml version="1.0"?><md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://idp.example.org/saml"><md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"><md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://idp.example.org/saml/sso"/></md:IDPSSODescriptor></md:EntityDescriptor>`;
     await page.goto(`${ADMIN_PATH}#/sso/new`);
-    const detail = page.getByTestId('list-detail');
+    const detail = page.getByTestId('sso-editor-page');
     await detail.getByRole('combobox', { name: 'Protocol' }).selectOption('saml');
     await detail.getByLabel('Metadata file').setInputFiles({ name: 'idp.xml', mimeType: 'application/xml', buffer: Buffer.from(xml) });
     const preview = detail.getByTestId('sso-metadata-preview');
