@@ -267,8 +267,9 @@ export function MailboxScreen(): JSX.Element {
     if(id==='mail') return;
     noteWorkspaceIntent();
     const pane=panes().find(item=>item.id===id),owner=preferenceAccount();
-    pane?.detach?.reattach();
+    // A composer asks while still detached, so its prompt opens in the window that holds it (t42).
     if(pane?.beforeClose && !await pane.beforeClose()) return;
+    pane?.detach?.reattach();
     if(pane?.navigation && !await pane.navigation.canLeave()) return;
     if(!await confirmShellNavigation(id)) return;
     if((owner&&!preferenceAccountIsCurrent(owner))||panes().find(item=>item.id===id)!==pane)return;

@@ -72,9 +72,16 @@ export function createFocusTrap(
     const target = options.initialFocus?.() ?? firstFocusable(el) ?? el;
     // Focus on the next microtask so the element is laid out (dialogs mount then
     // trap); guard because the node may already be gone under fast toggles.
-    queueMicrotask(() => {
-      if (target.isConnected) target.focus();
-    });
+    // A window that is not focused yet (a detached workspace popup brought forward
+    // for this dialog) can drop that first focus() in Firefox, so place it again
+    // on the next frame and when the window gains focus, unless it is already in.
+    const view = doc.defaultView;
+    const place = (): void => {
+      if (target.isConnected && !el.contains(doc.activeElement)) target.focus();
+    };
+    queueMicrotask(place);
+    const frame = view?.requestAnimationFrame?.(place);
+    view?.addEventListener('focus', place);
 
     const onKeyDown = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
@@ -115,6 +122,8 @@ export function createFocusTrap(
     el.addEventListener('keydown', onKeyDown);
 
     onCleanup(() => {
+      if (frame !== undefined) view?.cancelAnimationFrame?.(frame);
+      view?.removeEventListener('focus', place);
       el.removeEventListener('keydown', onKeyDown);
       if (options.restoreFocus !== false && previouslyFocused && previouslyFocused.isConnected) {
         // Only restore if focus is still inside the trap (don't yank focus the
