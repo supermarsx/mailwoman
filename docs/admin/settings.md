@@ -73,6 +73,28 @@ Restricts package tracking globally, by domain or for an individual account. Def
 
 The language of the mail client for users who have not chosen one. "Same as the browser" follows each browser's languages.
 
+<a id="ui.bar.mailTopBar"></a>
+### Mail toolbar (`ui.bar.mailTopBar`)
+
+`pinned` (default) keeps the mail toolbar, with the folder, list and reader layout controls, always shown. `auto` hides it behind a slim handle; it slides out when the user points at, taps or tabs to the handle. Users change it under **Settings → Toolbars** unless the value is locked.
+
+<a id="ui.bar.workspaceTabs"></a>
+### Workspace tabs (`ui.bar.workspaceTabs`)
+
+`pinned` (default) keeps the workspace tab strip always shown. `auto` shows only a slim handle with the active tab's name until the user points at, taps or tabs to it.
+
+<a id="ui.bar.mailRibbon"></a>
+### Mail ribbon (`ui.bar.mailRibbon`)
+
+Applies to the ribbon layout. `pinned` (default) keeps the ribbon open. `auto` shows only its tab names; a ribbon tab opens over the message list when the user points at, taps or tabs to it.
+
+<a id="ui.bar.composerRibbon"></a>
+### Editor ribbon (`ui.bar.composerRibbon`)
+
+Applies to every composer, embedded or in its own window. `pinned` (default) keeps the editor ribbon open. `auto` shows only its tab names; opening a tab pushes the message body down instead of covering it.
+
+All four bar keys take `pinned` or `auto` and have global and domain defaults, administrator locks and user values. A locked bar shows its pin button disabled with "Set by your administrator".
+
 <a id="appearance.theme"></a>
 ### Theme (`appearance.theme`)
 

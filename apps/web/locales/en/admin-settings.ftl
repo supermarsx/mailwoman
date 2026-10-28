@@ -183,6 +183,14 @@ admin-settings-cat-server-text = Server text
 # One label and one help sentence per setting (UX4). Keys: crates/mw-server/src/settings_registry.rs
 admin-settings-key-ui-language = Language
 admin-settings-help-ui-language = The language of the mail client for users who have not chosen one. "Same as the browser" follows each browser's languages.
+admin-settings-key-ui-bar-mail-top-bar = Mail toolbar
+admin-settings-help-ui-bar-mail-top-bar = "pinned" keeps the mail toolbar with the layout controls always shown. "auto" hides it behind a slim handle that opens it when a user points at, taps or tabs to it.
+admin-settings-key-ui-bar-workspace-tabs = Workspace tabs
+admin-settings-help-ui-bar-workspace-tabs = "pinned" keeps the workspace tab strip always shown. "auto" shows only a slim handle with the active tab's name until a user opens it.
+admin-settings-key-ui-bar-mail-ribbon = Mail ribbon
+admin-settings-help-ui-bar-mail-ribbon = For the ribbon layout. "pinned" keeps the ribbon open. "auto" shows only the tab names; a tab opens the ribbon over the message list.
+admin-settings-key-ui-bar-composer-ribbon = Editor ribbon
+admin-settings-help-ui-bar-composer-ribbon = For every composer. "pinned" keeps the editor ribbon open. "auto" shows only the tab names; opening a tab pushes the message body down instead of covering it.
 admin-settings-key-appearance-theme = Theme
 admin-settings-help-appearance-theme = The colour theme users see until they pick their own. Locking it holds every user to this theme.
 admin-settings-key-appearance-accent = Accent colour

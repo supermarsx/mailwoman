@@ -386,6 +386,10 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="reader.loading"></a>`reader.loading` | reader | global+domain+user | "skeleton" | plain |  | yes | message loading appearance |
 | <a id="reader.loadingdelayms"></a>`reader.loadingDelayMs` | reader | global+domain+user | 120 | plain |  | yes | delay before showing message loading feedback |
 | <a id="ui.language"></a>`ui.language` | interface | global+domain+user | "browser" | plain |  | yes | web client locale (cached in localStorage mw.locale) |
+| <a id="ui.bar.mailtopbar"></a>`ui.bar.mailTopBar` | interface | global+domain+user | "pinned" | plain |  | yes | mail top bar: always shown, or auto-hidden behind a slim handle |
+| <a id="ui.bar.workspacetabs"></a>`ui.bar.workspaceTabs` | interface | global+domain+user | "pinned" | plain |  | yes | workspace tab strip: always shown, or auto-hidden behind a slim handle |
+| <a id="ui.bar.mailribbon"></a>`ui.bar.mailRibbon` | interface | global+domain+user | "pinned" | plain |  | yes | mail ribbon (ribbon layout): always shown, or only its tab names |
+| <a id="ui.bar.composerribbon"></a>`ui.bar.composerRibbon` | interface | global+domain+user | "pinned" | plain |  | yes | composer ribbon: always shown, or only its tab names |
 | <a id="appearance.theme"></a>`appearance.theme` | appearance | global+domain+user | "dark" | plain |  | yes | appearance blob theme/lightTheme/darkTheme; deployment default |
 | <a id="appearance.accent"></a>`appearance.accent` | appearance | global+domain+user | "" | plain |  | yes | appearance blob accentId (empty = the theme's own) |
 | <a id="appearance.density"></a>`appearance.density` | appearance | global+domain+user | "cozy" | plain |  | yes | appearance blob density |

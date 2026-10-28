@@ -1164,6 +1164,38 @@ pub static REGISTRY: &[SettingDef] = &[
         "web client locale (cached in localStorage mw.locale)"
     ),
     def!(
+        "ui.bar.mailTopBar",
+        Kind::Enum(&["pinned", "auto"]),
+        "\"pinned\"",
+        GDU,
+        "interface",
+        "mail top bar: always shown, or auto-hidden behind a slim handle"
+    ),
+    def!(
+        "ui.bar.workspaceTabs",
+        Kind::Enum(&["pinned", "auto"]),
+        "\"pinned\"",
+        GDU,
+        "interface",
+        "workspace tab strip: always shown, or auto-hidden behind a slim handle"
+    ),
+    def!(
+        "ui.bar.mailRibbon",
+        Kind::Enum(&["pinned", "auto"]),
+        "\"pinned\"",
+        GDU,
+        "interface",
+        "mail ribbon (ribbon layout): always shown, or only its tab names"
+    ),
+    def!(
+        "ui.bar.composerRibbon",
+        Kind::Enum(&["pinned", "auto"]),
+        "\"pinned\"",
+        GDU,
+        "interface",
+        "composer ribbon: always shown, or only its tab names"
+    ),
+    def!(
         "appearance.theme",
         text(Text::Slug, 64),
         "\"dark\"",
@@ -3307,6 +3339,10 @@ mod tests {
     fn planned_keys_are_registered() {
         for key in [
             "ui.language",
+            "ui.bar.mailTopBar",
+            "ui.bar.workspaceTabs",
+            "ui.bar.mailRibbon",
+            "ui.bar.composerRibbon",
             "appearance.theme",
             "appearance.accent",
             "appearance.density",
@@ -3433,6 +3469,41 @@ mod tests {
             }
         }
         assert!(missing.is_empty(), "missing: {missing:?}");
+    }
+
+    /// t38: the four collapsible bars start pinned, take global, domain and user
+    /// values (so an administrator can change or lock the default) and accept
+    /// only `pinned` or `auto`.
+    #[test]
+    fn bar_modes_default_to_pinned_and_accept_only_pinned_or_auto() {
+        for key in [
+            "ui.bar.mailTopBar",
+            "ui.bar.workspaceTabs",
+            "ui.bar.mailRibbon",
+            "ui.bar.composerRibbon",
+        ] {
+            let d = lookup(key).unwrap_or_else(|| panic!("{key} is registered"));
+            assert_eq!(d.default_value(), json!("pinned"), "{key}");
+            assert_eq!(d.category, "interface", "{key}");
+            assert!(d.user_override, "{key}");
+            assert!(d.user_visible(), "{key}");
+            for scope in [SettingScope::Domain, SettingScope::User] {
+                assert!(d.scopes.allows(scope), "{key} {scope:?}");
+            }
+            assert!(refuse_if_dedicated(d).is_ok(), "{key}");
+            assert_eq!(
+                validate(d, &json!("auto"), "/value").unwrap(),
+                json!("auto")
+            );
+            assert_eq!(
+                validate(d, &json!("pinned"), "/value").unwrap(),
+                json!("pinned")
+            );
+            for bad in [json!("hidden"), json!(true), Value::Null, json!("")] {
+                let r = validate(d, &bad, "/value").unwrap_err();
+                assert_eq!((r.status, r.code), (422, "invalidValue"), "{key} {bad}");
+            }
+        }
     }
 
     #[test]
