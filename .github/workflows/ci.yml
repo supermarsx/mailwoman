@@ -318,6 +318,14 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      # The per-source tests (admin.rs lock tests, t32_signin_guard,
+      # t32_request_protection, t32_admin_probe, t32_signin_geography) bind
+      # clients to 127.0.0.2..127.0.0.5 to act as distinct client addresses.
+      # Linux and Windows route all of 127/8 to loopback; macOS configures only
+      # 127.0.0.1 on lo0, so those binds fail with EADDRNOTAVAIL. Add the aliases.
+      - name: loopback aliases (macOS)
+        if: runner.os == 'macOS'
+        run: for i in 2 3 4 5 6 7 8 9; do sudo ifconfig lo0 alias "127.0.0.$i" up; done
       - name: clippy
         run: cargo clippy --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --all-targets -- -D warnings
       # Same three-invocation canonical gate as the `rust` job — see the comment
