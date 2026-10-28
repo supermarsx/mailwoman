@@ -37,8 +37,10 @@ function watchCsp(page: Page): string[] {
 /** Re-select the Inbox, which sends a request (through the drawer on a phone). */
 async function requestInbox(page: Page, phone: boolean): Promise<void> {
   if (phone) {
-    await drawerButton(page).click();
-    await page.getByRole('navigation', { name: 'Mailboxes' }).getByRole('button', { name: /^Inbox/ }).click();
+    // A retry must not click the drawer button while the drawer is open: that shuts it.
+    if ((await drawerButton(page).getAttribute('aria-expanded')) !== 'true') await drawerButton(page).click();
+    // Short, so a surrounding toPass can retry instead of one click eating its budget.
+    await page.getByRole('navigation', { name: 'Mailboxes' }).getByRole('button', { name: /^Inbox/ }).click({ timeout: 3_000 });
   } else {
     await sidebarInbox(page).click();
   }
@@ -46,6 +48,11 @@ async function requestInbox(page: Page, phone: boolean): Promise<void> {
 
 /** Offline and back: leaves the "Back online" success toast on screen. */
 async function backOnline(page: Page, phone = false): Promise<Locator> {
+  // Load the mailbox list while still online: there is no Inbox to click until it arrives
+  // (Firefox at 390px lost that race in CI and spent the whole budget waiting offline).
+  await expect(async () => {
+    await requestInbox(page, phone);
+  }).toPass({ timeout: 30_000 });
   await page.context().setOffline(true);
   await expect(async () => {
     await requestInbox(page, phone);
@@ -54,7 +61,9 @@ async function backOnline(page: Page, phone = false): Promise<Locator> {
   await page.context().setOffline(false);
   const back = toastWith(page, 'Back online');
   await expect(async () => {
-    await requestInbox(page, phone);
+    // The first request back online may already have raised it; another click then only
+    // spends time while the 5 s toast closes by itself.
+    if (!(await back.isVisible())) await requestInbox(page, phone);
     await expect(back).toBeVisible({ timeout: 2_000 });
   }).toPass({ timeout: 30_000 });
   // Same id: "Back online" replaced "Connection lost", it did not stack on it.
