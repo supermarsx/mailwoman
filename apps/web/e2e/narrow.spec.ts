@@ -26,10 +26,11 @@ import {
  * a drawer, Compose as a full-screen sheet; and, at a desktop viewport, the
  * three-pane layout exactly where it was.
  *
- * Row actions (t29-e5): the per-row cluster (Snooze, Label, Follow-up, …) is
- * closed at this width until the row's "More actions" button opens it. The
- * second group of cases opens it with real taps and checks each of the three
- * does what it says, on screen and again after the list is fetched afresh.
+ * Row actions (t29-e5, a menu since 998dcdb9): the row's "More actions" button
+ * opens the row's context menu (Snooze presets, Labels, Follow-up, …). The
+ * second group of cases opens it with real taps, checks its items are
+ * finger-sized and on top, and that Snooze, Label and Follow-up each do what
+ * they say, on screen and again after the list is fetched afresh.
  *
  * `engineLogin` and `waitForInboxMessage` from helpers.ts wait on the sidebar's
  * Inbox button, which at this width lives in the closed drawer, so the phone
@@ -218,11 +219,11 @@ function catalog(id: string): string {
 
 const NAMES = {
   more: catalog('mail-more-actions'),
-  snooze: catalog('mail-snooze'),
-  snoozeMenu: catalog('mail-snooze-menu'),
-  tomorrow: catalog('mail-snooze-tomorrow'),
-  label: catalog('mail-label'),
-  labelsMenu: catalog('mail-labels-menu'),
+  open: catalog('mail-context-open-message'),
+  download: catalog('mail-context-download'),
+  // The menu names a snooze preset and a label "<action>: <choice>".
+  snoozeTomorrow: `${catalog('mail-snooze')}: ${catalog('mail-snooze-tomorrow')}`,
+  labelWork: `${catalog('mail-label')}: Work`,
   flag: catalog('mail-flag'),
   clearFlag: catalog('mail-clear-flag'),
 } as const;
@@ -232,26 +233,39 @@ function moreToggle(slot: Locator): Locator {
   return slot.getByTestId('msg-more-toggle');
 }
 
-/** The row's action cluster (closed at phone width until the toggle opens it). */
-function actionCluster(slot: Locator): Locator {
-  return slot.locator('.msg-actions');
+/** The row menu "More actions" opens (998dcdb9). It is portalled to the end of
+ *  the document, so it is found on the page, not inside the row. */
+function rowMenu(page: Page): Locator {
+  return page.getByRole('menu', { name: NAMES.more, exact: true });
 }
 
-/** One of the cluster's buttons, by its exact accessible name. */
-function action(slot: Locator, name: string): Locator {
-  return actionCluster(slot).getByRole('button', { name, exact: true });
+/** The open menu's items, in order, whatever their kind (a plain action, or a
+ *  label that is on or off). */
+function menuItems(page: Page): Locator {
+  return rowMenu(page).locator('[role="menuitem"], [role="menuitemcheckbox"]');
 }
 
-/** Whether keyboard focus is on something inside the row's cluster. */
-function focusInCluster(slot: Locator): Promise<boolean> {
-  return slot.evaluate((el) => el.querySelector('.msg-actions')?.contains(document.activeElement) === true);
+/** One of the menu's items, by its exact accessible name. */
+function menuItem(page: Page, name: string): Locator {
+  return rowMenu(page)
+    .getByRole('menuitem', { name, exact: true })
+    .or(rowMenu(page).getByRole('menuitemcheckbox', { name, exact: true }));
+}
+
+/** Whether keyboard focus is on one of the open menu's items. */
+function focusInMenu(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const active = document.activeElement;
+    const menu = active?.closest('[role="menu"]') ?? null;
+    return menu !== null && active !== menu;
+  });
 }
 
 /**
  * Assert a finger can land on `target`: it is wholly on screen, the element at
  * its centre is `target` itself (nothing is painted over it), and — given
  * `withinRow` — its box stays inside that row's slot and reaches into no OTHER
- * row's. `withinRow` is left out for a menu item, which drops below its row on
+ * row's. `withinRow` is left out for a menu item, which floats over the list on
  * purpose; there the hit test is the check.
  */
 async function expectTapTarget(
@@ -263,13 +277,18 @@ async function expectTapTarget(
   await expect(target, `${what} is visible`).toBeVisible();
   await expectInsideViewport(page, target, what);
   // null when the target is on top; otherwise what is (named in the failure).
-  const covering = await target.evaluate((el) => {
-    const r = el.getBoundingClientRect();
-    const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-    if (hit !== null && (hit === el || el.contains(hit))) return null;
-    return hit === null ? 'nothing' : hit.outerHTML.slice(0, 200);
-  });
-  expect(covering, `${what} is the element under its own centre`).toBeNull();
+  // Retried briefly, like the viewport check: while the list refetches after a
+  // reload its rows are re-laid out, and a hit test in that frame lands on the
+  // list itself. A target that never comes out on top still fails.
+  await expect(async () => {
+    const covering = await target.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      if (hit !== null && (hit === el || el.contains(hit))) return null;
+      return hit === null ? 'nothing' : hit.outerHTML.slice(0, 200);
+    });
+    expect(covering, `${what} is the element under its own centre`).toBeNull();
+  }).toPass({ timeout: 3_000 });
 
   if (opts.withinRow === undefined) return;
   const box = (await target.boundingBox())!;
@@ -296,17 +315,53 @@ async function expectTapTarget(
   }
 }
 
-/** Tap "More actions" on a row whose cluster is closed, and wait for it to open. */
+/** Assert a menu item is a usable tap target: brought into the menu's view
+ *  (the menu scrolls when it is taller than the screen), then on screen, on
+ *  top, and at least 40 px each way. */
+async function expectMenuTapTarget(page: Page, item: Locator, what: string): Promise<void> {
+  await item.scrollIntoViewIfNeeded();
+  await expectTapTarget(page, item, what);
+  const box = (await item.boundingBox())!;
+  expect(box.width, `${what} width`).toBeGreaterThanOrEqual(40);
+  expect(box.height, `${what} height`).toBeGreaterThanOrEqual(40);
+}
+
+/**
+ * Run `act` (a tap on a menu item) and wait until the engine has answered the
+ * `Email/set` it sends, with nothing refused. The list changes at once, before
+ * that write lands; a reload straight after the tap would abort the request in
+ * flight and test the reload, not the write.
+ */
+async function tapAndAwaitWrite(page: Page, act: () => Promise<void>): Promise<void> {
+  const written = page.waitForResponse(
+    (r) =>
+      r.request().method() === 'POST' &&
+      new URL(r.url()).pathname.endsWith('/jmap/api') &&
+      (r.request().postData() ?? '').includes('"Email/set"'),
+  );
+  await act();
+  const res = await written;
+  expect(res.status(), 'the Email/set request is answered').toBe(200);
+  const body = (await res.json()) as {
+    methodResponses: [string, { notUpdated?: Record<string, unknown> | null }][];
+  };
+  for (const [name, result] of body.methodResponses) {
+    expect(name, 'the engine ran Email/set').toBe('Email/set');
+    expect(result.notUpdated ?? {}, 'the engine refused none of the update').toEqual({});
+  }
+}
+
+/** Tap "More actions" on a row whose menu is closed, and wait for it to open. */
 async function openActions(page: Page, slot: Locator): Promise<void> {
   const toggle = moreToggle(slot);
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-  await expect(actionCluster(slot)).toBeHidden();
+  await expect(rowMenu(page)).toHaveCount(0);
   await expectTapTarget(page, toggle, 'the More actions button', {
     withinRow: slot,
   });
   await toggle.tap();
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-  await expect(actionCluster(slot)).toBeVisible();
+  await expect(rowMenu(page)).toBeVisible();
 }
 
 /** Seed a message to act on and one more so its row has a neighbour, sign in,
@@ -338,49 +393,48 @@ async function secondPhone(browser: Browser): Promise<Page> {
 }
 
 test.describe('row actions at phone width (phone project)', () => {
-  test('More actions opens the cluster; Snooze, Label and Follow-up are tap targets inside their own row', async ({
-    page,
-  }) => {
+  test('More actions opens the row menu; every item is a tap target on top of the list', async ({ page }) => {
     expect(page.viewportSize()!.width).toBeLessThan(BREAKPOINT);
     const { target } = await seedPair(page, 'reach');
     const slot = messageSlot(page, target);
 
-    // Precondition: closed. None of the three is exposed, to the eye or to the
-    // accessibility tree.
-    await expect(actionCluster(slot)).toBeHidden();
-    for (const name of [NAMES.snooze, NAMES.label, NAMES.flag]) {
-      await expect(slot.getByRole('button', { name, exact: true })).toHaveCount(0);
-    }
-    // The opener is the one button in the row with the catalog's name.
+    // Precondition: closed. Neither the menu nor any of its items is exposed,
+    // to the eye or to the accessibility tree.
+    await expect(rowMenu(page)).toHaveCount(0);
+    await expect(page.getByRole('menuitem')).toHaveCount(0);
+    // The opener is the one button in the row with the catalog's name, and it
+    // says it opens a menu.
     const byName = slot.getByRole('button', { name: NAMES.more, exact: true });
     await expect(byName).toHaveCount(1);
     await expect(byName).toHaveAttribute('data-testid', 'msg-more-toggle');
+    await expect(byName).toHaveAttribute('aria-haspopup', 'menu');
 
     await openActions(page, slot);
 
-    // Open: a named group holding the three, each a tap target of usable size
-    // that stays inside this row.
-    await expect(slot.getByRole('group', { name: NAMES.more })).toBeVisible();
-    for (const name of [NAMES.snooze, NAMES.label, NAMES.flag]) {
-      const button = action(slot, name);
-      await expectTapTarget(page, button, `the ${name} button`, {
-        withinRow: slot,
-      });
-      const box = (await button.boundingBox())!;
-      expect(box.width, `${name} width`).toBeGreaterThanOrEqual(40);
-      expect(box.height, `${name} height`).toBeGreaterThanOrEqual(40);
+    // Open: the menu is wholly on screen and offers this row's actions, among
+    // them the three the inline cluster used to hold.
+    await expectInsideViewport(page, rowMenu(page), 'the More actions menu');
+    for (const name of [NAMES.open, NAMES.snoozeTomorrow, NAMES.labelWork, NAMES.flag, NAMES.download]) {
+      await expect(menuItem(page, name), `the menu offers "${name}"`).toHaveCount(1);
     }
-    // The opener is still reachable while the cluster is open (it closes it).
-    await expectTapTarget(page, moreToggle(slot), 'the More actions button, open', { withinRow: slot });
+    // Every item, not only those three, is a finger-sized target on top of the
+    // rows it covers.
+    const count = await menuItems(page).count();
+    expect(count, 'the menu has items').toBeGreaterThan(5);
+    for (let i = 0; i < count; i += 1) {
+      const item = menuItems(page).nth(i);
+      await expectMenuTapTarget(page, item, `menu item ${i + 1} "${(await item.innerText()).trim()}"`);
+    }
 
-    // Opening the cluster did not open the message underneath it.
+    // Opening the menu did not open the message underneath it.
     await expect(page.locator('.reader')).toBeHidden();
 
-    // Tapping the opener again closes the cluster.
-    await moreToggle(slot).tap();
-    await expect(actionCluster(slot)).toBeHidden();
+    // Escape closes it and gives focus back to the opener.
+    await page.keyboard.press('Escape');
+    await expect(rowMenu(page)).toHaveCount(0);
     await expect(moreToggle(slot)).toHaveAttribute('aria-expanded', 'false');
     await expect(moreToggle(slot)).toBeFocused();
+    await expect(page.locator('.reader')).toBeHidden();
   });
 
   test('Snooze: a preset takes the message out of the list, and it stays out on a second device', async ({
@@ -392,23 +446,16 @@ test.describe('row actions at phone width (phone project)', () => {
     const slot = messageSlot(page, target);
 
     await openActions(page, slot);
-    await action(slot, NAMES.snooze).tap();
-
-    // The presets menu drops below the row, over the rows beneath: the item
-    // must be on screen and on top of whatever it covers.
-    const menu = slot.getByRole('menu', { name: NAMES.snoozeMenu });
-    await expect(menu).toBeVisible();
-    await expect(action(slot, NAMES.snooze)).toHaveAttribute('aria-expanded', 'true');
-    const tomorrow = menu.getByRole('menuitem', {
-      name: NAMES.tomorrow,
-      exact: true,
-    });
-    await expectTapTarget(page, tomorrow, 'the Tomorrow preset');
-    await tomorrow.tap();
+    // The menu floats over the rows beneath: the preset must be on screen and on
+    // top of whatever it covers.
+    const tomorrow = menuItem(page, NAMES.snoozeTomorrow);
+    await expectMenuTapTarget(page, tomorrow, 'the Snooze: Tomorrow item');
+    await tapAndAwaitWrite(page, () => tomorrow.tap());
 
     // The snoozed message leaves the list; its neighbour does not.
     await expect(messageSlot(page, target)).toHaveCount(0);
     await expect(messageRow(page, neighbour)).toBeVisible();
+    await expect(rowMenu(page)).toHaveCount(0);
     // The tap went to the menu, not through it to a row.
     await expect(page.locator('.reader')).toBeHidden();
 
@@ -436,25 +483,25 @@ test.describe('row actions at phone width (phone project)', () => {
     const { target, neighbour } = await seedPair(page, 'label');
     const slot = messageSlot(page, target);
     const chip = (p: Page): Locator => messageSlot(p, target).locator('.tag-chip[data-keyword="work"]');
+    const work = (): Locator =>
+      rowMenu(page).getByRole('menuitemcheckbox', {
+        name: NAMES.labelWork,
+        exact: true,
+      });
 
-    // Precondition: no chip yet.
+    // Precondition: no chip yet, and the menu says the label is not applied.
     await expect(chip(page)).toHaveCount(0);
 
     await openActions(page, slot);
-    await action(slot, NAMES.label).tap();
+    await expect(work()).toHaveAttribute('aria-checked', 'false');
+    await expectMenuTapTarget(page, work(), 'the Label: Work item');
+    await tapAndAwaitWrite(page, () => work().tap());
 
-    const menu = slot.getByRole('menu', { name: NAMES.labelsMenu });
-    await expect(menu).toBeVisible();
-    const work = menu.getByRole('menuitemcheckbox', { name: /Work/ });
-    await expect(work).toHaveAttribute('aria-checked', 'false');
-    await expectTapTarget(page, work, 'the Work label');
-    await work.tap();
-
-    // The chip is on this row only, and the cluster has closed behind the choice.
+    // The chip is on this row only, and the menu has closed behind the choice.
     await expect(chip(page)).toBeVisible();
     await expect(chip(page)).toContainText('Work');
     await expect(messageSlot(page, neighbour).locator('.tag-chip')).toHaveCount(0);
-    await expect(actionCluster(slot)).toBeHidden();
+    await expect(rowMenu(page)).toHaveCount(0);
     await expect(page.locator('.reader')).toBeHidden();
 
     // Reload: the chip is still there, and the menu shows the label as applied.
@@ -463,8 +510,9 @@ test.describe('row actions at phone width (phone project)', () => {
     await waitForRowViaDrawer(page, target);
     await expect(chip(page)).toBeVisible();
     await openActions(page, slot);
-    await action(slot, NAMES.label).tap();
-    await expect(slot.getByRole('menuitemcheckbox', { name: /Work/ })).toHaveAttribute('aria-checked', 'true');
+    await expect(work()).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('Escape');
+    await expect(rowMenu(page)).toHaveCount(0);
 
     // A device with nothing stored on it.
     const other = await secondPhone(browser);
@@ -485,16 +533,18 @@ test.describe('row actions at phone width (phone project)', () => {
     const slot = messageSlot(page, target);
     const mark = (p: Page): Locator => messageSlot(p, target).getByTestId('msg-followup-mark');
 
-    // Precondition: no mark.
+    // Precondition: no mark, and the menu offers to set one, not to clear one.
     await expect(mark(page)).toHaveCount(0);
 
     await openActions(page, slot);
-    await expect(action(slot, NAMES.flag)).toHaveAttribute('aria-pressed', 'false');
-    await action(slot, NAMES.flag).tap();
+    await expect(menuItem(page, NAMES.clearFlag)).toHaveCount(0);
+    await expectMenuTapTarget(page, menuItem(page, NAMES.flag), 'the Flag for follow-up item');
+    await tapAndAwaitWrite(page, () => menuItem(page, NAMES.flag).tap());
 
-    // The cluster closes behind the choice, and the row — this row only — now
-    // carries the follow-up mark, readable with the cluster shut.
-    await expect(actionCluster(slot)).toBeHidden();
+    // The menu closes behind the choice and hands focus back to the opener, and
+    // the row — this row only — now carries the follow-up mark.
+    await expect(rowMenu(page)).toHaveCount(0);
+    await expect(moreToggle(slot)).toBeFocused();
     await expect(mark(page)).toBeVisible();
     await expectInsideViewport(page, mark(page), 'the follow-up mark');
     await expect(messageSlot(page, neighbour).getByTestId('msg-followup-mark')).toHaveCount(0);
@@ -503,14 +553,16 @@ test.describe('row actions at phone width (phone project)', () => {
     // is still the element under its own centre.
     await expectTapTarget(page, moreToggle(slot), 'the More actions button beside the mark', { withinRow: slot });
 
-    // Reload: the mark is still there, and the control offers the opposite action.
+    // Reload: the mark is still there, and the menu offers the opposite action.
     await page.reload();
     await expect(menuButton(page)).toBeVisible();
     await waitForRowViaDrawer(page, target);
     await expect(mark(page)).toBeVisible();
     await openActions(page, slot);
-    await expect(action(slot, NAMES.clearFlag)).toHaveAttribute('aria-pressed', 'true');
-    await expect(action(slot, NAMES.flag)).toHaveCount(0);
+    await expect(menuItem(page, NAMES.clearFlag)).toHaveCount(1);
+    await expect(menuItem(page, NAMES.flag)).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(rowMenu(page)).toHaveCount(0);
 
     // A device with nothing stored on it.
     const other = await secondPhone(browser);
@@ -521,75 +573,88 @@ test.describe('row actions at phone width (phone project)', () => {
       await other.context().close();
     }
 
-    // And off again, from the first phone (its cluster is still open).
-    await expectTapTarget(page, action(slot, NAMES.clearFlag), 'the Clear follow-up button', { withinRow: slot });
-    await action(slot, NAMES.clearFlag).tap();
-    await expect(mark(page)).toHaveCount(0);
-    await expect(actionCluster(slot)).toBeHidden();
+    // And off again, from the first phone.
     await openActions(page, slot);
-    await expect(action(slot, NAMES.flag)).toHaveAttribute('aria-pressed', 'false');
+    await expectMenuTapTarget(page, menuItem(page, NAMES.clearFlag), 'the Clear follow-up item');
+    await tapAndAwaitWrite(page, () => menuItem(page, NAMES.clearFlag).tap());
+    await expect(mark(page)).toHaveCount(0);
+    await expect(rowMenu(page)).toHaveCount(0);
+    await openActions(page, slot);
+    await expect(menuItem(page, NAMES.flag)).toHaveCount(1);
+    await expect(menuItem(page, NAMES.clearFlag)).toHaveCount(0);
   });
 
-  test('keyboard: Enter opens the cluster onto its first action, Tab walks it, Escape closes a menu and then the cluster', async ({
+  test('keyboard: Enter or Space opens the menu onto its first item, arrows walk it, Escape and Tab close it', async ({
     page,
   }) => {
     const { target } = await seedPair(page, 'keys');
     const slot = messageSlot(page, target);
     const toggle = moreToggle(slot);
+    const items = menuItems(page);
 
+    // The list is inert while it refetches (and focus inside it drops), so the
+    // keyboard starts once the fetch the sign-in began has settled.
+    await expect(page.getByRole('region', { name: 'Messages' })).toHaveAttribute('aria-busy', 'false');
     await toggle.focus();
     await expect(toggle).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(actionCluster(slot)).toBeVisible();
+    await expect(rowMenu(page)).toBeVisible();
 
-    // Focus went to the first action; the rest are the next tab stops, in
-    // reading order, and walking them does not close the cluster.
-    await expect(actionCluster(slot).getByRole('button').first()).toBeFocused();
-    await page.keyboard.press('Tab');
-    await expect(action(slot, NAMES.snooze)).toBeFocused();
-    await expect(actionCluster(slot)).toBeVisible();
-    // Shift+Tab from the first action is the opener, and the cluster stays open.
-    await page.keyboard.press('Shift+Tab');
-    await page.keyboard.press('Shift+Tab');
-    await expect(toggle).toBeFocused();
-    await expect(actionCluster(slot)).toBeVisible();
-    await page.keyboard.press('Tab');
-    await page.keyboard.press('Tab');
-    await expect(action(slot, NAMES.snooze)).toBeFocused();
+    // Focus went to the first item; the arrows move it through the items in
+    // order and wrap at either end, Home and End jump, and none of it closes
+    // the menu.
+    await expect(items.first()).toBeFocused();
+    await expect(items.first()).toHaveAccessibleName(NAMES.open);
+    await page.keyboard.press('ArrowDown');
+    await expect(items.nth(1)).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(items.first()).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(items.last()).toBeFocused();
+    await expect(items.last()).toHaveAccessibleName(NAMES.download);
+    await page.keyboard.press('ArrowDown');
+    await expect(items.first()).toBeFocused();
+    await page.keyboard.press('End');
+    await expect(items.last()).toBeFocused();
+    await page.keyboard.press('Home');
+    await expect(items.first()).toBeFocused();
+    await expect(rowMenu(page)).toBeVisible();
 
-    // Enter on Snooze opens its menu; Escape closes the menu only and hands
-    // focus back to Snooze.
-    await page.keyboard.press('Enter');
-    await expect(slot.getByRole('menu', { name: NAMES.snoozeMenu })).toBeVisible();
+    // Escape closes the menu and hands focus back to the opener.
     await page.keyboard.press('Escape');
-    await expect(slot.getByRole('menu')).toHaveCount(0);
-    await expect(actionCluster(slot)).toBeVisible();
-    await expect(action(slot, NAMES.snooze)).toBeFocused();
-
-    // Escape again closes the cluster and hands focus back to the opener.
-    await page.keyboard.press('Escape');
-    await expect(actionCluster(slot)).toBeHidden();
+    await expect(rowMenu(page)).toHaveCount(0);
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await expect(toggle).toBeFocused();
+
+    // Space opens it the same way. Tab leaves the menu, closing it, and focus
+    // moves on from the opener instead of being lost with the menu.
+    await page.keyboard.press('Space');
+    await expect(rowMenu(page)).toBeVisible();
+    await expect(items.first()).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(rowMenu(page)).toHaveCount(0);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(
+      await page.evaluate(() => document.activeElement !== null && document.activeElement !== document.body),
+      'focus is on an element after Tab closed the menu',
+    ).toBe(true);
 
     // Nothing above opened the message or the drawer.
     await expect(page.locator('.reader')).toBeHidden();
     await expect(page.getByRole('navigation', { name: 'Mailboxes' })).toBeHidden();
   });
 
-  test('a tap on More actions moves focus into the cluster, and closing it hands focus back', async ({ page }) => {
+  test('a tap on More actions moves focus into the menu, and closing it hands focus back', async ({ page }) => {
     const { target } = await seedPair(page, 'focus');
     const slot = messageSlot(page, target);
 
     await openActions(page, slot);
-    expect(await focusInCluster(slot), 'focus is on one of the cluster buttons once More actions has opened it').toBe(
-      true,
-    );
-    await expect(actionCluster(slot).getByRole('button').first()).toBeFocused();
+    expect(await focusInMenu(page), 'focus is on one of the menu items once More actions has opened it').toBe(true);
+    await expect(menuItems(page).first()).toBeFocused();
 
     await page.keyboard.press('Escape');
-    await expect(actionCluster(slot)).toBeHidden();
+    await expect(rowMenu(page)).toHaveCount(0);
     await expect(moreToggle(slot)).toBeFocused();
   });
 });
