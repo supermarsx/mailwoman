@@ -21,8 +21,9 @@ test('Nextcloud uses dedicated admin pages and persists approved authority witho
   const confirmation=page.getByRole('dialog',{name:'Confirm it is you'});
   await confirmation.getByLabel('Password',{exact:true}).fill('hunter2');
   await confirmation.getByRole('button',{name:'Confirm and continue'}).click();
-  await expect(page.getByRole('button',{name,exact:true})).toBeVisible();
-  await page.getByRole('button',{name,exact:true}).click();
+  // The list row opens the editor through an "Open <name>" action (24978c23).
+  await expect(page.getByRole('button',{name:`Open ${name}`,exact:true})).toBeVisible();
+  await page.getByRole('button',{name:`Open ${name}`,exact:true}).click();
   await page.reload();
   await expect(page.getByLabel(/^Display name/)).toHaveValue(name);
   await expect(page.getByLabel(/^HTTPS installation URL/)).toHaveValue('https://cloud.example/nextcloud/');
