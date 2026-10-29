@@ -4,7 +4,8 @@ import { loadCatalog, t } from '../../../i18n';
 import { hostingApi, type HostingApi, type HostingConnection, type HostingConfig, type HostingSecret } from '../../../api/admin/hosting.ts';
 import { useShell } from '../shell/context.ts';
 import { sectionPath } from '../shell/router.ts';
-import { Feedback, describeAdminError } from '../shell/Feedback.tsx';
+import { Feedback } from '../shell/Feedback.tsx';
+import { clearAdminError, showAdminError } from '../shell/requestErrorToast.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { HostingEditor } from './ConnectionEditor.tsx';
 import * as css from '../admin.css.ts';
@@ -13,7 +14,7 @@ export function HostingConnections(props:{api?:HostingApi;tunnels?:{id:string;na
  const api=props.api??hostingApi;const shell=useShell();const [rows,setRows]=createSignal<HostingConnection[]>([]);const [busy,setBusy]=createSignal(false);const [loaded,setLoaded]=createSignal(false);const [error,setError]=createSignal<string>();const [deleting,setDeleting]=createSignal<HostingConnection>();
  const rest=()=>shell.router.route().rest.slice(1);const creating=()=>rest()[0]==='new';const selected=()=>rows().find(row=>row.id===rest()[0]);const editing=()=>rest()[1]==='edit';const canWrite=()=>shell.can.can('integrations.write');
  const go=(segments:string[]=[]):void=>{void shell.router.navigate(sectionPath('integrations',['hosting',...segments]));};
- async function reload():Promise<void>{setBusy(true);setError(undefined);try{setRows(await api.list());setLoaded(true);}catch(cause){setError(describeAdminError(cause));}finally{setBusy(false);}}
+ async function reload():Promise<void>{setBusy(true);setError(undefined);try{setRows(await api.list());setLoaded(true);clearAdminError('hosting-load');}catch(cause){showAdminError(cause,{key:'hosting-load',retry:reload},setError);}finally{setBusy(false);}}
  async function save(config:HostingConfig,credential:HostingSecret):Promise<void>{const saved=await api.save(config,credential,creating()?undefined:selected()?.etag);setRows(current=>[...current.filter(row=>row.id!==saved.id),saved]);go([saved.id,'edit']);}
  onMount(()=>{void loadCatalog('admin-hosting');void reload();});
  return <section class={css.section} aria-label={t('admin-hosting-title')}><Feedback kind="error" message={error()}/><Show when={busy()}><AsyncPending variant={rows().length ? 'status' : 'table'}/></Show>

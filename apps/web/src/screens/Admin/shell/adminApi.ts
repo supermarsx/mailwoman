@@ -14,6 +14,7 @@
 import { basePath } from '../../../api/basePath.ts';
 import { adminUrl } from '../../../api/adminPath.ts';
 import { apiFetch } from '../../../api/http.ts';
+import { retryAfterMs } from '../../../api/recovery.ts';
 import { AdminApiError } from '../../../state/slices/admin.ts';
 
 /** A failed admin request with the server's problem body, when it sent one. */
@@ -29,9 +30,13 @@ export class AdminProblemError extends AdminApiError {
   /** 412: the object's current tag, when the server sent one. */
   readonly currentEtag: string | undefined;
 
-  constructor(status: number, body: Record<string, unknown>, etag: string | null) {
+  constructor(status: number, body: Record<string, unknown>, etag: string | null, retryAfter: string | null = null) {
     const str = (k: string): string | undefined => (typeof body[k] === 'string' ? (body[k] as string) : undefined);
-    super(status, str('detail') ?? str('error') ?? `admin request failed (${status})`);
+    const fromHeader = retryAfterMs(retryAfter);
+    const fromBody = typeof body['retryAfterSecs'] === 'number' && Number.isFinite(body['retryAfterSecs']) ? Math.max(0, body['retryAfterSecs']) : undefined;
+    // 429 only: whole seconds to wait (t104), from Retry-After or the body.
+    const wait = status === 429 ? (fromHeader !== null ? Math.ceil(fromHeader / 1000) : fromBody) : undefined;
+    super(status, str('detail') ?? str('error') ?? `admin request failed (${status})`, wait);
     this.name = 'AdminProblemError';
     this.code = str('code');
     this.resultUncertain = body['resultUncertain'] === true;
@@ -62,7 +67,16 @@ export interface AdminRequestInit {
   signal?: AbortSignal;
   /** Deploy prefix or a native shell's server. Defaults to `basePath()`. */
   base?: string;
+  /**
+   * Sending twice leaves the same state as once (t104). GET, PUT and DELETE are
+   * idempotent by method; a POST the server dedupes (a diagnostics job) may say so.
+   * Only an idempotent request is sent again after a 429.
+   */
+  idempotent?: boolean;
 }
+
+/** A 429 whose Retry-After is at most this long is waited out and sent once more, silently. */
+export const AUTO_RETRY_AFTER_MS = 5_000;
 
 export interface AdminResponse<T> {
   status: number;
@@ -105,13 +119,25 @@ export async function adminRequest<T = unknown>(path: string, init: AdminRequest
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
   if (init.ifMatch) headers['If-Match'] = init.ifMatch;
-  const res = await apiFetch(adminUrl(path, init.base ?? basePath()), {
-    method: init.method ?? 'GET',
+  const method = init.method ?? 'GET';
+  const send = (): Promise<Response> => apiFetch(adminUrl(path, init.base ?? basePath()), {
+    method,
     credentials: 'same-origin',
     headers,
     body: init.body === undefined ? null : JSON.stringify(init.body),
     signal: init.signal ?? null,
   });
+  let res = await send();
+  // t104: a short rate-limit wait (the recovery layer's Retry-After reading) is
+  // waited out once for an idempotent request, so a burst the server paces
+  // costs the admin nothing; a longer one, or a second 429, is the caller's.
+  if (res.status === 429 && (init.idempotent ?? (method !== 'POST' && method !== 'PATCH'))) {
+    const wait = retryAfterMs(res.headers.get('Retry-After'));
+    if (wait !== null && wait <= AUTO_RETRY_AFTER_MS && !init.signal?.aborted) {
+      await new Promise<void>((resolve) => { setTimeout(resolve, wait); });
+      if (!init.signal?.aborted) res = await send();
+    }
+  }
   const data = await readBody(res);
   const etag = tagOf(res, data);
   // t63 R2: this browser is being used for the console. Mail tabs that run an
@@ -119,7 +145,7 @@ export async function adminRequest<T = unknown>(path: string, init: AdminRequest
   if (res.ok) announceConsoleUse();
   if (!res.ok) {
     const body = typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : {};
-    throw new AdminProblemError(res.status, body, etag);
+    throw new AdminProblemError(res.status, body, etag, res.headers.get('Retry-After'));
   }
   return { status: res.status, data: data as T, etag };
 }

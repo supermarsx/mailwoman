@@ -2,6 +2,7 @@ import { For, Show, createSignal, onMount, onCleanup, type JSX } from 'solid-js'
 import { t, formatDateTime } from '../../i18n';
 import { adminRead, adminRequest, type AdminReadResult } from './shell/adminApi.ts';
 import { Feedback, describeAdminError } from './shell/Feedback.tsx';
+import { clearAdminError, toastAdminError } from './shell/requestErrorToast.ts';
 import { useShell } from './shell/context.ts';
 import * as css from './admin.css.ts';
 import * as ux from './shell/ux.css.ts';
@@ -28,7 +29,8 @@ export interface DiagnosticsApi {
 const httpApi: DiagnosticsApi = {
   history: (cursor) => adminRead<History>(`/diag/runs${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
   run: async () => (await adminRequest<{ run: Run; historySaved: boolean; auditSaved: boolean; retentionApplied?: boolean }>('/diag/run', { method: 'POST', body: { suite: 'server' } })).data,
-  start: async () => (await adminRequest<Job>('/diag/jobs', {method:'POST',body:{suite:'backends'}})).data,
+  // The server answers the session's running job for a repeat, so a resend is safe.
+  start: async () => (await adminRequest<Job>('/diag/jobs', {method:'POST',body:{suite:'backends'},idempotent:true})).data,
   job: async id => (await adminRequest<Job>(`/diag/jobs/${encodeURIComponent(id)}`)).data,
   cancel: async id => adminRequest(`/diag/jobs/${encodeURIComponent(id)}/cancel`,{method:'POST',body:{}}),
   report: async (options) => { const query = new URLSearchParams(); if (options?.omitDomains) query.set('omitDomains', 'true'); if (options?.selected) query.set('selected', options.selected); const suffix = query.toString(); return (await adminRequest<unknown>(`/diag/report${suffix ? `?${suffix}` : ''}`)).data; },
@@ -56,21 +58,24 @@ function DiagnosticRuns(props: { api?: DiagnosticsApi }): JSX.Element {
   let timer:ReturnType<typeof setTimeout>|undefined;
   let disposed=false;
   onCleanup(()=>{disposed=true;clearTimeout(timer);});
+  // t104: a failed request is the corner toast with Retry (inline only when no
+  // ToastRegion is mounted); the next success from the same action closes it.
+  const fail=(e:unknown,key:string,retry?:()=>void|Promise<void>):void=>{if(disposed)return;if(!toastAdminError(e,{key,...(retry?{retry}:{})}))setError(describeAdminError(e));};
   const filtered=()=>selected()?.results.filter(check=>(!status() || check.status===status()) && `${check.summary} ${check.domain??''} ${check.backendId??''} ${check.protocol??''}`.toLowerCase().includes(query().toLowerCase())) ?? [];
   async function receive(value:Job):Promise<void>{
     if(disposed)return;
     setJob(value);setSelected(value.run);
-    if(value.run.status==='running') timer=setTimeout(()=>{void api().job?.(value.run.id).then(receive).catch(e=>{if(!disposed){setError(describeAdminError(e));setBusy(false);}});},1000);
+    if(value.run.status==='running') timer=setTimeout(()=>{void api().job?.(value.run.id).then(v=>{clearAdminError('diag-poll');return receive(v);}).catch(e=>{if(!disposed){fail(e,'diag-poll',()=>{setBusy(true);return receive(value);});setBusy(false);}});},1000);
     else {setBusy(false);if(value.historySaved)setRuns([value.run,...runs().filter(r=>r.id!==value.run.id)]);setNotice(value.termination==='cancelled'?t('admin-diag-cancelled'):value.limited?t('admin-diag-limited'):!value.historySaved?t('admin-diag-not-saved'):undefined);}
   }
-  async function startBackends():Promise<void>{setBusy(true);setError(undefined);setNotice(undefined);try{const value=await api().start?.();if(value)await receive(value);}catch(e){setError(describeAdminError(e));setBusy(false);}}
-  async function cancelJob():Promise<void>{const current=job();if(!current)return;try{await api().cancel?.(current.run.id);setNotice(t('admin-diag-cancelling'));}catch(e){setError(describeAdminError(e));}}
+  async function startBackends():Promise<void>{setBusy(true);setError(undefined);setNotice(undefined);try{const value=await api().start?.();clearAdminError('diag-backends');if(value)await receive(value);}catch(e){fail(e,'diag-backends',startBackends);setBusy(false);}}
+  async function cancelJob():Promise<void>{const current=job();if(!current)return;try{await api().cancel?.(current.run.id);clearAdminError('diag-cancel');setNotice(t('admin-diag-cancelling'));}catch(e){fail(e,'diag-cancel',cancelJob);}}
   async function supportReport(copy:boolean):Promise<void>{try{const report=await api().report?.({omitDomains:omitDomains(),selected:selected()?.id}) as Record<string,unknown>|undefined;
     // The server attaches the selected run when it is in saved history, already
     // with placeholders when domains are omitted. A run it does not hold is
     // attached here only when names may appear.
     const attached=report&&'selectedRun' in report?{}:omitDomains()?{selectedRunOmitted:true}:{selectedRun:selected()};
-    const text=JSON.stringify({...report,...attached},null,2);if(copy){await navigator.clipboard.writeText(text);setNotice(t('admin-diag-copied'));}else{const url=URL.createObjectURL(new Blob([text],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='mailwoman-diagnostics.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}}catch(e){setError(describeAdminError(e));}}
+    const text=JSON.stringify({...report,...attached},null,2);if(copy){await navigator.clipboard.writeText(text);setNotice(t('admin-diag-copied'));}else{const url=URL.createObjectURL(new Blob([text],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='mailwoman-diagnostics.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}clearAdminError('diag-report');}catch(e){fail(e,'diag-report',()=>supportReport(copy));}}
   async function history(more = false): Promise<void> {
     setBusy(true); setError(undefined); setNotice(undefined);
     try {
@@ -79,7 +84,8 @@ function DiagnosticRuns(props: { api?: DiagnosticsApi }): JSX.Element {
       setRuns(more ? [...runs(), ...result.data.runs] : result.data.runs);
       setCursor(result.data.nextCursor);
       if (!selected()) setSelected(result.data.runs[0]);
-    } catch (e) { setError(describeAdminError(e)); }
+      clearAdminError('diag-history');
+    } catch (e) { fail(e, 'diag-history', () => history(more)); }
     finally { setBusy(false); }
   }
   async function run(): Promise<void> {
@@ -90,10 +96,12 @@ function DiagnosticRuns(props: { api?: DiagnosticsApi }): JSX.Element {
       if (result.historySaved) setRuns([result.run, ...runs().filter((r) => r.id !== result.run.id)]);
       if (!result.historySaved || !result.auditSaved) setNotice(t('admin-diag-not-saved'));
       else if (result.retentionApplied === false) setNotice(t('admin-diag-retention-failed'));
-    } catch (e) { setError(describeAdminError(e)); }
+      clearAdminError('diag-run');
+    } catch (e) { fail(e, 'diag-run', run); }
     finally { setBusy(false); }
   }
-  onMount(() => {void history();void api().catalogue?.().then(value=>{if(!disposed)setCatalogue(value);}).catch(e=>{if(!disposed)setError(describeAdminError(e));});});
+  const loadCatalogue=():void=>{void api().catalogue?.().then(value=>{clearAdminError('diag-catalogue');if(!disposed)setCatalogue(value);}).catch(e=>fail(e,'diag-catalogue',loadCatalogue));};
+  onMount(() => {void history();loadCatalogue();});
   return <section class={css.section} aria-label={t('admin-diag-title')}>
     <h2 class={css.heading}>{t('admin-diag-title')}</h2>
     <p class={css.note}>{t('admin-diag-description')}</p>

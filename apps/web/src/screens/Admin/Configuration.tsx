@@ -1,7 +1,8 @@
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
 import { loadCatalog, t } from '../../i18n';
 import { loadEffectiveConfig, type AdminReadResult, type EffectiveEntry } from './shell/adminApi.ts';
-import { Feedback, describeAdminError } from './shell/Feedback.tsx';
+import { Feedback } from './shell/Feedback.tsx';
+import { clearAdminError, showAdminError } from './shell/requestErrorToast.ts';
 import { AdminSubsection } from './AdminSubsection.tsx';
 import * as css from './admin.css.ts';
 import * as ux from './shell/ux.css.ts';
@@ -30,21 +31,26 @@ export function Configuration(props: ConfigurationProps): JSX.Element {
   const [busy, setBusy] = createSignal(true);
   const [unavailable, setUnavailable] = createSignal(false);
   const [error, setError] = createSignal<string>();
+  // The last load failed (told in the corner toast): no "no results" claim.
+  const [failed, setFailed] = createSignal(false);
   let current = 0;
   onCleanup(() => { current += 1; });
   async function reload(): Promise<void> {
     const request = ++current;
     setBusy(true);
     setError(undefined);
+    setFailed(false);
     try {
       const result = await (props.load ?? loadEffectiveConfig)();
       if (request !== current) return;
       setUnavailable(result.kind === 'unavailable');
       setRows(result.kind === 'ok' ? result.data : []);
+      clearAdminError('configuration');
     } catch (e) {
       if (request !== current) return;
       setRows([]);
-      setError(describeAdminError(e));
+      setFailed(true);
+      showAdminError(e, { key: 'configuration', retry: reload }, setError);
     } finally { if (request === current) setBusy(false); }
   }
   onMount(() => { void loadCatalog('admin-settings'); void reload(); });
@@ -68,7 +74,7 @@ export function Configuration(props: ConfigurationProps): JSX.Element {
     </div></AdminSubsection>
     <Show when={busy()}><AsyncPending variant="status" /></Show>
     <Show when={!busy()}><p role="status">{t('admin-config-count', { count: filtered().length })}</p></Show>
-    <Show when={!busy() && !error() && !unavailable() && filtered().length === 0}><p class={ux.pageState} role="status">{t('admin-config-no-results')}</p></Show>
+    <Show when={!busy() && !error() && !failed() && !unavailable() && filtered().length === 0}><p class={ux.pageState} role="status">{t('admin-config-no-results')}</p></Show>
     <Show when={filtered().length > 0}><AdminSubsection title={t('admin-config-entries')}>
       <div class={`${css.tableWrap} ${layout.scroller}`} tabindex="0" role="region" aria-label={t('admin-config-table')} aria-busy={busy()}><table class={`${css.table} ${layout.table}`}>
         <caption>{t('admin-config-table')}</caption>

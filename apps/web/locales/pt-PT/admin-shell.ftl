@@ -138,6 +138,7 @@ admin-shell-err-not-found = Já não existe. Recarregue a lista.
 admin-shell-err-conflict = Outra pessoa alterou-o entretanto. Recarregue e tente novamente.
 admin-shell-err-validation = O servidor recusou um valor. Verifique os campos e tente novamente.
 admin-shell-err-rate-limited = Demasiados pedidos. Aguarde um minuto e tente novamente.
+admin-shell-err-rate-limited-in = Demasiados pedidos, tente novamente dentro de { $seconds } s.
 admin-shell-err-server = O servidor respondeu com um erro ({ $status }). Tente novamente; se o erro se repetir, consulte o registo do servidor.
 admin-shell-err-upstream-dns = Não foi possível resolver o nome de anfitrião. Verifique se o nome está bem escrito.
 admin-shell-err-upstream-connect = Nada respondeu nesse anfitrião e porta. Verifique a porta e qualquer firewall intermédia.

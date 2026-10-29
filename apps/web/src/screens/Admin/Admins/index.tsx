@@ -4,7 +4,8 @@ import { loadCatalog, t } from '../../../i18n';
 import { adminsApi, type AdminAccountsApi, type AdminAccount, type AdminRole, type AdminMe, type AdminSession, type RoleGrant, type Override } from '../../../api/admin/admins.ts';
 import { AdminSessionTable } from './SessionTable.tsx';
 import { revokeSessionBatch } from '../../../api/sessionRevocation.ts';
-import { Feedback, describeAdminError } from '../shell/Feedback.tsx';
+import { Feedback } from '../shell/Feedback.tsx';
+import { clearAdminError, showAdminError } from '../shell/requestErrorToast.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { useShell } from '../shell/context.ts';
 import { sectionPath } from '../shell/router.ts';
@@ -60,8 +61,8 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
   }
   async function run(action: () => Promise<unknown>, announce = true): Promise<void> {
     setBusy(true); setError(null); setSuccess(null);
-    try { await action(); await reload(); if (announce) setSuccess(t('admin-accounts-saved')); }
-    catch (e) { setError(describeAdminError(e)); }
+    try { await action(); clearAdminError('admins-action'); await reload(); if (announce) setSuccess(t('admin-accounts-saved')); }
+    catch (e) { showAdminError(e, { key: 'admins-action', retry: () => run(action, announce) }, setError); }
     finally { setBusy(false); }
   }
   async function revokeSelectedSessions():Promise<void>{
@@ -93,7 +94,7 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
     setSecret(''); setPassword(''); setUsername(''); setCreateName(''); setCreatePassword(''); setSuccess(null);
   }));
   const path = () => `/admins/${encodeURIComponent(selected()!.id)}`;
-  onMount(() => { void loadCatalog('admin-admins'); setBusy(true); void reload().catch(e => setError(describeAdminError(e))).finally(() => setBusy(false)); });
+  onMount(() => { void loadCatalog('admin-admins'); setBusy(true); void reload().catch(e => showAdminError(e, { key: 'admins-load', retry: () => reload() }, setError)).finally(() => setBusy(false)); });
   return <section class={ux.page} aria-label={t('admin-accounts-title')}>
     <Show when={creating() || editing()}><div class={ux.pageActions}><button class="btn btn--ghost" type="button" disabled={busy()} onClick={() => go()}>{t('admin-accounts-back')}</button></div></Show>
     <h2 class={layout.heading}>{creating() ? t('admin-accounts-create') : editing() ? `${t('admin-accounts-edit')}: ${selected()?.username ?? ''}` : t('admin-accounts-title')}</h2>

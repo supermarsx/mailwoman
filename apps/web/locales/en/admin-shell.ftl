@@ -139,6 +139,7 @@ admin-shell-err-not-found = It no longer exists. Reload the list.
 admin-shell-err-conflict = Someone changed it in the meantime. Reload and try again.
 admin-shell-err-validation = The server refused a value. Check the fields and try again.
 admin-shell-err-rate-limited = Too many requests. Wait a minute and try again.
+admin-shell-err-rate-limited-in = Too many requests, try again in { $seconds } s.
 admin-shell-err-server = The server answered with an error ({ $status }). Try again; if it repeats, check the server log.
 admin-shell-err-upstream-dns = The host name could not be resolved. Check the spelling of the host.
 admin-shell-err-upstream-connect = Nothing answered on that host and port. Check the port and any firewall in between.

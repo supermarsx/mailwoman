@@ -11,7 +11,8 @@ import { For, Show, createSignal, createUniqueId, onMount, useContext, type JSX 
 import { formatDateTime, loadCatalog, t } from '../../../i18n';
 import { AdminProblemError, adminRead, adminRequest } from '../shell/adminApi.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
-import { Feedback, describeAdminError } from '../shell/Feedback.tsx';
+import { Feedback } from '../shell/Feedback.tsx';
+import { clearAdminError, showAdminError } from '../shell/requestErrorToast.ts';
 import { ShellContext } from '../shell/context.ts';
 import * as css from '../admin.css.ts';
 import * as shellCss from '../shell/shell.css.ts';
@@ -147,7 +148,7 @@ export function AuditRetention(props: { api?: RetentionApi; canWrite?: boolean; 
       setState(await api.load());
     } catch (e) {
       if (e instanceof AdminProblemError && e.status === 403) setHidden(true);
-      else setError(describeAdminError(e));
+      else showAdminError(e, { key: 'audit-retention-load', retry: load }, setError);
     }
   }
   onMount(() => {
@@ -162,8 +163,9 @@ export function AuditRetention(props: { api?: RetentionApi; canWrite?: boolean; 
       setState(s);
       setNotice(done(s));
       props.onChanged?.();
+      clearAdminError('audit-retention');
     } catch (e) {
-      setError(describeAdminError(e));
+      showAdminError(e, { key: 'audit-retention', retry: () => apply(fn, done) }, setError);
     }
   }
   const rowOf = (c: string): RetentionRow | undefined => state()?.rows.find((r) => r.category === c);

@@ -85,6 +85,8 @@ const CODE_MESSAGES: Record<string, () => string> = {
 export interface ErrorLike {
   status?: number | undefined;
   code?: string | undefined;
+  /** 429: seconds the server asked to wait (Retry-After). */
+  retryAfterSecs?: number | undefined;
 }
 
 function asErrorLike(err: unknown): ErrorLike {
@@ -93,12 +95,15 @@ function asErrorLike(err: unknown): ErrorLike {
   return {
     status: typeof o.status === 'number' ? o.status : undefined,
     code: typeof o.code === 'string' ? o.code : undefined,
+    retryAfterSecs: typeof o.retryAfterSecs === 'number' && Number.isFinite(o.retryAfterSecs) ? o.retryAfterSecs : undefined,
   };
 }
 
 /** A localized "what failed, what to do" sentence for a failed admin request. */
 export function describeAdminError(err: unknown): string {
-  const { status, code } = asErrorLike(err);
+  const { status, code, retryAfterSecs } = asErrorLike(err);
+  // t104: a rate limit that says how long to wait says so, whichever limiter sent it.
+  if (status === 429 && retryAfterSecs !== undefined) return t('admin-shell-err-rate-limited-in', { seconds: Math.max(1, Math.ceil(retryAfterSecs)) });
   const byCode = code !== undefined ? CODE_MESSAGES[code] : undefined;
   if (byCode) return byCode();
   if (status === undefined) return t('admin-shell-err-network');
