@@ -30,6 +30,92 @@ SDK:
 Chat, embeddings, and speech-to-text are independent slots — you can, for example, run
 a local embeddings model and a hosted chat model.
 
+## Provider profiles
+
+A **provider profile** is one endpoint, model, API key and set of request options
+(t39 N8). Admins manage them under **Admin → AI assistant → Provider profiles**
+(`/admin/assist/profiles`, `ai_assistant.read` / `ai_assistant.write`).
+
+- **Fields.** Name, preset, request format (`openai`, `azure-openai`, `anthropic`),
+  endpoint URL, model, the API key, and options: `maxTokens`, `temperature`
+  (0 to 2), `timeoutMs` (1000 to 600000, default 60000; the whole request, connect
+  to the last byte of the reply), `apiVersion` (Azure), `anthropicVersion`,
+  `transcriptionModel` (dictation through the profile; unset means no dictation).
+- **The key** is write-only. It is sealed with the server key (migration 0073,
+  `assist_profile.api_key_sealed`) and bound to the profile id, request format and
+  endpoint, so a key does not follow a profile to a new endpoint: changing the
+  endpoint without entering the key again is refused (`422`). The admin API returns
+  only `hasApiKey`; the key is not written to the audit log or to the server log.
+- **Assignment** is the settings key `assist.profile` (a profile id): a deployment
+  value, per-domain values and per-user values, with the registry's locks. A user
+  value wins over the domain value, which wins over the deployment value, unless a
+  wider value is locked. An empty value means the single deployment endpoint
+  configured above the profiles (`PUT /admin/assist`). A user assigned a profile
+  that no longer exists, or whose key does not open, has no AI assistant: the
+  request is refused, not sent to another endpoint.
+- **What still applies.** The `assist_config` on/off switch and kill switch, the
+  capability grants, the data ceilings, redaction, the rate limit and the
+  content-free audit run in front of the profile exactly as for the deployment
+  endpoint. The audit row records the profile's endpoint host. Semantic search keeps
+  the deployment endpoint, because one search index needs one embedding model.
+- **Zero-access accounts.** Context from an account in zero-access mode is never
+  forwarded, by either endpoint, whatever the data ceiling allows: the server drops
+  those accounts from the request scope before redaction.
+- **Usage.** The repository does not meter AI assistant usage per call
+  (`limit.ai_calls_per_day` is registered, but no server code reads it), so profiles add no
+  metering. The content-free audit rows remain the per-call record.
+
+### Outbound addresses
+
+Every profile request is resolved once through the `mw-egress` address gate and
+the connection is pinned to the address that passed, with no proxy and no
+redirects. Without a grant only public addresses pass. A local endpoint (Ollama on
+`127.0.0.1:11434`, a LAN host) needs an **egress grant** for its exact `host:port`
+(`/admin/assist/egress-grants`; adding or removing one needs a step-up and is
+audited). A grant admits loopback and private addresses; link-local and cloud
+metadata addresses (`169.254.169.254`), multicast and unspecified addresses are
+refused even with a grant. The single deployment endpoint (`PUT /admin/assist`)
+predates profiles and is not routed through this gate.
+
+### Test profile
+
+**Test profile** (`POST /admin/assist/profiles/{id}/test`) sends one fixed prompt
+with no mail content ("Connection test from Mailwoman. Reply with OK.") and reports
+the time to the end of the reply, the first 200 characters of it, or an error code:
+`egress-refused`, `timeout`, `connect`, `unauthorized` (401/403), `not-found`,
+`rate-limited`, `rejected` (other 4xx), `upstream` (5xx), `bad-response`,
+`declined`, `unsupported`. With an HTTP error the status and the provider's own
+short error code (`invalid_api_key`, `authentication_error`) are shown; the
+provider's error message is not, because some providers echo part of the key in it.
+The test runs whether or not the AI assistant is switched on, and is audited.
+
+### Presets
+
+| Preset | Format | Endpoint | Checked |
+|---|---|---|---|
+| OpenAI-compatible (any endpoint) | openai | (you enter it) | local mock of the format |
+| Anthropic | anthropic | `https://api.anthropic.com` (`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`) | local mock of the format |
+| OpenAI | openai | `https://api.openai.com/v1` | not tested |
+| Azure OpenAI | azure-openai | `https://<resource>.openai.azure.com/openai/deployments/<deployment>` | not tested |
+| Google Gemini (OpenAI-compatible endpoint) | openai | `https://generativelanguage.googleapis.com/v1beta/openai` | not tested |
+| Mistral AI | openai | `https://api.mistral.ai/v1` | not tested |
+| Groq | openai | `https://api.groq.com/openai/v1` | not tested |
+| Together AI | openai | `https://api.together.xyz/v1` | not tested |
+| OpenRouter | openai | `https://openrouter.ai/api/v1` | not tested |
+| DeepSeek | openai | `https://api.deepseek.com/v1` | not tested |
+| Fireworks AI | openai | `https://api.fireworks.ai/inference/v1` | not tested |
+| Perplexity | openai | `https://api.perplexity.ai` | not tested |
+| Ollama (local) | openai | `http://127.0.0.1:11434/v1` | not tested |
+| LM Studio (local) | openai | `http://127.0.0.1:1234/v1` | not tested |
+| vLLM (local) | openai | `http://127.0.0.1:8000/v1` | not tested |
+| llama.cpp server (local) | openai | `http://127.0.0.1:8080/v1` | not tested |
+
+"Local mock of the format" means `crates/mw-server/tests/t39_assist_profiles.rs`
+ran the request format against an in-process server that answers in the documented
+streaming format; it is not a run against the provider's service. No preset has been
+run against a live provider. Model names are suggestions and change; check them with
+the provider and use Test profile.
+
 ## Capabilities and scoping
 
 Each AI assistant feature is a capability, granted independently:
@@ -126,6 +212,8 @@ leak what was summarized or drafted.
 - E2EE-decrypted content and attachments are excluded by default; including them is an
   explicit opt-in.
 - The browser never contacts the AI host — the server proxies.
+- Content from zero-access accounts is never forwarded.
+- Provider profiles reach only public addresses unless an admin grants a local `host:port`.
 - The audit records capability + scope + host, never content.
 - No AI assistant capability can send/delete/accept.
 - `LocalProcess` keeps everything on-device.
