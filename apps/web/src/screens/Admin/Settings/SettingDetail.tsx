@@ -27,6 +27,7 @@ import { StaleNotice } from '../shell/StaleNotice.tsx';
 import { useDirtyGuard } from '../shell/useDirtyGuard.ts';
 import { useEtag } from '../shell/useEtag.ts';
 import { PageState } from '../shell/templates/PageFrame.tsx';
+import { resourceValue } from '../../../components/resourceValue.ts';
 import { ScopedValues } from './ScopedValues.tsx';
 import { ValueInput } from './ValueInput.tsx';
 import { impactLabels } from './impact.ts';
@@ -84,7 +85,11 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
   const [lossConfirmation, setLossConfirmation] = createSignal<GlobalWrite | null>(null);
   const [preview, setPreview] = createSignal<GlobalWrite | null>(null);
 
-  const setting = (): AdminSetting | undefined => data()?.setting;
+  // Never `data()` (t75): read while a reload is in flight (Reload after a 412, a
+  // domain or per-user value written) it suspends the console's page boundary
+  // and the form is swapped for the page skeleton and back. The last value
+  // stays on screen while it refreshes.
+  const setting = (): AdminSetting | undefined => resourceValue(data)?.setting;
   const label = (): string => settingLabel(props.settingKey);
 
   function reset(s: AdminSetting, etag: string | null): void {
@@ -96,9 +101,12 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
     tag.set(etag);
   }
   createEffect(
-    on(data, (d) => {
-      if (d) reset(d.setting, d.etag);
-    }),
+    on(
+      () => resourceValue(data),
+      (d) => {
+        if (d) reset(d.setting, d.etag);
+      },
+    ),
   );
 
   const userScoped = (): boolean => setting()?.scopes === 'global+domain+user';
@@ -294,7 +302,7 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
             />
             <div class={ux.saveBar}>
               <button type="submit" class="btn btn--primary" disabled={busy() || !writable() || !dirty()}>
-                {t('admin-settings-save')}
+                {busy() ? t('admin-ux-form-saving') : t('admin-settings-save')}
               </button>
               <RevertToDefault
                 label={label()}

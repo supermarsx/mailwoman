@@ -25,6 +25,7 @@ import { Feedback, describeAdminError } from '../shell/Feedback.tsx';
 import { FormField } from '../shell/FormField.tsx';
 import { HelpNote } from '../shell/HelpNote.tsx';
 import { ImpactPreview } from '../shell/ImpactPreview.tsx';
+import { resourceValue } from '../../../components/resourceValue.ts';
 import { ValueInput } from './ValueInput.tsx';
 import { displayValue, parseDraft, toDraft, type Draft } from './value.ts';
 import { impactLabels } from './impact.ts';
@@ -45,10 +46,17 @@ export interface ScopedValuesProps {
 
 export function ScopedValues(props: ScopedValuesProps): JSX.Element {
   const isDomain = (): boolean => props.scope === 'domain';
+  // The source is the key and scope only: a new tuple on every write of the
+  // global value (the parent hands down a new setting object) fetched the rows
+  // again for nothing.
   const [rows, { refetch }] = createResource(
-    () => [props.setting.key, props.scope] as const,
-    ([key, scope]) => listScopedValues(key, scope).then((r) => r.values),
+    () => props.setting.key,
+    (key) => listScopedValues(key, props.scope).then((r) => r.values),
   );
+  // Never `rows()` (t75): read while the rows reload after a write it suspends
+  // the console's page boundary, and the whole setting page is swapped for the
+  // page skeleton and back. The last rows stay on screen while they refresh.
+  const current = (): ScopedValue[] | undefined => resourceValue(rows);
   const [target, setTarget] = createSignal('');
   const [draft, setDraft] = createSignal<Draft>(toDraft(props.setting.kind, props.setting.effective.value));
   const [locked, setLocked] = createSignal(false);
@@ -61,7 +69,7 @@ export function ScopedValues(props: ScopedValuesProps): JSX.Element {
   const [preview, setPreview] = createSignal<{ value: unknown; locked: boolean } | null>(null);
 
   const existing = (id: string): ScopedValue | undefined =>
-    rows()?.find((r) => r.scopeId.toLowerCase() === id.toLowerCase());
+    current()?.find((r) => r.scopeId.toLowerCase() === id.toLowerCase());
 
   function edit(row: ScopedValue): void {
     setTarget(row.scopeId);
@@ -151,7 +159,7 @@ export function ScopedValues(props: ScopedValuesProps): JSX.Element {
               ]
             : []),
         ]}
-        rows={rows() ?? []}
+        rows={current() ?? []}
         rowKey={(r) => r.scopeId}
         state={rows.error ? 'error' : rows.loading ? 'loading' : 'ready'}
         errorText={rows.error ? describeAdminError(rows.error) : ''}
@@ -219,7 +227,7 @@ export function ScopedValues(props: ScopedValuesProps): JSX.Element {
             </label>
           </Show>
           <button type="submit" class="btn btn--primary" disabled={busy()}>
-            {t(isDomain() ? 'admin-settings-domain-save' : 'admin-settings-user-save')}
+            {busy() ? t('admin-ux-form-saving') : t(isDomain() ? 'admin-settings-domain-save' : 'admin-settings-user-save')}
           </button>
         </form>
       </Show>

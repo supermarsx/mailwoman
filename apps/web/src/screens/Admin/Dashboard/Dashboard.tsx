@@ -13,6 +13,7 @@ import * as auditCss from '../shell/audit.css.ts';
 
 import { For, Match, Show, Switch, createResource, createSignal, createEffect, onCleanup, type JSX } from 'solid-js';
 import { AsyncPending } from '../../../components/AsyncState.tsx';
+import { resourceValue } from '../../../components/resourceValue.ts';
 import { isolate, t } from '../../../i18n';
 import { useOptionalPersonalPreferences } from '../shell/personalPreferences.tsx';
 import { dashboardPreferences, type DashboardPreferences, type DashboardWidgetId } from './preferences.ts';
@@ -85,12 +86,16 @@ export function Dashboard(): JSX.Element {
   const shellCtx = useShell();
   const preferences = useOptionalPersonalPreferences();
   const layout = () => dashboardPreferences(preferences?.data()['dashboard']);
-  const [data, { refetch }] = createResource(() => shellCtx.services.loadDashboard());
+  const [resource, { refetch }] = createResource(() => shellCtx.services.loadDashboard());
+  // Never `resource()` (t75): read while the timed refresh or the Refresh button
+  // reloads, it suspends the console's page boundary and the whole dashboard is
+  // swapped for the page skeleton and back. The last numbers stay while it reloads.
+  const current = () => resourceValue(resource);
 
   createEffect(() => {
     const seconds = layout().refreshSecs;
     if (!seconds) return;
-    const timer = setInterval(() => { if (document.visibilityState === 'visible' && !data.loading) void refetch(); }, seconds * 1000);
+    const timer = setInterval(() => { if (document.visibilityState === 'visible' && !resource.loading) void refetch(); }, seconds * 1000);
     onCleanup(() => clearInterval(timer));
   });
 
@@ -110,26 +115,26 @@ export function Dashboard(): JSX.Element {
           {t('admin-shell-nav-dashboard')}
         </h2>
         <a class={`btn btn--ghost ${ux.iconAction}`} aria-label={t('admin-dash-customize')} title={t('admin-dash-customize')} href={hrefFor(sectionPath('preferences'))} onClick={e => inPlace(e, () => open(sectionPath('preferences')))}><Icon name="settings"/></a>
-        <button type="button" class={`btn btn--ghost ${ux.iconAction}`} aria-label={t('admin-dash-refresh')} title={t('admin-dash-refresh')} onClick={() => void refetch()} disabled={data.loading}>
+        <button type="button" class={`btn btn--ghost ${ux.iconAction}`} aria-label={t('admin-dash-refresh')} title={t('admin-dash-refresh')} onClick={() => void refetch()} disabled={resource.loading}>
           <Icon name="refresh"/>
         </button>
       </div>
       <Switch>
-        <Match when={data.loading && data() === undefined}>
+        <Match when={resource.loading && current() === undefined}>
           <div class={shell.state}><AsyncPending variant="page" message={t('admin-shell-loading')} onRetry={() => void refetch()} /></div>
         </Match>
-        <Match when={data()?.kind === 'unavailable'}>
+        <Match when={current()?.kind === 'unavailable'}>
           <div class={shell.field} data-testid="dash-unavailable">
             <Feedback kind="info" message={t('admin-dash-unavailable')} />
             <p class={admin.note}>{t('admin-dash-unavailable-detail')}</p>
           </div>
         </Match>
-        <Match when={data()?.kind === 'error' || data.error}>
+        <Match when={current()?.kind === 'error' || resource.error}>
           <div class={[shell.state, shell.stateError].join(' ')} data-testid="dash-error">
             <Feedback
               kind="error"
               message={(() => {
-                const r = data();
+                const r = current();
                 const status = r?.kind === 'error' ? r.status : null;
                 return status === null ? t('admin-dash-error-network') : t('admin-dash-error-status', { status });
               })()}
@@ -139,7 +144,7 @@ export function Dashboard(): JSX.Element {
             </button>
           </div>
         </Match>
-        <Match when={(() => { const r = data(); return r?.kind === 'ok' ? r.data : undefined; })()}>
+        <Match when={(() => { const r = current(); return r?.kind === 'ok' ? r.data : undefined; })()}>
           {(d) => <DashboardBody data={d()} layout={layout()} sectionLink={sectionLink} open={open} username={shellCtx.username()} />}
         </Match>
       </Switch>

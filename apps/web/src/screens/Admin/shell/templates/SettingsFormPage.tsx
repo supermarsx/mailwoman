@@ -208,7 +208,10 @@ export function SettingsFormPage(props: SettingsFormPageProps): JSX.Element {
   useDirtyGuard(() => changedIds().length > 0);
 
   async function load(): Promise<void> {
-    setState('loading');
+    // A reload of a form already on screen (Reload after a 412) keeps the form
+    // and refreshes its values in place (t75); only the first load shows the
+    // loading state in its place.
+    if (state() !== 'ready') setState('loading');
     setResult(null);
     errors.clear();
     try {

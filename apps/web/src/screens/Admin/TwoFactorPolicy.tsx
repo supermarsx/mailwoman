@@ -41,7 +41,13 @@ export function TwoFactorPolicy(props: TwoFactorPolicyProps): JSX.Element {
 
   onMount(() => void loadCatalog('admin'));
 
-  const [rows, { refetch }] = createResource(() => policyApi.list());
+  const [rowsResource, { refetch }] = createResource(() => policyApi.list());
+  // `latest`, not `rowsResource()` (t75): the call form, read while the policy
+  // reloads after a save, suspends the console's page boundary and the page is
+  // swapped for the page skeleton and back. `latest` suspends only for the first
+  // load (the page skeleton, so no made-up "off" is shown); after that the last
+  // rows stay while they reload.
+  const rows = () => rowsResource.latest;
   // Managed domains for the add-form datalist (best-effort; empty on error).
   const [domains] = createResource(async () => {
     try {
@@ -93,7 +99,7 @@ export function TwoFactorPolicy(props: TwoFactorPolicyProps): JSX.Element {
       <h2 class={css.heading}>{t('admin-2fa-title')}</h2>
       <p class={css.note}>{t('admin-2fa-intro')}</p>
 
-      <Show when={rows.error as unknown}>
+      <Show when={rowsResource.error as unknown}>
         <p class={css.error} role="alert">{t('admin-2fa-load-error')}</p>
       </Show>
       <Feedback kind="error" as="toast" message={error()} />

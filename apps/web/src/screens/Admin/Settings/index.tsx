@@ -18,6 +18,7 @@ import { parseAdminPath, type AdminRoute } from '../shell/router.ts';
 import { SourceBadge } from '../shell/SourceBadge.tsx';
 import { AdminPage, PageState } from '../shell/templates/PageFrame.tsx';
 import { ListDetailPage } from '../shell/templates/ListDetailPage.tsx';
+import { resourceValue } from '../../../components/resourceValue.ts';
 import { CATEGORIES } from './keys.ts';
 import { categoryLabel, settingLabel } from './labels.ts';
 import { SettingDetail, sourceOf } from './SettingDetail.tsx';
@@ -48,8 +49,12 @@ export function AdminSettings(props: AdminSettingsProps): JSX.Element {
   const [query, setQuery] = createSignal('');
   const [category, setCategory] = createSignal<string | null>(null);
 
+  // Read through resourceValue (t75): `list()` while the list reloads after a
+  // Save registers with the console's <Suspense> around the page, which swaps
+  // the whole page (and the setting being edited) for its skeleton and back.
+  const current = (): AdminReadResult<AdminSetting[]> | undefined => resourceValue(list);
   const all = (): AdminSetting[] => {
-    const r = list();
+    const r = current();
     return r?.kind === 'ok' ? r.data : [];
   };
   const present = createMemo(() => {
@@ -70,7 +75,7 @@ export function AdminSettings(props: AdminSettingsProps): JSX.Element {
 
   return (
     <Show
-      when={list()?.kind !== 'unavailable'}
+      when={current()?.kind !== 'unavailable'}
       fallback={
         <AdminPage title={t('admin-settings-title')} description={t('admin-settings-description')}>
           <PageState state={{ kind: 'unavailable', reason: t('admin-settings-unavailable') }} />
@@ -103,7 +108,7 @@ export function AdminSettings(props: AdminSettingsProps): JSX.Element {
           ],
           rows: rows(),
           rowKey: (s) => s.key,
-          state: list.error ? 'error' : list.loading ? 'loading' : 'ready',
+          state: list.error ? 'error' : current() === undefined || list.loading ? 'loading' : 'ready',
           errorText: list.error ? String(list.error) : '',
           onRetry: () => void refetch(),
           emptyText: t('admin-settings-empty'),
