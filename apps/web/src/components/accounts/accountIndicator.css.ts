@@ -1,7 +1,7 @@
 // The active mailbox indicator and picker (t38 §2.3, t40): the address as text
 // when there is one mailbox; otherwise a trigger (full or one-letter icon) that
 // opens a menu of mailboxes. Rows are 44px tall on coarse pointers.
-import { style } from '@vanilla-extract/css';
+import { globalStyle, style } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
 
 const coarse = '(pointer: coarse)';
@@ -73,11 +73,17 @@ export const chevron = style({
 export const avatar = style({
   margin: 0,
   borderRadius: vars.radius.sm,
+  // The owner's letter is shown as typed (t86), also inside the uppercase icon button.
+  textTransform: 'none',
+  letterSpacing: 0,
   selectors: {
     '&[data-size="sm"]': { flexBasis: '1.35rem', inlineSize: '1.35rem', blockSize: '1.35rem', fontSize: '.6rem' },
     '&[data-size="md"]': { flexBasis: '2rem', inlineSize: '2rem', blockSize: '2rem', fontSize: '.72rem' },
+    '&[data-size="lg"]': { flexBasis: '3rem', inlineSize: '3rem', blockSize: '3rem', fontSize: '1.05rem' },
   },
 });
+// t86: an icon avatar draws its glyph at about 60% of the box, whatever its size.
+globalStyle(`${avatar} svg`, { inlineSize: '62%', blockSize: '62%', flex: 'none' });
 
 export const unread = style({ flex: 'none' });
 

@@ -1,12 +1,13 @@
 // The owner's mailbox arrangement (t40 e/f/g): which mailbox opens first, the
-// order of the sign-in account and its links, and display-only nicknames. All
-// three come from `GET /api/accounts` and are kept server-side per user.
+// order of the sign-in account and its links, display-only nicknames and (t86)
+// avatars. All of them come from `GET /api/accounts` and are kept server-side per user.
 //
 // A nickname is a label for this person's own screens. It is never an identity:
 // not a sender name, not a From header, and never sent to the mail server.
 import { createSignal } from 'solid-js';
 import type { LinkedMailboxList } from './linkedAccounts.ts';
 import { primaryMailboxAuthority } from './linkedMailboxSession.ts';
+import { isDefaultAvatar, type MailboxAvatarSpec } from './mailboxAvatar.ts';
 
 /** The layout key of the sign-in account; links use their ids. */
 export const MAIN_KEY = 'main';
@@ -16,6 +17,8 @@ export interface MailboxLayout {
   revision: string;
   order: string[];
   nicknames: Record<string, string>;
+  /** t86: the avatar per layout key (absent = the generated one). Older servers send none. */
+  avatars?: Record<string, MailboxAvatarSpec>;
 }
 
 export const keyOf = (linkId: string | null): string => linkId ?? MAIN_KEY;
@@ -61,14 +64,26 @@ export function mailboxNickname(linkId: string | null): string | undefined {
   return name ? name : undefined;
 }
 
+/** The avatar of a mailbox, when the owner saved one (t86). */
+export function mailboxAvatar(linkId: string | null): MailboxAvatarSpec | undefined {
+  const value = known();
+  if (!value || value.authority !== primaryMailboxAuthority()) return undefined;
+  return value.list.layout?.avatars?.[keyOf(linkId)];
+}
+
 /** The arrangement with `keys` in a new order (from `moveTo` on the display order). */
-export function layoutChange(list: LinkedMailboxList, edit: { order?: string[]; nickname?: { key: string; value: string } }): Omit<MailboxLayout, 'revision'> {
+export function layoutChange(list: LinkedMailboxList, edit: { order?: string[]; nickname?: { key: string; value: string }; avatar?: { key: string; value: MailboxAvatarSpec | undefined } }): Omit<MailboxLayout, 'revision'> {
   const nicknames = { ...(list.layout?.nicknames ?? {}) };
   if (edit.nickname) {
     if (edit.nickname.value === '') delete nicknames[edit.nickname.key];
     else nicknames[edit.nickname.key] = edit.nickname.value;
   }
-  return { order: edit.order ?? orderedKeys(list), nicknames };
+  const avatars = { ...(list.layout?.avatars ?? {}) };
+  if (edit.avatar) {
+    if (isDefaultAvatar(edit.avatar.value)) delete avatars[edit.avatar.key];
+    else avatars[edit.avatar.key] = edit.avatar.value!;
+  }
+  return { order: edit.order ?? orderedKeys(list), nicknames, avatars };
 }
 
 /**

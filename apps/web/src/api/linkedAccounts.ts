@@ -5,6 +5,7 @@ import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} f
 import type {LinkedAccountContext} from './linkedAccountContext.ts';
 import {activeLinkedMailbox,primaryMailboxAuthority} from './linkedMailboxSession.ts';
 import {rememberLinkedList,type MailboxLayout} from './mailboxLayout.ts';
+import {validAvatar,type MailboxAvatarSpec} from './mailboxAvatar.ts';
 
 export interface LinkedMailbox {
   id:string;accountId:string;address?:string;displayName:string;
@@ -39,7 +40,14 @@ export type LinkMailboxProof={method:'totp'|'recovery';code:string}|{method:'web
 function validLayout(value:unknown):value is MailboxLayout {
   const layout=value as MailboxLayout|null;
   return !!layout&&typeof layout.revision==='string'&&Array.isArray(layout.order)&&layout.order.length<=32&&layout.order.every(key=>typeof key==='string')
-    &&typeof layout.nicknames==='object'&&layout.nicknames!==null&&!Array.isArray(layout.nicknames)&&Object.values(layout.nicknames).every(name=>typeof name==='string'&&name.length<=256);
+    &&typeof layout.nicknames==='object'&&layout.nicknames!==null&&!Array.isArray(layout.nicknames)&&Object.values(layout.nicknames).every(name=>typeof name==='string'&&name.length<=256)
+    &&(layout.avatars===undefined||(typeof layout.avatars==='object'&&layout.avatars!==null&&!Array.isArray(layout.avatars)&&Object.keys(layout.avatars).length<=32));
+}
+/** t86: keep only the avatars that pass the same rules the server applies (an older server sends none). */
+function cleanLayout(layout:MailboxLayout):MailboxLayout {
+  const avatars:Record<string,MailboxAvatarSpec>={};
+  for(const [key,raw] of Object.entries(layout.avatars??{})){const spec=validAvatar(raw);if(spec)avatars[key]=spec;}
+  return {...layout,avatars};
 }
 /** Management always uses the primary session, never a child-context header.
  * Disposal or any UI authority change aborts pending CSRF/step-up retries too. */
@@ -75,6 +83,7 @@ export function createLinkedAccountsApi() {
         ||(value.primaryMailbox!=null&&!value.accounts.some(account=>account.id===value.primaryMailbox&&account.status==='ready'))
         ||(value.primaryFallback!==undefined&&typeof value.primaryFallback!=='boolean')
         ||(value.layout!==undefined&&!validLayout(value.layout)))throw new ApiError(502,'Linked mailbox response was invalid');
+      if(value.layout)value.layout=cleanLayout(value.layout);
       rememberLinkedList(value);
       return value;
     },
@@ -86,8 +95,8 @@ export function createLinkedAccountsApi() {
     authorize:(id:string)=>request<{context:LinkedAccountContext}>(`/${encodeURIComponent(id)}/switch`,'POST'),
     /** Which mailbox opens first. A preference only: opening it still switches through `authorize`. */
     setPrimary:(linkId:string|null)=>request<{primaryMailbox:string|null}>('/primary','PUT',{linkId}),
-    /** Order and nicknames; 409 when another device saved first (re-read, then retry). */
-    setLayout:async(layout:MailboxLayout)=>{const saved=await request<{layout:MailboxLayout}>('/layout','PUT',layout);if(!validLayout(saved?.layout))throw new ApiError(502,'Linked mailbox response was invalid');return saved.layout;},
+    /** Order, nicknames and avatars (t86); 409 when another device saved first (re-read, then retry). */
+    setLayout:async(layout:MailboxLayout)=>{const saved=await request<{layout:MailboxLayout}>('/layout','PUT',layout);if(!validLayout(saved?.layout))throw new ApiError(502,'Linked mailbox response was invalid');return cleanLayout(saved.layout);},
     unlink:(account:LinkedMailbox)=>request<void>(`/${encodeURIComponent(account.id)}`,'DELETE',undefined,{'if-match':JSON.stringify(account.revision)}),
     dispose:()=>{stop();controller.abort();},
   };

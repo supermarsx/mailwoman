@@ -2,7 +2,8 @@ import {createSignal,For,Show,type JSX} from 'solid-js';
 import type {LinkedMailbox,LinkedMailboxList} from '../../api/linkedAccounts.ts';
 import {NICKNAME_MAX,cleanNickname,linkOf,orderedKeys} from '../../api/mailboxLayout.ts';
 import {createPointerReorder} from '../../components/accounts/pointerReorder.ts';
-import {MailboxAvatar} from '../../components/accounts/MailboxPicker.tsx';
+import {MailboxAvatarEditor} from './MailboxAvatarEditor.tsx';
+import type {MailboxAvatarSpec} from '../../api/mailboxAvatar.ts';
 import {Icon} from '../../components/Icon.tsx';
 import {isolate,t} from '../../i18n/index.ts';
 import * as a11y from '../../components/mailA11y.css.ts';
@@ -20,7 +21,8 @@ import '../../components/senderIcons/palette.css';
  *  Alt+Up/Down; a live region says where it went. Each row has the avatar,
  *  nickname over address, the primary star, an expired-status icon, and icon
  *  actions with tooltips: renew access, rename, unlink (through the shared
- *  ConfirmDialog). The sidebar picker only switches. */
+ *  ConfirmDialog). The avatar is a button that opens the avatar editor (t86:
+ *  letter or icon, colours). The sidebar picker only switches. */
 export function LinkedAccountList(props:{
   value:LinkedMailboxList;
   busy:boolean;
@@ -35,6 +37,8 @@ export function LinkedAccountList(props:{
   onRename:(id:string|null,nickname:string)=>Promise<boolean>;
   /** Renew an expired link's access in place. */
   onRenew?:(account:LinkedMailbox)=>void;
+  /** t86: save a mailbox's avatar (`undefined` = the generated one); resolves false when refused. */
+  onAvatar?:(id:string|null,avatar:MailboxAvatarSpec|undefined)=>Promise<boolean>;
 }):JSX.Element {
   const [confirm,setConfirm]=createSignal<string>();
   const [renaming,setRenaming]=createSignal<string>();
@@ -115,7 +119,8 @@ export function LinkedAccountList(props:{
                 move(index(),slot);
                 queueMicrotask(()=>listEl?.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"] [data-linked-grip]`)?.focus());
               }}/>
-            <span class={table.avatar}><MailboxAvatar label={labelOf(key)} address={addressOf(key)}/></span>
+            <MailboxAvatarEditor mailboxKey={key} label={labelOf(key)} address={addressOf(key)} avatar={props.value.layout?.avatars?.[key]} disabled={props.busy||!props.onAvatar}
+              onSave={avatar=>props.onAvatar?.(linkId,avatar)??Promise.resolve(false)}/>
             <Show when={renaming()===key} fallback={
               <div class={table.who} title={nicknameOf(key)?`${nicknameOf(key)}\n${addressOf(key)}`:addressOf(key)}>
                 <span class={table.name} data-linked-name>{isolate(labelOf(key))}</span>

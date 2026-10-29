@@ -9,7 +9,7 @@ import {linkedAccountError} from './linkedAccountError.ts';
 import {RenewAccessDialog} from './RenewAccessDialog.tsx';
 import {resourceValue} from '../resourceValue.ts';
 import {invalidateLinkedAccounts,linkedAccountsRevision,primaryMailboxAuthority} from '../../api/linkedMailboxSession.ts';
-import {keyOf,linkOf,mailboxNickname,orderedKeys} from '../../api/mailboxLayout.ts';
+import {keyOf,linkOf,mailboxAvatar,mailboxNickname,orderedKeys} from '../../api/mailboxLayout.ts';
 import * as css from './accountIndicator.css.ts';
 
 /** The one active-account indicator and switcher (t38 §2.3, t40, t48 k). With
@@ -36,12 +36,13 @@ let lastList:{authority:string;value:LinkedMailboxList}|null=null;
 /** The picker entries in the owner's order (also the shape t46 feeds counts into). */
 export function mailboxChoices(list:LinkedMailboxList,unread:(linkId:string|null)=>number|null):MailboxChoice[]{
   const nick=(linkId:string|null)=>list.layout?.nicknames[keyOf(linkId)];
+  const face=(linkId:string|null)=>{const avatar=list.layout?.avatars?.[keyOf(linkId)];return avatar?{avatar}:{};};
   return orderedKeys(list).map(key=>{
     const linkId=linkOf(key);
-    if(linkId===null){const nickname=nick(null);return {linkId,address:list.primary.address,...(nickname?{nickname}:{}),signIn:true,available:true,unread:unread(null)};}
+    if(linkId===null){const nickname=nick(null);return {linkId,address:list.primary.address,...(nickname?{nickname}:{}),...face(null),signIn:true,available:true,unread:unread(null)};}
     const account=list.accounts.find(item=>item.id===linkId)!;
     const nickname=nick(linkId);
-    return {linkId,address:account.address??account.displayName,name:account.displayName,...(nickname?{nickname}:{}),
+    return {linkId,address:account.address??account.displayName,name:account.displayName,...(nickname?{nickname}:{}),...face(linkId),
       available:list.policy.enabled&&account.status==='ready',unread:unread(linkId),
       ...(list.policy.enabled&&account.status==='reauthRequired'?{renew:true}:{})};
   });
@@ -106,7 +107,7 @@ function OwnedControl(props:{variant?:AccountControlVariant}):JSX.Element {
     if(id)void select(id);
   }
   const address=():string=>app.me()?.username??'';
-  const plain=():JSX.Element=><MailboxPlain variant={props.variant??'full'} address={address()} nickname={mailboxNickname(app.linkedMailboxId())} unread={activeInboxUnread()}/>;
+  const plain=():JSX.Element=><MailboxPlain variant={props.variant??'full'} address={address()} nickname={mailboxNickname(app.linkedMailboxId())} avatar={mailboxAvatar(app.linkedMailboxId())} unread={activeInboxUnread()}/>;
   return <Show when={(listed()?.accounts.length??0)>0?listed():undefined} fallback={plain()}>{value=>
     <div class={css.control}>
       <MailboxPicker variant={props.variant??'full'} choices={mailboxChoices(value(),unreadFor)} activeLinkId={app.linkedMailboxId()}

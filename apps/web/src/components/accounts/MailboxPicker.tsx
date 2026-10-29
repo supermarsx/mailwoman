@@ -19,7 +19,7 @@ import { Portal } from 'solid-js/web';
 import { isolate, loadCatalog, t } from '../../i18n/index.ts';
 import { useCollapsibleBar } from '../bars/index.ts';
 import { Icon } from '../Icon.tsx';
-import { avatarPresentation } from '../PersonAvatar.tsx';
+import { avatarLook, type MailboxAvatarSpec } from '../../api/mailboxAvatar.ts';
 import * as a11y from '../mailA11y.css.ts';
 import * as css from './accountIndicator.css.ts';
 import { accountUnreadBadge } from '../../api/countBadges.ts';
@@ -44,6 +44,8 @@ export interface MailboxChoice {
   unread: number | null;
   /** t48: access ended and can be renewed in place ("Renew access"). */
   renew?: boolean;
+  /** t86: the owner's avatar (letter or icon, colours); absent = the generated one. */
+  avatar?: MailboxAvatarSpec;
 }
 
 let sequence = 0;
@@ -60,11 +62,25 @@ export function choiceLabel(choice: Pick<MailboxChoice, 'nickname' | 'name' | 'a
   return choice.nickname || (choice.name && choice.name !== choice.address ? choice.name : choice.address);
 }
 
-export function MailboxAvatar(props: { label: string; address: string; size?: 'sm' | 'md' }): JSX.Element {
-  const look = (): ReturnType<typeof avatarPresentation> => avatarPresentation(props.label === props.address ? '' : props.label, props.address);
+/**
+ * A mailbox's avatar: the owner's letter or icon in their colours (t86), else
+ * the generated initials and colour. Same box in every case, so changing it
+ * never moves what is beside it. Colours are set through the CSSOM (Solid's
+ * dynamic `style`), never a style attribute (shell CSP).
+ */
+export function MailboxAvatar(props: { label: string; address: string; size?: 'sm' | 'md' | 'lg'; avatar?: MailboxAvatarSpec | undefined }): JSX.Element {
+  const look = (): ReturnType<typeof avatarLook> => avatarLook(props.avatar, props.label, props.address);
   return (
-    <span class={`person-avatar ${css.avatar}`} data-size={props.size ?? 'md'} data-avatar-color={look().palette} aria-hidden="true">
-      {look().initials}
+    <span
+      class={`person-avatar ${css.avatar}`}
+      data-size={props.size ?? 'md'}
+      data-avatar-color={look().palette}
+      data-avatar-kind={look().custom ? look().kind : undefined}
+      data-avatar-icon={look().icon}
+      style={look().custom ? { 'background-color': look().bg, color: look().fg } : {}}
+      aria-hidden="true"
+    >
+      <Show when={look().glyph} fallback={look().text}>{(glyph) => <Icon name={glyph()} />}</Show>
     </span>
   );
 }
@@ -81,7 +97,7 @@ function UnreadBadge(props: { count: number | null }): JSX.Element {
 }
 
 /** One mailbox, shown as plain text: nothing to choose (t40 b). */
-export function MailboxPlain(props: { variant: 'full' | 'icon'; address: string; nickname?: string | undefined; unread: number | null }): JSX.Element {
+export function MailboxPlain(props: { variant: 'full' | 'icon'; address: string; nickname?: string | undefined; unread: number | null; avatar?: MailboxAvatarSpec | undefined }): JSX.Element {
   const label = (): string => accountIndicatorLabel(props.address, false, props.nickname);
   return (
     <Show
@@ -102,7 +118,9 @@ export function MailboxPlain(props: { variant: 'full' | 'icon'; address: string;
         aria-label={label()}
         data-tooltip={label()}
       >
-        <span aria-hidden="true">{Array.from((props.nickname || props.address).trim())[0]?.toLocaleUpperCase() ?? '?'}</span>
+        <Show when={props.avatar} fallback={<span aria-hidden="true">{Array.from((props.nickname || props.address).trim())[0]?.toLocaleUpperCase() ?? '?'}</span>}>
+          {(avatar) => <MailboxAvatar label={props.nickname || props.address} address={props.address} size="sm" avatar={avatar()} />}
+        </Show>
       </span>
     </Show>
   );
@@ -274,7 +292,7 @@ export function MailboxPicker(props: {
             onClick={() => (open() ? close() : show())}
             onKeyDown={triggerKeys}
           >
-            <MailboxAvatar label={active() ? choiceLabel(active()!) : ''} address={active()?.address ?? ''} size="sm" />
+            <MailboxAvatar label={active() ? choiceLabel(active()!) : ''} address={active()?.address ?? ''} size="sm" avatar={active()?.avatar} />
             <span class={css.triggerText}>
               <span class={css.triggerAddress} data-mailbox-label>{isolate(active()?.nickname || (active()?.address ?? ''))}</span>
               <Show when={active()?.nickname}><span class={css.triggerSecondary}>{isolate(active()!.address)}</span></Show>
@@ -300,7 +318,9 @@ export function MailboxPicker(props: {
           onClick={() => (open() ? close() : show())}
           onKeyDown={triggerKeys}
         >
-          <span aria-hidden="true">{Array.from((active() ? choiceLabel(active()!) : '').trim())[0]?.toLocaleUpperCase() ?? '?'}</span>
+          <Show when={active()?.avatar} fallback={<span aria-hidden="true">{Array.from((active() ? choiceLabel(active()!) : '').trim())[0]?.toLocaleUpperCase() ?? '?'}</span>}>
+            {(avatar) => <MailboxAvatar label={choiceLabel(active()!)} address={active()!.address} size="sm" avatar={avatar()} />}
+          </Show>
         </button>
       </Show>
       <Show when={props.error}><span role="alert" class={css.error}>{props.error}</span></Show>
@@ -341,7 +361,7 @@ export function MailboxPicker(props: {
                       title={fullTitle(choice)}
                       onClick={() => choose(choice)}
                     >
-                      <MailboxAvatar label={choiceLabel(choice)} address={choice.address} />
+                      <MailboxAvatar label={choiceLabel(choice)} address={choice.address} avatar={choice.avatar} />
                       <span class={css.itemText}>
                         <span class={css.itemName} data-mailbox-label>{isolate(choiceLabel(choice))}</span>
                         <Show when={choiceLabel(choice) !== choice.address}><span class={css.itemAddress}>{isolate(choice.address)}</span></Show>
