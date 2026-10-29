@@ -183,6 +183,14 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
     });
   }
 
+  // A Task/get answer without a `list` (a stubbed or partial backend) is not
+  // an empty list: taking it for one would mark every shown task deleted
+  // elsewhere. The rows shown stay as they are.
+  function applyAnswer(res: JmapResponse, scope: Id | undefined, sentAt: number): void {
+    const list = responseFor<TaskGetResponse>(res, 'g').list as Task[] | undefined;
+    if (Array.isArray(list)) applyLoad(list, scope, sentAt);
+  }
+
   // Each `loadTasks()` / `selectList()` takes a ticket when it is called. Calls
   // overlap (opening Tasks starts two loads; a list click starts another), and
   // one that started earlier can answer last; only the call holding the latest
@@ -218,7 +226,7 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
       const sentAt = writes.loadSent();
       const taskRes = await client.jmap(tasksQueryGet(acct, listId));
       if (stale()) return;
-      applyLoad(responseFor<TaskGetResponse>(taskRes, 'g').list, listId, sentAt);
+      applyAnswer(taskRes, listId, sentAt);
     } finally {
       // The latest call ends the loading state; a dropped one leaves it alone.
       if (!stale()) setTasksLoading(false);
@@ -236,7 +244,7 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
       const sentAt = writes.loadSent();
       const res = await client.jmap(tasksQueryGet(acct, id ?? undefined));
       if (stale()) return;
-      applyLoad(responseFor<TaskGetResponse>(res, 'g').list, id ?? undefined, sentAt);
+      applyAnswer(res, id ?? undefined, sentAt);
     } finally {
       if (!stale()) setTasksLoading(false);
     }

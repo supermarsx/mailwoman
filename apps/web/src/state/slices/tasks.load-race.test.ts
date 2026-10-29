@@ -224,3 +224,34 @@ describe('tasks slice — overlapping loads', () => {
     });
   });
 });
+
+// t84: a Task/get answer without `list` (a stubbed or partial backend) threw
+// inside `merge()`; the rejection of a `void app.loadTasks()` went unhandled
+// (coverage run on fcaef3f7). It is now ignored: the rows shown stay, none is
+// taken for deleted elsewhere, and the loading state ends.
+describe('tasks slice — a Task/get answer without a list', () => {
+  it('keeps the shown rows and does not reject', async () => {
+    const { client } = harness([]);
+    let partial = false;
+    const real = client.jmap.bind(client);
+    (client as { jmap: Client['jmap'] }).jmap = (async (body: JmapRequest) => {
+      const res = await real(body);
+      if (!partial || body.methodCalls[0]![0] !== 'Task/query') return res;
+      return {
+        methodResponses: res.methodResponses.map((call) => (call[2] === 'g' ? [call[0], {}, 'g'] : call)),
+      } as unknown as JmapResponse;
+    }) as Client['jmap'];
+    await withSlice(client, async (s) => {
+      await s.loadTasks();
+      expect(s.tasks().map((t) => t.id).sort()).toEqual(['t1', 't2']);
+
+      partial = true;
+      await expect(s.loadTasks()).resolves.toBeUndefined();
+      await expect(s.selectList(null)).resolves.toBeUndefined();
+
+      expect(s.tasks().map((t) => t.id).sort()).toEqual(['t1', 't2']);
+      expect(s.taskDeletedElsewhere('t1')).toBe(false);
+      expect(s.tasksLoading()).toBe(false);
+    });
+  });
+});
