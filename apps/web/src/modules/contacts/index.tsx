@@ -241,7 +241,11 @@ function Sidebar(props: {
 
       <h2 class={css.heading}>
         <span>{t('contacts-groups')}</span>
-        <button type="button" class={css.buttonGhost} aria-label={t('contacts-new-group')} onClick={props.onNewGroup}><Icon name="plus" /></button>
+        <span class={css.headingActions}>
+          {/* t39 R6: the membership page sits beside New group, so the sidebar gains no row. */}
+          <button type="button" class={css.buttonGhost} aria-label={t('contacts-membership-title')} title={t('contacts-membership-title')} onClick={props.onMembership}><Icon name="users" /></button>
+          <button type="button" class={css.buttonGhost} aria-label={t('contacts-new-group')} onClick={props.onNewGroup}><Icon name="plus" /></button>
+        </span>
       </h2>
       <For each={app.contactGroups()}>
         {(group) => (
@@ -262,7 +266,6 @@ function Sidebar(props: {
 
       <h2 class={css.heading}>{t('contacts-data')}</h2>
       <button type="button" class={css.navButton} onClick={props.onImport}>{t('contacts-import')}</button>
-      <button type="button" class={css.navButton} onClick={props.onMembership}>{t('contacts-membership-title')}</button>
     </aside>
   );
 }

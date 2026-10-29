@@ -324,3 +324,5 @@ export const actionsStart = style([controls.actions]);
 export const tableScroll = style({ maxInlineSize: '100%', overflowX: 'auto' });
 /** The host of a management page (the page scrolls itself). */
 export const pageHost = style({ height: '100%', minWidth: 0, overflow: 'hidden' });
+/** The buttons at the end of a sidebar heading (membership, new group). */
+export const headingActions = style({ display: 'inline-flex', gap: vars.space[1] });
