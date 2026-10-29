@@ -7,7 +7,9 @@ vi.mock('../../i18n/index.ts',()=>({
   isolate:(value:string)=>value,
   loadCatalog:async()=>undefined,
 }));
-afterEach(cleanup);
+const settingsState=vi.hoisted(()=>({map:{} as Record<string,{value:unknown}>}));
+vi.mock('../../api/settings.ts',()=>({settings:()=>settingsState.map}));
+afterEach(()=>{cleanup();settingsState.map={};});
 
 const choices:MailboxChoice[]=[
   {linkId:null,address:'me@example.org',nickname:'Personal',signIn:true,available:true,unread:4},
@@ -118,5 +120,18 @@ describe('mailbox picker (a switcher only, t48 k)',()=>{
     expect(screen.queryByRole('button')).toBeNull();
     expect(screen.getByText('me@example.org')).toBeVisible();
     expect(screen.getByRole('img',{name:'mail-account-active:me@example.org'})).not.toHaveAttribute('aria-haspopup');
+  });
+  // t39: the bubble beside the mailbox name is opt-in; the menu keeps its counts.
+  it('shows no unread bubble beside the mailbox name by default, but keeps the menu counts',()=>{
+    render(()=><><MailboxPlain variant="full" address="solo@example.org" unread={3}/><MailboxPicker variant="full" choices={choices} activeLinkId={null} busy={false} onSelect={vi.fn()}/></>);
+    expect(document.querySelectorAll('[data-account-indicator] [data-mailbox-unread]')).toHaveLength(0);
+    fireEvent.click(document.querySelector('button[data-account-indicator="picker"]')!);
+    const menu=screen.getByRole('menu');
+    expect(within(menu).getAllByRole('menuitemradio')[0]).toHaveTextContent('linked-accounts-unread:4');
+  });
+  it('shows the bubble beside the mailbox name when mail.accountUnreadBadge is on',()=>{
+    settingsState.map={'mail.accountUnreadBadge':{value:true}};
+    render(()=><><MailboxPlain variant="full" address="solo@example.org" unread={3}/><MailboxPicker variant="full" choices={choices} activeLinkId={null} busy={false} onSelect={vi.fn()}/></>);
+    expect(document.querySelectorAll('[data-account-indicator] [data-mailbox-unread]')).toHaveLength(2);
   });
 });

@@ -22,6 +22,7 @@ import { Icon } from '../Icon.tsx';
 import { avatarPresentation } from '../PersonAvatar.tsx';
 import * as a11y from '../mailA11y.css.ts';
 import * as css from './accountIndicator.css.ts';
+import { accountUnreadBadge } from '../../api/countBadges.ts';
 import '../person-avatar.css';
 import '../senderIcons/palette.css';
 
@@ -88,7 +89,7 @@ export function MailboxPlain(props: { variant: 'full' | 'icon'; address: string;
       fallback={
         <span class={css.plain} data-account-indicator="plain" title={props.nickname ? `${props.nickname}\n${props.address}` : props.address} data-account-address>
           <span class={css.plainText}>{isolate(props.nickname || props.address)}</span>
-          <UnreadBadge count={props.unread} />
+          <Show when={accountUnreadBadge()}><UnreadBadge count={props.unread} /></Show>
         </span>
       }
     >
@@ -278,7 +279,8 @@ export function MailboxPicker(props: {
               <span class={css.triggerAddress} data-mailbox-label>{isolate(active()?.nickname || (active()?.address ?? ''))}</span>
               <Show when={active()?.nickname}><span class={css.triggerSecondary}>{isolate(active()!.address)}</span></Show>
             </span>
-            <UnreadBadge count={active()?.unread ?? null} />
+            {/* The head bubble is opt-in (t39); the menu entries keep their counts. */}
+            <Show when={accountUnreadBadge()}><UnreadBadge count={active()?.unread ?? null} /></Show>
             <span class={css.chevron} aria-hidden="true"><Icon name="chevronDown" /></span>
           </button>
         }
