@@ -72,11 +72,49 @@ async function mintKey(page: Page): Promise<void> {
   await generatePgpKey(page, { email: self, passphrase, name: 'Test User' });
 }
 
-async function openCompose(page: Page, subject: string, body: string): Promise<ReturnType<Page['locator']>> {
+/**
+ * Send as `self` (the key's User ID). The Greenmail login is the bare `testuser`, so
+ * the default identity's From has no domain; the stack offers `self` as a second
+ * identity (MW_ALLOWED_FROMS). The reader looks the signer's key up by the From
+ * address, and a From without a domain matches no key, so a message that must
+ * VERIFY on receipt has to be sent from the address its signing key is bound to.
+ * Since e0c99a79 the From picker is shown by the ribbon's From toggle (folded into
+ * "More Recipients commands" at narrower widths, t38-e5); same steps as
+ * compose-options.spec.ts.
+ */
+async function sendAsSelf(dialog: ReturnType<Page['locator']>): Promise<void> {
+  const fromToggle = dialog.getByRole('button', { name: 'From', exact: true });
+  const moreRecipients = dialog.getByRole('button', { name: 'More Recipients commands', exact: true });
+  const from = dialog.getByRole('combobox', { name: 'From', exact: true });
+  await expect(async () => {
+    if (await from.isVisible()) return;
+    if (!(await fromToggle.isVisible()) && (await moreRecipients.isVisible())
+      && (await moreRecipients.getAttribute('aria-expanded')) !== 'true') await moreRecipients.click();
+    if ((await fromToggle.getAttribute('aria-pressed', { timeout: 1_000 })) !== 'true') await fromToggle.click({ timeout: 1_000 });
+    await expect(from).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
+  let value: string | undefined;
+  await expect(async () => {
+    const options = await from
+      .locator('option')
+      .evaluateAll((els) => els.map((o) => ({ value: (o as HTMLOptionElement).value, text: o.textContent ?? '' })));
+    value = options.find((o) => o.text.includes(`<${self}>`))?.value;
+    expect(value, `the stack offers ${self} as a sending identity (MW_ALLOWED_FROMS): ${JSON.stringify(options)}`).toBeTruthy();
+  }).toPass({ timeout: 10_000 });
+  await from.selectOption(value!);
+}
+
+async function openCompose(
+  page: Page,
+  subject: string,
+  body: string,
+  opts: { fromSelf?: boolean } = {},
+): Promise<ReturnType<Page['locator']>> {
   await page.getByRole('button', { name: 'Compose', exact: true }).click();
   // Compose is a workspace tab region since 24fb6149 (helpers.composeSurface).
   const dialog = composeSurface(page);
   await expect(dialog).toBeVisible();
+  if (opts.fromSelf === true) await sendAsSelf(dialog);
   await dialog.getByLabel('To', { exact: true }).fill(self);
   await dialog.getByLabel('Subject', { exact: true }).fill(subject);
   await dialog.getByLabel('Body', { exact: true }).fill(body);
@@ -199,7 +237,7 @@ test('encrypt+sign (folded via signWithKeyRef) produces a signed-and-encrypted d
   await engineLogin(page);
   await mintKey(page);
 
-  const dialog = await openCompose(page, subject, marker);
+  const dialog = await openCompose(page, subject, marker, { fromSelf: true });
   await expect(dialog.locator('[data-testid="compose-crypto-banner"]')).toHaveAttribute(
     'data-capability',
     'e2ee',
@@ -237,9 +275,13 @@ test('encrypt+sign (folded via signWithKeyRef) produces a signed-and-encrypted d
   await expect((await readerContent(page)).contentFrame().getByText(marker)).toBeVisible({ // nested content frame since 99f51b81
     timeout: 20_000,
   });
-  // Expand the security chip (the reader header's aria-expanded control) and assert the
-  // client-side decrypt+verify reported the embedded signature as VERIFIED.
-  await page.locator('.reader__header button[aria-expanded]').first().click();
+  // Expand the security chip and assert the client-side decrypt+verify reported the
+  // embedded signature as VERIFIED. The chip renders once the server verdict has
+  // loaded, and the header has other aria-expanded controls (View conversation), so
+  // match the chip by the dialog it opens (SecurityPanel.tsx).
+  const chip = page.locator('.reader__header button[aria-haspopup="dialog"][aria-controls]');
+  await expect(chip).toBeVisible({ timeout: 20_000 });
+  await chip.click();
   await expect(
     page.getByRole('region', { name: 'Message security details' }).getByText('Signature verified'),
   ).toBeVisible({ timeout: 10_000 });
