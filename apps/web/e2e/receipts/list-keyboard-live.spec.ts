@@ -138,10 +138,11 @@ test.describe('message list keyboard', () => {
   });
 
   // t51: opening a message never takes focus off the row that opened it while
-  // that list is on screen; the message shows in its tab and a polite status
+  // that list is on screen; the message shows in the reading pane (t74) and a polite status
   // names it. Where the reader covers the list (phone, reading pane Off) focus
   // goes to the reader's subject rather than falling to <body>.
   const activeTab = (page: Page) => page.locator('[role=tab][aria-selected="true"]');
+  const readingPane = (page: Page) => page.getByTestId('reading-pane').locator('.reader__subject');
   const focusedFolderRow = (page: Page) => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset['folderMessage'] ?? null);
   async function pane(page: Page, mode: 'right' | 'bottom' | 'off'): Promise<void> {
     await page.getByTestId(`reading-pane-${mode}`).click();
@@ -160,7 +161,9 @@ test.describe('message list keyboard', () => {
         const first = await subjectAt(page, 2);
         await rows(page).nth(2).click();
         await expect(page.getByRole('heading', { name: first, exact: true }).first()).toBeVisible();
-        await expect(activeTab(page)).toHaveText(first);
+        // t74: the reading pane shows it; the Mail tab stays selected and no tab is added.
+        await expect(readingPane(page)).toHaveText(first);
+        await expect(page.getByRole('tab', { name: 'Mail', exact: true })).toHaveAttribute('aria-selected', 'true');
         await page.waitForTimeout(1500); // past the delayed mark-read
         await expectFocused(page, 2);
         await expect(page.getByTestId('message-opened-status')).toHaveText(`Opened: ${first}`);
@@ -170,7 +173,7 @@ test.describe('message list keyboard', () => {
         const second = await subjectAt(page, 3);
         await page.keyboard.press('Enter');
         await expect(page.getByRole('heading', { name: second, exact: true }).first()).toBeVisible();
-        await expect(activeTab(page)).toHaveText(second);
+        await expect(readingPane(page)).toHaveText(second);
         await page.waitForTimeout(1500);
         await expectFocused(page, 3);
 
