@@ -271,6 +271,9 @@ impl SettingDef {
         self.scopes == Scopes::GlobalDomainUser
             || PUBLIC_KEYS.contains(&self.key)
             || self.key == "receipts.dsnAllowed"
+            // t39-e7: the storage meter warns at the admin's thresholds; the
+            // user reads them and cannot change them (scope is global/domain).
+            || matches!(self.key, "quota.warnEnabled" | "quota.warnThresholds")
     }
 
     /// Whether a value is re-read at the point of use (R-CFG 6).
@@ -3497,6 +3500,17 @@ mod tests {
             }
         }
         assert!(missing.is_empty(), "missing: {missing:?}");
+    }
+
+    /// t39-e7: the quota warning policy reaches the user's settings map, read
+    /// only: no user scope, so a user write is refused.
+    #[test]
+    fn quota_warning_policy_is_visible_to_users_but_not_theirs_to_set() {
+        for key in ["quota.warnEnabled", "quota.warnThresholds"] {
+            let d = lookup(key).unwrap_or_else(|| panic!("{key} is registered"));
+            assert!(d.user_visible(), "{key}");
+            assert!(!d.scopes.allows(SettingScope::User), "{key}");
+        }
     }
 
     /// t55: the loading-images notification is an on/off presentation key,
