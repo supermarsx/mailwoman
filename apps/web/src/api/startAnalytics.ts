@@ -1,7 +1,7 @@
 import { createEffect, createSignal, onCleanup } from 'solid-js';
 import { parseHash, type ShellRoute } from '../shell/router.ts';
 import { observePreferenceAccount, type PreferenceAccount } from './accountPreferenceLifecycle.ts';
-import { accountUiPreferences, accountUiPreferenceStatus } from './accountPreferences.ts';
+import { accountUiPreferences, accountUiPreferenceStatus, setAccountUiPreferences } from './accountPreferences.ts';
 import { analyticsPrivacySignal, analyticsScreen, createAnalyticsReporter } from './analytics.ts';
 
 /**
@@ -73,7 +73,7 @@ export function severThirdPartyNetwork(win: Window & typeof globalThis = window)
  * a withdrawal, another account signing in, or the admin console being used,
  * cuts off and reloads every tab that runs a tag.
  */
-export function createTagGuard(served: string | null, reload: () => void, sever: () => void = () => {}, announce: () => void = () => {}) {
+export function createTagGuard(served: string | null, reload: () => void, sever: () => void = () => {}, announce: () => void = () => {}, retry: (attempt: number) => void = () => {}) {
   let servedFor: string | null = null;
   let severed = false;
   let reloaded = false;
@@ -83,6 +83,7 @@ export function createTagGuard(served: string | null, reload: () => void, sever:
   // Has this tab seen the account's consent equal to this document's? Only
   // then can a non-matching value be this tab's own withdrawal.
   let seen = false;
+  let attempts = 0;
   const announceOnce = (): void => { if (!announced) { announced = true; announce(); } };
   return {
     account(account: PreferenceAccount | null): void {
@@ -108,8 +109,10 @@ export function createTagGuard(served: string | null, reload: () => void, sever:
      *  - `saving` after this tab saw the consent: a local withdrawal on its way.
      *    Cut off now, reload once it is saved.
      *  - `error` after this tab saw the consent: that withdrawal failed to save.
-     *    Cut off and reload (the server still holds the old consent, so the
-     *    reloaded page asks again); other tabs are not told.
+     *    Stay cut off and retry the save with backoff (t63 F1). Reloading here
+     *    would serve the tag again (the server still holds the consent) and,
+     *    with the pending write replayed, loop. Other tabs are not told until
+     *    the save succeeds.
      *  - `error` before the consent was ever seen is a failed LOAD, which says
      *    nothing about consent: the tag is left alone, so a persistent failure
      *    cannot reload-loop every tab.
@@ -123,7 +126,7 @@ export function createTagGuard(served: string | null, reload: () => void, sever:
       if (status === 'synced') { cut(); announceOnce(); reloadOnce(); return; }
       if (!seen) return;
       cut();
-      if (status === 'error') reloadOnce();
+      if (status === 'error') retry(attempts++);
     },
   };
 }
@@ -152,8 +155,14 @@ export function startAnalytics(): void {
   // reload on its own withdrawal before the change is saved.
   let channel: BroadcastChannel | null = null;
   try { channel = new BroadcastChannel(ANALYTICS_CHANNEL); } catch { channel = null; }
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
   const guard = createTagGuard(documentAnalyticsTag(), () => { location.reload(); }, () => { severThirdPartyNetwork(); },
-    () => { try { channel?.postMessage({ type: 'revoke' }); } catch { /* closed */ } });
+    () => { try { channel?.postMessage({ type: 'revoke' }); } catch { /* closed */ } },
+    // Save the withdrawal again: 1 s, 2 s, 4 s … up to a minute.
+    attempt => {
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => { setAccountUiPreferences({ analyticsTagConsent: accountUiPreferences().analyticsTagConsent ?? '' }); }, Math.min(60_000, 1000 * 2 ** attempt));
+    });
   if (channel) {
     channel.onmessage = (event: MessageEvent<unknown>) => {
       if ((event.data as { type?: unknown } | null)?.type === 'revoke') guard.revoked();
@@ -178,5 +187,5 @@ export function startAnalytics(): void {
   // the server decides again (t63 T4).
   const pageshow = (event: PageTransitionEvent): void => { if (event.persisted) guard.revoked(); };
   window.addEventListener('pageshow', pageshow);
-  onCleanup(() => { reporter.stop(); stopAccount(); channel?.close(); window.removeEventListener('pageshow', pageshow); document.removeEventListener('visibilitychange', visibility); });
+  onCleanup(() => { clearTimeout(retryTimer); reporter.stop(); stopAccount(); channel?.close(); window.removeEventListener('pageshow', pageshow); document.removeEventListener('visibilitychange', visibility); });
 }

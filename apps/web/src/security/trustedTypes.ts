@@ -166,10 +166,17 @@ export interface TrustedTypesShim {
  * {@link isAnalyticsScriptUrl} for the origins the server admitted for this
  * document's analytics tag, and throws otherwise.
  */
-export function installTrustedTypesPolicy(): void {
-  const tt = (window as Window & { trustedTypes?: TrustedTypesShim }).trustedTypes;
-  if (tt === undefined || tt.defaultPolicy !== null) return;
-  const analytics = analyticsScriptOrigins();
+export function installTrustedTypesPolicy(doc: Document = document, tt: TrustedTypesShim | undefined = (window as Window & { trustedTypes?: TrustedTypesShim }).trustedTypes): void {
+  if (tt === undefined) return;
+  // A page served with a browser analytics tag lists only the app's two policy
+  // names. If either already exists, something ran before the app and owns it:
+  // refuse to start rather than render through it (t63 F2).
+  const tagged = doc.querySelector('meta[name="mw-analytics"]') !== null;
+  if (tt.defaultPolicy !== null) {
+    if (tagged) refuseTaggedStart(doc, 'a default Trusted Types policy already exists');
+    return;
+  }
+  const analytics = analyticsScriptOrigins(doc);
   tt.createPolicy('default', {
     createHTML: (html) => html,
     createScriptURL: (url) => {
@@ -180,7 +187,17 @@ export function installTrustedTypesPolicy(): void {
       );
     },
   });
-  reserveSveltePolicy(tt);
+  if (!reserveSveltePolicy(tt) && tagged) refuseTaggedStart(doc, `the ${SVELTE_POLICY} policy already exists`);
+}
+
+/**
+ * Stop a tagged page from starting: drop the marker the analytics loader
+ * requires (so a not-yet-run loader stands down) and throw, which ends the
+ * entry module before anything renders.
+ */
+function refuseTaggedStart(doc: Document, why: string): never {
+  for (const meta of doc.querySelectorAll('meta[name="mw-analytics"]')) meta.remove();
+  throw new Error(`Trusted Types: ${why} before the app started; refusing to start a page with an analytics tag.`);
 }
 
 /** The policy Svelte (the ALTCHA widget) creates when its module loads. */
@@ -195,12 +212,12 @@ export const SVELTE_POLICY = 'svelte-trusted-html';
  * a duplicate-name error. Any other name goes to the browser, which refuses
  * names the page's policy does not list.
  */
-export function reserveSveltePolicy(tt: TrustedTypesShim): void {
+export function reserveSveltePolicy(tt: TrustedTypesShim): boolean {
   let svelte: unknown;
   try {
     svelte = tt.createPolicy(SVELTE_POLICY, { createHTML: (html) => html, createScriptURL: () => { throw new TypeError('Trusted Types: svelte-trusted-html creates HTML only.'); } });
   } catch {
-    return;
+    return false;
   }
   const create = tt.createPolicy.bind(tt);
   try {
@@ -210,4 +227,5 @@ export function reserveSveltePolicy(tt: TrustedTypesShim): void {
       value: (name: string, rules: Parameters<TrustedTypesShim['createPolicy']>[1]) => name === SVELTE_POLICY ? svelte : create(name, rules),
     });
   } catch { /* frozen factory: Svelte's own call may then fail, as before */ }
+  return true;
 }

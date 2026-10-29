@@ -112,3 +112,38 @@ describe('reserveSveltePolicy', () => {
     expect(() => { (tt as { createPolicy: unknown }).createPolicy = () => null; }).toThrow();
   });
 });
+
+// t63 F2: on a tagged page, a policy name the app owns already being taken is fatal.
+describe('installTrustedTypesPolicy on a tagged page', () => {
+  function tagged(head = '<meta name="mw-analytics" content="https://plausible.io">'): Document {
+    const d = document.implementation.createHTMLDocument('t');
+    d.head.innerHTML = head;
+    return d;
+  }
+  const factory = (existing: string[] = []) => {
+    const created = [...existing];
+    return { created, tt: { get defaultPolicy() { return created.includes('default') ? {} : null; }, createPolicy(name: string, _rules?: unknown) { if (created.includes(name)) throw new TypeError('duplicate'); created.push(name); return { name }; } } };
+  };
+  it('refuses to start, and removes the tag marker, when default already exists', async () => {
+    const { installTrustedTypesPolicy } = await import('./trustedTypes.ts');
+    const d = tagged(); const { tt } = factory(['default']);
+    expect(() => installTrustedTypesPolicy(d, tt)).toThrow(/refusing to start/);
+    expect(d.querySelector('meta[name="mw-analytics"]')).toBeNull();
+  });
+  it('refuses to start when svelte-trusted-html was taken first', async () => {
+    const { installTrustedTypesPolicy } = await import('./trustedTypes.ts');
+    const d = tagged(); const { tt } = factory(['svelte-trusted-html']);
+    expect(() => installTrustedTypesPolicy(d, tt)).toThrow(/svelte-trusted-html/);
+  });
+  it('an untagged page keeps the old behaviour', async () => {
+    const { installTrustedTypesPolicy } = await import('./trustedTypes.ts');
+    const { tt } = factory(['default']);
+    expect(() => installTrustedTypesPolicy(tagged(''), tt)).not.toThrow();
+  });
+  it('a tagged page starts normally when it creates both first', async () => {
+    const { installTrustedTypesPolicy } = await import('./trustedTypes.ts');
+    const { tt, created } = factory();
+    expect(() => installTrustedTypesPolicy(tagged(), tt)).not.toThrow();
+    expect(created).toEqual(['default', 'svelte-trusted-html']);
+  });
+});

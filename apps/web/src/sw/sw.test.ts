@@ -102,11 +102,11 @@ describe('what the worker stores', () => {
     expect(sw.caches.urls()).toEqual([`${ORIGIN}/api/sso/providers`, `${ORIGIN}/api/push/vapid`]);
 
     // Network-first: a later answer replaces what the caller sees.
-    sw.network.fetch = async () => reply('{"providers":[1]}', 'application/json');
-    expect(await (await sw.fetch('/api/sso/providers')).response?.text()).toBe('{"providers":[1]}');
+    sw.network.fetch = async () => reply('{"providers":[{"id":"corp","kind":"oidc","displayName":"Corp"}]}', 'application/json');
+    expect(await (await sw.fetch('/api/sso/providers')).response?.text()).toBe('{"providers":[{"id":"corp","kind":"oidc","displayName":"Corp"}]}');
     // Offline: the stored copy is the fallback.
     sw.network.fetch = offline;
-    expect(await (await sw.fetch('/api/sso/providers')).response?.text()).toBe('{"providers":[1]}');
+    expect(await (await sw.fetch('/api/sso/providers')).response?.text()).toBe('{"providers":[{"id":"corp","kind":"oidc","displayName":"Corp"}]}');
   });
 
   it('does not handle a cross-origin request, whatever its shape', async () => {
@@ -345,12 +345,12 @@ describe('bounds', () => {
 
   it('does not serve a config response older than a day', async () => {
     const sw = boot();
-    sw.network.fetch = async () => reply('{"key":"k"}', 'application/json');
+    sw.network.fetch = async () => reply('{"publicKey":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}', 'application/json');
     await sw.fetch('/api/push/vapid');
     sw.network.fetch = offline;
     vi.setSystemTime(T0 + DAY_MS - 1000);
     // Precondition: inside the limit the offline fallback works.
-    expect(await (await sw.fetch('/api/push/vapid')).response?.text()).toBe('{"key":"k"}');
+    expect(await (await sw.fetch('/api/push/vapid')).response?.text()).toBe('{"publicKey":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}');
 
     vi.setSystemTime(T0 + DAY_MS + 1000);
 
@@ -645,10 +645,10 @@ describe('nothing stored is trusted, and the app still works offline', () => {
     await put(sw, '/api/push/vapid', '<script>evil()</script>', { 'content-type': 'text/html' });
     sw.network.fetch = offline;
     expect((await sw.fetch('/api/push/vapid')).response).toBeUndefined();
-    await put(sw, '/api/push/vapid', '{"key":"k"}', { 'content-type': 'text/html' });
+    await put(sw, '/api/push/vapid', '{"publicKey":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}', { 'content-type': 'text/html' });
     const out = await sw.fetch('/api/push/vapid');
     expect(out.response?.headers.get('content-type')).toBe('application/json');
-    expect(await out.response?.json()).toEqual({ key: 'k' });
+    expect(await out.response?.json()).toEqual({"publicKey":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"});
   });
   it('the app\'s own worker gets its wasm from the cache offline; a blob or unknown worker does not', async () => {
     const sw = boot();
@@ -673,4 +673,33 @@ describe('nothing stored is trusted, and the app still works offline', () => {
     expect(await (await sw.fetch('/mail/assets/index-x.css')).response?.text()).toBe('a{src:url(/mail/fonts/a.woff2)}');
     expect((await sw.fetch('/mail/', { mode: 'navigate' })).response?.status).toBe(200);
   });
+});
+
+// t63 F5/F6: the cached public answers keep only the server's shape, and the
+// asset cap follows the build. Both fail on the 6679e250 worker.
+describe('final-check hardening', () => {
+  const put = async (sw: Worker, path: string, body: string) => {
+    const cache = await sw.caches.open(shellCacheName(1));
+    await cache.put(`${ORIGIN}${path}`, new Response(body, { status: 200, headers: { 'content-type': 'application/json', 'x-mw-cached-at': String(Date.now()) } }));
+  };
+  it('a stored provider list with made-up fields or shapes is not served offline', async () => {
+    const sw = boot();
+    sw.network.fetch = offline;
+    await put(sw, '/api/sso/providers', '{"providers":[{"id":"x","kind":"oidc","displayName":"Sign in","href":"https://evil.example"}],"banner":"Your session expired"}');
+    expect(await (await sw.fetch('/api/sso/providers')).response?.json()).toEqual({ providers: [{ id: 'x', kind: 'oidc', displayName: 'Sign in' }] });
+    await put(sw, '/api/sso/providers', '{"providers":[{"id":"x","kind":"oidc","displayName":{"html":"<b>"}}]}');
+    expect((await sw.fetch('/api/sso/providers')).response).toBeUndefined();
+    await put(sw, '/api/push/vapid', '{"publicKey":"short","extra":1}');
+    expect((await sw.fetch('/api/push/vapid')).response).toBeUndefined();
+  });
+  it('the asset cap is twice the manifest, so a large build is not evicted while current', async () => {
+    const digests: Record<string, string> = {};
+    for (let i = 0; i < 400; i += 1) digests[`/assets/a${i}.js`] = digestOf('export{}');
+    const sw = bootWorker(undefined, { digests: defaultDigests(digests) });
+    sw.network.fetch = async () => js();
+    for (let i = 0; i < 600; i += 1) await sw.fetch(`/assets/b${i}.js`);
+    vi.setSystemTime(T0 + 61_000);
+    await sw.fetch('/assets/last.js'); // runs the sweep
+    expect(sw.caches.urls().length).toBe(601);
+  }, 30_000);
 });

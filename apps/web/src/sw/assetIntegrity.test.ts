@@ -63,4 +63,10 @@ describe('mw-asset-integrity', () => {
     writeFileSync(join(out, 'sw.js'), 'const ASSET_DIGESTS = null;');
     expect(() => run(out)).toThrow(/placeholder/);
   });
+  it('gives a modulepreload link SRI too, if Vite emits one', () => {
+    const out = fixture('<!doctype html><head><link rel="modulepreload" crossorigin href="./assets/index-a1.js"><script type="module" crossorigin src="./assets/index-a1.js"></script></head>');
+    run(out);
+    const html = readFileSync(join(out, 'index.html'), 'utf8');
+    expect(html).toContain(`<link rel="modulepreload" crossorigin href="./assets/index-a1.js" integrity="${sri('export{}')}">`);
+  });
 });

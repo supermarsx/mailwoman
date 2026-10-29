@@ -252,9 +252,11 @@ const STAMP_HEADER = 'x-mw-cached-at';
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Per strategy: how many entries may stay and for how long. A full build emits
 // ~250 hashed assets, so 512 holds the current build plus the previous one.
+// The asset cap follows the build (t63 F6): twice the manifest (this build
+// plus the previous one), and never below 512.
 const LIMITS = {
   'network-first': { maxEntries: 8, maxAgeMs: DAY_MS },
-  'cache-first': { maxEntries: 512, maxAgeMs: 30 * DAY_MS },
+  'cache-first': { maxEntries: Math.max(512, ASSET_DIGESTS === null ? 0 : Object.keys(ASSET_DIGESTS).length * 2), maxAgeMs: 30 * DAY_MS },
 };
 // sweep() reads every entry, so it runs at most this often after a store.
 const SWEEP_INTERVAL_MS = 60 * 1000;
@@ -338,6 +340,28 @@ async function purgeCaches() {
   );
 }
 
+/**
+ * The two cached public answers, reduced to the server's own shape (sso.rs
+ * `providers`, push_relay.rs `push_vapid`), or `null`. Any page of this origin
+ * can write the cache, so a stored answer is not served as stored.
+ */
+function publicApiShape(path, body) {
+  const text = (v, max) => typeof v === 'string' && v.length > 0 && v.length <= max;
+  if (path === '/api/push/vapid') {
+    return body && /^[A-Za-z0-9_-]{40,200}$/.test(body.publicKey ?? '') ? { publicKey: body.publicKey } : null;
+  }
+  if (path === '/api/sso/providers') {
+    if (!body || !Array.isArray(body.providers) || body.providers.length > 64) return null;
+    const providers = [];
+    for (const p of body.providers) {
+      if (!p || !/^[A-Za-z0-9_.:-]{1,128}$/.test(p.id ?? '') || !/^[a-z0-9_-]{1,32}$/.test(p.kind ?? '') || !text(p.displayName, 128)) return null;
+      providers.push({ id: p.id, kind: p.kind, displayName: p.displayName });
+    }
+    return { providers };
+  }
+  return null;
+}
+
 async function networkFirst(request) {
   const cache = await openCache();
   try {
@@ -347,10 +371,11 @@ async function networkFirst(request) {
   } catch (err) {
     const cached = await matchCache(cache, request);
     if (cached && isFresh(cached, 'network-first')) {
-      // Served as JSON only if it is JSON; never with the stored headers.
+      // Rebuilt from the fields the app reads, if the stored answer has the
+      // server's shape; never with the stored headers (t63 F5).
       try {
-        const body = JSON.parse(await cached.clone().text());
-        if (body !== null && typeof body === 'object') {
+        const body = publicApiShape(stripBase(new URL(request.url).pathname), JSON.parse(await cached.clone().text()));
+        if (body !== null) {
           return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json', 'x-content-type-options': 'nosniff' } });
         }
       } catch { /* not JSON: not served */ }

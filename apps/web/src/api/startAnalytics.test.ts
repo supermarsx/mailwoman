@@ -114,14 +114,19 @@ describe('cross-tab revocation', () => {
     guard.consent('', false, 'synced');
     expect(announce).toHaveBeenCalledTimes(1);
   });
-  it('a failed save of this tab\'s withdrawal reloads, without telling other tabs', () => {
-    const reload = vi.fn(); const announce = vi.fn();
-    const guard = createTagGuard(KEY, reload, vi.fn(), announce);
+  it('a failed save of this tab\'s withdrawal stays cut off and retries with backoff, never reloading (F1)', () => {
+    const reload = vi.fn(); const announce = vi.fn(); const sever = vi.fn(); const retry = vi.fn();
+    const guard = createTagGuard(KEY, reload, sever, announce, retry);
     guard.consent(KEY, false, 'synced');
-    guard.consent('', false, 'saving');
-    guard.consent('', false, 'error');
-    expect(reload).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 5; i += 1) { guard.consent('', false, 'saving'); guard.consent('', false, 'error'); }
+    expect(reload).not.toHaveBeenCalled();
     expect(announce).not.toHaveBeenCalled();
+    expect(sever).toHaveBeenCalledTimes(1);
+    expect(retry.mock.calls.map(c => c[0])).toEqual([0, 1, 2, 3, 4]);
+    // Once a retry is saved, it is a confirmed withdrawal.
+    guard.consent('', false, 'synced');
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledTimes(1);
   });
   it('a failed or empty preferences LOAD never cuts off, announces or reloads (no loop)', () => {
     const reload = vi.fn(); const sever = vi.fn(); const announce = vi.fn();
