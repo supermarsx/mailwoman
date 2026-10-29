@@ -21,3 +21,25 @@ it('honors administrative locks and offers inherited defaults',()=>{
  fireEvent.click(comparison.querySelector('button[type="button"]')!);
  expect(data.reset).toHaveBeenCalledWith('time.comparisonZone');
 });
+it('asks to discard in the in-app dialog, never window.confirm, and a bulk close that already chose discard does not ask again (t67)',async()=>{
+ const native=vi.spyOn(window,'confirm').mockReturnValue(true);
+ const navigation=createSettingsNavigation({section:'time'});
+ render(()=><TimeZones navigation={navigation}/>);
+ const input=screen.getByLabelText('Comparison time zone');
+ fireEvent.input(input,{target:{value:'America/New_York'}});
+ expect(navigation.isDirty()).toBe(true);
+ // A bulk tab close lists this tab in its own dialog, then closes with discard: no second dialog.
+ await expect(navigation.canLeave(true)).resolves.toBe(true);
+ expect(screen.queryByRole('alertdialog')).toBeNull();
+ // A plain navigation asks once, in the shared ConfirmDialog.
+ const leaving=navigation.canLeave();
+ const dialog=await screen.findByRole('alertdialog');
+ expect(dialog).toHaveTextContent('Discard unsaved time zone changes?');
+ fireEvent.click(screen.getByRole('button',{name:'Keep editing'}));
+ await expect(leaving).resolves.toBe(false);
+ const again=navigation.canLeave();
+ fireEvent.click(await screen.findByRole('button',{name:'Discard changes'}));
+ await expect(again).resolves.toBe(true);
+ expect(native).not.toHaveBeenCalled();
+ native.mockRestore();
+});

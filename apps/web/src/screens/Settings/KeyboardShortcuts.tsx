@@ -1,10 +1,11 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, Show, type JSX } from 'solid-js';
 import { settings } from '../../api/settings.ts';
 import { bindingsFor } from '../../keymap/dispatcher.ts';
 import { resolveCustomBindings, SHORTCUT_ACTIONS, validBinding, type ShortcutAction } from '../../keymap/custom.ts';
 import { loadPrefs } from './prefs.ts';
 import { useSetting } from './useSetting.ts';
 import { LockNote } from './LockNote.tsx';
+import { useLeaveConfirm } from '../../components/confirm.tsx';
 import type { SettingsNavigation } from './navigation.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { t } from '../../i18n';
@@ -17,7 +18,7 @@ function BindingEditor(props: { action: ShortcutAction; navigation: SettingsNavi
   const saved = createMemo(() => binding.value());
   createEffect(() => setValue(saved()));
   const disabled = () => !binding.entry() || binding.locked() || binding.saving();
-  onCleanup(props.navigation.beforeLeave(() => value() === binding.value() || window.confirm(t('settings-shortcuts-discard'))));
+  const LeaveDialog = useLeaveConfirm(props.navigation, () => value() !== binding.value(), () => t('settings-shortcuts-discard'));
   async function save(): Promise<void> {
     const chosen = value().trim();
     if (!validBinding(chosen)) { setError(t('settings-shortcuts-invalid')); return; }
@@ -33,6 +34,7 @@ function BindingEditor(props: { action: ShortcutAction; navigation: SettingsNavi
     <p id="shortcut-binding-help" class={css.meta}>{t('settings-shortcuts-help')}</p><LockNote locked={binding.locked()}/>
     <Show when={error() || binding.error()}><p role="alert">{error() || binding.error()}</p></Show>
     <div class={css.actions}><button type="button" class={css.button} disabled={disabled()} onClick={() => void save()}>{t('settings-shortcuts-save')}</button><button type="button" class={css.ghost} onClick={() => void props.navigation.navigate({ section: 'shortcuts' })}>{t('settings-shortcuts-back')}</button></div>
+    <LeaveDialog/>
   </section>;
 }
 

@@ -1,6 +1,7 @@
 import {createEffect,createSignal,For,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {packagesApi,PackageError,type PackagesApi,type PackagesView,type PackageDraft,type TrackedPackage} from '../../api/packages.ts';
 import {Icon} from '../../components/Icon.tsx';
+import {createConfirm,useLeaveConfirm} from '../../components/confirm.tsx';
 import {t,loadCatalog} from '../../i18n';
 import type {SettingsNavigation} from './navigation.tsx';
 import * as css from './styles.css.ts';
@@ -8,7 +9,7 @@ import * as css from './styles.css.ts';
 function PackageEditor(props:{value?:TrackedPackage;disabled:boolean;save:(value:PackageDraft,id?:string)=>Promise<boolean>;navigation:SettingsNavigation}):JSX.Element {
   const initial={label:props.value?.label??'',trackingNumber:props.value?.trackingNumber??'',carrier:props.value?.carrier??''};
   const [draft,setDraft]=createSignal(initial);const [baseline,setBaseline]=createSignal(JSON.stringify(initial));
-  onCleanup(props.navigation.beforeLeave(()=>JSON.stringify(draft())===baseline()||window.confirm(t('packages-discard'))));
+  const LeaveDialog=useLeaveConfirm(props.navigation,()=>JSON.stringify(draft())!==baseline(),()=>t('packages-discard'));
   async function submit(event:SubmitEvent):Promise<void>{event.preventDefault();if(await props.save(draft(),props.value?.id)){setBaseline(JSON.stringify(draft()));await props.navigation.navigate({section:'packages'});}}
   return <form class={css.section} onSubmit={event=>void submit(event)}>
     <h3 class={css.heading}>{t(props.value?'packages-edit':'packages-add')}</h3>
@@ -16,6 +17,7 @@ function PackageEditor(props:{value?:TrackedPackage;disabled:boolean;save:(value
     <p class={css.meta}>{t('packages-save-local')}</p>
     <div class={css.actions}><button type="submit" class={css.button} disabled={props.disabled||JSON.stringify(draft())===baseline()}>{t('packages-save')}</button><button type="button" class={css.ghost} onClick={()=>void props.navigation.navigate({section:'packages'})}>{t('packages-back')}</button></div>
     <Show when={props.value}><h4>{t('packages-history')}</h4><div class="settings-table-scroll"><table class="settings-shortcut-table settings-package-table"><thead><tr><th>{t('packages-time')}</th><th>{t('packages-location')}</th><th>{t('packages-event')}</th></tr></thead><tbody><For each={props.value?.checkpoints??[]}>{row=><tr><td>{row.time}</td><td>{row.location}</td><td>{row.message}</td></tr>}</For></tbody></table></div></Show>
+    <LeaveDialog/>
   </form>;
 }
 export function Packages(props:{accountId:string;navigation:SettingsNavigation;api?:PackagesApi}):JSX.Element {
@@ -34,7 +36,8 @@ export function Packages(props:{accountId:string;navigation:SettingsNavigation;a
   const disabled=()=>busy()||!view()?.available||!view()?.state.enabled;
   const editor=()=>props.navigation.route().editor;
   const selected=()=>view()?.state.packages.find(row=>row.id===editor()?.id);
-  async function action(row:TrackedPackage,kind:'refresh'|'remove'):Promise<void>{const current=view();if(!current?.revision)return;if(kind==='remove'&&!window.confirm(t('packages-remove-confirm',{name:row.label||row.trackingNumber})))return;await run(()=>api().action(row.id,current.revision!,kind),kind==='refresh'?'packages-refreshed':'packages-removed');}
+  const remove=createConfirm();
+  async function action(row:TrackedPackage,kind:'refresh'|'remove'):Promise<void>{const current=view();if(!current?.revision)return;if(kind==='remove'&&!await remove.ask({title:t('packages-remove-confirm',{name:row.label||row.trackingNumber}),confirmLabel:t('common-remove'),testId:'packages-remove-confirm'}))return;await run(()=>api().action(row.id,current.revision!,kind),kind==='refresh'?'packages-refreshed':'packages-removed');}
   return <section class={css.section} aria-label={t('packages-title')}>
     <h2 class={css.heading}>{t('packages-title')}</h2>
     <Show when={error()}><p role="alert">{error()}</p></Show><Show when={notice()}><p role="status">{notice()}</p></Show>
@@ -47,5 +50,6 @@ export function Packages(props:{accountId:string;navigation:SettingsNavigation;a
         <p class={css.meta}>{t('packages-refresh-help',{seconds:current().refreshSecs})}</p>
       </>}>{route=><Show when={route.kind==='new'||selected()} fallback={<p role="alert">{t('packages-error-packageNotFound')}</p>}><PackageEditor {...(selected()?{value:selected()!}:{})} disabled={disabled()} navigation={props.navigation} save={(draft,id)=>run(()=>api().save(draft,current().revision,id),'packages-saved')}/></Show>}</Show>
     </>}</Show>
+    <remove.Dialog/>
   </section>;
 }

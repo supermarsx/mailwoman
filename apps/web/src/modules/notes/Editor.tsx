@@ -9,6 +9,7 @@ import { Icon, type IconName } from '../../components/Icon.tsx';
 import { For, onMount, createEffect, type JSX } from 'solid-js';
 import { t } from '../../i18n';
 import { sanitizeNoteHtml } from './sanitize.ts';
+import { createPrompt } from '../../components/confirm.tsx';
 
 /** One toolbar command: an `execCommand` name + its icon glyph + a11y title key. */
 interface ToolbarCommand {
@@ -70,11 +71,17 @@ export function NoteEditor(props: NoteEditorProps): JSX.Element {
     emit();
   }
 
-  function insertLink(): void {
-    const url = globalThis.prompt?.(t('notes-link-prompt')) ?? '';
+  // The in-app prompt takes focus, so the selection the link applies to is
+  // kept and put back before the command runs.
+  const linkPrompt = createPrompt();
+  async function insertLink(): Promise<void> {
+    const selection = ref.ownerDocument.getSelection();
+    const range = selection && selection.rangeCount > 0 && ref.contains(selection.getRangeAt(0).commonAncestorContainer) ? selection.getRangeAt(0).cloneRange() : null;
+    const url = await linkPrompt.ask({ title: t('notes-fmt-link'), label: t('notes-link-prompt'), type: 'url', placeholder: 'https://', confirmLabel: t('notes-link-button'), testId: 'note-link-prompt' }) ?? '';
     if (url.length === 0) return;
     typed = true;
     ref.focus();
+    if (range) { const now = ref.ownerDocument.getSelection(); now?.removeAllRanges(); now?.addRange(range); }
     document.execCommand('createLink', false, url);
     emit();
   }
@@ -122,7 +129,7 @@ export function NoteEditor(props: NoteEditorProps): JSX.Element {
           title={t('notes-fmt-link')}
           aria-label={t('notes-fmt-link')}
           onMouseDown={(e) => e.preventDefault()}
-          onClick={insertLink}
+          onClick={() => void insertLink()}
         >
           <Icon name="link" />
         </button>
@@ -138,6 +145,7 @@ export function NoteEditor(props: NoteEditorProps): JSX.Element {
         onInput={typedInput}
         onBlur={emit}
       />
+      <linkPrompt.Dialog />
     </div>
   );
 }

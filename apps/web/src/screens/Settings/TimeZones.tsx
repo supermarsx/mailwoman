@@ -1,9 +1,10 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, Show, type JSX } from 'solid-js';
 import { validTimeZone, supportedTimeZones } from '../../i18n/timezones.ts';
 import {SearchableSelect} from '../../components/SearchableSelect.tsx';
 import { t } from '../../i18n';
 import { useSetting } from './useSetting.ts';
 import { LockNote } from './LockNote.tsx';
+import { useLeaveConfirm } from '../../components/confirm.tsx';
 import type { SettingsNavigation } from './navigation.tsx';
 import * as css from './styles.css.ts';
 
@@ -13,7 +14,7 @@ function ZoneField(props:{kind:'displayZone'|'comparisonZone';navigation:Setting
   const saved=createMemo(()=>setting.value());createEffect(()=>setDraft(saved()));
   const disabled=()=>!setting.entry()||setting.locked()||setting.saving();
   const options=[{value:props.kind==='displayZone'?'local':'',label:t(props.kind==='displayZone'?'settings-time-local':'settings-time-none')},...supportedTimeZones().map(value=>({value,label:value.replaceAll('_',' ')}))];
-  onCleanup(props.navigation.beforeLeave(()=>draft()===setting.value()||window.confirm(t('settings-time-discard'))));
+  const LeaveDialog=useLeaveConfirm(props.navigation,()=>draft()!==setting.value(),()=>t('settings-time-discard'));
   async function save(event:SubmitEvent):Promise<void> {
     event.preventDefault();const value=draft().trim();
     if(!validTimeZone(value)&&!(props.kind==='displayZone'&&value==='local')&&!(props.kind==='comparisonZone'&&value==='')){setError(t('settings-time-invalid'));return;}
@@ -24,6 +25,7 @@ function ZoneField(props:{kind:'displayZone'|'comparisonZone';navigation:Setting
     <p id={`time-${props.kind}-help`} class={css.meta}>{t(`settings-time-${props.kind}-help`)}</p><LockNote locked={setting.locked()}/>
     <Show when={error()||setting.error()}><p role="alert">{error()||setting.error()}</p></Show>
     <div class={css.actions}><button type="submit" class={css.button} disabled={disabled()||draft()===setting.value()}>{t('settings-time-save')}</button><button type="button" class={css.ghost} disabled={disabled()} onClick={()=>void setting.reset()}>{t('reader-inherit')}</button></div>
+    <LeaveDialog/>
   </form>;
 }
 export function TimeZones(props:{navigation:SettingsNavigation}):JSX.Element {

@@ -1,9 +1,10 @@
-import {createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, useContext, type Accessor, type JSX} from 'solid-js';
+import {createEffect, createMemo, createSignal, For, onMount, Show, useContext, type Accessor, type JSX} from 'solid-js';
 import {AppContext} from '../../state/context.ts';
 import {QuotaDetails} from '../../components/QuotaMeter.tsx';
 import {FolderRoles} from './FolderRoles.tsx';
 import {FolderCountPreferences} from './FolderCountPreferences.tsx';
 import {Icon} from '../../components/Icon.tsx';
+import {useLeaveConfirm} from '../../components/confirm.tsx';
 import type {Tag} from '../../state/slices/tags.ts';
 import {accountUiPreferences, accountUiPreferenceStatus, FOLDER_ICONS, retryAccountUiPreferences, setAccountUiPreferences, type AccountUiPreferences, type FolderIcon} from '../../api/accountPreferences.ts';
 import {preferenceAccount, preferenceAccountIsCurrent} from '../../api/accountPreferenceLifecycle.ts';
@@ -26,7 +27,7 @@ function FolderIconEditor(props:{folder:PreferenceFolder;prefs:Accessor<AccountU
  const [labels,setLabels]=createSignal(props.prefs().folderLabels?.[props.folder.id]??[]);
  const snapshot=()=>JSON.stringify([draft(),[...labels()].sort()]);const [baseline,setBaseline]=createSignal(snapshot());
  const choices=()=>[...new Set([...props.tags().map(tag=>tag.id),...labels()])];
- onCleanup(props.navigation.beforeLeave(()=>snapshot()===baseline()||window.confirm(t(pending()?'settings-folders-leave-pending':'settings-folders-discard'))));
+ const LeaveDialog=useLeaveConfirm(props.navigation,()=>snapshot()!==baseline(),()=>t(pending()?'settings-folders-leave-pending':'settings-folders-discard'));
  createEffect(()=>{if(pending()&&accountUiPreferenceStatus()==='synced'&&owner&&preferenceAccountIsCurrent(owner)){setBaseline(snapshot());void props.navigation.navigate({section:'folders'});}});
  function save():void {
   if(!props.local&&(!owner||!preferenceAccountIsCurrent(owner)))return;
@@ -47,6 +48,7 @@ function FolderIconEditor(props:{folder:PreferenceFolder;prefs:Accessor<AccountU
   <Show when={choices().length}><fieldset class={css.section}><legend>{t('settings-folder-labels')}</legend><p class={css.meta}>{t('settings-folder-labels-help')}</p><For each={choices()}>{id=><label class={css.check}><input class={css.checkbox} type="checkbox" checked={labels().includes(id)} disabled={pending()||(!labels().includes(id)&&labels().length>=32)} onChange={event=>setLabels(value=>event.currentTarget.checked?[...value,id]:value.filter(label=>label!==id))}/>{props.tags().find(tag=>tag.id===id)?.name??id}</label>}</For></fieldset></Show>
   <Show when={pending()}><p role="status">{t(`settings-folders-sync-${accountUiPreferenceStatus()}`)}</p><Show when={accountUiPreferenceStatus()==='error'}><button class={css.ghost} onClick={()=>void retryAccountUiPreferences()}>{t('settings-folders-retry')}</button></Show></Show>
   <div class={css.actions}><button type="button" class={css.button} disabled={pending()||snapshot()===baseline()} onClick={save}>{t('settings-folders-save')}</button><button type="button" class={css.ghost} onClick={()=>void props.navigation.navigate({section:'folders'})}>{t('settings-folders-back')}</button></div>
+  <LeaveDialog/>
  </section>;
 }
 export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
