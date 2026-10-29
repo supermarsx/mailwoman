@@ -29,7 +29,7 @@ pub struct ParsedIcal {
 
 // ── generic property helpers ────────────────────────────────────────────────
 
-fn find<'a>(c: &'a PComponent<'a>, name: &str) -> Option<&'a PProperty<'a>> {
+pub(crate) fn find<'a>(c: &'a PComponent<'a>, name: &str) -> Option<&'a PProperty<'a>> {
     c.properties
         .iter()
         .find(|p| p.name.as_str().eq_ignore_ascii_case(name))
@@ -94,18 +94,22 @@ fn param_value(val: &str) -> String {
     }
 }
 
-fn prop(name: &str, val: String) -> PProperty<'static> {
+pub(crate) fn prop(name: &str, val: String) -> PProperty<'static> {
     prop_p(name, val, vec![])
 }
 
-fn param(key: &str, val: &str) -> PParameter<'static> {
+pub(crate) fn param(key: &str, val: &str) -> PParameter<'static> {
     PParameter {
         key: key.to_string().into(),
         val: Some(param_value(val).into()),
     }
 }
 
-fn prop_p(name: &str, val: String, params: Vec<PParameter<'static>>) -> PProperty<'static> {
+pub(crate) fn prop_p(
+    name: &str,
+    val: String,
+    params: Vec<PParameter<'static>>,
+) -> PProperty<'static> {
     PProperty {
         name: name.to_string().into(),
         val: line_value(val).into(),
@@ -118,7 +122,7 @@ fn prop_p(name: &str, val: String, params: Vec<PParameter<'static>>) -> PPropert
 /// `.ics` files fold long lines (and the `icalendar` serializer folds at 75
 /// octets), but the low-level `read_calendar` parser does not unfold, so we do
 /// it before handing bytes to the parser.
-fn unfold(s: &str) -> String {
+pub(crate) fn unfold(s: &str) -> String {
     s.replace("\r\n ", "")
         .replace("\r\n\t", "")
         .replace("\n ", "")
@@ -127,7 +131,7 @@ fn unfold(s: &str) -> String {
 
 /// RFC 5545 TEXT escaping (backslash, semicolon, comma, newline). A line break
 /// in any spelling — CRLF, a bare LF or a bare CR — is written as `\n`.
-fn esc(s: &str) -> String {
+pub(crate) fn esc(s: &str) -> String {
     s.replace("\r\n", "\n")
         .replace('\r', "\n")
         .replace('\\', "\\\\")
@@ -178,7 +182,7 @@ fn read_datetime(c: &PComponent, name: &str) -> Option<(String, Option<String>, 
     let tz = if parsed.is_utc {
         Some("UTC".to_string())
     } else {
-        get_param(p, "TZID").map(|s| s.to_string())
+        get_param(p, "TZID").map(dt::resolve_tzid)
     };
     Some((parsed.local, tz, parsed.is_date))
 }

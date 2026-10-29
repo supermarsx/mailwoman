@@ -151,3 +151,138 @@ pub fn iso_duration_to_secs(raw: &str) -> Option<i64> {
     }
     Some(sign * total)
 }
+
+/// Windows time-zone names (what Outlook and Exchange write as `TZID`) mapped
+/// to their IANA zone, for the zones most invitations use. The list follows
+/// CLDR `windowsZones.xml` (territory 001).
+const WINDOWS_ZONES: &[(&str, &str)] = &[
+    ("Dateline Standard Time", "Etc/GMT+12"),
+    ("Hawaiian Standard Time", "Pacific/Honolulu"),
+    ("Alaskan Standard Time", "America/Anchorage"),
+    ("Pacific Standard Time", "America/Los_Angeles"),
+    ("US Mountain Standard Time", "America/Phoenix"),
+    ("Mountain Standard Time", "America/Denver"),
+    ("Central America Standard Time", "America/Guatemala"),
+    ("Central Standard Time", "America/Chicago"),
+    ("Central Standard Time (Mexico)", "America/Mexico_City"),
+    ("Canada Central Standard Time", "America/Regina"),
+    ("SA Pacific Standard Time", "America/Bogota"),
+    ("Eastern Standard Time", "America/New_York"),
+    ("US Eastern Standard Time", "America/Indianapolis"),
+    ("Atlantic Standard Time", "America/Halifax"),
+    ("SA Western Standard Time", "America/La_Paz"),
+    ("Pacific SA Standard Time", "America/Santiago"),
+    ("Newfoundland Standard Time", "America/St_Johns"),
+    ("E. South America Standard Time", "America/Sao_Paulo"),
+    ("Argentina Standard Time", "America/Buenos_Aires"),
+    ("SA Eastern Standard Time", "America/Cayenne"),
+    ("Greenland Standard Time", "America/Godthab"),
+    ("UTC-02", "Etc/GMT+2"),
+    ("Azores Standard Time", "Atlantic/Azores"),
+    ("Cape Verde Standard Time", "Atlantic/Cape_Verde"),
+    ("UTC", "Etc/UTC"),
+    ("GMT Standard Time", "Europe/London"),
+    ("Greenwich Standard Time", "Atlantic/Reykjavik"),
+    ("W. Europe Standard Time", "Europe/Berlin"),
+    ("Central Europe Standard Time", "Europe/Budapest"),
+    ("Romance Standard Time", "Europe/Paris"),
+    ("Central European Standard Time", "Europe/Warsaw"),
+    ("W. Central Africa Standard Time", "Africa/Lagos"),
+    ("Morocco Standard Time", "Africa/Casablanca"),
+    ("GTB Standard Time", "Europe/Bucharest"),
+    ("E. Europe Standard Time", "Europe/Chisinau"),
+    ("Egypt Standard Time", "Africa/Cairo"),
+    ("FLE Standard Time", "Europe/Kiev"),
+    ("Israel Standard Time", "Asia/Jerusalem"),
+    ("South Africa Standard Time", "Africa/Johannesburg"),
+    ("Turkey Standard Time", "Europe/Istanbul"),
+    ("Arabic Standard Time", "Asia/Baghdad"),
+    ("Arab Standard Time", "Asia/Riyadh"),
+    ("Russian Standard Time", "Europe/Moscow"),
+    ("E. Africa Standard Time", "Africa/Nairobi"),
+    ("Iran Standard Time", "Asia/Tehran"),
+    ("Arabian Standard Time", "Asia/Dubai"),
+    ("Afghanistan Standard Time", "Asia/Kabul"),
+    ("Pakistan Standard Time", "Asia/Karachi"),
+    ("West Asia Standard Time", "Asia/Tashkent"),
+    ("India Standard Time", "Asia/Calcutta"),
+    ("Sri Lanka Standard Time", "Asia/Colombo"),
+    ("Nepal Standard Time", "Asia/Katmandu"),
+    ("Bangladesh Standard Time", "Asia/Dhaka"),
+    ("Myanmar Standard Time", "Asia/Rangoon"),
+    ("SE Asia Standard Time", "Asia/Bangkok"),
+    ("China Standard Time", "Asia/Shanghai"),
+    ("Singapore Standard Time", "Asia/Singapore"),
+    ("Taipei Standard Time", "Asia/Taipei"),
+    ("W. Australia Standard Time", "Australia/Perth"),
+    ("Tokyo Standard Time", "Asia/Tokyo"),
+    ("Korea Standard Time", "Asia/Seoul"),
+    ("Cen. Australia Standard Time", "Australia/Adelaide"),
+    ("AUS Central Standard Time", "Australia/Darwin"),
+    ("E. Australia Standard Time", "Australia/Brisbane"),
+    ("AUS Eastern Standard Time", "Australia/Sydney"),
+    ("Tasmania Standard Time", "Australia/Hobart"),
+    ("West Pacific Standard Time", "Pacific/Port_Moresby"),
+    ("Central Pacific Standard Time", "Pacific/Guadalcanal"),
+    ("New Zealand Standard Time", "Pacific/Auckland"),
+    ("Fiji Standard Time", "Pacific/Fiji"),
+    ("Tonga Standard Time", "Pacific/Tongatapu"),
+];
+
+/// The IANA zone a `TZID` parameter names, or the TZID unchanged when it is
+/// already one or cannot be resolved.
+///
+/// Calendars write `TZID` three ways: an IANA name (`Europe/Lisbon`); a
+/// Windows name (`W. Europe Standard Time`, Outlook and Exchange); or a
+/// vendor path ending in an IANA name (`/mozilla.org/20050126_1/Europe/Berlin`,
+/// `/softwarestudio.org/Olson_20011030_5/America/New_York`). The VTIMEZONE
+/// rules that come with the message are not evaluated: every zone resolved
+/// here is one the tz database already knows, and its rules are the current
+/// ones, which is what the sending client meant.
+pub fn resolve_tzid(raw: &str) -> String {
+    let tzid = raw.trim().trim_matches('"');
+    if tzid.parse::<chrono_tz::Tz>().is_ok() {
+        return tzid.to_string();
+    }
+    if let Some((_, iana)) = WINDOWS_ZONES
+        .iter()
+        .find(|(win, _)| win.eq_ignore_ascii_case(tzid))
+    {
+        return (*iana).to_string();
+    }
+    // A vendor prefix: try the last two, then three, path segments.
+    let parts: Vec<&str> = tzid.split('/').filter(|p| !p.is_empty()).collect();
+    for take in [2usize, 3] {
+        if parts.len() >= take {
+            let candidate = parts[parts.len() - take..].join("/");
+            if candidate.parse::<chrono_tz::Tz>().is_ok() {
+                return candidate;
+            }
+        }
+    }
+    tzid.to_string()
+}
+
+#[cfg(test)]
+mod tzid_tests {
+    use super::resolve_tzid;
+
+    #[test]
+    fn tzids_resolve_to_iana_names() {
+        assert_eq!(resolve_tzid("Europe/Lisbon"), "Europe/Lisbon");
+        assert_eq!(resolve_tzid("W. Europe Standard Time"), "Europe/Berlin");
+        assert_eq!(
+            resolve_tzid("\"Pacific Standard Time\""),
+            "America/Los_Angeles"
+        );
+        assert_eq!(
+            resolve_tzid("/mozilla.org/20050126_1/Europe/Berlin"),
+            "Europe/Berlin"
+        );
+        assert_eq!(
+            resolve_tzid("/softwarestudio.org/Olson_20011030_5/America/Argentina/Buenos_Aires"),
+            "America/Argentina/Buenos_Aires"
+        );
+        assert_eq!(resolve_tzid("Custom Zone"), "Custom Zone");
+    }
+}

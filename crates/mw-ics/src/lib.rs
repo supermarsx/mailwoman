@@ -30,7 +30,10 @@ mod vcard;
 pub use freebusy::{BusyInterval, aggregate_free_busy};
 pub use hol::{parse_hol, write_hol};
 pub use ical::{ParsedIcal, emit_ical, parse_ical};
-pub use itip::{ItipMethod, build_itip, parse_itip};
+pub use itip::{
+    CalendarMessage, ItipMethod, MAX_CALENDAR_BYTES, MAX_CALENDAR_ITEMS, ReplyStatus, build_itip,
+    build_itip_reply, parse_itip, read_calendar_message, same_address,
+};
 pub use recur::{Instance, expand_recurrence};
 pub use vcard::{ParsedVcard, emit_vcard, parse_vcard};
 
