@@ -668,8 +668,16 @@ impl Config {
     }
 }
 
+/// The Trusted Types policies the app creates, and nothing else (t63 T5). The
+/// app creates both at boot, before the tag's loader runs (security/
+/// trustedTypes.ts), and duplicates are not allowed, so a tag cannot create a
+/// policy of its own to reach the DOM injection sinks. `ProseMirrorClipboard`
+/// is not needed: ProseMirror uses the default policy when there is one.
+pub const TRUSTED_TYPES: &str = "trusted-types default svelte-trusted-html";
+
 /// `base` with the plan's origins appended to `script-src`, `connect-src` and
-/// `img-src`. A directive the base lacks is added. Nothing else changes.
+/// `img-src`, plus the [`TRUSTED_TYPES`] allowlist. A directive the base lacks
+/// is added. Nothing else changes.
 pub fn widen(base: &str, plan: &Plan) -> String {
     let mut directives: Vec<String> = base
         .split(';')
@@ -696,6 +704,9 @@ pub fn widen(base: &str, plan: &Plan) -> String {
             }
             None => directives.push(format!("{name} 'self' {add}")),
         }
+    }
+    if !directives.iter().any(|d| d.starts_with("trusted-types ")) {
+        directives.push(TRUSTED_TYPES.to_string());
     }
     directives.join("; ")
 }
@@ -747,11 +758,13 @@ pub(crate) async fn tag_consent(store: &mw_store::Store, owner: &str, key: &str)
 }
 
 /// Set with every admin console sign-in and kept after sign-out (t63 R2): a
-/// browser that has ever been used for the console never gets a tag again.
+/// browser used for the console gets no tag while it carries this marker.
 pub const ADMIN_BROWSER_COOKIE: &str = "mw_admin_browser";
 
 /// The marker cookie for an admin sign-in response. HttpOnly, so a page script
-/// cannot remove it; about 400 days, the longest a browser keeps a cookie.
+/// cannot read or delete it directly (it can still push it out by filling the
+/// site's cookie jar, t63 T4); about 400 days, the longest a browser keeps a
+/// cookie.
 pub fn admin_browser_cookie(secure: bool) -> String {
     let mut c = format!("{ADMIN_BROWSER_COOKIE}=1; HttpOnly; SameSite=Strict; Path=/; Max-Age=34560000");
     if secure {
@@ -822,7 +835,10 @@ pub(crate) async fn mail_shell(state: &AppState, method: &Method, headers: &Head
     let html = String::from_utf8(bytes).ok()?;
     let mut response = crate::asset_response("index.html", "text/html", inject(&html, base, &plan, &key).into_bytes(), headers);
     let h = response.headers_mut();
-    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
+    // no-store: never kept in the HTTP cache or the back/forward cache, so a
+    // later visit is always decided by the server again (t63 T4). Offline use
+    // is unaffected: the service worker never stores a tagged shell.
+    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
     h.insert(header::VARY, HeaderValue::from_static("cookie, dnt, sec-gpc"));
     // The service worker never stores a tagged shell (it keys on this header).
     h.insert("x-mw-analytics-tag", HeaderValue::from_static("1"));
@@ -1256,12 +1272,14 @@ mod tests {
             "default-src 'none'; script-src 'self' 'wasm-unsafe-eval' https://cdn.usefathom.com; \
              style-src 'self'; img-src 'self' blob: data: https://cdn.usefathom.com; font-src 'self'; manifest-src 'self'; \
              connect-src 'self' blob: https://cdn.usefathom.com; frame-src 'self'; worker-src 'self' blob:; \
-             base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'"
+             base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'; \
+             trusted-types default svelte-trusted-html"
         );
         assert!(!widened.contains("unsafe-inline"));
         assert!(!widened.contains("'unsafe-eval'"));
+        assert!(!widened.contains("allow-duplicates"));
         let none = Plan { script_src: vec![], connect_src: vec![], img_src: vec![], script: vec![], sha256: String::new(), fetches: vec![] };
-        assert_eq!(widen(crate::CSP, &none), crate::CSP);
+        assert_eq!(widen(crate::CSP, &none), format!("{}; {TRUSTED_TYPES}", crate::CSP));
     }
 
     #[test]

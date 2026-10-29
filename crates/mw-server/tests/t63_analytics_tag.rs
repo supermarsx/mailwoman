@@ -199,9 +199,10 @@ async fn browser_tag_is_consent_gated_hashed_stepped_up_and_audited() {
     let shell = user.get(format!("{base}/")).send().await.unwrap();
     let widened = SHELL_CSP
         .replace("img-src 'self' blob: data:", "img-src 'self' blob: data: https://px.example.com")
-        .replace("connect-src 'self' blob:", "connect-src 'self' blob: https://collect.example.com");
+        .replace("connect-src 'self' blob:", "connect-src 'self' blob: https://collect.example.com")
+        + "; trusted-types default svelte-trusted-html";
     assert_eq!(csp(&shell), [widened.clone()]);
-    assert_eq!(shell.headers()["cache-control"], "private, no-cache");
+    assert_eq!(shell.headers()["cache-control"], "private, no-store");
     let html = shell.text().await.unwrap();
     assert!(html.contains(&format!(r#"<meta name="mw-analytics" content="" data-consent="{key}">"#)), "{html}");
     assert_eq!(shell_headers_tag(&user, &base).await, Some("1".to_owned()));
@@ -278,7 +279,8 @@ async fn browser_tag_is_consent_gated_hashed_stepped_up_and_audited() {
     let shell = user.get(format!("{base}/")).send().await.unwrap();
     assert_eq!(csp(&shell), [SHELL_CSP
         .replace("script-src 'self' 'wasm-unsafe-eval'", "script-src 'self' 'wasm-unsafe-eval' https://plausible.io")
-        .replace("connect-src 'self' blob:", "connect-src 'self' blob: https://plausible.io")]);
+        .replace("connect-src 'self' blob:", "connect-src 'self' blob: https://plausible.io")
+        + "; trusted-types default svelte-trusted-html"]);
     assert!(shell.text().await.unwrap().contains(r#"<meta name="mw-analytics" content="https://plausible.io" data-consent="plausible:"#));
 
     task.abort();
