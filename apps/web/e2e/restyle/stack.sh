@@ -68,6 +68,7 @@ services:
       MW_ADMIN_ENABLED: "true"
       MW_ADMIN_USER: t32admin
       MW_ADMIN_PASSWORD: "$password"
+      MW_ADMIN_PATH: "${MW_E2E_ADMIN_PATH:-/admin}"
 $subpath
     volumes:
       - "$dist:/web:ro"
@@ -81,6 +82,7 @@ MW_E2E_SMTP_HOST=127.0.0.1
 MW_E2E_SMTP_PORT=$((base + 25))
 MW_ADMIN_USER=t32admin
 MW_ADMIN_PASSWORD=$password
+MW_E2E_ADMIN_PATH=${MW_E2E_ADMIN_PATH:-/admin}
 T32_DIST=$dist
 T32_IMAGE=$image
 EOF

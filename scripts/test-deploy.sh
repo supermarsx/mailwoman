@@ -340,7 +340,12 @@ run deploy --dry-run
 # accepted; a wrong password is 401, not the guard's 403.
 ADMIN_USER=$(awk -F= '$1 == "MW_ADMIN_USER" {print $2}' "$STATE/app.env")
 ADMIN_PASSWORD=$(awk -F= '$1 == "MW_ADMIN_PASSWORD" {print $2}' "$STATE/app.env")
-ADMIN_URL="http://localhost:$PORT/admin"
+# t76: deploy.sh init generates the console path and writes it to app.env.
+ADMIN_PATH=$(awk -F= '$1 == "MW_ADMIN_PATH" {print $2}' "$STATE/app.env")
+[[ $ADMIN_PATH =~ ^/[a-z2-9]{20}$ ]] || fail "deploy.sh init wrote no generated MW_ADMIN_PATH: '$ADMIN_PATH'"
+CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' "http://localhost:$PORT/admin/session")
+[[ $CODE == 404 ]] || fail "/admin answered $CODE on a new installation, expected 404"
+ADMIN_URL="http://localhost:$PORT$ADMIN_PATH"
 JAR="$STATE/admin.cookies"
 BAN='{"ip":"203.0.113.250","reason":"deploy test"}'
 admin() { curl --silent --output "$STATE/admin.body" --write-out '%{http_code}' --cookie "$JAR" --cookie-jar "$JAR" "$@"; }
@@ -369,7 +374,7 @@ CODE=$(admin --request DELETE --header "x-csrf-token: $CSRF" "$ADMIN_URL/bans/20
 BROWSER='admin panel in a browser'
 if ((${#PLAYWRIGHT[@]})); then
     sleep 3 # The browser performs a separate sign-in after the curl checks.
-    (cd "$WEB" && MW_DEPLOY_BASE_URL="http://localhost:$PORT" MW_ADMIN_USER="$ADMIN_USER" MW_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+    (cd "$WEB" && MW_DEPLOY_BASE_URL="http://localhost:$PORT" MW_E2E_ADMIN_PATH="$ADMIN_PATH" MW_ADMIN_USER="$ADMIN_USER" MW_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
         "${PLAYWRIGHT[@]}" test --project=deploy --reporter=list --output "$STATE/playwright" > "$STATE/playwright.log" 2>&1) \
         || { cat "$STATE/playwright.log" >&2; fail 'the admin panel browser test failed'; }
     grep -E '^ +1 passed' "$STATE/playwright.log" >/dev/null || { cat "$STATE/playwright.log" >&2; fail 'the admin panel browser test did not run'; }

@@ -36,6 +36,8 @@ const smtp = Number(process.env.MW_FIXTURE_SMTP ?? 46625);
 const imap = Number(process.env.MW_FIXTURE_IMAP ?? 46643);
 const container = `mw-linked-live-greenmail-${port}`;
 const admin = { username: 'root', password: 'linked-fixture-admin' };
+// t76: the console path this fixture serves (a new database would get a generated one).
+const adminPath = process.env.MW_E2E_ADMIN_PATH ?? '/admin';
 const base = `http://127.0.0.1:${port}`;
 
 for (const [what, path] of [['server binary', bin], ['web build', join(web, 'index.html')]]) {
@@ -68,6 +70,8 @@ const server = spawn(bin, ['serve'], {
     MW_ENGINE_TLS: 'plaintext',
     MW_ADMIN_USER: admin.username,
     MW_ADMIN_PASSWORD: admin.password,
+    // t76: a new database would get a generated console path.
+    MW_ADMIN_PATH: adminPath,
     MW_REALTIME_RECHECK_SECS: '5',
     RUST_LOG: process.env.RUST_LOG ?? 'warn',
   },
@@ -95,14 +99,14 @@ async function waitFor(check, what, ms = 120_000) {
 await waitFor(async () => (await fetch(`${base}/`)).ok, 'the server');
 
 // Mailbox linking is off by default; the admin console switches it on.
-const login = await fetch(`${base}/admin/login`, {
+const login = await fetch(`${base}${adminPath}/login`, {
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(admin),
 });
 if (!login.ok) { console.error(`admin login: ${login.status} ${await login.text()}`); stop(1); }
 const cookie = login.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
 const csrf = (await login.clone().json().catch(() => ({}))).csrfToken;
 for (const [key, value] of [['accounts.linkingEnabled', true], ['signin.retryCooldownSecs', 0]]) {
-  const put = await fetch(`${base}/admin/settings/${key}`, {
+  const put = await fetch(`${base}${adminPath}/settings/${key}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json', cookie, ...(csrf ? { 'x-csrf-token': csrf } : {}) },
     body: JSON.stringify({ globalValue: value }),

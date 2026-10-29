@@ -26,3 +26,4 @@ services:
       # Admin credentials for crypto-maxsec.spec.ts's floor case (sets maxSecurityFloor through /admin/security-policy). DEV/CI ONLY.
       MW_ADMIN_USER: "root"
       MW_ADMIN_PASSWORD: "hunter2"
+      MW_ADMIN_PATH: "${MW_ADMIN_PATH:-/admin}"

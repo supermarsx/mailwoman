@@ -252,6 +252,9 @@ services:
       # other specs that sign in to /admin with root/hunter2. DEV/CI ONLY — never reuse.
       MW_ADMIN_USER: "root"
       MW_ADMIN_PASSWORD: "hunter2"
+      # t76: a new database would get a generated console path; the dev stack and
+      # its specs use /admin unless MW_ADMIN_PATH says otherwise. DEV/CI ONLY.
+      MW_ADMIN_PATH: "${MW_ADMIN_PATH:-/admin}"
       # compose-options.spec.ts (t29-e12): an inline image is an upload (needs an
       # upload store); a receipt request and inline parts need a From with a domain,
       # and the Greenmail login is the bare `testuser`, so that address is offered

@@ -177,11 +177,11 @@ signin() {
 # mw_csrf. Then confirm the password again at {admin}/step-up: ban writes need a
 # live step-up proof for this session (banManage, 7e9af0d0).
 admin_login() {
-    signin --data "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASSWORD\"}" "$BASE/admin/login"
+    signin --data "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASSWORD\"}" "$BASE$ADMIN_PATH/login"
     [[ $CODE == 200 ]] || fail "admin login answered $CODE: $BODY"
     CSRF=$("${JAR_CAT[@]}" | awk '$6 == "mw_csrf" {print $7}')
     [[ -n $CSRF ]] || fail 'admin login set no mw_csrf cookie'
-    req_json --header "x-csrf-token: $CSRF" --data "{\"password\":\"$ADMIN_PASSWORD\"}" "$BASE/admin/step-up"
+    req_json --header "x-csrf-token: $CSRF" --data "{\"password\":\"$ADMIN_PASSWORD\"}" "$BASE$ADMIN_PATH/step-up"
     [[ $CODE == 200 && $BODY == *'"ok":true'* ]] || fail "admin step-up answered $CODE: $BODY"
 }
 
@@ -189,18 +189,21 @@ admin_login() {
 # accepted with it, then listed.
 admin_ban() {
     local ban="{\"ip\":\"$BAN_IP\",\"reason\":\"$TITLE\"}"
-    req_json --data "$ban" "$BASE/admin/bans"
+    req_json --data "$ban" "$BASE$ADMIN_PATH/bans"
     [[ $CODE == 403 ]] || fail "an admin write without X-CSRF-Token answered $CODE, expected 403"
-    req_json --header "x-csrf-token: $CSRF" --data "$ban" "$BASE/admin/bans"
+    req_json --header "x-csrf-token: $CSRF" --data "$ban" "$BASE$ADMIN_PATH/bans"
     [[ $CODE == 2?? ]] || fail "an admin write with X-CSRF-Token answered $CODE: $BODY"
     ban_listed || fail "the ban on $BAN_IP is not listed after it was written: $BODY"
 }
-ban_listed() { req "$BASE/admin/bans"; [[ $CODE == 200 && $BODY == *"\"ip\":\"$BAN_IP\""* ]]; }
+ban_listed() { req "$BASE$ADMIN_PATH/bans"; [[ $CODE == 200 && $BODY == *"\"ip\":\"$BAN_IP\""* ]]; }
 
 read_admin_credentials() {
     ADMIN_USER=$(awk -F= '$1 == "MW_ADMIN_USER" {print $2}' "$STATE/app.env")
     ADMIN_PASSWORD=$(awk -F= '$1 == "MW_ADMIN_PASSWORD" {print $2}' "$STATE/app.env")
     [[ -n $ADMIN_USER && -n $ADMIN_PASSWORD ]] || fail 'deploy.sh init wrote no admin credentials'
+    # t76: deploy.sh init generates the console path.
+    ADMIN_PATH=$(awk -F= '$1 == "MW_ADMIN_PATH" {print $2}' "$STATE/app.env")
+    [[ -n $ADMIN_PATH ]] || fail 'deploy.sh init wrote no MW_ADMIN_PATH'
 }
 
 case_restart() {
@@ -244,7 +247,7 @@ case_restart() {
     printf '' > "$JAR"
     admin_login
     ban_listed || fail "the ban written before the kill is gone after the restart: $BODY"
-    req --request DELETE --header "x-csrf-token: $CSRF" "$BASE/admin/bans/$BAN_IP"
+    req --request DELETE --header "x-csrf-token: $CSRF" "$BASE$ADMIN_PATH/bans/$BAN_IP"
     [[ $CODE == 2?? ]] || fail "removing the test ban answered $CODE: $BODY"
     PASSED=true
     printf 'PASS: %s: SIGKILL from the host PID namespace, die event with exit code 137, RestartCount %s -> %s, healthy again %ss after the kill, the ban written before the kill still listed\n' \
@@ -342,13 +345,13 @@ checks_through_proxy() {
 
     admin_login
     admin_ban
-    req --request DELETE --header "x-csrf-token: $CSRF" "$BASE/admin/bans/$BAN_IP"
+    req --request DELETE --header "x-csrf-token: $CSRF" "$BASE$ADMIN_PATH/bans/$BAN_IP"
     [[ $CODE == 2?? ]] || fail "removing the test ban answered $CODE: $BODY"
 
     # The forwarded client address: the app trusts the proxy (deploy.sh writes the
     # trust lines) and must log the client's address, which it never sees directly.
     probe="proxy-probe-$RANDOM$RANDOM"
-    signin --data "{\"username\":\"$probe\",\"password\":\"not-the-password\"}" "$BASE/admin/login"
+    signin --data "{\"username\":\"$probe\",\"password\":\"not-the-password\"}" "$BASE$ADMIN_PATH/login"
     [[ $CODE == 401 ]] || fail "a wrong admin login answered $CODE, expected 401"
     wait_for 10 'log line for the failed admin login' logged_rhost "$probe"
     rhost=$(logged_rhost "$probe")

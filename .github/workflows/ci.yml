@@ -2139,6 +2139,9 @@ jobs:
           MW_ADMIN_ENABLED: "true"
           MW_ADMIN_USER: "root"
           MW_ADMIN_PASSWORD: "hunter2"
+          # t76: without it a new database gets a generated console path; the
+          # specs of this leg sign in at /admin (leg 3 covers a moved console).
+          MW_ADMIN_PATH: "/admin"
           MW_COOKIE_SECURE: "false"
           # Strict CSRF, the `deploy.sh` default; `csrf-strict.spec.ts` in the
           # Playwright project below checks it.
@@ -2808,6 +2811,9 @@ jobs:
           MW_ADMIN_ENABLED: "true"
           MW_ADMIN_USER: "root"
           MW_ADMIN_PASSWORD: "hunter2"
+          # t76: without it a new database gets a generated console path; the
+          # specs of this leg sign in at /admin (leg 3 covers a moved console).
+          MW_ADMIN_PATH: "/admin"
           MW_COOKIE_SECURE: "false"
           # Strict CSRF, the `deploy.sh` default; `csrf-strict.spec.ts` in the
           # Playwright project below checks it.

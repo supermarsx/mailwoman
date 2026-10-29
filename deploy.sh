@@ -468,6 +468,8 @@ validate_app_env() {
                 [[ $EXPOSURE != caddy ]] || die "$key is managed for Caddy; remove it from app.env" ;;
             MW_UPSTREAM_DEFAULT)
                 [[ -z $UPSTREAM_DEFAULT ]] || die "The mail server is set twice: UPSTREAM_DEFAULT in deploy.env and MW_UPSTREAM_DEFAULT in app.env; keep one" ;;
+            MW_ADMIN_PATH)
+                [[ $value =~ ^(/[A-Za-z0-9._~-]+){1,4}$ ]] || die "MW_ADMIN_PATH must be / followed by one to four segments of A-Z a-z 0-9 . _ ~ -" ;;
         esac
     done < "$1"
     $found || die "MW_SERVER_KEY is missing from app.env"
@@ -565,11 +567,14 @@ fi
 initialize() {
     [[ ! -e $STATE/deploy.env && ! -e $STATE/app.env ]] || die "Partial configuration found; retain the existing key and complete both deploy.env and app.env"
     need od
-    local key password metrics
+    local key password metrics admin_path='' byte alphabet=abcdefghijkmnpqrstuvwxyz23456789
     key=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
     password=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
     metrics=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
-    [[ ${#key} == 64 && ${#password} == 48 && ${#metrics} == 64 ]] || die "Failed to generate secrets"
+    # The admin console's path: 20 characters from a 32-symbol alphabet (5 random
+    # bits each), the same shape the server generates on a first start.
+    for byte in $(od -An -N20 -tu1 /dev/urandom); do admin_path+=${alphabet:$((byte & 31)):1}; done
+    [[ ${#key} == 64 && ${#password} == 48 && ${#metrics} == 64 && ${#admin_path} == 20 ]] || die "Failed to generate secrets"
     # New installations get the Helm chart's limits; deploy.env files written
     # before these keys existed keep running without one.
     MEMORY_LIMIT=1g
@@ -581,11 +586,13 @@ initialize() {
 MW_SERVER_KEY=$key
 MW_ADMIN_USER=admin
 MW_ADMIN_PASSWORD=$password
-# Optional: serve the admin console at a path of your own instead of /admin,
-# e.g. /ops-7f3k (then /admin answers 404). Fewer scans and drive-by sign-in
+# The admin console answers only at this path (generated for this install;
+# /admin and every other path answer 404). Fewer scans and drive-by sign-in
 # attempts; not a substitute for the admin password, two-factor sign-in or a
-# network restriction. See docs/deploy/README.md, "Moving the admin console".
-# MW_ADMIN_PATH=/admin
+# network restriction: the console shares the mail app's origin. While this is
+# set, the console cannot change it. See docs/deploy/README.md, "Moving the
+# admin console".
+MW_ADMIN_PATH=/$admin_path
 MW_CSRF_STRICT=true
 RUST_LOG=info
 # Bearer token for GET /metrics (Prometheus text format); without it /metrics is
@@ -605,6 +612,7 @@ MW_METRICS_TOKEN=$metrics
 EOF
     chmod 600 "$STATE/deploy.env" "$STATE/app.env"
     log "Created $STATE/deploy.env and app.env (admin credentials and the metrics token are in app.env)"
+    log "Admin console path: /$admin_path/ under the public URL (kept in app.env as MW_ADMIN_PATH)"
 }
 if [[ ! -f $STATE/deploy.env ]]; then
     [[ $ACTION == init || $ACTION == deploy ]] || die "Run init first"
@@ -894,6 +902,13 @@ verify() {
         if curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "$url/healthz" -o /dev/null 2>/dev/null &&
            curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "$url/" -o /dev/null 2>/dev/null; then
             log "Healthy: $url (admin credentials: $STATE/app.env)"
+            local admin_path
+            admin_path=$(sed -n 's/^MW_ADMIN_PATH=//p' "$STATE/app.env" | tail -n 1)
+            if [[ -n $admin_path ]]; then
+                log "Admin console: $url$admin_path/"
+            else
+                log "Admin console: not set in app.env; run 'docker exec $cid mailwoman admin console-path show' (an upgraded install keeps /admin and logs a warning)"
+            fi
             if [[ $EXPOSURE == caddy && $CADDY_PROTOCOLS == *h3* ]]; then
                 log "HTTP/3: Caddy also listens on UDP 443. Allow UDP 443 in the host firewall and any cloud security group (for example: ufw allow 443/udp); where it is blocked, clients use HTTP/2 over TCP"
             fi

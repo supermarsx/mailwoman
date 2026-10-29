@@ -59,6 +59,9 @@ const capture = resolve(process.env.MW_DSN_SMTP_CAPTURE ?? join(repo, 'apps/web/
 const python = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
 const container = `mw-receipts-greenmail-${port}`;
 const admin = { username: 'root', password: 'hunter2' };
+// t76: the console path the stack serves (a new database would otherwise get a
+// generated one) and hands to the specs as MW_E2E_ADMIN_PATH.
+const adminPath = process.env.MW_E2E_ADMIN_PATH ?? '/admin';
 const local = `http://127.0.0.1:${port}`;
 // The browser-facing origin: WebAuthn (the passkeys specs) needs a host name,
 // not an IP literal, and localhost is a secure context over plain HTTP.
@@ -146,6 +149,8 @@ const server = start('server', bin, ['serve'], {
   MW_CSRF_STRICT: 'true',
   MW_ADMIN_USER: admin.username,
   MW_ADMIN_PASSWORD: admin.password,
+  // t76: a new database would get a generated console path.
+  MW_ADMIN_PATH: adminPath,
   MW_ALLOWED_FROMS: 'testuser@example.org',
   MW_PUBLIC_URL: origin,
   MW_WEBAUTHN_RP_ID: 'localhost',
@@ -157,14 +162,14 @@ await waitFor(async () => (await fetch(`${local}/healthz`)).ok, 'the server');
 
 // Mailbox linking is off by default; the admin console switches it on. The
 // retry cooldown is set to 0 because the suite signs in many times in a row.
-const login = await fetch(`${local}/admin/login`, {
+const login = await fetch(`${local}${adminPath}/login`, {
   method: 'POST', headers: { 'content-type': 'application/json', origin: local }, body: JSON.stringify(admin),
 });
 if (!login.ok) { console.error(`admin login: ${login.status} ${await login.text()}`); stop(1); }
 const cookie = login.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
 const csrf = (await login.clone().json().catch(() => ({}))).csrfToken;
 for (const [key, value] of [['accounts.linkingEnabled', true], ['signin.retryCooldownSecs', 0]]) {
-  const put = await fetch(`${local}/admin/settings/${key}`, {
+  const put = await fetch(`${local}${adminPath}/settings/${key}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json', origin: local, cookie, ...(csrf ? { 'x-csrf-token': csrf } : {}) },
     body: JSON.stringify({ globalValue: value }),
@@ -189,6 +194,7 @@ const env = {
   MW_DSN_SMTP_CAPTURE: capture.replaceAll('\\', '/'),
   MW_ADMIN_USER: admin.username,
   MW_ADMIN_PASSWORD: admin.password,
+  MW_E2E_ADMIN_PATH: adminPath,
   // The same server for the passkeys and restyle configs.
   PLAYWRIGHT_PASSKEY_BASE_URL: origin,
   PLAYWRIGHT_ENGINE_BASE_URL: origin,
