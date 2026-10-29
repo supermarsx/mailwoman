@@ -27,14 +27,17 @@ export function eventState(hint: CalendarHint): EventState {
 /** When the event starts, in the reader's locale and display time zone (the
  *  one the list's dates use, `time.displayZone`); '' when unknown.
  *  An all-day event is a date, never shifted by a time zone. */
-export function eventWhen(hint: CalendarHint): string {
+export function eventWhen(hint: CalendarHint, now: Date = new Date()): string {
   const start = hint.start ?? '';
+  // The year only when it is not this one: an old calendar file must not read as this year's.
+  const year = (y: number): Intl.DateTimeFormatOptions => (y !== now.getFullYear() ? { year: 'numeric' } : {});
   if (hint.showWithoutTime === true || /^\d{4}-\d{2}-\d{2}$/.test(start)) {
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(start);
     if (m === null) return '';
-    return formatDateWith(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])), { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+    return formatDateWith(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])), { weekday: 'short', day: 'numeric', month: 'short', ...year(Number(m[1])), timeZone: 'UTC' });
   }
-  const options: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' };
+  const startYear = typeof hint.startUtc === 'number' ? new Date(hint.startUtc * 1000).getUTCFullYear() : Number(start.slice(0, 4));
+  const options: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short', ...year(startYear), hour: '2-digit', minute: '2-digit' };
   if (typeof hint.startUtc === 'number') return formatDateWith(hint.startUtc * 1000, { ...options, timeZone: messageTimeZone() });
   // No zone the server could resolve: show the wall time as written.
   return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(start) ? formatDateWith(start, options) : '';

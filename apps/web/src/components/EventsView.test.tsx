@@ -38,8 +38,12 @@ describe('event hint (t78)', () => {
     expect(eventWhen({ method: null })).toBe('');
   });
 
-  it('shows a timed event with a time', () => {
-    expect(eventWhen(invite)).toMatch(/\d{1,2}:\d{2}/);
+  it('shows a timed event with a time, and the year only when it is not this one', () => {
+    const in2026 = new Date('2026-06-01T00:00:00Z');
+    expect(eventWhen(invite, in2026)).toMatch(/\d{1,2}:\d{2}/);
+    expect(eventWhen(invite, in2026)).not.toMatch(/2026/);
+    expect(eventWhen({ ...invite, startUtc: Date.UTC(2021, 2, 1, 9) / 1000 }, in2026)).toMatch(/2021/);
+    expect(eventWhen({ method: null, start: '2021-12-25', showWithoutTime: true }, in2026)).toMatch(/2021/);
   });
 
   it('renders nothing for a message without calendar content, a mark and the state otherwise', () => {
