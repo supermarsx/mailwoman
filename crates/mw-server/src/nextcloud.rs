@@ -14,6 +14,11 @@ use serde_json::json;
 
 use crate::AppState;
 
+// Large attachments uploaded in chunks and shared as a link (t39 L7). Kept beside
+// this module so the router merge in lib.rs does not change.
+#[path = "nextcloud_upload.rs"]
+mod upload;
+
 /// Legacy extension slot; request handlers resolve their own account-bound gateway.
 pub(crate) type NextcloudHandle = Option<Arc<dyn NextcloudGateway>>;
 
@@ -23,6 +28,7 @@ pub(crate) fn nextcloud_router() -> Router<AppState> {
         .route("/api/nextcloud/attach", post(attach))
         .route("/api/nextcloud/save", post(save))
         .route("/api/nextcloud/share-link", post(share_link))
+        .merge(upload::router())
 }
 
 /// Errors from a Nextcloud operation (kept coarse; no file content ever leaks).
@@ -93,6 +99,34 @@ pub trait NextcloudGateway: Send + Sync {
     async fn list(&self, _path: &str) -> Result<Vec<NextcloudEntry>, NextcloudError> {
         Ok(Vec::new())
     }
+    /// One DAV request inside the linked account's own files or upload area. The
+    /// account-bound gateway builds every URL from the verified link, so a caller
+    /// names only paths below that account.
+    async fn dav(&self, _op: DavOp<'_>) -> Result<Vec<u8>, NextcloudError> {
+        Err(NextcloudError::Api("operation not supported".into()))
+    }
+}
+
+/// Where a [`DavOp`] goes: a path in the account's files, or its chunked-upload
+/// area (`remote.php/dav/uploads/<user>/<transfer>/<chunk>`).
+#[derive(Debug, Clone, Copy)]
+pub enum DavTarget<'a> {
+    File(&'a str),
+    Upload {
+        transfer: &'a str,
+        chunk: Option<&'a str>,
+    },
+}
+
+/// A DAV request for [`NextcloudGateway::dav`]. `destination` is a path in the
+/// account's files (sent as an absolute same-origin `Destination`).
+#[derive(Debug, Clone, Copy)]
+pub struct DavOp<'a> {
+    pub target: DavTarget<'a>,
+    pub method: mw_egress::DavMethod,
+    pub body: Option<(&'a str, &'a [u8])>,
+    pub depth: Option<u8>,
+    pub destination: Option<&'a str>,
 }
 
 // ── handlers ───────────────────────────────────────────────────────────────────

@@ -354,6 +354,39 @@ describe('Compose', () => {
     expect(uploadCalls).toHaveLength(0);
   });
 
+  it('offers a Nextcloud share link for a file over the limit and inserts the link (t39)', async () => {
+    vi.stubGlobal('fetch', mockUploadFetch());
+    const calls: string[] = [];
+    const cloud = async (input: string, init?: RequestInit): Promise<Response> => {
+      calls.push(`${init?.method ?? 'GET'} ${input.split('?')[0]}`);
+      if (input.endsWith('/api/nextcloud/upload')) return json({ transfer: 'e'.repeat(32), path: '/Mail attachments/big.bin', chunkBytes: 32 });
+      if (input.includes('/finish')) return json({ path: '/Mail attachments/big.bin', name: 'big.bin', size: 64 });
+      if (input.includes('/api/nextcloud/share-link')) return json({ url: 'https://cloud.example/s/Tok', expiresAt: '2026-12-31', passwordProtected: true });
+      if (init?.method === 'PUT') return new Response(null, { status: 204 });
+      return nextcloudFetcher(input);
+    };
+    const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES, deps: { nextcloudFetcher: cloud } });
+    await app.login({ username: 'me@example.org', password: 'p' });
+    app.nextcloud.setEnabled(true);
+    fireEvent.change(screen.getByTestId('format-toggle'), { target: { value: 'plain' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'Insert' }));
+    const input = (await screen.findByLabelText('Attach a file')) as HTMLInputElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    fireEvent.change(input, { target: { files: [new File(['x'.repeat(64)], 'big.bin')] } });
+    // No size refusal: the share-link panel takes the file instead.
+    const panel = await screen.findByTestId('compose-share-link');
+    expect(within(screen.getByTestId('compose-attach')).queryByRole('alert')).toBeNull();
+    const go = within(panel).getByRole('button', { name: 'Upload and insert link' });
+    await waitFor(() => expect(go).toBeEnabled());
+    fireEvent.click(go);
+    await waitFor(() => expect(screen.queryByTestId('compose-share-link')).toBeNull());
+    const body = screen.getByLabelText('Body') as HTMLTextAreaElement;
+    expect(body.value).toContain('big.bin (0 MB): https://cloud.example/s/Tok');
+    expect(body.value).toContain('The link works until 2026-12-31. The link is password-protected.');
+    expect(calls.filter((call) => call.startsWith('PUT'))).toHaveLength(2);
+    expect(screen.queryByTestId('compose-attachments')).toBeNull();
+  });
+
   it('is unchanged when Assist is disabled and no directory/Nextcloud is configured', async () => {
     renderWithApp(() => <Compose onClose={() => undefined} />);
     // Type a recipient — contacts autocomplete still works; NO directory GAL, no

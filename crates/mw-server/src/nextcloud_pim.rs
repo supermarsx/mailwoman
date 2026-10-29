@@ -23,6 +23,7 @@ pub(crate) fn router() -> Router<AppState> {
             post(discover),
         )
         .route("/api/account/nextcloud/pim/apply/{instance}", post(apply))
+        .route("/api/account/nextcloud/pim/create/{instance}", post(create))
         .route("/api/account/nextcloud/pim/sync", post(sync))
         .route(
             "/api/account/nextcloud/pim/collections/{collection}",
@@ -38,6 +39,13 @@ struct Selection {
     account_id: String,
     kind: String,
     href: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Creation {
+    account_id: String,
+    kind: String,
+    name: String,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -201,17 +209,114 @@ async fn apply(
         Ok(s) => s,
         Err(e) => return e,
     };
-    let (items, revision) = match preview(&state, &session.account_id, &instance, &body.kind).await
+    connect(
+        &state,
+        &session,
+        &instance,
+        &body.kind,
+        body.href.as_deref(),
+    )
+    .await
+}
+/// A slug for a new collection URL: lowercase ASCII letters, digits and dashes
+/// from the display name, then a random suffix so it never names an existing one.
+pub(crate) fn collection_slug(name: &str) -> String {
+    let mut slug = String::new();
+    for ch in name.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch);
+        } else if !slug.ends_with('-') && !slug.is_empty() {
+            slug.push('-');
+        }
+        if slug.len() >= 40 {
+            break;
+        }
+    }
+    let slug = slug.trim_end_matches('-');
+    let suffix = &uuid::Uuid::new_v4().simple().to_string()[..8];
+    if slug.is_empty() {
+        format!("calendar-{suffix}")
+    } else {
+        format!("{slug}-{suffix}")
+    }
+}
+/// `POST /api/account/nextcloud/pim/create/{instance} {accountId, kind, name}`:
+/// `MKCALENDAR` a new calendar or task list in the linked account's calendar
+/// home, then connect it like a discovered one.
+async fn create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(instance): Path<String>,
+    Json(body): Json<Creation>,
+) -> Response {
+    let session = match admitted(&state, &headers, &body.account_id).await {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+    if !matches!(body.kind.as_str(), "calendar" | "tasks") {
+        return failure(
+            StatusCode::BAD_REQUEST,
+            "Only calendars and task lists can be created.",
+        );
+    }
+    let name = body.name.trim();
+    if name.is_empty() || name.chars().count() > 200 || name.chars().any(char::is_control) {
+        return failure(
+            StatusCode::BAD_REQUEST,
+            "Use a name of 1 to 200 characters.",
+        );
+    }
+    let (row, link, _) = match state
+        .store
+        .nextcloud_authority(&session.account_id, &instance)
+        .await
     {
+        Ok(Some(found)) => found,
+        Ok(None) => return failure(StatusCode::CONFLICT, "Link this instance first."),
+        Err(_) => return failure(StatusCode::SERVICE_UNAVAILABLE, "Link unavailable."),
+    };
+    let href = match collection_url(&row.base_url, &link.username, "calendar")
+        .ok()
+        .and_then(|home| home.join(&format!("{}/", collection_slug(name))).ok())
+    {
+        Some(href) => href,
+        None => return failure(StatusCode::BAD_REQUEST, "Invalid instance."),
+    };
+    let transport = crate::nextcloud_pim_transport::ManagedTransport::creation(
+        state.store.clone(),
+        session.account_id.clone(),
+        instance.clone(),
+        link.revision.clone(),
+        body.kind.clone(),
+    );
+    let client = mw_dav::DavClient::with_transport(config(), transport);
+    if let Err(error) = client.make_calendar(href.as_str(), name).await {
+        let status = match error {
+            mw_dav::DavError::Status { status: 403, .. } => StatusCode::FORBIDDEN,
+            _ => StatusCode::BAD_GATEWAY,
+        };
+        return failure(status, "Nextcloud did not create the collection.");
+    }
+    connect(&state, &session, &instance, &body.kind, Some(href.as_str())).await
+}
+async fn connect(
+    state: &AppState,
+    session: &mw_store::Session,
+    instance: &str,
+    kind: &str,
+    href: Option<&str>,
+) -> Response {
+    let (items, revision) = match preview(state, &session.account_id, instance, kind).await {
         Ok(v) => v,
         Err(e) => return e,
     };
     let Some(item) = items
         .into_iter()
-        .find(|item| Some(&item.href) == body.href.as_ref())
+        .find(|item| Some(item.href.as_str()) == href)
     else {
         return failure(StatusCode::CONFLICT, "Collection changed; discover again.");
     };
+    let instance = instance.to_owned();
     let saved = match state
         .store
         .apply_nextcloud_pim(mw_store::nextcloud_pim::NextcloudPimApply {
@@ -241,7 +346,7 @@ async fn apply(
     if let Some(engine) = &state.engine {
         install(engine, &state.store, &session.account_id);
     }
-    Json(json!({"accountId":session.account_id,"collectionId":saved.collection_id,"syncRequired":true})).into_response()
+    Json(json!({"accountId":session.account_id,"collectionId":saved.collection_id,"href":item.href,"name":item.name,"syncRequired":true})).into_response()
 }
 pub(crate) fn config() -> mw_dav::DavConfig {
     // Managed requests use absolute bound URLs; this placeholder can never pass authority validation.

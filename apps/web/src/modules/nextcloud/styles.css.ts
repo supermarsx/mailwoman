@@ -188,3 +188,4 @@ export const linkBox = style({
 export const meta = style({ fontSize: '0.8rem', color: vars.color.textDim, margin: 0 });
 export const error = style({ fontSize: '0.85rem', color: vars.color.danger, margin: 0 });
 export const heading = style({ fontSize: '0.95rem', fontWeight: vars.weight.heavy, margin: 0 });
+export const actions = style({ display: 'flex', gap: vars.space[2], flexWrap: 'wrap', alignItems: 'center' });

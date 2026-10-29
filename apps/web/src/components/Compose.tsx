@@ -88,7 +88,7 @@ import { CAP_CORE } from '../api/jmap-types.ts';
 // the exact same composer as before.
 import { DirectorySearch, GroupExpand, type GalEntry } from '../modules/directory/index.ts';
 import { ComposerTools, Dictation } from '../modules/assist/index.ts';
-import { NextcloudAttach, type AttachedFile } from '../modules/nextcloud/index.ts';
+import { NextcloudAttach, ShareLinkComposer, type AttachedFile, type ShareLink } from '../modules/nextcloud/index.ts';
 import { ConfirmDialog } from '../screens/Admin/shell/ConfirmDialog.tsx';
 
 // Advertised in the session only by this server's own engine (mw-engine
@@ -252,6 +252,9 @@ export function Compose(props: {
   // V7 Nextcloud attach (plan §18.4): materialised attachments + the picker toggle.
   const [attachments, setAttachments] = createSignal<AttachedFile[]>(initial?.attachments ?? []);
   const [ncOpen, setNcOpen] = createSignal(false);
+  // Files over the attachment limit, offered as a Nextcloud share link instead
+  // (t39 L7) when the account has a linked Nextcloud.
+  const [oversized, setOversized] = createSignal<File[]>([]);
   // New-file blob upload (26.15 §1): the per-account upload endpoint + size limit
   // are pulled from the JMAP session; a local file is POSTed to `uploadUrl` and
   // the returned blob folds into the SAME `attachments` list as the Nextcloud
@@ -1012,6 +1015,10 @@ export function Compose(props: {
     setUploading(true);
     try {
       for (const file of files) {
+        if (file.size > max && app.nextcloud.enabled()) {
+          setOversized((cur) => (cur.includes(file) ? cur : [...cur, file]));
+          continue;
+        }
         if (file.size > max) {
           setAttachError(
             t('mail-compose-upload-too-large', {
@@ -1037,6 +1044,27 @@ export function Compose(props: {
     } finally {
       setUploading(false);
     }
+  }
+
+  /** Put a created share link at the end of the body (t39 L7): name and size,
+   *  the link, and its expiry and password state, as text or as a paragraph. */
+  function insertShareLink(file: File, link: ShareLink): void {
+    setOversized((cur) => cur.filter((f) => f !== file));
+    const head = t('nextcloud-share-body', { name: file.name, size: `${megabytes(file.size)} MB`, url: link.url });
+    const notes = [
+      ...(link.expiresAt ? [t('nextcloud-share-body-expires', { date: link.expiresAt })] : []),
+      ...(link.passwordProtected ? [t('nextcloud-share-body-password')] : []),
+    ].join(' ');
+    const api = editorApi();
+    if (richMode() && api !== null) {
+      const label = escapeHtml(head.slice(0, head.length - link.url.length));
+      const href = escapeHtml(link.url).replace(/"/g, '&quot;');
+      api.appendHtml(`<p>${label}<a href="${href}">${escapeHtml(link.url)}</a>${notes ? `<br>${escapeHtml(notes)}` : ''}</p>`);
+    } else {
+      const text = notes ? `${head}\n${notes}` : head;
+      setBody((cur) => (cur.trim() !== '' ? `${cur}\n\n${text}` : text));
+    }
+    toast.success(t('nextcloud-share-inserted', { name: file.name }));
   }
 
   async function onSubmit(e: Event): Promise<void> {
@@ -1367,6 +1395,20 @@ export function Compose(props: {
           </ul>
         </Show>
 
+        {/* A file over the attachment limit (t39 L7): upload it to the linked
+            Nextcloud and insert a share link instead. */}
+        <For each={oversized()}>
+          {(file) => (
+            <div class="compose__share-link" data-testid="compose-share-link">
+              <ShareLinkComposer
+                file={file}
+                service={app.nextcloud.service}
+                onCreated={(link) => insertShareLink(file, link)}
+                onDismiss={() => setOversized((cur) => cur.filter((f) => f !== file))}
+              />
+            </div>
+          )}
+        </For>
         <Show when={externalMode()!=='off' && outside().length>0}><section class="compose-external" aria-label={t('mail-external-recipients')}><details><summary><Icon name="alert"/> {t('mail-external-count',{count:outside().length})}</summary><p>{t('mail-external-help')}</p><ul><For each={outside()}>{address=><li>{address}</li>}</For></ul></details><Show when={externalMode()==='confirm'}><label><input type="checkbox" checked={reviewedRecipients()===recipientReviewKey()} onChange={event=>setReviewedRecipients(event.currentTarget.checked?recipientReviewKey():'')}/>{t('mail-external-reviewed')}</label></Show></section></Show>
         {/* The composer ribbon (t38): pinned, or auto-hide with only the history
             and tab names showing. It pushes the body down when it opens (never

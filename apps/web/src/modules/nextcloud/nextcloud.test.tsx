@@ -128,6 +128,62 @@ describe('share-link composer — password + expiry controls', () => {
   });
 });
 
+describe('share-link composer — large local file (t39)', () => {
+  it('uploads the file in chunks to the selected instance, then shares the stored copy', async () => {
+    const order: string[] = [];
+    const fetcher = vi.fn(async (input: string, init?: RequestInit) => {
+      order.push(`${init?.method ?? 'GET'} ${input.split('?')[0]}`);
+      if (input === '/api/nextcloud/upload') return okJson({ transfer: 'c'.repeat(32), path: '/Mail attachments/huge.zip', chunkBytes: 8 });
+      if (input.includes('/finish')) return okJson({ path: '/Mail attachments/huge.zip', name: 'huge.zip', size: 20 });
+      if (input === '/api/nextcloud/share-link') return okJson({ url: 'https://nc.example/s/Big', expiresAt: null, passwordProtected: false });
+      return new Response(null, { status: 204 });
+    });
+    const created: string[] = [];
+    let dismissed = false;
+    const file = new File([new Uint8Array(20)], 'huge.zip');
+    render(() => <ShareLinkComposer file={file} fetcher={withLinks(fetcher)} onCreated={(l) => created.push(l.url)} onDismiss={() => (dismissed = true)} />);
+    await waitFor(() => expect(screen.getByText(/huge\.zip.*larger than the attachment limit/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Upload and insert link' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and insert link' }));
+    await waitFor(() => expect(created).toEqual(['https://nc.example/s/Big']));
+    expect(order.filter((line) => line.startsWith('PUT')).length).toBe(3);
+    expect(order.at(-1)).toBe('POST /api/nextcloud/share-link');
+    const share = JSON.parse((fetcher.mock.calls.find((c) => c[0] === '/api/nextcloud/share-link')?.[1]?.body as string) ?? '{}') as Record<string, unknown>;
+    expect(share).toEqual({ accountId: 'test-account', instanceId: 'cloud', path: '/Mail attachments/huge.zip' });
+    // One link per panel: the action is done.
+    expect(screen.getByRole('button', { name: 'Upload and insert link' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }));
+    expect(dismissed).toBe(true);
+  });
+
+  it('shares the already stored copy when the link is retried', async () => {
+    let shares = 0;
+    const fetcher = vi.fn(async (input: string, init?: RequestInit) => {
+      if (input === '/api/nextcloud/upload') return okJson({ transfer: 'd'.repeat(32), path: '/Mail attachments/a.bin', chunkBytes: 8 });
+      if (input.includes('/finish')) return okJson({ path: '/Mail attachments/a.bin', name: 'a.bin', size: 4 });
+      if (input === '/api/nextcloud/share-link') {
+        shares++;
+        return shares === 1 ? new Response('', { status: 502 }) : okJson({ url: 'https://nc.example/s/R', expiresAt: null, passwordProtected: false });
+      }
+      void init;
+      return new Response(null, { status: 204 });
+    });
+    render(() => (
+      <>
+        <ShareLinkComposer file={new File([new Uint8Array(4)], 'a.bin')} fetcher={withLinks(fetcher)} onCreated={() => {}} />
+        <ToastRegion />
+      </>
+    ));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Upload and insert link' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and insert link' }));
+    await waitFor(() => expect(shares).toBe(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Upload and insert link' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and insert link' }));
+    await waitFor(() => expect(screen.getByTestId('nc-share-url')).toHaveTextContent('https://nc.example/s/R'));
+    expect(fetcher.mock.calls.filter((c) => c[0] === '/api/nextcloud/upload')).toHaveLength(1);
+  });
+});
+
 describe('results as toasts (t32 f39)', () => {
   it('a save to Nextcloud says where it went in a success toast', async () => {
     const saved: WebDavEntry = { name: 'a.pdf', path: '/Docs/a.pdf', isDir: false, size: 1, modified: null, contentType: null };

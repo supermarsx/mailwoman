@@ -50,6 +50,16 @@ nextcloud-no-expiry = no expiry
 nextcloud-error-need-password = enter a password or turn password protection off
 nextcloud-error-need-expiry = pick an expiry date or turn expiry off
 nextcloud-error-share-failed = could not create the share link
+# Large attachment path (t39): a file over the attachment limit is uploaded, then shared.
+nextcloud-share-upload-intro = { $path } is larger than the attachment limit. Upload it to the “Mail attachments” folder of your Nextcloud and insert a share link in the message instead.
+nextcloud-upload-and-link = Upload and insert link
+nextcloud-share-not-now = Not now
+nextcloud-upload-progress = Uploading: { $percent }%
+nextcloud-upload-progress-label = Upload progress
+nextcloud-share-inserted = Share link for { $name } inserted in the message.
+nextcloud-share-body = { $name } ({ $size }): { $url }
+nextcloud-share-body-expires = The link works until { $date }.
+nextcloud-share-body-password = The link is password-protected.
 
 # Account-owned integration configuration
 nextcloud-account-title = Nextcloud accounts
@@ -120,6 +130,11 @@ nextcloud-pim-ready = Ready
 nextcloud-pim-disconnected = Disconnected or link changed
 nextcloud-pim-unnamed = Unnamed collection
 nextcloud-pim-back = Back to Nextcloud accounts
+nextcloud-pim-create-title = New collection in Nextcloud
+nextcloud-pim-create-help = Creates an empty calendar or task list in this Nextcloud account and connects it here.
+nextcloud-pim-create-name = Name of the new collection
+nextcloud-pim-create = Create in Nextcloud
+nextcloud-pim-created = { $name } was created in Nextcloud and connected. Synchronize now to load it.
 nextcloud-pim-interval = Automatic refresh interval (seconds)
 nextcloud-pim-interval-help = Zero uses manual refresh only. Positive intervals have a 60-second minimum. Connected accounts refresh in the background; failures back off and rejected credentials stop further requests until you relink.
 nextcloud-pim-interval-reset = Use administrator default

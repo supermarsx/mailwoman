@@ -12,6 +12,7 @@ async function call<T>(path:string,method:string,body?:unknown):Promise<T>{
 export const nextcloudPimApi={
   list:(accountId:string)=>call<CloudPimView>(`?accountId=${encodeURIComponent(accountId)}`,'GET'),
   discover:(accountId:string,instance:string,kind:CloudPimKind)=>call<{accountId:string;collections:CloudDiscovery[]}>(`/discover/${encodeURIComponent(instance)}`,'POST',{accountId,kind}),
+  create:(accountId:string,instance:string,kind:'calendar'|'tasks',name:string)=>call<{collectionId:string;href:string;name:string}>(`/create/${encodeURIComponent(instance)}`,'POST',{accountId,kind,name}),
   apply:(accountId:string,instance:string,item:CloudDiscovery)=>call<{collectionId:string}>(`/apply/${encodeURIComponent(instance)}`,'POST',{accountId,kind:item.kind,href:item.href}),
   disconnect:(accountId:string,id:string)=>call<void>(`/collections/${encodeURIComponent(id)}`,'DELETE',{accountId}),
   sync:(accountId:string)=>call<{ok:boolean}>('/sync','POST',{accountId}),

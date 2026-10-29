@@ -73,8 +73,8 @@ pub mod allow;
 pub mod plan;
 /// Per-fetch time and redirect bounds (t56).
 mod timeouts;
-pub use timeouts::{FetchTimeouts, TimeoutPhase, TimeoutReport};
 pub(crate) use timeouts::Timed;
+pub use timeouts::{FetchTimeouts, TimeoutPhase, TimeoutReport};
 
 pub use allow::{AllowDestination, AllowEntry, InternalAllowList};
 pub use class::TrafficClass;
@@ -671,6 +671,8 @@ pub enum DavMethod {
     Propfind,
     MkCalendar,
     Mkcol,
+    /// `MOVE` with a same-origin `Destination` (the last step of a chunked upload).
+    Move,
     Put,
     Post,
     Report,
@@ -683,6 +685,7 @@ impl DavMethod {
             Self::Propfind => "PROPFIND",
             Self::MkCalendar => "MKCALENDAR",
             Self::Mkcol => "MKCOL",
+            Self::Move => "MOVE",
             Self::Put => "PUT",
             Self::Post => "POST",
             Self::Report => "REPORT",
@@ -700,6 +703,9 @@ pub struct AuthorizedDav<'a> {
     pub ocs: bool,
     pub if_match: Option<&'a str>,
     pub if_none_match: Option<&'a str>,
+    /// The `Destination` header (`MOVE`, chunked uploads). It must be an absolute
+    /// URL on the request's own origin; see [`AuthorizedDav::validate_target`].
+    pub destination: Option<&'a str>,
 }
 impl fmt::Debug for AuthorizedDav<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -728,13 +734,47 @@ impl AuthorizedDav<'_> {
         {
             return Err(Refusal::BadRequest("invalid DAV authorization or depth"));
         }
-        for value in [Some(self.authorization), self.if_match, self.if_none_match]
-            .into_iter()
-            .flatten()
+        for value in [
+            Some(self.authorization),
+            self.if_match,
+            self.if_none_match,
+            self.destination,
+        ]
+        .into_iter()
+        .flatten()
         {
             if value.len() > 16384 || reqwest::header::HeaderValue::from_str(value).is_err() {
                 return Err(Refusal::BadRequest("invalid DAV header"));
             }
+        }
+        let carries = matches!(
+            self.method,
+            DavMethod::Move | DavMethod::Mkcol | DavMethod::Put
+        );
+        if (matches!(self.method, DavMethod::Move) && self.destination.is_none())
+            || (!carries && self.destination.is_some())
+        {
+            return Err(Refusal::BadRequest("invalid DAV Destination use"));
+        }
+        Ok(())
+    }
+    /// A `Destination` stays on the request's origin, without credentials, query
+    /// or fragment, so a credentialed `MOVE` cannot copy data to another host.
+    pub fn validate_target(&self, url: &reqwest::Url) -> Result<(), Refusal> {
+        let Some(destination) = self.destination else {
+            return Ok(());
+        };
+        let parsed = reqwest::Url::parse(destination)
+            .map_err(|_| Refusal::BadRequest("invalid DAV Destination"))?;
+        if parsed.origin() != url.origin()
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+        {
+            return Err(Refusal::BadRequest(
+                "DAV Destination must stay on the origin",
+            ));
         }
         Ok(())
     }
@@ -826,7 +866,9 @@ pub(crate) async fn send_hop_timed(
     }
     let mut hardened = harden_client(builder, &target.host, target.addr);
     if let Some(t) = timed {
-        hardened = hardened.connect_timeout(t.limits.connect).timeout(t.limits.total);
+        hardened = hardened
+            .connect_timeout(t.limits.connect)
+            .timeout(t.limits.total);
     }
     let client = hardened.build().map_err(|_| Refusal::Upstream)?;
 
@@ -867,6 +909,7 @@ pub(crate) async fn send_hop_timed(
         request
     } else if let Some(dav) = out.authorized_dav {
         dav.validate()?;
+        dav.validate_target(&target.url)?;
         let mut request = client
             .request(
                 reqwest::Method::from_bytes(dav.method.as_str().as_bytes())
@@ -885,6 +928,9 @@ pub(crate) async fn send_hop_timed(
         }
         if let Some(tag) = dav.if_match {
             request = request.header(header::IF_MATCH, tag);
+        }
+        if let Some(destination) = dav.destination {
+            request = request.header("Destination", destination);
         }
         if let Some(body) = out.body {
             request = request

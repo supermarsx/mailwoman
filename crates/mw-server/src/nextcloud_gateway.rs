@@ -1,7 +1,9 @@
 //! Resolve a gateway from the authenticated account for each operation.
 use crate::{
     AppState,
-    nextcloud::{NextcloudEntry, NextcloudError, NextcloudGateway, ShareLink, ShareLinkReq},
+    nextcloud::{
+        DavOp, DavTarget, NextcloudEntry, NextcloudError, NextcloudGateway, ShareLink, ShareLinkReq,
+    },
     nextcloud_transport::Operation,
 };
 use async_trait::async_trait;
@@ -105,6 +107,7 @@ impl BoundGateway {
                 method,
                 body,
                 depth: None,
+                destination: None,
             },
         )
         .await;
@@ -125,8 +128,87 @@ impl BoundGateway {
         result.map_err(error)
     }
 }
+/// `remote.php/dav/uploads/<user>/<transfer>/[chunk]` on the instance. The transfer
+/// id is 32 lowercase hex characters and a chunk is a number or `.file`, so neither
+/// can add a path segment.
+pub(crate) fn upload_url(
+    base: &str,
+    user: &str,
+    transfer: &str,
+    chunk: Option<&str>,
+) -> Result<reqwest::Url, &'static str> {
+    crate::nextcloud_config::username(user)?;
+    if transfer.len() != 32
+        || !transfer
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err("invalid upload id");
+    }
+    if let Some(chunk) = chunk
+        && chunk != ".file"
+        && !(1..=10_000).contains(&chunk.parse::<u32>().unwrap_or(0))
+    {
+        return Err("invalid chunk");
+    }
+    let mut url = crate::nextcloud_config::base_url(base)?;
+    {
+        let mut segments = url
+            .path_segments_mut()
+            .map_err(|_| "invalid instance URL")?;
+        segments
+            .pop_if_empty()
+            .extend(["remote.php", "dav", "uploads", user, transfer]);
+        match chunk {
+            Some(chunk) => {
+                segments.push(chunk);
+            }
+            None => {
+                segments.push("");
+            }
+        }
+    }
+    Ok(url)
+}
+
 #[async_trait]
 impl NextcloudGateway for BoundGateway {
+    async fn dav(&self, op: DavOp<'_>) -> Result<Vec<u8>, NextcloudError> {
+        let (session, instance, link, password) = self.authority().await?;
+        let url = match op.target {
+            DavTarget::File(path) => {
+                crate::nextcloud_config::file_url(&instance.base_url, &link.username, path)
+            }
+            DavTarget::Upload { transfer, chunk } => {
+                upload_url(&instance.base_url, &link.username, transfer, chunk)
+            }
+        }
+        .map_err(error)?;
+        let destination = op
+            .destination
+            .map(|path| {
+                crate::nextcloud_config::file_url(&instance.base_url, &link.username, path)
+                    .map(String::from)
+            })
+            .transpose()
+            .map_err(error)?;
+        let result = crate::nextcloud_transport::call(
+            &self.state,
+            &session,
+            &instance,
+            &link.username,
+            &password,
+            Operation {
+                url,
+                method: op.method,
+                body: op.body,
+                depth: op.depth,
+                destination: destination.as_deref(),
+            },
+        )
+        .await;
+        self.finish(result, &link).await
+    }
     async fn fetch(&self, path: &str) -> Result<Vec<u8>, NextcloudError> {
         self.file_call(path, mw_egress::DavMethod::Get, None).await
     }
@@ -156,6 +238,7 @@ impl NextcloudGateway for BoundGateway {
                 method: mw_egress::DavMethod::Propfind,
                 body: Some(("application/xml", crate::nextcloud_transport::PROPERTIES)),
                 depth: Some(1),
+                destination: None,
             },
         )
         .await;
@@ -213,6 +296,7 @@ impl NextcloudGateway for BoundGateway {
                     encoded.query().unwrap_or_default().as_bytes(),
                 )),
                 depth: None,
+                destination: None,
             },
         )
         .await;

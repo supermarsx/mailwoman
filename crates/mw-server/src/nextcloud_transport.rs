@@ -9,6 +9,8 @@ pub(crate) struct Operation<'a> {
     pub method: DavMethod,
     pub body: Option<(&'a str, &'a [u8])>,
     pub depth: Option<u8>,
+    /// `Destination` for MOVE and chunked-upload requests; same origin only.
+    pub destination: Option<&'a str>,
 }
 pub(crate) async fn call(
     state: &AppState,
@@ -23,7 +25,15 @@ pub(crate) async fn call(
         method,
         body,
         depth,
+        destination,
     } = op;
+    // Assembling a chunked upload (MOVE) and sending a multi-MiB chunk take longer
+    // than a listing; everything else keeps the 15 s ceiling.
+    let limit = match (method, body) {
+        (DavMethod::Move, _) => 120,
+        (_, Some((_, bytes))) if bytes.len() > 1024 * 1024 => 60,
+        _ => 15,
+    };
     static SLOTS: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
     let operation = async {
         let _permit = SLOTS
@@ -80,6 +90,7 @@ pub(crate) async fn call(
                 ocs: true,
                 if_none_match: None,
                 if_match: None,
+                destination,
             },
             body.map(|(content_type, bytes)| OutBody {
                 content_type,
@@ -95,12 +106,16 @@ pub(crate) async fn call(
         response.outcome.map_err(|error| match error {
             mw_egress::Refusal::Status(401) => "credentials rejected; link again",
             mw_egress::Refusal::Status(403) => "cloud permission denied",
+            mw_egress::Refusal::Status(404) => "cloud item not found",
+            mw_egress::Refusal::Status(405) => "cloud item already exists",
+            mw_egress::Refusal::Status(409 | 412) => "cloud conflict",
+            mw_egress::Refusal::Status(507) => "cloud storage full",
             mw_egress::Refusal::TooLarge => "file or response exceeds 8 MiB limit",
             mw_egress::Refusal::Timeout => "cloud timeout",
             _ => "cloud transport refused",
         })
     };
-    tokio::time::timeout(std::time::Duration::from_secs(15), operation)
+    tokio::time::timeout(std::time::Duration::from_secs(limit), operation)
         .await
         .map_err(|_| "cloud timeout")?
 }
@@ -126,6 +141,7 @@ pub(crate) async fn verify(
             method: DavMethod::Propfind,
             body: Some(("application/xml", PROPERTIES)),
             depth: Some(0),
+            destination: None,
         },
     )
     .await?;

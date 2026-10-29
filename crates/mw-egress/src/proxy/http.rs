@@ -186,6 +186,7 @@ async fn exchange_inner(
         }
     } else if let Some(dav) = out.authorized_dav {
         dav.validate().map_err(ProxyRefusal::Origin)?;
+        dav.validate_target(url).map_err(ProxyRefusal::Origin)?;
         let mut builder = builder
             .method(dav.method.as_str())
             .header(header::AUTHORIZATION, dav.authorization);
@@ -200,6 +201,9 @@ async fn exchange_inner(
         }
         if let Some(tag) = dav.if_match {
             builder = builder.header(header::IF_MATCH, tag);
+        }
+        if let Some(destination) = dav.destination {
+            builder = builder.header("Destination", destination);
         }
         match out.body {
             None => builder.body(Either::Left(Empty::<Bytes>::new())),

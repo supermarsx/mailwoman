@@ -45,6 +45,16 @@ nextcloud-no-expiry = sem expiração
 nextcloud-error-need-password = introduza uma palavra-passe ou desative a proteção por palavra-passe
 nextcloud-error-need-expiry = escolha uma data de expiração ou desative a expiração
 nextcloud-error-share-failed = não foi possível criar a ligação de partilha
+# Anexo grande (t39): um ficheiro acima do limite de anexos é carregado e depois partilhado.
+nextcloud-share-upload-intro = { $path } é maior do que o limite de anexos. Carregue-o para a pasta “Mail attachments” do seu Nextcloud e insira uma ligação de partilha na mensagem.
+nextcloud-upload-and-link = Carregar e inserir ligação
+nextcloud-share-not-now = Agora não
+nextcloud-upload-progress = A carregar: { $percent }%
+nextcloud-upload-progress-label = Progresso do carregamento
+nextcloud-share-inserted = Ligação de partilha de { $name } inserida na mensagem.
+nextcloud-share-body = { $name } ({ $size }): { $url }
+nextcloud-share-body-expires = A ligação funciona até { $date }.
+nextcloud-share-body-password = A ligação está protegida por palavra-passe.
 
 # Account-owned integration configuration
 nextcloud-account-title = Contas Nextcloud
@@ -115,6 +125,11 @@ nextcloud-pim-ready = Pronta
 nextcloud-pim-disconnected = Desligada ou associação alterada
 nextcloud-pim-unnamed = Coleção sem nome
 nextcloud-pim-back = Voltar às contas Nextcloud
+nextcloud-pim-create-title = Nova coleção no Nextcloud
+nextcloud-pim-create-help = Cria um calendário ou uma lista de tarefas vazios nesta conta Nextcloud e liga-os aqui.
+nextcloud-pim-create-name = Nome da nova coleção
+nextcloud-pim-create = Criar no Nextcloud
+nextcloud-pim-created = { $name } foi criado no Nextcloud e ligado. Sincronize agora para o carregar.
 nextcloud-pim-interval = Intervalo de atualização automática (segundos)
 nextcloud-pim-interval-help = Zero significa apenas atualização manual. Os intervalos positivos têm um mínimo de 60 segundos. As contas associadas são atualizadas em segundo plano; as falhas aumentam o intervalo entre tentativas e as credenciais rejeitadas interrompem novos pedidos até voltar a associar a conta.
 nextcloud-pim-interval-reset = Usar a predefinição do administrador

@@ -8,6 +8,9 @@ pub(crate) struct ManagedTransport {
     store: Store,
     account: String,
     discovery: Option<(String, String, String)>,
+    /// With `discovery`: the one request allowed is `MKCALENDAR` of a new
+    /// collection directly inside the account's calendar home (not `PROPFIND`).
+    create: bool,
 }
 fn refused(message: &'static str) -> DavError {
     DavError::Transport(message.into())
@@ -18,6 +21,7 @@ impl ManagedTransport {
             store,
             account,
             discovery: None,
+            create: false,
         })
     }
     pub(crate) fn discovery(
@@ -31,6 +35,22 @@ impl ManagedTransport {
             store,
             account,
             discovery: Some((instance, revision, kind)),
+            create: false,
+        })
+    }
+    /// Bound like [`Self::discovery`], but for creating one calendar collection.
+    pub(crate) fn creation(
+        store: Store,
+        account: String,
+        instance: String,
+        revision: String,
+        kind: String,
+    ) -> Arc<dyn DavTransport> {
+        Arc::new(Self {
+            store,
+            account,
+            discovery: Some((instance, revision, kind)),
+            create: true,
         })
     }
     async fn execute(&self, request: TransportRequest) -> mw_dav::Result<TransportResponse> {
@@ -69,7 +89,13 @@ impl ManagedTransport {
         }
         let url = Url::parse(&request.url).map_err(|_| refused("invalid DAV URL"))?;
         let (instance_id, revision, kind) = if let Some(binding) = &self.discovery {
-            if request.method != "PROPFIND" {
+            if request.method
+                != if self.create {
+                    "MKCALENDAR"
+                } else {
+                    "PROPFIND"
+                }
+            {
                 return Err(refused("discovery is read only"));
             }
             binding.clone()
@@ -125,6 +151,9 @@ impl ManagedTransport {
         )? {
             return Err(refused("DAV target escaped account"));
         }
+        if self.create && !new_calendar_target(&url, &instance.base_url, &link.username)? {
+            return Err(refused("a new calendar goes directly in the calendar home"));
+        }
         let method = match request.method.as_str() {
             "GET" => mw_egress::DavMethod::Get,
             "PROPFIND" => mw_egress::DavMethod::Propfind,
@@ -157,6 +186,7 @@ impl ManagedTransport {
                 ocs: false,
                 if_match: request.if_match.as_deref(),
                 if_none_match: request.if_none_match.as_deref(),
+                destination: None,
             },
             request.body.as_ref().map(|body| mw_egress::OutBody {
                 content_type: request.content_type.as_deref().unwrap_or("application/xml"),
@@ -249,6 +279,22 @@ pub(crate) fn collection_url(base: &str, user: &str, kind: &str) -> mw_dav::Resu
         }
     }
     Ok(url)
+}
+/// `…/remote.php/dav/calendars/<user>/<slug>/`: one new segment below the home.
+pub(crate) fn new_calendar_target(url: &Url, base: &str, user: &str) -> mw_dav::Result<bool> {
+    let home = collection_url(base, user, "calendar")?;
+    let Some(rest) = url.path().strip_prefix(home.path()) else {
+        return Ok(false);
+    };
+    let Some(slug) = rest.strip_suffix('/') else {
+        return Ok(false);
+    };
+    Ok(url.origin() == home.origin()
+        && !slug.is_empty()
+        && slug.len() <= 64
+        && slug
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'))
 }
 fn within(url: &Url, base: &str) -> bool {
     Url::parse(base).is_ok_and(|base| {
@@ -344,6 +390,22 @@ mod tests {
         ] {
             assert!(
                 !account_target(&Url::parse(target).unwrap(), base, "Jóse", false).unwrap(),
+                "{target}"
+            );
+        }
+        let home = own.as_str();
+        assert!(
+            new_calendar_target(
+                &Url::parse(&format!("{home}team-plans/")).unwrap(),
+                base,
+                "Jóse"
+            )
+            .unwrap()
+        );
+        for target in ["", "a/b/", "Upper/", "x", "inbox/../"] {
+            let url = Url::parse(&format!("{home}{target}")).unwrap();
+            assert!(
+                !new_calendar_target(&url, base, "Jóse").unwrap(),
                 "{target}"
             );
         }

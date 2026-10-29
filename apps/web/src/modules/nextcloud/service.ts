@@ -48,6 +48,14 @@ export interface ShareLink {
   readonly passwordProtected: boolean;
 }
 
+/** A local file stored in the linked Nextcloud (the large-attachment path). */
+export interface UploadedFile {
+  /** Path in the account's files, e.g. `/Mail attachments/report.zip`. */
+  readonly path: string;
+  readonly name: string;
+  readonly size: number;
+}
+
 /** Options for a share link (optional password + expiry — §18.4). */
 export interface ShareLinkOptions {
   readonly path: string;
@@ -109,5 +117,34 @@ export class NextcloudService {
   /** Create a public share link for a Nextcloud file (optional password/expiry). */
   async createShareLink(options: ShareLinkOptions): Promise<ShareLink> {
     return this.request<ShareLink>('/api/nextcloud/share-link',{...options});
+  }
+
+  /** Store a local file in the linked account's "Mail attachments" folder, in
+   *  chunks (the server forwards each one; it never holds the whole file). A
+   *  failed or aborted upload drops the partial chunks. `onProgress` gets the
+   *  bytes sent so far. */
+  async uploadFile(file: Blob & {name: string}, onProgress?: (sent: number) => void, signal?: AbortSignal): Promise<UploadedFile> {
+    const started = await this.request<{transfer:string;path:string;chunkBytes:number}>('/api/nextcloud/upload',{name:file.name,size:file.size});
+    const step = (suffix: string) => `/api/nextcloud/upload/${encodeURIComponent(started.transfer)}/${suffix}`;
+    try {
+      const account = preferenceAccount();
+      if (!account) throw new Error('Sign in before using Nextcloud.');
+      const chunk = Math.max(1, started.chunkBytes);
+      let sent = 0;
+      for (let index = 1; sent < file.size; index++) {
+        if (signal?.aborted) throw new DOMException('Upload cancelled.', 'AbortError');
+        const part = file.slice(sent, Math.min(file.size, sent + chunk));
+        const query = new URLSearchParams({accountId: account.id, path: started.path, ...(this.instanceId ? {instanceId: this.instanceId} : {})});
+        const response = await this.fetcher(withBase(`${step(String(index))}?${query.toString()}`), {method: 'PUT', headers: {'content-type': 'application/octet-stream'}, body: part, ...(signal ? {signal} : {})});
+        if (!response.ok) await jsonOrThrow<unknown>(response);
+        if (!preferenceAccountIsCurrent(account)) throw new Error('The active account changed. Open the picker again.');
+        sent += part.size;
+        onProgress?.(sent);
+      }
+      return await this.request<UploadedFile>(step('finish'),{path:started.path,size:file.size});
+    } catch (error) {
+      void this.request<unknown>(step('abort'),{}).catch(() => undefined);
+      throw error;
+    }
   }
 }

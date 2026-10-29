@@ -382,6 +382,7 @@ async fn files(
             method: mw_egress::DavMethod::Propfind,
             body: Some(("application/xml", crate::nextcloud_transport::PROPERTIES)),
             depth: Some(1),
+            destination: None,
         },
     )
     .await

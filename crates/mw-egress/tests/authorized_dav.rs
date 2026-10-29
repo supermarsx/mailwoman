@@ -14,6 +14,7 @@ fn auth(method: DavMethod) -> AuthorizedDav<'static> {
         ocs: true,
         if_none_match: None,
         if_match: Some("\"rev1\""),
+        destination: None,
     }
 }
 

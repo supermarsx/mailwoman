@@ -1,8 +1,9 @@
 import {InstanceSelector} from './InstanceSelector.tsx';
 // Large-attachment share-link composer (SPEC §18.4, plan §3 e7): create a public
 // Nextcloud share link for a file, with the optional password + expiry controls.
-// EXPORTED for e14 to wire into the composer's "share instead of attach" path (large
-// attachments). The created link is inserted into the draft body by the caller.
+// Mounted by the composer for a file over the attachment size limit (t39 L7): with
+// `file`, the local file is first uploaded to the linked account's "Mail
+// attachments" folder in chunks, then shared. The caller inserts the link.
 
 import { createSignal, onMount, Show, type JSX } from 'solid-js';
 import { NextcloudService, type Fetcher, type ShareLink } from './service.ts';
@@ -12,10 +13,14 @@ import * as css from './styles.css.ts';
 import { PasswordInput } from '../../components/PasswordInput.tsx';
 
 export interface ShareLinkComposerProps {
-  /** The Nextcloud file to share (server-relative path). */
-  path: string;
+  /** The Nextcloud file to share (server-relative path). Ignored with `file`. */
+  path?: string;
+  /** A local file to upload first (the large-attachment path). */
+  file?: File;
   /** The created link (caller inserts it into the draft). */
   onCreated: (link: ShareLink) => void;
+  /** Shown as a "Not now" button when given. */
+  onDismiss?: () => void;
   fetcher?: Fetcher;
   service?: NextcloudService;
 }
@@ -30,6 +35,20 @@ export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
   const [expiresAt, setExpiresAt] = createSignal('');
   const [link, setLink] = createSignal<ShareLink | null>(null);
   const [busy, setBusy] = createSignal(false);
+  // Bytes sent so far while a local file uploads (null when not uploading).
+  const [sent, setSent] = createSignal<number | null>(null);
+  // Once stored, a retry (e.g. after a refused share) shares the same copy.
+  let stored: string | null = null;
+  const subject = (): string => props.file?.name ?? props.path ?? '';
+  const percent = (): number => {
+    const total = props.file?.size ?? 0;
+    return total > 0 ? Math.min(100, Math.floor(((sent() ?? 0) * 100) / total)) : 0;
+  };
+  // A link may not expire in the past; Nextcloud refuses today in some setups.
+  const tomorrow = (): string => {
+    const at = new Date(Date.now() + 86_400_000);
+    return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
+  };
   // A missing password or date stays on the form; a refused request is a toast (t32 f39).
   const [error, setError] = createSignal('');
 
@@ -46,8 +65,16 @@ export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
     }
     setBusy(true);
     try {
+      let path = props.path ?? '';
+      if (props.file) {
+        if (stored === null) {
+          setSent(0);
+          stored = (await service.uploadFile(props.file, setSent)).path;
+        }
+        path = stored;
+      }
       const created = await service.createShareLink({
-        path: props.path,
+        path,
         ...(withPassword() ? { password: password() } : {}),
         ...(withExpiry() ? { expiresAt: expiresAt() } : {}),
       });
@@ -56,6 +83,7 @@ export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t('nextcloud-error-share-failed'));
     } finally {
+      setSent(null);
       setBusy(false);
     }
   }
@@ -64,7 +92,7 @@ export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
     <div class={css.panel} data-module="nextcloud" aria-label={t('nextcloud-share-panel-label')}>
       <InstanceSelector disabled={busy()} service={service} onChange={()=>{setReady(true);setLink(null);}}/>
       <h2 class={css.heading}>{t('nextcloud-share-title')}</h2>
-      <p class={css.meta}>{t('nextcloud-share-intro', { path: isolate(props.path) })}</p>
+      <p class={css.meta}>{t(props.file ? 'nextcloud-share-upload-intro' : 'nextcloud-share-intro', { path: isolate(subject()) })}</p>
 
       <label class={css.check}>
         <input
@@ -105,15 +133,31 @@ export function ShareLinkComposer(props: ShareLinkComposerProps): JSX.Element {
             class={css.input}
             type="date"
             aria-label={t('nextcloud-expiry-date')}
+            min={tomorrow()}
             value={expiresAt()}
             onInput={(e) => setExpiresAt(e.currentTarget.value)}
           />
         </label>
       </Show>
 
-      <button type="button" class={css.button} disabled={busy()||!ready()} onClick={() => void create()}>
-        {t('nextcloud-create-link')}
-      </button>
+      <div class={css.actions}>
+        <button type="button" class={css.button} disabled={busy()||!ready()||link()!==null} onClick={() => void create()}>
+          {t(props.file ? 'nextcloud-upload-and-link' : 'nextcloud-create-link')}
+        </button>
+        <Show when={props.onDismiss}>
+          {(dismiss) => (
+            <button type="button" class={css.ghost} disabled={busy()} onClick={() => dismiss()()}>
+              {t('nextcloud-share-not-now')}
+            </button>
+          )}
+        </Show>
+      </div>
+      <Show when={sent() !== null}>
+        <p class={css.meta} role="status" data-testid="nc-upload-progress">
+          <progress max={100} value={percent()} aria-label={t('nextcloud-upload-progress-label')} />{' '}
+          {t('nextcloud-upload-progress', { percent: percent() })}
+        </p>
+      </Show>
 
       <Show when={link()}>
         {(l) => (
