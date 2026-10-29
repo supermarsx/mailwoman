@@ -134,7 +134,6 @@ admin-dash-traffic-empty = لم تُحسب أي طلبات في هذه الفت�
 admin-dash-requests = الطلبات في الدقيقة
 admin-dash-errors = أخطاء الخادم (5xx) في الدقيقة
 admin-dash-p95 = زمن الاستجابة، المئين 95
-admin-dash-ms = { $ms } مللي ثانية
 
 # -- Health ----------------------------------------------------------------------------
 admin-dash-health = الحالة الصحية

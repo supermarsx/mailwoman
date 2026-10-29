@@ -940,4 +940,3 @@ admin-ncbackup-error-credentialUnreadable = A palavra-passe de aplicação guard
 admin-ncbackup-error-invalidCa = Os certificados de AC guardados são inválidos.
 admin-ncbackup-error-invalidListing = O Nextcloud devolveu uma listagem de pasta que não pôde ser lida.
 
-admin-dash-ms-under = <{ $ms } ms

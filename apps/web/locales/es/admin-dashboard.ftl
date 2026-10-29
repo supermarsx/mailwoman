@@ -102,7 +102,6 @@ admin-dash-traffic-empty = No se contó ninguna solicitud en este intervalo.
 admin-dash-requests = Solicitudes por minuto
 admin-dash-errors = Errores del servidor (5xx) por minuto
 admin-dash-p95 = Tiempo de respuesta, percentil 95
-admin-dash-ms = { $ms } ms
 
 # -- Health ----------------------------------------------------------------------------
 admin-dash-health = Estado

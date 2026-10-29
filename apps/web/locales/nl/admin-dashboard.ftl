@@ -102,7 +102,6 @@ admin-dash-traffic-empty = In deze periode zijn geen verzoeken geteld.
 admin-dash-requests = Verzoeken per minuut
 admin-dash-errors = Serverfouten (5xx) per minuut
 admin-dash-p95 = Responstijd, 95e percentiel
-admin-dash-ms = { $ms } ms
 
 # -- Health ----------------------------------------------------------------------------
 admin-dash-health = Status

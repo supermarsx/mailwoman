@@ -160,6 +160,121 @@ export function formatBytes(bytes: number, options: { maximumFractionDigits?: nu
   }).format(n);
 }
 
+/** The units a duration can be shown in, smallest first. */
+export type DurationUnit = 'nanosecond' | 'microsecond' | 'millisecond' | 'second' | 'minute' | 'hour';
+
+// [unit, size in ms, the value at which the next unit takes over].
+const DURATION_UNITS: readonly (readonly [DurationUnit, number, number])[] = [
+  ['nanosecond', 1e-6, 1000],
+  ['microsecond', 1e-3, 1000],
+  ['millisecond', 1, 1000],
+  ['second', 1000, 60],
+  ['minute', 60_000, 60],
+  ['hour', 3_600_000, Infinity],
+];
+
+// CLDR's short English forms are "sec" and "hr"; the SI symbols read better
+// next to "ms" and "μs". Only the unit part of the formatted string is touched.
+const UNIT_SYMBOL: Readonly<Record<string, string>> = { sec: 's', hr: 'h', 'µs': 'μs' };
+
+export interface DurationFormatOptions {
+  /**
+   * The step the source measures in, in ms (1 for whole milliseconds, 0.001 for
+   * microseconds). A value below it, zero included, reads "<1 ms" rather than a
+   * zero the source could not tell apart from a short non-zero time.
+   */
+  resolutionMs?: number | null | undefined;
+  /** Significant digits, default 3 ("420 μs", "1.25 ms", "37 ms", "2.4 s"). */
+  significantDigits?: number;
+}
+
+/** Round to `digits` significant digits (whole numbers keep every integer digit). */
+function roundSignificant(v: number, digits: number): number {
+  if (v === 0) return 0;
+  if (v >= 10 ** digits) return Math.round(v);
+  return Number(v.toPrecision(digits));
+}
+
+function unitIndex(unit: DurationUnit): number {
+  return DURATION_UNITS.findIndex(([u]) => u === unit);
+}
+
+/** The unit `formatDurationMs` uses for `ms`, after rounding. */
+export function durationUnit(ms: number, significantDigits = 3): DurationUnit {
+  const abs = Math.abs(ms);
+  if (!Number.isFinite(abs) || abs === 0) return 'millisecond';
+  let i = DURATION_UNITS.findIndex(([, size, next]) => abs / size < next);
+  if (i < 0) i = DURATION_UNITS.length - 1;
+  // 999.7 μs rounds to "1000 μs"; show "1 ms" instead.
+  while (i < DURATION_UNITS.length - 1 && roundSignificant(abs / DURATION_UNITS[i]![1], significantDigits) >= DURATION_UNITS[i]![2]) i += 1;
+  return DURATION_UNITS[i]![0];
+}
+
+function renderIn(ms: number, unit: DurationUnit, digits: number): string {
+  const [, size] = DURATION_UNITS[unitIndex(unit)]!;
+  const v = roundSignificant(Math.abs(ms) / size, digits);
+  const signed = ms < 0 && v !== 0 ? -v : v;
+  const options: Intl.NumberFormatOptions = {
+    style: 'unit',
+    unit,
+    unitDisplay: 'short',
+    ...(v >= 10 ** digits ? { maximumFractionDigits: 0 } : { maximumSignificantDigits: digits }),
+  };
+  return numberFormat(options)
+    .formatToParts(signed)
+    .map((part) => (part.type === 'unit' ? (UNIT_SYMBOL[part.value] ?? part.value) : part.value))
+    .join('');
+}
+
+/**
+ * A measured duration given in milliseconds, in the unit that keeps it readable:
+ * ns below 1 μs, μs below 1 ms, ms below 1 s, s below 1 min, then min and h
+ * ("420 μs", "1.25 ms", "37 ms", "2.4 s", "1.5 h"). Digits follow the active
+ * locale. A non-zero value never reads "0 ms"; with `resolutionMs`, a value
+ * below the source's step reads "<1 ms" (or "<1 μs"). Returns "—" for NaN or
+ * an infinite value.
+ */
+export function formatDurationMs(ms: number, options: DurationFormatOptions = {}): string {
+  if (typeof ms !== 'number' || !Number.isFinite(ms)) return '—';
+  const digits = options.significantDigits ?? 3;
+  const res = options.resolutionMs;
+  if (typeof res === 'number' && res > 0 && Number.isFinite(res) && Math.abs(ms) < res) {
+    return `<${renderIn(res, durationUnit(res, digits), digits)}`;
+  }
+  return renderIn(ms, durationUnit(ms, digits), digits);
+}
+
+/** `formatDurationMs` for a value in microseconds. */
+export function formatDurationMicros(us: number, options: DurationFormatOptions = {}): string {
+  return formatDurationMs(us / 1000, options);
+}
+
+/**
+ * One formatter for a set of values that share a unit (a chart, a table
+ * column): the unit is the one the largest absolute value reads in, so every
+ * value in the set is comparable at a glance ("0.42 ms", "12 ms", "380 ms").
+ * Small values keep their significant digits, so they never read as zero.
+ * The returned function takes an optional per-value resolution that overrides
+ * `options.resolutionMs`.
+ */
+export function durationFormatterFor(
+  values: readonly (number | null | undefined)[],
+  options: DurationFormatOptions = {},
+): (ms: number, resolutionMs?: number | null) => string {
+  const digits = options.significantDigits ?? 3;
+  const finite = values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v)).map(Math.abs);
+  const max = finite.length ? Math.max(...finite) : 0;
+  const unit = durationUnit(max, digits);
+  return (ms: number, resolutionMs?: number | null): string => {
+    if (typeof ms !== 'number' || !Number.isFinite(ms)) return '—';
+    const res = resolutionMs ?? options.resolutionMs;
+    if (typeof res === 'number' && res > 0 && Number.isFinite(res) && Math.abs(ms) < res) {
+      return `<${renderIn(res, durationUnit(res, digits), digits)}`;
+    }
+    return renderIn(ms, unit, digits);
+  };
+}
+
 /** A list joined the locale's way: `formatList(['a', 'b', 'c'])` is "a, b, and c" in `en`. */
 export function formatList(items: readonly string[], options: Intl.ListFormatOptions = { type: 'conjunction' }): string {
   const locale = formatLocale();

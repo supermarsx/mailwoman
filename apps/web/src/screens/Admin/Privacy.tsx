@@ -1,5 +1,5 @@
 import { createResource, For, onMount, Show, type JSX } from 'solid-js';
-import { loadCatalog, t } from '../../i18n';
+import { durationFormatterFor, loadCatalog, t } from '../../i18n';
 import { listAdminSettings, type AdminSetting } from '../../api/admin/settings.ts';
 import { adminRequest } from './shell/adminApi.ts';
 import { describeAdminError } from './shell/Feedback.tsx';
@@ -10,12 +10,20 @@ import { AdminSubsection } from './AdminSubsection.tsx';
 import { AsyncPending } from '../../components/AsyncState.tsx';
 import * as css from './admin.css.ts';
 import * as layout from './privacyLayout.css.ts';
-export interface PrivacyStats { cacheEntries: number; cacheBytes: number; trackersReplaced: number; traffic: { class: string; allowed: number; refused: number; failed: number; totalMs: number }[] }
+export interface PrivacyStats { cacheEntries: number; cacheBytes: number; trackersReplaced: number; traffic: { class: string; allowed: number; refused: number; failed: number; totalMs: number; /** Exact total in μs (servers from 26.20). */ totalUs?: number }[] }
 export const privacyAdminApi = { settings: listAdminSettings, async stats(): Promise<PrivacyStats> { return (await adminRequest<PrivacyStats>('/egress/privacy-stats')).data; } };
 /** t56: the remote-image fetch limits, shown in their own subsection under the
  *  console's registry labels (admin-settings.ftl). Milliseconds read as seconds. */
 export const FETCH_LIMIT_KEYS: readonly string[] = ['privacy.fetchConnectTimeoutMs','privacy.fetchHeadersTimeoutMs','privacy.fetchIdleTimeoutMs','privacy.fetchTotalTimeoutMs','privacy.maxRedirects','privacy.maxConcurrentPerMessage','privacy.maxConcurrentPerAccount'];
 const fetchLabel = (key: string): string => `admin-settings-key-${key.replace('.', '-').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()}`;
+type TrafficRow = PrivacyStats['traffic'][number];
+const trafficMs = (row: TrafficRow): number => typeof row.totalUs === 'number' ? row.totalUs / 1000 : row.totalMs;
+/** Total time per class, in one unit for the whole column. Whole-ms totals below 1 ms read "<1 ms". */
+const trafficTime = (rows: readonly TrafficRow[]): ((row: TrafficRow) => string) => {
+  const fmt = durationFormatterFor(rows.map(trafficMs));
+  return row => row.allowed + row.refused + row.failed === 0 ? fmt(0) : fmt(trafficMs(row), typeof row.totalUs === 'number' ? 0.001 : 1);
+};
+
 /** `5000` ms -> "5 s" in the document's language; counts stay plain numbers. */
 export function fetchLimitValue(key: string, value: unknown, lang = document.documentElement.lang || undefined): string {
   if (typeof value !== 'number') return String(value);
@@ -50,8 +58,8 @@ export function AdminPrivacy(props: { service?: typeof privacyAdminApi }): JSX.E
       </div>
       <div class={css.tableWrap} tabindex="0" role="region" aria-label={t('privacy-traffic-summary')}>
         <table class={css.table} aria-label={t('privacy-traffic-summary')}>
-          <thead><tr><th scope="col">{t('privacy-traffic-class')}</th><th scope="col">{t('privacy-allowed')}</th><th scope="col">{t('privacy-refused')}</th><th scope="col">{t('privacy-failed')}</th><th scope="col">{t('privacy-total-time')}</th></tr></thead>
-          <tbody><For each={value().traffic} fallback={<tr><td colspan="5">{t('privacy-no-traffic')}</td></tr>}>{row => <tr><th scope="row">{row.class.replaceAll('_',' ')}</th><td>{row.allowed}</td><td>{row.refused}</td><td>{row.failed}</td><td>{row.totalMs}</td></tr>}</For></tbody>
+          <thead><tr><th scope="col">{t('privacy-traffic-class')}</th><th scope="col">{t('privacy-allowed')}</th><th scope="col">{t('privacy-refused')}</th><th scope="col">{t('privacy-failed')}</th><th scope="col">{t('privacy-total-duration')}</th></tr></thead>
+          <tbody><For each={value().traffic} fallback={<tr><td colspan="5">{t('privacy-no-traffic')}</td></tr>}>{row => <tr><th scope="row">{row.class.replaceAll('_',' ')}</th><td>{row.allowed}</td><td>{row.refused}</td><td>{row.failed}</td><td>{trafficTime(value().traffic)(row)}</td></tr>}</For></tbody>
         </table>
       </div>
     </div>}</Show>

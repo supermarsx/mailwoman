@@ -9,8 +9,9 @@ import { AsyncPending } from '../../components/AsyncState.tsx';
 import { DataTable } from './shell/DataTable.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { DeploymentSecurity } from './DeploymentSecurity.tsx';
+import { formatMeasured } from './Dashboard/format.ts';
 
-interface Check { id: string; status: string; durationMs: number; summary: string; domain?: string; backendId?: string; protocol?: string; fixId?: string }
+interface Check { id: string; status: string; durationMs: number; /** Exact time in μs (servers from 26.20); null for a check that never ran. */ durationUs?: number | null; summary: string; domain?: string; backendId?: string; protocol?: string; fixId?: string }
 interface Run { id: string; suite: string; startedAt: number; status: string; results: Check[] }
 interface History { runs: Run[]; nextCursor: string | null }
 interface Job { run: Run; total: number; completed: number; limited: boolean; historySaved: boolean; auditSaved?: boolean; termination?: string }
@@ -114,7 +115,7 @@ function DiagnosticRuns(props: { api?: DiagnosticsApi }): JSX.Element {
       <div class={css.tableWrap}><table class={css.table}>
         <caption>{t('admin-diag-checks')}</caption>
         <thead><tr><th scope="col">{t('admin-diag-check')}</th><th scope="col">{t('admin-diag-status')}</th><th scope="col">{t('admin-diag-duration')}</th></tr></thead>
-        <tbody><For each={filtered()} fallback={<tr><td colSpan={3}>{t(current().results.length ? 'admin-diag-no-match' : 'admin-diag-no-checks')}</td></tr>}>{(check) => <tr><th scope="row">{check.summary}<Show when={check.domain}><div><a href={`#/domains/${encodeURIComponent(check.domain!)}`}>{check.domain}</a> · {check.backendId} · {check.protocol}</div></Show></th><td>{check.status}</td><td>{check.durationMs} ms</td></tr>}</For></tbody>
+        <tbody><For each={filtered()} fallback={<tr><td colSpan={3}>{t(current().results.length ? 'admin-diag-no-match' : 'admin-diag-no-checks')}</td></tr>}>{(check) => <tr><th scope="row">{check.summary}<Show when={check.domain}><div><a href={`#/domains/${encodeURIComponent(check.domain!)}`}>{check.domain}</a> · {check.backendId} · {check.protocol}</div></Show></th><td>{check.status}</td><td data-duration-us={check.durationUs} data-duration-ms={check.durationMs}>{check.status === 'skipped' || check.durationUs === null ? '—' : formatMeasured(check.durationMs, check.durationUs)}</td></tr>}</For></tbody>
       </table></div>
     </div>}</Show>
     <h3>{t('admin-diag-history')}</h3>

@@ -118,7 +118,6 @@ admin-dash-traffic-empty = За этот период запросов не бы
 admin-dash-requests = Запросов в минуту
 admin-dash-errors = Ошибок сервера (5xx) в минуту
 admin-dash-p95 = Время ответа, 95-й процентиль
-admin-dash-ms = { $ms } мс
 
 # -- Health ----------------------------------------------------------------------------
 admin-dash-health = Состояние

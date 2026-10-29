@@ -955,4 +955,3 @@ admin-ncbackup-error-credentialUnreadable = The saved app password cannot be ope
 admin-ncbackup-error-invalidCa = The saved CA certificates are invalid.
 admin-ncbackup-error-invalidListing = Nextcloud returned a folder listing that could not be read.
 
-admin-dash-ms-under = <{ $ms } ms

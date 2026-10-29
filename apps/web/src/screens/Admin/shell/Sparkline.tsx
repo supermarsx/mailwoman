@@ -15,13 +15,21 @@ export interface SparkPoint {
   t: number;
   /** Null marks unavailable history, rather than a measured zero. */
   value: number | null;
+  /** The step this value was measured in (e.g. 1 ms), passed to the formatter. */
+  resolution?: number | null | undefined;
 }
 
 export interface SparklineProps {
   title: string;
   points: readonly SparkPoint[];
-  /** Formats a value for the summary, hover and table. */
-  format?: (n: number) => string;
+  /** Formats a value for the hover (and the summary and table without `formatSet`). */
+  format?: (n: number, resolution?: number | null) => string;
+  /**
+   * Builds one formatter for the whole series, so the summary and the table
+   * read in one unit chosen from the largest value (durations: "0.4 ms",
+   * "12 ms"). The hover keeps `format`, which picks the best unit per value.
+   */
+  formatSet?: (values: readonly (number | null)[]) => (n: number, resolution?: number | null) => string;
   /** Formats a bucket time. */
   formatTime?: (unixSecs: number) => string;
   tone?: 'accent' | 'danger';
@@ -35,7 +43,12 @@ const H = 48;
 
 export function Sparkline(props: SparklineProps): JSX.Element {
   const id = createUniqueId();
-  const fmt = (n: number | null): string => n === null ? t('admin-shell-not-available') : (props.format ? props.format(n) : formatNumber(n));
+  const fmt = (n: number | null, resolution?: number | null): string => n === null ? t('admin-shell-not-available') : (props.format ? props.format(n, resolution) : formatNumber(n));
+  const setFormat = createMemo(() => props.formatSet?.(props.points.map(p => p.value)));
+  const fmtSet = (n: number | null, resolution?: number | null): string => {
+    const f = setFormat();
+    return n === null || f === undefined ? fmt(n, resolution) : f(n, resolution);
+  };
   const fmtTime = (s: number): string =>
     props.formatTime ? props.formatTime(s) : formatTime(s * 1000);
 
@@ -70,6 +83,10 @@ export function Sparkline(props: SparklineProps): JSX.Element {
   }
 
   const latest = (): SparkPoint | undefined => props.points[props.points.length - 1];
+  const maxResolution = (): number | null | undefined => {
+    const max = geom().max;
+    return max === null ? undefined : props.points.find(p => p.value === max)?.resolution;
+  };
 
   return (
     <section class={css.chart} aria-labelledby={`${id}-title`} data-testid={props.testId}>
@@ -97,13 +114,13 @@ export function Sparkline(props: SparklineProps): JSX.Element {
         </svg>
         <p class={css.chartTip} aria-hidden="true">
           <Show when={hover() !== null && props.points[hover()!]}>
-            {(p) => <span>{t('admin-shell-chart-point', { time: fmtTime(p().t), value: fmt(p().value) })}</span>}
+            {(p) => <span>{t('admin-shell-chart-point', { time: fmtTime(p().t), value: fmt(p().value, p().resolution) })}</span>}
           </Show>
         </p>
         <p class={css.chartSummary}>
           {t('admin-shell-chart-summary', {
-            latest: fmt(latest()?.value ?? null),
-            max: fmt(geom().max),
+            latest: fmtSet(latest()?.value ?? null, latest()?.resolution),
+            max: fmtSet(geom().max, maxResolution()),
           })}
         </p>
         <table class={css.srOnly}>
@@ -119,7 +136,7 @@ export function Sparkline(props: SparklineProps): JSX.Element {
               {(p) => (
                 <tr>
                   <td>{fmtTime(p.t)}</td>
-                  <td>{fmt(p.value)}</td>
+                  <td>{fmtSet(p.value, p.resolution)}</td>
                 </tr>
               )}
             </For>

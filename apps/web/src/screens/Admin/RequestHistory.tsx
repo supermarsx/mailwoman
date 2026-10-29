@@ -8,7 +8,7 @@ import {formatDateTime} from '../../i18n/format.ts';
 import {Icon} from '../../components/Icon.tsx';
 import {AsyncPending} from '../../components/AsyncState.tsx';
 import {Sparkline} from './shell/Sparkline.tsx';
-import {formatCount,formatMs} from './Dashboard/format.ts';
+import {formatCount,formatMs,formatMsSet} from './Dashboard/format.ts';
 import {HISTORY_PRESETS,relativeHistoryRange,historyLocalInput,customHistoryRange} from './RequestHistoryRange.ts';
 import * as css from './RequestHistory.css.ts';
 import * as charts from './Dashboard/dashboard.css.ts';
@@ -83,8 +83,8 @@ export function RequestHistory(props:{refreshToken?:unknown}={}):JSX.Element {
    <div class={charts.charts}>
     <Sparkline title={t('admin-history-requests')} testId="spark-requests" points={value().series.map(p=>({t:p.t,value:p.requests}))} format={formatCount} formatTime={timestamp}/>
     <Sparkline title={t('admin-history-errors')} testId="spark-errors" points={value().series.map(p=>({t:p.t,value:p.errors5xx}))} tone="danger" format={formatCount} formatTime={timestamp}/>
-    <Sparkline title={t('admin-obs-p50')} points={value().series.map(p=>({t:p.t,value:p.p50Ms}))} format={formatMs} formatTime={timestamp}/>
-    <Sparkline title={t('admin-dash-p95')} testId="spark-p95" points={value().series.map(p=>({t:p.t,value:p.p95Ms}))} format={formatMs} formatTime={timestamp}/>
+    <Sparkline title={t('admin-obs-p50')} points={value().series.map(p=>({t:p.t,value:p.p50Ms,resolution:p.p50ResolutionMs}))} format={formatMs} formatSet={formatMsSet} formatTime={timestamp}/>
+    <Sparkline title={t('admin-dash-p95')} testId="spark-p95" points={value().series.map(p=>({t:p.t,value:p.p95Ms,resolution:p.p95ResolutionMs}))} format={formatMs} formatSet={formatMsSet} formatTime={timestamp}/>
    </div>
    <Show when={paths()}>{list=><NotFoundPathsTable value={list()} formatTime={timestamp}/>}</Show>
    <Show when={pathsFailed()}><p role="status" class={admin.note}>{t('admin-history-nf-paths-error')}</p></Show>

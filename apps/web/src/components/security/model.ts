@@ -4,6 +4,7 @@
 // panel colours by. Kept out of the component so the mapping is unit-testable and
 // the component stays declarative. No I/O, no engine coupling.
 
+import { formatDurationMs } from '../../i18n/format.ts';
 import type {
   AuthResult,
   AttachmentRisk,
@@ -167,12 +168,13 @@ export function overallTone(v: SecurityVerdict): SecurityTone {
 
 // ── Formatting ───────────────────────────────────────────────────────────────
 
-/** A compact human delay (`1.2 s`, `340 ms`, `2 m`) — `null` renders as a dash. */
+/**
+ * A hop delay (`2 s`, `1.5 min`) — `null` renders as a dash. Received headers
+ * carry whole seconds, so a delay under one second reads "<1 s", not "0 ms".
+ */
 export function formatDelay(ms: number | null): string {
   if (ms === null) return '—';
-  if (ms < 1000) return `${ms} ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
-  return `${Math.round(ms / 60_000)} m`;
+  return formatDurationMs(ms, { resolutionMs: 1000 });
 }
 
 // ── Sender controls (the props/callback boundary e8 wires to SenderControl/set) ─

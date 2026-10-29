@@ -55,8 +55,9 @@ it('renders fractional milliseconds from the server without losing the resolutio
  const value=sample();value.latencySampleUnit='microseconds';value.series[0]={...value.series[0]!,p50Ms:0.123,p95Ms:0.999,legacyLatencyEstimate:false,p50ResolutionMs:0.001,p95ResolutionMs:0.001};
  vi.mocked(loadRequestHistory).mockResolvedValue(value);
  render(()=><RequestHistory/>);await screen.findByText(/History covers/);
- expect(screen.getByTestId('spark-p95')).toHaveTextContent('0.999 ms');
- expect(screen.getByRole('region',{name:'Response time, median'})).toHaveTextContent('0.123 ms');
+ expect(screen.getByTestId('spark-p95')).toHaveTextContent('999 μs');
+ expect(screen.getByRole('region',{name:'Response time, median'})).toHaveTextContent('123 μs');
+ expect(screen.getByTestId('spark-p95')).not.toHaveTextContent(/0 ms/);
 });
 
 const tracked=():History=>{const value=sample();value.series=[

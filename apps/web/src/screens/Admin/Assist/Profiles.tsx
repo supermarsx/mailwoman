@@ -25,6 +25,7 @@ import { ScopedValues } from '../Settings/ScopedValues.tsx';
 import { describeAdminError } from '../shell/Feedback.tsx';
 import * as css from '../admin.css.ts';
 import * as ux from '../shell/ux.css.ts';
+import { formatMeasured } from '../Dashboard/format.ts';
 import { destinationOf, httpProfilesApi, type Grant, type Preset, type Profile, type ProfileDraft, type ProfilesApi, type TestOutcome } from './profilesService.ts';
 
 const KEY = 'assist.profile';
@@ -241,9 +242,9 @@ export function AssistProfiles(props: AssistProfilesProps): JSX.Element {
 
   const testText = (o: TestOutcome): string =>
     o.ok
-      ? t('assist-profiles-test-ok', { ms: o.latencyMs })
-      : t('assist-profiles-test-failed', {
-          ms: o.latencyMs,
+      ? t('assist-profiles-test-ok-in', { duration: formatMeasured(o.latencyMs) })
+      : t('assist-profiles-test-failed-after', {
+          duration: formatMeasured(o.latencyMs),
           reason: t(`assist-profiles-error-${o.error?.kind ?? 'bad-response'}`),
           detail: [o.error?.status, o.error?.upstreamCode].filter((x) => x !== null && x !== undefined).join(' '),
         });

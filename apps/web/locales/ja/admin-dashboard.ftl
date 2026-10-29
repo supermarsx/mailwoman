@@ -94,7 +94,6 @@ admin-dash-traffic-empty = この期間に集計されたリクエストはあ�
 admin-dash-requests = 1 分あたりのリクエスト数
 admin-dash-errors = 1 分あたりのサーバーエラー（5xx）
 admin-dash-p95 = 応答時間（95 パーセンタイル）
-admin-dash-ms = { $ms } ms
 
 # -- Health ----------------------------------------------------------------------------
 admin-dash-health = 稼働状態

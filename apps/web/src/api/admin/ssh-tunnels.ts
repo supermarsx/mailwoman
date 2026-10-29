@@ -4,7 +4,7 @@ export interface SshTarget {host:string;port:number;allowPrivate:boolean}
 export interface SshTunnelConfig {id:string;name:string;host:string;port:number;username:string;enabled:boolean;allowPrivate:boolean;hostKeyPins:SshPin[];targets:SshTarget[];keepaliveSeconds:number;connectTimeoutMs:number;maxChannels:number}
 export interface SshTunnel extends SshTunnelConfig {revision:string;etag:string;credentialConfigured:boolean;authKind:'privateKey'|'password'|null;publicKey:string|null;createdAt:number;updatedAt:number}
 export type SshCredential={action:'keep'}|{action:'clear'}|{action:'generate'}|{action:'set';kind:'privateKey';privateKey:string;passphrase?:string}|{action:'set';kind:'password';password:string};
-export interface SshDiagnostic {ok:boolean;phase:string;code?:string;latencyMs:number;pinnedFingerprint?:string}
+export interface SshDiagnostic {ok:boolean;phase:string;code?:string;latencyMs:number;latencyUs?:number;pinnedFingerprint?:string}
 export type SshInspection = Pick<SshTunnelConfig,'host'|'port'|'allowPrivate'|'connectTimeoutMs'>;
 export interface SshTunnelApi {inspectDraft:(authority:SshInspection)=>Promise<SshPin>;list:()=>Promise<SshTunnel[]>;get:(id:string)=>Promise<SshTunnel>;save:(config:SshTunnelConfig,credential:SshCredential,etag?:string,confirmAuthorityChange?:boolean)=>Promise<SshTunnel>;remove:(row:SshTunnel)=>Promise<void>;inspect:(row:SshTunnel)=>Promise<SshPin>;test:(row:SshTunnel)=>Promise<SshDiagnostic>}
 const root='/tunnels';

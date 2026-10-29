@@ -118,7 +118,6 @@ admin-dash-traffic-empty = За цей проміжок запитів не за
 admin-dash-requests = Запити за хвилину
 admin-dash-errors = Помилки сервера (5xx) за хвилину
 admin-dash-p95 = Час відповіді, 95-й процентиль
-admin-dash-ms = { $ms } мс
 
 # -- Health ----------------------------------------------------------------------------
 admin-dash-health = Стан
