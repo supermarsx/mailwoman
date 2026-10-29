@@ -193,6 +193,12 @@ settings-sig-edit-title = Edit signature
 settings-ident-edit-title = Edit identity
 
 settings-sections = Settings sections
+# t66: category headings in the Settings navigation.
+settings-category-account = Account
+settings-category-mail = Mail
+settings-category-interface = Interface
+settings-category-integrations = Integrations
+settings-category-about = About
 settings-nav-preferences = Keyboard and display
 settings-nav-rules = Mail rules
 settings-nav-access = API access

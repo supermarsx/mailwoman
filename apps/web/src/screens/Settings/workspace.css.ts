@@ -6,6 +6,12 @@ export const body=style({display:'grid',gridTemplateColumns:'minmax(9rem,12rem) 
 export const legacy=style({display:'contents'});
 export const search=style({inlineSize:'min(20rem, 100%)',minInlineSize:0,flex:'0 1 20rem'});
 export const nav=style({display:'flex',flexDirection:'column',gap:vars.space[1],overflow:'auto',alignItems:'stretch','@container':{'settings-workspace (max-width: 760px)':{flexDirection:'row',maxHeight:'3.5rem'}}});
+// t66: one labelled group per category. The heading is a small uppercase label
+// (not an entry); on a narrow workspace the groups run in the same scrolling row.
+export const group=style({display:'flex',flexDirection:'column',gap:vars.space[1],selectors:{'& + &':{marginBlockStart:vars.space[3]}},'@container':{'settings-workspace (max-width: 760px)':{flexDirection:'row',alignItems:'center',selectors:{'& + &':{marginBlockStart:0,marginInlineStart:vars.space[3]}}}}});
+const label={fontSize:'0.7rem',fontWeight:vars.weight.bold,textTransform:'uppercase',letterSpacing:vars.tracking.label,color:vars.color.textDim,selectors:{':lang(ar) &, :lang(ja) &, :lang(zh) &':{textTransform:'none',letterSpacing:vars.tracking.none}}} as const;
+export const groupHeading=style({...label,padding:`0 ${vars.space[2]}`,whiteSpace:'nowrap'});
+export const crumb=style({...label,margin:0});
 globalStyle(`${nav} button`,{display:'flex',alignItems:'center',gap:vars.space[2],textAlign:'start',padding:vars.space[2],whiteSpace:'nowrap',background:'transparent',color:vars.color.text,border:`1px solid transparent`});
 globalStyle(`${nav} button svg`,{flex:'0 0 auto',inlineSize:'16px',blockSize:'16px'});
 globalStyle(`${nav} button[aria-current="page"]`,{borderColor:vars.color.borderStrong,background:vars.color.surface});

@@ -9,7 +9,9 @@ import { Receipts } from './Settings/Receipts.tsx';
 import { FolderPreferences } from './Settings/FolderPreferences.tsx';
 import { createSettingsNavigation, SettingsNavigationContext, type SettingsNavigation } from './Settings/navigation.tsx';
 import * as workspace from './Settings/workspace.css.ts';
-import { Icon, type IconName } from '../components/Icon.tsx';
+import { Icon } from '../components/Icon.tsx';
+import { SettingsNav } from './Settings/SettingsNav.tsx';
+import { categoryOf } from './Settings/settingsCategories.ts';
 // Settings panel (plan §3 e4): the user-facing theme / density / accent / font /
 // layout controls that drive the theme slice. Rendered as a dismissible dialog;
 // every control writes straight through the slice, which reflects onto :root and
@@ -143,12 +145,9 @@ export function Settings(props: SettingsProps): JSX.Element {
   let settingsContent:HTMLDivElement|undefined;
   useSettingsScroll(navigation.route,()=>settingsContent);
   const [sectionQuery,setSectionQuery]=createSignal('');
-  const sectionTerms:Record<string,string>={'linked-accounts':'mailboxes accounts switch link imap pop3 ews',appearance:'theme dark light color accent badge unread counter css javascript font density branding',reader:'message reading images layout dark mode',compose:'editor reply quote font signature recipients cc bcc',shortcuts:'keyboard display key hotkey drag selection',time:'timezone date clock iana',security:'password passkey totp two factor authentication sessions api keys',privacy:'remote images tracking telemetry',folders:'sidebar mappings count pin order icons spam trash',notifications:'push alerts sound browser', 'mail-transfer':'import export download eml mbox',receipts:'read receipt delivery dsn',nextcloud:'files contacts calendar cloud',rules:'filter automation',access:'sharing permissions acl'};
   const linkedSections=new Set(['linked-accounts','appearance','reader','compose','shortcuts','time','labels','signatures','identities','notifications','searches','folders','receipts']);
   const supportedSection=(section:string):boolean=>!app.linkedMailboxId?.()||linkedSections.has(section);
   const visible=(section:string):boolean=>supportedSection(section)&&(!props.embedded || navigation.route().section===section);
-  const sectionIcons:Record<string,IconName>={'linked-accounts':'users',appearance:'branding',reader:'eye',compose:'edit',shortcuts:'configuration',time:'clock',packages:'gift',labels:'tag',security:'shield',privacy:'privacy',signatures:'file',identities:'users',notifications:'alert',searches:'search',folders:'folder','mail-transfer':'download',receipts:'check',nextcloud:'nextcloud',preferences:'preferences',rules:'policy',access:'lock',metadata:'info'};
-  const sections=[['linked-accounts','linked-accounts-title'],['appearance','settings-appearance'],['reader','reader-settings-title'],['compose','settings-compose-title'],['shortcuts','settings-nav-keyboard-display'],['time','settings-time-title'],['packages','packages-title'],['labels','labels-title'],['security','security-center-title'],['privacy','privacy-title'],['signatures','settings-sig-title'],['identities','settings-ident-title'],['notifications','settings-notif-title'],['searches','settings-search-title'],['folders','settings-folders-title'],['mail-transfer','mail-transfer-title'],['receipts','receipts-title'],['nextcloud','nextcloud-account-title'],['rules','settings-nav-rules'],['access','settings-nav-access'],['metadata','settings-nav-metadata']] as const;
 
   let panel!: HTMLElement;
   onMount(() => {
@@ -220,8 +219,9 @@ export function Settings(props: SettingsProps): JSX.Element {
         </header>
 
         <div class={props.embedded ? workspace.body : workspace.legacy}>
-          <Show when={props.embedded}><nav class={workspace.nav} aria-label={t('settings-sections')}><For each={sections.filter(([id])=>supportedSection(id)).filter(([id,label])=>sectionQuery().trim().toLocaleLowerCase().split(/\s+/).every(term=>`${t(label)} ${sectionTerms[id]??''}`.toLocaleLowerCase().includes(term)))} fallback={<p role="status">{t('settings-search-no-sections')}</p>}>{([id,label])=><button type="button" aria-current={navigation.route().section===id ? "page" : undefined} onClick={()=>void navigation.navigate({section:id})}><Icon name={sectionIcons[id]??'settings'}/><span>{t(label)}</span></button>}</For></nav></Show>
+          <Show when={props.embedded}><SettingsNav current={()=>navigation.route().section} query={sectionQuery} supported={supportedSection} onSelect={section=>void navigation.navigate({section})}/></Show>
           <div class={workspace.content} ref={settingsContent}>
+          <Show when={props.embedded && categoryOf(navigation.route().section)}>{category=><p class={workspace.crumb} data-testid="settings-breadcrumb">{t(category().label)}</p>}</Show>
           <RetainedSettingsSection name="appearance" active={visible('appearance')} accountBound={false}>{()=> <div class={workspace.appearance}>
         <section class={customizationCss.section} aria-labelledby="settings-appearance-theme-card"><h3 class={customizationCss.heading} id="settings-appearance-theme-card">{t('settings-appearance-theme-card')}</h3><p class={customizationCss.meta}>{t('settings-appearance-theme-card-help')}</p>
         <ThemeMode locked={themeHold.locked()} />
