@@ -231,9 +231,19 @@ pub fn parse_origin(raw: &str, wildcard: bool) -> Result<String, &'static str> {
     if raw == "*" || lower == "https://*" || lower == "https://*/" {
         return Err("A bare * is not allowed. Name each origin.");
     }
-    for scheme in ["data:", "blob:", "javascript:", "filesystem:", "about:", "ws:", "wss:"] {
+    for scheme in [
+        "data:",
+        "blob:",
+        "javascript:",
+        "filesystem:",
+        "about:",
+        "ws:",
+        "wss:",
+    ] {
         if lower.starts_with(scheme) {
-            return Err("Only https origins are allowed (no data:, blob:, javascript: or other schemes).");
+            return Err(
+                "Only https origins are allowed (no data:, blob:, javascript: or other schemes).",
+            );
         }
     }
     let Some(rest) = lower.strip_prefix("https://") else {
@@ -241,7 +251,9 @@ pub fn parse_origin(raw: &str, wildcard: bool) -> Result<String, &'static str> {
     };
     let rest = rest.strip_suffix('/').unwrap_or(rest);
     if rest.contains(['/', '?', '#', '@', '%']) {
-        return Err("An origin is scheme, host and optional port only: no path, query, fragment or credentials.");
+        return Err(
+            "An origin is scheme, host and optional port only: no path, query, fragment or credentials.",
+        );
     }
     let (host, port) = match rest.rsplit_once(':') {
         Some((host, port)) => {
@@ -259,7 +271,9 @@ pub fn parse_origin(raw: &str, wildcard: bool) -> Result<String, &'static str> {
             return Err("Wildcards are not allowed here.");
         }
         if base.contains('*') || !valid_domain(base) {
-            return Err("A wildcard is allowed only as the leftmost label, as in https://*.example.com.");
+            return Err(
+                "A wildcard is allowed only as the leftmost label, as in https://*.example.com.",
+            );
         }
         let labels = base.split('.').count();
         let tld_numeric = base
@@ -267,10 +281,14 @@ pub fn parse_origin(raw: &str, wildcard: bool) -> Result<String, &'static str> {
             .next()
             .is_some_and(|tld| tld.bytes().all(|b| b.is_ascii_digit()));
         if labels < 2 || tld_numeric || SHARED_SUFFIXES.contains(&base) {
-            return Err("A wildcard must sit under a domain you control, not a top-level or shared suffix.");
+            return Err(
+                "A wildcard must sit under a domain you control, not a top-level or shared suffix.",
+            );
         }
     } else if host.contains('*') {
-        return Err("A wildcard is allowed only as the leftmost label, as in https://*.example.com.");
+        return Err(
+            "A wildcard is allowed only as the leftmost label, as in https://*.example.com.",
+        );
     } else if !(valid_ipv4(host) || valid_domain(host)) {
         return Err("Enter a valid host name.");
     }
@@ -313,7 +331,8 @@ fn origin_of(url: &reqwest::Url) -> Option<String> {
 /// credentials, path limited to plain characters. Returned without a trailing `/`,
 /// with its origin.
 fn parse_base(raw: &str) -> Result<(String, String), &'static str> {
-    const MSG: &str = "Enter the provider's https base URL, without credentials, query or fragment.";
+    const MSG: &str =
+        "Enter the provider's https base URL, without credentials, query or fragment.";
     let raw = raw.trim();
     if raw.len() > 512 {
         return Err(MSG);
@@ -393,7 +412,10 @@ if (navigator.doNotTrack === "1" || navigator.globalPrivacyControl === true || w
 "#;
 
 fn attrs(pairs: &[(&str, String)]) -> String {
-    let body: Vec<String> = pairs.iter().map(|(k, v)| format!("{}: {}", js(k), js(v))).collect();
+    let body: Vec<String> = pairs
+        .iter()
+        .map(|(k, v)| format!("{}: {}", js(k), js(v)))
+        .collect();
     format!("{{{}}}", body.join(", "))
 }
 
@@ -406,7 +428,13 @@ struct Built {
     inline: bool,
 }
 
-fn preset(script_src: &[&str], connect_src: &[&str], img_src: &[&str], body: String, fetches: Vec<String>) -> Built {
+fn preset(
+    script_src: &[&str],
+    connect_src: &[&str],
+    img_src: &[&str],
+    body: String,
+    fetches: Vec<String>,
+) -> Built {
     let own = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     Built {
         script_src: own(script_src),
@@ -430,6 +458,9 @@ fn dedup(mut v: Vec<String>) -> Vec<String> {
     });
     v
 }
+
+/// Normalized custom-tag origins: script, connect and image sources.
+type DeclaredOrigins = (Vec<String>, Vec<String>, Vec<String>);
 
 impl Config {
     /// Validate and build. `Ok(None)` when disabled. Errors are user-facing.
@@ -465,8 +496,12 @@ impl Config {
         on.plan().map(|p| p.expect("enabled"))
     }
 
-    fn limits(&self) -> Result<(Vec<String>, Vec<String>, Vec<String>), String> {
-        if self.site_id.trim().len() > 128 || self.host.len() > 512 || self.region.len() > 8 || self.script_url.len() > 2048 {
+    fn limits(&self) -> Result<DeclaredOrigins, String> {
+        if self.site_id.trim().len() > 128
+            || self.host.len() > 512
+            || self.region.len() > 8
+            || self.script_url.len() > 2048
+        {
             return Err("A field is too long.".into());
         }
         if self.snippet.len() > MAX_SNIPPET_BYTES {
@@ -489,12 +524,19 @@ impl Config {
             if ok { Ok(()) } else { Err(msg.to_string()) }
         };
         let host_or = |default: &str| -> Result<(String, String), String> {
-            parse_base(if self.host.trim().is_empty() { default } else { &self.host })
-                .map_err(str::to_string)
+            parse_base(if self.host.trim().is_empty() {
+                default
+            } else {
+                &self.host
+            })
+            .map_err(str::to_string)
         };
         Ok(match self.provider {
             Provider::Plausible => {
-                required(valid_hostname_id(site), "Enter the site domain registered in Plausible, such as mail.example.com.")?;
+                required(
+                    valid_hostname_id(site),
+                    "Enter the site domain registered in Plausible, such as mail.example.com.",
+                )?;
                 let (base, origin) = host_or("https://plausible.io")?;
                 let src = format!("{base}/js/script.js");
                 preset(
@@ -504,13 +546,19 @@ impl Config {
                     format!(
                         "  load({}, {});\n",
                         js(&src),
-                        attrs(&[("data-domain", site.into()), ("data-api", format!("{base}/api/event"))])
+                        attrs(&[
+                            ("data-domain", site.into()),
+                            ("data-api", format!("{base}/api/event"))
+                        ])
                     ),
                     vec![src],
                 )
             }
             Provider::Matomo => {
-                required(site.parse::<u32>().is_ok_and(|id| id > 0), "Matomo uses a positive numeric site ID.")?;
+                required(
+                    site.parse::<u32>().is_ok_and(|id| id > 0),
+                    "Matomo uses a positive numeric site ID.",
+                )?;
                 required(!self.host.trim().is_empty(), "Enter your Matomo base URL.")?;
                 let (base, origin) = host_or("")?;
                 let src = format!("{base}/matomo.js");
@@ -528,7 +576,10 @@ impl Config {
                 )
             }
             Provider::Umami => {
-                required(uuid::Uuid::parse_str(site).is_ok(), "Umami uses a website UUID.")?;
+                required(
+                    uuid::Uuid::parse_str(site).is_ok(),
+                    "Umami uses a website UUID.",
+                )?;
                 let (base, origin) = host_or("https://cloud.umami.is")?;
                 let src = format!("{base}/script.js");
                 preset(
@@ -550,7 +601,10 @@ impl Config {
             }
             Provider::Fathom => {
                 required(
-                    (4..=16).contains(&site.len()) && site.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()),
+                    (4..=16).contains(&site.len())
+                        && site
+                            .bytes()
+                            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()),
                     "Fathom uses a site ID of 4 to 16 capital letters and digits.",
                 )?;
                 let src = "https://cdn.usefathom.com/script.js".to_string();
@@ -559,13 +613,19 @@ impl Config {
                     &[o],
                     &[o],
                     &[o],
-                    format!("  load({}, {});\n", js(&src), attrs(&[("data-site", site.into())])),
+                    format!(
+                        "  load({}, {});\n",
+                        js(&src),
+                        attrs(&[("data-site", site.into())])
+                    ),
                     vec![src],
                 )
             }
             Provider::Posthog => {
                 required(
-                    site.strip_prefix("phc_").is_some_and(|k| (16..=64).contains(&k.len()) && k.bytes().all(|b| b.is_ascii_alphanumeric())),
+                    site.strip_prefix("phc_").is_some_and(|k| {
+                        (16..=64).contains(&k.len()) && k.bytes().all(|b| b.is_ascii_alphanumeric())
+                    }),
                     "Enter the PostHog project API key (phc_…).",
                 )?;
                 let region = match self.region.as_str() {
@@ -590,10 +650,17 @@ impl Config {
                 )
             }
             Provider::SimpleAnalytics => {
-                required(site.is_empty() || valid_hostname_id(site), "Enter the hostname registered in Simple Analytics, or leave it blank.")?;
+                required(
+                    site.is_empty() || valid_hostname_id(site),
+                    "Enter the hostname registered in Simple Analytics, or leave it blank.",
+                )?;
                 let src = "https://scripts.simpleanalyticscdn.com/latest.js".to_string();
                 let q = "https://queue.simpleanalyticscdn.com";
-                let a: Vec<(&str, String)> = if site.is_empty() { vec![] } else { vec![("data-hostname", site.into())] };
+                let a: Vec<(&str, String)> = if site.is_empty() {
+                    vec![]
+                } else {
+                    vec![("data-hostname", site.into())]
+                };
                 preset(
                     &["https://scripts.simpleanalyticscdn.com"],
                     &[q],
@@ -604,7 +671,10 @@ impl Config {
             }
             Provider::Cloudflare => {
                 required(
-                    site.len() == 32 && site.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()),
+                    site.len() == 32
+                        && site
+                            .bytes()
+                            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()),
                     "Cloudflare Web Analytics uses a 32-character lowercase hex token.",
                 )?;
                 let src = "https://static.cloudflareinsights.com/beacon.min.js".to_string();
@@ -615,20 +685,36 @@ impl Config {
                     format!(
                         "  load({}, {});\n",
                         js(&src),
-                        attrs(&[("data-cf-beacon", json!({"token": site, "spa": false}).to_string())])
+                        attrs(&[(
+                            "data-cf-beacon",
+                            json!({"token": site, "spa": false}).to_string()
+                        )])
                     ),
                     vec![src],
                 )
             }
             Provider::Custom => match self.custom_kind {
                 CustomKind::Url => {
-                    let url = reqwest::Url::parse(self.script_url.trim()).map_err(|_| "Enter the script's absolute https URL.")?;
-                    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
-                        return Err("The script URL must be https, without credentials or a fragment.".into());
+                    let url = reqwest::Url::parse(self.script_url.trim())
+                        .map_err(|_| "Enter the script's absolute https URL.")?;
+                    if url.scheme() != "https"
+                        || !url.username().is_empty()
+                        || url.password().is_some()
+                        || url.fragment().is_some()
+                    {
+                        return Err(
+                            "The script URL must be https, without credentials or a fragment."
+                                .into(),
+                        );
                     }
-                    let origin = parse_origin(&origin_of(&url).ok_or("The script URL must be https.")?, false)?;
+                    let origin = parse_origin(
+                        &origin_of(&url).ok_or("The script URL must be https.")?,
+                        false,
+                    )?;
                     if !script_origins.iter().any(|s| origin_matches(s, &origin)) {
-                        return Err(format!("Declare {origin} under script origins: the script is loaded from there."));
+                        return Err(format!(
+                            "Declare {origin} under script origins: the script is loaded from there."
+                        ));
                     }
                     let src = url.to_string();
                     Built {
@@ -737,7 +823,9 @@ pub fn valid_consent_key(value: &str) -> bool {
         || value.split_once(':').is_some_and(|(provider, hash)| {
             serde_json::from_value::<Provider>(json!(provider)).is_ok()
                 && hash.len() == 64
-                && hash.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                && hash
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
         })
 }
 
@@ -746,7 +834,10 @@ pub fn valid_consent_key(value: &str) -> bool {
 /// to server-side counts never implies a browser tag.
 pub(crate) async fn tag_consent(store: &mw_store::Store, owner: &str, key: &str) -> bool {
     store
-        .get_setting(&crate::prefs_routes::personal_storage::key("ui-preferences", owner))
+        .get_setting(&crate::prefs_routes::personal_storage::key(
+            "ui-preferences",
+            owner,
+        ))
         .await
         .ok()
         .flatten()
@@ -766,7 +857,8 @@ pub const ADMIN_BROWSER_COOKIE: &str = "mw_admin_browser";
 /// site's cookie jar, t63 T4); about 400 days, the longest a browser keeps a
 /// cookie.
 pub fn admin_browser_cookie(secure: bool) -> String {
-    let mut c = format!("{ADMIN_BROWSER_COOKIE}=1; HttpOnly; SameSite=Strict; Path=/; Max-Age=34560000");
+    let mut c =
+        format!("{ADMIN_BROWSER_COOKIE}=1; HttpOnly; SameSite=Strict; Path=/; Max-Age=34560000");
     if secure {
         c.push_str("; Secure");
     }
@@ -796,7 +888,9 @@ pub(crate) async fn active_for(state: &AppState, headers: &HeaderMap) -> Option<
     let owner = crate::prefs_routes::personal_storage::owner(state, &session, headers, false)
         .await
         .ok()?;
-    tag_consent(&state.store, &owner, &key).await.then_some((plan, key))
+    tag_consent(&state.store, &owner, &key)
+        .await
+        .then_some((plan, key))
 }
 
 /// Insert the marker and the loader reference into the shell HTML.
@@ -824,22 +918,38 @@ pub fn inject(html: &str, base: &str, plan: &Plan, key: &str) -> String {
 }
 
 /// The mail shell with the tag, or `None` to serve the unchanged shell.
-pub(crate) async fn mail_shell(state: &AppState, method: &Method, headers: &HeaderMap) -> Option<Response> {
+pub(crate) async fn mail_shell(
+    state: &AppState,
+    method: &Method,
+    headers: &HeaderMap,
+) -> Option<Response> {
     if method != Method::GET {
         return None;
     }
     let (plan, key) = active_for(state, headers).await?;
     let csp = HeaderValue::from_str(&widen(crate::CSP, &plan)).ok()?;
     let base: &str = &state.base_path;
-    let bytes = crate::adapt_asset_to_base("index.html", crate::read_asset(state, "index.html")?, base);
+    let bytes =
+        crate::adapt_asset_to_base("index.html", crate::read_asset(state, "index.html")?, base);
     let html = String::from_utf8(bytes).ok()?;
-    let mut response = crate::asset_response("index.html", "text/html", inject(&html, base, &plan, &key).into_bytes(), headers);
+    let mut response = crate::asset_response(
+        "index.html",
+        "text/html",
+        inject(&html, base, &plan, &key).into_bytes(),
+        headers,
+    );
     let h = response.headers_mut();
     // no-store: never kept in the HTTP cache or the back/forward cache, so a
     // later visit is always decided by the server again (t63 T4). Offline use
     // is unaffected: the service worker never stores a tagged shell.
-    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
-    h.insert(header::VARY, HeaderValue::from_static("cookie, dnt, sec-gpc"));
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    h.insert(
+        header::VARY,
+        HeaderValue::from_static("cookie, dnt, sec-gpc"),
+    );
     // The service worker never stores a tagged shell (it keys on this header).
     h.insert("x-mw-analytics-tag", HeaderValue::from_static("1"));
     response.extensions_mut().insert(ShellCsp(csp));
@@ -854,13 +964,25 @@ pub(crate) async fn asset(state: &AppState, path: &str, headers: &HeaderMap) -> 
     let Some(hash) = name.strip_suffix(".js") else {
         return not_found();
     };
-    if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+    if hash.len() != 64
+        || !hash
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
         return not_found();
     }
-    let Some(plan) = load(&state.store).await.ok().and_then(|c| c.plan().ok().flatten()) else {
+    let Some(plan) = load(&state.store)
+        .await
+        .ok()
+        .and_then(|c| c.plan().ok().flatten())
+    else {
         return not_found();
     };
-    if plan.sha256 != hash || active_for(state, headers).await.is_none_or(|(p, _)| p.sha256 != hash) {
+    if plan.sha256 != hash
+        || active_for(state, headers)
+            .await
+            .is_none_or(|(p, _)| p.sha256 != hash)
+    {
         return not_found();
     }
     Some(script_response(&plan))
@@ -869,9 +991,18 @@ pub(crate) async fn asset(state: &AppState, path: &str, headers: &HeaderMap) -> 
 pub fn script_response(plan: &Plan) -> Response {
     let mut response = plan.script.clone().into_response();
     let h = response.headers_mut();
-    h.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/javascript; charset=utf-8"));
-    h.insert("x-content-type-options", HeaderValue::from_static("nosniff"));
-    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, max-age=31536000, immutable"));
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/javascript; charset=utf-8"),
+    );
+    h.insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=31536000, immutable"),
+    );
     if let Ok(v) = HeaderValue::from_str(&format!("\"{}\"", plan.sha256)) {
         h.insert(header::ETAG, v);
     }
@@ -881,9 +1012,24 @@ pub fn script_response(plan: &Plan) -> Response {
 // ── admin API ─────────────────────────────────────────────────────────────────
 
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
-    r.admin_endpoint(Method::GET, "/analytics/tag", Capability::IntegrationsRead, read);
-    r.admin_endpoint(Method::PUT, "/analytics/tag", Capability::IntegrationsWrite, save);
-    r.admin_endpoint(Method::POST, "/analytics/tag/test", Capability::IntegrationsWrite, test);
+    r.admin_endpoint(
+        Method::GET,
+        "/analytics/tag",
+        Capability::IntegrationsRead,
+        read,
+    );
+    r.admin_endpoint(
+        Method::PUT,
+        "/analytics/tag",
+        Capability::IntegrationsWrite,
+        save,
+    );
+    r.admin_endpoint(
+        Method::POST,
+        "/analytics/tag/test",
+        Capability::IntegrationsWrite,
+        test,
+    );
 }
 
 /// A save: the [`Config`] fields plus the one-time acknowledgement, which is
@@ -894,14 +1040,26 @@ struct Update {
 }
 impl Update {
     fn parse(mut body: Value) -> Result<Self, AdminApiError> {
-        let acknowledge_full_access = match body.as_object_mut().and_then(|o| o.remove("acknowledgeFullAccess")) {
+        let acknowledge_full_access = match body
+            .as_object_mut()
+            .and_then(|o| o.remove("acknowledgeFullAccess"))
+        {
             None => false,
             Some(Value::Bool(b)) => b,
-            Some(_) => return Err(AdminApiError::invalid("invalidBody", "acknowledgeFullAccess is a boolean.", "/acknowledgeFullAccess")),
+            Some(_) => {
+                return Err(AdminApiError::invalid(
+                    "invalidBody",
+                    "acknowledgeFullAccess is a boolean.",
+                    "/acknowledgeFullAccess",
+                ));
+            }
         };
         let config = serde_json::from_value(body)
             .map_err(|e| AdminApiError::invalid("invalidBody", e.to_string(), "/config"))?;
-        Ok(Self { config, acknowledge_full_access })
+        Ok(Self {
+            config,
+            acknowledge_full_access,
+        })
     }
 }
 
@@ -930,12 +1088,16 @@ fn preview_json(config: &Config) -> Value {
 }
 
 async fn view(state: &AppState) -> Result<Response, AdminApiError> {
-    let config = load(&state.store).await.map_err(|_| AdminApiError::internal("analytics tag config"))?;
+    let config = load(&state.store)
+        .await
+        .map_err(|_| AdminApiError::internal("analytics tag config"))?;
     let tag = etag_of(&json!(config));
     Ok(with_etag(
         (
             [("cache-control", "private, no-store")],
-            Json(json!({"config": config.public(), "preview": preview_json(&config), "maxSnippetBytes": MAX_SNIPPET_BYTES})),
+            Json(
+                json!({"config": config.public(), "preview": preview_json(&config), "maxSnippetBytes": MAX_SNIPPET_BYTES}),
+            ),
         ),
         &tag,
     ))
@@ -956,7 +1118,11 @@ fn super_required() -> AdminApiError {
 
 async fn require_full_super(state: &AppState, ctx: &AdminCtx) -> Result<(), AdminApiError> {
     let id = ctx.account_id.as_deref().ok_or_else(super_required)?;
-    let account = state.store.get_admin_account(id).await?.ok_or_else(super_required)?;
+    let account = state
+        .store
+        .get_admin_account(id)
+        .await?
+        .ok_or_else(super_required)?;
     if crate::admin_roles::is_full_super(state, &account).await? {
         Ok(())
     } else {
@@ -972,8 +1138,14 @@ async fn save(
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::IntegrationsWrite)?;
     let update = Update::parse(body)?;
-    let raw = state.store.get_setting(KEY).await.map_err(AdminApiError::internal)?;
-    let previous = load(&state.store).await.map_err(|_| AdminApiError::internal("analytics tag config"))?;
+    let raw = state
+        .store
+        .get_setting(KEY)
+        .await
+        .map_err(AdminApiError::internal)?;
+    let previous = load(&state.store)
+        .await
+        .map_err(|_| AdminApiError::internal("analytics tag config"))?;
     if !headers.contains_key("if-match") {
         return Err(AdminApiError::new(
             StatusCode::PRECONDITION_REQUIRED,
@@ -992,7 +1164,9 @@ async fn save(
     let previous_plan = previous.plan().ok().flatten();
     // Turning a tag on, or changing what an enabled tag loads or where it may
     // connect, is a decision about code that runs in every consenting user's mail.
-    let changes_code = plan.as_ref().is_some_and(|p| previous_plan.as_ref() != Some(p));
+    let changes_code = plan
+        .as_ref()
+        .is_some_and(|p| previous_plan.as_ref() != Some(p));
     if changes_code {
         require_full_super(&state, &ctx).await?;
         if !update.acknowledge_full_access {
@@ -1004,7 +1178,12 @@ async fn save(
         }
     }
     // Every save needs a fresh proof, after the cheaper refusals above.
-    crate::step_up::require_admin(&state, &ctx, crate::step_up::StepUpAction::IntegrationManage).await?;
+    crate::step_up::require_admin(
+        &state,
+        &ctx,
+        crate::step_up::StepUpAction::IntegrationManage,
+    )
+    .await?;
     let serialized = serde_json::to_string(&config).expect("analytics tag config");
     if !state
         .store
@@ -1057,7 +1236,9 @@ async fn test(
     let mut results = Vec::new();
     if let Some(egress) = mw_egress::plan::current() {
         for url in &plan.fetches {
-            let Ok(parsed) = reqwest::Url::parse(url) else { continue };
+            let Ok(parsed) = reqwest::Url::parse(url) else {
+                continue;
+            };
             let request = mw_egress::plan::Request::get(mw_egress::TrafficClass::Analytics)
                 .accept("*/*")
                 .response_limit(1024 * 1024)
@@ -1077,7 +1258,9 @@ async fn test(
         }
     } else {
         for url in &plan.fetches {
-            results.push(json!({"url": url, "ok": false, "error": "egress configuration is not loaded"}));
+            results.push(
+                json!({"url": url, "ok": false, "error": "egress configuration is not loaded"}),
+            );
         }
     }
     Ok(Json(json!({
@@ -1095,7 +1278,12 @@ mod tests {
     use super::*;
 
     fn cfg(provider: Provider, site: &str) -> Config {
-        Config { enabled: true, provider, site_id: site.into(), ..Config::default() }
+        Config {
+            enabled: true,
+            provider,
+            site_id: site.into(),
+            ..Config::default()
+        }
     }
     fn text(plan: &Plan) -> String {
         String::from_utf8(plan.script.clone()).unwrap()
@@ -1112,26 +1300,100 @@ mod tests {
 
     #[test]
     fn each_preset_has_exact_csp_additions_and_loader() {
-        let cases: Vec<(Config, &[&str], &[&str], &[&str], &[&str])> = vec![
-            (cfg(Provider::Plausible, "mail.example.com"), &["https://plausible.io"], &["https://plausible.io"], &[],
-                &[r#"load("https://plausible.io/js/script.js", {"data-domain": "mail.example.com", "data-api": "https://plausible.io/api/event"});"#]),
-            (Config { host: "https://stats.example.org/".into(), ..cfg(Provider::Plausible, "mail.example.com") },
-                &["https://stats.example.org"], &["https://stats.example.org"], &[],
-                &[r#"load("https://stats.example.org/js/script.js""#]),
-            (Config { host: "https://example.matomo.cloud/".into(), ..cfg(Provider::Matomo, "3") },
-                &["https://example.matomo.cloud"], &["https://example.matomo.cloud"], &["https://example.matomo.cloud"],
-                &[r#"q.push(["setTrackerUrl", "https://example.matomo.cloud/matomo.php"]);"#, r#"q.push(["setSiteId", "3"]);"#, r#"q.push(["disableCookies"]);"#, r#"load("https://example.matomo.cloud/matomo.js", {});"#]),
-            (cfg(Provider::Umami, "F2997167-36cd-4e06-9054-abcc5c8cf476"), &["https://cloud.umami.is"], &["https://cloud.umami.is"], &[],
-                &[r#"load("https://cloud.umami.is/script.js", {"data-website-id": "f2997167-36cd-4e06-9054-abcc5c8cf476", "data-host-url": "https://cloud.umami.is", "data-exclude-hash": "true", "data-exclude-search": "true"});"#]),
-            (cfg(Provider::Fathom, "ABCDEFGH"), &["https://cdn.usefathom.com"], &["https://cdn.usefathom.com"], &["https://cdn.usefathom.com"],
-                &[r#"load("https://cdn.usefathom.com/script.js", {"data-site": "ABCDEFGH"});"#]),
-            (Config { region: "eu".into(), ..cfg(Provider::Posthog, "phc_abcdefghijklmnopqrstuvwxyz012345") },
-                &["https://eu-assets.i.posthog.com", "https://eu.i.posthog.com"], &["https://eu.i.posthog.com", "https://eu-assets.i.posthog.com"], &[],
-                &[r#"_i: [["phc_abcdefghijklmnopqrstuvwxyz012345", { api_host: "https://eu.i.posthog.com", autocapture: false, capture_pageleave: false, mask_all_text: true, mask_all_element_attributes: true, persistence: "memory", disable_session_recording: true, disable_surveys: true }, undefined]]"#, r#"load("https://eu-assets.i.posthog.com/static/array.js", {});"#]),
-            (cfg(Provider::SimpleAnalytics, ""), &["https://scripts.simpleanalyticscdn.com"], &["https://queue.simpleanalyticscdn.com"], &["https://queue.simpleanalyticscdn.com"],
-                &[r#"load("https://scripts.simpleanalyticscdn.com/latest.js", {});"#]),
-            (cfg(Provider::Cloudflare, "0123456789abcdef0123456789abcdef"), &["https://static.cloudflareinsights.com"], &["https://cloudflareinsights.com"], &[],
-                &[r#"load("https://static.cloudflareinsights.com/beacon.min.js", {"data-cf-beacon": "{\"spa\":false,\"token\":\"0123456789abcdef0123456789abcdef\"}"});"#]),
+        // provider config, script-src, connect-src, img-src, loader lines
+        type Case = (
+            Config,
+            &'static [&'static str],
+            &'static [&'static str],
+            &'static [&'static str],
+            &'static [&'static str],
+        );
+        let cases: Vec<Case> = vec![
+            (
+                cfg(Provider::Plausible, "mail.example.com"),
+                &["https://plausible.io"],
+                &["https://plausible.io"],
+                &[],
+                &[
+                    r#"load("https://plausible.io/js/script.js", {"data-domain": "mail.example.com", "data-api": "https://plausible.io/api/event"});"#,
+                ],
+            ),
+            (
+                Config {
+                    host: "https://stats.example.org/".into(),
+                    ..cfg(Provider::Plausible, "mail.example.com")
+                },
+                &["https://stats.example.org"],
+                &["https://stats.example.org"],
+                &[],
+                &[r#"load("https://stats.example.org/js/script.js""#],
+            ),
+            (
+                Config {
+                    host: "https://example.matomo.cloud/".into(),
+                    ..cfg(Provider::Matomo, "3")
+                },
+                &["https://example.matomo.cloud"],
+                &["https://example.matomo.cloud"],
+                &["https://example.matomo.cloud"],
+                &[
+                    r#"q.push(["setTrackerUrl", "https://example.matomo.cloud/matomo.php"]);"#,
+                    r#"q.push(["setSiteId", "3"]);"#,
+                    r#"q.push(["disableCookies"]);"#,
+                    r#"load("https://example.matomo.cloud/matomo.js", {});"#,
+                ],
+            ),
+            (
+                cfg(Provider::Umami, "F2997167-36cd-4e06-9054-abcc5c8cf476"),
+                &["https://cloud.umami.is"],
+                &["https://cloud.umami.is"],
+                &[],
+                &[
+                    r#"load("https://cloud.umami.is/script.js", {"data-website-id": "f2997167-36cd-4e06-9054-abcc5c8cf476", "data-host-url": "https://cloud.umami.is", "data-exclude-hash": "true", "data-exclude-search": "true"});"#,
+                ],
+            ),
+            (
+                cfg(Provider::Fathom, "ABCDEFGH"),
+                &["https://cdn.usefathom.com"],
+                &["https://cdn.usefathom.com"],
+                &["https://cdn.usefathom.com"],
+                &[r#"load("https://cdn.usefathom.com/script.js", {"data-site": "ABCDEFGH"});"#],
+            ),
+            (
+                Config {
+                    region: "eu".into(),
+                    ..cfg(Provider::Posthog, "phc_abcdefghijklmnopqrstuvwxyz012345")
+                },
+                &[
+                    "https://eu-assets.i.posthog.com",
+                    "https://eu.i.posthog.com",
+                ],
+                &[
+                    "https://eu.i.posthog.com",
+                    "https://eu-assets.i.posthog.com",
+                ],
+                &[],
+                &[
+                    r#"_i: [["phc_abcdefghijklmnopqrstuvwxyz012345", { api_host: "https://eu.i.posthog.com", autocapture: false, capture_pageleave: false, mask_all_text: true, mask_all_element_attributes: true, persistence: "memory", disable_session_recording: true, disable_surveys: true }, undefined]]"#,
+                    r#"load("https://eu-assets.i.posthog.com/static/array.js", {});"#,
+                ],
+            ),
+            (
+                cfg(Provider::SimpleAnalytics, ""),
+                &["https://scripts.simpleanalyticscdn.com"],
+                &["https://queue.simpleanalyticscdn.com"],
+                &["https://queue.simpleanalyticscdn.com"],
+                &[r#"load("https://scripts.simpleanalyticscdn.com/latest.js", {});"#],
+            ),
+            (
+                cfg(Provider::Cloudflare, "0123456789abcdef0123456789abcdef"),
+                &["https://static.cloudflareinsights.com"],
+                &["https://cloudflareinsights.com"],
+                &[],
+                &[
+                    r#"load("https://static.cloudflareinsights.com/beacon.min.js", {"data-cf-beacon": "{\"spa\":false,\"token\":\"0123456789abcdef0123456789abcdef\"}"});"#,
+                ],
+            ),
         ];
         for (config, script, connect, img, loader) in cases {
             let plan = config.plan().unwrap().unwrap();
@@ -1141,7 +1403,11 @@ mod tests {
             let body = text(&plan);
             assert!(body.starts_with(PRESET_HEAD) && body.ends_with(PRESET_TAIL));
             for line in loader {
-                assert!(body.contains(line), "{:?} loader lacks {line}:\n{body}", config.provider);
+                assert!(
+                    body.contains(line),
+                    "{:?} loader lacks {line}:\n{body}",
+                    config.provider
+                );
             }
             assert_eq!(plan.sha256, hex(&Sha256::digest(&plan.script)));
             assert_eq!(plan.path(), format!("assets/analytics/{}.js", plan.sha256));
@@ -1153,15 +1419,30 @@ mod tests {
         for bad in [
             cfg(Provider::Plausible, "not a domain"),
             cfg(Provider::Plausible, "\";alert(1);//"),
-            Config { host: "http://plausible.io".into(), ..cfg(Provider::Plausible, "a.example") },
-            Config { host: "https://p.example/?x=1".into(), ..cfg(Provider::Plausible, "a.example") },
-            Config { host: "https://u:p@p.example".into(), ..cfg(Provider::Plausible, "a.example") },
+            Config {
+                host: "http://plausible.io".into(),
+                ..cfg(Provider::Plausible, "a.example")
+            },
+            Config {
+                host: "https://p.example/?x=1".into(),
+                ..cfg(Provider::Plausible, "a.example")
+            },
+            Config {
+                host: "https://u:p@p.example".into(),
+                ..cfg(Provider::Plausible, "a.example")
+            },
             cfg(Provider::Matomo, "1"),
-            Config { host: "https://m.example".into(), ..cfg(Provider::Matomo, "0") },
+            Config {
+                host: "https://m.example".into(),
+                ..cfg(Provider::Matomo, "0")
+            },
             cfg(Provider::Umami, "not-a-uuid"),
             cfg(Provider::Fathom, "abc"),
             cfg(Provider::Posthog, "key"),
-            Config { region: "cn".into(), ..cfg(Provider::Posthog, "phc_abcdefghijklmnopqrstuvwxyz012345") },
+            Config {
+                region: "cn".into(),
+                ..cfg(Provider::Posthog, "phc_abcdefghijklmnopqrstuvwxyz012345")
+            },
             cfg(Provider::Cloudflare, "0123"),
             cfg(Provider::SimpleAnalytics, "bad host"),
         ] {
@@ -1171,10 +1452,28 @@ mod tests {
 
     #[test]
     fn custom_origins_refuse_unsafe_sources() {
-        for suffix in ["r2.dev", "fly.dev", "onrender.com", "vercel.app", "netlify.app", "pages.dev", "workers.dev", "github.io", "herokuapp.com", "blob.core.windows.net", "storage.googleapis.com"] {
-            assert!(parse_origin(&format!("https://*.{suffix}"), true).is_err(), "{suffix}");
+        for suffix in [
+            "r2.dev",
+            "fly.dev",
+            "onrender.com",
+            "vercel.app",
+            "netlify.app",
+            "pages.dev",
+            "workers.dev",
+            "github.io",
+            "herokuapp.com",
+            "blob.core.windows.net",
+            "storage.googleapis.com",
+        ] {
+            assert!(
+                parse_origin(&format!("https://*.{suffix}"), true).is_err(),
+                "{suffix}"
+            );
             // A named host under it is still a single, specific origin.
-            assert!(parse_origin(&format!("https://stats.{suffix}"), true).is_ok(), "{suffix}");
+            assert!(
+                parse_origin(&format!("https://stats.{suffix}"), true).is_ok(),
+                "{suffix}"
+            );
         }
         for bad in [
             "http://stats.example.com",
@@ -1204,15 +1503,39 @@ mod tests {
         ] {
             assert!(parse_origin(bad, true).is_err(), "{bad}");
         }
-        assert_eq!(parse_origin("https://Stats.Example.com/", true).unwrap(), "https://stats.example.com");
-        assert_eq!(parse_origin("https://stats.example.com:443", true).unwrap(), "https://stats.example.com");
-        assert_eq!(parse_origin("https://127.0.0.1:8443", true).unwrap(), "https://127.0.0.1:8443");
-        assert_eq!(parse_origin("https://*.example.com", true).unwrap(), "https://*.example.com");
+        assert_eq!(
+            parse_origin("https://Stats.Example.com/", true).unwrap(),
+            "https://stats.example.com"
+        );
+        assert_eq!(
+            parse_origin("https://stats.example.com:443", true).unwrap(),
+            "https://stats.example.com"
+        );
+        assert_eq!(
+            parse_origin("https://127.0.0.1:8443", true).unwrap(),
+            "https://127.0.0.1:8443"
+        );
+        assert_eq!(
+            parse_origin("https://*.example.com", true).unwrap(),
+            "https://*.example.com"
+        );
         assert!(parse_origin("https://*.example.com", false).is_err());
-        assert!(origin_matches("https://*.example.com", "https://a.example.com"));
-        assert!(!origin_matches("https://*.example.com", "https://example.com"));
-        assert!(!origin_matches("https://*.example.com", "https://a.example.com:8443"));
-        assert!(!origin_matches("https://*.example.com", "https://evilexample.com"));
+        assert!(origin_matches(
+            "https://*.example.com",
+            "https://a.example.com"
+        ));
+        assert!(!origin_matches(
+            "https://*.example.com",
+            "https://example.com"
+        ));
+        assert!(!origin_matches(
+            "https://*.example.com",
+            "https://a.example.com:8443"
+        ));
+        assert!(!origin_matches(
+            "https://*.example.com",
+            "https://evilexample.com"
+        ));
     }
 
     fn custom_url(url: &str, script: &[&str]) -> Config {
@@ -1228,18 +1551,43 @@ mod tests {
 
     #[test]
     fn custom_tag_rules() {
-        let ok = custom_url("https://cdn.example.com/t.js?id=7", &["https://cdn.example.com"]);
+        let ok = custom_url(
+            "https://cdn.example.com/t.js?id=7",
+            &["https://cdn.example.com"],
+        );
         let plan = ok.plan().unwrap().unwrap();
         assert_eq!(plan.script_src, ["https://cdn.example.com"]);
         assert!(text(&plan).contains(r#"load("https://cdn.example.com/t.js?id=7", {});"#));
         // The script origin must be declared.
-        assert!(custom_url("https://cdn.example.com/t.js", &["https://other.example"]).plan().is_err());
-        assert!(custom_url("http://cdn.example.com/t.js", &["https://cdn.example.com"]).plan().is_err());
-        assert!(custom_url("javascript:alert(1)", &["https://cdn.example.com"]).plan().is_err());
-        assert!(custom_url("data:text/javascript,1", &["https://cdn.example.com"]).plan().is_err());
-        assert!(custom_url("https://cdn.example.com/t.js", &["http://cdn.example.com"]).plan().is_err());
+        assert!(
+            custom_url("https://cdn.example.com/t.js", &["https://other.example"])
+                .plan()
+                .is_err()
+        );
+        assert!(
+            custom_url("http://cdn.example.com/t.js", &["https://cdn.example.com"])
+                .plan()
+                .is_err()
+        );
+        assert!(
+            custom_url("javascript:alert(1)", &["https://cdn.example.com"])
+                .plan()
+                .is_err()
+        );
+        assert!(
+            custom_url("data:text/javascript,1", &["https://cdn.example.com"])
+                .plan()
+                .is_err()
+        );
+        assert!(
+            custom_url("https://cdn.example.com/t.js", &["http://cdn.example.com"])
+                .plan()
+                .is_err()
+        );
         let mut many = ok.clone();
-        many.connect_origins = (0..=MAX_ORIGINS).map(|i| format!("https://h{i}.example.com")).collect();
+        many.connect_origins = (0..=MAX_ORIGINS)
+            .map(|i| format!("https://h{i}.example.com"))
+            .collect();
         assert!(many.plan().is_err());
         let inline = |snippet: String| Config {
             enabled: true,
@@ -1278,8 +1626,18 @@ mod tests {
         assert!(!widened.contains("unsafe-inline"));
         assert!(!widened.contains("'unsafe-eval'"));
         assert!(!widened.contains("allow-duplicates"));
-        let none = Plan { script_src: vec![], connect_src: vec![], img_src: vec![], script: vec![], sha256: String::new(), fetches: vec![] };
-        assert_eq!(widen(crate::CSP, &none), format!("{}; {TRUSTED_TYPES}", crate::CSP));
+        let none = Plan {
+            script_src: vec![],
+            connect_src: vec![],
+            img_src: vec![],
+            script: vec![],
+            sha256: String::new(),
+            fetches: vec![],
+        };
+        assert_eq!(
+            widen(crate::CSP, &none),
+            format!("{}; {TRUSTED_TYPES}", crate::CSP)
+        );
     }
 
     #[test]
@@ -1290,7 +1648,10 @@ mod tests {
         assert_eq!(key, format!("fathom:{}", plan.sha256));
         let out = inject(html, "/mail", &plan, &key);
         assert!(out.contains(&format!(r#"<head><meta name="mw-analytics" content="https://cdn.usefathom.com" data-consent="{key}">"#)), "{out}");
-        let tag = format!(r#"<script defer src="/mail/assets/analytics/{}.js" data-mw-analytics></script></body>"#, plan.sha256);
+        let tag = format!(
+            r#"<script defer src="/mail/assets/analytics/{}.js" data-mw-analytics></script></body>"#,
+            plan.sha256
+        );
         assert!(out.contains(&tag), "{out}");
         assert!(out.find("index.js").unwrap() < out.find("data-mw-analytics").unwrap());
     }
@@ -1302,11 +1663,21 @@ mod tests {
         assert!(key.starts_with("simple-analytics:"));
         assert!(valid_consent_key(&key));
         assert!(valid_consent_key(""));
-        for bad in ["true", "plausible", "plausible:abc", "clarity:".to_string().as_str(), &format!("evil:{}", plan.sha256), &format!("plausible:{}", plan.sha256.to_uppercase())] {
+        for bad in [
+            "true",
+            "plausible",
+            "plausible:abc",
+            "clarity:".to_string().as_str(),
+            &format!("evil:{}", plan.sha256),
+            &format!("plausible:{}", plan.sha256.to_uppercase()),
+        ] {
             assert!(!valid_consent_key(bad), "{bad}");
         }
         // A different loader is a different consent.
-        let other = cfg(Provider::SimpleAnalytics, "mail.example.com").plan().unwrap().unwrap();
+        let other = cfg(Provider::SimpleAnalytics, "mail.example.com")
+            .plan()
+            .unwrap()
+            .unwrap();
         assert_ne!(consent_key(Provider::SimpleAnalytics, &other), key);
     }
 
