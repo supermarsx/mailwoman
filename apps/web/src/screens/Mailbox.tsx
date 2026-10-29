@@ -278,7 +278,11 @@ export function MailboxScreen(): JSX.Element {
   }
   /** A message opened from the Mail list: the reading pane or a tab (t74, messageOpen.ts). Drafts open in compose either way. */
   function openFromList(messageId:string,gesture:OpenGesture):Promise<void>{
-    return openDraftOrMessage(messageId,undefined,messageOpenTarget(gesture,{readingPane:readingPane(),narrow:narrow()}));
+    // A message already open in its own tab goes to that tab: no second reader,
+    // no second load, and the first click of a repeat double-click does not
+    // flash the reading pane before the tab comes back.
+    const tabbed=panes().some(pane=>pane.id===`message:${app.accountId() ?? ''}:${messageId}`);
+    return openDraftOrMessage(messageId,undefined,tabbed?'tab':messageOpenTarget(gesture,{readingPane:readingPane(),narrow:narrow()}));
   }
   async function openDraftOrMessage(messageId:string,opener?:string,target:'pane'|'tab'='tab'):Promise<void>{
     const owner=preferenceAccount(),message=app.messages().find(item=>item.id===messageId);

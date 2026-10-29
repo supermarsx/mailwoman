@@ -138,6 +138,11 @@ describe('retained mailbox workspace',()=>{
     // Again: the tab is reused, not duplicated.
     fireEvent.dblClick(screen.getByText('Subject b',{selector:'.list__subject'}));
     expect(messageTabs()).toHaveLength(1);
+    // A message open in its tab: a single click from the Mail tab goes to that tab, with no second load.
+    fireEvent.click(screen.getByRole('tab',{name:'Mail'}));
+    fireEvent.click(screen.getByText('Subject b',{selector:'.list__subject'}),{detail:1});
+    await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:b'));
+    expect(gets('b')).toBe(loads);expect(paneSubject()).toBeUndefined();
     // A click from beside the tab goes back to the reading pane on the Mail tab.
     fireEvent.click(screen.getByText('Subject a',{selector:'.list__subject'}),{detail:1});
     await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('mail'));
