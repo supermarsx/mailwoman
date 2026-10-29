@@ -125,6 +125,64 @@ async function untilPlaceholders(page: Page, since: number, limit: number): Prom
 
 test.describe.configure({ mode: 'serial' });
 
+test('t56 signed remote images render in the sandboxed frame; failures carry CORP and log no CORP error', async ({ page, playwright, baseURL }, info) => {
+  test.skip(info.project.name === 'phone', 'desktop engines only');
+  test.setTimeout(3 * 60_000);
+  mkdirSync(SHOTS, { recursive: true });
+  const admin = await playwright.request.newContext({ baseURL: baseURL ?? '' });
+  const fixture = await proxyFixture();
+  const id = `t56c-${info.project.name}-${Date.now()}`; let previous: string | undefined;
+  const corp: string[] = []; page.on('console', (m) => { if (/Cross-Origin-Resource-Policy|ERR_BLOCKED_BY_RESPONSE|blocked due to its/i.test(m.text())) corp.push(m.text()); });
+  const rc: { path: string; status: number; corp: string | null; type: string | null; nosniff: string | null; cookie: boolean }[] = [];
+  page.on('response', (r) => { const u = new URL(r.url()); if (/\/api\/rc\/[ip]\//.test(u.pathname)) rc.push({ path: u.pathname.slice(0, 10), status: r.status(), corp: r.headers()['cross-origin-resource-policy'] ?? null, type: r.headers()['content-type'] ?? null, nosniff: r.headers()['x-content-type-options'] ?? null, cookie: 'set-cookie' in r.headers() }); });
+  try {
+    await adminLogin(admin);
+    previous = ((await (await admin.get(`${adminPath}/egress/proxies`)).json()) as { proxies: { id: string; active: boolean }[] }).proxies.find((p) => p.active)?.id;
+    expect((await admin.post(`${adminPath}/egress/proxies`, { data: { id, scheme: 'http', host: '127.0.0.1', port: fixture.port, username: '', allowPlaintext: true, trafficClasses: ['remote_content'], scope: 'global' } })).ok()).toBe(true);
+    expect((await admin.post(`${adminPath}/egress/proxies/${id}/activate`)).ok()).toBe(true);
+    const run = `${info.project.name}-${Date.now()}`; const subject = `T56 corp ${run}`;
+    await seed(subject, `corp-${run}@example.test`, `<p>CORP check ${run}</p><p><img alt="Fast logo" width="48" height="48" src="http://1.2.3.4/ok.png?${run}"></p><p><img alt="Missing image" width="200" height="80" src="http://1.2.3.4/missing.png?${run}"></p>`);
+    await page.waitForTimeout(3100);
+    await signIn(page);
+    await userSetting(page, 'privacy.remoteContent', 'proxy');
+    await page.reload(); await expect(page.locator('.list__row').first()).toBeVisible({ timeout: 30000 });
+    await open(page, subject);
+    await expect(body(page).getByText(`CORP check ${run}`)).toBeVisible({ timeout: 20000 });
+    await expect(async () => {
+      const st = await images(page);
+      expect(st.find((s) => s.alt === 'Fast logo')?.natural).toBe(48);
+      const missing = st.find((s) => s.alt === 'Missing image');
+      expect(missing?.complete && missing.natural === 0).toBe(true);
+    }).toPass({ timeout: 20000 });
+    const st = await images(page);
+    expect(st.find((s) => s.alt === 'Missing image')).toMatchObject({ w: 200, h: 80 });
+    await page.screenshot({ path: join(SHOTS, `${info.project.name}-corp-render.png`) });
+    // Playwright does not report every nested opaque-frame response in Chromium,
+    // so the headers are read by requesting each image's own signed link again
+    // (no cookie: the token is the authorisation, as in the frame).
+    const srcs = await body(page).locator('img').evaluateAll((nodes) => nodes.map((i) => ({ alt: (i as HTMLImageElement).alt, src: (i as HTMLImageElement).src })));
+    const anon = await playwright.request.newContext();
+    for (const { alt, src } of srcs) {
+      const r = await anon.get(src); const h = r.headers();
+      expect(h['cross-origin-resource-policy'], alt).toBe('cross-origin');
+      expect(h['x-content-type-options'], alt).toBe('nosniff');
+      expect('set-cookie' in h, alt).toBe(false);
+      if (alt === 'Fast logo') { expect(r.status()).toBe(200); expect(h['content-type']).toBe('image/png'); }
+      else { expect(r.status()).toBe(502); expect(h['x-mw-remote-content']).toBe('failed'); }
+    }
+    await anon.dispose();
+    for (const r of rc) expect(r.corp, `${r.status} ${r.path}`).toBe('cross-origin');
+    expect(corp, 'no CORP console errors').toEqual([]);
+    console.log('T56-CORP', info.project.name, JSON.stringify(rc));
+  } finally {
+    await admin.post(`${adminPath}/egress/proxies/${id}/deactivate`).catch(() => undefined);
+    if (previous) await admin.post(`${adminPath}/egress/proxies/${previous}/activate`).catch(() => undefined);
+    await admin.delete(`${adminPath}/egress/proxies/${id}`).catch(() => undefined);
+    await userSetting(page, 'privacy.remoteContent', 'ask').catch(() => undefined);
+    await fixture.close();
+  }
+});
+
 test('t56 hanging remote images become placeholders after the configured timeout', async ({ page, playwright, baseURL }, info) => {
   test.skip(info.project.name === 'phone', 'desktop engines only');
   test.setTimeout(6 * 60_000);
