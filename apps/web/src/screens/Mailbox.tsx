@@ -44,7 +44,7 @@ import * as a11y from '../components/mailA11y.css.ts';
 import { useRealtime } from '../realtime/context.ts';
 import { MessageList } from '../components/MessageList.tsx';
 import { Reader } from '../components/Reader.tsx';
-import { createNarrowViewport } from '../components/narrowViewport.ts';
+import { createNarrowViewport, focusIsLost } from '../components/narrowViewport.ts';
 import { Compose } from '../components/Compose.tsx';
 import type { ComposeInitial } from '../components/compose/reply.ts';
 import { Outbox } from '../components/Outbox.tsx';
@@ -138,7 +138,7 @@ export function MailboxScreen(): JSX.Element {
     subTabs.move('mail', 0);
   }
   seedMailTab();
-  interface Pane { refresh?:()=>void; detach?:DetachedPaneHandle; beforeClose?:(discard?:boolean)=>Promise<boolean>; dirty?:()=>boolean; id:string; kind:'messages'|'composer'|'settings'|'attachment'|'module'|'outbox'|'attachments'|'sharing'|'folder'; title:string; surface?:ShellSurface; reference?:string; draftId?:string; accountId?:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
+  interface Pane { opener?:string; refresh?:()=>void; detach?:DetachedPaneHandle; beforeClose?:(discard?:boolean)=>Promise<boolean>; dirty?:()=>boolean; id:string; kind:'messages'|'composer'|'settings'|'attachment'|'module'|'outbox'|'attachments'|'sharing'|'folder'; title:string; surface?:ShellSurface; reference?:string; draftId?:string; accountId?:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
   const [panes,setPanes]=createSignal<Pane[]>([]);
   const [workspaceReady,setWorkspaceReady]=createSignal(false);
   const [draftRevision,setDraftRevision]=createSignal(0);
@@ -181,7 +181,7 @@ export function MailboxScreen(): JSX.Element {
   const [paneWindowRevision,setPaneWindowRevision]=createSignal(0);
   const views=createWorkspaceViews({ids:()=>{paneWindowRevision();return orderedPanes().filter(pane=>!pane.detach?.isDetached()).map(pane=>pane.id);},activeId:subTabs.activeId,owner:()=>{const owner=workspaceOwner();return owner?.storageAuthority?JSON.stringify([owner.id,owner.storageAuthority,owner.generation]):null;},activate:subTabs.activate});
   const effectiveLayout=():WorkspaceLayout=>narrow()?'tabs':workspaceLayout();
-  const paneVisible=(id:string):boolean=>{paneWindowRevision();if(subTabs.activeId()==='mail')return false;if(effectiveLayout()==='tabs')return subTabs.activeId()===id;return !panes().find(pane=>pane.id===id)?.detach?.isDetached()&&(!isSplitLayout(effectiveLayout())||views.slot(id)!==null);};
+  const paneVisible=(id:string):boolean=>{paneWindowRevision();if(subTabs.activeId()==='mail')return false;if(effectiveLayout()==='tabs')return subTabs.activeId()===id||companion()===id;return !panes().find(pane=>pane.id===id)?.detach?.isDetached()&&(!isSplitLayout(effectiveLayout())||views.slot(id)!==null);};
   const [dropView,setDropView]=createSignal<WorkspaceViewSlot|null>(null);
   function dragView(event:DragEvent,slot:WorkspaceViewSlot|null,drop=false):void {
     if(slot===null||!isSplitLayout(effectiveLayout()))return;
@@ -194,6 +194,17 @@ export function MailboxScreen(): JSX.Element {
   }
   onMount(()=>{const clear=()=>setDropView(null);window.addEventListener('dragend',clear);onCleanup(()=>window.removeEventListener('dragend',clear));});
   const activePane=createMemo(()=>panes().find(pane=>pane.id===subTabs.activeId()));
+  // t51: a message opened from a folder tab keeps that folder on screen beside it,
+  // the way the Mail list stays beside its reader, so the row that opened it keeps
+  // focus. Tabs layout only (split layouts give the message the other view slot,
+  // masonry shows every pane); not where the reader covers the list.
+  const companion=createMemo(():string|null=>{
+    paneWindowRevision();
+    const active=activePane();
+    if(active?.kind!=='messages'||!active.opener||effectiveLayout()!=='tabs'||narrow()||readingPane()==='off'||accountUiPreferences().messageListCollapsed)return null;
+    const opener=panes().find(pane=>pane.id===active.opener);
+    return opener&&!opener.detach?.isDetached()?opener.id:null;
+  });
   const composing=()=>activePane()?.kind==='composer';
   const listVisible=()=>!activePane() || (activePane()?.kind==='messages' && (accountUiPreferences().readerCollapsed || (!narrow() && readingPane()!=='off' && !accountUiPreferences().messageListCollapsed)));
   const readersVisible=()=>!!activePane() && !(activePane()?.kind==='messages' && accountUiPreferences().readerCollapsed);
@@ -244,25 +255,41 @@ export function MailboxScreen(): JSX.Element {
     const pane=panes().find(item=>item.id===`settings:${account ?? ''}`);
     if(account===app.accountId()) await pane?.navigation?.navigate({section:'mail-transfer',editor:{kind:'edit',id:messageId}});
   }
-  async function openDraftOrMessage(messageId:string):Promise<void>{
+  async function openDraftOrMessage(messageId:string,opener?:string):Promise<void>{
     const owner=preferenceAccount(),message=app.messages().find(item=>item.id===messageId);
     if(owner?.storageAuthority&&message?.keywords?.['$draft']){
       try{const result=await accountDraftApi(owner).resolve(messageId);if(!preferenceAccountIsCurrent(owner))return;if(result.draft?.state){const draft=localAccountDraft(result.draft);saveDraft(draft);openComposer(undefined,draft.id);return;}}
       catch{if(!preferenceAccountIsCurrent(owner))return;}
     }
-    openMessageTab(messageId);
+    openMessageTab(messageId,false,opener);
   }
-  function openMessageTab(messageId:string,restoring=false):void {
+  // t51: opening a message leaves focus on the row that opened it; a polite
+  // status names the message so the open is not silent for a screen reader.
+  // Where the reader covers the list (the focused row is hidden) the reader
+  // moves focus to its subject instead, and this says nothing.
+  const [openedNotice,setOpenedNotice]=createSignal('');
+  let noticeSeq=0;
+  function announceOpen(view:MessageView,loading?:Promise<void>):void {
+    const seq=++noticeSeq;
+    queueMicrotask(()=>{
+      if(seq!==noticeSeq||focusIsLost())return;
+      const say=():void=>{if(seq!==noticeSeq)return;const subject=view.openEmail()?.subject;setOpenedNotice('');queueMicrotask(()=>{if(seq===noticeSeq)setOpenedNotice(t('mail-opened-announcement',{subject:subject||t('mail-no-subject')}));});};
+      if(loading)void loading.then(say,()=>undefined);else say();
+    });
+  }
+  function openMessageTab(messageId:string,restoring=false,opener?:string):void {
     if(!restoring)noteWorkspaceIntent();
     router.navigate('mail');
     const id=`message:${app.accountId() ?? ''}:${messageId}`;if(!canOpenPane(id))return;
     const existing=panes().find(pane=>pane.id===id);
-    if(existing) {subTabs.activate(id);return;}
+    if(opener&&isSplitLayout(effectiveLayout()))views.openBeside(opener);
+    if(existing) {if(!restoring){if(opener)existing.opener=opener;else delete existing.opener;}subTabs.activate(id);if(!restoring&&existing.view)announceOpen(existing.view);return;}
     const title=app.messages().find(message=>message.id===messageId)?.subject || t('mail-workspace-message');
     const view=app.createReaderView();
-    setPanes(old=>[...old,{id,kind:'messages',title,view,reference:messageId}]);
+    setPanes(old=>[...old,{id,kind:'messages',title,view,reference:messageId,...(opener?{opener}:{})}]);
     subTabs.open({id,kind:'messages',title});
-    void view.openMessage(messageId);
+    const loading=view.openMessage(messageId);
+    if(!restoring)announceOpen(view,loading);
   }
   /** `discard`: the user already chose to discard this tab's unsaved changes (a bulk close), so it does not ask again. */
   async function closePane(id:string,discard=false):Promise<void> {
@@ -732,22 +759,24 @@ export function MailboxScreen(): JSX.Element {
         </div>
         </CollapsibleBar>
         <Show when={app.layout()==='ribbon'}><Ribbon onCompose={openNewMessage} onOpenSettings={openSettings}/></Show>
+        <div class={a11y.srOnly} role="status" aria-live="polite" aria-atomic="true" data-testid="message-opened-status">{openedNotice()}</div>
         <div class="workspace-body" ref={bodyElement} data-reading-pane={readingPane()} classList={{'workspace-body--split':splitVisible()}}>
           <div class={`mail-pane ${motion.surface}`} hidden={!listVisible()} data-mw-entering={mailEntering()}>
             <SearchBox /><InboxTabs /><MessageList onOpenMessage={id=>void openDraftOrMessage(id)} onCompose={openReply}/>
           </div>
           <Show when={splitVisible()}><ResizeHandle label={t('mail-resize-list')} orientation={readingPane()==='bottom'?'horizontal':'vertical'} value={listSize()} min={readingPane()==='bottom'?160:240} max={listMax()} onChange={setListDrag} onCommit={value=>{setAccountUiPreferences(readingPane()==='bottom'?{messageListHeight:value}:{messageListWidth:value});setListDrag(null);}}/></Show>
-          <div class="workspace-panes" ref={tilesElement} data-layout={effectiveLayout()} data-pair={isSplitLayout(effectiveLayout())} hidden={!readersVisible()}>
+          <div class="workspace-panes" ref={tilesElement} data-layout={effectiveLayout()} data-pair={isSplitLayout(effectiveLayout())} data-companion={companion()!==null} hidden={!readersVisible()}>
             <For each={orderedPanes()}>{pane=><PaneNavigationContext.Provider value={pane.id}><section class="workspace-pane" role="tabpanel" aria-label={subTabs.tabs().find(tab=>tab.id===pane.id)?.title??pane.title}
               hidden={!paneVisible(pane.id)}
               inert={!paneVisible(pane.id)} data-tab-id={pane.id} data-view-slot={views.slot(pane.id)??undefined} data-drop-target={dropView()!==null&&dropView()===views.slot(pane.id)}
               onDragOver={event=>dragView(event,views.slot(pane.id))} onDrop={event=>dragView(event,views.slot(pane.id),true)} onDragLeave={()=>setDropView(null)}
-              onFocusIn={()=>subTabs.activate(pane.id)} onPointerDown={()=>subTabs.activate(pane.id)}>
+              data-companion-list={companion()===pane.id}
+              onFocusIn={()=>{if(companion()!==pane.id)subTabs.activate(pane.id);}} onPointerDown={()=>{if(companion()!==pane.id)subTabs.activate(pane.id);}}>
               <DetachedWorkspacePane title={()=>subTabs.tabs().find(tab=>tab.id===pane.id)?.title??pane.title} account={()=>mailboxNickname(app.linkedMailboxId())??app.me()?.username} register={handle=>{pane.detach=handle;setPaneWindowRevision(value=>value+1);}}>{()=> <>
               <Show when={pane.kind==='messages' && pane.view}>{view=><><Show when={view().error()}><p role="alert">{t('mail-workspace-load-error')}</p></Show><Reader view={view()} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} onCompose={openReply} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)}/></>}</Show>
               <Show when={pane.kind==='attachment' && pane.attachment}>{item=><AttachmentTab item={item()}/>}</Show>
               <Show when={pane.kind==='composer'}><Compose embedded registerBeforeClose={(handler,dirty)=>{pane.beforeClose=handler;pane.dirty=dirty;}} onSubjectChange={subject=>subTabs.rename(pane.id,subject.trim()||t('mail-compose'))} onDraftIdChange={id=>{if(pane.draftId!==id){pane.draftId=id;setDraftRevision(value=>value+1);}}} {...(pane.draftId?{resumeDraftId:pane.draftId}:{})} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
-              <Show when={pane.kind==='folder'&&pane.reference}><FolderPane mailboxId={pane.reference!} beforeGlobalAction={()=>pane.detach?.reattach()} registerRefresh={refresh=>{pane.refresh=refresh;}} active={subTabs.activeId()===pane.id} onOpen={id=>void openDraftOrMessage(id)}/></Show>
+              <Show when={pane.kind==='folder'&&pane.reference}><FolderPane mailboxId={pane.reference!} beforeGlobalAction={()=>pane.detach?.reattach()} registerRefresh={refresh=>{pane.refresh=refresh;}} active={subTabs.activeId()===pane.id} companion={companion()===pane.id} onOpen={id=>void openDraftOrMessage(id,pane.id)}/></Show>
               <Show when={pane.kind==='outbox'}><Outbox/></Show>
               <Show when={pane.kind==='attachments'}><Attachments loadPage={position=>app.listAttachmentsPage(position)} onOpen={openAttachmentTab} onOpenMessage={item=>openMessageTab(item.emailId)}/></Show>
               <Show when={pane.kind==='sharing'&&pane.reference&&pane.accountId}><SharingDialog embedded mailboxId={pane.reference!} accountId={pane.accountId!} mailboxName={pane.title} onClose={()=>void closePane(pane.id)}/></Show>

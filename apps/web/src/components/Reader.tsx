@@ -29,7 +29,9 @@ import * as a11y from './mailA11y.css.ts';
 // `:root[data-reading-pane]`. Imported for its side effect so the rules ship.
 import './readerPane.css.ts';
 import './readerMetadata.css';
-import { createNarrowViewport } from './narrowViewport.ts';
+import { createNarrowViewport, focusIsLost } from './narrowViewport.ts';
+import { readingPane } from './readingPane.ts';
+import { accountUiPreferences } from '../api/accountPreferences.ts';
 import { SweepDialog } from './SweepDialog.tsx';
 import { ThumbnailStrip, type StripItem } from '../viewers/ThumbnailStrip.tsx';
 import { AttachmentViewer } from '../viewers/AttachmentViewer.tsx';
@@ -602,16 +604,18 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   const emailId = createMemo((): string | null => app.openEmail()?.id ?? null);
   const entering = createEntryMotion(emailId);
 
-  // Narrow-viewport reading (t28-e6). At phone width the open reader is a
-  // full-height view that covers the list (styles/app.css), so focus has to
-  // follow it in: left on the list row it would sit on a control the reader
-  // hides. At desktop width the list stays visible beside the reader and focus
-  // stays on the row, as before.
+  // Opening a message never takes focus from a list that is still on screen
+  // (t51): the row that opened it keeps focus, so the arrow keys go on working.
+  // Only where the reader replaces the list (phone width, t28-e6; the reading
+  // pane set to Off; the list collapsed) is the focused row hidden, and focus
+  // would fall to <body>: then, and only if it really was lost, it moves to the
+  // subject heading. Tab or a click moves focus into the reader otherwise.
   const narrow = createNarrowViewport();
+  const listCovered = (): boolean => narrow() || readingPane() === 'off' || accountUiPreferences().messageListCollapsed === true;
   let subjectHeading: HTMLHeadingElement | undefined;
   createEffect(
     on(emailId, (id) => {
-      if (id !== null && narrow() && props.active !== false) queueMicrotask(() => subjectHeading?.focus());
+      if (id !== null && props.active !== false && listCovered()) queueMicrotask(() => { if (focusIsLost()) subjectHeading?.focus(); });
     }),
   );
 

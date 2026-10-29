@@ -644,9 +644,14 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
     // inside the microtask so the lookup uses the post-render list. A key moved
     // it, so the ring shows: Firefox otherwise keeps a click's no-ring state
     // for focus a script moves (the option is not in TypeScript's DOM lib yet).
+    // A list hidden behind the reader (reading pane Off, phone width) does not
+    // take focus: `next`/`previous` pressed in the reader keep it there instead
+    // of dropping it on <body> through a hidden row (t51).
     queueMicrotask(() => {
       const row = rows()[next];
-      if (row !== undefined) rowEls.get(rowId(row))?.focus({ focusVisible: true } as FocusOptions);
+      const el = row === undefined ? undefined : rowEls.get(rowId(row));
+      if (el === undefined || el.closest('[hidden], [inert]') !== null) return;
+      el.focus({ focusVisible: true } as FocusOptions);
     });
   }
 

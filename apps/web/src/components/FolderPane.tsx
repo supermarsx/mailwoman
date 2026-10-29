@@ -14,7 +14,7 @@ import {EmptyFolderDialog,useCanEmpty,useEmptyAbility} from './EmptyFolderDialog
 import {loadCatalog,t} from '../i18n/index.ts';
 import * as css from './folderPane.css.ts';
 
-export function FolderPane(props:{mailboxId:string;active:boolean;onOpen:(id:string)=>void;registerRefresh?:(refresh:()=>void)=>void;beforeGlobalAction?:()=>void}):JSX.Element{
+export function FolderPane(props:{mailboxId:string;active:boolean;/** Shown beside a message opened from it (t51): next/previous still walk this list. */companion?:boolean;onOpen:(id:string)=>void;registerRefresh?:(refresh:()=>void)=>void;beforeGlobalAction?:()=>void}):JSX.Element{
  const app=useApp();
  const owner=preferenceAccount(),client=createConfiguredClient(),controller=new AbortController();
  const box=()=>app.mailboxes().find(value=>value.id===props.mailboxId);
@@ -59,7 +59,7 @@ export function FolderPane(props:{mailboxId:string;active:boolean;onOpen:(id:str
  createEffect(()=>{const active=props.active;if(active&&!previouslyActive)untrack(()=>{if(!disabled())void view.load();});previouslyActive=active;});
  createEffect(()=>{if(props.active&&!busy()&&dirty){dirty=false;void view.load();}});
  function step(delta:number):boolean{
-  if(!props.active||!view.current())return false;
+  if(!(props.active||props.companion)||!view.current())return false;
   if(disabled())return true;
   const rows=view.messages();if(!rows.length)return true;
   const selected=[...view.selection()].at(-1),index=rows.findIndex(row=>row.id===selected);

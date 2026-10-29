@@ -44,5 +44,11 @@ export function createWorkspaceViews(options:{ids:Accessor<readonly string[]>;ac
     if(value.some(id=>id!==null&&!ids.includes(id))||(value[0]!==null&&value[0]===value[1]))return;
     setAssignments(reconcileWorkspaceViews(value,ids,options.activeId(),focused));
   }
-  return {assignments,assignView,restore,slot:(id:string):WorkspaceViewSlot|null=>assignments()[0]===id?0:assignments()[1]===id?1:null};
+  /** The next tab to become active goes into the view slot that `openerId` does
+   *  NOT occupy, so the list a message was opened from stays on screen (t51). */
+  function openBeside(openerId:string):void {
+    const at=assignments()[0]===openerId?0:assignments()[1]===openerId?1:null;
+    if(at!==null)focused=at===0?1:0;
+  }
+  return {assignments,assignView,openBeside,restore,slot:(id:string):WorkspaceViewSlot|null=>assignments()[0]===id?0:assignments()[1]===id?1:null};
 }

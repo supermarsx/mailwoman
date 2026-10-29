@@ -87,3 +87,10 @@ globalStyle('.sidebar',{overflow:'hidden'});
 globalStyle('.sidebar__scroll',{flex:'1 1 auto',minHeight:0,overflowY:'auto',overflowX:'hidden'});
 globalStyle('.sidebar__footer',{display:'flex',flexDirection:'column',gap:vars.space[1],flex:'0 0 auto',marginTop:'auto'});
 globalStyle('.sidebar__footer .sidebar__settings',{marginInlineStart:0,padding:'0.5rem 0.6rem',justifyContent:'flex-start'});
+
+// Tabs layout, a message opened from a folder tab (t51): the folder list stays
+// beside the message, the way the Mail list sits beside its reader, so the row
+// that opened it keeps focus. The reading-pane setting picks right or bottom.
+globalStyle('.workspace-panes[data-layout="tabs"][data-companion="true"]',{gridTemplateColumns:'minmax(240px,2fr) minmax(0,3fr)',gridTemplateRows:'minmax(0,1fr)'});
+globalStyle('.workspace-body[data-reading-pane="bottom"] > .workspace-panes[data-layout="tabs"][data-companion="true"]',{gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'minmax(160px,2fr) minmax(0,3fr)'});
+globalStyle('.workspace-panes[data-layout="tabs"] > .workspace-pane[data-companion-list="true"]',{order:-1});

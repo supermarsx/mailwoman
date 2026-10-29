@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRoot } from 'solid-js';
-import { createNarrowViewport, focusListRow, NARROW_QUERY } from './narrowViewport.ts';
+import { createNarrowViewport, focusIsLost, focusListRow, NARROW_QUERY } from './narrowViewport.ts';
 
 /** A controllable `MediaQueryList` stand-in (jsdom has no `matchMedia`). */
 function stubMatchMedia(initial: boolean) {
@@ -90,5 +90,21 @@ describe('focusListRow', () => {
   it('reports false and leaves focus alone when the list has no row', () => {
     expect(focusListRow(null)).toBe(false);
     expect(document.activeElement).toBe(document.body);
+  });
+});
+
+describe('focusIsLost (t51)', () => {
+  afterEach(() => { document.body.innerHTML = ''; });
+  it('is false for a visible focused control and true on body, under [hidden] or [inert]', () => {
+    document.body.innerHTML = '<div id="list"><button id="row">row</button></div>';
+    const row = document.getElementById('row')!;
+    expect(focusIsLost()).toBe(true);
+    row.focus();
+    expect(focusIsLost()).toBe(false);
+    document.getElementById('list')!.setAttribute('inert', '');
+    expect(focusIsLost()).toBe(true);
+    document.getElementById('list')!.removeAttribute('inert');
+    document.getElementById('list')!.hidden = true;
+    expect(focusIsLost()).toBe(true);
   });
 });

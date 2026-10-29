@@ -436,6 +436,8 @@ mail-toast-tab-pinned = Pinned tab “{ $target }”
 mail-toast-tab-unpinned = Unpinned tab “{ $target }”
 
 mail-workspace-message = Message
+# Read out (polite status) when a message opens and focus stays on its list row.
+mail-opened-announcement = Opened: { $subject }
 mail-workspace-layout = Workspace layout
 mail-workspace-tabs = Tabs
 mail-workspace-side-by-side = Side by side

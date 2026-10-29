@@ -431,6 +431,7 @@ mail-toast-tab-pinned = Separador «{ $target }» afixado
 mail-toast-tab-unpinned = Separador «{ $target }» desafixado
 
 mail-workspace-message = Mensagem
+mail-opened-announcement = Mensagem aberta: { $subject }
 mail-workspace-layout = Disposição da área de trabalho
 mail-workspace-tabs = Separadores
 mail-workspace-side-by-side = Lado a lado

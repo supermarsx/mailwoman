@@ -45,3 +45,16 @@ export function focusListRow(previous: HTMLElement | null): boolean {
   target.focus();
   return document.activeElement === target;
 }
+
+/**
+ * Whether keyboard focus has nowhere useful to be: on `<body>`, or on an
+ * element that is hidden or inert (the message list a covering reader or an
+ * inactive tab just hid). Opening a message leaves focus where it is unless
+ * this is true (t51): a visible list row keeps it.
+ */
+export function focusIsLost(doc: Document = document): boolean {
+  const el = doc.activeElement;
+  if (!(el instanceof HTMLElement) || el === doc.body) return true;
+  if (el.closest('[hidden], [inert]') !== null) return true;
+  return typeof el.checkVisibility === 'function' && !el.checkVisibility();
+}

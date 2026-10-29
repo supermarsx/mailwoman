@@ -34,3 +34,24 @@ it('swaps assigned tabs, rejects foreign tabs, and clears assignments across aut
   model.views.restore(['a','b']);expect(model.views.assignments()).toEqual(['x',null]);
   dispose();
 });
+it('openBeside puts the next activated tab in the slot the opener does not hold (t51)',async()=>{
+  let dispose!:()=>void;
+  const model=createRoot(stop=>{
+    dispose=stop;
+    const [ids,setIds]=createSignal<readonly string[]>(['folder','other']);
+    const [active,setActive]=createSignal<string|null>('folder');
+    const views=createWorkspaceViews({ids,activeId:active,owner:()=>'owner',activate:setActive});
+    return {views,setIds,setActive};
+  });
+  await Promise.resolve();
+  expect(model.views.assignments()).toEqual(['folder','other']);
+  // Without openBeside the new tab replaces the active folder in its own slot.
+  model.setIds(['folder','other','m1']);model.views.openBeside('folder');model.setActive('m1');
+  expect(model.views.assignments()).toEqual(['folder','m1']);
+  model.setActive('folder');model.setIds(['folder','other','m1','m2']);model.views.openBeside('folder');model.setActive('m2');
+  expect(model.views.assignments()).toEqual(['folder','m2']);
+  // An opener in slot 1 sends the message to slot 0.
+  model.views.assignView('folder',1);model.setIds(['folder','other','m1','m2','m3']);model.views.openBeside('folder');model.setActive('m3');
+  expect(model.views.assignments()).toEqual(['m3','folder']);
+  dispose();
+});
