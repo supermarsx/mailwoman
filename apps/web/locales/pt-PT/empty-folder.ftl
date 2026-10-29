@@ -29,6 +29,7 @@ empty-folder-confirm-destroy = Eliminar permanentemente
 empty-folder-cancel = Cancelar
 empty-folder-already-empty = «{ $name }» já está vazia.
 empty-folder-prepare-failed = Não foi possível contar as mensagens de «{ $name }», pelo que nada foi alterado. Verifique a ligação e tente novamente.
+empty-folder-syncing = «{ $name }» ainda está a ser sincronizada, pelo que não é possível contar as mensagens. Nada foi alterado; tente novamente daqui a pouco.
 empty-folder-running = Já está a ser esvaziada uma pasta. Pare-a a partir da respetiva notificação antes de iniciar outra.
 empty-folder-progress-trash = A mover mensagens de { $name } para o Lixo: { $done } de { $total }.
 empty-folder-progress-destroy = A eliminar mensagens de { $name }: { $done } de { $total }.
