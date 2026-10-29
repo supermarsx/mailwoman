@@ -522,3 +522,78 @@ describe('authenticated appearance generation boundaries', () => {
   const pending=sync.start();sync.stop();s.setTheme('grove-light');resolve(stored({mode:'fixed',theme:'amoled'},1));await pending;expect(s.theme()).toBe('grove-light');expect(save).not.toHaveBeenCalled();
  });
 });
+
+describe('a pick made just before the page goes away (t39 C7)', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    vi.useRealTimers();
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+  });
+
+  function recordingApi(): { api: AppearancePrefsApi; calls: { prefs: AppearancePrefs; keepalive: boolean }[] } {
+    const calls: { prefs: AppearancePrefs; keepalive: boolean }[] = [];
+    return {
+      calls,
+      api: {
+        load: async () => stored(null, null),
+        save: async (prefs, options) => {
+          calls.push({ prefs, keepalive: options?.keepalive === true });
+          return 7_000;
+        },
+        reset: async () => undefined,
+      },
+    };
+  }
+
+  it('sends the pending write with keepalive on pagehide, before the debounce ends', async () => {
+    const s = slice();
+    const f = recordingApi();
+    const sync = createAppearanceSync(s, { api: f.api, debounceMs: 600 });
+    await sync.start();
+    f.calls.length = 0;
+    vi.useFakeTimers();
+    s.setTheme('ocean-dark');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(f.calls).toEqual([{ prefs: s.appearancePrefs(), keepalive: true }]);
+    // The debounce timer was taken over: no second write when it would have fired.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(f.calls).toHaveLength(1);
+    sync.stop();
+  });
+
+  it('does the same when the tab becomes hidden', async () => {
+    const s = slice();
+    const f = recordingApi();
+    const sync = createAppearanceSync(s, { api: f.api, debounceMs: 600 });
+    await sync.start();
+    f.calls.length = 0;
+    s.setTheme('plum-dark');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(f.calls.map((c) => [c.prefs.theme, c.keepalive])).toEqual([['plum-dark', true]]);
+    sync.stop();
+  });
+
+  it('sends nothing on pagehide with no pending write, or after stop', async () => {
+    const s = slice();
+    const f = recordingApi();
+    const sync = createAppearanceSync(s, { api: f.api, debounceMs: 600 });
+    await sync.start();
+    f.calls.length = 0;
+    window.dispatchEvent(new Event('pagehide'));
+    s.setTheme('ocean-dark');
+    sync.stop();
+    window.dispatchEvent(new Event('pagehide'));
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it('the API puts keepalive on the PUT only when asked', async () => {
+    const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ updatedAt: 1 }), { status: 200 }));
+    const api = createAppearancePrefsApi(fetcher);
+    const s = slice();
+    await api.save(s.appearancePrefs(), { keepalive: true });
+    await api.save(s.appearancePrefs());
+    expect(fetcher.mock.calls[0]?.[1]?.keepalive).toBe(true);
+    expect(fetcher.mock.calls[1]?.[1]?.keepalive).toBeUndefined();
+  });
+});

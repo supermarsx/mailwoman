@@ -102,7 +102,8 @@ const ENDPOINT = '/api/account/appearance';
 /** The three appearance calls. Injectable so the sync unit-tests without a server. */
 export interface AppearancePrefsApi {
   load(): Promise<StoredAppearance>;
-  save(prefs: AppearancePrefs): Promise<number | null>;
+  /** `keepalive` lets the PUT outlive the page (sent from `pagehide`). */
+  save(prefs: AppearancePrefs, options?: { keepalive?: boolean }): Promise<number | null>;
   /** Forget the account's stored appearance (falls back to the deployment default). */
   reset(): Promise<void>;
 }
@@ -153,11 +154,12 @@ export function createAppearancePrefsApi(fetcher: Fetcher = defaultFetcher): App
     async load() {
       return parseStored(await jsonOrThrow<unknown>(await fetcher(withBase(ENDPOINT), {headers:storageAuthorityHeaders()})));
     },
-    async save(prefs) {
+    async save(prefs, options) {
       const res = await fetcher(withBase(ENDPOINT), {
         method: 'PUT',
         headers: { ...storageAuthorityHeaders(), 'content-type': 'application/json' },
         body: JSON.stringify({ appearance: prefs }),
+        ...(options?.keepalive === true ? { keepalive: true } : {}),
       });
       const body = await jsonOrThrow<{ updatedAt?: number }>(res);
       return typeof body.updatedAt === 'number' ? body.updatedAt : null;
@@ -293,7 +295,7 @@ export function createAppearanceSync(
     writeMark(mark, markKey());
   }
 
-  async function push(): Promise<void> {
+  async function push(keepalive = false): Promise<void> {
     if (!active || !loaded || !allowed()) return;
     const epoch = generation;
     const current = prefs.appearancePrefs();
@@ -305,7 +307,7 @@ export function createAppearanceSync(
       return;
     }
     try {
-      const updatedAt = await api.save(current);
+      const updatedAt = await api.save(current, keepalive ? { keepalive: true } : undefined);
       if (epoch !== generation || !active || !allowed()) return;
       markSynced(current, updatedAt);
       setStatus('synced');
@@ -325,9 +327,37 @@ export function createAppearanceSync(
     }, debounceMs);
   }
 
+  // A pick made less than `debounceMs` before a reload or a closed tab would be
+  // lost with the timer. When the page is hidden or left, send the pending
+  // write at once with `keepalive`, so the browser completes it after the
+  // page is gone. `sendBeacon` is not usable: it cannot carry the
+  // storage-authority and CSRF headers, and it only POSTs.
+  function flushOnHide(): void {
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    timer = undefined;
+    pending = push(true);
+  }
+  const onVisibility = (): void => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') flushOnHide();
+  };
+  let hideListening = false;
+  function listenForHide(on: boolean): void {
+    if (typeof window === 'undefined' || on === hideListening) return;
+    hideListening = on;
+    if (on) {
+      window.addEventListener('pagehide', flushOnHide);
+      document.addEventListener('visibilitychange', onVisibility);
+    } else {
+      window.removeEventListener('pagehide', flushOnHide);
+      document.removeEventListener('visibilitychange', onVisibility);
+    }
+  }
+
   async function start(): Promise<void> {
     if (unsubscribe !== null || !allowed()) return; // idempotent
     active = true;
+    listenForHide(true);
     loaded = false;
     const initial = prefs.appearancePrefs();
     const epoch = ++generation;
@@ -413,6 +443,7 @@ export function createAppearanceSync(
       generation += 1;
       active = false;
       loaded = false;
+      listenForHide(false);
       unsubscribe?.();
       unsubscribe = null;
       if (timer !== undefined) {
