@@ -507,7 +507,8 @@ async fn browser_tag_is_consent_gated_hashed_stepped_up_and_audited() {
         .send()
         .await
         .unwrap();
-    assert_eq!(csp(&console), [SHELL_CSP]);
+    // t76: the console adds `frame-ancestors 'none'` as a second policy.
+    assert_eq!(csp(&console), [SHELL_CSP, "frame-ancestors 'none'"]);
     assert!(!console.text().await.unwrap().contains("mw-analytics"));
     let frame = user
         .get(format!("{base}/api/rc/frame"))

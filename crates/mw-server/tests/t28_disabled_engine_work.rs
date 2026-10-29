@@ -197,9 +197,12 @@ async fn login(base: &str, _pop: &MockPop3, password: &str) -> reqwest::Response
 /// The admin metadata passthrough for `account_id`: a `/jmap/api` request with an
 /// admin session and no mailbox session, which connects the account if this
 /// process has no runtime for it.
+// t76: the admin cookie is scoped to the console path, so the browser no
+// longer sends it to `/jmap/api`; the console posts the metadata request to
+// `{console}/server-metadata/jmap` (the console is at `/admin` here).
 async fn admin_metadata(admin: &reqwest::Client, base: &str, account_id: &str) -> u16 {
     admin
-        .post(format!("{base}/jmap/api"))
+        .post(format!("{base}/admin/server-metadata/jmap"))
         .json(&json!({
             "using": ["urn:ietf:params:jmap:core"],
             "methodCalls": [
