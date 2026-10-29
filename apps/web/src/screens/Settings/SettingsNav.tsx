@@ -22,7 +22,7 @@ export function SettingsNav(props: SettingsNavProps): JSX.Element {
   let nav!: HTMLElement;
   const groups = () => visibleCategories(props.supported, props.query(), id => t(id));
   const onKeyDown = (event: KeyboardEvent): void => {
-    const buttons = [...nav.querySelectorAll<HTMLButtonElement>('button[data-settings-section]')];
+    const buttons = [...nav.querySelectorAll<HTMLButtonElement>('button[data-settings-entry]')];
     const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
     if (at < 0 || buttons.length === 0) return;
     // In a right-to-left layout the horizontal arrows swap meaning.
@@ -45,7 +45,7 @@ export function SettingsNav(props: SettingsNavProps): JSX.Element {
           <div class={workspace.group} role="group" aria-labelledby={headingId} data-settings-category={group.category.id}>
             <span class={workspace.groupHeading} id={headingId}>{t(group.category.label)}</span>
             <For each={group.sections}>{entry => (
-              <button type="button" data-settings-section={entry.id} aria-current={props.current() === entry.id ? 'page' : undefined} onClick={() => props.onSelect(entry.id)}>
+              <button type="button" data-settings-entry={entry.id} aria-current={props.current() === entry.id ? 'page' : undefined} onClick={() => props.onSelect(entry.id)}>
                 <Icon name={entry.icon} /><span>{t(entry.label)}</span>
               </button>
             )}</For>
