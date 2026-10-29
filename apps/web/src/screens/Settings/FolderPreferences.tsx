@@ -1,4 +1,6 @@
-import {createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type Accessor, type JSX} from 'solid-js';
+import {createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, useContext, type Accessor, type JSX} from 'solid-js';
+import {AppContext} from '../../state/context.ts';
+import {QuotaDetails} from '../../components/QuotaMeter.tsx';
 import {FolderRoles} from './FolderRoles.tsx';
 import {FolderCountPreferences} from './FolderCountPreferences.tsx';
 import {Icon} from '../../components/Icon.tsx';
@@ -50,6 +52,7 @@ function FolderIconEditor(props:{folder:PreferenceFolder;prefs:Accessor<AccountU
 export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
  onMount(()=>void loadCatalog('settings'));
  const navigation=props.navigation??createSettingsNavigation({section:'folders'});
+ const app=useContext(AppContext);
  const prefs=()=>props.preferences?.()??accountUiPreferences();
  const update=(patch:AccountUiPreferences)=> (props.onChange??setAccountUiPreferences)(patch);
  const folders=createMemo(()=>orderedFolders(props.folders(),prefs()));
@@ -63,6 +66,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   <h2 class={css.heading}>{t('settings-folders-title')}</h2><p class={css.prose}>{t('settings-folders-help')}</p>
   <p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>
   <Show when={!props.onChange}><FolderCountPreferences/></Show>
+  <Show when={!props.onChange&&app?.accountId()}>{accountId=><QuotaDetails accountId={accountId()} refresh={props.folders()}/>}</Show>
   <Show when={!props.onChange}><FolderRoles folders={props.folders} {...(props.onRolesSaved?{onSaved:props.onRolesSaved}:{})}/></Show>
   <div class={folderCss.wrap} role="region" aria-label={t('settings-folders-table')} tabIndex={0}><table class={folderCss.table}><thead><tr><th>{t('settings-folders-name')}</th><th>{t('settings-folders-actions')}</th></tr></thead><tbody>
    <For each={folders()}>{(folder,index)=><tr onDragOver={event=>{if(dragging()&&canMove(dragging()!,folder.id))event.preventDefault();}} onDrop={event=>{event.preventDefault();const id=dragging();if(id)move(id,folder.id);setDragging(null);}}>
