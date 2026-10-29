@@ -669,6 +669,15 @@ async fn zeroaccess_enable(
     };
     match state.store.upsert_zeroaccess(&row).await {
         Ok(()) => {
+            // t48: a zero-access account keeps no server-readable linked
+            // mailbox password, as owner or as the linked mailbox.
+            if let Err(e) = state
+                .store
+                .delete_linked_credentials_for_account(&session.account_id)
+                .await
+            {
+                tracing::error!("linked credentials not deleted on zero-access: {e}");
+            }
             let _ = state
                 .v6
                 .admin

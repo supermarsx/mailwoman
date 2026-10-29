@@ -1,4 +1,5 @@
 //! Explicit mailbox context selection; the browser's primary identity never changes.
+mod credential;
 mod live;
 mod routes;
 mod scope;
@@ -11,6 +12,7 @@ use axum::{
 pub(crate) use live::{
     LiveLink, inbox_unread, links_changed, live_links, subscribe_links, verify_link,
 };
+pub(crate) use credential::STORE_KEY as STORE_CREDENTIALS_KEY;
 pub(crate) use routes::router;
 pub(crate) use scope::guard;
 use serde_json::json;
@@ -120,36 +122,38 @@ pub(crate) async fn resolve(
         .to_str()
         .map_err(|_| failure(StatusCode::BAD_REQUEST, "invalidLinkedContext"))?;
     require_enabled(state, parent).await?;
-    let Some((_, source)) = state
-        .store
-        .linked_source(&parent.id, link)
-        .await
-        .map_err(unavailable)?
-    else {
-        return Err(failure(
+    // t48: a lapsed or missing child session is re-established from the link's
+    // sealed credential when one is kept; otherwise the owner renews access.
+    let reauth = || {
+        failure(
             StatusCode::CONFLICT,
             "linkedAccountReauthenticationRequired",
-        ));
+        )
     };
-    crate::security_center::enforce_session_clock(state, &source)
-        .await
-        .map_err(child_error)?;
+    let Some((_, source)) = credential::live_source(state, parent, link).await? else {
+        return Err(reauth());
+    };
     require_enabled(state, &source).await?;
-    let context = state
-        .store
-        .linked_context(&parent.id, link)
-        .await
-        .map_err(unavailable)?
-        .ok_or_else(|| {
-            failure(
-                StatusCode::CONFLICT,
-                "linkedAccountReauthenticationRequired",
-            )
-        })?;
-    crate::security_center::enforce_session(state, &context)
-        .await
-        .map_err(child_error)?;
-    Ok(Some(context))
+    // A delegated context copies the source's clocks; one that lapsed on its
+    // own is deleted by the check and rebuilt once from the live source.
+    for attempt in 0..2 {
+        let context = state
+            .store
+            .linked_context(&parent.id, link)
+            .await
+            .map_err(unavailable)?
+            .ok_or_else(reauth)?;
+        match crate::security_center::enforce_session(state, &context).await {
+            Ok(()) => return Ok(Some(context)),
+            Err(response) if attempt == 0 && response.status() == StatusCode::UNAUTHORIZED => {
+                if credential::live_source(state, parent, link).await?.is_none() {
+                    return Err(reauth());
+                }
+            }
+            Err(response) => return Err(child_error(response)),
+        }
+    }
+    Err(reauth())
 }
 
 /// Signed resources reach this through central session enforcement as well.

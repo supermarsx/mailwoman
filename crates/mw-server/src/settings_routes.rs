@@ -575,6 +575,24 @@ async fn put_global(
     if key.starts_with("security.protection.") {
         state.request_protection.invalidate();
     }
+    // t48: turning linking or credential storage off deployment-wide deletes
+    // every stored linked-mailbox credential now, not at each link's next use.
+    if (key == "accounts.linkingEnabled" || key == crate::linked_accounts::STORE_CREDENTIALS_KEY)
+        && row.global_value.as_deref() == Some("false")
+    {
+        match state.store.delete_all_linked_credentials().await {
+            Ok(removed) => {
+                audit(
+                    &state,
+                    &ctx,
+                    &key,
+                    json!({ "scope": "global", "linkedCredentialsDeleted": removed }),
+                )
+                .await
+            }
+            Err(e) => tracing::error!("linked credentials not deleted after {key} off: {e}"),
+        }
+    }
     audit(
         &state,
         &ctx,

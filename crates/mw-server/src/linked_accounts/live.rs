@@ -99,18 +99,14 @@ pub(crate) async fn verify_link(
     parent: &mw_store::Session,
     link: &str,
 ) -> Option<LiveLink> {
-    let (_, source) = state
-        .store
-        .linked_source(&parent.id, link)
+    // t48: renews a lapsed child session from the link's sealed credential.
+    let (_, source) = super::credential::live_source(state, parent, link)
         .await
         .ok()
         .flatten()?;
     if source.account_id.is_empty() || source.account_id == parent.account_id {
         return None;
     }
-    crate::security_center::enforce_session_clock(state, &source)
-        .await
-        .ok()?;
     let gate = crate::account_gate::for_session(&state.store, &source)
         .await
         .ok()?;

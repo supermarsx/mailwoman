@@ -421,6 +421,29 @@ async fn policy_requires(
     Ok(false)
 }
 
+/// t48: would a normal sign-in of this account ask for a second factor? True
+/// when one is enrolled or a policy requires one. A linked mailbox for which
+/// this holds is never renewed from a stored password alone.
+pub(crate) async fn factor_required(
+    state: &AppState,
+    account_id: &str,
+    username: &str,
+) -> Result<bool, mw_store::StoreError> {
+    let store = &state.store;
+    if store
+        .get_totp_secret(account_id)
+        .await?
+        .is_some_and(|t| t.confirmed)
+        || !store.list_webauthn_credentials(account_id).await?.is_empty()
+    {
+        return Ok(true);
+    }
+    let required = crate::security_center::policy(state, account_id, username)
+        .await
+        .map_or(true, |p| p.required);
+    Ok(required || policy_requires(state, account_id, username).await?)
+}
+
 /// The refusal for a disabled account whose credentials were valid: the same
 /// status and body as a wrong password (`crate::unauthorized`), so the response
 /// does not tell the caller that the account exists and is disabled.

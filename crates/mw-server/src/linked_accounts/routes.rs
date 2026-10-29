@@ -15,6 +15,11 @@ pub(crate) fn router() -> Router<AppState> {
         .route("/api/accounts/primary", axum::routing::put(set_primary))
         .route("/api/accounts/layout", axum::routing::put(set_layout))
         .route("/api/accounts/challenges/{id}/confirm", post(confirm))
+        .route("/api/accounts/{id}/renew", post(renew))
+        .route(
+            "/api/accounts/{id}/renew/challenges/{challenge}/confirm",
+            post(confirm_renew),
+        )
         .route("/api/accounts/{id}/switch", post(switch))
         .route("/api/accounts/{id}", axum::routing::delete(unlink))
 }
@@ -37,19 +42,21 @@ async fn entry(
 ) -> Result<Value, Response> {
     let mut value = serde_json::to_value(row).map_err(unavailable)?;
     value["status"] = json!("reauthRequired");
-    if let Some((_, source)) = state
-        .store
-        .linked_source(&parent.id, &row.id)
-        .await
-        .map_err(unavailable)?
-    {
+    if let Some(login) = super::credential::login_name(state, parent, &row.id).await {
+        value["address"] = json!(login);
+    }
+    // t48: a lapsed child session is renewed here from the sealed credential.
+    let found = match super::credential::live_source(state, parent, &row.id).await {
+        Ok(found) => found,
+        Err(response) if response.status() == StatusCode::SERVICE_UNAVAILABLE => {
+            value["status"] = json!("disabled");
+            None
+        }
+        Err(response) => return Err(response),
+    };
+    if let Some((_, source)) = found {
         value["address"] = json!(source.username);
-        let live = match crate::security_center::enforce_session_clock(state, &source).await {
-            Ok(()) => true,
-            Err(response) if response.status() == StatusCode::UNAUTHORIZED => false,
-            Err(response) => return Err(response),
-        };
-        if live {
+        {
             let gate = crate::account_gate::for_session(&state.store, &source)
                 .await
                 .map_err(unavailable)?;
@@ -69,6 +76,11 @@ async fn entry(
             }
         }
     }
+    // t48: whether access renews by itself, and if not why (codes only), read
+    // after any renewal attempt above. The secret is never in a response.
+    let (renewal, reason) = super::credential::renewal(state, parent, &row.id).await?;
+    value["renewal"] = renewal;
+    value["renewalReason"] = reason;
     Ok(value)
 }
 async fn list(State(state): State<AppState>, headers: HeaderMap) -> Result<Response, Response> {
@@ -96,6 +108,7 @@ async fn list(State(state): State<AppState>, headers: HeaderMap) -> Result<Respo
             .any(|a| a["id"] == json!(id) && a["status"] == json!("ready"))
     });
     let primary_fallback = stored.is_some() && primary_mailbox.is_none();
+    let (store_credentials, store_reason) = super::credential::owner_policy(&state, &parent).await?;
     let keys = layout_keys(accounts.iter().filter_map(|a| a["id"].as_str()));
     let layout = layout_view(
         state
@@ -110,7 +123,8 @@ async fn list(State(state): State<AppState>, headers: HeaderMap) -> Result<Respo
         "primary":{"accountId":parent.account_id,"address":parent.username,"storageAuthority":state.store.session_storage_authority(&parent.id).await.map_err(unavailable)?},
         "accounts":accounts,"policy":{"enabled":enabled(&state,&parent).await?,"maxAccounts":maximum(&state).await?,
         "supportedAuthentication":["password","totp","recovery","passkeySecondFactor"],"supportedBackends":["imap","pop3","ews"],
-        "reason":if supported(&state,&parent).await?{Value::Null}else{json!("linkedBackendUnsupported")},"childRealtime":true}
+        "reason":if supported(&state,&parent).await?{Value::Null}else{json!("linkedBackendUnsupported")},"childRealtime":true,
+        "storeCredentials":store_credentials,"storeCredentialsReason":store_reason}
     }))).into_response())
 }
 #[derive(Deserialize)]
@@ -174,7 +188,7 @@ async fn link(
         }),
     )
     .await;
-    finish(&state, &parent, &display, response, None).await
+    finish(&state, &parent, &display, response, None, None).await
 }
 
 async fn confirm(
@@ -206,7 +220,94 @@ async fn confirm(
     let response =
         crate::twofa_routes::verify_link_factor(state.clone(), factor_headers, ext, pending, body)
             .await;
-    finish(&state, &parent, &display, response, Some(&id)).await
+    finish(&state, &parent, &display, response, Some(&id), None).await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RenewRequest {
+    /// Only needed when the server does not know the mailbox's sign-in name
+    /// (a link made before t48 whose session already ended).
+    username: Option<String>,
+    password: String,
+    altcha: Option<String>,
+}
+
+/// `POST /api/accounts/{id}/renew` — sign the linked mailbox in again and keep
+/// the link: same link id, revision, order, nickname and primary mark. The
+/// sign-in must be the very mailbox the link was made for. No unlink needed.
+async fn renew(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    mut ext: Extensions,
+    Path(id): Path<String>,
+    Json(body): Json<RenewRequest>,
+) -> Result<Response, Response> {
+    let parent = parent(&state, &headers, true).await?;
+    require_enabled(&state, &parent).await?;
+    let Some(row) = state
+        .store
+        .linked_accounts(&parent.id)
+        .await
+        .map_err(unavailable)?
+        .into_iter()
+        .find(|row| row.id == id)
+    else {
+        return Err(failure(StatusCode::NOT_FOUND, "linkedAccountNotFound"));
+    };
+    let known = super::credential::login_name(&state, &parent, &row.id).await;
+    let username = match (known, body.username) {
+        (Some(known), _) => known,
+        (None, Some(typed)) if !typed.trim().is_empty() => typed.trim().to_string(),
+        _ => return Err(failure(StatusCode::BAD_REQUEST, "linkedUsernameRequired")),
+    };
+    if username.len() > 1024 || body.password.is_empty() || body.password.len() > 16384 {
+        return Err(failure(StatusCode::BAD_REQUEST, "invalidLinkedAccount"));
+    }
+    let mut login_headers = headers.clone();
+    login_headers.remove(axum::http::header::COOKIE);
+    login_headers.remove(axum::http::header::AUTHORIZATION);
+    ext.insert(PasswordProof);
+    let response = crate::login(
+        State(state.clone()),
+        login_headers,
+        ext,
+        Json(crate::LoginReq {
+            username,
+            password: body.password,
+            altcha: body.altcha,
+            client_type: Some("native".into()),
+            other: Default::default(),
+        }),
+    )
+    .await;
+    finish(&state, &parent, &row.display_name, response, None, Some(&row.id)).await
+}
+
+async fn confirm_renew(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    ext: Extensions,
+    Path((id, challenge)): Path<(String, String)>,
+    Json(body): Json<Value>,
+) -> Result<Response, Response> {
+    let parent = parent(&state, &headers, true).await?;
+    require_enabled(&state, &parent).await?;
+    let Some((pending, display)) = state
+        .store
+        .linked_challenge(&parent.id, &challenge, chrono::Utc::now().timestamp())
+        .await
+        .map_err(unavailable)?
+    else {
+        return Err(failure(StatusCode::GONE, "linkedChallengeExpired"));
+    };
+    let mut factor_headers = headers;
+    factor_headers.remove(axum::http::header::COOKIE);
+    factor_headers.remove(axum::http::header::AUTHORIZATION);
+    let response =
+        crate::twofa_routes::verify_link_factor(state.clone(), factor_headers, ext, pending, body)
+            .await;
+    finish(&state, &parent, &display, response, Some(&challenge), Some(&id)).await
 }
 
 async fn finish(
@@ -215,6 +316,7 @@ async fn finish(
     display: &str,
     response: Response,
     challenge: Option<&str>,
+    renewing: Option<&str>,
 ) -> Result<Response, Response> {
     let status = response.status();
     let retry = response
@@ -284,7 +386,10 @@ async fn finish(
         .get("token")
         .and_then(Value::as_str)
         .ok_or_else(|| unavailable("missing verified session"))?;
-    let result = attach(state, parent, token, display).await;
+    let result = match renewing {
+        None => attach(state, parent, token, display).await,
+        Some(link) => rebind(state, parent, token, link).await,
+    };
     if result.is_err() {
         let _ = state.store.delete_session(token).await;
         let _ = state
@@ -338,10 +443,83 @@ async fn attach(
         .delete_native_session(&crate::push_relay::hash_token(token))
         .await
         .map_err(unavailable)?;
+    // t48: keep the password sealed so access renews by itself, or record why
+    // it cannot (second factor, zero-access, policy).
+    // The link is committed; a failure to store the credential only means
+    // access will need renewing later, so it must not fail (and discard) it.
+    if super::credential::remember(state, parent, &row.id, &child).await.is_err() {
+        tracing::warn!("linked credential not stored for a new link");
+    }
     // Open realtime streams pick the new link up now (t46).
     links_changed();
     Ok((
         StatusCode::CREATED,
+        [(axum::http::header::CACHE_CONTROL, "private, no-store")],
+        Json(json!({"account":entry(state,parent,&row).await?})),
+    )
+        .into_response())
+}
+
+/// t48: the renew counterpart of [`attach`]. The fresh login replaces the
+/// link's lapsed source only when it is the same principal, subject and
+/// account; anything else is refused and the fresh session discarded.
+async fn rebind(
+    state: &AppState,
+    parent: &mw_store::Session,
+    token: &str,
+    link: &str,
+) -> Result<Response, Response> {
+    crate::security_center::enforce_session(state, parent).await?;
+    require_enabled(state, parent).await?;
+    let child = state.store.get_session(token).await.map_err(unavailable)?;
+    crate::security_center::enforce_session(state, &child).await?;
+    let gate = crate::account_gate::for_session(&state.store, &child)
+        .await
+        .map_err(unavailable)?;
+    if gate.disabled {
+        return Err(crate::unauthorized());
+    }
+    if gate.password_change_required {
+        return Err(failure(
+            StatusCode::CONFLICT,
+            "linkedAccountPasswordChangeRequired",
+        ));
+    }
+    require_enabled(state, &child).await?;
+    if !state
+        .store
+        .rebind_linked_source(&parent.id, link, token, false)
+        .await
+        .map_err(unavailable)?
+    {
+        return Err(failure(StatusCode::CONFLICT, "linkedAccountMismatch"));
+    }
+    state
+        .store
+        .delete_native_session(&crate::push_relay::hash_token(token))
+        .await
+        .map_err(unavailable)?;
+    if super::credential::remember(state, parent, link, &child).await.is_err() {
+        tracing::warn!("linked credential not stored after renewing access");
+    }
+    super::credential::audit(
+        state,
+        &parent.account_id,
+        &parent.account_id,
+        "linked-access-renewed",
+        json!({"link":link}),
+    )
+    .await;
+    links_changed();
+    let row = state
+        .store
+        .linked_accounts(&parent.id)
+        .await
+        .map_err(unavailable)?
+        .into_iter()
+        .find(|row| row.id == link)
+        .ok_or_else(|| failure(StatusCode::NOT_FOUND, "linkedAccountNotFound"))?;
+    Ok((
         [(axum::http::header::CACHE_CONTROL, "private, no-store")],
         Json(json!({"account":entry(state,parent,&row).await?})),
     )

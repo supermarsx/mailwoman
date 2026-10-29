@@ -485,6 +485,20 @@ impl AdminBackend for AdminBackendAdapter {
     /// in proxy or engine mode, so the rows are matched on the login name as well
     /// as on the id (the two coincide under header-auth).
     async fn revoke_sessions(&self, account_id: &str) -> Result<u64, AdminError> {
+        // t48: a revoke also ends linked-mailbox access this account holds or
+        // grants, so a stored credential cannot sign the link in again.
+        let mut ids = self
+            .store
+            .account_ids_known_by(account_id.trim())
+            .await
+            .map_err(admin_err)?;
+        ids.push(account_id.to_string());
+        for id in ids {
+            self.store
+                .delete_linked_credentials_for_account(&id)
+                .await
+                .map_err(admin_err)?;
+        }
         let by_name = self
             .store
             .delete_sessions_for_username(account_id.trim())
