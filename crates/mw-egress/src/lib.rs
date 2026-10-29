@@ -71,6 +71,10 @@ pub mod allow;
 /// allowlist, installed process-wide, and the class-aware send that consumes it
 /// (t32 e31b).
 pub mod plan;
+/// Per-fetch time and redirect bounds (t56).
+mod timeouts;
+pub use timeouts::{FetchTimeouts, TimeoutPhase, TimeoutReport};
+pub(crate) use timeouts::Timed;
 
 pub use allow::{AllowDestination, AllowEntry, InternalAllowList};
 pub use class::TrafficClass;
@@ -666,6 +670,7 @@ pub enum DavMethod {
     Get,
     Propfind,
     MkCalendar,
+    Mkcol,
     Put,
     Post,
     Report,
@@ -677,6 +682,7 @@ impl DavMethod {
             Self::Get => "GET",
             Self::Propfind => "PROPFIND",
             Self::MkCalendar => "MKCALENDAR",
+            Self::Mkcol => "MKCOL",
             Self::Put => "PUT",
             Self::Post => "POST",
             Self::Report => "REPORT",
@@ -785,6 +791,20 @@ pub(crate) async fn send_hop_typed(
     target: &Target,
     out: &Outgoing<'_>,
 ) -> Result<(Hop, Option<String>), Refusal> {
+    send_hop_timed(target, out, None).await
+}
+
+/// [`send_hop_typed`] under optional [`FetchTimeouts`] (t56). With `None` it is
+/// exactly the legacy hop: one per-hop [`FETCH_TIMEOUT`] over everything. With
+/// bounds, the connect (TCP + TLS), the wait for headers and every gap between
+/// body chunks each have their own clock, and the hop's outer reqwest timeout is
+/// the fetch's total. The pin, the redirect refusal and the size caps are the
+/// same code either way.
+pub(crate) async fn send_hop_timed(
+    target: &Target,
+    out: &Outgoing<'_>,
+    timed: Option<Timed<'_>>,
+) -> Result<(Hop, Option<String>), Refusal> {
     let mut builder = reqwest::Client::builder();
     if let Some(plugin) = out.authorized_plugin {
         plugin.validate()?;
@@ -804,9 +824,11 @@ pub(crate) async fn send_hop_typed(
             );
         }
     }
-    let client = harden_client(builder, &target.host, target.addr)
-        .build()
-        .map_err(|_| Refusal::Upstream)?;
+    let mut hardened = harden_client(builder, &target.host, target.addr);
+    if let Some(t) = timed {
+        hardened = hardened.connect_timeout(t.limits.connect).timeout(t.limits.total);
+    }
+    let client = hardened.build().map_err(|_| Refusal::Upstream)?;
 
     let request = if let Some(plugin) = out.authorized_plugin {
         plugin.validate()?;
@@ -891,20 +913,26 @@ pub(crate) async fn send_hop_typed(
     } else {
         request
     };
-    let resp = request
+    let sending = request
         .header(header::USER_AGENT, out.user_agent)
         .header(header::ACCEPT, out.accept)
         // Ask for no transfer compression — one less decompression-bomb surface.
         .header(header::ACCEPT_ENCODING, "identity")
-        .send()
-        .await
-        .map_err(|e| {
-            if e.is_timeout() {
-                Refusal::Timeout
-            } else {
-                Refusal::Upstream
-            }
-        })?;
+        .send();
+    let sent = match timed {
+        None => sending.await,
+        Some(t) => match tokio::time::timeout(t.limits.headers, sending).await {
+            Ok(sent) => sent,
+            Err(_) => return Err(t.fired(TimeoutPhase::Headers)),
+        },
+    };
+    let resp = sent.map_err(|e| match timed {
+        // reqwest's connect timeout covers the connector, TLS included.
+        Some(t) if e.is_timeout() && e.is_connect() => t.fired(TimeoutPhase::Connect),
+        Some(t) if e.is_timeout() => t.fired(TimeoutPhase::Total),
+        None if e.is_timeout() => Refusal::Timeout,
+        _ => Refusal::Upstream,
+    })?;
 
     let status = resp.status();
     if let Some(metadata) = out.response_metadata {
@@ -940,10 +968,36 @@ pub(crate) async fn send_hop_typed(
             .get(header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok()),
     );
-    Ok((
-        Hop::Body(read_capped(resp, out.response_limit.min(MAX_IMAGE_BYTES)).await?),
-        media_type,
-    ))
+    let limit = out.response_limit.min(MAX_IMAGE_BYTES);
+    let body = match timed {
+        None => read_capped(resp, limit).await?,
+        Some(t) => read_capped_idle(resp, limit, t).await?,
+    };
+    Ok((Hop::Body(body), media_type))
+}
+
+/// [`read_capped`] with a clock on every chunk: a body that stalls for longer
+/// than the idle bound is refused as a timeout, however much time the total has
+/// left. reqwest's own (total) timeout still applies underneath.
+async fn read_capped_idle(
+    mut resp: reqwest::Response,
+    limit: usize,
+    t: Timed<'_>,
+) -> Result<Vec<u8>, Refusal> {
+    let mut buf = Vec::new();
+    loop {
+        let chunk = match tokio::time::timeout(t.limits.idle, resp.chunk()).await {
+            Err(_) => return Err(t.fired(TimeoutPhase::Idle)),
+            Ok(Err(e)) if e.is_timeout() => return Err(t.fired(TimeoutPhase::Total)),
+            Ok(Err(_)) => return Err(Refusal::Upstream),
+            Ok(Ok(None)) => return Ok(buf),
+            Ok(Ok(Some(chunk))) => chunk,
+        };
+        if buf.len() + chunk.len() > limit {
+            return Err(Refusal::TooLarge);
+        }
+        buf.extend_from_slice(&chunk);
+    }
 }
 
 /// Stream a response body, refusing once it exceeds [`MAX_IMAGE_BYTES`]. Uses

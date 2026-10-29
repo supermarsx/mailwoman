@@ -46,8 +46,9 @@ use std::time::Instant;
 
 use crate::proxy::{self, ProxyRoute};
 use crate::{
-    Hop, InternalAllowList, MAX_REDIRECTS, OutBody, Outgoing, Refusal, RoutedFetch, Target,
-    TrafficClass, ip_allowed, resolve_gated, send_hop_typed,
+    FetchTimeouts, Hop, InternalAllowList, MAX_REDIRECTS, OutBody, Outgoing, Refusal, RoutedFetch,
+    Target, Timed, TimeoutPhase, TimeoutReport, TrafficClass, ip_allowed, resolve_gated,
+    send_hop_timed,
 };
 
 // ── scope ──────────────────────────────────────────────────────────────────────
@@ -263,6 +264,8 @@ pub struct Request<'a> {
     user_agent: Option<&'a str>,
     body: Option<OutBody<'a>>,
     response_limit: usize,
+    timeouts: Option<FetchTimeouts>,
+    timeout_report: Option<&'a TimeoutReport>,
 }
 
 impl<'a> Request<'a> {
@@ -281,6 +284,8 @@ impl<'a> Request<'a> {
             user_agent: None,
             body: None,
             response_limit: crate::MAX_IMAGE_BYTES,
+            timeouts: None,
+            timeout_report: None,
         }
     }
 
@@ -393,6 +398,21 @@ impl<'a> Request<'a> {
         } else {
             crate::MAX_IMAGE_BYTES
         });
+        self
+    }
+
+    /// Per-phase time bounds and a redirect cap for this fetch (t56); see
+    /// [`FetchTimeouts`]. Without them the legacy per-hop [`crate::FETCH_TIMEOUT`]
+    /// and [`MAX_REDIRECTS`] apply. On the direct path every bound is enforced; on a
+    /// configured egress route the transport keeps its own per-hop bound.
+    pub fn timeouts(mut self, limits: FetchTimeouts) -> Request<'a> {
+        self.timeouts = Some(limits);
+        self
+    }
+
+    /// Where to record which bound fired, when one does.
+    pub fn timeout_report(mut self, report: &'a TimeoutReport) -> Request<'a> {
+        self.timeout_report = Some(report);
         self
     }
 
@@ -525,7 +545,11 @@ pub async fn send_with(plan: &EgressPlan, url: reqwest::Url, req: &Request<'_>) 
         None => {
             let class = req.class;
             let gate = |host: &str, port: u16, ip: &IpAddr| plan.admits(class, host, port, ip);
-            match send_direct(url, &out, &gate).await {
+            let timed = req.timeouts.map(|limits| Timed {
+                limits,
+                report: req.timeout_report,
+            });
+            match send_direct(url, &out, &gate, timed).await {
                 Ok((bytes, content_type)) => RoutedFetch {
                     traversed_proxy: false,
                     content_type,
@@ -545,19 +569,43 @@ pub async fn send_with(plan: &EgressPlan, url: reqwest::Url, req: &Request<'_>) 
 
 /// The direct loop: resolve and pin under `gate`, send, and re-enter the gate for
 /// every redirect of a `GET`. A `POST` follows no redirect.
+///
+/// Under [`FetchTimeouts`] the whole loop — every DNS lookup, hop and body — runs
+/// inside the total deadline, and the redirect cap is the caller's.
 async fn send_direct(
     start: reqwest::Url,
     out: &Outgoing<'_>,
     gate: &crate::AddressGate<'_>,
+    timed: Option<Timed<'_>>,
+) -> Result<(Vec<u8>, Option<String>), Refusal> {
+    match timed {
+        None => send_direct_hops(start, out, gate, None).await,
+        Some(t) => {
+            match tokio::time::timeout(t.limits.total, send_direct_hops(start, out, gate, timed))
+                .await
+            {
+                Ok(result) => result,
+                Err(_) => Err(t.fired(TimeoutPhase::Total)),
+            }
+        }
+    }
+}
+
+async fn send_direct_hops(
+    start: reqwest::Url,
+    out: &Outgoing<'_>,
+    gate: &crate::AddressGate<'_>,
+    timed: Option<Timed<'_>>,
 ) -> Result<(Vec<u8>, Option<String>), Refusal> {
     let mut url = start;
-    for _ in 0..=MAX_REDIRECTS {
+    let redirects = timed.map_or(MAX_REDIRECTS, |t| t.limits.max_redirects);
+    for _ in 0..=redirects {
         let target = if out.authorized_plugin.is_some() {
             crate::resolve_gated_all(url.clone(), gate).await?
         } else {
             resolve_gated(url.clone(), gate).await?
         };
-        match send_hop_typed(&target, out).await? {
+        match send_hop_timed(&target, out, timed).await? {
             (Hop::Body(bytes), content_type) => return Ok((bytes, content_type)),
             (Hop::Redirect(_), _)
                 if out.body.is_some()
