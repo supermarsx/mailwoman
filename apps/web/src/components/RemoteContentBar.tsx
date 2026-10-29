@@ -1,28 +1,33 @@
-// Remote-content (image-grant) bar (t16 §S8/S9, e14b) — the reader affordance for
-// the anonymizing image proxy's deny-by-default remote images (SPEC §7.2). It is a
-// STANDALONE, presentational component: it takes the blocked-content report + the
-// message context + grant/revoke callbacks as props and owns no data-fetching, so
-// the reader mounts it and wires the real `RemoteImageApi` (`api/remote-images.ts`)
-// without this file knowing e6's wire shapes. The callbacks default to self-
-// contained no-op mocks so the bar renders + tests on its own (mirrors
-// `SecurityPanel`).
+// Remote-images banner (t16 §S8/S9, e14b; compact single line since t55) — the
+// reader affordance for the image proxy's deny-by-default remote images (SPEC
+// §7.2). STANDALONE and presentational: it takes the blocked-content report,
+// the message context, the policy mode and the grant/revoke callbacks as props
+// and fetches nothing, so the reader wires the real `RemoteImageApi`
+// (`api/remote-images.ts`). The callbacks default to no-ops so it renders and
+// tests on its own.
 //
-// Two states:
-//   • blocked — the sanitizer stripped remote resources: show the count + the
-//     hosts and offer the 4 grant scopes (this message / this sender / this domain
-//     / all). Granting persists a 0016 grant, then the reader reloads the body so
-//     the now-permitted images fetch through the proxy.
-//   • allowed — a grant already covers the message: images load; offer "turn off"
-//     (revoke) so the sender/domain/account goes back to blocking.
+// One line, always:
+//   ask, blocked  — "Remote images blocked · 3 trackers removed  [Show images] [▾]"
+//                   The menu holds the other grant scopes that exist today
+//                   (sender / domain / all mail) and a Privacy settings link.
+//   ask, allowed  — "Images shown · Undo" (revokes the grant that covers it).
+//   proxy/direct  — what the policy did, plus the tracker count when known.
+//   block         — blocked by policy; only the settings link (a grant would
+//                   not take effect in block mode, so none is offered).
+// The tracker count is shown only when it is above zero. The explanation and
+// the blocked host list live in the summary's tooltip, not in the row.
+// At narrow container widths the text ellipsises (full text in its tooltip)
+// and the actions collapse to icon buttons with tooltips and aria-labels.
 //
-// Copy is factual (no-hype): it states exactly what was blocked and what each
-// action loads. Untrusted host names carry `dir="auto"` so a spoofed RTL run can't
-// reorder the row (SPEC §24).
+// Copy is factual (no hype). Untrusted host names are bidi-isolated (SPEC §24).
 
-import { For, Show, createMemo, createSignal, type JSX } from 'solid-js';
+import { Show, createMemo, createSignal, type JSX } from 'solid-js';
 import { t } from '../i18n/index.ts';
-import {toast} from './toast/toast.ts';
+import { toast } from './toast/toast.ts';
+import { Icon, type IconName } from './Icon.tsx';
+import { createContextMenu, type ContextAction } from './ContextMenu.tsx';
 import * as css from './remote-content-bar.css.ts';
+import type { RemoteMode } from '../api/remote-content.ts';
 import {
   scopeFor,
   senderDomain,
@@ -33,7 +38,7 @@ import {
 } from '../api/remote-images.ts';
 
 export interface RemoteContentBarProps {
-  mode?: import('../api/remote-content.ts').RemoteMode;
+  mode?: RemoteMode;
   /** The open message id (the `single`-scope grant value). */
   emailId: string;
   /** The sender address (drives the per-sender / per-domain scopes). */
@@ -42,14 +47,19 @@ export interface RemoteContentBarProps {
   report: BlockedContentReport;
   /** An active grant already covering this message, or `null` when blocked. */
   activeGrant?: RemoteImageGrant | null;
-  /** Persist a grant for a scope. Defaults to a no-op mock. */
+  /** Settled count of trackers removed beyond the HTML ones (server-decoded). */
+  decodedTrackers?: { count: number; limited: boolean } | null;
+  /** Persist a grant for a scope. Defaults to a no-op. */
   onGrant?: (scope: GrantScope) => Promise<void> | void;
-  /** Revoke a grant. Defaults to a no-op mock. */
+  /** Revoke a grant. Defaults to a no-op. */
   onRevoke?: (scope: GrantScope) => Promise<void> | void;
+  /** Open Settings › Privacy. The menu item is shown only when given. */
+  onOpenPrivacySettings?: () => void;
 }
 
-/** The grant scopes offered, in order; `single` is the primary "load once". */
-const GRANT_KINDS: GrantScopeKind[] = ['single', 'per-sender', 'per-domain', 'all'];
+const MENU_KINDS: GrantScopeKind[] = ['per-sender', 'per-domain', 'all'];
+const isolate = (s: string): string => `⁨${s}⁩`;
+const SEP = ' · ';
 
 async function settle(v: Promise<void> | void): Promise<void> {
   if (v instanceof Promise) await v;
@@ -57,129 +67,130 @@ async function settle(v: Promise<void> | void): Promise<void> {
 
 export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
   const [pending, setPending] = createSignal(false);
-  const [status, setStatus] = createSignal('');
-
-  const ctx = createMemo(() => ({ emailId: props.emailId, sender: props.sender }));
+  const mode = (): RemoteMode => props.mode ?? 'ask';
+  const granted = (): boolean => props.activeGrant !== null && props.activeGrant !== undefined;
   const domain = createMemo(() => senderDomain(props.sender));
-  // per-sender needs an address; per-domain needs a domain. Hide the ones that
-  // can't be expressed for this message rather than granting an empty scope.
-  const kinds = createMemo<GrantScopeKind[]>(() =>
-    GRANT_KINDS.filter((k) => {
-      if (k === 'per-sender') return props.sender !== '';
-      if (k === 'per-domain') return domain() !== '';
-      return true;
-    }),
-  );
+  const ctx = (): { emailId: string; sender: string } => ({ emailId: props.emailId, sender: props.sender });
 
-  function labelFor(kind: GrantScopeKind): string {
-    if (kind === 'per-sender') return t('remote-grant-sender', { sender: props.sender });
-    if (kind === 'per-domain') return t('remote-grant-domain', { domain: domain() });
-    if (kind === 'all') return t('remote-grant-all');
-    return t('remote-grant-once');
-  }
+  // Trackers removed: the ones the sanitizer classified in the HTML plus the
+  // ones the server recognised after decoding. Unknown or zero: not shown.
+  const trackers = createMemo(() => {
+    const decoded = props.decodedTrackers;
+    const count = props.report.trackerCount + (decoded?.count ?? 0);
+    return count > 0 ? { count, limited: decoded?.limited === true } : null;
+  });
+  const trackerText = (): string | null => {
+    const tr = trackers();
+    return tr === null ? null : t(tr.limited ? 'remote-banner-trackers-limited' : 'remote-banner-trackers', { count: tr.count });
+  };
+
+  const headline = createMemo(() => {
+    if (mode() === 'block') return t('remote-banner-blocked-policy');
+    if (mode() === 'proxy') return t('remote-banner-proxied');
+    if (mode() === 'direct') return t('remote-banner-direct');
+    return granted() ? t('remote-banner-shown') : t('remote-banner-blocked');
+  });
+  const icon = (): IconName => (mode() === 'ask' && !granted()) || mode() === 'block' ? 'shield' : 'image';
+
+  /** The explanation moved out of the row: the tooltip of the summary text. */
+  const help = createMemo(() => {
+    const parts = [mode() === 'ask' && !granted() ? t('remote-banner-blocked-help') : t(`remote-banner-help-${mode()}`)];
+    const hosts = props.report.blockedHosts;
+    if (hosts.length > 0 && !granted() && mode() !== 'proxy' && mode() !== 'direct') {
+      const shown = hosts.slice(0, 8).map(isolate).join(', ');
+      parts.push(t('remote-banner-hosts', { hosts: hosts.length > 8 ? `${shown}, …` : shown }));
+    }
+    if (trackers() !== null) parts.push(t('remote-banner-trackers-help'));
+    return parts.join('\n');
+  });
+  const fullText = (): string => [headline(), trackerText()].filter(Boolean).join(SEP);
 
   async function grant(kind: GrantScopeKind): Promise<void> {
+    if (pending()) return;
     setPending(true);
     try {
       await settle((props.onGrant ?? (() => undefined))(scopeFor(kind, ctx())));
-      setStatus(t(`remote-grant-done-${kind}`));
-      toast.success(t(`remote-grant-done-${kind}`));
     } catch {
-      setStatus(t('remote-change-failed'));
       toast.error(t('remote-change-failed'));
     } finally {
       setPending(false);
     }
   }
 
-  async function revoke(): Promise<void> {
+  async function undo(): Promise<void> {
     const g = props.activeGrant;
-    if (g === null || g === undefined) return;
+    if (g === null || g === undefined || pending()) return;
     setPending(true);
     try {
-      await settle(
-        (props.onRevoke ?? (() => undefined))({ kind: g.scopeKind, value: g.scopeValue }),
-      );
-      setStatus(t('remote-revoke-done'));
-      toast.info(t('remote-revoke-done'));
+      await settle((props.onRevoke ?? (() => undefined))({ kind: g.scopeKind, value: g.scopeValue }));
     } catch {
-      setStatus(t('remote-change-failed'));
       toast.error(t('remote-change-failed'));
     } finally {
       setPending(false);
     }
   }
 
-  const summaryText = createMemo(() => {
-    const r = props.report;
-    // Prefer the tracker framing when the sanitizer classified any; otherwise the
-    // neutral "remote images" count. Both are factual about what was stripped.
-    return r.trackerCount > 0
-      ? t('remote-blocked-trackers', { count: r.trackerCount, blocked: r.blockedCount })
-      : t('remote-blocked-count', { count: r.blockedCount });
+  const undoHelp = (): string => {
+    const g = props.activeGrant;
+    if (!g) return '';
+    if (g.scopeKind === 'per-sender') return t('remote-banner-undo-help-per-sender', { sender: isolate(g.scopeValue) });
+    if (g.scopeKind === 'per-domain') return t('remote-banner-undo-help-per-domain', { domain: isolate(g.scopeValue) });
+    return t(`remote-banner-undo-help-${g.scopeKind}`);
+  };
+
+  const menuActions = createMemo<ContextAction[]>(() => {
+    const items: ContextAction[] = [];
+    if (mode() === 'ask' && !granted()) {
+      for (const kind of MENU_KINDS) {
+        if (kind === 'per-sender' && props.sender === '') continue;
+        if (kind === 'per-domain' && domain() === '') continue;
+        const label = kind === 'per-sender'
+          ? t('remote-banner-always-sender', { sender: isolate(props.sender) })
+          : kind === 'per-domain'
+            ? t('remote-banner-always-domain', { domain: isolate(domain()) })
+            : t('remote-banner-always-all');
+        items.push({ id: kind, label, icon: kind === 'all' ? 'image' : kind === 'per-domain' ? 'domains' : 'users', disabled: pending(), run: () => grant(kind) });
+      }
+    }
+    const open = props.onOpenPrivacySettings;
+    if (open) items.push({ id: 'settings', label: t('remote-banner-settings'), icon: 'privacy', separatorBefore: items.length > 0, run: () => open() });
+    return items;
+  });
+  const menu = createContextMenu({
+    label: () => t('remote-banner-more'),
+    scope: () => props.emailId,
+    actions: menuActions,
+    onError: () => toast.error(t('remote-change-failed')),
   });
 
   return (
-    <section
-      class={css.root}
-      aria-label={t('remote-bar-label')}
-      data-testid="remote-content-bar"
-    >
-      <Show when={(props.mode ?? 'ask') === 'ask'} fallback={<span>{t(`privacy-mode-${props.mode}`)} · {t('privacy-trackers-blocked', { count: props.report.trackerCount })}</span>}>
-      <Show
-        when={props.activeGrant === null || props.activeGrant === undefined}
-        fallback={
-          <>
-            <span class={css.summary}>{t('remote-allowed')}</span>
-            <span class={css.actions}>
-              <button
-                type="button"
-                class={`${css.btn} ${css.btnDanger}`}
-                disabled={pending()}
-                onClick={() => void revoke()}
-              >
-                {t('remote-revoke')}
-              </button>
-            </span>
-          </>
-        }
-      >
-        <span class={css.summary}>
-          <span class={css.mark} aria-hidden="true">
-            ⃠
-          </span>
-          {summaryText()}
+    <section class={css.root} aria-label={t('remote-bar-label')} data-testid="remote-content-bar" data-state={mode() === 'ask' ? (granted() ? 'shown' : 'blocked') : mode()}>
+      <div class={css.row}>
+        <span class={css.mark} aria-hidden="true"><Icon name={icon()} /></span>
+        {/* Polite: announces "Images shown" after Show images, never takes focus. */}
+        <span class={css.summary} role="status" aria-live="polite" data-tooltip={`${fullText()}\n${help()}`} tabIndex={0}>
+          <span class={css.headline}>{headline()}</span>
+          <Show when={trackerText()}>{(text) => <span class={css.trackers}>{SEP}{text()}</span>}</Show>
         </span>
-        <Show when={props.report.blockedHosts.length > 0}>
-          <span class={css.hosts} aria-label={t('remote-blocked-hosts')}>
-            <For each={props.report.blockedHosts}>
-              {(h) => (
-                <span class={css.host} dir="auto">
-                  {h}
-                </span>
-              )}
-            </For>
-          </span>
-        </Show>
         <span class={css.actions}>
-          <For each={kinds()}>
-            {(kind) => (
-              <button
-                type="button"
-                class={`${css.btn} ${kind === 'single' ? css.btnPrimary : ''}`}
-                disabled={pending()}
-                onClick={() => void grant(kind)}
-              >
-                {labelFor(kind)}
-              </button>
-            )}
-          </For>
+          <Show when={mode() === 'ask' && !granted()}>
+            <button type="button" class={`${css.btn} ${css.btnPrimary}`} disabled={pending()} data-tooltip={t('remote-banner-show-help')} aria-label={t('remote-banner-show')} onClick={() => void grant('single')}>
+              <Icon name="eye" /><span class={css.label}>{t('remote-banner-show')}</span>
+            </button>
+          </Show>
+          <Show when={mode() === 'ask' && granted()}>
+            <button type="button" class={css.btn} disabled={pending()} data-tooltip={undoHelp()} aria-label={`${t('remote-banner-undo')}: ${undoHelp()}`} onClick={() => void undo()}>
+              <Icon name="restore" /><span class={css.label}>{t('remote-banner-undo')}</span>
+            </button>
+          </Show>
+          <Show when={menuActions().length > 0}>
+            <button type="button" class={`${css.btn} ${css.iconBtn}`} aria-haspopup="menu" aria-expanded={menu.isOpen()} aria-label={t('remote-banner-more')} data-tooltip={t('remote-banner-more')} onClick={(e) => menu.open(e)} onKeyDown={menu.keydown}>
+              <span class={css.chevron}><Icon name="chevron" /></span>
+            </button>
+          </Show>
         </span>
-      </Show>
-      <p class={css.status} role="status" aria-live="polite">
-        {status()}
-      </p>
-      </Show>
+      </div>
+      {menu.menu()}
     </section>
   );
 }

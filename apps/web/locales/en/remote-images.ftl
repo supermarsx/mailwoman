@@ -11,33 +11,46 @@
 
 remote-bar-label = Remote content
 
-# -- Blocked state: count summary -------------------------------------------
-remote-blocked-count = { $count ->
-    [one] { $count } remote image blocked
-   *[other] { $count } remote images blocked
-}
-remote-blocked-trackers = { $count ->
-    [one] { $count } tracker blocked
-   *[other] { $count } trackers blocked
-} of { $blocked ->
-    [one] { $blocked } remote image
-   *[other] { $blocked } remote images
-}
-remote-blocked-hosts = Blocked hosts
-
-# -- Grant actions (deny-by-default; each loads exactly what it names) --------
-remote-grant-once = Load images
-remote-grant-sender = Always load from { $sender }
-remote-grant-domain = Always load from { $domain }
-remote-grant-all = Always load all remote images
-
-remote-grant-done-single = Remote images are allowed for this message and are loading.
 remote-change-failed = Could not update remote image permissions. Please try again.
-remote-grant-done-per-sender = Remote images will load from this sender.
-remote-grant-done-per-domain = Remote images will load from this domain.
-remote-grant-done-all = Remote images will load for all mail.
 
-# -- Allowed state: revoke ---------------------------------------------------
-remote-allowed = Remote images are loading for this message.
-remote-revoke = Turn off
-remote-revoke-done = Remote images turned off. They block again on next open.
+# -- Single-line banner (t55) ---------------------------------------------------
+remote-banner-blocked = Remote images blocked
+remote-banner-blocked-policy = Remote images blocked by your privacy settings
+remote-banner-shown = Images shown
+remote-banner-proxied = Images loaded through the server
+remote-banner-direct = Images loaded from the sender's servers
+remote-banner-trackers = { $count ->
+    [one] { $count } tracker removed
+   *[other] { $count } trackers removed
+}
+remote-banner-trackers-limited = At least { $count } trackers removed
+remote-banner-show = Show images
+remote-banner-show-help = Load this message's images through the server, so the sender does not see your IP address
+remote-banner-more = More image options
+remote-banner-always-sender = Always show images from { $sender }
+remote-banner-always-domain = Always show images from { $domain }
+remote-banner-always-all = Always show images in all mail
+remote-banner-settings = Privacy settings
+remote-banner-undo = Undo
+remote-banner-undo-help-single = Block this message's images again
+remote-banner-undo-help-per-sender = Stop showing images from { $sender } automatically
+remote-banner-undo-help-per-domain = Stop showing images from { $domain } automatically
+remote-banner-undo-help-all = Stop showing images in all mail automatically
+
+# Tooltip text: the explanation that used to sit in the banner.
+remote-banner-blocked-help = Images stored on other servers can tell the sender when and where you opened this message. They stay blocked until you choose to show them.
+remote-banner-help-block = Your privacy settings block all remote images. Change this in Privacy settings.
+remote-banner-help-ask = Images load through this server, which hides your IP address from the sender.
+remote-banner-help-proxy = Images load through this server, which hides your IP address from the sender.
+remote-banner-help-direct = Images load straight from the sender's servers, which can see your IP address.
+remote-banner-hosts = Blocked hosts: { $hosts }
+remote-banner-trackers-help = Tracking images are removed before the message is shown. Images the server recognises as trackers only after downloading them are counted for a limited time.
+
+# -- Loading-images toast (t55) ---------------------------------------------------
+remote-images-toast-loading = Loading images…
+remote-images-toast-done = Images loaded
+remote-images-toast-failed = { $count ->
+    [one] { $count } image couldn't load
+   *[other] { $count } images couldn't load
+}
+remote-images-toast-retry = Retry

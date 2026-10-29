@@ -71,11 +71,16 @@ export function rewriteReaderContent(html: string, signed: SignedContent, policy
   return doc.body.innerHTML;
 }
 
-export async function decodedTrackerStats(emailId: string): Promise<{ count: number; limited: boolean; windowSecs: number }> {
+/** Server-side counters for one open message. `imagesLoaded`/`imagesFailed` are
+ *  optional (t56 adds them): absent means the server does not report per-image
+ *  results, and callers must not invent a failure count. */
+export interface RemoteContentStats { count: number; limited: boolean; windowSecs: number; imagesLoaded?: number; imagesFailed?: number }
+const counter = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+export async function decodedTrackerStats(emailId: string): Promise<RemoteContentStats> {
   const response = await apiFetch(withBase(`/api/rc/stats?emailId=${encodeURIComponent(emailId)}`));
   if (!response.ok) throw new Error('Unable to load image diagnostics');
-  const value = await response.json() as { decodedTrackersReplaced?: unknown; limited?: unknown; windowSecs?: unknown };
-  if (typeof value.decodedTrackersReplaced !== 'number' || !Number.isSafeInteger(value.decodedTrackersReplaced) || value.decodedTrackersReplaced < 0) throw new Error('Invalid image diagnostics');
+  const value = await response.json() as { decodedTrackersReplaced?: unknown; limited?: unknown; windowSecs?: unknown; imagesLoaded?: unknown; imagesFailed?: unknown };
+  if (!counter(value.decodedTrackersReplaced)) throw new Error('Invalid image diagnostics');
   if (typeof value.limited !== 'boolean' || typeof value.windowSecs !== 'number' || !Number.isSafeInteger(value.windowSecs) || value.windowSecs <= 0) throw new Error('Invalid image diagnostic window');
-  return { count: value.decodedTrackersReplaced, limited: value.limited, windowSecs: value.windowSecs };
+  return { count: value.decodedTrackersReplaced, limited: value.limited, windowSecs: value.windowSecs, ...(counter(value.imagesLoaded) ? { imagesLoaded: value.imagesLoaded } : {}), ...(counter(value.imagesFailed) ? { imagesFailed: value.imagesFailed } : {}) };
 }
