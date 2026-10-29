@@ -499,6 +499,75 @@ describe('ComposeCrypto — sign-on-send', () => {
     await waitFor(() => expect(encryptSpy.mock.calls.length).toBeGreaterThan(before));
     expect(encryptSpy.mock.calls.at(-1)![0]).toMatchObject({ signWithKeyRef: 'keyref-late' });
   });
+
+  it('re-encrypts unsigned when the signing key is dropped (t87 D11 mailbox switch)', async () => {
+    const [recipients] = createSignal(['a@example.org']);
+    const [body] = createSignal('secret');
+    const [ref, setRef] = createSignal<string | null>('keyref-parent');
+    const worker = createStubCryptoWorker();
+    const encryptSpy = vi.spyOn(worker, 'encrypt');
+    const states: ComposeCryptoState[] = [];
+    render(() => (
+      <ComposeCrypto
+        recipients={recipients}
+        bodyText={body}
+        lookupKeys={lookupFrom({ 'a@example.org': [pgpKey()] })}
+        scanDlp={noDlp}
+        cryptoWorker={worker}
+        signingKeyRef={ref}
+        onRequestSigningKey={() => undefined}
+        onChange={(s) => states.push(s)}
+      />
+    ));
+    const encToggle = await screen.findByTestId('encrypt-toggle');
+    await waitFor(() => expect(encToggle).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId('sign-toggle'));
+    fireEvent.click(encToggle);
+    await waitFor(() => expect(states.at(-1)?.draftSignedWith).toBe('keyref-parent'));
+
+    setRef(null);
+    await waitFor(() => expect(states.at(-1)?.draftSignedWith).toBeNull());
+    expect(encryptSpy.mock.calls.at(-1)![0].signWithKeyRef).toBeUndefined();
+    expect(states.at(-1)?.encryptedDraft).not.toBeNull();
+  });
+
+  it('discards an encrypt result signed with a key dropped while it ran', async () => {
+    const [recipients] = createSignal(['a@example.org']);
+    const [body] = createSignal('secret');
+    const [ref, setRef] = createSignal<string | null>('keyref-parent');
+    const worker = createStubCryptoWorker();
+    const real = worker.encrypt.bind(worker);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    vi.spyOn(worker, 'encrypt').mockImplementation(async (req) => {
+      if (req.signWithKeyRef === 'keyref-parent') await gate;
+      return real(req);
+    });
+    const states: ComposeCryptoState[] = [];
+    render(() => (
+      <ComposeCrypto
+        recipients={recipients}
+        bodyText={body}
+        lookupKeys={lookupFrom({ 'a@example.org': [pgpKey()] })}
+        scanDlp={noDlp}
+        cryptoWorker={worker}
+        signingKeyRef={ref}
+        onRequestSigningKey={() => undefined}
+        onChange={(s) => states.push(s)}
+      />
+    ));
+    const encToggle = await screen.findByTestId('encrypt-toggle');
+    await waitFor(() => expect(encToggle).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId('sign-toggle'));
+    fireEvent.click(encToggle);
+    // The parent-signed encrypt is still running when the key is dropped.
+    setRef(null);
+    await waitFor(() => expect(states.at(-1)?.encryptedDraft).not.toBeNull());
+    release();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(states.at(-1)?.draftSignedWith).toBeNull();
+    expect(states.some((s) => s.draftSignedWith === 'keyref-parent')).toBe(false);
+  });
 });
 
 // ── Sign-only: clear-sign an unencrypted body ────────────────────────────────
@@ -507,7 +576,7 @@ describe('clearSignBody (sign-only clear-signed send)', () => {
   it('clear-signs the body via the worker sign() with detached:false', async () => {
     const worker = createStubCryptoWorker();
     const signSpy = vi.spyOn(worker, 'sign');
-    const out = await clearSignBody(worker, { keyRef: 'r', bundle: 'BUNDLE', passphrase: 'pw' }, 'hello world');
+    const out = await clearSignBody(worker, { keyRef: 'r', bundle: 'BUNDLE', passphrase: 'pw', accountId: 'acct1' }, 'hello world');
     expect(signSpy).toHaveBeenCalledTimes(1);
     expect(signSpy.mock.calls[0]![0]).toMatchObject({
       kind: 'pgp',

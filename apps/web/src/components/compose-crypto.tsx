@@ -250,6 +250,9 @@ export interface ComposeCryptoState {
   canSend: boolean;
   /** The worker-produced encrypted draft (signed in-place when `sign` is on), or `null`. */
   encryptedDraft: EncryptResult | null;
+  /** The signing keyRef the encrypted draft was signed with, or `null` when it
+   *  carries no signature (t87 D11: the host checks it is its current key). */
+  draftSignedWith: string | null;
   verdicts: DlpVerdict[];
   recipients: RecipientCapability[];
 }
@@ -286,6 +289,10 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
   const [sign, setSign] = createSignal(false);
   const [protectSubject, setProtectSubject] = createSignal(false);
   const [encryptedDraft, setEncryptedDraft] = createSignal<EncryptResult | null>(null);
+  const [draftSignedWith, setDraftSignedWith] = createSignal<string | null>(null);
+  // Only the newest encrypt call may set the draft: one started with a signing
+  // key that has since been dropped must not land after the switch.
+  let encryptRun = 0;
 
   const normalized = createMemo(() => normalizeRecipients(props.recipients()));
   const recipientKey = createMemo(() => normalized().join(','));
@@ -336,6 +343,7 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
    *  `signWithKeyRef` when `sign` is on and the signing key is unlocked, so
    *  encrypt+sign produces one signed-and-encrypted message. */
   async function runEncrypt(): Promise<void> {
+    const run = ++encryptRun;
     const caps = recipientCaps().filter((r) => r.encryptable);
     const recipientPublicKeys = caps
       .map((r) => r.publicKey)
@@ -361,7 +369,9 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
       ...subjectField,
       ...signField,
     });
+    if (run !== encryptRun || signRef !== (sign() ? props.signingKeyRef?.() ?? null : null)) return;
     setEncryptedDraft(result);
+    setDraftSignedWith(signRef);
   }
 
   function onEncryptChange(next: boolean): void {
@@ -369,7 +379,9 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
     if (next) {
       void runEncrypt();
     } else {
+      encryptRun += 1;
       setEncryptedDraft(null);
+      setDraftSignedWith(null);
     }
   }
 
@@ -398,7 +410,9 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
     on(
       () => props.signingKeyRef?.() ?? null,
       (ref) => {
-        if (ref !== null && sign() && encrypt()) void runEncrypt();
+        // A dropped key (null, after a mailbox switch) re-encrypts unsigned so
+        // no ciphertext signed by it stays in the draft.
+        if (encrypt() && (sign() || ref === null)) void runEncrypt();
       },
       { defer: true },
     ),
@@ -415,6 +429,7 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
       capability: capability(),
       canSend: canSend(),
       encryptedDraft: encryptedDraft(),
+      draftSignedWith: draftSignedWith(),
       verdicts: verdicts(),
       recipients: recipientCaps(),
     });

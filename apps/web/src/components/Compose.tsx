@@ -11,6 +11,7 @@ import { externalRecipients } from './compose/recipientTrust.ts';
 import { Icon } from './Icon.tsx';
 import {
   createEffect,
+  on,
   createMemo,
   createSignal,
   createUniqueId,
@@ -72,6 +73,7 @@ import {
 import { ComposeCrypto, type ComposeCryptoState } from './compose-crypto.tsx';
 import type { ComposeInitial } from './compose/reply.ts';
 import {
+  assertSigningKeyOwner,
   clearSignBody,
   createJmapDlpScan,
   createJmapKeyLookup,
@@ -294,6 +296,9 @@ export function Compose(props: {
   // <ComposeCrypto> to fold a signature into its encrypt call; the panel opens
   // on demand when `sign` is switched on while still locked.
   const [signingSession, setSigningSession] = createSignal<SigningSession | null>(null);
+  // Bumped on every mailbox switch; an unlock started before one is discarded.
+  let signingGeneration = 0;
+  let signingDisposed = false;
   const [unlockOpen, setUnlockOpen] = createSignal(false);
   const [unlockPass, setUnlockPass] = createSignal('');
   const [unlockError, setUnlockError] = createSignal<string | null>(null);
@@ -435,9 +440,24 @@ export function Compose(props: {
     for (const img of inlineImages()) if (img.previewUrl !== null) URL.revokeObjectURL(img.previewUrl);
     // Drop the cached signing key from the worker session when the composer closes
     // (the worker zeroizes the unlocked private key for this ref).
-    const s = signingSession();
-    if (s !== null) void getCryptoWorker().lockKey({ keyRef: s.keyRef });
+    signingDisposed = true;
+    dropSigningSession();
   });
+
+  /** Lock and forget the signing key and its passphrase (t87 D11). */
+  function dropSigningSession(): void {
+    const s = signingSession();
+    setSigningSession(null);
+    setUnlockPass('');
+    if (s !== null) void app.lockKeyRef(s.keyRef).catch(() => undefined);
+  }
+
+  // A mailbox switch (t87 D11) drops the signing session: the next mailbox
+  // signs with its own key, unlocked with its own passphrase.
+  createEffect(on([() => app.accountId(), () => app.keysEpoch()], () => {
+    signingGeneration += 1;
+    dropSigningSession();
+  }, { defer: true }));
 
   /** Unlock the sending key ONCE per composer session (decision flag 2): find the
    *  own PGP private bundle (as Reader.tsx::decryptNow does), unlock it in the
@@ -447,19 +467,35 @@ export function Compose(props: {
     e.preventDefault();
     setUnlockError(null);
     setUnlocking(true);
+    const generation = signingGeneration;
+    const composing = app.accountId();
+    const passphrase = unlockPass();
     try {
       if (app.ownKeys().length === 0) await app.loadKeys();
-      const own = app.ownKeys().find((k) => k.kind === 'pgp' && k.encryptedPrivateBackup !== null);
+      if (generation !== signingGeneration || composing !== app.accountId()) return;
+      // Only an own key of the composing mailbox (t87 D11).
+      const own = app.ownKeys().find(
+        (k) => k.kind === 'pgp' && k.encryptedPrivateBackup !== null && app.keyOwnerAccount(k) === composing,
+      );
       const bundle = own?.encryptedPrivateBackup ?? null;
-      if (bundle === null) throw new Error(t('mail-compose-sign-no-key'));
-      const keyRef = await getCryptoWorker().unlockKey({
-        encryptedPrivateBundle: bundle,
-        passphrase: unlockPass(),
-      });
-      setSigningSession({ keyRef, bundle, passphrase: unlockPass() });
+      if (own === undefined || bundle === null || composing === null) throw new Error(t('mail-compose-sign-no-key'));
+      const { keyRef, accountId } = await app.unlockOwnKey(own, passphrase);
+      const session: SigningSession = { keyRef, bundle, passphrase, accountId };
+      if (signingDisposed || generation !== signingGeneration || composing !== app.accountId()) {
+        void app.lockKeyRef(keyRef).catch(() => undefined);
+        return;
+      }
+      try {
+        assertSigningKeyOwner(session, composing);
+      } catch (refused) {
+        void app.lockKeyRef(keyRef).catch(() => undefined);
+        throw refused instanceof Error && refused.name === 'SigningKeyOwnerError' ? new Error(t('mail-compose-sign-no-key')) : refused;
+      }
+      setSigningSession(session);
       setUnlockPass('');
       setUnlockOpen(false);
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       setUnlockError(err instanceof Error ? err.message : t('mail-compose-sign-unlock-failed'));
     } finally {
       setUnlocking(false);
@@ -1094,6 +1130,22 @@ export function Compose(props: {
       setUnlockOpen(true);
       setError(t('mail-compose-sign-unlock-required'));
       return;
+    }
+    // Defence in depth (t87 D11): never sign with a key of another mailbox, and
+    // never send a ciphertext signed by a key other than the current session's.
+    if (cs !== null && cs.sign) {
+      const held = signingSession();
+      const signedBy = cs.encrypt && cs.encryptedDraft !== null ? cs.draftSignedWith : held?.keyRef ?? null;
+      let owned = held !== null && signedBy === held.keyRef;
+      if (owned && held !== null) {
+        try { assertSigningKeyOwner(held, app.accountId()); } catch { owned = false; }
+      }
+      if (!owned) {
+        dropSigningSession();
+        setUnlockOpen(true);
+        setError(t('mail-compose-sign-unlock-required'));
+        return;
+      }
     }
     // Send later: a time that is not in the future is refused here, with the
     // field left as typed. It is never turned into an immediate send.

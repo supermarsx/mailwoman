@@ -13,7 +13,9 @@
 // full flows against the mock + the worker STUB; e8 swaps to the real engine +
 // wasm worker (by flipping `getCryptoWorker()` — this slice is unchanged then).
 
-import { createSignal, type Accessor } from 'solid-js';
+import { createSignal, getOwner, onCleanup, type Accessor } from 'solid-js';
+import { observePreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
+import { onLinkedMailboxChange } from '../../api/linkedMailboxSession.ts';
 import { CAP_CORE, type Id, type JmapRequest } from '../../api/jmap-types.ts';
 import { responseFor } from '../../api/jmap.ts';
 import { CAP_CONTACTS } from '../../api/pim-types.ts';
@@ -26,6 +28,7 @@ import {
   type KeyTrust,
 } from '../../api/crypto-types.ts';
 import { getCryptoWorker, createInMemoryVault, type KeyVault } from '../../crypto/index.ts';
+import type { KeyRef } from '../../contracts/crypto.ts';
 import type { SliceContext } from './context.ts';
 
 const KEYS_USING = [CAP_CORE, CAP_CRYPTO, CAP_SECURITY];
@@ -155,26 +158,156 @@ export interface KeysSlice {
   associateKeyWithContact(contactId: Id, key: CryptoKey): Promise<void>;
   /** Whether a wrapped private bundle for `fingerprint` is held in the vault. */
   hasVaultedKey(fingerprint: string): boolean;
+  /**
+   * The account whose keys this slice currently holds (t87 D11), or `null`
+   * before the first load and right after a mailbox switch.
+   */
+  keysAccountId: Accessor<string | null>;
+  /**
+   * The account a loaded key belongs to, or `null` for a key object this slice
+   * did not load for the current mailbox (for instance one kept from before a
+   * switch). Compose and Reader refuse to use a key whose owner is not the
+   * mailbox they act for.
+   */
+  keyOwnerAccount(key: CryptoKey): string | null;
+  /**
+   * Unlock an own key of the CURRENT mailbox in the crypto worker. The ref is
+   * recorded against that account and locked when the mailbox changes.
+   * Rejects when the key is not one this slice loaded for the current mailbox.
+   */
+  unlockOwnKey(key: CryptoKey, passphrase: string): Promise<{ keyRef: KeyRef; accountId: string }>;
+  /** Lock one worker key ref issued by `unlockOwnKey`. */
+  lockKeyRef(keyRef: KeyRef): Promise<void>;
+  /**
+   * Increases on every mailbox switch. Holders of an unlocked key or a cached
+   * passphrase drop them when it changes.
+   */
+  keysEpoch: Accessor<number>;
+}
+
+/**
+ * The private-key vaults, one per mailbox (t87 D11), keyed by account id. A
+ * switch drops them all: the next mailbox starts locked and empty and unlocks
+ * with its own passphrase.
+ */
+export interface MailboxVaults {
+  vaultFor(accountId: string): KeyVault;
+  /** Remove every entry of every vault and forget the vaults. */
+  dropAll(): Promise<void>;
+  /** The account ids that currently have a vault. */
+  accounts(): string[];
+}
+
+export function createMailboxVaults(): MailboxVaults {
+  const vaults = new Map<string, KeyVault>();
+  return {
+    vaultFor(accountId: string): KeyVault {
+      let v = vaults.get(accountId);
+      if (v === undefined) {
+        v = createInMemoryVault();
+        vaults.set(accountId, v);
+      }
+      return v;
+    },
+    async dropAll(): Promise<void> {
+      const all = [...vaults.values()];
+      vaults.clear();
+      for (const v of all) for (const e of await v.list()) await v.remove(e.fingerprint);
+    },
+    accounts: () => [...vaults.keys()],
+  };
+}
+
+/** Thrown when a key operation started for one mailbox finishes after a switch. */
+function mailboxChanged(): DOMException {
+  return new DOMException('Mailbox changed', 'AbortError');
 }
 
 export function createKeysSlice(ctx: SliceContext): KeysSlice {
   const client = ctx.client;
   const worker = getCryptoWorker();
-  const vault: KeyVault = createInMemoryVault();
+  // One vault per mailbox (t87 D11), keyed by account id; see `vault()`.
+  const vaults = createMailboxVaults();
   const [keys, setKeys] = createSignal<CryptoKey[]>([]);
   const [keysLoading, setKeysLoading] = createSignal(false);
   const [accountId, setAccountId] = createSignal<string | null>(null);
   const [vaulted, setVaulted] = createSignal<Set<string>>(new Set());
+  const [keysEpoch, setKeysEpoch] = createSignal(0);
+  /** Which account each loaded key object belongs to. */
+  let owners = new WeakMap<CryptoKey, string>();
+  /** Worker key refs unlocked through this slice, with their account. */
+  const issued = new Map<KeyRef, string>();
+  let epoch = 0;
 
   const ownKeys = (): CryptoKey[] => keys().filter((k) => k.isOwn);
   const contactKeys = (): CryptoKey[] => keys().filter((k) => !k.isOwn);
   const hasVaultedKey = (fingerprint: string): boolean => vaulted().has(fingerprint);
 
+  /** The vault of `acct`, which must be the current mailbox's account. */
+  function vault(acct: string): KeyVault {
+    if (acct !== accountId()) throw mailboxChanged();
+    return vaults.vaultFor(acct);
+  }
+
+  /** Record `list` as keys of `acct`, tagging each object with its owner. */
+  function tagged(acct: string, list: CryptoKey[] | undefined): CryptoKey[] {
+    const rows = Array.isArray(list) ? list : [];
+    for (const k of rows) owners.set(k, acct);
+    return rows;
+  }
+
+  /**
+   * A mailbox switch (t87 D11): lock every key the worker holds for the old
+   * mailbox, drop its vault, the loaded keys and the cached account, and make
+   * any operation still in flight for it finish without effect.
+   */
+  function resetForSwitch(): void {
+    epoch += 1;
+    const refs = [...issued.keys()];
+    issued.clear();
+    for (const keyRef of refs) void worker.lockKey({ keyRef }).catch(() => undefined);
+    void vaults.dropAll();
+    owners = new WeakMap();
+    setKeys([]);
+    setVaulted(new Set<string>());
+    setAccountId(null);
+    setKeysLoading(false);
+    setKeysEpoch((n) => n + 1);
+  }
+
+  // The mailbox-change hook (t87-e1): fired on every install of a mailbox
+  // context (sign-in, sign-out, a switch either way) before any request for
+  // the new mailbox is sent.
+  const stopLinked = onLinkedMailboxChange(() => resetForSwitch());
+  // The preference account is the second signal: every account change passes
+  // through it too (suspend, then activate), so a path that changes the account
+  // without installing a mailbox context still drops the keys.
+  let bound: string | null | undefined;
+  const stopObserving = observePreferenceAccount((next) => {
+    const id = next?.id ?? null;
+    if (bound === undefined) {
+      bound = id;
+      return;
+    }
+    if (id === bound) return;
+    bound = id;
+    resetForSwitch();
+  });
+  if (getOwner() !== null) {
+    onCleanup(() => {
+      stopLinked();
+      stopObserving();
+      resetForSwitch();
+    });
+  }
+
   /** Resolve (and cache) the crypto account id; `null` when none is available. */
   async function resolveAccount(): Promise<string | null> {
     const cur = accountId();
     if (cur !== null) return cur;
+    const started = epoch;
     const session = await client.session();
+    if (started !== epoch) throw mailboxChanged();
     const primary = session.primaryAccounts[CAP_CRYPTO];
     const acct = primary ?? Object.keys(session.accounts)[0] ?? null;
     setAccountId(acct);
@@ -182,25 +315,59 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
   }
 
   async function loadKeys(): Promise<void> {
+    const started = epoch;
     setKeysLoading(true);
     try {
       const acct = await resolveAccount();
+      if (started !== epoch) throw mailboxChanged();
       if (acct === null) {
         setKeys([]);
         return;
       }
       const res = await client.jmap(keyQuery(acct));
+      if (started !== epoch || accountId() !== acct) throw mailboxChanged();
       const got = responseFor<KeyGetResponse>(res, 'g');
-      setKeys(got.list);
+      setKeys(tagged(acct, got.list));
+    } catch (err) {
+      // A load the switch overtook ends quietly; the new mailbox loads its own.
+      if (started !== epoch) return;
+      throw err;
     } finally {
-      setKeysLoading(false);
+      if (started === epoch) setKeysLoading(false);
     }
+  }
+
+  function keyOwnerAccount(key: CryptoKey): string | null {
+    const owner = owners.get(key);
+    return owner !== undefined && owner === accountId() ? owner : null;
+  }
+
+  async function unlockOwnKey(key: CryptoKey, passphrase: string): Promise<{ keyRef: KeyRef; accountId: string }> {
+    const started = epoch;
+    const acct = keyOwnerAccount(key);
+    if (acct === null || !key.isOwn) throw new Error('This key does not belong to the open mailbox');
+    const bundle = (await vault(acct).get(key.fingerprint))?.encryptedPrivateBundle ?? key.encryptedPrivateBackup;
+    if (bundle === null) throw new Error('No private key is held for this key');
+    if (started !== epoch) throw mailboxChanged();
+    const keyRef = await worker.unlockKey({ encryptedPrivateBundle: bundle, passphrase });
+    if (started !== epoch || accountId() !== acct) {
+      // Unlocked for a mailbox that is no longer open: lock it straight away.
+      await worker.lockKey({ keyRef }).catch(() => undefined);
+      throw mailboxChanged();
+    }
+    issued.set(keyRef, acct);
+    return { keyRef, accountId: acct };
+  }
+
+  async function lockKeyRef(keyRef: KeyRef): Promise<void> {
+    issued.delete(keyRef);
+    await worker.lockKey({ keyRef });
   }
 
   async function setKeyTrust(id: Id, trust: KeyTrust): Promise<void> {
     const acct = await resolveAccount();
     if (acct === null) throw new Error('no account available for keys');
-    setKeys(keys().map((k) => (k.id === id ? { ...k, trust } : k)));
+    setKeys(tagged(acct, keys().map((k) => (k.id === id ? { ...k, trust } : k))));
     await client.jmap({
       using: KEYS_USING,
       methodCalls: [['CryptoKey/setTrust', { accountId: acct, id, trust }, 's']],
@@ -240,8 +407,10 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
     return serverId !== undefined ? { ...key, id: serverId } : key;
   }
 
-  /** Insert (or replace) a key in the local list, keeping own keys first. */
-  function upsert(key: CryptoKey): void {
+  /** Insert (or replace) a key of `acct` in the local list, own keys first. */
+  function upsert(acct: string, key: CryptoKey): void {
+    if (acct !== accountId()) throw mailboxChanged();
+    owners.set(key, acct);
     setKeys((cur) => {
       const rest = cur.filter((k) => k.id !== key.id && k.fingerprint !== key.fingerprint);
       return [...rest, key].sort((a, b) => Number(b.isOwn) - Number(a.isOwn));
@@ -263,7 +432,7 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
     }
     const address = addressOf(draft.userId);
     const now = new Date().toISOString();
-    await vault.put({
+    await vault(acct).put({
       fingerprint: gen.fingerprint,
       kind: 'pgp',
       encryptedPrivateBundle: gen.encryptedPrivateBundle,
@@ -292,7 +461,7 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
       keyHistory: [{ fingerprint: gen.fingerprint, seenAt: now }],
     };
     const stored = await persistKey(acct, key);
-    upsert(stored);
+    upsert(acct, stored);
     ctx.broadcastChange?.();
     ctx.showToast('success', 'PGP key generated');
     return stored;
@@ -318,7 +487,7 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
       throw new Error('the crypto worker did not return an S/MIME certificate');
     }
     const now = new Date().toISOString();
-    await vault.put({
+    await vault(acct).put({
       fingerprint: gen.fingerprint,
       kind: 'smime',
       encryptedPrivateBundle: gen.encryptedPrivateBundle,
@@ -348,7 +517,7 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
       keyHistory: [{ fingerprint: gen.fingerprint, seenAt: now }],
     };
     const stored = await persistKey(acct, key);
-    upsert(stored);
+    upsert(acct, stored);
     ctx.broadcastChange?.();
     ctx.showToast('success', 'S/MIME key and self-signed certificate generated');
     return stored;
@@ -398,7 +567,7 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
       return held;
     }
     if (encryptedPrivateBundle !== null) {
-      await vault.put({
+      await vault(acct).put({
         fingerprint: key.fingerprint,
         kind: key.kind,
         encryptedPrivateBundle,
@@ -409,14 +578,15 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
     const source: KeySource = key.source === 'pkcs12' ? 'pkcs12' : 'imported';
     const row: CryptoKey = { ...key, isOwn: hasPrivate, hasPrivate, source, encryptedPrivateBackup: encryptedPrivateBundle };
     const stored = await persistKey(acct, row);
-    upsert(stored);
+    upsert(acct, stored);
     ctx.broadcastChange?.();
     ctx.showToast('success', 'Key imported');
     return stored;
   }
 
   async function exportKeyBackup(fingerprint: string): Promise<string> {
-    const entry = await vault.get(fingerprint);
+    const acct = accountId();
+    const entry = acct === null ? null : await vault(acct).get(fingerprint);
     if (entry === null) throw new Error('no private key held for this fingerprint');
     const res = await worker.exportBackup({ encryptedPrivateBundle: entry.encryptedPrivateBundle, kind: entry.kind });
     return res.autocryptSetupMessage;
@@ -430,7 +600,9 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
     }
     // The vault is per-session; after a reload the same wrapped bundle is the
     // row's opaque backup.
-    const bundle = (await vault.get(key.fingerprint))?.encryptedPrivateBundle ?? key.encryptedPrivateBackup;
+    const acct = keyOwnerAccount(key);
+    if (acct === null) throw new Error('not an own S/MIME key');
+    const bundle = (await vault(acct).get(key.fingerprint))?.encryptedPrivateBundle ?? key.encryptedPrivateBackup;
     if (bundle === null) throw new Error('no private key held for this certificate');
     return { key, certPem: key.certPem, bundle };
   }
@@ -455,7 +627,7 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
     const res = await worker.attachIssuedCert({ certBytes, encryptedPrivateBundle: bundle, passphrase });
     if (res.fingerprint === old.fingerprint) throw new Error('this is the certificate already held for the key');
     const now = new Date().toISOString();
-    await vault.put({
+    await vault(acct).put({
       fingerprint: res.fingerprint,
       kind: 'smime',
       encryptedPrivateBundle: bundle,
@@ -482,14 +654,14 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
       using: KEYS_USING,
       methodCalls: [['CryptoKey/set', { accountId: acct, destroy: [old.id] }, 'd']],
     });
-    await vault.remove(old.fingerprint);
+    await vault(acct).remove(old.fingerprint);
     setVaulted((s) => {
       const next = new Set(s);
       next.delete(old.fingerprint);
       return next;
     });
     setKeys((cur) => cur.filter((k) => k.id !== old.id));
-    upsert(stored);
+    upsert(acct, stored);
     ctx.broadcastChange?.();
     ctx.showToast('success', 'Certificate replaced');
     return stored;
@@ -506,7 +678,7 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
     // Looked-up keys are contact keys (public-only) regardless of the mock's own
     // flag; TOFU trust starts unverified until the user confirms out-of-band.
     const found = got.list.map((k): CryptoKey => ({ ...k, isOwn: false, hasPrivate: false }));
-    for (const k of found) upsert(k);
+    for (const k of found) upsert(acct, k);
     if (found.length > 0) ctx.broadcastChange?.();
     return found;
   }
@@ -542,5 +714,10 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
     lookupContactKey,
     associateKeyWithContact,
     hasVaultedKey,
+    keysAccountId: accountId,
+    keyOwnerAccount,
+    unlockOwnKey,
+    lockKeyRef,
+    keysEpoch,
   };
 }

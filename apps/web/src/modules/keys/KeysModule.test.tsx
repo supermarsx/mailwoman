@@ -287,3 +287,38 @@ describe('KeysModule', () => {
     });
   });
 });
+
+describe('KeysModule in a linked mailbox (t87 D11)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    __resetCryptoWorker();
+    vi.restoreAllMocks();
+  });
+
+  it('shows and manages the open mailbox keys: the parent keys leave on a switch, the child keys load', async () => {
+    const { activateAccountPreferences, suspendAccountPreferences } = await import('../../api/accountPreferenceLifecycle.ts');
+    activateAccountPreferences('parent-acct');
+    const parent = makeKeysClient({ keys: [ownPgpKey({ id: 'kp', addresses: ['parent@example.org'], fingerprint: 'P'.repeat(40) })] });
+    const child = makeKeysClient({ keys: [ownPgpKey({ id: 'kc', addresses: ['child@child.test'], fingerprint: 'C'.repeat(40) })] });
+    let open: Client = parent;
+    // The routed client answers for whichever mailbox is open.
+    const client = new Proxy({} as Client, { get: (_t, key) => Reflect.get(open, key) as unknown });
+    const app = createAppState(client);
+    render(() => (
+      <AppContext.Provider value={app}>
+        <KeysModule />
+      </AppContext.Provider>
+    ));
+    const ownList = await screen.findByRole('list', { name: 'Your keys' });
+    expect(within(ownList).getByText('parent@example.org')).toBeInTheDocument();
+
+    suspendAccountPreferences();
+    open = child;
+    activateAccountPreferences('child-acct');
+
+    await waitFor(() => expect(screen.queryByText('parent@example.org')).toBeNull());
+    expect(await screen.findByText('child@child.test')).toBeInTheDocument();
+    expect(app.hasVaultedKey('P'.repeat(40))).toBe(false);
+    suspendAccountPreferences();
+  });
+});

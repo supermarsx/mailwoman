@@ -12,7 +12,7 @@ import {AsyncPending} from '../../components/AsyncState.tsx';
 // Private keys never enter this component's state: generation/import happens in the
 // crypto worker and the wrapped bundle lives in the client vault (plan §1.2).
 
-import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount, type JSX } from 'solid-js';
 import { useApp } from '../../state/context.ts';
 import { contactDisplayName } from '../../state/slices/contacts.ts';
 import type { CryptoKey, KeyKind, KeyTrust } from '../../api/crypto-types.ts';
@@ -59,6 +59,14 @@ export function KeysModule(): JSX.Element {
     void app.loadKeys();
     void app.loadContacts();
   });
+  // A mailbox switch (t87 D11) resets the keys: close what was open for the
+  // previous mailbox and load the keys of the one now open.
+  createEffect(on(() => app.keysEpoch(), () => {
+    setSelectedId(null);
+    setShowGenerate(false);
+    setShowImport(false);
+    void app.loadKeys().catch(() => undefined);
+  }, { defer: true }));
 
   const selected = createMemo(() => app.keys().find((k) => k.id === selectedId()) ?? null);
 

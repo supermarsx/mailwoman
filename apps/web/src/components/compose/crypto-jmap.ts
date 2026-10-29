@@ -107,6 +107,28 @@ export interface SigningSession {
   keyRef: string;
   bundle: string;
   passphrase: string;
+  /** The account the signing key belongs to (t87 D11): the mailbox it was
+   *  unlocked in, with that mailbox's own passphrase. */
+  accountId: string;
+}
+
+/** Raised when a signing key would sign for a mailbox it does not belong to. */
+export class SigningKeyOwnerError extends Error {
+  constructor() {
+    super('The signing key belongs to another mailbox');
+    this.name = 'SigningKeyOwnerError';
+  }
+}
+
+/**
+ * The defence-in-depth check before any signature (t87 D11): the key's owner
+ * account must be the composing mailbox's account. A session kept across a
+ * mailbox switch, or one with no recorded owner, is refused.
+ */
+export function assertSigningKeyOwner(session: SigningSession, composingAccount: string | null): void {
+  if (composingAccount === null || session.accountId === '' || session.accountId !== composingAccount) {
+    throw new SigningKeyOwnerError();
+  }
 }
 
 /** Clear-sign an unencrypted body (inline `PGP SIGNED MESSAGE`) via the worker,

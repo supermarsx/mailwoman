@@ -344,6 +344,13 @@ function DecryptPanel(props: {
   onMount(() => {
     if (app.ownKeys().length === 0) void app.loadKeys();
   });
+  // A mailbox switch (t87 D11) forgets a typed passphrase; the next mailbox's
+  // keys load for it and unlock with its own passphrase.
+  createEffect(on(() => app.keysEpoch(), () => {
+    setPassphrase('');
+    setError(null);
+    if (app.ownKeys().length === 0) void app.loadKeys().catch(() => undefined);
+  }, { defer: true }));
 
   /** Resolve the sender's armored PGP public keys so the worker can VERIFY the
    *  embedded signature — mirrors how compose resolves recipient keys: first the
@@ -376,8 +383,11 @@ function DecryptPanel(props: {
     try {
       const requestedEmail = props.emailId;
       const requestedAccount = app.accountId();
+      // Only the open mailbox's own keys (t87 D11): a key of another mailbox is
+      // never offered to the worker.
+      if (app.ownKeys().length === 0) await app.loadKeys();
       const own = app.ownKeys().find(
-        (k) => k.kind === 'pgp' && k.encryptedPrivateBackup !== null,
+        (k) => k.kind === 'pgp' && k.encryptedPrivateBackup !== null && requestedAccount !== null && app.keyOwnerAccount(k) === requestedAccount,
       );
       const bundle = own?.encryptedPrivateBackup ?? null;
       if (bundle === null) throw new Error(t('mail-decrypt-no-key'));
@@ -391,6 +401,7 @@ function DecryptPanel(props: {
         passphrase: passphrase(),
         ...(signerPublicKeys.length > 0 ? { signerPublicKeys } : {}),
       });
+      if (props.emailId !== requestedEmail || app.accountId() !== requestedAccount) return;
       // The worker sanitized any HTML plaintext IN-WORKER (§1.3): `plaintextHtml` is
       // already safe to render as HTML; `plaintextText` renders escaped.
       const content =
