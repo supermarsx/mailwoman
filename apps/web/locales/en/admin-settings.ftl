@@ -532,6 +532,8 @@ admin-settings-key-shortcuts-zoom-out = Zoom message out shortcut
 admin-settings-help-shortcuts-zoom-out = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
 admin-settings-key-shortcuts-zoom-reset = Reset message zoom shortcut
 admin-settings-help-shortcuts-zoom-reset = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-open-in-tab = Open message in its own tab shortcut
+admin-settings-help-shortcuts-open-in-tab = Use inherit for the selected preset (Shift+Enter), disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
 
 admin-settings-key-notifications-push-allowed = Background push notifications allowed
 admin-settings-help-notifications-push-allowed = Permit this account's enabled notifications to register and receive background push. Browser permission is still required.

@@ -382,6 +382,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="shortcuts.zoomin"></a>`shortcuts.zoomIn` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for zoomIn |
 | <a id="shortcuts.zoomout"></a>`shortcuts.zoomOut` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for zoomOut |
 | <a id="shortcuts.zoomreset"></a>`shortcuts.zoomReset` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for zoomReset |
+| <a id="shortcuts.openintab"></a>`shortcuts.openInTab` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for openInTab |
 | <a id="mail.quotestyle"></a>`mail.quoteStyle` | mail | global+domain+user | "classic" | plain |  | yes | reply and forward header style |
 | <a id="mail.quickreply"></a>`mail.quickReply` | mail | global+domain+user | false | plain |  | yes | enable the compact message reply composer |
 | <a id="mail.requestreadreceipt"></a>`mail.requestReadReceipt` | mail | global+domain+user | false | plain |  | yes | request a read receipt by default when composing supported mail |

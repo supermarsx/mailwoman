@@ -912,6 +912,7 @@ Each binding below is global/domain/user text (maximum 64 characters): `inherit`
 - <a id="shortcuts.zoomIn"></a>`shortcuts.zoomIn` — Zoom the message body in (preset Ctrl+= and Ctrl++), only while focus is in the reader; default `inherit`.
 - <a id="shortcuts.zoomOut"></a>`shortcuts.zoomOut` — Zoom the message body out (preset Ctrl+-); default `inherit`.
 - <a id="shortcuts.zoomReset"></a>`shortcuts.zoomReset` — Reset the message body to 100% (preset Ctrl+0); default `inherit`.
+- <a id="shortcuts.openInTab"></a>`shortcuts.openInTab` — Open the focused message-list row in its own workspace tab, whatever the reading pane setting (preset Shift+Enter); default `inherit`.
 
 <a id="notifications.pushAllowed"></a>
 ### `notifications.pushAllowed`

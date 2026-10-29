@@ -532,6 +532,8 @@ admin-settings-key-shortcuts-zoom-out = Atalho de reduzir mensagem
 admin-settings-help-shortcuts-zoom-out = Utilize inherit para a predefinição selecionada, disabled para remover esta ação ou uma combinação como Ctrl+Shift+K. As combinações em conflito ou inválidas não são executadas.
 admin-settings-key-shortcuts-zoom-reset = Atalho de repor zoom da mensagem
 admin-settings-help-shortcuts-zoom-reset = Utilize inherit para a predefinição selecionada, disabled para remover esta ação ou uma combinação como Ctrl+Shift+K. As combinações em conflito ou inválidas não são executadas.
+admin-settings-key-shortcuts-open-in-tab = Atalho de abrir a mensagem no seu próprio separador
+admin-settings-help-shortcuts-open-in-tab = Utilize inherit para a predefinição selecionada (Shift+Enter), disabled para remover esta ação ou uma combinação como Ctrl+Shift+K. As combinações em conflito ou inválidas não são executadas.
 
 admin-settings-key-notifications-push-allowed = Notificações push em segundo plano permitidas
 admin-settings-help-notifications-push-allowed = Permitir que as notificações ativadas desta conta se registem e recebam push em segundo plano. A permissão do navegador continua a ser necessária.

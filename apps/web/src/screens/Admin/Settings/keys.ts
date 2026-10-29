@@ -65,6 +65,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'shortcuts.zoomIn',
   'shortcuts.zoomOut',
   'shortcuts.zoomReset',
+  'shortcuts.openInTab',
   'mail.quoteStyle',
   'mail.externalRecipientWarning',
   'mail.trustedRecipientDomains',

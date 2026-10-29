@@ -1139,6 +1139,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "keyboard binding for zoomReset"
     ),
     def!(
+        "shortcuts.openInTab",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for openInTab"
+    ),
+    def!(
         "mail.quoteStyle",
         Kind::Enum(&["classic", "outlook"]),
         "\"classic\"",
