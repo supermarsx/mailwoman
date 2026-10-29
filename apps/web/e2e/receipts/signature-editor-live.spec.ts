@@ -251,11 +251,12 @@ test('the signature editor is the composer editor, and a rich signature survives
       expect(raw).toContain('Kind regards, Mariana <mariana@example.org>');
     }
   }
-  // Chromium reports each style attribute in parsed markup (stored HTML read back through
-  // DOMParser) as a refused inline style; the editor applies those declarations through the
-  // CSSOM instead (richtext.ts hydrateInlineStyles). Refused requests (signed-out probes, the
-  // sign-in rate limit across runs) are the server's answers, not page errors.
-  const csp = errors.filter((e) => /Applying inline style violates/.test(e));
+  // No refused inline style: stored HTML is parsed with its style attributes renamed and
+  // applied through the CSSOM (richtext.ts inertBody, t67; Chromium logged ~65 before).
+  // Refused requests (signed-out probes, the sign-in rate limit across runs) are the
+  // server's answers, not page errors.
+  const csp = errors.filter((e) => /Applying inline style violates|Content Security Policy/.test(e));
   info.annotations.push({ type: 'csp-style-reports', description: String(csp.length) });
-  expect(errors.filter((e) => !/favicon|ResizeObserver|Applying inline style violates|Failed to load resource: the server responded with a status of/i.test(e))).toEqual([]);
+  expect(csp).toEqual([]);
+  expect(errors.filter((e) => !/favicon|ResizeObserver|Failed to load resource: the server responded with a status of/i.test(e))).toEqual([]);
 });
