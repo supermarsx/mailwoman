@@ -502,3 +502,33 @@ describe('background push authority recheck', () => {
     expect(sw.pushState.notifications).toEqual([]);
   });
 });
+
+// t63 F4: a shell served with a browser analytics tag, and the tag's loader, are
+// per-user and per-consent: never stored, always fetched.
+describe('browser analytics tag', () => {
+  const tagged = (body: string): Response => new Response(body, { status: 200, headers: { 'content-type': 'text/html', 'x-mw-analytics-tag': '1' } });
+  it('does not store a tagged shell, and keeps the untagged one for offline use', async () => {
+    const sw = boot();
+    sw.network.fetch = async () => reply('plain shell', 'text/html');
+    await sw.install();
+    sw.network.fetch = async () => tagged('tagged shell');
+    expect(await (await sw.fetch('/', { mode: 'navigate' })).response?.text()).toBe('tagged shell');
+    sw.network.fetch = offline;
+    expect(await (await sw.fetch('/', { mode: 'navigate' })).response?.text()).toBe('plain shell');
+  });
+  it('does not precache a tagged shell at install', async () => {
+    const sw = boot();
+    sw.network.fetch = async () => tagged('tagged shell');
+    await sw.install();
+    expect(sw.caches.urls()).toEqual([]);
+  });
+  it('passes the loader through to the network and never stores it', async () => {
+    const sw = boot();
+    const loader = `/assets/analytics/${'a'.repeat(64)}.js`;
+    await sw.fetch(loader, { mode: 'no-cors' });
+    await sw.fetch(ASSET);
+    expect(sw.caches.urls()).toEqual([`${ORIGIN}${ASSET}`]);
+    sw.network.fetch = offline;
+    expect((await sw.fetch(loader, { mode: 'no-cors' })).response).toBeUndefined();
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAppScriptUrl } from './trustedTypes.ts';
+import { analyticsScriptOrigins, isAnalyticsScriptUrl, isAppScriptUrl } from './trustedTypes.ts';
 
 // The unit half of the 26.20 t24-e13 fix. It pins the SHAPE of the rule; it
 // cannot prove the policy is installed early enough or that the browser accepts
@@ -63,5 +63,33 @@ describe('isAppScriptUrl — the app’s own script assets', () => {
     );
     // …and a query cannot smuggle a script extension onto a non-script path.
     expect(isAppScriptUrl(`${ORIGIN}/uploads/evil?x=.js`, ORIGIN)).toBe(false);
+  });
+});
+
+describe('analytics tag script origins (t63)', () => {
+  function doc(head: string): Document {
+    const d = document.implementation.createHTMLDocument('t');
+    d.head.innerHTML = head;
+    return d;
+  }
+  it('reads only well-formed https origins from the server marker', () => {
+    expect(analyticsScriptOrigins(doc('<meta name="mw-analytics" content="https://plausible.io https://*.example.com http://x.test data: \'unsafe-inline\' https://a.test:8443">')))
+      .toEqual(['https://plausible.io', 'https://*.example.com', 'https://a.test:8443']);
+    expect(analyticsScriptOrigins(doc(''))).toEqual([]);
+  });
+  it('admits nothing in the admin console, even with a marker', () => {
+    expect(analyticsScriptOrigins(doc('<meta name="mw-console" content="admin"><meta name="mw-analytics" content="https://plausible.io">'))).toEqual([]);
+  });
+  it('matches exact origins and leftmost wildcards like a CSP host source', () => {
+    const origins = ['https://plausible.io', 'https://*.clarity.example'];
+    expect(isAnalyticsScriptUrl('https://plausible.io/js/script.js', origins)).toBe(true);
+    expect(isAnalyticsScriptUrl('https://www.clarity.example/tag/x', origins)).toBe(true);
+    expect(isAnalyticsScriptUrl('https://clarity.example/tag/x', origins)).toBe(false);
+    expect(isAnalyticsScriptUrl('https://evilclarity.example/x', origins)).toBe(false);
+    expect(isAnalyticsScriptUrl('http://plausible.io/js/script.js', origins)).toBe(false);
+    expect(isAnalyticsScriptUrl('https://plausible.io:8443/x.js', origins)).toBe(false);
+    expect(isAnalyticsScriptUrl('https://u:p@plausible.io/x.js', origins)).toBe(false);
+    expect(isAnalyticsScriptUrl('data:text/javascript,1', origins)).toBe(false);
+    expect(isAnalyticsScriptUrl('https://plausible.io/x.js', [])).toBe(false);
   });
 });

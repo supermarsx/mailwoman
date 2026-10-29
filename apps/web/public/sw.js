@@ -106,6 +106,19 @@ function isFont(pathname) {
 // may be at any path. mw-server refuses an admin path under `/assets`, `/fonts`,
 // `/api` or `/jmap` (`MW_ADMIN_PATH` validation), so nothing the admin session
 // fetches can ever be stored by the rules below.
+// t63: a browser analytics tag is per user and per consent. The shell the server
+// serves with one carries `X-Mw-Analytics-Tag: 1` and is never stored (offline, a
+// stored copy would keep loading a tag after consent was withdrawn), and the
+// loader under /assets/analytics/ always goes to the network, which serves it
+// only to a consenting session.
+function isAnalyticsTagged(res) {
+  return res.headers.get('x-mw-analytics-tag') !== null;
+}
+
+function isAnalyticsAsset(pathname) {
+  return pathname.startsWith('/assets/analytics/');
+}
+
 function isStaticAsset(pathname) {
   return pathname.startsWith('/assets/') || (pathname.startsWith('/fonts/') && isFont(pathname));
 }
@@ -134,6 +147,7 @@ function chooseStrategy(request) {
     return isCacheableApi(pathname, url.search) ? 'network-first' : 'passthrough';
   }
   if (request.mode === 'navigate') return isShellNavigation(pathname) ? 'shell-fallback' : 'passthrough';
+  if (isAnalyticsAsset(pathname)) return 'passthrough';
   if (isStaticAsset(pathname)) return 'cache-first';
   return 'passthrough';
 }
@@ -267,6 +281,7 @@ async function cacheFirst(request) {
 function isShellDocument(request, res) {
   return (
     res.status === 200 &&
+    !isAnalyticsTagged(res) &&
     isShellKey(request) &&
     (res.headers.get('content-type') || '').toLowerCase().includes('text/html')
   );
@@ -309,7 +324,7 @@ self.addEventListener('install', (event) => {
         SHELL_URLS.map(async (url) => {
           try {
             const res = await fetch(url);
-            if (cache && res.status === 200) await store(cache, url, res);
+            if (cache && res.status === 200 && !isAnalyticsTagged(res)) await store(cache, url, res);
           } catch {
             // Offline at install: the shell is stored on the next navigation.
           }

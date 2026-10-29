@@ -10,6 +10,8 @@ export type FolderIcon = typeof FOLDER_ICONS[number];
 export interface AccountTag {name:string;color:string;icon:FolderIcon}
 export interface AccountUiPreferences {
   analyticsConsent?: boolean;
+  /** t63: consent to one browser analytics tag, `<provider>:<loader sha256>`; empty = none. */
+  analyticsTagConsent?: string;
   keyboardPreset?: 'default' | 'gmail' | 'outlook' | 'vim' | 'off';
   direction?: 'auto' | 'ltr' | 'rtl';
   markRead?: 'on-open' | 'never';

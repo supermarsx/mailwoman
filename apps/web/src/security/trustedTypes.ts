@@ -99,6 +99,39 @@ export function isAppScriptUrl(
   return name.endsWith('.js') || name.endsWith('.mjs');
 }
 
+/**
+ * Script origins the server admitted for this document's analytics tag (t63).
+ *
+ * The server writes `<meta name="mw-analytics" content="https://a https://*.b">`
+ * only into the mail shell it serves to a signed-in user who consented to
+ * analytics, and puts the same origins in that response's CSP `script-src`. A
+ * provider tag injects its own `<script src>` (a TrustedScriptURL sink), so the
+ * default policy must admit exactly those origins and nothing else. Read once,
+ * when the policy is installed, before anything renders; never in the admin
+ * console. Entries that are not `https://host[:port]` or `https://*.domain` are
+ * ignored.
+ */
+export function analyticsScriptOrigins(doc: Document = document): readonly string[] {
+  if (doc.querySelector('meta[name="mw-console"]') !== null) return [];
+  const content = doc.querySelector('meta[name="mw-analytics"]')?.getAttribute('content') ?? '';
+  return content.split(' ').filter(origin => /^https:\/\/(\*\.)?[a-z0-9.-]+(:\d{1,5})?$/.test(origin));
+}
+
+/** True when `input` is an https URL whose origin is one of `origins`, matching a
+ *  leading `*.` the way a CSP host source does (subdomains only, same port). */
+export function isAnalyticsScriptUrl(input: string, origins: readonly string[]): boolean {
+  if (origins.length === 0) return false;
+  let url: URL;
+  try { url = new URL(input); } catch { return false; }
+  if (url.protocol !== 'https:' || url.username !== '' || url.password !== '') return false;
+  return origins.some(source => {
+    if (source === url.origin) return true;
+    if (!source.startsWith('https://*.')) return false;
+    const [host = '', port = ''] = source.slice('https://*.'.length).split(':');
+    return url.port === port && url.hostname.endsWith(`.${host}`);
+  });
+}
+
 /** Shape of the bits of `window.trustedTypes` we use. The DOM lib in our TS
  *  target does not declare it; narrow it locally (no runtime dependency). */
 interface TrustedTypesShim {
@@ -129,15 +162,18 @@ interface TrustedTypesShim {
  * `ProseMirrorClipboard` policy reuses this default when present
  * (prosemirror-view checks `trustedTypes.defaultPolicy` first).
  *
- * `createScriptURL` enforces {@link isAppScriptUrl} and throws otherwise.
+ * `createScriptURL` enforces {@link isAppScriptUrl}, plus
+ * {@link isAnalyticsScriptUrl} for the origins the server admitted for this
+ * document's analytics tag, and throws otherwise.
  */
 export function installTrustedTypesPolicy(): void {
   const tt = (window as Window & { trustedTypes?: TrustedTypesShim }).trustedTypes;
   if (tt === undefined || tt.defaultPolicy !== null) return;
+  const analytics = analyticsScriptOrigins();
   tt.createPolicy('default', {
     createHTML: (html) => html,
     createScriptURL: (url) => {
-      if (isAppScriptUrl(url)) return url;
+      if (isAppScriptUrl(url) || isAnalyticsScriptUrl(url, analytics)) return url;
       throw new TypeError(
         `Trusted Types: refused to load script URL ${url} — not an app-owned ` +
           `script asset (same-origin /assets/*.js, /sw.js or /pdf.worker.mjs).`,

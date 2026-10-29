@@ -2,6 +2,8 @@
   "_comment": "Literals accepted by no-hardcoded-strings.mjs without t(). Matched on the exact text in any in-scope file. Every entry needs a reason. Prefer t() or a `// i18n-ignore: <reason>` comment at the site; add an entry here only for text that is the same in every language or cannot be translated where it renders. BASELINE DEBT entries are pre-t32 untranslated copy that the t32 i18n pass removes; delete an entry once its text is gone (the script lists unused entries).",
   "entries": [
     {"text": "Loading…", "reason": "BOOTSTRAP: App.tsx outer Suspense fallback renders before any catalog has loaded, so t() would show the id."},
+    {"text": "https://stats.example.com", "reason": "RFC 2606 example origin used as a placeholder (Admin/AnalyticsTag.tsx origin fields); reserved names are left as they are in every language."},
+    {"text": "https://cdn.example.com/tag.js", "reason": "RFC 2606 example URL used as a placeholder (Admin/AnalyticsTag.tsx script URL); reserved names are left as they are in every language."},
     {"text": "name@example.com", "reason": "RFC 2606 example address used as a placeholder; reserved names are left as they are in every language."},
     {"text": "mwk_", "reason": "Prefix of every API key token (modules/apikeys/ApiKeys.tsx); part of the token format, the same in every language."},
     {"text": "Arial", "reason": "Font family name (components/compose/fontCatalog.ts); a typeface's proper name is the same in every language."},

@@ -6,10 +6,12 @@ import { AdminSubsection } from './AdminSubsection.tsx';
 import { DataTable } from './shell/DataTable.tsx';
 import { ShellContext } from './shell/context.ts';
 import { useDirtyGuard } from './shell/useDirtyGuard.ts';
+import { AnalyticsTag } from './AnalyticsTag.tsx';
+import type { AnalyticsTagApi } from '../../api/admin/analyticsTag.ts';
 import { describeAdminError } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 
-export function Analytics(props:{api?:AnalyticsApi}):JSX.Element {
+export function Analytics(props:{api?:AnalyticsApi;tagApi?:AnalyticsTagApi}):JSX.Element {
   const api=()=>props.api??analyticsApi;
   const shell=useContext(ShellContext);
   const writable=()=>shell?.can.can('integrations.write')===true;
@@ -53,6 +55,7 @@ export function Analytics(props:{api?:AnalyticsApi}):JSX.Element {
       </AdminSubsection>
     </form>}</Show>
     <Show when={view()}>{value=><AdminSubsection title={t('admin-analytics-counts')} description={t('admin-analytics-counts-help')}><DataTable caption={t('admin-analytics-counts')} state="ready" rowKey={row=>row.id} rows={(['queued','delivered','dropped'] as const).map(id=>({id,count:value().status[id]}))} columns={[{id:'status',header:t('admin-analytics-status-label'),cell:row=>t(`admin-analytics-${row.id}`)},{id:'count',header:t('admin-analytics-status-count'),cell:row=>formatNumber(row.count)}]} emptyText="" /></AdminSubsection>}</Show>
+    <AnalyticsTag {...(props.tagApi?{api:props.tagApi}:{})} />
     <Show when={egress()}><AdminSubsection title={t('admin-analytics-private')} description={t('admin-analytics-private-help')}><For each={view()?.allowlist??[]}>{row=><div>{row.destination} <button class="btn" disabled={busy()} onClick={()=>void permission(()=>api().remove(row.id))}>{t('admin-analytics-remove')}</button></div>}</For><form onSubmit={event=>{event.preventDefault();void permission(()=>api().allow(destination()));}}><label class="field"><span>{t('admin-analytics-destination')}</span><input required maxlength={255} value={destination()} disabled={busy()} onInput={event=>setDestination(event.currentTarget.value)}/></label><button class="btn" disabled={busy()||!destination().trim()}>{t('admin-analytics-allow')}</button></form></AdminSubsection></Show>
   </div>;
 }

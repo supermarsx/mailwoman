@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createRoot } from 'solid-js';
 import { createShellRouter } from '../shell/router.ts';
-import { observeShellRoute, startAnalytics } from './startAnalytics.ts';
+import { createTagGuard, documentAnalyticsTag, observeShellRoute, severThirdPartyNetwork, startAnalytics } from './startAnalytics.ts';
 
 // t33-e10 (t32-h10): analytics started at app boot used a second shell router,
 // which replaced an unknown route with the inbox before the shell's router saw
@@ -31,5 +31,76 @@ describe('startAnalytics', () => {
       expect(location.hash).toBe('#/calendar');
       dispose();
     });
+  });
+});
+
+// t63: a loaded provider tag cannot be unloaded, so a withdrawal cuts the page
+// off from third-party network at once and reloads it once the change is saved.
+const KEY = `plausible:${'a'.repeat(64)}`;
+describe('browser analytics tag guard', () => {
+  it('reads the consent key from the server marker', () => {
+    const d = document.implementation.createHTMLDocument('t');
+    expect(documentAnalyticsTag(d)).toBeNull();
+    d.head.innerHTML = `<meta name="mw-analytics" content="https://plausible.io" data-consent="${KEY}">`;
+    expect(documentAnalyticsTag(d)).toBe(KEY);
+    d.head.innerHTML = '<meta name="mw-analytics" content="https://plausible.io" data-consent="true">';
+    expect(documentAnalyticsTag(d)).toBeNull();
+  });
+  it('withdrawal severs at once and reloads as soon as it is saved, without a navigation', () => {
+    const reload = vi.fn(); const sever = vi.fn();
+    const guard = createTagGuard(KEY, reload, sever);
+    guard.account({ id: 'a', generation: 1, storageAuthority: 'auth-aaaaaaaaaaaaaaaa' });
+    guard.consent(undefined, false, false);
+    guard.consent(KEY, false, true);
+    expect(sever).not.toHaveBeenCalled();
+    guard.consent('', false, false);
+    expect(sever).toHaveBeenCalledTimes(1);
+    expect(reload).not.toHaveBeenCalled();
+    guard.consent('', false, true);
+    expect(reload).toHaveBeenCalledTimes(1);
+    guard.consent('', false, true);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+  it('treats counts-only or another provider\'s consent as no consent', () => {
+    const reload = vi.fn(); const sever = vi.fn();
+    const guard = createTagGuard(KEY, reload, sever);
+    guard.consent(`custom:${'b'.repeat(64)}`, false, true);
+    expect(sever).toHaveBeenCalled(); expect(reload).toHaveBeenCalled();
+  });
+  it('a privacy signal severs and reloads immediately', () => {
+    const reload = vi.fn(); const sever = vi.fn();
+    createTagGuard(KEY, reload, sever).consent(KEY, true, false);
+    expect(sever).toHaveBeenCalled(); expect(reload).toHaveBeenCalled();
+  });
+  it('reloads at once when another account appears in the tab', () => {
+    const reload = vi.fn();
+    const guard = createTagGuard(KEY, reload);
+    guard.account({ id: 'a', generation: 1 });
+    guard.account(null);
+    guard.account({ id: 'a', generation: 2 });
+    expect(reload).not.toHaveBeenCalled();
+    guard.account({ id: 'b', generation: 3 });
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+  it('does nothing in a document served without a tag', () => {
+    const reload = vi.fn(); const sever = vi.fn();
+    const guard = createTagGuard(null, reload, sever);
+    guard.account({ id: 'a', generation: 1 }); guard.account({ id: 'b', generation: 2 });
+    guard.consent('', true, true);
+    expect(reload).not.toHaveBeenCalled(); expect(sever).not.toHaveBeenCalled();
+  });
+  it('severing blocks third-party beacons, fetch and XHR but keeps same-origin requests', async () => {
+    const calls: string[] = [];
+    const win = { location: new URL('https://mail.example.test/#/mail'), navigator: { sendBeacon: () => true },
+      fetch: (input: string) => { calls.push(String(input)); return Promise.resolve(new Response('')); },
+      XMLHttpRequest: class { open(_m: string, url: string) { calls.push(`xhr ${url}`); } } } as unknown as Window & typeof globalThis;
+    severThirdPartyNetwork(win);
+    expect(win.navigator.sendBeacon('https://plausible.io/api/event', '')).toBe(false);
+    await expect(win.fetch('https://plausible.io/api/event')).rejects.toThrow('withdrawn');
+    await win.fetch('/api/me');
+    const xhr = new win.XMLHttpRequest();
+    expect(() => xhr.open('POST', 'https://collect.example.com/x')).toThrow('withdrawn');
+    xhr.open('GET', '/api/analytics/status');
+    expect(calls).toEqual(['/api/me', 'xhr /api/analytics/status']);
   });
 });
