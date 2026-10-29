@@ -67,14 +67,25 @@ async fn config(
     headers: HeaderMap,
     Extension(gateway): Extension<AssistHandle>,
 ) -> Response {
-    if let Err(resp) = crate::user_router::feature_session(&state, &headers, "ai_assistant").await {
-        return resp;
-    }
+    let session = match crate::user_router::feature_session(&state, &headers, "ai_assistant").await
+    {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
     // `assist_running`, not `gateway.is_enabled()`: a gateway an administrator has
     // stopped since it was built refuses every request, and must read as disabled
-    // here too or the web keeps offering controls that can only fail.
-    let running = crate::v7_mount::assist_running(&gateway);
-    Json(config_body(&gateway, running)).into_response()
+    // here too or the web keeps offering controls that can only fail. With a
+    // provider profile assigned (t39 N8) the profile is the adapter, so the switch
+    // and the stop flag are what decide, and the host is the profile's.
+    let (running, host) = match crate::v7_mount::assist_route(&state, &gateway, &session).await {
+        Ok(Some(profile)) => (
+            crate::v7_mount::assist_switched_on(&gateway),
+            Some(profile.host()),
+        ),
+        Ok(None) => (crate::v7_mount::assist_running(&gateway), None),
+        Err(_) => (false, None),
+    };
+    Json(config_body_for(&gateway, running, host)).into_response()
 }
 
 /// Build the `/api/assist/config` body. `enabled` is whether the gateway answers
@@ -82,12 +93,34 @@ async fn config(
 /// the gateway was built with. Split out so the shape is unit-testable without a
 /// live router.
 fn config_body(gateway: &AssistGateway, enabled: bool) -> serde_json::Value {
+    config_body_for(gateway, enabled, None)
+}
+
+/// [`config_body`] for a request whose adapter is a provider profile: `host` is the
+/// profile's endpoint host, and the capabilities are the grants (the gateway
+/// built without an adapter reports none of its own).
+fn config_body_for(
+    gateway: &AssistGateway,
+    enabled: bool,
+    host: Option<String>,
+) -> serde_json::Value {
     let ceiling = gateway.data_ceiling();
+    let profile = host.is_some();
+    let capabilities = match (enabled, profile) {
+        (false, _) => Vec::new(),
+        (true, false) => gateway.granted_capabilities(),
+        (true, true) => gateway.capability_grants().to_vec(),
+    };
+    let host = if profile {
+        host
+    } else {
+        gateway.endpoint_host()
+    };
     json!({
         "enabled": enabled,
         "availability": if enabled { "enabled" } else { "disabled" },
-        "capabilities": if enabled { gateway.granted_capabilities() } else { Vec::new() },
-        "endpoint_host": if enabled { gateway.endpoint_host() } else { None },
+        "capabilities": capabilities,
+        "endpoint_host": if enabled { host } else { None },
         // The admin ceiling, reported as the web's flags. Both are false unless an
         // admin explicitly opted in — and always false while the gateway is off.
         "include_e2ee": enabled && ceiling.include_e2ee,
@@ -141,14 +174,27 @@ async fn invoke(
     Extension(gateway): Extension<AssistHandle>,
     Json(body): Json<InvokeReq>,
 ) -> Response {
-    if let Err(resp) = crate::user_router::feature_session(&state, &headers, "ai_assistant").await {
-        return resp;
-    }
+    let session = match crate::user_router::feature_session(&state, &headers, "ai_assistant").await
+    {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
     let cap = body.capability;
-    // `invoke_disclosed` enforces capability → ceiling → redaction → rate-limit →
+    // The user's provider profile, if one is assigned (t39 N8).
+    let via = match crate::v7_mount::assist_route(&state, &gateway, &session).await {
+        Ok(via) => via,
+        Err(e) => return assist_error(&e),
+    };
+    // Content of a zero-access account never leaves: its accounts are taken out of
+    // the scope, so redaction drops its context items as outside the ceiling.
+    let scope = crate::v7_mount::assist_profiles::without_zero_access(&state, body.scope).await;
+    // `invoke_disclosed_via` enforces capability → ceiling → redaction → rate-limit →
     // audit, then dispatches the (server-side) adapter request. We only ever receive
     // the already redacted token stream, plus the redaction outcome to disclose.
-    match gateway.invoke_disclosed(cap, body.scope, &body.input).await {
+    match gateway
+        .invoke_disclosed_via(via.as_ref(), cap, scope, &body.input)
+        .await
+    {
         Ok((stream, disclosure)) => {
             let frames = invoke_frames(stream, ProposalFilter::for_capability(cap), disclosure);
             let sse = frames.map(|(name, data)| -> std::result::Result<Event, Infallible> {

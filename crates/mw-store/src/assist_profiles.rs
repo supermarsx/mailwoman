@@ -108,8 +108,8 @@ impl Store {
     /// Every profile, by name.
     pub async fn list_assist_profiles(&self) -> Result<Vec<AssistProfileRow>, StoreError> {
         let rows = q(profile_select!("ORDER BY name, id"))
-        .fetch_all(&self.backend)
-        .await?;
+            .fetch_all(&self.backend)
+            .await?;
         Ok(rows.iter().map(profile_row).collect())
     }
 
@@ -119,9 +119,9 @@ impl Store {
         id: &str,
     ) -> Result<Option<AssistProfileRow>, StoreError> {
         let row = q(profile_select!("WHERE id = ?1"))
-        .bind(id)
-        .fetch_optional(&self.backend)
-        .await?;
+            .bind(id)
+            .fetch_optional(&self.backend)
+            .await?;
         Ok(row.as_ref().map(profile_row))
     }
 
@@ -206,9 +206,11 @@ impl Store {
             }
             stmt.execute(&self.backend).await?;
         } else {
-            q("INSERT INTO assist_profile (id, name, preset, dialect, endpoint, model, params, \
+            q(
+                "INSERT INTO assist_profile (id, name, preset, dialect, endpoint, model, params, \
                api_key_sealed, created_by, created_at, updated_by, updated_at) \
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)")
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            )
             .bind(&row.id)
             .bind(&row.name)
             .bind(&row.preset)
@@ -237,9 +239,7 @@ impl Store {
     }
 
     /// Every egress grant, by destination.
-    pub async fn list_assist_egress_grants(
-        &self,
-    ) -> Result<Vec<AssistEgressGrantRow>, StoreError> {
+    pub async fn list_assist_egress_grants(&self) -> Result<Vec<AssistEgressGrantRow>, StoreError> {
         let rows = q("SELECT id, destination, note, created_by, created_at \
                       FROM assist_egress_grant ORDER BY destination")
         .fetch_all(&self.backend)
@@ -261,8 +261,10 @@ impl Store {
         &self,
         row: &AssistEgressGrantRow,
     ) -> Result<bool, StoreError> {
-        Ok(q("INSERT INTO assist_egress_grant (id, destination, note, created_by, created_at) \
-              VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(destination) DO NOTHING")
+        Ok(q(
+            "INSERT INTO assist_egress_grant (id, destination, note, created_by, created_at) \
+              VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(destination) DO NOTHING",
+        )
         .bind(&row.id)
         .bind(&row.destination)
         .bind(&row.note)
@@ -333,7 +335,10 @@ mod tests {
         let s = Store::open_postgres(&dsn, crate::seal::ServerKey::generate())
             .await
             .unwrap();
-        for t in ["DELETE FROM assist_profile", "DELETE FROM assist_egress_grant"] {
+        for t in [
+            "DELETE FROM assist_profile",
+            "DELETE FROM assist_egress_grant",
+        ] {
             q(t).execute(&s.backend).await.unwrap();
         }
         Some(s)
@@ -368,7 +373,10 @@ mod tests {
             .unwrap()
             .unwrap()
             .get_blob("api_key_sealed");
-        assert!(!String::from_utf8_lossy(&raw).contains(KEY), "sealed at rest");
+        assert!(
+            !String::from_utf8_lossy(&raw).contains(KEY),
+            "sealed at rest"
+        );
         let listed = s.list_assist_profiles().await.unwrap();
         assert!(listed[0].has_key);
         assert!(!format!("{listed:?}").contains(KEY));
@@ -377,7 +385,9 @@ mod tests {
         // Moving the endpoint without a new key is refused, and nothing changes.
         let moved = row("p1", "https://b.test/v1");
         assert_eq!(
-            s.put_assist_profile(&moved, &ProfileKey::Keep).await.unwrap(),
+            s.put_assist_profile(&moved, &ProfileKey::Keep)
+                .await
+                .unwrap(),
             Err(KEY_ENDPOINT_MOVED)
         );
         assert_eq!(
@@ -427,7 +437,10 @@ mod tests {
             ..g.clone()
         };
         assert!(!s.add_assist_egress_grant(&dup).await.unwrap());
-        assert_eq!(s.list_assist_egress_grants().await.unwrap(), vec![g.clone()]);
+        assert_eq!(
+            s.list_assist_egress_grants().await.unwrap(),
+            vec![g.clone()]
+        );
         assert_eq!(s.delete_assist_egress_grant("g1").await.unwrap(), Some(g));
         assert!(s.list_assist_egress_grants().await.unwrap().is_empty());
     }

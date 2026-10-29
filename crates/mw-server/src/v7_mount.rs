@@ -67,6 +67,12 @@ mod admin_plugins;
 #[path = "egress_admin.rs"]
 mod egress_admin;
 
+// AI provider profiles (t39 N8): the admin routes and the per-user resolution
+// `assist.rs` calls. A `#[path]` child like the two above, so the routes register
+// through `register_admin` with no `lib.rs` edit.
+#[path = "assist_profiles.rs"]
+pub(crate) mod assist_profiles;
+
 // The host-side bridge OAuth client (26.16 B1): device-code / auth-code / refresh flows
 // backing the `oauth-token` import. Declared as a CHILD module of `v7_mount` (via
 // `#[path]`) for the same reason as `admin_plugins` above — `lib.rs` is owned by another
@@ -982,6 +988,43 @@ fn assist_live(gateway: &AssistHandle) -> Option<Arc<AssistLive>> {
 /// adapter, and not stopped since.
 pub(crate) fn assist_running(gateway: &AssistHandle) -> bool {
     gateway.is_enabled() && !assist_live(gateway).is_some_and(|l| l.is_stopped())
+}
+
+/// Whether this gateway's switch is on and it has not been stopped since it was
+/// built, whatever adapter it holds. A provider profile supplies the adapter of a
+/// gateway built without one, so this — not [`assist_running`] — is what says a
+/// profile request may go out (t39 N8).
+pub(crate) fn assist_switched_on(gateway: &AssistHandle) -> bool {
+    gateway.is_switched_on() && !assist_live(gateway).is_some_and(|l| l.is_stopped())
+}
+
+/// A provider profile's adapter behind the same stop check as the deployment
+/// adapter, so the kill switch refuses a profile request before anything is sent
+/// (t39 N8). A gateway [`build_assist`] did not build has no stop flag, and the
+/// adapter is returned as it is.
+pub(crate) fn guard_profile_adapter(
+    gateway: &AssistHandle,
+    inner: Arc<dyn EndpointAdapter>,
+) -> Arc<dyn EndpointAdapter> {
+    match assist_live(gateway) {
+        Some(live) => Arc::new(StoppableAdapter { inner, live }),
+        None => inner,
+    }
+}
+
+/// The adapter `session`'s Assist request goes to: `Ok(None)` for the gateway's
+/// own, `Ok(Some)` for the assigned provider profile (behind the stop check), or
+/// `Err` when the assigned profile cannot be used — answered as Assist being off.
+pub(crate) async fn assist_route(
+    state: &AppState,
+    gateway: &AssistHandle,
+    session: &mw_store::Session,
+) -> Result<Option<Arc<dyn EndpointAdapter>>, AssistError> {
+    match assist_profiles::resolve(state, session).await {
+        assist_profiles::Resolved::Deployment => Ok(None),
+        assist_profiles::Resolved::Profile(a) => Ok(Some(guard_profile_adapter(gateway, a))),
+        assist_profiles::Resolved::Unavailable => Err(AssistError::Disabled),
+    }
 }
 
 /// The configured adapter behind the stop check. A stopped gateway answers
@@ -3223,9 +3266,14 @@ async fn assist_transcribe(
     Extension(gateway): Extension<AssistHandle>,
     Json(body): Json<TranscribeReq>,
 ) -> Response {
-    if let Err(resp) = crate::authed(&state, &headers).await {
-        return resp;
-    }
+    let session = match crate::authed(&state, &headers).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+    let via = match assist_route(&state, &gateway, &session).await {
+        Ok(via) => via,
+        Err(e) => return crate::assist::assist_error(&e),
+    };
     let Ok(audio) = base64::engine::general_purpose::STANDARD.decode(body.audio_base64.as_bytes())
     else {
         return (
@@ -3234,7 +3282,10 @@ async fn assist_transcribe(
         )
             .into_response();
     };
-    match gateway.transcribe(body.scope, &audio, &body.mime).await {
+    match gateway
+        .transcribe_via(via.as_ref(), body.scope, &audio, &body.mime)
+        .await
+    {
         Ok(text) => Json(json!({ "text": text })).into_response(),
         Err(e) => crate::assist::assist_error(&e),
     }
@@ -3271,6 +3322,7 @@ pub(crate) fn register_admin(r: &mut impl AdminRegistrar) {
     );
     admin_plugins::register(r);
     egress_admin::register(r);
+    assist_profiles::register(r);
 }
 
 // The admin wire shape of the deployment Assist configuration. `GET /admin/assist`
