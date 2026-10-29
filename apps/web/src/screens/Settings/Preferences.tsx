@@ -77,10 +77,10 @@ export function Preferences(props: PreferencesProps): JSX.Element {
   return (
     <>
       {/* W14 — keyboard shortcut presets */}
-      <section class={css.section} aria-label={t('settings-kbd-title')}>
-        <h2 class={css.heading}>{t('settings-kbd-title')}</h2>
+      <section class={css.section} aria-label={t('settings-kbd-preset-title')}>
+        <h2 class={css.heading}>{t('settings-kbd-preset-title')}</h2>
         <p class={css.prose}>{t('settings-kbd-intro')}</p>
-        <div class={css.options} role="group" aria-label={t('settings-kbd-title')}>
+        <div class={css.options} role="group" aria-label={t('settings-kbd-preset-title')}>
           <For each={KEYBOARD_OPTIONS}>
             {(o) => (
               <button

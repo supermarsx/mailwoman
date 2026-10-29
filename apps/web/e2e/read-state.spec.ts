@@ -249,7 +249,7 @@ test('with the Gmail preset chosen in Settings, e runs Archive; with shortcuts o
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   // Settings is sectioned; the presets are under "Keyboard & display".
   await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Keyboard & display', exact: true }).click();
-  const kbd = page.getByRole('group', { name: 'Keyboard shortcuts' });
+  const kbd = page.getByRole('group', { name: 'Shortcut preset', exact: true });
   await kbd.getByRole('button', { name: 'Gmail' }).click();
   await expect(kbd.getByRole('button', { name: 'Gmail' })).toHaveAttribute('aria-pressed', 'true');
   await settingsSurface(page).getByRole('button', { name: 'Close settings' }).click();

@@ -146,6 +146,7 @@ settings-search-error = Não foi possível alterar a pesquisa guardada.
 
 # Keyboard shortcuts (W14)
 settings-kbd-title = Atalhos de teclado
+settings-kbd-preset-title = Conjunto de atalhos
 settings-kbd-intro = Escolha um conjunto de atalhos. As alterações aplicam-se neste dispositivo.
 settings-kbd-default = Mailwoman
 settings-kbd-gmail = Gmail

@@ -149,6 +149,8 @@ settings-search-error = The saved search could not be changed.
 
 # Keyboard shortcuts (W14)
 settings-kbd-title = Keyboard shortcuts
+# The preset card in Keyboard & display; the card of custom bindings keeps settings-kbd-title.
+settings-kbd-preset-title = Shortcut preset
 settings-kbd-intro = Choose a shortcut set. Changes apply on this device.
 settings-kbd-default = Mailwoman
 settings-kbd-gmail = Gmail
