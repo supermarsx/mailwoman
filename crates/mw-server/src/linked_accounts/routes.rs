@@ -7,6 +7,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::HashMap;
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -42,7 +43,7 @@ async fn entry(
 ) -> Result<Value, Response> {
     let mut value = serde_json::to_value(row).map_err(unavailable)?;
     value["status"] = json!("reauthRequired");
-    if let Some(login) = super::credential::login_name(state, parent, &row.id).await {
+    if let Some(login) = sign_in_name(state, parent, row).await {
         value["address"] = json!(login);
     }
     // t48: a lapsed child session is renewed here from the sealed credential.
@@ -227,8 +228,9 @@ async fn confirm(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct RenewRequest {
-    /// Only needed when the server does not know the mailbox's sign-in name
-    /// (a link made before t48 whose session already ended).
+    /// Optional: the server knows the sign-in name of every link it can renew
+    /// (t70), so only the password is needed. A name typed here is used
+    /// instead; the sign-in must still be the mailbox the link was made for.
     username: Option<String>,
     password: String,
     altcha: Option<String>,
@@ -256,14 +258,33 @@ async fn renew(
     else {
         return Err(failure(StatusCode::NOT_FOUND, "linkedAccountNotFound"));
     };
-    let known = super::credential::login_name(&state, &parent, &row.id).await;
-    let username = match (known, body.username) {
-        (Some(known), _) => known,
-        (None, Some(typed)) if !typed.trim().is_empty() => typed.trim().to_string(),
-        _ => return Err(failure(StatusCode::BAD_REQUEST, "linkedUsernameRequired")),
+    let typed = body
+        .username
+        .as_deref()
+        .map(str::trim)
+        .filter(|typed| !typed.is_empty())
+        .map(str::to_string);
+    let username = match typed {
+        Some(typed) => typed,
+        None => match sign_in_name(&state, &parent, &row).await {
+            Some(known) => known,
+            None => return Err(failure(StatusCode::BAD_REQUEST, "linkedUsernameRequired")),
+        },
     };
     if username.len() > 1024 || body.password.is_empty() || body.password.len() > 16384 {
         return Err(failure(StatusCode::BAD_REQUEST, "invalidLinkedAccount"));
+    }
+    // t70: the normal sign-in limits key on the client address; this one keys
+    // on the owner and the link, so one link cannot be guessed at from many
+    // addresses either. Each refusal is audited without the password.
+    if let Err(retry) = renew_attempt(&parent.account_id, &row.id) {
+        renew_failed(&state, &parent, &row.id, "rateLimited").await;
+        let mut response = failure(StatusCode::TOO_MANY_REQUESTS, "linkedRenewLimit");
+        response.headers_mut().insert(
+            axum::http::header::RETRY_AFTER,
+            axum::http::HeaderValue::from(retry),
+        );
+        return Err(response);
     }
     let mut login_headers = headers.clone();
     login_headers.remove(axum::http::header::COOKIE);
@@ -282,7 +303,13 @@ async fn renew(
         }),
     )
     .await;
-    finish(
+    // t70: a refused password and a server that could not be reached are told
+    // apart here (the owner is signed in; the public login keeps one answer).
+    if let Some((code, status)) = renew_refusal(&response) {
+        renew_failed(&state, &parent, &row.id, code).await;
+        return Err(failure(status, code));
+    }
+    let result = finish(
         &state,
         &parent,
         &row.display_name,
@@ -290,7 +317,105 @@ async fn renew(
         None,
         Some(&row.id),
     )
-    .await
+    .await;
+    match &result {
+        Ok(_) => renew_succeeded(&parent.account_id, &row.id),
+        Err(response) => renew_failed(&state, &parent, &row.id, &error_code(response)).await,
+    }
+    result
+}
+
+/// t70: the name a link signs in with when renewed with only its password:
+/// the one kept with its sealed credential, or else the sign-in name of the
+/// linked account (links made before t48, or whose credential row was
+/// removed). Only the owner's own links reach here.
+async fn sign_in_name(
+    state: &AppState,
+    parent: &mw_store::Session,
+    row: &mw_store::linked_accounts::LinkedAccount,
+) -> Option<String> {
+    if let Some(login) = super::credential::login_name(state, parent, &row.id).await {
+        return Some(login);
+    }
+    state
+        .store
+        .get_account(&row.account_id)
+        .await
+        .ok()
+        .map(|account| account.username)
+        .filter(|name| !name.trim().is_empty())
+}
+
+/// Renew attempts allowed per owner and link in [`RENEW_WINDOW`] (per process).
+const RENEW_ATTEMPTS: u32 = 10;
+const RENEW_WINDOW: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+type RenewWindows = HashMap<String, (std::time::Instant, u32)>;
+static RENEW_LIMIT: std::sync::LazyLock<std::sync::Mutex<RenewWindows>> =
+    std::sync::LazyLock::new(Default::default);
+
+fn renew_key(owner: &str, link: &str) -> String {
+    format!("{owner}\u{0}{link}")
+}
+/// Count one attempt; `Err(seconds)` once the window is used up.
+fn renew_attempt(owner: &str, link: &str) -> Result<(), u64> {
+    let now = std::time::Instant::now();
+    let mut windows = RENEW_LIMIT.lock().unwrap_or_else(|e| e.into_inner());
+    windows.retain(|_, (start, _)| now.duration_since(*start) < RENEW_WINDOW);
+    let entry = windows.entry(renew_key(owner, link)).or_insert((now, 0));
+    if entry.1 >= RENEW_ATTEMPTS {
+        let left = RENEW_WINDOW.saturating_sub(now.duration_since(entry.0));
+        return Err(left.as_secs().max(1));
+    }
+    entry.1 += 1;
+    Ok(())
+}
+fn renew_succeeded(owner: &str, link: &str) {
+    RENEW_LIMIT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&renew_key(owner, link));
+}
+
+/// A failed sign-in as `(code, status)`: the password was refused, or the
+/// mailbox's server could not be reached. Anything else goes through [`finish`].
+fn renew_refusal(response: &Response) -> Option<(&'static str, StatusCode)> {
+    use crate::login_failure::LoginFailureReason as Reason;
+    let reason = response.extensions().get::<Reason>().copied();
+    let unreachable = matches!(
+        reason,
+        Some(
+            Reason::Dns
+                | Reason::Connect
+                | Reason::Timeout
+                | Reason::Transport
+                | Reason::Tls
+                | Reason::Certificate
+        )
+    );
+    if unreachable || response.status() == StatusCode::GATEWAY_TIMEOUT {
+        return Some(("linkedServerUnreachable", StatusCode::BAD_GATEWAY));
+    }
+    (response.status() == StatusCode::UNAUTHORIZED)
+        .then_some(("linkedPasswordRejected", StatusCode::UNAUTHORIZED))
+}
+fn error_code(response: &Response) -> String {
+    match response.status() {
+        StatusCode::TOO_MANY_REQUESTS => "tooManyAttempts".into(),
+        StatusCode::CONFLICT => "conflict".into(),
+        status => format!("http{}", status.as_u16()),
+    }
+}
+/// Audit a failed renew: the link and a reason code, never the password or
+/// the name typed.
+async fn renew_failed(state: &AppState, parent: &mw_store::Session, link: &str, reason: &str) {
+    super::credential::audit(
+        state,
+        &parent.account_id,
+        &parent.account_id,
+        "linked-access-renew-failed",
+        json!({"link":link,"reason":reason}),
+    )
+    .await;
 }
 
 async fn confirm_renew(

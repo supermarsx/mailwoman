@@ -2811,10 +2811,17 @@ async fn engine_login(
                 Some("engine"),
             )
             .await;
-            if error.reason == login_failure::LoginFailureReason::Timeout {
-                return StatusCode::GATEWAY_TIMEOUT.into_response();
-            }
-            return unauthorized();
+            // t70: the reason rides along as a response extension (never in
+            // the body), so the linked-mailbox renew route can tell a refused
+            // password from an unreachable server. The public login answer
+            // is unchanged.
+            let mut response = if error.reason == login_failure::LoginFailureReason::Timeout {
+                StatusCode::GATEWAY_TIMEOUT.into_response()
+            } else {
+                unauthorized()
+            };
+            response.extensions_mut().insert(error.reason);
+            return response;
         }
     };
     let primary_identity =
