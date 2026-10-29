@@ -8,6 +8,7 @@ import { settings } from '../api/settings.ts';
 import { loadQuotas, ratio, storageQuota, warnLevel, warnPolicy, type Quota } from '../api/quota.ts';
 import { formatBytes, formatNumber, formatPercent, loadCatalog, t } from '../i18n';
 import * as css from './quotaMeter.css.ts';
+import { resourceValue } from './resourceValue.ts';
 
 export type QuotaLoader = (accountId: string) => Promise<Quota[]>;
 
@@ -38,7 +39,7 @@ function amount(q: Quota, value: number): string {
 /** The sidebar meter: the fullest storage quota, or nothing. */
 export function QuotaMeter(props: QuotaProps): JSX.Element {
   const quotas = useQuotas(props);
-  const storage = () => storageQuota(quotas.latest ?? []);
+  const storage = () => storageQuota(resourceValue(quotas) ?? []);
   return <Show when={storage()}>{(q) => {
     const warning = () => warnLevel(q(), warnPolicy(settings()));
     const text = () => t('quota-meter-label', { used: amount(q(), q().used), limit: amount(q(), q().hardLimit) });
@@ -58,7 +59,7 @@ export function QuotaMeter(props: QuotaProps): JSX.Element {
 /** Settings detail: every reported quota with its source; nothing without one. */
 export function QuotaDetails(props: QuotaProps): JSX.Element {
   const quotas = useQuotas(props);
-  const list = () => quotas.latest ?? [];
+  const list = () => resourceValue(quotas) ?? [];
   return <Show when={list().length > 0}>
     <section aria-labelledby="quota-details-heading" data-testid="quota-details">
       <h3 id="quota-details-heading">{t('quota-details-title')}</h3>

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@solidjs/testing-library';
-import { createSignal } from 'solid-js';
+import { createSignal, Suspense } from 'solid-js';
 import type { Quota } from '../api/quota.ts';
 import { loadQuotas, storageQuota, warnLevel, warnPolicy } from '../api/quota.ts';
 import type { Client } from '../api/client.ts';
@@ -46,6 +46,22 @@ describe('quota model', () => {
 });
 
 describe('QuotaMeter', () => {
+  // t60: the meter sits in the mailbox shell, under the route's <Suspense>. A
+  // first load that suspends it swaps the whole shell out and back, which
+  // reloads every open message frame.
+  it('never suspends the surrounding shell while the quota loads', async () => {
+    state.read = () => ({});
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const load = vi.fn(async () => { await gate; return [storage(10 * MiB, 100 * MiB)]; });
+    render(() => <Suspense fallback={<p>Shell loading</p>}><p>Shell</p><QuotaMeter accountId="a" load={load} /></Suspense>);
+    await waitFor(() => expect(load).toHaveBeenCalled());
+    expect(screen.getByText('Shell')).toBeInTheDocument();
+    expect(screen.queryByText('Shell loading')).toBeNull();
+    release();
+    expect(await screen.findByRole('meter', { name: 'Mailbox storage' })).toBeInTheDocument();
+    expect(screen.queryByText('Shell loading')).toBeNull();
+  });
   it('shows nothing when the server has no quota', async () => {
     const load = vi.fn(async () => [] as Quota[]);
     const { container } = render(() => <QuotaMeter accountId="a" load={load} />);
