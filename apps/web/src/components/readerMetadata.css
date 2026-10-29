@@ -3,15 +3,23 @@
 .reader__metadata-line .time-helper { margin:0; flex:0 1 auto; }
 .reader__metadata-line .time-helper summary { max-inline-size:100%; }
 .reader__metadata-line .time-helper time { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.reader__metadata-line .spam-score { flex:1 1 0; }
+.reader__metadata-line .spam-score { flex:1 1 0; container:spam-score / inline-size; }
 .reader__metadata-line .spam-score__empty { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.reader__metadata-line .spam-score__item { border:0; background:transparent; min-inline-size:0; }
-.reader__metadata-line .spam-score__item summary { padding-inline:0; }
-.reader__metadata-line .spam-score__source { overflow:hidden; text-overflow:ellipsis; }
-.reader__metadata-line .spam-score__item strong { flex-shrink:0; }
+.reader__metadata-line .spam-score [data-testid="spam-score-item"] { flex:0 1 auto; min-inline-size:0; }
+/* A narrow row drops the scanner name before the score; the chip's name and its popover keep both. */
+.reader__metadata-line .spam-score__chip { min-inline-size:0; overflow:hidden; }
+.reader__metadata-line .spam-score__chip-body { overflow:hidden; }
+.reader__metadata-line .spam-score__source { overflow:hidden; text-overflow:ellipsis; min-inline-size:0; flex-shrink:20; }
+/* Then the threshold; the score itself never clips. */
+.reader__metadata-line .spam-score__chip strong { display:inline-flex; min-inline-size:0; white-space:pre; }
+.reader__metadata-line .spam-score__value { flex:none; }
+.reader__metadata-line .spam-score__of { min-inline-size:0; overflow:hidden; }
+/* Where the row leaves little room: name first, then the icon and threshold; the score stays whole. */
+@container spam-score (max-width: 16rem) { .spam-score__source { display:none; } }
+@container spam-score (max-width: 9rem) { .spam-score__chip-body svg, .spam-score__of { display:none; } }
 /* Expanded disclosures keep their original contents and can use the full row. */
 .reader__metadata-line:has(details[open]) { flex-wrap:wrap; }
-.reader__metadata-line .time-helper[open], .reader__metadata-line .spam-score:has(details[open]) { flex-basis:100%; }
+.reader__metadata-line .time-helper[open] { flex-basis:100%; }
 @media (pointer:coarse) {
- .reader__metadata-line summary { min-block-size:2.75rem; }
+ .reader__metadata-line summary, .reader__metadata-line .spam-score__chip { min-block-size:2.75rem; }
 }

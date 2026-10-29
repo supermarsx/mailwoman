@@ -12,7 +12,7 @@ it('shows compact header-reported scores without suspending the surrounding read
   expect(screen.getByRole('heading',{name:'Message reader'})).toBeVisible();
   expect(screen.queryByText('Whole page pending')).toBeNull();
   resolve('X-Spam-Status: Yes, score=6.2 required=5.0 tests=RULE_ONE');
-  expect(await screen.findByText('6.2 / 5')).toBeInTheDocument();
+  expect(await screen.findByText((_,node)=>node?.tagName==='STRONG'&&node.textContent==='6.2 / 5')).toBeInTheDocument();
   expect(screen.queryByRole('dialog')).toBeNull();
 });
 it('keeps the breakdown out of the reader until the chip opens it in the shared popover',async()=>{

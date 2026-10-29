@@ -11,7 +11,6 @@ export function signedPoints(value: number): string {
   const text = String(Math.abs(value));
   return value > 0 ? `+${text}` : value < 0 ? `−${text}` : text;
 }
-const ratio = (score: Score): string => `${score.score}${score.threshold !== null ? ` / ${score.threshold}` : ''}`;
 
 /**
  * The reader's header-reported spam scores: one compact chip per scanner (score
@@ -51,7 +50,7 @@ export function SpamScoreChip(props: { score: Score }): JSX.Element {
     testId="spam-score-item"
     buttonClass={`spam-score__chip spam-score__chip--${band()}`}
     content={<span class="spam-score__chip-body" data-band={band()}>
-      <Icon name="shield"/><span class="spam-score__source">{props.score.source}</span> <strong>{ratio(props.score)}</strong>
+      <Icon name="shield"/><span class="spam-score__source">{props.score.source}</span> <strong><span class="spam-score__value">{String(props.score.score)}</span><Show when={props.score.threshold !== null}><span class="spam-score__of">{` / ${props.score.threshold}`}</span></Show></strong>
     </span>}
   >
     <SpamScoreBreakdown score={props.score} titleId={titleId}/>
