@@ -29,5 +29,9 @@ describe('reader view-mode dropdown',()=>{
   const full=screen.getByRole('menuitemcheckbox',{name:'Full'});expect(full).toHaveAttribute('aria-disabled','true');expect(screen.getByRole('menuitemcheckbox',{name:'No media'})).toHaveAttribute('aria-disabled','true');
   fireEvent.click(full);expect(change).not.toHaveBeenCalled();
   fireEvent.click(button);fireEvent.keyDown(screen.getByRole('menu'),{key:'Escape'});expect(screen.queryByRole('menu')).toBeNull();expect(document.activeElement).toBe(button);
+  // A click right after a keyboard close opens it again (no time-based guard).
+  fireEvent.click(button);expect(screen.getByRole('menu')).toBeVisible();
+  // Pressing the button while open closes it; the click that follows does not reopen it.
+  fireEvent.pointerDown(button);fireEvent.click(button,{detail:1});expect(screen.queryByRole('menu')).toBeNull();
  });
 });

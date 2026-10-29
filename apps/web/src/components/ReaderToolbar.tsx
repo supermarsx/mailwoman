@@ -125,11 +125,12 @@ export function ReaderToolbar(props:{
 
  // ── More menu ──────────────────────────────────────────────────────────────
  const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${id()}`,actions:()=>ids().filter(key=>folded().has(key)).flatMap(key=>all[key]?.menu()??[]),restoreFocus:()=>moreButton?.focus()});
- // The menu closes on the pointerdown that lands on More; the click that
- // follows must not open it again.
- let closedAt=0;
- createEffect(()=>{if(!menu.isOpen())closedAt=performance.now();});
- function toggleMore(event:MouseEvent):void {if(menu.isOpen()){menu.close();return;}if(event.detail>0&&performance.now()-closedAt<250)return;menu.open(event);}
+ // A pointerdown on this button while the menu is open closes it (ContextMenu's
+ // outside-press handler); the click that follows must not open it again. This
+ // capture listener is registered before the menu's, so it sees the press first.
+ let reopenGuard=false;
+ onMount(()=>{const press=(event:PointerEvent):void=>{reopenGuard=menu.isOpen()&&event.target instanceof Node&&moreButton.contains(event.target);};document.addEventListener('pointerdown',press,true);onCleanup(()=>document.removeEventListener('pointerdown',press,true));});
+ function toggleMore(event:MouseEvent):void {if(menu.isOpen()){menu.close();return;}if(reopenGuard){reopenGuard=false;return;}menu.open(event);}
 
  return (
   <div ref={row} class={`reader__toolbar ${css.row}`} role="toolbar" aria-label={t('mail-reader-actions')}>

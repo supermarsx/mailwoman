@@ -7,7 +7,7 @@
 // Keyboard comes from ContextMenu: Enter/Space on the button opens it with the
 // first item focused, arrows move, Enter chooses, Escape closes back to it.
 
-import {createEffect,type JSX} from 'solid-js';
+import {onCleanup,onMount,type JSX} from 'solid-js';
 import {createContextMenu,type ContextAction} from './ContextMenu.tsx';
 import {Icon,type IconName} from './Icon.tsx';
 import {SECURITY_MODES,SECURITY_MODE_LABELS,SECURITY_MODE_HINTS,isAtLeastAsStrict,type SecurityMode} from '../viewers/max-security.ts';
@@ -28,12 +28,13 @@ export function viewModeActions(props:ViewModeProps,separatorBefore=false):Conte
 export function ReaderViewMode(props:ViewModeProps&{scope:string}):JSX.Element {
  let button!:HTMLButtonElement;
  const menu=createContextMenu({label:()=>t('mail-maxsec-menu'),scope:()=>props.scope,actions:()=>viewModeActions(props),restoreFocus:()=>button?.focus()});
- // The menu closes on the pointerdown that lands on this button; the click
- // that follows must not open it again.
- let closedAt=0;
- createEffect(()=>{if(!menu.isOpen())closedAt=performance.now();});
+ // A pointerdown on this button while the menu is open closes it (ContextMenu's
+ // outside-press handler); the click that follows must not open it again. This
+ // capture listener is registered before the menu's, so it sees the press first.
+ let reopenGuard=false;
+ onMount(()=>{const press=(event:PointerEvent):void=>{reopenGuard=menu.isOpen()&&event.target instanceof Node&&button.contains(event.target);};document.addEventListener('pointerdown',press,true);onCleanup(()=>document.removeEventListener('pointerdown',press,true));});
  const label=()=>t('mail-maxsec-view',{mode:SECURITY_MODE_LABELS[props.value]()});
- function toggle(event:MouseEvent):void {if(menu.isOpen()){menu.close();return;}if(event.detail>0&&performance.now()-closedAt<250)return;menu.open(event);}
+ function toggle(event:MouseEvent):void {if(menu.isOpen()){menu.close();return;}if(reopenGuard){reopenGuard=false;return;}menu.open(event);}
  return <>
   <button ref={button} type="button" class={`btn btn--ghost reader-action reader-action--compact reader-view-mode ${a11y.focusable}`} aria-label={label()} title={`${label()}. ${SECURITY_MODE_HINTS[props.value]()}`} aria-haspopup="menu" aria-expanded={menu.isOpen()} data-testid="max-security-switch" data-mode={props.value} onClick={toggle}><Icon name={VIEW_MODE_ICON[props.value]}/><span class="reader-view-mode__chevron" aria-hidden="true"><Icon name="chevronDown"/></span></button>
   {menu.menu()}
