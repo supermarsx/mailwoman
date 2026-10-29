@@ -692,7 +692,7 @@ export function MailboxScreen(): JSX.Element {
         }}
       >
         <div class="sidebar__head">
-          <span class="sidebar__brand"><Show when={brandAssetUrl(branding()?.logoUrl)}>{url=><img src={url()} alt={branding()?.brandName||'Mailwoman'} class="sidebar__brand-logo"/>}</Show>{branding()?.brandName || t('mail-brand')}</span>
+          <span class="sidebar__brand" title={branding()?.brandName || t('mail-brand')}><Show when={brandAssetUrl(branding()?.logoUrl)}>{url=><img src={url()} alt={branding()?.brandName||'Mailwoman'} class="sidebar__brand-logo"/>}</Show>{branding()?.brandName || t('mail-brand')}</span>
           {/* The one account indicator and switcher (t38 §2.3): text in the
               expanded sidebar, a one-letter button when the folders are compact. */}
           <Show when={app.me()}><div class="sidebar__account" data-variant={accountIconInSidebar()?'icon':'full'}><LinkedAccountControl variant={accountIconInSidebar()?'icon':'full'}/></div></Show>

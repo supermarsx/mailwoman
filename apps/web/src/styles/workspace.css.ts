@@ -34,10 +34,30 @@ globalStyle('.workspace-body--split[data-reading-pane="bottom"]',{gridTemplateCo
 globalStyle('.workspace-panes[data-pair="true"][data-layout="side-by-side"]',{gridTemplateColumns:'var(--tile-first,50%) 6px minmax(0,1fr)',gridTemplateRows:'minmax(0,1fr)',gridAutoRows:'auto'});
 globalStyle('.workspace-panes[data-pair="true"][data-layout="stack"]',{gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'var(--tile-first,50%) 6px minmax(0,1fr)',gridAutoRows:'auto'});
 globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__box-name, .workspace-shell[data-folder-mode="compact"] .sidebar__brand',{'@media':{[desktop]:{display:'none'}}});
+// The sidebar head (t89): the title and the account selector start on the
+// folder list's line. A folder row is the sidebar's padding plus its own inline
+// padding (.sidebar__box, app.css), so the title's text, the selector's avatar
+// or address and every folder icon share one inset, while the selector's box
+// shares the folder rows' edges. Vertical rhythm on the spacing scale: title ->
+// selector space 3; head -> Compose -> folders space 4 (the sidebar's gap).
+const folderRowInset='0.6rem';
+globalStyle('.workspace-shell > .sidebar',{gap:vars.space[4]});
+globalStyle('.workspace-shell .sidebar__head',{gap:vars.space[3],minWidth:0});
+globalStyle('.workspace-shell .sidebar__brand',{display:'block',minWidth:0,paddingInline:folderRowInset,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'});
+globalStyle('.workspace-shell .sidebar__brand-logo',{verticalAlign:'middle',marginInlineEnd:vars.space[3]});
 // The account indicator in the sidebar head (t38 §2.3): the full address with
 // an ellipsis, or the switcher filling the width; one letter in compact mode.
-globalStyle('.sidebar__account',{display:'flex',alignItems:'center',gap:'2px',minWidth:0,maxWidth:'100%',marginBlockStart:'2px',fontSize:'0.75rem',color:vars.color.textDim});
+globalStyle('.sidebar__account',{display:'flex',alignItems:'center',gap:'2px',minWidth:0,maxWidth:'100%',fontSize:'0.75rem',color:vars.color.textDim});
+// The picker's box sits on the folder rows' edges; inside it the avatar starts
+// on the folder icon line (the box's border is part of that inset), the chevron
+// keeps the same room at the end, and the avatar-to-text gap is space 3.
+globalStyle('.sidebar__account[data-variant="full"] [data-account-indicator="picker"]',{gap:vars.space[3],paddingInline:`calc(${folderRowInset} - ${vars.border.rule})`});
+globalStyle(':root[dir="rtl"] .sidebar__account [data-account-indicator="picker"][data-linked="true"]',{boxShadow:`inset -4px 0 0 ${vars.color.accent}`});
+// One mailbox: the address alone, on the same line as the title.
+globalStyle('.sidebar__account[data-variant="full"] [data-account-indicator="plain"]',{flex:'1 1 auto',paddingInline:folderRowInset});
 globalStyle('.sidebar__account[data-variant="icon"]',{justifyContent:'center',color:vars.color.text});
+// Compact: the one-letter picker sits in the middle of the rail, as the static letter does.
+globalStyle('.sidebar__account[data-variant="icon"] [data-account-picker]',{alignItems:'center'});
 globalStyle('.sidebar__account > div',{flex:'1 1 auto',minWidth:0});
 globalStyle('.sidebar__account select',{flex:'1 1 0',width:'100%',maxWidth:'100%'});
 globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar',{'@media':{[desktop]:{paddingInline:vars.space[1]}}});
