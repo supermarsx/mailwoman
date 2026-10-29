@@ -140,7 +140,8 @@ export function Compose(props: {
   resumeDraftId?: string;
   onDraftIdChange?: (id:string)=>void;
   onSubjectChange?: (subject:string)=>void;
-  registerBeforeClose?: (handler:()=>Promise<boolean>)=>void;
+  /** `handler(true)`: the user already chose to discard (a bulk tab close), so it does not ask. `dirty`: closing now would lose the message, asked without prompting. */
+  registerBeforeClose?: (handler:(discard?:boolean)=>Promise<boolean>,dirty:()=>boolean)=>void;
   /** Reply / Reply all / Forward: what the composer starts with. Read once,
    *  when the composer mounts. */
   initial?: ComposeInitial;
@@ -813,17 +814,17 @@ export function Compose(props: {
     return new Promise(resolve=>setClosePrompt({body:t(reason),answer:leave=>{setClosePrompt(null);resolve(leave);}}));
   }
   onCleanup(()=>closePrompt()?.answer(false));
-  async function beforeDraftClose():Promise<boolean>{
+  async function beforeDraftClose(discard=false):Promise<boolean>{
     if(sent||allowRecoveryClose||!ownsDraft())return true;
     if(uploading()||remoteWriter?.isBusy())return false;
     if(closePrompt())return false;
     const reason=unsavedCloseReason();
-    if(reason)return confirmUnsavedClose(reason);
+    if(reason)return discard||confirmUnsavedClose(reason);
     if(settings()['mail.draftSaveMode']?.value!=='manual'&&remoteWriter?.hasPending()&&!await remoteWriter.flush())return false;
     return true;
   }
   async function closeWithDraftSave():Promise<void>{if(await beforeDraftClose())props.onClose();}
-  onMount(()=>props.registerBeforeClose?.(beforeDraftClose));
+  onMount(()=>props.registerBeforeClose?.(beforeDraftClose,()=>!sent&&!allowRecoveryClose&&ownsDraft()&&unsavedCloseReason()!==null));
   // W9 auto-save: debounce a snapshot of the composition to local storage so a
   // closed / refreshed composer can be resumed. Empty compositions are skipped
   // (see `draftHasContent`). A composition quoting decrypted text is never

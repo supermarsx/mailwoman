@@ -24,7 +24,7 @@ function setup(attachment=false) {
   client.jmap=vi.fn(async (request:JmapRequest)=>{const response=await original(request);for(const [method,args,id] of request.methodCalls){if(/^(AddressBook|ContactCard|ContactGroup)\//.test(method)){const index=response.methodResponses.findIndex(call=>call[2]===id);if(index>=0)response.methodResponses[index]=[method,{accountId:args['accountId'],state:'s',list:[],ids:[],notFound:[]},id];}}const ids=request.methodCalls.find(call=>call[0]==='Email/get')?.[1]['ids'];if(Array.isArray(ids)){for(const call of response.methodResponses)if(call[0]==='Email/get')(call[1] as unknown as EmailGetResponse).list=emails.filter(email=>ids.includes(email.id));}return response;});
   const app=createAppState(client);const realtime=createRealtimeController();
   const show=()=>render(()=><AppContext.Provider value={app}><RealtimeContext.Provider value={realtime}><MailboxScreen/></RealtimeContext.Provider></AppContext.Provider>);
-  return {app,realtime,show};
+  return {app,realtime,show,client};
 }
 function mount(attachment=false) {
   const {app,realtime,show}=setup(attachment);
@@ -127,6 +127,29 @@ describe('retained mailbox workspace',()=>{
     expect(screen.queryByRole('dialog',{name:'Settings'})).not.toBeInTheDocument();
     fireEvent.click(document.getElementById(`subtab-tab-${first}`)!);
     expect(within(screen.getByRole('tabpanel',{name:'Draft alpha'})).getByLabelText('Subject')).toHaveValue('Draft alpha');
+  });
+  it('a bulk close lists the composers that would lose their message in one dialog: keep, then discard (t50)',async()=>{
+    // No storage authority: the composer cannot keep an account draft, so closing it loses the message.
+    const {app,realtime,show,client}=setup();const unstored=async()=>({username:'me@example.org',accountId:'acct1'});
+    client.login=vi.fn(unstored) as typeof client.login;client.me=vi.fn(unstored) as typeof client.me;show();
+    await app.login({username:'me@example.org',password:'p'});
+    fireEvent.click(screen.getByRole('button',{name:'Contacts'}));await screen.findByRole('tab',{name:'Contacts'});
+    fireEvent.click(screen.getByRole('button',{name:/^Compose$/}));
+    fireEvent.input(within(screen.getByRole('tabpanel',{name:'Compose'})).getByLabelText('Subject'),{target:{value:'Unstored draft'}});
+    const composer=realtime.subTabs.activeId()!;
+    fireEvent.click(screen.getByRole('button',{name:'Tasks'}));await screen.findByRole('tab',{name:'Tasks'});
+    fireEvent.contextMenu(screen.getByRole('tab',{name:'Mail'}));
+    expect(screen.getByRole('menuitem',{name:'Close tabs to the left'})).toHaveAttribute('aria-disabled','true');
+    fireEvent.click(screen.getByRole('menuitem',{name:'Close all tabs'}));
+    const dialog=await screen.findByTestId('workspace-tabs-close-dirty');
+    expect(within(dialog).getAllByRole('listitem').map(item=>item.textContent)).toEqual(['Unstored draft']);
+    expect(screen.queryByTestId('compose-close-confirm')).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button',{name:'Keep them open'}));
+    await waitFor(()=>expect(realtime.subTabs.tabs().map(tab=>tab.id)).toEqual(['mail',composer]));
+    fireEvent.contextMenu(screen.getByRole('tab',{name:'Unstored draft'}));fireEvent.click(screen.getByRole('menuitem',{name:'Close all tabs'}));
+    fireEvent.click(within(await screen.findByTestId('workspace-tabs-close-dirty')).getByRole('button',{name:'Discard and close'}));
+    await waitFor(()=>expect(realtime.subTabs.tabs().map(tab=>tab.id)).toEqual(['mail']));
+    expect(screen.queryByTestId('compose-close-confirm')).not.toBeInTheDocument();
   });
   it('restores a message tab when the mailbox mounts signed in (a reload): Mail stays first and the reader loads',async()=>{
     const {app,realtime,show}=setup();
