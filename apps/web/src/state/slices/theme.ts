@@ -58,6 +58,7 @@ import {
 import { themeEntry, type Appearance } from '../../theme/registry.ts';
 import type { AccentId } from '../../theme/accentMath.ts';
 import { applyCustomAccent } from '../../theme/customAccent.ts';
+import { applyDerivedBadge } from '../../theme/badgeDerived.ts';
 import {
   prefersDarkScheme,
   syncRootAppearance,
@@ -166,6 +167,7 @@ function apply(p: AppearancePrefs, resolved: ThemeName, appearance: Appearance):
   applyCustomAccent(root, p.customAccent ?? '', resolved);
   if (p.badgeColor !== 'default') root.setAttribute('data-badge', p.badgeColor);
   else root.removeAttribute('data-badge');
+  applyDerivedBadge(root, p.badgeColor, resolved, p.accentId, p.customAccent ?? '');
   const stack = FONT_STACKS[p.font];
   if (stack !== null) root.style.setProperty('--mw-ui-font', stack);
   else root.style.removeProperty('--mw-ui-font');

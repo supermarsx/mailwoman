@@ -25,6 +25,7 @@ import {
 } from './registry.ts';
 import { isAccentId, nearestAccentId, type AccentId } from './accentMath.ts';
 import { customAccentValue } from './customAccent.ts';
+import { isDerivedBadge, type DerivedBadge } from './badgeDerived.ts';
 
 /**
  * How the active theme is chosen.
@@ -44,11 +45,13 @@ export type UiFont = 'default' | 'system' | 'serif' | 'mono' | 'inter' | 'roboto
  * Unread-count badge colour: `default` keeps the pack's signal colour (the
  * yellow block), `accent` follows the accent, a named accent id uses that
  * accent's per-theme shade and ink from `accents.ts` (4.5:1 ink in every pack).
+ * `accent-lighter` / `accent-darker` are the live accent 0.2 OKLCH L lighter or
+ * darker, with black or white text (`badgeDerived.ts`, t85).
  */
-export type BadgeColor = 'default' | 'accent' | AccentId;
+export type BadgeColor = 'default' | 'accent' | DerivedBadge | AccentId;
 
 export function isBadgeColor(value: unknown): value is BadgeColor {
-  return value === 'default' || value === 'accent' || isAccentId(value);
+  return value === 'default' || value === 'accent' || isDerivedBadge(value) || isAccentId(value);
 }
 
 /** Chrome layout preset. */

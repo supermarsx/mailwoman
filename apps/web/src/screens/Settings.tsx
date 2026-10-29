@@ -94,6 +94,7 @@ import * as css from '../styles/settings.css.ts';
 import * as picker from '../theme/picker.css.ts';
 import { ColorField } from '../components/color/ColorPicker.tsx';
 import { applyCustomAccent } from '../theme/customAccent.ts';
+import { applyDerivedBadge, derivedBadgeFor, DERIVED_BADGES, type DerivedBadge } from '../theme/badgeDerived.ts';
 
 // Option labels are Fluent ids resolved through `t()` at render (reactive).
 const MODE_OPTIONS: ReadonlyArray<{ value: ThemeMode; label: string }> = [
@@ -234,7 +235,7 @@ export function Settings(props: SettingsProps): JSX.Element {
         <section class={customizationCss.section} aria-labelledby="settings-appearance-colours-card"><h3 class={customizationCss.heading} id="settings-appearance-colours-card">{t('settings-appearance-colours-card')}</h3><p class={customizationCss.meta}>{t('settings-appearance-colours-card-help')}</p>
         <AccentPicker locked={accentHold.locked()} />
         <div class={customizationCss.row}>
-          <div class={customizationCss.field}><span aria-hidden="true">{t('appearance-custom-accent')}</span><ColorField label={t('appearance-custom-accent')} testId="settings-custom-accent" disabled={accentHold.locked()} value={app.appearancePrefs().customAccent || null} fallback="#3366cc" emptyLabel={t('color-picker-default')} contrast={{against: 'bg', use: 'non-text'}} onPreview={value => applyCustomAccent(document.documentElement, value ?? '', app.theme())} onChange={value => app.setAppearancePrefs({customAccent: value ?? ''})} /></div>
+          <div class={customizationCss.field}><span aria-hidden="true">{t('appearance-custom-accent')}</span><ColorField label={t('appearance-custom-accent')} testId="settings-custom-accent" disabled={accentHold.locked()} value={app.appearancePrefs().customAccent || null} fallback="#3366cc" emptyLabel={t('color-picker-default')} contrast={{against: 'bg', use: 'non-text'}} onPreview={value => { applyCustomAccent(document.documentElement, value ?? '', app.theme()); applyDerivedBadge(document.documentElement, app.badgeColor(), app.theme(), app.accentId(), value ?? ''); }} onChange={value => app.setAppearancePrefs({customAccent: value ?? ''})} /></div>
           <div class={customizationCss.actions}><button type="button" class={customizationCss.ghost} disabled={accentHold.locked() || !app.appearancePrefs().customAccent} onClick={() => app.setAppearancePrefs({customAccent: ''})}>{t('appearance-custom-accent-reset')}</button></div>
         </div>
         <BadgeColorPicker locked={badgeHold.locked()} />
@@ -622,6 +623,11 @@ function AccentPicker(props: { locked: boolean }): JSX.Element {
  * theme's shade. Each swatch shows a count in the ink the badge will use, so
  * the preview is the contrast the badge gets (4.5:1, from `accents.ts`).
  */
+const DERIVED_BADGE_LABEL: Record<DerivedBadge, string> = {
+  'accent-lighter': 'settings-badge-color-accent-lighter',
+  'accent-darker': 'settings-badge-color-accent-darker',
+};
+
 function BadgeColorPicker(props: { locked: boolean }): JSX.Element {
   const app = useApp();
   const pick = (value: BadgeColor): void => app.setBadgeColor(value);
@@ -642,6 +648,33 @@ function BadgeColorPicker(props: { locked: boolean }): JSX.Element {
         <button type="button" class={css.option} aria-pressed={app.badgeColor() === 'accent'} disabled={props.locked} onClick={() => pick('accent')}>
           {t('settings-badge-color-accent')}
         </button>
+        <For each={DERIVED_BADGES}>
+          {(id) => {
+            // The live accent (custom, named or the theme's own) 0.2 OKLCH L
+            // lighter or darker, exactly what the badges will paint (t85).
+            const shade = () => derivedBadgeFor(app.theme(), app.accentId(), app.appearancePrefs().customAccent ?? '', id);
+            const label = () => t(DERIVED_BADGE_LABEL[id]);
+            return (
+              <button
+                type="button"
+                class={picker.swatch}
+                data-badge-option={id}
+                aria-label={label()}
+                title={label()}
+                aria-pressed={app.badgeColor() === id}
+                disabled={props.locked}
+                style={{ background: shade()?.badge, color: shade()?.text }}
+                onClick={() => pick(id)}
+              >
+                <span aria-hidden="true">
+                  <Show when={app.badgeColor() === id} fallback="3">
+                    <Icon name="check" />
+                  </Show>
+                </span>
+              </button>
+            );
+          }}
+        </For>
         <For each={ACCENT_LIST}>
           {(def) => {
             const shade = () => accentShade(app.theme(), def.id);

@@ -72,12 +72,34 @@ describe('Settings', () => {
     expect(document.documentElement).not.toHaveAttribute('data-badge');
   });
 
+  it('lighter/darker accent badges set derived colours on :root and follow the accent live (t85)', () => {
+    const { app } = renderSettings();
+    const root = document.documentElement;
+    const lighter = screen.getByRole('button', { name: 'Lighter accent' });
+    const darker = screen.getByRole('button', { name: 'Darker accent' });
+    fireEvent.click(lighter);
+    expect(app.badgeColor()).toBe('accent-lighter');
+    expect(root).toHaveAttribute('data-badge', 'accent-lighter');
+    const first = root.style.getPropertyValue('--mw-badge-derived');
+    expect(first).toMatch(/^#[0-9a-f]{6}$/);
+    expect(lighter.style.background).not.toBe('');
+    app.setAccentId('green');
+    const second = root.style.getPropertyValue('--mw-badge-derived');
+    expect(second).not.toBe(first);
+    fireEvent.click(darker);
+    expect(root).toHaveAttribute('data-badge', 'accent-darker');
+    expect(root.style.getPropertyValue('--mw-badge-derived')).not.toBe(second);
+    expect(root.style.getPropertyValue('--mw-badge-derived-text')).toMatch(/^#(ffffff|000000)$/);
+    fireEvent.click(screen.getByRole('button', { name: 'Same as accent' }));
+    expect(root.style.getPropertyValue('--mw-badge-derived')).toBe('');
+  });
+
   it('applies an administrator badge colour lock and disables the choices', async () => {
     await loadSettings({fetcher: async () => new Response(JSON.stringify({settings:{'appearance.badgeColor':{value:'teal',source:'global',locked:true,lockedBy:'global'}}}), {status:200})});
     const { app } = renderSettings();
     await vi.waitFor(() => expect(app.badgeColor()).toBe('teal'));
     const group = screen.getByRole('group', {name:'Unread badge colour'});
-    expect(group.querySelectorAll('button')).toHaveLength(12);
+    expect(group.querySelectorAll('button')).toHaveLength(14);
     for (const button of group.querySelectorAll('button')) expect(button).toBeDisabled();
     expect(group).toHaveAttribute('aria-describedby','settings-badge-color-lock');
   });

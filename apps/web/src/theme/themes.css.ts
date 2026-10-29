@@ -124,6 +124,17 @@ globalStyle(':root[data-badge="accent"]', {
     '--mw-badge-text': `var(${LEGACY_COLOR_PROPERTIES.accentText})`,
   },
 });
+// `accent-lighter` / `accent-darker` (t85): the slice derives the colour from the
+// live accent in script (OKLCH, `badgeDerived.ts`) and sets the two properties
+// on :root through the CSSOM; until it has, the badge shows the accent itself.
+for (const id of ['accent-lighter', 'accent-darker']) {
+  globalStyle(`:root[data-badge="${id}"]`, {
+    vars: {
+      '--mw-badge': `var(--mw-badge-derived, var(${LEGACY_COLOR_PROPERTIES.accent}))`,
+      '--mw-badge-text': `var(--mw-badge-derived-text, var(${LEGACY_COLOR_PROPERTIES.accentText}))`,
+    },
+  });
+}
 globalStyle(':root[data-badge], :root[data-theme][data-badge]', {
   '@media': { '(forced-colors: active)': { vars: { '--mw-badge': 'Canvas', '--mw-badge-text': 'CanvasText' } } },
 });

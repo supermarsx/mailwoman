@@ -1417,13 +1417,25 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "appearance.badgeColor",
         Kind::Enum(&[
-            "default", "accent", "red", "orange", "yellow", "green", "teal", "blue", "indigo",
-            "violet", "magenta", "graphite"
+            "default",
+            "accent",
+            "accent-lighter",
+            "accent-darker",
+            "red",
+            "orange",
+            "yellow",
+            "green",
+            "teal",
+            "blue",
+            "indigo",
+            "violet",
+            "magenta",
+            "graphite"
         ]),
         "\"default\"",
         GDU,
         "appearance",
-        "appearance blob badgeColor: unread-count badge colour (default = the theme's signal colour)"
+        "appearance blob badgeColor: unread-count badge colour (default = the theme's signal colour; accent-lighter/accent-darker = the accent 0.2 OKLCH L lighter/darker)"
     ),
     def!(
         "appearance.density",
