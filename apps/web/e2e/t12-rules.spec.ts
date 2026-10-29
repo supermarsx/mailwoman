@@ -1,10 +1,16 @@
 import { test, expect, type Page } from '@playwright/test';
-import { engineLogin } from './helpers.ts';
+import { engineLogin, settingsSurface } from './helpers.ts';
 import { uid } from './crypto-helpers.ts';
 
+/** Settings is a workspace tab with sections (24fb6149); the rules live under
+ *  "Mail rules". */
 async function openRules(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Settings' }).first().click();
-  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(settingsSurface(page)).toBeVisible();
+  await page
+    .getByRole('navigation', { name: 'Settings sections' })
+    .getByRole('button', { name: 'Mail rules', exact: true })
+    .click();
   await expect(page.getByRole('heading', { name: 'Rules & filters' })).toBeVisible();
 }
 
@@ -16,7 +22,7 @@ test('rule builder saves an authoritative script and reads it back after reload'
   const mailbox = `Work-${token}`;
   await engineLogin(page);
   await openRules(page);
-  const settings = page.getByRole('dialog', { name: 'Settings' });
+  const settings = settingsSurface(page);
   await settings.getByRole('button', { name: 'New rule', exact: true }).click();
   const builder = settings.getByRole('form', { name: 'Rule builder' });
   await builder.getByLabel('Rule name').fill(ruleName);
@@ -39,9 +45,9 @@ test('rule builder saves an authoritative script and reads it back after reload'
   }
   await expect(settings.getByRole('tab', { name: 'Dry run' })).toHaveCount(0);
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Compose' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Compose', exact: true })).toBeVisible();
   await openRules(page);
-  await expect(page.getByRole('dialog', { name: 'Settings' }).getByText(ruleName)).toBeVisible();
+  await expect(settingsSurface(page).getByText(ruleName)).toBeVisible();
 });
 
 test('vacation roundtrip and blocked external forwarding show real server policy', async ({ page }) => {
@@ -49,7 +55,7 @@ test('vacation roundtrip and blocked external forwarding show real server policy
   test.setTimeout(60_000);
   await engineLogin(page);
   await openRules(page);
-  const settings = page.getByRole('dialog', { name: 'Settings' });
+  const settings = settingsSurface(page);
   await settings.getByRole('tab', { name: 'Vacation reply', exact: true }).click();
   const panel = settings.locator('#rules-panel-vacation');
   await panel.getByLabel('Enable automatic replies').check();

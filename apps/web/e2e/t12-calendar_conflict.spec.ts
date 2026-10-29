@@ -196,23 +196,32 @@ test('conflict pair with participants: the free/busy grid renders the account\'s
   await resolveBtn.click();
   const resolver = page.getByRole('dialog', { name: 'Resolve conflicts' });
   await expect(resolver).toBeVisible();
+  // Earlier runs leave other 09:30 events behind, so pick the pair made of THIS
+  // run's two events (A carries the attendee), not merely the first that names one.
   const picker = resolver.locator('#resolver-pair');
   if ((await picker.count()) > 0) {
-    const value = await picker.locator('option', { hasText: tag }).first().getAttribute('value');
-    if (value !== null) await picker.selectOption(value);
+    const mine = new RegExp(`Guests [AB] ${tag}.*Guests [AB] ${tag}`);
+    const value = await picker.locator('option', { hasText: mine }).first().getAttribute('value');
+    expect(value, 'the resolver lists the pair created by this test').not.toBeNull();
+    await picker.selectOption(value!);
   }
 
   // Precondition: this pair does have an attendee.
   await expect(resolver.getByText(/^[1-9]\d* attendees?$/).first()).toBeVisible();
 
-  // One row — the account's own — and it is busy in the 09:00 hour, where both
-  // events sit; that cell is filled only after the engine's response is read.
+  // The account's own row is busy in the 09:00 hour, where both events sit; that
+  // cell is filled only after the engine's response is read.
   const grid = resolver.locator('[data-testid="freebusy-grid"]');
   await expect(grid).toBeVisible();
-  await expect(grid.locator('tbody tr')).toHaveCount(1);
+  await expect(grid.locator('tbody tr')).toHaveCount(2);
   await expect(grid.getByLabel('Yours at 09:00: Busy')).toBeVisible();
-  // The dialog does not claim to know the attendee's availability.
-  await expect(resolver.locator('[data-testid="freebusy-own-only"]')).toBeVisible();
+  // Since 9fdd2053 each invited person has a row. The engine answers only for the
+  // account itself, so the attendee's row says availability could not be retrieved
+  // instead of claiming free or busy hours for them.
+  const person = grid.locator(`[data-testid="freebusy-person"][data-principal="${attendee}"]`);
+  await expect(person).toHaveCount(1);
+  await expect(person.locator('[data-testid="freebusy-unknown"]')).toContainText('Availability could not be retrieved');
+  await expect(person.getByLabel(/: (Busy|Free)$/)).toHaveCount(0);
   await expect(grid.getByText(attendee)).toHaveCount(0);
 
   await resolver.getByRole('button', { name: 'Close' }).click();

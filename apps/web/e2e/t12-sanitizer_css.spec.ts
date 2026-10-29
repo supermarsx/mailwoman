@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { engineLogin, uid, waitForInboxMessage, openMessage, injectHtmlViaSmtp } from './crypto-helpers.ts';
+import { readerContent } from './helpers.ts';
 
 /**
  * 26.12 sanitizer CSS-rewrite live E2E (audit #4, SPEC §7.2 item 3, plan §2 Batch-4).
@@ -22,8 +23,6 @@ import { engineLogin, uid, waitForInboxMessage, openMessage, injectHtmlViaSmtp }
  * This is the browser end of the §7.2 CSS gate; the property-allowlist / z-index-clamp
  * matrix is unit-proven in `crates/mw-sanitize` (26 tests).
  */
-
-const readerFrame = 'iframe.reader__frame';
 
 test('sanitizer keeps namespaced CSS but drops position:fixed / @import / external url() in a real render', async ({
   page,
@@ -64,10 +63,11 @@ test('sanitizer keeps namespaced CSS but drops position:fixed / @import / extern
   await waitForInboxMessage(page, subject);
   await openMessage(page, subject);
 
-  // The body renders in the locked-down reader iframe (sandbox omits allow-scripts
-  // AND allow-same-origin — the standing §7.2 guarantee).
-  const frame = page.locator(readerFrame);
-  await expect(frame).toBeVisible();
+  // The body renders in the locked-down content iframe (sandbox omits allow-scripts
+  // AND allow-same-origin — the standing §7.2 guarantee). Since 99f51b81 that is the
+  // nested `Message content` frame inside the reader's bridge frame
+  // (helpers.readerContent picks whichever frame holds the message).
+  const frame = await readerContent(page);
   const sandbox = await frame.getAttribute('sandbox');
   expect(sandbox).not.toBeNull();
   expect(sandbox).not.toContain('allow-scripts');
@@ -89,12 +89,19 @@ test('sanitizer keeps namespaced CSS but drops position:fixed / @import / extern
   // `@import` was DROPPED — no remote stylesheet pull, and the import host is gone.
   expect(srcdoc, '@import dropped').not.toContain('@import');
   expect(srcdoc, 'import host dropped').not.toContain(importHost);
-  // The external `url(https://…)` (tracking pixel) was DROPPED.
-  expect(srcdoc, 'external url() dropped').not.toContain(trackerHost);
+  // The external `url(https://…)` (tracking pixel) was DROPPED from the CSS. Since
+  // 62b88237 the reader mode replaces it with an unloadable `mw-rc:` placeholder and
+  // keeps the address only in a hidden, inert marker element (for "load remote
+  // content"), so the host may appear in that marker's attributes and nowhere else.
+  const styles = [...srcdoc.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)].map((m) => m[1]).join(' ');
+  expect(styles, 'external url() dropped from CSS').not.toContain(trackerHost);
+  expect(styles, 'the background url() became a placeholder').toMatch(/url\(\s*["']?mw-rc:/);
+  const outsideMarkers = srcdoc.replace(/<span hidden=""[^>]*data-mw-rc-url="[^"]*"[^>]*><\/span>/g, '');
+  expect(outsideMarkers, 'tracker host only in the hidden remote-content marker').not.toContain(trackerHost);
   expect(srcdoc, 'no external https url in css').not.toMatch(/url\(\s*["']?https?:/i);
 
   // The visible text still renders inside the frame (sanitizing CSS didn't eat content).
-  const inFrame = page.frameLocator(readerFrame);
+  const inFrame = frame.contentFrame();
   await expect(inFrame.getByText(promo)).toBeVisible();
   await expect(inFrame.getByText(pixel)).toBeVisible();
 });
