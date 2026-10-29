@@ -37,30 +37,37 @@ const settle=():Promise<void>=>new Promise(r=>setTimeout(r,50));
 
 describe('opening a message keeps focus in the list (t51)',()=>{
   for(const mode of ['right','bottom'] as ReadingPane[]){
-    it(`reading pane ${mode}: click, Enter and arrows keep the row focused while the message tab shows the message`,async()=>{
+    it(`reading pane ${mode}: click, Enter and arrows keep the row focused while the reading pane shows the message`,async()=>{
       const {realtime}=await mount();setReadingPane(mode);
+      const pane=()=>screen.getByTestId('reading-pane');
       const first=row('Subject a');first.focus();fireEvent.click(first);
-      await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:a'));
+      await waitFor(()=>expect(pane().querySelector('.reader__subject')?.textContent).toBe('Subject a'));
+      expect(realtime.subTabs.activeId()).toBe('mail');
       await screen.findByRole('heading',{name:'Subject a'});await settle();
       expect(document.activeElement).toBe(first);
       await waitFor(()=>expect(screen.getByTestId('message-opened-status').textContent).toBe('Opened: Subject a'));
       fireEvent.keyDown(first,{key:'ArrowDown'});await settle();
       const second=row('Subject b');expect(document.activeElement).toBe(second);
       fireEvent.click(second);// Enter on a focused <button> is a click
-      await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:b'));
-      await screen.findByRole('heading',{name:'Subject b'});await settle();
+      await waitFor(()=>expect(pane().querySelector('.reader__subject')?.textContent).toBe('Subject b'));
+      await settle();
       expect(document.activeElement).toBe(second);
       // The `next` shortcut opens the following message and focus follows the cursor in the list.
       fireEvent.keyDown(document.body,{key:'j'});
+      await waitFor(()=>expect(pane().querySelector('.reader__subject')?.textContent).toBe('Subject c'));await settle();
+      expect(document.activeElement).toBe(row('Subject c'));
+      // Shift+Enter (t74) opens the focused row's message in its own tab; the row keeps focus.
+      fireEvent.keyDown(row('Subject c'),{key:'Enter',shiftKey:true});
       await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:c'));await settle();
       expect(document.activeElement).toBe(row('Subject c'));
+      expect(realtime.subTabs.tabs().filter(tab=>tab.kind==='messages'&&tab.id!=='mail')).toHaveLength(1);
     });
   }
   it('a message tab that is already open: activating it again keeps the row focused',async()=>{
     const {realtime}=await mount();
-    fireEvent.click(row('Subject a'));await screen.findByRole('heading',{name:'Subject a'});
-    fireEvent.click(row('Subject b'));await screen.findByRole('heading',{name:'Subject b'});
-    const first=row('Subject a');first.focus();fireEvent.click(first);
+    fireEvent.dblClick(row('Subject a'));await screen.findByRole('heading',{name:'Subject a'});
+    fireEvent.dblClick(row('Subject b'));await screen.findByRole('heading',{name:'Subject b'});
+    const first=row('Subject a');first.focus();fireEvent.dblClick(first);
     await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:a'));await settle();
     expect(document.activeElement).toBe(first);
   });

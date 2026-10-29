@@ -11,6 +11,7 @@ import { MailboxScreen } from './Mailbox.tsx';
 import { RealtimeContext } from '../realtime/context.ts';
 import { createRealtimeController } from '../realtime/controller.ts';
 import type { EmailGetResponse, JmapRequest } from '../api/jmap-types.ts';
+import { setReadingPane } from '../components/readingPane.ts';
 
 beforeEach(async()=>{suspendAccountPreferences();localStorage.removeItem(WORKSPACE_STORAGE_KEY);history.replaceState(null,'','#/mail');await new Promise(resolve=>setTimeout(resolve,0));});
 
@@ -82,7 +83,7 @@ describe('retained mailbox workspace',()=>{
   });
   it('opens the selected message export editor in Settings and retains its reader',async()=>{
     const {app}=mount();await app.login({username:'me@example.org',password:'p'});
-    fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}));
+    fireEvent.dblClick(await screen.findByText('Subject a',{selector:'.list__subject'}));
     fireEvent.click(await screen.findByTestId('reader-export'));
     expect(await screen.findByRole('heading',{name:'Export message'})).toBeInTheDocument();
     expect(screen.getByRole('tab',{name:'Subject a'})).toBeInTheDocument();
@@ -92,7 +93,7 @@ describe('retained mailbox workspace',()=>{
     const policy={previewAllowed:true,downloadAllowed:true,maxBytes:1024,allowedExtensions:[],blockedExtensions:[],warnExtensions:[],allowedMimeTypes:[],blockedMimeTypes:[],warnMimeTypes:[]};
     vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>new URL(input instanceof Request?input.url:String(input),location.href).pathname==='/api/attachments/policy'?new Response(JSON.stringify(policy),{status:200,headers:{'content-type':'application/json'}}):new Response(null,{status:404})));
     const {app,realtime}=mount(true);await app.login({username:'me@example.org',password:'p'});
-    fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}));
+    fireEvent.dblClick(await screen.findByText('Subject a',{selector:'.list__subject'}));
     const item=await screen.findByRole('option',{name:/report.txt/});fireEvent.click(item);
     expect(screen.getByRole('tab',{name:'report.txt'})).toHaveAttribute('aria-selected','true');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -103,15 +104,57 @@ describe('retained mailbox workspace',()=>{
   });
   it('opens independent message tabs and restores each reader without another load',async()=>{
     const {app,realtime,container}=mount();await app.login({username:'me@example.org',password:'p'});
-    fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}));
+    fireEvent.dblClick(await screen.findByText('Subject a',{selector:'.list__subject'}));
     await waitFor(()=>expect(app.openEmail()?.id).toBe('a'));
-    fireEvent.click(screen.getByText('Subject b',{selector:'.list__subject'}));
+    fireEvent.dblClick(screen.getByText('Subject b',{selector:'.list__subject'}));
     await waitFor(()=>expect(app.openEmail()?.id).toBe('b'));
     expect(container.querySelectorAll('.workspace-pane .reader__subject')).toHaveLength(2);
     const first=realtime.subTabs.tabs().find(tab=>tab.title==='Subject a')!;
     fireEvent.click(document.getElementById(`subtab-tab-${first.id}`)!);
     expect(app.openEmail()?.id).toBe('a');
     expect(screen.getByRole('tab',{name:'Subject a'})).toHaveAttribute('aria-selected','true');
+  });
+  // t74: the reading pane on (default Right): a click shows the message in the
+  // one reading pane and adds no tab; a double-click opens its tab, which takes
+  // the pane's view (no second Email/get). Pane Off: a click opens the tab.
+  it('reading pane on: clicks reuse the reading pane and add no tab; a double-click opens one tab without a second load',async()=>{
+    const {app,realtime,show,client}=setup();const {container}=show();await app.login({username:'me@example.org',password:'p'});
+    const gets=(id:string)=>vi.mocked(client.jmap).mock.calls.filter(([request])=>request.methodCalls.some(call=>{const ids=call[1]['ids'];return call[0]==='Email/get'&&Array.isArray(ids)&&ids.length===1&&ids[0]===id;})).length;
+    const messageTabs=()=>realtime.subTabs.tabs().filter(tab=>tab.kind==='messages'&&tab.id!=='mail');
+    const paneSubject=()=>screen.getByTestId('reading-pane').querySelector('.reader__subject')?.textContent;
+    fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}),{detail:1});
+    await waitFor(()=>expect(paneSubject()).toBe('Subject a'));
+    expect(realtime.subTabs.activeId()).toBe('mail');expect(messageTabs()).toHaveLength(0);
+    fireEvent.click(screen.getByText('Subject b',{selector:'.list__subject'}),{detail:1});
+    await waitFor(()=>expect(paneSubject()).toBe('Subject b'));
+    expect(messageTabs()).toHaveLength(0);expect(container.querySelectorAll('[data-testid="reading-pane"]')).toHaveLength(1);
+    const loads=gets('b');expect(loads).toBeGreaterThan(0);
+    const row=screen.getByText('Subject b',{selector:'.list__subject'});
+    fireEvent.click(row,{detail:2});fireEvent.dblClick(row,{detail:2});
+    await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:b'));
+    expect(messageTabs()).toHaveLength(1);expect(gets('b')).toBe(loads);
+    expect(within(screen.getByRole('tabpanel',{name:'Subject b'})).getByRole('heading',{name:'Subject b'})).toBeInTheDocument();
+    expect(app.openEmail()?.id).toBe('b');
+    // Again: the tab is reused, not duplicated.
+    fireEvent.dblClick(screen.getByText('Subject b',{selector:'.list__subject'}));
+    expect(messageTabs()).toHaveLength(1);
+    // A click from beside the tab goes back to the reading pane on the Mail tab.
+    fireEvent.click(screen.getByText('Subject a',{selector:'.list__subject'}),{detail:1});
+    await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('mail'));
+    await waitFor(()=>expect(paneSubject()).toBe('Subject a'));
+    expect(messageTabs()).toHaveLength(1);
+  });
+  it('reading pane off: a click opens the message tab and a second click on it reuses that tab',async()=>{
+    try{
+      const {app,realtime}=mount();await app.login({username:'me@example.org',password:'p'});setReadingPane('off');
+      fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}),{detail:1});
+      await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:a'));
+      expect(screen.queryByTestId('reading-pane')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('tab',{name:'Mail'}));
+      fireEvent.click(screen.getByText('Subject a',{selector:'.list__subject'}),{detail:1});
+      await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:a'));
+      expect(realtime.subTabs.tabs().filter(tab=>tab.kind==='messages'&&tab.id!=='mail')).toHaveLength(1);
+    }finally{setReadingPane('right');}
   });
   it('keeps each composer mounted and opens sectioned Settings without a modal',async()=>{
     const {app,realtime}=mount();await app.login({username:'me@example.org',password:'p'});

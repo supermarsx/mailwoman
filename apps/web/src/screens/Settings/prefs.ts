@@ -131,6 +131,7 @@ export const PRESET_BINDINGS: Record<KeyboardPreset, ReadonlyArray<{ action: str
     { action: 'zoomOut', keys: 'Ctrl+-' },
     { action: 'zoomReset', keys: 'Ctrl+0' },
     { action: 'renameFolder', keys: 'F2' },
+    { action: 'openInTab', keys: 'Shift+Enter' },
   ],
   gmail: [
     { action: 'trash', keys: 'Delete' },
@@ -145,6 +146,7 @@ export const PRESET_BINDINGS: Record<KeyboardPreset, ReadonlyArray<{ action: str
     { action: 'zoomOut', keys: 'Ctrl+-' },
     { action: 'zoomReset', keys: 'Ctrl+0' },
     { action: 'renameFolder', keys: 'F2' },
+    { action: 'openInTab', keys: 'Shift+Enter' },
   ],
   outlook: [
     { action: 'trash', keys: 'Delete' },
@@ -159,6 +161,7 @@ export const PRESET_BINDINGS: Record<KeyboardPreset, ReadonlyArray<{ action: str
     { action: 'zoomOut', keys: 'Ctrl+-' },
     { action: 'zoomReset', keys: 'Ctrl+0' },
     { action: 'renameFolder', keys: 'F2' },
+    { action: 'openInTab', keys: 'Shift+Enter' },
   ],
   vim: [
     { action: 'trash', keys: 'Delete' },
@@ -173,6 +176,7 @@ export const PRESET_BINDINGS: Record<KeyboardPreset, ReadonlyArray<{ action: str
     { action: 'zoomOut', keys: 'Ctrl+-' },
     { action: 'zoomReset', keys: 'Ctrl+0' },
     { action: 'renameFolder', keys: 'F2' },
+    { action: 'openInTab', keys: 'Shift+Enter' },
   ],
   off: [],
 };

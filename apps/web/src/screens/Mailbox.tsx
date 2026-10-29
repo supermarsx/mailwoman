@@ -26,6 +26,7 @@ import {folderDropTarget} from '../components/messageDrag.css.ts';
 import { ResizeHandle } from '../components/ResizeHandle.tsx';
 import { accountUiPreferences, setAccountUiPreferences } from '../api/accountPreferences.ts';
 import { readingPane } from '../components/readingPane.ts';
+import { messageOpenTarget, type OpenGesture } from '../components/messageOpen.ts';
 import { orderedFolders, folderIcon } from './Settings/folderPreferenceModel.ts';
 import type { MessageView } from '../state/slices/messageView.ts';
 import { createSettingsNavigation, type SettingsNavigation } from './Settings/navigation.tsx';
@@ -35,7 +36,7 @@ import { AttachmentTab, type AttachmentTabItem } from '../viewers/AttachmentTab.
 import { buildDownloadUrl } from '../viewers/attachments.ts';
 import type { StripItem } from '../viewers/ThumbnailStrip.tsx';
 import { useBranding, brandAssetUrl } from '../branding.ts';
-import { createEffect, createMemo, createSignal, on, untrack, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
+import { batch, createEffect, createMemo, createSignal, on, untrack, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { useApp } from '../state/context.ts';
 import { createEntryMotion } from '../shell/createEntryMotion.ts';
@@ -213,9 +214,16 @@ export function MailboxScreen(): JSX.Element {
     return opener&&!opener.detach?.isDetached()?opener.id:null;
   });
   const composing=()=>activePane()?.kind==='composer';
-  const listVisible=()=>!activePane() || (activePane()?.kind==='messages' && (accountUiPreferences().readerCollapsed || (!narrow() && readingPane()!=='off' && !accountUiPreferences().messageListCollapsed)));
+  // t74: the reading pane. With it on (Right or Bottom, and not at phone width) a
+  // message opened from the Mail list shows in this one reader beside the list
+  // and the next one replaces it; it is not a tab. A double-click or Shift+Enter
+  // asks for a tab, which takes this reader's view as it stands (no second fetch).
+  const [preview,setPreview]=createSignal<MessageView|null>(null);
+  let previewId:string|null=null;let previewLoading:Promise<void>|undefined;
+  const previewVisible=()=>subTabs.activeId()==='mail'&&preview()!==null&&!narrow()&&readingPane()!=='off'&&!accountUiPreferences().readerCollapsed;
+  const listVisible=()=>!activePane() ? (!previewVisible() || !accountUiPreferences().messageListCollapsed) : (activePane()?.kind==='messages' && (accountUiPreferences().readerCollapsed || (!narrow() && readingPane()!=='off' && !accountUiPreferences().messageListCollapsed)));
   const readersVisible=()=>!!activePane() && !(activePane()?.kind==='messages' && accountUiPreferences().readerCollapsed);
-  const splitVisible=()=>listVisible() && readersVisible();
+  const splitVisible=()=>listVisible() && (readersVisible() || previewVisible());
   let restoreIntent=0;
   function noteWorkspaceIntent():void {restoreIntent+=1;}
   function canOpenPane(id?:string):boolean {if(id&&panes().some(pane=>pane.id===id))return true;if(panes().length<MAX_WORKSPACE_TABS-1)return true;app.showToast('info',t('mail-workspace-limit'));return false;}
@@ -265,14 +273,31 @@ export function MailboxScreen(): JSX.Element {
     const pane=panes().find(item=>item.id===`settings:${account ?? ''}`);
     if(account===app.accountId()) await pane?.navigation?.navigate({section:'mail-transfer',editor:{kind:'edit',id:messageId}});
   }
-  async function openDraftOrMessage(messageId:string,opener?:string):Promise<void>{
+  /** A message opened from the Mail list: the reading pane or a tab (t74, messageOpen.ts). Drafts open in compose either way. */
+  function openFromList(messageId:string,gesture:OpenGesture):Promise<void>{
+    return openDraftOrMessage(messageId,undefined,messageOpenTarget(gesture,{readingPane:readingPane(),narrow:narrow()}));
+  }
+  async function openDraftOrMessage(messageId:string,opener?:string,target:'pane'|'tab'='tab'):Promise<void>{
     const owner=preferenceAccount(),message=app.messages().find(item=>item.id===messageId);
     if(owner?.storageAuthority&&message?.keywords?.['$draft']){
       try{const result=await accountDraftApi(owner).resolve(messageId);if(!preferenceAccountIsCurrent(owner))return;if(result.draft?.state){const draft=localAccountDraft(result.draft);saveDraft(draft);openComposer(undefined,draft.id);return;}}
       catch{if(!preferenceAccountIsCurrent(owner))return;}
     }
-    openMessageTab(messageId,false,opener);
+    if(target==='pane')openPreview(messageId);else openMessageTab(messageId,false,opener);
   }
+  function openPreview(messageId:string):void {
+    noteWorkspaceIntent();
+    router.navigate('mail');
+    subTabs.activate('mail');
+    let view=preview();
+    // The same message again (the second click of a double-click, a re-click): no refetch.
+    if(view&&previewId===messageId&&!view.error()){announceOpen(view,previewLoading);return;}
+    if(!view){view=app.createReaderView();setPreview(view);}
+    previewId=messageId;
+    const loading=view.openMessage(messageId);previewLoading=loading;
+    announceOpen(view,loading);
+  }
+  function closePreview():void {const view=preview();previewId=null;previewLoading=undefined;setPreview(null);view?.dispose();}
   // t51: opening a message leaves focus on the row that opened it; a polite
   // status names the message so the open is not silent for a screen reader.
   // Where the reader covers the list (the focused row is hidden) the reader
@@ -295,11 +320,19 @@ export function MailboxScreen(): JSX.Element {
     if(opener&&isSplitLayout(effectiveLayout()))views.openBeside(opener);
     if(existing) {if(!restoring){if(opener)existing.opener=opener;else delete existing.opener;}subTabs.activate(id);if(!restoring&&existing.view)announceOpen(existing.view);return;}
     const title=app.messages().find(message=>message.id===messageId)?.subject || t('mail-workspace-message');
-    const view=app.createReaderView();
-    setPanes(old=>[...old,{id,kind:'messages',title,view,reference:messageId,...(opener?{opener}:{})}]);
-    subTabs.open({id,kind:'messages',title});
-    const loading=view.openMessage(messageId);
-    if(!restoring)announceOpen(view,loading);
+    // t74: the reading pane's message asked for a tab takes the pane's view with
+    // it, loaded or loading; the pane is empty after. One batch, so no frame
+    // shows the list alone between the two.
+    const adopted=!restoring&&previewId===messageId?preview():null;
+    const view=adopted??app.createReaderView();
+    const loading=adopted?previewLoading:undefined;
+    batch(()=>{
+      if(adopted){previewId=null;previewLoading=undefined;setPreview(null);}
+      setPanes(old=>[...old,{id,kind:'messages',title,view,reference:messageId,...(opener?{opener}:{})}]);
+      subTabs.open({id,kind:'messages',title});
+    });
+    if(!restoring)announceOpen(view,adopted?loading:view.openMessage(messageId));
+    else void view.openMessage(messageId);
   }
   /** `discard`: the user already chose to discard this tab's unsaved changes (a bulk close), so it does not ask again. */
   async function closePane(id:string,discard=false):Promise<void> {
@@ -336,11 +369,11 @@ export function MailboxScreen(): JSX.Element {
     }
     for(const id of targets){if(dirty.has(id)&&!discard)continue;await closePane(id,dirty.has(id));}
   }
-  createEffect(()=>{app.setActiveReader(surface()==='mail' && readersVisible() ? activePane()?.view ?? null : null);});
+  createEffect(()=>{app.setActiveReader(surface()!=='mail' ? null : readersVisible() ? activePane()?.view ?? null : previewVisible() ? preview() : null);});
   let workspaceGeneration:number|undefined;
-  onCleanup(observePreferenceAccount(owner=>{if(owner?.generation===workspaceGeneration)return;workspaceGeneration=owner?.generation;restoreIntent=0;setWorkspaceReady(false);for(const pane of untrack(panes)){pane.view?.dispose();subTabs.close(pane.id);}setPanes([]);subTabs.activate('mail');setWorkspaceOwner(owner);}));
+  onCleanup(observePreferenceAccount(owner=>{if(owner?.generation===workspaceGeneration)return;workspaceGeneration=owner?.generation;restoreIntent=0;setWorkspaceReady(false);for(const pane of untrack(panes)){pane.view?.dispose();subTabs.close(pane.id);}setPanes([]);closePreview();subTabs.activate('mail');setWorkspaceOwner(owner);}));
 
-  onCleanup(()=>{for(const pane of panes()) {pane.view?.dispose();subTabs.close(pane.id);}app.setActiveReader(null);});
+  onCleanup(()=>{for(const pane of panes()) {pane.view?.dispose();subTabs.close(pane.id);}preview()?.dispose();app.setActiveReader(null);});
   // t13 26.13 (E9 mount): the mailbox ACL editor, reachable from the mailbox
   // context. Open for the currently-selected mailbox; only meaningful once a
   // mailbox + account are resolved.
@@ -778,7 +811,7 @@ export function MailboxScreen(): JSX.Element {
         <div class={a11y.srOnly} role="status" aria-live="polite" aria-atomic="true" data-testid="message-opened-status">{openedNotice()}</div>
         <div class="workspace-body" ref={bodyElement} data-reading-pane={readingPane()} classList={{'workspace-body--split':splitVisible()}}>
           <div class={`mail-pane ${motion.surface}`} hidden={!listVisible()} data-mw-entering={mailEntering()}>
-            <SearchBox /><InboxTabs /><MessageList onOpenMessage={id=>void openDraftOrMessage(id)} onCompose={openReply}/>
+            <SearchBox /><InboxTabs /><MessageList onOpenMessage={id=>void openFromList(id,'activate')} onOpenMessageTab={id=>void openFromList(id,'tab')} onCompose={openReply}/>
           </div>
           <Show when={splitVisible()}><ResizeHandle label={t('mail-resize-list')} orientation={readingPane()==='bottom'?'horizontal':'vertical'} value={listSize()} min={readingPane()==='bottom'?160:240} max={listMax()} onChange={setListDrag} onCommit={value=>{setAccountUiPreferences(readingPane()==='bottom'?{messageListHeight:value}:{messageListWidth:value});setListDrag(null);}}/></Show>
           <div class="workspace-panes" ref={tilesElement} data-layout={effectiveLayout()} data-pair={isSplitLayout(effectiveLayout())} data-companion={companion()!==null} hidden={!readersVisible()}>
@@ -805,6 +838,9 @@ export function MailboxScreen(): JSX.Element {
               <For each={[0,1] as const}>{slot=><Show when={views.assignments()[slot]===null}><div class="workspace-view-empty" data-view-slot={slot} data-drop-target={dropView()===slot} role="region" aria-label={t(slot===0?'mail-workspace-view-first':'mail-workspace-view-second')} onDragOver={event=>dragView(event,slot)} onDrop={event=>dragView(event,slot,true)} onDragLeave={()=>setDropView(null)}><Icon name="mail"/><p>{t('mail-workspace-view-empty')}</p></div></Show>}</For>
             </Show>
           </div>
+          <Show when={preview()}>{view=><section class="workspace-pane workspace-reading-pane" aria-label={t('mail-reading-pane')} data-testid="reading-pane" hidden={!previewVisible()} inert={!previewVisible()}>
+            <Reader view={view()} active={previewVisible()} onClose={closePreview} onCompose={openReply} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)} onOpenSettings={section=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section});}}/>
+          </section>}</Show>
         </div>
         <ConfirmDialog open={dirtyClose()!==null} testId="workspace-tabs-close-dirty"
           title={t('workspace-tabs-close-dirty-title',{count:dirtyClose()?.titles.length??0})} body={t('workspace-tabs-close-dirty-body')}

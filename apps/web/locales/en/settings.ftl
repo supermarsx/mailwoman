@@ -309,6 +309,7 @@ settings-kbd-action-zoomIn = Zoom message in
 settings-kbd-action-zoomOut = Zoom message out
 settings-kbd-action-zoomReset = Reset message zoom
 settings-kbd-action-renameFolder = Rename folder
+settings-kbd-action-openInTab = Open message in its own tab
 
 settings-notif-device-title = Permission on this device
 settings-notif-device-help = Your notification preferences follow your account. Browser permission belongs to this device; Mailwoman asks only when you choose to allow it.

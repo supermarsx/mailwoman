@@ -1,7 +1,7 @@
 import { chordId, parseChord } from './chords.ts';
 import type { SettingsMap } from '../api/settings.ts';
 
-export const SHORTCUT_ACTIONS = ['compose', 'archive', 'reply', 'replyAll', 'forward', 'next', 'previous', 'search', 'refresh', 'settings', 'trash', 'markRead', 'markUnread', 'spam', 'zoomIn', 'zoomOut', 'zoomReset', 'renameFolder'] as const;
+export const SHORTCUT_ACTIONS = ['compose', 'archive', 'reply', 'replyAll', 'forward', 'next', 'previous', 'search', 'refresh', 'settings', 'trash', 'markRead', 'markUnread', 'spam', 'zoomIn', 'zoomOut', 'zoomReset', 'renameFolder', 'openInTab'] as const;
 export type ShortcutAction = typeof SHORTCUT_ACTIONS[number];
 
 export function validBinding(value: string): boolean {

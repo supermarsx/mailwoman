@@ -26,6 +26,7 @@ import * as rowCss from './messageRow.css.ts';
 import * as bulk from './bulkBar.css.ts';
 import { groupThreads, threadKey, type ThreadVisualRow } from './threads.ts';
 import { readingPane, setReadingPane, READING_PANE_OPTIONS, type ReadingPane } from './readingPane.ts';
+import { classifyRowClick, dblClickOpensTab } from './messageOpen.ts';
 import type { Density } from '../theme/contract.css.ts';
 import type { Email, EmailAddress, Id } from '../api/jmap-types.ts';
 
@@ -108,6 +109,8 @@ function formatDate(iso: string): string {
 
 /** What a click did to the row, for the list to act on. */
 type RowClick = (e: MouseEvent) => void;
+/** A double-click on the row (t74: with the reading pane on it opens a tab). */
+type RowDblClick = (e: MouseEvent) => void;
 
 /** The check mark and screen-reader text a selected row carries. */
 function SelectedMark(props: { selected: boolean }): JSX.Element {
@@ -136,6 +139,7 @@ function MessageRow(props: {
   threadChild?: boolean;
   setRef: (el: HTMLButtonElement | undefined) => void;
   onClick: RowClick;
+  onDblClick: RowDblClick;
 }): JSX.Element {
   const app = useApp();
   const email = () => props.email;
@@ -165,6 +169,7 @@ function MessageRow(props: {
         aria-current={app.openEmail()?.id === email().id ? 'true' : undefined}
         data-index={props.index}
         onClick={(e) => props.onClick(e)}
+        onDblClick={(e) => props.onDblClick(e)}
         draggable={dragToFolderEnabled()&&!app.listLoading()} onDragStart={props.onDragStart} onDragEnd={clearMessageDrag}
         data-email-id={email().id} onContextMenu={e=>props.contextMenu.open(e,email())} onKeyDown={e=>props.contextMenu.keydown(e,email())}
       >
@@ -245,6 +250,7 @@ function ThreadHeadRow(props: {
   setRef: (el: HTMLButtonElement | undefined) => void;
   onToggle: () => void;
   onClick: RowClick;
+  onDblClick: RowDblClick;
 }): JSX.Element {
   const app = useApp();
   const rep = () => props.row.email;
@@ -287,6 +293,7 @@ function ThreadHeadRow(props: {
         data-index={props.index}
         data-testid="thread-head"
         onClick={(e) => props.onClick(e)}
+        onDblClick={(e) => props.onDblClick(e)}
         draggable={dragToFolderEnabled()&&!app.listLoading()} onDragStart={props.onDragStart} onDragEnd={clearMessageDrag}
         data-email-id={rep().id} onContextMenu={e=>props.contextMenu.open(e,rep())} onKeyDown={e=>props.contextMenu.keydown(e,rep())}
       >
@@ -355,7 +362,13 @@ function rowId(row: ThreadVisualRow): string {
   return row.kind === 'head' ? `h:${row.key}` : `m:${row.email.id}`;
 }
 
-export function MessageList(props: { onOpenMessage?: (id: string) => void; onCompose?: (initial:ComposeInitial)=>void } = {}): JSX.Element {
+/**
+ * `onOpenMessage`: a plain activation (click, tap, Enter, `next`/`previous`).
+ * `onOpenMessageTab`: an explicit ask for a tab (double-click, the `openInTab`
+ * shortcut); without it those fall back to `onOpenMessage`. Where each goes is
+ * the host's decision (t74: Mailbox routes by the reading pane).
+ */
+export function MessageList(props: { onOpenMessage?: (id: string) => void; onOpenMessageTab?: (id: string) => void; onCompose?: (initial:ComposeInitial)=>void } = {}): JSX.Element {
   const app = useApp();
   const [contextEmail,setContextEmail]=createSignal<Email>();
   const contextMenu=createMessageContextMenu(contextEmail);
@@ -423,20 +436,29 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
     const ids = all.slice(lo, hi + 1).flatMap(idsOf);
     app.setSelection(add ? [...app.selectedIds(), ...ids] : ids);
   }
+  const open = (id: Id): void => void (props.onOpenMessage ? props.onOpenMessage(id) : app.openMessage(id));
+  const openTab = (id: Id): void => { if (props.onOpenMessageTab) props.onOpenMessageTab(id); else open(id); };
   function onRowClick(e: MouseEvent, index: number, row: ThreadVisualRow): void {
     if (app.listLoading()) return;
     setCursor(index);
-    if (e.shiftKey && modifierSelectionEnabled()) {
+    const action = classifyRowClick(e, { modifierSelection: modifierSelectionEnabled(), selecting: selecting() });
+    if (action === 'range') {
       selectRange(anchor() ?? index, index, e.ctrlKey || e.metaKey);
       return;
     }
     setAnchor(index);
-    if (((e.ctrlKey || e.metaKey) && modifierSelectionEnabled()) || selecting()) {
+    if (action === 'toggle') {
       app.toggleSelection(idsOf(row));
       return;
     }
+    // The second click of a double-click: the first one opened the message.
+    if (action === 'ignore') return;
     app.clearSelection();
-    void (props.onOpenMessage ? props.onOpenMessage(row.email.id) : app.openMessage(row.email.id));
+    open(row.email.id);
+  }
+  function onRowDblClick(e: MouseEvent, row: ThreadVisualRow): void {
+    if (app.listLoading() || !dblClickOpensTab(e, { selecting: selecting() })) return;
+    openTab(row.email.id);
   }
 
   function dragRow(event:DragEvent,row:ThreadVisualRow):void {
@@ -628,11 +650,20 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
     const to = Math.max(0, Math.min(all.length - 1, from + delta));
     moveCursor(to);
     const row = all[to];
-    if (row !== undefined && row.email.id !== openId) void (props.onOpenMessage ? props.onOpenMessage(row.email.id) : app.openMessage(row.email.id));
+    if (row !== undefined && row.email.id !== openId) open(row.email.id);
     return true;
   }
   useActions({
     next: () => step(1), previous: () => step(-1),
+    // Shift+Enter by default (t74): the focused row's message in its own tab.
+    openInTab: () => {
+      const focused = document.activeElement;
+      const row = rows().find(item => rowEls.get(rowId(item)) === focused);
+      if (!row) return false;
+      if (app.listLoading()) return true;
+      openTab(row.email.id);
+      return true;
+    },
     trash: () => {
       const focused = document.activeElement;
       const row = rows().find(item => rowEls.get(rowId(item)) === focused);
@@ -739,6 +770,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
                           threadChild={row().kind === 'child'}
                           setRef={setRef}
                           onClick={(e) => onRowClick(e, index(), row())}
+                          onDblClick={(e) => onRowDblClick(e, row())}
                           onDragStart={event=>dragRow(event,row())}
                         />
                       }
@@ -754,6 +786,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
                         onToggle={() => toggleThread(row().key)}
                         setRef={setRef}
                         onClick={(e) => onRowClick(e, index(), row())}
+                        onDblClick={(e) => onRowDblClick(e, row())}
                         onDragStart={event=>dragRow(event,row())}
                       />
                     </Show>
