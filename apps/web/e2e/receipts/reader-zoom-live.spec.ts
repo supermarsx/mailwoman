@@ -1,7 +1,8 @@
 // t59: the reading-pane zoom against a live server built from the tree.
 // Three fixtures are delivered over Greenmail SMTP first (plain text, a 900px
 // wide HTML newsletter, a message with an inline and a remote image). The body
-// is a sandboxed frame: its zoom is read from the frame document itself.
+// is a sandboxed frame; t79 scales it from outside (the zoom box), so the level
+// is read from the box and the frame's on-screen size.
 // Screenshots go to MW_T59_SHOTS when set (else the test output dir).
 import {test,expect} from '../csrf.ts';
 import type {Page,TestInfo} from '@playwright/test';
@@ -64,9 +65,27 @@ async function source(page:Page):Promise<string>{
  }).toBe(true);
  return html;
 }
-const frameZoom=async(page:Page)=>{const m=/html\{zoom:([0-9.]+)\}/.exec(await source(page));return m?Number(m[1]):1;};
+/** The body's scale (t79: applied from outside the frame by the zoom box, so the
+ *  document itself never changes): the box's level, checked against the frame's
+ *  on-screen size over its layout size. */
+const frameZoom=async(page:Page)=>{
+ const frame=reader(page).locator('iframe.reader__frame').first();
+ await expect(frame).toBeAttached();
+ const [level,visual]=await frame.evaluate(e=>[Number(e.closest('[data-reader-zoom]')?.getAttribute('data-reader-zoom')??100)/100,e.getBoundingClientRect().width/(e as HTMLElement).offsetWidth]);
+ // offsetWidth is whole pixels: compare at 1%.
+ expect(Math.abs(visual-level)/level).toBeLessThan(0.01);
+ return level;
+};
 /** Pixel box of an element inside the body frame, when the engine can measure it. */
-async function imgBox(page:Page,selector:string){try{return await reader(page).frameLocator('iframe.reader__frame').first().locator(selector).first().boundingBox({timeout:3000})??await reader(page).frameLocator('iframe.reader__frame').first().frameLocator('iframe').first().locator(selector).first().boundingBox({timeout:3000});}catch{try{return await reader(page).frameLocator('iframe.reader__frame').first().frameLocator('iframe').first().locator(selector).first().boundingBox({timeout:3000});}catch{return null;}}}
+/** On-screen width of an element inside the body: its box in the message
+ *  document times the frame's visual scale (the zoom is a transform on the frame,
+ *  which a frame-relative bounding box does not include). */
+async function imgBox(page:Page,selector:string){
+ const outer=reader(page).locator('iframe.reader__frame').first();
+ const visual=await outer.evaluate(e=>e.getBoundingClientRect().width/(e as HTMLElement).offsetWidth);
+ const frames=page.frames();const doc=frames.find(f=>f.parentFrame()?.url().includes('/api/rc/frame'))??frames.find(f=>f!==page.mainFrame()&&f.url()==='about:srcdoc');
+ try{const w=doc?await doc.evaluate(sel=>document.querySelector(sel)?.getBoundingClientRect().width??0,selector):0;return w?{width:w*visual}:null;}catch{return null;}
+}
 const reader=(page:Page)=>page.locator('section.reader').filter({visible:true}).first();
 const level=(page:Page)=>reader(page).getByTestId('reader-zoom-level');
 async function zoomControl(page:Page,which:'in'|'out'|'reset'):Promise<void>{
@@ -169,7 +188,12 @@ for(const width of [1440,390]){
   await page.screenshot({path:shot(info,`${width}-plain-150-after-reload`)});
 
   // Print uses 100%.
-  expect(await source(page)).toContain('@media print{html{zoom:1!important}}');
+  // The level is not in the document (which is what printMessage copies), and
+  // printing the app page lays the frame out at 100% too.
+  expect(await source(page)).not.toMatch(/html\{zoom|zoom:/);
+  await page.emulateMedia({media:'print'});
+  expect(await reader(page).locator('iframe.reader__frame').first().evaluate(e=>getComputedStyle(e).transform)).toBe('none');
+  await page.emulateMedia({media:'screen'});
   await resetToDefault(page);
  });
 }

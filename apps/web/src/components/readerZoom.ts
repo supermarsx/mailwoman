@@ -86,11 +86,15 @@ function peers(): BroadcastChannel | null {
 }
 
 // The level on screen follows every step at once; the stored preference does
-// not need to (t79). One write is in flight at a time and writes start at least
-// WRITE_SPACING ms apart, so a Ctrl+wheel spin or a held shortcut sends the
-// first level at once and then only the latest one. A step still waiting is sent
-// when the page goes away.
+// not need to (t79). One write is in flight at a time and only the latest level
+// is sent. During a burst (steps less than BURST_GAP ms apart: a Ctrl+wheel
+// spin, a held shortcut) writes also start at least WRITE_SPACING ms apart; a
+// step on its own is written at once. A step still waiting is sent when the
+// page goes away.
 const WRITE_SPACING = 400;
+const BURST_GAP = 150;
+let lastStep = 0;
+let bursting = false;
 let writing = false;
 let queued: number | null = null;
 let lastStart = 0;
@@ -101,7 +105,7 @@ const storedZoom = (): number => snapZoom(settings()[ZOOM_SETTING]?.value ?? DEF
 
 function pump(): void {
   if (writing || queued === null) return;
-  const wait = lastStart + WRITE_SPACING - Date.now();
+  const wait = bursting ? lastStart + WRITE_SPACING - Date.now() : 0;
   if (wait > 0) {
     timer ??= setTimeout(() => { timer = undefined; pump(); }, wait);
     return;
@@ -133,6 +137,10 @@ function pump(): void {
 
 function store(next: number): void {
   queued = next;
+  const now = Date.now();
+  bursting = now - lastStep < BURST_GAP;
+  lastStep = now;
+  if (!bursting && timer !== undefined) { clearTimeout(timer); timer = undefined; }
   if (!unloadHooked) {
     unloadHooked = true;
     onPageHide(() => { if (timer !== undefined) { clearTimeout(timer); timer = undefined; lastStart = 0; pump(); } });
@@ -160,6 +168,8 @@ export function clearReaderZoom(): void {
   clearTimeout(timer);
   timer = undefined;
   lastStart = 0;
+  lastStep = 0;
+  bursting = false;
 }
 
 /** Wheel distance (CSS px) for one zoom step; a mouse notch is ~100, a pinch less. */

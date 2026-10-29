@@ -97,6 +97,14 @@ describe('zoom state and persistence', () => {
     expect(zoom.readerZoom()).toBe(150);
     expect(map()['reader.zoom']?.value).toBe(150);
   });
+  it('writes a step on its own at once, outside a burst (t79)', async () => {
+    zoom.zoomIn();
+    await flush();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    zoom.zoomIn();
+    await flush();
+    expect(state.writes).toEqual([['reader.zoom', 110], ['reader.zoom', 125]]);
+  });
   it('sends a step still waiting when the page goes away (t79)', async () => {
     zoom.zoomIn(); zoom.zoomIn();
     await flush();
