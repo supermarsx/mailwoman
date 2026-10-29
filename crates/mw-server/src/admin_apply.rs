@@ -53,7 +53,7 @@ pub(crate) fn env_overlay() -> anyhow::Result<EnvOverlay> {
 /// segment. The router is also served at the origin root (`mount_under_base_path`),
 /// where `{base}` itself is the redirect to `{base}/` and `{base}/…` belongs to the
 /// prefixed copy, so such a console would be reachable only by doubling the prefix.
-fn check_admin_path_against_base(path: &str, base: &str) -> anyhow::Result<()> {
+pub(crate) fn check_admin_path_against_base(path: &str, base: &str) -> anyhow::Result<()> {
     let first = |p: &str| {
         p.trim_start_matches('/')
             .split('/')

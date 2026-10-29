@@ -669,6 +669,11 @@ async fn admin_cmd(args: AdminArgs) -> anyhow::Result<()> {
         println!("{}", mw_server::domain_cli::run(&store, verb).await?);
         return Ok(());
     }
+    if let mw_admin::cli::AdminCommand::ConsolePath { verb } = args.command {
+        let store = open_store(&args.db_path, args.server_key.as_deref()).await?;
+        println!("{}", mw_server::console_path::cli(&store, verb).await?);
+        return Ok(());
+    }
     if let mw_admin::cli::AdminCommand::Admins { verb } = args.command {
         let store = open_store(&args.db_path, args.server_key.as_deref()).await?;
         return admin_accounts_cmd(store, verb).await;
@@ -700,6 +705,9 @@ fn run(result: anyhow::Result<()>) -> std::process::ExitCode {
 }
 
 async fn serve(args: ServeArgs) -> anyhow::Result<()> {
+    // t76: no fallback console path here. Without MW_ADMIN_PATH or a stored path,
+    // a new installation generates one and an upgraded one keeps /admin.
+    mw_server::console_path::provision_on_first_start();
     let mode = match args.mode.as_str() {
         "engine" => ServerMode::Engine,
         _ => ServerMode::Proxy,

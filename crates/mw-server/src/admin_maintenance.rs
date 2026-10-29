@@ -71,6 +71,36 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
         Capability::MaintenanceRead,
         search_index_status,
     );
+    // t76: the console's own address for the metadata passthrough. The admin
+    // cookie is scoped to the console path, so the browser no longer sends it to
+    // `/jmap/api`; the console posts the same JMAP request here instead.
+    r.admin_endpoint(
+        Method::POST,
+        "/server-metadata/jmap",
+        Capability::ServerMetadataWrite,
+        metadata_jmap,
+    );
+}
+
+/// `POST {console}/server-metadata/jmap`: [`try_admin_jmap_passthrough`] at the
+/// console's path. A request the passthrough declines (not engine mode, not a pure
+/// single-account metadata/ACL request) is a `400`.
+async fn metadata_jmap(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    match try_admin_jmap_passthrough(&state, &headers, &body).await {
+        Some(resp) => resp,
+        None => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "code": "metadataRequestRefused",
+                "error": "only ServerMetadata/get|set and MailboxRights/get|set for one account, in engine mode"
+            })),
+        )
+            .into_response(),
+    }
 }
 
 /// Append an admin audit line via the shared append-only mechanism. `action` is a

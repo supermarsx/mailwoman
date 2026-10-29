@@ -173,6 +173,7 @@ mod stores_v6;
 // 30 s (`admin_apply`), and the client-enforced part served at `/api/policy`.
 mod admin_apply;
 mod client_policy;
+pub mod console_path;
 // t27-e3 (OH-1): the reader for the admin panel's per-account `disabled` and
 // `force_password_change` flags, consulted on every auth path.
 mod account_gate;
@@ -1074,6 +1075,10 @@ async fn build_app_inner(
         }
         None => store,
     };
+    // t76: the admin console's path — MW_ADMIN_PATH, the stored path, or (under
+    // `mailwoman serve`) one generated on a new installation / `/admin` kept on
+    // an upgrade — set before any route is built.
+    console_path::resolve(&store, &admin_overlay).await?;
     let render_bin = locate_render_bin();
     // DQ4/S6: is a render kernel jail expected here? On Linux (or when
     // `MW_RENDER_JAIL=require`), the hostile-input render must run in the jailed
@@ -5365,12 +5370,24 @@ fn serve_console_shell(state: &AppState, req: &HeaderMap) -> Option<Response> {
         // Not UTF-8 ⇒ not the shell we shipped; there is no console to serve.
         Err(_) => return None,
     };
-    Some(asset_response(
-        "index.html",
-        "text/html",
-        html.into_bytes(),
-        req,
-    ))
+    let mut resp = asset_response("index.html", "text/html", html.into_bytes(), req);
+    // t76: the console is never framed (a second policy next to the shell's; the
+    // browser enforces both), never indexed, and not kept by a shared cache, so
+    // its address is not left in one.
+    let h = resp.headers_mut();
+    h.append(
+        "content-security-policy",
+        HeaderValue::from_static("frame-ancestors 'none'"),
+    );
+    h.insert(
+        "x-robots-tag",
+        HeaderValue::from_static("noindex, nofollow"),
+    );
+    h.insert(
+        "cache-control",
+        HeaderValue::from_static("private, no-cache"),
+    );
+    Some(resp)
 }
 
 /// [`CONSOLE_MARKER`] at the top of `<head>`, and `="./` made `="{base}/`.

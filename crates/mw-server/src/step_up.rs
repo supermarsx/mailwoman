@@ -95,10 +95,12 @@ pub enum StepUpAction {
     UserManage,
     /// Change the global mailbox admission pause.
     MaintenanceMode,
+    /// Move the admin console to another path (t76).
+    ConsolePath,
 }
 
 impl StepUpAction {
-    pub const ALL: [StepUpAction; 14] = [
+    pub const ALL: [StepUpAction; 15] = [
         StepUpAction::DataExport,
         StepUpAction::DelegationGrant,
         StepUpAction::ApiKeyCreate,
@@ -113,6 +115,7 @@ impl StepUpAction {
         StepUpAction::AdminDataExport,
         StepUpAction::UserManage,
         StepUpAction::MaintenanceMode,
+        StepUpAction::ConsolePath,
     ];
 
     /// The wire id (`action` in the 403 body and the audit detail).
@@ -132,6 +135,7 @@ impl StepUpAction {
             StepUpAction::AdminDataExport => "adminDataExport",
             StepUpAction::UserManage => "userManage",
             StepUpAction::MaintenanceMode => "maintenanceMode",
+            StepUpAction::ConsolePath => "consolePath",
         }
     }
 }

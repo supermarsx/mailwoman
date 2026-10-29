@@ -27,7 +27,7 @@ use crate::{Admin, AdminError, CacheScopeRow, Quota, UserFeatureFlags};
 #[derive(Debug, Parser)]
 #[command(
     name = "admin",
-    about = "Mailwoman admin panel CLI (GitOps mirror of /admin)"
+    about = "Mailwoman admin panel CLI (GitOps mirror of the admin console)"
 )]
 pub struct AdminCli {
     #[command(subcommand)]
@@ -80,6 +80,24 @@ pub enum AdminCommand {
         #[command(subcommand)]
         verb: CacheScopeVerb,
     },
+    /// The admin console's path: show it, or store a new one for the next start.
+    #[command(name = "console-path")]
+    ConsolePath {
+        #[command(subcommand)]
+        verb: ConsolePathVerb,
+    },
+}
+
+/// `mailwoman admin console-path …` (t76). A change is stored and applied by the
+/// next start, which also ends every admin session.
+#[derive(Debug, Subcommand)]
+pub enum ConsolePathVerb {
+    /// Print the console's path (and whether a change waits for a restart).
+    Show,
+    /// Store a path of your own: `/` and at least 12 of `A-Z a-z 0-9 . _ ~ -`.
+    Set { path: String },
+    /// Store a new random path (20 characters).
+    Generate,
 }
 
 #[derive(Debug, Subcommand)]
@@ -345,6 +363,9 @@ pub async fn run(admin: &Admin, command: AdminCommand, actor: &str) -> Result<St
     match command {
         AdminCommand::Admins { .. } => Err(AdminError::Invalid(
             "admin accounts require the mailwoman store dispatcher".into(),
+        )),
+        AdminCommand::ConsolePath { .. } => Err(AdminError::Invalid(
+            "the console path requires the mailwoman store dispatcher".into(),
         )),
         AdminCommand::Domains { verb } => domains(admin, verb, actor).await,
         AdminCommand::Users { verb } => users(admin, verb, actor).await,

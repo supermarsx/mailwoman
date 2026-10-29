@@ -266,10 +266,14 @@ fn check_new_password(password: &str, field: &str) -> Result<(), AdminApiError> 
 /// The admin cookie. `Max-Age` is the session's absolute cap: the idle deadline is
 /// shorter and moves, and only the server can know it, so the cookie carries the
 /// one figure that is fixed at login.
-fn set_admin_cookie(token: &str, secure: bool, absolute: i64) -> String {
+///
+/// `Path` is the console's path under the deploy prefix (t76), so the browser
+/// sends the cookie only to the console and its API, never to the mail app.
+fn set_admin_cookie(token: &str, secure: bool, absolute: i64, base: &str) -> String {
     let mut c = format!(
-        "{}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}",
+        "{}={token}; HttpOnly; SameSite=Strict; Path={}; Max-Age={}",
         mw_admin::config::session_cookie_name(),
+        admin_cookie_path(base),
         absolute
     );
     if secure {
@@ -278,9 +282,15 @@ fn set_admin_cookie(token: &str, secure: bool, absolute: i64) -> String {
     c
 }
 
-fn clear_admin_cookie(secure: bool) -> String {
+/// The admin cookie's `Path`: `{base}{console}`.
+pub(crate) fn admin_cookie_path(base: &str) -> String {
+    format!("{base}{}", mw_admin::config::admin_path())
+}
+
+/// Clear the admin cookie at `path`.
+fn clear_admin_cookie_at(secure: bool, path: &str) -> String {
     let mut c = format!(
-        "{}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
+        "{}=; HttpOnly; SameSite=Strict; Path={path}; Max-Age=0",
         mw_admin::config::session_cookie_name()
     );
     if secure {
@@ -371,7 +381,8 @@ pub(crate) async fn start_session_for_factor(
     })
     .into_response();
     // The admin cookie stays the first `Set-Cookie`.
-    if let Ok(v) = set_admin_cookie(&token, state.cookie_secure, absolute).parse() {
+    if let Ok(v) = set_admin_cookie(&token, state.cookie_secure, absolute, &state.base_path).parse()
+    {
         resp.headers_mut().append(header::SET_COOKIE, v);
     }
     resp.headers_mut().append(
@@ -822,8 +833,11 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
         let _ = state.store.delete_admin_session(&hash).await;
     }
     let mut resp = StatusCode::NO_CONTENT.into_response();
-    if let Ok(v) = clear_admin_cookie(state.cookie_secure).parse() {
-        resp.headers_mut().append(header::SET_COOKIE, v);
+    // The scoped cookie, then the `Path=/` one a sign-in before t76 set.
+    for path in [admin_cookie_path(&state.base_path), "/".to_string()] {
+        if let Ok(v) = clear_admin_cookie_at(state.cookie_secure, &path).parse() {
+            resp.headers_mut().append(header::SET_COOKIE, v);
+        }
     }
     resp
 }

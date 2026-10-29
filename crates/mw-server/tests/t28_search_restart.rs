@@ -373,6 +373,9 @@ impl Deployment {
             .env("MW_SMTP_SECURITY", "plaintext")
             .env("MW_ADMIN_USER", ADMIN_USER)
             .env("MW_ADMIN_PASSWORD", ADMIN_PASS)
+            // t76: `serve` generates a console path on a new database; this test
+            // signs in at /admin, so it names that path.
+            .env("MW_ADMIN_PATH", "/admin")
             .env_remove("MW_SEARCH_DIR")
             .env_remove("MW_UPLOAD_DIR")
             .env_remove("MW_REDIS_URL")

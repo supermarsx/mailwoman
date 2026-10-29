@@ -214,8 +214,61 @@ pub fn set_session_cookie_name(name: Option<&str>) {
         .unwrap_or_else(std::sync::PoisonError::into_inner) = name.unwrap_or("").to_string();
 }
 
-/// The admin console's path when `MW_ADMIN_PATH` is not set.
+/// The path the console had before it had to be configured (t76): what an
+/// existing deployment that never set `MW_ADMIN_PATH` keeps after an upgrade, and
+/// what [`admin_path`] answers before the server has resolved the configured path
+/// (the library default the in-process test servers run with). `mailwoman serve`
+/// never falls back to it on a new installation: the first start generates a
+/// path ([`generate_admin_path`]) and stores it (`mw-server`'s `console_path`).
 pub const DEFAULT_ADMIN_PATH: &str = "/admin";
+
+/// Characters a generated console path is drawn from: lower-case letters and
+/// digits without the look-alikes `l`, `o`, `0` and `1`. 32 symbols, so each one
+/// is exactly 5 bits of a random byte.
+const GENERATED_ALPHABET: &[u8; 32] = b"abcdefghijkmnpqrstuvwxyz23456789";
+
+/// Length of a generated console path segment: 20 symbols, 100 random bits.
+pub const GENERATED_ADMIN_PATH_LEN: usize = 20;
+
+/// The shortest console path segment an admin may choose in the console or the
+/// CLI (t76). `MW_ADMIN_PATH` keeps the older, shorter limit so a deployment that
+/// already set one is not refused at start; the server warns about it instead.
+pub const MIN_CHOSEN_ADMIN_PATH_LEN: usize = 12;
+
+/// A new random console path: `/` and [`GENERATED_ADMIN_PATH_LEN`] characters of
+/// [`GENERATED_ALPHABET`], from the operating system's CSPRNG.
+///
+/// # Errors
+/// [`AdminError::Config`] when the CSPRNG cannot be read.
+pub fn generate_admin_path() -> Result<String, AdminError> {
+    let mut bytes = [0u8; GENERATED_ADMIN_PATH_LEN];
+    getrandom::fill(&mut bytes).map_err(|e| AdminError::Config(format!("csprng: {e}")))?;
+    let mut out = String::with_capacity(GENERATED_ADMIN_PATH_LEN + 1);
+    out.push('/');
+    for b in bytes {
+        out.push(char::from(GENERATED_ALPHABET[usize::from(b & 31)]));
+    }
+    Ok(out)
+}
+
+/// Check a console path an admin chooses in the console or the CLI: everything
+/// [`validate_admin_path`] checks, plus at least [`MIN_CHOSEN_ADMIN_PATH_LEN`]
+/// characters after the `/` and not the old default (`/admin`, any case), which is
+/// the first path a scanner tries.
+pub fn validate_chosen_admin_path(raw: &str) -> Result<String, String> {
+    let path = validate_admin_path(raw)?;
+    if path.eq_ignore_ascii_case(DEFAULT_ADMIN_PATH) {
+        return Err(format!(
+            "{DEFAULT_ADMIN_PATH} is the path every scanner tries first"
+        ));
+    }
+    if path.len() - 1 < MIN_CHOSEN_ADMIN_PATH_LEN {
+        return Err(format!(
+            "it must have at least {MIN_CHOSEN_ADMIN_PATH_LEN} characters after the /"
+        ));
+    }
+    Ok(path)
+}
 
 /// First path segments the admin console must not take, compared without regard to
 /// case: every prefix `mw-server` mounts a route under, the files the web build
@@ -262,8 +315,10 @@ pub const RESERVED_ADMIN_SEGMENTS: &[&str] = &[
 static ADMIN_PATH: RwLock<String> = RwLock::new(String::new());
 
 /// The admin console's path in force, relative to the deploy prefix
-/// (`MW_BASE_PATH`): `MW_ADMIN_PATH` as applied at start ([`set_admin_path`]), or
-/// [`DEFAULT_ADMIN_PATH`]. It starts with `/` and has no trailing slash.
+/// (`MW_BASE_PATH`): the path `mw-server` resolved at start ([`set_admin_path`]:
+/// `MW_ADMIN_PATH`, else the stored path, else a generated one on a new
+/// installation or `/admin` kept on an upgrade), or [`DEFAULT_ADMIN_PATH`] before
+/// anything set it. It starts with `/` and has no trailing slash.
 ///
 /// This is the one place the admin prefix comes from. The console page, every
 /// admin API route ([`admin_route`]), the CSRF exemption of the admin sign-in and
@@ -580,6 +635,38 @@ mod tests {
         ] {
             assert!(validate_admin_path(bad).is_err(), "{bad:?} accepted");
         }
+    }
+
+    #[test]
+    fn generated_paths_are_long_random_and_valid() {
+        let a = generate_admin_path().unwrap();
+        let b = generate_admin_path().unwrap();
+        assert_ne!(a, b);
+        for p in [&a, &b] {
+            assert_eq!(p.len(), GENERATED_ADMIN_PATH_LEN + 1, "{p}");
+            assert_eq!(validate_admin_path(p).as_deref(), Ok(p.as_str()));
+            assert_eq!(validate_chosen_admin_path(p).as_deref(), Ok(p.as_str()));
+            assert!(
+                p[1..].bytes().all(|c| GENERATED_ALPHABET.contains(&c)),
+                "{p}"
+            );
+        }
+    }
+
+    #[test]
+    fn chosen_paths_are_long_and_not_the_old_default() {
+        assert!(validate_chosen_admin_path("/ops-7f3k-console").is_ok());
+        assert!(validate_chosen_admin_path("/team/ops-console").is_ok());
+        for bad in [
+            "/admin",
+            "/ADMIN",
+            "/ops-7f3k",
+            "/abcdefghijk",
+            "/api/abcdefghijklmn",
+        ] {
+            assert!(validate_chosen_admin_path(bad).is_err(), "{bad:?} accepted");
+        }
+        assert!(validate_chosen_admin_path("/abcdefghijkl").is_ok());
     }
 
     #[test]
