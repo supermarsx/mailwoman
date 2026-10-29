@@ -559,10 +559,45 @@ async fn a_tampered_retargeted_or_expired_token_is_refused_before_any_fetch() {
     ] {
         let r = f.load(&format!("/api/rc/i/{t}")).await;
         assert_eq!(r.status(), 403, "{what}");
+        // t56: a refusal must reach the opaque-origin frame as what it is. With
+        // the global `same-origin` CORP, Firefox reports every failed image as a
+        // CORP block and the status is lost.
+        assert_eq!(r.headers()["cross-origin-resource-policy"], "cross-origin", "{what}");
+        assert_eq!(r.headers()["x-content-type-options"], "nosniff", "{what}");
+        assert!(r.headers().get("set-cookie").is_none(), "{what}");
     }
     // A valid image token is not a part token.
     let r = f.load(&format!("/api/rc/p/{token}")).await;
     assert_eq!(r.status(), 403, "kind is bound");
+    assert_eq!(r.headers()["cross-origin-resource-policy"], "cross-origin");
+    for kind in ["f", "d"] {
+        let r = f.load(&format!("/api/rc/{kind}/abc.def")).await;
+        assert_eq!(r.status(), 403, "{kind}");
+        assert_eq!(r.headers()["cross-origin-resource-policy"], "cross-origin", "{kind}");
+    }
+    // Every other route keeps the strict default, the rc routes that are not
+    // token-authorised included.
+    for path in [
+        "/api/rc/policy".to_string(),
+        format!("/api/rc/stats?emailId={}", f.email_id),
+        "/api/me".to_string(),
+    ] {
+        let r = f
+            .user
+            .get(format!("{}{path}", f.base))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.headers()["cross-origin-resource-policy"], "same-origin", "{path}");
+    }
+    let r = f
+        .user
+        .post(format!("{}/api/rc/sign", f.base))
+        .json(&json!({ "emailId": f.email_id, "urls": [] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.headers()["cross-origin-resource-policy"], "same-origin", "sign");
     let r = f.load(&format!("/api/rc/i/{}", mint(&as_part))).await;
     assert_eq!(r.status(), 403, "kind is bound");
 
@@ -1304,7 +1339,8 @@ async fn message_tracker_stats_require_session_and_owned_message_and_start_at_ze
     let stats: Value = response.json().await.unwrap();
     assert_eq!(
         stats,
-        json!({"decodedTrackersReplaced":0,"limited":false,"windowSecs":3600})
+        // t56 adds the per-message load outcomes for the loading toast.
+        json!({"decodedTrackersReplaced":0,"limited":false,"windowSecs":3600,"imagesLoaded":0,"imagesFailed":0})
     );
 }
 
@@ -1510,4 +1546,62 @@ async fn manual_image_downloads_require_policy_and_real_message_membership_at_ev
         "linked files also recheck exact message membership at redemption"
     );
     assert_eq!(seen.lock().unwrap().connections, 2);
+}
+
+/// t56: a fetch that failed at the network is answered as a short-lived,
+/// cacheable failure, remembered for the account so a repeat costs no
+/// connection, counted for the reader's loading toast, and forgotten when the
+/// reader asks to retry.
+#[tokio::test]
+async fn a_failed_fetch_is_remembered_briefly_counted_and_retried_on_request() {
+    // Larger than any `privacy.maxBytes`: refused from Content-Length, after the
+    // origin was reached, so it is a network failure worth remembering.
+    let (proxy, seen) =
+        standin_proxy(vec![("image/png".into(), vec![0u8; 9 * 1024 * 1024])]).await;
+    let f = fixture(proxy, "mw-t56-rc-negative").await;
+    f.grant().await;
+    let url = "http://1.2.3.4/too-large.png";
+    let (_, signed) = f.sign(&[url], &[]).await;
+    let src = image_src(&signed);
+
+    let first = f.load(&src).await;
+    assert_eq!(first.status(), 502);
+    assert_eq!(first.headers()["x-mw-remote-content"], "failed");
+    assert_eq!(first.headers()["cache-control"], "private, max-age=60");
+    assert_eq!(first.headers()["cross-origin-resource-policy"], "cross-origin");
+    assert_eq!(seen.lock().unwrap().connections, 1);
+
+    // The same link, and a freshly signed one, answer from memory.
+    for again in [src.clone(), image_src(&f.sign(&[url], &[]).await.1)] {
+        let r = f.load(&again).await;
+        assert_eq!(r.status(), 502);
+        assert_eq!(r.headers()["x-mw-remote-content"], "failed");
+    }
+    assert_eq!(seen.lock().unwrap().connections, 1, "no refetch inside the window");
+
+    let stats: Value = f
+        .user
+        .get(format!("{}/api/rc/stats?emailId={}", f.base, f.email_id))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(stats["imagesFailed"], json!(1), "{stats}");
+    assert_eq!(stats["imagesLoaded"], json!(0), "{stats}");
+
+    // Retry images: signing with retry forgets the failure, so it fetches again.
+    let retried: Value = f
+        .user
+        .post(format!("{}/api/rc/sign", f.base))
+        .json(&json!({ "emailId": f.email_id, "urls": [url], "retry": true }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(f.load(&image_src(&retried)).await.status(), 502);
+    assert_eq!(seen.lock().unwrap().connections, 2, "retry reached the network");
 }

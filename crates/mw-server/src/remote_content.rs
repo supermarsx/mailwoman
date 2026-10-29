@@ -77,6 +77,10 @@ const MAX_PART_RAW_BYTES: usize = 32 * 1024 * 1024;
 mod membership;
 #[path = "remote_tracker_stats.rs"]
 mod tracker_stats;
+/// Timeouts, concurrency caps, negative cache and load outcomes (t56).
+#[path = "remote_fetch_limits.rs"]
+pub(crate) mod fetch_limits;
+pub(crate) use fetch_limits::FetchLimits;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -106,11 +110,19 @@ pub(crate) async fn message_stats(
     let key = state.store.derive_key(KEY_LABEL);
     let tag = authority_tag(&key, &session);
     let (count, limited) = tracker_stats::read(&session.account_id, &tag, &query.email_id);
+    // t56 for t55's loading toast: distinct proxied images of this message, for
+    // this session, that answered an image / failed (timeout, upstream failure,
+    // non-success, too large, remembered failure or no free slot in time).
+    let (loaded, failed) = fetch_limits::read_outcomes(&session.account_id, &tag, &query.email_id);
     (
         [(header::CACHE_CONTROL, "no-store")],
-        Json(
-            json!({"decodedTrackersReplaced":count,"limited":limited,"windowSecs":IMAGE_TTL_SECS}),
-        ),
+        Json(json!({
+            "decodedTrackersReplaced": count,
+            "limited": limited,
+            "windowSecs": IMAGE_TTL_SECS,
+            "imagesLoaded": loaded,
+            "imagesFailed": failed,
+        })),
     )
         .into_response()
 }
@@ -399,6 +411,11 @@ pub(crate) struct SignReq {
     files: Vec<String>,
     #[serde(default)]
     image_downloads: Vec<String>,
+    /// "Retry images" (t56): forget this account's remembered failures for the
+    /// `urls` signed, so the new links fetch again instead of answering the
+    /// cached failure.
+    #[serde(default)]
+    retry: bool,
 }
 
 /// `POST /api/rc/sign {emailId, urls?, parts?, files?}` — signed paths for the
@@ -511,6 +528,9 @@ pub(crate) async fn sign(
         match reason {
             Some(r) => refused.push(json!({ "url": url, "reason": r })),
             None => {
+                if body.retry {
+                    fetch_limits::forget(&session.account_id, [url.as_str()]);
+                }
                 let token = mint(&key, &claims(Kind::Image, url, IMAGE_TTL_SECS));
                 images.push(json!({
                     "url": url,
@@ -824,7 +844,19 @@ async fn fetch_image(
             );
             return response;
         }
+        if !tracker {
+            fetch_limits::record_outcome(&claims.a, &claims.s, &claims.e, &claims.u, true, claims.x);
+        }
         return signed_image(png, etag, tracker);
+    }
+    let outcome = |loaded: bool| {
+        fetch_limits::record_outcome(&claims.a, &claims.s, &claims.e, &claims.u, loaded, claims.x);
+    };
+    // A failure remembered for this URL answers before the rate limit: it costs
+    // no network, and charging for it would let a dead host drain the budget.
+    if let Some(failure) = fetch_limits::remembered(&claims.a, &claims.u) {
+        outcome(false);
+        return failed_response(failure.refusal());
     }
     if !rate_limiter()
         .lock()
@@ -844,27 +876,34 @@ async fn fetch_image(
     let Ok(url) = reqwest::Url::parse(&claims.u) else {
         return refusal_response(mw_egress::Refusal::BadRequest("malformed URL"));
     };
-    let _permit = match fetch_semaphore().try_acquire() {
-        Ok(p) => p,
-        Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "image proxy busy").into_response(),
-    };
 
-    let mut request = Request::get(TrafficClass::RemoteContent)
+    let request = Request::get(TrafficClass::RemoteContent)
         .response_limit(policy.max_bytes)
         .accept("image/png, image/jpeg, image/gif, image/webp");
-    if let Some(d) = domain.as_deref() {
-        request = request.for_domain(d);
-    }
-    let fetched = plan::send_with(&plan, url, &request).await;
-    audit_egress_transition(&state, &route_id, fetched.traversed_proxy).await;
-    let raw = match fetched.outcome {
-        Ok(b) => b,
-        Err(r) => return refusal_response(r),
+    let (raw, content_type) = match guarded_fetch(
+        &state,
+        &plan,
+        &route_id,
+        url,
+        request,
+        domain.as_deref(),
+        (&claims.a, &claims.e, &claims.u),
+        &policy,
+    )
+    .await
+    {
+        Ok(fetched) => fetched,
+        Err(response) => {
+            outcome(false);
+            return response;
+        }
     };
     if raw.len() > policy.max_bytes {
+        outcome(false);
         return refusal_response(mw_egress::Refusal::TooLarge);
     }
-    if let Some(why) = type_refusal(fetched.content_type.as_deref(), &raw) {
+    if let Some(why) = type_refusal(content_type.as_deref(), &raw) {
+        outcome(false);
         return unsupported(why);
     }
     let response = reencode_and_answer(raw, Some(key), &policy).await;
@@ -874,7 +913,103 @@ async fn fetch_image(
         .is_some_and(|value| value == "tracker")
     {
         tracker_stats::record(&claims.a, &claims.s, &claims.e, &claims.u, claims.x);
+    } else {
+        outcome(response.status().is_success());
     }
+    response
+}
+
+/// One remote-image fetch under the t56 limits, shared by `/api/rc/i` and the
+/// legacy `/api/image-proxy`: a per-message and per-account slot (waited for,
+/// inside the deadline), the replica's global ceiling (shed), the per-phase
+/// timeouts and redirect cap, the egress audit, and the negative cache for a
+/// network failure. Returns the body and its declared type, or the response to
+/// send.
+///
+/// The total deadline starts here, before any wait, so an image answers within
+/// `privacy.fetchTotalTimeoutMs` whether it queued, fetched or both.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn guarded_fetch(
+    state: &AppState,
+    plan: &mw_egress::EgressPlan,
+    route_id: &str,
+    url: reqwest::Url,
+    request: Request<'_>,
+    domain: Option<&str>,
+    (account, message, raw_url): (&str, &str, &str),
+    policy: &crate::remote_policy::PrivacyPolicy,
+) -> Result<(Vec<u8>, Option<String>), Response> {
+    let limits = policy.fetch;
+    let started = std::time::Instant::now();
+    let deadline = started + limits.timeouts.total;
+    let Some(_slot) = fetch_limits::acquire(account, message, &limits, deadline).await else {
+        tracing::debug!(
+            target: "mw_server::remote_content",
+            phase = "slot",
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "remote image gave up waiting for a fetch slot"
+        );
+        return Err(busy_response());
+    };
+    // Shed rather than queue at the replica ceiling, as before t56.
+    let Ok(_permit) = fetch_semaphore().try_acquire() else {
+        return Err(busy_response());
+    };
+    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+    let timeouts = mw_egress::FetchTimeouts {
+        total: remaining.max(std::time::Duration::from_millis(1)),
+        ..limits.timeouts
+    };
+    let report = mw_egress::TimeoutReport::new();
+    let mut request = request.timeouts(timeouts).timeout_report(&report);
+    if let Some(d) = domain {
+        request = request.for_domain(d);
+    }
+    let fetched = plan::send_with(plan, url, &request).await;
+    audit_egress_transition(state, route_id, fetched.traversed_proxy).await;
+    match fetched.outcome {
+        Ok(bytes) => Ok((bytes, fetched.content_type)),
+        Err(refusal) => {
+            if matches!(refusal, mw_egress::Refusal::Timeout) {
+                // Never the URL, the host or the account.
+                tracing::debug!(
+                    target: "mw_server::remote_content",
+                    phase = report.phase().map_or("transport", |p| p.as_str()),
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    routed = route_id != DIRECT_ROUTE,
+                    "remote image fetch timed out"
+                );
+            }
+            fetch_limits::remember(account, raw_url, &refusal);
+            Err(failed_response(refusal))
+        }
+    }
+}
+
+/// A failed fetch, as the reader's frame receives it: the usual refusal status
+/// and text, `X-MW-Remote-Content: failed`, and a short private cache lifetime
+/// matching the server's negative cache so the browser does not refetch it in a
+/// loop either. A new signed link (Retry images) is a new URL.
+pub(super) fn failed_response(refusal: mw_egress::Refusal) -> Response {
+    let cacheable = fetch_limits::Failure::of(&refusal).is_some();
+    let mut response = refusal_response(refusal);
+    let h = response.headers_mut();
+    h.insert("x-mw-remote-content", HeaderValue::from_static("failed"));
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(if cacheable { "private, max-age=60" } else { "no-store" }),
+    );
+    response
+}
+
+/// No fetch slot in time, or the replica is at its ceiling. Not remembered:
+/// nothing is wrong with the image.
+fn busy_response() -> Response {
+    let mut response = (StatusCode::SERVICE_UNAVAILABLE, "image proxy busy").into_response();
+    let h = response.headers_mut();
+    h.insert("x-mw-remote-content", HeaderValue::from_static("failed"));
+    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    h.insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
     response
 }
 

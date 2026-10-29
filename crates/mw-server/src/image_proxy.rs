@@ -623,10 +623,45 @@ pub(crate) fn image_proxy_router() -> Router<AppState> {
         .route("/api/rc/stats", get(remote_content::message_stats))
         .route("/api/rc/policy", get(crate::remote_policy::get))
         .route("/api/rc/frame", get(crate::remote_policy::frame))
+        .merge(signed_content_router())
+}
+
+/// The capability-signed token routes the opaque-origin body frame loads.
+///
+/// Every answer on them, **whatever its status**, carries
+/// `Cross-Origin-Resource-Policy: cross-origin` (t56). The frame is
+/// `sandbox=""`, so its origin is opaque and therefore cross-origin to this
+/// server; the global hardening layer stamps `same-origin` on any response that
+/// does not set its own CORP. The 200 image already set `cross-origin`, but every
+/// refusal (an expired or revoked link 403, a 429, a 502/504 upstream failure, a
+/// 415) went out `same-origin`, so the browser reported a CORP block instead of the
+/// real status and the reader could not tell a timeout from a misconfiguration.
+/// Those bodies are short fixed strings and a token is the authorisation, so
+/// letting the frame see them reveals nothing a same-origin caller cannot. CORP
+/// stays `same-origin` on every other route, `/api/rc/sign` and `/api/rc/stats`
+/// included.
+fn signed_content_router() -> Router<AppState> {
+    Router::new()
         .route("/api/rc/i/{token}", get(remote_content::image))
         .route("/api/rc/p/{token}", get(remote_content::part))
         .route("/api/rc/f/{token}", get(remote_content::file))
         .route("/api/rc/d/{token}", get(remote_content::image_download))
+        .layer(axum::middleware::map_response(signed_content_corp))
+}
+
+async fn signed_content_corp(mut response: Response) -> Response {
+    let h = response.headers_mut();
+    h.insert(
+        "cross-origin-resource-policy",
+        axum::http::HeaderValue::from_static("cross-origin"),
+    );
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        axum::http::HeaderValue::from_static("nosniff"),
+    );
+    // A token answer is never a reason for the browser to store a cookie.
+    h.remove(header::SET_COOKIE);
+    response
 }
 
 // ── SSRF refusal → HTTP ────────────────────────────────────────────────────────
@@ -1050,8 +1085,14 @@ async fn proxy_image(
         return image_response(png, etag);
     }
 
+    // A failure remembered for this URL (t56) answers at once, before the rate
+    // limit, like a cache hit.
+    if let Some(failure) = remote_content::fetch_limits::remembered(&session.account_id, &q.url) {
+        return remote_content::failed_response(failure.refusal());
+    }
+
     // Per-account fan-out rate limit (R6): a cache MISS will fetch upstream, so
-    // charge the account one token here. Exhaustion → 429 (per-replica; see
+    // charge the account one token here. Exhaustion -> 429 (per-replica; see
     // `AccountRateLimiter`).
     if !rate_limiter()
         .lock()
@@ -1074,35 +1115,32 @@ async fn proxy_image(
         Err(_) => return refusal_response(Refusal::BadRequest("malformed URL")),
     };
 
-    // Bound concurrency; shed load rather than queue unboundedly.
-    let _permit = match fetch_semaphore().try_acquire() {
-        Ok(p) => p,
-        Err(_) => {
-            return (StatusCode::SERVICE_UNAVAILABLE, "image proxy busy").into_response();
-        }
-    };
-
-    // The fetch. With a route configured this is FAIL-CLOSED: `plan::send_with` has
-    // no arm that reaches the direct path once a route is in play, so a proxy that
-    // is down produces a `502` rather than a quiet direct fetch that defeats the
-    // egress control the operator configured.
-    let mut request = Request::get(TrafficClass::RemoteContent)
+    // The fetch, under the t56 slots, timeouts and negative cache. With a route
+    // configured this is FAIL-CLOSED: `plan::send_with` has no arm that reaches
+    // the direct path once a route is in play, so a proxy that is down produces a
+    // `502` rather than a quiet direct fetch that defeats the egress control the
+    // operator configured. The egress audit is written inside, before a refusal
+    // is returned.
+    let request = Request::get(TrafficClass::RemoteContent)
         .response_limit(policy.max_bytes)
         .accept("image/*");
-    if let Some(d) = domain.as_deref() {
-        request = request.for_domain(d);
-    }
-    let routed = plan::send_with(&plan, url, &request).await;
-    // Audited BEFORE the refusal is returned, and from the transport's own signal —
-    // a failed fetch is exactly when an operator needs the row, and `traversed_proxy`
-    // is still true or false as a matter of fact rather than of configuration.
-    audit_egress_transition(&state, route_id, routed.traversed_proxy).await;
-    let raw = match routed.outcome {
-        Ok(b) => b,
-        Err(r) => return refusal_response(r),
+    let (raw, content_type) = match remote_content::guarded_fetch(
+        &state,
+        &plan,
+        route_id,
+        url,
+        request,
+        domain.as_deref(),
+        (&session.account_id, q.email_id.as_deref().unwrap_or(""), &q.url),
+        &policy,
+    )
+    .await
+    {
+        Ok(fetched) => fetched,
+        Err(response) => return response,
     };
 
-    if let Some(why) = remote_content::type_refusal(routed.content_type.as_deref(), &raw) {
+    if let Some(why) = remote_content::type_refusal(content_type.as_deref(), &raw) {
         return (StatusCode::UNSUPPORTED_MEDIA_TYPE, why).into_response();
     }
     remote_content::reencode_and_answer(raw, Some(key), &policy).await

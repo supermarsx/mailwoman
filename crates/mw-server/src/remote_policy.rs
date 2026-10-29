@@ -25,6 +25,51 @@ pub(crate) struct PrivacyPolicy {
     pub cache_bytes: usize,
     #[serde(skip)]
     pub rate_per_min: usize,
+    /// Timeouts, redirect cap and per-message/per-account concurrency (t56).
+    #[serde(skip)]
+    pub fetch: crate::image_proxy::remote_content::FetchLimits,
+}
+
+/// The t56 fetch keys, read in one pass (`effective_all`) rather than one query
+/// set per key: they are read on every remote image request.
+pub(crate) const FETCH_KEYS: [&str; 7] = [
+    "privacy.fetchConnectTimeoutMs",
+    "privacy.fetchHeadersTimeoutMs",
+    "privacy.fetchIdleTimeoutMs",
+    "privacy.fetchTotalTimeoutMs",
+    "privacy.maxRedirects",
+    "privacy.maxConcurrentPerMessage",
+    "privacy.maxConcurrentPerAccount",
+];
+
+/// The fetch limits from resolved `privacy.*` values; a key with no value keeps
+/// the [`FetchLimits`](crate::image_proxy::remote_content::FetchLimits) default.
+/// Values are already bounded by the registry; the clamps here only keep a value
+/// that bypassed it (a hand-edited row) from producing a zero-length clock or a
+/// zero-sized semaphore.
+pub(crate) fn fetch_limits(
+    value: impl Fn(&str) -> Option<u64>,
+) -> crate::image_proxy::remote_content::FetchLimits {
+    use std::time::Duration;
+    let defaults = crate::image_proxy::remote_content::FetchLimits::default();
+    let ms = |key: &str, fallback: Duration, min: u64, max: u64| {
+        value(key).map_or(fallback, |v| Duration::from_millis(v.clamp(min, max)))
+    };
+    let count = |key: &str, fallback: usize, min: u64, max: u64| {
+        value(key).map_or(fallback, |v| v.clamp(min, max) as usize)
+    };
+    let t = defaults.timeouts;
+    crate::image_proxy::remote_content::FetchLimits {
+        timeouts: mw_egress::FetchTimeouts {
+            connect: ms("privacy.fetchConnectTimeoutMs", t.connect, 500, 30_000),
+            headers: ms("privacy.fetchHeadersTimeoutMs", t.headers, 500, 60_000),
+            idle: ms("privacy.fetchIdleTimeoutMs", t.idle, 500, 60_000),
+            total: ms("privacy.fetchTotalTimeoutMs", t.total, 1_000, 120_000),
+            max_redirects: count("privacy.maxRedirects", t.max_redirects, 0, 10),
+        },
+        per_message: count("privacy.maxConcurrentPerMessage", defaults.per_message, 1, 32),
+        per_account: count("privacy.maxConcurrentPerAccount", defaults.per_account, 1, 64),
+    }
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -106,6 +151,16 @@ pub(crate) async fn effective(
             .map(|n| n as usize)
             .unwrap_or(fallback)
     };
+    let fetch_values =
+        settings_registry::effective_all(&state.store, &subject, |d| FETCH_KEYS.contains(&d.key))
+            .await
+            .map_err(|_| unavailable())?;
+    let fetch = fetch_limits(|key| {
+        fetch_values
+            .iter()
+            .find(|e| e.key == key)
+            .and_then(|e| e.value.as_u64())
+    });
     let allow_direct = boolean("privacy.allowDirect") && boolean("cap.remote_content.direct");
     let mut mode = values
         .get("privacy.remoteContent")
@@ -130,6 +185,7 @@ pub(crate) async fn effective(
         max_bytes: number("privacy.maxBytes", 8 * 1024 * 1024),
         cache_bytes: number("privacy.cacheBytes", crate::image_proxy::MAX_CACHE_BYTES),
         rate_per_min: number("privacy.ratePerMin", 120),
+        fetch,
     })
 }
 pub(crate) async fn get(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -209,4 +265,40 @@ pub(crate) async fn frame(Query(query): Query<ReaderFrameQuery>) -> Response {
         .extensions_mut()
         .insert(ReaderFrameResponse { compatible });
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn fetch_limits_default_then_honour_values_and_clamp_bypassed_rows() {
+        let none = fetch_limits(|_| None);
+        assert_eq!(none, crate::image_proxy::remote_content::FetchLimits::default());
+        assert_eq!(none.timeouts, mw_egress::FetchTimeouts::REMOTE_IMAGE);
+
+        let set = fetch_limits(|key| match key {
+            "privacy.fetchConnectTimeoutMs" => Some(1500),
+            "privacy.fetchHeadersTimeoutMs" => Some(2500),
+            "privacy.fetchIdleTimeoutMs" => Some(3500),
+            "privacy.fetchTotalTimeoutMs" => Some(4500),
+            "privacy.maxRedirects" => Some(0),
+            "privacy.maxConcurrentPerMessage" => Some(2),
+            "privacy.maxConcurrentPerAccount" => Some(3),
+            _ => None,
+        });
+        assert_eq!(set.timeouts.connect, Duration::from_millis(1500));
+        assert_eq!(set.timeouts.headers, Duration::from_millis(2500));
+        assert_eq!(set.timeouts.idle, Duration::from_millis(3500));
+        assert_eq!(set.timeouts.total, Duration::from_millis(4500));
+        assert_eq!(set.timeouts.max_redirects, 0);
+        assert_eq!((set.per_message, set.per_account), (2, 3));
+
+        let wild = fetch_limits(|key| Some(if key.ends_with("Ms") { 0 } else { u64::MAX }));
+        assert_eq!(wild.timeouts.connect, Duration::from_millis(500));
+        assert_eq!(wild.timeouts.total, Duration::from_secs(1));
+        assert_eq!(wild.timeouts.max_redirects, 10);
+        assert_eq!((wild.per_message, wild.per_account), (32, 64));
+    }
 }
