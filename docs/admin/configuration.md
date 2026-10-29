@@ -290,6 +290,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="accounts.linkingenabled"></a>`accounts.linkingEnabled` | accounts | global+domain+admin_user | false | plain |  | yes | Allow verified linked mailbox accounts; global false is a hard ceiling |
 | <a id="accounts.uselinked"></a>`accounts.useLinked` | accounts | global+domain+user | true | plain |  | yes | Use linked mailboxes when permitted by the administrator |
 | <a id="accounts.maxlinked"></a>`accounts.maxLinked` | accounts | global | 5 | plain |  | yes | Maximum verified linked mailboxes per primary identity |
+| <a id="accounts.storelinkedcredentials"></a>`accounts.storeLinkedCredentials` | accounts | global+domain+admin_user | true | plain |  | yes | Keep a sealed copy of each linked mailbox's password so its access renews without asking; off keeps sign-in-only links |
 | <a id="privacy.stripmailerheaders"></a>`privacy.stripMailerHeaders` | privacy | global+domain+user | true | plain |  | yes | remove client fingerprint headers from native outgoing email; preserve message bodies and attached messages |
 | <a id="privacy.remoteimagedownloads"></a>`privacy.remoteImageDownloads` | privacy | global+domain+user | false | plain |  | yes | allow deliberate message image downloads through the guarded privacy proxy |
 | <a id="appearance.customcssenabled"></a>`appearance.customCssEnabled` | appearance | global | false | plain |  | yes | Allow owner-scoped appearance CSS; disabled by default and paused under enforced mailbox appearance locks |

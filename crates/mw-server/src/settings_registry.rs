@@ -403,6 +403,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "Maximum verified linked mailboxes per primary identity"
     ),
     def!(
+        "accounts.storeLinkedCredentials",
+        Kind::Bool,
+        "true",
+        GDA,
+        "accounts",
+        "Keep a sealed copy of each linked mailbox's password so its access renews without asking; off keeps sign-in-only links"
+    ),
+    def!(
         "privacy.stripMailerHeaders",
         Kind::Bool,
         "true",

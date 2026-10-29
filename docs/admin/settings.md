@@ -18,6 +18,24 @@ administrative restrictions still apply to both the primary and child account.
 access. It never overrides administrative disablement. Disabling access does not
 delete a linked mailbox, its messages, identities, signatures or preferences.
 
+<a id="accounts.storeLinkedCredentials"></a>
+`accounts.storeLinkedCredentials` (default `true`; global, domain and per-user
+administrative scopes) keeps the linked mailbox's password, as the link or renew
+form collected it, sealed on the server (XChaCha20-Poly1305 under the server key,
+bound to the owner, the link, the mailbox and its storage authority). When the
+linked mailbox's private session ends (idle or absolute clock, restart, prune),
+the server signs it in again from that copy without asking. If the mailbox's
+server refuses it, the copy is erased and the owner is offered **Renew access**
+in the mailbox picker and in Settings; the link itself is kept. Nothing is kept,
+and access is renewed by signing in again, when: this setting is `false`; the
+owner or the linked mailbox is in zero-access mode; the linked mailbox has a
+second factor enrolled or required (a factor is never stored or replayed); or
+the mailbox is EWS. Turning this or `accounts.linkingEnabled` off globally
+deletes every stored copy at once; a domain or user value erases it at the
+link's next use. Unlinking, an admin session revoke of either account, and
+retiring either identity delete it too. Store, refusal, renewal and deletion are
+recorded in the audit log without the secret.
+
 <a id="accounts.maxLinked"></a>
 `accounts.maxLinked` is the global maximum number of verified child mailboxes per
 primary identity: default `5`, permitted range `1`–`16`.
@@ -28,8 +46,9 @@ storage still needs verified-realm isolation before it can safely support links.
 Adding an account requires a fresh primary proof and the child's actual password
 and any enrolled second factor. A forced first-factor enrollment or password
 change must be completed through a separate sign-in before linking. Existing
-metadata-only legacy links are not adopted. Child authentication expires at its
-original deadline; unlink and link again to authenticate afresh. Switching never
+metadata-only legacy links are not adopted. When the child's own session ends it
+is renewed from the stored credential (see `accounts.storeLinkedCredentials`), or
+the owner renews access in place; unlinking is never needed for that. Switching never
 changes the primary identity used for identity-provider consent or account
 management. This initial runtime supports explicit mail and personal-settings
 routes; linked realtime, external integrations and security-factor management
