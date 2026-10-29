@@ -9,6 +9,7 @@ pub mod analytics_secret;
 pub mod auth_failures;
 mod auth_logs;
 pub mod branding;
+pub mod config_backup_secret;
 mod hosting_connections;
 pub mod identity_principal;
 pub mod linked_accounts;
