@@ -61,9 +61,9 @@ export const boot = style({minBlockSize:'100dvh',maxInlineSize:'38rem',margin:'0
 // Message-list placeholders (`variant="messages"`). Each row uses the list
 // row's own density variables (styles/app.css `--mail-row-*`) and is given the
 // virtualized row height, so the skeleton has the same rhythm as the rows that
-// replace it. A slow sheen runs across the shapes; with reduced motion they
-// are still.
-const sheen = keyframes({ from: { backgroundPosition: '100% 0' }, to: { backgroundPosition: '0 0' } });
+// replace it. The shapes pulse slowly between two flat fills (the t32 style
+// has no gradients); with reduced motion they are still.
+const pulse = keyframes({ '0%, 100%': { backgroundColor: vars.color.border }, '50%': { backgroundColor: `color-mix(in srgb, ${vars.color.border} 45%, ${vars.color.bg})` } });
 const STILL = { selectors: { ':root[data-reduced-motion] &': { animation: 'none' } }, '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none' } } } as const;
 export const messagesPanel = style({margin:0,maxInlineSize:'none',flex:'1 1 auto',minBlockSize:0,overflow:'hidden',gap:0});
 export const messageSkeletons = style({display:'block',minInlineSize:0,overflow:'hidden',animation:`${appear} 120ms ease-out 120ms both`,...STILL});
@@ -77,13 +77,9 @@ export const messageSkeletonHead = style({display:'flex',alignItems:'center',gap
 export const messageSkeletonAvatar = style({display:'block',flex:'0 0 auto',inlineSize:'var(--mail-row-line, 18px)',blockSize:'var(--mail-row-line, 18px)',borderRadius:'50%',background:vars.color.border});
 export const messageSkeletonDate = style({display:'block',flex:'0 0 3rem',marginInlineStart:'auto',blockSize:'.6rem',background:vars.color.border,borderRadius:vars.radius.sm});
 export const messageSkeletonDim = style({opacity:.6});
-globalStyle(`${messageSkeletons} span`, {
-  backgroundImage:`linear-gradient(90deg, transparent 0%, color-mix(in srgb, ${vars.color.bg} 55%, transparent) 50%, transparent 100%)`,
-  backgroundSize:'300% 100%',backgroundRepeat:'no-repeat',
-  animation:`${sheen} 1.6s ease-in-out infinite`,
-});
-globalStyle(`:root[data-reduced-motion] ${messageSkeletons} span`, {animation:'none',backgroundImage:'none'});
-globalStyle(`${messageSkeletons} span`, {'@media':{'(prefers-reduced-motion: reduce)':{animation:'none',backgroundImage:'none'}}});
+globalStyle(`${messageSkeletons} span`, {animation:`${pulse} 1.6s ease-in-out infinite`});
+globalStyle(`:root[data-reduced-motion] ${messageSkeletons} span`, {animation:'none'});
+globalStyle(`${messageSkeletons} span`, {'@media':{'(prefers-reduced-motion: reduce)':{animation:'none'}}});
 
 // A thin indeterminate line over a list that is still indexing in the
 // background while some rows are already shown. Decorative: the list carries
