@@ -115,3 +115,28 @@ contacts-edit-group = Edit contact group
 contacts-edit-named-group = Edit group { $name }
 contacts-group-name = Group name
 contacts-group-edit-help = Update this group's name. Its address book and membership remain unchanged.
+
+# -- Management pages (t39 R6) -------------------------------------------------
+contacts-back-to-list = Back to contacts
+contacts-membership-title = Group membership
+contacts-membership-help = Pick a group, then add or remove its members. Changes are saved as you make them.
+contacts-membership-no-groups = No groups yet. Create one to start adding members.
+contacts-membership-pick = Select a group to see its members.
+contacts-membership-of = Members of { $name }
+contacts-membership-members = Members
+contacts-membership-add = Type a name or address to add a member
+contacts-membership-add-group = Type a group name to add this contact
+contacts-membership-count = { $count ->
+    [one] 1 member
+   *[other] { $count } members
+}
+contacts-membership-failed = Some membership changes could not be saved. The list shows what is stored.
+contacts-membership-manage = Manage group membership
+contacts-import-source = Source
+contacts-import-book = Address book
+contacts-import-review = Review
+contacts-import-empty = Choose a file or paste vCard or CSV text, then select Preview. The contacts found are listed here, and you can leave any of them out.
+contacts-merge-sets = Possible duplicates
+contacts-merge-set = Duplicates of { $name }
+contacts-merge-keep = Card to keep
+contacts-merge-done = Merged into { $name }.

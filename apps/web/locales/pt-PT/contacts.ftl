@@ -113,3 +113,28 @@ contacts-edit-group = Editar grupo de contactos
 contacts-edit-named-group = Editar grupo { $name }
 contacts-group-name = Nome do grupo
 contacts-group-edit-help = Atualize o nome deste grupo. O livro de endereços e os membros mantêm-se inalterados.
+
+# -- Páginas de gestão (t39 R6) ------------------------------------------------
+contacts-back-to-list = Voltar aos contactos
+contacts-membership-title = Membros dos grupos
+contacts-membership-help = Escolha um grupo e adicione ou remova os seus membros. As alterações são guardadas à medida que as faz.
+contacts-membership-no-groups = Ainda não há grupos. Crie um para começar a adicionar membros.
+contacts-membership-pick = Selecione um grupo para ver os seus membros.
+contacts-membership-of = Membros de { $name }
+contacts-membership-members = Membros
+contacts-membership-add = Escreva um nome ou endereço para adicionar um membro
+contacts-membership-add-group = Escreva o nome de um grupo para adicionar este contacto
+contacts-membership-count = { $count ->
+    [one] 1 membro
+   *[other] { $count } membros
+}
+contacts-membership-failed = Não foi possível guardar algumas alterações aos membros. A lista mostra o que está guardado.
+contacts-membership-manage = Gerir membros dos grupos
+contacts-import-source = Origem
+contacts-import-book = Livro de endereços
+contacts-import-review = Revisão
+contacts-import-empty = Escolha um ficheiro ou cole texto vCard ou CSV e selecione Pré-visualizar. Os contactos encontrados aparecem aqui e pode excluir qualquer um deles.
+contacts-merge-sets = Possíveis duplicados
+contacts-merge-set = Duplicados de { $name }
+contacts-merge-keep = Cartão a manter
+contacts-merge-done = Unido em { $name }.

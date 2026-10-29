@@ -2,9 +2,9 @@
 //
 // `File.text()` is specified as a UTF-8 decode, so in Firefox a UTF-16 vCard
 // comes back with U+FFFD for its mark and a NUL beside every character, and
-// parses to no contact. The dialog decodes with the calendar's
+// parses to no contact. The import page (t39 R6) decodes with the calendar's
 // `readCalendarFile` instead (`modules/calendar/decode.ts`). jsdom has no
-// `Blob.text`; the tests give it the specified one, so a dialog that still
+// `Blob.text`; the tests give it the specified one, so a page that still
 // called it would read these files as Firefox does.
 //
 // The bytes are made here, by `utf16`, code unit by code unit; nothing in this
@@ -34,7 +34,7 @@ async function pickFile(bytes: Uint8Array<ArrayBuffer>): Promise<HTMLElement> {
   render(() => <AppContext.Provider value={createAppState(makeContactsClient(defaultSeed()))}>{ContactsModule()}</AppContext.Provider>);
   await screen.findByText('Ada Lovelace');
   fireEvent.click(screen.getByRole('button', { name: 'Import…' }));
-  const dialog = await screen.findByRole('dialog', { name: 'Import contacts' });
+  const dialog = await screen.findByTestId('contacts-import-page');
   const file = new File([bytes], 'contacts.vcf', { type: 'text/vcard' });
   fireEvent.change(within(dialog).getByLabelText('Import file'), { target: { files: [file] } });
   return dialog;
@@ -67,7 +67,7 @@ describe('contacts import decoding', () => {
       expect([...bytes.subarray(0, 2)]).toEqual(order === 'le' ? [0xff, 0xfe] : [0xfe, 0xff]);
       const dialog = await pickFile(bytes);
       const preview = await within(dialog).findByRole('list', { name: 'Import preview' });
-      expect(preview).toHaveTextContent('Zoë Ångström — zoe@example.org');
+      expect(preview).toHaveTextContent('Zoë Ångström'); expect(preview).toHaveTextContent('zoe@example.org');
       // A textarea's value has its line breaks normalized to LF.
       expect(within(dialog).getByLabelText('Paste vCard or CSV')).toHaveValue(VCARD.replace(/\r\n/g, '\n'));
     });
@@ -76,6 +76,6 @@ describe('contacts import decoding', () => {
   it('reads a UTF-8 vCard as before', async () => {
     const dialog = await pickFile(new TextEncoder().encode(VCARD) as Uint8Array<ArrayBuffer>);
     const preview = await within(dialog).findByRole('list', { name: 'Import preview' });
-    expect(preview).toHaveTextContent('Zoë Ångström — zoe@example.org');
+    expect(preview).toHaveTextContent('Zoë Ångström'); expect(preview).toHaveTextContent('zoe@example.org');
   });
 });

@@ -5,8 +5,9 @@
 // `borderStrong` with 1px less padding wherever a border got thicker, focus as
 // an outline, the current address book and contact marked by a 4px bar.
 
-import { style } from '@vanilla-extract/css';
+import { globalStyle, style } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
+import * as controls from '../../styles/controls.css.ts';
 
 /** The focus outline (forced-colours mode keeps outlines and drops box-shadows). */
 const focusOutline = { outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`, outlineOffset: '2px' };
@@ -111,58 +112,12 @@ export const toolbar = style({
   alignItems: 'center',
 });
 
-export const input = style({
-  flex: '1 1 auto',
-  minWidth: 0,
-  padding: `calc(${vars.space[2]} - 1px) calc(${vars.space[3]} - 1px)`,
-  border: rule,
-  borderRadius: vars.radius.md,
-  background: vars.color.bgSink,
-  color: vars.color.text,
-  font: 'inherit',
-  minHeight: vars.a11y.touchTarget,
-  selectors: {
-    // A light page puts fields on the brighter surface instead of the sink.
-    ':root[data-appearance="light"] &': { background: vars.color.surface },
-    '&:focus-visible': focusOutline,
-  },
-});
+// Fields and buttons compose the shared primitive (styles/controls.css.ts, t39 L15).
+export const input = style([controls.textField, { flex: '1 1 auto' }]);
 
-export const button = style({
-  padding: `calc(${vars.space[2]} - 1px) calc(${vars.space[4]} - 1px)`,
-  border: `${vars.border.rule} solid ${vars.color.accent}`,
-  borderRadius: vars.radius.md,
-  background: vars.color.accent,
-  color: vars.color.accentText,
-  font: 'inherit',
-  minHeight: vars.a11y.touchTarget,
-  cursor: 'pointer',
-  selectors: {
-    // Hover lifts a hard shadow, which changes no box.
-    '&:hover:not(:disabled)': { boxShadow: vars.elevation[1] },
-    '&:active': { boxShadow: 'none' },
-    '&:focus-visible': focusOutline,
-    // Not colour alone: a disabled button also has a dashed border.
-    '&:disabled': { opacity: 0.6, cursor: 'default', borderStyle: 'dashed' },
-  },
-});
+export const button = style([controls.button]);
 
-export const buttonGhost = style({
-  padding: `calc(${vars.space[2]} - 1px) calc(${vars.space[3]} - 1px)`,
-  border: rule,
-  borderRadius: vars.radius.md,
-  background: 'transparent',
-  color: vars.color.text,
-  font: 'inherit',
-  minHeight: vars.a11y.touchTarget,
-  cursor: 'pointer',
-  selectors: {
-    // Ghost buttons invert on hover instead of casting a shadow.
-    '&:hover:not(:disabled)': { background: vars.color.text, color: vars.color.bg },
-    '&:focus-visible': focusOutline,
-    '&:disabled': { opacity: 0.6, cursor: 'default', borderStyle: 'dashed' },
-  },
-});
+export const buttonGhost = style([controls.buttonGhost, { paddingInline: `calc(${vars.space[3]} - 1px)` }]);
 
 export const contactList = style({
   listStyle: 'none',
@@ -316,7 +271,7 @@ export const select = style({
   },
 });
 
-export const actions = style({ display: 'flex', gap: vars.space[2], justifyContent: 'flex-end', flexWrap: 'wrap' });
+export const actions = style([controls.actionsEnd]);
 
 // Square chip with a 1px frame; the padding gives that pixel back.
 export const chip = style({
@@ -342,3 +297,30 @@ export const bareFieldset = style({ border: 'none', padding: 0, margin: 0 });
 /** Exclusive contact editor, independent of the list's three-column grid. */
 export const editorPage = style({height: '100%', minWidth: 0, overflow: 'auto', padding: vars.space[5], color: vars.color.text});
 export const editorSection = style({display: 'grid', gap: vars.space[3], border: hair, padding: vars.space[4], minWidth: 0, margin: 0});
+
+// ── Management pages (t39 R6): membership, import, merge ─────────────────────
+// A page header, then a list pane and a detail pane; one column on a phone.
+export const page = style({
+  display: 'flex', flexDirection: 'column', gap: vars.space[4],
+  height: '100%', minWidth: 0, overflow: 'auto', padding: vars.space[5], color: vars.color.text, fontFamily: vars.font.ui,
+  '@media': { '(max-width: 600px)': { padding: vars.space[4] } },
+});
+export const pageHeader = style({ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: vars.space[2] });
+// The heading takes focus on arrival (programmatic); a keyboard user still sees the ring.
+globalStyle(`${pageHeader} h1:focus:not(:focus-visible)`, { outline: 'none' });
+export const pageBody = style({
+  display: 'grid', gridTemplateColumns: 'minmax(200px, 320px) minmax(0, 1fr)', gap: vars.space[5], alignItems: 'start', minWidth: 0,
+  '@media': { '(max-width: 900px)': { gridTemplateColumns: 'minmax(0, 1fr)' } },
+});
+export const pageList = style({
+  display: 'flex', flexDirection: 'column', gap: vars.space[2], minWidth: 0,
+  borderInlineEnd: rule, paddingInlineEnd: `calc(${vars.space[4]} - 1px)`,
+  '@media': { '(max-width: 900px)': { borderInlineEnd: 'none', paddingInlineEnd: 0, borderBlockEnd: rule, paddingBlockEnd: `calc(${vars.space[4]} - 1px)` } },
+});
+export const pageDetail = style({ display: 'flex', flexDirection: 'column', gap: vars.space[4], minWidth: 0 });
+export const pageItems = style({ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: vars.space[1] });
+export const pageSubheading = style({ fontSize: '1rem', fontWeight: vars.weight.heavy, margin: 0, overflowWrap: 'anywhere' });
+export const actionsStart = style([controls.actions]);
+export const tableScroll = style({ maxInlineSize: '100%', overflowX: 'auto' });
+/** The host of a management page (the page scrolls itself). */
+export const pageHost = style({ height: '100%', minWidth: 0, overflow: 'hidden' });
