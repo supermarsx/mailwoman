@@ -10,7 +10,7 @@ import { RuleBuilder } from './RuleBuilder.tsx';
 import { ScriptsPanel } from './ScriptsPanel.tsx';
 import { VacationPanel } from './VacationPanel.tsx';
 import { ForwardingPanel } from './ForwardingPanel.tsx';
-import { vacationApi } from './vacation-api.ts';
+import { vacationApi, vacationSupport, type VacationSupport } from './vacation-api.ts';
 import { sieveApi, type SieveApi, type SieveCapability } from './sieve-api.ts';
 import * as css from './styles.css.ts';
 
@@ -23,7 +23,18 @@ export function RulesSettings(props: RulesSettingsProps): JSX.Element {
   const [capability, setCapability] = createSignal<SieveCapability | null>(null);
   createEffect(on(scripts, (api) => { setCapability(null); void api.connect().then((cap) => { if (api === scripts()) setCapability(cap); }).catch(() => undefined); }));
   const vacation = createMemo(() => vacationApi(client, props.accountId));
+  // t39-e7 (L11): the vacation tab is offered only when something will send the
+  // reply. Unknown (session not read yet) and unavailable both hide it.
+  const [vacationAvailability, setVacationAvailability] = createSignal<VacationSupport | null>(null);
+  createEffect(on(() => props.accountId, (accountId) => {
+    setVacationAvailability(null);
+    void client.session().then((session) => { if (accountId === props.accountId) setVacationAvailability(vacationSupport(session, accountId)); })
+      .catch(() => { if (accountId === props.accountId) setVacationAvailability({ available: false }); });
+  }));
+  const vacationRunsAt = (): 'server-sieve' | 'engine' | 'server' | null => { const v = vacationAvailability(); return v?.available ? v.runsAt : null; };
+  const panes = createMemo(() => (['builder', 'raw', 'vacation', 'forward'] as const).filter((id) => id !== 'vacation' || vacationRunsAt() !== null));
   const [pane, setPane] = createSignal<'builder' | 'raw' | 'vacation' | 'forward'>('builder');
+  createEffect(() => { if (pane() === 'vacation' && vacationRunsAt() === null) setPane('builder'); });
   const [editing, setEditing] = createSignal<RuleDraft | null>(null);
   const [loadFailure, setLoadFailure] = createSignal<{ error: unknown } | null>(null);
   const [editFailure, setEditFailure] = createSignal('');
@@ -42,11 +53,12 @@ export function RulesSettings(props: RulesSettingsProps): JSX.Element {
     <h2 id="rules-heading" class={css.heading}>{t('rules-title')}</h2>
     <p class={css.prose}>{t('rules-intro')}</p>
     <div class={css.tabs} role="tablist" aria-label={t('rules-panes-label')}>
-      <For each={['builder', 'raw', 'vacation', 'forward'] as const}>{(id) => <button type="button" role="tab" id={`rules-tab-${id}`} class={css.tab}
+      <For each={panes()}>{(id) => <button type="button" role="tab" id={`rules-tab-${id}`} class={css.tab}
         aria-selected={pane() === id} aria-controls={`rules-panel-${id}`} onClick={() => { setPane(id); if (id === 'builder') load(); }}>
         {t(id === 'builder' ? 'rules-tab-builder' : id === 'raw' ? 'rules-tab-raw' : id === 'vacation' ? 'rules-vacation-title' : 'rules-forward-title')}
       </button>}</For>
     </div>
+    <Show when={vacationAvailability()?.available === false}><p class={css.prose} data-testid="rules-vacation-unavailable">{t('rules-vacation-unavailable')}</p></Show>
     <Show when={pane() === 'builder'}>
       <div role="tabpanel" id="rules-panel-builder" aria-labelledby="rules-tab-builder">
         <Show when={loadFailure() === null} fallback={<>
@@ -76,7 +88,7 @@ export function RulesSettings(props: RulesSettingsProps): JSX.Element {
       </div>
     </Show>
     <Show when={pane() === 'raw'}><div role="tabpanel" id="rules-panel-raw" aria-labelledby="rules-tab-raw"><ScriptsPanel api={scripts()} /></div></Show>
-    <Show when={pane() === 'vacation'}><div role="tabpanel" id="rules-panel-vacation" aria-labelledby="rules-tab-vacation"><VacationPanel api={vacation()} /></div></Show>
+    <Show when={pane() === 'vacation' && vacationRunsAt()}>{(runsAt) => <div role="tabpanel" id="rules-panel-vacation" aria-labelledby="rules-tab-vacation"><VacationPanel api={vacation()} runsAt={runsAt()} /></div>}</Show>
     <Show when={pane() === 'forward'}><div role="tabpanel" id="rules-panel-forward" aria-labelledby="rules-tab-forward"><ForwardingPanel slice={slice} api={scripts()} /></div></Show>
   </section>;
 }
