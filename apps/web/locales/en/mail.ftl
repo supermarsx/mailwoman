@@ -814,3 +814,6 @@ mail-compose-identities-failed = Sending identities could not be loaded. Close a
 mail-folders-loading = Loading folders…
 mail-initial-sync-error = Your messages could not be synchronized yet.
 mail-initial-sync-error-help = The connection to your mail server was interrupted. Try again, or ask your administrator to check the connection logs if this keeps happening.
+mail-links-trusted = Trusted domain: opens without review
+mail-links-trust-domain = Trust { $domain }
+mail-links-trust-failed = The trusted domain could not be saved. Try again.

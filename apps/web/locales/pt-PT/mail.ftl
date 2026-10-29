@@ -807,3 +807,6 @@ mail-compose-identities-failed = Não foi possível carregar as identidades de e
 mail-folders-loading = A carregar pastas…
 mail-initial-sync-error = Ainda não foi possível sincronizar as suas mensagens.
 mail-initial-sync-error-help = A ligação ao seu servidor de correio foi interrompida. Tente novamente ou, se isto continuar a acontecer, peça ao administrador que verifique os registos de ligação.
+mail-links-trusted = Domínio de confiança: abre sem revisão
+mail-links-trust-domain = Confiar em { $domain }
+mail-links-trust-failed = Não foi possível guardar o domínio de confiança. Tente novamente.

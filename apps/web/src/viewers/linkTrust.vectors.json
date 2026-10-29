@@ -1,0 +1,39 @@
+{
+  "comment": "Shared by viewers/linkTrust.test.ts and crates/mw-server/tests/link_trust.rs (t39 R7). Keep both sides green.",
+  "entries": [
+    { "input": "example.com", "normalized": "example.com" },
+    { "input": "Example.COM.", "normalized": "example.com" },
+    { "input": " partner.test ", "normalized": "partner.test" },
+    { "input": "xn--bcher-kva.example", "normalized": "xn--bcher-kva.example" },
+    { "input": "com", "normalized": null },
+    { "input": "*.example.com", "normalized": null },
+    { "input": ".example.com", "normalized": null },
+    { "input": "-example.com", "normalized": null },
+    { "input": "example-.com", "normalized": null },
+    { "input": "exa mple.com", "normalized": null },
+    { "input": "user@example.com", "normalized": null },
+    { "input": "https://example.com", "normalized": null },
+    { "input": "example.com/path", "normalized": null },
+    { "input": "example.com:443", "normalized": null },
+    { "input": "10.0.0.1", "normalized": null },
+    { "input": "a..example.com", "normalized": null },
+    { "input": "", "normalized": null }
+  ],
+  "matches": [
+    { "host": "example.com", "domains": ["example.com"], "subdomains": false, "trusted": true },
+    { "host": "mail.example.com", "domains": ["example.com"], "subdomains": false, "trusted": false },
+    { "host": "mail.example.com", "domains": ["example.com"], "subdomains": true, "trusted": true },
+    { "host": "a.b.example.com", "domains": ["example.com"], "subdomains": true, "trusted": true },
+    { "host": "evilexample.com", "domains": ["example.com"], "subdomains": true, "trusted": false },
+    { "host": "example.com.evil.test", "domains": ["example.com"], "subdomains": true, "trusted": false },
+    { "host": "example.co", "domains": ["example.com"], "subdomains": true, "trusted": false },
+    { "host": "xample.com", "domains": ["example.com"], "subdomains": true, "trusted": false },
+    { "host": "example.com", "domains": ["mail.example.com"], "subdomains": true, "trusted": false },
+    { "host": "EXAMPLE.com", "domains": ["example.com"], "subdomains": false, "trusted": true },
+    { "host": "example.com.", "domains": ["example.com"], "subdomains": false, "trusted": true },
+    { "host": "xn--exmple-cua.com", "domains": ["example.com"], "subdomains": true, "trusted": false },
+    { "host": "10.0.0.1", "domains": ["10.0.0.1"], "subdomains": false, "trusted": false },
+    { "host": "anything.com", "domains": ["com"], "subdomains": true, "trusted": false },
+    { "host": "example.com", "domains": [], "subdomains": true, "trusted": false }
+  ]
+}
