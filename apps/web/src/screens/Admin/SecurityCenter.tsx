@@ -19,6 +19,7 @@ const SecurityPolicy=lazy(()=>import('./SecurityPolicy/index.tsx').then(m=>({def
 const InboundAllowlist=lazy(()=>import('./InboundAllowlist.tsx').then(m=>({default:m.InboundAllowlist})));
 const DeploymentSecurity=lazy(()=>import('./DeploymentSecurity.tsx').then(m=>({default:m.DeploymentSecurity})));
 const Sessions=lazy(()=>import('./Sessions.tsx').then(m=>({default:m.AdminSessions})));
+const ConsolePath=lazy(()=>import('./ConsolePath.tsx').then(m=>({default:m.ConsolePath})));
 export function AdminSecurityCenter(props: TwoFactorPolicyProps): JSX.Element {
   const shell=useContext(ShellContext);
   onMount(()=>void loadCatalog('admin-security'));
@@ -38,6 +39,7 @@ export function AdminSecurityCenter(props: TwoFactorPolicyProps): JSX.Element {
         <Match when={selected()==='policy'}><SecurityPolicy/></Match>
         <Match when={selected()==='inbound'}><InboundAllowlist/></Match>
         <Match when={selected()==='deployment'}><DeploymentSecurity/></Match>
+        <Match when={selected()==='console'}><ConsolePath readOnly={!!shell && !shell.can.can('security_policy.write')}/></Match>
         <Match when={selected()==='sessions'}><Sessions/></Match>
       </Switch>
     </Show>

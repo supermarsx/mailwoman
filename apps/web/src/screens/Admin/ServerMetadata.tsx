@@ -10,7 +10,8 @@
 // puts `accountId` in every method call), but the admin console runs under its own
 // session that carries no accountId and no JMAP session. So the admin selects a
 // provisioned account (`AdminApi.listUsers()`), and the client is built against the
-// same-origin JMAP transport (`createConfiguredClient().jmap` → `/jmap/api`). When
+// console's passthrough route (`adminMetadataJmap` → `{console}/server-metadata/jmap`,
+// t76: the admin cookie is scoped to the console path, so `/jmap/api` never sees it). When
 // that transport refuses the admin session the editor shows its own "could not
 // load" state; this wrapper never fakes a session or hides the failure.
 //
@@ -21,7 +22,7 @@
 import { createMemo, createResource, createSignal, createUniqueId, For, Show, onMount, useContext, type JSX } from 'solid-js';
 import { MetadataView } from '../../modules/servermeta/MetadataView.tsx';
 import { createAclClient, type AclClient, type JmapFn } from '../../api/acl-types.ts';
-import { createConfiguredClient } from '../../api/transport.ts';
+import { adminMetadataJmap } from '../../api/admin/metadataJmap.ts';
 import { createHttpAdminApi, type AdminApi, type UserSummary } from '../../state/slices/admin.ts';
 import { t, loadCatalog } from '../../i18n';
 import { ShellContext } from './shell/context.ts';
@@ -40,15 +41,15 @@ export interface ServerMetadataProps {
    */
   api?: AdminApi;
   /**
-   * The JMAP transport the ACL/metadata client rides. Defaults to the configured
-   * same-origin client (`/jmap/api`); tests inject a fake. See the session note above.
+   * The JMAP transport the ACL/metadata client rides. Defaults to the console's
+   * passthrough route; tests inject a fake. See the session note above.
    */
   jmap?: JmapFn;
 }
 
 export function ServerMetadata(props: ServerMetadataProps): JSX.Element {
   const api = props.api ?? createHttpAdminApi();
-  const jmap = props.jmap ?? createConfiguredClient().jmap;
+  const jmap = props.jmap ?? adminMetadataJmap;
   const shellCtx = useContext(ShellContext);
   const id = createUniqueId();
 
