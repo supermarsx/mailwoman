@@ -2,7 +2,7 @@
 
 The admin panel is an operator surface for domains, users, quotas, security policy,
 integrations, and observability. It is **separate from the mailbox**: a distinct route
-(`/admin` unless `MW_ADMIN_PATH` moves it), a distinct session domain (its own cookie, `mw_admin_session` unless
+(the console path: `MW_ADMIN_PATH`, or the path stored at the first start), a distinct session domain (its own cookie, `mw_admin_session` unless
 `MW_ADMIN_SESSION_COOKIE` names another), and a
 distinct credential. A logged-in mailbox user is **not** an admin; an admin session is
 obtained only by authenticating at the admin surface.
@@ -17,7 +17,7 @@ obtained only by authenticating at the admin surface.
 | `MW_ADMIN_SESSION_COOKIE` | `mw_admin_session` | Name of the admin session cookie: 1 to 64 characters from `A-Z a-z 0-9 _ - .`; `mw_session` and `mw_csrf` are refused. |
 | `MW_ADMIN_MIN_TLS` | *(unset)* | `1.2` or `1.3`. Pins the policy's minimum TLS version (see [Security policy](#security-policy)). |
 | `MW_ADMIN_REQUIRE_2FA` | *(unset)* | `true` or `false`. Pins the global require-two-factor rule. |
-| `MW_ADMIN_PATH` | `/admin` | URL path of the console, its sign-in and its API (see [Console path](#console-path)). |
+| `MW_ADMIN_PATH` | *(stored path)* | URL path of the console, its sign-in and its API; pins it while set (see [Console path](#console-path)). |
 
 An invalid value in any of these stops the server at start with an error naming the
 variable. Since 26.20 the `MW_ADMIN_*` variables that nothing reads —
@@ -30,11 +30,24 @@ where all administration is done via the CLI + config and no HTTP panel is expos
 
 ## Console path
 
-`MW_ADMIN_PATH` (26.20) moves the console page, the admin sign-in and every
-`/admin/*` route below to another path, relative to `MW_BASE_PATH`:
-`MW_ADMIN_PATH=/ops-7f3k` serves `GET /ops-7f3k/users`, `POST /ops-7f3k/login`
-and so on, and the page itself at `/ops-7f3k`. Unset, it is `/admin`.
+The console page, the admin sign-in and every `/admin/*` route below are served
+at one path only, relative to `MW_BASE_PATH`. With `/ops-7f3k` as that path the
+server answers `GET /ops-7f3k/users`, `POST /ops-7f3k/login` and so on, and the
+page itself at `/ops-7f3k`. The `/admin/...` routes in this document are written
+with the old default path; read them as `{console}/...`.
 
+* **Where it comes from (26.20):** `MW_ADMIN_PATH` when set (it pins the path);
+  otherwise the stored path (`admin.consolePath`); on the first start without
+  either, a generated path on a new installation (20 random characters, logged
+  once) or `/admin` kept on an upgrade, with a warning at every start.
+  `mailwoman admin console-path show` prints it.
+* **Changing it:** Security > Console address in the console
+  (`PUT {console}/console-path`, capability `security_policy.write`, step-up
+  action `consolePath`, audit entry `admin-console-path-changed` with a
+  fingerprint of the old and new path rather than the path itself), or
+  `mailwoman admin console-path set|generate`. A chosen path needs at least 12
+  characters after the `/` and may not be `/admin`. The next start applies it and
+  ends every admin session (audit entry `admin-console-path-applied`).
 * **Accepted values:** `/` followed by one to four segments of
   `A-Z a-z 0-9 . _ ~ -`, no `.` or `..` segment and no trailing `/`. The first
   segment must not be one the server already uses (`api`, `jmap`, `oauth`,
@@ -42,21 +55,29 @@ and so on, and the page itself at `/ops-7f3k`. Unset, it is `/admin`.
   `errors`, `t`, `assets`, `fonts`, `icons`, `themes`, the files at the root of the
   web build) or the first segment of `MW_BASE_PATH`. Anything else stops the start
   with an error naming the variable.
-* **The old path:** once moved, `/admin` and everything under it get exactly the
-  answer an unknown path gets (status, headers and body), so probing `/admin` does
-  not lead anywhere or say where the console went.
+* **Every other path:** `/admin` (once moved) and every other path get exactly
+  the answer an unknown path gets (status, headers and body), so probing does not
+  lead anywhere or say where the console is. There is no alias.
 * **No leak:** the path is not in the web build, the service worker, the mail
   client's page, `/api/policy`, discovery documents, error pages for other paths
-  or any response header outside the console. The console page is marked as the
-  console (`<meta name="mw-console" content="admin">`) and the web app uses its
-  own address as the console's location.
-* **What it is worth:** a custom path reduces scanning and drive-by sign-in
-  attempts. It is not a replacement for the admin password, two-factor sign-in,
-  the sign-in rate limit or a network restriction, and it is visible to anyone
-  who can read your proxy logs or an admin's browser history.
+  or any response header outside the console, and the application log store
+  shows it as `[admin-path]`. The mail app has no link to the console. The
+  console page is marked as the console (`<meta name="mw-console" content="admin">`)
+  and the web app uses its own address as the console's location.
+* **Cookie and headers:** the admin session cookie has
+  `Path={MW_BASE_PATH}{console}`, so the browser does not send it to the mail
+  app (sign-out also clears a `Path=/` cookie from before 26.20). The console
+  page carries `Content-Security-Policy: frame-ancestors 'none'` next to the
+  shell policy, `X-Frame-Options: DENY` and `X-Robots-Tag: noindex, nofollow`.
+* **What it is worth:** a hidden path reduces scanning and drive-by sign-in
+  attempts. It hides the console but does not isolate it: the console shares
+  the mail app's origin, so a script running in the mail app that learns the
+  path can reach the console API from a browser with an admin session. It does
+  not replace the admin password, two-factor sign-in, the sign-in rate limit or
+  a network restriction, and it is visible to anyone who can read your proxy
+  logs or an admin's browser history.
 
-The sign-in rate limit, the CSRF rules and the session cookie (`Path=/`) are the
-same at any path.
+The sign-in rate limit and the CSRF rules are the same at any path.
 
 ## Everything is also CLI + config
 

@@ -110,7 +110,7 @@ pluggable Postgres, layered Valkey/Redis cache, observability) adds:
 | `MW_ADMIN_MIN_TLS` | *(unset)* | 26.20. `1.2` or `1.3`. Pins the security policy's minimum TLS version (HTTPS listener and outbound mail connections); the panel cannot change it while set. See [`../security/admin-panel.md`](../security/admin-panel.md#security-policy). |
 | `MW_ADMIN_REQUIRE_2FA` | *(unset)* | 26.20. `true` or `false`. Pins the global require-two-factor rule. |
 | `MW_ADMIN_SESSION_COOKIE` | `mw_admin_session` | 26.20. Name of the admin session cookie. |
-| `MW_ADMIN_PATH` | `/admin` | 26.20. URL path of the admin console, its sign-in and its API, under `MW_BASE_PATH` when that is set, e.g. `/ops-7f3k`. `/` followed by one to four segments of `A-Z a-z 0-9 . _ ~ -`, no trailing `/`; a path under `/api`, `/jmap`, `/oauth`, `/.well-known`, `/dav`, `/mcp`, `/assets`, `/fonts` or another path the server already uses is refused, and so is one that starts with the same segment as `MW_BASE_PATH`. When set, `/admin` answers exactly like any unknown path. A custom path cuts down scanning and drive-by sign-in attempts; it does not replace the admin password, two-factor sign-in, rate limits or network restrictions. See [Moving the admin console](#moving-the-admin-console). |
+| `MW_ADMIN_PATH` | *(stored path)* | 26.20. URL path of the admin console, its sign-in and its API, under `MW_BASE_PATH` when that is set, e.g. `/ops-7f3k`. The console answers at this path and nowhere else. Unset, the server uses the path stored in its database: generated on the first start of a new installation, `/admin` kept on an upgrade (with a warning at every start). `/` followed by one to four segments of `A-Z a-z 0-9 . _ ~ -`, no trailing `/`; a path under `/api`, `/jmap`, `/oauth`, `/.well-known`, `/dav`, `/mcp`, `/assets`, `/fonts` or another path the server already uses is refused, and so is one that starts with the same segment as `MW_BASE_PATH`. While set, the console and the CLI cannot change the path. A hidden path cuts down scanning and drive-by sign-in attempts; it does not isolate the console (it shares the mail app's origin) and does not replace the admin password, two-factor sign-in, rate limits or network restrictions. See [Moving the admin console](#moving-the-admin-console). |
 | `MW_ADMIN_PORT`, `MW_ADMIN_LOG_LEVEL`, `MW_ADMIN_OTLP_DSN`, `MW_ADMIN_METRICS`, `MW_ADMIN_THEME`, `MW_ADMIN_BRAND`, `MW_ADMIN_ACCENT` | — | 26.20: **setting any of these stops the start**, with an error saying what to use instead (before 26.20 they logged a warning). Nothing reads them. An invalid value of the four variables above also stops the start. |
 | `MW_OTLP_ENDPOINT` | *(unset)* | V6. OTLP collector (e.g. `http://otel:4317`); rustls transport. Unset → OTLP export off. See [`../security/observability.md`](../security/observability.md). |
 | `MW_METRICS_TOKEN` | *(unset)* | V6. Bearer token guarding `GET /metrics`. Unset → `/metrics` is unreachable (never open). |
@@ -166,34 +166,78 @@ without it.
 
 ### Moving the admin console
 
-From 26.20. Nothing changes on upgrade: unless `MW_ADMIN_PATH` is set, the
-console stays at `/admin` (under `MW_BASE_PATH` when that is set).
+From 26.20 the admin console, its sign-in and its API answer at exactly one
+path, under `MW_BASE_PATH` when that is set. There is no fallback and no alias:
+every other path, `/admin` included once the console has moved, gets the same
+`404` as any path the server does not know (status, headers and body), with no
+redirect and no hint.
 
-To move it, set the path and restart:
+**Where the path comes from**, in this order:
+
+1. `MW_ADMIN_PATH`, when set. It pins the path: the console and
+   `mailwoman admin console-path` refuse to change it.
+2. The path stored in the server's database (setting `admin.consolePath`).
+3. On the first start with neither:
+   * **New installation** (empty database): the server generates a path of 20
+     random characters (for example `/k7tq2xw9m4hrb3cz8npd`), stores it and logs
+     it once, as a warning that starts `new installation: the admin console is
+     at`. `deploy.sh init` generates one the same way before the first start
+     and writes it to `app.env` as `MW_ADMIN_PATH`; `deploy.sh deploy` prints
+     the console's address once the stack is healthy.
+   * **Upgraded installation** (the database already holds settings, accounts,
+     admin accounts or audit entries): the console stays at `/admin`, so nobody
+     is locked out. That is stored too, and every start logs a warning that
+     recommends a path of your own.
+
+Forgot the path? On the server run `mailwoman admin console-path show` (with
+Docker: `docker exec <container> mailwoman admin console-path show`).
+
+**Changing it.** In the console, open Security > Console address. You need
+`security_policy.write` and a fresh confirmation of your password or second
+factor, and the change is audited. Or, on the server:
 
 ```
-MW_ADMIN_PATH=/ops-7f3k
+mailwoman admin console-path generate          # a new random path
+mailwoman admin console-path set /ops-7f3k-console
 ```
 
-The console page, the admin sign-in and every admin API route are then served at
-`{MW_BASE_PATH}/ops-7f3k` instead of `{MW_BASE_PATH}/admin`, and `/admin` gets
-the same `404` as any path the server does not know: no redirect, no hint. The
-path is not written into the web app, the service worker, the mail client's page
-or any public answer, so nothing a visitor outside the console can fetch reveals
-it. An invalid value stops the start with an error naming the variable.
+A path chosen this way needs at least 12 characters after the `/` and may not be
+`/admin`. The new path is stored and **takes effect at the next restart**; until
+then the console stays where it is. The start that applies a new path ends every
+admin session (audit entry `admin-console-path-applied`), so admins sign in
+again at the new address. Setting `MW_ADMIN_PATH` and restarting works the same
+way.
 
-**What it does and does not do.** A path that is not `/admin` cuts down
-automated scanning and drive-by sign-in attempts against the console. It is an
-extra layer, not a secret that protects the console on its own: the path appears
-in your reverse proxy's logs and in the browser history of anyone who uses it.
-Keep a strong admin password, two-factor sign-in for admin accounts, the sign-in
-rate limit and, where you can, a network restriction on the path (an allowlist
-in the reverse proxy, a VPN).
+The path is not written into the web app, the service worker, the mail client's
+page or any public answer, so nothing a visitor outside the console can fetch
+reveals it. The mail app has no link to the console. The admin session cookie is
+scoped to the console's path (`Path={MW_BASE_PATH}{console}`), so the browser
+never sends it to the mail app. The console page is sent with
+`Content-Security-Policy: frame-ancestors 'none'` and `X-Robots-Tag: noindex`.
+An invalid value stops the start with an error naming the variable.
 
-**Also update:** bookmarks, any reverse-proxy rule that names `/admin`, and
-monitoring that probes it. The admin session cookie is unchanged (`Path=/`), so
-an admin who was signed in stays signed in at the new path. A browser end-to-end
-run against a moved console takes `MW_E2E_ADMIN_PATH` (default `/admin`).
+**What it does and does not do.** A path nobody can guess cuts down automated
+scanning and drive-by sign-in attempts against the console. It hides the
+console; it does not isolate it. The console runs on the same origin as the mail
+app, so a script running in the mail app (an XSS, or a provider script loaded by
+an analytics tag) that learns the path can still call the console's API from a
+browser that holds an admin session. The path also appears in your reverse
+proxy's logs and in the browser history of anyone who uses it. Keep a strong
+admin password, two-factor sign-in for admin accounts, the sign-in rate limit
+and, where you can, a network restriction on the path (an allowlist in the
+reverse proxy, a VPN). Using a separate browser profile for the console keeps
+its session out of the browser you read mail in.
+
+**Upgrading to 26.20.** Nothing moves: a deployment that set `MW_ADMIN_PATH`
+keeps it, and one that did not keeps `/admin`, with a warning at each start. To
+move it, use the console or the CLI above, then restart. Also update bookmarks,
+any reverse-proxy rule that names `/admin`, and monitoring that probes it. Admin
+cookies issued before 26.20 had `Path=/`; they keep working until they expire or
+the admin signs out, which clears both. The server-metadata editor in the
+console now posts to `{console}/server-metadata/jmap` instead of `/jmap/api`,
+because the scoped cookie no longer reaches `/jmap/api`. A browser end-to-end run
+against a moved console takes `MW_E2E_ADMIN_PATH` (default `/admin`). Details:
+[upgrade-notes/admin-console-path.md](upgrade-notes/admin-console-path.md).
 
 ### Upgrading: the proxy upstream is now checked
 
