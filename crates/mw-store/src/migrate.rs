@@ -289,7 +289,13 @@ const TABLES: &[TableSpec] = &[
         name: "linked_primary",
         select: "SELECT owner_principal_id,link_id,updated_at FROM linked_primary",
         insert: "INSERT INTO linked_primary(owner_principal_id,link_id,updated_at) VALUES(?1,?2,?3)",
-        map: |r| vec![t(r, "owner_principal_id"), t(r, "link_id"), i(r, "updated_at")],
+        map: |r| {
+            vec![
+                t(r, "owner_principal_id"),
+                t(r, "link_id"),
+                i(r, "updated_at"),
+            ]
+        },
     },
     TableSpec {
         name: "linked_layout",

@@ -224,22 +224,13 @@ pub(super) async fn network(state: &AppState, upstream_capability: bool) -> Vec<
 
 fn deployment_summary(id: &str) -> Option<(&'static str, &'static str)> {
     Some(match id {
-        "https" => (
-            "security-https",
-            "Requests reach this server over HTTPS",
-        ),
+        "https" => ("security-https", "Requests reach this server over HTTPS"),
         "secureCookies" => (
             "security-secure-cookies",
             "Session cookies carry the Secure attribute",
         ),
-        "hsts" => (
-            "security-hsts",
-            "Strict-Transport-Security is sent",
-        ),
-        "csrf" => (
-            "security-csrf",
-            "Strict CSRF checking is on",
-        ),
+        "hsts" => ("security-hsts", "Strict-Transport-Security is sent"),
+        "csrf" => ("security-csrf", "Strict CSRF checking is on"),
         "adminFactors" => (
             "security-admin-factors",
             "Every administrator has a second factor",
@@ -342,7 +333,12 @@ pub(super) async fn security(
     let start = Instant::now();
     let (status, summary) =
         fail2ban_address_status(crate::scope_mw::proxy::client_ip(headers, ext));
-    out.push(row("fail2ban-client-address", status, start, summary.into()));
+    out.push(row(
+        "fail2ban-client-address",
+        status,
+        start,
+        summary.into(),
+    ));
     out
 }
 

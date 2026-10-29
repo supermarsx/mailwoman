@@ -773,9 +773,7 @@ mod tests {
     #[test]
     fn folder_is_relative_bounded_and_without_traversal() {
         assert_eq!(folder("/Backups/Mailwoman/").unwrap(), "Backups/Mailwoman");
-        for bad in [
-            "", "/", "a/../b", "a//b", "./a", "a\\b", "a\nb", "a/ b",
-        ] {
+        for bad in ["", "/", "a/../b", "a//b", "./a", "a\\b", "a\nb", "a/ b"] {
             assert!(folder(bad).is_err(), "{bad:?}");
         }
     }

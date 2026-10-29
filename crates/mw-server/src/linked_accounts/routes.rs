@@ -108,7 +108,8 @@ async fn list(State(state): State<AppState>, headers: HeaderMap) -> Result<Respo
             .any(|a| a["id"] == json!(id) && a["status"] == json!("ready"))
     });
     let primary_fallback = stored.is_some() && primary_mailbox.is_none();
-    let (store_credentials, store_reason) = super::credential::owner_policy(&state, &parent).await?;
+    let (store_credentials, store_reason) =
+        super::credential::owner_policy(&state, &parent).await?;
     let keys = layout_keys(accounts.iter().filter_map(|a| a["id"].as_str()));
     let layout = layout_view(
         state
@@ -281,7 +282,15 @@ async fn renew(
         }),
     )
     .await;
-    finish(&state, &parent, &row.display_name, response, None, Some(&row.id)).await
+    finish(
+        &state,
+        &parent,
+        &row.display_name,
+        response,
+        None,
+        Some(&row.id),
+    )
+    .await
 }
 
 async fn confirm_renew(
@@ -307,7 +316,15 @@ async fn confirm_renew(
     let response =
         crate::twofa_routes::verify_link_factor(state.clone(), factor_headers, ext, pending, body)
             .await;
-    finish(&state, &parent, &display, response, Some(&challenge), Some(&id)).await
+    finish(
+        &state,
+        &parent,
+        &display,
+        response,
+        Some(&challenge),
+        Some(&id),
+    )
+    .await
 }
 
 async fn finish(
@@ -447,7 +464,10 @@ async fn attach(
     // it cannot (second factor, zero-access, policy).
     // The link is committed; a failure to store the credential only means
     // access will need renewing later, so it must not fail (and discard) it.
-    if super::credential::remember(state, parent, &row.id, &child).await.is_err() {
+    if super::credential::remember(state, parent, &row.id, &child)
+        .await
+        .is_err()
+    {
         tracing::warn!("linked credential not stored for a new link");
     }
     // Open realtime streams pick the new link up now (t46).
@@ -499,7 +519,10 @@ async fn rebind(
         .delete_native_session(&crate::push_relay::hash_token(token))
         .await
         .map_err(unavailable)?;
-    if super::credential::remember(state, parent, link, &child).await.is_err() {
+    if super::credential::remember(state, parent, link, &child)
+        .await
+        .is_err()
+    {
         tracing::warn!("linked credential not stored after renewing access");
     }
     super::credential::audit(
@@ -707,58 +730,6 @@ async fn set_layout(
         .into_response())
 }
 
-#[cfg(test)]
-mod layout_tests {
-    use super::*;
-
-    #[test]
-    fn nicknames_are_trimmed_capped_and_refuse_control_and_bidi_characters() {
-        assert_eq!(nickname("  Work  "), Ok(Some("Work".into())));
-        assert_eq!(nickname("   "), Ok(None));
-        assert_eq!(
-            nickname(&"é".repeat(NICKNAME_MAX)),
-            Ok(Some("é".repeat(NICKNAME_MAX)))
-        );
-        assert_eq!(
-            nickname(&"a".repeat(NICKNAME_MAX + 1)),
-            Err("nicknameTooLong")
-        );
-        for bad in [
-            "a\u{202E}b",
-            "a\u{2066}b",
-            "a\u{200F}b",
-            "a\nb",
-            "a\u{0007}b",
-            "a\u{FEFF}b",
-        ] {
-            assert_eq!(nickname(bad), Err("nicknameInvalid"), "{bad:?}");
-        }
-        assert_eq!(
-            nickname("<b>Personal</b>"),
-            Ok(Some("<b>Personal</b>".into())),
-            "kept as text; the client renders it as text"
-        );
-    }
-
-    #[test]
-    fn order_drops_unknown_ids_and_appends_new_links() {
-        let keys = layout_keys(["a", "b", "c"].into_iter());
-        let order = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(
-            normalized_order(&order(&["c", "x", "main", "c"]), &keys),
-            order(&["c", "main", "a", "b"])
-        );
-        assert_eq!(
-            normalized_order(&order(&["b"]), &keys),
-            order(&["main", "b", "a", "c"])
-        );
-        assert_eq!(
-            normalized_order(&[], &keys),
-            order(&["main", "a", "b", "c"])
-        );
-    }
-}
-
 async fn switch(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -810,4 +781,56 @@ async fn unlink(
     // drops the link from open streams' sets at once (t46).
     links_changed();
     Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    fn nicknames_are_trimmed_capped_and_refuse_control_and_bidi_characters() {
+        assert_eq!(nickname("  Work  "), Ok(Some("Work".into())));
+        assert_eq!(nickname("   "), Ok(None));
+        assert_eq!(
+            nickname(&"é".repeat(NICKNAME_MAX)),
+            Ok(Some("é".repeat(NICKNAME_MAX)))
+        );
+        assert_eq!(
+            nickname(&"a".repeat(NICKNAME_MAX + 1)),
+            Err("nicknameTooLong")
+        );
+        for bad in [
+            "a\u{202E}b",
+            "a\u{2066}b",
+            "a\u{200F}b",
+            "a\nb",
+            "a\u{0007}b",
+            "a\u{FEFF}b",
+        ] {
+            assert_eq!(nickname(bad), Err("nicknameInvalid"), "{bad:?}");
+        }
+        assert_eq!(
+            nickname("<b>Personal</b>"),
+            Ok(Some("<b>Personal</b>".into())),
+            "kept as text; the client renders it as text"
+        );
+    }
+
+    #[test]
+    fn order_drops_unknown_ids_and_appends_new_links() {
+        let keys = layout_keys(["a", "b", "c"].into_iter());
+        let order = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            normalized_order(&order(&["c", "x", "main", "c"]), &keys),
+            order(&["c", "main", "a", "b"])
+        );
+        assert_eq!(
+            normalized_order(&order(&["b"]), &keys),
+            order(&["main", "b", "a", "c"])
+        );
+        assert_eq!(
+            normalized_order(&[], &keys),
+            order(&["main", "a", "b", "c"])
+        );
+    }
 }

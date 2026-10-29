@@ -86,7 +86,9 @@ pub async fn exchange_with<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    exchange_typed(stream, url, out, None).await.map(|(hop, _)| hop)
+    exchange_typed(stream, url, out, None)
+        .await
+        .map(|(hop, _)| hop)
 }
 
 /// [`exchange_with`], also returning the body's declared media type

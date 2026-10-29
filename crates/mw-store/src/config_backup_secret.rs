@@ -13,7 +13,9 @@ impl Store {
         base_url: &str,
         username: &str,
     ) -> Result<Vec<u8>, StoreError> {
-        Ok(self.key.seal_bound(secret, PURPOSE, &[base_url, username])?)
+        Ok(self
+            .key
+            .seal_bound(secret, PURPOSE, &[base_url, username])?)
     }
     pub fn open_config_backup_secret(
         &self,
@@ -21,7 +23,9 @@ impl Store {
         base_url: &str,
         username: &str,
     ) -> Result<Vec<u8>, StoreError> {
-        Ok(self.key.open_bound(sealed, PURPOSE, &[base_url, username])?)
+        Ok(self
+            .key
+            .open_bound(sealed, PURPOSE, &[base_url, username])?)
     }
 }
 

@@ -3684,10 +3684,20 @@ mod tests {
     fn passkey_policy_keys_are_scoped_enums_with_safe_defaults() {
         for (key, default, good, bad) in [
             ("twofa.passkeyAttachment", "any", "platform", "roaming"),
-            ("twofa.passkeyUserVerification", "preferred", "required", "always"),
+            (
+                "twofa.passkeyUserVerification",
+                "preferred",
+                "required",
+                "always",
+            ),
             ("twofa.passkeyResidentKey", "discouraged", "required", "yes"),
             ("twofa.passkeyLegacy", "allow", "refuse", "lockout"),
-            ("twofa.lastFactorRemoval", "allow", "requireRecoveryCodes", "never"),
+            (
+                "twofa.lastFactorRemoval",
+                "allow",
+                "requireRecoveryCodes",
+                "never",
+            ),
         ] {
             let d = lookup(key).unwrap_or_else(|| panic!("{key} is registered"));
             assert_eq!(d.default_value(), json!(default), "{key}");
@@ -3742,9 +3752,19 @@ mod tests {
             assert!(!d.user_override, "{key}");
             assert!(!d.user_visible(), "{key}");
             for ok in [min, max, default] {
-                assert_eq!(validate(d, &json!(ok), "/value").unwrap(), json!(ok), "{key} {ok}");
+                assert_eq!(
+                    validate(d, &json!(ok), "/value").unwrap(),
+                    json!(ok),
+                    "{key} {ok}"
+                );
             }
-            for bad in [json!(min - 1), json!(max + 1), json!("5000"), json!(1.5), Value::Null] {
+            for bad in [
+                json!(min - 1),
+                json!(max + 1),
+                json!("5000"),
+                json!(1.5),
+                Value::Null,
+            ] {
                 let r = validate(d, &bad, "/value").unwrap_err();
                 assert_eq!((r.status, r.code), (422, "invalidValue"), "{key} {bad}");
             }
@@ -3752,7 +3772,10 @@ mod tests {
         let defaults = crate::remote_policy::fetch_limits(|key| {
             lookup(key).and_then(|d| d.default_value().as_u64())
         });
-        assert_eq!(defaults, crate::image_proxy::remote_content::FetchLimits::default());
+        assert_eq!(
+            defaults,
+            crate::image_proxy::remote_content::FetchLimits::default()
+        );
     }
 
     /// t55: the loading-images notification is an on/off presentation key,

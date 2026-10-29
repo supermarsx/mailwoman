@@ -216,7 +216,10 @@ pub fn sanitize_signature_html(input: &str) -> String {
 
 /// A `data:` URL: the scheme, case-insensitive, with nothing before it.
 fn is_data_url(value: &str) -> bool {
-    value.trim_start().get(..5).is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))
+    value
+        .trim_start()
+        .get(..5)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))
 }
 
 /// `data:image/(png|jpeg|gif|webp);base64,<base64>` exactly (lower case, no
@@ -231,7 +234,9 @@ fn is_embedded_image(value: &str) -> bool {
     let data = payload.trim_end_matches('=');
     !data.is_empty()
         && payload.len() - data.len() <= 2
-        && data.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
+        && data
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
 }
 
 /// Return the exact image/link references accepted by the same sanitizer pass.
@@ -244,7 +249,11 @@ pub fn sanitize_email_html_and_references(
 }
 
 /// The sanitizer pass. `embedded` keeps raster `data:` images ([`sanitize_signature_html`]).
-fn sanitize_core(input: &str, opts: &SanitizeOptions, embedded: bool) -> (String, RemoteReferences) {
+fn sanitize_core(
+    input: &str,
+    opts: &SanitizeOptions,
+    embedded: bool,
+) -> (String, RemoteReferences) {
     // S9 side-channel: the attribute filter runs inside ammonia's single parse and
     // cannot ADD attributes to an element, so it records each stripped remote
     // `<img src>` (and, in placeholder mode, each kept reference and cleaned link)
@@ -1300,7 +1309,10 @@ mod tests {
             r#"<p style="background:url(data:image/png;base64,AAAA)">x</p>"#,
         ] {
             let out = super::sanitize_signature_html(bad);
-            assert!(!out.to_ascii_lowercase().contains("data:"), "{bad} -> {out}");
+            assert!(
+                !out.to_ascii_lowercase().contains("data:"),
+                "{bad} -> {out}"
+            );
         }
     }
 

@@ -1131,7 +1131,11 @@ async fn proxy_image(
         url,
         request,
         domain.as_deref(),
-        (&session.account_id, q.email_id.as_deref().unwrap_or(""), &q.url),
+        (
+            &session.account_id,
+            q.email_id.as_deref().unwrap_or(""),
+            &q.url,
+        ),
         &policy,
     )
     .await

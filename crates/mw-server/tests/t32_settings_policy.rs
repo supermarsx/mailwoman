@@ -608,43 +608,68 @@ async fn badge_colour_defaults_and_locks_apply_to_the_account_blob() {
     let (u, _) = user(&s.base).await;
     let base = &s.base;
     assert_eq!(
-        put_global(&a, base, "appearance.badgeColor", json!({"globalValue":"teal","locked":false}))
-            .await
-            .0,
+        put_global(
+            &a,
+            base,
+            "appearance.badgeColor",
+            json!({"globalValue":"teal","locked":false})
+        )
+        .await
+        .0,
         200
     );
     let (_, initial) = send(u.get(format!("{base}/api/account/appearance"))).await;
     assert_eq!(initial["deploymentDefault"]["badgeColor"], "teal");
     assert_eq!(
-        send(u.put(format!("{base}/api/account/appearance")).json(&json!({"appearance":{"badgeColor":"red"}})))
-            .await
-            .0,
+        send(
+            u.put(format!("{base}/api/account/appearance"))
+                .json(&json!({"appearance":{"badgeColor":"red"}}))
+        )
+        .await
+        .0,
         200
     );
     let all = user_settings(&u, base).await;
     assert_eq!(all["appearance.badgeColor"]["value"], "red");
     assert_eq!(all["appearance.badgeColor"]["source"], "user");
     assert_eq!(
-        put_global(&a, base, "appearance.badgeColor", json!({"globalValue":"#ff0000","locked":true}))
-            .await
-            .0,
+        put_global(
+            &a,
+            base,
+            "appearance.badgeColor",
+            json!({"globalValue":"#ff0000","locked":true})
+        )
+        .await
+        .0,
         422
     );
     assert_eq!(
-        put_global(&a, base, "appearance.badgeColor", json!({"globalValue":"accent","locked":true}))
-            .await
-            .0,
+        put_global(
+            &a,
+            base,
+            "appearance.badgeColor",
+            json!({"globalValue":"accent","locked":true})
+        )
+        .await
+        .0,
         200
     );
-    let (status, saved) = send(u.put(format!("{base}/api/account/appearance")).json(&json!({"appearance":{"badgeColor":"green"}}))).await;
+    let (status, saved) = send(
+        u.put(format!("{base}/api/account/appearance"))
+            .json(&json!({"appearance":{"badgeColor":"green"}})),
+    )
+    .await;
     assert_eq!(status, 200);
     assert_eq!(saved["lockedFields"], json!(["badgeColor"]));
     let (_, got) = send(u.get(format!("{base}/api/account/appearance"))).await;
     assert_eq!(got["appearance"]["badgeColor"], "accent");
     assert_eq!(
-        send(u.put(format!("{base}/api/settings/appearance.badgeColor")).json(&json!({"value":"red"})))
-            .await
-            .0,
+        send(
+            u.put(format!("{base}/api/settings/appearance.badgeColor"))
+                .json(&json!({"value":"red"}))
+        )
+        .await
+        .0,
         409
     );
 }

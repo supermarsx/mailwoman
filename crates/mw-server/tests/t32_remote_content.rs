@@ -562,7 +562,11 @@ async fn a_tampered_retargeted_or_expired_token_is_refused_before_any_fetch() {
         // t56: a refusal must reach the opaque-origin frame as what it is. With
         // the global `same-origin` CORP, Firefox reports every failed image as a
         // CORP block and the status is lost.
-        assert_eq!(r.headers()["cross-origin-resource-policy"], "cross-origin", "{what}");
+        assert_eq!(
+            r.headers()["cross-origin-resource-policy"],
+            "cross-origin",
+            "{what}"
+        );
         assert_eq!(r.headers()["x-content-type-options"], "nosniff", "{what}");
         assert!(r.headers().get("set-cookie").is_none(), "{what}");
     }
@@ -573,7 +577,11 @@ async fn a_tampered_retargeted_or_expired_token_is_refused_before_any_fetch() {
     for kind in ["f", "d"] {
         let r = f.load(&format!("/api/rc/{kind}/abc.def")).await;
         assert_eq!(r.status(), 403, "{kind}");
-        assert_eq!(r.headers()["cross-origin-resource-policy"], "cross-origin", "{kind}");
+        assert_eq!(
+            r.headers()["cross-origin-resource-policy"],
+            "cross-origin",
+            "{kind}"
+        );
     }
     // Every other route keeps the strict default, the rc routes that are not
     // token-authorised included.
@@ -588,7 +596,11 @@ async fn a_tampered_retargeted_or_expired_token_is_refused_before_any_fetch() {
             .send()
             .await
             .unwrap();
-        assert_eq!(r.headers()["cross-origin-resource-policy"], "same-origin", "{path}");
+        assert_eq!(
+            r.headers()["cross-origin-resource-policy"],
+            "same-origin",
+            "{path}"
+        );
     }
     let r = f
         .user
@@ -597,7 +609,11 @@ async fn a_tampered_retargeted_or_expired_token_is_refused_before_any_fetch() {
         .send()
         .await
         .unwrap();
-    assert_eq!(r.headers()["cross-origin-resource-policy"], "same-origin", "sign");
+    assert_eq!(
+        r.headers()["cross-origin-resource-policy"],
+        "same-origin",
+        "sign"
+    );
     let r = f.load(&format!("/api/rc/i/{}", mint(&as_part))).await;
     assert_eq!(r.status(), 403, "kind is bound");
 
@@ -1556,8 +1572,7 @@ async fn manual_image_downloads_require_policy_and_real_message_membership_at_ev
 async fn a_failed_fetch_is_remembered_briefly_counted_and_retried_on_request() {
     // Larger than any `privacy.maxBytes`: refused from Content-Length, after the
     // origin was reached, so it is a network failure worth remembering.
-    let (proxy, seen) =
-        standin_proxy(vec![("image/png".into(), vec![0u8; 9 * 1024 * 1024])]).await;
+    let (proxy, seen) = standin_proxy(vec![("image/png".into(), vec![0u8; 9 * 1024 * 1024])]).await;
     let f = fixture(proxy, "mw-t56-rc-negative").await;
     f.grant().await;
     let url = "http://1.2.3.4/too-large.png";
@@ -1568,7 +1583,10 @@ async fn a_failed_fetch_is_remembered_briefly_counted_and_retried_on_request() {
     assert_eq!(first.status(), 502);
     assert_eq!(first.headers()["x-mw-remote-content"], "failed");
     assert_eq!(first.headers()["cache-control"], "private, max-age=60");
-    assert_eq!(first.headers()["cross-origin-resource-policy"], "cross-origin");
+    assert_eq!(
+        first.headers()["cross-origin-resource-policy"],
+        "cross-origin"
+    );
     assert_eq!(seen.lock().unwrap().connections, 1);
 
     // The same link, and a freshly signed one, answer from memory.
@@ -1577,7 +1595,11 @@ async fn a_failed_fetch_is_remembered_briefly_counted_and_retried_on_request() {
         assert_eq!(r.status(), 502);
         assert_eq!(r.headers()["x-mw-remote-content"], "failed");
     }
-    assert_eq!(seen.lock().unwrap().connections, 1, "no refetch inside the window");
+    assert_eq!(
+        seen.lock().unwrap().connections,
+        1,
+        "no refetch inside the window"
+    );
 
     let stats: Value = f
         .user
@@ -1603,5 +1625,9 @@ async fn a_failed_fetch_is_remembered_briefly_counted_and_retried_on_request() {
         .await
         .unwrap();
     assert_eq!(f.load(&image_src(&retried)).await.status(), 502);
-    assert_eq!(seen.lock().unwrap().connections, 2, "retry reached the network");
+    assert_eq!(
+        seen.lock().unwrap().connections,
+        2,
+        "retry reached the network"
+    );
 }

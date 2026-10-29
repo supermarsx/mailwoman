@@ -437,7 +437,10 @@ pub(crate) async fn factor_required(
         .get_totp_secret(account_id)
         .await?
         .is_some_and(|t| t.confirmed)
-        || !store.list_webauthn_credentials(account_id).await?.is_empty()
+        || !store
+            .list_webauthn_credentials(account_id)
+            .await?
+            .is_empty()
     {
         return Ok(true);
     }
@@ -1227,7 +1230,10 @@ pub(crate) async fn stored_facts(
     previous: &mw_store::WebauthnState,
 ) -> Result<StoredFacts, mw_store::StoreError> {
     Ok(StoredFacts {
-        discoverable: state.store.passkey_discoverable(&cred.credential_id).await?,
+        discoverable: state
+            .store
+            .passkey_discoverable(&cred.credential_id)
+            .await?,
         uv_seen: previous.uv_initialized,
     })
 }

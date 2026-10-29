@@ -110,7 +110,9 @@ async fn origin(ip: IpAddr, stall: Stall) -> (SocketAddr, Arc<AtomicUsize>) {
                     }
                     Stall::Trickle(gap) => {
                         read_head(&mut s).await;
-                        let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n").await;
+                        let _ = s
+                            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n")
+                            .await;
                         for _ in 0..100 {
                             if s.write_all(b"x").await.is_err() {
                                 return;
@@ -138,7 +140,13 @@ async fn origin(ip: IpAddr, stall: Stall) -> (SocketAddr, Arc<AtomicUsize>) {
     (addr, hits)
 }
 
-fn bounds(connect: u64, headers: u64, idle: u64, total: u64, max_redirects: usize) -> FetchTimeouts {
+fn bounds(
+    connect: u64,
+    headers: u64,
+    idle: u64,
+    total: u64,
+    max_redirects: usize,
+) -> FetchTimeouts {
     FetchTimeouts {
         connect: Duration::from_millis(connect),
         headers: Duration::from_millis(headers),
@@ -168,7 +176,8 @@ async fn timed(
 fn near(elapsed: Duration, bound_ms: u64) {
     let bound = Duration::from_millis(bound_ms);
     assert!(
-        elapsed + Duration::from_millis(50) >= bound && elapsed < bound + Duration::from_millis(1500),
+        elapsed + Duration::from_millis(50) >= bound
+            && elapsed < bound + Duration::from_millis(1500),
         "fired after {elapsed:?}, expected about {bound:?}"
     );
 }
@@ -200,7 +209,11 @@ async fn a_stalled_tls_handshake_is_the_connect_bound() {
     assert!(matches!(outcome, Err(Refusal::Timeout)), "{outcome:?}");
     assert_eq!(phase, Some(TimeoutPhase::Connect));
     near(elapsed, 700);
-    assert_eq!(hits.load(Ordering::SeqCst), 1, "TCP connected; TLS is what stalled");
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "TCP connected; TLS is what stalled"
+    );
 }
 
 #[tokio::test]
@@ -274,9 +287,16 @@ async fn the_redirect_cap_is_the_callers_and_every_hop_reconnects() {
             bounds(1_000, 1_000, 1_000, 5_000, cap),
         )
         .await;
-        assert!(matches!(outcome, Err(Refusal::Upstream)), "cap {cap}: {outcome:?}");
+        assert!(
+            matches!(outcome, Err(Refusal::Upstream)),
+            "cap {cap}: {outcome:?}"
+        );
         assert_eq!(phase, None, "a redirect cap is not a timeout");
-        assert_eq!(hits.load(Ordering::SeqCst), cap + 1, "cap {cap}: the first hop plus {cap} redirects");
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            cap + 1,
+            "cap {cap}: the first hop plus {cap} redirects"
+        );
     }
 }
 
@@ -306,10 +326,17 @@ async fn a_redirect_into_teredo_isatap_or_nat64_is_refused_with_timeouts_set() {
         "http://127.0.0.1/x",
         "http://10.0.0.1/x",
     ] {
-        let (outcome, phase, elapsed) = timed(&plan, url, bounds(1_000, 1_000, 1_000, 2_000, 3)).await;
-        assert!(matches!(outcome, Err(Refusal::Blocked)), "{url}: {outcome:?}");
+        let (outcome, phase, elapsed) =
+            timed(&plan, url, bounds(1_000, 1_000, 1_000, 2_000, 3)).await;
+        assert!(
+            matches!(outcome, Err(Refusal::Blocked)),
+            "{url}: {outcome:?}"
+        );
         assert_eq!(phase, None, "{url}");
-        assert!(elapsed < Duration::from_millis(500), "{url}: refused without network");
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "{url}: refused without network"
+        );
     }
 }
 
@@ -352,7 +379,9 @@ async fn stalling_proxy(stall: Option<Stall>) -> (SocketAddr, Arc<AtomicUsize>) 
                     tokio::time::sleep(Duration::from_secs(60)).await;
                     return;
                 };
-                let _ = s.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await;
+                let _ = s
+                    .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                    .await;
                 match stall {
                     Stall::Headers => {
                         read_head(&mut s).await;
@@ -399,7 +428,10 @@ fn routed_plan(proxy: SocketAddr) -> EgressPlan {
     .unwrap()
 }
 
-async fn routed(proxy: SocketAddr, limits: FetchTimeouts) -> (mw_egress::RoutedFetch, Option<TimeoutPhase>, Duration) {
+async fn routed(
+    proxy: SocketAddr,
+    limits: FetchTimeouts,
+) -> (mw_egress::RoutedFetch, Option<TimeoutPhase>, Duration) {
     let report = TimeoutReport::new();
     let req = Request::get(TrafficClass::RemoteContent)
         .timeouts(limits)
@@ -418,7 +450,11 @@ async fn routed(proxy: SocketAddr, limits: FetchTimeouts) -> (mw_egress::RoutedF
 async fn through_a_route_a_silent_proxy_is_the_connect_bound_and_not_traversed() {
     let (proxy, _) = stalling_proxy(None).await;
     let (fetched, phase, elapsed) = routed(proxy, bounds(700, 8_000, 8_000, 10_000, 3)).await;
-    assert!(matches!(fetched.outcome, Err(Refusal::Timeout)), "{:?}", fetched.outcome);
+    assert!(
+        matches!(fetched.outcome, Err(Refusal::Timeout)),
+        "{:?}",
+        fetched.outcome
+    );
     assert_eq!(phase, Some(TimeoutPhase::Connect));
     assert!(!fetched.traversed_proxy, "the tunnel was never accepted");
     near(elapsed, 700);
@@ -430,7 +466,10 @@ async fn through_a_route_stalled_headers_and_a_stalled_body_fire_their_bounds() 
     let (fetched, phase, elapsed) = routed(proxy, bounds(5_000, 800, 8_000, 10_000, 3)).await;
     assert!(matches!(fetched.outcome, Err(Refusal::Timeout)));
     assert_eq!(phase, Some(TimeoutPhase::Headers));
-    assert!(fetched.traversed_proxy, "a timeout after the tunnel still reports traversal");
+    assert!(
+        fetched.traversed_proxy,
+        "a timeout after the tunnel still reports traversal"
+    );
     near(elapsed, 800);
 
     let (proxy, _) = stalling_proxy(Some(Stall::MidBody)).await;
@@ -452,6 +491,14 @@ async fn through_a_route_the_total_deadline_spans_hops_and_the_cap_is_the_caller
 
     let (proxy, connects) = stalling_proxy(Some(Stall::RedirectLoop)).await;
     let (fetched, _, _) = routed(proxy, bounds(1_000, 1_000, 1_000, 5_000, 1)).await;
-    assert!(matches!(fetched.outcome, Err(Refusal::Upstream)), "{:?}", fetched.outcome);
-    assert_eq!(connects.load(Ordering::SeqCst), 2, "one redirect, one fresh tunnel each");
+    assert!(
+        matches!(fetched.outcome, Err(Refusal::Upstream)),
+        "{:?}",
+        fetched.outcome
+    );
+    assert_eq!(
+        connects.load(Ordering::SeqCst),
+        2,
+        "one redirect, one fresh tunnel each"
+    );
 }

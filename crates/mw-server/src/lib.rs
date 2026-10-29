@@ -5073,10 +5073,10 @@ async fn static_handler(
         return response;
     }
     // t63: the browser analytics loader, and the mail shell that references it.
-    if path.starts_with(analytics_tag::ASSET_PREFIX) {
-        if let Some(resp) = analytics_tag::asset(&state, path, &headers).await {
-            return resp;
-        }
+    if path.starts_with(analytics_tag::ASSET_PREFIX)
+        && let Some(resp) = analytics_tag::asset(&state, path, &headers).await
+    {
+        return resp;
     }
     if path == "index.html"
         && let Some(resp) = analytics_tag::mail_shell(&state, &method, &headers).await

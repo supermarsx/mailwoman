@@ -1078,8 +1078,7 @@ async fn verify_passkey(
     };
     // t39-e6: the passkey policy, read only. Checked after the signature, so a
     // refusal is only named to someone holding the credential.
-    let Ok(policy) =
-        crate::security_center::policy(state, account_id, &session.username).await
+    let Ok(policy) = crate::security_center::policy(state, account_id, &session.username).await
     else {
         return Ok(Ok(false));
     };

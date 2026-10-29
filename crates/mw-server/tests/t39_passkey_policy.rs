@@ -381,7 +381,10 @@ async fn registration_options_and_refusals_follow_the_policy() {
     assert_eq!(options["authenticatorAttachment"], "platform");
     assert_eq!(options["userVerification"], "required");
     assert_eq!(options["residentKey"], "required");
-    assert_eq!(options["authenticatorSelection"]["requireResidentKey"], true);
+    assert_eq!(
+        options["authenticatorSelection"]["requireResidentKey"],
+        true
+    );
 
     let a = Authenticator::new(0x31, b"t39-e6-registration");
     // No UV flag in the signed authenticatorData.
@@ -403,7 +406,12 @@ async fn registration_options_and_refusals_follow_the_policy() {
     let status_json = get(&c, s.url("/api/account/2fa")).await;
     assert_eq!(status_json["passkeys"], json!([]), "nothing was stored");
 
-    let reasons: Vec<Value> = s.refusals().await.iter().map(|d| d["reason"].clone()).collect();
+    let reasons: Vec<Value> = s
+        .refusals()
+        .await
+        .iter()
+        .map(|d| d["reason"].clone())
+        .collect();
     assert_eq!(
         reasons,
         vec![
@@ -413,13 +421,21 @@ async fn registration_options_and_refusals_follow_the_policy() {
             json!("passkeyPolicyResidentKey"),
         ]
     );
-    assert!(s.refusals().await.iter().all(|d| d["flow"] == "registration"));
+    assert!(
+        s.refusals()
+            .await
+            .iter()
+            .all(|d| d["flow"] == "registration")
+    );
 
     // A compliant one is stored and meets the policy.
     let (status, body) = finish(&s, &c, &a, UV, Some("platform"), "internal", Some(true)).await;
     assert_eq!(status, 200, "{body}");
     let status_json = get(&c, s.url("/api/account/2fa")).await;
-    assert_eq!(status_json["passkeys"][0]["meetsPolicy"], true, "{status_json}");
+    assert_eq!(
+        status_json["passkeys"][0]["meetsPolicy"], true,
+        "{status_json}"
+    );
     assert_eq!(status_json["passkeyPolicy"]["attachment"], "platform");
     assert_eq!(status_json["passkeyPolicy"]["legacy"], "allow");
 }
@@ -464,7 +480,10 @@ async fn assertions_without_uv_are_refused_and_older_passkeys_are_grandfathered(
     body["method"] = json!("webauthn");
     assert_eq!(post(&c, s.url("/api/login/2fa"), body).await.0, 200);
     let status_json = get(&c, s.url("/api/account/2fa")).await;
-    assert_eq!(status_json["passkeys"][0]["meetsPolicy"], false, "{status_json}");
+    assert_eq!(
+        status_json["passkeys"][0]["meetsPolicy"], false,
+        "{status_json}"
+    );
     assert_eq!(
         status_json["passkeys"][0]["policyGaps"],
         json!(["passkeyPolicyUserVerification", "passkeyPolicyPlatform"])
@@ -504,7 +523,10 @@ async fn assertions_without_uv_are_refused_and_older_passkeys_are_grandfathered(
     assert_eq!(
         reasons,
         vec![
-            (json!("second-factor"), json!("passkeyPolicyUserVerification")),
+            (
+                json!("second-factor"),
+                json!("passkeyPolicyUserVerification")
+            ),
             (json!("second-factor"), json!("passkeyPolicyLegacy")),
         ]
     );

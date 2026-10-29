@@ -536,7 +536,9 @@ pub async fn send_with(plan: &EgressPlan, url: reqwest::Url, req: &Request<'_>) 
                 report: req.timeout_report,
             });
             let via = match (timed, req.authorized_plugin.is_some()) {
-                (Some(t), true) => proxy::send_via_proxy_timed(url, route, &out, Some(&gate), t).await,
+                (Some(t), true) => {
+                    proxy::send_via_proxy_timed(url, route, &out, Some(&gate), t).await
+                }
                 (Some(t), false) => proxy::send_via_proxy_timed(url, route, &out, None, t).await,
                 (None, true) => proxy::send_via_proxy_gated(url, route, &out, &gate).await,
                 (None, false) => proxy::send_via_proxy(url, route, &out).await,

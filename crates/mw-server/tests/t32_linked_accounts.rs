@@ -275,7 +275,10 @@ async fn linked_password_mfa_context_personal_data_and_revocation_are_real() {
         stranger
             .put(&primary_url)
             .header("x-csrf-token", s["csrfToken"].as_str().unwrap())
-            .header("x-mailwoman-storage-authority", s["storageAuthority"].as_str().unwrap())
+            .header(
+                "x-mailwoman-storage-authority",
+                s["storageAuthority"].as_str().unwrap()
+            )
             .json(&json!({"linkId": link}))
             .send()
             .await
@@ -320,7 +323,10 @@ async fn linked_password_mfa_context_personal_data_and_revocation_are_real() {
     .await;
     assert_eq!(marked["primaryMailbox"], link);
     assert_eq!(listed(parent.clone()).await["primaryMailbox"], link);
-    assert_eq!(listed(stranger.clone()).await["primaryMailbox"], Value::Null);
+    assert_eq!(
+        listed(stranger.clone()).await["primaryMailbox"],
+        Value::Null
+    );
     // Per user, not per session: a second sign-in of the owner sees the mark.
     let second = client();
     let p2 = value(
@@ -350,8 +356,10 @@ async fn linked_password_mfa_context_personal_data_and_revocation_are_real() {
         async move { request.send().await.unwrap() }
     };
     let saved = value(
-        put_layout(json!({"revision":"","order":[link,"main","not-a-link",link],
-            "nicknames":{"main":"  Personal ","not-a-link":"Ghost"}}))
+        put_layout(
+            json!({"revision":"","order":[link,"main","not-a-link",link],
+            "nicknames":{"main":"  Personal ","not-a-link":"Ghost"}}),
+        )
         .await,
         200,
     )

@@ -314,10 +314,10 @@ pub(crate) fn record_outcome(
 
 /// `(loaded, failed)` distinct images for the session's message.
 pub(crate) fn read_outcomes(account: &str, session: &str, message: &str) -> (usize, usize) {
-    outcomes()
-        .lock()
-        .expect("outcome lock")
-        .read(&digest(&["o", account, session, message]), chrono::Utc::now().timestamp())
+    outcomes().lock().expect("outcome lock").read(
+        &digest(&["o", account, session, message]),
+        chrono::Utc::now().timestamp(),
+    )
 }
 
 #[cfg(test)]
@@ -344,12 +344,18 @@ mod tests {
             "a third fetch of one message waits, then gives up at the deadline"
         );
         let waited = started.elapsed();
-        assert!(waited >= Duration::from_millis(140) && waited < Duration::from_secs(2), "{waited:?}");
+        assert!(
+            waited >= Duration::from_millis(140) && waited < Duration::from_secs(2),
+            "{waited:?}"
+        );
         // Another message of the same account is not held up.
         let other = acquire("t56-acct-m", "other", &l, soon()).await;
         assert!(other.is_some());
         drop(a);
-        assert!(acquire("t56-acct-m", "msg", &l, soon()).await.is_some(), "a freed slot is reused");
+        assert!(
+            acquire("t56-acct-m", "msg", &l, soon()).await.is_some(),
+            "a freed slot is reused"
+        );
         drop(b);
     }
 
@@ -360,21 +366,35 @@ mod tests {
         let _a = acquire("t56-acct-a", "m1", &l, soon()).await.unwrap();
         let _b = acquire("t56-acct-a", "m2", &l, soon()).await.unwrap();
         assert!(acquire("t56-acct-a", "m3", &l, soon()).await.is_none());
-        assert!(acquire("t56-acct-b", "m3", &l, soon()).await.is_some(), "per account");
+        assert!(
+            acquire("t56-acct-b", "m3", &l, soon()).await.is_some(),
+            "per account"
+        );
     }
 
     #[tokio::test]
     async fn a_waiting_fetch_takes_the_slot_as_soon_as_it_frees() {
         let l = limits(1, 1);
-        let held = acquire("t56-acct-w", "m", &l, Instant::now() + Duration::from_secs(1))
-            .await
-            .unwrap();
+        let held = acquire(
+            "t56-acct-w",
+            "m",
+            &l,
+            Instant::now() + Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
         let release = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(50)).await;
             drop(held);
         });
         let started = Instant::now();
-        let got = acquire("t56-acct-w", "m", &l, Instant::now() + Duration::from_secs(2)).await;
+        let got = acquire(
+            "t56-acct-w",
+            "m",
+            &l,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .await;
         assert!(got.is_some());
         assert!(started.elapsed() < Duration::from_secs(1));
         release.await.unwrap();
@@ -393,8 +413,14 @@ mod tests {
         let now = Instant::now();
         let k = negative_key("a", "https://img.example/x.png");
         n.put(k, Failure::Timeout, now);
-        assert_eq!(n.get(&k, now + Duration::from_secs(59)), Some(Failure::Timeout));
-        assert_eq!(n.get(&k, now + NEGATIVE_TTL + Duration::from_millis(1)), None);
+        assert_eq!(
+            n.get(&k, now + Duration::from_secs(59)),
+            Some(Failure::Timeout)
+        );
+        assert_eq!(
+            n.get(&k, now + NEGATIVE_TTL + Duration::from_millis(1)),
+            None
+        );
         assert!(n.0.is_empty(), "an expired entry is dropped on read");
     }
 
@@ -403,9 +429,20 @@ mod tests {
         let url = "https://t56-retry.example/a.png";
         remember("t56-n-a", url, &Refusal::Timeout);
         assert_eq!(remembered("t56-n-a", url), Some(Failure::Timeout));
-        assert_eq!(remembered("t56-n-b", url), None, "another account never sees it");
-        remember("t56-n-a", "https://t56-retry.example/blocked", &Refusal::Blocked);
-        assert_eq!(remembered("t56-n-a", "https://t56-retry.example/blocked"), None);
+        assert_eq!(
+            remembered("t56-n-b", url),
+            None,
+            "another account never sees it"
+        );
+        remember(
+            "t56-n-a",
+            "https://t56-retry.example/blocked",
+            &Refusal::Blocked,
+        );
+        assert_eq!(
+            remembered("t56-n-a", "https://t56-retry.example/blocked"),
+            None
+        );
         forget("t56-n-a", [url]);
         assert_eq!(remembered("t56-n-a", url), None);
     }
@@ -415,10 +452,17 @@ mod tests {
         let mut n = Negative::default();
         let now = Instant::now();
         for i in 0..NEGATIVE_CAPACITY + 10 {
-            n.put(negative_key("a", &i.to_string()), Failure::Upstream, now + Duration::from_millis(i as u64));
+            n.put(
+                negative_key("a", &i.to_string()),
+                Failure::Upstream,
+                now + Duration::from_millis(i as u64),
+            );
         }
         assert_eq!(n.0.len(), NEGATIVE_CAPACITY);
-        assert!(n.get(&negative_key("a", "0"), now).is_none(), "the oldest went first");
+        assert!(
+            n.get(&negative_key("a", "0"), now).is_none(),
+            "the oldest went first"
+        );
     }
 
     #[test]

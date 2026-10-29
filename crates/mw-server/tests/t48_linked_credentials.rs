@@ -146,7 +146,10 @@ impl Seen {
     }
     fn assert_never(&self, secret: &str) {
         for body in self.0.lock().unwrap().iter() {
-            assert!(!body.contains(secret), "a response carried the secret: {body}");
+            assert!(
+                !body.contains(secret),
+                "a response carried the secret: {body}"
+            );
         }
     }
 }
@@ -179,10 +182,7 @@ async fn sign_in(seen: &Seen, base: &str, user: &str, pass: &str) -> Owner {
         login["csrfToken"].as_str().unwrap().parse().unwrap(),
     );
     let authority = login["storageAuthority"].as_str().unwrap().to_string();
-    headers.insert(
-        "x-mailwoman-storage-authority",
-        authority.parse().unwrap(),
-    );
+    headers.insert("x-mailwoman-storage-authority", authority.parse().unwrap());
     let http = reqwest::Client::builder()
         .no_proxy()
         .cookie_provider(jar)
@@ -266,7 +266,11 @@ async fn idle_out(db: &str) {
     );
 }
 async fn audit_actions(db: &str) -> Vec<String> {
-    sql_rows(db, "SELECT action FROM audit_log WHERE action LIKE 'linked-%' ORDER BY ts").await
+    sql_rows(
+        db,
+        "SELECT action FROM audit_log WHERE action LIKE 'linked-%' ORDER BY ts",
+    )
+    .await
 }
 
 #[tokio::test]
@@ -316,13 +320,21 @@ async fn linked_access_renews_from_the_sealed_credential_and_renews_inline_when_
     );
     // The password is nowhere in the database file in clear.
     let bytes = std::fs::read(&db).unwrap();
-    assert!(!bytes.windows(CHILD_PASS.len()).any(|w| w == CHILD_PASS.as_bytes()));
+    assert!(
+        !bytes
+            .windows(CHILD_PASS.len())
+            .any(|w| w == CHILD_PASS.as_bytes())
+    );
 
     // 1. Idle lapse: the next listing renews silently.
     idle_out(&db).await;
     assert_eq!(owner.entry(&seen, &id).await["status"], "ready");
     owner.switch(&seen, &id, 200).await;
-    assert!(audit_actions(&db).await.contains(&"linked-credential-renewed".to_string()));
+    assert!(
+        audit_actions(&db)
+            .await
+            .contains(&"linked-credential-renewed".to_string())
+    );
 
     // 2. The child session rows are gone (prune / absolute cap): opening the
     //    mailbox renews it, no listing needed first.
@@ -351,11 +363,19 @@ async fn linked_access_renews_from_the_sealed_credential_and_renews_inline_when_
         vec!["rejected".to_string()]
     );
     assert_eq!(
-        sql(&db, "UPDATE linked_credential SET state=state WHERE sealed_secret IS NULL").await,
+        sql(
+            &db,
+            "UPDATE linked_credential SET state=state WHERE sealed_secret IS NULL"
+        )
+        .await,
         1,
         "the refused secret is erased"
     );
-    assert!(audit_actions(&db).await.contains(&"linked-credential-refresh-failed".to_string()));
+    assert!(
+        audit_actions(&db)
+            .await
+            .contains(&"linked-credential-refresh-failed".to_string())
+    );
 
     // 5. Inline renew: wrong password is refused, the new one restores the
     //    same link (id, revision) without unlinking.
@@ -384,9 +404,12 @@ async fn linked_access_renews_from_the_sealed_credential_and_renews_inline_when_
     )
     .await;
     assert!(
-        sql_rows(&db, "SELECT link_id FROM linked_credential WHERE sealed_secret IS NOT NULL")
-            .await
-            .is_empty(),
+        sql_rows(
+            &db,
+            "SELECT link_id FROM linked_credential WHERE sealed_secret IS NOT NULL"
+        )
+        .await
+        .is_empty(),
         "sign-out-everywhere of the linked mailbox erases the stored credential"
     );
     let ended = owner2.entry(&seen, &id).await;
@@ -407,13 +430,20 @@ async fn linked_access_renews_from_the_sealed_credential_and_renews_inline_when_
     let off = owner2.entry(&seen, &id).await;
     assert_eq!(off["status"], "reauthRequired");
     assert_eq!(off["renewalReason"], "policyOff");
-    assert_eq!(owner2.list(&seen).await["policy"]["storeCredentials"], false);
+    assert_eq!(
+        owner2.list(&seen).await["policy"]["storeCredentials"],
+        false
+    );
     let renewed = owner2.renew(&seen, &id, CHILD_PASS_NEW, 200).await;
     assert_eq!(renewed["account"]["status"], "ready");
     assert_eq!(renewed["account"]["renewal"], "signIn");
     assert_eq!(renewed["account"]["renewalReason"], "policyOff");
     assert_eq!(
-        sql(&db, "UPDATE linked_credential SET state=state WHERE sealed_secret IS NOT NULL").await,
+        sql(
+            &db,
+            "UPDATE linked_credential SET state=state WHERE sealed_secret IS NOT NULL"
+        )
+        .await,
         0
     );
     idle_out(&db).await;
@@ -437,7 +467,11 @@ async fn linked_access_renews_from_the_sealed_credential_and_renews_inline_when_
     let renewed = owner2.renew(&seen, &id, CHILD_PASS_NEW, 200).await;
     assert_eq!(renewed["account"]["renewalReason"], "zeroAccess");
     assert_eq!(
-        sql(&db, "UPDATE linked_credential SET state=state WHERE sealed_secret IS NOT NULL").await,
+        sql(
+            &db,
+            "UPDATE linked_credential SET state=state WHERE sealed_secret IS NOT NULL"
+        )
+        .await,
         0
     );
 
@@ -454,10 +488,20 @@ async fn linked_access_renews_from_the_sealed_credential_and_renews_inline_when_
         204,
     )
     .await;
-    assert!(sql_rows(&db, "SELECT link_id FROM linked_credential").await.is_empty());
+    assert!(
+        sql_rows(&db, "SELECT link_id FROM linked_credential")
+            .await
+            .is_empty()
+    );
     let actions = audit_actions(&db).await;
-    assert!(actions.contains(&"linked-credential-stored".to_string()), "{actions:?}");
-    assert!(actions.contains(&"linked-credential-deleted".to_string()), "{actions:?}");
+    assert!(
+        actions.contains(&"linked-credential-stored".to_string()),
+        "{actions:?}"
+    );
+    assert!(
+        actions.contains(&"linked-credential-deleted".to_string()),
+        "{actions:?}"
+    );
     for detail in sql_rows(&db, "SELECT detail_json FROM audit_log").await {
         assert!(!detail.contains(CHILD_PASS) && !detail.contains(CHILD_PASS_NEW));
     }

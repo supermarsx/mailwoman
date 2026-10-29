@@ -336,11 +336,12 @@ impl Store {
                     .await?;
             }
             Some(link) => {
-                let owned = q("SELECT id FROM linked_account WHERE id=?1 AND owner_principal_id=?2")
-                    .bind(link)
-                    .bind(&owner)
-                    .fetch_all_tx(&mut tx)
-                    .await?;
+                let owned =
+                    q("SELECT id FROM linked_account WHERE id=?1 AND owner_principal_id=?2")
+                        .bind(link)
+                        .bind(&owner)
+                        .fetch_all_tx(&mut tx)
+                        .await?;
                 if owned.is_empty() {
                     return Ok(false);
                 }
@@ -718,9 +719,11 @@ impl Store {
                 .execute_tx(&mut tx)
                 .await?;
         }
-        let sealed =
-            self.key
-                .seal_bound(session.as_bytes(), "linked-source-v1", &[&owner, link, &subject])?;
+        let sealed = self.key.seal_bound(
+            session.as_bytes(),
+            "linked-source-v1",
+            &[&owner, link, &subject],
+        )?;
         q("UPDATE linked_account SET sealed_session=?2 WHERE id=?1")
             .bind(link)
             .bind(sealed)
@@ -1229,7 +1232,11 @@ mod tests {
         let other_key = ServerKey::from_bytes(&[86; 32]).unwrap();
         assert!(
             other_key
-                .open_bound(&raw, CREDENTIAL_PURPOSE, &credential_aad("o", "l", "s", "a", "same"))
+                .open_bound(
+                    &raw,
+                    CREDENTIAL_PURPOSE,
+                    &credential_aad("o", "l", "s", "a", "same")
+                )
                 .is_err()
         );
         assert!(
@@ -1298,8 +1305,14 @@ mod tests {
                 .await
                 .unwrap()
         );
-        assert!(store.get_session(&child_a).await.is_err(), "old source gone");
-        assert!(store.get_session(&context.id).await.is_err(), "old context gone");
+        assert!(
+            store.get_session(&child_a).await.is_err(),
+            "old source gone"
+        );
+        assert!(
+            store.get_session(&context.id).await.is_err(),
+            "old context gone"
+        );
         let (row, source) = store
             .linked_source(&owner_a, &link_a.id)
             .await
@@ -1350,7 +1363,10 @@ mod tests {
                 .unwrap()
         );
         let owner = store.primary_principal(&owner_b).await.unwrap().unwrap();
-        store.retire_principal(&owner.principal_id, 306).await.unwrap();
+        store
+            .retire_principal(&owner.principal_id, 306)
+            .await
+            .unwrap();
         let left = q("SELECT COUNT(*) AS n FROM linked_credential")
             .fetch_all(&store.backend)
             .await

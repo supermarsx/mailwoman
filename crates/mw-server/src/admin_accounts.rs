@@ -378,7 +378,7 @@ pub(crate) async fn start_session_for_factor(
         header::SET_COOKIE,
         crate::csrf_cookie(&csrf_token, state.cookie_secure),
     );
-    // t63 R2: this browser is now an admin browser; it never gets an analytics tag.
+    // t63 R2: this browser is now an admin browser; it gets no analytics tag while it carries the marker.
     if let Ok(v) = crate::analytics_tag::admin_browser_cookie(state.cookie_secure).parse() {
         resp.headers_mut().append(header::SET_COOKIE, v);
     }

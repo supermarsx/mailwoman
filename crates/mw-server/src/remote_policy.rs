@@ -67,8 +67,18 @@ pub(crate) fn fetch_limits(
             total: ms("privacy.fetchTotalTimeoutMs", t.total, 1_000, 120_000),
             max_redirects: count("privacy.maxRedirects", t.max_redirects, 0, 10),
         },
-        per_message: count("privacy.maxConcurrentPerMessage", defaults.per_message, 1, 32),
-        per_account: count("privacy.maxConcurrentPerAccount", defaults.per_account, 1, 64),
+        per_message: count(
+            "privacy.maxConcurrentPerMessage",
+            defaults.per_message,
+            1,
+            32,
+        ),
+        per_account: count(
+            "privacy.maxConcurrentPerAccount",
+            defaults.per_account,
+            1,
+            64,
+        ),
     }
 }
 #[derive(Serialize)]
@@ -275,7 +285,10 @@ mod tests {
     #[test]
     fn fetch_limits_default_then_honour_values_and_clamp_bypassed_rows() {
         let none = fetch_limits(|_| None);
-        assert_eq!(none, crate::image_proxy::remote_content::FetchLimits::default());
+        assert_eq!(
+            none,
+            crate::image_proxy::remote_content::FetchLimits::default()
+        );
         assert_eq!(none.timeouts, mw_egress::FetchTimeouts::REMOTE_IMAGE);
 
         let set = fetch_limits(|key| match key {

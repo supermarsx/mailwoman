@@ -91,11 +91,16 @@ async fn storing_allowed(
         account_id: account,
         address: login,
     };
-    if !global || !effective(state, parent, STORE_KEY).await? || !bool_setting(state, &child, STORE_KEY).await? {
+    if !global
+        || !effective(state, parent, STORE_KEY).await?
+        || !bool_setting(state, &child, STORE_KEY).await?
+    {
         return Ok(Err("policyOff"));
     }
     // Linking itself off for the owner or for the linked mailbox's subject.
-    if !enabled(state, parent).await? || !bool_setting(state, &child, "accounts.linkingEnabled").await? {
+    if !enabled(state, parent).await?
+        || !bool_setting(state, &child, "accounts.linkingEnabled").await?
+    {
         return Ok(Err("linkingDisabled"));
     }
     for id in [parent.account_id.as_str(), account] {
@@ -128,7 +133,11 @@ pub(crate) async fn owner_policy(
         .get_zeroaccess(&parent.account_id)
         .await
         .map_or(true, |row| row.is_some_and(|r| r.enabled));
-    Ok(if zero { (false, json!("zeroAccess")) } else { (true, Value::Null) })
+    Ok(if zero {
+        (false, json!("zeroAccess"))
+    } else {
+        (true, Value::Null)
+    })
 }
 
 pub(crate) async fn audit(state: &AppState, actor: &str, owner: &str, action: &str, detail: Value) {
@@ -204,7 +213,14 @@ pub(crate) async fn remember(
                 .await
                 .map_err(unavailable)?;
             if stored {
-                audit(state, &parent.account_id, &parent.account_id, "linked-credential-stored", detail).await;
+                audit(
+                    state,
+                    &parent.account_id,
+                    &parent.account_id,
+                    "linked-credential-stored",
+                    detail,
+                )
+                .await;
             }
         }
         Some(why) => {
@@ -220,7 +236,14 @@ pub(crate) async fn remember(
                 .await
                 .map_err(unavailable)?;
             if had {
-                audit(state, &parent.account_id, &parent.account_id, "linked-credential-deleted", detail).await;
+                audit(
+                    state,
+                    &parent.account_id,
+                    &parent.account_id,
+                    "linked-credential-deleted",
+                    detail,
+                )
+                .await;
             }
         }
     }
@@ -259,8 +282,14 @@ pub(crate) async fn live_source(
     if let Some(found) = current(state, parent, link).await? {
         // A secret kept while policy, zero-access or linking changed since is
         // erased now, not only at the next lapse.
-        enforce_policy(state, parent, link, &found.0.account_id, &found.1.credentials.username)
-            .await?;
+        enforce_policy(
+            state,
+            parent,
+            link,
+            &found.0.account_id,
+            &found.1.credentials.username,
+        )
+        .await?;
         return Ok(Some(found));
     }
     // After a transient upstream failure, wait before signing in again, so
@@ -271,7 +300,10 @@ pub(crate) async fn live_source(
         .get(link)
         .is_some_and(|until| std::time::Instant::now() < *until)
     {
-        return Err(failure(StatusCode::SERVICE_UNAVAILABLE, "linkedAccountUnavailable"));
+        return Err(failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "linkedAccountUnavailable",
+        ));
     }
     // One renewal per link at a time (per process): a listing, a mailbox
     // request and the realtime stream may all notice the lapse together. Across
@@ -334,22 +366,21 @@ async fn enforce_policy(
     if !active {
         return Ok(());
     }
-    if let Err(why) = storing_allowed(state, parent, account, login).await? {
-        if state
+    if let Err(why) = storing_allowed(state, parent, account, login).await?
+        && state
             .store
             .reject_linked_credential(&parent.id, link, why, chrono::Utc::now().timestamp())
             .await
             .map_err(unavailable)?
-        {
-            audit(
-                state,
-                "system",
-                &parent.account_id,
-                "linked-credential-deleted",
-                json!({"link":link,"reason":why}),
-            )
-            .await;
-        }
+    {
+        audit(
+            state,
+            "system",
+            &parent.account_id,
+            "linked-credential-deleted",
+            json!({"link":link,"reason":why}),
+        )
+        .await;
     }
     Ok(())
 }
@@ -394,8 +425,13 @@ async fn renew(
     else {
         return Ok(None);
     };
-    if let Err(why) =
-        storing_allowed(state, parent, &credential.account_id, &credential.login_name).await?
+    if let Err(why) = storing_allowed(
+        state,
+        parent,
+        &credential.account_id,
+        &credential.login_name,
+    )
+    .await?
     {
         // Erase the secret, keep why (shown with "Renew access").
         if state

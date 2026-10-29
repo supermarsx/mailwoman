@@ -454,6 +454,7 @@ async fn hop_over_tunnel(
 /// The hop body shared by every kind: the plaintext rule, the tunnel, origin TLS
 /// against `origin_host` (the URL's host, never the proxy's and never the literal
 /// handed to it), and the exchange.
+#[allow(clippy::too_many_arguments)]
 async fn hop_with(
     dialer: &Dialer,
     route: &ProxyRoute,
@@ -489,18 +490,18 @@ async fn hop_with(
 
     let wrapping = async {
         Ok::<_, ProxyRefusal>(if is_https {
-        if let Some(dav) = out.authorized_dav {
-            dav.validate().map_err(ProxyRefusal::Origin)?;
-            stream::wrap_tls_with_roots(conn, origin_host, dav.additional_roots).await?
-        } else if let Some(plugin) = out.authorized_plugin {
-            plugin.validate().map_err(ProxyRefusal::Origin)?;
-            stream::wrap_tls_with_roots(conn, origin_host, plugin.additional_roots).await?
+            if let Some(dav) = out.authorized_dav {
+                dav.validate().map_err(ProxyRefusal::Origin)?;
+                stream::wrap_tls_with_roots(conn, origin_host, dav.additional_roots).await?
+            } else if let Some(plugin) = out.authorized_plugin {
+                plugin.validate().map_err(ProxyRefusal::Origin)?;
+                stream::wrap_tls_with_roots(conn, origin_host, plugin.additional_roots).await?
+            } else {
+                stream::wrap_tls(conn, origin_host).await?
+            }
         } else {
-            stream::wrap_tls(conn, origin_host).await?
-        }
-    } else {
-        stream::TunnelStream::Plain(conn)
-    })
+            stream::TunnelStream::Plain(conn)
+        })
     };
     let pipe = match connect_deadline {
         None => wrapping.await?,

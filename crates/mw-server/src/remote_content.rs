@@ -73,13 +73,13 @@ const MAX_URL_LEN: usize = 4096;
 const MAX_BLOB_ID_LEN: usize = 256;
 const MAX_PART_RAW_BYTES: usize = 32 * 1024 * 1024;
 
+/// Timeouts, concurrency caps, negative cache and load outcomes (t56).
+#[path = "remote_fetch_limits.rs"]
+pub(crate) mod fetch_limits;
 #[path = "remote_membership.rs"]
 mod membership;
 #[path = "remote_tracker_stats.rs"]
 mod tracker_stats;
-/// Timeouts, concurrency caps, negative cache and load outcomes (t56).
-#[path = "remote_fetch_limits.rs"]
-pub(crate) mod fetch_limits;
 pub(crate) use fetch_limits::FetchLimits;
 
 #[derive(Deserialize)]
@@ -845,7 +845,9 @@ async fn fetch_image(
             return response;
         }
         if !tracker {
-            fetch_limits::record_outcome(&claims.a, &claims.s, &claims.e, &claims.u, true, claims.x);
+            fetch_limits::record_outcome(
+                &claims.a, &claims.s, &claims.e, &claims.u, true, claims.x,
+            );
         }
         return signed_image(png, etag, tracker);
     }
@@ -997,7 +999,11 @@ pub(super) fn failed_response(refusal: mw_egress::Refusal) -> Response {
     h.insert("x-mw-remote-content", HeaderValue::from_static("failed"));
     h.insert(
         header::CACHE_CONTROL,
-        HeaderValue::from_static(if cacheable { "private, max-age=60" } else { "no-store" }),
+        HeaderValue::from_static(if cacheable {
+            "private, max-age=60"
+        } else {
+            "no-store"
+        }),
     );
     response
 }

@@ -9,10 +9,10 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
+pub(crate) use credential::STORE_KEY as STORE_CREDENTIALS_KEY;
 pub(crate) use live::{
     LiveLink, inbox_unread, links_changed, live_links, subscribe_links, verify_link,
 };
-pub(crate) use credential::STORE_KEY as STORE_CREDENTIALS_KEY;
 pub(crate) use routes::router;
 pub(crate) use scope::guard;
 use serde_json::json;
@@ -146,7 +146,10 @@ pub(crate) async fn resolve(
         match crate::security_center::enforce_session(state, &context).await {
             Ok(()) => return Ok(Some(context)),
             Err(response) if attempt == 0 && response.status() == StatusCode::UNAUTHORIZED => {
-                if credential::live_source(state, parent, link).await?.is_none() {
+                if credential::live_source(state, parent, link)
+                    .await?
+                    .is_none()
+                {
                     return Err(reauth());
                 }
             }

@@ -492,7 +492,10 @@ mod tests {
             resident_key: Some(false),
             ..ok.clone()
         };
-        assert_eq!(p.check_registration(true, &no_rk), Err(Refusal::ResidentKey));
+        assert_eq!(
+            p.check_registration(true, &no_rk),
+            Err(Refusal::ResidentKey)
+        );
         // Absent credProps is trusted (the browser was asked for residentKey).
         let rk_absent = ClientReport {
             resident_key: None,
