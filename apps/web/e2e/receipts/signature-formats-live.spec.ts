@@ -12,9 +12,8 @@ test('authors HTML and independent plain signature and sends each selected forma
  await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByRole('button',{name:'Signatures',exact:true}).click();
  await page.getByRole('button',{name:'New signature',exact:true}).click();
  const name=`Formats ${info.project.name} ${Date.now()}`;
- await page.getByLabel('Name',{exact:true}).fill(name);await page.getByLabel('Signature format').selectOption('html');
- await page.getByRole('checkbox',{name:'Edit HTML source'}).check();
- await page.getByRole('textbox',{name:'Edit HTML source'}).fill('<p>Rich <strong>team signature</strong><script>evil()</script></p>');
+ await page.getByLabel('Name',{exact:true}).fill(name);await page.getByRole('combobox',{name:'Signature format'}).selectOption('html');
+ await page.getByRole('textbox',{name:'HTML source'}).fill('<p>Rich <strong>team signature</strong><script>evil()</script></p>');
  await page.getByLabel('Plain-text alternative').fill('Independent plain <signature> & team.');
  await page.screenshot({path:info.outputPath('signature-format-editor.png'),fullPage:true});
  await page.getByTestId('signature-save').click();await expect(page.getByTestId('signature-list')).toContainText(name);
@@ -26,9 +25,7 @@ test('authors HTML and independent plain signature and sends each selected forma
  await page.reload();
  for(const format of ['plain','html'] as const){
   await page.getByRole('button',{name:'Compose',exact:true}).click();await page.getByRole('combobox',{name:'From',exact:true}).selectOption(identity.id);
-  const toggle=page.getByTestId('format-toggle');
-  const isRich=(await toggle.textContent())?.includes('Plain text')??false;
-  if((format==='plain'&&isRich)||(format==='html'&&!isRich))await toggle.click();
+  await page.getByTestId('format-toggle').selectOption(format==='plain'?'plain':'rich');
   await page.getByLabel('To',{exact:true}).fill('recipient@example.org');
   const subject=`${format} ${name}`;await page.getByLabel('Subject',{exact:true}).fill(subject);await page.getByLabel('Body',{exact:true}).fill('Hello recipient.');
   const start=(await accepted()).length;await page.getByRole('button',{name:'Send',exact:true}).click();
