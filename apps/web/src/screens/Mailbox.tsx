@@ -12,6 +12,7 @@ import { MAX_WORKSPACE_TABS, readWorkspace, saveWorkspace, clearWorkspace, type 
 import {accountDraftApi,localAccountDraft} from '../api/accountDrafts.ts';
 import { listDrafts,saveDraft } from '../components/compose/drafts-store.ts';
 import { FolderCountBadge } from '../components/FolderCountBadge.tsx';
+import { QuotaMeter } from '../components/QuotaMeter.tsx';
 import { PaneNavigationContext, confirmShellNavigation } from '../shell/navigationGuard.ts';
 import { preferenceAccount, preferenceAccountIsCurrent, observePreferenceAccount } from '../api/accountPreferenceLifecycle.ts';
 import { AppearanceCustomizationRuntime } from '../components/AppearanceCustomizationRuntime.tsx';
@@ -725,6 +726,7 @@ export function MailboxScreen(): JSX.Element {
         </nav></Show>
         </div>
         <div class="sidebar__footer">
+        <Show when={folderMode()!=='compact'||narrow()}><QuotaMeter accountId={app.accountId()} refresh={app.mailboxes()}/></Show>
         <div class={sidebarFooterActions}>
         <button type="button" class={`btn btn--ghost sidebar__settings ${a11y.focusable} ${a11y.iconButton}`} aria-label={t('mail-nav-settings')} data-tooltip={t('mail-nav-settings')} onClick={()=>openSettings()}>
           <Icon name="settings"/>
