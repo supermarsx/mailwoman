@@ -404,3 +404,7 @@ calendar-card-answered-not-sent = { $answer }. Your calendar was updated, but th
 calendar-card-answered-silently = { $answer }. No response was sent.
 calendar-card-proposal-sent = Your proposal was sent to { $organizer }.
 calendar-card-not-sent = The message could not be sent.
+calendar-card-more = { $count ->
+    [one] 1 more
+   *[other] { $count } more
+}

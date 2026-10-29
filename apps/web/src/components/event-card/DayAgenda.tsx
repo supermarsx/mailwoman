@@ -39,6 +39,13 @@ export function conflictsWith(range: EventRange, uid: string | undefined, own: D
     && i.start < range.end && i.end > range.start);
 }
 
+/** At most two titles, then "and N more". */
+export function conflictTitles(list: DayInstance[]): string {
+  const titles = [...new Set(list.map((c) => c.title || t('calendar-untitled')))];
+  if (titles.length <= 2) return formatList(titles);
+  return formatList([...titles.slice(0, 2), t('calendar-card-more', { count: titles.length - 2 })]);
+}
+
 export function DayAgenda(props: {
   accountId: string;
   client: Pick<Client, 'jmap'>;
@@ -128,7 +135,7 @@ export function DayAgenda(props: {
         <Show when={!own.loading && !props.range.allDay}>
           <p class={`${css.agendaSummary} ${conflicts().length > 0 ? css.agendaSummaryConflict : ''}`} role="status">
             {conflicts().length > 0
-              ? t('calendar-card-conflicts', { count: conflicts().length, titles: formatList([...new Set(conflicts().map((c) => c.title || t('calendar-untitled')))]) })
+              ? t('calendar-card-conflicts', { count: conflicts().length, titles: conflictTitles(conflicts()) })
               : t('calendar-card-no-conflicts')}
           </p>
         </Show>

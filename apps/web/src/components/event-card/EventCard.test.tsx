@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import type { JmapRequest, JmapResponse } from '../../api/jmap-types.ts';
 import { EventCard } from './EventCard.tsx';
+import { conflictTitles } from './DayAgenda.tsx';
 import type { ItipView } from './api.ts';
 
 const ORG = 'olga@example.com';
@@ -25,7 +26,7 @@ function view(over: Partial<ItipView> = {}): ItipView {
   };
 }
 
-type Handler = (args: Record<string, unknown>) => Record<string, unknown>;
+type Handler = (args: Record<string, unknown>) => object;
 
 /** A JMAP stub answering by method name; records every call. */
 function stub(handlers: Record<string, Handler>) {
@@ -42,7 +43,7 @@ function stub(handlers: Record<string, Handler>) {
       'CalendarEvent/expand': () => ({ accountId: 'a', list: [] }),
     };
     const handler = handlers[name] ?? fallback[name];
-    return { sessionState: 's', methodResponses: [[name, handler ? handler(args as Record<string, unknown>) : { type: 'unknownMethod' }, id]] };
+    return { sessionState: 's', methodResponses: [[name, handler ? handler(args as Record<string, unknown>) as Record<string, unknown> : { type: 'unknownMethod' }, id]] };
   });
   return { jmap, calls, of: (name: string) => calls.filter(([n]) => n === name).map(([, a]) => a) };
 }
@@ -241,5 +242,11 @@ describe('the reader event card', () => {
     render(() => <EventCard accountId="a" emailId="e" client={s} zone="UTC" fallback={<p>raw text</p>} />);
     expect(await screen.findByText('raw text')).toBeInTheDocument();
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
+  });
+
+  it('names at most two conflicting events', () => {
+    const inst = (title: string) => ({ eventId: title, uid: title, title, calendarId: 'c', start: new Date(0), end: new Date(1), allDay: false, status: 'confirmed', freeBusy: 'busy' });
+    expect(conflictTitles([inst('A'), inst('B')])).toBe('A and B');
+    expect(conflictTitles([inst('A'), inst('B'), inst('C'), inst('D')])).toBe('A, B, and 2 more');
   });
 });

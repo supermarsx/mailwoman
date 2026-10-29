@@ -212,7 +212,8 @@ export type TypeCategory = 'image' | 'pdf' | 'audio' | 'video' | 'text' | 'messa
 /** Group a MIME type using the very same routing as the viewers (`viewerKindFor`). */
 export function categoryOf(mime: string): TypeCategory {
   const kind = viewerKindFor(mime);
-  return kind === 'unsupported' ? 'other' : kind;
+  // A calendar file is grouped with text, as before it had its own viewer (t53).
+  return kind === 'unsupported' ? 'other' : kind === 'calendar' ? 'text' : kind;
 }
 
 export interface AttachmentFilters {

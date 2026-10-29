@@ -428,7 +428,7 @@ export function EventCard(props: EventCardProps): JSX.Element {
               </div>
             }>
               <div class={css.body}>
-                <Details ev={v().event} zone={zone()} range={range()} participants={kind() === 'reply' && v().stored?.participants ? v().stored!.participants : undefined} />
+                <Details ev={v().event} zone={zone()} range={range()} participants={(kind() === 'reply' || (kind() === 'invite' && v().outcome === 'current')) && v().stored?.participants ? v().stored!.participants : undefined} />
                 <Show when={range() && kind() !== 'reply'}>
                   <DayAgenda accountId={props.accountId} client={client} range={range()!} uid={v().event.uid} zone={zone()} calendars={calendars() ?? []} />
                 </Show>
