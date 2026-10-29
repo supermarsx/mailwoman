@@ -43,7 +43,7 @@ export function BackendEditor(props: { domain: DomainDetail; backend?: DomainBac
       rows.push(edited);
       const problem = (edited.protocol === 'ews' ? ewsBackendProblem(edited) : null) ?? ewsSelectionProblem(rows);
       if (problem) throw new Error(t(problem));
-      await props.api.save(props.domain.name, { upstream: { version: 2, backends: rows, ...(props.domain.upstream.dav ? { dav: props.domain.upstream.dav } : {}) } }, props.domain.etag);
+      await props.api.save(props.domain.name, { upstream: { version: 2, backends: rows, ...(props.domain.upstream.dav ? { dav: props.domain.upstream.dav } : {}), ...(props.domain.upstream.failover ? { failover: true } : {}) } }, props.domain.etag);
       setSaved(true); await props.onSaved();
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(false); }

@@ -175,7 +175,7 @@ export function Domains(props: { service?: DomainsApi }): JSX.Element {
         </section></Show>
         <Show when={domainPage() === 'connections' || domainPage() === 'policy'}><form aria-label={t('domain-editor-configure', { name: d().name })} onSubmit={e => void save(e)}>
           <Show when={domainPage() === 'connections'}><fieldset disabled={busy()}><legend>{t('domain-editor-upstream')}</legend>
-            <BackendList domain={d()} editable={canUpstream() && !busy() && !dirty()} open={id => void shell.router.navigate(sectionPath('domains', [d().name, 'backends', id]))} />
+            <BackendList domain={d()} editable={canUpstream() && !busy() && !dirty()} open={id => void shell.router.navigate(sectionPath('domains', [d().name, 'backends', id]))} setFailover={on => void run(async () => { const next: DomainUpstream = { ...structuredClone(d().upstream) }; if (on) next.failover = true; else delete next.failover; await api.save(d().name, { upstream: next }, d().etag); await refresh(); })} />
             <Show when={upstream().version !== 2}>
             <Show when={d().mode === 'engine'} fallback={<label class="field"><span>{t('domain-editor-jmap')}</span><input type="url" disabled={!canUpstream()} value={upstream().jmap?.sessionUrl ?? ''} onInput={e => setUpstream(e.currentTarget.value.trim() ? { jmap: { sessionUrl: e.currentTarget.value } } : {})} /></label>}>
               <label class="field"><span>{t('domain-editor-mail-protocol')}</span><select disabled={!canUpstream()} value={upstream().imap ? 'imap' : upstream().pop3 ? 'pop3' : ''} onChange={e => mail(e.currentTarget.value)}><option value="">{t('domain-editor-default')}</option><option value="imap">IMAP</option><option value="pop3">POP3</option></select></label>

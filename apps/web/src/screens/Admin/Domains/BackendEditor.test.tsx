@@ -100,3 +100,19 @@ it('refuses selected EWS with active SMTP before any save', async()=>{
  await screen.findByText(/The selected EWS backend supplies submission/);
  expect(save).not.toHaveBeenCalled();
 });
+
+it('keeps the failover flag when a backend is saved, and the list toggles it', async () => {
+  const { BackendList } = await import('./BackendList.tsx');
+  const chained: DomainDetail = { ...domain, upstream: { version: 2, failover: true, backends: domainBackends(domain.upstream) } };
+  const save = vi.fn<typeof domainsApi.save>(async () => chained);
+  renderInShell(() => <BackendEditor domain={chained} backend={domainBackends(chained.upstream)[0]} api={{ ...domainsApi, save }} advancedReady={false} onSaved={async () => {}} onBack={() => {}} />);
+  fireEvent.submit((await screen.findByRole('button', { name: 'Save backend' })).closest('form')!);
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  expect(save.mock.calls[0]![1].upstream).toMatchObject({ version: 2, failover: true });
+  const setFailover = vi.fn();
+  renderInShell(() => <BackendList domain={{ ...chained, upstream: { ...chained.upstream, failover: false } }} editable={true} open={() => {}} setFailover={setFailover} />);
+  const toggle = await screen.findByRole('checkbox', { name: /Fail over to the next mail backend/ });
+  expect(toggle).not.toBeChecked();
+  fireEvent.click(toggle);
+  expect(setFailover).toHaveBeenCalledWith(true);
+});
