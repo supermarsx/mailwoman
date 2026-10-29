@@ -69,7 +69,10 @@ export function MultiSelect(props: MultiSelectProps): JSX.Element {
   }
   function toggle(value: string): void {
     if (props.disabled) return;
-    commit(chosen().has(value) ? props.selected.filter(v => v !== value) : [...props.selected, value]);
+    const adding = !chosen().has(value);
+    commit(adding ? [...props.selected, value] : props.selected.filter(v => v !== value));
+    // A picked value ends the search: the filter clears and the full list returns.
+    if (adding && query()) { setQuery(''); setActive(0); }
   }
   function remove(value: string): void {
     if (props.disabled) return;

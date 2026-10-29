@@ -65,6 +65,8 @@ describe('MultiSelect', () => {
     expect(screen.getAllByRole('option')).toHaveLength(1);
     fireEvent.keyDown(input(), { key: 'Enter' });
     expect(changes.at(-1)).toEqual(['c']);
+    expect(input().value).toBe('');
+    expect(screen.getAllByRole('option')).toHaveLength(4);
     fireEvent.input(input(), { target: { value: 'zzz' } });
     expect(screen.queryAllByRole('option')).toHaveLength(0);
     expect(screen.getByText('No matching options')).toBeVisible();

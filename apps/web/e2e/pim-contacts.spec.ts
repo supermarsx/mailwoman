@@ -23,7 +23,8 @@ async function createContact(page: Page, fullName: string, email: string): Promi
   await form.getByLabel('Full name').fill(fullName);
   await form.getByLabel('Email 1', { exact: true }).fill(email);
   await form.getByRole('button', { name: 'Save' }).click();
-  await expect(contactList(page).getByText(fullName)).toBeVisible();
+  // .first(): the merge test creates two cards with one name on purpose.
+  await expect(contactList(page).getByText(fullName).first()).toBeVisible();
 }
 
 test.describe('Contacts module through the real UI (engine mode)', () => {
@@ -59,13 +60,15 @@ test.describe('Contacts module through the real UI (engine mode)', () => {
       '',
     ].join('\n');
 
+    // t39 R6: the import is a page of its own (source list, review detail).
     await contacts(page).getByRole('button', { name: 'Import…' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Import contacts' });
-    await dialog.getByLabel('Paste vCard or CSV').fill(vcard);
-    await dialog.getByRole('button', { name: 'Preview' }).click();
-    await dialog.getByRole('button', { name: /Import 1 contact/ }).click();
-    await expect(dialog.getByText(/Imported 1 contact/)).toBeVisible();
-    await dialog.getByRole('button', { name: 'Done' }).click();
+    const importPage = contacts(page).getByTestId('contacts-import-page');
+    await expect(importPage.getByRole('heading', { level: 1, name: 'Import contacts' })).toBeFocused();
+    await importPage.getByLabel('Paste vCard or CSV').fill(vcard);
+    await importPage.getByRole('button', { name: 'Preview' }).click();
+    await importPage.getByRole('button', { name: /Import 1 contact/ }).click();
+    await expect(importPage.getByText(/Imported 1 contact/)).toBeVisible();
+    await importPage.getByRole('button', { name: 'Done' }).click();
 
     await contacts(page).getByLabel('Search contacts').fill(name);
     await expect(contactList(page).getByText(name)).toBeVisible();
@@ -106,5 +109,62 @@ test.describe('Contacts module through the real UI (engine mode)', () => {
     await gotoModule(page, 'contacts');
     await contacts(page).getByLabel('Search contacts').fill(name);
     await expect(contactList(page).getByText(name)).toBeVisible();
+  });
+
+  // t39 R6: membership and merge pages, persisted through the engine.
+  test('group membership set on its page survives a reload', async ({ page }) => {
+    await engineLogin(page);
+    await gotoModule(page, 'contacts');
+    const tag = uid();
+    const name = `Dorothy Vaughan ${tag}`;
+    await createContact(page, name, `dorothy${tag}@example.org`);
+    const group = `Team ${tag}`;
+    await contacts(page).getByRole('button', { name: 'New group' }).click();
+    await contacts(page).getByLabel('New group name').fill(group);
+    await contacts(page).getByRole('button', { name: 'Create' }).click();
+    await contacts(page).getByRole('button', { name: 'Group membership', exact: true }).click();
+    const membership = contacts(page).getByTestId('contacts-membership-page');
+    await membership.getByRole('button', { name: new RegExp(group) }).click();
+    const picker = membership.getByRole('combobox', { name: 'Members' });
+    await picker.fill(`dorothy${tag}`);
+    await expect(membership.getByRole('option', { name: new RegExp(name) })).toBeVisible();
+    await picker.press('Enter');
+    await expect(membership.getByRole('button', { name: `Remove ${name}` })).toBeVisible();
+    await expect(picker).toBeEnabled();
+
+    await reloadToShell(page);
+    await gotoModule(page, 'contacts');
+    await contacts(page).getByRole('button', { name: 'Group membership', exact: true }).click();
+    const after = contacts(page).getByTestId('contacts-membership-page');
+    await after.getByRole('button', { name: new RegExp(group) }).click();
+    await expect(after.getByRole('button', { name: `Remove ${name}` })).toBeVisible();
+    await expect(after.getByText('1 member')).toBeVisible();
+  });
+
+  test('a merge on the merge page keeps one card after a reload', async ({ page }) => {
+    await engineLogin(page);
+    await gotoModule(page, 'contacts');
+    const tag = uid();
+    const name = `Mary Jackson ${tag}`;
+    await createContact(page, name, `mary${tag}@work.example.org`);
+    await createContact(page, name, `mary${tag}@home.example.org`);
+    await contacts(page).getByRole('button', { name: 'Find duplicates' }).click();
+    const merge = contacts(page).getByTestId('contacts-merge-page');
+    await merge.getByRole('navigation', { name: 'Possible duplicates' }).getByRole('button', { name: new RegExp(name) }).click();
+    const preview = merge.getByRole('region', { name: 'Merged preview' });
+    await expect(preview.getByText(`mary${tag}@work.example.org`)).toBeVisible();
+    await expect(preview.getByText(`mary${tag}@home.example.org`)).toBeVisible();
+    await merge.getByRole('button', { name: 'Merge contacts' }).click();
+    await expect(merge.getByRole('status')).toHaveText(`Merged into ${name}.`);
+    await merge.getByRole('button', { name: 'Back to contacts' }).click();
+
+    await reloadToShell(page);
+    await gotoModule(page, 'contacts');
+    await contacts(page).getByLabel('Search contacts').fill(name);
+    await expect(contactList(page).getByText(name)).toHaveCount(1);
+    await contactList(page).getByText(name).click();
+    const card = contacts(page).getByRole('article', { name: `Contact ${name}` });
+    await expect(card.getByText(`mary${tag}@work.example.org`)).toBeVisible();
+    await expect(card.getByText(`mary${tag}@home.example.org`)).toBeVisible();
   });
 });
