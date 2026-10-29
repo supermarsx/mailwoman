@@ -622,6 +622,8 @@ admin-settings-key-mail-compact-folder-badges = Contadores compactos nas pastas 
 admin-settings-help-mail-compact-folder-badges = Mostrar contadores mais pequenos fora da Caixa de entrada. Os utilizadores podem escolher o seu próprio tamanho, exceto se esta definição estiver bloqueada.
 
 admin-settings-key-privacy-remote-image-downloads = Transferências manuais de imagens remotas
+admin-settings-key-privacy-remote-images-toast = Notificação de carregamento de imagens
+admin-settings-help-privacy-remote-images-toast = Mostrar uma notificação no leitor enquanto as imagens remotas de uma mensagem carregam através do proxy de privacidade, e indicar quando carregaram ou quantas não foi possível carregar. Ativado por predefinição. Só altera o que o leitor mostra; as imagens que carregam continuam a ser decididas pela política de conteúdo remoto.
 admin-settings-help-privacy-remote-image-downloads = Permitir a transferência explícita de uma imagem referenciada pela mensagem própria através do proxy de privacidade protegido. Desativado por predefinição; isto nunca abre diretamente o URL externo.
 admin-settings-key-mail-resume-tabs = Retomar separadores da área de trabalho
 admin-settings-help-mail-resume-tabs = Restaurar as referências dos separadores da conta após recarregar. Desativar isto limpa o registo local da área de trabalho sem eliminar rascunhos.

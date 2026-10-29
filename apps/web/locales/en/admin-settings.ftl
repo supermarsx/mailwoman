@@ -622,6 +622,8 @@ admin-settings-key-mail-compact-folder-badges = Compact secondary folder badges
 admin-settings-help-mail-compact-folder-badges = Show smaller badges outside Inbox. Users can choose their own size unless this setting is locked.
 
 admin-settings-key-privacy-remote-image-downloads = Manual remote image downloads
+admin-settings-key-privacy-remote-images-toast = Loading-images notification
+admin-settings-help-privacy-remote-images-toast = Show one notification in the reader while a message's remote images load through the privacy proxy, and say when they have loaded or how many could not. On by default. Only changes what the reader shows; which images load is still decided by the remote content policy.
 admin-settings-help-privacy-remote-image-downloads = Allow an explicit download of an image referenced by the owned message through the guarded privacy proxy. Disabled by default; this never opens the external URL directly.
 admin-settings-key-mail-resume-tabs = Resume workspace tabs
 admin-settings-help-mail-resume-tabs = Restore account-owned tab references after reload. Disabling this clears the local workspace record without deleting drafts.

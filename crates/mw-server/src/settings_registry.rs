@@ -427,6 +427,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "allow deliberate message image downloads through the guarded privacy proxy"
     ),
     def!(
+        "privacy.remoteImagesToast",
+        Kind::Bool,
+        "true",
+        GDU,
+        "privacy",
+        "show one notification while a message's remote images load through the privacy proxy; presentation only, the image policy is unchanged"
+    ),
+    def!(
         "appearance.customCssEnabled",
         Kind::Bool,
         "false",
@@ -3489,6 +3497,26 @@ mod tests {
             }
         }
         assert!(missing.is_empty(), "missing: {missing:?}");
+    }
+
+    /// t55: the loading-images notification is an on/off presentation key,
+    /// on by default, settable per domain and per user, lockable by admins.
+    #[test]
+    fn remote_images_toast_is_a_user_overridable_bool_defaulting_on() {
+        let d = lookup("privacy.remoteImagesToast").expect("registered");
+        assert_eq!(d.default_value(), json!(true));
+        assert_eq!(d.category, "privacy");
+        assert!(d.user_override);
+        assert!(d.user_visible());
+        for scope in [SettingScope::Domain, SettingScope::User] {
+            assert!(d.scopes.allows(scope), "{scope:?}");
+        }
+        assert!(refuse_if_dedicated(d).is_ok());
+        assert_eq!(validate(d, &json!(false), "/value").unwrap(), json!(false));
+        for bad in [json!("off"), json!(1), Value::Null] {
+            let r = validate(d, &bad, "/value").unwrap_err();
+            assert_eq!((r.status, r.code), (422, "invalidValue"), "{bad}");
+        }
     }
 
     /// t38: the four collapsible bars start pinned, take global, domain and user
