@@ -22,12 +22,17 @@ export function createWorkspaceViews(options:{ids:Accessor<readonly string[]>;ac
   const [assignments,setAssignments]=createSignal<WorkspaceViewAssignments>([null,null]);
   let previousOwner:string|null=null;
   let focused:WorkspaceViewSlot=1;
+  let beside:string|null=null;
   createEffect(()=>{
     const owner=options.owner(),ids=options.ids(),active=options.activeId();
-    if(owner!==previousOwner){previousOwner=owner;focused=1;setAssignments([null,null]);}
+    if(owner!==previousOwner){previousOwner=owner;focused=1;beside=null;setAssignments([null,null]);}
     if(!owner){setAssignments([null,null]);return;}
     const previous=untrack(assignments);
     if(active===previous[0])focused=0;else if(active===previous[1])focused=1;
+    // openBeside: the first tab to activate that holds no slot goes opposite the
+    // opener. Kept until then, because opening writes the tab list and the active
+    // tab separately and this effect runs between them.
+    if(beside!==null&&active!==null&&active!==beside&&!previous.includes(active)){const at=previous[0]===beside?0:previous[1]===beside?1:null;if(at!==null)focused=at===0?1:0;beside=null;}
     const next=reconcileWorkspaceViews(previous,ids,active,focused);
     if(next[0]!==previous[0]||next[1]!==previous[1])setAssignments(next);
   });
@@ -46,9 +51,6 @@ export function createWorkspaceViews(options:{ids:Accessor<readonly string[]>;ac
   }
   /** The next tab to become active goes into the view slot that `openerId` does
    *  NOT occupy, so the list a message was opened from stays on screen (t51). */
-  function openBeside(openerId:string):void {
-    const at=assignments()[0]===openerId?0:assignments()[1]===openerId?1:null;
-    if(at!==null)focused=at===0?1:0;
-  }
+  function openBeside(openerId:string):void {beside=openerId;}
   return {assignments,assignView,openBeside,restore,slot:(id:string):WorkspaceViewSlot|null=>assignments()[0]===id?0:assignments()[1]===id?1:null};
 }

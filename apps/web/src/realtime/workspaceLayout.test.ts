@@ -46,12 +46,13 @@ it('openBeside puts the next activated tab in the slot the opener does not hold 
   await Promise.resolve();
   expect(model.views.assignments()).toEqual(['folder','other']);
   // Without openBeside the new tab replaces the active folder in its own slot.
-  model.setIds(['folder','other','m1']);model.views.openBeside('folder');model.setActive('m1');
+  // Opening writes the tab list, then the active tab; the folder is still active in between.
+  model.views.openBeside('folder');model.setIds(['folder','other','m1']);model.setActive('m1');
   expect(model.views.assignments()).toEqual(['folder','m1']);
-  model.setActive('folder');model.setIds(['folder','other','m1','m2']);model.views.openBeside('folder');model.setActive('m2');
+  model.setActive('folder');model.views.openBeside('folder');model.setIds(['folder','other','m1','m2']);model.setActive('m2');
   expect(model.views.assignments()).toEqual(['folder','m2']);
   // An opener in slot 1 sends the message to slot 0.
-  model.views.assignView('folder',1);model.setIds(['folder','other','m1','m2','m3']);model.views.openBeside('folder');model.setActive('m3');
+  model.views.assignView('folder',1);model.views.openBeside('folder');model.setIds(['folder','other','m1','m2','m3']);model.setActive('m3');
   expect(model.views.assignments()).toEqual(['m3','folder']);
   dispose();
 });
