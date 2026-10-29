@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vite
 import { render, screen, waitFor, fireEvent } from '@solidjs/testing-library';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { Suspense } from 'solid-js';
 import { Reader } from './Reader.tsx';
 import { makeClient, mkEmail } from './appHarness.tsx';
 import { createAppState } from '../state/store.ts';
@@ -107,4 +108,29 @@ it('folds the server decoded count into the banner, read once, never as a separa
   const stats=vi.mocked(fetch).mock.calls.filter(([u])=>String(u).includes('/api/rc/stats?'));
   expect(stats).toHaveLength(1);
   expect(screen.queryByText(/recently decoded/)).toBeNull();
+});
+
+// t60: the mailbox route's <Suspense> wraps the whole shell. A reader that reads
+// a loading resource directly (here the remote-content policy, for the banner)
+// suspends it: the shell is swapped for its fallback and back, and every open
+// message frame reloads (blank bodies, remote images fetched twice).
+describe('Reader under the mailbox Suspense',()=>{
+  it('never suspends the shell while the remote-content policy loads',async()=>{
+    // A standing grant shows the remote-content bar before the policy arrives.
+    policy.mode='ask';granted=true;
+    let release:()=>void=()=>{};const gate=new Promise<void>(resolve=>{release=resolve;});
+    const base=vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async(input,init)=>{if(String(input).endsWith('/api/rc/policy'))await gate;return base(input,init);});
+    const emails=[message('m1','<p>Body text</p><img src="https://cdn.example.test/image.png">')];
+    const app=createAppState(makeClient({emails}));
+    let fallbacks=0;const Fallback=()=>{fallbacks+=1;return <p>Shell loading</p>;};
+    render(()=><Suspense fallback={<Fallback/>}><AppContext.Provider value={app}><p>Shell</p><Reader /></AppContext.Provider></Suspense>);
+    await app.login({username:'me@example.org',password:'p'});await app.openMessage('m1');
+    await screen.findByRole('toolbar',{name:'Message actions'});
+    await new Promise(resolve=>setTimeout(resolve,50));
+    expect(screen.getByText('Shell')).toBeInTheDocument();
+    release();
+    await waitFor(()=>expect(frame()?.srcdoc).toContain('Body text'));
+    expect(fallbacks).toBe(0);
+  });
 });

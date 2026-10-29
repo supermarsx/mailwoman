@@ -70,6 +70,7 @@ import { extractHtmlBody } from '../state/slices/mail.ts';
 import { RemoteContentBar } from './RemoteContentBar.tsx';
 import { createRemoteImageLoad } from './remoteImageToast.ts';
 import { DirectReaderFrame } from './DirectReaderFrame.tsx';
+import { resourceValue } from './resourceValue.ts';
 import { readerZoom, useReaderZoom } from './readerZoom.ts';
 import { remotePolicy, remoteServerBase, signContent, readerReferences, rewriteReaderContent, signedSource, BLOCKED_POLICY, EMPTY_SIGNED, type RemotePolicy } from '../api/remote-content.ts';
 import { settings } from '../api/settings.ts';
@@ -932,7 +933,9 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // The banner keeps the last known mode while the policy refetches, so it does
   // not flash "blocked by your privacy settings" (presentation only: the body
   // still renders under `policy()`).
-  const bannerMode = () => (privacy.latest ?? policy()).mode;
+  // Never `privacy.latest` before the first value: that suspends the mailbox
+  // shell, and every open message frame reloads (t60).
+  const bannerMode = () => (resourceValue(privacy) ?? policy()).mode;
   // t59: body zoom shortcuts and Ctrl/Cmd + wheel, only while focus is in this reader.
   let readerRoot: HTMLElement | undefined;
   useReaderZoom({ root: () => readerRoot, active: () => props.active !== false });
