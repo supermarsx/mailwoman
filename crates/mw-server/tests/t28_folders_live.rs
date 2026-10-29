@@ -165,6 +165,25 @@ impl Browser {
             .and_then(|m| m["id"].as_str())
             .map(str::to_string)
     }
+
+    /// Wait until the engine's first sync has cached `mailbox`
+    /// (`mailwomanSynced`). Since dcd88d33 a login only publishes the mailbox
+    /// list and fetches the messages in the background.
+    async fn wait_synced(&self, mailbox: &str) {
+        for _ in 0..120 {
+            let got = self
+                .call(
+                    "Mailbox/get",
+                    json!({ "ids": [mailbox], "properties": ["id", "mailwomanSynced"] }),
+                )
+                .await;
+            if got["list"][0]["mailwomanSynced"] == true {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        panic!("mailbox {mailbox} never finished its first sync");
+    }
 }
 
 /// A fresh, independent IMAP connection, as another client would open it.
@@ -408,7 +427,7 @@ async fn a_destroyed_message_is_gone_from_the_server() {
     }
     let _env = serial().await;
     for addr in imap_servers() {
-        // Filed before login, so the login's sync caches it.
+        // Filed before login, so the first sync after it caches it.
         let keep = stem("Keep");
         let doomed = stem("Gone");
         append(&addr, "INBOX", &keep).await;
@@ -421,6 +440,7 @@ async fn a_destroyed_message_is_gone_from_the_server() {
 
         let b = Browser::login(&format!("imap://{addr}")).await;
         let inbox = b.mailbox_id(|m| m["role"] == "inbox").await.unwrap();
+        b.wait_synced(&inbox).await;
         let q = b
             .call(
                 "Email/query",
