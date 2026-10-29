@@ -7,7 +7,10 @@
 //   - a click opens a message, and arrows still work after it has been marked read;
 //   - Enter opens the focused row;
 //   - Shift+Down extends a selection;
-//   - typing in the search box never moves the list.
+//   - typing in the search box never moves the list;
+//   - t51: opening a message (click, Enter, j) leaves focus on the list row in
+//     reading panes right/bottom and in folder tabs (Tabs, Side by side); where
+//     the reader covers the list (Off, phone) focus goes to its subject.
 // Runs in the receipts config (chromium, firefox, phone) against
 // MW_RECEIPTS_BASE_URL. The mailbox needs at least 30 messages
 // (MW_LIST_KEYS_USER / MW_LIST_KEYS_PASS, default testuser / testpass).
@@ -133,4 +136,104 @@ test.describe('message list keyboard', () => {
     await expect(search).toBeFocused();
     expect(await focusedIndex(page)).toBeNull();
   });
+
+  // t51: opening a message never takes focus off the row that opened it while
+  // that list is on screen; the message shows in its tab and a polite status
+  // names it. Where the reader covers the list (phone, reading pane Off) focus
+  // goes to the reader's subject rather than falling to <body>.
+  const activeTab = (page: Page) => page.locator('[role=tab][aria-selected="true"]');
+  const focusedFolderRow = (page: Page) => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset['folderMessage'] ?? null);
+  async function pane(page: Page, mode: 'right' | 'bottom' | 'off'): Promise<void> {
+    await page.getByTestId(`reading-pane-${mode}`).click();
+    await expect(page.getByTestId(`reading-pane-${mode}`)).toHaveAttribute('aria-pressed', 'true');
+  }
+  async function subjectAt(page: Page, index: number): Promise<string> {
+    return ((await page.locator(`.list__scroll .list__row[data-index="${index}"] .list__subject`).textContent()) ?? '').trim();
+  }
+
+  for (const mode of ['right', 'bottom'] as const) {
+    test(`reading pane ${mode}: click, Enter and j open messages while focus stays in the list`, async ({ page }) => {
+      test.skip(touch(page), 'phone: the reader replaces the list (covered below)');
+      await signIn(page);
+      await pane(page, mode);
+      try {
+        const first = await subjectAt(page, 2);
+        await rows(page).nth(2).click();
+        await expect(page.getByRole('heading', { name: first, exact: true }).first()).toBeVisible();
+        await expect(activeTab(page)).toHaveText(first);
+        await page.waitForTimeout(1500); // past the delayed mark-read
+        await expectFocused(page, 2);
+        await expect(page.getByTestId('message-opened-status')).toHaveText(`Opened: ${first}`);
+
+        await page.keyboard.press('ArrowDown');
+        await expectFocused(page, 3);
+        const second = await subjectAt(page, 3);
+        await page.keyboard.press('Enter');
+        await expect(page.getByRole('heading', { name: second, exact: true }).first()).toBeVisible();
+        await expect(activeTab(page)).toHaveText(second);
+        await page.waitForTimeout(1500);
+        await expectFocused(page, 3);
+
+        const third = await subjectAt(page, 4);
+        await page.keyboard.press('j');
+        await expect(page.getByRole('heading', { name: third, exact: true }).first()).toBeVisible();
+        await page.waitForTimeout(1500);
+        await expectFocused(page, 4);
+        await page.keyboard.press('ArrowDown');
+        await expectFocused(page, 5);
+      } finally { await pane(page, 'right'); }
+    });
+  }
+
+  test('reading pane off (and phone): the reader covers the list, so focus goes to its subject, not <body>', async ({ page }) => {
+    await signIn(page);
+    if (!touch(page)) await pane(page, 'off');
+    try {
+      const subject = await subjectAt(page, 1);
+      await rows(page).nth(1).click();
+      const heading = page.getByRole('heading', { name: subject, exact: true }).first();
+      await expect(heading).toBeVisible();
+      await expect(heading).toBeFocused();
+      await page.keyboard.press('j');
+      const next = await subjectAt(page, 2);
+      const nextHeading = page.getByRole('heading', { name: next, exact: true }).first();
+      await expect(nextHeading).toBeVisible();
+      await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).not.toBe('BODY');
+    } finally {
+      if (!touch(page)) { await page.getByRole('tab', { name: 'Mail', exact: true }).click(); await pane(page, 'right'); }
+    }
+  });
+
+  for (const layout of ['Tabs', 'Side by side'] as const) {
+    test(`folder tab, ${layout} layout: the folder list stays on screen and its row keeps focus`, async ({ page }) => {
+      test.skip(touch(page), 'phone: one pane at a time');
+      await signIn(page);
+      await pane(page, 'right'); // the folder companion follows the reading pane (Off: the reader covers it)
+      await page.getByRole('button', { name: layout, exact: true }).click();
+      try {
+        await page.locator('#shell-nav .sidebar__box').first().click({ button: 'right' });
+        await page.getByRole('menuitem', { name: 'Open in new tab', exact: true }).click();
+        const folderRows = page.locator('.workspace-pane [data-folder-message]');
+        await expect(folderRows.nth(3)).toBeVisible();
+        const opened = folderRows.nth(1);
+        const id = await opened.getAttribute('data-folder-message');
+        const subject = ((await opened.locator('strong').textContent()) ?? '').trim();
+        await opened.click();
+        await expect(page.getByRole('heading', { name: subject, exact: true }).first()).toBeVisible();
+        await expect(activeTab(page)).toHaveText(subject);
+        await page.waitForTimeout(1500);
+        await expect(opened).toBeVisible();
+        expect(await focusedFolderRow(page)).toBe(id);
+        // Arrow to the next folder row and open it with Enter: still in the folder list.
+        await page.keyboard.press('ArrowDown');
+        const nextId = await folderRows.nth(2).getAttribute('data-folder-message');
+        expect(await focusedFolderRow(page)).toBe(nextId);
+        const nextSubject = ((await folderRows.nth(2).locator('strong').textContent()) ?? '').trim();
+        await page.keyboard.press('Enter');
+        await expect(page.getByRole('heading', { name: nextSubject, exact: true }).first()).toBeVisible();
+        await page.waitForTimeout(1500);
+        expect(await focusedFolderRow(page)).toBe(nextId);
+      } finally { await page.getByRole('button', { name: 'Tabs', exact: true }).click(); }
+    });
+  }
 });
