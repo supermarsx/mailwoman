@@ -164,7 +164,7 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
   });
 
   return (
-    <section class={css.root} aria-label={t('remote-bar-label')} data-testid="remote-content-bar" data-state={mode() === 'ask' ? (granted() ? 'shown' : 'blocked') : mode()}>
+    <section class={css.root} aria-label={t('remote-bar-label')} data-tooltip-placement="below" data-testid="remote-content-bar" data-state={mode() === 'ask' ? (granted() ? 'shown' : 'blocked') : mode()}>
       <div class={css.row}>
         <span class={css.mark} aria-hidden="true"><Icon name={icon()} /></span>
         {/* Polite: announces "Images shown" after Show images, never takes focus. */}

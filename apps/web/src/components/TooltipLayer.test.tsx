@@ -155,3 +155,18 @@ it('leaves a frame its title, which is its accessible name, while other titles a
   await settle();
   expect(frame).toHaveAttribute('title', 'Message body (updated)');
 });
+
+it('opens below its anchor inside a data-tooltip-placement="below" row, so it never covers the controls above (t68)', async () => {
+  vi.stubGlobal('innerHeight', 800);
+  render(() => <><button aria-label="More actions" /><section data-tooltip-placement="below"><span tabIndex={0} data-tooltip="2 remote images blocked" /></section><span tabIndex={0} data-tooltip="Elsewhere" /><TooltipLayer /></>);
+  const [summary, other] = [...document.querySelectorAll<HTMLElement>('[data-tooltip]')];
+  const box = { left: 100, right: 300, top: 200, bottom: 230, width: 200, height: 30 } as DOMRect;
+  vi.spyOn(summary!, 'getBoundingClientRect').mockReturnValue(box);
+  vi.spyOn(other!, 'getBoundingClientRect').mockReturnValue(box);
+  fireEvent.focusIn(summary!); await settle();
+  expect(Number.parseFloat(screen.getByRole('tooltip').style.top)).toBe(238);
+  fireEvent.focusOut(summary!); fireEvent.focusIn(other!); await settle();
+  // Without the hint the bubble still prefers the space above.
+  expect(Number.parseFloat(screen.getByRole('tooltip').style.top)).toBeLessThan(200);
+  vi.unstubAllGlobals();
+});

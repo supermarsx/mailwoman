@@ -76,7 +76,13 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
     if (anchor.bottom < top || anchor.top > top + height || anchor.right < left || anchor.left > left + width) { hide(); return; }
     const x = Math.max(left + 8, Math.min(anchor.left + (anchor.width - bounds.width) / 2, left + width - bounds.width - 8));
     const preferred = anchor.top - bounds.height - 8;
-    const y = Math.max(top + 8, Math.min(preferred >= top + 8 ? preferred : anchor.bottom + 8, top + height - bounds.height - 8));
+    const below = anchor.bottom + 8;
+    // `data-tooltip-placement="below"` on the control or an ancestor: a row
+    // sitting right under other controls (the remote-images bar under the reader
+    // actions) opens its descriptions downwards, so a hoverable bubble never
+    // covers the controls above it and takes their clicks.
+    const wantsBelow = target.closest('[data-tooltip-placement="below"]') !== null && below + bounds.height <= top + height - 8;
+    const y = Math.max(top + 8, Math.min(wantsBelow ? below : preferred >= top + 8 ? preferred : below, top + height - bounds.height - 8));
     bubble.style.left = `${Math.round(x)}px`; bubble.style.top = `${Math.round(y)}px`;
   };
   const schedulePosition = () => { scopeWindow.cancelAnimationFrame(frame); frame = scopeWindow.requestAnimationFrame(position); };
