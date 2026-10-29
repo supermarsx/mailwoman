@@ -14,13 +14,18 @@ test('server diagnostics execute real checks and retain history @phone', async (
   await run.click();
   const reply = await response;
   expect(reply.status()).toBe(200);
-  const report = await reply.json() as { run: { id: string; status: string; results: unknown[] }; historySaved: boolean; auditSaved: boolean };
-  expect(report.run.status).toBe('pass');
-  expect(report.run.results).toHaveLength(5);
+  const report = await reply.json() as { run: { id: string; status: string; results: { id: string; status: string; summary: string }[] }; historySaved: boolean; auditSaved: boolean };
+  const byId = new Map(report.run.results.map(r => [r.id, r]));
+  for (const id of ['database-connectivity', 'database-write', 'database-migrations', 'server-key-roundtrip', 'egress-private-policy']) expect(byId.get(id)?.status, id).toBe('pass');
+  // t39 L3: network/port and security-posture checks run in the same suite.
+  for (const id of ['network-public-dns', 'network-public-port', 'network-backend-ports', 'security-csrf', 'security-plaintext-backends', 'fail2ban-client-address']) expect(byId.has(id), id).toBe(true);
+  // A loopback test client is the address a fail2ban line would name: a warning, not a pass.
+  expect(byId.get('fail2ban-client-address')?.status).toBe('warn');
+  expect(['pass', 'warn']).toContain(report.run.status);
   expect(report.historySaved).toBe(true);
   expect(report.auditSaved).toBe(true);
   const results = page.getByRole('table', { name: 'Check results', exact: true });
-  await expect(results.locator('tbody tr')).toHaveCount(5);
+  await expect(results.locator('tbody tr')).toHaveCount(report.run.results.length);
   await expect(results.locator('tbody')).toContainText('Server key seals and opens a synthetic sample');
   await page.getByLabel('Filter checks, domains or backends').fill('query');
   await expect(results.locator('tbody tr')).toHaveCount(1);
@@ -34,6 +39,23 @@ test('server diagnostics execute real checks and retain history @phone', async (
   expect(support.security).toHaveProperty('strictCsrf');
   expect(JSON.stringify(support)).not.toContain('hunter2');
   expect(support.selectedRun.id).toBe(report.run.id);
+  // Copy with domain names replaced: the clipboard text a browser really received.
+  await page.evaluate(() => { const original = navigator.clipboard.writeText.bind(navigator.clipboard); navigator.clipboard.writeText = async (text: string) => { (window as unknown as { copied?: string }).copied = text; try { await original(text); } catch { /* clipboard permission is per browser */ } }; });
+  await page.getByRole('checkbox', { name: 'Replace domain names and backend IDs in the report' }).check();
+  const reportRequest = page.waitForRequest(r => r.url().includes('/admin/diag/report?'));
+  await page.getByRole('button', { name: 'Copy troubleshooting report' }).click();
+  expect((await reportRequest).url()).toContain('omitDomains=true');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { copied?: string }).copied ?? '')).not.toBe('');
+  const copiedText = await page.evaluate(() => (window as unknown as { copied?: string }).copied!);
+  const copied = JSON.parse(copiedText);
+  expect(copied.redaction.domainsOmitted).toBe(true);
+  expect(copied.selectedRun.id).toBe(report.run.id);
+  expect(copiedText).not.toContain('hunter2');
+  const domains = await (await page.request.get('/admin/domains')).json() as { name: string }[];
+  for (const domain of domains) expect(copiedText).not.toContain(domain.name);
+  const named = JSON.stringify(await (await page.request.get('/admin/diag/report')).json());
+  for (const [, name] of named.matchAll(/"domain":"([^"]+)"/g)) expect(copiedText).not.toContain(`"${name}"`);
+  await page.screenshot({ path: test.info().outputPath('diagnostics-copied.png'), fullPage: true });
   await expect(page.getByRole('button',{name:'Check all saved backends'})).toBeEnabled();
   const queued=page.waitForResponse(r=>r.url().endsWith('/admin/diag/jobs') && r.request().method()==='POST');
   await page.getByRole('button',{name:'Check all saved backends'}).click();
