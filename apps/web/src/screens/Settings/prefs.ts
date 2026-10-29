@@ -126,6 +126,10 @@ export const PRESET_BINDINGS: Record<KeyboardPreset, ReadonlyArray<{ action: str
     { action: 'next', keys: 'j' },
     { action: 'previous', keys: 'k' },
     { action: 'search', keys: '/' },
+    { action: 'zoomIn', keys: 'Ctrl+=' },
+    { action: 'zoomIn', keys: 'Ctrl++' },
+    { action: 'zoomOut', keys: 'Ctrl+-' },
+    { action: 'zoomReset', keys: 'Ctrl+0' },
   ],
   gmail: [
     { action: 'trash', keys: 'Delete' },
@@ -135,6 +139,10 @@ export const PRESET_BINDINGS: Record<KeyboardPreset, ReadonlyArray<{ action: str
     { action: 'next', keys: 'j' },
     { action: 'previous', keys: 'k' },
     { action: 'search', keys: '/' },
+    { action: 'zoomIn', keys: 'Ctrl+=' },
+    { action: 'zoomIn', keys: 'Ctrl++' },
+    { action: 'zoomOut', keys: 'Ctrl+-' },
+    { action: 'zoomReset', keys: 'Ctrl+0' },
   ],
   outlook: [
     { action: 'trash', keys: 'Delete' },
@@ -144,6 +152,10 @@ export const PRESET_BINDINGS: Record<KeyboardPreset, ReadonlyArray<{ action: str
     { action: 'next', keys: '↓' },
     { action: 'previous', keys: '↑' },
     { action: 'search', keys: 'Ctrl+E' },
+    { action: 'zoomIn', keys: 'Ctrl+=' },
+    { action: 'zoomIn', keys: 'Ctrl++' },
+    { action: 'zoomOut', keys: 'Ctrl+-' },
+    { action: 'zoomReset', keys: 'Ctrl+0' },
   ],
   vim: [
     { action: 'trash', keys: 'Delete' },
@@ -153,6 +165,10 @@ export const PRESET_BINDINGS: Record<KeyboardPreset, ReadonlyArray<{ action: str
     { action: 'next', keys: 'j' },
     { action: 'previous', keys: 'k' },
     { action: 'search', keys: '/' },
+    { action: 'zoomIn', keys: 'Ctrl+=' },
+    { action: 'zoomIn', keys: 'Ctrl++' },
+    { action: 'zoomOut', keys: 'Ctrl+-' },
+    { action: 'zoomReset', keys: 'Ctrl+0' },
   ],
   off: [],
 };
