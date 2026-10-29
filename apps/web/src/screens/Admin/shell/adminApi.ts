@@ -89,6 +89,17 @@ function tagOf(res: Response, data: unknown): string | null {
   return null;
 }
 
+let consoleAnnounced = false;
+function announceConsoleUse(): void {
+  if (consoleAnnounced) return;
+  consoleAnnounced = true;
+  try {
+    const channel = new BroadcastChannel('mw-analytics');
+    channel.postMessage({ type: 'revoke' });
+    channel.close();
+  } catch { /* BroadcastChannel unavailable: the marker cookie still applies on reload */ }
+}
+
 /** One admin request. Resolves on 2xx; rejects with {@link AdminProblemError} otherwise. */
 export async function adminRequest<T = unknown>(path: string, init: AdminRequestInit = {}): Promise<AdminResponse<T>> {
   const headers: Record<string, string> = { Accept: 'application/json' };
@@ -103,6 +114,9 @@ export async function adminRequest<T = unknown>(path: string, init: AdminRequest
   });
   const data = await readBody(res);
   const etag = tagOf(res, data);
+  // t63 R2: this browser is being used for the console. Mail tabs that run an
+  // analytics tag drop it (they reload; the server then refuses the tag here).
+  if (res.ok) announceConsoleUse();
   if (!res.ok) {
     const body = typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : {};
     throw new AdminProblemError(res.status, body, etag);

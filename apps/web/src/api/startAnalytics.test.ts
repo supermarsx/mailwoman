@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createRoot } from 'solid-js';
 import { createShellRouter } from '../shell/router.ts';
-import { createTagGuard, documentAnalyticsTag, observeShellRoute, severThirdPartyNetwork, startAnalytics } from './startAnalytics.ts';
+import { ANALYTICS_CHANNEL, announceAnalyticsRevoke, createTagGuard, documentAnalyticsTag, observeShellRoute, severThirdPartyNetwork, startAnalytics } from './startAnalytics.ts';
 
 // t33-e10 (t32-h10): analytics started at app boot used a second shell router,
 // which replaced an unknown route with the inbox before the shell's router saw
@@ -102,5 +102,44 @@ describe('browser analytics tag guard', () => {
     expect(() => xhr.open('POST', 'https://collect.example.com/x')).toThrow('withdrawn');
     xhr.open('GET', '/api/analytics/status');
     expect(calls).toEqual(['/api/me', 'xhr /api/analytics/status']);
+  });
+});
+
+// t63 R4: withdrawal and sign-ins reach every tab of this browser.
+describe('cross-tab revocation', () => {
+  it('a withdrawal here tells the other tabs, once', () => {
+    const announce = vi.fn();
+    const guard = createTagGuard(KEY, vi.fn(), vi.fn(), announce);
+    guard.consent('', false, false);
+    guard.consent('', false, true);
+    expect(announce).toHaveBeenCalledTimes(1);
+  });
+  it('a failed save still reloads (the server still holds the old consent)', () => {
+    const reload = vi.fn();
+    createTagGuard(KEY, reload, vi.fn()).consent('', false, true);
+    expect(reload).toHaveBeenCalled();
+  });
+  it('a revoke from another tab cuts off and reloads a tagged tab', () => {
+    const reload = vi.fn(); const sever = vi.fn();
+    createTagGuard(KEY, reload, sever).revoked();
+    expect(sever).toHaveBeenCalled(); expect(reload).toHaveBeenCalled();
+    const untagged = vi.fn();
+    createTagGuard(null, untagged).revoked();
+    expect(untagged).not.toHaveBeenCalled();
+  });
+  it('another account signing in announces it, even from an untagged tab', () => {
+    const announce = vi.fn();
+    const guard = createTagGuard(null, vi.fn(), vi.fn(), announce);
+    guard.account({ id: 'a', generation: 1 });
+    expect(announce).not.toHaveBeenCalled();
+    guard.account({ id: 'b', generation: 2 });
+    expect(announce).toHaveBeenCalledTimes(1);
+  });
+  it('posts a revoke other tabs receive', async () => {
+    const other = new BroadcastChannel(ANALYTICS_CHANNEL);
+    const got = new Promise<unknown>(resolve => { other.onmessage = event => resolve(event.data); });
+    announceAnalyticsRevoke();
+    await expect(got).resolves.toEqual({ type: 'revoke' });
+    other.close();
   });
 });

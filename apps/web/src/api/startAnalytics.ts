@@ -63,23 +63,39 @@ export function severThirdPartyNetwork(win: Window & typeof globalThis = window)
  * admits it is fixed for the document. So once the user withdraws consent, a
  * privacy signal appears, or the stored consent no longer names this document's
  * provider and script, the page is cut off from third-party network at once. It
- * reloads as soon as the withdrawal is saved, and the server then serves the
- * shell without the tag and without the CSP additions. A different account in
- * the same tab reloads at once, so a tag served for one account never observes
- * another.
+ * reloads as soon as the withdrawal is saved (or the save fails: the page must
+ * not keep running a tag whose consent this tab already withdrew), and the
+ * server then serves the shell without the tag and without the CSP additions. A
+ * different account in the same tab reloads at once, so a tag served for one
+ * account never observes another.
+ *
+ * Other tabs of this browser hear about it on {@link ANALYTICS_CHANNEL} (t63 R4):
+ * a withdrawal, another account signing in, or the admin console being used,
+ * cuts off and reloads every tab that runs a tag.
  */
-export function createTagGuard(served: string | null, reload: () => void, sever: () => void = () => {}) {
+export function createTagGuard(served: string | null, reload: () => void, sever: () => void = () => {}, announce: () => void = () => {}) {
   let servedFor: string | null = null;
   let severed = false;
   let reloaded = false;
   const cut = (): void => { if (!severed) { severed = true; sever(); } };
   const reloadOnce = (): void => { if (!reloaded) { reloaded = true; reload(); } };
+  let announced = false;
+  const announceOnce = (): void => { if (!announced) { announced = true; announce(); } };
   return {
     account(account: PreferenceAccount | null): void {
-      if (served === null || account === null) return;
+      if (account === null) return;
       const key = `${account.id}\n${account.storageAuthority ?? ''}`;
-      if (servedFor === null) servedFor = key;
-      else if (key !== servedFor) { cut(); reloadOnce(); }
+      if (servedFor === null) { servedFor = key; return; }
+      if (key === servedFor) return;
+      // Another account signed in here: tags in other tabs must not observe it.
+      announceOnce();
+      if (served !== null) { cut(); reloadOnce(); }
+    },
+    /** Another tab withdrew, signed in another account, or used the console. */
+    revoked(): void {
+      if (served === null) return;
+      cut();
+      reloadOnce();
     },
     /** `consent` is the account's current tag consent (`undefined` while not yet
      *  loaded); `persisted` is whether the account's preferences are saved. */
@@ -87,9 +103,23 @@ export function createTagGuard(served: string | null, reload: () => void, sever:
       if (served === null || (consent === undefined && !privacySignal)) return;
       if (consent === served && !privacySignal) return;
       cut();
+      announceOnce();
       if (persisted || privacySignal) reloadOnce();
     },
   };
+}
+
+/** Same-browser tabs tell each other to drop a running analytics tag (t63 R4). */
+export const ANALYTICS_CHANNEL = 'mw-analytics';
+
+/** Tell every tab of this browser to drop a running analytics tag. Best effort:
+ *  BroadcastChannel can be missing (old browsers, some private modes). */
+export function announceAnalyticsRevoke(): void {
+  try {
+    const channel = new BroadcastChannel(ANALYTICS_CHANNEL);
+    channel.postMessage({ type: 'revoke' });
+    channel.close();
+  } catch { /* nothing to tell */ }
 }
 
 /** The shared route supplies a closed surface enum; route parameters are never read. */
@@ -98,7 +128,18 @@ export function startAnalytics(): void {
   const reporter = createAnalyticsReporter();
   const [account, setAccount] = createSignal<PreferenceAccount | null>(null);
   const [visible, setVisible] = createSignal(document.visibilityState === 'visible');
-  const guard = createTagGuard(documentAnalyticsTag(), () => { location.reload(); }, () => { severThirdPartyNetwork(); });
+  // One channel object both listens and announces: a BroadcastChannel never
+  // delivers a message to the object that posted it, so this tab does not
+  // reload on its own withdrawal before the change is saved.
+  let channel: BroadcastChannel | null = null;
+  try { channel = new BroadcastChannel(ANALYTICS_CHANNEL); } catch { channel = null; }
+  const guard = createTagGuard(documentAnalyticsTag(), () => { location.reload(); }, () => { severThirdPartyNetwork(); },
+    () => { try { channel?.postMessage({ type: 'revoke' }); } catch { /* closed */ } });
+  if (channel) {
+    channel.onmessage = (event: MessageEvent<unknown>) => {
+      if ((event.data as { type?: unknown } | null)?.type === 'revoke') guard.revoked();
+    };
+  }
   const stopAccount = observePreferenceAccount(next => { guard.account(next); setAccount(next); });
   const visibility = (): void => { setVisible(document.visibilityState === 'visible'); };
   document.addEventListener('visibilitychange', visibility);
@@ -111,7 +152,7 @@ export function startAnalytics(): void {
     const status = accountUiPreferenceStatus();
     // Known once loaded: a local withdrawal counts while it is still saving.
     const known = status === 'synced' || status === 'saving' || status === 'error';
-    guard.consent(known ? accountUiPreferences().analyticsTagConsent ?? '' : undefined, analyticsPrivacySignal(), status === 'synced');
+    guard.consent(known ? accountUiPreferences().analyticsTagConsent ?? '' : undefined, analyticsPrivacySignal(), status === 'synced' || status === 'error');
   });
-  onCleanup(() => { reporter.stop(); stopAccount(); document.removeEventListener('visibilitychange', visibility); });
+  onCleanup(() => { reporter.stop(); stopAccount(); channel?.close(); document.removeEventListener('visibilitychange', visibility); });
 }
