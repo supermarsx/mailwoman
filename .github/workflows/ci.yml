@@ -1045,6 +1045,151 @@ jobs:
         if: always()
         run: docker compose -f docker-compose.dev.yml down -v
 
+  # E2E for the nested receipts config (t39 C4, D9: blocking). Every
+  # apps/web/e2e/receipts/*.spec.ts runs on Chrome, Firefox and a 390x844 phone
+  # against scripts/e2e-receipts-stack.mjs: the mailwoman binary and the web app
+  # built from this checkout, in engine mode over a private Greenmail, with the
+  # SMTP capture fixture as the submission endpoint, mailbox linking on and a
+  # 30-message seed. No saved build and no Docker image build. New receipts specs
+  # slot in with no workflow edit.
+  #   - linked-renew-live needs a Greenmail that checks passwords, so it skips on
+  #     the shared stack and runs on its own fixture (linked-renew-fixture.mjs);
+  #   - the passkeys config (Chromium virtual authenticator, no external service)
+  #     runs on the same stack.
+  e2e-receipts:
+    runs-on: ubuntu-latest
+    needs: [rust, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: Swatinem/rust-cache@v2
+      # The capture fixture is Python; linked-renew-live runs `python` to age a session row.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install web deps
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('apps/web/pnpm-lock.yaml') }}
+      - name: install Playwright chromium + firefox
+        run: pnpm -C apps/web exec playwright install --with-deps chromium firefox
+      - name: build the server and the web app from this checkout
+        run: |
+          cargo build -p mw-server --bin mailwoman
+          pnpm -C apps/web build
+      - name: start the receipts stack
+        run: |
+          node scripts/e2e-receipts-stack.mjs > "$RUNNER_TEMP/receipts-stack.log" 2>&1 &
+          env_file=apps/web/test-results/receipts-stack.env
+          for _ in $(seq 1 150); do [ -f "$env_file" ] && break; sleep 2; done
+          if [ ! -f "$env_file" ]; then cat "$RUNNER_TEMP/receipts-stack.log"; exit 1; fi
+          cat "$env_file" >> "$GITHUB_ENV"
+      - name: run the receipts config (chromium, firefox, phone; workers 1, no retries)
+        run: pnpm -C apps/web exec playwright test -c e2e/receipts/playwright.config.ts --workers=1
+      - name: run the passkeys config on the same stack
+        if: success() || failure()
+        run: pnpm -C apps/web exec playwright test -c e2e/passkeys/playwright.passkeys.config.ts --workers=1
+      - name: run linked-renew-live on its password-checking fixture
+        if: success() || failure()
+        run: |
+          node apps/web/e2e/receipts/linked-renew-fixture.mjs > "$RUNNER_TEMP/linked-renew.log" 2>&1 &
+          for _ in $(seq 1 150); do grep -q '^READY ' "$RUNNER_TEMP/linked-renew.log" && break; sleep 2; done
+          ready="$(grep '^READY ' "$RUNNER_TEMP/linked-renew.log" || true)"
+          if [ -z "$ready" ]; then cat "$RUNNER_TEMP/linked-renew.log"; exit 1; fi
+          for pair in $ready; do case "$pair" in MW_*=*) export "${pair?}" ;; esac; done
+          pnpm -C apps/web exec playwright test -c e2e/receipts/playwright.config.ts --workers=1 \
+            --project=chromium --project=firefox linked-renew-live
+      - name: stack logs on failure
+        if: failure()
+        run: |
+          cat "$RUNNER_TEMP/receipts-stack.log" || true
+          cat "$RUNNER_TEMP/linked-renew.log" || true
+      - name: upload Playwright results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results-receipts
+          path: |
+            apps/web/test-results/receipts
+            apps/web/test-results/receipts-smtp
+            apps/web/test-results/passkeys
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # The t32 restyle harness (apps/web/e2e/restyle) as a REPORT (t39 D9): it
+  # measures geometry and checks contrast, focus indicators and "not colour
+  # alone" on the receipts stack, and uploads what it found. It never fails the
+  # workflow: there is no stored baseline in CI to compare against, and its
+  # findings are for a person to read. The self-test of its checks runs first.
+  restyle-report:
+    runs-on: ubuntu-latest
+    needs: [rust, web]
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: install web deps
+        run: pnpm -C apps/web install --frozen-lockfile
+      - name: cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('apps/web/pnpm-lock.yaml') }}
+      - name: install Playwright chromium
+        run: pnpm -C apps/web exec playwright install --with-deps chromium
+      - name: build the server and the web app from this checkout
+        run: |
+          cargo build -p mw-server --bin mailwoman
+          pnpm -C apps/web build
+      - name: start the receipts stack
+        run: |
+          node scripts/e2e-receipts-stack.mjs > "$RUNNER_TEMP/receipts-stack.log" 2>&1 &
+          env_file=apps/web/test-results/receipts-stack.env
+          for _ in $(seq 1 150); do [ -f "$env_file" ] && break; sleep 2; done
+          if [ ! -f "$env_file" ]; then cat "$RUNNER_TEMP/receipts-stack.log"; exit 1; fi
+          echo "T32_STACK_ENV=$GITHUB_WORKSPACE/$env_file" >> "$GITHUB_ENV"
+      - name: self-test of the checks, measure, contrast
+        env:
+          T32_OUT: ${{ github.workspace }}/apps/web/test-results/restyle
+          T32_LABEL: ci
+        run: |
+          status=0
+          pnpm -C apps/web exec playwright test -c e2e/restyle/playwright.restyle.config.ts --workers=1 selftest || status=1
+          pnpm -C apps/web exec playwright test -c e2e/restyle/playwright.restyle.config.ts --workers=1 measure || status=1
+          pnpm -C apps/web exec playwright test -c e2e/restyle/playwright.restyle.config.ts --workers=1 contrast || status=1
+          exit "$status"
+      - name: upload the restyle report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: restyle-report
+          path: apps/web/test-results/restyle
+          if-no-files-found: ignore
+          retention-days: 14
+
   # ===========================================================================
   # V4 (Crypto & Security) CI jobs — plan §3 e9. Filled by e9 from the e0 stubs
   # once the wasm bundle + crypto/verdict fixtures landed (e1/e6/e8/e8b). Each is a
