@@ -1,10 +1,16 @@
 import { createServer,type Server } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { test,expect } from '../csrf.ts';
-const issuer='https://localhost:42215';const rp='http://127.0.0.1:42217';let server:Server;
+// The issuer is a public HTTPS origin in front of a Mailwoman server whose
+// MW_PUBLIC_URL is that origin (strict CSRF compares Origin with it). The CI
+// stack serves plain HTTP on :8090 with no such front, so this runs only where
+// one is provided; it used to hard-code https://localhost:42215 and, locally,
+// silently drove whatever happened to listen there.
+const issuer=process.env['MW_E2E_OIDC_ISSUER']??'';const rp='http://127.0.0.1:42217';let server:Server|undefined;
 test.use({ignoreHTTPSErrors:true});
-test.beforeAll(async()=>{const html=await readFile(new URL('../fixtures/oidc-rp.html',import.meta.url));server=createServer((_request,response)=>{response.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});response.end(html);});await new Promise<void>(resolve=>server.listen(42217,'127.0.0.1',resolve));});
-test.afterAll(async()=>{await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));});
+test.skip(issuer==='','needs an HTTPS Mailwoman origin whose MW_PUBLIC_URL is that origin, e.g. a TLS front at https://localhost:42215 (set MW_E2E_OIDC_ISSUER)');
+test.beforeAll(async()=>{if(issuer==='')return;const html=await readFile(new URL('../fixtures/oidc-rp.html',import.meta.url));const fixture=createServer((_request,response)=>{response.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});response.end(html);});server=fixture;await new Promise<void>(resolve=>fixture.listen(42217,'127.0.0.1',resolve));});
+test.afterAll(async()=>{if(server===undefined)return;const open=server;await new Promise<void>((resolve,reject)=>open.close(error=>error?reject(error):resolve()));});
 test('real relying party verifies identity, refreshes and confirms logout @phone',async({page,browserName})=>{
  test.setTimeout(120000);await page.goto(`${issuer}/admin`);await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect.poll(async()=> (await page.request.get(`${issuer}/admin/session`)).status()).toBe(200);
  const config=await page.request.get(`${issuer}/admin/oidc`);expect(config.status()).toBe(200);const existing=await config.json();
