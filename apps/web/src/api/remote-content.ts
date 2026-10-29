@@ -18,8 +18,11 @@ export async function remotePolicy(): Promise<RemotePolicy> {
   if (!modes.includes(value.mode ?? '') || typeof value.trackers !== 'boolean' || typeof value.cleanLinks !== 'boolean' || typeof value.allowDirect !== 'boolean' || !value.locked || ['mode', 'trackers', 'cleanLinks'].some(k => typeof (value.locked as unknown as Record<string, unknown>)[k] !== 'boolean')) throw new Error('Invalid remote-content policy');
   return { ...value, mode: value.mode === 'direct' && !value.allowDirect ? 'ask' : value.mode } as RemotePolicy;
 }
-export async function signContent(emailId: string, refs: { urls?: string[]; parts?: string[]; files?: string[];imageDownloads?:string[] }, expectedAccount?:string): Promise<SignedContent> {
-  const r = await apiFetch(withBase('/api/rc/sign'), { method: 'POST', headers: { 'Content-Type': 'application/json',...(expectedAccount?{'X-Mailwoman-Account':expectedAccount}:{}) }, body: JSON.stringify({ emailId, ...refs }) });
+/** `retry: true` ("Retry images", t56) makes the server forget this account's
+ *  remembered failures (timeouts etc., kept 60 s) for the `urls` signed, so the
+ *  fresh links fetch again instead of answering the cached failure. */
+export async function signContent(emailId: string, refs: { urls?: string[]; parts?: string[]; files?: string[];imageDownloads?:string[] }, expectedAccount?:string, opts: { retry?: boolean } = {}): Promise<SignedContent> {
+  const r = await apiFetch(withBase('/api/rc/sign'), { method: 'POST', headers: { 'Content-Type': 'application/json',...(expectedAccount?{'X-Mailwoman-Account':expectedAccount}:{}) }, body: JSON.stringify({ emailId, ...refs, ...(opts.retry ? { retry: true } : {}) }) });
   if (!r.ok) throw new Error('Unable to authorize remote content');
   return await r.json() as SignedContent;
 }

@@ -567,6 +567,46 @@ group, profile and administrator-set account policy, without user overrides.
 `privacy.cacheBytes`: 0–1073741824 bytes, default 33554432.
 <a id="privacy.ratePerMin"></a>
 `privacy.ratePerMin`: 10–6000 fetches per account per minute, default 120.
+
+Remote image fetch limits. Every image the server fetches for the reader is
+bounded in time, in redirects and in how many run at once. An image that exceeds
+a bound shows a small placeholder with its alt text in its own box; the failure is
+remembered for 60 seconds so it is not retried in a loop, and **Retry images**
+fetches it again.
+
+<a id="privacy.fetchConnectTimeoutMs"></a>
+`privacy.fetchConnectTimeoutMs`: 500–30000 ms, default 5000. Opening the TCP
+connection and the TLS handshake (through an egress route: reaching the proxy,
+its tunnel and the origin's TLS handshake). Five seconds is two or three round
+trips even on a slow link, plus one lost-packet retransmission.
+<a id="privacy.fetchHeadersTimeoutMs"></a>
+`privacy.fetchHeadersTimeoutMs`: 500–60000 ms, default 10000. From the start of a
+request until the response headers arrive; covers an image CDN fetching from its
+origin.
+<a id="privacy.fetchIdleTimeoutMs"></a>
+`privacy.fetchIdleTimeoutMs`: 500–60000 ms, default 10000. The longest pause
+between two parts of the body, so a stalled download stops without waiting for
+the total.
+<a id="privacy.fetchTotalTimeoutMs"></a>
+`privacy.fetchTotalTimeoutMs`: 1000–120000 ms, default 20000. One image in all:
+DNS, every redirect, the body, and any wait for a free slot. This is when the
+reader shows the placeholder. 20 seconds still lets an 8 MiB image arrive at
+about 3.5 Mbit/s.
+<a id="privacy.maxRedirects"></a>
+`privacy.maxRedirects`: 0–10, default 3. Each redirect is resolved and checked
+against the same address rules as the first request (private, loopback,
+link-local and metadata ranges, and IPv6 forms that embed them such as NAT64,
+6to4, Teredo and ISATAP).
+<a id="privacy.maxConcurrentPerMessage"></a>
+`privacy.maxConcurrentPerMessage`: 1–32, default 6, like a browser's per-host
+limit. Further images of the message wait for a slot.
+<a id="privacy.maxConcurrentPerAccount"></a>
+`privacy.maxConcurrentPerAccount`: 1–64, default 12, across all open messages
+and tabs of one account. The server-wide ceiling of 16 concurrent fetches still
+applies on top.
+
+These seven are global settings. Timeouts are logged at debug level with the
+phase that fired and the elapsed time, never the image address.
 <a id="privacy.allowDirect"></a>
 `privacy.allowDirect` defaults to false; direct loading also requires the account capability.
 

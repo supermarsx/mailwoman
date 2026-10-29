@@ -19,20 +19,19 @@ import { adaptReaderColors, readerAppearanceCss, type ReaderAppearance } from '.
 /** The frozen sandbox token set: no scripts, no same-origin, opaque frame. */
 export const SANDBOX_TOKENS = '';
 
+// Every policy in this file is delivered through `<meta http-equiv>` inside a
+// srcdoc, where `frame-ancestors` is ignored by specification (CSP3 §6.4.2) and
+// Firefox logs a warning for it on every message open. It is therefore not
+// emitted here; embedding is restricted by the HTTP `frame-ancestors` and
+// `X-Frame-Options` on the pages that host these frames (t56).
+
 /** CSP a media frame is pinned to — only inline styles + a `data:` resource. */
 function mediaCsp(resourceDir: 'img-src' | 'media-src'): string {
-  return [
-    "default-src 'none'",
-    `${resourceDir} data:`,
-    "style-src 'unsafe-inline'",
-    "frame-ancestors 'none'",
-  ].join('; ');
+  return ["default-src 'none'", `${resourceDir} data:`, "style-src 'unsafe-inline'"].join('; ');
 }
 
 /** CSP a text frame is pinned to — inline styles only, zero external loads. */
-const TEXT_CSP = ["default-src 'none'", "style-src 'unsafe-inline'", "frame-ancestors 'none'"].join(
-  '; ',
-);
+const TEXT_CSP = ["default-src 'none'", "style-src 'unsafe-inline'"].join('; ');
 
 const FRAME_STYLE =
   'html,body{margin:0;height:100%;background:transparent}' +
@@ -102,12 +101,50 @@ export function bodyCsp(mode: SecurityMode = 'full-sanitized', direct = false, s
       "media-src 'none'",
       "style-src 'unsafe-inline'",
       'font-src data:',
-      "frame-ancestors 'none'",
     ].join('; ');
   }
   // sanitized-no-media AND plain-text: no external/media source of any kind.
-  return ["default-src 'none'", "style-src 'unsafe-inline'", "frame-ancestors 'none'"].join('; ');
+  return ["default-src 'none'", "style-src 'unsafe-inline'"].join('; ');
 }
+
+/** The 14px "image unavailable" glyph: a picture frame struck through. */
+const BROKEN_IMAGE_ICON =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%236b7280' stroke-width='1.3'%3E%3Crect x='1.5' y='2.5' width='13' height='11' rx='1.5'/%3E%3Cpath d='M1.5 11l3.5-3.5 3 3 2-2 4.5 4.5'/%3E%3Cpath d='M2 2l12 12'/%3E%3C/svg%3E\")";
+
+/**
+ * How an image that failed to load looks in the message body (t56): a small
+ * bordered box with the glyph and the sender's alt text, in the image's own box.
+ *
+ * The body frame is `sandbox=""` and runs no script, so nothing can listen for an
+ * image `error` and swap in an element; the browser's own broken-image rendering
+ * is what is styled. `::before`/`::after` on an `<img>` are generated ONLY while
+ * it shows no image (Chromium and Firefox; WebKit falls back to its native
+ * rendering), so none of this touches an image that loaded. A failed proxied
+ * image is an HTTP error from `/api/rc/i/…` (a timeout is a 504), cached briefly
+ * by the server and the browser, so it settles once instead of retrying.
+ *
+ * Nothing jumps: a sized image (`width`+`height`) keeps exactly that box — the UA
+ * maps the attributes to `aspect-ratio: auto w / h`, which a broken image still
+ * honours under `height:auto` — and the label is clipped inside it. An image with
+ * neither has no known size, so it takes one line of label. `alt=""` marks a
+ * decorative image: it collapses to nothing, as before. No `alt` at all keeps the
+ * browser's native icon.
+ *
+ * The two engines size a broken image differently: Chromium from its native
+ * icon-plus-alt line (so the label is laid over it), Firefox from generated
+ * content in flow (an absolutely positioned label would leave it 0×0) — hence the
+ * one `@supports (-moz-appearance:none)` rule. Probe screenshots: logs/t56-e1.md.
+ */
+export const BROKEN_IMAGE_STYLE =
+  'img{display:inline-block;position:relative;vertical-align:middle;overflow:hidden;' +
+  'font:12px/20px ui-sans-serif,system-ui,sans-serif;color:transparent}' +
+  'img::before{content:"";position:absolute;inset:0;box-sizing:border-box;' +
+  'border:1px solid var(--mw-color-border,rgba(127,127,127,.35));border-radius:4px;' +
+  `background:var(--mw-color-surface,#f3f4f6) ${BROKEN_IMAGE_ICON} no-repeat 4px 4px/14px 14px}` +
+  'img::after{content:attr(alt);position:absolute;left:0;right:0;top:0;box-sizing:border-box;height:22px;' +
+  'padding:1px 6px 1px 22px;color:var(--mw-color-text-dim,#6b7280);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+  'img[alt=""]::before,img[alt=""]::after,img:not([alt])::before,img:not([alt])::after{content:none}' +
+  '@supports (-moz-appearance:none){img::after{position:relative;display:block;max-width:100%;min-width:22px}}';
 
 /** Minimal readable body styling (distinct from the media-centering FRAME_STYLE).
  *  The opaque-origin body frame can't inherit the parent's theme vars, so e8
@@ -124,6 +161,7 @@ const BODY_STYLE =
   // `withImageLoadingHints` below (`loading`/`decoding`) and from the sender's
   // own `width`/`height`, which the sanitizer's img allow-list keeps.
   'img,video{max-width:100%;height:auto}' +
+  BROKEN_IMAGE_STYLE +
   'pre{white-space:pre-wrap;word-break:break-word;margin:0;' +
   'font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}';
 
