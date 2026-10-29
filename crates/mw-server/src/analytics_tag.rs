@@ -152,6 +152,42 @@ const SHARED_SUFFIXES: &[&str] = &[
     "googleusercontent.com",
     "glitch.me",
     "repl.co",
+    // t63 R8: more platforms where anyone can publish under a shared suffix.
+    "r2.dev",
+    "fly.dev",
+    "onrender.com",
+    "railway.app",
+    "deno.dev",
+    "surge.sh",
+    "ngrok.io",
+    "ngrok-free.app",
+    "ngrok.app",
+    "loca.lt",
+    "trycloudflare.com",
+    "b-cdn.net",
+    "azureedge.net",
+    "blob.core.windows.net",
+    "web.core.windows.net",
+    "storage.googleapis.com",
+    "firebasestorage.app",
+    "digitaloceanspaces.com",
+    "ondigitalocean.app",
+    "wixsite.com",
+    "webflow.io",
+    "squarespace.com",
+    "myshopify.com",
+    "neocities.org",
+    "codeberg.page",
+    "readthedocs.io",
+    "gitbook.io",
+    "jsdelivr.net",
+    "unpkg.com",
+    "cdnjs.cloudflare.com",
+    "bitbucket.io",
+    "replit.app",
+    "replit.dev",
+    "csb.app",
+    "stackblitz.io",
 ];
 
 fn valid_label(label: &str) -> bool {
@@ -545,7 +581,7 @@ impl Config {
                     &[&api, &assets],
                     &[],
                     format!(
-                        "  if (!window.posthog) window.posthog = {{ __SV: 1, _i: [[{}, {{ api_host: {}, disable_session_recording: true }}, undefined]] }};\n  load({}, {{}});\n",
+                        "  if (!window.posthog) window.posthog = {{ __SV: 1, _i: [[{}, {{ api_host: {}, autocapture: false, capture_pageleave: false, mask_all_text: true, mask_all_element_attributes: true, persistence: \"memory\", disable_session_recording: true, disable_surveys: true }}, undefined]] }};\n  load({}, {{}});\n",
                         js(site),
                         js(&api),
                         js(&src)
@@ -710,11 +746,27 @@ pub(crate) async fn tag_consent(store: &mw_store::Store, owner: &str, key: &str)
         })
 }
 
-/// Does the request carry an admin console session cookie? The console shares
-/// this origin, so a provider script in the mail shell could call the admin API
-/// with that cookie: the tag is never served to such a browser.
+/// Set with every admin console sign-in and kept after sign-out (t63 R2): a
+/// browser that has ever been used for the console never gets a tag again.
+pub const ADMIN_BROWSER_COOKIE: &str = "mw_admin_browser";
+
+/// The marker cookie for an admin sign-in response. HttpOnly, so a page script
+/// cannot remove it; about 400 days, the longest a browser keeps a cookie.
+pub fn admin_browser_cookie(secure: bool) -> String {
+    let mut c = format!("{ADMIN_BROWSER_COOKIE}=1; HttpOnly; SameSite=Strict; Path=/; Max-Age=34560000");
+    if secure {
+        c.push_str("; Secure");
+    }
+    c
+}
+
+/// Does the request come from a browser used for the admin console: a live
+/// admin session cookie, or the marker left by any earlier admin sign-in? The
+/// console shares this origin, so a provider script in the mail shell could call
+/// the admin API with that browser's cookie: the tag is never served there.
 fn has_admin_session(headers: &HeaderMap) -> bool {
     crate::hardening::cookie(headers, &mw_admin::config::session_cookie_name()).is_some()
+        || crate::hardening::cookie(headers, ADMIN_BROWSER_COOKIE).is_some()
 }
 
 /// The plan for this document request, when every gate passes: an enabled valid
@@ -1059,7 +1111,7 @@ mod tests {
                 &[r#"load("https://cdn.usefathom.com/script.js", {"data-site": "ABCDEFGH"});"#]),
             (Config { region: "eu".into(), ..cfg(Provider::Posthog, "phc_abcdefghijklmnopqrstuvwxyz012345") },
                 &["https://eu-assets.i.posthog.com", "https://eu.i.posthog.com"], &["https://eu.i.posthog.com", "https://eu-assets.i.posthog.com"], &[],
-                &[r#"_i: [["phc_abcdefghijklmnopqrstuvwxyz012345", { api_host: "https://eu.i.posthog.com", disable_session_recording: true }, undefined]]"#, r#"load("https://eu-assets.i.posthog.com/static/array.js", {});"#]),
+                &[r#"_i: [["phc_abcdefghijklmnopqrstuvwxyz012345", { api_host: "https://eu.i.posthog.com", autocapture: false, capture_pageleave: false, mask_all_text: true, mask_all_element_attributes: true, persistence: "memory", disable_session_recording: true, disable_surveys: true }, undefined]]"#, r#"load("https://eu-assets.i.posthog.com/static/array.js", {});"#]),
             (cfg(Provider::SimpleAnalytics, ""), &["https://scripts.simpleanalyticscdn.com"], &["https://queue.simpleanalyticscdn.com"], &["https://queue.simpleanalyticscdn.com"],
                 &[r#"load("https://scripts.simpleanalyticscdn.com/latest.js", {});"#]),
             (cfg(Provider::Cloudflare, "0123456789abcdef0123456789abcdef"), &["https://static.cloudflareinsights.com"], &["https://cloudflareinsights.com"], &[],
@@ -1103,6 +1155,11 @@ mod tests {
 
     #[test]
     fn custom_origins_refuse_unsafe_sources() {
+        for suffix in ["r2.dev", "fly.dev", "onrender.com", "vercel.app", "netlify.app", "pages.dev", "workers.dev", "github.io", "herokuapp.com", "blob.core.windows.net", "storage.googleapis.com"] {
+            assert!(parse_origin(&format!("https://*.{suffix}"), true).is_err(), "{suffix}");
+            // A named host under it is still a single, specific origin.
+            assert!(parse_origin(&format!("https://stats.{suffix}"), true).is_ok(), "{suffix}");
+        }
         for bad in [
             "http://stats.example.com",
             "*",

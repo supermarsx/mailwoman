@@ -79,7 +79,11 @@ async fn browser_tag_is_consent_gated_hashed_stepped_up_and_audited() {
     });
     let client = || reqwest::Client::builder().no_proxy().cookie_store(true).build().unwrap();
     let admin = client();
-    assert_eq!(admin.post(format!("{base}/admin/login")).json(&json!({"username":"root","password":"hunter2"})).send().await.unwrap().status(), 200);
+    let login = admin.post(format!("{base}/admin/login")).json(&json!({"username":"root","password":"hunter2"})).send().await.unwrap();
+    assert_eq!(login.status(), 200);
+    let marker_cookie = login.headers().get_all("set-cookie").iter().map(|v| v.to_str().unwrap().to_owned()).find(|c| c.starts_with("mw_admin_browser=1"));
+    let marker_cookie = marker_cookie.expect("admin sign-in sets the admin-browser marker");
+    assert!(marker_cookie.contains("HttpOnly") && marker_cookie.contains("SameSite=Strict") && marker_cookie.contains("Max-Age=34560000"), "{marker_cookie}");
     let read = admin.get(format!("{base}/admin/analytics/tag")).send().await.unwrap();
     assert_eq!(read.status(), 200);
     let etag = read.headers()["etag"].to_str().unwrap().to_owned();
@@ -228,6 +232,9 @@ async fn browser_tag_is_consent_gated_hashed_stepped_up_and_audited() {
     assert_eq!(raw.get(format!("{base}{path}")).header("cookie", format!("{session_cookie}; {admin_cookie}")).send().await.unwrap().status(), 404);
     let without_admin = raw.get(format!("{base}/")).header("cookie", session_cookie.clone()).send().await.unwrap();
     assert_eq!(csp(&without_admin), [widened.clone()], "the same session without an admin cookie is tagged");
+    // A browser that ever signed in to the console keeps a marker that refuses tags (R2).
+    let marker = raw.get(format!("{base}/")).header("cookie", format!("{session_cookie}; mw_admin_browser=1")).send().await.unwrap();
+    assert_eq!(csp(&marker), [SHELL_CSP]);
 
     // DNT / GPC: unchanged even with consent.
     for header in ["dnt", "sec-gpc"] {
