@@ -163,3 +163,27 @@ describe('inline styles under a strict CSP (t49)', () => {
     expect(htmlFromDoc(docFromElement(root))).toContain('font-family');
   });
 });
+
+describe('style attributes never reach the HTML parser (t67)', () => {
+  it('renames style attribute names inside start tags only', async () => {
+    const { renameStyleAttributes } = await import('./richtext.ts');
+    expect(renameStyleAttributes('<p style="color:red" class=a>style="x" <b STYLE=\'a:b\'>t</b></p>'))
+      .toBe('<p data-mw-parsed-style="color:red" class=a>style="x" <b data-mw-parsed-style=\'a:b\'>t</b></p>');
+    // Attribute values, comments, raw text and end tags stay as they are.
+    expect(renameStyleAttributes('<a title="style=1" href=x>l</a><!-- <p style="c"> --><style>p[style]{}</style><textarea><i style="z"></textarea></p >'))
+      .toBe('<a title="style=1" href=x>l</a><!-- <p style="c"> --><style>p[style]{}</style><textarea><i style="z"></textarea></p >');
+    expect(renameStyleAttributes('a < b style=c, <span\nstyle = "x">')).toBe('a < b style=c, <span\ndata-mw-parsed-style = "x">');
+    expect(renameStyleAttributes('<img src=x.png style=width:3px/>')).toBe('<img src=x.png data-mw-parsed-style=width:3px/>');
+  });
+  it('parses stored markup with its formatting and no style attribute in the parse', async () => {
+    const { inertBody, docFromHtml, htmlFromDoc } = await import('./richtext.ts');
+    const body = inertBody('<p style="font-family: Georgia; color: #1f4e79">Kind regards</p>');
+    const p = body.querySelector('p')!;
+    expect(p.hasAttribute('data-mw-parsed-style')).toBe(false);
+    expect(p.style.fontFamily).toBe('Georgia');
+    const html = htmlFromDoc(docFromHtml('<p><span style="font-family: Georgia">Kind</span> <span style="color: #1f4e79">regards</span></p>'));
+    expect(html).toContain('Georgia');
+    expect(html).toMatch(/color/);
+    expect(html).not.toContain('data-mw-parsed-style');
+  });
+});
