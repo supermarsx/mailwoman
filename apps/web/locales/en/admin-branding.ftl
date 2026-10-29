@@ -19,3 +19,27 @@ admin-branding-pwa_192 = Installed app icon (192 px)
 admin-branding-pwa_512 = Installed app icon (512 px)
 admin-branding-pwa_maskable = Maskable installed app icon (512 px)
 admin-branding-pwa-image-help = PNG or JPEG, up to 1 MB, exactly { $pixels } by { $pixels } pixels. For maskable icons, keep important artwork inside the central 80% circle. Save branding to publish; installed apps may refresh their identity later.
+
+# Current-value thumbnails and tooltips (t62)
+admin-branding-current-label = Current { $field }: { $state }
+admin-branding-current-label-pending = Current { $field }: { $state }, with an unsaved replacement
+admin-branding-current-text-label = Current { $field }
+admin-branding-current-heading = Current
+admin-branding-current-new = New (unsaved)
+admin-branding-current-custom = Custom
+admin-branding-current-default = Built-in default
+admin-branding-current-size = Size
+admin-branding-current-type = Type
+admin-branding-current-origin = Image
+admin-branding-current-source = Source
+admin-branding-current-shows = Shows
+admin-branding-current-published = Published
+admin-branding-current-draft = Private draft, visible only here until you save
+admin-branding-current-pixels = { $width } × { $height } px
+admin-branding-current-measuring = Measuring…
+admin-branding-current-unavailable = Could not load the image
+admin-branding-current-no-image = None
+admin-branding-current-default-logo = No image. The product name and built-in mark are shown.
+admin-branding-current-default-background = No image. The theme background is shown.
+admin-branding-current-empty = (empty)
+admin-branding-current-scope = Branding is global: it applies to every domain, and no domain overrides it.
