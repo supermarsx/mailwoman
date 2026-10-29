@@ -40,6 +40,7 @@ import {
   weekdayNames,
 } from './datetime.ts';
 import * as css from './calendar.css.ts';
+import { inAllDayRow, inkOn, layoutColumns, type ColumnSlot } from './layout.ts';
 
 const HOUR_PX = 48;
 
@@ -68,6 +69,18 @@ function announceDay(controller: CalendarController, day: Date): string {
   return t('calendar-announce', { date: formatFull(day), events: eventsCount(controller.instancesForDay(day).length) });
 }
 
+/** An event chip's calendar tint and the ink that reads on it. `background-color`
+ *  (not the shorthand) so the tentative hatch from the stylesheet still layers on. */
+function chipStyle(inst: EventInstance): JSX.CSSProperties {
+  return { 'background-color': inst.color, color: inkOn(inst.color) };
+}
+
+/** `data-status` for a chip: only the non-default statuses are styled. */
+function chipStatus(inst: EventInstance): string | undefined {
+  const s = inst.event.status;
+  return s === 'cancelled' || s === 'tentative' ? s : undefined;
+}
+
 /** How many day-columns each time-grid view shows. */
 function dayCount(view: CalendarView): number {
   switch (view) {
@@ -92,6 +105,7 @@ function EventChip(props: {
   inst: EventInstance;
   top: number;
   height: number;
+  slot: ColumnSlot;
   conflict: boolean;
   onOpen: (i: EventInstance) => void;
 }): JSX.Element {
@@ -99,7 +113,16 @@ function EventChip(props: {
     <button
       type="button"
       class={css.eventBlock}
-      style={{ top: `${props.top}px`, height: `${props.height}px`, background: props.inst.color }}
+      data-status={chipStatus(props.inst)}
+      style={{
+        ...chipStyle(props.inst),
+        top: `${props.top}px`,
+        height: `${props.height}px`,
+        // Concurrent events share the day column side by side (Outlook-style).
+        'inset-inline-start': `calc(${(props.slot.col / props.slot.cols) * 100}% + 2px)`,
+        'inset-inline-end': 'auto',
+        width: `calc(${100 / props.slot.cols}% - 4px)`,
+      }}
       title={props.inst.event.title}
       aria-label={eventLabel(props.inst)}
       onClick={() => props.onOpen(props.inst)}
@@ -119,8 +142,19 @@ export function TimeGridView(props: ViewProps): JSX.Element {
   const hours = Array.from({ length: 24 }, (_, h) => h);
   const cols = (): string => `3.5rem repeat(${days().length}, 1fr)`;
 
-  const timed = (day: Date): EventInstance[] => c.instancesForDay(day).filter((i) => !i.allDay);
-  const allDay = (day: Date): EventInstance[] => c.instancesForDay(day).filter((i) => i.allDay);
+  // All-day and day-or-longer events live in the all-day row, never the hourly grid.
+  const timed = (day: Date): EventInstance[] => c.instancesForDay(day).filter((i) => !inAllDayRow(i));
+  const allDay = (day: Date): EventInstance[] => c.instancesForDay(day).filter(inAllDayRow);
+
+  /** A day's timed instances with their minute span and overlap column. */
+  function placed(day: Date): Array<{ inst: EventInstance; top: number; height: number; slot: ColumnSlot }> {
+    const rows = timed(day).flatMap((inst) => {
+      const s = dayMinuteSpan(inst.start, inst.end, day);
+      return s === null ? [] : [{ inst, top: s.top, height: s.height }];
+    });
+    const slots = layoutColumns(rows.map((r) => ({ start: r.top, end: r.top + r.height })));
+    return rows.map((r, i) => ({ ...r, slot: slots[i]! }));
+  }
 
   // Roving date navigation across the day-header row (companion to the month grid).
   const [hdrActive, setHdrActive] = createSignal<Date>(startOfDay(c.focusDate()));
@@ -202,7 +236,8 @@ export function TimeGridView(props: ViewProps): JSX.Element {
                   <button
                     type="button"
                     class={css.allDayChip}
-                    style={{ background: inst.color }}
+                    data-status={chipStatus(inst)}
+                    style={chipStyle(inst)}
                     title={inst.event.title}
                     aria-label={eventLabel(inst)}
                     onClick={() => props.onOpenEvent(inst)}
@@ -229,23 +264,17 @@ export function TimeGridView(props: ViewProps): JSX.Element {
           {(day) => (
             <div class={css.dayColumn} data-testid="day-column">
               <For each={hours}>{() => <div class={css.hourLine} />}</For>
-              <For each={timed(day)}>
-                {(inst) => {
-                  const span = dayMinuteSpan(inst.start, inst.end, day);
-                  return (
-                    <Show when={span}>
-                      {(s) => (
-                        <EventChip
-                          inst={inst}
-                          top={(s().top / 60) * HOUR_PX}
-                          height={(s().height / 60) * HOUR_PX}
-                          conflict={c.hasConflict(inst.event.id)}
-                          onOpen={props.onOpenEvent}
-                        />
-                      )}
-                    </Show>
-                  );
-                }}
+              <For each={placed(day)}>
+                {(p) => (
+                  <EventChip
+                    inst={p.inst}
+                    top={(p.top / 60) * HOUR_PX}
+                    height={(p.height / 60) * HOUR_PX}
+                    slot={p.slot}
+                    conflict={c.hasConflict(p.inst.event.id)}
+                    onOpen={props.onOpenEvent}
+                  />
+                )}
               </For>
             </div>
           )}
@@ -357,7 +386,8 @@ export function MonthView(props: ViewProps): JSX.Element {
                             type="button"
                             tabindex={-1}
                             class={css.monthEvent}
-                            style={{ background: inst.color }}
+                            data-status={chipStatus(inst)}
+                            style={chipStyle(inst)}
                             title={inst.event.title}
                             aria-label={eventLabel(inst)}
                             onClick={(e) => {
@@ -415,7 +445,8 @@ function MonthGrid(props: { controller: CalendarController; year: number; month0
                         <button
                           type="button"
                           class={css.monthEvent}
-                          style={{ background: inst.color }}
+                          data-status={chipStatus(inst)}
+                          style={chipStyle(inst)}
                           title={inst.event.title}
                           aria-label={eventLabel(inst)}
                           onClick={() => props.onOpenEvent(inst)}
@@ -483,7 +514,7 @@ export function AgendaView(props: ViewProps): JSX.Element {
               </div>
               <For each={props.controller.instancesForDay(day)}>
                 {(inst) => (
-                  <button type="button" class={css.agendaRow} aria-label={eventLabel(inst)} onClick={() => props.onOpenEvent(inst)}>
+                  <button type="button" class={css.agendaRow} data-status={chipStatus(inst)} aria-label={eventLabel(inst)} onClick={() => props.onOpenEvent(inst)}>
                     <span class={css.agendaTime} aria-hidden="true">
                       {inst.allDay ? t('calendar-all-day-full') : `${formatTime(inst.start)} – ${formatTime(inst.end)}`}
                     </span>
@@ -570,7 +601,7 @@ export function ScheduleView(props: ViewProps): JSX.Element {
                   </div>
                 </Show>
                 <div role="listitem">
-                  <button type="button" class={css.scheduleRow} aria-label={scheduleLabel(inst)} onClick={() => props.onOpenEvent(inst)}>
+                  <button type="button" class={css.scheduleRow} data-status={chipStatus(inst)} aria-label={scheduleLabel(inst)} onClick={() => props.onOpenEvent(inst)}>
                     <span class={css.scheduleRange} aria-hidden="true">
                       {inst.allDay ? t('calendar-all-day-full') : `${formatTime(inst.start)} – ${formatTime(inst.end)}`}
                     </span>

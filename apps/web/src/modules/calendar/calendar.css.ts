@@ -11,8 +11,9 @@
 import { globalStyle, style, styleVariants } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
 
-/** Ink on a user-chosen event colour. The colour is user data with no theme
- *  counterpart, so the ink is fixed rather than a token (unchanged by t32). */
+/** Fallback ink on a user-chosen event colour. The colour is user data with no
+ *  theme counterpart; the views set a light or dark ink inline from the colour's
+ *  luminance (`inkOn` in layout.ts), so this applies only without one. */
 const userColourInk = '#fff';
 
 /** The focus outline (forced-colours mode keeps outlines and drops box-shadows). */
@@ -585,3 +586,21 @@ globalStyle(mobileSidebarClosed,{'@container':{'mw-calendar (max-width: 40rem)':
 globalStyle(body,{'@container':{'mw-calendar (max-width: 40rem)':{flexDirection:'column'}}});
 globalStyle(sidebar,{'@container':{'mw-calendar (max-width: 40rem)':{width:'auto',maxHeight:'40%',borderInlineEnd:0,borderBlockEnd:rule}}});
 globalStyle(main,{'@container':{'mw-calendar (max-width: 40rem)':{minHeight:0}}});
+
+// ── event status (Outlook-style) ─────────────────────────────────────────────
+// Cancelled: faded and struck through. Tentative: diagonal hatching over the
+// calendar colour (the chips set `background-color` inline, so the image layers
+// on top), plus a slight fade. The list rows have no tint, so tentative fades
+// only. `data-status` is set by the views for these two statuses only.
+
+const tentativeHatch =
+  'repeating-linear-gradient(135deg, rgba(255,255,255,0.38) 0 4px, transparent 4px 8px)';
+
+for (const chip of [eventBlock, allDayChip, monthEvent]) {
+  globalStyle(`${chip}[data-status="cancelled"]`, { opacity: 0.55, textDecoration: 'line-through' });
+  globalStyle(`${chip}[data-status="tentative"]`, { backgroundImage: tentativeHatch, opacity: 0.85 });
+}
+for (const row of [agendaRow, scheduleRow]) {
+  globalStyle(`${row}[data-status="cancelled"]`, { opacity: 0.55, textDecoration: 'line-through' });
+  globalStyle(`${row}[data-status="tentative"]`, { opacity: 0.75 });
+}
