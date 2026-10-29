@@ -39,6 +39,8 @@ import { adminDocsHref } from '../shell/docsLink.ts';
 import * as shell from '../shell/shell.css.ts';
 import * as ux from '../shell/ux.css.ts';
 import * as css from '../shell/extras.css.ts';
+import { AssistProfiles, type AssignmentApi } from './Profiles.tsx';
+import type { ProfilesApi } from './profilesService.ts';
 import { AdminAssistApi, AdminAssistError, DEFAULT_ADMIN_ASSIST_CONFIG, type AdminAssistConfig, type AdminAssistStatus, type AssistAdapter } from './service.ts';
 
 const AREA = 'ai-assistant';
@@ -142,6 +144,9 @@ export interface AdminAssistProps {
   /** The admin client. Defaults to the same-origin HTTP client; tests inject one over a mock fetch. */
   api?: AdminAssistApi;
   rateLimit?: RateLimitApi;
+  /** Provider profiles (t39 N8); `false` leaves the panel out (tests of the form above). */
+  profiles?: ProfilesApi | false;
+  assignments?: AssignmentApi;
 }
 
 export function AdminAssist(props: AdminAssistProps): JSX.Element {
@@ -549,6 +554,9 @@ export function AdminAssist(props: AdminAssistProps): JSX.Element {
         }
         testId="admin-assist"
       />
+      <Show when={props.profiles !== false}>
+        <AssistProfiles {...(props.profiles ? { api: props.profiles } : {})} {...(props.assignments ? { assignments: props.assignments } : {})} />
+      </Show>
       <ConfirmDialog
         open={killOpen()}
         title={t('assist-admin-stop-title')}
