@@ -14,6 +14,7 @@ import {preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPrefer
 import {mutateFolderMessages,type FolderMutation} from './folderMutations.ts';
 import {startTrashJob} from './emptyTrashJob.ts';
 import {EmptyFolderDialog,useCanEmpty,useEmptyAbility} from './EmptyFolderDialog.tsx';
+import {RenameFolderDialog,useCanRename,useRenameContext} from './RenameFolder.tsx';
 import {loadCatalog,t} from '../i18n/index.ts';
 import type {Email} from '../api/jmap-types.ts';
 import * as css from './folderPane.css.ts';
@@ -27,6 +28,7 @@ export function FolderPane(props:{mailboxId:string;active:boolean;/** Shown besi
  const [busy,setBusy]=createSignal(false),[result,setResult]=createSignal(''),[failed,setFailed]=createSignal(false);
  const [confirmDelete,setConfirmDelete]=createSignal<string[]|null>(null);
  const emptyAbility=useEmptyAbility(),canEmpty=useCanEmpty();const [emptying,setEmptying]=createSignal(false);
+ const renameContext=useRenameContext(),canRename=useCanRename();const [renaming,setRenaming]=createSignal(false);let renameButton:HTMLButtonElement|undefined;
  let refreshTimer:ReturnType<typeof setTimeout>|undefined,dirty=false;
  const admitted=()=>!!owner&&preferenceAccountIsCurrent(owner)&&view.current();
  const disabled=()=>busy()||view.loading()||!admitted();
@@ -75,7 +77,7 @@ export function FolderPane(props:{mailboxId:string;active:boolean;/** Shown besi
  const rowIds=createMemo(()=>view.messages().map(email=>email.id),undefined,{equals:(a,b)=>a.length===b.length&&a.every((id,i)=>id===b[i])});
  let viewport:HTMLDivElement|undefined;
  let previouslyActive=props.active;
- onMount(()=>{props.registerRefresh?.(()=>{if(!disabled())void view.load();});void loadCatalog('folder-tabs');void loadCatalog('empty-folder');void view.load();});
+ onMount(()=>{props.registerRefresh?.(()=>{if(!disabled())void view.load();});void loadCatalog('folder-tabs');void loadCatalog('empty-folder');void loadCatalog('rename-folder');renameContext();void view.load();});
  createEffect(()=>{if(props.active&&viewport)viewport.scrollTop=view.scroll();});
  createEffect(()=>{const active=props.active;if(active&&!previouslyActive)untrack(()=>{if(!disabled())void view.load();});previouslyActive=active;});
  createEffect(()=>{if(props.active&&!busy()&&dirty){dirty=false;void view.load();}});
@@ -96,7 +98,8 @@ export function FolderPane(props:{mailboxId:string;active:boolean;/** Shown besi
   if(next!==null){event.preventDefault();const target=rows[Math.max(0,Math.min(rows.length-1,next))];target?.focus();if(modifierSelectionEnabled()&&event.shiftKey&&target?.dataset['folderMessage'])view.select(target.dataset['folderMessage'],true);}
  }
  return <div class={css.pane}>
-  <header class={css.toolbar}><h2>{box()?.name??t('folder-tabs-unavailable')}</h2><button type="button" class="btn btn--ghost" disabled={disabled()} onClick={()=>void view.load()}>{t('folder-tabs-refresh')}</button><button type="button" class="btn btn--ghost" disabled={disabled()||!view.messages().length} onClick={view.selectAll}>{t('folder-tabs-select-page')}</button><Show when={box()&&canEmpty(box()!)}><button type="button" class="btn btn--ghost" disabled={disabled()} onClick={()=>setEmptying(true)}>{t('empty-folder-action')}</button></Show></header>
+  <header class={css.toolbar}><h2>{box()?.name??t('folder-tabs-unavailable')}</h2><button type="button" class="btn btn--ghost" disabled={disabled()} onClick={()=>void view.load()}>{t('folder-tabs-refresh')}</button><button type="button" class="btn btn--ghost" disabled={disabled()||!view.messages().length} onClick={view.selectAll}>{t('folder-tabs-select-page')}</button><Show when={box()&&canRename(box()!)}><button ref={renameButton} type="button" class="btn btn--ghost" disabled={!admitted()} onClick={()=>setRenaming(true)}>{t('rename-folder-action')}</button></Show><Show when={box()&&canEmpty(box()!)}><button type="button" class="btn btn--ghost" disabled={disabled()} onClick={()=>setEmptying(true)}>{t('empty-folder-action')}</button></Show></header>
+  <Show when={renaming()&&box()&&renameContext()}>{context=><RenameFolderDialog box={box()!} context={context()} {...(viewport?.ownerDocument&&viewport.ownerDocument!==document?{mount:viewport.ownerDocument.body}:{})} onClose={()=>{setRenaming(false);queueMicrotask(()=>renameButton?.focus());}}/>}</Show>
   <Show when={emptying()&&box()&&emptyAbility()}>{ability=><EmptyFolderDialog box={box()!} ability={ability()} onClose={()=>setEmptying(false)} onEmptied={()=>{view.retainSelection([]);void reconcile();}}/>}</Show>
   <Show when={confirmDelete()}>{ids=><ConfirmDialog open title={t('folder-tabs-permanent-title')} body={t('folder-tabs-permanent-confirm',{count:ids().length})} confirmLabel={t('mail-trash-permanent')} cancelLabel={t('folder-tabs-cancel')} mount={viewport?.ownerDocument.body} onCancel={()=>setConfirmDelete(null)} onConfirm={confirmPermanent}/>}</Show>
   <Show when={result()}><p role={failed()?'alert':'status'}>{result()}</p></Show>

@@ -239,6 +239,9 @@ export function MailboxScreen(): JSX.Element {
     if(!panes().some(pane=>pane.id===id))setPanes(old=>[...old,{id,kind:'folder',title:box.name,reference:mailboxId}]);
     subTabs.open({id,kind:'folder',title:box.name});
   }
+  // A renamed folder (t65, here or on another device) keeps its id: its open
+  // folder and sharing tabs take the new name.
+  createEffect(()=>{const boxes=app.mailboxes();for(const pane of panes()){if((pane.kind!=='folder'&&pane.kind!=='sharing')||!pane.reference)continue;const box=boxes.find(item=>item.id===pane.reference);if(box&&box.name!==pane.title){pane.title=box.name;subTabs.rename(pane.id,box.name);}}});
   function openAttachmentTab(item:StripItem,restoring=false):void {
     if(!restoring)noteWorkspaceIntent();
     const accountId=app.accountId();const template=app.downloadUrl();

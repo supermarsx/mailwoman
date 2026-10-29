@@ -304,6 +304,7 @@ settings-kbd-action-spam = Marcar como spam
 settings-kbd-action-zoomIn = Ampliar mensagem
 settings-kbd-action-zoomOut = Reduzir mensagem
 settings-kbd-action-zoomReset = Repor zoom da mensagem
+settings-kbd-action-renameFolder = Mudar o nome da pasta
 
 settings-notif-device-title = Permissão neste dispositivo
 settings-notif-device-help = As suas preferências de notificação acompanham a sua conta. A permissão do navegador pertence a este dispositivo; o Mailwoman só a pede quando opta por permiti-la.

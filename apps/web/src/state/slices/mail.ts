@@ -628,8 +628,21 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const byId = new Map(list.map(b => [b.id, b]));
     setMailboxes(boxes => boxes.map(b => {
       const fresh = byId.get(b.id);
-      return !fresh || (fresh.unreadEmails === b.unreadEmails && fresh.totalEmails === b.totalEmails)
-        ? b : { ...b, unreadEmails: fresh.unreadEmails, totalEmails: fresh.totalEmails };
+      if (!fresh) return b;
+      // A rename (t65), here or on another device, keeps the id: the name,
+      // nesting and rights follow it, so the tree, tabs and counts stay put.
+      const renamed = typeof fresh.name === 'string' && fresh.name !== b.name;
+      const moved = (fresh.parentId === null || typeof fresh.parentId === 'string') && fresh.parentId !== b.parentId;
+      const upstream = typeof fresh.mailwomanUpstreamName === 'string' && fresh.mailwomanUpstreamName !== b.mailwomanUpstreamName;
+      const rights = fresh.myRights !== undefined && JSON.stringify(fresh.myRights) !== JSON.stringify(b.myRights);
+      if (fresh.unreadEmails === b.unreadEmails && fresh.totalEmails === b.totalEmails && !renamed && !moved && !upstream && !rights) return b;
+      return {
+        ...b, unreadEmails: fresh.unreadEmails, totalEmails: fresh.totalEmails,
+        ...(renamed ? { name: fresh.name } : {}),
+        ...(moved ? { parentId: fresh.parentId } : {}),
+        ...(upstream ? { mailwomanUpstreamName: fresh.mailwomanUpstreamName! } : {}),
+        ...(rights ? { myRights: fresh.myRights! } : {}),
+      };
     }));
     return true;
   }

@@ -59,6 +59,20 @@ export interface Mailbox {
   unreadEmails: number;
   /** Set on a saved-search / search folder (V2 §2.1); absent on real mailboxes. */
   mailwomanSearchQuery?: string;
+  /** RFC 8621 §2 `myRights` (read for Rename, t65, and Empty folder, t45). */
+  myRights?: MailboxRights;
+}
+
+export interface MailboxRights {
+  mayReadItems?: boolean;
+  mayAddItems?: boolean;
+  mayRemoveItems?: boolean;
+  maySetSeen?: boolean;
+  maySetKeywords?: boolean;
+  mayCreateChild?: boolean;
+  mayRename?: boolean;
+  mayDelete?: boolean;
+  maySubmit?: boolean;
 }
 
 export interface Email {
