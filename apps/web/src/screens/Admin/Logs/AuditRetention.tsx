@@ -7,7 +7,7 @@
 // first time creates the daily prune task; "Prune now" applies the policy at
 // once. Both are recorded in the audit log.
 
-import { For, Show, createSignal, onMount, useContext, type JSX } from 'solid-js';
+import { For, Show, createSignal, createUniqueId, onMount, useContext, type JSX } from 'solid-js';
 import { formatDateTime, loadCatalog, t } from '../../../i18n';
 import { AdminProblemError, adminRead, adminRequest } from '../shell/adminApi.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
@@ -84,6 +84,7 @@ function CategoryRow(props: {
   const [days, setDays] = createSignal(props.row?.days ?? props.defaults?.days ?? 365);
   const [hold, setHold] = createSignal(props.row?.legalHold ?? false);
   const [busy, setBusy] = createSignal(false);
+  const uid = createUniqueId();
   const label = (): string => categoryLabel(props.category);
   const outOfBounds = (): boolean => mode() === 'days' && (!Number.isInteger(days()) || days() < props.bounds.minDays || days() > props.bounds.maxDays);
   const current = (): string => {
@@ -108,18 +109,16 @@ function CategoryRow(props: {
       <td>
         <Show when={props.canWrite} fallback={<span class={css.note}>{t('admin-retention-read-only')}</span>}>
           <form class={ux.pageActions} onSubmit={(e) => void save(e)} aria-label={t('admin-retention-edit-for', { category: label() })}>
-            <label class="field">{t('admin-retention-keep')}
-              <select value={mode()} onChange={(e) => setMode(e.currentTarget.value as Mode)}>
+            <div class="field"><label for={`${uid}-mode`}>{t('admin-retention-keep')}</label>
+              <select id={`${uid}-mode`} value={mode()} onChange={(e) => setMode(e.currentTarget.value as Mode)}>
                 <Show when={!isDefault}><option value="inherit">{t('admin-retention-mode-inherit')}</option></Show>
                 <option value="forever">{t('admin-retention-mode-forever')}</option>
                 <option value="days">{t('admin-retention-mode-days')}</option>
-              </select>
-            </label>
+              </select></div>
             <Show when={mode() === 'days'}>
-              <label class="field">{t('admin-retention-days-label')}
-                <input type="number" min={props.bounds.minDays} max={props.bounds.maxDays} step="1" value={days()}
-                  aria-invalid={outOfBounds()} onInput={(e) => setDays(e.currentTarget.valueAsNumber)} />
-              </label>
+              <div class="field"><label for={`${uid}-days`}>{t('admin-retention-days-label')}</label>
+                <input id={`${uid}-days`} type="number" min={props.bounds.minDays} max={props.bounds.maxDays} step="1" value={days()}
+                  aria-invalid={outOfBounds()} onInput={(e) => setDays(e.currentTarget.valueAsNumber)} /></div>
             </Show>
             <Show when={mode() !== 'inherit'}>
               <label class={ux.checkboxRow}><input type="checkbox" checked={hold()} onChange={(e) => setHold(e.currentTarget.checked)} /><span>{t('admin-retention-hold')}</span></label>
