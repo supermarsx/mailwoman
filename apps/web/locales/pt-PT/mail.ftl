@@ -106,6 +106,11 @@ mail-more-actions = Mais ações
 # -- Reader ------------------------------------------------------------------
 mail-reader-label = Mensagem
 mail-reader-empty = Selecione uma mensagem para a ler
+# A mensagem aberta mudou noutro lado (t39): o leitor mantém a cópia e avisa.
+mail-remote-moved = Esta mensagem foi movida para { $folder } noutro dispositivo ou aplicação. Continua a ler a cópia que abriu.
+mail-remote-moved-unknown = Esta mensagem foi movida noutro dispositivo ou aplicação. Continua a ler a cópia que abriu.
+mail-remote-deleted = Esta mensagem foi eliminada noutro dispositivo ou aplicação. Pode continuar a ler esta cópia até a fechar.
+mail-remote-dismiss = Fechar aviso
 mail-back = Voltar
 mail-reader-from = De: { $addr }
 mail-reader-to = Para: { $addr }

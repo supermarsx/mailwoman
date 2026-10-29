@@ -194,7 +194,11 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
   const realtime = createRealtimeSlice(ctx, {
     onChanged: (accountId, types) => {
       if (accountId !== mail.accountId()) return;
-      if (types.includes('Email') || types.includes('Mailbox')) void mail.refreshCurrentMailbox();
+      // A Mailbox change may be a folder created, renamed or deleted on another
+      // device (t39 L8): read the folder list again, which also refreshes the
+      // open folder. An Email-only change refreshes the open folder.
+      if (types.includes('Mailbox')) void mail.refreshFolders().catch(() => undefined);
+      else if (types.includes('Email')) void mail.refreshCurrentMailbox();
       if (types.includes('EmailSubmission')) void outbox.refreshOutbox();
     },
     // An open linked mailbox (t46) arrives on the same stream, already matched

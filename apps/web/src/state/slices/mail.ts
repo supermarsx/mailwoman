@@ -1003,11 +1003,18 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     } else {
       const patches: Record<Id, Record<string, unknown>> = {};
       for (const { email } of taken) patches[email.id] = { mailboxIds: { [targetMailboxId]: true } };
+      // An open reader follows its own window's move at once (t39 L8): the
+      // push that comes back must not read as a change from elsewhere.
+      const followReaders = (items: readonly Taken[], back: boolean): void => {
+        for (const { email } of items) for (const view of readerViews) view.patch(email.id, { mailboxIds: back ? email.mailboxIds : { [targetMailboxId]: true } });
+      };
+      followReaders(taken, false);
       const finishCounts = beginCountWrite();
       let res: JmapResponse;
       try {
         res = await client.jmap(updateEmails(acct, patches));
       } catch {
+        followReaders(taken, true);
         if (!current()) return;
         restore(taken);
         await finishCounts();
@@ -1018,6 +1025,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       if (!current()) return;
       const refused = refusedUpdates(res, Object.keys(patches));
       if (refused.size > 0) {
+        followReaders(taken.filter((x) => refused.has(x.email.id)), true);
         restore(taken.filter((x) => refused.has(x.email.id)));
         taken = taken.filter((x) => !refused.has(x.email.id));
         showToast('error', t('mail-toast-update-refused', { count: refused.size }));
@@ -1054,6 +1062,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         } else {
           const patches: Record<Id, Record<string, unknown>> = {};
           for (const { email } of reverse) patches[email.id] = { mailboxIds: email.mailboxIds };
+          for (const { email } of reverse) for (const view of readerViews) view.patch(email.id, { mailboxIds: email.mailboxIds });
           const finishCounts = beginCountWrite();
           let response: JmapResponse;
           try { response = await client.jmap(updateEmails(acct, patches)); }
@@ -1451,8 +1460,42 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   // ── V2 integration: push/peer refetch, search, attachments, export ────────
+  /** Re-read the state of every open message (t39 L8): after a change pushed
+   *  from another device, each reader follows its message's keywords and is
+   *  told when it was moved or is gone, instead of showing a stale copy. */
+  async function syncOpenMessages(): Promise<void> {
+    const acct = accountId();
+    if (acct === null || isOffline()) return;
+    const views = [...readerViews].filter((view) => view.openEmail() !== null);
+    const ids = [...new Set(views.map((view) => view.openEmail()!.id))];
+    if (ids.length === 0) return;
+    const current = captureMailAuthority();
+    let found: Email[];
+    let missing: Id[];
+    try {
+      const res = await client.jmap({
+        using: ['urn:ietf:params:jmap:core', 'urn:ietf:params:jmap:mail'],
+        methodCalls: [['Email/get', { accountId: acct, ids, properties: ['id', 'keywords', 'mailboxIds'] }, 's']],
+      });
+      const got = responseFor<EmailGetResponse & { notFound?: Id[] }>(res, 's');
+      found = got.list;
+      missing = got.notFound ?? [];
+    } catch {
+      return; // Transient: the next push or refresh tries again.
+    }
+    if (!current() || accountId() !== acct) return;
+    for (const view of views) {
+      const id = view.openEmail()?.id;
+      if (id === undefined) continue;
+      const email = found.find((e) => e.id === id);
+      if (email !== undefined) view.reconcile(id, { keywords: email.keywords ?? {}, mailboxIds: email.mailboxIds ?? {} });
+      else if (missing.includes(id)) view.reconcile(id, null);
+    }
+  }
+
   async function refreshCurrentMailbox(): Promise<void> {
     const current = captureMailAuthority();
+    void syncOpenMessages();
     await reconcileCounts();
     if (!current()) return;
     const acct = accountId();

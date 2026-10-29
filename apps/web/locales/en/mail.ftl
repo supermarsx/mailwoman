@@ -111,6 +111,11 @@ mail-more-actions = More actions
 # -- Reader ------------------------------------------------------------------
 mail-reader-label = Message
 mail-reader-empty = Select a message to read
+# The open message changed elsewhere (t39): the reader keeps its copy and says so.
+mail-remote-moved = This message was moved to { $folder } from another device or app. You are still reading the copy you opened.
+mail-remote-moved-unknown = This message was moved from another device or app. You are still reading the copy you opened.
+mail-remote-deleted = This message was deleted from another device or app. You can keep reading this copy until you close it.
+mail-remote-dismiss = Dismiss
 mail-back = Back
 mail-reader-from = From: { $addr }
 mail-reader-to = To: { $addr }

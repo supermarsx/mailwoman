@@ -76,6 +76,7 @@ import { settings } from '../api/settings.ts';
 import { themeCssVars } from '../theme/themeCssVars.ts';
 import { MessageLoading } from './MessageLoading.tsx';
 import { Icon } from './Icon.tsx';
+import { RemoteChangeNotice } from './RemoteChangeNotice.tsx';
 import type { ReaderAppearance } from '../viewers/readerAppearance.ts';
 import { isNativeAuth } from '../api/serverAddress.ts';
 import {
@@ -947,6 +948,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       <Show when={app.openEmail()} fallback={<p class="reader__empty">{t('mail-reader-empty')}</p>}>
         {(email) => (
           <>
+            <Show when={props.view}>{(view) => <RemoteChangeNotice view={view()} />}</Show>
             <header class="reader__header">
               <h2 ref={subjectHeading} tabIndex={-1} class="reader__subject">{email().subject ?? t('mail-no-subject')}</h2>
               <div class="reader__meta">

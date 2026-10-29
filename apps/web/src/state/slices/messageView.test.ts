@@ -57,4 +57,35 @@ describe('independent retained message views', () => {
     await view.openMessage('two');vi.advanceTimersByTime(100);expect(markRead).toHaveBeenLastCalledWith('two');
     view.dispose();vi.useRealTimers();
   });
+  it('follows changes made elsewhere: keywords silently, a move or a delete as a notice that keeps the copy', async () => {
+    vi.useFakeTimers();
+    const markRead=vi.fn();
+    const view=createMessageView({account:()=>'a',load:async (_a,id)=>({email:{id,keywords:{},mailboxIds:{inbox:true}} as unknown as Email,html:'body'}),readDelay:()=>500,markRead});
+    view.setActive(true);await view.openMessage('m');
+    // Read on another device before the timer here fires: no second read write.
+    view.reconcile('m',{keywords:{$seen:true},mailboxIds:{inbox:true}});
+    vi.advanceTimersByTime(600);expect(markRead).not.toHaveBeenCalled();
+    expect(view.openEmail()?.keywords).toEqual({$seen:true});expect(view.remoteChange()).toBeNull();
+    // Unchanged state is a no-op; a local move (patch) is not reported as remote.
+    view.patch('m',{mailboxIds:{archive:true}});view.reconcile('m',{keywords:{$seen:true},mailboxIds:{archive:true}});
+    expect(view.remoteChange()).toBeNull();
+    // Moved elsewhere: the body stays, the notice names the new folders.
+    view.reconcile('m',{keywords:{$seen:true,$flagged:true},mailboxIds:{trash:true}});
+    expect(view.remoteChange()).toEqual({kind:'moved',mailboxIds:{trash:true}});
+    expect(view.sanitizedHtml()).toBe('body');expect(view.openEmail()?.keywords?.['$flagged']).toBe(true);
+    view.dismissRemoteChange();expect(view.remoteChange()).toBeNull();
+    // Gone: the copy stays open.
+    view.reconcile('m',null);expect(view.remoteChange()).toEqual({kind:'deleted'});expect(view.openEmail()?.id).toBe('m');
+    // Another message clears the notice; a reconcile for a message not open is ignored.
+    view.reconcile('other',null);await view.openMessage('next');expect(view.remoteChange()).toBeNull();
+    view.dispose();vi.useRealTimers();
+  });
+  it('keeps a message marked unread on another device unread here', async () => {
+    vi.useFakeTimers();const markRead=vi.fn();
+    const view=createMessageView({account:()=>'a',load:async (_a,id)=>({email:{id,keywords:{$seen:true},mailboxIds:{inbox:true}} as unknown as Email,html:''}),readDelay:()=>100,markRead});
+    view.setActive(true);await view.openMessage('m');
+    view.reconcile('m',{keywords:{},mailboxIds:{inbox:true}});
+    view.setActive(false);view.setActive(true);vi.advanceTimersByTime(200);
+    expect(markRead).not.toHaveBeenCalled();view.dispose();vi.useRealTimers();
+  });
 });
