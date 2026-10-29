@@ -22,6 +22,8 @@ pub(crate) struct Policy {
     pub required: bool,
     pub pending_secs: u64,
     pub max_attempts: u32,
+    /// t39-e6: attachment / UV / resident-key / grandfathering / last-factor rules.
+    pub passkey: crate::twofa_routes::passkey_policy::PasskeyPolicy,
 }
 fn error(what: &str, e: impl std::fmt::Display) -> Response {
     tracing::error!("security centre {what}: {e}");
@@ -95,6 +97,46 @@ pub(crate) async fn policy(
             .as_u64()
             .unwrap_or(5)
             .clamp(3, 10) as u32,
+        passkey: {
+            use crate::twofa_routes::passkey_policy as pp;
+            let text = |v: Value| v.as_str().unwrap_or_default().to_string();
+            pp::PasskeyPolicy {
+                attachment: pp::parse_attachment(&text(
+                    value(state, "twofa.passkeyAttachment", &subject, json!("any")).await?,
+                )),
+                user_verification: pp::parse_requirement(
+                    &text(
+                        value(
+                            state,
+                            "twofa.passkeyUserVerification",
+                            &subject,
+                            json!("preferred"),
+                        )
+                        .await?,
+                    ),
+                    pp::Requirement::Preferred,
+                ),
+                resident_key: pp::parse_requirement(
+                    &text(
+                        value(
+                            state,
+                            "twofa.passkeyResidentKey",
+                            &subject,
+                            json!("discouraged"),
+                        )
+                        .await?,
+                    ),
+                    pp::Requirement::Discouraged,
+                ),
+                legacy: pp::parse_legacy(&text(
+                    value(state, "twofa.passkeyLegacy", &subject, json!("allow")).await?,
+                )),
+                last_factor: pp::parse_last_factor(&text(
+                    value(state, "twofa.lastFactorRemoval", &subject, json!("allow")).await?,
+                )),
+            }
+            .with_engine_floor(state.engine.is_some())
+        },
     })
 }
 fn bounded(value: &str, max: usize) -> String {

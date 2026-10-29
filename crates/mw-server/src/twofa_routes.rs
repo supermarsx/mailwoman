@@ -28,6 +28,9 @@
 //! the configured public origin and trusted-proxy boundary; explicit
 //! `MW_WEBAUTHN_ORIGIN`/`MW_WEBAUTHN_RP_ID` overrides remain supported.
 
+#[path = "passkey_policy.rs"]
+pub(crate) mod passkey_policy;
+
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -358,7 +361,7 @@ pub(crate) async fn gate_login(
                 "challenge": b64(&challenge),
                 "credentialIds": cred_ids,
                 "rpId": rp_id,
-                "userVerification": "preferred",
+                "userVerification": policy.passkey.assertion_uv_hint(),
             },
         }))
         .into_response()
@@ -814,6 +817,22 @@ async fn passwordless_finish(
     if !policy.passkeys_enabled {
         return rejected_passkey(&state, &device, "credential-rejected").await;
     }
+    // The signature verified with UV: only now is a policy refusal named.
+    let facts = match stored_facts(&state, &credential, &previous).await {
+        Ok(f) => f,
+        Err(e) => return server_error("passkey policy", e),
+    };
+    if let Err(refusal) = policy.passkey.assertion_rule(facts.as_stored(&credential)) {
+        return policy_refused(
+            &state,
+            &account.id,
+            &account.username,
+            &device,
+            "passwordless",
+            refusal,
+        )
+        .await;
+    }
     let primary_identity =
         match crate::primary_identity::VerifiedLoginIdentity::engine(&state, &account.id).await {
             Ok(identity) => identity,
@@ -1021,7 +1040,24 @@ async fn verify_2fa(
     let ok = match body.method.as_str() {
         "totp" => verify_totp_factor(&state, account_id, body.code.as_deref()).await,
         "recovery" => verify_recovery_factor(&state, account_id, body.code.as_deref()).await,
-        "webauthn" => verify_webauthn_factor(&state, &pending, &body).await,
+        "webauthn" => match verify_webauthn_factor(&state, &pending, &body).await {
+            Ok(Ok(ok)) => Ok(ok),
+            Ok(Err(refusal)) => {
+                // Signed by an enrolled credential, but not one the policy
+                // accepts: named (the caller proved possession), counted.
+                state.twofa.note_failure(&body.pending_token);
+                return policy_refused(
+                    &state,
+                    account_id,
+                    &pending.args.username,
+                    &device,
+                    "second-factor",
+                    refusal,
+                )
+                .await;
+            }
+            Err(e) => Err(e),
+        },
         _ => Ok(false),
     };
     match ok {
@@ -1097,28 +1133,35 @@ async fn verify_webauthn_factor(
     state: &AppState,
     pending: &PendingLogin,
     body: &VerifyReq,
-) -> Result<bool, mw_store::StoreError> {
+) -> Result<Result<bool, passkey_policy::Refusal>, mw_store::StoreError> {
     let (Some(cred_id), Some(cdj), Some(auth_data), Some(sig)) = (
         body.credential_id.as_deref(),
         body.client_data_json.as_deref().and_then(decode_b64),
         body.authenticator_data.as_deref().and_then(decode_b64),
         body.signature.as_deref().and_then(decode_b64),
     ) else {
-        return Ok(false);
+        return Ok(Ok(false));
     };
     let Some(cred) = state.store.get_webauthn_credential(cred_id).await? else {
-        return Ok(false);
+        return Ok(Ok(false));
     };
     // The credential MUST belong to the account this login is for.
     if cred.account_id != pending.args.account_id {
-        return Ok(false);
+        return Ok(Ok(false));
     }
     if !passkey_handle_matches(&cred.account_id, body.user_handle.as_deref(), false) {
-        return Ok(false);
+        return Ok(Ok(false));
     }
     let Some(previous) = state.store.webauthn_state(cred_id).await? else {
-        return Ok(false);
+        return Ok(Ok(false));
     };
+    let Ok(policy) =
+        crate::security_center::policy(state, &pending.args.account_id, &pending.args.username)
+            .await
+    else {
+        return Ok(Ok(false));
+    };
+    let facts = stored_facts(state, &cred, &previous).await?;
     let req = AssertionRequest {
         challenge: pending.challenge.clone(),
         origin: pending.origin.clone(),
@@ -1130,9 +1173,107 @@ async fn verify_webauthn_factor(
         stored_sign_count: cred.sign_count.max(0) as u32,
         user_verification: UV,
     };
-    match verify_assertion_with_backup(&req, previous.backup_eligible) {
-        Ok(outcome) => commit_passkey_assertion(state, &cred, &previous, &outcome).await,
-        Err(_) => Ok(false),
+    let outcome = match verify_assertion_with_backup(&req, previous.backup_eligible) {
+        Ok(outcome) => outcome,
+        Err(_) => return Ok(Ok(false)),
+    };
+    if let Err(refusal) = assertion_meets_policy(&policy.passkey, facts.as_stored(&cred), &outcome)
+    {
+        return Ok(Err(refusal));
+    }
+    commit_passkey_assertion(state, &cred, &previous, &outcome)
+        .await
+        .map(Ok)
+}
+
+/// Check a signature-verified assertion against the passkey policy: a
+/// non-compliant credential under `legacy = refuse`, or a missing UV flag where
+/// the rule asks for it.
+pub(crate) fn assertion_meets_policy(
+    policy: &passkey_policy::PasskeyPolicy,
+    cred: passkey_policy::StoredCredential<'_>,
+    outcome: &mw_mfa::AssertionOutcome,
+) -> Result<(), passkey_policy::Refusal> {
+    match policy.assertion_rule(cred)? {
+        UserVerification::Required if !outcome.user_verified => {
+            Err(passkey_policy::Refusal::UserVerification)
+        }
+        _ => Ok(()),
+    }
+}
+
+/// The stored properties of a credential the policy is checked against.
+pub(crate) struct StoredFacts {
+    discoverable: bool,
+    uv_seen: bool,
+}
+
+impl StoredFacts {
+    pub(crate) fn as_stored<'a>(
+        &self,
+        cred: &'a WebauthnCredentialRow,
+    ) -> passkey_policy::StoredCredential<'a> {
+        passkey_policy::StoredCredential {
+            transports: &cred.transports,
+            discoverable: self.discoverable,
+            uv_seen: self.uv_seen,
+        }
+    }
+}
+
+pub(crate) async fn stored_facts(
+    state: &AppState,
+    cred: &WebauthnCredentialRow,
+    previous: &mw_store::WebauthnState,
+) -> Result<StoredFacts, mw_store::StoreError> {
+    Ok(StoredFacts {
+        discoverable: state.store.passkey_discoverable(&cred.credential_id).await?,
+        uv_seen: previous.uv_initialized,
+    })
+}
+
+/// Answer a passkey-policy refusal: 403 with the code the web app localises,
+/// a security event for the account and an audit line.
+pub(crate) async fn policy_refused(
+    state: &AppState,
+    account_id: &str,
+    username: &str,
+    device: &mw_store::SessionDevice,
+    flow: &str,
+    refusal: passkey_policy::Refusal,
+) -> Response {
+    crate::security_center::record_failure(
+        state,
+        Some(account_id),
+        username,
+        device,
+        "passkey",
+        refusal.code(),
+    )
+    .await;
+    policy_audit(state, username, flow, refusal).await;
+    (StatusCode::FORBIDDEN, Json(refusal.body())).into_response()
+}
+
+/// The audit line of a policy refusal (actor: the user; non-fatal).
+pub(crate) async fn policy_audit(
+    state: &AppState,
+    username: &str,
+    flow: &str,
+    refusal: passkey_policy::Refusal,
+) {
+    let entry = mw_admin::AuditLogEntry {
+        id: uuid::Uuid::new_v4().to_string(),
+        ts: chrono::Utc::now().to_rfc3339(),
+        actor: username.to_string(),
+        actor_kind: mw_admin::ActorKind::User,
+        action: "passkey-policy-refused".to_string(),
+        target: Some(username.to_string()),
+        detail_json: mw_admin::redact_detail(&json!({ "flow": flow, "reason": refusal.code() })),
+        ip: None,
+    };
+    if let Err(e) = state.v6.admin.audit(entry).await {
+        tracing::warn!("passkey policy audit append failed: {e}");
     }
 }
 
@@ -1210,6 +1351,10 @@ struct PendingPasskeyFinishReq {
     transports: String,
     #[serde(default)]
     label: String,
+    #[serde(default)]
+    authenticator_attachment: Option<String>,
+    #[serde(default)]
+    resident_key: Option<bool>,
 }
 
 /// Begin forced TOTP enrolment for an Enroll-state pending login.
@@ -1343,14 +1488,28 @@ async fn login_enroll_passkey_finish(
     match register_passkey(
         &state,
         &p.args.account_id,
+        &p.args.username,
         &body.client_data_json,
         &body.attestation_object,
         &body.transports,
         &body.label,
+        body.authenticator_attachment.as_deref(),
+        body.resident_key,
     )
     .await
     {
-        Ok(true) => {
+        Ok(Registered::Refused(refusal)) => {
+            policy_refused(
+                &state,
+                &p.args.account_id,
+                &p.args.username,
+                &p.device,
+                "enrolment",
+                refusal,
+            )
+            .await
+        }
+        Ok(Registered::Saved) => {
             let codes = match seed_recovery_if_empty(&state, &p.args.account_id).await {
                 Ok(c) => c,
                 Err(e) => return server_error("seed recovery", e),
@@ -1365,7 +1524,7 @@ async fn login_enroll_passkey_finish(
             )
             .await
         }
-        Ok(false) => twofa_unauthorized(),
+        Ok(Registered::Failed) => twofa_unauthorized(),
         Err(e) => server_error("register passkey", e),
     }
 }
@@ -1415,16 +1574,37 @@ async fn twofa_status(State(state): State<AppState>, headers: HeaderMap) -> Resp
         Ok(policy) => policy,
         Err(response) => return response,
     };
-    let passkey_json: Vec<_> = passkeys
-        .iter()
-        .map(|c| json!({ "handle": credential_handle(&c.credential_id), "label": c.label, "createdAt": c.created_at }))
-        .collect();
+    let mut passkey_json = Vec::with_capacity(passkeys.len());
+    for c in &passkeys {
+        let previous = match state.store.webauthn_state(&c.credential_id).await {
+            Ok(p) => p.unwrap_or_default(),
+            Err(e) => return server_error("passkey state", e),
+        };
+        let facts = match stored_facts(&state, c, &previous).await {
+            Ok(f) => f,
+            Err(e) => return server_error("passkey state", e),
+        };
+        let gaps: Vec<&str> = effective_policy
+            .passkey
+            .credential_gaps(facts.as_stored(c))
+            .iter()
+            .map(|g| g.code())
+            .collect();
+        passkey_json.push(json!({
+            "handle": credential_handle(&c.credential_id),
+            "label": c.label,
+            "createdAt": c.created_at,
+            "meetsPolicy": gaps.is_empty(),
+            "policyGaps": gaps,
+        }));
+    }
     Json(json!({
         "totp": totp,
         "passkeys": passkey_json,
         "recoveryRemaining": recovery_remaining,
         "policyRequired": required,
         "passkeysEnabled": effective_policy.passkeys_enabled,
+        "passkeyPolicy": effective_policy.passkey.summary(),
     }))
     .into_response()
 }
@@ -1580,6 +1760,7 @@ async fn passkey_begin_route(
 async fn passkey_finish_route(
     State(state): State<AppState>,
     headers: HeaderMap,
+    ext: axum::http::Extensions,
     Json(body): Json<PasskeyFinishReq>,
 ) -> Response {
     let session = match crate::authed(&state, &headers).await {
@@ -1603,21 +1784,36 @@ async fn passkey_finish_route(
     match register_passkey(
         &state,
         &session.account_id,
+        &session.username,
         &body.client_data_json,
         &body.attestation_object,
         &body.transports,
         &body.label,
+        body.authenticator_attachment.as_deref(),
+        body.resident_key,
     )
     .await
     {
-        Ok(true) => {
+        Ok(Registered::Refused(refusal)) => {
+            let device = crate::security_center::device(&headers, &ext, None);
+            policy_refused(
+                &state,
+                &session.account_id,
+                &session.username,
+                &device,
+                "registration",
+                refusal,
+            )
+            .await
+        }
+        Ok(Registered::Saved) => {
             let codes = match seed_recovery_if_empty(&state, &session.account_id).await {
                 Ok(c) => c,
                 Err(e) => return server_error("seed recovery", e),
             };
             Json(json!({ "ok": true, "recoveryCodes": codes })).into_response()
         }
-        Ok(false) => (
+        Ok(Registered::Failed) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "registration did not verify" })),
         )
@@ -1844,6 +2040,12 @@ struct PasskeyFinishReq {
     transports: String,
     #[serde(default)]
     label: String,
+    /// `PublicKeyCredential.authenticatorAttachment` as the browser reported it.
+    #[serde(default)]
+    authenticator_attachment: Option<String>,
+    /// `credProps.rk` as the browser reported it.
+    #[serde(default)]
+    resident_key: Option<bool>,
 }
 
 /// Generate + store an UNCONFIRMED TOTP secret and return the base32 secret +
@@ -1939,66 +2141,99 @@ async fn passkey_begin(
         Ok(rows) => rows,
         Err(e) => return server_error("list passkeys", e),
     };
+    let policy = match crate::security_center::policy(state, account_id, username).await {
+        Ok(p) => p.passkey,
+        Err(r) => return r,
+    };
     state.twofa.put_reg(
         account_id.to_string(),
         RegChallenge {
-            discoverable: state.engine.is_some(),
+            discoverable: policy.discoverable(),
             challenge: challenge.clone(),
             origin,
             rp_id: rp_id.clone(),
             expires_at: Instant::now() + PENDING_TTL,
         },
     );
-    // A stable per-account user handle (WebAuthn user.id) — the account id bytes.
+    let selection = policy.registration_options();
+    // A stable per-account user handle (WebAuthn user.id), opaque and fixed-size.
     Json(json!({
         "ok": true,
         "challenge": b64(&challenge),
         "rpId": rp_id,
-        "residentKey": if state.engine.is_some() { "required" } else { "discouraged" },
+        "residentKey": selection["residentKey"],
         "userHandle": b64(&passkey_user_handle(account_id)),
         "userName": username,
-        "userVerification": if state.engine.is_some() { "required" } else { "preferred" },
+        "userVerification": selection["userVerification"],
+        "authenticatorAttachment": selection.get("authenticatorAttachment"),
+        "authenticatorSelection": selection,
         "excludeCredentialIds": credentials.iter().map(|c|&c.credential_id).collect::<Vec<_>>(),
     }))
     .into_response()
 }
 
-/// Verify a passkey registration ceremony against the stored challenge and persist
-/// the credential. `Ok(false)` = the challenge was missing/expired or verification
-/// failed; the caller maps that to a 4xx.
+/// What [`register_passkey`] did.
+enum Registered {
+    Saved,
+    /// The challenge was missing/expired or verification failed (4xx).
+    Failed,
+    /// It verified but does not meet the account's passkey policy.
+    Refused(passkey_policy::Refusal),
+}
+
+/// Verify a passkey registration ceremony against the stored challenge, check it
+/// against the account's passkey policy (t39-e6) and persist the credential.
+#[allow(clippy::too_many_arguments)]
 async fn register_passkey(
     state: &AppState,
     account_id: &str,
+    username: &str,
     client_data_json_b64: &str,
     attestation_object_b64: &str,
     transports: &str,
     label: &str,
-) -> Result<bool, mw_store::StoreError> {
+    attachment: Option<&str>,
+    resident_key: Option<bool>,
+) -> Result<Registered, mw_store::StoreError> {
     let Some(reg) = state.twofa.take_reg(account_id) else {
-        return Ok(false);
+        return Ok(Registered::Failed);
     };
     let (Some(cdj), Some(att)) = (
         decode_b64(client_data_json_b64),
         decode_b64(attestation_object_b64),
     ) else {
-        return Ok(false);
+        return Ok(Registered::Failed);
     };
+    // UV is checked below against the policy, after the signature verified, so
+    // the refusal can say why.
     let req = RegistrationRequest {
         challenge: reg.challenge,
         origin: reg.origin,
         rp_id: reg.rp_id,
         attestation_object: att,
         client_data_json: cdj,
-        user_verification: if reg.discoverable {
-            UserVerification::Required
-        } else {
-            UV
-        },
+        user_verification: UV,
     };
     let cred = match verify_registration(&req) {
         Ok(c) => c,
-        Err(_) => return Ok(false),
+        Err(_) => return Ok(Registered::Failed),
     };
+    let Ok(policy) = crate::security_center::policy(state, account_id, username).await else {
+        return Ok(Registered::Failed);
+    };
+    let mut policy = policy.passkey;
+    // A challenge issued under a discoverable rule stays one.
+    if reg.discoverable {
+        policy.resident_key = passkey_policy::Requirement::Required;
+    }
+    let report = passkey_policy::ClientReport {
+        attachment,
+        transports,
+        resident_key,
+    };
+    if let Err(refusal) = policy.check_registration(cred.user_verified, &report) {
+        return Ok(Registered::Refused(refusal));
+    }
     let credential_id = b64(&cred.credential_id);
     let row = WebauthnCredentialRow {
         credential_id,
@@ -2021,16 +2256,16 @@ async fn register_passkey(
     };
     match state
         .store
-        .register_webauthn_credential(&row, &initial, reg.discoverable)
+        .register_webauthn_credential(&row, &initial, policy.discoverable())
         .await
     {
-        Ok(()) => Ok(true),
+        Ok(()) => Ok(Registered::Saved),
         Err(mw_store::StoreError::Db(error))
             if error
                 .as_database_error()
                 .is_some_and(|e| e.is_unique_violation()) =>
         {
-            Ok(false)
+            Ok(Registered::Failed)
         }
         Err(error) => Err(error),
     }
@@ -2038,7 +2273,8 @@ async fn register_passkey(
 
 /// Refuse to remove the LAST factor of an account whose domain/global policy
 /// requires 2FA (`remaining` = factor count that would survive the removal). An
-/// account with no policy requirement may disable freely.
+/// account with no such requirement follows `twofa.lastFactorRemoval` (t39-e6):
+/// `allow`, `requireRecoveryCodes` (unused recovery codes must exist) or `block`.
 async fn guard_last_factor(
     state: &AppState,
     account_id: &str,
@@ -2053,10 +2289,22 @@ async fn guard_last_factor(
             return Err((
                 StatusCode::CONFLICT,
                 Json(json!({
+                    "code": "lastFactorRequired",
                     "error": "your organization requires two-factor authentication; enrol another factor before removing this one",
                 })),
             )
                 .into_response());
+        }
+        let policy = crate::security_center::policy(state, account_id, username).await?;
+        let codes = state
+            .store
+            .list_unused_recovery_codes(account_id)
+            .await
+            .map_err(|e| server_error("list recovery", e))?
+            .len();
+        if let Err(refusal) = policy.passkey.check_last_factor_removal(codes) {
+            policy_audit(state, username, "last-factor-removal", refusal).await;
+            return Err((StatusCode::CONFLICT, Json(refusal.body())).into_response());
         }
     }
     Ok(())

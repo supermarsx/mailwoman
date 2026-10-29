@@ -786,7 +786,9 @@ async fn user_passkey_begin(
         "challenge": b64(&bytes),
         "rpId": rp_id,
         "credentialIds": creds.iter().map(|c| c.credential_id.clone()).collect::<Vec<_>>(),
-        "userVerification": "preferred",
+        "userVerification": crate::security_center::policy(&state, &session.account_id, &session.username)
+            .await
+            .map_or("preferred", |p| p.passkey.assertion_uv_hint()),
     }))
     .into_response()
 }
@@ -798,6 +800,9 @@ enum Verdict {
     /// Not enough was sent for this session; nothing was checked.
     Incomplete,
     Failed,
+    /// A passkey whose signature verified but which the passkey policy refuses
+    /// (t39-e6).
+    PolicyRefused(crate::twofa_routes::passkey_policy::Refusal),
 }
 
 /// `POST /api/security/step-up` — confirm with `{password, code}` or a passkey
@@ -917,6 +922,22 @@ async fn user_mint(
             body["attemptsLeft"] = json!(left);
             (StatusCode::FORBIDDEN, Json(body)).into_response()
         }
+        Verdict::PolicyRefused(policy_refusal) => {
+            let left = state.step_up.note_failure_at(&h, Instant::now());
+            security_event(
+                &state,
+                event("step-up-refused").detail(json!({ "reason": policy_refusal.code() })),
+            )
+            .await;
+            crate::twofa_routes::policy_audit(&state, &session.username, "step-up", policy_refusal)
+                .await;
+            if left == 0 {
+                return locked(FAILURE_WINDOW);
+            }
+            let mut body = refusal_body(policy_refusal.code(), policy_refusal.message());
+            body["attemptsLeft"] = json!(left);
+            (StatusCode::FORBIDDEN, Json(body)).into_response()
+        }
     }
 }
 
@@ -966,8 +987,10 @@ async fn check_user(
         let Some(challenge) = state.step_up.take_challenge(&h) else {
             return Ok(Verdict::Failed);
         };
-        if !verify_passkey(state, &session.account_id, &challenge, a, uv).await? {
-            return Ok(Verdict::Failed);
+        match verify_passkey(state, session, &challenge, a, uv).await? {
+            Ok(true) => {}
+            Ok(false) => return Ok(Verdict::Failed),
+            Err(refusal) => return Ok(Verdict::PolicyRefused(refusal)),
         }
         used.push("passkey");
     } else if let Some(code) = code {
@@ -1009,33 +1032,34 @@ async fn verify_totp(
 
 async fn verify_passkey(
     state: &AppState,
-    account_id: &str,
+    session: &mw_store::Session,
     challenge: &Challenge,
     a: &PasskeyAssertion,
     uv: UserVerification,
-) -> Result<bool, mw_store::StoreError> {
+) -> Result<Result<bool, crate::twofa_routes::passkey_policy::Refusal>, mw_store::StoreError> {
+    let account_id = session.account_id.as_str();
     let (Some(cdj), Some(auth_data), Some(sig)) = (
         decode_b64(&a.client_data_json),
         decode_b64(&a.authenticator_data),
         decode_b64(&a.signature),
     ) else {
-        return Ok(false);
+        return Ok(Ok(false));
     };
     let Some(cred) = state
         .store
         .get_webauthn_credential(&a.credential_id)
         .await?
     else {
-        return Ok(false);
+        return Ok(Ok(false));
     };
     if cred.account_id != account_id {
-        return Ok(false);
+        return Ok(Ok(false));
     }
     if !crate::twofa_routes::passkey_handle_matches(account_id, a.user_handle.as_deref(), false) {
-        return Ok(false);
+        return Ok(Ok(false));
     }
     let Some(previous) = state.store.webauthn_state(&a.credential_id).await? else {
-        return Ok(false);
+        return Ok(Ok(false));
     };
     let req = AssertionRequest {
         challenge: challenge.bytes.clone(),
@@ -1048,12 +1072,28 @@ async fn verify_passkey(
         stored_sign_count: cred.sign_count.max(0) as u32,
         user_verification: uv,
     };
-    match verify_assertion_with_backup(&req, previous.backup_eligible) {
-        Ok(outcome) => {
-            crate::twofa_routes::commit_passkey_assertion(state, &cred, &previous, &outcome).await
-        }
-        Err(_) => Ok(false),
+    let outcome = match verify_assertion_with_backup(&req, previous.backup_eligible) {
+        Ok(outcome) => outcome,
+        Err(_) => return Ok(Ok(false)),
+    };
+    // t39-e6: the passkey policy, read only. Checked after the signature, so a
+    // refusal is only named to someone holding the credential.
+    let Ok(policy) =
+        crate::security_center::policy(state, account_id, &session.username).await
+    else {
+        return Ok(Ok(false));
+    };
+    let facts = crate::twofa_routes::stored_facts(state, &cred, &previous).await?;
+    if let Err(refusal) = crate::twofa_routes::assertion_meets_policy(
+        &policy.passkey,
+        facts.as_stored(&cred),
+        &outcome,
+    ) {
+        return Ok(Err(refusal));
     }
+    crate::twofa_routes::commit_passkey_assertion(state, &cred, &previous, &outcome)
+        .await
+        .map(Ok)
 }
 
 // ─── admin routes ───────────────────────────────────────────────────────────────
