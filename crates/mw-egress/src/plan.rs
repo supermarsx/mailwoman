@@ -403,8 +403,8 @@ impl<'a> Request<'a> {
 
     /// Per-phase time bounds and a redirect cap for this fetch (t56); see
     /// [`FetchTimeouts`]. Without them the legacy per-hop [`crate::FETCH_TIMEOUT`]
-    /// and [`MAX_REDIRECTS`] apply. On the direct path every bound is enforced; on a
-    /// configured egress route the transport keeps its own per-hop bound.
+    /// and [`MAX_REDIRECTS`] apply. Both arms enforce them: directly, and through a
+    /// configured egress route (where connect covers the tunnel and origin TLS).
     pub fn timeouts(mut self, limits: FetchTimeouts) -> Request<'a> {
         self.timeouts = Some(limits);
         self
@@ -531,10 +531,15 @@ pub async fn send_with(plan: &EgressPlan, url: reqwest::Url, req: &Request<'_>) 
         // A route applies. Its result is the result — one exit, no direct retry.
         Some(route) => {
             let gate = |host: &str, port: u16, ip: &IpAddr| plan.admits(req.class, host, port, ip);
-            let via = if req.authorized_plugin.is_some() {
-                proxy::send_via_proxy_gated(url, route, &out, &gate).await
-            } else {
-                proxy::send_via_proxy(url, route, &out).await
+            let timed = req.timeouts.map(|limits| Timed {
+                limits,
+                report: req.timeout_report,
+            });
+            let via = match (timed, req.authorized_plugin.is_some()) {
+                (Some(t), true) => proxy::send_via_proxy_timed(url, route, &out, Some(&gate), t).await,
+                (Some(t), false) => proxy::send_via_proxy_timed(url, route, &out, None, t).await,
+                (None, true) => proxy::send_via_proxy_gated(url, route, &out, &gate).await,
+                (None, false) => proxy::send_via_proxy(url, route, &out).await,
             };
             RoutedFetch {
                 traversed_proxy: via.traversed_proxy,

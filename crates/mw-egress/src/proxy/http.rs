@@ -19,7 +19,9 @@ use hyper_util::rt::TokioIo;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::ProxyRefusal;
-use crate::{Hop, MAX_IMAGE_BYTES, Outgoing, PROXY_UA, Refusal, declared_media_type};
+use crate::{
+    Hop, MAX_IMAGE_BYTES, Outgoing, PROXY_UA, Refusal, Timed, TimeoutPhase, declared_media_type,
+};
 
 /// A `GET` sends no body at all (no `Content-Length: 0` on the wire, exactly as
 /// before bodies existed); a `POST` sends its bytes with a known length.
@@ -84,15 +86,20 @@ pub async fn exchange_with<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    exchange_typed(stream, url, out).await.map(|(hop, _)| hop)
+    exchange_typed(stream, url, out, None).await.map(|(hop, _)| hop)
 }
 
 /// [`exchange_with`], also returning the body's declared media type
 /// ([`declared_media_type`]); `None` for a redirect.
+///
+/// Under [`crate::FetchTimeouts`] (t56) the wait for the origin's response headers
+/// (from the request being written into the tunnel) and every gap between body
+/// frames have their own clocks, as on the direct path.
 pub(crate) async fn exchange_typed<S>(
     stream: S,
     url: &reqwest::Url,
     out: &Outgoing<'_>,
+    timed: Option<Timed<'_>>,
 ) -> Result<(Hop, Option<String>), ProxyRefusal>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -112,7 +119,7 @@ where
     let pump = AbortOnDrop(tokio::spawn(async move {
         let _ = conn.await;
     }));
-    let result = exchange_inner(&mut sender, url, out).await;
+    let result = exchange_inner(&mut sender, url, out, timed).await;
     drop(pump);
     result
 }
@@ -121,6 +128,7 @@ async fn exchange_inner(
     sender: &mut hyper::client::conn::http1::SendRequest<ReqBody>,
     url: &reqwest::Url,
     out: &Outgoing<'_>,
+    timed: Option<Timed<'_>>,
 ) -> Result<(Hop, Option<String>), ProxyRefusal> {
     let builder = hyper::Request::builder()
         .uri(request_target(url))
@@ -212,10 +220,15 @@ async fn exchange_inner(
     }
     .map_err(|e| ProxyRefusal::OriginHttp(format!("request could not be built: {e}")))?;
 
-    let response = sender
-        .send_request(request)
-        .await
-        .map_err(|e| ProxyRefusal::OriginHttp(format!("request failed: {e}")))?;
+    let sending = sender.send_request(request);
+    let sent = match timed {
+        None => sending.await,
+        Some(t) => match tokio::time::timeout(t.limits.headers, sending).await {
+            Ok(sent) => sent,
+            Err(_) => return Err(ProxyRefusal::Origin(t.fired(TimeoutPhase::Headers))),
+        },
+    };
+    let response = sent.map_err(|e| ProxyRefusal::OriginHttp(format!("request failed: {e}")))?;
 
     let status = response.status();
     if let Some(metadata) = out.response_metadata {
@@ -262,7 +275,15 @@ async fn exchange_inner(
     );
     let mut body = response.into_body();
     let mut buf: Vec<u8> = Vec::new();
-    while let Some(frame) = body.frame().await {
+    loop {
+        let next = match timed {
+            None => body.frame().await,
+            Some(t) => match tokio::time::timeout(t.limits.idle, body.frame()).await {
+                Ok(next) => next,
+                Err(_) => return Err(ProxyRefusal::Origin(t.fired(TimeoutPhase::Idle))),
+            },
+        };
+        let Some(frame) = next else { break };
         let frame = frame.map_err(|_| ProxyRefusal::Origin(Refusal::Upstream))?;
         if let Some(chunk) = frame.data_ref() {
             if buf.len() + chunk.len() > out.response_limit.min(MAX_IMAGE_BYTES) {

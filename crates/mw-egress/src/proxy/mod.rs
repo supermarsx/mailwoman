@@ -91,7 +91,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::net::TcpStream;
 
-use crate::{FETCH_TIMEOUT, Hop, MAX_REDIRECTS, Outgoing, PROXY_UA, Refusal, Target, ip_allowed};
+use std::time::{Duration, Instant};
+
+use crate::{
+    FETCH_TIMEOUT, Hop, MAX_REDIRECTS, Outgoing, PROXY_UA, Refusal, Target, Timed, TimeoutPhase,
+    ip_allowed,
+};
 
 /// A hop's outcome together with the media type its body declared.
 type TypedHop = Result<(Hop, Option<String>), ProxyRefusal>;
@@ -440,6 +445,7 @@ async fn hop_over_tunnel(
         &target.host,
         out,
         traversed,
+        None,
     )
     .await
     .map(|(hop, _)| hop)
@@ -456,6 +462,7 @@ async fn hop_with(
     origin_host: &str,
     out: &Outgoing<'_>,
     traversed: &Arc<AtomicBool>,
+    timed: Option<Timed<'_>>,
 ) -> TypedHop {
     if let Some(api) = out.authorized_api {
         api.validate_target(url).map_err(ProxyRefusal::Origin)?;
@@ -465,12 +472,23 @@ async fn hop_with(
         return Err(ProxyRefusal::PlaintextRefused);
     }
 
-    let conn = open_tunnel(dialer, route, dst).await?;
+    // Under t56 bounds the connect clock covers dialling the proxy, its CONNECT or
+    // SOCKS handshake and the origin TLS handshake inside the tunnel: everything
+    // before the request is written, as reqwest's connect timeout does directly.
+    let connect_deadline = timed.map(|t| (t, tokio::time::Instant::now() + t.limits.connect));
+    let conn = match connect_deadline {
+        None => open_tunnel(dialer, route, dst).await?,
+        Some((t, at)) => match tokio::time::timeout_at(at, open_tunnel(dialer, route, dst)).await {
+            Ok(conn) => conn?,
+            Err(_) => return Err(ProxyRefusal::Origin(t.fired(TimeoutPhase::Connect))),
+        },
+    };
     // From here the bytes have gone through the proxy. Set this BEFORE the TLS
     // handshake, so a certificate failure still reports a traversed tunnel.
     traversed.store(true, Ordering::SeqCst);
 
-    let pipe = if is_https {
+    let wrapping = async {
+        Ok::<_, ProxyRefusal>(if is_https {
         if let Some(dav) = out.authorized_dav {
             dav.validate().map_err(ProxyRefusal::Origin)?;
             stream::wrap_tls_with_roots(conn, origin_host, dav.additional_roots).await?
@@ -482,8 +500,35 @@ async fn hop_with(
         }
     } else {
         stream::TunnelStream::Plain(conn)
+    })
     };
-    http::exchange_typed(pipe, url, out).await
+    let pipe = match connect_deadline {
+        None => wrapping.await?,
+        Some((t, at)) => match tokio::time::timeout_at(at, wrapping).await {
+            Ok(pipe) => pipe?,
+            Err(_) => return Err(ProxyRefusal::Origin(t.fired(TimeoutPhase::Connect))),
+        },
+    };
+    http::exchange_typed(pipe, url, out, timed).await
+}
+
+/// The bound on one tunnelled hop: the legacy [`FETCH_TIMEOUT`], or under t56
+/// bounds whatever is left of the fetch's total deadline.
+fn hop_budget(timed: Option<(Timed<'_>, Instant)>) -> Duration {
+    match timed {
+        None => FETCH_TIMEOUT,
+        Some((_, deadline)) => deadline
+            .saturating_duration_since(Instant::now())
+            .max(Duration::from_millis(1)),
+    }
+}
+
+/// The refusal for an elapsed hop budget: the total deadline under t56 bounds.
+fn budget_elapsed(timed: Option<(Timed<'_>, Instant)>) -> ProxyRefusal {
+    ProxyRefusal::Origin(match timed {
+        None => Refusal::Timeout,
+        Some((t, _)) => t.fired(TimeoutPhase::Total),
+    })
 }
 
 /// A [`ProxyHop`] from a typed outcome.
@@ -510,6 +555,7 @@ async fn remote_dns_hop(
     url: &reqwest::Url,
     route: &ProxyRoute,
     out: &Outgoing<'_>,
+    timed: Option<(Timed<'_>, Instant)>,
 ) -> ProxyHop {
     let (dest, host) = match remote_dns::remote_destination(url) {
         Ok(d) => d,
@@ -523,7 +569,7 @@ async fn remote_dns_hop(
     };
     let traversed = Arc::new(AtomicBool::new(false));
     let outcome = match tokio::time::timeout(
-        FETCH_TIMEOUT,
+        hop_budget(timed),
         hop_with(
             dialer,
             route,
@@ -532,12 +578,13 @@ async fn remote_dns_hop(
             &host,
             out,
             &traversed,
+            timed.map(|(t, _)| t),
         ),
     )
     .await
     {
         Ok(result) => result,
-        Err(_) => Err(ProxyRefusal::Origin(Refusal::Timeout)),
+        Err(_) => Err(budget_elapsed(timed)),
     };
     proxy_hop(&traversed, outcome)
 }
@@ -590,7 +637,7 @@ async fn tunnel_send_hop_with(
     route: &ProxyRoute,
     out: &Outgoing<'_>,
 ) -> ProxyHop {
-    tunnel_send_hop_gated(dialer, target, route, out, &|_, _, ip| ip_allowed(ip)).await
+    tunnel_send_hop_gated(dialer, target, route, out, &|_, _, ip| ip_allowed(ip), None).await
 }
 
 async fn tunnel_send_hop_gated(
@@ -599,6 +646,7 @@ async fn tunnel_send_hop_gated(
     route: &ProxyRoute,
     out: &Outgoing<'_>,
     gate: &crate::AddressGate<'_>,
+    timed: Option<(Timed<'_>, Instant)>,
 ) -> ProxyHop {
     if !gate(&target.host, target.addr.port(), &target.addr.ip()) {
         return ProxyHop {
@@ -634,7 +682,7 @@ async fn tunnel_send_hop_gated(
 
     let traversed = Arc::new(AtomicBool::new(false));
     let outcome = match tokio::time::timeout(
-        FETCH_TIMEOUT,
+        hop_budget(timed),
         hop_with(
             dialer,
             route,
@@ -643,12 +691,13 @@ async fn tunnel_send_hop_gated(
             &target.host,
             out,
             &traversed,
+            timed.map(|(t, _)| t),
         ),
     )
     .await
     {
         Ok(result) => result,
-        Err(_) => Err(ProxyRefusal::Origin(Refusal::Timeout)),
+        Err(_) => Err(budget_elapsed(timed)),
     };
     proxy_hop(&traversed, outcome)
 }
@@ -702,7 +751,7 @@ async fn send_via_proxy_with(
     route: &ProxyRoute,
     out: &Outgoing<'_>,
 ) -> ProxyFetch {
-    send_via_proxy_gated_with(dialer, start, route, out, &|_, _, ip| ip_allowed(ip)).await
+    send_via_proxy_gated_with(dialer, start, route, out, &|_, _, ip| ip_allowed(ip), None).await
 }
 
 /// Internal policy-aware entrypoint: callers supply only the current plan's address gate.
@@ -712,7 +761,32 @@ pub(crate) async fn send_via_proxy_gated(
     out: &Outgoing<'_>,
     gate: &crate::AddressGate<'_>,
 ) -> ProxyFetch {
-    send_via_proxy_gated_with(&Dialer::production(), start, route, out, gate).await
+    send_via_proxy_gated_with(&Dialer::production(), start, route, out, gate, None).await
+}
+
+/// [`send_via_proxy`] (or, with `gate`, [`send_via_proxy_gated`]) under t56
+/// [`crate::FetchTimeouts`]: a connect clock over the tunnel and origin TLS, the
+/// headers and idle clocks inside the exchange, the caller's redirect cap, and a
+/// total deadline over every hop. Each hop is still resolved and gated exactly as
+/// without bounds, and `traversed_proxy` stays a measurement: a hop cut off by the
+/// deadline reports whether its tunnel had been accepted.
+pub(crate) async fn send_via_proxy_timed(
+    start: reqwest::Url,
+    route: &ProxyRoute,
+    out: &Outgoing<'_>,
+    gate: Option<&crate::AddressGate<'_>>,
+    timed: Timed<'_>,
+) -> ProxyFetch {
+    let strict = |_: &str, _: u16, ip: &std::net::IpAddr| ip_allowed(ip);
+    send_via_proxy_gated_with(
+        &Dialer::production(),
+        start,
+        route,
+        out,
+        gate.unwrap_or(&strict),
+        Some(timed),
+    )
+    .await
 }
 
 async fn send_via_proxy_gated_with(
@@ -721,7 +795,9 @@ async fn send_via_proxy_gated_with(
     route: &ProxyRoute,
     out: &Outgoing<'_>,
     gate: &crate::AddressGate<'_>,
+    timed: Option<Timed<'_>>,
 ) -> ProxyFetch {
+    let timed = timed.map(|t| (t, Instant::now() + t.limits.total));
     if out.authorized_plugin.is_some() && route.scheme == ProxyScheme::Socks5h {
         return ProxyFetch {
             traversed_proxy: false,
@@ -747,9 +823,10 @@ async fn send_via_proxy_gated_with(
     }
     let mut url = start;
     let mut traversed_proxy = false;
-    for _ in 0..=MAX_REDIRECTS {
+    let redirects = timed.map_or(MAX_REDIRECTS, |(t, _)| t.limits.max_redirects);
+    for _ in 0..=redirects {
         let hop = if route.scheme == ProxyScheme::Socks5h {
-            remote_dns_hop(dialer, &url, route, out).await
+            remote_dns_hop(dialer, &url, route, out, timed).await
         } else {
             let resolved = if out.authorized_plugin.is_some() {
                 crate::resolve_gated_all(url.clone(), gate).await
@@ -766,7 +843,7 @@ async fn send_via_proxy_gated_with(
                     };
                 }
             };
-            tunnel_send_hop_gated(dialer, &target, route, out, gate).await
+            tunnel_send_hop_gated(dialer, &target, route, out, gate, timed).await
         };
         traversed_proxy |= hop.traversed_proxy;
         match hop.outcome {
