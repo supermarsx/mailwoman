@@ -4284,7 +4284,10 @@ mod focused_inbox_tests {
         assert_eq!(d.category, "mail");
         assert!(d.user_visible(), "reaches GET /api/settings");
         assert!(d.user_override, "a user value is allowed unless locked");
-        assert!(d.scopes.allows(SettingScope::Domain), "domain default and lock");
+        assert!(
+            d.scopes.allows(SettingScope::Domain),
+            "domain default and lock"
+        );
         assert!(d.scopes.allows(SettingScope::User), "user value");
         assert!(d.dedicated_route.is_none());
         assert!(validate(d, &json!(true), "/value").is_ok());
