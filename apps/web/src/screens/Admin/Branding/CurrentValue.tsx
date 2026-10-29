@@ -118,7 +118,7 @@ export function BrandImageCurrent(props:{kind:BrandKind;field:string;current:Bra
 export function BrandTextCurrent(props:{field:string;published:string|null;draft:string|null}):JSX.Element{
  const pending=()=>(props.draft??'')!==(props.published??'');
  const shown=(value:string|null)=>value?.trim()?value:t('admin-branding-current-empty');
- return <CurrentTip class={css.infoTrigger} label={t('admin-branding-current-text-label',{field:props.field})} trigger={<Icon name="info"/>}>
+ return <CurrentTip class={css.infoTrigger} label={t('admin-branding-current-text-label')} trigger={<Icon name="info"/>}>
   <dl class={css.facts}>
    <dt>{t('admin-branding-current-heading')}</dt><dd>{shown(props.published)}</dd>
    <dt>{t('admin-branding-current-source')}</dt><dd>{t('admin-branding-current-published')}</dd>

@@ -31,7 +31,7 @@ it('replaces initial pending feedback with retry after a refused read',async()=>
 it('shows the published text value and the unsaved edit in a keyboard-reachable tooltip',async()=>{
  const a=api();a.read=vi.fn(async()=>({data:{...value(),loginNotice:'Welcome'},etag:'"one"'}));renderInShell(()=><BrandingSettings api={a}/>);
  const input=await screen.findByLabelText('Product name');
- const info=screen.getByRole('button',{name:'Current Product name'});
+ const info=screen.getAllByRole('button',{name:'Current value'})[0]!;
  expect(info).toHaveAttribute('data-tooltip','off');
  const tip=document.getElementById(info.getAttribute('aria-describedby')!)!;
  expect(tip).toHaveAttribute('role','tooltip');expect(tip).not.toBeVisible();
@@ -39,7 +39,7 @@ it('shows the published text value and the unsaved edit in a keyboard-reachable 
  fireEvent.keyDown(info,{key:'Escape'});expect(tip).not.toBeVisible();
  fireEvent.input(input,{target:{value:'Renamed'}});fireEvent.focus(info);
  expect(tip).toHaveTextContent('New (unsaved)');expect(tip).toHaveTextContent('Renamed');
- expect(screen.getByRole('button',{name:'Current Sign-in notice'})).toHaveAccessibleDescription(/Welcome/);
+ expect(screen.getAllByRole('button',{name:'Current value'})[1]!).toHaveAccessibleDescription(/Welcome/);
 });
 
 it('marks default and custom images and shows a private draft next to the published one',async()=>{

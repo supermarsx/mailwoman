@@ -23,7 +23,7 @@ admin-branding-pwa-image-help = PNG or JPEG, up to 1 MB, exactly { $pixels } by 
 # Current-value thumbnails and tooltips (t62)
 admin-branding-current-label = Current { $field }: { $state }
 admin-branding-current-label-pending = Current { $field }: { $state }, with an unsaved replacement
-admin-branding-current-text-label = Current { $field }
+admin-branding-current-text-label = Current value
 admin-branding-current-heading = Current
 admin-branding-current-new = New (unsaved)
 admin-branding-current-custom = Custom

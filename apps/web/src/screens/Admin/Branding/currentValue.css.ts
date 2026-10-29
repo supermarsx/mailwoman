@@ -23,6 +23,9 @@ globalStyle(`${checkerPattern} rect`,{fill:vars.color.border});
 export const checkerImage=style({position:'relative',display:'block',maxInlineSize:'100%',maxBlockSize:'100%',objectFit:'contain'});
 export const thumb=style({inlineSize:'1.5rem',blockSize:'1.5rem'});
 export const preview=style({inlineSize:'7.5rem',blockSize:'5rem'});
+// Bound the image by its box explicitly: a percentage max size inside an auto grid area does not.
+globalStyle(`${thumb} > img`,{maxInlineSize:`calc(1.5rem - 2 * ${vars.border.hair})`,maxBlockSize:`calc(1.5rem - 2 * ${vars.border.hair})`});
+globalStyle(`${preview} > img`,{maxInlineSize:`calc(7.5rem - 2 * ${vars.border.hair})`,maxBlockSize:`calc(5rem - 2 * ${vars.border.hair})`});
 export const emptyMark=style({position:'relative',color:vars.color.textDim,fontSize:'0.75rem'});
 
 export const bubble=style({minInlineSize:'min(14rem, calc(100vw - 16px))'});
