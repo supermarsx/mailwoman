@@ -37,6 +37,7 @@ mod analytics_adapter;
 mod analytics_config;
 mod analytics_routes;
 mod analytics_runtime;
+mod analytics_tag;
 mod appearance_customization;
 pub mod arf;
 mod attachment_policy;
@@ -1807,6 +1808,12 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
         .remove::<appearance_customization::AppearanceSandboxResponse>()
         .is_some();
     let isolated_frame = reader_frame || appearance_frame;
+    // t63: the mail shell of a consenting user with a browser analytics tag. Only
+    // `analytics_tag::mail_shell` sets it; it is the whole widened shell policy.
+    let analytics_csp = resp
+        .extensions_mut()
+        .remove::<analytics_tag::ShellCsp>()
+        .filter(|_| !isolated_frame);
     let h = resp.headers_mut();
     // A handler's own policy (a download's sandbox, t32-h4) is kept as a second
     // header next to the shell's. The browser enforces both, so it can only
@@ -1815,7 +1822,10 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
     if let (true, Some(policy)) = (isolated_frame, own.as_ref()) {
         h.insert("content-security-policy", policy.clone());
     } else {
-        h.insert("content-security-policy", HeaderValue::from_static(CSP));
+        h.insert(
+            "content-security-policy",
+            analytics_csp.map_or_else(|| HeaderValue::from_static(CSP), |c| c.0),
+        );
         if let Some(v) = own {
             h.append("content-security-policy", v);
         }
@@ -5052,6 +5062,17 @@ async fn static_handler(
             *response.body_mut() = Body::empty();
         }
         return response;
+    }
+    // t63: the browser analytics loader, and the mail shell that references it.
+    if path.starts_with(analytics_tag::ASSET_PREFIX) {
+        if let Some(resp) = analytics_tag::asset(&state, path, &headers).await {
+            return resp;
+        }
+    }
+    if path == "index.html"
+        && let Some(resp) = analytics_tag::mail_shell(&state, &method, &headers).await
+    {
+        return resp;
     }
     if let Some(resp) = serve_asset(&state, path, &headers) {
         return resp;

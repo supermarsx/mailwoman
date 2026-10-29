@@ -50,6 +50,7 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
         Capability::EgressWrite,
         remove_allow,
     );
+    crate::analytics_tag::register(r);
 }
 async fn user_status(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let session = match crate::authed(&state, &headers).await {
@@ -65,7 +66,20 @@ async fn user_status(State(state): State<AppState>, headers: HeaderMap) -> Respo
     let enabled = analytics_config::load(&state.store)
         .await
         .is_ok_and(|config| config.enabled);
-    ([("cache-control", "private, no-store")], Json(json!({"enabled":enabled,"consent":analytics_runtime::consent(&state.store,&storage_owner).await,"privacySignal":analytics_runtime::privacy_signal(&headers),"mode":"event-counts"}))).into_response()
+    // The provider whose browser tag would load with consent, so the consent
+    // control can name it. `null` when no tag is enabled.
+    let browser_tag = match crate::analytics_tag::load(&state.store).await {
+        Ok(tag) => match tag.plan() {
+            Ok(Some(plan)) => {
+                let key = crate::analytics_tag::consent_key(tag.provider, &plan);
+                Some(json!({"provider":tag.provider,"consentKey":key,
+                    "consent":crate::analytics_tag::tag_consent(&state.store,&storage_owner,&key).await}))
+            }
+            _ => None,
+        },
+        Err(()) => None,
+    };
+    ([("cache-control", "private, no-store")], Json(json!({"enabled":enabled,"consent":analytics_runtime::consent(&state.store,&storage_owner).await,"privacySignal":analytics_runtime::privacy_signal(&headers),"mode":"event-counts","browserTag":browser_tag}))).into_response()
 }
 async fn event(
     State(state): State<AppState>,

@@ -71,6 +71,11 @@ struct Tag {
 pub(super) struct Preferences {
     #[serde(skip_serializing_if = "Option::is_none")]
     analytics_consent: Option<bool>,
+    /// t63: consent to one browser analytics tag, `<provider>:<loader sha256>`,
+    /// or empty. Separate from `analytics_consent` (server-side counts only), so
+    /// a provider change or a new loader asks again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    analytics_tag_consent: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     keyboard_preset: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -147,6 +152,9 @@ fn valid_ids(value: &Option<Vec<String>>) -> bool {
 fn valid(document: &Document) -> bool {
     let p = &document.preferences;
     document.version == 1
+        && p.analytics_tag_consent
+            .as_deref()
+            .is_none_or(crate::analytics_tag::valid_consent_key)
         && choices(
             &p.keyboard_preset,
             &["default", "gmail", "outlook", "vim", "off"],
