@@ -287,3 +287,120 @@ calendar-time-invalid = Enter a valid time zone and local time. Some local times
 
 calendar-mini-prev = Previous month
 calendar-mini-next = Next month
+
+## t53 — the Outlook-style event card in the reader and the .ics preview
+calendar-card-region-event = Calendar event
+calendar-card-kind-request = Meeting invitation
+calendar-card-kind-update = Updated invitation
+calendar-card-kind-cancel = Cancelled meeting
+calendar-card-kind-reply = Meeting response
+calendar-card-kind-counter = New time proposed
+calendar-card-kind-publish = { $count ->
+    [one] Calendar event
+   *[other] { $count } calendar events
+}
+calendar-card-when = When
+calendar-card-where = Where
+calendar-card-organizer = Organizer
+calendar-card-attendees = Attendees
+calendar-card-all-day = { $when } (all day)
+calendar-card-organizer-time = Organizer’s time: { $when } ({ $zone })
+calendar-card-repeat-daily = { $interval ->
+    [one] Every day
+   *[other] Every { $interval } days
+}
+calendar-card-repeat-weekly = { $interval ->
+    [one] Every week
+   *[other] Every { $interval } weeks
+}
+calendar-card-repeat-weekly-on = { $interval ->
+    [one] Every { $days }
+   *[other] Every { $interval } weeks on { $days }
+}
+calendar-card-repeat-monthly = { $interval ->
+    [one] Every month
+   *[other] Every { $interval } months
+}
+calendar-card-repeat-monthly-day = { $interval ->
+    [one] Every month on day { $day }
+   *[other] Every { $interval } months on day { $day }
+}
+calendar-card-repeat-yearly = { $interval ->
+    [one] Every year
+   *[other] Every { $interval } years
+}
+calendar-card-repeat-until = { $rule } until { $date }
+calendar-card-repeat-count = { $rule }, { $count ->
+    [one] once
+   *[other] { $count } times
+}
+calendar-card-repeat-except = { $rule } ({ $count ->
+    [one] 1 date skipped
+   *[other] { $count } dates skipped
+})
+calendar-card-repeat-custom = Repeats on a custom schedule
+calendar-card-join = Join { $provider }
+calendar-card-organizer-is = Organized by { $who }
+calendar-card-attendee-summary = { $count ->
+    [one] 1 attendee
+   *[other] { $count } attendees
+} · { $accepted } accepted, { $tentative } tentative, { $declined } declined
+calendar-card-people-all = Show all { $count }
+calendar-card-people-fewer = Show fewer
+calendar-card-rsvp-accepted = Accepted
+calendar-card-rsvp-tentative = Tentative
+calendar-card-rsvp-declined = Declined
+calendar-card-rsvp-none = No response yet
+calendar-card-in-calendar = In your calendar
+calendar-card-cancelled = Cancelled
+calendar-card-open = Open in calendar
+calendar-card-agenda = Your calendar on { $day }
+calendar-card-agenda-title = Your day
+calendar-card-agenda-this-event = This event
+calendar-card-agenda-unavailable = Your calendar for this day could not be loaded.
+calendar-card-conflicts = { $count ->
+    [one] Conflicts with { $titles }
+   *[other] Conflicts with { $count } events: { $titles }
+}
+calendar-card-no-conflicts = No conflicts in your calendar
+calendar-card-invited-as = You were invited as { $address }.
+calendar-card-not-invited = This invitation does not list any of your addresses. You can add it to your calendar, but you cannot answer it.
+calendar-card-not-invited-short = This invitation does not list any of your addresses.
+calendar-card-out-of-date = This invitation is out of date. A newer version is already in your calendar.
+calendar-card-replied = { $who } { $answer ->
+    [accepted] accepted.
+    [tentative] tentatively accepted.
+    [declined] declined.
+   *[other] has not answered yet.
+}
+calendar-card-counter = { $who } proposed a new time. Proposals are not applied automatically.
+calendar-card-todos-skipped = { $count ->
+    [one] The file also holds 1 task, which is not added.
+   *[other] The file also holds { $count } tasks, which are not added.
+}
+calendar-card-respond = Respond to the invitation
+calendar-card-accept = Accept
+calendar-card-tentative = Tentative
+calendar-card-decline = Decline
+calendar-card-propose = Propose new time
+calendar-card-propose-start = New start
+calendar-card-propose-send = Send proposal
+calendar-card-propose-invalid = Enter a valid new start time.
+calendar-card-send-response = Send a response to { $organizer }
+calendar-card-comment = Comment (optional)
+calendar-card-calendar = Calendar
+calendar-card-events = Events in this file
+calendar-card-add-one = Add
+calendar-card-add-all = Add all ({ $count })
+calendar-card-added = { $count ->
+    [one] Added to your calendar.
+   *[other] { $count } events added to your calendar.
+}
+calendar-card-remove = Remove from calendar
+calendar-card-removed = Removed from your calendar.
+calendar-card-record-reply = Update attendee status
+calendar-card-answered-sent = { $answer }. Your response was sent to { $organizer }.
+calendar-card-answered-not-sent = { $answer }. Your calendar was updated, but the response could not be sent.
+calendar-card-answered-silently = { $answer }. No response was sent.
+calendar-card-proposal-sent = Your proposal was sent to { $organizer }.
+calendar-card-not-sent = The message could not be sent.

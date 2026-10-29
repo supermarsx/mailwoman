@@ -285,3 +285,120 @@ calendar-time-invalid = Introduza um fuso horário e uma hora local válidos. Al
 
 calendar-mini-prev = Mês anterior
 calendar-mini-next = Mês seguinte
+
+## t53 — o cartão de evento ao estilo Outlook no leitor e na pré-visualização de .ics
+calendar-card-region-event = Evento de calendário
+calendar-card-kind-request = Convite para reunião
+calendar-card-kind-update = Convite atualizado
+calendar-card-kind-cancel = Reunião cancelada
+calendar-card-kind-reply = Resposta a reunião
+calendar-card-kind-counter = Nova hora proposta
+calendar-card-kind-publish = { $count ->
+    [one] Evento de calendário
+   *[other] { $count } eventos de calendário
+}
+calendar-card-when = Quando
+calendar-card-where = Onde
+calendar-card-organizer = Organizador
+calendar-card-attendees = Participantes
+calendar-card-all-day = { $when } (todo o dia)
+calendar-card-organizer-time = Hora do organizador: { $when } ({ $zone })
+calendar-card-repeat-daily = { $interval ->
+    [one] Todos os dias
+   *[other] De { $interval } em { $interval } dias
+}
+calendar-card-repeat-weekly = { $interval ->
+    [one] Todas as semanas
+   *[other] De { $interval } em { $interval } semanas
+}
+calendar-card-repeat-weekly-on = { $interval ->
+    [one] Todas as semanas: { $days }
+   *[other] De { $interval } em { $interval } semanas: { $days }
+}
+calendar-card-repeat-monthly = { $interval ->
+    [one] Todos os meses
+   *[other] De { $interval } em { $interval } meses
+}
+calendar-card-repeat-monthly-day = { $interval ->
+    [one] Todos os meses, no dia { $day }
+   *[other] De { $interval } em { $interval } meses, no dia { $day }
+}
+calendar-card-repeat-yearly = { $interval ->
+    [one] Todos os anos
+   *[other] De { $interval } em { $interval } anos
+}
+calendar-card-repeat-until = { $rule }, até { $date }
+calendar-card-repeat-count = { $rule }, { $count ->
+    [one] uma vez
+   *[other] { $count } vezes
+}
+calendar-card-repeat-except = { $rule } ({ $count ->
+    [one] 1 data excluída
+   *[other] { $count } datas excluídas
+})
+calendar-card-repeat-custom = Repete-se com uma periodicidade personalizada
+calendar-card-join = Entrar no { $provider }
+calendar-card-organizer-is = Organizado por { $who }
+calendar-card-attendee-summary = { $count ->
+    [one] 1 participante
+   *[other] { $count } participantes
+} · { $accepted } aceitaram, { $tentative } provisórios, { $declined } recusaram
+calendar-card-people-all = Mostrar todos ({ $count })
+calendar-card-people-fewer = Mostrar menos
+calendar-card-rsvp-accepted = Aceite
+calendar-card-rsvp-tentative = Provisório
+calendar-card-rsvp-declined = Recusado
+calendar-card-rsvp-none = Ainda sem resposta
+calendar-card-in-calendar = No seu calendário
+calendar-card-cancelled = Cancelado
+calendar-card-open = Abrir no calendário
+calendar-card-agenda = O seu calendário em { $day }
+calendar-card-agenda-title = O seu dia
+calendar-card-agenda-this-event = Este evento
+calendar-card-agenda-unavailable = Não foi possível carregar o seu calendário para este dia.
+calendar-card-conflicts = { $count ->
+    [one] Em conflito com { $titles }
+   *[other] Em conflito com { $count } eventos: { $titles }
+}
+calendar-card-no-conflicts = Sem conflitos no seu calendário
+calendar-card-invited-as = Foi convidado como { $address }.
+calendar-card-not-invited = Este convite não inclui nenhum dos seus endereços. Pode adicioná-lo ao calendário, mas não pode responder.
+calendar-card-not-invited-short = Este convite não inclui nenhum dos seus endereços.
+calendar-card-out-of-date = Este convite está desatualizado. Já existe uma versão mais recente no seu calendário.
+calendar-card-replied = { $who } { $answer ->
+    [accepted] aceitou.
+    [tentative] aceitou provisoriamente.
+    [declined] recusou.
+   *[other] ainda não respondeu.
+}
+calendar-card-counter = { $who } propôs uma nova hora. As propostas não são aplicadas automaticamente.
+calendar-card-todos-skipped = { $count ->
+    [one] O ficheiro também contém 1 tarefa, que não é adicionada.
+   *[other] O ficheiro também contém { $count } tarefas, que não são adicionadas.
+}
+calendar-card-respond = Responder ao convite
+calendar-card-accept = Aceitar
+calendar-card-tentative = Provisório
+calendar-card-decline = Recusar
+calendar-card-propose = Propor nova hora
+calendar-card-propose-start = Novo início
+calendar-card-propose-send = Enviar proposta
+calendar-card-propose-invalid = Introduza uma nova hora de início válida.
+calendar-card-send-response = Enviar uma resposta a { $organizer }
+calendar-card-comment = Comentário (opcional)
+calendar-card-calendar = Calendário
+calendar-card-events = Eventos neste ficheiro
+calendar-card-add-one = Adicionar
+calendar-card-add-all = Adicionar todos ({ $count })
+calendar-card-added = { $count ->
+    [one] Adicionado ao seu calendário.
+   *[other] { $count } eventos adicionados ao seu calendário.
+}
+calendar-card-remove = Remover do calendário
+calendar-card-removed = Removido do seu calendário.
+calendar-card-record-reply = Atualizar o estado do participante
+calendar-card-answered-sent = { $answer }. A sua resposta foi enviada a { $organizer }.
+calendar-card-answered-not-sent = { $answer }. O seu calendário foi atualizado, mas não foi possível enviar a resposta.
+calendar-card-answered-silently = { $answer }. Não foi enviada nenhuma resposta.
+calendar-card-proposal-sent = A sua proposta foi enviada a { $organizer }.
+calendar-card-not-sent = Não foi possível enviar a mensagem.

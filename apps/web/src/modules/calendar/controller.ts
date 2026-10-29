@@ -10,7 +10,8 @@
 // read with `pimResponse`, which turns the engine's method-level failure body
 // into a thrown error instead of a result with missing fields.
 
-import { batch, createMemo, createSignal, type Accessor } from 'solid-js';
+import { batch, createMemo, createSignal, getOwner, onCleanup, type Accessor } from 'solid-js';
+import { onCalendarFocus, takeCalendarFocus } from './focusHandoff.ts';
 import type { Id, JmapRequest, JmapResponse } from '../../api/jmap-types.ts';
 import type { Calendar, CalendarEvent } from '../../api/pim-types.ts';
 import {
@@ -294,7 +295,7 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
   const [masters, setMasters] = createSignal<CalendarEvent[]>([]);
   const [instances, setInstances] = createSignal<EventInstance[]>([]);
   const [view, setView] = createSignal<CalendarView>('week');
-  const [focusDate, setFocusDate] = createSignal<Date>(startOfDay(new Date()));
+  const [focusDate, setFocusDate] = createSignal<Date>(startOfDay(takeCalendarFocus() ?? new Date()));
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [conflictEventIds, setConflictEventIds] = createSignal<Set<Id>>(new Set());
@@ -461,6 +462,13 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
       if (!stale()) setLoading(false);
     }
   }
+
+  // "Open in calendar" from the reader's event card (focusHandoff.ts).
+  const stopFollowing = onCalendarFocus((day) => {
+    setFocusDate(startOfDay(day));
+    void load();
+  });
+  if (getOwner()) onCleanup(stopFollowing);
 
   // ── navigation ──
   function goToday(): void {

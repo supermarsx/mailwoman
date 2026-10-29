@@ -33,15 +33,18 @@ test('received invitations require a click and reject a forged cancellation', as
   const card = page.getByRole('region', { name: 'Calendar invitation' });
   await expect(card.getByText(`Planning ${tag}`)).toBeVisible();
   expect(applies).toEqual([false]);
-  await card.getByRole('button', { name: 'Add to calendar' }).click();
-  await expect(card.getByText('Your calendar was updated.')).toBeVisible();
-  expect(applies).toEqual([false, true]);
+  // t53: the invitation lists this account's address, so the card answers it.
+  // Accept without sending a reply: the event is stored, nothing is mailed.
+  await card.getByRole('checkbox', { name: /Send a response to/ }).uncheck();
+  await card.getByRole('button', { name: 'Accept' }).click();
+  await expect(card.getByText('Accepted. No response was sent.')).toBeVisible();
+  expect(applies.filter(Boolean)).toEqual([]);
 
   await page.reload();
   await waitForInboxMessage(page, subject);
   await messageRow(page, subject).click();
-  await expect(card.getByText('Your calendar already has this version.')).toBeVisible();
-  await expect(card.getByRole('button')).toHaveCount(0);
+  await expect(card.locator('[data-card="badge"]')).toHaveText('Accepted');
+  await expect(card.getByRole('button', { name: 'Add to calendar' })).toHaveCount(0);
 
   const forged = `Forged cancellation ${tag}`;
   await injectViaSmtp({
@@ -52,5 +55,5 @@ test('received invitations require a click and reject a forged cancellation', as
   await messageRow(page, forged).click();
   await expect(card.getByText('The sender is not the stored organizer. Nothing will be changed.')).toBeVisible();
   await expect(card.getByRole('button')).toHaveCount(0);
-  expect(applies.filter(Boolean)).toHaveLength(1);
+  expect(applies.filter(Boolean)).toHaveLength(0);
 });
