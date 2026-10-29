@@ -65,6 +65,7 @@ import {
   createRemoteImageApi,
   hasBlockedContent,
   type GrantScope,
+  type MutationOptions,
 } from '../api/remote-images.ts';
 import { extractHtmlBody } from '../state/slices/mail.ts';
 import { RemoteContentBar } from './RemoteContentBar.tsx';
@@ -902,21 +903,24 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     if (id !== null) await app.openMessage(id);
   }
 
-  async function onRemoteGrant(scope: GrantScope): Promise<void> {
+  // The grant is the user's action; reloading the body afterwards is not. A
+  // failed reload must not be reported as "could not update remote image
+  // permissions" (the grant was saved), so it is caught on its own (t82).
+  async function onRemoteGrant(scope: GrantScope, options?: MutationOptions): Promise<void> {
     const acct = app.accountId();
     if (acct === null) return;
-    await remoteImages.grant(acct, scope);
+    await remoteImages.grant(acct, scope, options);
     void refetchGrants();
     // Re-fetch + re-sanitize so the now-permitted images load through the proxy.
-    await reloadOpenMessage();
+    await reloadOpenMessage().catch(() => undefined);
   }
 
-  async function onRemoteRevoke(scope: GrantScope): Promise<void> {
+  async function onRemoteRevoke(scope: GrantScope, options?: MutationOptions): Promise<void> {
     const acct = app.accountId();
     if (acct === null) return;
-    await remoteImages.revoke(acct, scope);
+    await remoteImages.revoke(acct, scope, options);
     void refetchGrants();
-    await reloadOpenMessage();
+    await reloadOpenMessage().catch(() => undefined);
   }
 
   // Loading-images toast + the one stats read per displayed body (t55). Only the

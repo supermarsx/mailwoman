@@ -24,6 +24,7 @@
 import { Show, createMemo, createSignal, type JSX } from 'solid-js';
 import { t } from '../i18n/index.ts';
 import { toast } from './toast/toast.ts';
+import { runRecoverable } from './recoverableAction.ts';
 import { Icon, type IconName } from './Icon.tsx';
 import { createContextMenu, type ContextAction } from './ContextMenu.tsx';
 import * as css from './remote-content-bar.css.ts';
@@ -34,6 +35,7 @@ import {
   type BlockedContentReport,
   type GrantScope,
   type GrantScopeKind,
+  type MutationOptions,
   type RemoteImageGrant,
 } from '../api/remote-images.ts';
 
@@ -50,9 +52,9 @@ export interface RemoteContentBarProps {
   /** Settled count of trackers removed beyond the HTML ones (server-decoded). */
   decodedTrackers?: { count: number; limited: boolean } | null;
   /** Persist a grant for a scope. Defaults to a no-op. */
-  onGrant?: (scope: GrantScope) => Promise<void> | void;
+  onGrant?: (scope: GrantScope, options?: MutationOptions) => Promise<void> | void;
   /** Revoke a grant. Defaults to a no-op. */
-  onRevoke?: (scope: GrantScope) => Promise<void> | void;
+  onRevoke?: (scope: GrantScope, options?: MutationOptions) => Promise<void> | void;
   /** Open Settings › Privacy. The menu item is shown only when given. */
   onOpenPrivacySettings?: () => void;
 }
@@ -105,30 +107,38 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
   });
   const fullText = (): string => [headline(), trackerText()].filter(Boolean).join(SEP);
 
-  async function grant(kind: GrantScopeKind): Promise<void> {
+  // t82: the write recovers by itself where that is safe (`api/recovery.ts`):
+  // no toast for an attempt that later succeeds, "Retrying…" on the button only
+  // after about a second, and one toast with Retry on the final failure.
+  const [slow, setSlow] = createSignal<'retrying' | 'offline' | null>(null);
+  const options: MutationOptions = { onSlow: setSlow };
+  async function change(key: string, send: () => Promise<void> | void): Promise<void> {
     if (pending()) return;
     setPending(true);
     try {
-      await settle((props.onGrant ?? (() => undefined))(scopeFor(kind, ctx())));
-    } catch {
-      toast.error(t('remote-change-failed'));
+      await runRecoverable({
+        key: `remote-images:${props.emailId}:${key}`,
+        run: () => settle(send()),
+        message: (reason) => t('remote-change-failed', { reason }),
+      });
     } finally {
       setPending(false);
+      setSlow(null);
     }
   }
 
-  async function undo(): Promise<void> {
-    const g = props.activeGrant;
-    if (g === null || g === undefined || pending()) return;
-    setPending(true);
-    try {
-      await settle((props.onRevoke ?? (() => undefined))({ kind: g.scopeKind, value: g.scopeValue }));
-    } catch {
-      toast.error(t('remote-change-failed'));
-    } finally {
-      setPending(false);
-    }
+  function grant(kind: GrantScopeKind): Promise<void> {
+    const scope = scopeFor(kind, ctx());
+    return change(`grant:${kind}`, () => (props.onGrant ?? (() => undefined))(scope, options));
   }
+
+  function undo(): Promise<void> {
+    const g = props.activeGrant;
+    if (g === null || g === undefined) return Promise.resolve();
+    const scope = { kind: g.scopeKind, value: g.scopeValue };
+    return change(`revoke:${g.scopeKind}`, () => (props.onRevoke ?? (() => undefined))(scope, options));
+  }
+  const slowLabel = (): string | null => (slow() === 'offline' ? t('common-waiting-online') : slow() === 'retrying' ? t('common-retrying') : null);
 
   const undoHelp = (): string => {
     const g = props.activeGrant;
@@ -160,7 +170,7 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
     label: () => t('remote-banner-more'),
     scope: () => props.emailId,
     actions: menuActions,
-    onError: () => toast.error(t('remote-change-failed')),
+    onError: () => toast.error(t('remote-change-failed', { reason: t('common-failure-refused') })),
   });
 
   return (
@@ -174,13 +184,13 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
         </span>
         <span class={css.actions}>
           <Show when={mode() === 'ask' && !granted()}>
-            <button type="button" class={`${css.btn} ${css.btnPrimary}`} disabled={pending()} data-detached-local="" data-tooltip={t('remote-banner-show-help')} aria-label={t('remote-banner-show')} onClick={() => void grant('single')}>
-              <Icon name="eye" /><span class={css.label}>{t('remote-banner-show')}</span>
+            <button type="button" class={`${css.btn} ${css.btnPrimary}`} disabled={pending()} aria-busy={slow() !== null} data-detached-local="" data-tooltip={t('remote-banner-show-help')} aria-label={t('remote-banner-show')} onClick={() => void grant('single')}>
+              <Icon name="eye" /><span class={css.label}>{slowLabel() ?? t('remote-banner-show')}</span>
             </button>
           </Show>
           <Show when={mode() === 'ask' && granted()}>
             <button type="button" class={css.btn} disabled={pending()} data-detached-local="" data-tooltip={undoHelp()} aria-label={`${t('remote-banner-undo')}: ${undoHelp()}`} onClick={() => void undo()}>
-              <Icon name="restore" /><span class={css.label}>{t('remote-banner-undo')}</span>
+              <Icon name="restore" /><span class={css.label}>{slowLabel() ?? t('remote-banner-undo')}</span>
             </button>
           </Show>
           <Show when={menuActions().length > 0}>

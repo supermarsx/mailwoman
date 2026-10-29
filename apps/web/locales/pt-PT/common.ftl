@@ -16,6 +16,18 @@ common-done = Concluído
 common-apply = Aplicar
 common-confirm = Confirmar
 common-retry = Tentar novamente
+
+# t82: automatic recovery for writes. "Retrying…" shows only after about a second.
+common-retrying = A tentar novamente…
+common-waiting-online = À espera de ligação…
+common-failure-offline = Está sem ligação. Volte a ligar-se e tente novamente.
+common-failure-network = Não foi possível contactar o servidor.
+common-failure-server = O servidor não respondeu a tempo.
+common-failure-rate = Demasiados pedidos em pouco tempo. Aguarde um momento e tente novamente.
+common-failure-conflict = Isto foi alterado noutro local ao mesmo tempo. Recarregue e tente novamente.
+common-failure-account = A conta com sessão iniciada mudou. Recarregue a página.
+common-failure-linked = Isto não está disponível enquanto uma caixa de correio ligada está aberta.
+common-failure-refused = O servidor recusou a alteração.
 # Desktop and mobile apps only: under the error shown when the server the app
 # was built or provisioned for does not answer at start. The user cannot change
 # the server; an administrator can.

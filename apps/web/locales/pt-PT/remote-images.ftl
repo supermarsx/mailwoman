@@ -3,7 +3,7 @@
 
 remote-bar-label = Conteúdo remoto
 
-remote-change-failed = Não foi possível atualizar as permissões de imagens remotas. Tente novamente.
+remote-change-failed = Não foi possível atualizar as permissões de imagens remotas. { $reason }
 
 # -- Single-line banner (t55) ---------------------------------------------------
 remote-banner-blocked = Imagens remotas bloqueadas

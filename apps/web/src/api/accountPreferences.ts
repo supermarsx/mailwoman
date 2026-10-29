@@ -66,7 +66,9 @@ async function snapshot(response: Response): Promise<Snapshot> {
 const api: AccountPreferencesApi = {
   async load() { return snapshot(await apiFetch(withBase(endpoint), {headers:storageAuthorityHeaders()})); },
   async save(preferences, etag, options) {
-    return snapshot(await apiFetch(withBase(endpoint), {method:'PUT', ...(options?.keepalive === true ? {keepalive:true} : {}), headers:{...storageAuthorityHeaders(),'content-type':'application/json','if-match':etag}, body:JSON.stringify({version:1,preferences})}));
+    // t82: a PUT of the whole document under If-Match: retried on a transient
+    // failure; a replay after a lost answer meets 412 and the field merge below.
+    return snapshot(await apiFetch(withBase(endpoint), {method:'PUT', ...(options?.keepalive === true ? {keepalive:true} : {recovery:{idempotent:true}}), headers:{...storageAuthorityHeaders(),'content-type':'application/json','if-match':etag}, body:JSON.stringify({version:1,preferences})}));
   },
 };
 

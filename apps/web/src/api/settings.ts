@@ -23,6 +23,7 @@
 import { createSignal } from 'solid-js';
 import { withBase } from './basePath.ts';
 import { apiFetch } from './http.ts';
+import { idempotentWrite } from './recovery.ts';
 import { preferenceAccount, preferenceAccountIsCurrent } from './accountPreferenceLifecycle.ts';
 
 /** Where an effective value came from (`SettingSource::as_str` on the server). */
@@ -53,7 +54,9 @@ export type SettingsMap = Readonly<Record<string, SettingEntry>>;
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
-const defaultFetcher: Fetcher = (input, init) => apiFetch(input, { credentials: 'same-origin', ...init });
+// t82: a setting write is a PUT of the whole value or a DELETE back to the
+// default, both idempotent: retried on a transient failure (`recovery.ts`).
+const defaultFetcher: Fetcher = (input, init) => apiFetch(input, { credentials: 'same-origin', ...init, ...idempotentWrite(init, ['PUT', 'DELETE']) });
 
 /**
  * A refused settings request. `code` is the server's machine code

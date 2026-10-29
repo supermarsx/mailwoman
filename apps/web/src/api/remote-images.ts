@@ -31,7 +31,8 @@
 // the report is empty and the bar stays hidden — honest by construction.
 
 import { withBase } from './basePath.ts';
-import { apiFetch } from './http.ts';
+import { apiFetch, type ApiRequestInit } from './http.ts';
+import { failureOf } from './recovery.ts';
 
 /** The 4 grant scopes (0016 `scope_kind`). */
 export type GrantScopeKind = 'single' | 'all' | 'per-sender' | 'per-domain';
@@ -67,9 +68,9 @@ const EMPTY_REPORT: BlockedContentReport = { blockedHosts: [], blockedCount: 0, 
  *  implementation ({@link createRemoteImageApi}); tests pass a fake. */
 export interface RemoteImageApi {
   /** Grant remote-image loading for a scope (idempotent; un-revokes). */
-  grant(accountId: string, scope: GrantScope): Promise<void>;
+  grant(accountId: string, scope: GrantScope, options?: MutationOptions): Promise<void>;
   /** Soft-revoke a grant (remote images for that scope block again next load). */
-  revoke(accountId: string, scope: GrantScope): Promise<void>;
+  revoke(accountId: string, scope: GrantScope, options?: MutationOptions): Promise<void>;
   /** Active (non-revoked) grants for the account, newest first. */
   listGrants(accountId: string): Promise<RemoteImageGrant[]>;
 }
@@ -77,7 +78,10 @@ export interface RemoteImageApi {
 /** An injectable request function so the reader unit-tests with a fake — the
  *  default is a same-origin cookie-authed `fetch`, matching the sibling settings
  *  service (`screens/Settings/service.ts`). */
-export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
+export type Fetcher = (input: string, init?: ApiRequestInit) => Promise<Response>;
+
+/** t82: told when recovery runs long ("Retrying…"). */
+export interface MutationOptions { onSlow?: (state: 'retrying' | 'offline' | null) => void }
 
 const defaultFetcher: Fetcher = (input, init) => apiFetch(input, { credentials: 'same-origin', ...init });
 
@@ -98,17 +102,21 @@ interface GrantsResponse {
  * not sent). This mapping is the whole e6 seam.
  */
 export function createRemoteImageApi(fetcher: Fetcher = defaultFetcher): RemoteImageApi {
-  async function mutate(action: 'grant' | 'revoke', scope: GrantScope): Promise<void> {
+  // Grant and revoke set the state of one scope (the server upserts the row or
+  // marks it revoked), so sending either twice leaves what sending it once does:
+  // idempotent, and retried on a transient failure (t82, `recovery.ts`).
+  async function mutate(action: 'grant' | 'revoke', scope: GrantScope, options?: MutationOptions): Promise<void> {
     const res = await fetcher(withBase(`/api/remote-images/${action}`), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scopeKind: scope.kind, scopeValue: scope.value }),
+      recovery: { idempotent: true, ...(options?.onSlow ? { onSlow: options.onSlow } : {}) },
     });
-    if (!res.ok) throw new Error(`remote-image ${action} failed with ${res.status}`);
+    if (!res.ok) throw await failureOf(res);
   }
   return {
-    grant: (_accountId, scope) => mutate('grant', scope),
-    revoke: (_accountId, scope) => mutate('revoke', scope),
+    grant: (_accountId, scope, options) => mutate('grant', scope, options),
+    revoke: (_accountId, scope, options) => mutate('revoke', scope, options),
     async listGrants(_accountId) {
       const res = await fetcher(withBase('/api/remote-images/grants'));
       if (!res.ok) throw new Error(`remote-image grants failed with ${res.status}`);

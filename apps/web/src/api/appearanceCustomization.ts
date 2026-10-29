@@ -41,5 +41,5 @@ export async function loadCustomization(owner: AppearanceOwner, signal: AbortSig
   return result;
 }
 export async function saveCustomization(owner: AppearanceOwner, previous: CustomizationSnapshot, document: AppearanceDocument, signal: AbortSignal): Promise<CustomizationSnapshot> {
-  return snapshot(await apiFetch(endpoint(owner), {method: 'PUT', signal, headers: {...(owner.kind === 'mailbox' ? storageAuthorityHeaders(previous.value.storageAuthority ?? '') : {}), 'content-type': 'application/json', 'if-match': previous.etag}, body: JSON.stringify({ownerId: previous.value.ownerId, document})}));
+  return snapshot(await apiFetch(endpoint(owner), {method: 'PUT', signal, recovery: {idempotent: true}, headers: {...(owner.kind === 'mailbox' ? storageAuthorityHeaders(previous.value.storageAuthority ?? '') : {}), 'content-type': 'application/json', 'if-match': previous.etag}, body: JSON.stringify({ownerId: previous.value.ownerId, document})}));
 }

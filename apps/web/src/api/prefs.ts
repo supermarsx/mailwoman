@@ -52,6 +52,7 @@ import { storageAuthorityHeaders } from './storageAuthority.ts';
 
 import { withBase } from './basePath.ts';
 import { apiFetch } from './http.ts';
+import { idempotentWrite } from './recovery.ts';
 import { onPageHide, pendingWrite } from './unloadFlush.ts';
 import { defaultAppearance, parseAppearancePrefs, FONT_STACKS, isBadgeColor, type AppearancePrefs, type BadgeColor, type UiFont } from '../theme/appearance.ts';
 import { observePreferenceAccount, preferenceAccount } from './accountPreferenceLifecycle.ts';
@@ -83,8 +84,10 @@ export interface StoredAppearance {
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
+// t82: the appearance PUT replaces the whole document: retried on a transient
+// failure (`recovery.ts`); a keepalive send from pagehide is not.
 const defaultFetcher: Fetcher = (input, init) =>
-  apiFetch(input, { credentials: 'same-origin', ...init });
+  apiFetch(input, { credentials: 'same-origin', ...init, ...idempotentWrite(init) });
 
 /** Raised on a non-2xx appearance request; `status` separates 401 from failure. */
 export class AppearanceSyncError extends Error {

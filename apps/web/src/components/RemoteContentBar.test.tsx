@@ -36,7 +36,7 @@ describe('RemoteContentBar — blocked (ask)', () => {
     const onGrant = vi.fn().mockResolvedValue(undefined);
     render(() => <RemoteContentBar {...CTX} report={report()} onGrant={onGrant} />);
     fireEvent.click(screen.getByRole('button', { name: 'Show images' }));
-    expect(onGrant).toHaveBeenCalledWith({ kind: 'single', value: 'M1' });
+    expect(onGrant).toHaveBeenCalledWith({ kind: 'single', value: 'M1' }, expect.anything());
   });
 
   const MENU: [RegExp, { kind: string; value: string }][] = [
@@ -50,7 +50,7 @@ describe('RemoteContentBar — blocked (ask)', () => {
       const { unmount } = render(() => <RemoteContentBar {...CTX} report={report()} onGrant={onGrant} />);
       openMenu();
       fireEvent.click(screen.getByRole('menuitem', { name: label }));
-      expect(onGrant).toHaveBeenCalledWith(scope);
+      expect(onGrant).toHaveBeenCalledWith(scope, expect.anything());
       unmount();
     });
   }
@@ -97,7 +97,7 @@ describe('RemoteContentBar — shown (ask, granted)', () => {
     const onRevoke = vi.fn().mockResolvedValue(undefined);
     render(() => <RemoteContentBar {...CTX} report={report()} activeGrant={grant} onRevoke={onRevoke} />);
     fireEvent.click(screen.getByRole('button', { name: /^Undo/ }));
-    expect(onRevoke).toHaveBeenCalledWith({ kind: 'per-sender', value: 'bob@spam.example' });
+    expect(onRevoke).toHaveBeenCalledWith({ kind: 'per-sender', value: 'bob@spam.example' }, expect.anything());
   });
 
   it('show → shown → undo → blocked in one mounted banner', async () => {
@@ -145,5 +145,56 @@ describe('RemoteContentBar — incremental counts', () => {
     observer.disconnect();
     expect([...texts]).toEqual(['Images loaded through the server', 'Images loaded through the server · 2 trackers removed']);
     expect(screen.getByRole('status')).toBe(status);
+  });
+});
+
+// t82: the write recovers by itself where that is safe; the banner shows no
+// toast for an attempt that later succeeds and ONE toast with a working Retry
+// on the final failure.
+describe('RemoteContentBar — recovery (t82)', () => {
+  it('shows no error toast when the grant succeeds after retries', async () => {
+    const { toasts, resetToasts } = await import('./toast/toast.ts');
+    resetToasts();
+    const onGrant = vi.fn(async (_scope: unknown, options?: { onSlow?: (s: 'retrying' | 'offline' | null) => void }) => {
+      options?.onSlow?.('retrying');
+      await Promise.resolve();
+      options?.onSlow?.(null);
+    });
+    render(() => <RemoteContentBar {...CTX} report={report()} onGrant={onGrant} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Show images' }));
+    await vi.waitFor(() => expect(onGrant).toHaveBeenCalledTimes(1));
+    await Promise.resolve(); await Promise.resolve();
+    expect(toasts().filter((t) => t.tone === 'error')).toHaveLength(0);
+  });
+
+  it('says "Retrying…" on the button while recovery runs long', async () => {
+    let finish!: () => void;
+    const onGrant = vi.fn((_scope: unknown, options?: { onSlow?: (s: 'retrying' | 'offline' | null) => void }) => new Promise<void>((resolve) => { options?.onSlow?.('retrying'); finish = resolve; }));
+    render(() => <RemoteContentBar {...CTX} report={report()} onGrant={onGrant} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Show images' }));
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Show images' })).toHaveTextContent('Retrying…'));
+    expect(screen.getByRole('button', { name: 'Show images' })).toHaveAttribute('aria-busy', 'true');
+    finish();
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Show images' })).toHaveTextContent(/^Show images$/));
+  });
+
+  it('a final failure shows one toast with the reason, and its Retry grants', async () => {
+    const { toasts, resetToasts } = await import('./toast/toast.ts');
+    const { RecoveryError } = await import('../api/recovery.ts');
+    resetToasts();
+    const onGrant = vi.fn().mockRejectedValueOnce(new RecoveryError('server')).mockRejectedValueOnce(new RecoveryError('server')).mockResolvedValue(undefined);
+    render(() => <RemoteContentBar {...CTX} report={report()} onGrant={onGrant} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Show images' }));
+    await vi.waitFor(() => expect(toasts().filter((t) => t.tone === 'error')).toHaveLength(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Show images' }));
+    await vi.waitFor(() => expect(onGrant).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    const errors = toasts().filter((t) => t.tone === 'error');
+    expect(errors).toHaveLength(1); // the second failure replaced the first
+    expect(errors[0]?.message).toBe('Could not update remote image permissions. The server did not answer in time.');
+    await errors[0]?.action?.run();
+    await vi.waitFor(() => expect(onGrant).toHaveBeenCalledTimes(3));
+    expect(onGrant).toHaveBeenLastCalledWith({ kind: 'single', value: 'M1' }, expect.anything());
+    await vi.waitFor(() => expect(toasts().filter((t) => t.tone === 'error')).toHaveLength(0));
   });
 });

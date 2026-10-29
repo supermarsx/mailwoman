@@ -11,7 +11,7 @@
 
 remote-bar-label = Remote content
 
-remote-change-failed = Could not update remote image permissions. Please try again.
+remote-change-failed = Could not update remote image permissions. { $reason }
 
 # -- Single-line banner (t55) ---------------------------------------------------
 remote-banner-blocked = Remote images blocked

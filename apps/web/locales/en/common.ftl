@@ -29,6 +29,18 @@ common-done = Done
 common-apply = Apply
 common-confirm = Confirm
 common-retry = Retry
+
+# t82: automatic recovery for writes. "Retrying…" shows only after about a second.
+common-retrying = Retrying…
+common-waiting-online = Waiting for a connection…
+common-failure-offline = You are offline. Reconnect, then retry.
+common-failure-network = The server could not be reached.
+common-failure-server = The server did not answer in time.
+common-failure-rate = Too many requests in a short time. Wait a moment, then retry.
+common-failure-conflict = This was changed somewhere else at the same time. Reload, then retry.
+common-failure-account = The signed-in account changed. Reload the page.
+common-failure-linked = This is not available while a linked mailbox is open.
+common-failure-refused = The server refused the change.
 # Desktop and mobile apps only: under the error shown when the server the app
 # was built or provisioned for does not answer at start. The user cannot change
 # the server; an administrator can.

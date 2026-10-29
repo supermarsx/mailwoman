@@ -54,6 +54,9 @@ export function createLinkedAccountsApi() {
     if(!owner?.storageAuthority||!authority||!preferenceAccountIsCurrent(owner)||controller.signal.aborted)throw new DOMException('Account changed','AbortError');
     const response=await apiFetch(withBase(`/api/accounts${path}`),{
       method,credentials:'same-origin',signal:controller.signal,
+      // t82: the PUTs (which mailbox opens first, order and nicknames) set a whole
+      // value: retried on a transient failure. Link, renew, switch and unlink are not.
+      ...(method==='PUT'?{recovery:{idempotent:true}}:{}),
       headers:{'content-type':'application/json','x-mailwoman-storage-authority':authority,...headers},
       ...(body===undefined?{}:{body:JSON.stringify(body)}),
     });

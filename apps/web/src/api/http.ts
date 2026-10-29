@@ -41,10 +41,13 @@ import { adminSessionGeneration,observeAdminResponse } from './adminSession.ts';
 import { preferenceAccount, preferenceAccountIsCurrent } from './accountPreferenceLifecycle.ts';
 import {activeLinkedMailbox,linkedMailboxEpoch,LinkedContextUnsupportedError} from './linkedMailboxSession.ts';
 import {linkedRoute,linkedUnsignedResource} from './linkedAccountRouting.ts';
+import { recoverRequest, type RecoveryOptions } from './recovery.ts';
 
 export interface ApiRequestInit extends RequestInit {
   /** Explicit effective-Me/discovery probe. Never sent as a fetch option. */
   mailboxContext?:string|null;
+  /** t82: retry/recover this request (see `recovery.ts`). Never sent as a fetch option. */
+  recovery?:RecoveryOptions;
 }
 
 /** The readable cookie holding the token (`hardening::CSRF_COOKIE`). */
@@ -271,6 +274,11 @@ const confirming = new Map<string, Promise<boolean>>();
 
 /** A refusal occurs before the handler mutates state. Confirm once, then retry once. */
 export async function apiFetch(input: string, options?: ApiRequestInit): Promise<Response> {
+  if (options?.recovery !== undefined) {
+    const { recovery, ...rest } = options;
+    const authority = recovery.authority ?? ((): string | null => preferenceAccount()?.storageAuthority ?? null);
+    return recoverRequest(input, rest, (init) => apiFetch(input, init as ApiRequestInit | undefined), { ...recovery, authority });
+  }
   const contextEpoch=linkedMailboxEpoch();
   const {mailboxContext,...ordinary}=options??{};
   let given:RequestInit|undefined=mailboxContext===undefined?options:ordinary;
