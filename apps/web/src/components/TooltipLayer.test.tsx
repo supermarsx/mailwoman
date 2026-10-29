@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@solidjs/testing-library';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import { TooltipLayer, tooltipDescription } from './TooltipLayer.tsx';
 
 beforeEach(() => { vi.useFakeTimers(); });
@@ -52,9 +52,27 @@ it('adopts non-control and newly added titles without native duplicates and upda
 it('shows a different hovered control immediately after pointer activation',()=>{
   render(()=><><button aria-label="First"/><button aria-label="Second"/><TooltipLayer/></>);
   const first=screen.getByRole('button',{name:'First'}),second=screen.getByRole('button',{name:'Second'});
-  fireEvent.pointerOver(first,{pointerType:'mouse'});fireEvent.pointerDown(first,{pointerType:'mouse'});fireEvent.focusIn(first);
+  fireEvent.pointerOver(first,{pointerType:'mouse',clientX:10,clientY:10});fireEvent.pointerDown(first,{pointerType:'mouse',clientX:10,clientY:10});fireEvent.focusIn(first);
   expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
-  fireEvent.pointerOver(second,{pointerType:'mouse'});expect(screen.getByRole('tooltip')).toHaveTextContent('Second');
+  fireEvent.pointerOver(second,{pointerType:'mouse',clientX:60,clientY:10});expect(screen.getByRole('tooltip')).toHaveTextContent('Second');
+});
+
+it('opens no help for a control that the layout moves under a pointer that has not moved since the press (t83)',()=>{
+  // The reading pane opens beside the row just clicked and puts its Pin button
+  // under the still pointer; Chromium then fires pointerover at the press point.
+  // jsdom has no PointerEvent, so fired pointer events would carry no coordinates.
+  class TestPointerEvent extends MouseEvent { readonly pointerType:string; constructor(type:string,init:PointerEventInit={}){super(type,init);this.pointerType=init.pointerType??'';} }
+  vi.stubGlobal('PointerEvent',TestPointerEvent);
+  onTestFinished(()=>{vi.unstubAllGlobals();});
+  render(()=><><div role="row" aria-label="Message"/><button aria-label="Pin"/><TooltipLayer/></>);
+  const row=screen.getByRole('row',{name:'Message'}),pin=screen.getByRole('button',{name:'Pin'});
+  fireEvent.pointerDown(row,{pointerType:'mouse',clientX:752,clientY:200});
+  fireEvent.pointerOver(pin,{pointerType:'mouse',clientX:752,clientY:200});
+  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  // The same spot after the pointer has moved away and back is real pointing.
+  fireEvent.pointerMove(document.body,{pointerType:'mouse',clientX:700,clientY:260});
+  fireEvent.pointerOver(pin,{pointerType:'mouse',clientX:752,clientY:200});
+  expect(screen.getByRole('tooltip')).toHaveTextContent('Pin');
 });
 
 it('retains the accessible name of title-only icon controls',()=>{

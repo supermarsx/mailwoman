@@ -44,6 +44,13 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
   let pointerUntil = 0;
   let dismissed: HTMLElement | null = null;
   let dismissedTitle: string | null = null;
+  // Where the pointer was pressed, until it moves. When the layout changes under
+  // a pointer that has not moved (the reading pane opening beside the row just
+  // clicked), Chromium re-targets hover and fires pointerover on whatever now
+  // sits there. That is not the user pointing at it, so it opens no help, which
+  // would otherwise cover the controls next to it and take their clicks.
+  let pressedAt: { x: number; y: number } | null = null;
+  const stillSincePress = (event: PointerEvent) => pressedAt !== null && Math.abs(event.clientX - pressedAt.x) < 2 && Math.abs(event.clientY - pressedAt.y) < 2;
 
   const clearHide = () => { clearTimeout(hideTimer); };
   const scheduleHide = () => { clearHide(); hideTimer = setTimeout(() => hide(), 100); };
@@ -134,7 +141,12 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
       }
     });
     observer.observe(scopeDocument.body, {subtree:true,childList:true,attributes:true,attributeFilter:['title','data-tooltip','aria-label']});
-    const over = (event: PointerEvent) => { if (event.pointerType !== 'touch') { const element=find(event); if (element!==dismissed) pointerUntil=0; show(element); } };
+    const over = (event: PointerEvent) => {
+      if (event.pointerType === 'touch' || stillSincePress(event)) return;
+      pressedAt = null;
+      const element=find(event); if (element!==dismissed) pointerUntil=0; show(element);
+    };
+    const move = (event: PointerEvent) => { if (pressedAt && !stillSincePress(event)) pressedAt = null; };
     const out = (event: PointerEvent) => {
       if (!(isNode(event.target)) || !(target?.contains(event.target) || bubble?.contains(event.target) || dismissed?.contains(event.target))) return;
       if (dismissed && !(isNode(event.relatedTarget) && dismissed.contains(event.relatedTarget))) restoreDismissed();
@@ -143,11 +155,12 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
     };
     const focus = (event: FocusEvent) => show(find(event));
     const blur = () => { restoreDismissed(); hide(); };
-    const key = (event: KeyboardEvent) => { pointerUntil = 0; if (event.key === 'Escape') hide(true); };
+    const key = (event: KeyboardEvent) => { pointerUntil = 0; pressedAt = null; if (event.key === 'Escape') hide(true); };
     // Pointer activation can focus a button after pointerdown. Do not reopen
     // its tooltip over the new page/tab as a side effect of that focus.
-    const down = () => { pointerUntil = Date.now() + 1000; hide(true); };
+    const down = (event: PointerEvent) => { pointerUntil = Date.now() + 1000; pressedAt = event.pointerType === 'touch' ? null : { x: event.clientX, y: event.clientY }; hide(true); };
     scopeDocument.addEventListener('pointerover', over, true); scopeDocument.addEventListener('pointerout', out, true);
+    scopeDocument.addEventListener('pointermove', move, true);
     scopeDocument.addEventListener('focusin', focus); scopeDocument.addEventListener('focusout', blur);
     scopeDocument.addEventListener('keydown', key); scopeDocument.addEventListener('pointerdown', down, true);
     scopeDocument.addEventListener('scroll', schedulePosition, true); scopeWindow.addEventListener('resize', schedulePosition);
@@ -158,6 +171,7 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
       restoreDismissed(); hide();
       for (const element of scopeDocument.querySelectorAll<HTMLElement>('[data-tooltip-title]')) { if (!element.hasAttribute('title')) element.setAttribute('title', element.getAttribute('data-tooltip-title') ?? ''); element.removeAttribute('data-tooltip-title'); }
       scopeDocument.removeEventListener('pointerover', over, true); scopeDocument.removeEventListener('pointerout', out, true);
+      scopeDocument.removeEventListener('pointermove', move, true);
       scopeDocument.removeEventListener('focusin', focus); scopeDocument.removeEventListener('focusout', blur);
       scopeDocument.removeEventListener('keydown', key); scopeDocument.removeEventListener('pointerdown', down, true);
       scopeDocument.removeEventListener('scroll', schedulePosition, true); scopeWindow.removeEventListener('resize', schedulePosition);
