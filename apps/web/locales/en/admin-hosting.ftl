@@ -1,5 +1,5 @@
 admin-hosting-title = Hosting panels
-admin-hosting-description = Manage mail domains and mailboxes through an explicitly configured Webmin / Virtualmin or HestiaCP connection.
+admin-hosting-description = Manage mail domains and mailboxes through an explicitly configured Virtualmin (the Webmin module) or HestiaCP connection. Plain Webmin without Virtualmin is not supported.
 admin-hosting-back = Back to hosting connections
 admin-hosting-new = New hosting connection
 admin-hosting-edit = Edit hosting connection

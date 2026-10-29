@@ -2,7 +2,7 @@
 # Locale: pt-PT · Module: admin-hosting. Source: ../en/admin-hosting.ftl
 
 admin-hosting-title = Painéis de alojamento
-admin-hosting-description = Gira domínios de correio e caixas de correio através de uma ligação Webmin / Virtualmin ou HestiaCP configurada explicitamente.
+admin-hosting-description = Gira domínios de correio e caixas de correio através de uma ligação Virtualmin (o módulo do Webmin) ou HestiaCP configurada explicitamente. O Webmin sem o Virtualmin não é suportado.
 admin-hosting-back = Voltar às ligações de alojamento
 admin-hosting-new = Nova ligação de alojamento
 admin-hosting-edit = Editar ligação de alojamento
