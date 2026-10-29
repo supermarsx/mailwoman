@@ -23,3 +23,18 @@ describe('authentication history', () => {
         await expectNoAxeViolations(container);
     });
 });
+describe('authentication history actor links', () => {
+    it('links a resolved account to its page and leaves unresolved attempts as text', async () => {
+        const linked = { ...event, id: 'event2', accountId: 'acct-1', usernameAttempted: 'ana@example.test', result: 'success', reason: '', actorLabel: 'Ana (ana@example.test)', actorLink: { section: 'users' as const, id: 'acct-1' } };
+        const alias = { ...linked, id: 'event3', usernameAttempted: 'ana.alias@example.test' };
+        const history = vi.fn<AuthLogsApi['history']>(async () => ({ kind: 'ok', etag: null, data: { events: [linked, alias, event], cursor: null, retentionDays: 7 } }));
+        const { container } = renderInShell(() => <AuthLogs api={{ history }}/>);
+        const links = await screen.findAllByRole('link', { name: 'Ana (ana@example.test)' });
+        expect(links[0]).toHaveAttribute('href', expect.stringContaining('users/acct-1'));
+        expect(screen.getByText('Attempted as ana.alias@example.test')).toBeInTheDocument();
+        expect(screen.queryByText('Attempted as ana@example.test')).toBeNull();
+        expect(screen.getByText('unknown@example.org')).toBeInTheDocument();
+        expect(screen.getAllByRole('link')).toHaveLength(2);
+        await expectNoAxeViolations(container);
+    });
+});

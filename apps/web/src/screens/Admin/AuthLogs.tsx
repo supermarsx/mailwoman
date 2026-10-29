@@ -1,10 +1,11 @@
 import {AsyncPending} from '../../components/AsyncState.tsx';
 import { For, Show, createSignal, onMount, type JSX } from 'solid-js';
-import { t, formatDateTime } from '../../i18n';
+import { t, formatDateTime, loadCatalog } from '../../i18n';
 import { adminRead, type AdminReadResult } from './shell/adminApi.ts';
 import { Feedback, describeAdminError } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 import * as ux from './shell/ux.css.ts';
+import { AuditActor } from './shell/AuditActor.tsx';
 export interface AuthEvent {
     id: string;
     accountId: string | null;
@@ -19,6 +20,10 @@ export interface AuthEvent {
     reason: string;
     surface: string;
     backend: string | null;
+    /** The account's name, when the server resolved it and the reader may see it. */
+    actorLabel?: string;
+    /** The account's page, when the reader may open it. */
+    actorLink?: { section: 'admins' | 'users'; id: string };
 }
 export interface AuthHistory {
     events: AuthEvent[];
@@ -76,7 +81,7 @@ export function AuthLogs(props: {
             setBusy(false);
         }
     }
-    onMount(() => void load());
+    onMount(() => { void loadCatalog('admin-features'); void load(); });
     const missing = (): string => t('admin-auth-unknown');
     return <section class={css.section} aria-label={t('admin-auth-title')}>
   <h2 class={css.heading}>{t('admin-auth-title')}</h2><p class={css.note}>{t('admin-auth-description', { days: days() })}</p>
@@ -90,7 +95,7 @@ export function AuthLogs(props: {
   </form>
   <Show when={busy()}><AsyncPending variant={rows().length ? 'status' : 'table'}/></Show><Feedback kind="error" message={error()}/><Feedback kind="info" message={notice()}/>
   <div class={css.tableWrap} tabindex="0" role="group" aria-label={t('admin-auth-title')}><table class={css.table}><caption>{t('admin-auth-title')}</caption><thead><tr><For each={['time', 'account', 'surface', 'backend', 'result', 'reason', 'method', 'ip', 'count']}>{(key) => <th scope="col">{t(`admin-auth-${key}`)}</th>}</For></tr></thead>
-  <tbody><For each={rows()}>{(row) => <tr><td><time datetime={new Date(row.ts * 1000).toISOString()}>{formatDateTime(new Date(row.ts * 1000), { dateStyle: 'medium', timeStyle: 'medium' })}</time><Show when={row.lastSeen !== row.ts}><br /><small>{t('admin-auth-last')} {formatDateTime(new Date(row.lastSeen * 1000), { dateStyle: 'medium', timeStyle: 'medium' })}</small></Show></td><th scope="row">{row.usernameAttempted || missing()}<Show when={row.accountId}><br /><small>{row.accountId}</small></Show></th><td>{row.surface}</td><td>{row.backend || missing()}</td><td>{row.result}</td><td>{row.reason || '—'}</td><td>{row.method}</td><td>{row.ip || missing()}<Show when={row.userAgent}><details><summary>{t('admin-auth-device')}</summary>{row.userAgent}</details></Show></td><td>{row.repeatCount}</td></tr>}</For></tbody></table></div>
+  <tbody><For each={rows()}>{(row) => <tr><td><time datetime={new Date(row.ts * 1000).toISOString()}>{formatDateTime(new Date(row.ts * 1000), { dateStyle: 'medium', timeStyle: 'medium' })}</time><Show when={row.lastSeen !== row.ts}><br /><small>{t('admin-auth-last')} {formatDateTime(new Date(row.lastSeen * 1000), { dateStyle: 'medium', timeStyle: 'medium' })}</small></Show></td><th scope="row"><Show when={row.actorLabel} fallback={<>{row.usernameAttempted || missing()}<Show when={row.accountId}><br /><small>{row.accountId}</small></Show></>}>{(label) => <><AuditActor actor={row.accountId ?? row.usernameAttempted} actorLabel={label()} {...(row.actorLink ? { actorLink: row.actorLink } : {})}/><Show when={row.usernameAttempted && !label().includes(row.usernameAttempted)}><br /><small>{t('admin-auth-attempted', { name: row.usernameAttempted })}</small></Show></>}</Show></th><td>{row.surface}</td><td>{row.backend || missing()}</td><td>{row.result}</td><td>{row.reason || '—'}</td><td>{row.method}</td><td>{row.ip || missing()}<Show when={row.userAgent}><details><summary>{t('admin-auth-device')}</summary>{row.userAgent}</details></Show></td><td>{row.repeatCount}</td></tr>}</For></tbody></table></div>
   <Show when={!busy() && !rows().length && !notice() && !error()}><p>{t('admin-auth-empty')}</p></Show>
   <Show when={cursor()}><button class="btn" type="button" disabled={busy()} onClick={() => void load(true)}>{t('admin-auth-more')}</button></Show>
  </section>;

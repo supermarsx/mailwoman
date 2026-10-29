@@ -19,6 +19,7 @@ import { SectionTabs } from './shell/SectionTabs.tsx';
 import { ObservabilityStats } from './ObservabilityStats.tsx';
 import { AsyncPending } from '../../components/AsyncState.tsx';
 import { Feedback } from './shell/Feedback.tsx';
+import { AuditRetention } from './Logs/AuditRetention.tsx';
 import * as css from './admin.css.ts';
 
 const Telemetry = lazy(() => import('./Telemetry.tsx').then(module => ({ default: module.Telemetry })));
@@ -118,6 +119,10 @@ function ObservabilityAudit(): JSX.Element {
             </table>
           </div>
         </Show>
+      </div>
+
+      <div class={css.card}>
+        <AuditRetention onChanged={() => void reload()} />
       </div>
 
     </section>

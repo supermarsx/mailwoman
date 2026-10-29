@@ -177,6 +177,14 @@ export const SECTIONS: readonly SectionDef[] = [
     component: screen(() => import('../IntegrationsRouter.tsx').then((m) => m.IntegrationsRouter), false),
   },
   {
+    id: 'features',
+    group: 'configuration',
+    icon: 'policy',
+    label: () => t('admin-nav-features'),
+    capability: 'settings.read',
+    component: screen(() => import('../Features/index.tsx').then((m) => m.AdminFeatures), false),
+  },
+  {
     id: 'plugins',
     group: 'configuration',
     icon: 'plugins',
