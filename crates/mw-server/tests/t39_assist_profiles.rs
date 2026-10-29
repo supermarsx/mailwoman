@@ -235,6 +235,81 @@ async fn boot(dir: &Path, jmap: &str) -> String {
     format!("http://{addr}")
 }
 
+const ENGINE_USER: &str = "reader@example.org";
+const ENGINE_PASS: &str = "Read-Passw0rd!";
+
+/// Boot an engine-mode server over `dir` whose upstream is the scripted POP3
+/// mock. Per-user admin values apply to native accounts only (0e50de6a), so the
+/// assignment leg runs here.
+async fn boot_engine(dir: &Path, pop: &common::mock_mail::MockPop3) -> String {
+    // SAFETY: the canonical gate runs this binary with --test-threads=1, and no
+    // test here reads this variable otherwise. The mock speaks plain POP3.
+    unsafe { std::env::set_var("MW_ENGINE_TLS", "plaintext") };
+    let config = AppConfig {
+        db_path: dir.join("mw.db").to_string_lossy().into_owned(),
+        server_key_hex: Some(KEY_HEX.to_string()),
+        web_dir: Some(dir.join("web")),
+        cookie_secure: false,
+        mode: ServerMode::Engine,
+        hardening: HardeningConfig::default(),
+        security: SecurityConfig {
+            upstream_default: Some(pop.url()),
+            ..SecurityConfig::default()
+        },
+    };
+    let app = mw_server::build_app_full(config, admin_v6())
+        .await
+        .expect("build_app_full")
+        .0;
+    common::auth::no_signin_cooldown_at(&dir.join("mw.db").to_string_lossy(), KEY_HEX).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr: SocketAddr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+    format!("http://{addr}")
+}
+
+/// [`ENGINE_USER`] signed in, with the storage-authority header the engine
+/// requires on every request.
+async fn engine_user(base: &str) -> (reqwest::Client, String) {
+    let jar = Arc::new(reqwest::cookie::Jar::default());
+    let login = reqwest::Client::builder()
+        .cookie_provider(jar.clone())
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let me: Value = login
+        .post(format!("{base}/api/login"))
+        .json(&json!({ "username": ENGINE_USER, "password": ENGINE_PASS }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(me["ok"], json!(true), "engine login: {me}");
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        "x-mailwoman-storage-authority",
+        me["storageAuthority"].as_str().unwrap().parse().unwrap(),
+    );
+    let c = reqwest::Client::builder()
+        .cookie_provider(jar)
+        .default_headers(headers)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    (c, me["accountId"].as_str().unwrap().to_string())
+}
+
 fn browser() -> reqwest::Client {
     reqwest::Client::builder()
         .cookie_store(true)
@@ -254,20 +329,6 @@ async fn admin(base: &str) -> reqwest::Client {
         .unwrap();
     assert_eq!(r.status(), 200, "admin login");
     c
-}
-
-async fn user(base: &str) -> (reqwest::Client, String) {
-    let c = browser();
-    let r = c
-        .post(format!("{base}/api/login"))
-        .json(&json!({ "username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS }))
-        .send()
-        .await
-        .unwrap();
-    let status = r.status();
-    let body: Value = r.json().await.unwrap();
-    assert!(status.is_success(), "user login: {status} {body}");
-    (c, body["accountId"].as_str().unwrap().to_string())
 }
 
 /// Every admin response body is collected here, for the key-never-shown check.
@@ -586,12 +647,12 @@ async fn summarize(
 async fn the_resolved_profile_serves_assist_by_precedence_and_privacy_holds() {
     let (mock_hostport, mock) = spawn_mock().await;
     let dir = fresh_dir();
-    let jmap = spawn_jmap().await;
-    let base = boot(&dir, &jmap).await;
+    let pop = common::mock_mail::MockPop3::start(ENGINE_USER, ENGINE_PASS).await;
+    let base = boot_engine(&dir, &pop).await;
     let c = admin(&base).await;
     let mut b = Bodies::default();
     // The user signs in once so the account exists; the ceiling names it.
-    let (_, account) = user(&base).await;
+    let (_, account) = engine_user(&base).await;
 
     // Assist on, Summarize granted, the account in the ceiling, no deployment
     // endpoint: only a profile can serve.
@@ -630,11 +691,12 @@ async fn the_resolved_profile_serves_assist_by_precedence_and_privacy_holds() {
     let (pa, pb, pc) = (ids[0].clone(), ids[1].clone(), ids[2].clone());
 
     // Restart: the gateway is built switched on.
-    let base = boot(&dir, &jmap).await;
+    let base = boot_engine(&dir, &pop).await;
     let c = admin(&base).await;
-    let (u, _) = user(&base).await;
+    let (u, again) = engine_user(&base).await;
+    assert_eq!(again, account, "the same native account after the restart");
     let key = format!("{base}/admin/settings/assist.profile");
-    let domain = mw_mock_jmap::USER.split('@').nth(1).unwrap().to_string();
+    let domain = ENGINE_USER.split('@').nth(1).unwrap().to_string();
 
     // No assignment and no deployment endpoint: Assist is off for the user.
     let cfg: Value = u
@@ -733,14 +795,26 @@ async fn the_resolved_profile_serves_assist_by_precedence_and_privacy_holds() {
         "ordinary content is forwarded"
     );
 
-    // ...and never for a zero-access account, whatever the ceiling allows.
-    let r = c
-        .post(format!("{base}/admin/users/{account}/zero-access"))
-        .json(&json!({ "on": true }))
-        .send()
+    // ...and never for a zero-access account, whatever the ceiling allows. The
+    // account is enrolled the way the store records an enrolment (the admin
+    // toggle only flips an existing row).
+    let store = mw_store::Store::open(
+        &dir.join("mw.db").to_string_lossy(),
+        mw_store::ServerKey::from_hex(KEY_HEX).unwrap(),
+    )
+    .await
+    .unwrap();
+    store
+        .upsert_zeroaccess(&mw_store::ZeroAccessRow {
+            account_id: account.clone(),
+            enabled: true,
+            wrapped_root_key: vec![7; 48],
+            kdf_params_json: "{}".into(),
+            recovery_wrapped: None,
+            paired_devices_json: "[]".into(),
+        })
         .await
         .unwrap();
-    assert!(r.status().is_success(), "zero-access on: {}", r.status());
     const ZA: &str = "T39-ZERO-ACCESS-PLAINTEXT-42";
     let (s, sent) = summarize(&u, &base, &mock, &account, ZA).await;
     assert_eq!(s, 200, "the prompt itself still goes");
