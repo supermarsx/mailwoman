@@ -265,6 +265,22 @@ impl AccountBackend for ImapBackend {
         true
     }
 
+    // Names are UTF-8 on the wire once IMAP4rev2 is enabled (connect enables
+    // it whenever the server offers it), else modified UTF-7. UTF8=ACCEPT is
+    // not enabled: it would change the spelling of every folder already
+    // cached under its modified UTF-7 name.
+    fn encode_mailbox_name(&self, name: &str) -> String {
+        if self.caps.imap4rev2 {
+            name.to_string()
+        } else {
+            crate::utf7::encode(name)
+        }
+    }
+
+    fn decode_mailbox_name(&self, wire: &str) -> String {
+        crate::utf7::decode_lossless(wire, self.caps.imap4rev2)
+    }
+
     async fn hierarchy_delimiter(&self) -> Result<Option<char>> {
         let mut session = self.session.lock().await;
         Ok(session.hierarchy_delimiter().await?)

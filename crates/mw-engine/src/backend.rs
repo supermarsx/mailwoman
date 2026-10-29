@@ -197,6 +197,22 @@ pub trait AccountBackend: Send + Sync {
         Err(EngineError::Unsupported("hierarchy_delimiter".into()))
     }
 
+    /// How one folder-name segment the user typed is spelt on the server
+    /// (t65): IMAP writes it in modified UTF-7 (RFC 3501 §5.1.3) unless the
+    /// session has UTF-8 names. The engine stores and compares server
+    /// spellings, so a new or renamed folder's name is encoded before the
+    /// delimiter joins it to its parent. The default keeps the text as it is.
+    fn encode_mailbox_name(&self, name: &str) -> String {
+        name.to_string()
+    }
+
+    /// The readable form of a server spelling: the inverse of
+    /// [`encode_mailbox_name`](Self::encode_mailbox_name), keeping a name that
+    /// is not valid in the server's encoding as it is.
+    fn decode_mailbox_name(&self, wire: &str) -> String {
+        wire.to_string()
+    }
+
     /// CREATE a mailbox with the full server name `name`.
     async fn create_mailbox(&self, name: &str) -> Result<()> {
         let _ = name;

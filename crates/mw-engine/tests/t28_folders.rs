@@ -290,6 +290,46 @@ impl AccountBackend for FolderBackend {
         Ok(())
     }
 
+    // t65: a stand-in for modified UTF-7, so the cases can tell the typed
+    // name from the server spelling: each non-ASCII char is `&<hex>-`.
+    fn encode_mailbox_name(&self, name: &str) -> String {
+        name.chars()
+            .map(|c| {
+                if c.is_ascii() {
+                    c.to_string()
+                } else {
+                    format!("&{:x}-", c as u32)
+                }
+            })
+            .collect()
+    }
+
+    fn decode_mailbox_name(&self, wire: &str) -> String {
+        let mut out = String::new();
+        let mut rest = wire;
+        while let Some(at) = rest.find('&') {
+            out.push_str(&rest[..at]);
+            let tail = &rest[at + 1..];
+            match tail.split_once('-').and_then(|(hex, after)| {
+                u32::from_str_radix(hex, 16)
+                    .ok()
+                    .and_then(char::from_u32)
+                    .map(|c| (c, after))
+            }) {
+                Some((c, after)) => {
+                    out.push(c);
+                    rest = after;
+                }
+                None => {
+                    out.push('&');
+                    rest = tail;
+                }
+            }
+        }
+        out.push_str(rest);
+        out
+    }
+
     async fn rename_mailbox(&self, from: &RawMailboxRef, to: &str) -> Result<()> {
         self.refuse("rename_mailbox")?;
         let mut st = self.server.lock().unwrap();
@@ -668,9 +708,9 @@ async fn special_use_folders_and_bad_names_are_refused_without_touching_the_serv
             "delimiter in name",
         ),
         (
-            json!({ "name": "Café" }),
+            json!({ "name": "Caf\u{7}e" }),
             "invalidProperties",
-            "non-ASCII name",
+            "control character in name",
         ),
         (
             json!({ "name": "X", "parentId": "nope" }),
@@ -837,4 +877,161 @@ async fn delete_checks_the_server_not_only_the_cache() {
         "{set}"
     );
     assert!(h.backend.names().contains(&"Stale".to_string()));
+}
+
+// ---------------------------------------------------------------------------
+// t65 — Rename from the folder menu
+// ---------------------------------------------------------------------------
+
+/// A rename to a name outside ASCII reaches the server in the backend's
+/// spelling, for the folder and its child; the browser reads the typed name
+/// back, and the ids, the nesting and the subscription stay with the folder.
+#[tokio::test]
+async fn t65_a_non_ascii_rename_is_sent_in_the_server_spelling_and_read_back_as_typed() {
+    let h = setup().await;
+    let set = mailbox_set(
+        &h,
+        json!({ "create": { "p": { "name": "Work" }, "c": { "name": "Q3", "parentId": "#p" } } }),
+    )
+    .await;
+    let parent = set["created"]["p"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{set}"))
+        .to_string();
+    let child = set["created"]["c"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{set}"))
+        .to_string();
+
+    let set = mailbox_set(
+        &h,
+        json!({ "update": { &parent: { "name": "Relatórios" } } }),
+    )
+    .await;
+    assert!(
+        set["updated"].as_object().unwrap().contains_key(&parent),
+        "{set}"
+    );
+    assert_eq!(
+        h.backend.names(),
+        ["INBOX", "Relat&f3-rios", "Relat&f3-rios.Q3", "Trash"],
+        "the server holds the encoded spelling, the child moved with it"
+    );
+    assert!(h.backend.subscribed().contains("Relat&f3-rios.Q3"));
+    let all = mailboxes(&h).await;
+    assert_eq!(all[&parent]["name"], "Relatórios");
+    assert_eq!(all[&parent]["mailwomanUpstreamName"], "Relat&f3-rios");
+    assert_eq!(all[&child]["name"], "Q3");
+    assert_eq!(all[&child]["parentId"], json!(parent));
+
+    // A resync against the renamed server keeps the same rows.
+    h.engine.resync(&h.account_id).await.unwrap();
+    let all = mailboxes(&h).await;
+    assert_eq!(all.len(), 4, "{all:?}");
+    assert_eq!(all[&parent]["name"], "Relatórios");
+
+    // The same typed name for a sibling is a duplicate in the server spelling.
+    let set = mailbox_set(&h, json!({ "create": { "x": { "name": "Relatórios" } } })).await;
+    assert_eq!(set["notCreated"]["x"]["type"], "alreadyExists", "{set}");
+}
+
+/// Rename refusals: a sibling's name, the delimiter, an empty name, a role
+/// folder. None of them reaches the server.
+#[tokio::test]
+async fn t65_rename_refuses_a_sibling_name_a_role_folder_and_the_delimiter() {
+    let h = setup().await;
+    let set = mailbox_set(
+        &h,
+        json!({ "create": { "a": { "name": "Alpha" }, "b": { "name": "Beta" } } }),
+    )
+    .await;
+    let beta = set["created"]["b"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{set}"))
+        .to_string();
+    let inbox = mailbox_id(&h, "inbox").await;
+    let trash = mailbox_id(&h, "trash").await;
+    let names = h.backend.names();
+
+    let set = mailbox_set(&h, json!({ "update": { &beta: { "name": "Alpha" } } })).await;
+    assert_eq!(set["notUpdated"][&beta]["type"], "alreadyExists", "{set}");
+    let set = mailbox_set(&h, json!({ "update": { &beta: { "name": "Al.pha" } } })).await;
+    assert_eq!(
+        set["notUpdated"][&beta]["type"], "invalidProperties",
+        "{set}"
+    );
+    let set = mailbox_set(&h, json!({ "update": { &beta: { "name": "" } } })).await;
+    assert_eq!(
+        set["notUpdated"][&beta]["type"], "invalidProperties",
+        "{set}"
+    );
+    for role in [&inbox, &trash] {
+        let set = mailbox_set(&h, json!({ "update": { role: { "name": "Renamed" } } })).await;
+        assert_eq!(set["notUpdated"][role]["type"], "forbidden", "{set}");
+    }
+    let all = mailboxes(&h).await;
+    assert_eq!(all[&inbox]["myRights"]["mayRename"], false);
+    assert_eq!(all[&trash]["myRights"]["mayRename"], false);
+    assert_eq!(all[&beta]["myRights"]["mayRename"], true);
+    assert_eq!(h.backend.names(), names, "no refusal reached the server");
+
+    // A case-only change of the folder's own name is not a duplicate.
+    let set = mailbox_set(&h, json!({ "update": { &beta: { "name": "BETA" } } })).await;
+    assert!(
+        set["updated"].as_object().unwrap().contains_key(&beta),
+        "{set}"
+    );
+}
+
+/// A folder id of one account is unknown to another account on the same
+/// engine: the rename is `notFound` and neither server changes.
+#[tokio::test]
+async fn t65_rename_only_reaches_the_accounts_own_folders() {
+    let owner = setup().await;
+    let set = mailbox_set(&owner, json!({ "create": { "o": { "name": "Mine" } } })).await;
+    let id = set["created"]["o"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{set}"))
+        .to_string();
+
+    let other_id = owner
+        .engine
+        .store()
+        .create_account(
+            &NewAccount {
+                kind: AccountKind::Imap,
+                host: "imap.example.org",
+                port: 993,
+                tls: "implicit",
+                username: "other@example.org",
+                sync_policy_json: "{}",
+            },
+            &Credentials {
+                username: "other@example.org".into(),
+                password: "pw".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let other_backend = Arc::new(FolderBackend::new(true, true));
+    owner.engine.register_backend(
+        other_id.clone(),
+        AccountRuntime::new(
+            other_backend.clone() as Arc<dyn AccountBackend>,
+            Arc::new(NoSubmitter) as Arc<dyn MailSubmitter>,
+            "other@example.org",
+        ),
+    );
+    owner.engine.resync(&other_id).await.unwrap();
+    let other = Harness {
+        engine: owner.engine.clone(),
+        account_id: other_id,
+        backend: other_backend,
+    };
+
+    let set = mailbox_set(&other, json!({ "update": { &id: { "name": "Taken" } } })).await;
+    assert_eq!(set["notUpdated"][&id]["type"], "notFound", "{set}");
+    assert!(owner.backend.names().contains(&"Mine".to_string()));
+    assert!(!owner.backend.names().contains(&"Taken".to_string()));
+    assert!(!other.backend.names().contains(&"Taken".to_string()));
 }

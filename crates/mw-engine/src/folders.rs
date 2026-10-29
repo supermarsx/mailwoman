@@ -199,10 +199,10 @@ fn check_settable(spec: &Value) -> Result<&Map<String, Value>, Value> {
     Ok(obj)
 }
 
-/// Check a requested leaf name. Mailbox names go to the server as IMAP quoted
-/// strings with no modified-UTF-7 encoding (none exists in `mw-imap` yet), so
-/// only printable ASCII is accepted, without `&` (the modified-UTF-7 shift
-/// character), the `*`/`%` LIST wildcards, or the hierarchy delimiter.
+/// Check a requested leaf name, as the user typed it. The backend encodes it
+/// for the server afterwards (modified UTF-7 on IMAP, t65), so any printable
+/// text is accepted, without control characters, the `*`/`%` LIST wildcards,
+/// or the hierarchy delimiter. The length limit is on the typed UTF-8.
 fn check_name(value: Option<&Value>, delimiter: Option<char>) -> Result<String, Value> {
     let Some(name) = value.and_then(Value::as_str) else {
         return Err(invalid(&["name"], "a mailbox needs a name"));
@@ -216,15 +216,15 @@ fn check_name(value: Option<&Value>, delimiter: Option<char>) -> Result<String, 
             format!("the name is longer than {MAX_MAILBOX_NAME} octets"),
         ));
     }
-    if !name.chars().all(|c| c.is_ascii() && !c.is_ascii_control()) {
+    if name.chars().any(char::is_control) {
         return Err(invalid(
             &["name"],
-            "folder names outside printable ASCII are not supported yet",
+            "the name cannot contain control characters",
         ));
     }
     if let Some(bad) = name
         .chars()
-        .find(|c| matches!(c, '&' | '*' | '%') || Some(*c) == delimiter)
+        .find(|c| matches!(c, '*' | '%') || Some(*c) == delimiter)
     {
         return Err(invalid(
             &["name"],
@@ -574,7 +574,9 @@ impl Engine {
         if obj.get("sortOrder").is_some_and(|o| o.as_u64() != Some(0)) {
             return Err(invalid(&["sortOrder"], "folder sort order is not stored"));
         }
-        let leaf = check_name(obj.get("name"), delimiter)?;
+        let leaf = rt
+            .backend
+            .encode_mailbox_name(&check_name(obj.get("name"), delimiter)?);
         let mailboxes = self.mailboxes_or_fail(account_id).await?;
         let parent = Self::resolve_parent(obj.get("parentId"), &mailboxes, created_ids)?;
         let name = Self::full_name(parent, &leaf, delimiter)?;
@@ -670,7 +672,9 @@ impl Engine {
         let mut name_now = m.name.clone();
         if obj.contains_key("name") || obj.contains_key("parentId") {
             let leaf = match obj.get("name") {
-                Some(v) => check_name(Some(v), delimiter)?,
+                Some(v) => rt
+                    .backend
+                    .encode_mailbox_name(&check_name(Some(v), delimiter)?),
                 None => tree.leaf(&m.name).to_string(),
             };
             let parent = if obj.contains_key("parentId") {
@@ -1171,7 +1175,11 @@ mod tests {
             check_name(Some(&json!("Receipts")), Some('.')),
             Ok("Receipts".into())
         );
-        for bad in ["", "  ", "a.b", "50%", "a*", "R&D", "Café", "tab\there"] {
+        // t65: text outside ASCII and `&` are accepted; the backend encodes them.
+        for good in ["R&D", "Café", "Relatórios 2026"] {
+            assert_eq!(check_name(Some(&json!(good)), Some('.')), Ok(good.into()));
+        }
+        for bad in ["", "  ", "a.b", "50%", "a*", "tab\there", "bell\u{7}"] {
             let err = check_name(Some(&json!(bad)), Some('.')).unwrap_err();
             assert_eq!(err["type"], "invalidProperties", "{bad:?}: {err}");
             assert_eq!(err["properties"], json!(["name"]), "{bad:?}");

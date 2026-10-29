@@ -145,6 +145,9 @@ impl Engine {
             .unwrap_or(&empty);
 
         let mut responses: Vec<Value> = Vec::new();
+        // A write that succeeded in this request: other sessions of the account
+        // hear of it below (t39 L8).
+        let mut wrote = false;
         // Tracks Email/set creation-id → stable id so EmailSubmission/set can
         // reference a just-created draft as `#clientId`.
         let mut created_ids: HashMap<String, String> = request
@@ -280,10 +283,19 @@ impl Engine {
             } else {
                 name
             };
+            wrote |= response_name != "error" && changes_state(name, &resp);
             responses.push(json!([response_name, resp, call_id]));
             if let Some(email_set) = implicit {
+                wrote = true;
                 responses.push(json!(["Email/set", email_set, call_id]));
             }
+        }
+        // The upstream's own change notification (IMAP IDLE) does not report
+        // every write made through this engine (flags set on the same server,
+        // for one), so a write here is pushed to the account's other sessions
+        // directly: one StateChange per request, after all of its calls.
+        if wrote {
+            self.broadcast_state(account_id).await;
         }
 
         let mut response = json!({
@@ -462,7 +474,8 @@ impl Engine {
         // Hierarchy (26.20 t28-e17): `parentId` and the leaf `name` come from
         // the server name and the server's delimiter. `isSubscribed` costs an
         // upstream LSUB, so it is answered only when `properties` names it.
-        let tree = folders::Tree::new(mailboxes, self.hierarchy_delimiter(rt).await);
+        let delimiter = self.hierarchy_delimiter(rt).await;
+        let tree = folders::Tree::new(mailboxes, delimiter);
         let manages = self.manages_folders(account_id, rt);
         let subscribed = if folders::wants_property(args, "isSubscribed") {
             self.subscribed_names(rt).await
@@ -494,7 +507,7 @@ impl Engine {
             let role = m.role.as_deref();
             let mut entry = json!({
                 "id": m.id,
-                "name": tree.name(m),
+                "name": rt.backend.decode_mailbox_name(&tree.name(m)),
                 "mailwomanUpstreamName": m.name,
                 "parentId": tree.parent_id(m),
                 "role": role,
@@ -576,6 +589,9 @@ impl Engine {
             "mailwomanRoleMappingProblems": role_view.problems,
             "mailwomanFolderRoleGuard": true,
             "mailwomanInitialSync": self.initial_sync_status(account_id),
+            // The server's hierarchy delimiter (t65), so a client can refuse
+            // it in a folder name before asking; `null` for a flat namespace.
+            "mailwomanHierarchyDelimiter": delimiter.map(String::from),
             "list": list,
             "notFound": not_found
         })
@@ -4303,6 +4319,20 @@ fn patch_engine_fields(
 }
 
 /// RFC 8620 §5.5 `anchorNotFound`: the `anchor` id is not in the query result.
+/// Whether a successful method response changed server state: a `/set` that
+/// created, updated or destroyed something, an `Email/import` or an `Email/copy`.
+fn changes_state(name: &str, response: &Value) -> bool {
+    let wrote = |key: &str| {
+        response.get(key).is_some_and(|value| match value {
+            Value::Object(map) => !map.is_empty(),
+            Value::Array(items) => !items.is_empty(),
+            _ => false,
+        })
+    };
+    (name.ends_with("/set") || name == "Email/import" || name == "Email/copy")
+        && (wrote("created") || wrote("updated") || wrote("destroyed"))
+}
+
 fn anchor_not_found() -> Value {
     json!({
         "type": "anchorNotFound",
