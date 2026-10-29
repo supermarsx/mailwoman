@@ -99,7 +99,7 @@ export interface Worker {
   install(): Promise<void>;
   activate(): Promise<void>;
   /** `client` is the page that made the request (default: the mail shell, `/`). */
-  fetch(path: string, init?: { method?: string; mode?: string; client?: string }): Promise<FetchOutcome>;
+  fetch(path: string, init?: { method?: string; mode?: string; client?: string; clientType?: string }): Promise<FetchOutcome>;
 }
 
 /** The SHA-256 the build would record for `body` (t63 R1). */
@@ -113,10 +113,19 @@ export function digestOf(body: string): string {
  * network serves (`export{}`), so a stored copy of that body verifies and any
  * other body does not.
  */
-export function defaultDigests(): Record<string, string> {
+export function defaultDigests(overrides: Record<string, string> = {}): Record<string, string> {
   const hash = digestOf('export{}');
-  return new Proxy({}, { get: (_t, key) => typeof key === 'string' && key.startsWith('/assets/') ? hash : undefined });
+  const shell = digestOf(TEST_SHELL);
+  return new Proxy(overrides, { get: (target, key) => {
+    if (typeof key !== 'string') return undefined;
+    if (key in target) return target[key];
+    if (key === '/index.html') return shell;
+    return key.startsWith('/assets/') ? hash : undefined;
+  } });
 }
+
+/** The shell body the default manifest records for /index.html. */
+export const TEST_SHELL = '<!doctype html><title>shell</title>';
 
 type Listener = (event: Record<string, unknown>) => void;
 
@@ -129,19 +138,19 @@ export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js', options
   const location = new URL(scriptUrl);
   const caches = new FakeCacheStorage(location.href);
   const listeners = new Map<string, Listener>();
-  const clientUrls = new Map<string, string>();
+  const clientUrls = new Map<string, { type: string; url: string }>();
   const network: Worker['network'] = {
     calls: [],
     fetch: async () => new Response('ok', { status: 200 }),
   };
   const pushState: Worker['pushState'] = { endpoint: 'https://push.example/capability-secret', visible: false, notifications: [] };
   const self = {
-    crypto: globalThis.crypto, TextEncoder,
+    crypto: globalThis.crypto, TextEncoder, TextDecoder,
     location,
     addEventListener: (type: string, fn: Listener) => listeners.set(type, fn),
     skipWaiting: async () => undefined,
     __assetDigests: options.digests === undefined ? defaultDigests() : options.digests,
-    clients: { claim: async () => undefined, get: async (id: string) => clientUrls.has(id) ? { type: 'window', url: clientUrls.get(id) } : undefined, matchAll: async () => pushState.visible ? [{ visibilityState: 'visible', postMessage: () => undefined }] : [] },
+    clients: { claim: async () => undefined, get: async (id: string) => clientUrls.get(id), matchAll: async () => pushState.visible ? [{ visibilityState: 'visible', postMessage: () => undefined }] : [] },
     registration: { pushManager: { getSubscription: async () => pushState.endpoint ? { endpoint: pushState.endpoint } : null }, showNotification: async (title: string) => { pushState.notifications.push(title); } },
   };
   const fetchFromWorker = (req: FakeRequest | string): Promise<Response> => {
@@ -175,7 +184,7 @@ export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js', options
         mode: init.mode ?? 'cors',
       };
       const clientId = `client-${clientUrls.size + 1}`;
-      clientUrls.set(clientId, new URL(init.client ?? '/', location.href).href);
+      clientUrls.set(clientId, { type: init.clientType ?? 'window', url: new URL(init.client ?? '/', location.href).href });
       listeners.get('fetch')?.({
         request,
         clientId: request.mode === 'navigate' ? '' : clientId,

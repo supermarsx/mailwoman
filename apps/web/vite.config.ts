@@ -79,11 +79,6 @@ export function assetIntegrity(): Plugin {
         if (rel.startsWith('/assets/analytics/')) continue;
         digests[rel] = createHash('sha256').update(readFileSync(file)).digest('hex');
       }
-      const swPath = join(outDir, 'sw.js');
-      const sw = readFileSync(swPath, 'utf8');
-      const marker = '/* @mw-asset-digests */ null';
-      if (!sw.includes(marker)) throw new Error('mw-asset-integrity: dist/sw.js has no asset-digest placeholder');
-      writeFileSync(swPath, sw.replace(marker, JSON.stringify(digests)));
       const htmlPath = join(outDir, 'index.html');
       const html = readFileSync(htmlPath, 'utf8').replace(
         /<(script|link)\b([^>]*?)\s(src|href)="\.\/(assets\/[^"]+\.js)"([^>]*)>/g,
@@ -94,6 +89,16 @@ export function assetIntegrity(): Plugin {
         },
       );
       writeFileSync(htmlPath, html);
+      // The shell itself, after SRI: the worker serves a stored shell only if
+      // it is this file (with the server's base-shim tag removed).
+      digests['/index.html'] = createHash('sha256').update(html).digest('hex');
+      const unsri = html.match(/<script[^>]*\ssrc=[^>]*>/g)?.filter((tag) => tag.includes('assets/') && !tag.includes(' integrity=')) ?? [];
+      if (unsri.length > 0) throw new Error(`mw-asset-integrity: script tags without SRI: ${unsri.join(' ')}`);
+      const swPath = join(outDir, 'sw.js');
+      const sw = readFileSync(swPath, 'utf8');
+      const marker = '/* @mw-asset-digests */ null';
+      if (!sw.includes(marker)) throw new Error('mw-asset-integrity: dist/sw.js has no asset-digest placeholder');
+      writeFileSync(swPath, sw.replace(marker, JSON.stringify(digests)));
     },
   };
 }

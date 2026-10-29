@@ -50,26 +50,26 @@ describe('browser analytics tag guard', () => {
     const reload = vi.fn(); const sever = vi.fn();
     const guard = createTagGuard(KEY, reload, sever);
     guard.account({ id: 'a', generation: 1, storageAuthority: 'auth-aaaaaaaaaaaaaaaa' });
-    guard.consent(undefined, false, false);
-    guard.consent(KEY, false, true);
+    guard.consent(undefined, false, 'saving');
+    guard.consent(KEY, false, 'synced');
     expect(sever).not.toHaveBeenCalled();
-    guard.consent('', false, false);
+    guard.consent('', false, 'saving');
     expect(sever).toHaveBeenCalledTimes(1);
     expect(reload).not.toHaveBeenCalled();
-    guard.consent('', false, true);
+    guard.consent('', false, 'synced');
     expect(reload).toHaveBeenCalledTimes(1);
-    guard.consent('', false, true);
+    guard.consent('', false, 'synced');
     expect(reload).toHaveBeenCalledTimes(1);
   });
   it('treats counts-only or another provider\'s consent as no consent', () => {
     const reload = vi.fn(); const sever = vi.fn();
     const guard = createTagGuard(KEY, reload, sever);
-    guard.consent(`custom:${'b'.repeat(64)}`, false, true);
+    guard.consent(`custom:${'b'.repeat(64)}`, false, 'synced');
     expect(sever).toHaveBeenCalled(); expect(reload).toHaveBeenCalled();
   });
   it('a privacy signal severs and reloads immediately', () => {
     const reload = vi.fn(); const sever = vi.fn();
-    createTagGuard(KEY, reload, sever).consent(KEY, true, false);
+    createTagGuard(KEY, reload, sever).consent(KEY, true, 'saving');
     expect(sever).toHaveBeenCalled(); expect(reload).toHaveBeenCalled();
   });
   it('reloads at once when another account appears in the tab', () => {
@@ -86,7 +86,7 @@ describe('browser analytics tag guard', () => {
     const reload = vi.fn(); const sever = vi.fn();
     const guard = createTagGuard(null, reload, sever);
     guard.account({ id: 'a', generation: 1 }); guard.account({ id: 'b', generation: 2 });
-    guard.consent('', true, true);
+    guard.consent('', true, 'synced');
     expect(reload).not.toHaveBeenCalled(); expect(sever).not.toHaveBeenCalled();
   });
   it('severing blocks third-party beacons, fetch and XHR but keeps same-origin requests', async () => {
@@ -110,14 +110,26 @@ describe('cross-tab revocation', () => {
   it('a withdrawal here tells the other tabs, once', () => {
     const announce = vi.fn();
     const guard = createTagGuard(KEY, vi.fn(), vi.fn(), announce);
-    guard.consent('', false, false);
-    guard.consent('', false, true);
+    guard.consent('', false, 'saving');
+    guard.consent('', false, 'synced');
     expect(announce).toHaveBeenCalledTimes(1);
   });
-  it('a failed save still reloads (the server still holds the old consent)', () => {
-    const reload = vi.fn();
-    createTagGuard(KEY, reload, vi.fn()).consent('', false, true);
-    expect(reload).toHaveBeenCalled();
+  it('a failed save of this tab\'s withdrawal reloads, without telling other tabs', () => {
+    const reload = vi.fn(); const announce = vi.fn();
+    const guard = createTagGuard(KEY, reload, vi.fn(), announce);
+    guard.consent(KEY, false, 'synced');
+    guard.consent('', false, 'saving');
+    guard.consent('', false, 'error');
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(announce).not.toHaveBeenCalled();
+  });
+  it('a failed or empty preferences LOAD never cuts off, announces or reloads (no loop)', () => {
+    const reload = vi.fn(); const sever = vi.fn(); const announce = vi.fn();
+    const guard = createTagGuard(KEY, reload, sever, announce);
+    for (let i = 0; i < 50; i += 1) { guard.consent('', false, 'error'); guard.consent('', false, 'saving'); }
+    expect(reload).not.toHaveBeenCalled();
+    expect(sever).not.toHaveBeenCalled();
+    expect(announce).not.toHaveBeenCalled();
   });
   it('a revoke from another tab cuts off and reloads a tagged tab', () => {
     const reload = vi.fn(); const sever = vi.fn();

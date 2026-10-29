@@ -93,3 +93,22 @@ describe('analytics tag script origins (t63)', () => {
     expect(isAnalyticsScriptUrl('https://plausible.io/x.js', [])).toBe(false);
   });
 });
+
+// t63 T5: the tagged page lists only `default` and `svelte-trusted-html`, with
+// no duplicates. The app creates both first; Svelte later gets the same policy.
+describe('reserveSveltePolicy', () => {
+  it('creates the Svelte policy first and hands the same one back to Svelte', async () => {
+    const { reserveSveltePolicy, SVELTE_POLICY } = await import('./trustedTypes.ts');
+    const created: string[] = [];
+    const tt = { defaultPolicy: null, createPolicy(name: string, _rules?: unknown) { if (created.includes(name)) throw new TypeError('duplicate'); created.push(name); return { name }; } };
+    reserveSveltePolicy(tt);
+    expect(created).toEqual([SVELTE_POLICY]);
+    const again = tt.createPolicy(SVELTE_POLICY, { createHTML: (h: string) => h, createScriptURL: (u: string) => u });
+    expect(again).toEqual({ name: SVELTE_POLICY });
+    expect(created).toEqual([SVELTE_POLICY]);
+    // Any other name still goes to the browser (which the page policy limits).
+    tt.createPolicy('mine', { createHTML: (h: string) => h, createScriptURL: (u: string) => u });
+    expect(created).toEqual([SVELTE_POLICY, 'mine']);
+    expect(() => { (tt as { createPolicy: unknown }).createPolicy = () => null; }).toThrow();
+  });
+});

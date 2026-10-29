@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { shellCacheName } from '../contracts/offline.ts';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { bootWorker, type Worker } from './swHarness.ts';
+import { bootWorker, defaultDigests, digestOf, TEST_SHELL, type Worker } from './swHarness.ts';
 
 const ORIGIN = 'https://mail.example.com';
 const ASSET = '/assets/index-a1b2c3d4.js';
@@ -51,7 +51,7 @@ describe('cache name', () => {
   });
   it('installs into the cache the offline contract names', async () => {
     const sw = boot();
-    sw.network.fetch = async () => reply('<!doctype html>', 'text/html');
+    sw.network.fetch = async () => reply(TEST_SHELL, 'text/html');
     await sw.install();
     expect(await sw.caches.keys()).toEqual([shellCacheName()]);
     expect(sw.caches.urls()).toEqual([`${ORIGIN}/`]);
@@ -210,7 +210,8 @@ describe('strategies', () => {
   });
 
   it('an online navigation to the shell URL replaces the stored shell', async () => {
-    const sw = boot();
+    // A new build: only its own index.html matches the manifest.
+    const sw = bootWorker(undefined, { digests: defaultDigests({ '/index.html': digestOf('new shell') }) });
     sw.network.fetch = async () => reply('old shell', 'text/html');
     await sw.install();
     sw.network.fetch = async () => reply('new shell', 'text/html');
@@ -227,7 +228,7 @@ describe('logout purge', () => {
   async function populated(scriptUrl?: string): Promise<Worker> {
     const sw = boot(scriptUrl);
     const base = new URL('./', scriptUrl ?? `${ORIGIN}/sw.js`).pathname;
-    sw.network.fetch = async () => reply('shell', 'text/html');
+    sw.network.fetch = async () => reply(TEST_SHELL, 'text/html');
     await sw.install();
     sw.network.fetch = async () => js();
     await sw.fetch(`${base}assets/index-a1b2c3d4.js`);
@@ -269,10 +270,10 @@ describe('logout purge', () => {
   it('the shell is stored again by the next online navigation', async () => {
     const sw = await populated();
     await sw.fetch('/api/logout', { method: 'POST' });
-    sw.network.fetch = async () => reply('shell again', 'text/html');
+    sw.network.fetch = async () => reply(TEST_SHELL, 'text/html');
     await sw.fetch('/', { mode: 'navigate' });
     sw.network.fetch = offline;
-    expect(await (await sw.fetch('/', { mode: 'navigate' })).response?.text()).toBe('shell again');
+    expect(await (await sw.fetch('/', { mode: 'navigate' })).response?.text()).toBe(TEST_SHELL);
   });
 });
 
@@ -293,7 +294,7 @@ describe('sub-path hosting', () => {
 
   it('precaches the prefixed shell', async () => {
     const sw = boot(`${ORIGIN}/mail/sw.js`);
-    sw.network.fetch = async () => reply('shell', 'text/html');
+    sw.network.fetch = async () => reply(TEST_SHELL, 'text/html');
     await sw.install();
     expect(sw.caches.urls()).toEqual([`${ORIGIN}/mail/`]);
   });
@@ -511,12 +512,12 @@ describe('browser analytics tag', () => {
   const tagged = (body: string): Response => new Response(body, { status: 200, headers: { 'content-type': 'text/html', 'x-mw-analytics-tag': '1' } });
   it('does not store a tagged shell, and keeps the untagged one for offline use', async () => {
     const sw = boot();
-    sw.network.fetch = async () => reply('plain shell', 'text/html');
+    sw.network.fetch = async () => reply(TEST_SHELL, 'text/html');
     await sw.install();
     sw.network.fetch = async () => tagged('tagged shell');
     expect(await (await sw.fetch('/', { mode: 'navigate' })).response?.text()).toBe('tagged shell');
     sw.network.fetch = offline;
-    expect(await (await sw.fetch('/', { mode: 'navigate' })).response?.text()).toBe('plain shell');
+    expect(await (await sw.fetch('/', { mode: 'navigate' })).response?.text()).toBe(TEST_SHELL);
   });
   it('does not precache a tagged shell at install', async () => {
     const sw = boot();
@@ -582,11 +583,12 @@ describe('a poisoned cache cannot run in the console or the shell', () => {
   it('the offline shell is served under the fixed shell policy, not the stored headers', async () => {
     const sw = boot();
     const cache = await sw.caches.open(shellCacheName(1));
-    await cache.put(`${ORIGIN}/`, new Response('<script>evil()</script>', { status: 200, headers: { 'content-type': 'text/html', 'content-security-policy': "script-src 'unsafe-inline'" } }));
+    await cache.put(`${ORIGIN}/`, new Response(TEST_SHELL, { status: 200, headers: { 'content-type': 'text/plain', 'content-security-policy': "script-src 'unsafe-inline'" } }));
     sw.network.fetch = offline;
     const out = await sw.fetch('/', { mode: 'navigate' });
     expect(out.response?.headers.get('content-security-policy')).toBe(rustShellCsp());
     expect(out.response?.headers.get('content-type')).toBe('text/html; charset=utf-8');
+    expect(out.response?.headers.get('x-content-type-options')).toBe('nosniff');
   });
   it('the offline policy is the server shell CSP, byte for byte', () => {
     const sw = readFileSync(fileURLToPath(new URL('../../public/sw.js', import.meta.url)), 'utf8');
@@ -600,3 +602,75 @@ function rustShellCsp(): string {
   if (raw === undefined) throw new Error('CSP const not found in lib.rs');
   return raw.replace(/\\\r?\n\s*/g, '');
 }
+
+// t63 T1/T2/T6: stored headers are never served, every build file and the
+// shell body are checked against the manifest, and the app's own workers still
+// get their wasm offline. Each of these fails on the worker of 6885ae2c.
+describe('nothing stored is trusted, and the app still works offline', () => {
+  const put = async (sw: Worker, path: string, body: string, headers: Record<string, string>) => {
+    const cache = await sw.caches.open(shellCacheName(1));
+    await cache.put(`${new URL(path, ORIGIN).href}`, new Response(body, { status: 200, headers: { 'x-mw-cached-at': String(Date.now()), ...headers } }));
+  };
+  it('a poisoned stylesheet with script in it is dropped, and is never served as script', async () => {
+    const sw = boot();
+    await put(sw, '/assets/index-x.css', 'globalThis.__poisoned = true;', { 'content-type': 'text/javascript' });
+    sw.network.fetch = offline;
+    expect((await sw.fetch('/assets/index-x.css')).response).toBeUndefined();
+  });
+  it('a genuine stored file is served with headers from its extension, not the stored ones', async () => {
+    const sw = boot();
+    await put(sw, '/assets/index-x.css', 'export{}', { 'content-type': 'text/javascript' });
+    sw.network.fetch = offline;
+    const out = await sw.fetch('/assets/index-x.css');
+    expect(out.response?.headers.get('content-type')).toBe('text/css; charset=utf-8');
+    expect(out.response?.headers.get('x-content-type-options')).toBe('nosniff');
+  });
+  it('an installed font under /fonts/ is served only as a font', async () => {
+    const sw = boot();
+    await put(sw, '/fonts/jost.woff2', 'globalThis.__poisoned = true;', { 'content-type': 'text/javascript' });
+    sw.network.fetch = offline;
+    const out = await sw.fetch('/fonts/jost.woff2');
+    expect(out.response?.headers.get('content-type')).toBe('font/woff2');
+    expect(out.response?.headers.get('x-content-type-options')).toBe('nosniff');
+  });
+  it('a poisoned shell body is not served offline', async () => {
+    const sw = boot();
+    await put(sw, '/', '<!doctype html><script src="/assets/x.css"></script>', { 'content-type': 'text/html' });
+    sw.network.fetch = offline;
+    const out = await sw.fetch('/', { mode: 'navigate' });
+    expect(out.response).toBeUndefined();
+  });
+  it('a stored public API answer is served only as JSON, with fixed headers', async () => {
+    const sw = boot();
+    await put(sw, '/api/push/vapid', '<script>evil()</script>', { 'content-type': 'text/html' });
+    sw.network.fetch = offline;
+    expect((await sw.fetch('/api/push/vapid')).response).toBeUndefined();
+    await put(sw, '/api/push/vapid', '{"key":"k"}', { 'content-type': 'text/html' });
+    const out = await sw.fetch('/api/push/vapid');
+    expect(out.response?.headers.get('content-type')).toBe('application/json');
+    expect(await out.response?.json()).toEqual({ key: 'k' });
+  });
+  it('the app\'s own worker gets its wasm from the cache offline; a blob or unknown worker does not', async () => {
+    const sw = boot();
+    const wasm = '/assets/mw_crypto_bg-a1.wasm';
+    await sw.fetch(wasm, { client: '/assets/worker.entry-b2.js', clientType: 'worker' });
+    sw.network.fetch = offline;
+    expect(await (await sw.fetch(wasm, { client: '/assets/worker.entry-b2.js', clientType: 'worker' })).response?.text()).toBe('export{}');
+    expect((await sw.fetch(wasm, { client: '/elsewhere/w.js', clientType: 'worker' })).response).toBeUndefined();
+  });
+  it('under a deploy prefix, a stylesheet with prefixed font URLs and the shimmed shell still verify', async () => {
+    const css = 'a{src:url(/fonts/a.woff2)}';
+    const shell = '<!doctype html><head><title>shell</title></head>';
+    const sw = bootWorker('https://mail.example.com/mail/sw.js', { digests: defaultDigests({ '/assets/index-x.css': digestOf(css), '/index.html': digestOf(shell) }) });
+    sw.network.fetch = async (req) => {
+      const url = typeof req === 'string' ? req : req.url;
+      if (url.endsWith('.css')) return reply('a{src:url(/mail/fonts/a.woff2)}', 'text/css');
+      return reply('<!doctype html><head><script src="/mail/__mw_base.js"></script><title>shell</title></head>', 'text/html');
+    };
+    await sw.fetch('/mail/assets/index-x.css');
+    await sw.fetch('/mail/', { mode: 'navigate' });
+    sw.network.fetch = offline;
+    expect(await (await sw.fetch('/mail/assets/index-x.css')).response?.text()).toBe('a{src:url(/mail/fonts/a.woff2)}');
+    expect((await sw.fetch('/mail/', { mode: 'navigate' })).response?.status).toBe(200);
+  });
+});

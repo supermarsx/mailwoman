@@ -134,7 +134,7 @@ export function isAnalyticsScriptUrl(input: string, origins: readonly string[]):
 
 /** Shape of the bits of `window.trustedTypes` we use. The DOM lib in our TS
  *  target does not declare it; narrow it locally (no runtime dependency). */
-interface TrustedTypesShim {
+export interface TrustedTypesShim {
   readonly defaultPolicy: unknown;
   createPolicy(
     name: string,
@@ -180,4 +180,34 @@ export function installTrustedTypesPolicy(): void {
       );
     },
   });
+  reserveSveltePolicy(tt);
+}
+
+/** The policy Svelte (the ALTCHA widget) creates when its module loads. */
+export const SVELTE_POLICY = 'svelte-trusted-html';
+
+/**
+ * Create Svelte's policy now, before any later script can (t63 T5). A page with
+ * a browser analytics tag is served with `trusted-types default
+ * svelte-trusted-html` and no duplicates, so whoever creates a listed name first
+ * owns it: here that is always the app. When Svelte asks for it later, it gets
+ * this same policy (an HTML pass-through, exactly what Svelte defines) instead of
+ * a duplicate-name error. Any other name goes to the browser, which refuses
+ * names the page's policy does not list.
+ */
+export function reserveSveltePolicy(tt: TrustedTypesShim): void {
+  let svelte: unknown;
+  try {
+    svelte = tt.createPolicy(SVELTE_POLICY, { createHTML: (html) => html, createScriptURL: () => { throw new TypeError('Trusted Types: svelte-trusted-html creates HTML only.'); } });
+  } catch {
+    return;
+  }
+  const create = tt.createPolicy.bind(tt);
+  try {
+    Object.defineProperty(tt, 'createPolicy', {
+      configurable: false,
+      writable: false,
+      value: (name: string, rules: Parameters<TrustedTypesShim['createPolicy']>[1]) => name === SVELTE_POLICY ? svelte : create(name, rules),
+    });
+  } catch { /* frozen factory: Svelte's own call may then fail, as before */ }
 }

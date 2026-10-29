@@ -80,6 +80,9 @@ export function createTagGuard(served: string | null, reload: () => void, sever:
   const cut = (): void => { if (!severed) { severed = true; sever(); } };
   const reloadOnce = (): void => { if (!reloaded) { reloaded = true; reload(); } };
   let announced = false;
+  // Has this tab seen the account's consent equal to this document's? Only
+  // then can a non-matching value be this tab's own withdrawal.
+  let seen = false;
   const announceOnce = (): void => { if (!announced) { announced = true; announce(); } };
   return {
     account(account: PreferenceAccount | null): void {
@@ -97,14 +100,30 @@ export function createTagGuard(served: string | null, reload: () => void, sever:
       cut();
       reloadOnce();
     },
-    /** `consent` is the account's current tag consent (`undefined` while not yet
-     *  loaded); `persisted` is whether the account's preferences are saved. */
-    consent(consent: string | undefined, privacySignal: boolean, persisted: boolean): void {
-      if (served === null || (consent === undefined && !privacySignal)) return;
-      if (consent === served && !privacySignal) return;
+    /**
+     * `consent` is the account's current tag consent (`undefined` while not
+     * yet loaded) and `status` the preferences sync state (t63 T3):
+     *  - `synced` and different from this document's: a saved withdrawal (here
+     *    or elsewhere). Cut off, tell the other tabs, reload.
+     *  - `saving` after this tab saw the consent: a local withdrawal on its way.
+     *    Cut off now, reload once it is saved.
+     *  - `error` after this tab saw the consent: that withdrawal failed to save.
+     *    Cut off and reload (the server still holds the old consent, so the
+     *    reloaded page asks again); other tabs are not told.
+     *  - `error` before the consent was ever seen is a failed LOAD, which says
+     *    nothing about consent: the tag is left alone, so a persistent failure
+     *    cannot reload-loop every tab.
+     * A privacy signal cuts off and reloads this tab only.
+     */
+    consent(consent: string | undefined, privacySignal: boolean, status: string): void {
+      if (served === null) return;
+      if (privacySignal) { cut(); reloadOnce(); return; }
+      if (consent === undefined) return;
+      if (consent === served) { seen = true; return; }
+      if (status === 'synced') { cut(); announceOnce(); reloadOnce(); return; }
+      if (!seen) return;
       cut();
-      announceOnce();
-      if (persisted || privacySignal) reloadOnce();
+      if (status === 'error') reloadOnce();
     },
   };
 }
@@ -152,7 +171,12 @@ export function startAnalytics(): void {
     const status = accountUiPreferenceStatus();
     // Known once loaded: a local withdrawal counts while it is still saving.
     const known = status === 'synced' || status === 'saving' || status === 'error';
-    guard.consent(known ? accountUiPreferences().analyticsTagConsent ?? '' : undefined, analyticsPrivacySignal(), status === 'synced' || status === 'error');
+    guard.consent(known ? accountUiPreferences().analyticsTagConsent ?? '' : undefined, analyticsPrivacySignal(), status);
   });
-  onCleanup(() => { reporter.stop(); stopAccount(); channel?.close(); document.removeEventListener('visibilitychange', visibility); });
+  // A tagged page restored from the back/forward cache may meet a browser that
+  // has since been used for the console, or a withdrawn consent: reload it, so
+  // the server decides again (t63 T4).
+  const pageshow = (event: PageTransitionEvent): void => { if (event.persisted) guard.revoked(); };
+  window.addEventListener('pageshow', pageshow);
+  onCleanup(() => { reporter.stop(); stopAccount(); channel?.close(); window.removeEventListener('pageshow', pageshow); document.removeEventListener('visibilitychange', visibility); });
 }
