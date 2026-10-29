@@ -15,6 +15,13 @@ import { Icon } from './Icon.tsx';
 // screen; hover, a click or keyboard focus slides the strip out over the
 // content and Esc puts it away again. A vertical mouse wheel scrolls the strip
 // sideways (`horizontalWheel`).
+//
+// t50: the tab's context menu (right-click, long-press, the ContextMenu key or
+// Shift+F10) has three groups: the close actions (this tab, the others, the tabs
+// to the left or right, all), Star / Unstar, and Open in a new window / Reattach.
+// The bulk closes skip starred tabs and tabs that cannot close (the Mail home
+// tab); "left" and "right" follow what the user sees, so they swap sides under
+// `dir="rtl"`. An item with nothing to close on its side is disabled.
 
 import { For, Show, createEffect, onCleanup, onMount, type JSX } from 'solid-js';
 import {beginWorkspaceTabDrag,workspaceTabDragId,endWorkspaceTabDrag} from '../realtime/workspaceTabDrag.ts';
@@ -31,7 +38,8 @@ function tabDomId(id: string): string {
   return `subtab-tab-${id}`;
 }
 
-export function SubTabStrip(props: { onClose?: (id:string)=>void; allowTearOff?: boolean; onDetach?: (id:string)=>void; isDetached?: (id:string)=>boolean; onReattach?: (id:string)=>void; canDetach?: (id:string)=>boolean; canClose?: (id:string)=>boolean; bar?: BarModeHandle } = {}): JSX.Element {
+/** `onCloseMany` closes several tabs as one action (one confirmation for unsaved changes); without it each closes in turn. */
+export function SubTabStrip(props: { onClose?: (id:string)=>void; onCloseMany?: (ids:string[])=>void; allowTearOff?: boolean; onDetach?: (id:string)=>void; isDetached?: (id:string)=>boolean; onReattach?: (id:string)=>void; canDetach?: (id:string)=>boolean; canClose?: (id:string)=>boolean; bar?: BarModeHandle } = {}): JSX.Element {
   const { subTabs } = useRealtime();
   onCleanup(endWorkspaceTabDrag);
   onMount(()=>void loadCatalog('workspace-tabs'));
@@ -91,7 +99,7 @@ export function SubTabStrip(props: { onClose?: (id:string)=>void; allowTearOff?:
   );
 }
 
-function SubTabButton(props: { tab: SubTab; active: boolean; onClose?: (id:string)=>void; allowTearOff?: boolean; onDetach?: (id:string)=>void; isDetached?: (id:string)=>boolean; onReattach?: (id:string)=>void; canDetach?: (id:string)=>boolean; canClose?: (id:string)=>boolean;onDragStart:(event:DragEvent)=>void;onDragEnd:()=>void;onDragOver:(event:DragEvent)=>void;onDrop:(event:DragEvent)=>void }): JSX.Element {
+function SubTabButton(props: { tab: SubTab; active: boolean; onClose?: (id:string)=>void; onCloseMany?: (ids:string[])=>void; allowTearOff?: boolean; onDetach?: (id:string)=>void; isDetached?: (id:string)=>boolean; onReattach?: (id:string)=>void; canDetach?: (id:string)=>boolean; canClose?: (id:string)=>boolean;onDragStart:(event:DragEvent)=>void;onDragEnd:()=>void;onDragOver:(event:DragEvent)=>void;onDrop:(event:DragEvent)=>void }): JSX.Element {
   const { subTabs } = useRealtime();
   const id = (): string => props.tab.id;
   let label:HTMLButtonElement|undefined;
@@ -101,15 +109,37 @@ function SubTabButton(props: { tab: SubTab; active: boolean; onClose?: (id:strin
   // instead of falling to <body> where a keyboard or screen-reader user is lost.
   const close=():void=>{if(props.canClose?.(id())===false) return;const owned=label?.parentElement?.contains(document.activeElement)??false;if(props.onClose) props.onClose(id());else subTabs.close(id());
     if(owned)queueMicrotask(()=>{const next=subTabs.activeId();if(next&&next!==id()&&(document.activeElement===null||document.activeElement===document.body))document.getElementById(tabDomId(next))?.focus();});};
+  /** Tabs a bulk close may take: not starred, and allowed to close (the Mail home tab is not). */
+  const bulk=(tab:SubTab):boolean=>!tab.pinned&&props.canClose?.(tab.id)!==false;
+  /** The strip's visual direction at the tab: under `dir="rtl"` the first tab sits on the right. */
+  const rtl=():boolean=>(label?.closest('[dir="rtl"],[dir="ltr"]')?.getAttribute('dir')??document.documentElement.dir)==='rtl';
+  function sides():{others:string[];left:string[];right:string[];all:string[]} {
+    const tabs=subTabs.tabs(),at=tabs.findIndex(tab=>tab.id===id());
+    const before=tabs.slice(0,Math.max(0,at)).filter(bulk).map(tab=>tab.id),after=tabs.slice(at+1).filter(bulk).map(tab=>tab.id);
+    return {others:[...before,...after],left:rtl()?after:before,right:rtl()?before:after,all:tabs.filter(bulk).map(tab=>tab.id)};
+  }
+  function closeMany(ids:string[]):void {
+    if(ids.length===0)return;
+    const owned=label?.parentElement?.contains(document.activeElement)??false;
+    if(props.onCloseMany)props.onCloseMany(ids);else for(const each of ids){if(props.onClose)props.onClose(each);else subTabs.close(each);}
+    if(owned)queueMicrotask(()=>{const next=subTabs.activeId();if(next&&(document.activeElement===null||document.activeElement===document.body))document.getElementById(tabDomId(next))?.focus();});
+  }
   const context=createContextMenu({label:()=>props.tab.title,scope:()=>`${preferenceAccount()?.generation}:${id()}:${subTabs.tabs().some(tab=>tab.id===id())}`,actions:()=>{
     if(!subTabs.tabs().some(tab=>tab.id===id()))return [];
-    const actions:ContextAction[]=[{id:'star',label:t(props.tab.pinned?'workspace-tabs-unstar':'workspace-tabs-star'),icon:props.tab.pinned?'star':'starOutline',run:()=>{
-      const pinned=!props.tab.pinned;subTabs.togglePin(id());toast.success(t(pinned?'mail-toast-tab-pinned':'mail-toast-tab-unpinned',{target:toastTarget(props.tab.title,t('mail-subtabs-label'))}));
-    }}];
-    if(props.isDetached?.(id())){
-      if(props.onReattach)actions.push({id:'reattach',label:t('mail-popup-reattach'),icon:'clone',run:()=>props.onReattach?.(id())});
-    }else if(props.onDetach&&props.allowTearOff!==false&&props.canDetach?.(id())!==false)actions.push({id:'detach',label:t('mail-subtab-tearoff',{title:props.tab.title}),icon:'clone',run:()=>props.onDetach?.(id())});
+    const side=sides(),actions:ContextAction[]=[];
     if(props.canClose?.(id())!==false)actions.push({id:'close',label:t('mail-subtab-close',{title:props.tab.title}),icon:'close',run:close});
+    actions.push(
+      {id:'close-others',label:t('workspace-tabs-close-others'),icon:'close',disabled:side.others.length===0,run:()=>closeMany(sides().others)},
+      {id:'close-left',label:t('workspace-tabs-close-left'),icon:'close',disabled:side.left.length===0,run:()=>closeMany(sides().left)},
+      {id:'close-right',label:t('workspace-tabs-close-right'),icon:'close',disabled:side.right.length===0,run:()=>closeMany(sides().right)},
+      {id:'close-all',label:t('workspace-tabs-close-all'),icon:'close',disabled:side.all.length===0,run:()=>closeMany(sides().all)},
+      {id:'star',separatorBefore:true,label:t(props.tab.pinned?'workspace-tabs-unstar':'workspace-tabs-star'),icon:props.tab.pinned?'star':'starOutline',run:()=>{
+        const pinned=!props.tab.pinned;subTabs.togglePin(id());toast.success(t(pinned?'mail-toast-tab-pinned':'mail-toast-tab-unpinned',{target:toastTarget(props.tab.title,t('mail-subtabs-label'))}));
+      }},
+    );
+    if(props.isDetached?.(id())){
+      if(props.onReattach)actions.push({id:'reattach',separatorBefore:true,label:t('mail-popup-reattach'),icon:'clone',run:()=>props.onReattach?.(id())});
+    }else if(props.onDetach&&props.allowTearOff!==false&&props.canDetach?.(id())!==false)actions.push({id:'detach',separatorBefore:true,label:t('mail-subtab-tearoff',{title:props.tab.title}),icon:'clone',run:()=>props.onDetach?.(id())});
     return actions;
   }});
   onCleanup(observePreferenceAccount(()=>context.close(false)));

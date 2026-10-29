@@ -198,3 +198,61 @@ it('reattaches only a detached pane and invalidates an open menu on authority ch
  fireEvent.click(screen.getByRole('menuitem',{name:'Reattach to main window'}));expect(reattach).toHaveBeenCalledWith('a');
  fireEvent.contextMenu(screen.getByRole('tab',{name:'A'}));activateAccountPreferences('a','msa1_verified_two');expect(screen.queryByRole('menu')).toBeNull();suspendAccountPreferences();
 });
+
+describe('SubTabStrip bulk close (t50)',()=>{
+ /** Mail (home, cannot close), S (starred), A, B (active), C, D. */
+ function six(onCloseMany?:(ids:string[])=>void,dir?:'rtl'){
+  const controller=createRealtimeController();
+  controller.subTabs.open({id:'mail',kind:'messages',title:'Mail',pinned:true});
+  controller.subTabs.open({id:'s',kind:'module',title:'S',pinned:true});
+  for(const id of ['a','b','c','d'])controller.subTabs.open({id,kind:'module',title:id.toUpperCase()});
+  controller.subTabs.activate('b');
+  render(()=><div {...(dir?{dir}:{})}><RealtimeContext.Provider value={controller}><SubTabStrip canClose={id=>id!=='mail'} {...(onCloseMany?{onCloseMany}:{})}/></RealtimeContext.Provider></div>);
+  return controller;
+ }
+ const ids=(controller:RealtimeController)=>controller.subTabs.tabs().map(tab=>tab.id);
+ const item=(name:string)=>screen.getByRole('menuitem',{name});
+ it('groups the menu: closes, then star, then window, with separators between',()=>{
+  six();fireEvent.contextMenu(screen.getByRole('tab',{name:'B'}));
+  const menu=screen.getByRole('menu');
+  expect(Array.from(menu.children).map(node=>node.getAttribute('role')==='separator'?'|':node.textContent)).toEqual(['Close B','Close other tabs','Close tabs to the left','Close tabs to the right','Close all tabs','|','Star']);
+ });
+ it('closes to the left and right of the middle tab, skipping the starred and Mail tabs',()=>{
+  const controller=six();
+  fireEvent.contextMenu(screen.getByRole('tab',{name:'B'}));fireEvent.click(item('Close tabs to the left'));
+  expect(ids(controller)).toEqual(['mail','s','b','c','d']);
+  fireEvent.contextMenu(screen.getByRole('tab',{name:'B'}));fireEvent.click(item('Close tabs to the right'));
+  expect(ids(controller)).toEqual(['mail','s','b']);expect(controller.subTabs.activeId()).toBe('b');
+ });
+ it('disables a side with nothing it may close, at both ends',()=>{
+  six();
+  fireEvent.contextMenu(screen.getByRole('tab',{name:'A'}));
+  expect(item('Close tabs to the left')).toHaveAttribute('aria-disabled','true');expect(item('Close tabs to the right')).toHaveAttribute('aria-disabled','false');
+  fireEvent.click(item('Close tabs to the left'));expect(screen.getAllByRole('tab')).toHaveLength(6);
+  fireEvent.contextMenu(screen.getByRole('tab',{name:'D'}));
+  expect(item('Close tabs to the right')).toHaveAttribute('aria-disabled','true');expect(item('Close tabs to the left')).toHaveAttribute('aria-disabled','false');
+  fireEvent.contextMenu(screen.getByRole('tab',{name:'Mail'}));
+  expect(screen.queryByRole('menuitem',{name:'Close Mail'})).toBeNull();expect(item('Close tabs to the left')).toHaveAttribute('aria-disabled','true');
+ });
+ it('arrow keys skip the separator and the disabled items',()=>{
+  six();fireEvent.keyDown(screen.getByRole('tab',{name:'D'}),{key:'ContextMenu'});
+  expect(document.activeElement).toBe(item('Close D'));
+  const menu=screen.getByRole('menu');
+  for(const name of ['Close other tabs','Close tabs to the left','Close all tabs','Star','Close D']){fireEvent.keyDown(menu,{key:'ArrowDown'});expect(document.activeElement).toBe(item(name));}
+  fireEvent.keyDown(menu,{key:'ArrowUp'});expect(document.activeElement).toBe(item('Star'));
+ });
+ it('in a right-to-left strip "left" means the tabs after it in reading order',()=>{
+  const controller=six(undefined,'rtl');
+  fireEvent.contextMenu(screen.getByRole('tab',{name:'B'}));fireEvent.click(item('Close tabs to the left'));
+  expect(ids(controller)).toEqual(['mail','s','a','b']);
+  fireEvent.contextMenu(screen.getByRole('tab',{name:'A'}));
+  expect(item('Close tabs to the left')).toHaveAttribute('aria-disabled','false');expect(item('Close tabs to the right')).toHaveAttribute('aria-disabled','true');
+ });
+ it('hands the bulk close to one onCloseMany call in visual order',()=>{
+  const many=vi.fn();six(many);
+  fireEvent.contextMenu(screen.getByRole('tab',{name:'B'}));fireEvent.click(item('Close other tabs'));
+  expect(many).toHaveBeenCalledOnce();expect(many).toHaveBeenCalledWith(['a','c','d']);
+  fireEvent.contextMenu(screen.getByRole('tab',{name:'B'}));fireEvent.click(item('Close all tabs'));
+  expect(many).toHaveBeenLastCalledWith(['a','b','c','d']);
+ });
+});
