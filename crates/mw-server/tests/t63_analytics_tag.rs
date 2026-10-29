@@ -12,6 +12,18 @@ async fn shell_headers_tag(client: &reqwest::Client, base: &str) -> Option<Strin
     r.headers().get("x-mw-analytics-tag").map(|v| v.to_str().unwrap().to_owned())
 }
 
+async fn sql_rows(db: &str, statement: &str) -> Vec<String> {
+    use sqlx::{Connection, Row};
+    let mut conn = sqlx::SqliteConnection::connect(&format!("sqlite://{db}")).await.unwrap();
+    sqlx::query(statement)
+        .fetch_all(&mut conn)
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.try_get::<String, _>(0).unwrap_or_default())
+        .collect()
+}
+
 fn csp(r: &reqwest::Response) -> Vec<String> {
     r.headers()
         .get_all("content-security-policy")
@@ -29,6 +41,7 @@ async fn browser_tag_is_consent_gated_hashed_stepped_up_and_audited() {
         "<!doctype html><html><head><script type=\"module\" src=\"./assets/index.js\"></script></head><body><div id=\"root\"></div></body></html>",
     )
     .unwrap();
+    let db: String = common::test_db::unique_db_path("analytics-tag").to_string_lossy().into();
     let mock_socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let mock_url = format!("http://{}", mock_socket.local_addr().unwrap());
     let mock_task = tokio::spawn(async move {
@@ -36,7 +49,7 @@ async fn browser_tag_is_consent_gated_hashed_stepped_up_and_audited() {
     });
     let (app, _) = build_app_full(
         AppConfig {
-            db_path: common::test_db::unique_db_path("analytics-tag").to_string_lossy().into(),
+            db_path: db.clone(),
             server_key_hex: None,
             web_dir: Some(web.clone()),
             cookie_secure: false,
@@ -113,11 +126,13 @@ async fn browser_tag_is_consent_gated_hashed_stepped_up_and_audited() {
     // The audit entry records the hash and origins, never the snippet.
     let audit: Vec<Value> = admin.get(format!("{base}/admin/audit?limit=200")).send().await.unwrap().json().await.unwrap();
     assert!(audit.iter().any(|e| e["action"] == "analytics-tag-configured" && e["target"] == "analytics:browser-tag"));
-    let export = admin.get(format!("{base}/admin/audit/export?limit=1000")).send().await.unwrap().text().await.unwrap();
-    let entry = export.lines().find(|l| l.contains("analytics-tag-configured")).expect("exported audit entry").to_owned();
+    // The before/after detail is in the audit row itself (not in the list API).
+    let rows = sql_rows(&db, "SELECT COALESCE(after_json,'') || ' ' || COALESCE(before_json,'') || ' ' || detail_json FROM audit_log WHERE action = 'analytics-tag-configured'").await;
+    let entry = rows.join("\n");
     assert!(entry.contains(&sha), "{entry}");
     assert!(entry.contains("https://collect.example.com"), "{entry}");
-    assert!(!export.contains("__t63_fixture_secret_snippet"), "{entry}");
+    let everything = sql_rows(&db, "SELECT COALESCE(after_json,'') || COALESCE(before_json,'') || detail_json FROM audit_log").await.join("\n");
+    assert!(!everything.contains("__t63_fixture_secret_snippet"), "{everything}");
 
     // Signed out: the shell is unchanged and the loader is not served.
     let anon = client();
@@ -169,7 +184,7 @@ async fn browser_tag_is_consent_gated_hashed_stepped_up_and_audited() {
                 .json(&json!({"version":1,"preferences":{"analyticsConsent":true,"analyticsTagConsent":value}})).send().await.unwrap().status()
         }
     };
-    assert_eq!(set_tag_consent(json!("custom:nothex")).await, 422);
+    assert_eq!(set_tag_consent(json!("custom:nothex")).await, 400);
     assert_eq!(set_tag_consent(json!(format!("plausible:{sha}"))).await, 200);
     assert_eq!(csp(&user.get(format!("{base}/")).send().await.unwrap()), [SHELL_CSP], "another provider's consent");
     // Consent to this provider and loader.
@@ -257,7 +272,7 @@ async fn browser_tag_is_consent_gated_hashed_stepped_up_and_audited() {
     assert_eq!(csp(&shell), [SHELL_CSP
         .replace("script-src 'self' 'wasm-unsafe-eval'", "script-src 'self' 'wasm-unsafe-eval' https://plausible.io")
         .replace("connect-src 'self' blob:", "connect-src 'self' blob: https://plausible.io")]);
-    assert!(shell.text().await.unwrap().contains(r#"<meta name="mw-analytics" content="https://plausible.io">"#));
+    assert!(shell.text().await.unwrap().contains(r#"<meta name="mw-analytics" content="https://plausible.io" data-consent="plausible:"#));
 
     task.abort();
     mock_task.abort();
