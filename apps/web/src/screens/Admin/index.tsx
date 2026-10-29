@@ -33,6 +33,8 @@ import { ShellContext } from './shell/context.ts';
 import { createAdminSearch, type AdminSearch } from './shell/CommandPalette.tsx';
 import { withTotpGate, type AdminTotpVerifier } from './shell/adminAuth.ts';
 import type { Crumb } from './shell/Breadcrumbs.tsx';
+import { restCrumbLabels, sectionCrumbLabel } from './shell/crumbLabels.ts';
+import { settingLabel } from './Settings/labels.ts';
 import { createDashboardLoader, type DashboardLoader } from '../../api/admin/dashboard.ts';
 import { Feedback } from './shell/Feedback.tsx';
 import { ToastRegion, toast } from '../../components/toast/index.ts';
@@ -177,21 +179,23 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
     const s = section();
     const r = router.route();
     if (!s || s.id === 'dashboard') return [];
+    // t95: every level is a friendly name (crumbLabels.ts), never the raw segment.
     const items: Crumb[] = [
       {
-        label: t('admin-shell-nav-dashboard'),
+        label: sectionCrumbLabel('dashboard', () => t('admin-shell-nav-dashboard')),
         href: hrefFor(sectionPath('dashboard')),
         onNavigate: () => void navigate(sectionPath('dashboard')),
       },
       {
-        label: s.label(),
+        label: sectionCrumbLabel(s.id, s.label),
         href: hrefFor(sectionPath(s.id)),
         onNavigate: () => void navigate(sectionPath(s.id)),
       },
     ];
-    r.rest.forEach((part, i) => {
+    const labels = restCrumbLabels(s.id, r.rest, settingLabel);
+    r.rest.forEach((_, i) => {
       const path = sectionPath(s.id, r.rest.slice(0, i + 1));
-      items.push({ label: part, href: hrefFor(path), onNavigate: () => void navigate(path) });
+      items.push({ label: labels[i] ?? null, href: hrefFor(path), onNavigate: () => void navigate(path) });
     });
     return items;
   };

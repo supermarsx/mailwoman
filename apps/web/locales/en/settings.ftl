@@ -5,6 +5,11 @@
 settings-title = Settings
 settings-appearance = Appearance
 settings-close = Close settings
+# t95: the breadcrumb trail above a section (category › section › New/Edit).
+settings-breadcrumb = Settings path
+settings-crumb-loading = Loading name
+settings-crumb-new = New
+settings-crumb-edit = Edit
 
 settings-theme = Theme
 settings-density = Density

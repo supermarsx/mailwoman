@@ -254,11 +254,9 @@ export const kbd = style({
 });
 
 // ── Breadcrumbs ────────────────────────────────────────────────────────────────
-export const crumbs = style({ fontSize: '0.8rem' });
-export const crumbList = style({ display: 'flex', flexWrap: 'wrap', gap: vars.space[2], listStyle: 'none', margin: 0, padding: 0 });
-export const crumbItem = style({ display: 'inline-flex', alignItems: 'center', gap: vars.space[2], color: vars.color.textDim });
-globalStyle(`${crumbItem} a`, { color: vars.color.link, textDecoration: 'underline' });
-globalStyle(`${crumbItem} [aria-current="page"]`, { color: vars.color.text, fontWeight: vars.weight.bold });
+// The trail's own styles are components/breadcrumbs/breadcrumbs.css.ts (t95);
+// this only places it in the console's main column.
+export const crumbs = style({ minInlineSize: 0 });
 
 // ── Dialogs (confirm, leave, palette) ──────────────────────────────────────────
 export const dialog = style({

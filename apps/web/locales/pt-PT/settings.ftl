@@ -4,6 +4,11 @@
 settings-title = Definições
 settings-appearance = Aspeto
 settings-close = Fechar definições
+# t95: the breadcrumb trail above a section (category › section › New/Edit).
+settings-breadcrumb = Caminho nas definições
+settings-crumb-loading = A carregar o nome
+settings-crumb-new = Novo
+settings-crumb-edit = Editar
 
 settings-theme = Tema
 settings-density = Densidade

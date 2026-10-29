@@ -11,7 +11,8 @@ import { createSettingsNavigation, SettingsNavigationContext, type SettingsNavig
 import * as workspace from './Settings/workspace.css.ts';
 import { Icon } from '../components/Icon.tsx';
 import { SettingsNav } from './Settings/SettingsNav.tsx';
-import { categoryOf } from './Settings/settingsCategories.ts';
+import { settingsCrumbs } from './Settings/settingsCrumbs.ts';
+import { Breadcrumbs } from '../components/breadcrumbs/Breadcrumbs.tsx';
 // Settings panel (plan §3 e4): the user-facing theme / density / accent / font /
 // layout controls that drive the theme slice. Rendered as a dismissible dialog;
 // every control writes straight through the slice, which reflects onto :root and
@@ -224,7 +225,7 @@ export function Settings(props: SettingsProps): JSX.Element {
         <div class={props.embedded ? workspace.body : workspace.legacy}>
           <Show when={props.embedded}><SettingsNav current={()=>navigation.route().section} query={sectionQuery} supported={supportedSection} onSelect={section=>void navigation.navigate({section})}/></Show>
           <div class={workspace.content} ref={settingsContent}>
-          <Show when={props.embedded && categoryOf(navigation.route().section)}>{category=><p class={workspace.crumb} data-testid="settings-breadcrumb">{t(category().label)}</p>}</Show>
+          <Show when={props.embedded}><Breadcrumbs class={workspace.crumb} testId="settings-breadcrumb" label={t('settings-breadcrumb')} loadingLabel={t('settings-crumb-loading')} items={settingsCrumbs(navigation.route()).map(c=>c.route?{label:c.label,onNavigate:()=>void navigation.navigate(c.route!)}:{label:c.label})}/></Show>
           <RetainedSettingsSection name="appearance" active={visible('appearance')} accountBound={false}>{()=> <div class={workspace.appearance}>
         <section class={customizationCss.section} aria-labelledby="settings-appearance-theme-card"><h3 class={customizationCss.heading} id="settings-appearance-theme-card">{t('settings-appearance-theme-card')}</h3><p class={customizationCss.meta}>{t('settings-appearance-theme-card-help')}</p>
         <ThemeMode locked={themeHold.locked()} />
