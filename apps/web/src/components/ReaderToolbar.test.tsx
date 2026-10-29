@@ -34,7 +34,8 @@ describe('reader action row: conversation and links',()=>{
   expect(trigger.closest('[role="toolbar"]')).not.toBeNull();expect(trigger).toHaveAttribute('aria-haspopup','dialog');expect(trigger).toHaveAttribute('title','View conversation');
   fireEvent.click(trigger);
   const dialog=await screen.findByRole('dialog',{name:'View conversation'});
-  fireEvent.click(await within(dialog).findByRole('button',{name:/Earlier/}));expect(state.open).toHaveBeenCalledWith('m0');
+  expect(within(dialog).queryByText(/Showing 0 of/)).toBeNull();expect(within(dialog).queryByRole('button',{name:'Load more messages'})).toBeNull();
+  const earlier=await within(dialog).findByRole('button',{name:/Earlier/});expect(within(dialog).getByText('Showing 2 of 2 conversation messages.')).toBeVisible();fireEvent.click(earlier);expect(state.open).toHaveBeenCalledWith('m0');
  });
  it('hides Review links without links and shows the count badge with them',async()=>{
   state.jmap.mockResolvedValue(thread(['m1']));
