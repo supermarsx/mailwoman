@@ -5122,6 +5122,7 @@ dependencies = [
  "bytes",
  "chrono",
  "futures-util",
+ "mw-egress",
  "mw-mcp",
  "mw-oauth",
  "reqwest 0.12.28",

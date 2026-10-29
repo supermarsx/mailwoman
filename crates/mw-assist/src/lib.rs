@@ -30,6 +30,7 @@
 
 mod adapters;
 mod assistant;
+pub mod profiles;
 pub mod redact;
 
 use std::collections::HashMap;
@@ -425,6 +426,13 @@ impl AssistGateway {
         }
     }
 
+    /// The capabilities the configuration grants, whether or not the gateway holds
+    /// an adapter of its own (a provider profile can supply one per request).
+    #[must_use]
+    pub fn capability_grants(&self) -> &[AssistCapability] {
+        &self.config.capability_grants
+    }
+
     /// The admin data-class ceiling every per-call scope is clamped to.
     #[must_use]
     pub fn data_ceiling(&self) -> &DataScope {
@@ -453,10 +461,28 @@ impl AssistGateway {
     }
 
     fn require_adapter(&self) -> Result<&Arc<dyn EndpointAdapter>> {
+        self.require_adapter_via(None)
+    }
+
+    /// The adapter a call dispatches to: `via` (a resolved provider profile) when
+    /// given, else the gateway's own. Either way the gateway must be switched on.
+    fn require_adapter_via<'a>(
+        &'a self,
+        via: Option<&'a Arc<dyn EndpointAdapter>>,
+    ) -> Result<&'a Arc<dyn EndpointAdapter>> {
         if !self.config.enabled {
             return Err(AssistError::Disabled);
         }
-        self.adapter.as_ref().ok_or(AssistError::Disabled)
+        via.or(self.adapter.as_ref()).ok_or(AssistError::Disabled)
+    }
+
+    /// Whether the deployment switch is on, whatever adapter is configured. A
+    /// provider profile can supply the adapter of a gateway built without one
+    /// ([`invoke_disclosed_via`](Self::invoke_disclosed_via)); with the switch off
+    /// nothing is sent through either.
+    #[must_use]
+    pub fn is_switched_on(&self) -> bool {
+        self.config.enabled
     }
 
     fn check_capability(&self, cap: AssistCapability) -> Result<()> {
@@ -541,7 +567,25 @@ impl AssistGateway {
         scope: DataScope,
         input: &AssistInput,
     ) -> Result<(ChatStream, InvokeDisclosure)> {
-        let adapter = self.require_adapter()?; // enabled + adapter present
+        self.invoke_disclosed_via(None, cap, scope, input).await
+    }
+
+    /// [`invoke_disclosed`](Self::invoke_disclosed) dispatched to `via` — the
+    /// adapter of the caller's resolved provider profile — instead of the gateway's
+    /// own (`None`: the gateway's own). The pipeline is the same one: the switch,
+    /// the capability grant, the ceiling, redaction, the rate limit and the audit
+    /// row (which names `via`'s host) all run before `via` sees anything.
+    ///
+    /// # Errors
+    /// Identical to [`invoke`](Self::invoke).
+    pub async fn invoke_disclosed_via(
+        &self,
+        via: Option<&Arc<dyn EndpointAdapter>>,
+        cap: AssistCapability,
+        scope: DataScope,
+        input: &AssistInput,
+    ) -> Result<(ChatStream, InvokeDisclosure)> {
+        let adapter = self.require_adapter_via(via)?; // enabled + adapter present
         self.check_capability(cap)?; // 1. capability granted
         let eff = scope.clamp(&self.config.data_ceiling); // 2. data-class ceiling
         let (payload, report) = redact::redact_chat_reported(input, &eff, cap); // 3. redaction
@@ -585,7 +629,19 @@ impl AssistGateway {
     /// Speech-to-text for the Dictation slot (§14, Whisper-compatible). Audio is
     /// user-provided, not mailbox content; same enforcement pipeline.
     pub async fn transcribe(&self, scope: DataScope, audio: &[u8], mime: &str) -> Result<String> {
-        let adapter = self.require_adapter()?;
+        self.transcribe_via(None, scope, audio, mime).await
+    }
+
+    /// [`transcribe`](Self::transcribe) dispatched to `via` (a resolved provider
+    /// profile's adapter) when given; same pipeline.
+    pub async fn transcribe_via(
+        &self,
+        via: Option<&Arc<dyn EndpointAdapter>>,
+        scope: DataScope,
+        audio: &[u8],
+        mime: &str,
+    ) -> Result<String> {
+        let adapter = self.require_adapter_via(via)?;
         self.check_capability(AssistCapability::Dictation)?;
         let eff = scope.clamp(&self.config.data_ceiling);
         self.check_rate(&eff)?;

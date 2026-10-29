@@ -524,6 +524,11 @@ impl SseDecoder {
     /// Feed one transport chunk (or a transport error); return any complete chunks.
     pub fn push_result(&mut self, res: reqwest::Result<bytes::Bytes>) -> Vec<Result<StreamChunk>> {
         match res {
+            // A timeout is named as one: reqwest's own text for a body read that
+            // timed out reads as a decode error.
+            Err(e) if e.is_timeout() => {
+                vec![Err(AssistError::Endpoint("endpoint timed out".into()))]
+            }
             Err(e) => vec![Err(AssistError::Endpoint(e.to_string()))],
             Ok(bytes) => self.push(&bytes),
         }
@@ -625,7 +630,7 @@ impl SseDecoder {
 }
 
 /// Turn a streaming HTTP response into a [`ChatStream`] via [`SseDecoder`].
-fn sse_stream(resp: reqwest::Response, provider: Provider) -> ChatStream {
+pub(crate) fn sse_stream(resp: reqwest::Response, provider: Provider) -> ChatStream {
     resp.bytes_stream()
         .scan(SseDecoder::new(provider), |dec, res| {
             let items = dec.push_result(res);

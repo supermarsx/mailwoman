@@ -31,6 +31,9 @@ tokio = { workspace = true, features = ["process", "io-util"] }
 # registry, inheriting mw-oauth::Scope + the send->Outbox gating. No new send path.
 mw-mcp = { workspace = true }
 mw-oauth = { workspace = true }
+# t39 N8: provider profiles resolve and pin every endpoint through the egress
+# address gate (SSRF rules, explicit grants for local endpoints).
+mw-egress = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "io-util"] }
