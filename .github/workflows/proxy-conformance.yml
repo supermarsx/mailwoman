@@ -34,6 +34,19 @@
 # is all; it has no cell. IIS is "documented, not CI-tested" — the exact wording
 # `docs/deploy/reverse-proxy.md` must use.
 #
+# HTTP/3 (t39-e12, L9). The application has no QUIC listener; HTTP/3 is
+# terminated at the proxy (decision D2). The `h3` job boots the caddy, nginx
+# and traefik cells and runs scripts/proxy-h3-check.sh, which negotiates HTTP/2
+# over TCP (asserting `Alt-Svc: h3=`) and HTTP/3 over UDP with a quiche curl
+# on the compose network, and for both protocols asserts that the app sees the
+# client's Host (Origin check), scheme (Secure cookie + HSTS) and address
+# (scoped-key allowlist, 200 vs a decoy's 403). It then requests HTTP/3 from
+# the runner to the cell's published UDP port. The job is NON-BLOCKING and not
+# part of the gate: no hosted runner has run it yet, and UDP forwarding on the
+# runner is unverified. It passed for all three cells on a developer host
+# (Docker 29.4.2 / Compose 5.1.3, t39-e12). PROMOTION: after green runs on
+# master, set `continue-on-error: false` and add `h3` to the gate's `needs`.
+#
 # ---------------------------------------------------------------------------
 # The suite this drives
 # ---------------------------------------------------------------------------
@@ -133,6 +146,7 @@ on:
       - "docs/deploy/proxy/**"
       - "crates/mw-server/**"
       - "crates/mw-oauth/**"
+      - "scripts/proxy-h3-check.sh"
       - ".github/workflows/proxy-conformance.yml"
   pull_request:
     paths:
@@ -141,6 +155,7 @@ on:
       - "docs/deploy/proxy/**"
       - "crates/mw-server/**"
       - "crates/mw-oauth/**"
+      - "scripts/proxy-h3-check.sh"
       - ".github/workflows/proxy-conformance.yml"
 
 permissions:
@@ -454,6 +469,66 @@ jobs:
         run: |
           docker compose -f docker-compose.proxy.yml \
             --profile "${{ matrix.profile }}" down -v --remove-orphans
+
+  # ===========================================================================
+  # HTTP/3 through the proxy (t39-e12). Non-blocking; see the header. No cargo:
+  # the check is curl against the booted cell.
+  # ===========================================================================
+  h3:
+    name: h3 ${{ matrix.profile }}
+    needs: build-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: caddy
+            https_port: 8643
+          - profile: nginx
+            https_port: 8641
+          - profile: traefik
+            https_port: 8646
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: proxy-images
+
+      - name: load images
+        run: |
+          set -eu
+          gzip -dc proxy-images.tar.gz | docker load
+
+      - name: generate self-signed TLS material
+        run: sh docs/deploy/proxy/tls/gen-certs.sh
+
+      - name: boot the ${{ matrix.profile }} cell
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -eu
+          docker compose -f docker-compose.proxy.yml --profile "$PROFILE" up -d
+          docker compose -f docker-compose.proxy.yml --profile "$PROFILE" up -d             --no-deps --wait --wait-timeout 300 mock app "$PROFILE"
+
+      - name: h2 + h3 through ${{ matrix.profile }}
+        env:
+          PROFILE: ${{ matrix.profile }}
+          PORT: ${{ matrix.https_port }}
+        run: bash scripts/proxy-h3-check.sh "$PROFILE" --published "$PORT"
+
+      - name: container state + logs
+        if: always()
+        run: |
+          docker compose -f docker-compose.proxy.yml             --profile "${{ matrix.profile }}" ps -a || true
+          docker compose -f docker-compose.proxy.yml             --profile "${{ matrix.profile }}" logs --no-color --timestamps --tail 200 || true
+
+      - name: tear down
+        if: always()
+        run: |
+          docker compose -f docker-compose.proxy.yml             --profile "${{ matrix.profile }}" down -v --remove-orphans
 
   # ===========================================================================
   # Single check to require as a branch protection rule. Because the nonblocking

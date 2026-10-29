@@ -50,6 +50,12 @@ entryPoints:
 
   websecure:
     address: ":8443"
+    # HTTP/3 (QUIC) on UDP 8443 (443 in a real deployment), beside HTTP/1.1 and
+    # HTTP/2 on TCP. Traefik then adds `Alt-Svc: h3=":8443"` to the TCP
+    # responses. In a container, publish the port for UDP as well, e.g.
+    # "443:443/udp". `advertisedPort` sets the port named in Alt-Svc when the
+    # client reaches Traefik through a different one (port mapping, a balancer).
+    http3: {}
     transport:
       respondingTimeouts:
         readTimeout: 0s

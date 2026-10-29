@@ -1,7 +1,9 @@
 # Caddy configuration for the Mailwoman conformance cell.
 #
 # Caddy is the "zero-config" path most people try first, and it gets more right
-# out of the box than any other proxy here: it speaks HTTP/2, it passes
+# out of the box than any other proxy here: it speaks HTTP/2 and HTTP/3 (QUIC on
+# UDP, the same port number as its TLS listener, advertised to TCP clients in an
+# `Alt-Svc: h3=...` header), it passes
 # WebSocket upgrades with no directive at all, it does not buffer responses by
 # default, and it has no request body size limit until you set one. The things
 # it still needs told are the forwarded-header shape and the streaming
@@ -103,6 +105,12 @@
 
 :8443 {
 	tls /certs/server.crt /certs/server.key
+
+	# HTTP/3 is on by default for this TLS site: Caddy also listens on UDP 8443
+	# (443 in a real deployment) and sends `Alt-Svc: h3=":8443"`. In a container,
+	# publish the port for UDP too ("443:443/udp"); without that, clients keep
+	# using HTTP/2 over TCP. To turn HTTP/3 off, add `protocols h1 h2` inside the
+	# global `servers` block above.
 
 	# HSTS is emitted by the application when the effective scheme is https, so
 	# there is no `header Strict-Transport-Security` here. Two sources for one

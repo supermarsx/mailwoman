@@ -50,6 +50,11 @@
 #   envoy          8606    8647    2      non-blocking CI cell; appends to XFF
 #   (direct)       8607     --     --     the app itself, no proxy — baseline
 #
+# nginx, caddy and traefik also publish their HTTPS port over UDP (8641, 8643,
+# 8646 /udp) for HTTP/3. The proxy terminates QUIC; the app behind it still
+# speaks HTTP/1.1 only. See scripts/proxy-h3-check.sh and the `h3` job in
+# .github/workflows/proxy-conformance.yml.
+#
 # The `app` service publishes 8607 in every profile so a test can compare the
 # through-proxy result against the no-proxy baseline in the same run.
 #
@@ -272,6 +277,8 @@ services:
     ports:
       - "8601:8080"
       - "8641:8443"
+      # HTTP/3 (QUIC): same port over UDP. Checked by scripts/proxy-h3-check.sh.
+      - "8641:8443/udp"
     volumes:
       - ./docs/deploy/proxy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       # nginx.conf includes /etc/nginx/mailwoman/mailwoman.conf from here.
@@ -320,6 +327,8 @@ services:
     ports:
       - "8603:8080"
       - "8643:8443"
+      # HTTP/3 (QUIC): same port over UDP. Checked by scripts/proxy-h3-check.sh.
+      - "8643:8443/udp"
     volumes:
       - ./docs/deploy/proxy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./docs/deploy/proxy/tls/certs:/certs:ro
@@ -394,6 +403,8 @@ services:
     ports:
       - "8605:8080"
       - "8646:8443"
+      # HTTP/3 (QUIC): same port over UDP. Checked by scripts/proxy-h3-check.sh.
+      - "8646:8443/udp"
     volumes:
       - ./docs/deploy/proxy/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./docs/deploy/proxy/traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
