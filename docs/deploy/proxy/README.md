@@ -88,6 +88,9 @@ port; renumbering breaks both.
 The app is published on 8607 in every profile, so a test can compare a
 through-proxy result against the no-proxy baseline in the same run.
 
+`nginx`, `caddy` and `traefik` also publish their HTTPS port over **UDP**
+(8641, 8643, 8646 `/udp`) for HTTP/3; see [The HTTP/3 leg](#the-http3-leg).
+
 ## Running a cell
 
 ```sh
@@ -111,6 +114,51 @@ docker compose -f docker-compose.proxy.yml --profile nginx down -v
 `down -v` rather than `down`: the app volume holds a seeded SQLite database and
 leaving it behind makes the next cell start from another cell's state.
 
+## The HTTP/3 leg
+
+The application has no QUIC listener; HTTP/3 is terminated by the proxy, which
+speaks HTTP/1.1 to the app. Three shipped configs enable it:
+
+| Proxy | How | Alt-Svc |
+|---|---|---|
+| Caddy | default for every TLS site | sent by Caddy |
+| nginx ≥ 1.25 (`--with-http_v3_module`) | `listen 8443 quic reuseport;` + `http3 on;` | `add_header Alt-Svc 'h3=":8443"; ma=86400' always;` |
+| Traefik v3 | `http3: {}` on the `websecure` entry point | sent by Traefik |
+
+HAProxy, Apache, Envoy and IIS are not configured for HTTP/3 here.
+
+`scripts/proxy-h3-check.sh` drives a booted cell with a curl build that has
+HTTP/3 (quiche), run on the compose network at 172.28.30.5 (outside
+`MW_TRUSTED_PROXIES`):
+
+```sh
+docker compose -f docker-compose.proxy.yml --profile caddy up -d
+docker compose -f docker-compose.proxy.yml --profile caddy up -d \
+  --no-deps --wait --wait-timeout 300 mock app caddy
+bash scripts/proxy-h3-check.sh caddy --published 8643
+docker compose -f docker-compose.proxy.yml --profile caddy down -v
+```
+
+It asserts HTTP/2 plus an `Alt-Svc: h3=` header over TCP, HTTP/3 over UDP,
+and, over both protocols, that the app saw the right `Host` (a login with the
+proxy's `Origin` passes, a foreign `Origin` is refused), the right scheme
+(`Secure` session cookie and HSTS) and the right client address (a key
+allowlisted to 172.28.30.5 answers 200, one allowlisted to a decoy 403).
+`--published PORT` adds an HTTP/3 request from the host to the published UDP
+port. The HTTP/3 requests use `--insecure`, because this curl's QUIC backend
+does not apply `--cacert`; the TCP requests verify the same leaf.
+
+The check found one defect on its first nginx run: nginx creates no `Host`
+header for an HTTP/3 request, so `proxy_set_header Host $http_host;` sent none
+and every login over HTTP/3 answered 403. `nginx/mailwoman.conf` now sends
+`$mw_host` (a `map`; see the top of that file).
+
+In CI it is the `h3` job of `proxy-conformance.yml`: **non-blocking**, not in
+the tier-1 gate, and not yet run on a hosted runner, where UDP forwarding to
+the containers is unverified. It passed for caddy, nginx and traefik on a
+developer host on 2026-10-29. Operator guidance (firewall, fallback, checking
+a deployment) is in [`../reverse-proxy.md` §9](../reverse-proxy.md#9-http3-quic--terminated-at-the-proxy).
+
 ## What each cell is here to catch
 
 Six proxies is not six copies of the same test. Each one has a stock default
@@ -132,7 +180,7 @@ stop validating. And its forwarded-header handling runs the opposite way round �
 correct pattern is to unset the client's and let `mod_proxy` add one hop, not to
 set the header yourself.
 
-**Caddy** gets the most right by default: HTTP/2, WebSocket upgrades with no
+**Caddy** gets the most right by default: HTTP/2 and HTTP/3, WebSocket upgrades with no
 directive, no response buffering, no body limit. It is the zero-config path most
 people try first, and it is in the matrix to prove that path stays working.
 
@@ -230,6 +278,9 @@ envoy/       envoy.yaml — tier 2
 iis/         web.config + README.md runbook — tier 2, unverified
 tls/         gen-certs.sh; certs/ is generated and gitignored
 ```
+
+`scripts/proxy-h3-check.sh` (repository root) is the HTTP/2 + HTTP/3 check
+described in [The HTTP/3 leg](#the-http3-leg).
 
 The TLS material is a throwaway self-signed leaf for the harness only. Real
 deployments use a CA-issued pair, the proxy's own ACME, or the application's

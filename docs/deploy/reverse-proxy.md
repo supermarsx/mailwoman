@@ -369,3 +369,99 @@ any setting made by hand in its UI; behaviour on Docker engines other than the
 one used for the recorded run, and Caddy images other than the `caddy:2-alpine`
 that `deploy.sh` pulled for it. Case 1 kills the process once; it does not show
 what happens to a write in progress at the moment of the kill.
+
+---
+
+## 9. HTTP/3 (QUIC) — terminated at the proxy
+
+Mailwoman has no QUIC listener and does not speak HTTP/3 itself. HTTP/3 is
+terminated by the proxy in front of it; the proxy talks HTTP/1.1 to the app and
+forwards the client's address, scheme and host in `X-Forwarded-For`,
+`X-Forwarded-Proto` and `Host`/`X-Forwarded-Host`, exactly as it does for an
+HTTP/2 client. Nothing changes on the application side: the same
+`MW_TRUSTED_PROXIES` / `MW_FORWARDED_MODE` / `MW_PUBLIC_URL` settings (§2)
+decide what is trusted, whichever protocol the browser used.
+
+### 9.1 Which shipped configurations enable it
+
+| Proxy | HTTP/3 in the shipped config | Checked with `scripts/proxy-h3-check.sh` |
+|---|---|---|
+| **Caddy** (`docs/deploy/proxy/caddy/Caddyfile`) | on by default for every TLS site; nothing to add | yes, 2026-10-29, developer host |
+| **`deploy.sh --domain`** (managed Caddy) | on by default (`CADDY_PROTOCOLS='h1 h2 h3'`), publishes `443/udp`; see [script.md](script.md) | rendered manifest only (`scripts/test-deploy-http-protocols.sh`) |
+| **nginx** (`docs/deploy/proxy/nginx/mailwoman.conf`, `docs/deploy/nginx.conf`) | `listen … quic reuseport;` + `http3 on;` + `add_header Alt-Svc 'h3=":443"; ma=86400' always;` — needs nginx ≥ 1.25 built with `--with-http_v3_module` (the official images are) | yes (conformance vhost), 2026-10-29, developer host; `docs/deploy/nginx.conf` passes `nginx -t` |
+| **Traefik** v3 (`docs/deploy/proxy/traefik/traefik.yml`) | `http3: {}` on the `websecure` entry point | yes, 2026-10-29, developer host |
+| HAProxy, Apache httpd, Envoy, IIS | not configured in the shipped files | no |
+
+**nginx: `Host` over HTTP/3.** An HTTP/3 request has no `Host` header, only
+`:authority`, and nginx does not create one, so `$http_host` is empty over
+QUIC. A vhost that sends `proxy_set_header Host $http_host;` then sends no
+`Host` to the app, the app's Origin check has nothing to compare with, and
+every login over HTTP/3 answers **403** while HTTP/2 works. The check script
+found exactly that in the conformance vhost. It now sends `$mw_host`, a `map`
+that uses `$http_host` when present and otherwise `$host` plus the port when it
+is not 443. `docs/deploy/nginx.conf` uses `$host` on port 443, which is
+correct for HTTP/3 as it is.
+
+### 9.2 Firewall and port publishing
+
+QUIC runs over **UDP 443**. Open it next to TCP 80/443 in the host firewall
+(`ufw allow 443/udp`, `firewall-cmd --add-port=443/udp`), in any cloud security
+group, and on any load balancer in front (an L4 balancer must forward UDP, not
+only TCP). In a container, publish the port for both protocols:
+`"443:443/tcp"` and `"443:443/udp"`. `docker-compose.proxy.yml` publishes the
+nginx, caddy and traefik HTTPS ports over UDP for the check below.
+
+### 9.3 Fallback
+
+Browsers do not start on HTTP/3. The first connection is TCP (HTTP/2 or 1.1);
+the response carries `Alt-Svc: h3=":443"`, and the browser tries QUIC on later
+requests. If UDP 443 is blocked or the QUIC handshake fails, the browser keeps
+using the TCP connection; the user sees no error. WebSocket connections
+(`/jmap/ws`) are opened over TCP, so the proxy's TCP listener and its WebSocket
+settings stay required with HTTP/3 enabled. To switch HTTP/3 off, drop the
+`quic` listeners and `Alt-Svc` (nginx), remove `http3` (Traefik), or set
+`protocols h1 h2` (Caddy; `CADDY_PROTOCOLS='h1 h2'` for `deploy.sh`).
+
+### 9.4 How to check a deployment
+
+```sh
+# The TCP response must advertise HTTP/3:
+curl -sI --http2 https://mail.example.org/healthz | grep -i '^alt-svc'
+# HTTP/3 only, no TCP fallback. Needs a curl built with HTTP/3
+# (`curl -V` lists HTTP3 under Features); prints "3" when QUIC worked:
+curl -s -o /dev/null -w '%{http_version}\n' --http3-only https://mail.example.org/healthz
+```
+
+In the browser, open the developer tools' Network panel, enable the
+**Protocol** column and reload twice: after the first load the requests show
+`h3`. If they stay on `h2`, UDP 443 is not reaching the proxy.
+
+### 9.5 What is tested
+
+`scripts/proxy-h3-check.sh <caddy|nginx|traefik> [--published PORT]` runs
+against a booted cell of `docker-compose.proxy.yml`. A curl build with HTTP/3
+(quiche; image pinned in the script) joins the cell's network at 172.28.30.5,
+outside `MW_TRUSTED_PROXIES`, and:
+
+1. requests `/healthz` over TCP, asserting HTTP/2 and an `Alt-Svc: h3=` header;
+2. requests `/healthz` with `--http3-only`, asserting HTTP/3;
+3. over HTTP/2 **and** over HTTP/3, asserts what the app saw: a login whose
+   `Origin` is the proxy's address is accepted and one with a foreign `Origin`
+   is refused (the app compares `Origin` with `Host`); the session cookie
+   carries `Secure` and the response carries HSTS (from a trusted
+   `X-Forwarded-Proto: https`); an API key allowlisted to 172.28.30.5 answers
+   200 and one allowlisted to 203.0.113.9 answers 403 (from `X-Forwarded-For`);
+4. with `--published`, requests HTTP/3 from the host to the cell's published
+   UDP port.
+
+**Recorded run:** 2026-10-29, Docker 29.4.2 with Compose 5.1.3 (Docker
+Desktop, Windows 11), app image `mailwoman:t33e15c`, `caddy:2-alpine` (2.11.7),
+`nginx:1.27-alpine` (1.27.5), `traefik:v3.3` (3.3.7): all four steps pass for
+caddy, nginx and traefik, including the published UDP port. Before the
+`$mw_host` change, the nginx cell failed step 3 over HTTP/3 only (login 403).
+
+The `h3` job in `.github/workflows/proxy-conformance.yml` runs the script for
+the three cells. It is **non-blocking** and not part of the tier-1 gate: no
+hosted runner has run it yet, and UDP between the runner and its containers is
+unverified there. Not proven: HTTP/3 from a real browser (the steps above use
+curl), 0-RTT, connection migration, and any proxy not listed in §9.1.
