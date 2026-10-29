@@ -3048,7 +3048,7 @@ impl Engine {
                     });
                     row.signature_html = template
                         .and_then(|template| template.html.as_deref())
-                        .map(mw_sanitize::sanitize_email_html);
+                        .map(mw_sanitize::sanitize_signature_html);
                 }
             }
         }

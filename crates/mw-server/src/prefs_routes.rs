@@ -1002,7 +1002,7 @@ fn signature_to_dto(row: &SignatureRow) -> SignatureDto {
 
 fn signature_from_dto(account: &str, dto: &SignatureDto) -> SignatureRow {
     SignatureRow {
-        html: dto.html.as_deref().map(mw_sanitize::sanitize_email_html),
+        html: dto.html.as_deref().map(mw_sanitize::sanitize_signature_html),
         text: dto.text.clone(),
         text_edited: dto.text_edited,
         account_id: account.to_string(),
@@ -1307,6 +1307,39 @@ mod tests {
     }
 
     // ── signatures ────────────────────────────────────────────────────────────
+
+    /// t49: a signature's embedded raster image survives the save byte for byte;
+    /// scripts, remote images and any other `data:` URL do not.
+    #[tokio::test]
+    async fn signature_html_keeps_embedded_images_only() {
+        let s = store().await;
+        let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+        let kept = format!(
+            r#"<p><span style="font-family: Georgia, serif; color: #1f4e79">Regards</span> <a href="https://example.org">site</a></p><p><img src="{png}" alt="logo"></p><table style="border-collapse: collapse"><tbody><tr><td style="border: 1px solid #999">x</td></tr></tbody></table>"#
+        );
+        let html = format!(
+            r#"{kept}<script>evil()</script><img src="https://t.example/p.gif"><a href="data:text/html;base64,PGI+">x</a>"#
+        );
+        do_upsert_signature(
+            &s,
+            "a1",
+            &SignatureDto {
+                html: Some(html),
+                text: Some("Regards".into()),
+                text_edited: true,
+                name: "logo".into(),
+                body: "Regards".into(),
+                is_default: false,
+                rule: None,
+            },
+        )
+        .await
+        .unwrap();
+        let saved = do_list_signatures(&s, "a1").await.unwrap();
+        let saved = saved[0].html.as_deref().unwrap();
+        assert!(saved.contains(&format!(r#"<img src="{png}" alt="logo">"#)), "{saved}");
+        assert!(!saved.contains("<script") && !saved.contains("https://t.example") && !saved.contains("data:text"), "{saved}");
+    }
 
     #[tokio::test]
     async fn signatures_round_trip_and_mapping() {

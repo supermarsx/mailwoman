@@ -202,12 +202,49 @@ pub fn sanitize_email_html_with(input: &str, opts: &SanitizeOptions) -> String {
     sanitize_email_html_and_references(input, opts).0
 }
 
+/// Sanitize a signature template's HTML (t49): [`sanitize_email_html`], plus the
+/// one image form a signature can carry. A signature has no attachments of its
+/// own, so its images are embedded as `data:` URLs of a raster type, base64
+/// encoded (`<img src="data:image/png;base64,...">`). Only an `<img src>` of
+/// exactly that shape survives; a `data:` URL anywhere else (a link, `srcset`,
+/// `background`, CSS), of another type (SVG, HTML) or not base64 is removed.
+/// The web composer turns each embedded image into an inline `cid:` part of the
+/// message before it is sent.
+pub fn sanitize_signature_html(input: &str) -> String {
+    sanitize_core(input, &SanitizeOptions::STRIP, true).0
+}
+
+/// A `data:` URL: the scheme, case-insensitive, with nothing before it.
+fn is_data_url(value: &str) -> bool {
+    value.trim_start().get(..5).is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))
+}
+
+/// `data:image/(png|jpeg|gif|webp);base64,<base64>` exactly (lower case, no
+/// whitespace, no parameters), as the web editor writes it.
+fn is_embedded_image(value: &str) -> bool {
+    let Some(payload) = ["png", "jpeg", "gif", "webp"]
+        .iter()
+        .find_map(|kind| value.strip_prefix(&format!("data:image/{kind};base64,")))
+    else {
+        return false;
+    };
+    let data = payload.trim_end_matches('=');
+    !data.is_empty()
+        && payload.len() - data.len() <= 2
+        && data.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
+}
+
 /// Return the exact image/link references accepted by the same sanitizer pass.
 /// Callers handling untrusted remote bodies must bound input bytes beforehand.
 pub fn sanitize_email_html_and_references(
     input: &str,
     opts: &SanitizeOptions,
 ) -> (String, RemoteReferences) {
+    sanitize_core(input, opts, false)
+}
+
+/// The sanitizer pass. `embedded` keeps raster `data:` images ([`sanitize_signature_html`]).
+fn sanitize_core(input: &str, opts: &SanitizeOptions, embedded: bool) -> (String, RemoteReferences) {
     // S9 side-channel: the attribute filter runs inside ammonia's single parse and
     // cannot ADD attributes to an element, so it records each stripped remote
     // `<img src>` (and, in placeholder mode, each kept reference and cleaned link)
@@ -234,6 +271,11 @@ pub fn sanitize_email_html_and_references(
     schemes.insert("https");
     schemes.insert("mailto");
     schemes.insert("cid");
+    // Signatures: `data:` passes the scheme check so the filter below can keep
+    // the embedded `<img src>` and drop every other `data:` value.
+    if embedded {
+        schemes.insert("data");
+    }
     builder.url_schemes(schemes);
 
     // Deny relative URLs — emails have no trusted base.
@@ -266,6 +308,10 @@ pub fn sanitize_email_html_and_references(
     // declaration sanitizer.
     builder.attribute_filter(move |element, attribute, value| -> Option<Cow<str>> {
         let mut rec = sink.lock().expect("sanitize record lock");
+        if embedded && is_data_url(value) {
+            return (element == "img" && attribute == "src" && is_embedded_image(value))
+                .then_some(Cow::Borrowed(value));
+        }
         if element == "img" && attribute == "src" && !value.starts_with("cid:") {
             // Remote image: stripped (with its host reported, S9) or replaced by a
             // placeholder, per the options.
@@ -1227,6 +1273,47 @@ fn split_top_level_commas(s: &str) -> Vec<&str> {
 
 #[cfg(test)]
 mod tests {
+    // ── signatures (t49) ──────────────────────────────────────────────────────
+    const PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+    #[test]
+    fn signature_keeps_an_embedded_raster_image_exactly() {
+        let html = format!(r#"<p>Regards <img src="{PNG}" alt="logo"></p>"#);
+        assert_eq!(super::sanitize_signature_html(&html), html);
+        // The message sanitizer is unchanged: no data: image.
+        assert!(!super::sanitize_email_html(&html).contains("data:"));
+    }
+
+    #[test]
+    fn signature_drops_every_other_data_url() {
+        for bad in [
+            r#"<img src="data:image/svg+xml;base64,PHN2Zz48c2NyaXB0Pjwvc2NyaXB0Pjwvc3ZnPg==">"#,
+            r#"<img src="data:text/html;base64,PHNjcmlwdD4=">"#,
+            r#"<img src="data:image/png,rawbytes">"#,
+            r#"<img src=" data:image/png;base64,AAAA">"#,
+            r#"<img src="DATA:image/png;base64,AAAA">"#,
+            r#"<img src="data:image/png;base64,AA AA">"#,
+            r#"<img src="data:image/png;base64,AAAA===">"#,
+            r#"<a href="data:image/png;base64,AAAA">x</a>"#,
+            r#"<img src="cid:x" srcset="data:image/png;base64,AAAA 2x">"#,
+            r#"<table background="data:image/png;base64,AAAA"><tr><td>x</td></tr></table>"#,
+            r#"<p style="background:url(data:image/png;base64,AAAA)">x</p>"#,
+        ] {
+            let out = super::sanitize_signature_html(bad);
+            assert!(!out.to_ascii_lowercase().contains("data:"), "{bad} -> {out}");
+        }
+    }
+
+    #[test]
+    fn signature_still_strips_scripts_handlers_and_remote_images() {
+        let out = super::sanitize_signature_html(&format!(
+            r#"<p onclick="x()">a<script>evil()</script><img src="https://t.example/p.gif"><img src="{PNG}" onerror="x()"></p>"#
+        ));
+        assert!(!out.contains("script") && !out.contains("onclick") && !out.contains("onerror"));
+        assert!(!out.contains("t.example/p.gif"));
+        assert!(out.contains(PNG));
+    }
+
     use super::sanitize_email_html as clean;
     use super::{CONTAINER_CLASS, MAX_Z_INDEX, sanitize_declaration_list, sanitize_stylesheet};
 
