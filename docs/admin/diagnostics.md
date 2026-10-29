@@ -4,7 +4,7 @@ Open **Operations → Diagnostics** to run the server suite and review saved run
 Reading history requires the unscoped `diagnostics.read` grant; running checks
 requires unscoped `diagnostics.run`. A session can start two runs per minute.
 
-The server suite performs five checks:
+The server suite performs these checks:
 
 - Query the configured database.
 - Insert a synthetic settings row in a transaction, then roll it back.
@@ -13,7 +13,40 @@ The server suite performs five checks:
 - Verify that the default address policy rejects representative private and
   loopback addresses.
 
-Each check has a five-second deadline. A failed check or deadline reports a
+Network and ports:
+
+- `network-public-dns`: the host name in `MW_PUBLIC_URL` resolves from this
+  server (skipped when `MW_PUBLIC_URL` is not set).
+- `network-public-port`: the port of the public URL accepts a TCP connection
+  from this server. A failure is a warning, because NAT hairpinning can block
+  it while outside clients still connect.
+- `network-backend-ports`: how many saved, enabled backend host:port pairs (up to
+  32) accept a direct TCP connection under the same address policy as a sign-in.
+  Nothing is written to the socket. It needs `domains.upstream_write` and is
+  skipped without it. A failure is a warning, because a configured egress route
+  may be the only way to reach a backend; **Check all saved backends** tests the
+  route and TLS.
+
+Security posture:
+
+- The deployment checks from **Diagnostics → Deployment security** that report
+  pass or warning: HTTPS, Secure cookies, HSTS, strict CSRF, administrator
+  second factors, sign-in pacing, credential locks, sign-in geography data and
+  render isolation.
+- `security-plaintext-backends`: fails when a saved backend allows passwords
+  without TLS on a non-private network, warns when only private-network
+  backends do.
+- `fail2ban-client-address`: classifies the address a fail2ban line would name
+  for the admin request that ran the suite. It fails when requests carry no
+  client address, and warns when the address is loopback or private, which
+  behind a reverse proxy means `MW_TRUSTED_PROXIES` is missing and fail2ban
+  would ban the proxy. See [fail2ban](../deploy/fail2ban.md).
+
+Statuses are `pass`, `warn`, `fail` and `skipped`. A run with a failure is
+`fail`; otherwise a run with a warning is `warn`. Summaries contain counts and
+fixed text, never host names, addresses or upstream answers.
+
+Each step has a five-second deadline. A failed check or deadline reports a
 failure. Reports contain fixed descriptions, status and elapsed time, without
 database errors, credentials or sampled user data. Audit and history failures
 are reported separately: a successful probe does not imply its report was saved.
@@ -57,6 +90,13 @@ description; domain links lead back to configuration for remediation.
 the currently selected run. It includes build version/platform/mode/uptime,
 allowlisted runtime security flags and timeouts, and the latest ten stored runs.
 Domain/backend identifiers and administrative actor names may be present.
+Tick **Replace domain names and backend IDs in the report** (API:
+`?omitDomains=true`) to replace every saved domain name, wherever it appears in
+the text, with `domain-N`, and backend IDs with `backend-N`, numbered in order of
+first appearance. With `?selected=<run id>` the server attaches that run from
+saved history, with the same placeholders. A selected run that is not in the
+latest ten saved runs is left out when names are replaced
+(`"selectedRunOmitted": true`).
 It excludes raw configuration, credentials, tokens, cookies, keys, mail,
 certificate blobs and upstream greeting/error text. Review a report before
 sharing it outside your organization.

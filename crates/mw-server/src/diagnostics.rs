@@ -1,6 +1,8 @@
 //! Real, bounded server checks and persisted redacted history.
 #[path = "diagnostics_jobs.rs"]
 mod jobs;
+#[path = "diagnostics_posture.rs"]
+mod posture;
 use crate::{
     AppState,
     admin_ctx::{AdminApiError, AdminCtx, AdminJson},
@@ -10,7 +12,7 @@ use crate::{
 use axum::{
     Json,
     extract::{Query, State},
-    http::{Method, StatusCode, header},
+    http::{Extensions, HeaderMap, Method, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use mw_store::diagnostics::DiagnosticRun;
@@ -39,7 +41,7 @@ struct CheckResult {
     id: &'static str,
     status: &'static str,
     duration_ms: u64,
-    summary: &'static str,
+    summary: std::borrow::Cow<'static, str>,
     fix_id: &'static str,
 }
 
@@ -57,7 +59,7 @@ async fn check(
         id,
         status,
         duration_ms: start.elapsed().as_millis().min(u64::MAX as u128) as u64,
-        summary,
+        summary: summary.into(),
         fix_id: id,
     }
 }
@@ -97,6 +99,8 @@ struct RunInput {
 async fn run(
     State(state): State<AppState>,
     ctx: AdminCtx,
+    headers: HeaderMap,
+    ext: Extensions,
     AdminJson(input): AdminJson<RunInput>,
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::DiagnosticsRun)?;
@@ -126,7 +130,7 @@ async fn run(
         })
         .await
         .is_ok();
-    let results = vec![
+    let mut results = vec![
         check("database-connectivity", "Database accepts a query", async {
             state.store.diagnostic_ping().await.is_ok()
         })
@@ -166,8 +170,19 @@ async fn run(
         )
         .await,
     ];
+    let upstream = ctx
+        .require_unscoped(Capability::DomainsUpstreamWrite)
+        .is_ok();
+    let (network, security) = tokio::join!(
+        posture::network(&state, upstream),
+        posture::security(&state, &headers, &ext)
+    );
+    results.extend(network);
+    results.extend(security);
     let status = if results.iter().any(|r| r.status == "fail") {
         "fail"
+    } else if results.iter().any(|r| r.status == "warn") {
+        "warn"
     } else {
         "pass"
     };

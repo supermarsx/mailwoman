@@ -15,11 +15,11 @@ use axum::{
 use serde::Serialize;
 use serde_json::{Value, json};
 #[derive(Serialize)]
-struct Check {
-    id: &'static str,
-    status: &'static str,
-    value: Value,
-    settings: Vec<&'static str>,
+pub(crate) struct Check {
+    pub id: &'static str,
+    pub status: &'static str,
+    pub value: Value,
+    pub settings: Vec<&'static str>,
 }
 fn row(id: &'static str, status: &'static str, value: Value, settings: &[&'static str]) -> Check {
     Check {
@@ -50,18 +50,29 @@ async fn assessment(
     ext: Extensions,
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::DiagnosticsRead)?;
-    let https = state.external.is_https(&headers, &ext);
+    let checks = checks(&state, &headers, &ext).await?;
+    Ok(([(header::CACHE_CONTROL,"private, no-store")],Json(json!({"generatedAt":chrono::Utc::now().to_rfc3339(),"scope":"current-process-and-request","checks":checks,"limitations":["no-external-tls-or-firewall-probe","no-upstream-authentication","configured-worker-not-executed","not-a-security-certification"]}))).into_response())
+}
+
+/// The deployment checks, also run by the server diagnostics suite.
+pub(crate) async fn checks(
+    state: &AppState,
+    headers: &HeaderMap,
+    ext: &Extensions,
+) -> Result<Vec<Check>, AdminApiError> {
+    let https = state.external.is_https(headers, ext);
+
     let secure = state
         .external
-        .cookie_secure(state.cookie_secure, &headers, &ext);
-    let (idle, absolute) = crate::admin_accounts::session_timeouts(&state).await?;
+        .cookie_secure(state.cookie_secure, headers, ext);
+    let (idle, absolute) = crate::admin_accounts::session_timeouts(state).await?;
     let cutoff = (chrono::Utc::now() - chrono::Duration::days(90)).to_rfc3339();
     let posture = state.store.security_posture_counts(&cutoff).await?;
-    let admin = crate::signin_guard::policy(&state, mw_store::AuthSurface::Admin).await?;
-    let mailbox = crate::signin_guard::policy(&state, mw_store::AuthSurface::Webmail).await?;
-    let cooldown = value(&state, "signin.retryCooldownSecs").await?;
-    let geo_scope = value(&state, "security.signin.geoScope").await?;
-    let geo_sessions = value(&state, "security.signin.geoEnforceSessions").await?;
+    let admin = crate::signin_guard::policy(state, mw_store::AuthSurface::Admin).await?;
+    let mailbox = crate::signin_guard::policy(state, mw_store::AuthSurface::Webmail).await?;
+    let cooldown = value(state, "signin.retryCooldownSecs").await?;
+    let geo_scope = value(state, "security.signin.geoScope").await?;
+    let geo_sessions = value(state, "security.signin.geoEnforceSessions").await?;
     let geo_ready = !matches!(
         mw_engine::security::country_lookup(None),
         mw_engine::security::CountryLookup::DatabaseUnavailable
@@ -70,7 +81,7 @@ async fn assessment(
         .map_err(|_| AdminApiError::internal("invalid startup connection limits"))?;
     let http = crate::inbound_http::HttpLimits::from_env()
         .map_err(|_| AdminApiError::internal("invalid startup HTTP limits"))?;
-    let checks = vec![
+    Ok(vec![
         row(
             "httpAdmission",
             "info",
@@ -111,12 +122,12 @@ async fn assessment(
         ),
         row(
             "hsts",
-            if state.external.hsts(&headers, &ext).is_some() {
+            if state.external.hsts(headers, ext).is_some() {
                 "pass"
             } else {
                 "info"
             },
-            json!(state.external.hsts(&headers, &ext).is_some()),
+            json!(state.external.hsts(headers, ext).is_some()),
             &[],
         ),
         row(
@@ -195,6 +206,5 @@ async fn assessment(
             json!({"jailRequired":state.render_jail_required,"workerConfigured":state.render_bin.is_some()}),
             &[],
         ),
-    ];
-    Ok(([(header::CACHE_CONTROL,"private, no-store")],Json(json!({"generatedAt":chrono::Utc::now().to_rfc3339(),"scope":"current-process-and-request","checks":checks,"limitations":["no-external-tls-or-firewall-probe","no-upstream-authentication","configured-worker-not-executed","not-a-security-certification"]}))).into_response())
+    ])
 }

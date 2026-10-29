@@ -401,12 +401,135 @@ async fn execute(
     value["termination"] = json!(terminal);
     *job.snapshot.lock().unwrap_or_else(|e| e.into_inner()) = value;
 }
-async fn report(State(state): State<AppState>, ctx: AdminCtx) -> Result<Response, AdminApiError> {
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReportInput {
+    #[serde(default)]
+    omit_domains: bool,
+    #[serde(default)]
+    selected: Option<String>,
+}
+async fn report(
+    State(state): State<AppState>,
+    ctx: AdminCtx,
+    Query(input): Query<ReportInput>,
+) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::DiagnosticsRead)?;
     let runs = state.store.diagnostic_runs(None, 10).await?;
-    Ok(response(
-        json!({"schemaVersion":1,"generatedAt":chrono::Utc::now().to_rfc3339(),"server":{"version":env!("CARGO_PKG_VERSION"),"os":std::env::consts::OS,"architecture":std::env::consts::ARCH,"mode":if state.engine.is_some(){"engine"}else{"proxy"},"uptimeSeconds":state.started_at.elapsed().map(|v|v.as_secs()).unwrap_or_default()},"security":{"strictCsrf":state.hardening.csrf_strict,"coep":state.hardening.coep,"configuredHttps":state.external.declares_https(),"idleTimeoutSeconds":state.hardening.idle_timeout.as_secs(),"absoluteTimeoutSeconds":state.hardening.absolute_timeout.as_secs()},"redaction":{"included":"Allowlisted runtime flags and the latest ten diagnostic results; domain names and backend identifiers may appear","excluded":["credentials","tokens","cookies","private keys","raw configuration","user mail","raw upstream greetings"]},"runs":runs}),
-    ))
+    let selected = input
+        .selected
+        .as_deref()
+        .and_then(|id| runs.iter().find(|run| run.id == id))
+        .map(|run| serde_json::to_value(run).unwrap_or(Value::Null));
+    let included = if input.omit_domains {
+        "Allowlisted runtime flags and the latest ten diagnostic results; domain names and backend identifiers are replaced with placeholders"
+    } else {
+        "Allowlisted runtime flags and the latest ten diagnostic results; domain names and backend identifiers may appear"
+    };
+    let mut value = json!({"schemaVersion":1,"generatedAt":chrono::Utc::now().to_rfc3339(),"server":{"version":env!("CARGO_PKG_VERSION"),"os":std::env::consts::OS,"architecture":std::env::consts::ARCH,"mode":if state.engine.is_some(){"engine"}else{"proxy"},"uptimeSeconds":state.started_at.elapsed().map(|v|v.as_secs()).unwrap_or_default()},"security":{"strictCsrf":state.hardening.csrf_strict,"coep":state.hardening.coep,"configuredHttps":state.external.declares_https(),"idleTimeoutSeconds":state.hardening.idle_timeout.as_secs(),"absoluteTimeoutSeconds":state.hardening.absolute_timeout.as_secs()},"redaction":{"included":included,"domainsOmitted":input.omit_domains,"excluded":["credentials","tokens","cookies","private keys","raw configuration","user mail","raw upstream greetings"]},"runs":runs});
+    if let Some(selected) = selected {
+        value["selectedRun"] = selected;
+    }
+    if input.omit_domains {
+        let names = state
+            .store
+            .list_domain_configs_limited(512)
+            .await?
+            .into_iter()
+            .map(|row| row.name)
+            .collect::<Vec<_>>();
+        omit_domains(&mut value, &names);
+    }
+    Ok(response(value))
+}
+
+/// Replace domain names (in `domain` fields, `domain:backend` IDs and any text)
+/// and backend IDs (in `backendId` fields and those IDs) with stable placeholders
+/// `domain-N` / `backend-N`, numbered in order of first appearance.
+fn omit_domains(value: &mut Value, saved: &[String]) {
+    fn collect(value: &Value, domains: &mut Vec<String>, backends: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                for (key, item) in map {
+                    if let Value::String(text) = item {
+                        let list = match key.as_str() {
+                            "domain" => &mut *domains,
+                            "backendId" => &mut *backends,
+                            _ => continue,
+                        };
+                        if !text.is_empty() && !list.contains(text) {
+                            list.push(text.clone());
+                        }
+                    } else {
+                        collect(item, domains, backends);
+                    }
+                }
+            }
+            Value::Array(items) => items.iter().for_each(|i| collect(i, domains, backends)),
+            _ => {}
+        }
+    }
+    let (mut domains, mut backends) = (Vec::new(), Vec::new());
+    collect(value, &mut domains, &mut backends);
+    for name in saved {
+        if !domains.contains(name) {
+            domains.push(name.clone());
+        }
+    }
+    let label = |list: &[String], text: &str, prefix: &str| {
+        list.iter()
+            .position(|n| n == text)
+            .map(|i| format!("{prefix}-{}", i + 1))
+    };
+    // Longest first, so `mail.example.org` is not half-replaced by `example.org`.
+    let mut by_length: Vec<(usize, &String)> = domains.iter().enumerate().collect();
+    by_length.sort_by_key(|(_, n)| std::cmp::Reverse(n.len()));
+    let scrub = |text: &str| {
+        let mut out = text.to_string();
+        for (i, name) in &by_length {
+            if !name.is_empty() {
+                out = replace_ignore_case(&out, name, &format!("domain-{}", i + 1));
+            }
+        }
+        out
+    };
+    fn walk(value: &mut Value, key: Option<&str>, f: &dyn Fn(Option<&str>, &str) -> String) {
+        match value {
+            Value::Object(map) => map
+                .iter_mut()
+                .for_each(|(k, v)| walk(v, Some(k.as_str()), f)),
+            Value::Array(items) => items.iter_mut().for_each(|v| walk(v, key, f)),
+            Value::String(text) => *text = f(key, text),
+            _ => {}
+        }
+    }
+    walk(value, None, &|key, text| match key {
+        Some("domain") => label(&domains, text, "domain").unwrap_or_else(|| scrub(text)),
+        Some("backendId") => label(&backends, text, "backend").unwrap_or_else(|| "backend".into()),
+        Some("id") => match text.split_once(':') {
+            Some((d, b)) if domains.iter().any(|n| n == d) => format!(
+                "{}:{}",
+                label(&domains, d, "domain").unwrap_or_default(),
+                label(&backends, b, "backend").unwrap_or_else(|| scrub(b))
+            ),
+            _ => scrub(text),
+        },
+        _ => scrub(text),
+    });
+}
+
+fn replace_ignore_case(text: &str, needle: &str, with: &str) -> String {
+    let lower = text.to_ascii_lowercase();
+    let needle = needle.to_ascii_lowercase();
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    while let Some(found) = lower[at..].find(&needle) {
+        out.push_str(&text[at..at + found]);
+        out.push_str(with);
+        at += found + needle.len();
+    }
+    out.push_str(&text[at..]);
+    out
 }
 
 #[cfg(test)]
@@ -424,6 +547,33 @@ mod tests {
         let text = report.to_string();
         assert!(!text.contains("imap.example.test"));
         assert!(!text.contains("username"));
+    }
+    #[test]
+    fn omitting_domains_replaces_names_and_backend_ids_everywhere() {
+        let mut value = json!({"runs":[{"results":[
+            {"id":"mail.example.org:primary","domain":"mail.example.org","backendId":"primary","summary":"ok"},
+            {"id":"example.org:imap","domain":"example.org","backendId":"imap","summary":"Example.ORG and mail.example.org failed"},
+            {"id":"database-write","summary":"Scratch write succeeds"}
+        ]}],"selectedRun":{"results":[{"domain":"example.org","backendId":"imap"}]},
+        "note":"secret.example.net appears"});
+        omit_domains(&mut value, &["secret.example.net".into()]);
+        let text = value.to_string();
+        for leaked in [
+            "example.org",
+            "Example.ORG",
+            "secret.example.net",
+            "\"primary\"",
+            "\"imap\"",
+        ] {
+            assert!(!text.contains(leaked), "{leaked} in {text}");
+        }
+        let rows = &value["runs"][0]["results"];
+        assert_eq!(rows[0]["id"], "domain-1:backend-1");
+        assert_eq!(rows[1]["domain"], "domain-2");
+        assert_eq!(rows[1]["summary"], "domain-2 and domain-1 failed");
+        assert_eq!(rows[2]["id"], "database-write", "other IDs are kept");
+        assert_eq!(value["selectedRun"]["results"][0]["backendId"], "backend-2");
+        assert_eq!(value["note"], "domain-3 appears");
     }
     #[test]
     fn another_session_cannot_observe_or_cancel_job() {
