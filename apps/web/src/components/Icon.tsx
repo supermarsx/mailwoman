@@ -91,6 +91,7 @@ export type IconName =
   | 'plus'
   | 'sync'
   | 'more'
+  | 'conversation'
   | 'sort'
   | 'quote'
   | 'clearFormat'
@@ -142,6 +143,7 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   back: () => <path d="M7 2 L1 8 L7 14 M1 8 H15" {...S} />,
   chevronLeft: () => <path d="M10 3 L5 8 L10 13" {...S} />,
   more: () => <path d="M2 8 H4 M7 8 H9 M12 8 H14" {...S} />,
+  conversation: () => <><path d="M1 2 H10 V8 H5 L2 10.5 V8 H1 Z" {...S}/><path d="M12.5 5 H15 V12 H14 V14.5 L11 12 H6 V10.5" {...S}/></>,
   sort: () => <path d="M3 5 L8 1 L13 5 M3 11 L8 15 L13 11" {...S} />,
   quote: () => <path d="M2 3 H7 V9 H4 L2 13 V3 M10 3 H15 V9 H12 L10 13 V3" {...S} />,
   clearFormat: () => <path d="M2 2 H14 M8 2 V12 M3 12 H10 M11 10 L15 14 M15 10 L11 14" {...S} />,

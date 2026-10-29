@@ -4,8 +4,8 @@ import { test, expect, type APIRequestContext } from './csrf.ts';
 import { engineLogin, injectHtmlViaSmtp, uid, waitForInboxMessage, openMessage } from './crypto-helpers.ts';
 
 /**
- * V4 max-security opening live E2E (plan §3 e10 item 6 / SPEC §7.2): the three-
- * position Reader toolbar switch (Full / No media / Plain text) changes the ACTUAL
+ * V4 max-security opening live E2E (plan §3 e10 item 6 / SPEC §7.2): the reader
+ * view-mode dropdown (Full / No media / Plain text; t57, formerly a three-position switch) changes the ACTUAL
  * body render. Flipping to "No media" pins the sandboxed body frame to a media-free
  * CSP (images/media dropped); flipping to "Plain text" renders the message as escaped
  * plain text with no HTML at all. Pure client-side (no WASM worker) — the switch
@@ -37,7 +37,8 @@ test('Max-security: the switch strips media (no-media) and renders plain text', 
   await expect(switchEl).toHaveAttribute('data-mode', 'full-sanitized');
 
   // Flip to No media → the body frame is pinned to a media-free CSP (no img-src).
-  await page.locator('[data-testid="max-security-opt-sanitized-no-media"]').click();
+  await switchEl.click();
+  await page.getByRole('menuitemcheckbox', { name: 'No media', exact: true }).click();
   await expect(switchEl).toHaveAttribute('data-mode', 'sanitized-no-media');
   await expect(async () => {
     const srcdoc = (await frame.getAttribute('srcdoc')) ?? '';
@@ -48,7 +49,8 @@ test('Max-security: the switch strips media (no-media) and renders plain text', 
   }).toPass({ timeout: 10_000 });
 
   // Flip to Plain text → the body renders as escaped plain text (no live HTML).
-  await page.locator('[data-testid="max-security-opt-plain-text"]').click();
+  await switchEl.click();
+  await page.getByRole('menuitemcheckbox', { name: 'Plain text', exact: true }).click();
   await expect(switchEl).toHaveAttribute('data-mode', 'plain-text');
   await expect(async () => {
     const srcdoc = (await frame.getAttribute('srcdoc')) ?? '';
@@ -116,9 +118,11 @@ test('Max-security: the admin floor keeps the switch at or above it', async ({ p
 
     const switchEl = page.locator('[data-testid="max-security-switch"]');
     await expect(switchEl).toHaveAttribute('data-mode', 'plain-text', { timeout: 15_000 });
-    const full = page.locator('[data-testid="max-security-opt-full-sanitized"]');
-    await expect(full).toBeDisabled();
-    await expect(page.locator('[data-testid="max-security-opt-sanitized-no-media"]')).toBeDisabled();
+    // The view-mode dropdown lists every mode, but those below the floor are disabled.
+    await switchEl.click();
+    const full = page.getByRole('menuitemcheckbox', { name: 'Full', exact: true });
+    await expect(full).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.getByRole('menuitemcheckbox', { name: 'No media', exact: true })).toHaveAttribute('aria-disabled', 'true');
     await full.click({ force: true });
     await expect(switchEl).toHaveAttribute('data-mode', 'plain-text');
     const frame = page.locator('iframe.reader__frame');

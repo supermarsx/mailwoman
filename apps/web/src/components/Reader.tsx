@@ -31,7 +31,6 @@ import './readerMetadata.css';
 import { createNarrowViewport, focusIsLost } from './narrowViewport.ts';
 import { readingPane } from './readingPane.ts';
 import { accountUiPreferences } from '../api/accountPreferences.ts';
-import { SweepDialog } from './SweepDialog.tsx';
 import { ThumbnailStrip, type StripItem } from '../viewers/ThumbnailStrip.tsx';
 import { AttachmentViewer } from '../viewers/AttachmentViewer.tsx';
 import { attachmentDecision, attachmentPolicyUrl, loadAttachmentPolicy } from '../api/attachmentPolicy.ts';
@@ -41,8 +40,7 @@ import { SpamScore } from './security/SpamScore.tsx';
 import { DeliveryStatus } from './security/DeliveryStatus.tsx';
 import { ReadReceipt } from './ReadReceipt.tsx';
 import { MailingListActions } from './MailingListActions.tsx';
-import {MessageLinks} from './MessageLinks.tsx';
-import {Conversation} from './Conversation.tsx';
+import {ReaderToolbar} from './ReaderToolbar.tsx';
 import {reviewMessageLinks} from '../viewers/messageLinks.ts';
 import { InviteCard, hasCalendarPart } from './InviteCard.tsx';
 // V7 auto-tag (SPEC §14.3, e14b): model-suggested labels for the open message.
@@ -50,7 +48,6 @@ import { InviteCard, hasCalendarPart } from './InviteCard.tsx';
 import { AutoTag, type TagSuggestion } from '../modules/assist/index.ts';
 import type { SenderControlRequest, SenderControlResult } from './security/model.ts';
 import { defaultSenderControl } from './security/model.ts';
-import { MaxSecuritySwitch } from '../viewers/MaxSecuritySwitch.tsx';
 import { createMaxSecurityStore } from '../viewers/max-security.ts';
 import { bodyFrameDoc } from '../viewers/sandbox.ts';
 import { createObjectUrlOwner } from '../viewers/objectUrl.ts';
@@ -78,7 +75,6 @@ import { settings } from '../api/settings.ts';
 import { themeCssVars } from '../theme/themeCssVars.ts';
 import { MessageLoading } from './MessageLoading.tsx';
 import { Icon } from './Icon.tsx';
-import {ReaderAction} from './ReaderAction.tsx';
 import type { ReaderAppearance } from '../viewers/readerAppearance.ts';
 import { isNativeAuth } from '../api/serverAddress.ts';
 import {
@@ -92,7 +88,6 @@ import {
 } from './compose/reply.ts';
 import type { QuoteSource } from './compose/quote.ts';
 import { stripIsolates } from '../i18n/index.ts';
-import * as toolbarCss from './readerToolbar.css.ts';
 
 // The crypto/security JMAP surface (`SecurityVerdict/get`, `SenderControl/set`)
 // is not exposed on `AppState`, so this component drives it over its own client
@@ -189,53 +184,6 @@ function addressList(addrs: EmailAddress[] | null): string {
 function quoteDate(iso: string | null | undefined): string {
   if (iso === null || iso === undefined) return '';
   return formatDateTime(iso);
-}
-
-function ReaderToolbar(props: {
-  email: Email;
-  /** Open a composer answering or forwarding this message. */
-  onReply: (mode: ReplyMode) => void;
-  /** True while a reply is being prepared; the three buttons are disabled. */
-  preparing: boolean;
-  onPrint: () => void;
-}): JSX.Element {
-  const app = useApp();
-  const [sweeping, setSweeping] = createSignal(false);
-  const id = () => props.email.id;
-  const sender = () => props.email.from?.[0]?.email ?? '';
-  const pinned = () => props.email.pinned === true;
-  const unread = () => props.email.keywords?.['$seen'] !== true;
-  const flagged = () => props.email.keywords?.['$flagged'] === true;
-
-  return (
-    <div class="reader__toolbar" role="toolbar" aria-label={t('mail-reader-actions')}>
-      <span class={toolbarCss.replyGroup}>
-        <ReaderAction icon="reply" label={t('mail-reply')} help={t('mail-action-help-reply')} testId="reader-reply" disabled={props.preparing} onClick={()=>props.onReply('reply')}/>
-        <ReaderAction icon="replyAll" label={t('mail-reply-all')} help={t('mail-action-help-reply-all')} testId="reader-reply-all" disabled={props.preparing} onClick={()=>props.onReply('reply-all')}/>
-        <ReaderAction icon="forward" label={t('mail-forward')} help={t('mail-action-help-forward')} testId="reader-forward" disabled={props.preparing} onClick={()=>props.onReply('forward')}/>
-      </span>
-      <ReaderAction icon="pin" label={pinned()?t('mail-unpin'):t('mail-pin')} help={t('mail-action-help-pin')} pressed={pinned()} onClick={()=>void app.pinMessage(id(),!pinned())}/>
-      <ReaderAction icon={unread()?'mailRead':'mail'} label={unread()?t('mail-mark-read'):t('mail-mark-unread')} help={t('mail-action-help-read')} testId="reader-toggle-read" onClick={()=>void app.markRead(id(),unread())}/>
-      <ReaderAction icon="flag" label={flagged()?t('mail-unflag-message'):t('mail-flag-message')} help={t('mail-action-help-flag')} testId="reader-flag" pressed={flagged()} onClick={()=>void app.flagMessage(id(),!flagged())}/>
-      <ReaderAction icon="archive" label={t('mail-archive')} help={t('mail-action-help-archive')} onClick={()=>void app.archiveMessage(id())}/>
-      <ReaderAction icon="delete" label={t('mail-delete')} help={t('mail-action-help-delete')} onClick={()=>void app.trashMessage(id())}/>
-      <ReaderAction icon="spam" label={t('mail-spam')} help={t('mail-action-help-spam')} onClick={()=>void app.markSpam(id())}/>
-      <ReaderAction icon="download" label={t('mail-export')} help={t('mail-action-help-export')} testId="reader-export" onClick={()=>void app.exportMessage()}/>
-      <ReaderAction icon="print" label={t('mail-print')} help={t('mail-print-help')} onClick={props.onPrint}/>
-      <Show when={sender()!==''}><ReaderAction icon="sweep" label={t('mail-sweep-sender')} help={t('mail-action-help-sweep')} onClick={()=>setSweeping(true)}/></Show>
-      {/* Max-security opening switch (plan §7.2): drives the body render mode
-          (full / no-media / plain-text) for this sender. Per-sender + global
-          policy, admin floor clamps up. */}
-      <MaxSecuritySwitch
-        value={maxsec.effectiveMode(sender())}
-        floor={maxsec.adminFloor()}
-        onChange={(m) => maxsec.setSenderMode(sender(), m)}
-      />
-      <Show when={sweeping()}>
-        <SweepDialog fromEmail={sender()} onClose={() => setSweeping(false)} />
-      </Show>
-    </div>
-  );
 }
 
 /** Attachment thumbnails + the on-click viewer, rendered AROUND (never inside)
@@ -1025,9 +973,10 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <Show when={app.accountId()&&policy().inlineParts===true}><ReadReceipt accountId={app.accountId()!} emailId={email().id} active={props.active!==false} fullView={props.view!==undefined} displayed={receiptDisplayed()?.key===receiptDocumentKey()&&receiptDisplayed()?.html===bodySrcdoc()&&!showDecrypt()}/></Show>
 
               <MailingListActions headers={listHeaders()?.scope===receiptDocumentKey()&&listHeaders()?.url===messageHeaderUrl()?listHeaders()!.raw:''} scope={receiptDocumentKey()} active={props.active!==false} {...(props.onCompose?{onCompose:props.onCompose}:{})}/>
-              <ReaderToolbar email={email()} onReply={(mode) => void startReply(mode)} preparing={preparing()} onPrint={() => printMessage(email(), displayedContent(email()).source)} />
-              <Show when={email().threadId}>{threadId=><Conversation threadId={threadId()} messageId={email().id} active={props.active!==false}/>}</Show>
-              <MessageLinks links={reviewedBody()?.links??[]} truncated={reviewedBody()?.truncated??false} scope={receiptDocumentKey()} active={props.active!==false} {...(props.onCompose?{onCompose:props.onCompose}:{})}/>
+              {/* One action row (t57): reply group, View conversation (threads of more
+                  than one message), Review links (with its count), the message
+                  actions and the max-security switch; what does not fit folds into More. */}
+              <ReaderToolbar email={email()} onReply={(mode) => void startReply(mode)} preparing={preparing()} onPrint={() => printMessage(email(), displayedContent(email()).source)} active={props.active!==false} links={reviewedBody()?.links??[]} linksTruncated={reviewedBody()?.truncated??false} linkScope={receiptDocumentKey()} {...(props.onCompose?{onCompose:props.onCompose}:{})} security={{get value(){return maxsec.effectiveMode(sender());},get floor(){return maxsec.adminFloor();},onChange:(m)=>maxsec.setSenderMode(sender(),m)}} />
               <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
               <AutoTagSection email={email()} />
             </header>

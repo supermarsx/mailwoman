@@ -431,6 +431,8 @@ mail-maxsec-no-media = No media
 mail-maxsec-no-media-hint = Sanitized HTML with all images and media removed.
 mail-maxsec-plain-text = Plain text
 mail-maxsec-plain-text-hint = No HTML rendered — message shown as plain text only.
+mail-maxsec-view = View: { $mode }
+mail-maxsec-menu = View mode
 
 mail-toast-tab-pinned = Pinned tab “{ $target }”
 mail-toast-tab-unpinned = Unpinned tab “{ $target }”

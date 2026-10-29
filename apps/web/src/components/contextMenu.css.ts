@@ -5,3 +5,5 @@ export const item=style({display:'flex',alignItems:'center',gap:'0.6rem',width:'
 export const separator=style({height:'1px',margin:'4px 8px',background:vars.color.borderStrong});
 export const folderRow=style({display:'flex',alignItems:'stretch',minWidth:0});
 globalStyle(`.${folderRow} > .sidebar__box`,{flex:'1 1 auto',minWidth:0,width:'auto'});
+/** The trailing check on the current option (`ContextAction.current`). */
+export const current=style({marginInlineStart:'auto',paddingInlineStart:'0.75rem',display:'inline-flex',color:'inherit'});

@@ -1,7 +1,11 @@
 import {expect,it,vi} from 'vitest';
 import {render,screen,fireEvent} from '@solidjs/testing-library';
-import {createSignal} from 'solid-js';
-import {MessageLinks} from './MessageLinks.tsx';
+import {createSignal,Show} from 'solid-js';
+import {createLinkReview} from './MessageLinks.tsx';
+import type {MessageLink} from '../viewers/messageLinks.ts';
+import type {ComposeInitial} from './compose/reply.ts';
+/** The trigger now lives in the reader action row (ReaderToolbar.tsx); this harness stands in for it. */
+function MessageLinks(props:{links:MessageLink[];truncated:boolean;scope:string;active:boolean;onCompose?:(draft:ComposeInitial)=>void}){const r=createLinkReview({links:()=>props.links,truncated:()=>props.truncated,scope:()=>props.scope,active:()=>props.active,...(props.onCompose?{onCompose:props.onCompose}:{})});return <><Show when={r.count()}><button type="button" onClick={()=>r.open()}>{`Review links (${r.count()})`}</button></Show>{r.dialog()}</>;}
 import {inspectMessageLink} from '../viewers/messageLinks.ts';
 it('reveals a no-referrer destination only after review and closes on account/message replacement',()=>{
  const [message,setMessage]=createSignal({scope:'a:one',read:false});const [links,setLinks]=createSignal([inspectMessageLink('https://destination.example','https://bank.example')!]);render(()=><MessageLinks links={links()} truncated={false} scope={message().scope} active/>);

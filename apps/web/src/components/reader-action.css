@@ -1,3 +1,12 @@
 .reader-action { display:inline-flex; align-items:center; justify-content:center; gap:.35rem; flex:0 0 auto; }
 .reader-action--compact { min-inline-size:2.25rem; min-block-size:2.25rem; padding:.4rem; }
 @media (max-width:760px) { .reader-action--compact { min-inline-size:44px; min-block-size:44px; } }
+/* t57: a small count over the icon (Review links). Decorative; the count is in
+   the accessible name. Hidden when labels are shown, which carry the count. */
+.reader-action { position:relative; }
+.reader-action__badge { position:absolute; inset-block-start:.1rem; inset-inline-end:.05rem; min-inline-size:.95rem; padding:0 .2rem; border-radius:var(--radius-pill, 999px); background:var(--mw-badge, var(--signal)); color:var(--mw-badge-text, var(--signal-text)); font-size:.6rem; line-height:.95rem; font-weight:var(--weight-bold); font-variant-numeric:tabular-nums; text-align:center; pointer-events:none; }
+.reader-action:not(.reader-action--compact) .reader-action__badge { display:none; }
+/* t57: the view-mode dropdown: mode icon plus a small chevron. */
+.reader-view-mode { gap:.1rem; }
+.reader-view-mode__chevron { display:inline-flex; inline-size:.65rem; block-size:.65rem; }
+.reader-view-mode__chevron svg { inline-size:100%; block-size:100%; }

@@ -19,9 +19,16 @@ function LinkReview(props:{links:MessageLink[];truncated:boolean;onClose:()=>voi
  <Show when={link().kind==='web'} fallback={<button type="button" class="btn" disabled={!props.onCompose} onClick={()=>compose(link())}>{t('mail-links-compose')}</button>}><a class="btn" href={link().href} target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">{t('mail-links-open')}</a></Show></section>}</Show>
  </section></div></Portal>;
 }
-export function MessageLinks(props:{links:MessageLink[];truncated:boolean;scope:string;active:boolean;onCompose?:(draft:ComposeInitial)=>void}):JSX.Element{
- const [snapshot,setSnapshot]=createSignal<{links:MessageLink[];truncated:boolean}|null>(null);const scope=createMemo(()=>props.scope),active=createMemo(()=>props.active);createEffect(()=>{void scope();void active();setSnapshot(null);});
+/** The reader's "Review links" action (t57): the trigger lives in the reader
+ * action row (ReaderToolbar.tsx), so this owns only the review snapshot and its
+ * dialog. `count` is the number of reviewable links already parsed from the
+ * body; the action is offered only while it is above zero. */
+export function createLinkReview(props:{links:()=>MessageLink[];truncated:()=>boolean;scope:()=>string;active:()=>boolean;onCompose?:(draft:ComposeInitial)=>void}){
+ const [snapshot,setSnapshot]=createSignal<{links:MessageLink[];truncated:boolean}|null>(null);const scope=createMemo(()=>props.scope()),active=createMemo(()=>props.active());createEffect(()=>{void scope();void active();setSnapshot(null);});
  // The review owns its explicit snapshot. Background read-state refreshes may
  // temporarily clear the body but must not dismiss a destination under review.
- return <><Show when={props.active&&props.links.length}><button type="button" class="btn btn--ghost" title={t('mail-links-help')} onClick={()=>setSnapshot({links:props.links.map(link=>({...link,warnings:[...link.warnings]})),truncated:props.truncated})}><Icon name="link"/>{t('mail-links-review',{count:props.links.length})}</button></Show><Show when={snapshot()}>{value=><LinkReview links={value().links} truncated={value().truncated} onClose={()=>setSnapshot(null)} {...(props.onCompose?{onCompose:props.onCompose}:{})}/>}</Show></>;
+ const count=():number=>props.active()?props.links().length:0;
+ function open():void{if(count()===0)return;setSnapshot({links:props.links().map(link=>({...link,warnings:[...link.warnings]})),truncated:props.truncated()});}
+ const dialog=():JSX.Element=><Show when={snapshot()}>{value=><LinkReview links={value().links} truncated={value().truncated} onClose={()=>setSnapshot(null)} {...(props.onCompose?{onCompose:props.onCompose}:{})}/>}</Show>;
+ return {count,open,isOpen:()=>snapshot()!==null,dialog};
 }

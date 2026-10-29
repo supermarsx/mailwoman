@@ -426,6 +426,8 @@ mail-maxsec-no-media = Sem multimédia
 mail-maxsec-no-media-hint = HTML limpo sem imagens nem conteúdos multimédia.
 mail-maxsec-plain-text = Texto simples
 mail-maxsec-plain-text-hint = Sem HTML — a mensagem é apresentada apenas como texto simples.
+mail-maxsec-view = Vista: { $mode }
+mail-maxsec-menu = Modo de visualização
 
 mail-toast-tab-pinned = Separador «{ $target }» afixado
 mail-toast-tab-unpinned = Separador «{ $target }» desafixado

@@ -74,12 +74,12 @@ describe('Reader signed privacy pipeline',()=>{
     vi.mocked(getCryptoWorker().sanitizeReader).mockImplementationOnce(() => new Promise(resolve => { finish=resolve; }));
     const html='<p>Visible text</p><img src="https://cdn.example.test/image.png">';
     await open([message('m1',html)]); await waitFor(()=>expect(finish).toBeDefined());
-    fireEvent.click(screen.getByTestId('max-security-opt-sanitized-no-media'));
+    fireEvent.click(screen.getByTestId('max-security-switch'));fireEvent.click(screen.getByRole('menuitemcheckbox',{name:'No media'}));
     finish!(sanitizeEmailHtmlReader(html,false,true));
     await waitFor(()=>expect(frame()?.srcdoc).toContain('Visible text'));
     await new Promise(resolve=>setTimeout(resolve,0)); expect(requests).toEqual([]);
     expect(frame()?.srcdoc).not.toContain("img-src");
-    fireEvent.click(screen.getByTestId('max-security-opt-full-sanitized'));
+    fireEvent.click(screen.getByTestId('max-security-switch'));fireEvent.click(screen.getByRole('menuitemcheckbox',{name:'Full'}));
     await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));
   });
   it('discards a delayed signing result after a different message opens',async()=>{
