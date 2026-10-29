@@ -10,6 +10,9 @@
 //! atom  := '(' or ')' | field ':' value | WORD | '"' PHRASE '"'
 //! ```
 //!
+//! Inside a quoted phrase `\"` is a literal quote and `\\` a literal backslash
+//! (t88); other backslashes are literal.
+//!
 //! Supported operators (plan §0.1 / §2.1):
 //! `from: to: cc: subject: body:` (field text) · `text:`/bare (all-fields) ·
 //! `has:attachment` · `filename:` · `before:`/`after:` (date) · `in:` (mailbox) ·
@@ -537,16 +540,30 @@ fn read_word(chars: &[char], start: usize) -> (String, usize) {
 
 /// Read a quoted phrase body (the opening quote already consumed). Tolerates a
 /// missing closing quote (runs to end of input).
+///
+/// Inside quotes, `\"` is a literal quote and `\\` a literal backslash (t88);
+/// any other backslash stays as it is, so `"C:\dir"` still reads `C:\dir`.
+/// This is what lets the web filter bar put any sender or subject into the
+/// query text as one quoted value (`subject:"a \" OR from:x"` is one subject
+/// phrase, not a quote that ends early and lets the rest become operators).
 fn read_quoted(chars: &[char], start: usize) -> (String, usize) {
     let mut i = start;
     let mut s = String::new();
     while i < chars.len() {
-        if chars[i] == '"' {
-            i += 1;
-            break;
+        match chars[i] {
+            '"' => {
+                i += 1;
+                break;
+            }
+            '\\' if matches!(chars.get(i + 1), Some('"') | Some('\\')) => {
+                s.push(chars[i + 1]);
+                i += 2;
+            }
+            c => {
+                s.push(c);
+                i += 1;
+            }
         }
-        s.push(chars[i]);
-        i += 1;
     }
     (s, i)
 }
@@ -773,6 +790,79 @@ mod tests {
                 value: "quarterly report".into(),
                 phrase: true
             })
+        );
+    }
+
+    #[test]
+    fn quoted_escapes_keep_operators_inside_the_value() {
+        // t88: the web filter bar writes a sender or subject as one quoted value,
+        // escaping `"` and `\`. Operator-like text stays inside the phrase.
+        assert_eq!(
+            cl(r#"subject:"a \" OR from:other""#),
+            Expr::Clause(Clause::Text {
+                field: TextField::Subject,
+                value: "a \" OR from:other".into(),
+                phrase: true
+            })
+        );
+        assert_eq!(
+            cl(r#"from:"back\\slash""#),
+            Expr::Clause(Clause::Text {
+                field: TextField::From,
+                value: "back\\slash".into(),
+                phrase: true
+            })
+        );
+        // A lone backslash before anything else is literal (older queries keep
+        // their meaning).
+        assert_eq!(
+            cl(r#""C:\dir""#),
+            Expr::Clause(Clause::Text {
+                field: TextField::All,
+                value: "C:\\dir".into(),
+                phrase: true
+            })
+        );
+        // A trailing escape at the end of input does not run past it.
+        assert!(parse_expr(r#"subject:"x\"#).is_ok());
+    }
+
+    #[test]
+    fn web_canonical_forms_parse_as_the_chips_mean() {
+        // The forms apps/web/src/search/searchQuery.ts serializes (t88).
+        assert_eq!(
+            cl("-from:alice"),
+            Expr::Not(Box::new(Expr::Clause(Clause::Text {
+                field: TextField::From,
+                value: "alice".into(),
+                phrase: false
+            })))
+        );
+        assert_eq!(cl("has:calendar"), Expr::Clause(Clause::HasCalendar(true)));
+        assert_eq!(
+            cl("-has:attachment"),
+            Expr::Not(Box::new(Expr::Clause(Clause::HasAttachment(true))))
+        );
+        assert_eq!(
+            cl("in:\"Sent Items\""),
+            Expr::Clause(Clause::Mailbox("Sent Items".into()))
+        );
+        assert_eq!(
+            cl("is:flagged"),
+            Expr::Clause(Clause::Keyword("$flagged".into()))
+        );
+        assert_eq!(
+            cl("after:2026-01-01 before:2026-02-01"),
+            Expr::And(vec![
+                Expr::Clause(Clause::DateRange {
+                    after: Some(1_767_225_600),
+                    before: None
+                }),
+                Expr::Clause(Clause::DateRange {
+                    after: None,
+                    before: Some(1_769_904_000)
+                }),
+            ])
         );
     }
 
