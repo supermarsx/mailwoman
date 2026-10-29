@@ -52,6 +52,7 @@ import { storageAuthorityHeaders } from './storageAuthority.ts';
 
 import { withBase } from './basePath.ts';
 import { apiFetch } from './http.ts';
+import { onPageHide, pendingWrite } from './unloadFlush.ts';
 import { defaultAppearance, parseAppearancePrefs, FONT_STACKS, isBadgeColor, type AppearancePrefs, type BadgeColor, type UiFont } from '../theme/appearance.ts';
 import { observePreferenceAccount, preferenceAccount } from './accountPreferenceLifecycle.ts';
 
@@ -227,27 +228,12 @@ function writeMark(mark: SyncMark, key = MARK_KEY): void {
  *  whether the server has moved on since. */
 interface PendingWrite { prefs: string; base: number | null }
 
-function readPending(key: string): PendingWrite | null {
-  if (!key || typeof localStorage === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(`${key}:pending`);
-    if (raw === null) return null;
-    const p = JSON.parse(raw) as Partial<PendingWrite>;
-    return typeof p.prefs === 'string' ? { prefs: p.prefs, base: typeof p.base === 'number' ? p.base : null } : null;
-  } catch {
-    return null;
-  }
-}
-
-function writePending(key: string, value: PendingWrite | null): void {
-  if (!key || typeof localStorage === 'undefined') return;
-  try {
-    if (value === null) localStorage.removeItem(`${key}:pending`);
-    else localStorage.setItem(`${key}:pending`, JSON.stringify(value));
-  } catch {
-    /* private mode / quota: only the keepalive write is left */
-  }
-}
+const parsePending = (raw: unknown): PendingWrite | null => {
+  const p = raw as Partial<PendingWrite> | null;
+  return p && typeof p.prefs === 'string' ? { prefs: p.prefs, base: typeof p.base === 'number' ? p.base : null } : null;
+};
+const readPending = (key: string): PendingWrite | null => pendingWrite(key, parsePending).read();
+const writePending = (key: string, value: PendingWrite | null): void => pendingWrite(key, parsePending).write(value);
 
 /** Drop the mark, so the next `start()` reconciles as a device that never synced. */
 export function clearSyncMark(key = MARK_KEY): void {
@@ -383,20 +369,11 @@ export function createAppearanceSync(
     writePending(markKey(), { prefs: serialize(prefs.appearancePrefs()), base: mark?.updatedAt ?? null });
     pending = push(true);
   }
-  const onVisibility = (): void => {
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') flushOnHide();
-  };
-  let hideListening = false;
+  let stopHide: (() => void) | null = null;
   function listenForHide(on: boolean): void {
-    if (typeof window === 'undefined' || on === hideListening) return;
-    hideListening = on;
-    if (on) {
-      window.addEventListener('pagehide', flushOnHide);
-      document.addEventListener('visibilitychange', onVisibility);
-    } else {
-      window.removeEventListener('pagehide', flushOnHide);
-      document.removeEventListener('visibilitychange', onVisibility);
-    }
+    if (on === (stopHide !== null)) return;
+    if (on) stopHide = onPageHide(flushOnHide);
+    else { stopHide?.(); stopHide = null; }
   }
 
   async function start(): Promise<void> {

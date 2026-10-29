@@ -3,6 +3,7 @@ import { storageAuthorityHeaders } from './storageAuthority.ts';
 import { createSignal } from 'solid-js';
 import { apiFetch } from './http.ts';
 import { withBase } from './basePath.ts';
+import { onPageHide, pendingWrite, type PendingWriteStore } from './unloadFlush.ts';
 import { observePreferenceAccount, preferenceAccount, preferenceAccountIsCurrent, type PreferenceAccount } from './accountPreferenceLifecycle.ts';
 
 export const FOLDER_ICONS = ['folder', 'star', 'flag', 'tag', 'clock', 'calendar', 'file', 'image', 'lock', 'users', 'archive', 'mail', 'attachment', 'check', 'alert', 'inbox', 'sent', 'edit', 'delete', 'spam', 'search', 'pin', 'link', 'shield', 'unlock', 'fileAudio', 'fileVideo', 'filePdf', 'fileCode', 'print', 'download', 'preferences', 'dashboard', 'analytics', 'nextcloud', 'domains', 'twofactor', 'assistant', 'integrations', 'logs', 'home', 'briefcase', 'heart', 'shopping', 'education', 'travel', 'coffee', 'gift', 'bank', 'book'] as const;
@@ -37,7 +38,20 @@ export interface AccountUiPreferences {
 interface Snapshot { preferences: AccountUiPreferences; etag: string }
 export interface AccountPreferencesApi {
   load(): Promise<Snapshot>;
-  save(preferences: AccountUiPreferences, etag: string): Promise<Snapshot>;
+  /** `keepalive` lets the PUT outlive the page (sent from `pagehide`). */
+  save(preferences: AccountUiPreferences, etag: string, options?: { keepalive?: boolean }): Promise<Snapshot>;
+}
+/** A write the page was sending when it went away: the edited fields and the
+ *  etag they were based on, so the next start can tell whether the server has
+ *  moved on since. */
+export interface PendingAccountWrite { patch: AccountUiPreferences; base: string }
+const parsePending = (raw: unknown): PendingAccountWrite | null => {
+  const p = raw as Partial<PendingAccountWrite> | null;
+  return p && typeof p.base === 'string' && p.patch && typeof p.patch === 'object' && !Array.isArray(p.patch) ? { patch: p.patch, base: p.base } : null;
+};
+/** Per verified storage realm, like the appearance mark; no realm, nothing kept. */
+export function accountPendingStore(account: PreferenceAccount): PendingWriteStore<PendingAccountWrite> {
+  return pendingWrite(account.storageAuthority ? `mw.account-prefs:v1:${encodeURIComponent(account.storageAuthority)}` : '', parsePending);
 }
 export class PreferenceConflict extends Error {}
 const endpoint = '/api/account/preferences';
@@ -51,14 +65,14 @@ async function snapshot(response: Response): Promise<Snapshot> {
 }
 const api: AccountPreferencesApi = {
   async load() { return snapshot(await apiFetch(withBase(endpoint), {headers:storageAuthorityHeaders()})); },
-  async save(preferences, etag) {
-    return snapshot(await apiFetch(withBase(endpoint), {method:'PUT', headers:{...storageAuthorityHeaders(),'content-type':'application/json','if-match':etag}, body:JSON.stringify({version:1,preferences})}));
+  async save(preferences, etag, options) {
+    return snapshot(await apiFetch(withBase(endpoint), {method:'PUT', ...(options?.keepalive === true ? {keepalive:true} : {}), headers:{...storageAuthorityHeaders(),'content-type':'application/json','if-match':etag}, body:JSON.stringify({version:1,preferences})}));
   },
 };
 
 /** Each response belongs to one authenticated generation. Local edits are
  * merged by field, so an acknowledgement cannot replace a newer local edit. */
-export function createAccountPreferencesSync(transport: AccountPreferencesApi, publish: (value: AccountUiPreferences) => void, report: (status: string) => void, current: (account: PreferenceAccount) => boolean = preferenceAccountIsCurrent) {
+export function createAccountPreferencesSync(transport: AccountPreferencesApi, publish: (value: AccountUiPreferences) => void, report: (status: string) => void, current: (account: PreferenceAccount) => boolean = preferenceAccountIsCurrent, pendingStore: (account: PreferenceAccount) => PendingWriteStore<PendingAccountWrite> = accountPendingStore) {
   let account: PreferenceAccount | null = null;
   let base: AccountUiPreferences = {};
   let dirty: AccountUiPreferences = {};
@@ -70,6 +84,8 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
   let folderLabelEdits: Record<string,{value:string[]|null;serial:number}>={};
   let busy = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  /** Set until the first load after bind: a write left by the previous page. */
+  let left: PendingAccountWrite | null = null;
   const active = (value: PreferenceAccount): boolean => account === value && current(value);
   function rebaseIcons(): void {
     if (!Object.keys(iconEdits).length) { delete dirty.folderIcons; return; }
@@ -101,8 +117,16 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
       report(Object.keys(dirty).length ? 'saving' : 'synced');
     } catch { if (active(owner)) report('error'); }
     finally { if (active(owner)) { busy = false; if (Object.keys(dirty).length && etag) schedule(); } }
+    // The write the previous page was sending as it went away: send it again,
+    // unless the server has moved on (that write landed, or another device
+    // wrote since) or this page has edits of its own already.
+    const replay = left;
+    if (replay && active(owner) && etag) {
+      left = null; pendingStore(owner).write(null);
+      if (replay.base === etag && !Object.keys(dirty).length) { api.update(replay.patch); clearTimeout(timer); timer = undefined; await flush(); }
+    }
   }
-  async function flush(): Promise<void> {
+  async function flush(keepalive = false): Promise<void> {
     const owner = account;
     if (!owner || busy || !Object.keys(dirty).length) return;
     if (!etag) { await refresh(); return; }
@@ -115,7 +139,7 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
     const sent = {...base, ...dirty};
     report('saving');
     try {
-      const saved = await transport.save(sent, etag);
+      const saved = await transport.save(sent, etag, keepalive ? { keepalive: true } : undefined);
       if (!active(owner)) return;
       base = saved.preferences; etag = saved.etag;
       for (const key of Object.keys(sentEdits) as (keyof AccountUiPreferences)[]) {
@@ -127,6 +151,7 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
       for(const [id,edit] of Object.entries(sentTags)){if(tagEdits[id]?.serial===edit.serial)delete tagEdits[id];}
       for(const [id,edit] of Object.entries(sentFolderLabels)){if(folderLabelEdits[id]?.serial===edit.serial)delete folderLabelEdits[id];}
       emit(); report(Object.keys(dirty).length ? 'saving' : 'synced');
+      if (!Object.keys(dirty).length) pendingStore(owner).write(null);
       reschedule = true;
     } catch (error) {
       if (!active(owner)) return;
@@ -140,9 +165,23 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
       if (active(owner)) { busy = false; if (reschedule && Object.keys(dirty).length && etag) schedule(); }
     }
   }
-  return {
+  // An edit made less than 400 ms before a reload or a closed tab would be lost
+  // with the timer: send it at once with keepalive and keep it for the next
+  // start too (the shared unload helper, as for appearance prefs).
+  function flushOnHide(): void {
+    const owner = account;
+    if (!owner || !active(owner) || !Object.keys(dirty).length || !etag) return;
+    pendingStore(owner).write({ patch: {...dirty}, base: etag });
+    if (timer === undefined || busy) return;
+    clearTimeout(timer); timer = undefined;
+    void flush(true);
+  }
+  let stopHide: (() => void) | null = null;
+  const api = {
     bind(next: PreferenceAccount | null): void {
       clearTimeout(timer); timer = undefined;
+      stopHide?.(); stopHide = next ? onPageHide(flushOnHide) : null;
+      left = next ? pendingStore(next).read() : null;
       account = next; base = {}; dirty = {}; edits = {}; iconEdits = {}; tagEdits = {}; folderLabelEdits={}; etag = null; busy = false;
       emit(); report(next ? 'loading' : 'idle');
       if (next) void refresh();
@@ -167,8 +206,9 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
       dirty = {...dirty, ...patch}; report('saving'); emit(); schedule();
     },
     refresh, flush,
-    dispose(): void { this.bind(null); },
+    dispose(): void { api.bind(null); },
   };
+  return api;
 }
 
 const [preferences, setPreferences] = createSignal<AccountUiPreferences>({});

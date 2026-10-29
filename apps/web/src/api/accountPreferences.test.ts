@@ -51,3 +51,35 @@ it('merges folder-label assignments independently across devices',async()=>{
  const sync=createAccountPreferencesSync({load:async()=>({preferences:{folderLabels:++loads===1?{inbox:['work'],archive:['old']}:{inbox:['work'],archive:['remote'],other:['new']}},etag:`"${loads}"`}),save:async(value,etag)=>{writes.push(value);if(etag==='"1"')throw new PreferenceConflict();return {preferences:value,etag:'"3"'};}},vi.fn(),vi.fn(),()=>true);
  sync.bind(owner);await Promise.resolve();sync.update({folderLabels:{archive:['old']}});await sync.flush();await vi.advanceTimersByTimeAsync(500);expect(writes.at(-1)?.folderLabels).toEqual({archive:['remote'],other:['new']});sync.dispose();
 });
+it('a change made inside the 400 ms debounce is sent with keepalive when the page goes away, and replayed by the next page if that write was dropped (t67)',async()=>{
+ vi.useFakeTimers();localStorage.clear();
+ const realm={id:'a',generation:1,storageAuthority:'realm-aaaaaaaaaaaaaaaa'};
+ const sent:{value:AccountUiPreferences;etag:string;keepalive:boolean}[]=[];
+ // The browser drops the keepalive PUT: the server keeps etag "0".
+ const dropped:AccountPreferencesApi={load:async()=>({preferences:{direction:'ltr'},etag:'"0"'}),save:(value,etag,options)=>{sent.push({value,etag,keepalive:options?.keepalive===true});return new Promise(()=>undefined);}};
+ const first=createAccountPreferencesSync(dropped,vi.fn(),vi.fn(),()=>true);
+ first.bind(realm);await vi.advanceTimersByTimeAsync(0);
+ first.update({markRead:'never'});
+ window.dispatchEvent(new Event('pagehide'));
+ expect(sent).toEqual([{value:{direction:'ltr',markRead:'never'},etag:'"0"',keepalive:true}]);
+ await vi.advanceTimersByTimeAsync(1000);expect(sent).toHaveLength(1);
+ first.dispose();
+ // The next page: the server is still at "0", so the pick is sent again.
+ const writes:{value:AccountUiPreferences;etag:string}[]=[];const publish=vi.fn();
+ const next=createAccountPreferencesSync({load:async()=>({preferences:{direction:'ltr'},etag:'"0"'}),save:async(value,etag)=>{writes.push({value,etag});return {preferences:value,etag:'"1"'};}},publish,vi.fn(),()=>true);
+ next.bind({...realm,generation:2});await vi.advanceTimersByTimeAsync(0);
+ expect(writes).toEqual([{value:{direction:'ltr',markRead:'never'},etag:'"0"'}]);
+ expect(publish.mock.calls.at(-1)?.[0]).toEqual({direction:'ltr',markRead:'never'});
+ expect(localStorage.getItem('mw.account-prefs:v1:realm-aaaaaaaaaaaaaaaa:pending')).toBeNull();
+ next.dispose();
+});
+it('a left-over write is not replayed once the server has moved on (t67)',async()=>{
+ vi.useFakeTimers();localStorage.clear();
+ localStorage.setItem('mw.account-prefs:v1:realm-bbbbbbbbbbbbbbbb:pending',JSON.stringify({patch:{markRead:'never'},base:'"0"'}));
+ const save=vi.fn();
+ const sync=createAccountPreferencesSync({load:async()=>({preferences:{markRead:'on-open'},etag:'"5"'}),save},vi.fn(),vi.fn(),()=>true);
+ sync.bind({id:'b',generation:1,storageAuthority:'realm-bbbbbbbbbbbbbbbb'});await vi.advanceTimersByTimeAsync(1000);
+ expect(save).not.toHaveBeenCalled();
+ expect(localStorage.getItem('mw.account-prefs:v1:realm-bbbbbbbbbbbbbbbb:pending')).toBeNull();
+ sync.dispose();
+});
