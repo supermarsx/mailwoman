@@ -11,6 +11,7 @@ import type { JSX } from 'solid-js';
 
 export type IconName =
   | 'tableRowBefore' | 'tableRowAfter' | 'tableRowDelete' | 'tableColumnBefore' | 'tableColumnAfter' | 'tableColumnDelete' | 'tableMerge' | 'tableSplit' | 'tableHeader'
+  | 'undo' | 'redo'
   | 'cut' | 'paste' | 'table' | 'paragraph' | 'paint' | 'eyedropper'
   | 'home' | 'briefcase' | 'heart' | 'shopping' | 'education' | 'travel' | 'coffee' | 'gift' | 'bank' | 'book'
   | 'identityProvider'
@@ -110,7 +111,7 @@ export type IconName =
   | 'refresh';
 
 /** Icons whose meaning depends on reading direction. */
-export const DIRECTIONAL: ReadonlySet<IconName> = new Set<IconName>(['signOut', 'egress', 'chevron', 'chevronLeft', 'back', 'reply', 'replyAll', 'forward']);
+export const DIRECTIONAL: ReadonlySet<IconName> = new Set<IconName>(['signOut', 'egress', 'chevron', 'chevronLeft', 'back', 'reply', 'replyAll', 'forward', 'undo', 'redo']);
 
 const S = { fill: 'none', stroke: 'currentColor', 'stroke-width': '2' } as const;
 const F = { fill: 'currentColor' } as const;
@@ -195,6 +196,9 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   star: () => <path d="M8 1 L10 6 H15 L11 9 L13 15 L8 12 L3 15 L5 9 L1 6 H6 Z" {...S} fill="currentColor" />,
   starOutline: () => <path d="M8 1 L10 6 H15 L11 9 L13 15 L8 12 L3 15 L5 9 L1 6 H6 Z" {...S} />,
   chevronDown: () => <path d="M3 5 L8 10 L13 5" {...S} />,
+  // A hooked arrow back (undo) and forward (redo); mirrored under RTL with the other directional glyphs.
+  undo: () => <path d="M5 2 L1 6 L5 10 M1 6 H10 A4 4 0 0 1 10 14 H6" {...S} />,
+  redo: () => <path d="M11 2 L15 6 L11 10 M15 6 H6 A4 4 0 0 0 6 14 H10" {...S} />,
   chevronUp: () => <path d="M3 11 L8 6 L13 11" {...S} />,
   reply: () => <path d="M6 3 L1 8 L6 13 M1 8 H10 Q14 8 14 13" {...S} />,
   forward: () => <path d="M10 3 L15 8 L10 13 M15 8 H6 Q2 8 2 13" {...S} />,

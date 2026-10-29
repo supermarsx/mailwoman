@@ -159,11 +159,7 @@ label.compose-rt__btn:focus-within:has(:focus-visible) {
 .compose-rt__surface { flex:1 0 9rem; }
 .compose-rt__footer { position:relative; }
 
-.compose-history-split { display:inline-flex; align-items:stretch; border:var(--border-hair) solid var(--border); }
-.compose-history-split > button { border:0; }
-.compose-history-split details { position:relative; border-inline-start:var(--border-hair) solid var(--border); }
-.compose-history-split summary { display:flex; align-items:center; justify-content:center; min-block-size:1.8rem; padding:.2rem; cursor:pointer; list-style:none; }
-.compose-history-split summary::-webkit-details-marker { display:none; }
+/* The Undo and Redo split buttons themselves: composerHistory.css.ts (t80). */
 .compose-history-split__list { position:absolute; inset-block-start:100%; inset-inline-start:0; z-index:20; min-inline-size:12rem; display:flex; flex-direction:column; max-block-size:10rem; overflow:auto; padding:.25rem; background:var(--surface); border:var(--border-hair) solid var(--border); }
 .compose-history-split__list button { white-space:nowrap; }
 
