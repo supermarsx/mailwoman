@@ -327,6 +327,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="privacy.remotecontent"></a>`privacy.remoteContent` | privacy | global+domain+user | "ask" | plain |  | yes | Reader remote-content mode |
 | <a id="privacy.trackers"></a>`privacy.trackers` | privacy | global+domain+user | true | plain |  | yes | Block email trackers |
 | <a id="privacy.cleanlinks"></a>`privacy.cleanLinks` | privacy | global+domain+user | true | plain |  | yes | Remove tracking parameters from links |
+| <a id="links.trusteddomains"></a>`links.trustedDomains` | privacy | global+domain+user | [] | plain |  | yes | exact trusted link domains that open from Review links without the destination step |
+| <a id="links.trustedsubdomains"></a>`links.trustedSubdomains` | privacy | global+domain+user | false | plain |  | yes | whether trusted link domains also trust their subdomains |
 | <a id="privacy.maxbytes"></a>`privacy.maxBytes` | privacy | global | 8388608 | plain |  | yes | Largest fetched remote image in bytes |
 | <a id="privacy.cachebytes"></a>`privacy.cacheBytes` | privacy | global | 33554432 | plain |  | yes | Remote image cache size in bytes |
 | <a id="privacy.ratepermin"></a>`privacy.ratePerMin` | privacy | global | 120 | plain |  | yes | Remote fetches per account per minute |

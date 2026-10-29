@@ -585,6 +585,21 @@ administrator-set account policy, without user overrides.
 `privacy.trackers` defaults to true.
 <a id="privacy.cleanLinks"></a>
 `privacy.cleanLinks` defaults to true. These three support global, domain and user settings.
+<a id="links.trustedDomains"></a>
+`links.trustedDomains`: up to 100 exact link domains (default empty). A message
+link whose host is on the list opens straight from Review links, without the
+destination step. Entries are lowercase ASCII (A-label) names of at least two
+labels, with no scheme, path, port, wildcard or IP address; the web app
+normalizes case and international names before it saves. Plain-HTTP links and
+links to an IP address are always reviewed. An unlocked user list replaces the
+inherited list ("Trust <host>" in Review links copies the inherited entries
+first).
+<a id="links.trustedSubdomains"></a>
+`links.trustedSubdomains` defaults to false: only the exact domain is trusted.
+When true, a name ending in `.<entry>` is trusted as well; matching is always on
+a label boundary, so `example.com` never trusts `evilexample.com` or
+`example.com.evil.test`. Both keys support global, domain and user settings;
+lock them to keep users from changing the list or the switch.
 <a id="privacy.maxBytes"></a>
 `privacy.maxBytes`: 65536–8388608 bytes, default 8388608.
 <a id="privacy.cacheBytes"></a>

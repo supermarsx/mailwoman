@@ -139,6 +139,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'privacy.stripMailerHeaders',
   'privacy.trackers',
   'privacy.cleanLinks',
+  'links.trustedDomains',
+  'links.trustedSubdomains',
   'privacy.maxBytes',
   'privacy.cacheBytes',
   'privacy.ratePerMin',

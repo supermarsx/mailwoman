@@ -699,3 +699,7 @@ admin-settings-help-accounts-store-linked-credentials = Keep each linked mailbox
 
 admin-settings-key-privacy-strip-mailer-headers = Remove outgoing mailer headers
 admin-settings-help-privacy-strip-mailer-headers = Remove top-level X-Mailer, User-Agent and X-MimeOLE from native SMTP and EWS email. Attached messages and report payloads remain intact. Upstream JMAP proxy sends are not covered.
+admin-settings-key-links-trusted-domains = Trusted link domains
+admin-settings-help-links-trusted-domains = Up to 100 exact domains whose links open from Review links without the destination step. No wildcards, schemes, ports or IP addresses. Plain-HTTP links are always reviewed. Lock this setting to keep users from changing the list.
+admin-settings-key-links-trusted-subdomains = Trust subdomains of trusted link domains
+admin-settings-help-links-trusted-subdomains = Off: only the exact domain is trusted. On: names ending in .<domain> are trusted too. Matching is on whole labels, so example.com never trusts evilexample.com.

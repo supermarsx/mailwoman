@@ -31,6 +31,8 @@
 
 use serde_json::{Value, json};
 
+pub mod link_trust;
+
 use mw_store::settings_policy::{
     ResolveInput, SettingPolicyRow, SettingScope, SettingSource, SettingSubject, SettingValueRow,
     resolve,
@@ -686,6 +688,25 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "privacy",
         "Remove tracking parameters from links"
+    ),
+    def!(
+        "links.trustedDomains",
+        Kind::StringList {
+            max_len: 100,
+            max_item: 253
+        },
+        "[]",
+        GDU,
+        "privacy",
+        "exact trusted link domains that open from Review links without the destination step"
+    ),
+    def!(
+        "links.trustedSubdomains",
+        Kind::Bool,
+        "false",
+        GDU,
+        "privacy",
+        "whether trusted link domains also trust their subdomains"
     ),
     def!(
         "privacy.maxBytes",
@@ -2948,6 +2969,7 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                     })
                     || (def.key == "security.protection.exemptClients"
                         && crate::scope_mw::proxy::Cidr::parse(text).is_none())
+                    || (def.key == "links.trustedDomains" && !link_trust::is_canonical(text))
                     || (def.key == "security.protection.signals"
                         && !matches!(
                             text,
