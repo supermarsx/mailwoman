@@ -827,7 +827,7 @@ pub static CATALOGUE: &[Knob] = &[
         Plain,
         R::Boot,
         mw_admin::config::DEFAULT_ADMIN_PATH,
-        "console and admin API path",
+        "console and admin API path; unset, the stored path (generated on a new install, /admin kept on an upgrade)",
     ),
     boot(
         "MW_ADMIN_SESSION_COOKIE",
