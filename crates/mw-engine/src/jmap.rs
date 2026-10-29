@@ -4318,9 +4318,10 @@ fn patch_engine_fields(
     email
 }
 
-/// RFC 8620 §5.5 `anchorNotFound`: the `anchor` id is not in the query result.
-/// Whether a successful method response changed server state: a `/set` that
-/// created, updated or destroyed something, an `Email/import` or an `Email/copy`.
+/// Whether a successful method response changed server state, so the request
+/// ends with one `StateChange` to the account's other sessions (t39 L8): a
+/// `/set` that created, updated or destroyed something, an `Email/import` or an
+/// `Email/copy`. A `/set` whose every item was refused changed nothing.
 fn changes_state(name: &str, response: &Value) -> bool {
     let wrote = |key: &str| {
         response.get(key).is_some_and(|value| match value {
@@ -4333,6 +4334,7 @@ fn changes_state(name: &str, response: &Value) -> bool {
         && (wrote("created") || wrote("updated") || wrote("destroyed"))
 }
 
+/// RFC 8620 §5.5 `anchorNotFound`: the `anchor` id is not in the query result.
 fn anchor_not_found() -> Value {
     json!({
         "type": "anchorNotFound",

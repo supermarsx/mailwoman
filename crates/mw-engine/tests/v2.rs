@@ -949,3 +949,53 @@ async fn real_mailbox_queries_never_cross_account_boundaries() {
     .await;
     assert_eq!(result(&response, "q")["ids"], json!([]));
 }
+
+/// A write through the engine reaches the account's other sessions (t39 L8):
+/// marking read, flagging and moving each broadcast one StateChange whose Email
+/// state moved, a read-only request broadcasts nothing, and a refused update
+/// (nothing changed) broadcasts nothing either.
+#[tokio::test]
+async fn a_write_through_the_engine_is_broadcast_to_other_sessions() {
+    let h = setup().await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let inbox = inbox(&h).await;
+    let id = search_one(&h, &inbox, json!({ "from": "bob" })).await;
+    let mut other = h.engine.subscribe();
+
+    jmap(&h, json!([["Email/get", { "ids": [id] }, "g"]])).await;
+    assert!(other.try_recv().is_err(), "a read must not broadcast");
+
+    let mut last = String::new();
+    for patch in [
+        json!({ "keywords/$seen": true }),
+        json!({ "keywords/$flagged": true }),
+    ] {
+        let resp = jmap(
+            &h,
+            json!([["Email/set", { "update": { (id.clone()): patch } }, "s"]]),
+        )
+        .await;
+        assert!(result(&resp, "s")["updated"].get(&id).is_some(), "{resp}");
+        let sc = other.try_recv().expect("the write was broadcast");
+        assert_eq!(sc.account_id, h.account_id);
+        assert_ne!(sc.email, last, "the Email state moved");
+        last = sc.email.clone();
+        assert!(other.try_recv().is_err(), "one StateChange per request");
+    }
+
+    let refused = jmap(
+        &h,
+        json!([["Email/set", { "update": { "no-such-message": { "keywords/$seen": true } } }, "s"]]),
+    )
+    .await;
+    assert!(
+        result(&refused, "s")["notUpdated"]
+            .get("no-such-message")
+            .is_some(),
+        "{refused}"
+    );
+    assert!(
+        other.try_recv().is_err(),
+        "a refused write must not broadcast"
+    );
+}
