@@ -34,7 +34,7 @@ test('read, flag, move, delete and folder changes on device A show live on devic
   for(const subject of Object.values(subjects)){
    const raw=`From: sync@example.org\r\nTo: testuser@example.org\r\nSubject: ${subject}\r\nMessage-ID: <${subject.replaceAll(' ','-')}@fixture.invalid>\r\nContent-Type: text/plain\r\n\r\nCross-device fixture: ${subject}.\r\n`;
    const upload=await page.request.post(`/jmap/upload/${accountId}`,{data:raw,headers:{'Content-Type':'message/rfc822'}});expect(upload.ok()).toBe(true);const {blobId}=await upload.json() as {blobId:string};
-   const imported=await call('Email/import',{emails:{m:{blobId,mailboxIds:{[inbox.id]:true},keywords:{}}}});expect((imported.created as Record<string,{id:string}>).m.id).toBeTruthy();
+   const imported=await call('Email/import',{emails:{m:{blobId,mailboxIds:{[inbox.id]:true},keywords:{}}}});expect((imported.created as Record<string,{id:string}>).m?.id).toBeTruthy();
   }
   await page.reload();
   await b.goto('/');await signInManually(b,{username:'testuser',password:'testpass'});

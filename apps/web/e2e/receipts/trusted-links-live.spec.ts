@@ -38,7 +38,6 @@ let seeded=false;
 test.beforeEach(async()=>{if(!seeded){await deliver();seeded=true;await new Promise(r=>setTimeout(r,3100));}});
 
 const shot=(info:TestInfo,name:string)=>{const dir=process.env['MW_T39_SHOTS'];return dir?path.join(dir,`${info.project.name}-${name}.png`):info.outputPath(`${name}.png`);};
-const narrow=(page:Page)=>(page.viewportSize()?.width??1280)<600;
 async function signIn(page:Page):Promise<void>{
  await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('testuser');await page.getByLabel('Password',{exact:true}).fill('testpass');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await expect(page.locator('.list__row').first()).toBeVisible({timeout:60000});

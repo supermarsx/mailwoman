@@ -159,7 +159,9 @@ test.describe('axe WCAG 2.2 AA gate', () => {
     await messageRow(page, subject).click();
 
     // Expand the security chip -> the verdict/Received-chain region.
-    const chip = page.locator('.reader button[aria-expanded]').first();
+    // The chip is the reader's only dialog trigger; the view-mode and More menus also
+    // carry aria-expanded and come first while the verdict is still loading.
+    const chip = page.locator('.reader button[aria-expanded][aria-haspopup="dialog"]').first();
     await expect(chip).toBeVisible({ timeout: 15_000 });
     await chip.click();
     await expect(page.getByRole('region', { name: 'Message security details' })).toBeVisible();

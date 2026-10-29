@@ -75,7 +75,7 @@ async function setSource(page: Page, compose: Locator, html: string): Promise<vo
   await toggle.selectOption('rich');
   await closeFolded(page);
 }
-async function send(page: Page, compose: Locator): Promise<string> {
+async function send(_page: Page, compose: Locator): Promise<string> {
   const start = (await accepted()).length;
   await compose.getByRole('button', { name: 'Send', exact: true }).click();
   await expect.poll(async () => (await accepted()).length, { timeout: 35000 }).toBe(start + 1);
