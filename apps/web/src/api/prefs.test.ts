@@ -597,3 +597,65 @@ describe('a pick made just before the page goes away (t39 C7)', () => {
     expect(fetcher.mock.calls[1]?.[1]?.keepalive).toBeUndefined();
   });
 });
+
+describe('a write the browser dropped on the way out (t39 C7, Chromium)', () => {
+  beforeEach(() => localStorage.clear());
+
+  function droppingApi(server: { appearance: unknown; updatedAt: number | null }): { api: AppearancePrefsApi; saved: AppearancePrefs[] } {
+    const saved: AppearancePrefs[] = [];
+    return {
+      saved,
+      api: {
+        load: async () => stored(server.appearance, server.updatedAt),
+        // The keepalive PUT never reaches the server; a normal one does.
+        save: async (prefs, options) => {
+          if (options?.keepalive === true) return new Promise<number | null>(() => undefined);
+          saved.push(prefs);
+          server.appearance = prefs; server.updatedAt = 9_000;
+          return 9_000;
+        },
+        reset: async () => undefined,
+      },
+    };
+  }
+
+  it('sends it at the next start when the server has not moved', async () => {
+    const server = { appearance: null as unknown, updatedAt: null as number | null };
+    const first = slice();
+    const f = droppingApi(server);
+    const a = createAppearanceSync(first, { api: f.api, debounceMs: 600 });
+    await a.start();
+    f.saved.length = 0;
+    first.setTheme('ocean-dark');
+    window.dispatchEvent(new Event('pagehide'));
+    a.stop();
+    expect(f.saved).toHaveLength(0);
+
+    // The reloaded page: its slice starts from the defaults, as after a reload.
+    const second = slice();
+    await createAppearanceSync(second, { api: f.api, debounceMs: 600, serverWins: true }).start();
+    expect(f.saved.map((p) => p.theme)).toEqual(['ocean-dark']);
+    expect(second.theme()).toBe('ocean-dark');
+  });
+
+  it('adopts the server instead when it took a newer value since', async () => {
+    const server = { appearance: null as unknown, updatedAt: null as number | null };
+    const first = slice();
+    const f = droppingApi(server);
+    const a = createAppearanceSync(first, { api: f.api, debounceMs: 0 });
+    await a.start();
+    await new Promise((r) => setTimeout(r, 0));
+    const base = server.updatedAt;
+    first.setTheme('ocean-dark');
+    a.stop();
+    // Pending written as if the page went away mid-debounce.
+    localStorage.setItem('mw.theme.sync:pending', JSON.stringify({ prefs: JSON.stringify(first.appearancePrefs()), base }));
+    server.appearance = { ...first.appearancePrefs(), theme: 'plum-dark' };
+    server.updatedAt = (base ?? 0) + 1;
+    f.saved.length = 0;
+    const second = slice();
+    await createAppearanceSync(second, { api: f.api, debounceMs: 600, serverWins: true }).start();
+    expect(f.saved).toHaveLength(0);
+    expect(second.theme()).toBe('plum-dark');
+  });
+});

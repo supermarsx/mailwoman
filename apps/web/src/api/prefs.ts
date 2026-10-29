@@ -222,6 +222,33 @@ function writeMark(mark: SyncMark, key = MARK_KEY): void {
   }
 }
 
+/** A write the page was sending when it went away (see `flushOnHide`). `base`
+ *  is the server stamp the device last agreed with, so the next start can tell
+ *  whether the server has moved on since. */
+interface PendingWrite { prefs: string; base: number | null }
+
+function readPending(key: string): PendingWrite | null {
+  if (!key || typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(`${key}:pending`);
+    if (raw === null) return null;
+    const p = JSON.parse(raw) as Partial<PendingWrite>;
+    return typeof p.prefs === 'string' ? { prefs: p.prefs, base: typeof p.base === 'number' ? p.base : null } : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePending(key: string, value: PendingWrite | null): void {
+  if (!key || typeof localStorage === 'undefined') return;
+  try {
+    if (value === null) localStorage.removeItem(`${key}:pending`);
+    else localStorage.setItem(`${key}:pending`, JSON.stringify(value));
+  } catch {
+    /* private mode / quota: only the keepalive write is left */
+  }
+}
+
 /** Drop the mark, so the next `start()` reconciles as a device that never synced. */
 export function clearSyncMark(key = MARK_KEY): void {
   if (!key || typeof localStorage === 'undefined') return;
@@ -321,6 +348,7 @@ export function createAppearanceSync(
       const updatedAt = await api.save(current, keepalive ? { keepalive: true } : undefined);
       if (epoch !== generation || !active || !allowed()) return;
       markSynced(current, updatedAt);
+      writePending(markKey(), null);
       setStatus('synced');
     } catch (e) {
       if (epoch !== generation || !active || !allowed()) return;
@@ -343,10 +371,16 @@ export function createAppearanceSync(
   // write at once with `keepalive`, so the browser completes it after the
   // page is gone. `sendBeacon` is not usable: it cannot carry the
   // storage-authority and CSRF headers, and it only POSTs.
+  //
+  // The browser may still drop that request (Chromium did in a live run: the
+  // PUT left on every reload, the server got 4 of 6). So the write is also
+  // kept in localStorage and sent by the next `start()`, unless the server has
+  // taken a newer value since.
   function flushOnHide(): void {
     if (timer === undefined) return;
     clearTimeout(timer);
     timer = undefined;
+    writePending(markKey(), { prefs: serialize(prefs.appearancePrefs()), base: mark?.updatedAt ?? null });
     pending = push(true);
   }
   const onVisibility = (): void => {
@@ -410,6 +444,25 @@ export function createAppearanceSync(
         stored = { ...stored, appearance: { ...stored.appearance as Partial<AppearancePrefs>, badgeColor: deployment.badgeColor } };
       } else {
         prefs.setAppearancePrefs({ badgeColor: deployment.badgeColor });
+      }
+    }
+
+    // A write the previous page was sending as it went away: send it again,
+    // unless the server has a newer value (that write landed, or another
+    // device wrote since).
+    const left = readPending(markKey());
+    if (left !== null) {
+      writePending(markKey(), null);
+      const serverNewer = stored.updatedAt !== null && (left.base === null ? stored.appearance !== null : stored.updatedAt > left.base);
+      if (!serverNewer && localEdits === 0) {
+        try {
+          prefs.setAppearancePrefs(JSON.parse(left.prefs) as Partial<AppearancePrefs>);
+          pending = push();
+          await pending;
+          return;
+        } catch {
+          /* unreadable: reconcile as usual */
+        }
       }
     }
 
