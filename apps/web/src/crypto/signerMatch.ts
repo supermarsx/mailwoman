@@ -38,17 +38,34 @@ function isLive(k: CryptoKey, now: Date): boolean {
   return !Number.isNaN(expires) && expires > now.getTime();
 }
 
+/**
+ * The armored public keys of EVERY live PGP key bound to exactly `address`, in
+ * keyring order, without duplicates. A sender who rotated keys can have two (or
+ * more) valid keys at once; the worker checks the signature against each, so
+ * mail signed by any of them verifies. The filter is the same as for a single
+ * key: exact address, PGP, armor present, not revoked, not expired.
+ */
+export function pickSignerArmors(
+  address: string,
+  keys: readonly CryptoKey[],
+  now: Date,
+): string[] {
+  const sender = canonicalAddress(address);
+  if (sender === undefined) return [];
+  const out: string[] = [];
+  for (const k of keys) {
+    if (k.kind !== 'pgp' || k.publicKeyArmored === null || !isLive(k, now)) continue;
+    if (!k.addresses.some((a) => canonicalAddress(a) === sender)) continue;
+    if (!out.includes(k.publicKeyArmored)) out.push(k.publicKeyArmored);
+  }
+  return out;
+}
+
 /** The armored public key of the first live PGP key bound to exactly `address`. */
 export function pickSignerArmor(
   address: string,
   keys: readonly CryptoKey[],
   now: Date,
 ): string | undefined {
-  const sender = canonicalAddress(address);
-  if (sender === undefined) return undefined;
-  for (const k of keys) {
-    if (k.kind !== 'pgp' || k.publicKeyArmored === null || !isLive(k, now)) continue;
-    if (k.addresses.some((a) => canonicalAddress(a) === sender)) return k.publicKeyArmored;
-  }
-  return undefined;
+  return pickSignerArmors(address, keys, now)[0];
 }

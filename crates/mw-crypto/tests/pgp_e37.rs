@@ -188,6 +188,52 @@ fn signature_from_unknown_key_is_unknown_key() {
     assert_eq!(out.signature.status, "unverified-key");
 }
 
+#[test]
+fn rotated_sender_keys_verify_with_either_key() {
+    // A sender with two valid keys for one address (old + rotated). The reader
+    // passes both; mail signed by either one verifies.
+    let old = v6("A <a@example.com>");
+    let new = v6("A <a@example.com>");
+    let reader = v6("R <r@example.com>");
+    let candidates = [
+        old.public_key_armored.as_str(),
+        new.public_key_armored.as_str(),
+    ];
+    for signer in [&old, &new] {
+        let ct = pgp::encrypt(
+            b"rotated",
+            std::slice::from_ref(&reader.public_key_armored),
+            Some((&signer.encrypted_private_bundle, PW)),
+        )
+        .unwrap();
+        let out = pgp::decrypt_with(
+            ct.as_bytes(),
+            &reader.encrypted_private_bundle,
+            PW,
+            &candidates,
+        )
+        .unwrap();
+        assert_eq!(out.plaintext, b"rotated");
+        assert_eq!(out.verification.state, verdict::VALID);
+        assert_eq!(out.signature.status, "verified");
+    }
+    // With only the old key, mail from the new key is "signer key not verified".
+    let ct = pgp::encrypt(
+        b"rotated",
+        std::slice::from_ref(&reader.public_key_armored),
+        Some((&new.encrypted_private_bundle, PW)),
+    )
+    .unwrap();
+    let out = pgp::decrypt_with(
+        ct.as_bytes(),
+        &reader.encrypted_private_bundle,
+        PW,
+        &[&old.public_key_armored],
+    )
+    .unwrap();
+    assert_eq!(out.signature.status, "unverified-key");
+}
+
 // ── detached and cleartext verification states ───────────────────────────────
 
 #[test]

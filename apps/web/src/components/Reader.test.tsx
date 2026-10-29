@@ -9,6 +9,7 @@ import type { ComposeInitial } from './compose/reply.ts';
 import type { Email, Identity, JmapRequest, JmapResponse } from '../api/jmap-types.ts';
 import { formatDateTime } from '../i18n/format.ts';
 import { clearSettings, loadSettings } from '../api/settings.ts';
+import { getCryptoWorker } from '../crypto/index.ts';
 // These tests count threading downloads; spam-header fetching has its own suite.
 vi.mock('./security/SpamScore.tsx', () => ({ SpamScore: () => null }));
 vi.mock('./security/DeliveryStatus.tsx', () => ({ DeliveryStatus: () => null }));
@@ -58,7 +59,7 @@ let downloadStatus = 200;
 
 async function openReader(
   email: Email,
-  opts: { identities?: Identity[]; ownKey?: boolean } = {},
+  opts: { identities?: Identity[]; ownKey?: boolean; contactKeys?: Record<string, unknown>[] } = {},
 ): Promise<{ app: AppState; onCompose: ReturnType<typeof vi.fn<(i: ComposeInitial) => void>> }> {
   const client = makeClient({ emails: [email], identities: opts.identities ?? IDENTITIES });
   if (opts.ownKey === true) {
@@ -66,8 +67,9 @@ async function openReader(
     client.jmap = vi.fn(async (body: JmapRequest, o?: { signal?: AbortSignal }): Promise<JmapResponse> => {
       if (!body.methodCalls.some((c) => c[0].startsWith('CryptoKey/'))) return base(body, o);
       const key = { id: 'k1', kind: 'pgp', isOwn: true, addresses: ['me@example.org'], encryptedPrivateBackup: 'BUNDLE', publicKeyArmored: null };
+      const list = [key, ...(opts.contactKeys ?? [])];
       return {
-        methodResponses: body.methodCalls.map((c) => [c[0], { accountId: 'acct1', ids: ['k1'], list: [key], notFound: [] }, c[2]]),
+        methodResponses: body.methodCalls.map((c) => [c[0], { accountId: 'acct1', ids: list.map((k) => k.id), list, notFound: [] }, c[2]]),
         sessionState: 's',
       };
     }) as typeof client.jmap;
@@ -365,5 +367,44 @@ describe('Reader: Reply, Reply all, Forward', () => {
     await waitFor(() => expect(app.openEmail()).not.toBe(before));
     expect(app.openEmail()?.id).toBe('m1');
     expect(screen.queryByTestId('reader-decrypt')).toBeNull();
+  });
+  it('verifies against every live key of the sender, not just the first (key rotation)', async () => {
+    const armored = {
+      ...ORIGINAL,
+      bodyValues: { '1': { value: '<pre>-----BEGIN PGP MESSAGE-----\nabc\n-----END PGP MESSAGE-----</pre>' } },
+    };
+    const contact = (id: string, over: Record<string, unknown>): Record<string, unknown> => ({
+      id,
+      kind: 'pgp',
+      isOwn: false,
+      addresses: ['alice@example.org'],
+      publicKeyArmored: `ARMOR-${id}`,
+      encryptedPrivateBackup: null,
+      trust: 'tofu',
+      expiresAt: null,
+      ...over,
+    });
+    const decrypt = vi.spyOn(getCryptoWorker(), 'decrypt');
+    try {
+      const { app } = await openReader(armored, {
+        ownKey: true,
+        contactKeys: [
+          contact('old', {}),
+          contact('new', { trust: 'verified' }),
+          contact('revoked', { trust: 'revoked' }),
+          contact('expired', { expiresAt: '2020-01-01T00:00:00Z' }),
+          contact('other', { addresses: ['mallory@example.org'] }),
+        ],
+      });
+      await app.loadKeys();
+      fireEvent.input(screen.getByTestId('decrypt-passphrase'), { target: { value: 'pw' } });
+      fireEvent.click(screen.getByTestId('decrypt-submit'));
+      await waitFor(() => expect(decrypt).toHaveBeenCalledTimes(1));
+      const req = decrypt.mock.calls[0]![0];
+      expect(req.signerPublicKeys).toEqual(['ARMOR-old', 'ARMOR-new']);
+      expect(req.signerPublicKey).toBeUndefined();
+    } finally {
+      decrypt.mockRestore();
+    }
   });
 });

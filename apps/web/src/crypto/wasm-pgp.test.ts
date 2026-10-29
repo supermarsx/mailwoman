@@ -30,6 +30,7 @@ import {
   revokeKey,
   setKeyExpiry,
   sign,
+  unlockKey,
   verifyPgp,
   wkdUrls,
 } from '../wasm/mw-crypto/mw_crypto.js';
@@ -222,5 +223,43 @@ describe('mw-crypto wasm guest: OpenPGP core (t32-e37)', () => {
       'https://example.org/.well-known/openpgpkey/hu/iy9q119eutrkn8s1mk4r39qejnbu3n5q?l=Joe.Doe',
     ]);
   });
+  it('verifies mail signed by either of two keys for one sender (key rotation)', () => {
+    const annNew = generateKey({ kind: 'pgp', userId: 'Ann <ann@example.com>', passphrase: PW }) as GenerateKeyResult;
+    const both = [ann.publicKeyArmored!, annNew.publicKeyArmored!];
+    for (const [signer, label] of [[ann, 'old'], [annNew, 'new']] as const) {
+      const { keyRef } = unlockKey({ kind: 'pgp', encryptedPrivateBundle: signer.encryptedPrivateBundle, passphrase: PW }) as {
+        keyRef: string;
+      };
+      const enc = encrypt({
+        kind: 'pgp',
+        plaintext: `signed by the ${label} key`,
+        recipientPublicKeys: [bob.publicKeyArmored!],
+        signWithKeyRef: keyRef,
+      }) as EncryptResult;
+      const dec = decrypt({
+        kind: 'pgp',
+        ciphertext: enc.armoredCiphertext,
+        encryptedPrivateBundle: bob.encryptedPrivateBundle,
+        passphrase: PW,
+        signerPublicKeys: both,
+      }) as DecryptResult & { plaintextText: string };
+      expect(dec.plaintextText).toBe(`signed by the ${label} key`);
+      expect(dec.signature.status).toBe('verified');
+      expect(dec.verification?.signerFingerprint).toBe(signer.fingerprint);
+    }
+    // The old behaviour (only the first key passed) cannot verify the new key's mail.
+    const { keyRef } = unlockKey({ kind: 'pgp', encryptedPrivateBundle: annNew.encryptedPrivateBundle, passphrase: PW }) as {
+      keyRef: string;
+    };
+    const enc = encrypt({ kind: 'pgp', plaintext: 'x', recipientPublicKeys: [bob.publicKeyArmored!], signWithKeyRef: keyRef }) as EncryptResult;
+    const onlyOld = decrypt({
+      kind: 'pgp',
+      ciphertext: enc.armoredCiphertext,
+      encryptedPrivateBundle: bob.encryptedPrivateBundle,
+      passphrase: PW,
+      signerPublicKeys: [ann.publicKeyArmored!],
+    }) as DecryptResult;
+    expect(onlyOld.signature.status).toBe('unverified-key');
+  }, 60_000);
 });
 

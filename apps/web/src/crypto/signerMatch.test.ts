@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CryptoKey } from '../api/crypto-types.ts';
-import { pickSignerArmor } from './signerMatch.ts';
+import { pickSignerArmor, pickSignerArmors } from './signerMatch.ts';
 
 const NOW = new Date('2026-10-23T12:00:00Z');
 
@@ -87,5 +87,38 @@ describe('pickSignerArmor', () => {
 
   it('returns undefined for an empty sender', () => {
     expect(pickSignerArmor('', [key({})], NOW)).toBeUndefined();
+  });
+});
+
+describe('pickSignerArmors (key rotation)', () => {
+  it('returns every live key bound to the address, in keyring order', () => {
+    const keys = [
+      key({ id: 'old', fingerprint: 'OLD', publicKeyArmored: 'OLD' }),
+      key({ id: 'new', fingerprint: 'NEW', publicKeyArmored: 'NEW', trust: 'verified' }),
+    ];
+    expect(pickSignerArmors('alice@bank.example', keys, NOW)).toEqual(['OLD', 'NEW']);
+  });
+
+  it('applies the single-key filter to every candidate', () => {
+    const keys = [
+      key({ publicKeyArmored: 'GOOD-1' }),
+      key({ trust: 'revoked', publicKeyArmored: 'REVOKED' }),
+      key({ expiresAt: '2026-10-22T00:00:00Z', publicKeyArmored: 'EXPIRED' }),
+      key({ addresses: ['alice@evil.example'], publicKeyArmored: 'EVIL' }),
+      key({ kind: 'smime', publicKeyArmored: null, certPem: 'PEM' }),
+      key({ publicKeyArmored: null }),
+      key({ addresses: ['ALICE@Bank.example'], publicKeyArmored: 'GOOD-2' }),
+    ];
+    expect(pickSignerArmors('alice@bank.example', keys, NOW)).toEqual(['GOOD-1', 'GOOD-2']);
+  });
+
+  it('drops a duplicate armor (same key loaded twice)', () => {
+    const keys = [key({ id: 'a' }), key({ id: 'b' })];
+    expect(pickSignerArmors('alice@bank.example', keys, NOW)).toEqual(['ARMOR']);
+  });
+
+  it('returns an empty list for a domainless or empty sender', () => {
+    expect(pickSignerArmors('alice', [key({ addresses: ['alice'] })], NOW)).toEqual([]);
+    expect(pickSignerArmors('', [key({})], NOW)).toEqual([]);
   });
 });

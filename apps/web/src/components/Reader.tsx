@@ -52,7 +52,7 @@ import { createMaxSecurityStore } from '../viewers/max-security.ts';
 import { bodyFrameDoc } from '../viewers/sandbox.ts';
 import { createObjectUrlOwner } from '../viewers/objectUrl.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
-import { pickSignerArmor } from '../crypto/signerMatch.ts';
+import { pickSignerArmors } from '../crypto/signerMatch.ts';
 import { createConfiguredClient } from '../api/transport.ts';
 import { fetchThreadingHeaders, parentReferences, responseFor, type ThreadingHeaders } from '../api/jmap.ts';
 import { CAP_CORE, CAP_MAIL } from '../api/jmap-types.ts';
@@ -341,27 +341,29 @@ function DecryptPanel(props: {
     if (app.ownKeys().length === 0) void app.loadKeys();
   });
 
-  /** Resolve the sender's armored PGP public key so the worker can VERIFY the
+  /** Resolve the sender's armored PGP public keys so the worker can VERIFY the
    *  embedded signature — mirrors how compose resolves recipient keys: first the
    *  already-loaded keyring (own + harvested/looked-up), then the same
    *  `CryptoKey/lookup` discovery (harvested/autocrypt/WKD/VKS).
    *
-   *  The worker says "verified" for any key that matches the signature, so the
+   *  The worker says "verified" for any key that matches the signature, so every
    *  candidate must be a live (not revoked, not expired) key bound to exactly the
-   *  From address; see `pickSignerArmor`. Returns undefined when no such key is
-   *  known, which yields an honest "none" verdict. */
-  async function resolveSignerPublicKey(address: string): Promise<string | undefined> {
-    if (address === '') return undefined;
-    const known = pickSignerArmor(address, app.keys(), new Date());
-    if (known !== undefined) return known;
+   *  From address; see `pickSignerArmors`. ALL such keys are passed, not just the
+   *  first: after a sender rotates keys, both the old and the new key are valid,
+   *  and mail signed by either must verify. Returns an empty list when no such
+   *  key is known, which yields an honest unverified verdict. */
+  async function resolveSignerPublicKeys(address: string): Promise<string[]> {
+    if (address === '') return [];
+    const known = pickSignerArmors(address, app.keys(), new Date());
+    if (known.length > 0) return known;
     try {
       const found = await app.lookupContactKey(address, ['harvested', 'autocrypt', 'wkd', 'vks']);
-      return pickSignerArmor(address, found, new Date());
+      return pickSignerArmors(address, found, new Date());
     } catch {
       // Key discovery failure → no signer key → honest unverified verdict (never
       // a hard error, and never a false "verified").
     }
-    return undefined;
+    return [];
   }
 
   async function decryptNow(): Promise<void> {
@@ -375,7 +377,7 @@ function DecryptPanel(props: {
       );
       const bundle = own?.encryptedPrivateBackup ?? null;
       if (bundle === null) throw new Error(t('mail-decrypt-no-key'));
-      const signerPublicKey = await resolveSignerPublicKey(props.senderAddress);
+      const signerPublicKeys = await resolveSignerPublicKeys(props.senderAddress);
       if (props.emailId !== requestedEmail || app.accountId() !== requestedAccount) return;
       const result = await getCryptoWorker().decrypt({
         readerPolicy: { blockTrackers: false, cleanLinks: true },
@@ -383,7 +385,7 @@ function DecryptPanel(props: {
         ciphertext: props.armor,
         encryptedPrivateBundle: bundle,
         passphrase: passphrase(),
-        ...(signerPublicKey !== undefined ? { signerPublicKey } : {}),
+        ...(signerPublicKeys.length > 0 ? { signerPublicKeys } : {}),
       });
       // The worker sanitized any HTML plaintext IN-WORKER (§1.3): `plaintextHtml` is
       // already safe to render as HTML; `plaintextText` renders escaped.
