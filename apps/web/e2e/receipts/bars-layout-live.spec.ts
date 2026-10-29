@@ -152,6 +152,12 @@ test('each bar starts pinned, and pin or auto-hide is stored on the server for e
   await signIn(device);
   for (const id of BARS) {
     await gotoBar(page, id);
+    // t39 D4 (9dab0fe7): below 600 px the composer ribbon starts auto-hidden while
+    // its value is still the registry default; an explicit choice wins. Pin it first.
+    if (id === 'composerRibbon' && touch(page)) {
+      await expect(bar(page, id)).toHaveAttribute('data-mode', 'auto');
+      await togglePin(page, id, 'pinned');
+    }
     await expect(bar(page, id)).toHaveAttribute('data-mode', 'pinned');
     await togglePin(page, id, 'auto');
     expect(await serverBar(page, id)).toMatchObject({ value: 'auto', source: 'user' });
@@ -212,6 +218,61 @@ test('an administrator default applies, and a locked bar cannot be changed', asy
     await put('ui.bar.mailTopBar', { globalValue: null, locked: false });
     await put('ui.bar.workspaceTabs', { globalValue: null });
     await clearBars(page);
+    await admin.dispose();
+  }
+});
+
+// t39 C5: a domain-scoped default. `auto` + lock for example.org reaches
+// parent@example.org (auto, locked, write refused) and not child@child.test,
+// which keeps the global default (pinned, unlocked, its own write accepted).
+test('a domain default and lock apply to that domain only', async ({ page, browser, playwright }, info) => {
+  const admin = await playwright.request.newContext({ baseURL: String(info.project.use.baseURL) });
+  const login = await admin.post('/admin/login', { data: ADMIN });
+  test.skip(login.status() !== 200, `no admin sign-in on this stack (${login.status()})`);
+  const key = 'ui.bar.mailRibbon';
+  const other = await browser.newContext({ baseURL: String(info.project.use.baseURL), viewport: page.viewportSize(), hasTouch: info.project.use.hasTouch === true, locale: 'en-US', serviceWorkers: 'block' });
+  const child = await other.newPage();
+  child.setDefaultTimeout(15000);
+  try {
+    const set = await admin.put(`/admin/settings/${key}/domains/example.org`, { data: { value: 'auto', locked: true } });
+    expect(set.status(), await set.text()).toBe(200);
+    await setLayout(page, 'Ribbon');
+    await page.reload();
+    await leave(page);
+    expect(await serverBar(page, 'mailRibbon')).toMatchObject({ value: 'auto', locked: true });
+    expect((await serverBar(page, 'mailRibbon')).source).not.toBe('default');
+    await expect(bar(page, 'mailRibbon')).toHaveAttribute('data-mode', 'auto');
+    await reveal(page, 'mailRibbon');
+    await expect(page.locator('[data-bar-pin="mailRibbon"]')).toBeDisabled();
+    const refused = await page.request.put(`/api/settings/${key}`, { data: { value: 'pinned' }, headers: await settingsHeaders(page) });
+    expect(refused.status()).toBe(403);
+    expect(await refused.text()).toContain('setting_locked');
+    await leave(page);
+
+    await child.goto('/');
+    await child.getByLabel('Email or username', { exact: true }).fill('child@child.test');
+    await child.getByLabel('Password', { exact: true }).fill('child-pass');
+    await child.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await expect(bar(child, 'mailTopBar')).toBeAttached();
+    await child.waitForLoadState('networkidle');
+    expect(await serverBar(child, 'mailRibbon')).toMatchObject({ value: 'pinned', source: 'default', locked: false });
+    await setLayout(child, 'Ribbon');
+    await child.reload();
+    await expect(bar(child, 'mailRibbon')).toHaveAttribute('data-mode', 'pinned');
+    await expect(child.locator('[data-bar-pin="mailRibbon"]')).toBeEnabled();
+    // A context from browser.newContext() is not covered by the csrf.ts fixture: repeat mw_csrf by hand.
+    const csrf = decodeURIComponent((await other.cookies()).find((c) => c.name === 'mw_csrf')?.value ?? '');
+    const childHeaders = { ...(await settingsHeaders(child)), 'x-csrf-token': csrf };
+    const allowed = await child.request.put(`/api/settings/${key}`, { data: { value: 'auto' }, headers: childHeaders });
+    expect(allowed.status(), await allowed.text()).toBe(200);
+    expect(await serverBar(child, 'mailRibbon')).toMatchObject({ value: 'auto', source: 'user', locked: false });
+    expect((await child.request.delete(`/api/settings/${key}`, { headers: childHeaders })).status()).toBe(200);
+    await setLayout(child, 'Default');
+  } finally {
+    await admin.delete(`/admin/settings/${key}/domains/example.org`);
+    await setLayout(page, 'Default');
+    await clearBars(page);
+    await other.close();
     await admin.dispose();
   }
 });
@@ -296,6 +357,8 @@ test('an auto-hide bar opens on focus or tap, and Esc closes it and returns focu
 
 test('the composer body fills its height pinned, collapsed and opened', async ({ page }) => {
   await openCompose(page);
+  // t39 D4: on a phone the composer ribbon starts auto-hidden; pin it to measure the pinned case.
+  if (touch(page)) await togglePin(page, 'composerRibbon', 'pinned');
   const measure = () => page.evaluate(() => {
     const ribbon = document.querySelector('div[data-bar="composerRibbon"]')!.getBoundingClientRect();
     const compose = document.querySelector('form.compose')!;
