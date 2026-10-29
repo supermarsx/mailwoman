@@ -190,9 +190,8 @@ test('the stored level applies in a detached reader window',async({page},info)=>
  await expect(popup.locator('.reader__subject').filter({visible:true}).first()).toHaveText(subjects.plain,{timeout:60000});
  await expectLevel(popup,125);
  await popup.screenshot({path:shot(info,'detached-125')});
- // Any reader action in a detached message window currently closes that window
- // (Flag does too, independent of zoom), so the level is changed back in the
- // main window rather than in the popup.
+ // The shared level is reset from the main window (actions inside the popup
+ // are covered by reader-detached-actions-live.spec.ts, t68).
  await popup.close();
  await open(page,subjects.wide);
  await expectLevel(page,125);
