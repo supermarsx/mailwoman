@@ -1482,6 +1482,45 @@ const TABLES: &[TableSpec] = &[
             ]
         },
     },
+    // t39-e11 (0073): AI provider profiles. The key is sealed under the same
+    // server key and bound to id + dialect + endpoint, so the ciphertext moves
+    // as-is and opens on the destination.
+    TableSpec {
+        name: "assist_profile",
+        select: "SELECT id, name, preset, dialect, endpoint, model, params, api_key_sealed, created_by, created_at, updated_by, updated_at FROM assist_profile",
+        insert: "INSERT INTO assist_profile (id, name, preset, dialect, endpoint, model, params, api_key_sealed, created_by, created_at, updated_by, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "name"),
+                t(r, "preset"),
+                t(r, "dialect"),
+                t(r, "endpoint"),
+                t(r, "model"),
+                t(r, "params"),
+                ob(r, "api_key_sealed"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+                t(r, "updated_by"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    // t39-e11 (0073): the admin's egress grants for local profile endpoints.
+    TableSpec {
+        name: "assist_egress_grant",
+        select: "SELECT id, destination, note, created_by, created_at FROM assist_egress_grant",
+        insert: "INSERT INTO assist_egress_grant (id, destination, note, created_by, created_at) VALUES (?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "destination"),
+                t(r, "note"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+            ]
+        },
+    },
     TableSpec {
         name: "assist_config",
         // Keyed by scope: 'deployment' AND 'user:<account_id>'. The per-user rows are

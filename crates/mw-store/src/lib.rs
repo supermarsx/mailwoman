@@ -6,6 +6,8 @@
 //! translated per-backend by the [`backend`]/[`dialect`] helpers (no `sqlx::Any`).
 
 pub mod analytics_secret;
+// 0073 (t39-e11 N8): AI provider profiles (sealed key) and local-endpoint egress grants.
+pub mod assist_profiles;
 pub mod auth_failures;
 mod auth_logs;
 pub mod branding;
