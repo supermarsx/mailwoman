@@ -188,9 +188,11 @@ test('native mailbox link switch, live updates, private settings and unlink keep
   const parentSettings=await (await page.request.get('/api/settings')).json();
   expect(JSON.stringify(parentSettings)).not.toContain(inbox.id);
   await openSettings(page,'Linked mailboxes');
-  await page.getByRole('button',{name:'Unlink mailbox',exact:true}).click();
-  await expect(page.getByText('This removes access through your primary account. It does not delete the mailbox or its messages.')).toBeVisible();
-  await page.getByRole('button',{name:'Confirm unlink',exact:true}).click();
+  // t48: unlink is an icon button and confirms in the shared ConfirmDialog.
+  await page.getByRole('button',{name:/^Unlink .*child@child\.test/}).click();
+  const unlinkDialog=page.getByRole('alertdialog',{name:/^Unlink \W?child@child\.test\W?\?$/});
+  await expect(unlinkDialog.getByText('This removes access through your primary account. It does not delete the mailbox or its messages.')).toBeVisible();
+  await unlinkDialog.getByRole('button',{name:'Confirm unlink',exact:true}).click();
   await page.keyboard.press('Escape');
   await expect(page.locator('button[data-account-indicator="picker"]')).toHaveCount(0);
   expect((await page.request.get('/api/me',{headers:{'x-mailwoman-link':link}})).status()).toBe(409);

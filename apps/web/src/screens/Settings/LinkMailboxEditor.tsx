@@ -16,6 +16,9 @@ export function LinkMailboxEditor(props:{
   verification?:JSX.Element;
   verificationRequired?:boolean;
   verificationProof?:string;
+  /** t48: whether new links keep a sealed credential, and if not why ('zeroAccess' | 'policyOff'). */
+  storeCredentials?:boolean;
+  storeCredentialsReason?:string|null;
 }):JSX.Element {
   const owner=preferenceAccount();
   const [username,setUsername]=createSignal('');
@@ -46,6 +49,7 @@ export function LinkMailboxEditor(props:{
   return <section class={css.section} aria-label={t('linked-accounts-add')}>
     <h2 class={css.heading}>{t('linked-accounts-add')}</h2>
     <p class={css.prose}>{t('linked-accounts-verify-help')}</p>
+    <p class={css.meta} data-linked-store-note>{t(props.storeCredentials===false?(props.storeCredentialsReason==='zeroAccess'?'linked-accounts-store-zero-access':'linked-accounts-store-policy'):'linked-accounts-store-help')}</p>
     <form onSubmit={event=>{event.preventDefault();void submit();}}>
       <fieldset class={layout.fields} disabled={busy()||!props.enabled}>
         <label class={css.field}><span class={css.label}>{t('linked-accounts-address')}</span><input class={css.input} autocomplete="username" autocapitalize="none" spellcheck={false} required maxlength={320} value={username()} onInput={event=>setUsername(event.currentTarget.value)}/></label>

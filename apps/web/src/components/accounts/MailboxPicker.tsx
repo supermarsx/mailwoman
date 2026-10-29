@@ -1,25 +1,25 @@
-// The mailbox picker (t40): the one active-account indicator and switcher in
-// the sidebar head. `full` shows the active mailbox (avatar, nickname or
-// address, unread count) as the trigger; `icon` is a one-letter avatar button
-// for the compact sidebar and the hidden-sidebar top bar. Both open one menu.
+// The mailbox picker (t40, t48 k): the one active-account indicator and
+// switcher in the sidebar head. `full` shows the active mailbox (avatar,
+// nickname or address, unread count) as the trigger; `icon` is a one-letter
+// avatar button for the compact sidebar and the hidden-sidebar top bar. Both
+// open one menu.
 //
-// The menu is an ARIA menu of `menuitemradio` entries in the owner's saved
-// order, each with "Set as primary" and "Rename…" `menuitem`s beside it:
-//   Up/Down move between mailboxes, Right/Left along a row's actions,
-//   Home/End jump, a printed character jumps to the next mailbox whose label
-//   starts with the typed text, Enter/Space activate, Esc closes (or cancels a
-//   rename) and returns focus, Tab closes, Alt+Up/Down moves the mailbox.
-// Dragging a row (grip or row; long press on touch) reorders; a press that
-// moved never switches mailbox. With one mailbox the caller renders
-// `MailboxPlain` instead: no menu at all.
+// It is a switcher only: each entry is the avatar, nickname or address, unread
+// count and the active check, in the owner's saved order. Reordering, renaming,
+// the primary mailbox, renewing access and unlinking are managed in Settings ›
+// Linked mailboxes, never here. Choosing a link whose access expired opens the
+// caller's renew flow (`onRenew`) instead of failing.
+//
+// The menu is an ARIA menu of `menuitemradio` entries: Up/Down move, Home/End
+// jump, a printed character jumps to the next mailbox whose label starts with
+// the typed text, Enter/Space activate, Esc closes and returns focus, Tab
+// closes. With one mailbox the caller renders `MailboxPlain`: no menu at all.
 import { For, Show, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { isolate, loadCatalog, t } from '../../i18n/index.ts';
 import { useCollapsibleBar } from '../bars/index.ts';
 import { Icon } from '../Icon.tsx';
 import { avatarPresentation } from '../PersonAvatar.tsx';
-import { NICKNAME_MAX, cleanNickname } from '../../api/mailboxLayout.ts';
-import { createPointerReorder } from './pointerReorder.ts';
 import * as a11y from '../mailA11y.css.ts';
 import * as css from './accountIndicator.css.ts';
 import '../person-avatar.css';
@@ -41,6 +41,8 @@ export interface MailboxChoice {
   signIn?: boolean;
   available: boolean;
   unread: number | null;
+  /** t48: access ended and can be renewed in place ("Renew access"). */
+  renew?: boolean;
 }
 
 let sequence = 0;
@@ -57,7 +59,7 @@ export function choiceLabel(choice: Pick<MailboxChoice, 'nickname' | 'name' | 'a
   return choice.nickname || (choice.name && choice.name !== choice.address ? choice.name : choice.address);
 }
 
-function MailboxAvatar(props: { label: string; address: string; size?: 'sm' | 'md' }): JSX.Element {
+export function MailboxAvatar(props: { label: string; address: string; size?: 'sm' | 'md' }): JSX.Element {
   const look = (): ReturnType<typeof avatarPresentation> => avatarPresentation(props.label === props.address ? '' : props.label, props.address);
   return (
     <span class={`person-avatar ${css.avatar}`} data-size={props.size ?? 'md'} data-avatar-color={look().palette} aria-hidden="true">
@@ -110,17 +112,11 @@ export function MailboxPicker(props: {
   /** In the owner's saved order. */
   choices: readonly MailboxChoice[];
   activeLinkId: string | null;
-  /** The mailbox that opens first (null = the sign-in account). */
-  firstLinkId: string | null;
   busy: boolean;
   error?: string;
   onSelect: (linkId: string | null) => void;
-  /** Absent: the primary cannot be changed here. */
-  onSetFirst?: (linkId: string | null) => void;
-  /** Move entry `from` into insertion slot `slot` (0..n). Absent: no reordering. */
-  onMove?: (from: number, slot: number) => void;
-  /** Save a nickname (`''` clears it); resolves false when it was refused. */
-  onRename?: (linkId: string | null, nickname: string) => Promise<boolean>;
+  /** t48: choosing a link whose access expired opens this (the renew flow). */
+  onRenew?: (linkId: string) => void;
 }): JSX.Element {
   onMount(() => {
     void loadCatalog('bars');
@@ -130,9 +126,6 @@ export function MailboxPicker(props: {
   const menuId = `mw-mailbox-menu-${++sequence}`;
   const [open, setOpen] = createSignal(false);
   const [position, setPosition] = createSignal({ top: 0, left: 0 });
-  const [renaming, setRenaming] = createSignal<string | null | undefined>(undefined);
-  const [renameError, setRenameError] = createSignal('');
-  const [announcement, setAnnouncement] = createSignal('');
   let trigger: HTMLButtonElement | undefined;
   let menu: HTMLDivElement | undefined;
   let release: (() => void) | undefined;
@@ -145,18 +138,6 @@ export function MailboxPicker(props: {
   const label = (): string => accountIndicatorLabel(active()?.address ?? '', linked(), active()?.nickname);
   const fullTitle = (choice: MailboxChoice): string => (choiceLabel(choice) === choice.address ? choice.address : `${choiceLabel(choice)}\n${choice.address}`);
 
-  const reorder = createPointerReorder({
-    rows: () => Array.from(menu?.querySelectorAll<HTMLElement>('[data-mailbox-row]') ?? []),
-    scroller: () => menu,
-    onDrop: (from, slot) => move(from, slot),
-  });
-  function move(from: number, slot: number): void {
-    const choice = props.choices[from];
-    if (!props.onMove || !choice) return;
-    props.onMove(from, slot);
-    const position = slot > from ? slot : slot + 1;
-    setAnnouncement(t('linked-accounts-moved', { name: choiceLabel(choice), position, total: props.choices.length }));
-  }
 
   function place(): void {
     if (!trigger) return;
@@ -171,9 +152,6 @@ export function MailboxPicker(props: {
     const list = items();
     if (list.length === 0) return;
     list[((index % list.length) + list.length) % list.length]?.focus();
-  }
-  function focusKey(linkId: string | null): void {
-    queueMicrotask(() => items().find((item) => (item.dataset['link'] || null) === linkId)?.focus());
   }
   function show(focus: 'active' | 'last' = 'active'): void {
     if (open()) return;
@@ -190,59 +168,33 @@ export function MailboxPicker(props: {
   function close(restoreFocus = false): void {
     if (!open()) return;
     setOpen(false);
-    setRenaming(undefined);
-    setRenameError('');
     release?.();
     release = undefined;
     if (restoreFocus) trigger?.focus();
   }
+  const renewable = (choice: MailboxChoice): boolean => !!choice.renew && choice.linkId !== null && !!props.onRenew;
   function choose(choice: MailboxChoice): void {
-    if (reorder.consumeClick()) return;
-    if (!choice.available || props.busy) return;
-    close(true);
-    if (choice.linkId !== props.activeLinkId) props.onSelect(choice.linkId);
-  }
-  async function saveRename(choice: MailboxChoice, raw: string): Promise<void> {
-    const value = cleanNickname(raw);
-    if (value === null) {
-      setRenameError(t('linked-accounts-nickname-invalid', { max: NICKNAME_MAX }));
+    if (props.busy) return;
+    if (renewable(choice)) {
+      close(true);
+      props.onRenew?.(choice.linkId!);
       return;
     }
-    if (!props.onRename) return;
-    if (await props.onRename(choice.linkId, value)) {
-      setRenaming(undefined);
-      setRenameError('');
-      focusKey(choice.linkId);
-    } else {
-      setRenameError(t('linked-accounts-nickname-failed'));
-    }
+    if (!choice.available) return;
+    close(true);
+    if (choice.linkId !== props.activeLinkId) props.onSelect(choice.linkId);
   }
 
   function onMenuKeyDown(event: KeyboardEvent): void {
     const target = event.target instanceof HTMLElement ? event.target : null;
-    if (target instanceof HTMLInputElement) return;
-    const row = target?.closest<HTMLElement>('[data-mailbox-row]');
     const list = items();
-    const main = row?.querySelector<HTMLButtonElement>('[data-mailbox-item]') ?? null;
+    const main = target?.closest<HTMLButtonElement>('[data-mailbox-item]') ?? null;
     const index = main ? list.indexOf(main) : -1;
-    if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown') && props.onMove && index >= 0) {
-      event.preventDefault();
-      const slot = event.key === 'ArrowUp' ? index - 1 : index + 2;
-      if (slot < 0 || slot > list.length) return;
-      const linkId = props.choices[index]?.linkId ?? null;
-      move(index, slot);
-      focusKey(linkId);
-      return;
-    }
-    const actions = row ? Array.from(row.querySelectorAll<HTMLButtonElement>('button:not([disabled])')) : [];
-    const at = target ? actions.indexOf(target as HTMLButtonElement) : -1;
     switch (event.key) {
       case 'ArrowDown': event.preventDefault(); focusItem(index + 1); return;
       case 'ArrowUp': event.preventDefault(); focusItem(index < 0 ? list.length - 1 : index - 1); return;
       case 'Home': event.preventDefault(); focusItem(0); return;
       case 'End': event.preventDefault(); focusItem(list.length - 1); return;
-      case 'ArrowRight': if (at >= 0 && at < actions.length - 1) { event.preventDefault(); actions[at + 1]!.focus(); } return;
-      case 'ArrowLeft': if (at > 0) { event.preventDefault(); actions[at - 1]!.focus(); } return;
       case 'Escape': event.preventDefault(); event.stopPropagation(); close(true); return;
       case 'Tab': close(); return;
       default: break;
@@ -350,7 +302,6 @@ export function MailboxPicker(props: {
         </button>
       </Show>
       <Show when={props.error}><span role="alert" class={css.error}>{props.error}</span></Show>
-      <span class={a11y.srOnly} role="status" aria-live="polite">{announcement()}</span>
       <Show when={open()}>
         <Portal mount={trigger?.ownerDocument.body ?? document.body}>
           <div
@@ -360,7 +311,6 @@ export function MailboxPicker(props: {
             aria-label={t('linked-accounts-select')}
             class={css.popover}
             data-mailbox-menu
-            data-dragging={reorder.dragging() ? 'true' : undefined}
             style={{ top: `${position().top}px`, left: `${position().left}px` }}
             onKeyDown={onMenuKeyDown}
             onFocusOut={(event) => {
@@ -370,105 +320,35 @@ export function MailboxPicker(props: {
             }}
           >
             <For each={props.choices}>
-              {(choice, index) => {
+              {(choice) => {
                 const isActive = (): boolean => choice.linkId === props.activeLinkId;
-                const isFirst = (): boolean => choice.linkId === props.firstLinkId;
-                const drop = (): 'before' | 'after' | undefined => {
-                  const state = reorder.dragging();
-                  if (!state || state.over === state.from || state.over === state.from + 1) return undefined;
-                  if (state.over === index()) return 'before';
-                  if (state.over === props.choices.length && index() === props.choices.length - 1) return 'after';
-                  return undefined;
-                };
                 return (
-                  <div class={css.row} role="none" data-mailbox-row data-active={isActive() ? 'true' : undefined} data-drop={drop()}>
-                    <Show when={props.onMove}>
-                      <span class={css.grip} aria-hidden="true" data-mailbox-grip title={t('linked-accounts-drag')} onPointerDown={(event) => reorder.start(event, index(), true)}>
-                        <Icon name="menu" />
-                      </span>
-                    </Show>
-                    <Show
-                      when={renaming() === undefined || renaming() !== choice.linkId}
-                      fallback={
-                        <span class={css.rename} role="none">
-                          <input
-                            class={css.renameInput}
-                            type="text"
-                            maxLength={NICKNAME_MAX * 2}
-                            value={choice.nickname ?? ''}
-                            placeholder={choice.address}
-                            aria-label={t('linked-accounts-nickname-for', { address: isolate(choice.address) })}
-                            aria-invalid={renameError() ? 'true' : undefined}
-                            ref={(input) => queueMicrotask(() => { input.focus(); input.select(); })}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter') { event.preventDefault(); void saveRename(choice, event.currentTarget.value); }
-                              else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setRenaming(undefined); setRenameError(''); focusKey(choice.linkId); }
-                            }}
-                          />
-                          <Show when={renameError()}><span class={css.error} role="alert">{renameError()}</span></Show>
-                        </span>
-                      }
+                  <div class={css.row} role="none" data-mailbox-row data-active={isActive() ? 'true' : undefined}>
+                    <button
+                      type="button"
+                      role="menuitemradio"
+                      tabIndex={-1}
+                      class={css.item}
+                      aria-checked={isActive() ? 'true' : 'false'}
+                      aria-disabled={(!choice.available && !renewable(choice)) || props.busy ? 'true' : undefined}
+                      data-mailbox-item
+                      data-link={choice.linkId ?? ''}
+                      data-label={choiceLabel(choice)}
+                      data-address={choice.address}
+                      data-expired={choice.renew ? 'true' : undefined}
+                      title={fullTitle(choice)}
+                      onClick={() => choose(choice)}
                     >
-                      <button
-                        type="button"
-                        role="menuitemradio"
-                        tabIndex={-1}
-                        class={css.item}
-                        aria-checked={isActive() ? 'true' : 'false'}
-                        aria-disabled={!choice.available || props.busy ? 'true' : undefined}
-                        data-mailbox-item
-                        data-link={choice.linkId ?? ''}
-                        data-label={choiceLabel(choice)}
-                        data-address={choice.address}
-                        title={fullTitle(choice)}
-                        onPointerDown={(event) => { if (props.onMove) reorder.start(event, index(), false); }}
-                        onContextMenu={(event) => { if (reorder.dragging()) event.preventDefault(); }}
-                        onClick={() => choose(choice)}
-                      >
-                        <MailboxAvatar label={choiceLabel(choice)} address={choice.address} />
-                        <span class={css.itemText}>
-                          <span class={css.itemName} data-mailbox-label>{isolate(choiceLabel(choice))}</span>
-                          <Show when={choiceLabel(choice) !== choice.address}><span class={css.itemAddress}>{isolate(choice.address)}</span></Show>
-                          <span class={css.itemMeta}>
-                            <Show when={isFirst()}><span class={css.firstMark} data-mailbox-primary title={t('linked-accounts-first-help')}><Icon name="star" />{t('linked-accounts-first')}</span></Show>
-                            <Show when={choice.signIn}><span>{t('linked-accounts-primary')}</span></Show>
-                            <Show when={!choice.available}><span>{t('linked-accounts-unavailable')}</span></Show>
-                          </span>
-                        </span>
-                        <UnreadBadge count={choice.unread} />
-                        <span class={css.check} aria-hidden="true"><Show when={isActive()}><Icon name="check" /></Show></span>
-                      </button>
-                      <Show when={props.onSetFirst && !isFirst() && choice.available}>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          tabIndex={-1}
-                          class={css.rowAction}
-                          data-mailbox-first
-                          disabled={props.busy}
-                          aria-label={t('linked-accounts-set-first', { address: isolate(choice.address) })}
-                          data-tooltip={t('linked-accounts-set-first-short')}
-                          onClick={() => props.onSetFirst?.(choice.linkId)}
-                        >
-                          <Icon name="starOutline" />
-                        </button>
-                      </Show>
-                      <Show when={props.onRename}>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          tabIndex={-1}
-                          class={css.rowAction}
-                          data-mailbox-rename
-                          disabled={props.busy}
-                          aria-label={t('linked-accounts-rename', { address: isolate(choice.address) })}
-                          data-tooltip={t('linked-accounts-rename-short')}
-                          onClick={() => { setRenameError(''); setRenaming(choice.linkId); }}
-                        >
-                          <Icon name="edit" />
-                        </button>
-                      </Show>
-                    </Show>
+                      <MailboxAvatar label={choiceLabel(choice)} address={choice.address} />
+                      <span class={css.itemText}>
+                        <span class={css.itemName} data-mailbox-label>{isolate(choiceLabel(choice))}</span>
+                        <Show when={choiceLabel(choice) !== choice.address}><span class={css.itemAddress}>{isolate(choice.address)}</span></Show>
+                        {/* No status on the entry (t48 j/k); screen readers still hear why it opens renewal. */}
+                        <Show when={!choice.available}><span class={a11y.srOnly}>{t(choice.renew ? 'linked-accounts-expired' : 'linked-accounts-unavailable')}</span></Show>
+                      </span>
+                      <UnreadBadge count={choice.unread} />
+                      <span class={css.check} aria-hidden="true"><Show when={isActive()}><Icon name="check" /></Show></span>
+                    </button>
                   </div>
                 );
               }}

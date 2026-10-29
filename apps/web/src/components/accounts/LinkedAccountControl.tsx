@@ -6,16 +6,16 @@ import {loadCatalog} from '../../i18n/index.ts';
 import {confirmShellNavigation} from '../../shell/navigationGuard.ts';
 import {MailboxPicker,MailboxPlain,type MailboxChoice} from './MailboxPicker.tsx';
 import {linkedAccountError} from './linkedAccountError.ts';
+import {RenewAccessDialog} from './RenewAccessDialog.tsx';
 import {invalidateLinkedAccounts,linkedAccountsRevision} from '../../api/linkedMailboxSession.ts';
-import {keyOf,layoutChange,linkOf,mailboxNickname,orderedKeys,saveLayout} from '../../api/mailboxLayout.ts';
-import {moveTo} from './pointerReorder.ts';
+import {keyOf,linkOf,mailboxNickname,orderedKeys} from '../../api/mailboxLayout.ts';
 import * as css from './accountIndicator.css.ts';
 
-/** The one active-account indicator and switcher (t38 §2.3, t40). With one
- *  mailbox it is the plain address or nickname (`full`) or a static letter
+/** The one active-account indicator and switcher (t38 §2.3, t40, t48 k). With
+ *  one mailbox it is the plain address or nickname (`full`) or a static letter
  *  (`icon`); with linked mailboxes it is the mailbox picker, in the owner's
- *  order, where mailboxes can be switched, reordered, renamed and marked as the
- *  one that opens first. Linking itself is managed in Settings › Linked mailboxes. */
+ *  order, which only switches. Linking, order, nicknames, the primary mailbox,
+ *  renewing access and unlinking are managed in Settings › Linked mailboxes. */
 export type AccountControlVariant='full'|'icon';
 
 // Last inbox unread count seen per mailbox in this tab (key: layout key). The
@@ -33,7 +33,8 @@ export function mailboxChoices(list:LinkedMailboxList,unread:(linkId:string|null
     const account=list.accounts.find(item=>item.id===linkId)!;
     const nickname=nick(linkId);
     return {linkId,address:account.address??account.displayName,name:account.displayName,...(nickname?{nickname}:{}),
-      available:list.policy.enabled&&account.status==='ready',unread:unread(linkId)};
+      available:list.policy.enabled&&account.status==='ready',unread:unread(linkId),
+      ...(list.policy.enabled&&account.status==='reauthRequired'?{renew:true}:{})};
   });
 }
 
@@ -46,9 +47,10 @@ export function LinkedAccountControl(props:{variant?:AccountControlVariant}):JSX
 function OwnedControl(props:{variant?:AccountControlVariant}):JSX.Element {
   const app=useApp(),api=createLinkedAccountsApi();
   onCleanup(api.dispose);
-  const [list,{mutate}]=createResource(linkedAccountsRevision,()=>api.list());
+  const [list]=createResource(linkedAccountsRevision,()=>api.list());
   const [error,setError]=createSignal('');
-  const [saving,setSaving]=createSignal(false);
+  // t48: the expired link being renewed from the picker (its dialog is open).
+  const [renewing,setRenewing]=createSignal<string>();
   const activeInboxUnread=():number|null=>{
     const inbox=app.mailboxes().find(box=>box.role==='inbox');
     return inbox&&Number.isFinite(inbox.unreadEmails)?inbox.unreadEmails:null;
@@ -69,30 +71,23 @@ function OwnedControl(props:{variant?:AccountControlVariant}):JSX.Element {
     setError('');
     try{await app.switchLinkedMailbox(id);}catch(cause){setError(linkedAccountError(cause));}
   }
-  async function run(action:()=>Promise<void>):Promise<boolean>{
-    if(saving())return false;
-    setSaving(true);setError('');
-    try{await action();invalidateLinkedAccounts();return true;}
-    catch(cause){setError(linkedAccountError(cause));invalidateLinkedAccounts();return false;}
-    finally{setSaving(false);}
+  const renewAccount=()=>{const id=renewing();return id?list()?.accounts.find(account=>account.id===id):undefined;};
+  const renewLabel=(id:string):string=>{const account=list()?.accounts.find(item=>item.id===id);return mailboxNickname(id)||account?.address||account?.displayName||'';};
+  // Choosing an expired mailbox renews its access in place, then opens it:
+  // never a dead end (t48 k). Managing links stays in Settings.
+  function renewed():void{
+    const id=renewing();
+    setRenewing(undefined);
+    invalidateLinkedAccounts();
+    if(id)void select(id);
   }
-  const setFirst=(id:string|null)=>void run(async()=>{await api.setPrimary(id);});
-  function move(from:number,slot:number):void{
-    const current=list();if(!current)return;
-    const order=moveTo(orderedKeys(current),from,slot);
-    // Show the new order at once; the refetch after saving confirms it.
-    mutate({...current,layout:{revision:current.layout?.revision??'',order,nicknames:current.layout?.nicknames??{}}});
-    void run(async()=>{await saveLayout(api,current,()=>({order,nicknames:current.layout?.nicknames??{}}));});
-  }
-  const rename=(linkId:string|null,nickname:string):Promise<boolean>=>{
-    const current=list();if(!current)return Promise.resolve(false);
-    return run(async()=>{await saveLayout(api,current,fresh=>layoutChange(fresh,{nickname:{key:keyOf(linkId),value:nickname}}));});
-  };
   const address=():string=>app.me()?.username??'';
   const plain=():JSX.Element=><MailboxPlain variant={props.variant??'full'} address={address()} nickname={mailboxNickname(app.linkedMailboxId())} unread={activeInboxUnread()}/>;
   return <Show when={!list.error&&list()&&list()!.accounts.length>0?list():undefined} fallback={plain()}>{value=>
     <div class={css.control}>
-      <MailboxPicker variant={props.variant??'full'} choices={mailboxChoices(value(),unreadFor)} activeLinkId={app.linkedMailboxId()} firstLinkId={value().primaryMailbox??null}
-        busy={app.switchingMailbox()||saving()} error={error()} onSelect={id=>void select(id)} onSetFirst={setFirst} onMove={move} onRename={rename}/>
+      <MailboxPicker variant={props.variant??'full'} choices={mailboxChoices(value(),unreadFor)} activeLinkId={app.linkedMailboxId()}
+        busy={app.switchingMailbox()} error={error()} onSelect={id=>void select(id)} onRenew={id=>setRenewing(id)}/>
+      <Show when={renewAccount()}>{account=>
+        <RenewAccessDialog account={account()} label={renewLabel(account().id)} api={api} onRenewed={renewed} onCancel={()=>setRenewing(undefined)}/>}</Show>
     </div>}</Show>;
 }

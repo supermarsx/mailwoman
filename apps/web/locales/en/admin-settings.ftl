@@ -654,6 +654,8 @@ admin-settings-key-accounts-use-linked = Use linked mailboxes
 admin-settings-help-accounts-use-linked = User opt-out for linked access. Cannot override administrative disablement. Mailbox data is preserved when access is disabled.
 admin-settings-key-accounts-max-linked = Maximum linked mailboxes
 admin-settings-help-accounts-max-linked = Maximum verified child mailboxes per primary identity, from 1 to 16. Default 5.
+admin-settings-key-accounts-store-linked-credentials = Keep linked mailbox access
+admin-settings-help-accounts-store-linked-credentials = Keep each linked mailbox's password sealed on the server so its access renews by itself, across sessions and restarts. Never kept for zero-access accounts or mailboxes with two-step verification. Turning it off erases stored passwords; links then renew by signing in again. Default on.
 
 admin-settings-key-privacy-strip-mailer-headers = Remove outgoing mailer headers
 admin-settings-help-privacy-strip-mailer-headers = Remove top-level X-Mailer, User-Agent and X-MimeOLE from native SMTP and EWS email. Attached messages and report payloads remain intact. Upstream JMAP proxy sends are not covered.

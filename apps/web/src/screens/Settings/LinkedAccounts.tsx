@@ -2,7 +2,7 @@ import {createResource,createSignal,onCleanup,onMount,Show,type JSX} from 'solid
 import {createLinkedAccountsApi,type LinkedMailbox,type LinkedMailboxChallenge,type LinkMailboxInput,type LinkMailboxProof} from '../../api/linkedAccounts.ts';
 import {publicConfig} from '../../api/publicConfig.ts';
 import {invalidateLinkedAccounts} from '../../api/linkedMailboxSession.ts';
-import {keyOf,layoutChange,orderedKeys,saveLayout} from '../../api/mailboxLayout.ts';
+import {keyOf,layoutChange,mailboxNickname,orderedKeys,saveLayout} from '../../api/mailboxLayout.ts';
 import {moveTo} from '../../components/accounts/pointerReorder.ts';
 import {SigninChallenge} from '../../components/SigninChallenge.tsx';
 import {AsyncPending} from '../../components/AsyncState.tsx';
@@ -15,6 +15,7 @@ import {PersonalAccountBoundary} from './PersonalAccountBoundary.tsx';
 import {LinkedAccountList} from './LinkedAccountList.tsx';
 import {LinkMailboxEditor} from './LinkMailboxEditor.tsx';
 import {LinkedMailboxFactor} from './LinkedMailboxFactor.tsx';
+import {RenewAccessDialog} from '../../components/accounts/RenewAccessDialog.tsx';
 import {useSetting} from './useSetting.ts';
 import {LockNote} from './LockNote.tsx';
 import * as css from './styles.css.ts';
@@ -32,6 +33,7 @@ function OwnedLinkedAccounts():JSX.Element {
   const [reset,setReset]=createSignal(0);
   const [busy,setBusy]=createSignal(false);
   const [error,setError]=createSignal('');
+  const [renewing,setRenewing]=createSignal<LinkedMailbox>();
   const editing=()=>navigation.route().section==='linked-accounts'&&navigation.route().editor?.kind==='new';
   const back=async():Promise<void>=>{setChallenge(undefined);await navigation.navigate({section:'linked-accounts'});};
   async function complete():Promise<void>{if(disposed)return;invalidateLinkedAccounts();await refetch();if(!disposed)await back();}
@@ -40,7 +42,6 @@ function OwnedLinkedAccounts():JSX.Element {
     finally{setProof(undefined);setReset(value=>value+1);}
   }
   async function confirm(value:LinkMailboxProof):Promise<void>{const pending=challenge();if(!pending)return;await api.confirm(pending.challengeId,value);await complete();}
-  async function switchTo(id:string|null):Promise<void>{if(!await confirmShellNavigation())return;setError('');try{await app.switchLinkedMailbox(id);}catch(cause){if(!disposed)setError(linkedAccountError(cause));}}
   async function remove(account:LinkedMailbox):Promise<void>{
     if(busy())return;
     if(app.linkedMailboxId()===account.id&&!await confirmShellNavigation())return;
@@ -79,9 +80,11 @@ function OwnedLinkedAccounts():JSX.Element {
     <Show when={!list.error&&list()}>{value=><>
       <Show when={app.linkedMailboxId()===null} fallback={<p class={css.meta}>{t('linked-accounts-primary-preference')}</p>}><LinkedPreference onChanged={()=>{invalidateLinkedAccounts();void refetch();}}/></Show>
       <Show when={value().policy.reason==='linkedBackendUnsupported'}><p class={css.meta}>{t('linked-accounts-backend-unsupported')}</p></Show>
-      <LinkedAccountList value={value()} activeLinkId={app.linkedMailboxId()} busy={busy()||app.switchingMailbox()} error={error()} onAdd={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'new'}})} onSwitch={id=>void switchTo(id)} onUnlink={account=>void remove(account)} onSetFirst={id=>void setFirst(id)} onMove={move} onRename={rename}/>
+      <LinkedAccountList value={value()} busy={busy()||app.switchingMailbox()} error={error()} onAdd={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'new'}})} onUnlink={account=>void remove(account)} onSetFirst={id=>void setFirst(id)} onMove={move} onRename={rename} onRenew={setRenewing}/>
+      <Show when={renewing()}>{account=><RenewAccessDialog account={account()} label={mailboxNickname(account().id)||account().address||account().displayName} api={api}
+        onRenewed={()=>{setRenewing(undefined);invalidateLinkedAccounts();void refetch();}} onCancel={()=>setRenewing(undefined)}/>}</Show>
     </>}</Show>
-  </>}><LinkMailboxEditor enabled={!!list()?.policy.enabled&&!config.loading&&!config.error} onVerify={link} onVerified={complete} onCancel={back} errorText={linkedAccountError}
+  </>}><LinkMailboxEditor enabled={!!list()?.policy.enabled&&!config.loading&&!config.error} storeCredentials={list()?.policy.storeCredentials!==false} storeCredentialsReason={list()?.policy.storeCredentialsReason??null} onVerify={link} onVerified={complete} onCancel={back} errorText={linkedAccountError}
       verificationRequired={config()?.antiBot?.mailbox===true} {...(proof()?{verificationProof:proof()!}:{})}
       verification={<Show when={config()?.antiBot?.mailbox}><SigninChallenge surface="mailbox" reset={reset()} onProof={setProof}/></Show>}/>
     <Show when={config.error}><p role="alert" class={css.error}>{t('linked-accounts-error')}</p></Show>

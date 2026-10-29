@@ -21,6 +21,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'accounts.linkingEnabled',
   'accounts.useLinked',
   'accounts.maxLinked',
+  'accounts.storeLinkedCredentials',
   'mail.folderRole.inbox',
   'mail.folderRole.drafts',
   'mail.folderRole.sent',

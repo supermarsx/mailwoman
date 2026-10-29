@@ -256,6 +256,9 @@ export const rowAction = style({
   '@media': { [coarse]: { inlineSize: '44px' } },
 });
 
+/** t48: the warning state of a `.btn` icon button (Settings › Linked mailboxes). */
+export const iconWarning = style({ selectors: { '&&': { color: vars.color.warning, borderColor: vars.color.warning } } });
+
 export const error = style({ fontSize: '.8125rem', color: vars.color.danger, overflowWrap: 'anywhere' });
 
 export const control = style({ display: 'flex', alignItems: 'center', gap: vars.space[1], minWidth: 0, maxWidth: '100%' });

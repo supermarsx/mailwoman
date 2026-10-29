@@ -10,6 +10,11 @@ export interface LinkedMailbox {
   id:string;accountId:string;address?:string;displayName:string;
   storageAuthority?:string;status:'ready'|'reauthRequired'|'disabled';
   revision:string;expiresAt?:number;createdAt?:number;
+  /** t48: 'automatic' = access renews by itself from the server-sealed credential;
+   *  'signIn' = the owner renews it ("Renew access") when it ends. */
+  renewal?:'automatic'|'signIn';
+  /** Why it does not renew by itself: a code (credentialRejected, factorRequired, zeroAccess, policyOff, ...). */
+  renewalReason?:string|null;
 }
 export interface LinkedMailboxList {
   primary:{accountId:string;address:string;storageAuthority:string};
@@ -20,9 +25,13 @@ export interface LinkedMailboxList {
   primaryFallback?:boolean;
   /** Order and display-only nicknames, per owner (t40 f/g). */
   layout?:MailboxLayout;
-  policy:{enabled:boolean;maxAccounts:number;supportedAuthentication:string[];supportedBackends?:string[];reason?:string|null;childRealtime?:boolean};
+  policy:{enabled:boolean;maxAccounts:number;supportedAuthentication:string[];supportedBackends?:string[];reason?:string|null;childRealtime?:boolean;
+    /** t48: new links keep a sealed credential; false with a reason code when they will not. */
+    storeCredentials?:boolean;storeCredentialsReason?:string|null};
 }
 export interface LinkMailboxInput {username:string;password:string;displayName?:string;altcha?:string}
+/** t48: sign a linked mailbox in again. `username` only when the link does not show an address. */
+export interface RenewMailboxInput {username?:string;password:string;altcha?:string}
 export type LinkedMailboxChallenge=Omit<LoginChallenge,'pendingToken'|'enrollmentRequired'>&{twofaRequired:true;challengeId:string};
 export type LinkMailboxResult={account:LinkedMailbox}|LinkedMailboxChallenge;
 export type LinkMailboxProof={method:'totp'|'recovery';code:string}|{method:'webauthn';credentialId:string;clientDataJson:string;authenticatorData:string;signature:string};
@@ -68,6 +77,9 @@ export function createLinkedAccountsApi() {
     },
     link:(input:LinkMailboxInput)=>request<LinkMailboxResult>('/link','POST',input),
     confirm:(challengeId:string,proof:LinkMailboxProof)=>request<{account:LinkedMailbox}>(`/challenges/${encodeURIComponent(challengeId)}/confirm`,'POST',proof),
+    /** t48: renew a link's access in place (no unlink); may answer with a second-factor challenge. */
+    renew:(id:string,input:RenewMailboxInput)=>request<LinkMailboxResult>(`/${encodeURIComponent(id)}/renew`,'POST',input),
+    confirmRenew:(id:string,challengeId:string,proof:LinkMailboxProof)=>request<{account:LinkedMailbox}>(`/${encodeURIComponent(id)}/renew/challenges/${encodeURIComponent(challengeId)}/confirm`,'POST',proof),
     authorize:(id:string)=>request<{context:LinkedAccountContext}>(`/${encodeURIComponent(id)}/switch`,'POST'),
     /** Which mailbox opens first. A preference only: opening it still switches through `authorize`. */
     setPrimary:(linkId:string|null)=>request<{primaryMailbox:string|null}>('/primary','PUT',{linkId}),
