@@ -1,0 +1,40 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: pt-PT · Module: color-picker. Source: ../en/color-picker.ftl
+
+color-picker-trigger = { $label }: { $value }
+color-picker-unset = Não definida
+color-picker-area = Saturação e brilho
+color-picker-area-value = Saturação { $s }%, brilho { $v }%
+color-picker-hue = Tonalidade
+color-picker-hue-value = { $h } graus
+color-picker-alpha = Opacidade
+color-picker-alpha-value = { $a }% opaca
+color-picker-preview = Nova cor: { $value }
+color-picker-hex = Hex
+color-picker-hex-invalid = Introduza uma cor no formato #RGB ou #RRGGBB.
+color-picker-hex-invalid-alpha = Introduza uma cor no formato #RGB, #RRGGBB ou #RRGGBBAA.
+color-picker-r = Vermelho
+color-picker-g = Verde
+color-picker-b = Azul
+color-picker-r-short = R
+color-picker-g-short = G
+color-picker-b-short = B
+color-picker-theme = Cores do tema
+color-picker-theme-text = Texto do tema
+color-picker-theme-surface = Superfície do tema
+color-picker-recent = Cores recentes
+color-picker-swatch = { $name } ({ $hex })
+color-picker-eyedropper = Recolher do ecrã
+color-picker-cancel = Cancelar
+color-picker-done = Concluído
+color-picker-contrast = Contraste { $ratio }:1 face a { $against }
+color-picker-contrast-aa = AA
+color-picker-contrast-large = AA só para texto grande
+color-picker-contrast-fail = Abaixo de AA
+color-picker-against-background = o fundo
+color-picker-against-text = a cor do texto
+color-picker-automatic = Automática
+color-picker-no-colour = Sem cor
+color-picker-default = Predefinida
+color-picker-against-white-message = um fundo de mensagem branco
+color-picker-against-black-text = texto preto

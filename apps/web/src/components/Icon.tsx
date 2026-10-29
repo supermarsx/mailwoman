@@ -11,7 +11,7 @@ import type { JSX } from 'solid-js';
 
 export type IconName =
   | 'tableRowBefore' | 'tableRowAfter' | 'tableRowDelete' | 'tableColumnBefore' | 'tableColumnAfter' | 'tableColumnDelete' | 'tableMerge' | 'tableSplit' | 'tableHeader'
-  | 'cut' | 'paste' | 'table' | 'paragraph' | 'paint'
+  | 'cut' | 'paste' | 'table' | 'paragraph' | 'paint' | 'eyedropper'
   | 'home' | 'briefcase' | 'heart' | 'shopping' | 'education' | 'travel' | 'coffee' | 'gift' | 'bank' | 'book'
   | 'identityProvider'
   | 'shield'
@@ -171,6 +171,8 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   table: () => <path d="M1 2 H15 V14 H1 Z M1 6 H15 M6 2 V14 M11 6 V14 M1 10 H15" {...S}/>,
   paragraph: () => <path d="M13 2 H6 A3 3 0 0 0 6 8 H8 M8 2 V15 M12 2 V15" {...S}/>,
   paint: () => <path d="M3 1 H13 V5 H3 Z M13 3 H15 V8 H8 V11 M6 11 H10 V15 H6 Z" {...S}/>,
+  // A pipette: the bulb at the top end, the glass tube down to the tip.
+  eyedropper: () => <path d="M10 2 L14 6 M9 3 L13 7 M11 5 L4 12 L3 15 L6 14 L13 7" {...S}/>,
   delete: () => <path d="M3 4 H13 M6 1 H10 M4 4 L5 15 H11 L12 4 M7 7 V12 M9 7 V12" {...S} />,
   clone: () => <path d="M5 5 H14 V14 H5 Z M2 11 V2 H11" {...S} />,
   enable: () => <path d="M3 8 L6 11 L13 4" {...S} />,
