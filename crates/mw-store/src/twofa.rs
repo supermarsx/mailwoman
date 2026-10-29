@@ -454,6 +454,8 @@ impl Store {
     ) -> Result<Option<String>, StoreError> {
         for id in self.session_ids_for_account(account_id).await? {
             if session_handle(&id) == handle {
+                // t48: ending a link's private session ends its automatic renewal.
+                self.forget_linked_credentials_of_source(&id).await?;
                 self.delete_session(&id).await?;
                 return Ok(Some(id));
             }
@@ -471,6 +473,7 @@ impl Store {
         let mut deleted = Vec::new();
         for id in self.session_ids_for_account(account_id).await? {
             if session_handle(&id) != keep_handle {
+                self.forget_linked_credentials_of_source(&id).await?;
                 self.delete_session(&id).await?;
                 deleted.push(id);
             }

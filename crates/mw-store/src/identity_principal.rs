@@ -266,6 +266,10 @@ impl Store {
             .await?;
         q("DELETE FROM sessions WHERE id IN (SELECT session_id FROM session_principal WHERE principal_id=?1)")
             .bind(principal).execute_tx(&mut tx).await?;
+        // t48: a retired identity keeps no stored linked-mailbox credential, as
+        // the owner or as the linked mailbox.
+        q("DELETE FROM linked_credential WHERE owner_principal_id=?1 OR link_id IN (SELECT id FROM linked_account WHERE child_principal_id=?1)")
+            .bind(principal).execute_tx(&mut tx).await?;
         tx.commit().await?;
         Ok(changed == 1)
     }

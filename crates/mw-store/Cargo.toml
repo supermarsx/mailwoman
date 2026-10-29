@@ -28,6 +28,8 @@ url = { workspace = true }
 # is net-zero new dependency-graph nodes (no C/-sys/openssl).
 async-trait = { workspace = true }
 sha2 = { workspace = true }
+# t48: linked-mailbox credentials are opened into `Zeroizing` buffers.
+zeroize = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

@@ -283,6 +283,48 @@ const TABLES: &[TableSpec] = &[
             ]
         },
     },
+    // t40's owner arrangement (first mailbox, order, nicknames): plain rows
+    // keyed by the owner principal, which travels above.
+    TableSpec {
+        name: "linked_primary",
+        select: "SELECT owner_principal_id,link_id,updated_at FROM linked_primary",
+        insert: "INSERT INTO linked_primary(owner_principal_id,link_id,updated_at) VALUES(?1,?2,?3)",
+        map: |r| vec![t(r, "owner_principal_id"), t(r, "link_id"), i(r, "updated_at")],
+    },
+    TableSpec {
+        name: "linked_layout",
+        select: "SELECT owner_principal_id,order_json,nicknames_json,revision,updated_at FROM linked_layout",
+        insert: "INSERT INTO linked_layout(owner_principal_id,order_json,nicknames_json,revision,updated_at) VALUES(?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "owner_principal_id"),
+                t(r, "order_json"),
+                t(r, "nicknames_json"),
+                t(r, "revision"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    // t48: sealed under the same server key and bound to owner+link, so the
+    // ciphertext moves as-is and opens on the destination.
+    TableSpec {
+        name: "linked_credential",
+        select: "SELECT link_id,owner_principal_id,owner_account_id,child_authority,login_name,state,reason,sealed_secret,updated_at FROM linked_credential",
+        insert: "INSERT INTO linked_credential(link_id,owner_principal_id,owner_account_id,child_authority,login_name,state,reason,sealed_secret,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        map: |r| {
+            vec![
+                t(r, "link_id"),
+                t(r, "owner_principal_id"),
+                t(r, "owner_account_id"),
+                t(r, "child_authority"),
+                t(r, "login_name"),
+                t(r, "state"),
+                ot(r, "reason"),
+                ob(r, "sealed_secret"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
     // MFA continuations are process-local. Drop challenges on store migration;
     // never copy a stale pending token and pretend it can complete on a new node.
     TableSpec {
