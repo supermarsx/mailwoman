@@ -345,6 +345,11 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="twofa.rememberdays"></a>`twofa.rememberDays` | signin | global+domain+admin_user | 0 | plain |  | yes | Remembered-device lifetime; zero disables remembered devices |
 | <a id="twofa.passkeysenabled"></a>`twofa.passkeysEnabled` | signin | global+domain+admin_user | true | plain |  | yes | Allow passkey authentication |
 | <a id="twofa.required"></a>`twofa.required` | signin | global+domain+admin_user | false | plain |  | yes | Require a second authentication factor |
+| <a id="twofa.passkeyattachment"></a>`twofa.passkeyAttachment` | signin | global+domain+admin_user | "any" | plain |  | yes | Which authenticators can hold a mailbox passkey |
+| <a id="twofa.passkeyuserverification"></a>`twofa.passkeyUserVerification` | signin | global+domain+admin_user | "preferred" | plain |  | yes | Whether a passkey must verify the user (PIN or biometric) |
+| <a id="twofa.passkeyresidentkey"></a>`twofa.passkeyResidentKey` | signin | global+domain+admin_user | "discouraged" | plain |  | yes | Whether a passkey must be a discoverable credential |
+| <a id="twofa.passkeylegacy"></a>`twofa.passkeyLegacy` | signin | global+domain+admin_user | "allow" | plain |  | yes | Passkeys registered before a stricter passkey policy |
+| <a id="twofa.lastfactorremoval"></a>`twofa.lastFactorRemoval` | signin | global+domain+admin_user | "allow" | plain |  | yes | Removing the last second factor of an account |
 | <a id="sieve.maxscriptbytes"></a>`sieve.maxScriptBytes` | sieve | global+domain+admin_user | 65536 | plain |  | yes | Sieve script byte limit |
 | <a id="sieve.maxscripts"></a>`sieve.maxScripts` | sieve | global+domain+admin_user | 5 | plain |  | yes | Sieve script count limit |
 | <a id="sieve.maxredirects"></a>`sieve.maxRedirects` | sieve | global+domain+admin_user | 4 | plain |  | yes | Sieve redirect count limit |

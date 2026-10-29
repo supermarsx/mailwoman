@@ -11,3 +11,10 @@ it('shows measured factor coverage and links each policy to its scoped editor', 
   expect(screen.getByRole('link', { name: 'session.maxConcurrent' })).toHaveAttribute('href', '#/settings/session.maxConcurrent');
   expect(screen.getByText('Environment administrator sign-in is disabled')).toBeInTheDocument();
 });
+it('links each passkey policy setting to its scoped, lockable editor (t39-e6)', async () => {
+  vi.mocked(adminRequest).mockResolvedValue({ status: 200, etag: null, data: { knownAccounts: 1, accountsWithFactor: 1, adminsWithoutFactor: 0, staleApiKeys: 0, upstreamAllowlistConfigured: true, environmentAdminLoginEnabled: false } });
+  render(() => <AdminSecurityCenter />);
+  for (const key of ['twofa.passkeyAttachment', 'twofa.passkeyUserVerification', 'twofa.passkeyResidentKey', 'twofa.passkeyLegacy', 'twofa.lastFactorRemoval']) {
+    expect(await screen.findByRole('link', { name: key })).toHaveAttribute('href', `#/settings/${key}`);
+  }
+});

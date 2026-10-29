@@ -550,8 +550,32 @@ Deployment timeout limits also apply; persisted timestamps survive restarts.
 <a id="twofa.passkeysEnabled"></a>
 `twofa.passkeysEnabled` defaults to true.
 <a id="twofa.required"></a>
-`twofa.required` defaults to false. These six settings support global, domain,
-group, profile and administrator-set account policy, without user overrides.
+`twofa.required` defaults to false.
+<a id="twofa.passkeyAttachment"></a>
+`twofa.passkeyAttachment`: `any` (default), `platform` or `cross-platform`.
+Which authenticators can hold a mailbox passkey. The browser reports it; it is
+not signed by the authenticator.
+<a id="twofa.passkeyUserVerification"></a>
+`twofa.passkeyUserVerification`: `required`, `preferred` (default) or
+`discouraged`. With `required` a registration or sign-in without the signed UV
+flag is refused.
+<a id="twofa.passkeyResidentKey"></a>
+`twofa.passkeyResidentKey`: `required`, `preferred` or `discouraged` (default).
+In engine mode passkeys are always discoverable and user-verified, because they
+also sign in without a password.
+<a id="twofa.passkeyLegacy"></a>
+`twofa.passkeyLegacy`: `allow` (default) keeps passkeys added before a stricter
+policy working and asks the user to replace them; `refuse` refuses them with a
+message.
+<a id="twofa.lastFactorRemoval"></a>
+`twofa.lastFactorRemoval`: `allow` (default), `requireRecoveryCodes` or `block`,
+for a removal that would leave no second factor on an account where two-factor
+authentication is not required. See
+[Passkey policy](security-center.md#passkey-policy) for what each value checks
+and for the grandfathering rule.
+
+These eleven settings support global, domain, group, profile and
+administrator-set account policy, without user overrides.
 
 ## Reader privacy
 

@@ -832,6 +832,46 @@ pub static REGISTRY: &[SettingDef] = &[
         "Require a second authentication factor"
     ),
     def!(
+        "twofa.passkeyAttachment",
+        Kind::Enum(&["any", "platform", "cross-platform"]),
+        "\"any\"",
+        GDA,
+        "signin",
+        "Which authenticators can hold a mailbox passkey"
+    ),
+    def!(
+        "twofa.passkeyUserVerification",
+        Kind::Enum(&["required", "preferred", "discouraged"]),
+        "\"preferred\"",
+        GDA,
+        "signin",
+        "Whether a passkey must verify the user (PIN or biometric)"
+    ),
+    def!(
+        "twofa.passkeyResidentKey",
+        Kind::Enum(&["required", "preferred", "discouraged"]),
+        "\"discouraged\"",
+        GDA,
+        "signin",
+        "Whether a passkey must be a discoverable credential"
+    ),
+    def!(
+        "twofa.passkeyLegacy",
+        Kind::Enum(&["allow", "refuse"]),
+        "\"allow\"",
+        GDA,
+        "signin",
+        "Passkeys registered before a stricter passkey policy"
+    ),
+    def!(
+        "twofa.lastFactorRemoval",
+        Kind::Enum(&["allow", "requireRecoveryCodes", "block"]),
+        "\"allow\"",
+        GDA,
+        "signin",
+        "Removing the last second factor of an account"
+    ),
+    def!(
         "sieve.maxScriptBytes",
         int(1, 1048576),
         "65536",
@@ -3604,6 +3644,28 @@ mod tests {
             }
         }
         assert!(missing.is_empty(), "missing: {missing:?}");
+    }
+
+    /// t39-e6: the passkey policy keys are global/domain enums with locks, not
+    /// user-settable, and their defaults keep the behaviour before them.
+    #[test]
+    fn passkey_policy_keys_are_scoped_enums_with_safe_defaults() {
+        for (key, default, good, bad) in [
+            ("twofa.passkeyAttachment", "any", "platform", "roaming"),
+            ("twofa.passkeyUserVerification", "preferred", "required", "always"),
+            ("twofa.passkeyResidentKey", "discouraged", "required", "yes"),
+            ("twofa.passkeyLegacy", "allow", "refuse", "lockout"),
+            ("twofa.lastFactorRemoval", "allow", "requireRecoveryCodes", "never"),
+        ] {
+            let d = lookup(key).unwrap_or_else(|| panic!("{key} is registered"));
+            assert_eq!(d.default_value(), json!(default), "{key}");
+            assert_eq!(d.category, "signin", "{key}");
+            assert!(d.scopes.allows(SettingScope::Domain), "{key}");
+            assert!(!d.scopes.allows(SettingScope::User), "{key}");
+            assert!(!d.user_override, "{key}");
+            assert_eq!(validate(d, &json!(good), "/value").unwrap(), json!(good));
+            assert!(validate(d, &json!(bad), "/value").is_err(), "{key}");
+        }
     }
 
     /// t39-e7: the quota warning policy reaches the user's settings map, read

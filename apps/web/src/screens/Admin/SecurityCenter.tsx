@@ -9,7 +9,7 @@ import { SECURITY_TABS, canOpenSecurityTab } from './shell/securityNavigation.ts
 import { AsyncPending, AsyncError } from '../../components/AsyncState.tsx';
 import * as css from '../Settings/styles.css.ts';
 type Posture = { knownAccounts: number; accountsWithFactor: number; adminsWithoutFactor: number; staleApiKeys: number; upstreamAllowlistConfigured: boolean; environmentAdminLoginEnabled: boolean };
-const policies = ['twofa.required', 'twofa.passkeysEnabled', 'twofa.rememberDays', 'session.maxConcurrent', 'session.idleSecs', 'session.absoluteSecs'];
+const policies = ['twofa.required', 'twofa.passkeysEnabled', 'twofa.passkeyAttachment', 'twofa.passkeyUserVerification', 'twofa.passkeyResidentKey', 'twofa.passkeyLegacy', 'twofa.lastFactorRemoval', 'twofa.rememberDays', 'session.maxConcurrent', 'session.idleSecs', 'session.absoluteSecs'];
 const BanList=lazy(()=>import('./BanList.tsx').then(m=>({default:m.BanList})));
 const BanEditor=lazy(()=>import('./BanEditor.tsx').then(m=>({default:m.BanEditor})));
 const AutomaticLocks=lazy(()=>import('./AutomaticLocks.tsx').then(m=>({default:m.AutomaticLocks})));
