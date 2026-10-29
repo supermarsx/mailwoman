@@ -1,4 +1,4 @@
-import {createEffect,createSignal,For,onCleanup,onMount,Show,untrack,type JSX} from 'solid-js';
+import {createEffect,createMemo,createSignal,For,onCleanup,onMount,Show,untrack,type JSX} from 'solid-js';
 import {SelectionBar,type SelectionAction} from './SelectionBar.tsx';
 import {ConfirmDialog} from '../screens/Admin/shell/ConfirmDialog.tsx';
 import * as barCss from './selectionBar.css.ts';
@@ -15,6 +15,7 @@ import {mutateFolderMessages,type FolderMutation} from './folderMutations.ts';
 import {startTrashJob} from './emptyTrashJob.ts';
 import {EmptyFolderDialog,useCanEmpty,useEmptyAbility} from './EmptyFolderDialog.tsx';
 import {loadCatalog,t} from '../i18n/index.ts';
+import type {Email} from '../api/jmap-types.ts';
 import * as css from './folderPane.css.ts';
 
 export function FolderPane(props:{mailboxId:string;active:boolean;/** Shown beside a message opened from it (t51): next/previous still walk this list. */companion?:boolean;onOpen:(id:string)=>void;registerRefresh?:(refresh:()=>void)=>void;beforeGlobalAction?:()=>void}):JSX.Element{
@@ -67,6 +68,11 @@ export function FolderPane(props:{mailboxId:string;active:boolean;/** Shown besi
  function focusList():void{const rows=viewport?.querySelectorAll<HTMLButtonElement>('[data-folder-message]');if(!rows?.length)return;const last=[...view.selection()].at(-1);([...rows].find(row=>row.dataset['folderMessage']===last)??rows[0])?.focus();}
  onCleanup(()=>{controller.abort();if(refreshTimer)clearTimeout(refreshTimer);});
  onMount(()=>{const stop=app.onRealtimeChange?.(change=>{if(!admitted()||app.linkedMailboxId?.())return;const types=change.changed[owner!.id];if(!types?.Email&&!types?.Mailbox)return;dirty=true;if(refreshTimer)clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>{if(props.active&&!disabled()){dirty=false;void view.load();}},250);});if(stop)onCleanup(stop);});
+ // Rows keyed by message id, not by object (t51, as t44 did for MessageList):
+ // every reload builds new message objects, and keying by reference remounted
+ // every row, so the focused row left the document and focus fell to <body>.
+ const rowById=createMemo(()=>new Map(view.messages().map(email=>[email.id,email])));
+ const rowIds=createMemo(()=>view.messages().map(email=>email.id),undefined,{equals:(a,b)=>a.length===b.length&&a.every((id,i)=>id===b[i])});
  let viewport:HTMLDivElement|undefined;
  let previouslyActive=props.active;
  onMount(()=>{props.registerRefresh?.(()=>{if(!disabled())void view.load();});void loadCatalog('folder-tabs');void loadCatalog('empty-folder');void view.load();});
@@ -100,12 +106,12 @@ export function FolderPane(props:{mailboxId:string;active:boolean;/** Shown besi
   <div class={barCss.paneBody}>
   <div class={css.viewport} classList={{[barCss.listInset]:view.selection().size>0}} ref={viewport} onScroll={event=>view.setScroll(event.currentTarget.scrollTop)}>
    <ul class={css.list} aria-label={box()?.name??t('folder-tabs-unavailable')} aria-busy={view.loading()||(view.messages().length===0&&sync.pending())}>
-    <For each={view.messages()}>{email=><li class={css.row} data-selected={view.selection().has(email.id)} data-unread={!email.keywords?.['$seen']}>
-     <input type="checkbox" disabled={busy()} checked={view.selection().has(email.id)} aria-label={t('folder-tabs-select',{subject:email.subject??''})} onChange={()=>view.select(email.id,false,true)}/>
-     <button type="button" disabled={busy()} class={css.message} data-folder-message={email.id} onKeyDown={event=>key(event,email.id)} onClick={event=>{const extend=modifierSelectionEnabled()&&event.shiftKey,toggle=modifierSelectionEnabled()&&(event.ctrlKey||event.metaKey);view.select(email.id,extend,toggle);if(!extend&&!toggle&&view.current())props.onOpen(email.id);}}>
-      <strong>{email.subject||t('mail-no-subject')}</strong><span>{senderLabel(email.from)}</span><span class="meta">{email.preview}</span>
+    <For each={rowIds()}>{id=>{let last=rowById().get(id)!;const email=():Email=>{const found=rowById().get(id);if(found)last=found;return last;};return <li class={css.row} data-selected={view.selection().has(id)} data-unread={!email().keywords?.['$seen']}>
+     <input type="checkbox" disabled={busy()} checked={view.selection().has(id)} aria-label={t('folder-tabs-select',{subject:email().subject??''})} onChange={()=>view.select(id,false,true)}/>
+     <button type="button" disabled={busy()} class={css.message} data-folder-message={id} onKeyDown={event=>key(event,id)} onClick={event=>{const extend=modifierSelectionEnabled()&&event.shiftKey,toggle=modifierSelectionEnabled()&&(event.ctrlKey||event.metaKey);view.select(id,extend,toggle);if(!extend&&!toggle&&view.current())props.onOpen(id);}}>
+      <strong>{email().subject||t('mail-no-subject')}</strong><span>{senderLabel(email().from)}</span><span class="meta">{email().preview}</span>
      </button>
-    </li>}</For>
+    </li>;}}</For>
    </ul>
    <Show when={!view.loading()&&!view.error()&&view.messages().length===0&&!sync.pending()&&!sync.failed()}><p>{t('folder-tabs-empty')}</p></Show>
   </div>

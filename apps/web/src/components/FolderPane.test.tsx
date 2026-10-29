@@ -50,3 +50,13 @@ it('requires confirmation for Delete in Trash and starts only the captured selec
  expect(doubles.trashJob).toHaveBeenCalledWith(expect.anything(),{accountId:'same',mailboxId:'trash',ids:['one'],more:false},expect.objectContaining({current:expect.any(Function),refresh:expect.any(Function)}));
  expect(reattach).toHaveBeenCalledTimes(2);expect(screen.queryByRole('alertdialog')).toBeNull();
 });
+it('a reload keeps the focused row: rows are keyed by message id, not by object (t51)',async()=>{
+ activateAccountPreferences('same','msa1_verified_parent');let read=false;
+ doubles.jmap.mockImplementation(async()=>({sessionState:'s',methodResponses:[['Email/query',{accountId:'same',ids:['one','two'],position:0,total:2},'q'],['Email/get',{accountId:'same',list:[{id:'one',subject:'First',from:[],keywords:{}},{id:'two',subject:'Second',from:[],keywords:read?{$seen:true}:{}}]},'g']]}));
+ render(()=><FolderPane mailboxId="folder" active onOpen={()=>{}}/>);
+ const row=(await screen.findByText('Second')).closest('button')!;row.focus();
+ read=true;expect(doubles.actions['refresh']?.()).toBe(true);
+ await waitFor(()=>expect(screen.getByText('Second').closest('li')).toHaveAttribute('data-unread','false'));
+ expect(screen.getByText('Second').closest('button')).toBe(row);
+ expect(row.isConnected).toBe(true);expect(document.activeElement).toBe(row);
+});

@@ -178,7 +178,10 @@ export function MailboxScreen(): JSX.Element {
   const tileFirst=()=>tileDrag() ?? tileExtent()*(accountUiPreferences().workspaceSplitRatio ?? 0.5);
   onMount(()=>{const update=():void=>{setViewport({width:window.innerWidth,height:window.innerHeight});if(bodyElement?.clientWidth)setBodySize({width:bodyElement.clientWidth,height:bodyElement.clientHeight});if(tilesElement?.clientWidth)setTileSize({width:tilesElement.clientWidth,height:tilesElement.clientHeight});};update();window.addEventListener('resize',update);const observer=typeof ResizeObserver==='undefined'?null:new ResizeObserver(update);if(bodyElement)observer?.observe(bodyElement);if(tilesElement)observer?.observe(tilesElement);onCleanup(()=>{window.removeEventListener('resize',update);observer?.disconnect();});});
   createEffect(()=>{shellElement?.style.setProperty('--folder-width',`${folderWidth()}px`);shellElement?.style.setProperty('--folder-handle',folderMode()==='expanded'?'6px':'0px');bodyElement?.style.setProperty('--list-size',`${listSize()}px`);tilesElement?.style.setProperty('--tile-first',`${tileFirst()}px`);});
-  const orderedPanes=createMemo(()=>{const order=subTabs.tabs().map(tab=>tab.id);return [...panes()].sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id));});
+  // A pane whose tab is not open yet (setPanes runs just before subTabs.open)
+  // sorts last, where its tab will be: sorting it first and then moving it made
+  // <For> move the other panes' nodes, and moving a node drops its focus (t51).
+  const orderedPanes=createMemo(()=>{const order=subTabs.tabs().map(tab=>tab.id);const at=(id:string):number=>{const index=order.indexOf(id);return index<0?Number.MAX_SAFE_INTEGER:index;};return [...panes()].sort((a,b)=>at(a.id)-at(b.id));});
   const [paneWindowRevision,setPaneWindowRevision]=createSignal(0);
   const views=createWorkspaceViews({ids:()=>{paneWindowRevision();return orderedPanes().filter(pane=>!pane.detach?.isDetached()).map(pane=>pane.id);},activeId:subTabs.activeId,owner:()=>{const owner=workspaceOwner();return owner?.storageAuthority?JSON.stringify([owner.id,owner.storageAuthority,owner.generation]):null;},activate:subTabs.activate});
   const effectiveLayout=():WorkspaceLayout=>narrow()?'tabs':workspaceLayout();
