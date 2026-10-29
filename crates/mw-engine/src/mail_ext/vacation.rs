@@ -1,9 +1,16 @@
-//! `VacationResponse/get|set` (RFC 8621 §8). VacationResponse is a per-account
-//! **singleton** whose id is the fixed string `"singleton"`; create/destroy are
-//! forbidden. The object persists in the existing `settings` table under a
-//! per-account key (its text is auto-replied to any sender, so it carries no
-//! secret and is not sealed), alongside a small monotonic state counter so
-//! `set` can return honest `oldState`/`newState` tokens.
+//! `VacationResponse/get|set` (RFC 8621 §8) for calls that arrive without a
+//! Sieve context: MCP, admin maintenance, imports and other in-process
+//! callers of `Engine::handle_jmap`. The browser's `/jmap/api` always carries
+//! one and is answered by `sieve_vacation.rs` instead, which installs the reply
+//! in the account's Sieve script (ManageSieve upload, or the engine's own
+//! delivery-time Sieve run).
+//!
+//! Nothing on this path sends a reply, so it must not pretend to: `set` refuses
+//! to enable a reply (`forbidden`), `get` always reports `isEnabled: false`, and
+//! only a disabled object (subject/body edits, or switching off) is stored. The
+//! singleton id is the fixed string `"singleton"`; create/destroy are refused
+//! per the spec. The object lives in the `settings` table under a per-account
+//! key with a monotonic state counter for honest `oldState`/`newState`.
 
 use serde_json::{Map, Value, json};
 
@@ -32,10 +39,13 @@ fn setting_key(account_id: &str) -> String {
 impl Engine {
     /// `VacationResponse/get` (RFC 8621 §8.1). Only the `singleton` id exists.
     pub(crate) async fn vacation_response_get(&self, account_id: &str, args: &Value) -> Value {
-        let (obj, state) = match self.load_vacation(account_id).await {
+        let (mut obj, state) = match self.load_vacation(account_id).await {
             Ok(v) => v,
             Err(e) => return server_fail(e),
         };
+        // A row stored before this path refused enabling may say `true`;
+        // nothing sends it, so it is reported as off.
+        obj["isEnabled"] = json!(false);
         let (list, not_found) = match args.get("ids").and_then(Value::as_array) {
             Some(arr) => {
                 let mut list = Vec::new();
@@ -92,7 +102,16 @@ impl Engine {
                     );
                     continue;
                 }
-                apply_patch(&mut obj, patch);
+                let mut next = obj.clone();
+                apply_patch(&mut next, patch);
+                if next.get("isEnabled") == Some(&Value::Bool(true)) {
+                    not_updated.insert(id.clone(), json!({
+                        "type": "forbidden",
+                        "description": "automatic replies are sent by the account's Sieve script; this request has no Sieve context, so an enabled reply would never be sent"
+                    }));
+                    continue;
+                }
+                obj = next;
                 match self.store_vacation(account_id, &obj, state + 1).await {
                     Ok(()) => {
                         state += 1;

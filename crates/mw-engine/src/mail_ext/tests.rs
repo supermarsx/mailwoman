@@ -280,7 +280,7 @@ async fn vacation_response_defaults_disabled_singleton() {
 }
 
 #[tokio::test]
-async fn vacation_response_set_persists_and_advances_state() {
+async fn vacation_response_without_sieve_refuses_to_enable_a_reply_it_cannot_send() {
     let e = engine().await;
     let acct = "acct-a";
     let set = e
@@ -291,16 +291,41 @@ async fn vacation_response_set_persists_and_advances_state() {
             }),
         )
         .await;
-    assert_eq!(set["updated"]["singleton"], Value::Null);
-    assert_ne!(
-        set["oldState"], set["newState"],
-        "state advances on a write"
-    );
-
+    assert_eq!(set["notUpdated"]["singleton"]["type"], "forbidden", "{set}");
+    assert!(set["updated"].get("singleton").is_none(), "{set}");
+    assert_eq!(set["oldState"], set["newState"], "nothing was written");
     let get = e.vacation_response_get(acct, &json!({})).await;
-    assert_eq!(get["list"][0]["isEnabled"], json!(true));
+    assert_eq!(get["list"][0]["isEnabled"], json!(false));
+    assert_eq!(get["list"][0]["subject"], Value::Null);
+
+    // A disabled draft may still be kept, and the state advances.
+    let set = e
+        .vacation_response_set(
+            acct,
+            &json!({ "update": { "singleton": { "isEnabled": false, "subject": "Away" } } }),
+        )
+        .await;
+    assert_eq!(set["updated"]["singleton"], Value::Null, "{set}");
+    assert_ne!(set["oldState"], set["newState"]);
+    let get = e.vacation_response_get(acct, &json!({})).await;
     assert_eq!(get["list"][0]["subject"], "Away");
+    assert_eq!(get["list"][0]["isEnabled"], json!(false));
     assert_eq!(get["state"], set["newState"]);
+}
+
+#[tokio::test]
+async fn vacation_response_get_reports_a_legacy_enabled_row_as_off() {
+    let e = engine().await;
+    e.store()
+        .set_setting(
+            "vacationResponse:acct-a",
+            &json!({"obj":{"id":"singleton","isEnabled":true,"textBody":"x"},"state":3})
+                .to_string(),
+        )
+        .await
+        .unwrap();
+    let get = e.vacation_response_get("acct-a", &json!({})).await;
+    assert_eq!(get["list"][0]["isEnabled"], json!(false));
 }
 
 #[tokio::test]
