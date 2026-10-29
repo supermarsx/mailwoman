@@ -1,6 +1,7 @@
 import { batch, createEffect, createSignal, onCleanup, onMount, Show, type JSX } from 'solid-js';
 import { withBase } from '../api/basePath.ts';
 import { t } from '../i18n/index.ts';
+import { ReaderZoomBox } from './ReaderZoomBox.tsx';
 /** The wrapper runs only its fixed bridge; actual mail always uses sandbox="". */
 export function DirectReaderFrame(props: { html: string; title: string; documentKey?:string; onDisplayed?: (html:string,key:string|undefined)=>void }): JSX.Element {
   let frame: HTMLIFrameElement | undefined;
@@ -58,5 +59,5 @@ export function DirectReaderFrame(props: { html: string; title: string; document
     onCleanup(() => { clearTimeout(timeout);clearTimeout(fallback);clearTimeout(loadedFallback); for (const host of hosts) if (receive) host.removeEventListener('message', receive); hosts.clear(); });
   });
   createEffect(() => { const html = props.html,key=props.documentKey; void bridges(); if (ready()) {sentHtml=html;sentKey=key;frame?.contentWindow?.postMessage({ type: 'mw-reader-frame', token:token(), html, revision:++revision }, '*');} });
-  return <><Show when={failed()}><p role="alert">{t('privacy-frame-failed')}</p></Show><Show when={compatible()&&ready()}><p class="meta" role="status">{t('privacy-frame-compatible')}</p></Show><iframe ref={frame} class="reader__frame" title={props.title} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={loaded} src={`${withBase('/api/rc/frame')}${compatible()?'?coep=require-corp':''}#${fragment()}`} /></>;
+  return <><Show when={failed()}><p role="alert">{t('privacy-frame-failed')}</p></Show><Show when={compatible()&&ready()}><p class="meta" role="status">{t('privacy-frame-compatible')}</p></Show><ReaderZoomBox><iframe ref={frame} class="reader__frame" title={props.title} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={loaded} src={`${withBase('/api/rc/frame')}${compatible()?'?coep=require-corp':''}#${fragment()}`} /></ReaderZoomBox></>;
 }

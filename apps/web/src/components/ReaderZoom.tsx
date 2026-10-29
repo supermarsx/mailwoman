@@ -14,6 +14,13 @@ import './reader-action.css';
 
 const button = `btn btn--ghost reader-action reader-action--compact ${a11y.focusable}`;
 
+/** The level label; until the reader catalog has loaded `t` answers with the
+ *  message id itself, so show the plain percentage instead (t79). */
+export function levelText(level: number): string {
+  const text = t('reader-zoom-level', { level });
+  return text === 'reader-zoom-level' ? `${level}%` : text;
+}
+
 export function ReaderZoom(): JSX.Element {
   onMount(() => void loadCatalog('reader'));
   const level = (): number => readerZoom();
@@ -21,7 +28,7 @@ export function ReaderZoom(): JSX.Element {
     <span class={css.group} role="group" aria-label={t('reader-zoom-group')} data-testid="reader-zoom" data-detached-local="">
       <button type="button" class={button} aria-label={t('reader-zoom-out')} title={t('reader-zoom-out-help')} disabled={readerZoomLocked() || level() <= MIN_ZOOM} data-testid="reader-zoom-out" onClick={zoomOut}><Icon name="minus" /></button>
       <button type="button" class={`${button} ${css.level}`} aria-label={t('reader-zoom-reset-label', { level: level() })} title={t('reader-zoom-reset-help')} disabled={readerZoomLocked()} data-testid="reader-zoom-level" onClick={resetZoom}>
-        <span aria-hidden="true">{t('reader-zoom-level', { level: level() })}</span>
+        <span aria-hidden="true">{levelText(level())}</span>
       </button>
       <button type="button" class={button} aria-label={t('reader-zoom-in')} title={t('reader-zoom-in-help')} disabled={readerZoomLocked() || level() >= MAX_ZOOM} data-testid="reader-zoom-in" onClick={zoomIn}><Icon name="plus" /></button>
     </span>

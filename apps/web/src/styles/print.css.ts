@@ -58,6 +58,15 @@ globalStyle('.reader__frame', {
   },
 });
 
+// The body's zoom box (t79, readerZoom.css.ts): printed at 100%, full size. Two
+// attribute selectors outrank the box's own class rules whatever the CSS order.
+globalStyle('[data-testid="reader-zoom-box"][data-reader-zoom]', {
+  '@media': { print: { overflow: 'visible', minHeight: '80vh', border: 'none', background: '#ffffff' } },
+});
+globalStyle('[data-testid="reader-zoom-box"][data-reader-zoom] > iframe.reader__frame', {
+  '@media': { print: { transform: 'none', width: '100%', height: '100%' } },
+});
+
 // Keep the header readable and use the reading font in print.
 globalStyle('.reader__header', {
   '@media': {

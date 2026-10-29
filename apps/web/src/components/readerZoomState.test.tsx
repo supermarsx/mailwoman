@@ -82,7 +82,35 @@ describe('zoom state and persistence', () => {
     expect(zoom.readerZoom()).toBe(150);
     zoom.resetZoom();
     expect(zoom.readerZoom()).toBe(100);
+    await new Promise(resolve => setTimeout(resolve, 460)); await flush();
     expect(state.writes.at(-1)).toEqual(['reader.zoom', 100]);
+  });
+  it('collapses steps taken while a write is in flight into one write of the last level (t79)', async () => {
+    for (let i = 0; i < 3; i++) zoom.zoomIn();
+    expect(zoom.readerZoom()).toBe(150);
+    expect(state.writes).toEqual([['reader.zoom', 110]]);
+    await flush();
+    // The next write waits out the spacing after the first one started.
+    expect(state.writes).toEqual([['reader.zoom', 110]]);
+    await new Promise(resolve => setTimeout(resolve, 460)); await flush();
+    expect(state.writes).toEqual([['reader.zoom', 110], ['reader.zoom', 150]]);
+    expect(zoom.readerZoom()).toBe(150);
+    expect(map()['reader.zoom']?.value).toBe(150);
+  });
+  it('sends a step still waiting when the page goes away (t79)', async () => {
+    zoom.zoomIn(); zoom.zoomIn();
+    await flush();
+    expect(state.writes).toEqual([['reader.zoom', 110]]);
+    window.dispatchEvent(new Event('pagehide'));
+    await flush();
+    expect(state.writes).toEqual([['reader.zoom', 110], ['reader.zoom', 125]]);
+  });
+  it('writes nothing more when the steps come back to the stored level (t79)', async () => {
+    zoom.zoomIn(); zoom.zoomIn(); zoom.zoomOut();
+    expect(zoom.readerZoom()).toBe(110);
+    await new Promise(resolve => setTimeout(resolve, 460)); await flush();
+    expect(state.writes).toEqual([['reader.zoom', 110]]);
+    expect(zoom.readerZoom()).toBe(110);
   });
   it('writes nothing when the level would not change', () => {
     setMap({ 'reader.zoom': { value: 200, source: 'user', locked: false } });

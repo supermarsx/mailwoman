@@ -107,6 +107,12 @@ const ALLOWLIST: Allowed[] = [
     text: 'left: 50%',
     reason: 'centring: left 50% with translate(-50%) centres the bar in both directions; a logical start would shift it in RTL',
   },
+  {
+    file: 'components/readerZoom.css.ts',
+    rule: 'physical',
+    text: 'left: 0',
+    reason: 'the zoomed body frame is pinned to the corner its transform-origin (0 0) scales from; a logical start would pin it right in RTL while it still grows from the left',
+  },
 ];
 
 const COLOUR_EXEMPT = ['theme/', 'styles/print.css.ts'];

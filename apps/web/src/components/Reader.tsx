@@ -71,7 +71,8 @@ import { RemoteContentBar } from './RemoteContentBar.tsx';
 import { createRemoteImageLoad } from './remoteImageToast.ts';
 import { DirectReaderFrame } from './DirectReaderFrame.tsx';
 import { resourceValue } from './resourceValue.ts';
-import { readerZoom, useReaderZoom } from './readerZoom.ts';
+import { useReaderZoom } from './readerZoom.ts';
+import { ReaderZoomBox } from './ReaderZoomBox.tsx';
 import { remotePolicy, remoteServerBase, signContent, readerReferences, rewriteReaderContent, signedSource, BLOCKED_POLICY, EMPTY_SIGNED, type RemotePolicy } from '../api/remote-content.ts';
 import { settings } from '../api/settings.ts';
 import { themeCssVars } from '../theme/themeCssVars.ts';
@@ -647,8 +648,11 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   function receiptDidDisplay(html:string,key:string|undefined):void {
     if(key===receiptDocumentKey()&&html===bodySrcdoc()){setReceiptDisplayed({key,html});setBodyDisplays(n=>n+1);}
   }
+  // Keyed by a string, so only a change to these values (or the message) asks
+  // again: any other preference write (the zoom level, t79) replaces the settings
+  // map too, and a fresh key object would re-sign and reload the body.
   const [privacy] = createResource(
-    () => app.accountId() && emailId() ? { account: app.accountId(), email: emailId(), values: ['privacy.remoteContent', 'privacy.trackers', 'privacy.cleanLinks', 'privacy.remoteImageDownloads'].map(key => settings()[key]?.value) } : null,
+    () => app.accountId() && emailId() ? JSON.stringify([app.accountId(), emailId(), ['privacy.remoteContent', 'privacy.trackers', 'privacy.cleanLinks', 'privacy.remoteImageDownloads'].map(key => settings()[key]?.value ?? null)]) : null,
     async () => { try { const p = await remotePolicy(); return isNativeAuth() && p.mode === 'direct' ? { ...p, mode: 'ask' as const, allowDirect: false } : p; } catch { return BLOCKED_POLICY; } },
   );
   const policy = (): RemotePolicy => settled(privacy) ?? BLOCKED_POLICY;
@@ -694,7 +698,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     const mode = values['reader.colorMode']?.value;
     const colorMode = mode === 'original' || mode === 'adaptive' || mode === 'invert' ? mode : app.appearance() === 'dark' ? 'adaptive' : 'original';
     const width = values['reader.contentWidth']?.value;
-    return { colorMode, fontSize: Number(values['reader.fontSize']?.value ?? 14), lineHeight: Number(values['reader.lineHeight']?.value ?? 1.6), contentWidth: width === 'comfortable' || width === 'full' ? width : 'wide', zoom: readerZoom() };
+    return { colorMode, fontSize: Number(values['reader.fontSize']?.value ?? 14), lineHeight: Number(values['reader.lineHeight']?.value ?? 1.6), contentWidth: width === 'comfortable' || width === 'full' ? width : 'wide' };
   };
   const frameOptions = () => ({ appearance: readerAppearance(), themeVars: readerAppearance().colorMode === 'adaptive' ? themeCssVars(app.theme(), { density: app.density() }) : '' });
   const messageLoading = () => <MessageLoading variant={String(settings()['reader.loading']?.value ?? 'skeleton')} delayMs={Number(settings()['reader.loadingDelayMs']?.value ?? 120)} />;
@@ -1028,7 +1032,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                     missed something, scripts cannot run and the frame has an
                     opaque origin with no access to the parent.
                   */}
-                  <Show when={!isNativeAuth() && fullMode()} fallback={<Show when={receiptDocument()} keyed>{doc=><iframe onLoad={() => {if(doc.html!==null)receiptDidDisplay(doc.html,doc.key);}} class="reader__frame" title={t('mail-message-body')} sandbox="" srcdoc={doc.html ?? ''} />}</Show>}>
+                  <Show when={!isNativeAuth() && fullMode()} fallback={<ReaderZoomBox><Show when={receiptDocument()} keyed>{doc=><iframe onLoad={() => {if(doc.html!==null)receiptDidDisplay(doc.html,doc.key);}} class="reader__frame" title={t('mail-message-body')} sandbox="" srcdoc={doc.html ?? ''} />}</Show></ReaderZoomBox>}>
                     <DirectReaderFrame html={bodySrcdoc() ?? ''} title={t('mail-message-body')} documentKey={receiptDocumentKey()} onDisplayed={receiptDidDisplay}/>
                   </Show>
                 </Show>

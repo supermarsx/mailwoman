@@ -134,3 +134,38 @@ describe('Reader under the mailbox Suspense',()=>{
     expect(fallbacks).toBe(0);
   });
 });
+
+// t79: a zoom step stores reader.zoom, which replaces the settings map. Neither
+// the level nor that write may rebuild the body: the policy is not asked for
+// again, nothing is re-signed, the frame keeps its element and its document.
+describe('Reader body across zoom steps',()=>{
+  it('keeps the same frame and document, and asks for nothing again',async()=>{
+    const { setReaderZoom, resetZoom, readerZoom } = await import('./readerZoom.ts');
+    const { settings } = await import('../api/settings.ts');
+    let policyReads=0;const puts:string[]=[];
+    const base=vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async(input,init)=>{
+      const url=String(input);
+      if(url.endsWith('/api/rc/policy'))policyReads++;
+      if(url.includes('/api/settings/')&&init?.method==='PUT'){puts.push(url);return json({value:JSON.parse(String(init.body)).value,source:'user',locked:false});}
+      return base(input,init);
+    });
+    await open([message('m1','<p>Zoom body</p><img src="https://cdn.example.test/image.png">')]);
+    await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));
+    await new Promise(resolve=>setTimeout(resolve,20));
+    const element=frame()!;const doc=element.srcdoc;const reads=policyReads;const signs=requests.length;
+    expect(doc).not.toContain('zoom');
+    for(const level of [125,150,200,90]){
+      setReaderZoom(level);expect(readerZoom()).toBe(level);
+      await new Promise(resolve=>setTimeout(resolve,20));
+      expect(frame()).toBe(element);expect(frame()!.srcdoc).toBe(doc);
+    }
+    await waitFor(()=>expect(settings()['reader.zoom']?.value).toBe(90));
+    await new Promise(resolve=>setTimeout(resolve,20));
+    expect(puts.length).toBeGreaterThan(0);
+    expect(frame()).toBe(element);expect(frame()!.srcdoc).toBe(doc);
+    expect(policyReads-reads,'policy fetched again').toBe(0);
+    expect(requests.length-signs,'content signed again').toBe(0);
+    resetZoom();
+  });
+});

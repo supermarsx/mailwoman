@@ -44,7 +44,7 @@ describe('ReaderZoom', () => {
     }
     dispose();
   });
-  it('zooms out, in and resets with the buttons, showing the level', () => {
+  it('zooms out, in and resets with the buttons, showing the level', async () => {
     const { host, dispose } = mount();
     expect(byId(host, 'reader-zoom-level').textContent).toContain('100');
     byId(host, 'reader-zoom-in').click();
@@ -54,7 +54,10 @@ describe('ReaderZoom', () => {
     expect(byId(host, 'reader-zoom-level').textContent).toContain('100');
     byId(host, 'reader-zoom-out').click();
     expect(byId(host, 'reader-zoom-level').textContent).toContain('90');
-    expect(writes.map(([, value]) => value)).toEqual([110, 125, 100, 90]);
+    // Clicks taken while the first write is in flight collapse into one (t79).
+    await new Promise(resolve => setTimeout(resolve, 460));
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(writes.map(([, value]) => value)).toEqual([110, 90]);
     dispose();
   });
   it('disables the button at either end of the ladder and everything when locked', () => {

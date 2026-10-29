@@ -40,26 +40,15 @@ describe('isolated reader appearance', () => {
   });
 });
 
-describe('reader body zoom (t59)', () => {
-  it('adds no zoom rule at 100% or when absent', () => {
-    expect(readerAppearanceCss(appearance)).not.toContain('zoom');
-    expect(readerAppearanceCss({ ...appearance, zoom: 100 })).not.toContain('zoom');
-  });
-  it('scales the frame root, bounds the level and prints at 100%', () => {
-    expect(readerAppearanceCss({ ...appearance, zoom: 125 })).toContain('html{zoom:1.25}');
-    expect(readerAppearanceCss({ ...appearance, zoom: 500 })).toContain('html{zoom:2}');
-    expect(readerAppearanceCss({ ...appearance, zoom: 10 })).toContain('html{zoom:0.5}');
-    expect(readerAppearanceCss({ ...appearance, zoom: Number.NaN })).not.toContain('zoom');
-    expect(readerAppearanceCss({ ...appearance, zoom: 150 })).toContain('@media print{html{zoom:1!important}}');
-  });
-  it('reaches the body through the frame stylesheet, keeping the CSP and dark adaptation', () => {
-    const doc = new DOMParser().parseFromString(bodyFrameDoc('full-sanitized', { html: '<p style="color:black">Hi</p><img src="data:image/png;base64,AA==">' }, { themeVars: themeCssVars('dark'), appearance: { ...appearance, zoom: 175 } }), 'text/html');
-    const css = doc.querySelector('style')?.textContent ?? '';
-    expect(css).toContain('html{zoom:1.75}');
-    expect(css).toContain('background:var(--mw-color-bg)!important');
-    expect(doc.querySelector('p')?.hasAttribute('style')).toBe(false);
-    expect(doc.querySelector('meta[http-equiv]')?.getAttribute('content')).toContain("default-src 'none'");
-    expect(doc.querySelector('script')).toBeNull();
-    expect(doc.body.querySelector('[style*="zoom"]')).toBeNull();
+describe('reader body zoom (t59, t79)', () => {
+  it('never reaches the frame document, so a zoom change does not reload it', () => {
+    // The app scales the frame from outside (ReaderZoomBox); the document the
+    // frame loads is the same at every level.
+    const doc = bodyFrameDoc('full-sanitized', { html: '<p style="color:black">Hi</p><img src="data:image/png;base64,AA==">' }, { themeVars: themeCssVars('dark'), appearance });
+    expect(doc).not.toContain('zoom');
+    const parsed = new DOMParser().parseFromString(doc, 'text/html');
+    expect(parsed.querySelector('style')?.textContent ?? '').toContain('background:var(--mw-color-bg)!important');
+    expect(parsed.querySelector('meta[http-equiv]')?.getAttribute('content')).toContain("default-src 'none'");
+    expect(parsed.querySelector('script')).toBeNull();
   });
 });

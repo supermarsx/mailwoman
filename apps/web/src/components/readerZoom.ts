@@ -6,10 +6,14 @@
 // message, in every reader: the mail pane, message tabs and detached windows.
 // An administrator can set the default or lock it like any `reader.*` key.
 //
-// Only the message body scales. The level reaches the body as one validated
-// number in the frame document's own stylesheet (`readerAppearanceCss`), the
-// same channel as the reading font size, so the sandbox and the app CSP stay as
-// they are. The app UI never zooms.
+// Only the message body scales. The level is applied from outside the body
+// frame (ReaderZoomBox, t79): one custom property on the frame's box lays the
+// frame out at 1/level and scales it back up, so text reflows and images scale
+// as with a zoom on the document, while the document itself never changes. A
+// step therefore does not reload the body (no blank frame, no image refetch) and
+// its scroll position stays put. Until t79 the level was a rule in the frame
+// document's own stylesheet, so every step rebuilt and reloaded it. The sandbox
+// and the app CSP stay as they are. The app UI never zooms.
 //
 // Shortcuts (Ctrl/Cmd + `=` / `-` / `0`, configurable in Keyboard & display) are
 // actions in the app's one dispatcher. They answer only while focus is inside
@@ -25,6 +29,7 @@
 
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import { loadSettings, settings, SettingsApiError, writeSetting } from '../api/settings.ts';
+import { onPageHide } from '../api/unloadFlush.ts';
 import { useActions } from '../keymap/index.ts';
 import * as css from './readerZoom.css.ts';
 
@@ -80,24 +85,68 @@ function peers(): BroadcastChannel | null {
   return channel;
 }
 
+// The level on screen follows every step at once; the stored preference does
+// not need to (t79). One write is in flight at a time and writes start at least
+// WRITE_SPACING ms apart, so a Ctrl+wheel spin or a held shortcut sends the
+// first level at once and then only the latest one. A step still waiting is sent
+// when the page goes away.
+const WRITE_SPACING = 400;
+let writing = false;
+let queued: number | null = null;
+let lastStart = 0;
+let timer: ReturnType<typeof setTimeout> | undefined;
+let unloadHooked = false;
+
+const storedZoom = (): number => snapZoom(settings()[ZOOM_SETTING]?.value ?? DEFAULT_ZOOM);
+
+function pump(): void {
+  if (writing || queued === null) return;
+  const wait = lastStart + WRITE_SPACING - Date.now();
+  if (wait > 0) {
+    timer ??= setTimeout(() => { timer = undefined; pump(); }, wait);
+    return;
+  }
+  const next = queued;
+  queued = null;
+  if (next === storedZoom()) {
+    if (chosen() === next) setChosen(null);
+    return;
+  }
+  writing = true;
+  lastStart = Date.now();
+  peers();
+  writeSetting(ZOOM_SETTING, next).then(
+    () => {
+      if (chosen() === next && queued === null) setChosen(null);
+      try { channel?.postMessage({ type: 'zoom' }); } catch { /* no peers */ }
+    },
+    (e: unknown) => {
+      // A lock that arrived since the map loaded wins; any other failure keeps
+      // the chosen level for this session only.
+      if (e instanceof SettingsApiError && e.code === 'setting_locked') {
+        queued = null;
+        setChosen(null);
+      }
+    },
+  ).finally(() => { writing = false; pump(); });
+}
+
+function store(next: number): void {
+  queued = next;
+  if (!unloadHooked) {
+    unloadHooked = true;
+    onPageHide(() => { if (timer !== undefined) { clearTimeout(timer); timer = undefined; lastStart = 0; pump(); } });
+  }
+  pump();
+}
+
 /** Set the level (snapped to a step) and store it as the user's preference. */
 export function setReaderZoom(level: number): void {
   if (readerZoomLocked()) return;
   const next = snapZoom(level);
   if (next === readerZoom()) return;
   setChosen(next);
-  peers();
-  writeSetting(ZOOM_SETTING, next).then(
-    () => {
-      if (chosen() === next) setChosen(null);
-      try { channel?.postMessage({ type: 'zoom' }); } catch { /* no peers */ }
-    },
-    (e: unknown) => {
-      // A lock that arrived since the map loaded wins; any other failure keeps
-      // the chosen level for this session only.
-      if (e instanceof SettingsApiError && e.code === 'setting_locked' && chosen() === next) setChosen(null);
-    },
-  );
+  store(next);
 }
 
 export const zoomIn = (): void => setReaderZoom(stepZoom(readerZoom(), 1));
@@ -107,6 +156,10 @@ export const resetZoom = (): void => setReaderZoom(DEFAULT_ZOOM);
 /** Forget the session-only level (sign-out, tests). */
 export function clearReaderZoom(): void {
   setChosen(null);
+  queued = null;
+  clearTimeout(timer);
+  timer = undefined;
+  lastStart = 0;
 }
 
 /** Wheel distance (CSS px) for one zoom step; a mouse notch is ~100, a pinch less. */
