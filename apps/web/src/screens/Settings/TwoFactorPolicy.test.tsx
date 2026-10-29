@@ -1,10 +1,11 @@
 // t39-e6: what a user sees of the administrator passkey policy — the rules,
 // an older passkey marked (grandfathered or refused), a named refusal of a
 // registration, a browser that found no qualifying authenticator, and the
-// last-factor rule.
+// last-factor rule (t77: the last passkey or authenticator app is kept, and its
+// remove button says why).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@solidjs/testing-library';
-import { TwoFactor } from './TwoFactor.tsx';
+import { keepsLastFactor, TwoFactor } from './TwoFactor.tsx';
 import { TwoFactorChallenge } from './TwoFactorChallenge.tsx';
 import { SettingsError, settingsErrorText, type SettingsService } from './service.ts';
 import type { PasskeyPolicySummary, TwofaStatus } from './types.ts';
@@ -89,10 +90,58 @@ describe('passkey policy in Settings', () => {
   });
 
   it('shows the last-factor refusals by name', async () => {
-    render(() => <TwoFactor service={service(status(), { passkeyRemove: async () => { throw refusal(409, 'lastFactorNeedsRecoveryCodes'); } } as Partial<SettingsService>)} />);
+    // Under `allow` the button is live; a server that still refuses (the
+    // policy changed meanwhile) is named.
+    render(() => <TwoFactor service={service(status(), { passkeyRemove: async () => { throw refusal(409, 'lastFactorBlocked'); } } as Partial<SettingsService>)} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Remove' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Generate recovery codes before you remove your last second factor.');
-    expect(settingsErrorText(409, 'lastFactorBlocked', null)).toBe('Your organization does not allow removing your last second factor. Add another one first.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your organization does not allow removing your last second factor. Add another sign-in method first.');
+    expect(settingsErrorText(409, 'lastFactorRequired', null)).toBe('Your organization requires two-factor authentication. Add another sign-in method before removing this one.');
+  });
+
+  it('keeps the last passkey under block and says why (t77)', async () => {
+    const passkeyRemove = vi.fn(async () => undefined);
+    render(() => <TwoFactor service={service(status({ passkeyPolicy: { ...STRICT, lastFactorRemoval: 'block' } }), { passkeyRemove } as Partial<SettingsService>)} />);
+    const button = await screen.findByRole('button', { name: 'Remove' });
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).not.toBeDisabled(); // still focusable and hoverable for the tooltip
+    expect(button).toHaveAttribute('data-tooltip', 'Add another sign-in method first. Your organization requires at least one passkey or authenticator app on your account.');
+    const hint = screen.getByTestId('last-factor-hint');
+    expect(hint).toHaveTextContent('Add another sign-in method first.');
+    expect(button.getAttribute('aria-describedby')).toContain(hint.id);
+    fireEvent.click(button);
+    expect(passkeyRemove).not.toHaveBeenCalled();
+  });
+
+  it('keeps the only authenticator app when two-factor sign-in is required (t77)', async () => {
+    const totpDisable = vi.fn(async () => undefined);
+    render(() => <TwoFactor service={service(status({ totp: true, passkeys: [], policyRequired: true }), { totpDisable } as Partial<SettingsService>)} />);
+    const button = await screen.findByRole('button', { name: 'Remove authenticator' });
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(button);
+    expect(totpDisable).not.toHaveBeenCalled();
+    expect(screen.getByTestId('last-factor-hint')).toHaveTextContent('Add another sign-in method first.');
+  });
+
+  it('lets a factor go under block while another one remains (t77)', async () => {
+    const passkeyRemove = vi.fn(async () => undefined);
+    render(() => <TwoFactor service={service(status({ totp: true, passkeyPolicy: { ...STRICT, lastFactorRemoval: 'block' } }), { passkeyRemove } as Partial<SettingsService>)} />);
+    const button = await screen.findByRole('button', { name: 'Remove' });
+    expect(button).not.toHaveAttribute('aria-disabled');
+    expect(button).not.toHaveAttribute('data-tooltip');
+    expect(screen.queryByTestId('last-factor-hint')).toBeNull();
+    fireEvent.click(button);
+    await vi.waitFor(() => expect(passkeyRemove).toHaveBeenCalledWith('old'));
+  });
+
+  it('keepsLastFactor counts passkeys and the authenticator app, not recovery codes', () => {
+    const block = { ...STRICT, lastFactorRemoval: 'block' as const };
+    expect(keepsLastFactor(undefined)).toBe(false);
+    expect(keepsLastFactor(status())).toBe(false); // allow
+    expect(keepsLastFactor(status({ passkeyPolicy: block }))).toBe(true);
+    expect(keepsLastFactor(status({ passkeyPolicy: block, recoveryRemaining: 10 }))).toBe(true);
+    expect(keepsLastFactor(status({ passkeyPolicy: block, totp: true }))).toBe(false);
+    expect(keepsLastFactor(status({ passkeyPolicy: block, passkeys: [] }))).toBe(false); // nothing to remove
+    expect(keepsLastFactor(status({ policyRequired: true }))).toBe(true);
   });
 
   it('asks the browser for what the policy requires', () => {

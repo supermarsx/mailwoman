@@ -6,7 +6,7 @@
 // invariant the UI enforces: recovery codes are shown EXACTLY ONCE (server never
 // re-serves them) — the user must acknowledge before the panel is dismissed.
 
-import { createResource, createSignal, For, Show, onMount, type JSX } from 'solid-js';
+import { createResource, createSignal, createUniqueId, For, Show, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
 import { SettingsService } from './service.ts';
 import { passkeySupported, registerPasskey } from './webauthn.ts';
@@ -31,6 +31,18 @@ export function passkeyPolicyLines(policy: PasskeyPolicySummary | undefined): st
   return lines;
 }
 
+/**
+ * t77: the account's only passkey or authenticator app cannot be removed when
+ * the account requires two-factor sign-in or the policy blocks removing the
+ * last factor (`twofa.lastFactorRemoval = block`). Recovery codes do not count.
+ * The server refuses such a removal either way; this only explains it first.
+ */
+export function keepsLastFactor(status: TwofaStatus | undefined): boolean {
+  if (status === undefined) return false;
+  const factors = (status.totp ? 1 : 0) + status.passkeys.length;
+  return factors === 1 && (status.policyRequired || status.passkeyPolicy?.lastFactorRemoval === 'block');
+}
+
 /** The browser refused the ceremony (no qualifying authenticator, cancelled). */
 function browserRefused(e: unknown): boolean {
   return e instanceof Error && (e.name === 'NotAllowedError' || e.name === 'NotSupportedError' || e.name === 'ConstraintError');
@@ -41,6 +53,35 @@ export function TwoFactor(props: TwoFactorProps): JSX.Element {
   onMount(() => void loadCatalog('settings'));
 
   const [status, { refetch }] = createResource<TwofaStatus>(() => service.twofaStatus());
+  const lastFactorKept = (): boolean => keepsLastFactor(status());
+  const lastFactorHintId = `last-factor-hint-${createUniqueId()}`;
+
+  /** A remove button, or (t77) an unavailable one that says why on hover and focus. */
+  function removeButton(label: string, onRemove: () => void, testId: string): JSX.Element {
+    return (
+      <button
+        type="button"
+        class={css.danger}
+        disabled={busy()}
+        aria-disabled={lastFactorKept() ? 'true' : undefined}
+        aria-describedby={lastFactorKept() ? lastFactorHintId : undefined}
+        data-tooltip={lastFactorKept() ? t('settings-2fa-last-factor-tooltip') : undefined}
+        data-testid={testId}
+        onClick={() => {
+          if (!lastFactorKept()) onRemove();
+        }}
+      >
+        {label}
+      </button>
+    );
+  }
+  const lastFactorHint = (): JSX.Element => (
+    <Show when={lastFactorKept()}>
+      <span class={css.meta} id={lastFactorHintId} data-testid="last-factor-hint">
+        {t('settings-2fa-last-factor-hint')}
+      </span>
+    </Show>
+  );
 
   const [totp, setTotp] = createSignal<TotpPhase>({ kind: 'idle' });
   const [code, setCode] = createSignal('');
@@ -241,10 +282,9 @@ export function TwoFactor(props: TwoFactorProps): JSX.Element {
             <span class={css.badge} data-testid="totp-on">
               {t('settings-2fa-enabled')}
             </span>
-            <button type="button" class={css.danger} disabled={busy()} onClick={() => void disableTotp()}>
-              {t('settings-2fa-totp-disable')}
-            </button>
+            {removeButton(t('settings-2fa-totp-disable'), () => void disableTotp(), 'totp-disable')}
           </div>
+          {lastFactorHint()}
         </Show>
       </div>
 
@@ -264,10 +304,9 @@ export function TwoFactor(props: TwoFactorProps): JSX.Element {
                         {t(status()?.passkeyPolicy?.legacy === 'refuse' ? 'settings-2fa-passkey-gap-refused' : 'settings-2fa-passkey-gap-allowed')}
                       </span>
                     </Show>
+                    {lastFactorHint()}
                   </div>
-                  <button type="button" class={css.danger} disabled={busy()} onClick={() => void removePasskey(pk.handle)}>
-                    {t('settings-2fa-passkey-remove')}
-                  </button>
+                  {removeButton(t('settings-2fa-passkey-remove'), () => void removePasskey(pk.handle), 'passkey-remove')}
                 </li>
               )}
             </For>

@@ -27,7 +27,9 @@ export interface PasskeyPolicySummary {
   readonly residentKey: 'required' | 'preferred' | 'discouraged';
   /** `allow`: older passkeys keep working; `refuse`: they are refused. */
   readonly legacy: 'allow' | 'refuse';
-  readonly lastFactorRemoval: 'allow' | 'requireRecoveryCodes' | 'block';
+  /** t77: `block` keeps the last passkey or authenticator app (the server
+   *  reports the t39-e6 value `requireRecoveryCodes` as `block`). */
+  readonly lastFactorRemoval: 'allow' | 'block';
 }
 
 /** `GET /api/account/2fa` — the caller's second-factor status. */

@@ -131,8 +131,11 @@ export const ghost = style({
   transitionProperty: 'box-shadow, background, color',
   transitionDuration: vars.a11y.motionDuration,
   selectors: {
-    '&:hover:not(:disabled)': { background: vars.color.text, color: vars.color.bg },
+    '&:hover:not(:disabled):not([aria-disabled="true"])': { background: vars.color.text, color: vars.color.bg },
     '&:disabled': { opacity: 0.5, cursor: 'not-allowed', borderStyle: 'dashed' },
+    // t77: unavailable but still focusable and hoverable, so its tooltip can
+    // say why (a `disabled` button gets no pointer or focus events).
+    '&[aria-disabled="true"]': { opacity: 0.5, cursor: 'not-allowed', borderStyle: 'dashed' },
     '&:focus-visible': focusOutline,
   },
 });
@@ -149,6 +152,7 @@ export const danger = style([
         color: vars.color.accentText,
         boxShadow: vars.elevation[1],
       },
+      '&:hover[aria-disabled="true"]': { boxShadow: 'none' },
       '&:active:not(:disabled)': { boxShadow: 'none' },
     },
   },

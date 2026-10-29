@@ -64,7 +64,6 @@ export const PASSKEY_POLICY_CODES: Readonly<Record<string, string>> = {
   passkeyPolicyAttachmentUnknown: 'settings-2fa-policy-attachment-unknown',
   passkeyPolicyResidentKey: 'settings-2fa-policy-resident-key',
   passkeyPolicyLegacy: 'settings-2fa-policy-legacy',
-  lastFactorNeedsRecoveryCodes: 'settings-2fa-policy-last-factor-recovery',
   lastFactorBlocked: 'settings-2fa-policy-last-factor-blocked',
   lastFactorRequired: 'settings-2fa-policy-last-factor-required',
 };
