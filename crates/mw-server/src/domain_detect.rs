@@ -103,11 +103,9 @@ async fn propose(
         })
     };
     let proposal = if engine_mode && candidate.source != mw_autoconfig::DiscoverySource::Jmap {
-        if let Some(pop3) = &candidate.pop3 {
-            json!({"pop3":endpoint(pop3),"smtp":endpoint(&candidate.smtp)})
-        } else {
-            json!({"imap":endpoint(&candidate.imap),"smtp":endpoint(&candidate.smtp)})
-        }
+        // Every candidate carries IMAP; a published POP3 server is the lesser
+        // alternative, so it is never proposed in IMAP's place.
+        json!({"imap":endpoint(&candidate.imap),"smtp":endpoint(&candidate.smtp)})
     } else if !engine_mode && candidate.source == mw_autoconfig::DiscoverySource::Jmap {
         json!({"jmap":{"sessionUrl":format!("https://{name}/.well-known/jmap")}})
     } else {
@@ -287,6 +285,40 @@ mod tests {
             json!({"imap":endpoint("imap.example.org",143,"starttls"),
                 "smtp":endpoint("smtp.example.org",465,"implicit")})
         );
+    }
+
+    #[tokio::test]
+    async fn imap_is_proposed_when_pop3_is_also_published() {
+        let srv = Mock::default()
+            .srv(
+                "_imaps._tcp.example.org",
+                &[("imap.example.org.", 993, 5, 0)],
+            )
+            .srv(
+                "_pop3s._tcp.example.org",
+                &[("pop.example.org.", 995, 20, 0)],
+            )
+            .srv(
+                "_submission._tcp.example.org",
+                &[("smtp.example.org.", 587, 5, 0)],
+            );
+        let xml = r#"<clientConfig version="1.1"><emailProvider id="example.org">
+            <incomingServer type="pop3"><hostname>pop.example.org</hostname><port>995</port>
+              <socketType>SSL</socketType></incomingServer>
+            <incomingServer type="imap"><hostname>imap.example.org</hostname><port>993</port>
+              <socketType>SSL</socketType></incomingServer>
+            <outgoingServer type="smtp"><hostname>smtp.example.org</hostname><port>587</port>
+              <socketType>STARTTLS</socketType></outgoingServer>
+            </emailProvider></clientConfig>"#;
+        let autoconfig = Mock::default().page(PROVIDER_AUTOCONFIG, xml);
+        for mock in [srv, autoconfig] {
+            let response = propose(&mock, "example.org", true).await.unwrap();
+            assert_eq!(
+                response["upstream"],
+                json!({"imap":endpoint("imap.example.org",993,"implicit"),
+                    "smtp":endpoint("smtp.example.org",587,"starttls")})
+            );
+        }
     }
 
     #[tokio::test]
