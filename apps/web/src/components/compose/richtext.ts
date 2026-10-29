@@ -166,9 +166,12 @@ function hasDom(): boolean {
 /** Serialize a ProseMirror document to an HTML string for the send payload. */
 export function htmlFromDoc(doc: PMNode): string {
   if (!hasDom()) return '';
+  // Serialise into a document of its own: an <img src="cid:..."> built in the page's
+  // document would be fetched (and refused by img-src, t49) just to be read back as text.
+  const inert = document.implementation.createHTMLDocument('');
   const serializer = DOMSerializer.fromSchema(doc.type.schema);
-  const fragment = serializer.serializeFragment(doc.content);
-  const container = document.createElement('div');
+  const fragment = serializer.serializeFragment(doc.content, { document: inert });
+  const container = inert.createElement('div');
   container.appendChild(fragment);
   return container.innerHTML;
 }

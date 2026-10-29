@@ -36,7 +36,8 @@ export function colorMark(property:'color'|'background-color'):MarkSpec {
 }
 export const composeTableNodes=tableNodes({tableGroup:'block',cellContent:'paragraph+',cellAttributes:{shade:{default:null,getFromDOM:element=>safeColor(element.style.backgroundColor),setDOMAttr:(value,attrs)=>{const color=safeColor(value);if(color)attrs['style']=`background-color:${color}`;}}}});
 // Emit email-visible table borders; editor-only stylesheet rules are not sent.
-composeTableNodes.table.toDOM=()=>['table',{style:'border-collapse:collapse;width:100%'},['tbody',0]];
+// Styles through the CSSOM: a `style` attribute is refused by the production CSP (style-src 'self', t49).
+composeTableNodes.table.toDOM=()=>{const table=document.createElement('table'),body=document.createElement('tbody');table.style.borderCollapse='collapse';table.style.width='100%';table.appendChild(body);return {dom:table,contentDOM:body};};
 for(const name of ['table_cell','table_header'] as const){
  composeTableNodes[name].toDOM=node=>{
   const cell=document.createElement(name==='table_header'?'th':'td');
