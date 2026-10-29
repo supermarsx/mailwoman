@@ -6,7 +6,7 @@
 // governed by `style-src`). See bootSplash.ts for the whole hand-over.
 //
 // Plain JavaScript with no imports: it is not bundled.
-/* global document, window, location */
+/* global document, window, location, navigator */
 (function () {
   var root = document.documentElement;
   var ls = null;
@@ -15,9 +15,41 @@
     if (ls === null) return null;
     try { var raw = ls.getItem(key); return raw === null ? null : JSON.parse(raw); } catch { return null; }
   }
-  // The admin console keeps its own appearance and its own loading states.
+  try { if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) root.setAttribute('data-reduced-motion', ''); } catch { /* no matchMedia */ }
+
+  // Pulse in step with the document timeline, as the in-app placeholders do
+  // (bootSplash.ts `alignPulse`), so a hand-over does not restart the pulse.
+  document.addEventListener('DOMContentLoaded', function () {
+    var splash = document.getElementById('mw-boot');
+    if (splash === null || typeof splash.getAnimations !== 'function') return;
+    try {
+      var list = splash.getAnimations({ subtree: true });
+      for (var j = 0; j < list.length; j++) {
+        if (list[j].effect && list[j].effect.getTiming().iterations === Infinity) list[j].startTime = 0;
+      }
+    } catch { /* keep the engine's own phase */ }
+  });
+  // The admin console (t72) keeps its own appearance (applied after sign-in from
+  // the admin's account preferences), so none of the webmail's is replayed here.
+  // It gets its own placeholder: the console frame when an admin session was
+  // open last time, else the sign-in card, sized as it was measured on the
+  // previous visit for the same layout class (the console's phone layout is
+  // below 761px, screens/Admin/shell/shell.css.ts).
   var consoleMeta = document.querySelector('meta[name="mw-console"]');
-  if (consoleMeta !== null && consoleMeta.getAttribute('content') === 'admin') return;
+  if (consoleMeta !== null && consoleMeta.getAttribute('content') === 'admin') {
+    var adminSession = false;
+    try { adminSession = ls !== null && ls.getItem('mw.boot.admin') === '1'; } catch { adminSession = false; }
+    root.setAttribute('data-mw-boot', adminSession ? 'admin-console' : 'admin');
+    // The sign-in form offers a passkey button only where the browser has WebAuthn.
+    if (typeof window.PublicKeyCredential === 'undefined' || !('credentials' in navigator)) root.setAttribute('data-mw-boot-nopasskey', '');
+    var card = read('mw.boot.admin.card');
+    if (!adminSession && card !== null && typeof card === 'object' && card.v === 1 && card.wide === (window.innerWidth >= 761)) {
+      var h = Number(card.height);
+      if (isFinite(h) && h >= 120 && h <= 2000) root.style.setProperty('--mwb-admin-card', Math.round(h * 10) / 10 + 'px');
+      if (card.logo === true) root.setAttribute('data-mw-boot-logo', '');
+    }
+    return;
+  }
 
   function clock(value) {
     var m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(value || ''));
@@ -64,7 +96,6 @@
   var consent = /\/(oauth\/authorize|oidc\/consent)$/.test(path);
   var session = false;
   try { session = ls !== null && ls.getItem('mw.boot.session') === '1'; } catch { session = false; }
-  try { if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) root.setAttribute('data-reduced-motion', ''); } catch { /* no matchMedia */ }
   root.setAttribute('data-mw-boot', session && !consent ? 'mail' : 'plain');
 
   // The previous visit's shell geometry, if it was measured for the same layout
@@ -78,16 +109,4 @@
     }
   }
 
-  // Pulse in step with the document timeline, as the in-app placeholders do
-  // (bootSplash.ts `alignPulse`), so a hand-over does not restart the pulse.
-  document.addEventListener('DOMContentLoaded', function () {
-    var splash = document.getElementById('mw-boot');
-    if (splash === null || typeof splash.getAnimations !== 'function') return;
-    try {
-      var list = splash.getAnimations({ subtree: true });
-      for (var j = 0; j < list.length; j++) {
-        if (list[j].effect && list[j].effect.getTiming().iterations === Infinity) list[j].startTime = 0;
-      }
-    } catch { /* keep the engine's own phase */ }
-  });
 })();

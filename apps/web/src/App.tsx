@@ -106,7 +106,9 @@ export function App(): JSX.Element {
   // the boot splash only has to get out of their way.
   const leaveSplash = (view: JSX.Element): JSX.Element => { releaseBootSplash(); return view; };
   if (isAdminRoute()) {
-    return leaveSplash(<LazyRoute load={loadAdminScreen} />);
+    // The console releases its own boot placeholder (t72): the sign-in form or
+    // the console frame does, once it has mounted under it.
+    return <LazyRoute load={loadAdminScreen} />;
   }
 
   if (typeof location !== 'undefined' && stripBase(location.pathname).replace(/\/+$/, '') === '/oidc/consent') {

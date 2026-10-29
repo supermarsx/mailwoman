@@ -24,7 +24,8 @@ import * as css from './admin.css.ts';
 import * as brandCss from './branding.css.ts';
 import { authCard, authPage } from '../../styles/authCard.css.ts';
 import { PasswordInput } from '../../components/PasswordInput.tsx';
-import {useBranding,brandAssetUrl} from '../../branding.ts';
+import {useBranding,brandAssetUrl,refreshBranding} from '../../branding.ts';
+import { releaseBootSplash, rememberAdminBootSession, rememberAdminLoginCard } from '../../shell/bootSplash.ts';
 
 export interface AdminLoginProps {
   /** Second-step client. Defaults to the same-origin HTTP client; tests mock it. */
@@ -59,6 +60,37 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
   const [factors,setFactors]=createSignal<string[]>([]);
   const [recovery,setRecovery]=createSignal(false);
   onMount(()=>void loadCatalog('admin-passkeys'));
+
+  // Boot placeholder hand-over (t72): the static sign-in card skeleton
+  // (index.html, styles/boot.css) stays over this form until its text, the
+  // branding and the logo have arrived, so the form is never seen growing under
+  // a late catalog, logo or notice; then it fades out over the form, whose card
+  // has the same box. The form's height is remembered for the next boot.
+  let card: HTMLFormElement | undefined;
+  onMount(() => {
+    rememberAdminBootSession(false);
+    let done = false;
+    const reveal = (): void => {
+      if (done) return;
+      done = true;
+      releaseBootSplash();
+      rememberAdminLoginCard(card ?? null);
+    };
+    const cap = setTimeout(reveal, 3000);
+    onCleanup(() => clearTimeout(cap));
+    void Promise.all([refreshBranding(), loadCatalog('admin'), loadCatalog('admin-passkeys')])
+      // One frame, so a logo the branding names is in the DOM before it is awaited.
+      .then(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+      .then(() => {
+        const logo = card?.querySelector('img');
+        return logo && typeof logo.decode === 'function' ? logo.decode().catch(() => undefined) : undefined;
+      })
+      .catch(() => undefined)
+      .finally(reveal);
+    const record = (): void => rememberAdminLoginCard(card ?? null);
+    window.addEventListener('pagehide', record);
+    onCleanup(() => window.removeEventListener('pagehide', record));
+  });
   async function passkeyLogin():Promise<void>{setBusy(true);setError(null);try{await signInAdminPasskey();await admin.loadSession();}catch{setError(t('admin-passkeys-failed'));}finally{setBusy(false);}}
 
   async function onSubmit(e: Event): Promise<void> {
@@ -130,7 +162,7 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
       <Show
         when={pending() !== null}
         fallback={
-          <form class={`${css.loginCard} ${authCard}`} onSubmit={(e) => void onSubmit(e)} aria-label={t('admin-login-form')}>
+          <form ref={card} class={`${css.loginCard} ${authCard}`} data-testid="admin-login-card" onSubmit={(e) => void onSubmit(e)} aria-label={t('admin-login-form')}>
             <Show when={brandAssetUrl(branding()?.logoUrl)}>{url=><img src={url()} alt={branding()?.brandName||'Mailwoman'} class={brandCss.loginLogo}/>}</Show>
             <h1 class={css.heading}>{branding()?.brandName||t('admin-brand')}</h1>
             <p class={css.note}>{t('admin-login-note')}</p>

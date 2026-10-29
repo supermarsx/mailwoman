@@ -30,6 +30,8 @@ import { fieldAnchors, focusFieldWhenReady } from './fieldAnchors.ts';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { ResizeHandle } from '../../../components/ResizeHandle.tsx';
 import { useOptionalPersonalPreferences } from './personalPreferences.tsx';
+import { AdminNavSkeleton } from './BootSkeleton.tsx';
+import { releaseBootSplash } from '../../../shell/bootSplash.ts';
 import * as css from './shell.css.ts';
 
 export interface AdminShellProps {
@@ -43,6 +45,12 @@ export interface AdminShellProps {
   breadcrumbs?: readonly Crumb[];
   /** Footer slot for the language picker (t32-e9 / H). */
   languagePicker?: JSX.Element;
+  /**
+   * The admin's capabilities are still loading (t72). The frame is drawn at once
+   * with placeholders in the navigation, and no section is listed until the
+   * roles are known, so a restricted admin never sees a section flash and vanish.
+   */
+  loading?: boolean;
   /** The "leave with unsaved changes?" question, owned by the router. */
   leave: { open: boolean; onStay: () => void; onLeave: () => void };
   children: JSX.Element;
@@ -75,13 +83,15 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
   const [navEl, setNavEl] = createSignal<HTMLElement>();
   const [drawerEl, setDrawerEl] = createSignal<HTMLElement>();
 
-  const visible = createMemo(() => props.sections.filter((s) => canOpenSection(s, props.can)));
+  const visible = createMemo(() => props.loading === true ? [] : props.sections.filter((s) => canOpenSection(s, props.can)));
   const groups = createMemo(() =>
     GROUPS.map((g) => ({ ...g, items: visible().filter((s) => s.group === g.id) })).filter((g) => g.items.length > 0),
   );
   const current = (): SectionDef | undefined => visible().find((s) => s.id === props.route.section);
 
   onMount(() => void loadCatalog('admin-ux'));
+  // The boot placeholder (t72) fades out over the mounted frame.
+  onMount(releaseBootSplash);
   onMount(() => void loadCatalog('admin-branding'));
 
   // Fields of the sections this admin may open, for the palette (UX10).
@@ -137,6 +147,7 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
   }
 
   const Nav = (p: { roving: boolean }): JSX.Element => (
+    <Show when={props.loading !== true} fallback={<AdminNavSkeleton />}>
     <nav ref={p.roving ? setNavEl : undefined} class={css.nav} aria-label={t('admin-nav')}>
       <For each={groups()}>
         {(g) => (
@@ -167,6 +178,7 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
         )}
       </For>
     </nav>
+    </Show>
   );
 
   const Footer = (): JSX.Element => (

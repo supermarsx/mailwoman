@@ -11,7 +11,7 @@ import type { ThemeName } from '../theme/contract.css.ts';
 const SOURCE = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'boot.js'), 'utf8');
 const run = (): void => { new Function(SOURCE)(); };
 const root = document.documentElement;
-const BOOT_ATTRS = ['data-theme', 'data-appearance', 'data-density', 'data-accent', 'data-badge', 'data-mw-boot', 'data-reduced-motion'];
+const BOOT_ATTRS = ['data-theme', 'data-appearance', 'data-density', 'data-accent', 'data-badge', 'data-mw-boot', 'data-reduced-motion', 'data-mw-boot-logo', 'data-mw-boot-nopasskey'];
 
 function snapshot(prefs: AppearancePrefs, theme: ThemeName, extra: Record<string, unknown> = {}): void {
   localStorage.setItem('mw.boot.theme', JSON.stringify({
@@ -93,16 +93,55 @@ describe('boot.js', () => {
     history.replaceState(null, '', '/');
   });
 
-  it('does nothing on the admin console page', () => {
-    snapshot({ ...defaultAppearance(), theme: 'light', chosen: true }, 'light');
-    localStorage.setItem('mw.boot.session', '1');
+  function consolePage(): void {
     const meta = document.createElement('meta');
     meta.name = 'mw-console';
     meta.content = 'admin';
     document.head.append(meta);
+  }
+
+  it('on the admin console page draws the sign-in card and replays none of the webmail (t72)', () => {
+    snapshot({ ...defaultAppearance(), theme: 'light', chosen: true }, 'light');
+    localStorage.setItem('mw.boot.session', '1');
+    localStorage.setItem('mw.boot.geometry', JSON.stringify({ v: 1, wide: window.innerWidth >= 768, side: 300 }));
+    consolePage();
     run();
     expect(root.hasAttribute('data-theme')).toBe(false);
-    expect(root.hasAttribute('data-mw-boot')).toBe(false);
+    expect(root.getAttribute('data-mw-boot')).toBe('admin');
+    expect(root.style.getPropertyValue('--mwb-side')).toBe('');
+    expect(root.style.getPropertyValue('--mwb-admin-card')).toBe('');
+  });
+
+  it('draws the console frame when an admin session was open last time (t72)', () => {
+    localStorage.setItem('mw.boot.admin', '1');
+    localStorage.setItem('mw.boot.admin.card', JSON.stringify({ v: 1, wide: window.innerWidth >= 761, height: 400 }));
+    consolePage();
+    run();
+    expect(root.getAttribute('data-mw-boot')).toBe('admin-console');
+    // The card height is for the card, not the frame.
+    expect(root.style.getPropertyValue('--mwb-admin-card')).toBe('');
+  });
+
+  it('sizes the card as it was last measured, for the same layout class only, and clamps it (t72)', () => {
+    const wide = window.innerWidth >= 761;
+    consolePage();
+    localStorage.setItem('mw.boot.admin.card', JSON.stringify({ v: 1, wide, height: 357.54, logo: true }));
+    run();
+    expect(root.style.getPropertyValue('--mwb-admin-card')).toBe('357.5px');
+    expect(root.hasAttribute('data-mw-boot-logo')).toBe(true);
+    for (const stored of [{ v: 1, wide: !wide, height: 357 }, { v: 1, wide, height: 99999 }, { v: 1, wide, height: 'x' }, { v: 2, wide, height: 357 }]) {
+      root.removeAttribute('style');
+      localStorage.setItem('mw.boot.admin.card', JSON.stringify(stored));
+      run();
+      expect(root.style.getPropertyValue('--mwb-admin-card'), JSON.stringify(stored)).toBe('');
+    }
+  });
+
+  it('hides the passkey button placeholder where the browser has no WebAuthn (t72)', () => {
+    consolePage();
+    vi.stubGlobal('PublicKeyCredential', undefined);
+    run();
+    expect(root.hasAttribute('data-mw-boot-nopasskey')).toBe(true);
   });
 
   it('applies stored geometry only for the same layout class, and clamps it', () => {

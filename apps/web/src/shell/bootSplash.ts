@@ -30,6 +30,13 @@ export const BOOT_SESSION_KEY = 'mw.boot.session';
 /** Mailbox shell geometry measured on the previous visit. */
 export const BOOT_GEOMETRY_KEY = 'mw.boot.geometry';
 
+/** `'1'` while an admin console session is open; `boot.js` then draws the console frame. */
+export const BOOT_ADMIN_SESSION_KEY = 'mw.boot.admin';
+/** The admin sign-in card as measured on the previous visit (t72). */
+export const BOOT_ADMIN_CARD_KEY = 'mw.boot.admin.card';
+/** The console's phone layout starts below this width (screens/Admin/shell/shell.css.ts). */
+const ADMIN_WIDE_MIN = 761;
+
 /** How long the splash takes to fade out over the mounted UI. */
 const FADE_MS = 140;
 
@@ -121,6 +128,27 @@ export function rememberBootGeometry(): void {
   write(BOOT_GEOMETRY_KEY, JSON.stringify(geometry));
 }
 
+/**
+ * Remember whether the admin console has a session (t72), so the next boot of
+ * the console page draws the console frame rather than the sign-in card.
+ */
+export function rememberAdminBootSession(open: boolean): void {
+  write(BOOT_ADMIN_SESSION_KEY, open ? '1' : null);
+}
+
+/**
+ * Measure the mounted admin sign-in card and store its height for the next boot,
+ * so the placeholder card has the height of the card that replaces it (a logo,
+ * a sign-in notice, a verification widget or a longer translation all change it).
+ */
+export function rememberAdminLoginCard(card: Element | null): void {
+  if (card === null || typeof window === 'undefined') return;
+  // To a tenth of a pixel: a card 357.5px tall stored as 358 would not match it.
+  const height = Math.round(card.getBoundingClientRect().height * 10) / 10;
+  if (height <= 0) return;
+  write(BOOT_ADMIN_CARD_KEY, JSON.stringify({ v: 1, wide: window.innerWidth >= ADMIN_WIDE_MIN, height, logo: card.querySelector('img') !== null }));
+}
+
 function reducedMotion(): boolean {
   const root = document.documentElement;
   if (root.hasAttribute('data-reduced-motion')) return true;
@@ -151,6 +179,9 @@ export function releaseBootSplash(): void {
     splash?.remove();
     root.removeAttribute('data-mw-boot');
     root.removeAttribute('data-mw-boot-leaving');
+    root.removeAttribute('data-mw-boot-logo');
+    root.removeAttribute('data-mw-boot-nopasskey');
+    root.style.removeProperty('--mwb-admin-card');
   };
   if (splash === null || !root.hasAttribute('data-mw-boot') || reducedMotion()) {
     finish();

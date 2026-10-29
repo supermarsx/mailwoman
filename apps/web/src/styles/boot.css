@@ -273,12 +273,216 @@
   .mwb-split { display: none; }
 }
 
+/* ── Admin console (t72) ──────────────────────────────────────────────────
+ * boot.js sets data-mw-boot="admin" (the sign-in card) or "admin-console" (an
+ * admin session was open last time: the console frame) on the console page.
+ * The sign-in card is built from the entry stylesheet's own `.field`, input and
+ * `.btn` rules, with a non-breaking space for each line of text, so every row
+ * has the height the real row has in this browser (Firefox and Chromium lay an
+ * input out differently), and the card is centred as the real one is. Its
+ * height is the real card's, measured on the previous visit, when boot.js has
+ * one (--mwb-admin-card). The in-app placeholders (screens/Admin/shell/
+ * BootSkeleton.tsx) use these classes too. */
+.mwb-admin,
+.mwb-console {
+  display: none;
+}
+:root[data-mw-boot='admin'] #mw-boot .mwb-admin,
+:root[data-mw-boot='admin-console'] #mw-boot .mwb-console {
+  display: grid;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  animation: mwb-in 160ms ease-out 150ms both;
+}
+.mwb-admin,
+.mwb-admin--inline {
+  place-items: center;
+  padding: 16px;
+  font-family: var(--mw-ui-font, "Jost", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
+  color: var(--text);
+}
+.mwb-admin--inline {
+  display: grid;
+  min-block-size: 100vh;
+  background: var(--bg);
+}
+.mwb-admin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+  inline-size: 100%;
+  max-inline-size: 360px;
+  block-size: var(--mwb-admin-card, auto);
+  margin: 0;
+  padding: calc(24px - var(--border-rule, 2px));
+  overflow: hidden;
+  border: var(--border-rule, 2px) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--elevation-3);
+}
+@media screen and (max-width: 760px) {
+  .mwb-admin-card { padding: calc(16px - var(--border-rule, 2px)); }
+}
+/* The card's two marks (admin.css.ts loginCard), as on the real card. */
+.mwb-admin-card::before,
+.mwb-admin-card::after {
+  content: '';
+  position: absolute;
+  inset-block-start: 8px;
+  inline-size: 10px;
+  block-size: 10px;
+}
+.mwb-admin-card::before { inset-inline-end: 8px; background: var(--signal); }
+.mwb-admin-card::after { inset-inline-end: 22px; border-radius: var(--radius-pill); background: var(--danger); }
+/* One line of text: a transparent non-breaking space sets the height, the bar
+   inside is the placeholder. */
+.mwb-tx {
+  display: block;
+  position: relative;
+  color: transparent;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.mwb-tx > .mwb-block {
+  position: absolute;
+  inset-block: 22%;
+  inset-inline-start: 0;
+  inline-size: 60%;
+}
+.mwb-admin-logo { display: none; }
+:root[data-mw-boot-logo] .mwb-admin-logo { display: block; }
+.mwb-admin-logo > .mwb-block { inline-size: 7rem; block-size: 3rem; }
+.mwb-admin-title { font-size: 1.25rem; font-weight: var(--weight-heavy); }
+.mwb-admin-title > .mwb-block { inline-size: 44%; }
+.mwb-admin-note { display: block; font-size: 0.8rem; }
+.mwb-admin-note > .mwb-tx > .mwb-block { inline-size: 96%; opacity: 0.6; }
+.mwb-admin-note > .mwb-tx:nth-child(2) > .mwb-block { inline-size: 88%; }
+.mwb-admin-note > .mwb-tx:nth-child(3) > .mwb-block { inline-size: 52%; }
+.mwb-admin-card .field { margin: 0; }
+.mwb-admin-card .field > .mwb-tx > .mwb-block { inline-size: 38%; }
+.mwb-admin-card .field + .field > .mwb-tx > .mwb-block { inline-size: 28%; }
+/* Controls in an inert placeholder: never focused, never clicked, and drawn in
+   the quieter border colour. */
+.mwb-admin-card .field input:not([type='checkbox'], [type='radio']) { inline-size: 100%; pointer-events: none; border-color: var(--border); }
+.mwb-admin-card .btn {
+  inline-size: 74px;
+  opacity: 1;
+  border-color: var(--border);
+  background: var(--border);
+  color: transparent;
+  box-shadow: none;
+  pointer-events: none;
+  animation: mwb-pulse 1.6s ease-in-out infinite;
+}
+.mwb-admin-card .btn + .btn { inline-size: 166px; background: transparent; animation: none; }
+:root[data-mw-boot-nopasskey] .mwb-admin-card .btn + .btn { display: none; }
+
+/* The console frame: the sidebar (a top bar on phones), the main column's head
+   row and the dashboard's loading panel. */
+:root[data-mw-boot='admin-console'] #mw-boot .mwb-console {
+  grid-template-columns: minmax(180px, min(220px, 40vw)) 6px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  background: var(--bg);
+}
+.mwb-console-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  padding-inline-end: 10px;
+  overflow: hidden;
+  border-inline-end: var(--border-heavy, 3px) solid var(--border-strong);
+  background: var(--bg-alt);
+}
+.mwb-console-brand {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  block-size: 20.2px;
+  margin-block-end: 8px;
+}
+.mwb-console-brand > .mwb-mark { display: block; flex: none; inline-size: 8px; block-size: 8px; }
+.mwb-console-brand > .mwb-mark:nth-child(1) { background: var(--signal); }
+.mwb-console-brand > .mwb-mark:nth-child(2) { background: var(--danger); border-radius: var(--radius-pill); }
+.mwb-console-brand > .mwb-mark:nth-child(3) { background: var(--accent); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.mwb-console-brand > .mwb-block { inline-size: 6.5rem; block-size: 0.8rem; margin-inline-start: 6px; }
+.mwb-console-nav { display: flex; flex-direction: column; gap: 8px; }
+.mwb-console-group { display: flex; flex-direction: column; gap: 2px; }
+.mwb-console-group-label { inline-size: 40%; block-size: 0.55rem; margin: 3px 8px 4px; opacity: 0.7; }
+.mwb-console-item { display: flex; align-items: center; gap: 8px; min-block-size: 24.8px; padding: 4px 8px; box-sizing: border-box; }
+.mwb-console-item::before { content: ''; flex: none; inline-size: 16px; block-size: 16px; background: var(--border); border-radius: var(--radius-sm); animation: mwb-pulse 1.6s ease-in-out infinite; }
+.mwb-console-item > .mwb-block { inline-size: 62%; block-size: 0.7rem; }
+.mwb-console-item:nth-child(3n) > .mwb-block { inline-size: 48%; }
+.mwb-console-item:nth-child(3n + 1) > .mwb-block { inline-size: 70%; }
+.mwb-console-top { display: none; }
+.mwb-console-main {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-inline-size: 0;
+  padding: 24px;
+  overflow: hidden;
+}
+.mwb-console-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  block-size: 34.8px;
+}
+.mwb-console-head > .mwb-block { block-size: 100%; background: transparent; border: var(--border-rule, 2px) solid var(--border); animation: none; }
+.mwb-console-head > .mwb-block:first-child { inline-size: 46.8px; }
+.mwb-console-head > .mwb-block:last-child { inline-size: 140px; }
+.mwb-console-page { display: flex; flex-direction: column; gap: 16px; max-inline-size: 1100px; min-inline-size: 0; }
+.mwb-console-page-head { display: flex; align-items: center; block-size: 24px; }
+.mwb-console-page-head > .mwb-block { inline-size: 9rem; block-size: 1rem; }
+/* The static copy of the dashboard's loading panel (shell.css.ts `state` around
+   AsyncPending variant="page"). */
+.mwb-console-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: calc(12px - 1px);
+  border: var(--border-rule, 2px) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.mwb-console-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: 8px; }
+.mwb-console-cards > span { display: block; block-size: 5rem; background: var(--bg-alt); border: var(--border-hair) solid var(--border); }
+.mwb-console-panel > .mwb-line { flex: none; block-size: 0.75rem; margin-block: 10px; }
+.mwb-console-panel > .mwb-line:nth-child(3) { max-inline-size: 80%; }
+.mwb-console-panel > .mwb-line:nth-child(4) { max-inline-size: 60%; }
+@media screen and (max-width: 760px) {
+  :root[data-mw-boot='admin-console'] #mw-boot .mwb-console { grid-template-columns: minmax(0, 1fr); grid-template-rows: 45px minmax(0, 1fr); }
+  .mwb-console-side,
+  .mwb-console-split,
+  .mwb-console-head > .mwb-block:first-child { display: none; }
+  .mwb-console-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px 2px;
+    border-block-end: var(--border-heavy, 3px) solid var(--border-strong);
+    background: var(--bg-alt);
+  }
+  .mwb-console-top > .mwb-block { flex: none; inline-size: 40px; block-size: 36px; background: transparent; border: var(--border-rule, 2px) solid var(--border); animation: none; }
+  .mwb-console-top > .mwb-block--title { flex: 0 1 40%; block-size: 0.9rem; margin-inline-end: auto; border: 0; background: var(--border); animation: mwb-pulse 1.6s ease-in-out infinite; }
+  .mwb-console-main { padding: 16px; }
+  .mwb-console-head { block-size: 36.8px; }
+}
+
 /* Reduced motion: no fade and no pulse. The shapes still wait 150 ms. */
 @media (prefers-reduced-motion: reduce) {
   #mw-boot { transition: none; }
   :root[data-mw-boot='mail'] .mwb-shape { animation: mwb-in 1ms step-end 150ms both; }
   .mwb-block, .mwb-line, .mwb-avatar, .mwb-date { animation: none; }
   :root[data-mw-boot='plain'] .mwb-progress::after { animation: none; }
+  :root[data-mw-boot='admin'] #mw-boot .mwb-admin,
+  :root[data-mw-boot='admin-console'] #mw-boot .mwb-console { animation: mwb-in 1ms step-end 150ms both; }
+  .mwb-admin-card .btn, .mwb-console-item::before, .mwb-console-top > .mwb-block--title { animation: none; }
 }
 :root[data-reduced-motion] #mw-boot { transition: none; }
 :root[data-reduced-motion][data-mw-boot='mail'] .mwb-shape { animation: mwb-in 1ms step-end 150ms both; }
@@ -286,8 +490,14 @@
 :root[data-reduced-motion] .mwb-line,
 :root[data-reduced-motion] .mwb-avatar,
 :root[data-reduced-motion] .mwb-date,
-:root[data-reduced-motion][data-mw-boot='plain'] .mwb-progress::after { animation: none; }
+:root[data-reduced-motion][data-mw-boot='plain'] .mwb-progress::after,
+:root[data-reduced-motion] .mwb-admin-card .btn,
+:root[data-reduced-motion] .mwb-console-item::before,
+:root[data-reduced-motion] .mwb-console-top > .mwb-block--title { animation: none; }
+:root[data-reduced-motion][data-mw-boot='admin'] #mw-boot .mwb-admin,
+:root[data-reduced-motion][data-mw-boot='admin-console'] #mw-boot .mwb-console { animation: mwb-in 1ms step-end 150ms both; }
 
 @media (forced-colors: active) {
   .mwb-block, .mwb-line, .mwb-avatar, .mwb-date { background: CanvasText; animation: none; opacity: 0.25; }
+  .mwb-admin-card .btn, .mwb-console-item::before { background: CanvasText; animation: none; opacity: 0.25; }
 }

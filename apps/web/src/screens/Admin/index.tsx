@@ -20,7 +20,7 @@ import { createAdminSlice, createHttpAdminApi, type AdminApi } from '../../state
 import { onAdminSessionEnded,adminSessionGeneration,adminResponseIsCurrent } from '../../api/adminSession.ts';
 import { t, loadCatalog } from '../../i18n';
 import {useBranding} from '../../branding.ts';
-import { AsyncPending, AsyncError } from '../../components/AsyncState.tsx';
+import { AsyncError, PENDING_BOUND_MS } from '../../components/AsyncState.tsx';
 import { AdminContext, useAdmin } from './context.ts';
 import { AdminLogin } from './AdminLogin.tsx';
 import { AdminShell } from './shell/AdminShell.tsx';
@@ -37,7 +37,8 @@ import { createDashboardLoader, type DashboardLoader } from '../../api/admin/das
 import { Feedback } from './shell/Feedback.tsx';
 import { ToastRegion, toast } from '../../components/toast/index.ts';
 import { PersonalPreferencesProvider, type AdminPreferencesApi } from './shell/personalPreferences.tsx';
-import * as css from './admin.css.ts';
+import { AdminLoginSkeleton, AdminPageSkeleton } from './shell/BootSkeleton.tsx';
+import { releaseBootSplash, rememberAdminBootSession } from '../../shell/bootSplash.ts';
 import * as shellCss from './shell/shell.css.ts';
 
 export interface AdminScreenProps {
@@ -67,6 +68,10 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
   onCleanup(() => toast.dismiss(expiryToast));
   onCleanup(onAdminSessionEnded(()=>admin.api.onSessionEnded?.()));
   onMount(() => void admin.loadSession());
+  // The boot placeholder (t72) is released by the sign-in form or the console
+  // frame once they have mounted; whatever happens, it never outlasts the bound
+  // every loading state has.
+  onMount(() => { const cap = setTimeout(releaseBootSplash, PENDING_BOUND_MS); onCleanup(() => clearTimeout(cap)); });
   onMount(() => void loadCatalog('admin'));
   onMount(() => void loadCatalog('admin-shell'));
   onMount(() => void loadCatalog('admin-inbound'));
@@ -79,7 +84,7 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
 
   return (
       <AdminContext.Provider value={admin}>
-        <Show when={admin.sessionChecked()} fallback={<div class={css.gate}><AsyncPending /></div>}>
+        <Show when={admin.sessionChecked()} fallback={<AdminLoginSkeleton />}>
           <Show when={admin.session()} fallback={<AdminLogin verifyTotp={props.verifyTotp} />}>
             {(session) => <Console {...props} username={session().username} />}
           </Show>
@@ -105,6 +110,8 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
     }
   }
   onMount(() => void loadCapabilities());
+  // The next boot of this page draws the console frame, not the sign-in card (t72).
+  onMount(() => rememberAdminBootSession(true));
 
   // The "leave with unsaved changes?" question: the router awaits the answer.
   const [leaveOpen, setLeaveOpen] = createSignal(false);
@@ -199,8 +206,10 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
         username: () => props.username,
       }}
     >
-      <Show when={can.loaded()} fallback={<div class={css.gate}><Show when={capabilityError()} fallback={<AsyncPending/>}>{error=><AsyncError error={error()} onRetry={()=>void loadCapabilities()}/>}</Show></div>}>
+      {/* The frame is drawn at once (t72): while the roles load, the navigation and
+          the page hold placeholders, and nothing is listed that may yet vanish. */}
         <AdminShell
+          loading={!can.loaded()}
           sections={sections}
           route={router.route()}
           navigate={(p) => void navigate(p)}
@@ -212,18 +221,13 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
           leave={{ open: leaveOpen(), onStay: () => settle(false), onLeave: () => settle(true) }}
         >
           <h1 class={shellCss.srOnly}>{t('admin-brand')}</h1>
+          <Show when={can.loaded()} fallback={<Show when={capabilityError()} fallback={<AdminPageSkeleton message={t('admin-shell-loading')} />}>{error=><AsyncError error={error()} onRetry={()=>void loadCapabilities()}/>}</Show>}>
           <Feedback
             kind="info"
             message={unknownNotice() ? t('errors-admin-section-not-found') : null}
             testId="admin-unknown-section"
           />
-          <Suspense
-            fallback={
-              <div class={shellCss.state}>
-                <AsyncPending message={t('admin-shell-loading')} />
-              </div>
-            }
-          >
+          <Suspense fallback={<AdminPageSkeleton message={t('admin-shell-loading')} />}>
             <Show
               when={section()}
               fallback={
@@ -245,8 +249,8 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
               {(s) => <RouteTransition routeKey={`${router.route().section}/${router.route().rest.join('/')}`}><Dynamic component={s().component} api={admin.api} route={router.route()} /></RouteTransition>}
             </Show>
           </Suspense>
+          </Show>
         </AdminShell>
-      </Show>
     </ShellContext.Provider>
     </PersonalPreferencesProvider>
   );

@@ -3,9 +3,13 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
+  BOOT_ADMIN_CARD_KEY,
+  BOOT_ADMIN_SESSION_KEY,
   BOOT_GEOMETRY_KEY,
   BOOT_SESSION_KEY,
   bootSplashActive,
+  rememberAdminBootSession,
+  rememberAdminLoginCard,
   rememberBootGeometry,
   rememberBootSession,
   releaseBootSplash,
@@ -32,6 +36,7 @@ afterEach(() => {
   root.removeAttribute('data-mw-boot');
   root.removeAttribute('data-mw-boot-leaving');
   root.removeAttribute('data-reduced-motion');
+  root.removeAttribute('style');
   document.body.innerHTML = '';
 });
 
@@ -76,6 +81,44 @@ describe('boot splash (t52)', () => {
     expect(localStorage.getItem(BOOT_GEOMETRY_KEY)).toBeNull();
   });
 
+  it('remembers the admin console session separately from the mail one (t72)', () => {
+    rememberAdminBootSession(true);
+    expect(localStorage.getItem(BOOT_ADMIN_SESSION_KEY)).toBe('1');
+    expect(localStorage.getItem(BOOT_SESSION_KEY)).toBeNull();
+    rememberAdminBootSession(false);
+    expect(localStorage.getItem(BOOT_ADMIN_SESSION_KEY)).toBeNull();
+  });
+
+  it('records the sign-in card height to a tenth of a pixel, with or without a logo (t72)', () => {
+    const card = document.createElement('form');
+    document.body.append(card);
+    card.getBoundingClientRect = () => ({ height: 357.54, width: 360 }) as DOMRect;
+    rememberAdminLoginCard(card);
+    expect(JSON.parse(localStorage.getItem(BOOT_ADMIN_CARD_KEY)!)).toEqual({ v: 1, wide: window.innerWidth >= 761, height: 357.5, logo: false });
+    card.append(document.createElement('img'));
+    rememberAdminLoginCard(card);
+    expect(JSON.parse(localStorage.getItem(BOOT_ADMIN_CARD_KEY)!).logo).toBe(true);
+  });
+
+  it('does not record a card that is not laid out (t72)', () => {
+    rememberAdminLoginCard(document.createElement('form'));
+    rememberAdminLoginCard(null);
+    expect(localStorage.getItem(BOOT_ADMIN_CARD_KEY)).toBeNull();
+  });
+
+  it('clears the admin placeholder attributes when it goes (t72)', () => {
+    root.setAttribute('data-reduced-motion', '');
+    const splash = mountSplash();
+    root.setAttribute('data-mw-boot', 'admin');
+    root.setAttribute('data-mw-boot-logo', '');
+    root.setAttribute('data-mw-boot-nopasskey', '');
+    root.style.setProperty('--mwb-admin-card', '300px');
+    releaseBootSplash();
+    expect(splash.isConnected).toBe(false);
+    for (const a of ['data-mw-boot', 'data-mw-boot-logo', 'data-mw-boot-nopasskey']) expect(root.hasAttribute(a)).toBe(false);
+    expect(root.style.getPropertyValue('--mwb-admin-card')).toBe('');
+  });
+
   it('does not record geometry for a shell that is not laid out', () => {
     document.body.innerHTML = '<div class="shell"><div class="mail-workspace"><div class="workspace-body"><div class="mail-pane"></div></div></div></div>';
     rememberBootGeometry();
@@ -91,6 +134,15 @@ describe('index.html boot splash', () => {
     expect(html).not.toMatch(/\sstyle=/);
     expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/);
     expect(html).not.toMatch(/<style\b/);
+  });
+  it('has the admin sign-in card and console frame, inert, with the controls out of the tab order (t72)', () => {
+    const splash = html.slice(html.indexOf('<div id="mw-boot"'), html.indexOf('<div id="root">'));
+    expect(splash).toMatch(/<div class="mwb-admin" inert>/);
+    expect(splash).toMatch(/<div class="mwb-console" inert>/);
+    const controls = splash.match(/<(input|button)\b[^>]*>/g) ?? [];
+    expect(controls).toHaveLength(4);
+    for (const control of controls) expect(control).toContain('tabindex="-1"');
+    expect(splash).not.toMatch(/\s(name|for)="/);
   });
   it('stands before #root, so Solid never renders into or over it', () => {
     expect(html.indexOf('id="mw-boot"')).toBeLessThan(html.indexOf('id="root"'));

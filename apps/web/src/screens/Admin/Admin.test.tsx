@@ -170,6 +170,55 @@ describe('capability-aware navigation (GET /admin/me)', () => {
     expect(within(nav()).queryByRole('group', { name: 'Configuration' })).toBeNull();
   });
 
+  it('shows the sign-in card placeholder while the session is checked (t72)', async () => {
+    let release!: (value: null) => void;
+    const api = mockAdminApi({ session: vi.fn(() => new Promise<null>((r) => (release = r))) });
+    render(() => <AdminScreen api={api} {...offlineShell()} />);
+    const skeleton = screen.getByTestId('admin-login-skeleton');
+    expect(skeleton.querySelector('.mwb-admin-card')).toHaveAttribute('aria-hidden', 'true');
+    expect(within(skeleton).getByRole('status')).toHaveTextContent('Loading');
+    release(null);
+    expect(await screen.findByRole('form', { name: 'Admin sign in' })).toBeInTheDocument();
+    expect(screen.queryByTestId('admin-login-skeleton')).toBeNull();
+  });
+
+  it('draws the console frame at once while the grants load, with placeholders and no sections (t72)', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const { container } = render(() => (
+      <AdminScreen
+        api={mockAdminApi()}
+        {...offlineShell()}
+        loadMe={async () => {
+          await gate;
+          return { kind: 'listed', me: { username: 'x', displayName: null, roles: [], capabilities: ['users.read'], domainScope: null, totpEnrolled: false } };
+        }}
+      />
+    ));
+    await waitFor(() => expect(container.querySelector('[data-screen="admin"]')).not.toBeNull());
+    expect(screen.getByTestId('admin-nav-skeleton')).toBeInTheDocument();
+    expect(screen.getByTestId('admin-page-skeleton')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+    expect(screen.queryAllByRole('link')).toHaveLength(0);
+    expect(screen.queryByTestId('admin-no-section')).toBeNull();
+    expect(screen.queryByTestId('admin-unknown-section')).toBeNull();
+    const frame = container.querySelector('[data-screen="admin"]');
+    release();
+    expect(await screen.findByRole('link', { name: 'Users' })).toBeInTheDocument();
+    expect(screen.queryByTestId('admin-nav-skeleton')).toBeNull();
+    // The same frame: it was not torn down and rebuilt when the grants arrived.
+    expect(container.querySelector('[data-screen="admin"]')).toBe(frame);
+  });
+
+  it('a failed grants load shows its error inside the frame (t72)', async () => {
+    const { container } = render(() => (
+      <AdminScreen api={mockAdminApi()} {...offlineShell()} loadMe={async () => { throw new Error('me refused'); }} />
+    ));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(container.querySelector('[data-screen="admin"]')).not.toBeNull();
+    expect(screen.queryByTestId('admin-page-skeleton')).toBeNull();
+  });
+
   it('does not draw the navigation before the grants have loaded', async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
