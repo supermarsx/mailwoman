@@ -233,6 +233,7 @@ mail-compose-rt-link = Ligação
 mail-compose-rt-link-placeholder = https://example.org
 mail-compose-rt-link-apply = Aplicar
 mail-compose-rt-image = Inserir uma imagem
+mail-compose-rt-rule = Linha horizontal
 
 # Signature picker (W12)
 mail-compose-signature = Assinatura

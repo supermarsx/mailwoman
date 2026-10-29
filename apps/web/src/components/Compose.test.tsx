@@ -897,6 +897,42 @@ describe('Compose', () => {
       expect(body).not.toContain('blob:');
     });
 
+    // t49: a signature keeps its images embedded; in a message each one is an inline part.
+    const LOGO = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const LOGO_IDENTITY: Identity = {
+      id: 'id4', name: 'Logo', email: 'logo@corp.example', replyTo: null,
+      signatureHtml: `<p>Regards</p><p><img src="data:image/png;base64,${LOGO}" alt="logo.png"></p>`,
+      signatureText: 'Regards', sentMailboxId: 'sent',
+    };
+    for (const how of ['picker', 'auto'] as const) {
+      it(`sends a signature's embedded image as an inline part (${how})`, async () => {
+        vi.stubGlobal('fetch', serverFetch({ engine: true, openTracking: false }));
+        Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:preview-sig'), revokeObjectURL: vi.fn() });
+        const { client, app } = await composeWithClient({ identities: [LOGO_IDENTITY] });
+        await app.loadIdentities();
+        await screen.findByTestId('compose-richtext');
+        await waitFor(() => expect(screen.queryByTestId('compose-request-receipt')).not.toBeNull());
+        if (how === 'picker') {
+          fireEvent.click(screen.getByRole('tab', { name: 'Insert' }));
+          const picker = await screen.findByTestId('compose-signature');
+          fireEvent.change(within(picker).getByRole('combobox'), { target: { value: 'id4' } });
+          await waitFor(() => expect(screen.getByTestId('compose-richtext').querySelector('img.compose-rt__img')).not.toBeNull());
+        } else {
+          fireEvent.click(screen.getByRole('button', { name: 'From' }));
+          fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id4' } });
+          expect(await screen.findByTestId('compose-auto-signature')).toBeInTheDocument();
+        }
+        fillAndSend();
+        await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
+        const draft = draftOf(client);
+        const attachments = draft['attachments'] as { cid: string }[];
+        expect(attachments).toEqual([{ blobId: 'Gimg1', cid: attachments[0]!.cid, disposition: 'inline', type: 'image/png', name: 'signature-1.png' }]);
+        const body = (draft['bodyValues'] as { body: { value: string } }).body.value;
+        expect(body).toContain(`<img src="cid:${attachments[0]!.cid}" alt="logo.png">`);
+        expect(body).not.toContain('data:');
+      });
+    }
+
     it('refuses an SVG for the body and uploads nothing', async () => {
       const fetchSpy = serverFetch({ engine: true, openTracking: false });
       vi.stubGlobal('fetch', fetchSpy);

@@ -27,9 +27,9 @@ import { t, isolate, loadCatalog } from '../i18n/index.ts';
 import * as a11y from './mailA11y.css.ts';
 import { AsyncBoundary } from './ErrorBoundary.tsx';
 import type { RichTextApi } from './compose/RichTextEditor.tsx';
-import {ComposerHistory} from './compose/ComposerHistory.tsx';
-import {CollapsibleBar,RibbonGroup,RibbonItem,RibbonPanel,useBarMode,useCollapsibleBar,type CollapsibleBarApi} from './bars/index.ts';
-import {RibbonPopover,RibbonSlot,type RibbonSlotTarget} from './compose/ribbonParts.tsx';
+import {RibbonGroup,RibbonItem} from './bars/index.ts';
+import {BodyModeGroup,EditorRibbon,createEditorRibbon,type BodyMode} from './compose/EditorRibbon.tsx';
+import {RibbonPopover} from './compose/ribbonParts.tsx';
 import {
   SignaturePicker,
   RecallPanel,
@@ -46,6 +46,7 @@ import {
 } from './compose/drafts-store.ts';
 import { SendOptions } from './compose/SendOptions.tsx';
 import {
+  embedSignatureImages,
   inlineAttachments,
   inlineRefusal,
   newCid,
@@ -223,28 +224,11 @@ export function Compose(props: {
   const [importance,setImportance]=createSignal<'high'|'normal'|'low'>('normal');
   const [customFrom, setCustomFrom] = createSignal(false);
   const fromHelpId = createUniqueId();
-  type RibbonTab='format'|'insert'|'table'|'security'|'delivery';
-  const [ribbonTab,setRibbonTab]=createSignal<RibbonTab>('format');
-  // The composer ribbon (t38): its pin/auto mode, the bar's handle (captured
-  // from inside it), and the slots where the editor's groups join each tab.
-  const ribbonMode=useBarMode('composerRibbon');
-  let ribbonBar:CollapsibleBarApi|undefined;
-  const CaptureRibbonBar=():JSX.Element=>{ribbonBar=useCollapsibleBar();return null;};
-  /** Switch to a tab and, in auto-hide mode, reveal the ribbon (something there needs the user). */
-  const showRibbonTab=(tab:RibbonTab):void=>{setRibbonTab(tab);ribbonBar?.open();};
-  const [slots,setSlots]=createSignal<Partial<Record<'format'|'insert'|'table',RibbonSlotTarget>>>({});
-  const setSlot=(tab:'format'|'insert'|'table')=>(target:RibbonSlotTarget|undefined):void=>{setSlots(cur=>{const next={...cur};if(target)next[tab]=target;else delete next[tab];return next;});};
+  // The composer ribbon (t38; shared with the signature editor, t49): the open
+  // tab, and the slots where the editor's groups join each tab.
+  const ribbon=createEditorRibbon<'security'|'delivery'>('format');
+  const ribbonTab=ribbon.tab,setRibbonTab=ribbon.setTab,showRibbonTab=ribbon.show;
   createEffect(()=>{if(unlockOpen())showRibbonTab('security');});
-  const ComposerRibbonTabs=():JSX.Element=>{
-    const bar=useCollapsibleBar();
-    const tabs=():readonly RibbonTab[]=>richMode()&&!sourceMode()?['format','insert','table','security','delivery']:['format','insert','security','delivery'];
-    return <div class="compose-ribbon__heading" data-detached-local><Show when={richMode()&&!sourceMode()}><ComposerHistory api={editorApi()}/></Show>
-      <div class="compose-rt__tabs" role="tablist" aria-label={t('mail-compose-ribbon')}><For each={tabs()}>{tab=><button type="button" role="tab" aria-selected={ribbonTab()===tab} aria-expanded={bar?.mode()==='auto'?(bar.expanded()&&ribbonTab()===tab?'true':'false'):undefined} aria-controls={bar?.panelId} onClick={event=>{
-        // Auto-hide: a tab opens the ribbon on itself; the open tab, clicked again, hides it (Office).
-        if(bar?.mode()==='auto'&&bar.expanded()&&ribbonTab()===tab){bar.close();return;}
-        setRibbonTab(tab);bar?.open(event.currentTarget);
-      }}>{t(`mail-compose-ribbon-${tab}`)}</button>}</For></div></div>;
-  };
   const [fromVisibleOverride,setFromVisibleOverride] = createSignal<boolean|null>(null);
   const showFrom=()=>customFrom() || (fromVisibleOverride() ?? settings()['mail.showFrom']?.value === true);
   const [sendAt, setSendAt] = createSignal('');
@@ -505,7 +489,7 @@ export function Compose(props: {
   /** Toggle the body between the rich editor and a plain-text / format=flowed
    *  textarea. Rich → plain just reveals the already-synced text; plain → rich
    *  re-seeds the editor from that text so the content round-trips. */
-  function changeFormat(mode:string):void {
+  function changeFormat(mode:BodyMode):void {
     if(!richMode() && mode!=='plain')setBodyHtml(plainToHtml(body()));
     if(mode!=='rich'&&ribbonTab()==='table')setRibbonTab('format');
     setSourceMode(mode==='html');
@@ -559,7 +543,9 @@ export function Compose(props: {
     if (sig.html !== null && sig.html !== '') {
       try {
         const rt = await import('./compose/richtext.ts');
-        return rt.htmlFromDoc(rt.docFromHtml(sig.html));
+        // Embedded images become inline images of this draft (t49), sent as `cid:` parts.
+        const html = await embedSignatureImages(sig.html, uploadInline);
+        return rt.htmlFromDoc(rt.docFromHtml(html, ownedCids()));
       } catch {
         // Fall through to the text form.
       }
@@ -583,7 +569,16 @@ export function Compose(props: {
     setInsertedSignatures((prev) => new Set(prev).add(sig.id));
     const api = editorApi();
     if (richMode() && api !== null) {
-      api.appendHtml(sig.html !== null && sig.html !== '' ? sig.html : plainToHtml(sig.text));
+      if (sig.html === null || sig.html === '') {
+        api.appendHtml(plainToHtml(sig.text));
+        return;
+      }
+      // Embedded images are uploaded as this draft's inline images first (t49),
+      // so the body refers to them by `cid:` and the send carries them.
+      const html = sig.html;
+      void embedSignatureImages(html, uploadInline).then((owned) => {
+        if (editorApi() === api) api.appendHtml(owned);
+      });
     } else {
       setBody((cur) => (cur.trim() !== '' ? `${cur}\n\n-- \n${sig.text}` : sig.text));
     }
@@ -1378,25 +1373,21 @@ export function Compose(props: {
             exactly what is left. Every group is three rows; a tab too narrow
             for its groups folds the lowest-priority ones into dropdowns. Hidden
             tabs stay mounted, so the security evaluation is always live. */}
-        <CollapsibleBar id="composerRibbon" revealPolicy="push" bar={ribbonMode} class="compose-ribbon" label={t('mail-compose-ribbon')} header={<ComposerRibbonTabs/>}>
-          <CaptureRibbonBar/>
-          <div class="compose-ribbon__content">
-          <div class="compose-ribbon__panel" data-ribbon-tab="format" hidden={ribbonTab()!=='format'} inert={ribbonTab()!=='format'}>
-            <RibbonPanel label={t('mail-compose-ribbon-format')}>
-              <RibbonSlot name="format" onTarget={setSlot('format')}/>
+        <EditorRibbon
+          state={ribbon}
+          visible={()=>richMode()&&!sourceMode()?['format','insert','table','security','delivery']:['format','insert','security','delivery']}
+          history={editorApi}
+          showHistory={()=>richMode()&&!sourceMode()}
+          tabs={[
+            {id:'format',after:()=><>
               <RibbonGroup label={t('mail-compose-ribbon-recipients')} priority={70} icon="users" testId="compose-group-recipients">
                 <RibbonItem><button type="button" class="btn btn--ghost" onClick={checkNames} data-tooltip={t('mail-compose-check-names-help')}><Icon name="check"/><span class="compose-rib__text">{t('mail-compose-check-names')}</span></button></RibbonItem>
                 <RibbonItem><button type="button" class="btn btn--ghost" data-testid="compose-show-cc-bcc" aria-pressed={ccBccOpen()} onClick={()=>setCcBccOpen(!ccBccOpen())}><Icon name="users"/><span class="compose-rib__text">{t('mail-compose-show-cc-bcc')}</span></button></RibbonItem>
                 <RibbonItem><button type="button" class="btn btn--ghost" aria-pressed={showFrom()} onClick={()=>setFromVisibleOverride(!showFrom())}><Icon name="mail"/><span class="compose-rib__text">{t('mail-compose-from')}</span></button></RibbonItem>
               </RibbonGroup>
-              {/* Above Paragraph: one narrow select that switches the body's mode, which users (and specs) need at any width. */}
-              <RibbonGroup label={t('mail-compose-ribbon-message-type')} priority={85} icon="mail" testId="compose-group-message-type">
-                <RibbonItem><select data-testid="format-toggle" aria-label={t('mail-compose-ribbon-message-type')} value={!richMode()?'plain':sourceMode()?'html':'rich'} onChange={event=>changeFormat(event.currentTarget.value)}><option value="plain">{t('mail-compose-format-plain')}</option><option value="rich">{t('mail-compose-format-rich')}</option><option value="html">{t('mail-compose-html-source')}</option></select></RibbonItem>
-              </RibbonGroup>
-            </RibbonPanel>
-          </div>
-          <div class="compose-ribbon__panel" data-ribbon-tab="insert" hidden={ribbonTab()!=='insert'} inert={ribbonTab()!=='insert'}>
-            <RibbonPanel label={t('mail-compose-ribbon-insert')}>
+              <BodyModeGroup label={t('mail-compose-ribbon-message-type')} value={()=>!richMode()?'plain':sourceMode()?'html':'rich'} onChange={changeFormat}/>
+            </>},
+            {id:'insert',before:()=><>
               {/* New-file attach (26.15 §1): pick a local file, upload its bytes to the
                   account's JMAP upload endpoint, and fold the returned blob into the
                   shared attachment list. Always available (core compose); the input is
@@ -1445,7 +1436,7 @@ export function Compose(props: {
                   {(message) => <RibbonItem><p class="login__error compose-rib__error" role="alert" data-tooltip={message()}>{message()}</p></RibbonItem>}
                 </Show>
               </RibbonGroup>
-              <RibbonSlot name="insert" onTarget={setSlot('insert')}/>
+            </>,after:()=><>
               <Show when={signatures().length > 0}>
                 <RibbonGroup label={t('mail-compose-signature')} priority={40} icon="edit" testId="compose-group-signature">
                   <RibbonItem><SignaturePicker signatures={signatures} onInsert={insertSignature} /></RibbonItem>
@@ -1479,15 +1470,9 @@ export function Compose(props: {
                   </RibbonItem>
                 </RibbonGroup>
               </Show>
-            </RibbonPanel>
-          </div>
-          <div class="compose-ribbon__panel" data-ribbon-tab="table" hidden={ribbonTab()!=='table'} inert={ribbonTab()!=='table'}>
-            <RibbonPanel label={t('mail-compose-ribbon-table')}>
-              <RibbonSlot name="table" onTarget={setSlot('table')}/>
-            </RibbonPanel>
-          </div>
-          <div class="compose-ribbon__panel" data-ribbon-tab="security" hidden={ribbonTab()!=='security'} inert={ribbonTab()!=='security'}>
-            <RibbonPanel label={t('mail-compose-ribbon-security')}>
+            </>},
+            {id:'table'},
+            {id:'security',before:()=><>
               {/* Crypto + DLP (plan §2.5): encrypt/sign toggles, the live E2EE/TLS/mixed
                   status from real per-recipient CryptoKey/lookup, and the Dlp/scan
                   pre-send warnings. Reports state up via onChange for the send path.
@@ -1551,10 +1536,8 @@ export function Compose(props: {
                   </Show>
                 </RibbonGroup>
               </Show>
-            </RibbonPanel>
-          </div>
-          <div class="compose-ribbon__panel" data-ribbon-tab="delivery" hidden={ribbonTab()!=='delivery'} inert={ribbonTab()!=='delivery'}>
-            <RibbonPanel label={t('mail-compose-ribbon-delivery')}>
+            </>},
+            {id:'delivery',before:()=><>
               <RibbonGroup label={t('mail-compose-ribbon-delivery')} priority={10} icon="sent" testId="compose-send-options">
                 <RibbonItem><label class="compose-rib__field"><span class="compose-rib__text">{t('mail-compose-importance')}</span><select value={importance()} onChange={event=>setImportance(event.currentTarget.value as 'high'|'normal'|'low')}><For each={['high','normal','low'] as const}>{value=><option value={value}>{t(`mail-compose-importance-${value}`)}</option>}</For></select></label></RibbonItem>
                 <RibbonItem>
@@ -1584,10 +1567,9 @@ export function Compose(props: {
                   onTracking={setTrackOpens}
                 />
               </RibbonGroup>
-            </RibbonPanel>
-          </div>
-          </div>
-        </CollapsibleBar>
+            </>},
+          ]}
+        />
         <div class="field field--grow">
           <Show when={richMode()} fallback={plainBody()}>
             {/* The editor chunk can FAIL to arrive, not just be slow — offline, or
@@ -1624,8 +1606,7 @@ export function Compose(props: {
               <Suspense fallback={plainBody()}>
                 <Show when={!sourceMode()} fallback={<HtmlSourceEditor initialHtml={bodyHtml()} externalText={body} owned={ownedCids} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
                   externalHistory
-                  ribbonSlots={slots}
-                  ribbonTab={()=>ribbonTab() === 'format' || ribbonTab() === 'insert' || ribbonTab() === 'table' ? ribbonTab() as 'format'|'insert'|'table' : null}
+                  ribbonSlots={ribbon.slots}
                   initialHtml={bodyHtml()}
                   externalText={body}
                   ariaLabel={t('mail-compose-body')}

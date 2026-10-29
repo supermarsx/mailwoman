@@ -1,8 +1,8 @@
-import {ComposerHistory} from './ComposerHistory.tsx';
 import {Portal} from 'solid-js/web';
 import {createAdvancedEditorTools} from './AdvancedEditorTools.tsx';
-import {RibbonGroup,RibbonItem,RibbonPanel} from '../bars/index.ts';
-import {InRibbonSlot,RibbonPopover,type RibbonSlotTarget} from './ribbonParts.tsx';
+import {RibbonGroup,RibbonItem} from '../bars/index.ts';
+import {EDITOR_TABS,EditorRibbon,createEditorRibbon,type EditorSlots,type EditorTab} from './EditorRibbon.tsx';
+import {InRibbonSlot,RibbonPopover} from './ribbonParts.tsx';
 import {EditorCounts} from './EditorCounts.tsx';
 import {documentCounts,tableLimitPlugin} from './richCommands.ts';
 import {tableEditing,goToNextCell} from 'prosemirror-tables';
@@ -28,8 +28,8 @@ import { keymap } from 'prosemirror-keymap';
 import { history, undo, redo, undoDepth, redoDepth, closeHistory } from 'prosemirror-history';
 import { wrapInList, splitListItem } from 'prosemirror-schema-list';
 import type { NodeType } from 'prosemirror-model';
-import { richSchema, docFromHtml, docFromText, htmlFromDoc, textFromDoc, COMPOSE_FONT_SIZES } from './richtext.ts';
-import { imageFiles } from './inlineImages.ts';
+import { richSchema, docFromHtml, docFromText, htmlFromDoc, textFromDoc, COMPOSE_FONT_SIZES, EMBEDDED_IMAGE } from './richtext.ts';
+import { imageFiles, INLINE_IMAGE_TYPES } from './inlineImages.ts';
 import { t } from '../../i18n/index.ts';
 import * as a11y from '../mailA11y.css.ts';
 import './richtext.css';
@@ -51,6 +51,7 @@ const nOrdered: NodeType = need(richSchema.nodes.ordered_list, 'ordered_list');
 const nQuote: NodeType = need(richSchema.nodes.blockquote, 'blockquote');
 const nListItem: NodeType = need(richSchema.nodes.list_item, 'list_item');
 const nImage: NodeType = need(richSchema.nodes.image, 'image');
+const nRule: NodeType = need(richSchema.nodes.horizontal_rule, 'horizontal_rule');
 
 /** Is `type` active in the current selection (so the toolbar button reads pressed)? */
 function markActive(state: EditorState, type: MarkType): boolean {
@@ -108,15 +109,31 @@ export interface InlineImageSupport {
   upload: (files: File[]) => Promise<{ cid: string; alt: string }[]>;
 }
 
+/** Images kept in the HTML itself as raster `data:` URLs (t49, the signature
+ *  editor: a signature has no uploads). `fits` says whether images adding
+ *  `bytes` of `data:` URL still fit the host's size limit. */
+export interface EmbeddedImageSupport {
+  fits: (bytes: number) => boolean;
+  /** An image was refused: not a raster type, or too large. */
+  refused: (reason: 'type' | 'size', name: string) => void;
+}
+
+/** The editor's ribbon groups, by tab: Format = clipboard, font, paragraph,
+ *  editing; Insert = insert, tableInsert; Table = table, tableShading. */
+export type EditorGroup = 'clipboard'|'font'|'paragraph'|'editing'|'insert'|'tableInsert'|'table'|'tableShading';
+
 export interface RichTextEditorProps {
   /** Initial HTML to seed the document (from the composer's `bodyHtml`). */
   initialHtml: string;
-  ribbonTab?: () => 'format'|'insert'|'table'|null;
+  /** The host's ribbon shows the undo/redo history (the editor's own ribbon then omits it). */
   externalHistory?: boolean;
-  /** One mount point for the editor's own tabbed ribbon; omitted by standalone editors. */
+  /** Where the editor's own ribbon goes when the host gives no `ribbonSlots`. */
   toolbarMount?: HTMLElement;
-  /** The composer ribbon's slots, one per tab (t38): the editor's groups join each tab's panel. */
-  ribbonSlots?: () => Partial<Record<'format'|'insert'|'table', RibbonSlotTarget>>;
+  /** The host's `EditorRibbon` slots, one per tab (t38, t49): the editor's groups join each
+   *  tab's panel. Without them the editor shows an `EditorRibbon` of its own. */
+  ribbonSlots?: () => EditorSlots;
+  /** Groups this host leaves out (the signature editor has no find and replace). */
+  omitGroups?: readonly EditorGroup[];
   /** External plain-text source (dictation / Assist) reconciled into the doc. */
   externalText?: () => string;
   /** Reports the serialized HTML + plain-text projection after every change. */
@@ -127,6 +144,8 @@ export interface RichTextEditorProps {
   onReady?: (api: RichTextApi) => void;
   /** Inline images; absent = the editor offers none and keeps none. */
   inline?: InlineImageSupport;
+  /** Embedded images instead of inline ones (the signature editor). */
+  embedded?: EmbeddedImageSupport;
 }
 
 export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
@@ -143,8 +162,8 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   const counts=createMemo(()=>{const doc=documentNode();return doc?documentCounts(doc):{words:0,paragraphs:0,characters:0};});
   const [linkOpen, setLinkOpen] = createSignal(false);
   const [linkUrl, setLinkUrl] = createSignal('');
-  const [localRibbonTab,setRibbonTab]=createSignal<'format'|'insert'|'table'>('format');
-  const ribbonTab=()=>props.ribbonTab ? props.ribbonTab() : localRibbonTab();
+  const has=(group:EditorGroup):boolean=>!(props.omitGroups??[]).includes(group);
+  const embedded=():boolean=>props.embedded!==undefined;
   function fontValue(name:string):string {
     const state=activeState();if(!state)return '';
     if(state.selection.empty)return String((state.storedMarks??state.selection.$from.marks()).find(mark=>mark.type.name===name)?.attrs['value']??'');
@@ -161,25 +180,47 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
     const dom = document.createElement('img');
     dom.className = 'compose-rt__img';
     dom.alt = node.attrs['alt'] as string;
-    dom.src = props.inline?.preview(node.attrs['cid'] as string) ?? '';
+    const src = node.attrs['src'] as string | null;
+    dom.src = src ?? props.inline?.preview(node.attrs['cid'] as string) ?? '';
     dom.dataset['cid'] = node.attrs['cid'] as string;
     return { dom };
   }
 
   /** Upload image files and place them at `pos` (default: the selection). */
   async function placeImages(files: File[], pos?: number): Promise<void> {
-    const support = props.inline;
-    if (support === undefined || files.length === 0) return;
-    const placed = await support.upload(files);
+    if (files.length === 0) return;
+    const placed: { cid?: string; src?: string; alt: string }[] = props.embedded !== undefined
+      ? await embedImages(props.embedded, files)
+      : props.inline !== undefined ? await props.inline.upload(files) : [];
     if (view === undefined || placed.length === 0) return;
     let tr = view.state.tr;
     for (const p of placed) {
-      const node = nImage.create({ cid: p.cid, alt: p.alt });
+      const node = nImage.create(p.src !== undefined ? { src: p.src, alt: p.alt } : { cid: p.cid, alt: p.alt });
       tr = pos !== undefined ? tr.insert(Math.min(pos, tr.doc.content.size), node) : tr.replaceSelectionWith(node);
       if (pos !== undefined) pos += node.nodeSize;
     }
     view.dispatch(tr);
     view.focus();
+  }
+
+  /** Read each raster file as a `data:` URL, while the host still has room for it. */
+  async function embedImages(support: EmbeddedImageSupport, files: File[]): Promise<{ src: string; alt: string }[]> {
+    const out: { src: string; alt: string }[] = [];
+    let used = 0;
+    for (const file of files) {
+      if (!INLINE_IMAGE_TYPES.has(file.type)) { support.refused('type', file.name); continue; }
+      const src = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(file);
+      });
+      if (!EMBEDDED_IMAGE.test(src)) { support.refused('type', file.name); continue; }
+      if (!support.fits(used + src.length)) { support.refused('size', file.name); continue; }
+      used += src.length;
+      out.push({ src, alt: file.name });
+    }
+    return out;
   }
 
   function emit(state: EditorState): void {
@@ -194,7 +235,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   onMount(() => {
     host.addEventListener('mailwoman:documentchange', updateDocumentRoot);
     const state = EditorState.create({
-      doc: docFromHtml(props.initialHtml, owned()),
+      doc: docFromHtml(props.initialHtml, owned(), embedded()),
       plugins: [
         history(),
         tableLimitPlugin(()=>setEditorError(t('mail-editor-table-limits'))),
@@ -232,14 +273,14 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
       // A pasted or dropped image file is uploaded and placed; pasted HTML is
       // parsed under the schema, which keeps no image it does not own.
       handlePaste(_view, event) {
-        const files = props.inline !== undefined ? imageFiles(event.clipboardData) : [];
+        const files = props.inline !== undefined || embedded() ? imageFiles(event.clipboardData) : [];
         if (files.length === 0) return false;
         event.preventDefault();
         void placeImages(files);
         return true;
       },
       handleDrop(v, event) {
-        const files = props.inline !== undefined ? imageFiles(event.dataTransfer) : [];
+        const files = props.inline !== undefined || embedded() ? imageFiles(event.dataTransfer) : [];
         if (files.length === 0) return false;
         event.preventDefault();
         const at = v.posAtCoords({ left: event.clientX, top: event.clientY });
@@ -253,7 +294,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
       undo:()=>run(undo),redo:()=>run(redo),historyDepth:()=>{const state=activeState();return {undo:state?undoDepth(state):0,redo:state?redoDepth(state):0};},
       appendHtml(html: string): void {
         if (view === undefined) return;
-        const frag = docFromHtml(html).content;
+        const frag = docFromHtml(html, owned(), embedded()).content;
         const next = view.state.apply(view.state.tr.insert(view.state.doc.content.size, frag));
         view.updateState(next);
         emit(next);
@@ -261,7 +302,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
       },
       setHtml(html: string): void {
         if (view === undefined) return;
-        const next = EditorState.create({ doc: docFromHtml(html, owned()), plugins: view.state.plugins });
+        const next = EditorState.create({ doc: docFromHtml(html, owned(), embedded()), plugins: view.state.plugins });
         view.updateState(next);
         emit(next);
       },
@@ -323,31 +364,34 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
 
   // The Format tab: Clipboard, Font, Paragraph and Editing, each exactly three rows (t38 §2.2).
   const formatGroups=():JSX.Element=><>
-    <RibbonGroup label={t('mail-compose-group-clipboard')} priority={100} icon="paste" testId="rt-group-clipboard">
+    <Show when={has('clipboard')}><RibbonGroup label={t('mail-compose-group-clipboard')} priority={100} icon="paste" testId="rt-group-clipboard">
       <RibbonItem size="large">{tools.paste()}</RibbonItem>
       <RibbonItem>{tools.cut()}</RibbonItem><RibbonItem>{tools.copy()}</RibbonItem><RibbonItem>{tools.copyFormat()}</RibbonItem><RibbonItem>{tools.applyFormat()}</RibbonItem>
-    </RibbonGroup>
-    <RibbonGroup label={t('mail-compose-font')} priority={90} icon="bold" testId="rt-group-font">
+    </RibbonGroup></Show>
+    <Show when={has('font')}><RibbonGroup label={t('mail-compose-font')} priority={90} icon="bold" testId="rt-group-font">
       <RibbonItem>{row(
         <select class="compose-rib__font" aria-label={t('mail-compose-font')} data-tooltip={t('mail-compose-font')} value={fontValue('fontFamily')} onChange={event=>setTextStyle('fontFamily',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSER_FONTS}>{font=><option value={font.stack}>{font.label}</option>}</For></select>,
         <select class="compose-rib__size" aria-label={t('mail-compose-font-size')} data-tooltip={t('mail-compose-font-size')} value={fontValue('fontSize')} onChange={event=>setTextStyle('fontSize',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSE_FONT_SIZES}>{size=><option value={`${size}pt`}>{size} pt</option>}</For></select>,
       )}</RibbonItem>
       <RibbonItem>{row(<For each={MARK_BUTTONS}>{markButton}</For>,tools.changeCase())}</RibbonItem>
       <RibbonItem>{row(tools.textColor(),tools.clearColor(),tools.highlight(),tools.clearHighlight())}</RibbonItem>
-    </RibbonGroup>
-    <RibbonGroup label={t('mail-compose-group-paragraph')} priority={80} icon="paragraph" testId="rt-group-paragraph">
+    </RibbonGroup></Show>
+    <Show when={has('paragraph')}><RibbonGroup label={t('mail-compose-group-paragraph')} priority={80} icon="paragraph" testId="rt-group-paragraph">
       <RibbonItem>{row(<For each={BLOCK_BUTTONS}>{markButton}</For>,tools.sort())}</RibbonItem>
       <RibbonItem>{tools.style()}</RibbonItem>
       <RibbonItem>{row(tools.markers(),tools.paragraphOptions())}</RibbonItem>
-    </RibbonGroup>
-    <RibbonGroup label={t('mail-compose-group-editing')} priority={45} icon="search" testId="rt-group-editing">
+    </RibbonGroup></Show>
+    <Show when={has('editing')}><RibbonGroup label={t('mail-compose-group-editing')} priority={45} icon="search" testId="rt-group-editing">
       <RibbonItem>{tools.findReplace()}</RibbonItem><RibbonItem>{tools.selectAll()}</RibbonItem><RibbonItem>{tools.clearSelection()}</RibbonItem>
-    </RibbonGroup>
+    </RibbonGroup></Show>
   </>;
 
-  // The Insert tab: a link and an image, and a new table.
+  /** Put a horizontal rule at the selection. */
+  const insertRule:Command=(state,dispatch)=>{dispatch?.(state.tr.replaceSelectionWith(nRule.create()).scrollIntoView());return true;};
+
+  // The Insert tab: a link, an image (inline or embedded), a horizontal rule, and a new table.
   const insertGroups=():JSX.Element=><>
-    <RibbonGroup label={t('mail-compose-ribbon-insert')} priority={50} icon="link" testId="rt-group-insert">
+    <Show when={has('insert')}><RibbonGroup label={t('mail-compose-ribbon-insert')} priority={50} icon="link" testId="rt-group-insert">
       <RibbonItem>
         <RibbonPopover label={t('mail-compose-rt-link')} icon="link" keepSelection buttonClass={`compose-rt__btn ${a11y.focusable}`} buttonTestId="rt-link" open={linkOpen()} onOpenChange={setLinkOpen}>
           <div class="compose-rt__link" data-testid="rt-link-row">
@@ -356,7 +400,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
           </div>
         </RibbonPopover>
       </RibbonItem>
-      <Show when={props.inline !== undefined}>
+      <Show when={props.inline !== undefined || embedded()}>
         <RibbonItem>
           <label class={`compose-rt__btn ${a11y.focusable}`} title={t('mail-compose-rt-image')} data-testid="rt-image">
             <span aria-hidden="true"><Icon name="image"/></span><span class="compose-rib__text" aria-hidden="true">{t('mail-compose-rt-image')}</span>
@@ -364,37 +408,35 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
           </label>
         </RibbonItem>
       </Show>
-    </RibbonGroup>
-    <RibbonGroup label={t('mail-compose-ribbon-table')} priority={30} icon="table" testId="rt-group-table-insert">
+      <RibbonItem>
+        <button type="button" class={`compose-rt__btn ${a11y.focusable}`} data-testid="rt-rule" data-tooltip={t('mail-compose-rt-rule')} onMouseDown={e=>e.preventDefault()} onClick={()=>run(insertRule)}><Icon name="minus"/><span class="compose-rib__text">{t('mail-compose-rt-rule')}</span></button>
+      </RibbonItem>
+    </RibbonGroup></Show>
+    <Show when={has('tableInsert')}><RibbonGroup label={t('mail-compose-ribbon-table')} priority={30} icon="table" testId="rt-group-table-insert">
       <RibbonItem>{tools.tableRows()}</RibbonItem><RibbonItem>{tools.tableColumns()}</RibbonItem><RibbonItem>{tools.insertTable()}</RibbonItem>
-    </RibbonGroup>
+    </RibbonGroup></Show>
   </>;
 
   // The Table tab: the structure commands, then the cell shading (which folds first).
   const tableGroups=():JSX.Element=><>
-    <RibbonGroup label={t('mail-compose-ribbon-table')} priority={30} icon="table" testId="rt-group-table">
+    <Show when={has('table')}><RibbonGroup label={t('mail-compose-ribbon-table')} priority={30} icon="table" testId="rt-group-table">
       <For each={tools.tableActionList}>{([name,command])=><RibbonItem>{tools.tableAction(name,command)}</RibbonItem>}</For>
-    </RibbonGroup>
-    <RibbonGroup label={t('mail-editor-table-shading')} priority={25} icon="paint" testId="rt-group-table-shading">
+    </RibbonGroup></Show>
+    <Show when={has('tableShading')}><RibbonGroup label={t('mail-editor-table-shading')} priority={25} icon="paint" testId="rt-group-table-shading">
       <RibbonItem>{tools.tableShading()}</RibbonItem><RibbonItem>{tools.clearTableShading()}</RibbonItem>
-    </RibbonGroup>
+    </RibbonGroup></Show>
   </>;
 
-  const groupsFor=(tab:'format'|'insert'|'table'):JSX.Element=>tab==='format'?formatGroups():tab==='insert'?insertGroups():tableGroups();
+  const groupsFor=(tab:EditorTab):JSX.Element=>tab==='format'?formatGroups():tab==='insert'?insertGroups():tableGroups();
 
-  // Standalone (the signature editor) or one mount point: the editor's own tabs over one ribbon panel.
-  const chrome=():JSX.Element=>(
-    <div class="compose-rt__chrome" data-detached-local><Show when={!props.externalHistory}><ComposerHistory api={editorApi()}/></Show>
-      <Show when={!props.ribbonTab}><div data-detached-local class="compose-rt__tabs" role="tablist" aria-label={t('mail-compose-ribbon')}><For each={['format','insert','table'] as const}>{tab=><button type="button" role="tab" aria-selected={ribbonTab()===tab} onClick={()=>setRibbonTab(tab)}>{t(`mail-compose-ribbon-${tab}`)}</button>}</For></div></Show>
-      <Show when={ribbonTab()} keyed>{tab=><RibbonPanel label={t(`mail-compose-ribbon-${tab}`)} class="compose-rt__ribbon">{groupsFor(tab)}</RibbonPanel>}</Show>
-    </div>
-  );
-  const slots=()=>props.ribbonSlots?.();
+  // Without a host ribbon, the editor shows the same `EditorRibbon` of its own (editor tabs only).
+  const own=props.ribbonSlots===undefined?createEditorRibbon():undefined;
+  const slots=():EditorSlots=>props.ribbonSlots?.()??own?.slots()??{};
+  const ownRibbon=(state:NonNullable<typeof own>):JSX.Element=><EditorRibbon state={state} tabs={EDITOR_TABS.map(id=>({id}))} visible={()=>EDITOR_TABS} history={editorApi} showHistory={()=>!props.externalHistory}/>;
   return (
     <div class="compose-rt" data-testid="compose-rt" data-markers={markers()}>
-      <Show when={props.ribbonSlots} fallback={<Show when={props.toolbarMount} fallback={chrome()}>{mount=><Portal mount={mount()}>{chrome()}</Portal>}</Show>}>
-        <For each={['format','insert','table'] as const}>{tab=><Show when={slots()?.[tab]} keyed>{target=><InRibbonSlot target={target}>{groupsFor(tab)}</InRibbonSlot>}</Show>}</For>
-      </Show>
+      <Show when={own}>{state=><Show when={props.toolbarMount} fallback={ownRibbon(state())}>{mount=><Portal mount={mount()}>{ownRibbon(state())}</Portal>}</Show>}</Show>
+      <For each={EDITOR_TABS}>{tab=><Show when={slots()[tab]} keyed>{target=><InRibbonSlot target={target}>{groupsFor(tab)}</InRibbonSlot>}</Show>}</For>
       <div class="compose-rt__surface" data-zoom={zoom()} ref={host} />
       <Show when={editorError()}><p class="compose-rt__error" role="alert">{editorError()}</p></Show>
       <div class="compose-rt__footer" data-detached-local><EditorCounts counts={counts()}/><label>{t('mail-editor-zoom')}<select aria-label={t('mail-editor-zoom')} value={zoom()} onChange={event=>setZoom(Number(event.currentTarget.value))}><For each={[75,100,125,150,200]}>{value=><option value={value}>{value}%</option>}</For></select></label></div>

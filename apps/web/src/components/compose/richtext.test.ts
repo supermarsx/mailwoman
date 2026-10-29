@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
+  docFromElement,
   docFromHtml,
+  hydrateInlineStyles,
+  styleDeclarations,
   docFromText,
   htmlFromDoc,
   htmlToText,
@@ -122,5 +125,41 @@ describe('richtext serialization (W1)', () => {
     for (const text of ['line1\nline2', 'a\n\nb', 'single', '', 'x\ny\n\nz']) {
       expect(textFromDoc(docFromText(text))).toBe(text);
     }
+  });
+});
+
+describe('embedded signature images (t49)', () => {
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  it('keeps a raster data: image only when asked, and serialises it unchanged', () => {
+    const html = `<p>Hi <img src="${PNG}" alt="logo"></p>`;
+    expect(htmlFromDoc(docFromHtml(html))).toBe('<p>Hi</p>');
+    expect(htmlFromDoc(docFromHtml(html, undefined, true))).toBe(`<p>Hi <img src="${PNG}" alt="logo"></p>`);
+  });
+  it('drops SVG, non-base64 and remote images even when embedded images are kept', () => {
+    for (const src of ['data:image/svg+xml;base64,PHN2Zy8+', 'data:image/png,raw', 'https://x.example/a.png', 'data:text/html;base64,PGI+']) {
+      expect(htmlFromDoc(docFromHtml(`<p>a<img src="${src}"></p>`, undefined, true))).toBe('<p>a</p>');
+    }
+  });
+});
+
+describe('inline styles under a strict CSP (t49)', () => {
+  it('splits declarations outside quotes and brackets', () => {
+    expect(styleDeclarations('color:rgb(1, 2, 3);font-family:Georgia, "A;B", serif ; margin: 0 !important;bad')).toEqual([
+      ['color', 'rgb(1, 2, 3)', ''],
+      ['font-family', 'Georgia, "A;B", serif', ''],
+      ['margin', '0', 'important'],
+    ]);
+  });
+  it('applies a style attribute the browser left unapplied, so formatting survives the parse', () => {
+    const root = inertBody('<p><span>x</span></p>');
+    const span = root.querySelector('span')!;
+    // What Chromium does under style-src 'self': the attribute is kept, the style is not applied.
+    span.setAttribute('data-style', 'color:rgb(31, 78, 121);font-family:Georgia, "Times New Roman", serif');
+    Object.defineProperty(span, 'getAttribute', { value: (n: string) => (n === 'style' ? span.dataset['style'] : null) });
+    span.setAttribute('style', '');
+    expect(span.style.length).toBe(0);
+    hydrateInlineStyles(root);
+    expect(span.style.color).toBe('rgb(31, 78, 121)');
+    expect(htmlFromDoc(docFromElement(root))).toContain('font-family');
   });
 });

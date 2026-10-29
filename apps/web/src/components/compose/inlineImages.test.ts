@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { inlineAttachments, inlineRefusal, newCid, referencedCids } from './inlineImages.ts';
+import { embedSignatureImages, embeddedImageFile, embeddedImageSources, inlineAttachments, inlineRefusal, newCid, referencedCids } from './inlineImages.ts';
 
 const img = (cid: string): { cid: string; blobId: string; type: string; name: string; size: number } => ({
   cid,
@@ -38,5 +38,22 @@ describe('inline images (t29-e12)', () => {
       { blobId: 'b-a', cid: 'a', disposition: 'inline', type: 'image/png', name: 'a.png' },
     ]);
     expect(inlineAttachments([img('a')], [])).toEqual([]);
+  });
+});
+
+describe('embedded signature images (t49)', () => {
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  it('lists each raster data: source once and decodes it to a file of its type', () => {
+    const html = `<p><img src="${PNG}" alt="a"><img src="${PNG}" alt="b"><img src="data:image/svg+xml;base64,PHN2Zy8+"></p>`;
+    expect(embeddedImageSources(html)).toEqual([PNG]);
+    const file = embeddedImageFile(PNG, 'logo.png')!;
+    expect(file.type).toBe('image/png');
+    expect(file.size).toBe(70);
+    expect(embeddedImageFile('data:image/svg+xml;base64,PHN2Zy8+', 'x.svg')).toBeNull();
+  });
+  it('replaces every use of an uploaded image with its cid, and leaves a failed one', async () => {
+    const html = `<p><img src="${PNG}" alt="a"></p><p><img src="${PNG}" alt="b"></p>`;
+    expect(await embedSignatureImages(html, async () => [{ cid: 'c1@mailwoman' }])).toBe('<p><img src="cid:c1@mailwoman" alt="a"></p><p><img src="cid:c1@mailwoman" alt="b"></p>');
+    expect(await embedSignatureImages(html, async () => [])).toBe(html);
   });
 });

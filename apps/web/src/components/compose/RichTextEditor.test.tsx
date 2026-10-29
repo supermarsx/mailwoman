@@ -10,7 +10,7 @@ describe('RichTextEditor (W1)', () => {
     let html='';render(()=><RichTextEditor initialHtml="<p>Keep this</p>" ariaLabel="Body" onChange={value=>html=value}/>);
     expect(screen.getByLabelText('Font size')).toBeVisible();
     fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
-    expect(screen.getByTestId('rt-link')).toBeVisible();expect(screen.queryByLabelText('Font size')).toBeNull();
+    expect(screen.getByTestId('rt-link')).toBeVisible();expect(screen.getByLabelText('Font size')).not.toBeVisible();
     expect(html).toBe('<p>Keep this</p>');
   });
   it('mounts an editable region with the given accessible name', () => {

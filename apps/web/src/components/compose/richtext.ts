@@ -25,6 +25,12 @@ import {COMPOSER_FONTS,normalizeComposerFont} from './fontCatalog.ts';
 // a remote URL, `data:`, a `cid:` the draft does not own, or any image at all
 // when no set is given — is dropped at parse. Quoted originals are parsed under
 // `quoteSchema`, which has no image node at all.
+//
+// Embedded images (t49): a signature has no upload of its own, so its images
+// live in its HTML as `data:` URLs of a raster type (`EMBEDDED_IMAGE`). Only a
+// parse asked for them (`docFromHtml(html, owned, true)`, the signature editor)
+// keeps one; the composer turns each into an uploaded `cid:` image of its draft
+// before the signature enters the body (`inlineImages.ts`).
 
 import {
   Schema,
@@ -51,9 +57,10 @@ const image: NodeSpec = {
   inline: true,
   group: 'inline',
   draggable: true,
-  attrs: { cid: {}, alt: { default: '' } },
+  attrs: { cid: { default: '' }, alt: { default: '' }, src: { default: null } },
   toDOM(node) {
-    return ['img', { src: `cid:${node.attrs['cid'] as string}`, alt: node.attrs['alt'] as string }];
+    const embedded = node.attrs['src'] as string | null;
+    return ['img', { src: embedded ?? `cid:${node.attrs['cid'] as string}`, alt: node.attrs['alt'] as string }];
   },
 };
 
@@ -135,6 +142,22 @@ function ownedImageRule(owned: ReadonlySet<string>): TagParseRule {
   };
 }
 
+/** A `data:` URL of a raster image type, base64-encoded: the one embedded image
+ *  form a signature keeps. SVG is not raster and can carry script. Mirrors
+ *  `mw_sanitize::sanitize_signature_html`. */
+export const EMBEDDED_IMAGE = /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+/** The parse rule that keeps an `<img src="data:image/...;base64,...">`. */
+const embeddedImageRule: TagParseRule = {
+  tag: 'img[src]',
+  node: 'image',
+  getAttrs(dom: HTMLElement) {
+    const src = (dom.getAttribute('src') ?? '').trim();
+    if (!EMBEDDED_IMAGE.test(src)) return false;
+    return { src, alt: dom.getAttribute('alt') ?? '' };
+  },
+};
+
 /** True only where a real DOM (browser or jsdom) is available for (de)serialization. */
 function hasDom(): boolean {
   return typeof document !== 'undefined';
@@ -157,26 +180,93 @@ export function htmlFromDoc(doc: PMNode): string {
  * `<img src>` in it, attached or not.
  */
 export function inertBody(html: string): HTMLElement {
-  return new window.DOMParser().parseFromString(html, 'text/html').body;
+  const body = new window.DOMParser().parseFromString(html, 'text/html').body;
+  hydrateInlineStyles(body);
+  return body;
+}
+
+/** The `prop: value` declarations of a `style` attribute, split on `;` outside quotes and brackets. */
+export function styleDeclarations(text: string): [string, string, string][] {
+  const out: [string, string, string][] = [];
+  let current = '';
+  let quote = '';
+  let depth = 0;
+  const flush = (): void => {
+    const colon = current.indexOf(':');
+    if (colon > 0) {
+      const name = current.slice(0, colon).trim().toLowerCase();
+      let value = current.slice(colon + 1).trim();
+      const important = /!\s*important$/i.test(value);
+      if (important) value = value.replace(/!\s*important$/i, '').trim();
+      if (/^-?[a-z][a-z0-9-]*$/.test(name) && value !== '') out.push([name, value, important ? 'important' : '']);
+    }
+    current = '';
+  };
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (quote !== '') {
+      current += ch;
+      if (ch === '\\' && i + 1 < text.length) current += text[++i]!;
+      else if (ch === quote) quote = '';
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+    } else if (ch === '(') {
+      depth++;
+      current += ch;
+    } else if (ch === ')') {
+      depth = Math.max(0, depth - 1);
+      current += ch;
+    } else if (ch === ';' && depth === 0) {
+      flush();
+    } else {
+      current += ch;
+    }
+  }
+  flush();
+  return out;
+}
+
+/**
+ * Under the production CSP (`style-src 'self'`, t49), Chromium does not apply a
+ * `style` attribute that arrives in parsed markup, so `element.style` is empty
+ * and every style parse rule (font, size, colour, paragraph format) would drop
+ * its formatting on load. Setting the same declarations through the CSSOM is
+ * allowed, so the attribute's text is applied that way before the parse. The
+ * schema's rules still decide what is kept.
+ */
+export function hydrateInlineStyles(root: HTMLElement): void {
+  for (const element of Array.from(root.querySelectorAll<HTMLElement>('[style]'))) {
+    if (element.style.length > 0) continue;
+    for (const [name, value, priority] of styleDeclarations(element.getAttribute('style') ?? '')) {
+      element.style.setProperty(name, value, priority);
+    }
+  }
 }
 
 /** Parse an element's content into a ProseMirror document under the composer
  *  schema. `owned` is the set of Content-IDs this draft uploaded; an image is
- *  kept only when its `cid:` names one of them. */
-export function docFromElement(root: HTMLElement, owned?: ReadonlySet<string>): PMNode {
+ *  kept only when its `cid:` names one of them. `embedded` also keeps raster
+ *  `data:` images (`EMBEDDED_IMAGE`; the signature editor only). */
+export function docFromElement(root: HTMLElement, owned?: ReadonlySet<string>, embedded = false): PMNode {
+  hydrateInlineStyles(root);
   boundTableHtml(root);
-  if (owned === undefined || owned.size === 0) return DOMParser.fromSchema(richSchema).parse(root);
-  return new DOMParser(richSchema, [ownedImageRule(owned), ...DOMParser.fromSchema(richSchema).rules]).parse(root);
+  const extra: TagParseRule[] = [];
+  if (owned !== undefined && owned.size > 0) extra.push(ownedImageRule(owned));
+  if (embedded) extra.push(embeddedImageRule);
+  if (extra.length === 0) return DOMParser.fromSchema(richSchema).parse(root);
+  return new DOMParser(richSchema, [...extra, ...DOMParser.fromSchema(richSchema).rules]).parse(root);
 }
 
 /** Parse an HTML string into a ProseMirror document under the composer schema
- *  (`owned` as in `docFromElement`). */
-export function docFromHtml(html: string, owned?: ReadonlySet<string>): PMNode {
-  return docFromElement(inertBody(html), owned);
+ *  (`owned` and `embedded` as in `docFromElement`). */
+export function docFromHtml(html: string, owned?: ReadonlySet<string>, embedded = false): PMNode {
+  return docFromElement(inertBody(html), owned, embedded);
 }
 
 /** Parse a quoted original's content under `quoteSchema` (no images). */
 export function quoteDocFromElement(root: HTMLElement): PMNode {
+  hydrateInlineStyles(root);
   boundTableHtml(root);
   return DOMParser.fromSchema(quoteSchema).parse(root);
 }
