@@ -3258,6 +3258,15 @@ async fn jmap_api(
             )
             .await;
         }
+        for rights in alerts::delegation_grants(&request, &response) {
+            alerts::emit(
+                &state,
+                &session.account_id,
+                alerts::AlertKind::DelegateAdded,
+                json!({ "rights": rights }),
+            )
+            .await;
+        }
         return Json(response).into_response();
     }
     let mut deferred_sieve_errors = Vec::new();

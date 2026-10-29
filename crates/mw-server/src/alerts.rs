@@ -10,9 +10,6 @@
 //! Delivery runs with a bounded timeout; refusal retains the durable activity
 //! event. The engine refresh publishes its ordinary mail change notification.
 
-// `emit` is called by the events that raise alerts as their lanes land.
-#![allow(dead_code)]
-
 use serde_json::{Value, json};
 
 use crate::AppState;
@@ -39,6 +36,7 @@ pub enum AlertKind {
 }
 
 impl AlertKind {
+    #[cfg(test)]
     pub const ALL: [AlertKind; 6] = [
         AlertKind::NewDevice,
         AlertKind::TwoFactorChanged,
@@ -102,6 +100,45 @@ pub(crate) async fn emit(
         }
     });
     id
+}
+
+/// The mailbox grants one JMAP exchange made: for each `MailboxRights/set` call
+/// that gave an identifier rights (a non-empty `rights`; null revokes and `""`
+/// clears) and was answered with `updated`, the rights granted. Feeds
+/// [`AlertKind::DelegateAdded`]; the identifier is not returned, so the alert
+/// never names the delegate.
+pub(crate) fn delegation_grants(request: &Value, response: &Value) -> Vec<String> {
+    let Some(calls) = request.get("methodCalls").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let answers = response
+        .get("methodResponses")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    calls
+        .iter()
+        .filter(|call| call.get(0).and_then(Value::as_str) == Some("MailboxRights/set"))
+        .filter_map(|call| {
+            let rights = call.get(1)?.get("rights")?.as_str()?.trim();
+            if rights.is_empty() {
+                return None;
+            }
+            let id = call.get(2)?.as_str()?;
+            answers
+                .iter()
+                .any(|answer| {
+                    answer.get(0).and_then(Value::as_str) == Some("MailboxRights/set")
+                        && answer.get(2).and_then(Value::as_str) == Some(id)
+                        && answer
+                            .get(1)
+                            .and_then(|r| r.get("updated"))
+                            .and_then(Value::as_object)
+                            .is_some_and(|u| !u.is_empty())
+                })
+                .then(|| rights.to_string())
+        })
+        .collect()
 }
 
 fn message(notice: &crate::server_text::Notice) -> Vec<u8> {
@@ -277,6 +314,27 @@ mod tests {
         assert!(!raw.contains("upstream-secret"));
         assert!(raw.contains("Auto-Submitted: auto-generated"));
         task.abort();
+    }
+
+    #[test]
+    fn only_answered_grants_count_as_delegations() {
+        let request = json!({"methodCalls":[
+            ["MailboxRights/set",{"mailboxId":"m","identifier":"bob","rights":"lrs"},"grant"],
+            ["MailboxRights/set",{"mailboxId":"m","identifier":"eve","rights":"lr"},"refused"],
+            ["MailboxRights/set",{"mailboxId":"m","identifier":"bob"},"revoke"],
+            ["MailboxRights/set",{"mailboxId":"m","identifier":"bob","rights":""},"clear"],
+            ["Mailbox/get",{},"other"]
+        ]});
+        let response = json!({"methodResponses":[
+            ["MailboxRights/set",{"updated":{"bob":null}},"grant"],
+            ["MailboxRights/set",{"notUpdated":{"eve":{"type":"forbidden"}}},"refused"],
+            ["MailboxRights/set",{"updated":{"bob":null}},"revoke"],
+            ["MailboxRights/set",{"updated":{"bob":null}},"clear"],
+            ["Mailbox/get",{"list":[]},"other"]
+        ]});
+        assert_eq!(delegation_grants(&request, &response), ["lrs"]);
+        assert!(delegation_grants(&json!({}), &response).is_empty());
+        assert!(delegation_grants(&request, &json!({})).is_empty());
     }
 
     #[test]
