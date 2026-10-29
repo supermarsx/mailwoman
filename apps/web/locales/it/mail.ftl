@@ -69,11 +69,9 @@ mail-select-all = Seleziona tutto
 mail-clear-selection = Annulla selezione
 
 # -- Inbox tabs --------------------------------------------------------------
-mail-inbox-focused-enable = Posta in arrivo evidenziata
 mail-inbox-filter = Filtro posta in arrivo
 mail-inbox-focused = Evidenziata
 mail-inbox-other = Altro
-mail-inbox-turn-off = Disattiva
 
 # -- Sub-tab strip -----------------------------------------------------------
 mail-subtabs-label = Schede aperte

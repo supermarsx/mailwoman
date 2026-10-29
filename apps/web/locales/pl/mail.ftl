@@ -78,11 +78,9 @@ mail-select-all = Zaznacz wszystko
 mail-clear-selection = Wyczyść zaznaczenie
 
 # -- Inbox tabs --------------------------------------------------------------
-mail-inbox-focused-enable = Priorytetowe Odebrane
 mail-inbox-filter = Filtr folderu Odebrane
 mail-inbox-focused = Priorytetowe
 mail-inbox-other = Inne
-mail-inbox-turn-off = Wyłącz
 
 # -- Sub-tab strip -----------------------------------------------------------
 mail-subtabs-label = Otwarte karty

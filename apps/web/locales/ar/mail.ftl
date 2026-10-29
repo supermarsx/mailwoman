@@ -81,11 +81,9 @@ mail-select-all = تحديد الكل
 mail-clear-selection = إلغاء التحديد
 
 # -- Inbox tabs --------------------------------------------------------------
-mail-inbox-focused-enable = البريد الوارد المركّز
 mail-inbox-filter = عامل تصفية البريد الوارد
 mail-inbox-focused = المركّز
 mail-inbox-other = أخرى
-mail-inbox-turn-off = إيقاف
 
 # -- Sub-tab strip -----------------------------------------------------------
 mail-subtabs-label = علامات التبويب المفتوحة

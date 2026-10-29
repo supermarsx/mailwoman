@@ -17,7 +17,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   { id: 'mail', label: 'settings-category-mail', sections: [
     { id: 'reader', label: 'reader-settings-title', icon: 'eye', terms: 'message reading images layout dark mode' },
     { id: 'compose', label: 'settings-compose-title', icon: 'edit', terms: 'editor reply quote font signature recipients cc bcc draft' },
-    { id: 'folders', label: 'settings-folders-title', icon: 'folder', terms: 'sidebar mappings count pin order icons spam trash' },
+    { id: 'folders', label: 'settings-folders-title', icon: 'folder', terms: 'sidebar mappings count pin order icons spam trash focused inbox other tabs' },
     { id: 'labels', label: 'labels-title', icon: 'tag', terms: 'tags colour color' },
     { id: 'rules', label: 'settings-nav-rules', icon: 'policy', terms: 'filter automation sieve' },
     { id: 'searches', label: 'settings-search-title', icon: 'search', terms: 'search folder' },

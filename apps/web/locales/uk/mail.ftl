@@ -78,11 +78,9 @@ mail-select-all = Вибрати все
 mail-clear-selection = Скасувати вибір
 
 # -- Inbox tabs --------------------------------------------------------------
-mail-inbox-focused-enable = Пріоритетні вхідні
 mail-inbox-filter = Фільтр вхідних
 mail-inbox-focused = Пріоритетні
 mail-inbox-other = Інші
-mail-inbox-turn-off = Вимкнути
 
 # -- Sub-tab strip -----------------------------------------------------------
 mail-subtabs-label = Відкриті вкладки

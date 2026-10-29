@@ -2,16 +2,19 @@ import { Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t } from '../i18n/index.ts';
 import * as a11y from './mailA11y.css.ts';
+import * as css from './InboxTabs.css.ts';
 import { folderCountMode, listCount } from '../api/countBadges.ts';
 import type { Email } from '../api/jmap-types.ts';
 
-// The inbox header control (plan §1.5): the opt-in rules-based Focused inbox
-// (two tabs, Focused / Other). Focused mode is off by default so the list shows
-// every message; when on, `app.listMessages()` resolves to the focused/other
-// split by `app.inboxTab()`.
+// The Focused / Other tabs above the Inbox list (plan §1.5, t73). The Focused
+// inbox is the user preference `mail.focusedInbox`, off by default and turned on
+// or off in Settings > Folders and sidebar (an administrator can set the default
+// or lock it). While it is off, or another folder or a search is shown, this
+// renders nothing; while it is on, one slim segmented pair with counts, and
+// `app.listMessages()` resolves to the split chosen by `app.inboxTab()`.
 //
 // There is no Unified-inbox control: a session holds one account, so there is
-// nothing to unify. The checkbox that used to be here set a flag nothing read.
+// nothing to unify.
 
 export function InboxTabs(): JSX.Element {
   const app = useApp();
@@ -20,52 +23,35 @@ export function InboxTabs(): JSX.Element {
   const count = (messages: readonly Email[]): number | null =>
     listCount(folderCountMode(), messages.length, messages.filter((m) => m.keywords?.['$seen'] !== true).length);
 
+  const tab = (id: 'focused' | 'other', label: string, messages: () => readonly Email[]): JSX.Element => (
+    <button
+      type="button"
+      role="tab"
+      class={`${css.tab} inbox-tabs__tab ${a11y.focusable}`}
+      classList={{ 'inbox-tabs__tab--active': app.inboxTab() === id }}
+      aria-selected={app.inboxTab() === id}
+      tabIndex={app.inboxTab() === id ? 0 : -1}
+      data-testid={`inbox-tab-${id}`}
+      onClick={() => app.setInboxTab(id)}
+      onKeyDown={(e) => {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        e.preventDefault();
+        const next = id === 'focused' ? 'other' : 'focused';
+        app.setInboxTab(next);
+        (e.currentTarget.parentElement?.querySelector(`[data-testid="inbox-tab-${next}"]`) as HTMLElement | null)?.focus();
+      }}
+    >
+      {label}
+      <Show when={count(messages())}>{(n) => <span class="inbox-tabs__count">{n()}</span>}</Show>
+    </button>
+  );
+
   return (
-    <div class="inbox-tabs">
-      <Show
-        when={app.focusedInbox()}
-        fallback={
-          <button
-            type="button"
-            class={`btn btn--ghost inbox-tabs__enable ${a11y.focusable}`}
-            onClick={() => app.setFocusedInbox(true)}
-          >
-            {t('mail-inbox-focused-enable')}
-          </button>
-        }
-      >
-        <div class="inbox-tabs__row" role="tablist" aria-label={t('mail-inbox-filter')}>
-          <button
-            type="button"
-            role="tab"
-            class={`inbox-tabs__tab ${a11y.focusable}`}
-            classList={{ 'inbox-tabs__tab--active': app.inboxTab() === 'focused' }}
-            aria-selected={app.inboxTab() === 'focused'}
-            onClick={() => app.setInboxTab('focused')}
-          >
-            {t('mail-inbox-focused')}
-            <Show when={count(app.focusedMessages())}>{(n) => <span class="inbox-tabs__count">{n()}</span>}</Show>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            class={`inbox-tabs__tab ${a11y.focusable}`}
-            classList={{ 'inbox-tabs__tab--active': app.inboxTab() === 'other' }}
-            aria-selected={app.inboxTab() === 'other'}
-            onClick={() => app.setInboxTab('other')}
-          >
-            {t('mail-inbox-other')}
-            <Show when={count(app.otherMessages())}>{(n) => <span class="inbox-tabs__count">{n()}</span>}</Show>
-          </button>
-          <button
-            type="button"
-            class={`btn btn--ghost inbox-tabs__enable ${a11y.focusable}`}
-            onClick={() => app.setFocusedInbox(false)}
-          >
-            {t('mail-inbox-turn-off')}
-          </button>
-        </div>
-      </Show>
-    </div>
+    <Show when={app.focusedInboxShown()}>
+      <div class={`${css.row} inbox-tabs`} role="tablist" aria-label={t('mail-inbox-filter')} data-testid="inbox-tabs">
+        {tab('focused', t('mail-inbox-focused'), app.focusedMessages)}
+        {tab('other', t('mail-inbox-other'), app.otherMessages)}
+      </div>
+    </Show>
   );
 }

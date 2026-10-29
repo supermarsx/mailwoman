@@ -69,11 +69,9 @@ mail-select-all = Seleccionar todo
 mail-clear-selection = Borrar selección
 
 # -- Inbox tabs --------------------------------------------------------------
-mail-inbox-focused-enable = Bandeja prioritaria
 mail-inbox-filter = Filtro de la bandeja de entrada
 mail-inbox-focused = Prioritarios
 mail-inbox-other = Otros
-mail-inbox-turn-off = Desactivar
 
 # -- Sub-tab strip -----------------------------------------------------------
 mail-subtabs-label = Pestañas abiertas

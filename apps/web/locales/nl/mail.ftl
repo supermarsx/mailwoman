@@ -72,11 +72,9 @@ mail-select-all = Alles selecteren
 mail-clear-selection = Selectie opheffen
 
 # -- Inbox tabs --------------------------------------------------------------
-mail-inbox-focused-enable = Inbox met focus
 mail-inbox-filter = Inboxfilter
 mail-inbox-focused = Focus
 mail-inbox-other = Overig
-mail-inbox-turn-off = Uitzetten
 
 # -- Sub-tab strip -----------------------------------------------------------
 mail-subtabs-label = Geopende tabbladen

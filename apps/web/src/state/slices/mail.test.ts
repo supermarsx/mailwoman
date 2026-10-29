@@ -5,6 +5,7 @@ import { createRoot } from 'solid-js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createMailSlice, extractHtmlBody, type MailSlice } from './mail.ts';
+import { clearSettings, loadSettings, type Fetcher } from '../../api/settings.ts';
 import type { SliceContext } from './context.ts';
 import { isolate } from '../../i18n/index.ts';
 import { listDrafts, saveDraft } from '../../components/compose/drafts-store.ts';
@@ -292,18 +293,62 @@ describe('mail slice — focused / unified inbox', () => {
     });
   });
 
-  it('listMessages shows everything until focused mode is enabled', async () => {
+  it('listMessages shows everything until the mail.focusedInbox preference is on (t73)', async () => {
     const seed = [
       email('person', { from: [{ name: 'A Person', email: 'a@example.org' }] }),
       email('news', { from: [{ name: null, email: 'newsletter@shop.example' }] }),
     ];
-    await withInbox(seed, async (mail) => {
-      expect(mail.listMessages().map((m) => m.id)).toEqual(['person', 'news']);
-      mail.setFocusedInbox(true);
-      expect(mail.listMessages().map((m) => m.id)).toEqual(['person']);
-      mail.setInboxTab('other');
-      expect(mail.listMessages().map((m) => m.id)).toEqual(['news']);
+    const focused = (entry: Record<string, unknown> | null) => loadSettings({
+      refresh: true,
+      fetcher: (async () => new Response(JSON.stringify({ settings: entry ? { 'mail.focusedInbox': entry } : {} }), { status: 200 })) as Fetcher,
     });
+    try {
+      await withInbox(seed, async (mail) => {
+        expect(mail.focusedInbox()).toBe(false);
+        expect(mail.focusedInboxShown()).toBe(false);
+        expect(mail.listMessages().map((m) => m.id)).toEqual(['person', 'news']);
+        await focused({ value: false, source: 'default', locked: false });
+        expect(mail.listMessages().map((m) => m.id)).toEqual(['person', 'news']);
+        await focused({ value: true, source: 'user', locked: false });
+        expect(mail.focusedInboxShown()).toBe(true);
+        expect(mail.listMessages().map((m) => m.id)).toEqual(['person']);
+        mail.setInboxTab('other');
+        expect(mail.listMessages().map((m) => m.id)).toEqual(['news']);
+      });
+    } finally {
+      clearSettings();
+    }
+  });
+
+  it('setFocusedInbox stores the preference and does nothing while an administrator locks it (t73)', async () => {
+    const puts: Array<{ url: string; body: unknown }> = [];
+    const load = (locked: boolean) => loadSettings({
+      refresh: true,
+      fetcher: (async (url: string, init?: RequestInit) => {
+        if (init?.method === 'PUT') {
+          puts.push({ url, body: JSON.parse(String(init.body)) });
+          return new Response(JSON.stringify({ value: true, source: 'user', locked: false }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ settings: { 'mail.focusedInbox': { value: false, source: locked ? 'global' : 'default', locked } } }), { status: 200 });
+      }) as Fetcher,
+    });
+    try {
+      await withInbox([email('person')], async (mail) => {
+        await load(true);
+        mail.setFocusedInbox(true);
+        await Promise.resolve();
+        expect(puts).toEqual([]);
+        expect(mail.focusedInbox()).toBe(false);
+        await load(false);
+        mail.setFocusedInbox(true);
+        await vi.waitFor(() => expect(mail.focusedInbox()).toBe(true));
+        expect(puts).toHaveLength(1);
+        expect(puts[0]!.url).toMatch(/\/api\/settings\/mail\.focusedInbox$/);
+        expect(puts[0]!.body).toEqual({ value: true });
+      });
+    } finally {
+      clearSettings();
+    }
   });
 
   it('sender training overrides the heuristic', async () => {

@@ -66,11 +66,9 @@ mail-select-all = すべて選択
 mail-clear-selection = 選択を解除
 
 # -- Inbox tabs --------------------------------------------------------------
-mail-inbox-focused-enable = 優先受信トレイ
 mail-inbox-filter = 受信トレイのフィルター
 mail-inbox-focused = 優先
 mail-inbox-other = その他
-mail-inbox-turn-off = オフにする
 
 # -- Sub-tab strip -----------------------------------------------------------
 mail-subtabs-label = 開いているタブ

@@ -69,11 +69,9 @@ mail-select-all = Alle auswählen
 mail-clear-selection = Auswahl aufheben
 
 # -- Inbox tabs --------------------------------------------------------------
-mail-inbox-focused-enable = Relevanter Posteingang
 mail-inbox-filter = Posteingangsfilter
 mail-inbox-focused = Relevant
 mail-inbox-other = Sonstige
-mail-inbox-turn-off = Ausschalten
 
 # -- Sub-tab strip -----------------------------------------------------------
 mail-subtabs-label = Geöffnete Tabs

@@ -72,11 +72,9 @@ mail-select-all = Tout sélectionner
 mail-clear-selection = Désélectionner
 
 # -- Inbox tabs --------------------------------------------------------------
-mail-inbox-focused-enable = Boîte de réception Prioritaire
 mail-inbox-filter = Filtre de la boîte de réception
 mail-inbox-focused = Prioritaire
 mail-inbox-other = Autres
-mail-inbox-turn-off = Désactiver
 
 # -- Sub-tab strip -----------------------------------------------------------
 mail-subtabs-label = Onglets ouverts

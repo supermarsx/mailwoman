@@ -69,11 +69,9 @@ mail-select-all = 全选
 mail-clear-selection = 清除选择
 
 # -- Inbox tabs --------------------------------------------------------------
-mail-inbox-focused-enable = 重点收件箱
 mail-inbox-filter = 收件箱筛选
 mail-inbox-focused = 重点
 mail-inbox-other = 其他
-mail-inbox-turn-off = 关闭
 
 # -- Sub-tab strip -----------------------------------------------------------
 mail-subtabs-label = 已打开的标签页

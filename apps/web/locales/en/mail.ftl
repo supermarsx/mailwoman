@@ -77,11 +77,9 @@ mail-select-all = Select all
 mail-clear-selection = Clear selection
 
 # -- Inbox tabs --------------------------------------------------------------
-mail-inbox-focused-enable = Focused inbox
 mail-inbox-filter = Inbox filter
 mail-inbox-focused = Focused
 mail-inbox-other = Other
-mail-inbox-turn-off = Turn off
 
 # -- Sub-tab strip -----------------------------------------------------------
 mail-subtabs-label = Open tabs

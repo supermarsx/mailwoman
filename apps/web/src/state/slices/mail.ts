@@ -64,6 +64,7 @@ import { purgeShellCaches } from '../../sw/purge.ts';
 import { toast } from '../../components/toast/index.ts';
 import type { SliceContext } from './context.ts';
 import { currentMarkReadPolicy, decideMarkRead } from './readPolicy.ts';
+import { settings, writeSetting } from '../../api/settings.ts';
 
 /**
  * Rows fetched per page. The list used to request exactly this many ids and
@@ -255,9 +256,15 @@ export interface MailSlice {
   listMessages: Accessor<Email[]>;
   inboxTab: Accessor<InboxTab>;
   setInboxTab(tab: InboxTab): void;
-  /** Opt-in two-tab focused inbox (off by default so the list shows everything). */
+  /** Opt-in two-tab focused inbox, the user preference `mail.focusedInbox`
+   *  (off by default so the list shows everything; an administrator can set
+   *  the default or lock it). The split applies only while Inbox is open. */
   focusedInbox: Accessor<boolean>;
+  /** Store the preference (refused while an administrator locks it). */
   setFocusedInbox(on: boolean): void;
+  /** The preference is on, Inbox is open and no search is active: the list is
+   *  split and the header shows the Focused / Other tabs. */
+  focusedInboxShown: Accessor<boolean>;
 
   // ── V2 message mutations (each with a 10s undo) ──
   applyTag(id: Id, keyword: string): Promise<void>;
@@ -321,6 +328,9 @@ export interface MailSlice {
 function refusalReason(err: SetError): string {
   return typeof err.description === 'string' && err.description.length > 0 ? err.description : err.type;
 }
+
+/** The registry key of the Focused inbox preference (boolean, default off). */
+export const FOCUSED_INBOX_SETTING = 'mail.focusedInbox';
 
 function roleOf(mailboxes: Mailbox[], role: string): Id | null {
   return mailboxes.find((m) => m.role === role)?.id ?? null;
@@ -483,7 +493,13 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const jmapCall = client.jmap.bind(client);
 
   const [inboxTab, setInboxTab] = createSignal<InboxTab>('focused');
-  const [focusedInbox, setFocusedInbox] = createSignal(false);
+  // `mail.focusedInbox` lives in the shared settings map, so a change made in
+  // Settings (or a refreshed administrator default or lock) applies at once.
+  const focusedInbox = (): boolean => settings()[FOCUSED_INBOX_SETTING]?.value === true;
+  function setFocusedInbox(on: boolean): void {
+    if (settings()[FOCUSED_INBOX_SETTING]?.locked === true || focusedInbox() === on) return;
+    writeSetting(FOCUSED_INBOX_SETTING, on).catch(() => undefined);
+  }
   const [pendingUndo, setPendingUndo] = createSignal<PendingUndo | null>(null);
   const [training, setTraining] = createSignal<Record<string, InboxTab>>(loadMap(FOCUS_KEY));
   const [blocked, setBlocked] = createSignal<string[]>(loadList(BLOCK_KEY));
@@ -1228,8 +1244,12 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       .filter((m) => m.followUpAt != null)
       .sort((a, b) => (a.followUpAt ?? '').localeCompare(b.followUpAt ?? '')),
   );
+  // The Focused / Other split is an Inbox view: other folders and search
+  // results always list every message.
+  const focusedInboxShown = createMemo<boolean>(() =>
+    focusedInbox() && !searchActive() && mailboxes().find((m) => m.id === selectedMailboxId())?.role === 'inbox');
   const listMessages = createMemo<Email[]>(() => {
-    if (!focusedInbox()) return visibleMessages();
+    if (!focusedInboxShown()) return visibleMessages();
     return inboxTab() === 'focused' ? focusedMessages() : otherMessages();
   });
 
@@ -2018,6 +2038,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     setInboxTab,
     focusedInbox,
     setFocusedInbox,
+    focusedInboxShown,
 
     applyTag,
     tagMessages,
