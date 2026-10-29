@@ -15,8 +15,10 @@
 //!     still signs in under `twofa.passkeyLegacy = allow` (the default) and is
 //!     marked in the status; under `refuse` it is refused with
 //!     `passkeyPolicyLegacy`;
-//!   * the last-factor rule: `block` refuses, `requireRecoveryCodes` refuses
-//!     until recovery codes exist, `allow` (default) removes.
+//!   * the last-factor rule (t77): under `block` (and its t39-e6 alias
+//!     `requireRecoveryCodes`) or `twofa.required`, the last passkey or TOTP is
+//!     kept and the refusal audited, recovery codes or not; a removal that
+//!     leaves another factor goes through; `allow` (default) removes.
 //!
 //! Run: cargo test -p mw-server --test t39_passkey_policy -- --test-threads=1
 
@@ -532,37 +534,72 @@ async fn assertions_without_uv_are_refused_and_older_passkeys_are_grandfathered(
     );
 }
 
-#[tokio::test]
-async fn last_factor_removal_follows_the_recovery_policy() {
-    let s = spawn().await;
-    let c = client();
-    login(&s, &c).await;
+// ── the last-factor rule (t77: `block` keeps the last passkey or TOTP) ──────
+
+/// Write a confirmed TOTP secret straight into the store; returns it.
+async fn seed_totp(s: &Server) -> Vec<u8> {
     let secret = totp::generate_secret();
     s.store()
         .await
         .put_totp_secret(mw_mock_jmap::ACCOUNT_ID, &secret, true)
         .await
         .unwrap();
-    let code = totp::totp_at(&secret, now_unix(), &TotpParams::default());
-    step_up_password(&s, &c, Some(code)).await;
+    secret.to_vec()
+}
 
-    s.policy("twofa.lastFactorRemoval", "block").await;
-    let (status, body) = post(&c, s.url("/api/account/2fa/totp/disable"), json!({})).await;
-    assert_eq!(status, 409, "{body}");
-    assert_eq!(body["code"], "lastFactorBlocked");
+/// Step up with the password and a TOTP code.
+async fn step_up_totp(s: &Server, c: &reqwest::Client, secret: &[u8]) {
+    let code = totp::totp_at(secret, now_unix(), &TotpParams::default());
+    step_up_password(s, c, Some(code)).await;
+}
 
-    s.policy("twofa.lastFactorRemoval", "requireRecoveryCodes")
-        .await;
-    let (status, body) = post(&c, s.url("/api/account/2fa/totp/disable"), json!({})).await;
-    assert_eq!(status, 409, "{body}");
-    assert_eq!(body["code"], "lastFactorNeedsRecoveryCodes");
-    let status_json = get(&c, s.url("/api/account/2fa")).await;
-    assert_eq!(status_json["totp"], true, "nothing was removed");
-    assert_eq!(
-        status_json["passkeyPolicy"]["lastFactorRemoval"],
-        "requireRecoveryCodes"
-    );
+/// Step up with the password and a user-verified passkey assertion.
+async fn step_up_passkey(s: &Server, c: &reqwest::Client, key: &Authenticator, counter: u32) {
+    let (status, opts) = post(c, s.url("/api/security/step-up/passkey"), json!({})).await;
+    assert_eq!(status, 200, "step-up passkey begin: {opts}");
+    let challenge = unb64(opts["challenge"].as_str().unwrap());
+    let (status, out) = post(
+        c,
+        s.url("/api/security/step-up"),
+        json!({
+            "password": mw_mock_jmap::PASS,
+            "passkey": key.assert(s, &challenge, counter, UV),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "step-up passkey: {out}");
+}
 
+async fn passkey_handles(s: &Server, c: &reqwest::Client) -> Vec<String> {
+    get(c, s.url("/api/account/2fa")).await["passkeys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["handle"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// The handle the status lists for a seeded key (first 8 bytes of
+/// SHA-256 over its base64url credential id, hex).
+fn handle_of(key: &Authenticator) -> String {
+    let d = Sha256::digest(b64url(&key.id).as_bytes());
+    d[..8].iter().map(|b| format!("{b:02x}")).collect()
+}
+
+async fn refusal_reasons(s: &Server) -> Vec<(Value, Value)> {
+    s.refusals()
+        .await
+        .iter()
+        .map(|d| (d["flow"].clone(), d["reason"].clone()))
+        .collect()
+}
+
+#[tokio::test]
+async fn block_keeps_the_last_totp_even_with_recovery_codes() {
+    let s = spawn().await;
+    let c = client();
+    login(&s, &c).await;
+    let secret = seed_totp(&s).await;
     s.store()
         .await
         .add_recovery_codes(
@@ -571,25 +608,175 @@ async fn last_factor_removal_follows_the_recovery_policy() {
         )
         .await
         .unwrap();
-    let (status, body) = post(&c, s.url("/api/account/2fa/totp/disable"), json!({})).await;
-    assert_eq!(status, 200, "{body}");
+    step_up_totp(&s, &c, &secret).await;
+    s.policy("twofa.lastFactorRemoval", "block").await;
 
-    let reasons: Vec<(Value, Value)> = s
-        .refusals()
-        .await
-        .iter()
-        .map(|d| (d["flow"].clone(), d["reason"].clone()))
-        .collect();
+    let (status, body) = post(&c, s.url("/api/account/2fa/totp/disable"), json!({})).await;
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["code"], "lastFactorBlocked");
+    // Fresh recovery codes do not make the removal possible.
+    let (status, body) = post(&c, s.url("/api/account/2fa/recovery/regenerate"), json!({})).await;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post(&c, s.url("/api/account/2fa/totp/disable"), json!({})).await;
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["code"], "lastFactorBlocked");
+
+    let status_json = get(&c, s.url("/api/account/2fa")).await;
+    assert_eq!(status_json["totp"], true, "nothing was removed");
+    assert_eq!(status_json["passkeyPolicy"]["lastFactorRemoval"], "block");
     assert_eq!(
-        reasons,
+        refusal_reasons(&s).await,
         vec![
             (json!("last-factor-removal"), json!("lastFactorBlocked")),
-            (
-                json!("last-factor-removal"),
-                json!("lastFactorNeedsRecoveryCodes")
-            ),
+            (json!("last-factor-removal"), json!("lastFactorBlocked")),
         ]
     );
+}
+
+#[tokio::test]
+async fn the_t39_e6_value_require_recovery_codes_now_blocks() {
+    let s = spawn().await;
+    let c = client();
+    login(&s, &c).await;
+    let secret = seed_totp(&s).await;
+    s.store()
+        .await
+        .add_recovery_codes(
+            mw_mock_jmap::ACCOUNT_ID,
+            &[mw_mfa::recovery::hash_code("abcd-efgh-ijkl")],
+        )
+        .await
+        .unwrap();
+    step_up_totp(&s, &c, &secret).await;
+    // A row written before t77 that migration 0074 did not rewrite (for
+    // example a restored backup) still refuses: the server reads it as `block`.
+    s.policy("twofa.lastFactorRemoval", "requireRecoveryCodes")
+        .await;
+    let (status, body) = post(&c, s.url("/api/account/2fa/totp/disable"), json!({})).await;
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["code"], "lastFactorBlocked");
+    let status_json = get(&c, s.url("/api/account/2fa")).await;
+    assert_eq!(status_json["totp"], true);
+    assert_eq!(status_json["passkeyPolicy"]["lastFactorRemoval"], "block");
+}
+
+#[tokio::test]
+async fn block_allows_totp_disable_while_a_passkey_remains() {
+    let s = spawn().await;
+    let c = client();
+    login(&s, &c).await;
+    let secret = seed_totp(&s).await;
+    Authenticator::new(0x71, b"t77-key-a")
+        .seed(&s, "internal")
+        .await;
+    step_up_totp(&s, &c, &secret).await;
+    s.policy("twofa.lastFactorRemoval", "block").await;
+    let (status, body) = post(&c, s.url("/api/account/2fa/totp/disable"), json!({})).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(get(&c, s.url("/api/account/2fa")).await["totp"], false);
+    assert!(refusal_reasons(&s).await.is_empty());
+}
+
+#[tokio::test]
+async fn block_allows_passkey_remove_while_totp_remains() {
+    let s = spawn().await;
+    let c = client();
+    login(&s, &c).await;
+    let secret = seed_totp(&s).await;
+    let key = Authenticator::new(0x72, b"t77-key-b");
+    key.seed(&s, "internal").await;
+    step_up_totp(&s, &c, &secret).await;
+    s.policy("twofa.lastFactorRemoval", "block").await;
+    let (status, body) = post(
+        &c,
+        s.url("/api/account/2fa/passkey/remove"),
+        json!({ "handle": handle_of(&key) }),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert!(passkey_handles(&s, &c).await.is_empty());
+    assert!(refusal_reasons(&s).await.is_empty());
+}
+
+#[tokio::test]
+async fn block_removes_a_second_passkey_and_keeps_the_last_one() {
+    let s = spawn().await;
+    let c = client();
+    login(&s, &c).await;
+    let a = Authenticator::new(0x73, b"t77-key-c");
+    let b = Authenticator::new(0x74, b"t77-key-d");
+    a.seed(&s, "internal").await;
+    b.seed(&s, "internal").await;
+    s.policy("twofa.lastFactorRemoval", "block").await;
+
+    step_up_passkey(&s, &c, &a, 1).await;
+    let (status, body) = post(
+        &c,
+        s.url("/api/account/2fa/passkey/remove"),
+        json!({ "handle": handle_of(&b) }),
+    )
+    .await;
+    assert_eq!(status, 200, "another passkey remains: {body}");
+
+    // The removal changed the enrolled factors, so the proof is gone: step up
+    // again with the passkey that is left.
+    step_up_passkey(&s, &c, &a, 2).await;
+    let (status, body) = post(
+        &c,
+        s.url("/api/account/2fa/passkey/remove"),
+        json!({ "handle": handle_of(&a) }),
+    )
+    .await;
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["code"], "lastFactorBlocked");
+    assert_eq!(passkey_handles(&s, &c).await, vec![handle_of(&a)]);
+    assert_eq!(
+        refusal_reasons(&s).await,
+        vec![(json!("last-factor-removal"), json!("lastFactorBlocked"))]
+    );
+}
+
+#[tokio::test]
+async fn required_two_factor_keeps_the_last_factor_and_audits_it() {
+    let s = spawn().await;
+    let c = client();
+    login(&s, &c).await;
+    let key = Authenticator::new(0x75, b"t77-key-e");
+    key.seed(&s, "internal").await;
+    step_up_passkey(&s, &c, &key, 1).await;
+    // `twofa.lastFactorRemoval` stays at its default `allow`: the requirement
+    // alone keeps the last factor.
+    s.policy_json("twofa.required", "true").await;
+    let (status, body) = post(
+        &c,
+        s.url("/api/account/2fa/passkey/remove"),
+        json!({ "handle": handle_of(&key) }),
+    )
+    .await;
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["code"], "lastFactorRequired");
+    assert_eq!(passkey_handles(&s, &c).await, vec![handle_of(&key)]);
+    assert_eq!(
+        refusal_reasons(&s).await,
+        vec![(json!("last-factor-removal"), json!("lastFactorRequired"))]
+    );
+}
+
+#[tokio::test]
+async fn cancelling_a_pending_totp_is_not_a_last_factor_removal() {
+    let s = spawn().await;
+    let c = client();
+    login(&s, &c).await;
+    s.store()
+        .await
+        .put_totp_secret(mw_mock_jmap::ACCOUNT_ID, &totp::generate_secret(), false)
+        .await
+        .unwrap();
+    step_up_password(&s, &c, None).await;
+    s.policy("twofa.lastFactorRemoval", "block").await;
+    let (status, body) = post(&c, s.url("/api/account/2fa/totp/disable"), json!({})).await;
+    assert_eq!(status, 200, "{body}");
+    assert!(refusal_reasons(&s).await.is_empty());
 }
 
 #[tokio::test]
@@ -631,5 +818,28 @@ async fn serve_passkey_policy_browser_fixture() {
     s.policy("twofa.passkeyAttachment", "platform").await;
     s.policy("twofa.passkeyUserVerification", "required").await;
     eprintln!("[t39 passkey fixture] serving {}", s.base);
+    std::future::pending::<()>().await;
+}
+
+/// t77: a manual browser fixture for `apps/web/e2e/passkeys/last-factor.spec.ts`:
+/// a HEAD-built server on `MW_T77_LAST_FACTOR_PORT` (default 42277) serving the
+/// built web app from `MW_T77_LAST_FACTOR_WEB`, a fresh database, and
+/// `twofa.lastFactorRemoval = block`, until it is killed.
+#[tokio::test]
+#[ignore = "manual persistent browser fixture, requires MW_T77_LAST_FACTOR_WEB"]
+async fn serve_last_factor_browser_fixture() {
+    let Some(web) = std::env::var_os("MW_T77_LAST_FACTOR_WEB").filter(|v| !v.is_empty()) else {
+        common::gate::skip("[t77 last-factor fixture] MW_T77_LAST_FACTOR_WEB unset - not started.");
+        return;
+    };
+    let web = std::path::PathBuf::from(web);
+    assert!(web.join("index.html").is_file());
+    let port = std::env::var("MW_T77_LAST_FACTOR_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(42277);
+    let s = spawn_on(Some(port), Some(web)).await;
+    s.policy("twofa.lastFactorRemoval", "block").await;
+    eprintln!("[t77 last-factor fixture] serving {}", s.base);
     std::future::pending::<()>().await;
 }

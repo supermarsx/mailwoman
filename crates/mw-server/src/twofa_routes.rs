@@ -1701,19 +1701,28 @@ async fn totp_disable_route(State(state): State<AppState>, headers: HeaderMap) -
         return response;
     }
     let account_id = &session.account_id;
-    let passkeys = match state.store.list_webauthn_credentials(account_id).await {
-        Ok(v) => v.len(),
-        Err(e) => return server_error("list passkeys", e),
+    let _removal = removal_lock().lock().await;
+    // An unconfirmed (pending) secret is not a factor: cancelling it removes
+    // nothing the last-factor rule protects.
+    let confirmed = match state.store.get_totp_secret(account_id).await {
+        Ok(t) => t.is_some_and(|t| t.confirmed),
+        Err(e) => return server_error("read totp", e),
     };
-    if let Err(r) = guard_last_factor(
-        &state,
-        &session.account_id,
-        &session.username,
-        passkeys, /*remaining factors*/
-    )
-    .await
-    {
-        return r;
+    if confirmed {
+        let passkeys = match state.store.list_webauthn_credentials(account_id).await {
+            Ok(v) => v.len(),
+            Err(e) => return server_error("list passkeys", e),
+        };
+        if let Err(r) = guard_last_factor(
+            &state,
+            &session.account_id,
+            &session.username,
+            passkeys, /*remaining factors*/
+        )
+        .await
+        {
+            return r;
+        }
     }
     if let Err(e) = state.store.delete_totp_secret(account_id).await {
         return server_error("delete totp", e);
@@ -1849,6 +1858,7 @@ async fn passkey_remove_route(
         return response;
     }
     let account_id = &session.account_id;
+    let _removal = removal_lock().lock().await;
     let passkeys = match state.store.list_webauthn_credentials(account_id).await {
         Ok(v) => v,
         Err(e) => return server_error("list passkeys", e),
@@ -2277,41 +2287,36 @@ async fn register_passkey(
     }
 }
 
-/// Refuse to remove the LAST factor of an account whose domain/global policy
-/// requires 2FA (`remaining` = factor count that would survive the removal). An
-/// account with no such requirement follows `twofa.lastFactorRemoval` (t39-e6):
-/// `allow`, `requireRecoveryCodes` (unused recovery codes must exist) or `block`.
+/// Serialises factor removals in this process so two concurrent removals (two
+/// passkeys, or a passkey and TOTP) cannot both count the other as the factor
+/// that remains. Removals are rare; one process-wide lock is enough.
+fn removal_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+/// The last-factor rule (t39-e6, t77). `remaining` = TOTP + passkeys that would
+/// survive the removal; recovery codes do not count. When it is 0 the removal
+/// is refused (409) if the account's policy requires two-factor sign-in
+/// (`lastFactorRequired`) or `twofa.lastFactorRemoval` is `block` (or its
+/// t39-e6 alias `requireRecoveryCodes`): `lastFactorBlocked`. Each refusal
+/// writes a `passkey-policy-refused` audit entry (flow `last-factor-removal`).
 async fn guard_last_factor(
     state: &AppState,
     account_id: &str,
     username: &str,
     remaining: usize,
 ) -> Result<(), Response> {
-    if remaining == 0 {
-        let required = policy_requires(state, account_id, username)
-            .await
-            .map_err(|e| server_error("read policy", e))?;
-        if required {
-            return Err((
-                StatusCode::CONFLICT,
-                Json(json!({
-                    "code": "lastFactorRequired",
-                    "error": "your organization requires two-factor authentication; enrol another factor before removing this one",
-                })),
-            )
-                .into_response());
-        }
-        let policy = crate::security_center::policy(state, account_id, username).await?;
-        let codes = state
-            .store
-            .list_unused_recovery_codes(account_id)
-            .await
-            .map_err(|e| server_error("list recovery", e))?
-            .len();
-        if let Err(refusal) = policy.passkey.check_last_factor_removal(codes) {
-            policy_audit(state, username, "last-factor-removal", refusal).await;
-            return Err((StatusCode::CONFLICT, Json(refusal.body())).into_response());
-        }
+    if remaining > 0 {
+        return Ok(());
+    }
+    let required = policy_requires(state, account_id, username)
+        .await
+        .map_err(|e| server_error("read policy", e))?;
+    let policy = crate::security_center::policy(state, account_id, username).await?;
+    if let Err(refusal) = policy.passkey.check_last_factor_removal(required) {
+        policy_audit(state, username, "last-factor-removal", refusal).await;
+        return Err((StatusCode::CONFLICT, Json(refusal.body())).into_response());
     }
     Ok(())
 }

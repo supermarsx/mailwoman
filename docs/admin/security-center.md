@@ -59,7 +59,7 @@ before these settings existed.
 | `twofa.passkeyUserVerification` | `preferred`, `required`, `discouraged` | `required`: the passkey must check a PIN or biometric at registration and at every sign-in. |
 | `twofa.passkeyResidentKey` | `discouraged`, `preferred`, `required` | `required`: the credential must be stored on the authenticator (discoverable). |
 | `twofa.passkeyLegacy` | `allow`, `refuse` | What happens to a passkey added before a stricter policy. See below. |
-| `twofa.lastFactorRemoval` | `allow`, `requireRecoveryCodes`, `block` | See [Removing the last factor](#removing-the-last-factor). |
+| `twofa.lastFactorRemoval` | `allow`, `block` | See [Removing the last factor](#removing-the-last-factor). |
 
 The values are sent to the browser in the registration and sign-in options,
 and the server checks the result:
@@ -114,16 +114,28 @@ an attachment policy it counts as not meeting it.
 ### Removing the last factor
 
 When removing an authenticator app or passkey would leave the account with no
-second factor:
+second factor (recovery codes do not count: they only replace a lost factor):
 
 - if `twofa.required` (or a two-factor policy row) applies to the account,
-  the removal is refused, as before;
+  the removal is refused with `409 lastFactorRequired`;
 - otherwise `twofa.lastFactorRemoval` decides: `allow` removes it (two-step
-  sign-in turns off); `requireRecoveryCodes` refuses until the account has
-  unused recovery codes; `block` refuses.
+  sign-in turns off); `block` refuses with `409 lastFactorBlocked`.
 
-A refusal under `requireRecoveryCodes` or `block` writes the same
-`passkey-policy-refused` audit entry with flow `last-factor-removal`.
+The user adds another passkey or an authenticator app first, then removes the
+old one. In Settings, the remove button of the only factor is shown as
+unavailable, with "Add another sign-in method first" beside it and in its
+tooltip. Each refusal writes a `passkey-policy-refused` audit entry with flow
+`last-factor-removal` and the reason code. Both removal routes
+(`/api/account/2fa/totp/disable` and `/api/account/2fa/passkey/remove`) apply
+the rule; cancelling an authenticator app setup that was never confirmed is not
+a removal. Regenerating recovery codes does not change the outcome.
+Administrators have no route that removes a user's factors.
+
+Before release 26.20 a third value, `requireRecoveryCodes`, allowed the
+removal once the account had unused recovery codes, after which the account
+signed in with the password alone. It now means `block`: migration 0074
+rewrites stored values, the server reads any remaining one as `block`, and a
+write or import of `requireRecoveryCodes` is stored as `block`.
 
 Remembered devices are disabled by default. A remembered-device cookie can
 skip a login factor after the password verifies; it does not satisfy fresh

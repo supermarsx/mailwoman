@@ -8,7 +8,10 @@
 //! * `twofa.passkeyResidentKey` — `required` | `preferred` | `discouraged`
 //! * `twofa.passkeyLegacy` — `allow` | `refuse`: what happens to a passkey that
 //!   was registered before a stricter policy and does not meet it
-//! * `twofa.lastFactorRemoval` — `allow` | `requireRecoveryCodes` | `block`
+//! * `twofa.lastFactorRemoval` — `allow` | `block`: whether the last passkey or
+//!   TOTP of an account can be removed (t77: `block` refuses until another
+//!   factor exists; recovery codes do not count). The t39-e6 value
+//!   `requireRecoveryCodes` is read as `block` (migration 0074 rewrites it).
 //!
 //! What the server can check, and how:
 //!
@@ -62,7 +65,6 @@ pub(crate) enum Legacy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LastFactor {
     Allow,
-    RequireRecoveryCodes,
     Block,
 }
 
@@ -76,8 +78,9 @@ pub(crate) enum Refusal {
     AttachmentUnknown,
     ResidentKey,
     LegacyCredential,
-    LastFactorNeedsRecoveryCodes,
     LastFactorBlocked,
+    /// Two-factor sign-in is required for the account (`twofa.required`).
+    LastFactorRequired,
 }
 
 impl Refusal {
@@ -89,8 +92,8 @@ impl Refusal {
             Refusal::AttachmentUnknown => "passkeyPolicyAttachmentUnknown",
             Refusal::ResidentKey => "passkeyPolicyResidentKey",
             Refusal::LegacyCredential => "passkeyPolicyLegacy",
-            Refusal::LastFactorNeedsRecoveryCodes => "lastFactorNeedsRecoveryCodes",
             Refusal::LastFactorBlocked => "lastFactorBlocked",
+            Refusal::LastFactorRequired => "lastFactorRequired",
         }
     }
 
@@ -115,11 +118,11 @@ impl Refusal {
             Refusal::LegacyCredential => {
                 "This passkey was added before your organization's current passkey policy and no longer meets it. Sign in another way, then add a new passkey."
             }
-            Refusal::LastFactorNeedsRecoveryCodes => {
-                "Generate recovery codes before removing your last second factor."
-            }
             Refusal::LastFactorBlocked => {
-                "Your organization does not allow removing your last second factor. Add another factor first."
+                "Your organization does not allow removing your last second factor. Add another sign-in method first."
+            }
+            Refusal::LastFactorRequired => {
+                "Your organization requires two-factor authentication. Add another sign-in method before removing this one."
             }
         }
     }
@@ -177,10 +180,13 @@ pub(crate) fn parse_legacy(v: &str) -> Legacy {
     }
 }
 
+/// `requireRecoveryCodes` is the t39-e6 name of the rule that became `block`
+/// (t77): a config written before t77 keeps refusing the last removal.
+pub(crate) const LEGACY_BLOCK_ALIAS: &str = "requireRecoveryCodes";
+
 pub(crate) fn parse_last_factor(v: &str) -> LastFactor {
     match v {
-        "requireRecoveryCodes" => LastFactor::RequireRecoveryCodes,
-        "block" => LastFactor::Block,
+        "block" | LEGACY_BLOCK_ALIAS => LastFactor::Block,
         _ => LastFactor::Allow,
     }
 }
@@ -278,7 +284,6 @@ impl PasskeyPolicy {
             "legacy": if self.legacy == Legacy::Refuse { "refuse" } else { "allow" },
             "lastFactorRemoval": match self.last_factor {
                 LastFactor::Allow => "allow",
-                LastFactor::RequireRecoveryCodes => "requireRecoveryCodes",
                 LastFactor::Block => "block",
             },
         })
@@ -386,13 +391,15 @@ impl PasskeyPolicy {
         }
     }
 
-    /// The recovery rule for a removal that leaves no TOTP and no passkey.
-    /// `recovery_codes` = unused recovery codes the account holds.
-    pub(crate) fn check_last_factor_removal(&self, recovery_codes: usize) -> Result<(), Refusal> {
+    /// The rule for a removal that would leave no TOTP and no passkey.
+    /// `required` = the account's `twofa.required` policy. Recovery codes are
+    /// not a factor here: they only replace a lost one.
+    pub(crate) fn check_last_factor_removal(&self, required: bool) -> Result<(), Refusal> {
+        if required {
+            return Err(Refusal::LastFactorRequired);
+        }
         match self.last_factor {
             LastFactor::Allow => Ok(()),
-            LastFactor::RequireRecoveryCodes if recovery_codes > 0 => Ok(()),
-            LastFactor::RequireRecoveryCodes => Err(Refusal::LastFactorNeedsRecoveryCodes),
             LastFactor::Block => Err(Refusal::LastFactorBlocked),
         }
     }
@@ -593,17 +600,19 @@ mod tests {
     #[test]
     fn last_factor_rule() {
         let mut p = PasskeyPolicy::default();
-        assert_eq!(p.check_last_factor_removal(0), Ok(()));
-        p.last_factor = LastFactor::RequireRecoveryCodes;
+        assert_eq!(p.check_last_factor_removal(false), Ok(()));
         assert_eq!(
-            p.check_last_factor_removal(0),
-            Err(Refusal::LastFactorNeedsRecoveryCodes)
+            p.check_last_factor_removal(true),
+            Err(Refusal::LastFactorRequired)
         );
-        assert_eq!(p.check_last_factor_removal(3), Ok(()));
         p.last_factor = LastFactor::Block;
         assert_eq!(
-            p.check_last_factor_removal(10),
+            p.check_last_factor_removal(false),
             Err(Refusal::LastFactorBlocked)
+        );
+        assert_eq!(
+            p.check_last_factor_removal(true),
+            Err(Refusal::LastFactorRequired)
         );
     }
 
@@ -616,9 +625,8 @@ mod tests {
         );
         assert_eq!(parse_legacy("bogus"), Legacy::Allow);
         assert_eq!(parse_last_factor("bogus"), LastFactor::Allow);
-        assert_eq!(
-            parse_last_factor("requireRecoveryCodes"),
-            LastFactor::RequireRecoveryCodes
-        );
+        // The t39-e6 value is read as `block`.
+        assert_eq!(parse_last_factor("requireRecoveryCodes"), LastFactor::Block);
+        assert_eq!(parse_last_factor("block"), LastFactor::Block);
     }
 }
