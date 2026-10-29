@@ -2,19 +2,33 @@
 
 No delivery or outbound connection. Advertises DSN and records envelope options.
 A local drop-final marker simulates acceptance with its reply lost.
-Usage: python receipt-smtp.py PORT OUTPUT_DIRECTORY
+Usage: python delivery-smtp.py PORT OUTPUT_DIRECTORY
+
+With MW_CAPTURE_RELAY=host:port set, each accepted message is also handed to that
+SMTP server (a loopback Greenmail in the receipts stack), with the same envelope,
+so specs that read the recipient's mailbox see it arrive. The relay is the only
+outbound connection and it is off by default.
 """
 import asyncio
 import base64
 import hashlib
 import json
+import os
 import pathlib
+import smtplib
 import sys
 import time
 
 output = pathlib.Path(sys.argv[2]).resolve()
 output.mkdir(parents=True, exist_ok=True)
 slots = asyncio.Semaphore(8)
+relay = os.environ.get('MW_CAPTURE_RELAY', '')
+
+
+def forward(sender, recipients, raw):
+    host, port = relay.rsplit(':', 1)
+    with smtplib.SMTP(host, int(port), timeout=15) as client:
+        client.sendmail(sender, recipients, bytes(raw))
 
 
 async def session(reader, writer):
@@ -63,6 +77,11 @@ async def session(reader, writer):
                     (output / f'{digest}.eml').write_bytes(raw)
                     with (output / 'accepted.jsonl').open('a', encoding='utf8') as log:
                         log.write(json.dumps({'sender': sender, 'recipients': recipients, 'sha256': digest, 'time': time.time(), 'commands': envelope_commands, 'replyDropped': (output / 'drop-final').exists()}) + '\n')
+                    if relay:
+                        try:
+                            await asyncio.to_thread(forward, sender, list(recipients), raw)
+                        except (OSError, smtplib.SMTPException) as error:
+                            print(f'relay failed: {error}', file=sys.stderr)
                     if (output / 'drop-final').exists():
                         return
                     await reply('250 accepted')
