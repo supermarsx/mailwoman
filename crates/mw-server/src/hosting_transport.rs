@@ -377,4 +377,139 @@ mod tests {
         assert_eq!(records.lock().unwrap().len(), 1);
         task.abort();
     }
+
+    /// The `Authorization` value and the form body of one recorded request.
+    fn auth_and_body(recorded: &str) -> (String, String) {
+        let (head, body) = recorded.split_once("\r\n\r\n").unwrap_or((recorded, ""));
+        let auth = head
+            .lines()
+            .find_map(|l| {
+                l.split_once(':')
+                    .filter(|(k, _)| k.eq_ignore_ascii_case("authorization"))
+            })
+            .map(|(_, v)| v.trim().to_owned())
+            .unwrap_or_default();
+        // `peer` appends the payload straight after the head's last CRLF.
+        let body = if body.is_empty() {
+            recorded.rsplit("\r\n").next().unwrap_or_default()
+        } else {
+            body
+        };
+        (auth, body.to_owned())
+    }
+
+    /// Virtualmin Remote API (https://www.virtualmin.com/docs/development/remote-api/)
+    /// against a local HTTPS fixture. The bodies in `tests/fixtures/virtualmin/` are
+    /// Virtualmin's own `json-lib.pl` converter applied to `list-*` multiline text
+    /// (see that directory's README); no live Virtualmin is reached here.
+    #[tokio::test]
+    async fn virtualmin_fixture_requests_and_parsed_inventory() {
+        const BASIC: &str = "Basic YWRtaW46c3ludGhldGljLXNlY3JldA=="; // admin:synthetic-secret
+        let cases: [(&str, PanelOperation, &str); 3] = [
+            (
+                include_str!("../tests/fixtures/virtualmin/list-domains.json"),
+                PanelOperation::ListDomains,
+                "json=1&with-feature=mail&program=list-domains",
+            ),
+            (
+                include_str!("../tests/fixtures/virtualmin/list-users.json"),
+                PanelOperation::ListMailboxes {
+                    domain: "example.org".into(),
+                },
+                "json=1&program=list-users&domain=example.org",
+            ),
+            (
+                include_str!("../tests/fixtures/virtualmin/create-user.json"),
+                PanelOperation::CreateMailbox {
+                    domain: "example.org".into(),
+                    account: "alice".into(),
+                    password: "p&ss word".into(),
+                    quota_mi_b: Some(50),
+                    display_name: Some("Alice Example".into()),
+                },
+                "json=1&user=alice&pass=p%26ss+word&quota=51200&real=Alice+Example&program=create-user&domain=example.org",
+            ),
+        ];
+        let mut results = Vec::new();
+        for (body, op, form) in cases {
+            let (port, records, task) = peer("200 OK", body).await;
+            let result = perform(
+                &config(port, PanelProvider::Virtualmin),
+                "synthetic-secret",
+                &op,
+                dialer(port),
+            )
+            .await
+            .unwrap();
+            let recorded = records.lock().unwrap()[0].clone();
+            assert!(recorded.starts_with("POST /virtual-server/remote.cgi HTTP/1.1\r\n"));
+            let (auth, sent) = auth_and_body(&recorded);
+            assert_eq!(auth, BASIC);
+            assert_eq!(sent, form);
+            task.abort();
+            results.push(result);
+        }
+
+        let domains = &results[0].domains;
+        assert_eq!(domains.len(), 2);
+        assert_eq!(
+            (
+                domains[0].name.as_str(),
+                domains[0].owner.as_deref(),
+                domains[0].enabled
+            ),
+            ("example.org", Some("exampleorg"), Some(true))
+        );
+        assert_eq!(
+            (domains[1].name.as_str(), domains[1].enabled),
+            ("old.example.org", Some(false))
+        );
+
+        let mailboxes = &results[1].mailboxes;
+        assert_eq!(
+            mailboxes.len(),
+            2,
+            "the user without an address is left out"
+        );
+        assert_eq!(mailboxes[0].account, "alice@example.org");
+        assert_eq!(mailboxes[0].address, "alice@example.org");
+        assert_eq!(mailboxes[0].enabled, Some(true));
+        assert_eq!(mailboxes[0].quota_mi_b, Some(50));
+        assert_eq!(
+            mailboxes[0].aliases,
+            ["sales@example.org", "info@example.org"]
+        );
+        assert_eq!(mailboxes[1].address, "bob@example.org");
+        assert_eq!(mailboxes[1].enabled, Some(false));
+
+        assert!(results[2].changed);
+        for result in &results {
+            let shown = serde_json::to_string(result).unwrap();
+            for leak in ["secret", "$6$", "/home", "Maildir"] {
+                assert!(!shown.contains(leak), "{leak} in {shown}");
+            }
+        }
+
+        let (port, records, task) = peer(
+            "200 OK",
+            include_str!("../tests/fixtures/virtualmin/create-user-failure.json"),
+        )
+        .await;
+        let error = perform(
+            &config(port, PanelProvider::Virtualmin),
+            "synthetic-secret",
+            &PanelOperation::DeleteMailbox {
+                domain: "example.org".into(),
+                account: "alice".into(),
+            },
+            dialer(port),
+        )
+        .await
+        .err()
+        .unwrap();
+        assert_eq!(error.code, "panel-command-rejected");
+        assert!(!error.result_uncertain, "a refusal is a known outcome");
+        assert_eq!(records.lock().unwrap().len(), 1);
+        task.abort();
+    }
 }

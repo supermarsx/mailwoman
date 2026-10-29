@@ -1,0 +1,6 @@
+{
+   "command" : "create-user",
+   "status" : "success",
+   "output" : "Creating mailbox for alice@example.org ..\n.. done\n"
+}
+

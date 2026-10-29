@@ -1,0 +1,7 @@
+{
+   "command" : "create-user",
+   "full_error" : "A user named alice already exists in this virtual server\n",
+   "error" : "A user named alice already exists in this virtual server",
+   "status" : "failure"
+}
+

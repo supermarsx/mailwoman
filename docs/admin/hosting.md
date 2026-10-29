@@ -1,6 +1,6 @@
 # Hosting panel connections
 
-Open **Integrations → Hosting panels**. Each connection has its own create/edit page; domain and mailbox changes have separate detail pages. The supported providers are Webmin's Virtualmin remote API and HestiaCP's API. This integration does not provide panel-user login or single sign-on.
+Open **Integrations → Hosting panels**. Each connection has its own create/edit page; domain and mailbox changes have separate detail pages. The supported providers are the Virtualmin remote API (Virtualmin is a Webmin module; a Webmin server without Virtualmin has no mail-domain model and is not supported) and HestiaCP's API. This integration does not provide panel-user login or single sign-on.
 
 Use an HTTPS origin without a path, query, embedded login or fragment. Virtualmin uses `/virtual-server/remote.cgi` and its administrator login/password. Hestia uses `/api/`, an account owner and an access-key/secret-key pair. Grant only the commands required by the intended operations in the panel itself.
 

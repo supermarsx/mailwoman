@@ -1,0 +1,19 @@
+example.org
+    ID: 170000000012345
+    File: /etc/webmin/virtual-server/domains/170000000012345
+    Type: Top-level server
+    Description: Example org
+    Template: Default Settings
+    Username: exampleorg
+    Group name: exampleorg
+    Home directory: /home/exampleorg
+    Features: unix dir mail dns web
+    Password: owner-plaintext-secret
+    Hashed password: $6$salt$hash
+old.example.org
+    ID: 170000000012346
+    Type: Sub-server
+    Parent domain: example.org
+    Username: exampleorg
+    Disabled: Manually (moved)
+    Features: dir mail

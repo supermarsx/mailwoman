@@ -1,0 +1,68 @@
+{
+   "status" : "success",
+   "command" : "list-domains",
+   "data" : [
+      {
+         "name" : "example.org",
+         "values" : {
+            "description" : [
+               "Example org"
+            ],
+            "file" : [
+               "/etc/webmin/virtual-server/domains/170000000012345"
+            ],
+            "id" : [
+               "170000000012345"
+            ],
+            "home_directory" : [
+               "/home/exampleorg"
+            ],
+            "hashed_password" : [
+               "$6$salt$hash"
+            ],
+            "group_name" : [
+               "exampleorg"
+            ],
+            "password" : [
+               "owner-plaintext-secret"
+            ],
+            "features" : [
+               "unix dir mail dns web"
+            ],
+            "template" : [
+               "Default Settings"
+            ],
+            "type" : [
+               "Top-level server"
+            ],
+            "username" : [
+               "exampleorg"
+            ]
+         }
+      },
+      {
+         "values" : {
+            "username" : [
+               "exampleorg"
+            ],
+            "type" : [
+               "Sub-server"
+            ],
+            "id" : [
+               "170000000012346"
+            ],
+            "disabled" : [
+               "Manually (moved)"
+            ],
+            "parent_domain" : [
+               "example.org"
+            ],
+            "features" : [
+               "dir mail"
+            ]
+         },
+         "name" : "old.example.org"
+      }
+   ]
+}
+

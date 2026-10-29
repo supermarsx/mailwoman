@@ -1,0 +1,115 @@
+{
+   "command" : "list-users",
+   "data" : [
+      {
+         "name" : "alice@example.org",
+         "values" : {
+            "domain" : [
+               "example.org"
+            ],
+            "email_address" : [
+               "alice@example.org"
+            ],
+            "disabled" : [
+               "No"
+            ],
+            "home_byte_quota_used" : [
+               "1048576"
+            ],
+            "extra_addresses" : [
+               "sales@example.org info@example.org"
+            ],
+            "home_quota_used" : [
+               "1 MB"
+            ],
+            "user_type" : [
+               "Normal user"
+            ],
+            "home_quota" : [
+               "50 MB"
+            ],
+            "mail_location" : [
+               "/home/exampleorg/homes/alice/Maildir"
+            ],
+            "home_byte_quota" : [
+               "52428800"
+            ],
+            "mail_storage_type" : [
+               "Maildir"
+            ],
+            "real_name" : [
+               "Alice Example"
+            ],
+            "no_password_accepted" : [
+               "No"
+            ],
+            "user" : [
+               "alice"
+            ],
+            "encrypted_password" : [
+               "$6$salt$hash"
+            ],
+            "home_directory" : [
+               "/home/exampleorg/homes/alice"
+            ],
+            "ftp_access" : [
+               "No"
+            ],
+            "home_files_used" : [
+               "12"
+            ],
+            "unix_username" : [
+               "alice@example.org"
+            ]
+         }
+      },
+      {
+         "values" : {
+            "domain" : [
+               "example.org"
+            ],
+            "email_address" : [
+               "bob@example.org"
+            ],
+            "disabled" : [
+               "Yes"
+            ],
+            "user" : [
+               "bob"
+            ],
+            "real_name" : [
+               ""
+            ],
+            "home_byte_quota" : [
+               "0"
+            ],
+            "unix_username" : [
+               "bob@example.org"
+            ]
+         },
+         "name" : "bob@example.org"
+      },
+      {
+         "name" : "ftp.example.org",
+         "values" : {
+            "unix_username" : [
+               "ftp.example.org"
+            ],
+            "domain" : [
+               "example.org"
+            ],
+            "disabled" : [
+               "No"
+            ],
+            "real_name" : [
+               "Upload user"
+            ],
+            "user" : [
+               "ftp"
+            ]
+         }
+      }
+   ],
+   "status" : "success"
+}
+

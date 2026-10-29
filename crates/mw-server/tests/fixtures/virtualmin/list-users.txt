@@ -1,0 +1,34 @@
+alice@example.org
+    User: alice
+    Domain: example.org
+    Unix username: alice@example.org
+    Real name: Alice Example
+    Encrypted password: $6$salt$hash
+    Disabled: No
+    No password accepted: No
+    Home directory: /home/exampleorg/homes/alice
+    FTP access: No
+    User type: Normal user
+    Home quota: 50 MB
+    Home quota used: 1 MB
+    Home byte quota: 52428800
+    Home byte quota used: 1048576
+    Home files used: 12
+    Mail location: /home/exampleorg/homes/alice/Maildir
+    Mail storage type: Maildir
+    Email address: alice@example.org
+    Extra addresses: sales@example.org info@example.org
+bob@example.org
+    User: bob
+    Domain: example.org
+    Unix username: bob@example.org
+    Real name: 
+    Disabled: Yes
+    Home byte quota: 0
+    Email address: bob@example.org
+ftp.example.org
+    User: ftp
+    Domain: example.org
+    Unix username: ftp.example.org
+    Real name: Upload user
+    Disabled: No
