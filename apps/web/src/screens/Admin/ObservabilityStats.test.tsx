@@ -6,7 +6,7 @@ import {dashboardReturning,renderInShell,holding} from './shell/testkit.tsx';
 import {loadRequestHistory} from '../../api/admin/requestHistory.ts';
 import {Show} from 'solid-js';
 import {useShell} from './shell/context.ts';
-vi.mock('../../api/admin/requestHistory.ts',()=>({loadRequestHistory:vi.fn()}));
+vi.mock('../../api/admin/requestHistory.ts',()=>({loadRequestHistory:vi.fn(),loadNotFoundPaths:vi.fn(()=>Promise.reject(new Error('not in this test')))}));
 beforeEach(()=>{vi.mocked(loadRequestHistory).mockResolvedValue({from:0,to:3600,bucketSeconds:60,series:[{t:0,requests:1,errors5xx:0,p50Ms:5,p95Ms:10,coverage:'complete'}],coverage:{observedSeconds:3600,requestedSeconds:3600,gaps:[]},policy:{defaultRangeSeconds:3600,maxRangeSeconds:2592000,retentionDays:30},scope:'server',timing:'response-ready'});});
 it('exposes all dashboard traffic series and median latency from actual supplied buckets',async()=>{
  renderInShell(()=><ObservabilityStats/>,{loadDashboard:dashboardReturning({kind:'ok',data:engineDashboard()})});

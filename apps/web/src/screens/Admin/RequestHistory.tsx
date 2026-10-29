@@ -1,6 +1,9 @@
-import {createResource,createSignal,createEffect,on,For,Show,onCleanup,type JSX} from 'solid-js';
-import {loadRequestHistory,type RequestHistoryRange} from '../../api/admin/requestHistory.ts';
-import {t} from '../../i18n';
+import {createResource,createSignal,createEffect,on,onMount,For,Show,onCleanup,type JSX} from 'solid-js';
+import {loadRequestHistory,loadNotFoundPaths,type RequestHistory as History,type NotFoundPaths,type RequestHistoryRange} from '../../api/admin/requestHistory.ts';
+import {t,loadCatalog,formatNumber} from '../../i18n';
+import {AdminProblemError} from './shell/adminApi.ts';
+import {StatTile} from './shell/StatTile.tsx';
+import {NotFoundPathsTable} from './NotFoundPaths.tsx';
 import {formatDateTime} from '../../i18n/format.ts';
 import {Icon} from '../../components/Icon.tsx';
 import {AsyncPending} from '../../components/AsyncState.tsx';
@@ -11,7 +14,15 @@ import * as css from './RequestHistory.css.ts';
 import * as charts from './Dashboard/dashboard.css.ts';
 import * as admin from './admin.css.ts';
 
+/** 404s over the points where they were tracked; `null` when no point was (never zero). */
+export function notFoundSummary(value:History):{total:number|null;requests:number} {
+ let total:number|null=null;let requests=0;
+ for(const point of value.series){if(typeof point.notFound!=='number')continue;total=(total??0)+point.notFound;requests+=point.requests??0;}
+ return {total,requests};
+}
+type PathsResult={value:NotFoundPaths}|{denied:boolean};
 export function RequestHistory(props:{refreshToken?:unknown}={}):JSX.Element {
+ onMount(()=>void loadCatalog('admin-requests'));
  const [selection,setSelection]=createSignal('default');
  const [request,setRequest]=createSignal<{range?:RequestHistoryRange}>({});
  const [from,setFrom]=createSignal(historyLocalInput(Date.now()/1000-3600));
@@ -21,10 +32,15 @@ export function RequestHistory(props:{refreshToken?:unknown}={}):JSX.Element {
  onCleanup(()=>controller?.abort());
  const [result]=createResource(request,async query=>{
   controller?.abort();controller=new AbortController();
-  try { return {data:await loadRequestHistory(query.range,controller.signal)}; }
-  catch { return {failed:true as const}; }
+  const signal=controller.signal;
+  // Top paths need Observability read; a Dashboard-only reader still gets the counts.
+  const paths:Promise<PathsResult>=loadNotFoundPaths(query.range,signal).then(value=>({value}),(error:unknown)=>({denied:error instanceof AdminProblemError&&error.status===403}));
+  try { const data=await loadRequestHistory(query.range,signal); return {data,paths:await paths}; }
+  catch { void paths; return {failed:true as const}; }
  });
  const data=()=>result.latest?.data;
+ const paths=()=>{const value=result.latest?.paths;return value&&'value' in value?value.value:undefined;};
+ const pathsFailed=()=>{const value=result.latest?.paths;return value!==undefined&&'denied' in value&&!value.denied;};
  const maxRange=()=>data()?.policy.maxRangeSeconds??2592000;
  function reload():void {
   setValidation('');
@@ -59,12 +75,19 @@ export function RequestHistory(props:{refreshToken?:unknown}={}):JSX.Element {
    <Show when={value().coverage.observedSeconds<value().coverage.requestedSeconds}><p role="status">{t('admin-history-partial',{observed:Math.floor(value().coverage.observedSeconds/60),requested:Math.ceil(value().coverage.requestedSeconds/60)})}</p></Show>
    <p class={admin.note}>{t('admin-history-latency-resolution')}</p>
    <Show when={value().series.some(point=>point.legacyLatencyEstimate!==false && point.requests!==null && point.requests>0)}><p role="status" class={admin.note}>{t('admin-history-latency-legacy')}</p></Show>
+   <Show when={(value().coverage.notFound?.notTracked.length??0)>0}><p role="status" class={admin.note} data-testid="not-found-not-tracked">{value().coverage.notFound?.trackedSince==null?t('admin-history-nf-not-tracked-window'):t('admin-history-nf-not-tracked-before',{time:timestamp(value().coverage.notFound!.trackedSince!)})}</p></Show>
+   <div class={charts.charts}>
+    <StatTile testId="tile-not-found" label={t('admin-history-nf-total')} value={notFoundSummary(value()).total} unavailableReason={t('admin-history-nf-not-tracked-window')} detail={(()=>{const {total,requests}=notFoundSummary(value());return total!==null&&requests>0?t('admin-history-nf-share',{share:formatNumber(total/requests,{style:'percent',maximumFractionDigits:1})}):undefined;})()}/>
+    <Sparkline title={t('admin-history-not-found')} testId="spark-not-found" points={value().series.map(p=>({t:p.t,value:typeof p.notFound==='number'?p.notFound:null}))} format={formatCount} formatTime={timestamp}/>
+   </div>
    <div class={charts.charts}>
     <Sparkline title={t('admin-history-requests')} testId="spark-requests" points={value().series.map(p=>({t:p.t,value:p.requests}))} format={formatCount} formatTime={timestamp}/>
     <Sparkline title={t('admin-history-errors')} testId="spark-errors" points={value().series.map(p=>({t:p.t,value:p.errors5xx}))} tone="danger" format={formatCount} formatTime={timestamp}/>
     <Sparkline title={t('admin-obs-p50')} points={value().series.map(p=>({t:p.t,value:p.p50Ms}))} format={formatMs} formatTime={timestamp}/>
     <Sparkline title={t('admin-dash-p95')} testId="spark-p95" points={value().series.map(p=>({t:p.t,value:p.p95Ms}))} format={formatMs} formatTime={timestamp}/>
    </div>
+   <Show when={paths()}>{list=><NotFoundPathsTable value={list()} formatTime={timestamp}/>}</Show>
+   <Show when={pathsFailed()}><p role="status" class={admin.note}>{t('admin-history-nf-paths-error')}</p></Show>
   </>}</Show>
  </section>;
 }

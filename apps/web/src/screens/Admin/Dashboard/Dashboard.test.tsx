@@ -7,7 +7,7 @@ import { dashboardReturning, holding, renderInShell } from '../shell/testkit.tsx
 import type { DashboardResult } from '../../../api/admin/dashboard.ts';
 import { PersonalPreferencesProvider } from '../shell/personalPreferences.tsx';
 import {loadRequestHistory} from '../../../api/admin/requestHistory.ts';
-vi.mock('../../../api/admin/requestHistory.ts',()=>({loadRequestHistory:vi.fn()}));
+vi.mock('../../../api/admin/requestHistory.ts',()=>({loadRequestHistory:vi.fn(),loadNotFoundPaths:vi.fn(()=>Promise.reject(new Error('not in this test')))}));
 
 const ok = (data = engineDashboard()): DashboardResult => ({ kind: 'ok', data });
 
