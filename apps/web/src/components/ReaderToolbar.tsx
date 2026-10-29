@@ -28,10 +28,11 @@ import {Icon,type IconName} from './Icon.tsx';
 import * as a11y from './mailA11y.css.ts';
 import * as css from './readerToolbar.css.ts';
 import {t} from '../i18n/index.ts';
+import {zoomRowAction} from './ReaderZoom.tsx';
 
 /** Fold order: lower stays on the row longer. */
 export const PRIORITY: Record<string,number> = {
- reply:0,'reply-all':1,forward:2,delete:3,archive:4,conversation:5,links:6,read:7,flag:8,pin:9,spam:10,security:11,sweep:12,print:13,export:14,
+ reply:0,'reply-all':1,forward:2,delete:3,archive:4,conversation:5,links:6,read:7,flag:8,pin:9,spam:10,security:11,sweep:12,print:13,export:14,zoom:10.5,
 };
 
 interface RowAction {id:string;groupEnd?:boolean;inline:()=>JSX.Element;menu:()=>ContextAction[]}
@@ -90,6 +91,8 @@ export function ReaderToolbar(props:{
   spam:plain({id:'spam',icon:icon('spam'),label:()=>t('mail-spam'),help:()=>t('mail-action-help-spam'),run:()=>void app.markSpam(id())}),
   export:plain({id:'export',icon:icon('download'),label:()=>t('mail-export'),help:()=>t('mail-action-help-export'),testId:'reader-export',run:()=>void app.exportMessage()}),
   print:plain({id:'print',icon:icon('print'),label:()=>t('mail-print'),help:()=>t('mail-print-help'),run:()=>props.onPrint()}),
+  // t59: zoom out / level (reset) / zoom in; folds as three More entries.
+  zoom:zoomRowAction(),
   sweep:plain({id:'sweep',icon:icon('sweep'),label:()=>t('mail-sweep-sender'),help:()=>t('mail-action-help-sweep'),run:()=>setSweeping(true)}),
   // Max-security opening switch (plan §7.2): drives the body render mode
   // (full / no-media / plain-text) for this sender. Per-sender + global
@@ -99,7 +102,7 @@ export function ReaderToolbar(props:{
    inline:()=><ReaderViewMode value={props.security.value} floor={props.security.floor} onChange={props.security.onChange} scope={`${app.accountId()}:${id()}`}/>,
    menu:()=>viewModeActions(props.security,true)},
  };
- const ids=createMemo(()=>['reply','reply-all','forward',...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','delete','spam','export','print',...(sender()!==''?['sweep']:[]),'security'],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
+ const ids=createMemo(()=>['reply','reply-all','forward',...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','delete','spam','export','print','zoom',...(sender()!==''?['sweep']:[]),'security'],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
 
  // ── Fitting ────────────────────────────────────────────────────────────────
  const [folded,setFolded]=createSignal<ReadonlySet<string>>(new Set(),{equals:(a,b)=>a.size===b.size&&[...a].every(value=>b.has(value))});

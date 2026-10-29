@@ -70,6 +70,7 @@ import { extractHtmlBody } from '../state/slices/mail.ts';
 import { RemoteContentBar } from './RemoteContentBar.tsx';
 import { createRemoteImageLoad } from './remoteImageToast.ts';
 import { DirectReaderFrame } from './DirectReaderFrame.tsx';
+import { readerZoom, useReaderZoom } from './readerZoom.ts';
 import { remotePolicy, remoteServerBase, signContent, readerReferences, rewriteReaderContent, signedSource, BLOCKED_POLICY, EMPTY_SIGNED, type RemotePolicy } from '../api/remote-content.ts';
 import { settings } from '../api/settings.ts';
 import { themeCssVars } from '../theme/themeCssVars.ts';
@@ -689,7 +690,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     const mode = values['reader.colorMode']?.value;
     const colorMode = mode === 'original' || mode === 'adaptive' || mode === 'invert' ? mode : app.appearance() === 'dark' ? 'adaptive' : 'original';
     const width = values['reader.contentWidth']?.value;
-    return { colorMode, fontSize: Number(values['reader.fontSize']?.value ?? 14), lineHeight: Number(values['reader.lineHeight']?.value ?? 1.6), contentWidth: width === 'comfortable' || width === 'full' ? width : 'wide' };
+    return { colorMode, fontSize: Number(values['reader.fontSize']?.value ?? 14), lineHeight: Number(values['reader.lineHeight']?.value ?? 1.6), contentWidth: width === 'comfortable' || width === 'full' ? width : 'wide', zoom: readerZoom() };
   };
   const frameOptions = () => ({ appearance: readerAppearance(), themeVars: readerAppearance().colorMode === 'adaptive' ? themeCssVars(app.theme(), { density: app.density() }) : '' });
   const messageLoading = () => <MessageLoading variant={String(settings()['reader.loading']?.value ?? 'skeleton')} delayMs={Number(settings()['reader.loadingDelayMs']?.value ?? 120)} />;
@@ -929,9 +930,13 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // not flash "blocked by your privacy settings" (presentation only: the body
   // still renders under `policy()`).
   const bannerMode = () => (privacy.latest ?? policy()).mode;
+  // t59: body zoom shortcuts and Ctrl/Cmd + wheel, only while focus is in this reader.
+  let readerRoot: HTMLElement | undefined;
+  useReaderZoom({ root: () => readerRoot, active: () => props.active !== false });
 
   return (
     <section
+      ref={readerRoot}
       class={`reader ${motion.surface}`}
       data-mw-entering={entering()}
       classList={{ 'reader--open': app.openEmail() !== null }}
