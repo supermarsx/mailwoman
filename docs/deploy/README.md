@@ -32,6 +32,10 @@ V2 (realtime, TLS, fonts, hardening) adds:
   rather than falling back to a direct connection.
 - [`hardening.md`](./hardening.md) — COEP/CORP/Permissions-Policy, CSRF, Origin
   checks, and session-timeout flags.
+- [`fail2ban.md`](./fail2ban.md) — the fail2ban filter and jail in
+  `deploy/fail2ban/` for failed admin and webmail sign-ins: install paths, the
+  log source (journal, Docker, file), jail settings, and testing with
+  `fail2ban-regex`.
 
 V3 (PIM: calendar, tasks, notes, contacts) adds:
 

@@ -22,6 +22,9 @@ Environment=MW_DB_PATH=/var/lib/mailwoman/mailwoman.db
 Environment=MW_RENDER_BIN=/usr/local/bin/mw-render
 Environment=MW_COOKIE_SECURE=true
 Environment=RUST_LOG=info
+# Plain log lines in the journal: with colour codes a file-backed fail2ban jail
+# cannot read the line's timestamp (docs/deploy/fail2ban.md).
+Environment=NO_COLOR=1
 # MW_SERVER_KEY comes from a drop-in / EnvironmentFile:
 # EnvironmentFile=/etc/mailwoman/mailwoman.env
 
