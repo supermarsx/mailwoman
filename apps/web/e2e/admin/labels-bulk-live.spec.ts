@@ -2,6 +2,7 @@ import {test,expect} from '../csrf.ts';
 import {signInManually,messageRow,drawerButton,storageAuthorityHeaders} from '../helpers.ts';
 import {sendRawSmtp} from '../crypto-helpers.ts';
 import {readFile} from 'node:fs/promises';
+import {pickColor} from '../colorPicker.ts';
 
 test('account labels, touch selection, attached forward and one mbox archive work together @phone',async({page},info)=>{
   const stamp=Date.now();const subjects=[`Bulk Alpha ${stamp}`,`Bulk Beta ${stamp}`];
@@ -12,7 +13,7 @@ test('account labels, touch selection, attached forward and one mbox archive wor
   try{
     if(info.project.name==='phone')await drawerButton(page).click();await page.locator('.sidebar__settings').click();await page.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name:'Labels',exact:true}).click();
     await page.getByRole('button',{name:'New label'}).click();await expect(page.getByRole('table')).toHaveCount(0);
-    const name=`Travel ${stamp}`;const keyword=`travel-${stamp}`;await page.getByLabel('Label name',{exact:true}).fill(name);await page.getByLabel('Label colour',{exact:true}).fill('#ffff00');await page.getByLabel('Label icon',{exact:true}).selectOption('star');await page.getByRole('button',{name:'Save label',exact:true}).click();
+    const name=`Travel ${stamp}`;const keyword=`travel-${stamp}`;await page.getByLabel('Label name',{exact:true}).fill(name);await pickColor(page,'Label colour','#ffff00');await page.getByLabel('Label icon',{exact:true}).selectOption('star');await page.getByRole('button',{name:'Save label',exact:true}).click();
     await expect(page.getByRole('table')).toContainText(name);await expect.poll(async()=>(await(await page.request.get('/api/account/preferences')).json()).preferences.tags?.[keyword]?.name).toBe(name);
     await page.reload();await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();await page.getByRole('tab',{name:'Mail',exact:true}).click();
     await page.getByRole('button',{name:'Select messages',exact:true}).click();for(const subject of subjects)await messageRow(page,subject).click();

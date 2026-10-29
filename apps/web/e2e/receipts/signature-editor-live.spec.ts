@@ -13,6 +13,7 @@ import { type Page } from '@playwright/test';
 import { test, expect } from '../csrf.ts';
 import net from 'node:net';
 import path from 'node:path';
+import { colorTrigger, pickColor } from '../colorPicker.ts';
 
 const imap = process.env['MW_T49_IMAP'] ?? '127.0.0.1:3143';
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGOQ96vEihiGlgQAYZI5gapHhb8AAAAASUVORK5CYII=';
@@ -135,7 +136,7 @@ test('the signature editor is the composer editor, and a rich signature survives
   await (await control(page, scope, 'Font', (p) => p.locator(scope).getByRole('combobox', { name: 'Font', exact: true }))).selectOption({ label: 'Georgia' });
   await editor.click();
   await page.keyboard.press('ControlOrMeta+a');
-  await (await control(page, scope, 'Font', (p) => p.locator(scope).getByLabel('Font color', { exact: true }))).fill('#1f4e79');
+  await pickColor(page.locator(scope), 'Font color', '#1f4e79', await control(page, scope, 'Font', (p) => colorTrigger(p.locator(scope), 'Font color')));
   // A link on the name.
   await editor.click();
   await page.keyboard.press('End');

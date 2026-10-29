@@ -92,6 +92,8 @@ import type { Density } from '../theme/contract.css.ts';
 import type { LayoutMode, ThemeMode, UiFont } from '../state/slices/theme.ts';
 import * as css from '../styles/settings.css.ts';
 import * as picker from '../theme/picker.css.ts';
+import { ColorField } from '../components/color/ColorPicker.tsx';
+import { applyCustomAccent } from '../theme/customAccent.ts';
 
 // Option labels are Fluent ids resolved through `t()` at render (reactive).
 const MODE_OPTIONS: ReadonlyArray<{ value: ThemeMode; label: string }> = [
@@ -232,7 +234,7 @@ export function Settings(props: SettingsProps): JSX.Element {
         <section class={customizationCss.section} aria-labelledby="settings-appearance-colours-card"><h3 class={customizationCss.heading} id="settings-appearance-colours-card">{t('settings-appearance-colours-card')}</h3><p class={customizationCss.meta}>{t('settings-appearance-colours-card-help')}</p>
         <AccentPicker locked={accentHold.locked()} />
         <div class={customizationCss.row}>
-          <label class={customizationCss.field}>{t('appearance-custom-accent')}<input class={customizationCss.input} type="color" disabled={accentHold.locked()} value={app.appearancePrefs().customAccent || '#3366cc'} onChange={event => app.setAppearancePrefs({customAccent: event.currentTarget.value})} /></label>
+          <div class={customizationCss.field}><span aria-hidden="true">{t('appearance-custom-accent')}</span><ColorField label={t('appearance-custom-accent')} testId="settings-custom-accent" disabled={accentHold.locked()} value={app.appearancePrefs().customAccent || null} fallback="#3366cc" emptyLabel={t('color-picker-default')} contrast={{against: 'bg', use: 'non-text'}} onPreview={value => applyCustomAccent(document.documentElement, value ?? '', app.theme())} onChange={value => app.setAppearancePrefs({customAccent: value ?? ''})} /></div>
           <div class={customizationCss.actions}><button type="button" class={customizationCss.ghost} disabled={accentHold.locked() || !app.appearancePrefs().customAccent} onClick={() => app.setAppearancePrefs({customAccent: ''})}>{t('appearance-custom-accent-reset')}</button></div>
         </div>
         <BadgeColorPicker locked={badgeHold.locked()} />

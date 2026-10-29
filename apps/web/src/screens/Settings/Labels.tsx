@@ -4,6 +4,7 @@ import {keywordFor,type Tag} from '../../state/slices/tags.ts';
 import {accountUiPreferenceStatus,FOLDER_ICONS,retryAccountUiPreferences} from '../../api/accountPreferences.ts';
 import {preferenceAccount,preferenceAccountIsCurrent} from '../../api/accountPreferenceLifecycle.ts';
 import {Icon,tagIconName} from '../../components/Icon.tsx';
+import {ColorField} from '../../components/color/ColorPicker.tsx';
 import {createConfirm,useLeaveConfirm} from '../../components/confirm.tsx';
 import {loadCatalog,t} from '../../i18n';
 import type {SettingsNavigation} from './navigation.tsx';
@@ -25,7 +26,7 @@ function LabelEditor(props:{value?:Tag;navigation:SettingsNavigation}):JSX.Eleme
   return <form class={css.section} onSubmit={submit}><h3>{t(props.value?'labels-edit':'labels-new')}</h3>
     <Show when={error()}><p role="alert">{error()}</p></Show>
     <label class={css.field}><span>{t('labels-name')}</span><input class={css.input} required maxLength={128} value={draft().name} disabled={pending()} onInput={event=>setDraft(value=>({...value,name:event.currentTarget.value}))}/></label>
-    <label class={css.field}><span>{t('labels-color')}</span><input type="color" value={draft().color} disabled={pending()} onInput={event=>setDraft(value=>({...value,color:event.currentTarget.value}))}/></label>
+    <div class={css.field}><span aria-hidden="true">{t('labels-color')}</span><ColorField label={t('labels-color')} testId="label-color" value={draft().color} disabled={pending()} contrast={{against:'surface',use:'non-text'}} onChange={color=>{if(color)setDraft(value=>({...value,color}));}}/></div>
     <label class={css.field}><span>{t('labels-icon')}</span><select class={css.input} aria-label={t('labels-icon')} value={draft().icon} disabled={pending()} onChange={event=>setDraft(value=>({...value,icon:event.currentTarget.value}))}><For each={FOLDER_ICONS}>{icon=><option value={icon}>{t(`settings-folder-icon-${icon}`)}</option>}</For></select></label>
     <p class={css.meta}>{t('labels-keyword',{keyword:props.value?.id??keywordFor(draft().name)})}</p>
     <div class={css.actions}><button class={css.button} disabled={!changed()||pending()} type="submit">{t('labels-save')}</button><button class={css.ghost} type="button" onClick={()=>void props.navigation.navigate({section:'labels'})}>{t('labels-back')}</button></div>

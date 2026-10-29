@@ -147,7 +147,11 @@ describe('NotesModule', () => {
   it('changes the note color', async () => {
     const { slice } = setup([mkNote('a')]);
     await selectFirst();
-    fireEvent.click(screen.getByRole('button', { name: 'Color #ef4444' }));
+    // The app colour picker (t81): open it, type a hex, Enter commits.
+    fireEvent.click(screen.getByRole('button', { name: /^Note color:/ }));
+    const hex = screen.getByRole('textbox', { name: 'Hex' });
+    fireEvent.input(hex, { target: { value: '#ef4444' } });
+    fireEvent.keyDown(hex, { key: 'Enter' });
     await waitFor(() => expect(slice.notes().find((n) => n.id === 'a')?.color).toBe('#ef4444'));
   });
 

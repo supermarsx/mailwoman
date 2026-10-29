@@ -1,5 +1,6 @@
 import {AsyncPending} from '../../components/AsyncState.tsx';
 import { Icon } from '../../components/Icon.tsx';
+import { ColorField } from '../../components/color/ColorPicker.tsx';
 import {MiniCalendar} from './MiniCalendar.tsx';
 // Calendar module (plan §2.5, §3 e4): the mounted shell that composes the view
 // switcher, the multi-calendar overlay sidebar, all nine views, the event
@@ -297,12 +298,13 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
                       onChange={() => void c.toggleCalendar(cal().id)}
                       aria-label={t('calendar-toggle', { name: cal().name })}
                     />
-                    <input
-                      type="color"
+                    <ColorField
                       value={cal().color}
-                      onChange={(e) => void c.setCalendarColor(cal().id, e.currentTarget.value)}
-                      aria-label={t('calendar-color-for', { name: cal().name })}
-                      class={css.colorInput}
+                      label={t('calendar-color-for', { name: cal().name })}
+                      showValue={false}
+                      testId="calendar-color"
+                      contrast={{ against: 'surface', use: 'non-text' }}
+                      onChange={(color) => { if (color) void c.setCalendarColor(cal().id, color); }}
                     />
                     <span class={css.grow}><bdi>{cal().name}</bdi></span>
                     <Show when={cal().isReadOnlyOverlay || cal().caldavUrl !== null}>

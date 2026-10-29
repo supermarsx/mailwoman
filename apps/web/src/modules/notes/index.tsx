@@ -14,7 +14,8 @@ import { Icon } from '../../components/Icon.tsx';
 import { For, Show, createEffect, createMemo, createSignal, on, onMount, untrack, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
 import { useApp } from '../../state/context.ts';
-import { NOTE_COLORS, noteBodyText } from '../../state/slices/notes.ts';
+import { noteBodyText } from '../../state/slices/notes.ts';
+import { ColorField } from '../../components/color/ColorPicker.tsx';
 import type { Note, NoteLink } from '../../api/pim-types.ts';
 import { NoteEditor } from './Editor.tsx';
 import { LinkPicker, linkMeta } from './LinkPicker.tsx';
@@ -255,20 +256,14 @@ function NoteDetail(props: { note: Note; onDeleted: () => void }): JSX.Element {
         <p class="notes__notice" role="status">{t('notes-changed-elsewhere')}</p>
       </Show>
 
-      <div class="notes__colors" role="group" aria-label={t('notes-color-group')}>
-        <For each={NOTE_COLORS}>
-          {(c) => (
-            <button
-              type="button"
-              class="notes__color"
-              classList={{ 'notes__color--active': note().color === c }}
-              style={{ background: c }}
-              aria-label={t('notes-color', { color: c })}
-              aria-pressed={note().color === c}
-              onClick={() => void app.updateNote(note().id, { color: c })}
-            />
-          )}
-        </For>
+      <div class="notes__colors">
+        <ColorField
+          value={note().color}
+          label={t('notes-color-group')}
+          testId="note-color"
+          contrast={{ against: 'surface', use: 'non-text' }}
+          onChange={(color) => { if (color) void app.updateNote(note().id, { color }); }}
+        />
       </div>
 
       <div class="notes__tags-editor">

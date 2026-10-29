@@ -12,6 +12,16 @@ import * as css from '../Settings/styles.css.ts';
 import * as ux from './shell/ux.css.ts';
 import { AdminPasskeys } from './AdminPasskeys.tsx';
 import { DashboardPreferencesFields } from './Dashboard/PreferencesFields.tsx';
+import { ColorField } from '../../components/color/ColorPicker.tsx';
+import { applyCustomAccent } from '../../theme/customAccent.ts';
+import { isThemeName } from '../../theme/registry.ts';
+
+/** Live accent while the picker is dragged; the store re-applies the saved one on commit. */
+function previewAccent(value: string | null): void {
+  const root = document.documentElement;
+  const theme = root.getAttribute('data-theme');
+  if (isThemeName(theme)) applyCustomAccent(root, value ?? '', theme);
+}
 
 export function PersonalPreferences(): JSX.Element {
   const prefs = usePersonalPreferences();
@@ -26,7 +36,7 @@ export function PersonalPreferences(): JSX.Element {
     <Show when={prefs.error()}><div role="alert" class={css.section}><p>{prefs.error()}</p><p class={css.prose}>{t('admin-personal-reload-warning')}</p><div class={css.actions}><button class={css.button} onClick={() => void prefs.retry()}>{t('admin-personal-retry')}</button><button class={css.button} onClick={() => void prefs.reload()}>{t('admin-personal-reload')}</button></div></div></Show>
     <AppearanceCustomization owner={() => ({kind: 'admin', username: shell.username()})} />
     <fieldset disabled={blocked()} class={css.section}><legend class={css.heading}>{t('admin-personal-appearance')}</legend><AdminAppearanceFields controller={prefs.appearance} />
-      <label class={css.field}>{t('appearance-custom-accent')}<input class={css.input} type="color" value={prefs.appearance.prefs().customAccent || '#3366cc'} onChange={event => prefs.appearance.setCustomAccent(event.currentTarget.value)} /></label>
+      <div class={css.field}><span aria-hidden="true">{t('appearance-custom-accent')}</span><ColorField label={t('appearance-custom-accent')} testId="admin-custom-accent" disabled={blocked()} value={prefs.appearance.prefs().customAccent || null} fallback="#3366cc" emptyLabel={t('color-picker-default')} recentOwner={`admin:${shell.username()}`} contrast={{against: 'bg', use: 'non-text'}} onPreview={value => previewAccent(value)} onChange={value => prefs.appearance.setCustomAccent(value ?? '')} /></div>
       <div class={css.actions}><button class={css.button} disabled={!prefs.appearance.prefs().customAccent} onClick={() => prefs.appearance.setCustomAccent('')}>{t('appearance-custom-accent-reset')}</button><button class={css.button} onClick={() => prefs.appearance.reset()}>{t('admin-personal-reset')}</button></div>
     </fieldset>
     <fieldset disabled={blocked()} class={css.section}><legend class={css.heading}>{t('admin-personal-layout')}</legend>

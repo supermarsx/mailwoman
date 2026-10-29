@@ -1,5 +1,6 @@
 import {test, expect, type Page} from '../csrf.ts';
 import {signInManually, drawerButton} from '../helpers.ts';
+import {colorTrigger,pickColor} from '../colorPicker.ts';
 async function request(page: Page, path: string, data?: unknown, etag?: string) {
   return page.evaluate(async ({path,data,etag}) => {
     const token = document.cookie.split('; ').find(item => item.startsWith('mw_csrf='))?.slice(8);
@@ -33,7 +34,7 @@ test('personal CSS and isolated script persist with separate administrator scope
     if (test.info().project.name === 'phone') await drawerButton(page).click();
     await page.locator('.sidebar__settings').click();
     await page.getByRole('button',{name:'Appearance',exact:true}).click();
-    await page.getByLabel('Custom accent colour',{exact:true}).fill('#c23f9e');
+    await pickColor(page,'Custom accent colour','#c23f9e');
     await expect.poll(async() => (await request(page,'/api/account/appearance')).body.appearance?.customAccent).toBe('#c23f9e');
     const editor = page.getByRole('region',{name:'Personal appearance customization'});
     await expect(editor.getByText(/Call appearance.set with an object/)).toBeVisible();
@@ -46,7 +47,7 @@ test('personal CSS and isolated script persist with separate administrator scope
     await page.reload();
     await expect.poll(() => page.locator('.mw-custom-mail').evaluate(element=>getComputedStyle(element).borderRadius)).toBe('19px');
     await admin.goto('/admin#/preferences');
-    await admin.getByLabel('Custom accent colour',{exact:true}).fill('#126789');
+    await pickColor(admin,'Custom accent colour','#126789');
     await expect.poll(async() => (await request(admin,'/admin/me/preferences')).body.appearance?.customAccent).toBe('#126789');
     const adminEditor=admin.getByRole('region',{name:'Personal appearance customization'});
     await adminEditor.getByLabel('Restricted CSS').fill('body{border-radius:7px}');
@@ -58,7 +59,7 @@ test('personal CSS and isolated script persist with separate administrator scope
     if (test.info().project.name === 'phone') await drawerButton(page).click();
     await page.locator('.sidebar__settings').click();
     await page.getByRole('button',{name:'Appearance',exact:true}).click();
-    await expect(page.getByLabel('Custom accent colour',{exact:true})).toHaveValue('#c23f9e');
+    await expect(colorTrigger(page,'Custom accent colour')).toHaveAttribute('data-color-value','#c23f9e');
     await editor.scrollIntoViewIfNeeded();
     await page.screenshot({path:test.info().outputPath('personal-appearance.png'),fullPage:true});
     await adminEditor.scrollIntoViewIfNeeded();

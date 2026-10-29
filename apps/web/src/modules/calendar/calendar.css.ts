@@ -546,7 +546,6 @@ export const quickAdd = style({ minWidth: '12rem' });
 /** The file input behind the Import button. */
 export const fileInput = style({ display: 'none' });
 /** The colour picker beside a calendar's name. */
-export const colorInput = style({ width: '1.4rem', height: '1.4rem', padding: 0, border: 'none', background: 'none' });
 export const addCalendar = style({ marginBlockStart: '0.5rem' });
 /** A view that stacks a header over a body filling the rest of the height. */
 export const viewColumn = style({ display: 'flex', flexDirection: 'column', height: '100%' });

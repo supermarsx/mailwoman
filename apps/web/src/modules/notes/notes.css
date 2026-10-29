@@ -1,8 +1,8 @@
 /* Notes module styling (plan §3 e6). Themed entirely off the plain-CSS bridge
    that theme/themes.css.ts emits (--bg / --bg-alt / --border / --border-strong
    / --text / --accent / --border-rule …) so it tracks every theme and never
-   hard-codes a chrome color. Note swatch/color values are user data
-   (NOTE_COLORS), rendered inline.
+   hard-codes a chrome color. A note's colour is user data,
+   picked with the app colour picker and painted through the CSSOM.
 
    t32 (flat, square, never bigger): 2px control and panel rules in
    --border-strong with 1px less padding wherever a border got thicker, focus
@@ -243,19 +243,6 @@
   gap: 6px;
 }
 
-/* Colour swatches stay circles (user colours; the one round shape kept). */
-.notes__color {
-  width: 22px;
-  height: 22px;
-  border: 2px solid transparent;
-  border-radius: var(--radius-pill);
-  cursor: pointer;
-}
-
-.notes__color--active {
-  border-color: var(--text);
-}
-
 .notes__tags-editor {
   display: flex;
   flex-wrap: wrap;
@@ -449,10 +436,6 @@
   min-height: 24px;
 }
 
-.notes__color {
-  width: 24px;
-  height: 24px;
-}
 
 @media (prefers-reduced-motion: reduce) {
   .notes *,

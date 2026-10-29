@@ -24,19 +24,6 @@ const SAVE = { keepalive: true } as const;
 /** The default notebook every account has until multi-notebook lands (e8). */
 export const DEFAULT_NOTEBOOK_ID = 'default';
 
-/** Themed note colors (token-agnostic swatches; the chip renders the raw value). */
-export const NOTE_COLORS: readonly string[] = [
-  '#facc15', // amber
-  '#f97316', // orange
-  '#ef4444', // red
-  '#ec4899', // pink
-  '#a855f7', // violet
-  '#3b82f6', // blue
-  '#14b8a6', // teal
-  '#22c55e', // green
-  '#94a3b8', // slate (default / "no color")
-];
-
 /** The neutral color a new note starts with. */
 export const DEFAULT_NOTE_COLOR = '#94a3b8';
 

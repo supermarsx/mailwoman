@@ -216,8 +216,7 @@
 .compose-rib__field { display:flex; align-items:center; gap:.3rem; min-inline-size:0; white-space:nowrap; font-size:.75rem; color:var(--text-dim); }
 .compose-rib__field input[type=number] { inline-size:3.25rem; }
 .compose-rib__field input[type=password] { inline-size:10rem; }
-.compose-rib__color { display:inline-flex; align-items:center; gap:1px; }
-.compose-rib__color input[type=color] { inline-size:1.75rem; padding:1px !important; }
+.compose-rib__color-row { display:inline-flex; align-items:center; gap:0.5rem; }
 :is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] :is(.compose-options__toggle,.cmpcrypto-toggle) { display:flex; align-items:center; gap:.35rem; min-inline-size:0; white-space:nowrap; font-size:.8rem; }
 :is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] > label.field { flex-direction:row; align-items:center; gap:.3rem; margin:0; }
 :is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] > label.field > span { display:inline-flex; align-items:center; gap:.2rem; font-size:.7rem; white-space:nowrap; }
