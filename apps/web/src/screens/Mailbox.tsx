@@ -195,6 +195,9 @@ export function MailboxScreen(): JSX.Element {
   }
   onMount(()=>{const clear=()=>setDropView(null);window.addEventListener('dragend',clear);onCleanup(()=>window.removeEventListener('dragend',clear));});
   const activePane=createMemo(()=>panes().find(pane=>pane.id===subTabs.activeId()));
+  // The phone-width switch (t28-e6; the narrow shell below). Declared here: the
+  // companion memo reads it on its first run.
+  const narrow = createNarrowViewport();
   // t51: a message opened from a folder tab keeps that folder on screen beside it,
   // the way the Mail list stays beside its reader, so the row that opened it keeps
   // focus. Tabs layout only (split layouts give the message the other view slot,
@@ -424,7 +427,7 @@ export function MailboxScreen(): JSX.Element {
   // drawer opened from a top bar (styles/app.css); `navOpen` is that drawer's
   // state and has no effect on the desktop grid. The bar itself only renders
   // when narrow, so the desktop DOM is the same as before.
-  const narrow = createNarrowViewport();
+  // `narrow` is declared above, before the companion memo that reads it.
   // One visible account indicator (t38 §2.3): the sidebar head owns it; compact
   // folders show it as an icon; a hidden desktop sidebar hands it to the top bar.
   const accountIconInSidebar = (): boolean => !narrow() && folderMode() === 'compact';
