@@ -50,6 +50,7 @@ import type { ComposeInitial } from '../components/compose/reply.ts';
 import { Outbox } from '../components/Outbox.tsx';
 import { InboxTabs } from '../components/InboxTabs.tsx';
 import { SubTabStrip } from '../components/SubTabStrip.tsx';
+import { ConfirmDialog } from './Admin/shell/ConfirmDialog.tsx';
 import { Ribbon } from '../components/Ribbon.tsx';
 import { Settings } from './Settings.tsx';
 import { SharingDialog } from './SharingDialog.tsx';
@@ -137,7 +138,7 @@ export function MailboxScreen(): JSX.Element {
     subTabs.move('mail', 0);
   }
   seedMailTab();
-  interface Pane { refresh?:()=>void; detach?:DetachedPaneHandle; beforeClose?:()=>Promise<boolean>; id:string; kind:'messages'|'composer'|'settings'|'attachment'|'module'|'outbox'|'attachments'|'sharing'|'folder'; title:string; surface?:ShellSurface; reference?:string; draftId?:string; accountId?:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
+  interface Pane { refresh?:()=>void; detach?:DetachedPaneHandle; beforeClose?:(discard?:boolean)=>Promise<boolean>; dirty?:()=>boolean; id:string; kind:'messages'|'composer'|'settings'|'attachment'|'module'|'outbox'|'attachments'|'sharing'|'folder'; title:string; surface?:ShellSurface; reference?:string; draftId?:string; accountId?:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
   const [panes,setPanes]=createSignal<Pane[]>([]);
   const [workspaceReady,setWorkspaceReady]=createSignal(false);
   const [draftRevision,setDraftRevision]=createSignal(0);
@@ -263,19 +264,40 @@ export function MailboxScreen(): JSX.Element {
     subTabs.open({id,kind:'messages',title});
     void view.openMessage(messageId);
   }
-  async function closePane(id:string):Promise<void> {
+  /** `discard`: the user already chose to discard this tab's unsaved changes (a bulk close), so it does not ask again. */
+  async function closePane(id:string,discard=false):Promise<void> {
     if(id==='mail') return;
     noteWorkspaceIntent();
     const pane=panes().find(item=>item.id===id),owner=preferenceAccount();
     // A composer asks while still detached, so its prompt opens in the window that holds it (t42).
-    if(pane?.beforeClose && !await pane.beforeClose()) return;
+    if(pane?.beforeClose && !await pane.beforeClose(discard)) return;
     pane?.detach?.reattach();
-    if(pane?.navigation && !await pane.navigation.canLeave()) return;
+    if(pane?.navigation && !await pane.navigation.canLeave(discard)) return;
     if(!await confirmShellNavigation(id)) return;
     if((owner&&!preferenceAccountIsCurrent(owner))||panes().find(item=>item.id===id)!==pane)return;
     const wasActive=subTabs.activeId()===id;
     pane?.view?.dispose();setPanes(old=>old.filter(item=>item.id!==id));subTabs.close(id);
     if(wasActive) queueMicrotask(()=>document.getElementById(`subtab-tab-${subTabs.activeId()}`)?.focus());
+  }
+  // t50: Close other tabs / to the left / to the right / all tabs. The tabs with
+  // unsaved changes are listed in one dialog: keep them open (the clean tabs still
+  // close) or discard and close them all. Detached tabs close their window.
+  const [dirtyClose,setDirtyClose]=createSignal<{titles:string[];answer:(discard:boolean)=>void}|null>(null);
+  onCleanup(()=>dirtyClose()?.answer(false));
+  const paneDirty=(pane:Pane):boolean=>pane.dirty?.()===true||pane.navigation?.isDirty()===true;
+  async function closePanes(ids:string[]):Promise<void> {
+    const targets=ids.filter(id=>id!=='mail'&&panes().some(pane=>pane.id===id));
+    if(targets.length===0||dirtyClose())return;
+    noteWorkspaceIntent();
+    const owner=preferenceAccount();
+    const dirty=new Set(targets.filter(id=>{const pane=panes().find(item=>item.id===id);return !!pane&&paneDirty(pane);}));
+    let discard=false;
+    if(dirty.size>0){
+      const titles=[...dirty].map(id=>subTabs.tabs().find(tab=>tab.id===id)?.title??panes().find(pane=>pane.id===id)?.title??'');
+      discard=await new Promise<boolean>(resolve=>setDirtyClose({titles,answer:value=>{setDirtyClose(null);resolve(value);}}));
+      if(owner&&!preferenceAccountIsCurrent(owner))return;
+    }
+    for(const id of targets){if(dirty.has(id)&&!discard)continue;await closePane(id,dirty.has(id));}
   }
   createEffect(()=>{app.setActiveReader(surface()==='mail' && readersVisible() ? activePane()?.view ?? null : null);});
   let workspaceGeneration:number|undefined;
@@ -695,7 +717,7 @@ export function MailboxScreen(): JSX.Element {
       <Show when={!narrow() && folderMode()==='expanded'}><ResizeHandle label={t('mail-resize-folders')} controls="shell-nav" value={folderWidth()} min={160} max={folderMax()} onChange={setFolderDrag} onCommit={value=>{setAccountUiPreferences({folderSidebarWidth:value});setFolderDrag(null);}} /></Show>
       <Show when={!narrow() && folderMode()==='hidden' && surface()!=='mail'}><button type="button" class={`btn workspace-show-folders ${a11y.iconButton}`} aria-label={t('mail-show-folders')} title={t('mail-show-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:'expanded'})}><Icon name="folder"/></button></Show>
       <div class="mail-workspace">
-        <SubTabStrip onClose={id=>void closePane(id)} canClose={id=>id!=='mail'} canDetach={id=>id!=='mail'} isDetached={id=>{paneWindowRevision();return panes().find(pane=>pane.id===id)?.detach?.isDetached()??false;}} onReattach={id=>{panes().find(pane=>pane.id===id)?.detach?.reattach();subTabs.activate(id);}} onDetach={id=>{const pane=panes().find(value=>value.id===id);subTabs.activate(id);pane?.detach?.detach();}} />
+        <SubTabStrip onClose={id=>void closePane(id)} onCloseMany={ids=>void closePanes(ids)} canClose={id=>id!=='mail'} canDetach={id=>id!=='mail'} isDetached={id=>{paneWindowRevision();return panes().find(pane=>pane.id===id)?.detach?.isDetached()??false;}} onReattach={id=>{panes().find(pane=>pane.id===id)?.detach?.reattach();subTabs.activate(id);}} onDetach={id=>{const pane=panes().find(value=>value.id===id);subTabs.activate(id);pane?.detach?.detach();}} />
         <CollapsibleBar id="mailTopBar" revealPolicy="overlay" class="mail-topbar">
         <div class="workspace-bar" role="toolbar" aria-label={t('mail-workspace-layout')}>
           {/* With the sidebar hidden, its account indicator moves here: exactly one is ever shown. */}
@@ -724,7 +746,7 @@ export function MailboxScreen(): JSX.Element {
               <DetachedWorkspacePane title={()=>subTabs.tabs().find(tab=>tab.id===pane.id)?.title??pane.title} account={()=>mailboxNickname(app.linkedMailboxId())??app.me()?.username} register={handle=>{pane.detach=handle;setPaneWindowRevision(value=>value+1);}}>{()=> <>
               <Show when={pane.kind==='messages' && pane.view}>{view=><><Show when={view().error()}><p role="alert">{t('mail-workspace-load-error')}</p></Show><Reader view={view()} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} onCompose={openReply} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)}/></>}</Show>
               <Show when={pane.kind==='attachment' && pane.attachment}>{item=><AttachmentTab item={item()}/>}</Show>
-              <Show when={pane.kind==='composer'}><Compose embedded registerBeforeClose={handler=>{pane.beforeClose=handler;}} onSubjectChange={subject=>subTabs.rename(pane.id,subject.trim()||t('mail-compose'))} onDraftIdChange={id=>{if(pane.draftId!==id){pane.draftId=id;setDraftRevision(value=>value+1);}}} {...(pane.draftId?{resumeDraftId:pane.draftId}:{})} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
+              <Show when={pane.kind==='composer'}><Compose embedded registerBeforeClose={(handler,dirty?:()=>boolean)=>{pane.beforeClose=handler;if(dirty)pane.dirty=dirty;}} onSubjectChange={subject=>subTabs.rename(pane.id,subject.trim()||t('mail-compose'))} onDraftIdChange={id=>{if(pane.draftId!==id){pane.draftId=id;setDraftRevision(value=>value+1);}}} {...(pane.draftId?{resumeDraftId:pane.draftId}:{})} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
               <Show when={pane.kind==='folder'&&pane.reference}><FolderPane mailboxId={pane.reference!} beforeGlobalAction={()=>pane.detach?.reattach()} registerRefresh={refresh=>{pane.refresh=refresh;}} active={subTabs.activeId()===pane.id} onOpen={id=>void openDraftOrMessage(id)}/></Show>
               <Show when={pane.kind==='outbox'}><Outbox/></Show>
               <Show when={pane.kind==='attachments'}><Attachments loadPage={position=>app.listAttachmentsPage(position)} onOpen={openAttachmentTab} onOpenMessage={item=>openMessageTab(item.emailId)}/></Show>
@@ -739,6 +761,12 @@ export function MailboxScreen(): JSX.Element {
             </Show>
           </div>
         </div>
+        <ConfirmDialog open={dirtyClose()!==null} testId="workspace-tabs-close-dirty"
+          title={t('workspace-tabs-close-dirty-title',{count:dirtyClose()?.titles.length??0})} body={t('workspace-tabs-close-dirty-body')}
+          confirmLabel={t('workspace-tabs-close-dirty-discard')} cancelLabel={t('workspace-tabs-close-dirty-keep')}
+          onCancel={()=>dirtyClose()?.answer(false)} onConfirm={()=>dirtyClose()?.answer(true)}>
+          <ul class="workspace-close-dirty"><For each={dirtyClose()?.titles??[]}>{title=><li dir="auto">{title}</li>}</For></ul>
+        </ConfirmDialog>
         <AssistPanel config={app.assist.config()} service={app.assist.service} context={assistContext()} onReviewAction={openNewMessage}/>
       </div>
 

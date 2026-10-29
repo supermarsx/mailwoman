@@ -13,6 +13,12 @@ describe('dedicated account entity editors',()=>{
   const close=navigation.canLeave();await screen.findByRole('alertdialog');fireEvent.click(screen.getByRole('button',{name:'Keep editing'}));expect(await close).toBe(false);expect(body).toHaveValue('Unsaved signature');
   const leave=navigation.navigate({section:'identities'});await screen.findByRole('alertdialog');fireEvent.click(screen.getByRole('button',{name:'Discard changes'}));expect(await leave).toBe(true);expect(navigation.route()).toEqual({section:'identities'});
  });
+ it('reports unsaved changes without asking, and a discard already chosen does not ask again (t50 bulk tab close)',async()=>{
+  const navigation=createSettingsNavigation({section:'signatures'});const service=signatureService();render(()=><SettingsNavigationContext.Provider value={navigation}><Signatures service={service}/></SettingsNavigationContext.Provider>);
+  fireEvent.click(await screen.findByRole('button',{name:'Edit'}));await screen.findByTestId('signature-editor');expect(navigation.isDirty()).toBe(false);
+  fireEvent.input(screen.getByLabelText('Signature'),{target:{value:'Unsaved signature'}});expect(navigation.isDirty()).toBe(true);expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  expect(await navigation.canLeave(true)).toBe(true);expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+ });
  it('saves the dedicated page then returns to the list without a discard prompt',async()=>{
   const navigation=createSettingsNavigation({section:'signatures',editor:{kind:'new'}});const service=signatureService();render(()=><SettingsNavigationContext.Provider value={navigation}><Signatures service={service}/></SettingsNavigationContext.Provider>);
   fireEvent.input(screen.getByLabelText('Name'),{target:{value:'New signature'}});fireEvent.input(screen.getByLabelText('Signature'),{target:{value:'Hello'}});fireEvent.click(screen.getByTestId('signature-save'));

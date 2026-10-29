@@ -13,7 +13,7 @@ type Flag=Accessor<boolean>;
 export function useEditorGuard(dirty:Flag, busy:Flag) {
  const nav=useSettingsNavigation();const [pending,setPending]=createSignal<((leave:boolean)=>void)>();
  const confirm=():Promise<boolean>=>{if(!dirty())return Promise.resolve(true);if(busy())return Promise.resolve(false);return new Promise(resolve=>setPending(()=>resolve));};
- if(nav)onCleanup(nav.beforeLeave(confirm));
+ if(nav)onCleanup(nav.beforeLeave(confirm,dirty));
  const answer=(leave:boolean):void=>{pending()?.(leave);setPending(undefined);};
  onMount(()=>{const handler=(event:BeforeUnloadEvent):void=>{if(dirty()){event.preventDefault();event.returnValue='';}};window.addEventListener('beforeunload',handler);onCleanup(()=>window.removeEventListener('beforeunload',handler));});
  onCleanup(()=>pending()?.(false));

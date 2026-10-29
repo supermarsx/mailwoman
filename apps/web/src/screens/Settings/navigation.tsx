@@ -4,8 +4,11 @@ export interface SettingsRoute { section: string; editor?: { kind: 'new' | 'edit
 export interface SettingsNavigation {
   route: Accessor<SettingsRoute>;
   navigate(route: SettingsRoute): Promise<boolean>;
-  canLeave(): Promise<boolean>;
-  beforeLeave(guard: () => boolean | Promise<boolean>): () => void;
+  /** `discard`: the user already chose to discard unsaved changes; guards that report `dirty` do not ask again. */
+  canLeave(discard?: boolean): Promise<boolean>;
+  /** True when a guard that reports its state has unsaved changes (asked without prompting). */
+  isDirty(): boolean;
+  beforeLeave(guard: () => boolean | Promise<boolean>, dirty?: () => boolean): () => void;
 }
 export const SettingsNavigationContext = createContext<SettingsNavigation>();
 export function useSettingsNavigation(): SettingsNavigation | undefined { return useContext(SettingsNavigationContext); }
@@ -13,15 +16,16 @@ export function useSettingsNavigation(): SettingsNavigation | undefined { return
 /** Switching workspace tabs does not call navigate or unmount the editor. */
 export function createSettingsNavigation(initial: SettingsRoute = { section: 'appearance' }): SettingsNavigation {
   const [route, setRoute] = createSignal<SettingsRoute>(initial);
-  const guards = new Set<() => boolean | Promise<boolean>>();
+  const guards = new Map<() => boolean | Promise<boolean>, (() => boolean) | undefined>();
   let pending: Promise<boolean> | undefined;
   let navigation = 0;
-  async function check(): Promise<boolean> {
-    for (const guard of [...guards]) if (!await guard()) return false;
+  async function check(discard: boolean): Promise<boolean> {
+    for (const [guard, dirty] of [...guards]) if (!(discard && dirty) && !await guard()) return false;
     return true;
   }
-  function canLeave(): Promise<boolean> {
-    pending ??= check().finally(() => { pending = undefined; });
+  function canLeave(discard = false): Promise<boolean> {
+    if (discard) return check(true);
+    pending ??= check(false).finally(() => { pending = undefined; });
     return pending;
   }
   return {
@@ -33,6 +37,7 @@ export function createSettingsNavigation(initial: SettingsRoute = { section: 'ap
       return true;
     },
     canLeave,
-    beforeLeave(guard) { guards.add(guard); return () => { guards.delete(guard); }; },
+    isDirty: () => [...guards.values()].some(dirty => dirty?.() === true),
+    beforeLeave(guard, dirty) { guards.set(guard, dirty); return () => { guards.delete(guard); }; },
   };
 }
