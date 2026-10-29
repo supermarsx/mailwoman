@@ -99,7 +99,8 @@ export function AsyncEmpty(props: { message?: string }): JSX.Element {
 export function AsyncPending(props: {
   message?: string;
   /** `messages`: message-list rows (avatar, sender + date, subject, preview). */
-  variant?: 'lines' | 'list' | 'table' | 'page' | 'boot' | 'status' | 'messages';
+  /** `folders`: sidebar folder rows (icon + name), drawn with the rows' own class. */
+  variant?: 'lines' | 'list' | 'table' | 'page' | 'boot' | 'status' | 'messages' | 'folders';
   timeoutMs?: number;
   onRetry?: (() => void) | undefined;
   /** Announce the message to assistive technology only; the shapes carry it visually. */
@@ -111,7 +112,7 @@ export function AsyncPending(props: {
   bounded?: boolean;
   /** `messages`: the height of one list row, so placeholders match the density. */
   rowHeight?: number;
-  /** `messages`: how many placeholder rows to draw. */
+  /** `messages`, `folders`: how many placeholder rows to draw. */
   rows?: number;
 }): JSX.Element {
   const timedOut = createElapsed(props.timeoutMs ?? PENDING_BOUND_MS);
@@ -127,7 +128,7 @@ export function AsyncPending(props: {
       when={!elapsed()}
       fallback={<AsyncError onRetry={props.onRetry} />}
     >
-      <div ref={panel} class={`async-state async-state--pending ${loading.pending} ${props.variant==='status'?'':loading.skeletonPanel} ${props.variant==='boot'?loading.boot:''} ${props.variant==='messages'?loading.messagesPanel:''} ${takesOver?loading.takeover:''}`} role="status" aria-live="polite" data-testid="async-pending">
+      <div ref={panel} class={`async-state async-state--pending ${loading.pending} ${props.variant==='status'?'':loading.skeletonPanel} ${props.variant==='boot'?loading.boot:''} ${props.variant==='messages'?loading.messagesPanel:''} ${props.variant==='folders'?loading.foldersPanel:''} ${takesOver?loading.takeover:''}`} role="status" aria-live="polite" data-testid="async-pending">
         <span class={props.quiet ? a11y.srOnly : loading.indicator}>{props.message ?? t('common-loading')}</span>
         <Show when={props.variant==='messages'}><div aria-hidden="true" class={loading.messageSkeletons} data-skeleton="messages">
           <For each={Array.from({length:props.rows??8},(_,index)=>index)}>{(index)=> <div class={loading.messageSkeleton} style={{'block-size':`${props.rowHeight??72}px`}}>
@@ -136,7 +137,12 @@ export function AsyncPending(props: {
             <span class={`${loading.skeletonLine} ${loading.messageSkeletonDim}`} style={{'max-inline-size':`${[90,84,76,88][index%4]}%`}}/>
           </div>}</For>
         </div></Show>
-        <Show when={props.variant!=='status'&&props.variant!=='messages'}><div aria-hidden="true" class={loading.skeletonBody} data-skeleton={props.variant??'lines'}>
+        <Show when={props.variant==='folders'}><div aria-hidden="true" class={loading.folderSkeletons} data-skeleton="folders">
+          <For each={Array.from({length:props.rows??6},(_,index)=>index)}>{(index)=> <div class="sidebar__box" data-folder-skeleton>
+            <span class={loading.folderSkeletonIcon}/><span class={`sidebar__box-name ${loading.folderSkeletonName}`}><span class={loading.folderSkeletonLine} style={{'max-inline-size':`${[54,70,46,62,38,58][index%6]}%`}}/>{'​'}</span>
+          </div>}</For>
+        </div></Show>
+        <Show when={props.variant!=='status'&&props.variant!=='messages'&&props.variant!=='folders'}><div aria-hidden="true" class={loading.skeletonBody} data-skeleton={props.variant??'lines'}>
           <Show when={props.variant==='page'||props.variant==='boot'}><div class={loading.skeletonCards}><For each={[1,2,3]}>{()=> <span class={loading.skeletonCard}/>}</For></div></Show>
           <For each={Array.from({length:props.variant==='list'||props.variant==='table'?5:3})}>{()=> <div class={loading.skeletonRow}>
             <Show when={props.variant==='list'}><span class={loading.skeletonAvatar}/></Show>

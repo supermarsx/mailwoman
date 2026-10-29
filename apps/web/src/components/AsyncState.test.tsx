@@ -239,3 +239,19 @@ describe('a boundary contains a surface that throws while rendering', () => {
     expect(container.textContent).toBe('');
   });
 });
+
+// t71: the sidebar's folder placeholders are folder rows (the row's own class,
+// so its padding and line box), one live status, decorative shapes.
+describe('AsyncPending variant="folders"', () => {
+  it('draws the given number of folder-row placeholders under one status', () => {
+    const { container } = render(() => <AsyncPending variant="folders" rows={4} quiet message="Loading folders" />);
+    const rows = container.querySelectorAll('[data-skeleton="folders"] [data-folder-skeleton]');
+    expect(rows).toHaveLength(4);
+    for (const row of rows) expect(row.classList.contains('sidebar__box')).toBe(true);
+    expect(container.querySelector('[data-skeleton="folders"]')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(screen.getByRole('status')).toHaveTextContent('Loading folders');
+    // No generic list skeleton alongside it.
+    expect(container.querySelector('[data-skeleton="list"]')).toBeNull();
+  });
+});

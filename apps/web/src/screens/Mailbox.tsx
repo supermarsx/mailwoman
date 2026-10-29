@@ -584,6 +584,11 @@ export function MailboxScreen(): JSX.Element {
     onCleanup(off);
   });
 
+  // Folder placeholders: as many as the last folder list had, so a mailbox
+  // switch does not move what sits below the folders (t71).
+  const [folderRows,setFolderRows]=createSignal(6);
+  createEffect(()=>{const count=app.mailboxes().length;if(count>0)setFolderRows(Math.min(count,12));});
+
   return (
     <div class="shell workspace-shell mw-custom-mail" onPointerDown={noteWorkspaceIntent} onClick={noteWorkspaceIntent} onKeyDown={noteWorkspaceIntent} ref={shellElement} data-folder-mode={folderMode()}>
       <AppearanceCustomizationRuntime owner={() => {const accountId = app.accountId(); return accountId ? {kind: 'mailbox', accountId} : null;}} />
@@ -654,7 +659,7 @@ export function MailboxScreen(): JSX.Element {
         </button>
         <div class="sidebar__scroll">
         <nav class="sidebar__nav" aria-label={t('mail-nav-mailboxes')} aria-busy={!!app.me()&&app.mailboxes().length===0}>
-          <Show when={app.me()&&app.mailboxes().length===0}><AsyncPending variant="list" quiet message={t('mail-folders-loading')} onRetry={()=>void app.refreshFolders()}/></Show>
+          <Show when={app.me()&&app.mailboxes().length===0}><AsyncPending variant="folders" rows={folderRows()} quiet message={t('mail-folders-loading')} onRetry={()=>void app.refreshFolders()}/></Show>
           <For each={orderedFolders(app.mailboxes(),accountUiPreferences()).map(box=>box.id)}>
             {(id) => {const box=createMemo(()=>app.mailboxes().find(value=>value.id===id)!);return (
               <FolderContextMenu box={box()} onOpenTab={()=>openFolderTab(box().id)} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>

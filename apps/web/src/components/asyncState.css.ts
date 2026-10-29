@@ -83,6 +83,16 @@ globalStyle(`${messageSkeletons} span`, {animation:`${pulse} 1.6s ease-in-out in
 globalStyle(`:root[data-reduced-motion] ${messageSkeletons} span`, {animation:'none'});
 globalStyle(`${messageSkeletons} span`, {'@media':{'(prefers-reduced-motion: reduce)':{animation:'none'}}});
 
+// Sidebar folder placeholders (`variant="folders"`). Each row IS a
+// `.sidebar__box` (styles/app.css), so it has the folder row's padding, gap and
+// line box, and the column keeps the nav's own row gap: when the folders arrive
+// they take the rows' places (t71: a mailbox switch keeps the sidebar still).
+export const foldersPanel = style({margin:0,minBlockSize:0,maxInlineSize:'none',gap:0});
+export const folderSkeletons = style({display:'flex',flexDirection:'column',gap:'0.2rem',minInlineSize:0,animation:`${appear} 120ms ease-out 120ms both`,...STILL});
+export const folderSkeletonIcon = style({display:'block',flex:'0 0 auto',inlineSize:'16px',blockSize:'16px',borderRadius:vars.radius.sm,background:vars.color.border,animation:`${pulse} 1.6s ease-in-out infinite`,...STILL});
+export const folderSkeletonName = style({display:'flex',alignItems:'center'});
+export const folderSkeletonLine = style({display:'block',flex:'1 1 auto',blockSize:'.7rem',borderRadius:vars.radius.sm,background:vars.color.border,animation:`${pulse} 1.6s ease-in-out infinite`,...STILL});
+
 // A thin indeterminate line over a list that is still indexing in the
 // background while some rows are already shown. Decorative: the list carries
 // the state for assistive technology. Still (and partly filled) with reduced motion.
