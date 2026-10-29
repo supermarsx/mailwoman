@@ -63,6 +63,32 @@ describe('Renew access dialog (t48)',()=>{
     await flush();
     expect(screen.getByRole('dialog')).toHaveTextContent('linked-accounts-factor-title');
   });
+  it('says whose password it asks for, and can still take a different sign-in name (t70)',async()=>{
+    const api={renew:vi.fn(async()=>({account:{...expired,status:'ready' as const}})),confirmRenew:vi.fn()};
+    render(()=><RenewAccessDialog account={expired} label="Child" api={api} onRenewed={()=>undefined} onCancel={()=>undefined}/>);
+    expect(screen.getByRole('dialog')).toHaveTextContent('linked-accounts-renew-password-only');
+    fireEvent.click(screen.getByRole('button',{name:'linked-accounts-renew-other-name'}));
+    expect(screen.queryByRole('button',{name:'linked-accounts-renew-other-name'})).toBeNull();
+    expect(screen.getByRole('dialog')).toHaveTextContent('linked-accounts-renew-help');
+    fireEvent.input(screen.getByLabelText('linked-accounts-address'),{target:{value:'alias@example.org'}});
+    fireEvent.input(screen.getByLabelText('linked-accounts-password'),{target:{value:'pw'}});
+    fireEvent.click(screen.getByRole('button',{name:'linked-accounts-renew-submit'}));
+    await flush();
+    expect(api.renew).toHaveBeenCalledExactlyOnceWith('child',{username:'alias@example.org',password:'pw'});
+  });
+  it.each([
+    [502,'linkedServerUnreachable','linked-accounts-renew-unreachable'],
+    [429,'linkedRenewLimit','linked-accounts-renew-limit'],
+    [401,'linkedPasswordRejected','linked-accounts-renew-password-rejected'],
+  ])('a %i %s refusal is explained (t70)',async(status,code,text)=>{
+    const api={renew:vi.fn(async():Promise<never>=>{throw new ApiError(status,code,{code});}),confirmRenew:vi.fn()};
+    render(()=><RenewAccessDialog account={expired} label="Child" api={api} onRenewed={()=>undefined} onCancel={()=>undefined}/>);
+    fireEvent.input(screen.getByLabelText('linked-accounts-password'),{target:{value:'pw'}});
+    fireEvent.click(screen.getByRole('button',{name:'linked-accounts-renew-submit'}));
+    await flush();
+    expect(screen.getByRole('alert')).toHaveTextContent(text);
+    expect((screen.getByLabelText('linked-accounts-password') as HTMLInputElement).value).toBe('');
+  });
   it('Escape cancels',()=>{
     const onCancel=vi.fn();
     render(()=><RenewAccessDialog account={expired} label="Child" api={{renew:vi.fn(),confirmRenew:vi.fn()}} onRenewed={()=>undefined} onCancel={onCancel}/>);

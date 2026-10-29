@@ -3,6 +3,9 @@
 // again and the link stays as it is (id, nickname, order, primary choice). No
 // unlink. A second factor, when the mailbox has one, is completed in the same
 // dialog. The password lives only in this component and is cleared after use.
+// t70: the server knows every renewable link's sign-in name, so the dialog
+// asks for the password only; "Sign in with a different name" keeps the
+// name-and-password form for the rare link whose name changed.
 import { Show, createResource, createSignal, createUniqueId, onCleanup, type JSX } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { ApiError } from '../../api/client.ts';
@@ -14,6 +17,7 @@ import { SigninChallenge } from '../SigninChallenge.tsx';
 import { LinkedMailboxFactor } from '../../screens/Settings/LinkedMailboxFactor.tsx';
 import { linkedAccountError } from './linkedAccountError.ts';
 import * as shell from '../../screens/Admin/shell/shell.css.ts';
+import * as ux from '../../screens/Admin/shell/ux.css.ts';
 import * as css from '../../screens/Settings/styles.css.ts';
 
 type Api = Pick<ReturnType<typeof createLinkedAccountsApi>, 'renew' | 'confirmRenew'>;
@@ -49,6 +53,7 @@ export function RenewAccessDialog(props: {
   const id = createUniqueId();
   const [config] = createResource(() => publicConfig().catch(() => undefined));
   const [username, setUsername] = createSignal('');
+  const [otherName, setOtherName] = createSignal(false);
   const [password, setPassword] = createSignal('');
   const [proof, setProof] = createSignal<string>();
   const [reset, setReset] = createSignal(0);
@@ -60,6 +65,8 @@ export function RenewAccessDialog(props: {
   let disposed = false;
   onCleanup(() => { disposed = true; setPassword(''); });
   const knownAddress = (): string | undefined => props.account.address;
+  /** The password alone renews the link (the server knows the name). */
+  const passwordOnly = (): boolean => !!knownAddress() && !otherName();
   const needsProof = (): boolean => config()?.antiBot?.mailbox === true;
   const cancel = (): void => { if (!busy()) props.onCancel(); };
   createFocusTrap(el, { onEscape: cancel, initialFocus: () => passwordInput });
@@ -68,12 +75,12 @@ export function RenewAccessDialog(props: {
     event.preventDefault();
     if (busy()) return;
     const typed = username().trim();
-    if (!password() || (!knownAddress() && !typed)) { setError(t('linked-accounts-fields-required')); return; }
+    if (!password() || (!passwordOnly() && !typed)) { setError(t('linked-accounts-fields-required')); return; }
     if (needsProof() && !proof()) { setError(t('linked-accounts-verification-required')); return; }
     setBusy(true); setError('');
     try {
       const result = await props.api.renew(props.account.id, {
-        ...(knownAddress() ? {} : { username: typed }),
+        ...(passwordOnly() ? {} : { username: typed }),
         password: password(),
         ...(proof() ? { altcha: proof()! } : {}),
       });
@@ -105,15 +112,19 @@ export function RenewAccessDialog(props: {
           when={challenge()}
           fallback={
             <form onSubmit={(event) => void submit(event)}>
-              <p id={`${id}-body`} class={shell.help}>{t('linked-accounts-renew-help')}</p>
+              <p id={`${id}-body`} class={shell.help}>
+                <Show when={passwordOnly() && knownAddress()} fallback={t('linked-accounts-renew-help')}>
+                  {(address) => t('linked-accounts-renew-password-only', { address: isolate(address()) })}
+                </Show>
+              </p>
               <Show when={renewalReasonText(props.account.renewalReason)}>{(text) => <p class={css.meta} data-renew-reason>{text()}</p>}</Show>
               <fieldset class={`${css.stack} ${css.bareFieldset}`} disabled={busy()}>
                 <Show
-                  when={knownAddress()}
+                  when={passwordOnly() ? knownAddress() : undefined}
                   fallback={
                     <label class={css.field}>
                       <span class={css.label}>{t('linked-accounts-address')}</span>
-                      <input class={css.input} autocomplete="username" autocapitalize="none" spellcheck={false} required maxlength={320} value={username()} onInput={(event) => setUsername(event.currentTarget.value)} />
+                      <input class={css.input} autocomplete="username" autocapitalize="none" spellcheck={false} required maxlength={320} value={username()} placeholder={knownAddress() ?? ''} onInput={(event) => setUsername(event.currentTarget.value)} data-renew-username />
                     </label>
                   }
                 >
@@ -123,6 +134,10 @@ export function RenewAccessDialog(props: {
                   <span class={css.label}>{t('linked-accounts-password')}</span>
                   <input ref={passwordInput} class={css.input} type="password" autocomplete="current-password" required value={password()} onInput={(event) => setPassword(event.currentTarget.value)} data-renew-password />
                 </label>
+                <Show when={knownAddress() && !otherName()}>
+                  <div><button type="button" class={ux.linkButton} data-renew-other-name
+                    onClick={() => { setOtherName(true); setError(''); }}>{t('linked-accounts-renew-other-name')}</button></div>
+                </Show>
                 <Show when={needsProof()}><SigninChallenge surface="mailbox" reset={reset()} onProof={setProof} /></Show>
               </fieldset>
               <Show when={error()}><p class={css.error} role="alert">{error()}</p></Show>
