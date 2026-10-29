@@ -54,6 +54,18 @@ export function isBadgeColor(value: unknown): value is BadgeColor {
 /** Chrome layout preset. */
 export type LayoutMode = 'default' | 'ribbon';
 
+/**
+ * The rich editor's message background while writing (t39 L12). `theme`
+ * follows the app's light or dark appearance; `dark` and `light` are the
+ * user's explicit pick from the editor's Dark background button. View only:
+ * the HTML that is sent never carries it.
+ */
+export type ComposeBackground = 'theme' | 'dark' | 'light';
+
+export function isComposeBackground(value: unknown): value is ComposeBackground {
+  return value === 'theme' || value === 'dark' || value === 'light';
+}
+
 /** UI-font override stacks; `null` = remove the override (use the theme font). */
 export const FONT_STACKS: Record<UiFont, string | null> = {
   default: null,
@@ -100,6 +112,8 @@ export interface AppearancePrefs {
   badgeColor: BadgeColor;
   font: UiFont;
   layout: LayoutMode;
+  /** The rich editor's background while writing; see `ComposeBackground`. */
+  composeBackground: ComposeBackground;
   /**
    * True once the user has made a theme decision: picked a pack, a mode, a
    * pair member or a schedule. While it is false the theme fields are the
@@ -130,6 +144,7 @@ export function defaultAppearance(): AppearancePrefs {
     badgeColor: 'default',
     font: 'default',
     layout: 'default',
+    composeBackground: 'theme',
     chosen: false,
   };
 }
@@ -291,6 +306,7 @@ export function parseAppearancePrefs(input: unknown): AppearancePrefs {
     badgeColor: isBadgeColor(p.badgeColor) ? p.badgeColor : base.badgeColor,
     font: typeof p.font === 'string' && p.font in FONT_STACKS ? (p.font as UiFont) : base.font,
     layout: p.layout === 'ribbon' ? ('ribbon' as const) : ('default' as const),
+    composeBackground: isComposeBackground(p.composeBackground) ? p.composeBackground : base.composeBackground,
   };
 
   if (!chosen) {

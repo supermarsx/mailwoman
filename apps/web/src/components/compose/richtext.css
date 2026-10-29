@@ -166,3 +166,33 @@ label.compose-rt__btn:focus-within:has(:focus-visible) {
 .compose-history-split summary::-webkit-details-marker { display:none; }
 .compose-history-split__list { position:absolute; inset-block-start:100%; inset-inline-start:0; z-index:20; min-inline-size:12rem; display:flex; flex-direction:column; max-block-size:10rem; overflow:auto; padding:.25rem; background:var(--surface); border:var(--border-hair) solid var(--border); }
 .compose-history-split__list button { white-space:nowrap; }
+
+/* The message background while writing (t39 L12, `messageBackground.ts`).
+   `theme` (no rule) keeps the app's tokens. `dark` and `light` are the user's
+   pick from the View group; each sets the tokens the body reads, so quotes,
+   links, table rules and markers stay legible. View only: nothing here enters
+   the HTML that is sent. */
+.compose-rt__surface[data-surface="dark"] {
+  --bg: #1e1f22;
+  --bg-alt: #2a2c30;
+  --text: #e8e8ea;
+  --text-dim: #b4b6bb;
+  --text-muted: #9a9ca2;
+  --border: #4a4d53;
+  --link: #8cb8ff;
+  color-scheme: dark;
+  background: var(--bg);
+  color: var(--text);
+}
+.compose-rt__surface[data-surface="light"] {
+  --bg: #ffffff;
+  --bg-alt: #f2f3f5;
+  --text: #1f1f1f;
+  --text-dim: #4d5058;
+  --text-muted: #62656c;
+  --border: #c4c7cc;
+  --link: #0b57d0;
+  color-scheme: light;
+  background: var(--bg);
+  color: var(--text);
+}

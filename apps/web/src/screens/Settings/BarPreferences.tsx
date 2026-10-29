@@ -8,6 +8,7 @@ import {For, onMount, Show, type JSX} from 'solid-js';
 import {loadCatalog, t} from '../../i18n';
 import {BAR_IDS, BAR_MODE_DEFAULT, BAR_MODES, barSettingKey, isBarMode, type BarId, type BarMode} from '../../api/barSettings.ts';
 import {useSetting} from './useSetting.ts';
+import {useEffectiveBarMode} from '../../components/bars/useBarMode.ts';
 import {LockNote} from './LockNote.tsx';
 import * as css from './styles.css.ts';
 import * as barCss from './BarPreferences.css.ts';
@@ -26,6 +27,8 @@ const MODE_LABEL: Readonly<Record<BarMode, string>> = {
 
 function BarChoice(props: {id: BarId}): JSX.Element {
   const setting = useSetting<BarMode>(barSettingKey(props.id), BAR_MODE_DEFAULT, isBarMode);
+  // What the bar shows, including the narrow-screen default (t39 D4).
+  const shown = useEffectiveBarMode(props.id, setting.entry);
   const name = `settings-bar-${props.id}`;
   const lockId = `${name}-lock`;
   const errorId = `${name}-error`;
@@ -43,7 +46,7 @@ function BarChoice(props: {id: BarId}): JSX.Element {
                 type="radio"
                 name={name}
                 value={mode}
-                checked={setting.value() === mode}
+                checked={shown() === mode}
                 disabled={!setting.entry() || setting.locked() || setting.saving()}
                 onChange={() => void setting.set(mode)}
               />

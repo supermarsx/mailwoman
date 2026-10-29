@@ -7,6 +7,9 @@ import {EditorCounts} from './EditorCounts.tsx';
 import {documentCounts,tableLimitPlugin} from './richCommands.ts';
 import {tableEditing,goToNextCell} from 'prosemirror-tables';
 import {COMPOSER_FONTS} from './fontCatalog.ts';
+import {SURFACE_CHANGED,cssColorHex,surfaceTone,toggledBackground,viewColorPlugin} from './messageBackground.ts';
+import {AppContext} from '../../state/context.ts';
+import type {ComposeBackground} from '../../theme/appearance.ts';
 import './composerFonts.css';
 import { Icon, type IconName } from '../Icon.tsx';
 // ProseMirror rich-text editor for the composer (W1). Statically imports the
@@ -19,7 +22,7 @@ import { Icon, type IconName } from '../Icon.tsx';
 // plain `body()` signal, keep working). It also reconciles external plain-text
 // mutations (Assist rewrite, dictation) back into the document.
 
-import { createEffect, createMemo, createSignal, onCleanup, onMount, For, Show, type JSX } from 'solid-js';
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount, useContext, For, Show, type JSX } from 'solid-js';
 import { EditorState, type Command } from 'prosemirror-state';
 import { EditorView, type NodeView } from 'prosemirror-view';
 import type { MarkType, Node as PMNode } from 'prosemirror-model';
@@ -119,8 +122,8 @@ export interface EmbeddedImageSupport {
 }
 
 /** The editor's ribbon groups, by tab: Format = clipboard, font, paragraph,
- *  editing; Insert = insert, tableInsert; Table = table, tableShading. */
-export type EditorGroup = 'clipboard'|'font'|'paragraph'|'editing'|'insert'|'tableInsert'|'table'|'tableShading';
+ *  editing, view; Insert = insert, tableInsert; Table = table, tableShading. */
+export type EditorGroup = 'clipboard'|'font'|'paragraph'|'editing'|'view'|'insert'|'tableInsert'|'table'|'tableShading';
 
 export interface RichTextEditorProps {
   /** Initial HTML to seed the document (from the composer's `bodyHtml`). */
@@ -163,6 +166,16 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   const [linkOpen, setLinkOpen] = createSignal(false);
   const [linkUrl, setLinkUrl] = createSignal('');
   const has=(group:EditorGroup):boolean=>!(props.omitGroups??[]).includes(group);
+  // The message background while writing (t39 L12): the user's appearance
+  // preference, or a local value outside the app (tests). View only.
+  const app=useContext(AppContext);
+  const [localBackground,setLocalBackground]=createSignal<ComposeBackground>('theme');
+  const background=():ComposeBackground=>app?app.appearancePrefs().composeBackground:localBackground();
+  const appTone=():'dark'|'light'=>app?.appearance()==='dark'?'dark':'light';
+  const darkSurface=():boolean=>surfaceTone(background(),appTone())==='dark';
+  const toggleBackground=():void=>{const next=toggledBackground(background(),appTone());if(app)app.setAppearancePrefs({composeBackground:next});else setLocalBackground(next);};
+  // The surface's painted background, read once per change (not per keystroke).
+  let surfaceColor:string|null=null;
   const embedded=():boolean=>props.embedded!==undefined;
   function fontValue(name:string):string {
     const state=activeState();if(!state)return '';
@@ -232,6 +245,14 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   }
 
   const updateDocumentRoot = () => view?.updateRoot();
+  // A new background (the button, or the app theme under `theme`): read the
+  // painted colour and let the view-colour plugin recompute.
+  const repaintSurface=():void=>{
+    if(view===undefined)return;
+    surfaceColor=cssColorHex(getComputedStyle(host).backgroundColor);
+    view.dispatch(view.state.tr.setMeta(SURFACE_CHANGED,true));
+  };
+  createEffect(on(()=>[background(),app?.theme(),app?.appearance()],repaintSurface,{defer:true}));
   onMount(() => {
     host.addEventListener('mailwoman:documentchange', updateDocumentRoot);
     const state = EditorState.create({
@@ -252,6 +273,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
         }),
         keymap(baseKeymap),
         tableEditing(),
+        viewColorPlugin(()=>surfaceColor),
       ],
     });
     view = new EditorView(host, {
@@ -289,6 +311,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
       },
     });
     emit(view.state);
+    repaintSurface();
 
     const api:RichTextApi = {
       undo:()=>run(undo),redo:()=>run(redo),historyDepth:()=>{const state=activeState();return {undo:state?undoDepth(state):0,redo:state?redoDepth(state):0};},
@@ -384,6 +407,10 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
     <Show when={has('editing')}><RibbonGroup label={t('mail-compose-group-editing')} priority={45} icon="search" testId="rt-group-editing">
       <RibbonItem>{tools.findReplace()}</RibbonItem><RibbonItem>{tools.selectAll()}</RibbonItem><RibbonItem>{tools.clearSelection()}</RibbonItem>
     </RibbonGroup></Show>
+    {/* View (t39 L12): how the body looks while writing; never part of what is sent. */}
+    <Show when={has('view')}><RibbonGroup label={t('mail-compose-group-view')} priority={20} icon="eye" testId="rt-group-view">
+      <RibbonItem><button type="button" class={`compose-rt__btn ${a11y.focusable}`} aria-pressed={darkSurface()} data-testid="rt-dark-background" data-tooltip={t('mail-compose-dark-background-help')} onMouseDown={e=>e.preventDefault()} onClick={toggleBackground}><Icon name="eye"/><span class="compose-rib__text">{t('mail-compose-dark-background')}</span></button></RibbonItem>
+    </RibbonGroup></Show>
   </>;
 
   /** Put a horizontal rule at the selection. */
@@ -437,7 +464,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
     <div class="compose-rt" data-testid="compose-rt" data-markers={markers()}>
       <Show when={own}>{state=><Show when={props.toolbarMount} fallback={ownRibbon(state())}>{mount=><Portal mount={mount()}>{ownRibbon(state())}</Portal>}</Show>}</Show>
       <For each={EDITOR_TABS}>{tab=><Show when={slots()[tab]} keyed>{target=><InRibbonSlot target={target}>{groupsFor(tab)}</InRibbonSlot>}</Show>}</For>
-      <div class="compose-rt__surface" data-zoom={zoom()} ref={host} />
+      <div class="compose-rt__surface" data-zoom={zoom()} data-surface={background()} data-tone={darkSurface()?'dark':'light'} ref={host} />
       <Show when={editorError()}><p class="compose-rt__error" role="alert">{editorError()}</p></Show>
       <div class="compose-rt__footer" data-detached-local><EditorCounts counts={counts()}/><label>{t('mail-editor-zoom')}<select aria-label={t('mail-editor-zoom')} value={zoom()} onChange={event=>setZoom(Number(event.currentTarget.value))}><For each={[75,100,125,150,200]}>{value=><option value={value}>{value}%</option>}</For></select></label></div>
     </div>

@@ -55,6 +55,7 @@ describe('composer ribbon (t38)', () => {
       'rt-group-font',
       'rt-group-paragraph',
       'rt-group-editing',
+      'rt-group-view',
       'compose-group-recipients',
       'compose-group-message-type',
     ]);

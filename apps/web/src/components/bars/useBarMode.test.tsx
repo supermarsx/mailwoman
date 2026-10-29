@@ -89,3 +89,79 @@ describe('useBarMode', () => {
     expect(writes).toBe(0);
   });
 });
+
+// t39 D4: below 600 px the composer ribbon starts in auto-hide, but only while
+// nobody has chosen; a stored or administered value always wins.
+describe('useBarMode narrow-screen default (t39 D4)', () => {
+  function viewport(width: number): () => void {
+    const before = window.matchMedia;
+    const listeners = new Set<() => void>();
+    const list = (query: string): MediaQueryList => {
+      const max = /max-width:\s*([\d.]+)px/.exec(query);
+      return {
+        get matches() { return max ? width <= Number(max[1]) : false; },
+        media: query,
+        onchange: null,
+        addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+        removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => true,
+      } as unknown as MediaQueryList;
+    };
+    Object.defineProperty(window, 'matchMedia', { configurable: true, value: list });
+    (viewport as unknown as { resize: (w: number) => void }).resize = (w) => { width = w; for (const fn of listeners) fn(); };
+    return () => Object.defineProperty(window, 'matchMedia', { configurable: true, value: before });
+  }
+  const resize = (w: number): void => (viewport as unknown as { resize: (w: number) => void }).resize(w);
+  const settingsWith = (entry: unknown) => loadSettings({ fetcher: async () => json(200, { settings: entry ? { 'ui.bar.composerRibbon': entry } : {} }) });
+
+  it('is auto at 390 px while the value is the registry default, and pinned again at 1280 px', async () => {
+    const restore = viewport(390);
+    try {
+      const { handle } = capture();
+      expect(handle().mode()).toBe('auto');
+      await settingsWith({ value: 'pinned', source: 'default', locked: false });
+      expect(handle().mode()).toBe('auto');
+      resize(1280);
+      expect(handle().mode()).toBe('pinned');
+      resize(599);
+      expect(handle().mode()).toBe('auto');
+      resize(600);
+      expect(handle().mode()).toBe('pinned');
+    } finally {
+      restore();
+    }
+  });
+
+  it('keeps an explicit pinned, from the user or an administrator, at 390 px', async () => {
+    const restore = viewport(390);
+    try {
+      for (const source of ['user', 'global', 'domain']) {
+        clearSettings();
+        await settingsWith({ value: 'pinned', source, locked: false });
+        const { handle } = capture();
+        expect(handle().mode(), source).toBe('pinned');
+      }
+      clearSettings();
+      await settingsWith({ value: 'pinned', source: 'global', locked: true });
+      expect(capture().handle().mode()).toBe('pinned');
+    } finally {
+      restore();
+    }
+  });
+
+  it('applies to the composer ribbon only', async () => {
+    const restore = viewport(390);
+    try {
+      let mail: BarModeHandle | undefined;
+      render(() => {
+        mail = useBarMode('mailRibbon');
+        return <span />;
+      });
+      expect(mail!.mode()).toBe('pinned');
+    } finally {
+      restore();
+    }
+  });
+});

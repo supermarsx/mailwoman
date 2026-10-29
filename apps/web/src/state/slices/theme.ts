@@ -50,6 +50,7 @@ import {
   type AppearancePrefs,
   type BadgeColor,
   type LayoutMode,
+  type ComposeBackground,
   type ThemeMode,
   type ThemeSchedule,
   type UiFont,
@@ -195,6 +196,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
   const [badgeColor, setBadgeColorSig] = createSignal<BadgeColor>(initial.badgeColor);
   const [uiFont, setUiFontSig] = createSignal<UiFont>(initial.font);
   const [layout, setLayoutSig] = createSignal<LayoutMode>(initial.layout);
+  const [composeBackground, setComposeBackgroundSig] = createSignal<ComposeBackground>(initial.composeBackground);
   const [chosen, setChosenSig] = createSignal(initial.chosen);
 
   const [systemDark, setSystemDark] = createSignal(prefersDarkScheme());
@@ -217,6 +219,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
       badgeColor: badgeColor(),
       font: uiFont(),
       layout: layout(),
+      composeBackground: composeBackground(),
       chosen: chosen(),
     };
   }
@@ -351,6 +354,7 @@ export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
       setBadgeColorSig(merged.badgeColor);
       setUiFontSig(merged.font);
       setLayoutSig(merged.layout);
+      setComposeBackgroundSig(merged.composeBackground);
       setChosenSig(merged.chosen);
       persist();
     },
