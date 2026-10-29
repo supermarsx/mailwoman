@@ -740,6 +740,7 @@ These keys support global and domain defaults, administrator locks and user over
 | <a id="reader.contentWidth"></a>`reader.contentWidth` | comfortable, wide, full | wide |
 | <a id="reader.loading"></a>`reader.loading` | skeleton, indicator, none | skeleton |
 | <a id="reader.loadingDelayMs"></a>`reader.loadingDelayMs` | 0–1000 milliseconds | 120 |
+| <a id="reader.zoom"></a>`reader.zoom` | 50–200 percent (the reader snaps to 50, 67, 75, 90, 100, 110, 125, 150, 175, 200) | 100 |
 
 Automatic colors adapt in dark themes and preserve original colors in light themes. Inversion reverses message colors while counter-inverting images. Adaptive mode removes sender foreground/background overrides while preserving layout and media sources. Loader delay affects only feedback, never delivery.
 
@@ -864,6 +865,9 @@ Each binding below is global/domain/user text (maximum 64 characters): `inherit`
 - <a id="shortcuts.markRead"></a>`shortcuts.markRead` — Mark read; default `inherit`.
 - <a id="shortcuts.markUnread"></a>`shortcuts.markUnread` — Mark unread; default `inherit`.
 - <a id="shortcuts.spam"></a>`shortcuts.spam` — Mark as spam; default `inherit`.
+- <a id="shortcuts.zoomIn"></a>`shortcuts.zoomIn` — Zoom the message body in (preset Ctrl+= and Ctrl++), only while focus is in the reader; default `inherit`.
+- <a id="shortcuts.zoomOut"></a>`shortcuts.zoomOut` — Zoom the message body out (preset Ctrl+-); default `inherit`.
+- <a id="shortcuts.zoomReset"></a>`shortcuts.zoomReset` — Reset the message body to 100% (preset Ctrl+0); default `inherit`.
 
 <a id="notifications.pushAllowed"></a>
 ### `notifications.pushAllowed`

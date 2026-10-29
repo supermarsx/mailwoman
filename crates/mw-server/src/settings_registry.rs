@@ -998,6 +998,30 @@ pub static REGISTRY: &[SettingDef] = &[
         "keyboard binding for spam"
     ),
     def!(
+        "shortcuts.zoomIn",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for zoomIn"
+    ),
+    def!(
+        "shortcuts.zoomOut",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for zoomOut"
+    ),
+    def!(
+        "shortcuts.zoomReset",
+        text(Text::Plain, 64),
+        "\"inherit\"",
+        GDU,
+        "shortcuts",
+        "keyboard binding for zoomReset"
+    ),
+    def!(
         "mail.quoteStyle",
         Kind::Enum(&["classic", "outlook"]),
         "\"classic\"",
@@ -1173,6 +1197,14 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "reader",
         "delay before showing message loading feedback"
+    ),
+    def!(
+        "reader.zoom",
+        int(50, 200),
+        "100",
+        GDU,
+        "reader",
+        "message body zoom in percent; the reader snaps it to its zoom steps"
     ),
     def!(
         "ui.language",

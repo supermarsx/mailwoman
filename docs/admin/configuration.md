@@ -365,6 +365,9 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="shortcuts.markread"></a>`shortcuts.markRead` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for markRead |
 | <a id="shortcuts.markunread"></a>`shortcuts.markUnread` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for markUnread |
 | <a id="shortcuts.spam"></a>`shortcuts.spam` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for spam |
+| <a id="shortcuts.zoomin"></a>`shortcuts.zoomIn` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for zoomIn |
+| <a id="shortcuts.zoomout"></a>`shortcuts.zoomOut` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for zoomOut |
+| <a id="shortcuts.zoomreset"></a>`shortcuts.zoomReset` | shortcuts | global+domain+user | "inherit" | plain |  | yes | keyboard binding for zoomReset |
 | <a id="mail.quotestyle"></a>`mail.quoteStyle` | mail | global+domain+user | "classic" | plain |  | yes | reply and forward header style |
 | <a id="mail.quickreply"></a>`mail.quickReply` | mail | global+domain+user | false | plain |  | yes | enable the compact message reply composer |
 | <a id="mail.requestreadreceipt"></a>`mail.requestReadReceipt` | mail | global+domain+user | false | plain |  | yes | request a read receipt by default when composing supported mail |
@@ -387,6 +390,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="reader.contentwidth"></a>`reader.contentWidth` | reader | global+domain+user | "wide" | plain |  | yes | message content width |
 | <a id="reader.loading"></a>`reader.loading` | reader | global+domain+user | "skeleton" | plain |  | yes | message loading appearance |
 | <a id="reader.loadingdelayms"></a>`reader.loadingDelayMs` | reader | global+domain+user | 120 | plain |  | yes | delay before showing message loading feedback |
+| <a id="reader.zoom"></a>`reader.zoom` | reader | global+domain+user | 100 | plain |  | yes | message body zoom in percent; the reader snaps it to its zoom steps |
 | <a id="ui.language"></a>`ui.language` | interface | global+domain+user | "browser" | plain |  | yes | web client locale (cached in localStorage mw.locale) |
 | <a id="ui.bar.mailtopbar"></a>`ui.bar.mailTopBar` | interface | global+domain+user | "pinned" | plain |  | yes | mail top bar: always shown, or auto-hidden behind a slim handle |
 | <a id="ui.bar.workspacetabs"></a>`ui.bar.workspaceTabs` | interface | global+domain+user | "pinned" | plain |  | yes | workspace tab strip: always shown, or auto-hidden behind a slim handle |

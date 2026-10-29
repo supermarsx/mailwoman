@@ -426,6 +426,8 @@ admin-settings-key-reader-loading = Aspeto do carregamento das mensagens
 admin-settings-help-reader-loading = Linhas de marcação de posição, um indicador de texto ou nenhum indicador visual. Os anúncios de acessibilidade continuam disponíveis.
 admin-settings-key-reader-loading-delay-ms = Atraso do carregamento das mensagens
 admin-settings-help-reader-loading-delay-ms = Atrasar apenas o indicador de carregamento, entre 0 e 1000 milissegundos. A apresentação da mensagem nunca é atrasada.
+admin-settings-key-reader-zoom = Zoom das mensagens
+admin-settings-help-reader-zoom = Zoom predefinido do corpo da mensagem em percentagem, de 50 a 200; o leitor usa o passo de zoom mais próximo. Só a mensagem muda de escala e a impressão usa 100%.
 
 admin-settings-key-login-show-domain-hint = Mostrar o domínio preferido no início de sessão
 admin-settings-help-login-show-domain-hint = Mostrar qual o domínio que aceita um nome de utilizador sem sufixo de e-mail. Oculto por predefinição. Isto só altera a sugestão; iniciar sessão com um nome de utilizador continua a funcionar.
@@ -512,6 +514,12 @@ admin-settings-key-shortcuts-mark-unread = Atalho de marcar como não lida
 admin-settings-help-shortcuts-mark-unread = Utilize inherit para a predefinição selecionada, disabled para remover esta ação ou uma combinação como Ctrl+Shift+K. As combinações em conflito ou inválidas não são executadas.
 admin-settings-key-shortcuts-spam = Atalho de marcar como spam
 admin-settings-help-shortcuts-spam = Utilize inherit para a predefinição selecionada, disabled para remover esta ação ou uma combinação como Ctrl+Shift+K. As combinações em conflito ou inválidas não são executadas.
+admin-settings-key-shortcuts-zoom-in = Atalho de ampliar mensagem
+admin-settings-help-shortcuts-zoom-in = Utilize inherit para a predefinição selecionada, disabled para remover esta ação ou uma combinação como Ctrl+Shift+K. As combinações em conflito ou inválidas não são executadas.
+admin-settings-key-shortcuts-zoom-out = Atalho de reduzir mensagem
+admin-settings-help-shortcuts-zoom-out = Utilize inherit para a predefinição selecionada, disabled para remover esta ação ou uma combinação como Ctrl+Shift+K. As combinações em conflito ou inválidas não são executadas.
+admin-settings-key-shortcuts-zoom-reset = Atalho de repor zoom da mensagem
+admin-settings-help-shortcuts-zoom-reset = Utilize inherit para a predefinição selecionada, disabled para remover esta ação ou uma combinação como Ctrl+Shift+K. As combinações em conflito ou inválidas não são executadas.
 
 admin-settings-key-notifications-push-allowed = Notificações push em segundo plano permitidas
 admin-settings-help-notifications-push-allowed = Permitir que as notificações ativadas desta conta se registem e recebam push em segundo plano. A permissão do navegador continua a ser necessária.

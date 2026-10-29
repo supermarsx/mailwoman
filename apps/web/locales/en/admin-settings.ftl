@@ -426,6 +426,8 @@ admin-settings-key-reader-loading = Message loading appearance
 admin-settings-help-reader-loading = Placeholder lines, a text indicator or no visual indicator. Accessibility announcements remain available.
 admin-settings-key-reader-loading-delay-ms = Message loading delay
 admin-settings-help-reader-loading-delay-ms = Delay only the loading indicator, between 0 and 1000 milliseconds. Message delivery is never delayed.
+admin-settings-key-reader-zoom = Message zoom
+admin-settings-help-reader-zoom = Default message body zoom in percent, from 50 to 200; the reader uses its nearest zoom step. Only the message scales, and printing uses 100%.
 
 admin-settings-key-login-show-domain-hint = Show preferred domain on sign-in
 admin-settings-help-login-show-domain-hint = Show which domain accepts a username without an email suffix. Hidden by default. This only changes the hint; signing in with a username still works.
@@ -512,6 +514,12 @@ admin-settings-key-shortcuts-mark-unread = Mark unread shortcut
 admin-settings-help-shortcuts-mark-unread = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
 admin-settings-key-shortcuts-spam = Mark as spam shortcut
 admin-settings-help-shortcuts-spam = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-zoom-in = Zoom message in shortcut
+admin-settings-help-shortcuts-zoom-in = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-zoom-out = Zoom message out shortcut
+admin-settings-help-shortcuts-zoom-out = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
+admin-settings-key-shortcuts-zoom-reset = Reset message zoom shortcut
+admin-settings-help-shortcuts-zoom-reset = Use inherit for the selected preset, disabled to remove this action, or a chord such as Ctrl+Shift+K. Conflicting or invalid chords do not run.
 
 admin-settings-key-notifications-push-allowed = Background push notifications allowed
 admin-settings-help-notifications-push-allowed = Permit this account's enabled notifications to register and receive background push. Browser permission is still required.
