@@ -62,7 +62,7 @@ const loadMailboxScreen = () =>
  * next boot when the page is left (or hidden), when it is laid out as the user
  * last had it.
  */
-function MailboxMount(props: { screen: () => JSX.Element }): JSX.Element {
+export function MailboxMount(props: { screen: () => JSX.Element }): JSX.Element {
   onMount(() => {
     releaseBootSplash();
     const record = (): void => { if (document.visibilityState === 'hidden') rememberBootGeometry(); };
@@ -75,7 +75,11 @@ function MailboxMount(props: { screen: () => JSX.Element }): JSX.Element {
       window.removeEventListener('pagehide', rememberBootGeometry);
     });
   });
-  return <>{props.screen()}</>;
+  // As a component, not `props.screen()`: a plain call runs the screen's body
+  // inside this JSX expression's tracking scope, so any signal the screen reads
+  // at its top level (the active tab, the reading pane) re-ran the whole screen
+  // and remounted the mailbox on every click (t51).
+  return <props.screen />;
 }
 
 // Both route tests run on the pathname with the deploy prefix REMOVED. Under
