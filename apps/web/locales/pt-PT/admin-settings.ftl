@@ -641,9 +641,13 @@ admin-settings-last-superadmin-body = Alterações posteriores às contas podem 
 admin-settings-last-superadmin-confirm = Permitir a perda de acesso
 
 admin-settings-key-mail-folder-counts = Contagens das pastas
-admin-settings-help-mail-folder-counts = Escolha ocultas, não lidas, total ou ambas as contagens junto às pastas. Defina predefinições globais, de domínio ou de utilizador e bloqueie a escolha quando necessário.
+admin-settings-help-mail-folder-counts = Escolha ocultas, não lidas, não lidas apenas quando existirem, total ou ambas as contagens junto às pastas. Defina predefinições globais, de domínio ou de utilizador e bloqueie a escolha quando necessário. Aplica-se a todas as caixas de correio associadas de uma conta.
+admin-settings-key-mail-folder-count-scope = Pastas com contagens
+admin-settings-help-mail-folder-count-scope = Todas as pastas, ou apenas as pastas principais (Caixa de entrada, Rascunhos, Enviados, Arquivo, Lixo eletrónico, Reciclagem, Caixa de saída e outras pastas de utilização especial). Só com as pastas principais, as pastas personalizadas e as respetivas subpastas não mostram contagem. Aplica-se a todas as caixas de correio associadas de uma conta.
 admin-settings-key-mail-compact-folder-badges = Contadores compactos nas pastas secundárias
 admin-settings-help-mail-compact-folder-badges = Mostrar contadores mais pequenos fora da Caixa de entrada. Os utilizadores podem escolher o seu próprio tamanho, exceto se esta definição estiver bloqueada.
+admin-settings-key-mail-account-unread-badge = Contagem de não lidas junto ao nome da caixa de correio
+admin-settings-help-mail-account-unread-badge = Mostrar a contagem de mensagens não lidas da Caixa de entrada junto ao endereço ou alcunha com sessão iniciada na barra lateral. Desativado por predefinição. As contagens das outras caixas de correio no menu de caixas de correio são sempre mostradas. Aplica-se a todas as caixas de correio associadas de uma conta.
 
 admin-settings-key-privacy-remote-image-downloads = Transferências manuais de imagens remotas
 admin-settings-key-privacy-remote-images-toast = Notificação de carregamento de imagens
@@ -683,3 +687,5 @@ admin-settings-help-accounts-max-linked = Número máximo de caixas de correio s
 
 admin-settings-key-privacy-strip-mailer-headers = Remover cabeçalhos do cliente de correio enviados
 admin-settings-help-privacy-strip-mailer-headers = Remover X-Mailer, User-Agent e X-MimeOLE de nível superior das mensagens SMTP e EWS nativas. As mensagens anexadas e os conteúdos dos relatórios permanecem intactos. Os envios através do proxy JMAP do servidor de origem não estão abrangidos.
+admin-settings-key-accounts-store-linked-credentials = Manter o acesso das caixas de correio associadas
+admin-settings-help-accounts-store-linked-credentials = Guardar selada no servidor a palavra-passe de cada caixa de correio associada, para que o acesso se renove sozinho entre sessões e reinícios. Nunca é guardada para contas de acesso zero nem para caixas de correio com verificação em dois passos. Desativar apaga as palavras-passe guardadas; as associações passam a renovar-se iniciando sessão novamente. Ativado por predefinição.

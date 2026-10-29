@@ -641,9 +641,13 @@ admin-settings-last-superadmin-body = Later account changes may leave nobody abl
 admin-settings-last-superadmin-confirm = Allow loss of access
 
 admin-settings-key-mail-folder-counts = Folder counts
-admin-settings-help-mail-folder-counts = Choose hidden, unread, total, or both counts beside folders. Set global, domain, or user defaults, and lock the choice when required.
+admin-settings-help-mail-folder-counts = Choose hidden, unread, unread only while there is unread mail, total, or both counts beside folders. Set global, domain, or user defaults, and lock the choice when required. Applies to every linked mailbox of an account.
+admin-settings-key-mail-folder-count-scope = Folders with counts
+admin-settings-help-mail-folder-count-scope = All folders, or only main folders (Inbox, Drafts, Sent, Archive, Junk, Trash, Outbox and other special-use folders). With main folders only, custom folders and their subfolders show no count. Applies to every linked mailbox of an account.
 admin-settings-key-mail-compact-folder-badges = Compact secondary folder badges
 admin-settings-help-mail-compact-folder-badges = Show smaller badges outside Inbox. Users can choose their own size unless this setting is locked.
+admin-settings-key-mail-account-unread-badge = Unread count beside the mailbox name
+admin-settings-help-mail-account-unread-badge = Show the Inbox unread count next to the signed-in address or nickname in the sidebar. Off by default. The counts of other mailboxes in the mailbox menu are always shown. Applies to every linked mailbox of an account.
 
 admin-settings-key-privacy-remote-image-downloads = Manual remote image downloads
 admin-settings-key-privacy-remote-images-toast = Loading-images notification

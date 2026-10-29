@@ -107,7 +107,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'signin.antiBotMode',
   'signin.antiBotDifficulty',
   'signin.antiBotExpirySecs',
-  'mail.showFrom', 'mail.quickReply', 'mail.requestReadReceipt', 'mail.requestDeliveryReceipt', 'mail.modifierSelection', 'mail.dragToFolder', 'mail.resumeTabs', 'mail.draftSaveMode', 'mail.draftDebounceMs', 'mail.draftIntervalSecs', 'mail.folderCounts', 'mail.compactFolderBadges',
+  'mail.showFrom', 'mail.quickReply', 'mail.requestReadReceipt', 'mail.requestDeliveryReceipt', 'mail.modifierSelection', 'mail.dragToFolder', 'mail.resumeTabs', 'mail.draftSaveMode', 'mail.draftDebounceMs', 'mail.draftIntervalSecs', 'mail.folderCounts', 'mail.folderCountScope', 'mail.compactFolderBadges', 'mail.accountUnreadBadge',
   'reader.colorMode', 'reader.fontSize', 'reader.lineHeight',
   'reader.contentWidth', 'reader.loading', 'reader.loadingDelayMs', 'reader.zoom',
   'cap.integration.nextcloud',

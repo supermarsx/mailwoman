@@ -302,3 +302,90 @@ async fn values_saved_per_mailbox_earlier_resolve_to_the_parents() {
     let seen = get(&srv, &parent, None).await;
     assert_eq!(seen["appearance"]["badgeColor"], "grove", "{seen}");
 }
+
+async fn setting(srv: &Server, user: &User, link: Option<(&str, &str)>, key: &str) -> Value {
+    let r = req(
+        user,
+        reqwest::Method::GET,
+        format!("{}/api/settings", srv.base),
+        link,
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(r.status(), 200, "get settings");
+    let body: Value = r.json().await.unwrap();
+    body["settings"][key]["value"].clone()
+}
+
+async fn put_setting(
+    srv: &Server,
+    user: &User,
+    link: Option<(&str, &str)>,
+    key: &str,
+    value: Value,
+) {
+    let r = req(
+        user,
+        reqwest::Method::PUT,
+        format!("{}/api/settings/{key}", srv.base),
+        link,
+    )
+    .json(&json!({ "value": value }))
+    .send()
+    .await
+    .unwrap();
+    let status = r.status();
+    assert_eq!(status, 200, "put {key}: {}", r.text().await.unwrap());
+}
+
+/// The counter-bubble settings are one choice for the sign-in and its links;
+/// an unrelated setting stays per mailbox.
+#[tokio::test]
+async fn counter_bubble_settings_are_shared_by_linked_mailboxes() {
+    let srv = spawn(&["parent@example.org", "child@example.org"]).await;
+    let parent = login(&srv, "parent@example.org").await;
+    let (link_id, child_authority) = link(&srv, &parent, "child@example.org").await;
+    let child = Some((link_id.as_str(), child_authority.as_str()));
+
+    // Defaults: all folders, and no bubble beside the mailbox name.
+    assert_eq!(
+        setting(&srv, &parent, child, "mail.folderCountScope").await,
+        "all"
+    );
+    assert_eq!(
+        setting(&srv, &parent, child, "mail.accountUnreadBadge").await,
+        false
+    );
+
+    put_setting(&srv, &parent, None, "mail.folderCountScope", json!("main")).await;
+    put_setting(
+        &srv,
+        &parent,
+        None,
+        "mail.folderCounts",
+        json!("unreadIfAny"),
+    )
+    .await;
+    assert_eq!(
+        setting(&srv, &parent, child, "mail.folderCountScope").await,
+        "main"
+    );
+    assert_eq!(
+        setting(&srv, &parent, child, "mail.folderCounts").await,
+        "unreadIfAny"
+    );
+
+    put_setting(&srv, &parent, child, "mail.accountUnreadBadge", json!(true)).await;
+    assert_eq!(
+        setting(&srv, &parent, None, "mail.accountUnreadBadge").await,
+        true
+    );
+
+    // Not account wide: the child's own choice does not reach the parent.
+    put_setting(&srv, &parent, child, "mail.dragToFolder", json!(false)).await;
+    assert_eq!(
+        setting(&srv, &parent, None, "mail.dragToFolder").await,
+        true
+    );
+}

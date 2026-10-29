@@ -1103,12 +1103,22 @@ Global/domain/user boolean, default true, with administrator locks. When a messa
 <a id="mail.folderCounts"></a>
 ### Folder count display (`mail.folderCounts`)
 
-Global/domain/user choice, default `"both"`. Select `none`, `unread`, `total`, or `both` for folder badges. Users can change this under Settings > Folders unless an administrator locks the inherited value. Hiding counts changes their presentation only; it does not alter read state or mailbox totals.
+Global/domain/user choice, default `"both"`. Select `none`, `unread`, `unreadIfAny`, `total`, or `both` for folder badges. `unread` shows the unread count, including 0; `unreadIfAny` shows it only while the folder has unread mail, and no bubble at 0. The Focused/Other inbox tabs follow the same choice. Users can change this under Settings > Folders unless an administrator locks the inherited value. Hiding counts changes their presentation only; it does not alter read state or mailbox totals. The value is resolved for the sign-in account, so every linked mailbox shows the same counts.
+
+<a id="mail.folderCountScope"></a>
+### Folders with counts (`mail.folderCountScope`)
+
+Global/domain/user choice, default `"all"`. `all` keeps a count on every folder; `main` limits counts to folders with a role: Inbox, Drafts, Sent, Archive, Junk, Trash, Outbox and any other special-use folder the server reports. Custom folders and their subfolders then show no count. Users can change this under Settings > Folders unless locked. Resolved for the sign-in account, like `mail.folderCounts`.
 
 <a id="mail.compactFolderBadges"></a>
 ### Secondary folder badge size (`mail.compactFolderBadges`)
 
 Global/domain/user boolean, default `true`. Uses smaller badges outside Inbox. Users can inherit or override this in Settings > Folders unless locked by an administrator. Folder names remain left-aligned and long names truncate without displacing the count.
+
+<a id="mail.accountUnreadBadge"></a>
+### Unread count beside the mailbox name (`mail.accountUnreadBadge`)
+
+Global/domain/user boolean, default `false`. When on, the sidebar head shows the Inbox unread count next to the signed-in address or nickname (the plain address, and the mailbox picker's button). The per-mailbox counts inside the mailbox menu are shown either way. Users can change this under Settings > Folders unless locked. Resolved for the sign-in account, like `mail.folderCounts`.
 
 <a id="metrics.defaultRangeSeconds"></a>
 ### Default request history range (`metrics.defaultRangeSeconds`)

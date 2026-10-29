@@ -1359,14 +1359,72 @@ async fn user_list(State(state): State<AppState>, headers: HeaderMap) -> Respons
     .await
     {
         Ok(all) => {
-            let map: Map<String, Value> = all
+            let mut map: Map<String, Value> = all
                 .iter()
                 .map(|e| (e.key.clone(), e.to_user_json()))
                 .collect();
+            if headers.contains_key(crate::linked_accounts::SELECTOR) {
+                for key in ACCOUNT_WIDE {
+                    let subject = match subject_for(&state, &headers, &session, key).await {
+                        Ok(s) => s,
+                        Err(r) => return r,
+                    };
+                    match user_entry(&state, &subject, key).await {
+                        Ok(e) => {
+                            map.insert(key.to_string(), e.to_user_json());
+                        }
+                        Err(r) => return r,
+                    }
+                }
+            }
             Json(json!({ "settings": map })).into_response()
         }
         Err(e) => server_error(e),
     }
+}
+
+/// Counter-bubble settings (t39) are one choice for the whole sign-in: a
+/// linked mailbox reads and writes them for its parent, so every mailbox of
+/// the account shows the same bubbles. Defaults and locks are the parent's.
+const ACCOUNT_WIDE: [&str; 4] = [
+    "mail.folderCounts",
+    "mail.folderCountScope",
+    "mail.compactFolderBadges",
+    "mail.accountUnreadBadge",
+];
+
+/// The sign-in session behind `session`: itself, or the parent of a linked
+/// mailbox context.
+async fn sign_in_session(
+    state: &AppState,
+    headers: &HeaderMap,
+    session: &mw_store::Session,
+) -> Result<mw_store::Session, Response> {
+    if !headers.contains_key(crate::linked_accounts::SELECTOR) {
+        return Ok(session.clone());
+    }
+    match state.store.linked_context_authority(&session.id).await {
+        Ok(Some(authority)) => Ok(authority.parent),
+        Ok(None) => Err(StatusCode::SERVICE_UNAVAILABLE.into_response()),
+        Err(e) => Err(server_error(e)),
+    }
+}
+
+/// The subject a write or read of `key` applies to.
+async fn subject_for(
+    state: &AppState,
+    headers: &HeaderMap,
+    session: &mw_store::Session,
+    key: &str,
+) -> Result<UserSubject, Response> {
+    let session = if ACCOUNT_WIDE.contains(&key) {
+        sign_in_session(state, headers, session).await?
+    } else {
+        session.clone()
+    };
+    UserSubject::resolved(&state.store, &session)
+        .await
+        .map_err(server_error)
 }
 
 #[derive(Debug, Deserialize)]
@@ -1405,9 +1463,9 @@ async fn user_put(
             None,
         );
     };
-    let subject = match UserSubject::resolved(&state.store, &session).await {
+    let subject = match subject_for(&state, &headers, &session, &key).await {
         Ok(s) => s,
-        Err(e) => return server_error(e),
+        Err(r) => return r,
     };
     let current = match user_entry(&state, &subject, &key).await {
         Ok(e) => e,
@@ -1475,9 +1533,9 @@ async fn user_delete(
     if let Err(r) = user_def(&key).and_then(|_| refuse_elsewhere(&key)) {
         return r;
     }
-    let subject = match UserSubject::resolved(&state.store, &session).await {
+    let subject = match subject_for(&state, &headers, &session, &key).await {
         Ok(s) => s,
-        Err(e) => return server_error(e),
+        Err(r) => return r,
     };
     let deleted = if let Some(owner) = &subject.proxy_policy_owner {
         state.store.delete_personal_setting(owner, &key).await
@@ -1494,5 +1552,46 @@ async fn user_delete(
     match user_entry(&state, &subject, &key).await {
         Ok(e) => Json(e.to_user_json()).into_response(),
         Err(r) => r,
+    }
+}
+
+#[cfg(test)]
+mod account_wide_tests {
+    use super::*;
+
+    /// t39: every counter-bubble key is registered, user-writable at the user
+    /// scope with an administrator default and lock, and has the shipped default.
+    #[test]
+    fn counter_bubble_keys_are_registered_user_settings() {
+        for (key, default) in [
+            ("mail.folderCounts", "\"both\""),
+            ("mail.folderCountScope", "\"all\""),
+            ("mail.compactFolderBadges", "true"),
+            ("mail.accountUnreadBadge", "false"),
+        ] {
+            assert!(ACCOUNT_WIDE.contains(&key), "{key} is account wide");
+            let def = registry::lookup(key).unwrap_or_else(|| panic!("{key} is registered"));
+            assert!(def.user_visible(), "{key} reaches GET /api/settings");
+            assert!(
+                def.scopes.allows(SettingScope::User),
+                "{key} has a user value"
+            );
+            // Every key has a global default (the policy row); Domain is the scope rule.
+            assert!(
+                def.scopes.allows(SettingScope::Domain),
+                "{key} has a domain default"
+            );
+            assert_eq!(def.default, default, "{key} default");
+        }
+        let counts = registry::lookup("mail.folderCounts").unwrap();
+        for mode in ["none", "unread", "unreadIfAny", "total", "both"] {
+            assert!(
+                registry::validate(counts, &json!(mode), "/value").is_ok(),
+                "{mode} is a folder count mode"
+            );
+        }
+        let scope = registry::lookup("mail.folderCountScope").unwrap();
+        assert!(registry::validate(scope, &json!("main"), "/value").is_ok());
+        assert!(registry::validate(scope, &json!("custom"), "/value").is_err());
     }
 }

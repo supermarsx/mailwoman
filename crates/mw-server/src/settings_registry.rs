@@ -1168,11 +1168,19 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "mail.folderCounts",
-        Kind::Enum(&["none", "unread", "total", "both"]),
+        Kind::Enum(&["none", "unread", "unreadIfAny", "total", "both"]),
         "\"both\"",
         GDU,
         "mail",
-        "counts displayed beside mail folders"
+        "counts displayed beside mail folders (unreadIfAny: unread count, hidden at 0); account wide across linked mailboxes"
+    ),
+    def!(
+        "mail.folderCountScope",
+        Kind::Enum(&["all", "main"]),
+        "\"all\"",
+        GDU,
+        "mail",
+        "which folders show counts: all, or only folders with a role (Inbox, Drafts, Sent, Archive, Junk, Trash, Outbox, other special-use); account wide"
     ),
     def!(
         "mail.compactFolderBadges",
@@ -1181,6 +1189,14 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "mail",
         "smaller count badges for folders other than Inbox"
+    ),
+    def!(
+        "mail.accountUnreadBadge",
+        Kind::Bool,
+        "false",
+        GDU,
+        "mail",
+        "Inbox unread count beside the mailbox name in the sidebar head; the mailbox menu always shows per-mailbox counts; account wide"
     ),
     def!(
         "contacts.avatarMode",

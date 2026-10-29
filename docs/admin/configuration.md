@@ -386,8 +386,10 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.draftintervalsecs"></a>`mail.draftIntervalSecs` | mail | global+domain+user | 30 | plain |  | yes | periodic account draft save interval in seconds |
 | <a id="mail.resumetabs"></a>`mail.resumeTabs` | mail | global+domain+user | true | plain |  | yes | restore account-owned workspace tab references after reload |
 | <a id="mail.dragtofolder"></a>`mail.dragToFolder` | mail | global+domain+user | true | plain |  | yes | move selected messages by dragging them to a folder |
-| <a id="mail.foldercounts"></a>`mail.folderCounts` | mail | global+domain+user | "both" | plain |  | yes | counts displayed beside mail folders |
+| <a id="mail.foldercounts"></a>`mail.folderCounts` | mail | global+domain+user | "both" | plain |  | yes | counts displayed beside mail folders (unreadIfAny: unread count, hidden at 0); account wide across linked mailboxes |
+| <a id="mail.foldercountscope"></a>`mail.folderCountScope` | mail | global+domain+user | "all" | plain |  | yes | which folders show counts: all, or only folders with a role (Inbox, Drafts, Sent, Archive, Junk, Trash, Outbox, other special-use); account wide |
 | <a id="mail.compactfolderbadges"></a>`mail.compactFolderBadges` | mail | global+domain+user | true | plain |  | yes | smaller count badges for folders other than Inbox |
+| <a id="mail.accountunreadbadge"></a>`mail.accountUnreadBadge` | mail | global+domain+user | false | plain |  | yes | Inbox unread count beside the mailbox name in the sidebar head; the mailbox menu always shows per-mailbox counts; account wide |
 | <a id="contacts.avatarmode"></a>`contacts.avatarMode` | contacts | global+domain+user | "initials" | plain |  | yes | local generated avatars or embedded photos from this account contacts; never remote photo requests |
 | <a id="contacts.sendericons"></a>`contacts.senderIcons` | contacts | global+domain+user | true | plain |  | yes | bundled sender-domain icons with generated initials fallback; domain hints are not authentication evidence |
 | <a id="reader.actionstyle"></a>`reader.actionStyle` | reader | global+domain+user | "icons" | plain |  | yes | compact reader actions or icons with visible labels |
