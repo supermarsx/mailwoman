@@ -1,4 +1,10 @@
 //! Bounded durable response-ready metrics, isolated per application instance.
+//!
+//! 404 answers are a series of their own in both tiers ([`not_found`] says which are
+//! counted and how a path is redacted); the hourly tier also keeps the top
+//! [`NOT_FOUND_PATHS_PER_BUCKET`] redacted `method + path` pairs. Snapshots written
+//! before 404s were tracked carry no 404 series and are reported as "not tracked".
+mod not_found;
 use crate::{
     AppState,
     admin_ctx::{AdminApiError, AdminCtx},
@@ -12,7 +18,7 @@ use axum::{
 };
 use mw_store::{
     Store,
-    request_metrics::{Bucket, Counts},
+    request_metrics::{Bucket, Counts, NOT_FOUND_PATHS_PER_BUCKET, NotFound},
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -103,16 +109,37 @@ impl Recorder {
         memory.touch(time);
         memory.buckets.values().cloned().collect()
     }
-    pub(crate) fn record_us(&self, status: u16, micros: u64) {
-        let time = now();
+    /// Record one finished request. `path` is relative to the deploy prefix; it is
+    /// read only for a counted 404, and only in its redacted form.
+    pub(crate) fn record_response(
+        &self,
+        status: u16,
+        micros: u64,
+        method: &axum::http::Method,
+        path: &str,
+    ) {
+        let missing = (status == 404)
+            .then(|| not_found::counted(method, path))
+            .flatten();
+        self.record_at(
+            now(),
+            status,
+            micros,
+            missing.as_ref().map(|(m, p)| (*m, p.as_str())),
+        );
+    }
+    fn record_at(&self, time: i64, status: u16, micros: u64, missing: Option<(&str, &str)>) {
         let mut memory = self
             .memory
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         memory.touch(time);
-        for seconds in [60, 3600] {
+        for (seconds, capacity) in [(60, 0), (3600, NOT_FOUND_PATHS_PER_BUCKET)] {
             if let Some(bucket) = memory.buckets.get_mut(&(seconds, time / seconds * seconds)) {
                 bucket.counts.record_us(status, micros);
+                if let Some((method, path)) = missing {
+                    bucket.counts.record_not_found(method, path, capacity);
+                }
             }
         }
     }
@@ -190,22 +217,37 @@ pub(crate) async fn history(
             .await?;
         let mut series = Vec::new();
         let mut observed = Vec::new();
-        let mut grouped: BTreeMap<i64, (Counts, Vec<(i64, i64)>)> = BTreeMap::new();
+        let (mut tracked, mut untracked) = (Vec::new(), Vec::new());
+        let mut grouped: BTreeMap<i64, Group> = BTreeMap::new();
         for row in rows {
             let t = from + (row.start - from) / width * width;
             let entry = grouped.entry(t).or_default();
-            entry.0.merge(&row.counts);
+            entry.counts.merge(&row.counts);
             let interval = (row.observed_from.max(from), row.observed_to.min(to));
+            if let Some(not_found) = &row.counts.not_found {
+                entry.not_found = entry.not_found.saturating_add(not_found.count);
+            }
             if interval.1 > interval.0 {
-                entry.1.push(interval);
+                entry.intervals.push(interval);
                 observed.push(interval);
+                if row.counts.not_found.is_some() {
+                    entry.tracked.push(interval);
+                    tracked.push(interval);
+                } else {
+                    entry.untracked = true;
+                    untracked.push(interval);
+                }
             }
         }
         let mut t = from;
         while t < to {
             let end = (t + width).min(to);
-            let (counts, intervals) = grouped.remove(&t).unwrap_or_default();
-            let covered = union(&intervals).iter().map(|(a, b)| b - a).sum::<i64>();
+            let group = grouped.remove(&t).unwrap_or_default();
+            let counts = &group.counts;
+            let covered = union(&group.intervals)
+                .iter()
+                .map(|(a, b)| b - a)
+                .sum::<i64>();
             let coverage = if covered == 0 {
                 "unavailable"
             } else if covered == end - t {
@@ -213,9 +255,26 @@ pub(crate) async fn history(
             } else {
                 "partial"
             };
-            series.push(json!({"t":t,"requests":(covered>0).then_some(counts.requests),"errors5xx":(covered>0).then_some(counts.errors5xx),"p50Ms":(covered>0).then(||counts.precise_percentile_ms(50)).flatten(),"p95Ms":(covered>0).then(||counts.precise_percentile_ms(95)).flatten(),"coverage":coverage,"legacyLatencyEstimate":counts.legacy_estimate(),"p50ResolutionMs":counts.precise_percentile_resolution_ms(50),"p95ResolutionMs":counts.precise_percentile_resolution_ms(95)}));
+            let nf_covered = union(&group.tracked)
+                .iter()
+                .map(|(a, b)| b - a)
+                .sum::<i64>();
+            // A replica still writing untracked snapshots makes the 404 count partial.
+            let nf_coverage = if nf_covered == 0 {
+                if covered > 0 {
+                    "notTracked"
+                } else {
+                    "unavailable"
+                }
+            } else if nf_covered == end - t && !group.untracked {
+                "complete"
+            } else {
+                "partial"
+            };
+            series.push(json!({"t":t,"requests":(covered>0).then_some(counts.requests),"errors5xx":(covered>0).then_some(counts.errors5xx),"notFound":(nf_covered>0).then_some(group.not_found),"notFoundCoverage":nf_coverage,"p50Ms":(covered>0).then(||counts.precise_percentile_ms(50)).flatten(),"p95Ms":(covered>0).then(||counts.precise_percentile_ms(95)).flatten(),"coverage":coverage,"legacyLatencyEstimate":counts.legacy_estimate(),"p50ResolutionMs":counts.precise_percentile_resolution_ms(50),"p95ResolutionMs":counts.precise_percentile_resolution_ms(95)}));
             t = end;
         }
+        let not_found = not_found_coverage(&tracked, &untracked);
         let observed = union(&observed);
         let mut gaps = Vec::new();
         let mut cursor = from;
@@ -229,7 +288,7 @@ pub(crate) async fn history(
             gaps.push(json!({"from":cursor,"to":to}));
         }
         let seconds = observed.iter().map(|(a, b)| b - a).sum::<i64>();
-        Ok::<_,AdminApiError>(([(header::CACHE_CONTROL,"no-store")],Json(json!({"from":from,"to":to,"bucketSeconds":width,"series":series,"coverage":{"observedSeconds":seconds,"requestedSeconds":to-from,"gaps":gaps},"policy":policy,"scope":"server","timing":"response-ready","latencySampleUnit":"microseconds"}))).into_response())
+        Ok::<_,AdminApiError>(([(header::CACHE_CONTROL,"no-store")],Json(json!({"from":from,"to":to,"bucketSeconds":width,"series":series,"coverage":{"observedSeconds":seconds,"requestedSeconds":to-from,"gaps":gaps,"notFound":not_found},"policy":policy,"scope":"server","timing":"response-ready","latencySampleUnit":"microseconds"}))).into_response())
     };
     tokio::time::timeout(Duration::from_secs(5), work)
         .await
@@ -240,6 +299,107 @@ pub(crate) async fn history(
                 "Request history is temporarily unavailable.",
             )
         })?
+}
+#[derive(Default)]
+struct Group {
+    counts: Counts,
+    intervals: Vec<(i64, i64)>,
+    not_found: u64,
+    tracked: Vec<(i64, i64)>,
+    untracked: bool,
+}
+type Intervals = Vec<(i64, i64)>;
+/// Where the 404 series exists in a range. `notTracked` lists observed periods whose
+/// snapshots predate 404 tracking; `trackedSince` is the first tracked moment.
+fn not_found_coverage(tracked: &[(i64, i64)], untracked: &[(i64, i64)]) -> serde_json::Value {
+    let tracked = union(tracked);
+    let untracked = union(untracked);
+    json!({
+        "observedSeconds": tracked.iter().map(|(a, b)| b - a).sum::<i64>(),
+        "trackedSince": tracked.first().map(|(a, _)| *a),
+        "notTracked": untracked.iter().map(|(a, b)| json!({"from": a, "to": b})).collect::<Vec<_>>(),
+    })
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PathRange {
+    from: Option<i64>,
+    to: Option<i64>,
+}
+/// `GET /admin/metrics/not-found` — the most frequent redacted not-found
+/// `method + path` pairs over the hours that overlap the selected window. Needs
+/// unscoped Observability read; carries no address, query string or identity.
+pub(crate) async fn not_found_paths(
+    State(state): State<AppState>,
+    ctx: AdminCtx,
+    Query(range): Query<PathRange>,
+) -> Result<Response, AdminApiError> {
+    if !ctx.has_unscoped(C::ObservabilityRead) {
+        return Err(AdminApiError::unscoped_required(C::ObservabilityRead));
+    }
+    let work = async {
+        let policy = Policy::load(&state.store).await?;
+        let current = now();
+        let range = Range {
+            from: range.from,
+            to: range.to,
+            max_points: None,
+        };
+        let (from, to, _, _) = validate(&range, &policy, current)?;
+        let hours_from = from / 3600 * 3600;
+        let rows = state
+            .store
+            .request_metrics_history(hours_from, to, 3600)
+            .await?;
+        Ok::<_, AdminApiError>(
+            (
+                [(header::CACHE_CONTROL, "no-store")],
+                Json(top_paths_body(&rows, from, hours_from, to)),
+            )
+                .into_response(),
+        )
+    };
+    tokio::time::timeout(Duration::from_secs(5), work)
+        .await
+        .map_err(|_| {
+            AdminApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "historyUnavailable",
+                "Request history is temporarily unavailable.",
+            )
+        })?
+}
+fn top_paths_body(rows: &[Bucket], from: i64, hours_from: i64, to: i64) -> serde_json::Value {
+    let mut summary = NotFound::default();
+    let (mut tracked, mut untracked): (Intervals, Intervals) = (Vec::new(), Vec::new());
+    for row in rows {
+        let interval = (row.observed_from.max(hours_from), row.observed_to.min(to));
+        match &row.counts.not_found {
+            Some(not_found) => {
+                summary.merge(not_found, NOT_FOUND_PATHS_PER_BUCKET);
+                if interval.1 > interval.0 {
+                    tracked.push(interval);
+                }
+            }
+            None if interval.1 > interval.0 => untracked.push(interval),
+            None => {}
+        }
+    }
+    let paths: Vec<_> = summary
+        .paths
+        .iter()
+        .map(|entry| {
+            json!({"method":entry.method,"path":entry.path,"count":entry.count,"minCount":entry.count - entry.error})
+        })
+        .collect();
+    json!({
+        "from": from, "to": to, "pathsFrom": hours_from, "pathsTo": to,
+        "bucketSeconds": 3600, "limit": NOT_FOUND_PATHS_PER_BUCKET,
+        "total": (!tracked.is_empty()).then_some(summary.count),
+        "approximate": summary.paths.iter().any(|entry| entry.error > 0),
+        "paths": paths, "coverage": not_found_coverage(&tracked, &untracked),
+        "scope": "server",
+    })
 }
 fn validate(
     range: &Range,
@@ -418,6 +578,152 @@ mod tests {
                 .buckets
                 .values()
                 .any(|bucket| bucket.observed_to > bucket.observed_from)
+        );
+    }
+}
+
+#[cfg(test)]
+mod not_found_tests {
+    use super::*;
+    use axum::http::Method;
+    fn recorder(touched: i64) -> Recorder {
+        Recorder {
+            instance: "test".into(),
+            memory: Mutex::new(Memory {
+                touched,
+                buckets: BTreeMap::new(),
+            }),
+        }
+    }
+    fn record(recorder: &Recorder, time: i64, status: u16, method: Method, path: &str) {
+        let missing = (status == 404)
+            .then(|| not_found::counted(&method, path))
+            .flatten();
+        recorder.record_at(
+            time,
+            status,
+            900,
+            missing.as_ref().map(|(m, p)| (*m, p.as_str())),
+        );
+    }
+    #[test]
+    fn not_found_is_counted_in_minute_and_hour_tiers_without_expected_misses() {
+        let hour = 3600 * 200_000;
+        let recorder = recorder(hour);
+        record(&recorder, hour + 5, 200, Method::GET, "/");
+        record(
+            &recorder,
+            hour + 5,
+            404,
+            Method::GET,
+            "/wp-login.php?u=admin",
+        );
+        record(&recorder, hour + 6, 404, Method::GET, "/favicon.ico");
+        record(&recorder, hour + 6, 404, Method::GET, "/api/track/open");
+        record(
+            &recorder,
+            hour + 70,
+            404,
+            Method::POST,
+            "/u/alice@example.com",
+        );
+        record(&recorder, hour + 70, 403, Method::GET, "/denied");
+        let snapshot = recorder.snapshot(hour + 80);
+        let minute = |start: i64| {
+            snapshot
+                .iter()
+                .find(|b| b.seconds == 60 && b.start == start)
+                .unwrap()
+        };
+        let first = minute(hour);
+        assert_eq!(
+            first.counts.requests, 4,
+            "expected misses are still requests"
+        );
+        let nf = first.counts.not_found.as_ref().unwrap();
+        assert_eq!(nf.count, 1);
+        assert!(nf.paths.is_empty());
+        assert_eq!(
+            minute(hour + 60).counts.not_found.as_ref().unwrap().count,
+            1
+        );
+        let hourly = snapshot
+            .iter()
+            .find(|b| b.seconds == 3600 && b.start == hour)
+            .unwrap();
+        let nf = hourly.counts.not_found.as_ref().unwrap();
+        assert_eq!(nf.count, 2);
+        let mut keys: Vec<_> = nf
+            .paths
+            .iter()
+            .map(|p| format!("{} {}", p.method, p.path))
+            .collect();
+        keys.sort();
+        assert_eq!(keys, ["GET /wp-login.php", "POST /u/{email}"]);
+        assert!(hourly.counts.valid());
+    }
+    #[test]
+    fn hourly_top_paths_stay_bounded_under_ten_thousand_distinct_paths() {
+        let hour = 3600 * 200_001;
+        let recorder = recorder(hour);
+        for index in 0..10_000 {
+            record(
+                &recorder,
+                hour + 10,
+                404,
+                Method::GET,
+                &format!("/probe-{index}/x"),
+            );
+        }
+        let snapshot = recorder.snapshot(hour + 20);
+        let hourly = snapshot.iter().find(|b| b.seconds == 3600).unwrap();
+        let nf = hourly.counts.not_found.as_ref().unwrap();
+        assert_eq!(nf.count, 10_000);
+        assert_eq!(nf.paths.len(), NOT_FOUND_PATHS_PER_BUCKET);
+        assert!(serde_json::to_string(&hourly.counts).unwrap().len() < 16 * 1024);
+    }
+    #[test]
+    fn untracked_history_is_marked_not_tracked_never_zero() {
+        let body = not_found_coverage(&[(500, 600)], &[(0, 400), (300, 500)]);
+        assert_eq!(body["trackedSince"], 500);
+        assert_eq!(body["observedSeconds"], 100);
+        assert_eq!(body["notTracked"], json!([{"from":0,"to":500}]));
+        let legacy: Counts = serde_json::from_value(json!({"requests":1,"errors5xx":0,"histogram":[1,0,0,0,0,0,0,0,0,0,0,0,0,0],"max_ms":0})).unwrap();
+        let mut tracked = Counts::default();
+        tracked.record_us(404, 10);
+        tracked.record_not_found("GET", "/x", NOT_FOUND_PATHS_PER_BUCKET);
+        let rows = [
+            Bucket {
+                seconds: 3600,
+                start: 0,
+                observed_from: 0,
+                observed_to: 3600,
+                counts: legacy,
+            },
+            Bucket {
+                seconds: 3600,
+                start: 3600,
+                observed_from: 3600,
+                observed_to: 7200,
+                counts: tracked,
+            },
+        ];
+        let body = top_paths_body(&rows, 100, 0, 7200);
+        assert_eq!(body["total"], 1);
+        assert_eq!(
+            body["paths"],
+            json!([{"method":"GET","path":"/x","count":1,"minCount":1}])
+        );
+        assert_eq!(body["coverage"]["trackedSince"], 3600);
+        assert_eq!(
+            body["coverage"]["notTracked"],
+            json!([{"from":0,"to":3600}])
+        );
+        assert_eq!(body["approximate"], false);
+        let body = top_paths_body(&rows[..1], 100, 0, 3600);
+        assert!(
+            body["total"].is_null(),
+            "no tracked hour: unknown, not zero"
         );
     }
 }

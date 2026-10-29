@@ -242,6 +242,8 @@ pub(crate) async fn layer(
     next: Next,
 ) -> Response {
     let class = classify(req.uri().path());
+    // Cheap clones (shared bytes); the path is read again only for a counted 404.
+    let (method, uri) = (req.method().clone(), req.uri().clone());
     let start = Instant::now();
     use tracing::Instrument as _;
     let span = tracing::info_span!(
@@ -256,7 +258,7 @@ pub(crate) async fn layer(
     record_us(class, resp.status().as_u16(), micros);
     state
         .request_history
-        .record_us(resp.status().as_u16(), micros);
+        .record_response(resp.status().as_u16(), micros, &method, uri.path());
     resp
 }
 
@@ -390,6 +392,12 @@ pub(crate) fn register(r: &mut impl crate::admin_router::AdminRegistrar) {
         "/metrics/history",
         crate::admin_router::Access::SignedIn,
         crate::request_history::history,
+    );
+    r.admin_endpoint(
+        axum::http::Method::GET,
+        "/metrics/not-found",
+        crate::admin_router::Access::SignedIn,
+        crate::request_history::not_found_paths,
     );
     r.admin_endpoint(
         axum::http::Method::GET,

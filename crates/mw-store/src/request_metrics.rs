@@ -1,4 +1,7 @@
-//! Durable, idempotent aggregate snapshots. No request/user content is stored.
+//! Durable, idempotent aggregate snapshots. No request body, address, identity or
+//! query string is stored. Hourly buckets may carry a bounded list of normalised,
+//! redacted not-found paths ([`NotFound`]); the server redacts them before they reach
+//! this module, and [`Counts::valid`] refuses entries that are not in that form.
 use crate::{Store, StoreError, q};
 use serde::{Deserialize, Serialize};
 
@@ -31,6 +34,138 @@ pub struct Counts {
         skip_serializing_if = "Option::is_none"
     )]
     sub_millisecond: Option<std::collections::BTreeMap<u16, u64>>,
+    /// 404 answers in this bucket. `None` for snapshots written before 404s were
+    /// tracked: that period is "not tracked", never a measured zero.
+    #[serde(default, rename = "notFound", skip_serializing_if = "Option::is_none")]
+    pub not_found: Option<NotFound>,
+}
+/// At most this many not-found paths are kept per hourly bucket, and per answer.
+pub const NOT_FOUND_PATHS_PER_BUCKET: usize = 50;
+/// Upper bound, in bytes, of a stored normalised path (printable ASCII only).
+pub const NOT_FOUND_PATH_MAX_BYTES: usize = 160;
+/// 404 counts of one bucket and (hourly tier only) the most frequent normalised
+/// `method + path` pairs, kept with the Space-Saving algorithm so a client sending
+/// endless distinct paths cannot grow it: an entry's `count` is an upper bound and
+/// `count - error` a lower bound of how often that pair was answered 404.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct NotFound {
+    pub count: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<NotFoundPath>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NotFoundPath {
+    pub method: String,
+    pub path: String,
+    pub count: u64,
+    #[serde(default)]
+    pub error: u64,
+}
+impl NotFound {
+    /// Count one 404; with `capacity > 0` also keep `method path` among the top entries.
+    pub fn record(&mut self, method: &str, path: &str, capacity: usize) {
+        self.count = self.count.saturating_add(1);
+        if capacity == 0 {
+            return;
+        }
+        if let Some(entry) = self
+            .paths
+            .iter_mut()
+            .find(|entry| entry.method == method && entry.path == path)
+        {
+            entry.count = entry.count.saturating_add(1);
+            return;
+        }
+        if self.paths.len() < capacity {
+            self.paths.push(NotFoundPath {
+                method: method.into(),
+                path: path.into(),
+                count: 1,
+                error: 0,
+            });
+            return;
+        }
+        // Space-Saving: the newcomer replaces the smallest entry and inherits its count as error.
+        if let Some(smallest) = self.paths.iter_mut().min_by_key(|entry| entry.count) {
+            let floor = smallest.count;
+            *smallest = NotFoundPath {
+                method: method.into(),
+                path: path.into(),
+                count: floor.saturating_add(1),
+                error: floor,
+            };
+        }
+    }
+    fn floor(&self, capacity: usize) -> u64 {
+        if self.paths.len() >= capacity {
+            self.paths
+                .iter()
+                .map(|entry| entry.count)
+                .min()
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    }
+    /// Merge two summaries (another replica, another hour) and keep the top `capacity`.
+    /// A pair absent from a full summary may have been counted there up to that
+    /// summary's smallest count, which widens its bounds accordingly.
+    pub fn merge(&mut self, other: &Self, capacity: usize) {
+        let (ours, theirs) = (self.floor(capacity), other.floor(capacity));
+        self.count = self.count.saturating_add(other.count);
+        for entry in &mut self.paths {
+            if !other
+                .paths
+                .iter()
+                .any(|o| o.method == entry.method && o.path == entry.path)
+            {
+                entry.count = entry.count.saturating_add(theirs);
+                entry.error = entry.error.saturating_add(theirs);
+            }
+        }
+        for o in &other.paths {
+            match self
+                .paths
+                .iter_mut()
+                .find(|entry| entry.method == o.method && entry.path == o.path)
+            {
+                Some(entry) => {
+                    entry.count = entry.count.saturating_add(o.count);
+                    entry.error = entry.error.saturating_add(o.error);
+                }
+                None => self.paths.push(NotFoundPath {
+                    method: o.method.clone(),
+                    path: o.path.clone(),
+                    count: o.count.saturating_add(ours),
+                    error: o.error.saturating_add(ours),
+                }),
+            }
+        }
+        self.paths.sort_by(|a, b| {
+            b.count
+                .cmp(&a.count)
+                .then_with(|| a.method.cmp(&b.method))
+                .then_with(|| a.path.cmp(&b.path))
+        });
+        self.paths.truncate(capacity);
+    }
+    fn valid(&self, requests: u64) -> bool {
+        let printable = |s: &str, max: usize| {
+            !s.is_empty() && s.len() <= max && s.bytes().all(|b| (0x21..0x7f).contains(&b))
+        };
+        self.count <= requests
+            && self.paths.len() <= NOT_FOUND_PATHS_PER_BUCKET
+            && self.paths.iter().all(|entry| {
+                printable(&entry.method, 16)
+                    && entry.method.bytes().all(|b| b.is_ascii_uppercase())
+                    && printable(&entry.path, NOT_FOUND_PATH_MAX_BYTES)
+                    && entry.path.starts_with('/')
+                    && !entry.path.contains(['?', '#', '@'])
+                    && entry.count > 0
+                    && entry.error < entry.count
+                    && entry.count <= self.count
+            })
+    }
 }
 impl Default for Counts {
     fn default() -> Self {
@@ -42,10 +177,19 @@ impl Default for Counts {
             histogram_version: 3,
             fine_histogram: Some(histogram::Histogram::default()),
             sub_millisecond: Some(Default::default()),
+            not_found: Some(NotFound::default()),
         }
     }
 }
 impl Counts {
+    /// Count a 404 (after [`Counts::record_us`] for the same request); `capacity` is
+    /// how many top paths this tier keeps (0 for minute buckets). An untracked legacy
+    /// document stays untracked rather than starting from an invented zero.
+    pub fn record_not_found(&mut self, method: &str, path: &str, capacity: usize) {
+        if let Some(not_found) = &mut self.not_found {
+            not_found.record(method, path, capacity);
+        }
+    }
     pub fn record(&mut self, status: u16, ms: u64) {
         self.record_sample(status, ms, None);
         // An integer-ms caller cannot establish sub-ms measurement precision.
@@ -114,6 +258,14 @@ impl Counts {
             *a = a.saturating_add(b);
         }
         self.max_ms = self.max_ms.max(other.max_ms);
+        // Untracked history on either side leaves the merged 404 count unknown.
+        self.not_found = match (self.not_found.take(), &other.not_found) {
+            (Some(mut ours), Some(theirs)) => {
+                ours.merge(theirs, NOT_FOUND_PATHS_PER_BUCKET);
+                Some(ours)
+            }
+            _ => None,
+        };
     }
     pub fn percentile(&self, percent: u64) -> Option<u64> {
         if self.requests == 0 {
@@ -178,8 +330,11 @@ impl Counts {
             .percentile(rank, self.max_ms)?
             .1
     }
-    fn valid(&self) -> bool {
-        self.errors5xx <= self.requests
+    pub fn valid(&self) -> bool {
+        self.not_found
+            .as_ref()
+            .is_none_or(|not_found| not_found.valid(self.requests))
+            && self.errors5xx <= self.requests
             && self
                 .histogram
                 .iter()
@@ -482,7 +637,96 @@ mod tests {
             rows[0].counts.precise_percentile_resolution_ms(50),
             Some(0.001)
         );
+        not_found_checks(&store).await;
         byte_budget_checks(&store).await;
+    }
+    async fn not_found_checks(store: &Store) {
+        let start = 800_000_000 / 3600 * 3600;
+        let mut minute = Counts::default();
+        let mut hour = Counts::default();
+        for (status, path) in [(200, "/"), (404, "/wp-login.php"), (404, "/{token}")] {
+            minute.record_us(status, 500);
+            hour.record_us(status, 500);
+            if status == 404 {
+                minute.record_not_found("GET", path, 0);
+                hour.record_not_found("GET", path, NOT_FOUND_PATHS_PER_BUCKET);
+            }
+        }
+        let legacy: Counts = serde_json::from_value(serde_json::json!({"requests":1,"errors5xx":0,"histogram":[1,0,0,0,0,0,0,0,0,0,0,0,0,0],"max_ms":0})).unwrap();
+        let buckets = [
+            Bucket {
+                seconds: 60,
+                start,
+                observed_from: start,
+                observed_to: start + 60,
+                counts: minute,
+            },
+            Bucket {
+                seconds: 3600,
+                start,
+                observed_from: start,
+                observed_to: start + 3600,
+                counts: hour,
+            },
+        ];
+        store
+            .save_request_metrics("nf", &buckets, start + 3600, 30)
+            .await
+            .unwrap();
+        store
+            .save_request_metrics(
+                "nf-legacy",
+                &[Bucket {
+                    seconds: 60,
+                    start,
+                    observed_from: start,
+                    observed_to: start + 60,
+                    counts: legacy,
+                }],
+                start + 3600,
+                30,
+            )
+            .await
+            .unwrap();
+        let minutes = store
+            .request_metrics_history(start, start + 60, 60)
+            .await
+            .unwrap();
+        assert_eq!(minutes.len(), 2);
+        let tracked = minutes.iter().find(|b| b.counts.requests == 3).unwrap();
+        let nf = tracked.counts.not_found.as_ref().unwrap();
+        assert_eq!(nf.count, 2);
+        assert!(nf.paths.is_empty(), "minute buckets keep counts only");
+        let untracked = minutes.iter().find(|b| b.counts.requests == 1).unwrap();
+        assert!(
+            untracked.counts.not_found.is_none(),
+            "legacy rows stay untracked"
+        );
+        let hours = store
+            .request_metrics_history(start, start + 3600, 3600)
+            .await
+            .unwrap();
+        let nf = hours[0].counts.not_found.as_ref().unwrap();
+        assert_eq!(nf.count, 2);
+        assert_eq!(nf.paths.len(), 2);
+        // A forged document carrying an unredacted query or address is refused.
+        let mut forged = hours[0].counts.clone();
+        forged.not_found.as_mut().unwrap().paths[0].path = "/x?token=1".into();
+        assert!(!forged.valid());
+        forged.not_found.as_mut().unwrap().paths[0].path = "/a@b.example".into();
+        assert!(!forged.valid());
+        // Hourly 404 detail follows the hourly retention.
+        store
+            .save_request_metrics("nf", &[], start + 31 * 86400, 30)
+            .await
+            .unwrap();
+        assert!(
+            store
+                .request_metrics_history(start, start + 3600, 3600)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
     async fn byte_budget_checks(store: &Store) {
         let start = 3600;
@@ -724,5 +968,73 @@ mod sub_millisecond_tests {
         }
         assert!(full.valid());
         assert!(serde_json::to_string(&full).unwrap().len() < MAX_BUCKET_JSON_BYTES as usize);
+    }
+}
+
+#[cfg(test)]
+mod not_found_tests {
+    use super::*;
+    #[test]
+    fn top_paths_stay_bounded_under_ten_thousand_distinct_paths_and_keep_the_heavy_hitter() {
+        let mut counts = Counts::default();
+        for index in 0..10_000 {
+            counts.record_us(404, 100);
+            counts.record_not_found("GET", &format!("/scan/{index}"), NOT_FOUND_PATHS_PER_BUCKET);
+            if index % 4 == 0 {
+                counts.record_us(404, 100);
+                counts.record_not_found("GET", "/wp-login.php", NOT_FOUND_PATHS_PER_BUCKET);
+            }
+        }
+        let nf = counts.not_found.as_ref().unwrap();
+        assert_eq!(nf.count, 12_500);
+        assert_eq!(nf.paths.len(), NOT_FOUND_PATHS_PER_BUCKET);
+        let hitter = nf.paths.iter().find(|p| p.path == "/wp-login.php").unwrap();
+        // Space-Saving: the true count (2,500) lies within [count - error, count].
+        assert!(hitter.count - hitter.error <= 2_500 && 2_500 <= hitter.count);
+        assert!(counts.valid());
+        let json = serde_json::to_string(&counts).unwrap();
+        assert!(json.len() < MAX_BUCKET_JSON_BYTES as usize / 8);
+        // Merging many full summaries still yields at most the cap.
+        let mut merged = Counts::default();
+        for _ in 0..30 {
+            merged.merge(&counts);
+        }
+        let nf = merged.not_found.as_ref().unwrap();
+        assert_eq!(nf.count, 30 * 12_500);
+        assert_eq!(nf.paths.len(), NOT_FOUND_PATHS_PER_BUCKET);
+        assert_eq!(nf.paths[0].path, "/wp-login.php");
+        assert!(merged.valid());
+    }
+    #[test]
+    fn merging_with_untracked_history_reports_unknown_not_zero() {
+        let legacy: Counts = serde_json::from_value(serde_json::json!({"requests":1,"errors5xx":0,"histogram":[1,0,0,0,0,0,0,0,0,0,0,0,0,0],"max_ms":0})).unwrap();
+        assert!(legacy.not_found.is_none());
+        let mut tracked = Counts::default();
+        tracked.record_us(404, 10);
+        tracked.record_not_found("GET", "/x", 0);
+        let mut merged = tracked.clone();
+        merged.merge(&legacy);
+        assert!(merged.not_found.is_none());
+        let mut fresh = Counts::default();
+        fresh.merge(&tracked);
+        assert_eq!(fresh.not_found.unwrap().count, 1);
+        // A legacy document never starts counting from an invented zero.
+        let mut old = legacy.clone();
+        old.record_not_found("GET", "/x", 0);
+        assert!(old.not_found.is_none());
+    }
+    #[test]
+    fn exact_counts_when_below_capacity_and_more_404s_than_requests_is_refused() {
+        let mut counts = Counts::default();
+        for path in ["/a", "/b", "/a"] {
+            counts.record_us(404, 10);
+            counts.record_not_found("GET", path, NOT_FOUND_PATHS_PER_BUCKET);
+        }
+        let nf = counts.not_found.as_ref().unwrap();
+        assert_eq!(nf.paths.iter().find(|p| p.path == "/a").unwrap().count, 2);
+        assert!(nf.paths.iter().all(|p| p.error == 0));
+        let mut value = serde_json::to_value(&counts).unwrap();
+        value["notFound"]["count"] = serde_json::json!(99);
+        assert!(!serde_json::from_value::<Counts>(value).unwrap().valid());
     }
 }
