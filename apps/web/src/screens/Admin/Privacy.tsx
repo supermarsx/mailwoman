@@ -17,7 +17,7 @@ export function AdminPrivacy(props: { service?: typeof privacyAdminApi }): JSX.E
   onMount(() => {void loadCatalog('privacy');void loadCatalog('admin-settings');});
   const [settings] = createResource(async () => shell.can.can('settings.read') ? await api.settings() : null);
   const [stats, { refetch }] = createResource(() => api.stats());
-  const labels: Record<string,string> = { 'privacy.remoteContent':'privacy-remote-mode', 'privacy.trackers':'privacy-trackers', 'privacy.cleanLinks':'privacy-clean-links', 'privacy.allowDirect':'privacy-allow-direct', 'privacy.maxBytes':'privacy-max-bytes', 'privacy.cacheBytes':'privacy-cache-limit', 'privacy.ratePerMin':'privacy-rate' };
+  const labels: Record<string,string> = { 'privacy.remoteContent':'privacy-remote-mode', 'privacy.trackers':'privacy-trackers', 'privacy.cleanLinks':'privacy-clean-links', 'privacy.allowDirect':'privacy-allow-direct', 'privacy.maxBytes':'privacy-max-bytes', 'privacy.cacheBytes':'privacy-cache-limit', 'privacy.ratePerMin':'privacy-rate', 'privacy.remoteImagesToast':'privacy-image-toast' };
   const editKey=()=>shell.router.route().rest[0]==='policy' && Object.hasOwn(labels,shell.router.route().rest[1]??'') && shell.can.can('settings.read') ? shell.router.route().rest[1] : undefined;
   return <Show when={editKey()} keyed fallback={<section class={css.section}><h2>{t('privacy-admin-title')}</h2><p>{t('privacy-admin-help')}</p>
     <Show when={settings.error}><p role="alert">{describeAdminError(settings.error)}</p></Show>

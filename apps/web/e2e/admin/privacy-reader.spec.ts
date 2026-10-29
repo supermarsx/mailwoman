@@ -76,7 +76,7 @@ test('signed proxy and CID images load without frame cookies; hostile SVG remain
   await expect(frame.getByAltText('cid candidates')).toHaveJSProperty('naturalWidth',8);
   await expect(frame.getByAltText('tracker')).toHaveJSProperty('naturalWidth',1);
   await expect(frame.getByText('CID background')).toHaveAttribute('style', /api\/rc\/p\//);
-  await expect(page.getByText(/1 recently decoded tracking images blocked/)).toBeVisible({timeout:15000});
+  await expect(page.getByTestId('remote-content-bar')).toContainText(/1 tracker removed/,{timeout:15000});
   expect(signedResponses.some(r=>r.status===200 && r.url.includes('/api/rc/i/'))).toBe(true);expect(signedResponses.some(r=>r.status===200 && r.url.includes('/api/rc/p/'))).toBe(true);
   await expect(page.locator('.mw-thumb__img').first()).toHaveJSProperty('naturalWidth',16);
   await page.getByRole('option',{name:/hostile.svg/}).click();

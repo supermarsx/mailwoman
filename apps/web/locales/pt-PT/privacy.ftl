@@ -13,7 +13,6 @@ privacy-clean-links = Remover parâmetros de rastreio das ligações
 privacy-direct-unavailable = O carregamento direto exige autorização do seu administrador. Expõe o seu endereço de rede ao anfitrião da imagem.
 privacy-direct-native = O carregamento direto não está disponível nesta aplicação nativa. As imagens podem ser carregadas através do servidor.
 privacy-inherit = Utilizar a definição herdada
-privacy-trackers-blocked = { $count } referências de rastreio bloqueadas no HTML da mensagem
 privacy-content-failed = Não foi possível autorizar algumas imagens. A mensagem continua legível com essas imagens bloqueadas.
 privacy-frame-failed = Não foi possível carregar o visualizador de imagens isolado. Recarregue a mensagem para tentar novamente.
 privacy-download-file = Transferir através do servidor
@@ -43,9 +42,6 @@ privacy-failed = Falhou
 
 privacy-other-link = Transferir outra ligação da mensagem como ficheiro
 privacy-select-link = Selecione uma ligação desta mensagem
-privacy-decoded-trackers = { $count } imagens de rastreio descodificadas recentemente bloqueadas (até { $minutes } minutos; repõe-se quando a cache do servidor é limpa)
-privacy-decoded-trackers-limited = Pelo menos { $count } imagens de rastreio descodificadas recentemente bloqueadas (até { $minutes } minutos; repõe-se quando a cache do servidor é limpa)
-
 privacy-policy-values = Política de conteúdo remoto
 privacy-cache-summary = Cache e proteção contra rastreio
 privacy-traffic-summary = Processamento do tráfego de saída
@@ -62,6 +58,7 @@ privacy-analytics-saving = A guardar o consentimento…
 
 privacy-back-policies = Voltar às políticas de privacidade
 
+privacy-image-toast = Mostrar uma notificação enquanto as imagens remotas carregam
 privacy-image-downloads = Transferências manuais de imagens remotas
 privacy-image-download-help = Se uma imagem não for apresentada, transfira uma cópia verificada através deste servidor. O servidor verifica se pertence a esta mensagem e continua a aplicar as respetivas regras de privacidade e segurança. As imagens desencriptadas no cliente não estão disponíveis aqui.
 privacy-image-download-ready = A imagem está pronta e a transferência foi iniciada.

@@ -10,7 +10,6 @@ privacy-clean-links = Remove tracking parameters from links
 privacy-direct-unavailable = Direct loading requires permission from your administrator. It exposes your network address to the image host.
 privacy-direct-native = Direct loading is not available in this native app. Images can load through the server.
 privacy-inherit = Use inherited setting
-privacy-trackers-blocked = { $count } tracking references blocked in the message HTML
 privacy-content-failed = Some images could not be authorized. The message remains readable with those images blocked.
 privacy-frame-failed = The isolated image viewer could not load. Reload the message to try again.
 privacy-download-file = Download through the server
@@ -40,9 +39,6 @@ privacy-failed = Failed
 
 privacy-other-link = Download another message link as a file
 privacy-select-link = Select a link from this message
-privacy-decoded-trackers = { $count } recently decoded tracking images blocked (up to { $minutes } minutes; resets when the server cache clears)
-privacy-decoded-trackers-limited = At least { $count } recently decoded tracking images blocked (up to { $minutes } minutes; resets when the server cache clears)
-
 privacy-policy-values = Remote-content policy
 privacy-cache-summary = Cache and tracking protection
 privacy-traffic-summary = Outbound traffic processing
@@ -59,6 +55,7 @@ privacy-analytics-saving = Saving consent…
 
 privacy-back-policies = Back to privacy policies
 
+privacy-image-toast = Show a notification while remote images load
 privacy-image-downloads = Manual remote-image downloads
 privacy-image-download-help = If an image does not display, download a checked copy through this server. The server verifies that it belongs to this message and still applies its privacy and security rules. Client-decrypted images are not available here.
 privacy-image-download-ready = The image is ready and its download has started.

@@ -12,7 +12,7 @@ import type { RemotePolicy, SignedContent } from '../api/remote-content.ts';
 import type { Email } from '../api/jmap-types.ts';
 // Unit tests inspect the prepared document; real browser tests exercise the
 // opaque outer bridge and its script-free nested frame with actual CSP headers.
-vi.mock('./DirectReaderFrame.tsx', () => ({ DirectReaderFrame: (props: {html:string;title:string}) => <iframe class="reader__frame" title={props.title} sandbox="" srcdoc={props.html} /> }));
+vi.mock('./DirectReaderFrame.tsx', () => ({ DirectReaderFrame: (props: {html:string;title:string;documentKey?:string;onDisplayed?:(html:string,key:string|undefined)=>void}) => { setTimeout(() => props.onDisplayed?.(props.html, props.documentKey), 0); return <iframe class="reader__frame" title={props.title} sandbox="" srcdoc={props.html} />; } }));
 beforeAll(() => initSync({ module: readFileSync(resolve('src/wasm/mw-sanitize/mw_sanitize_bg.wasm')) }));
 const message = (id: string, html: string): Email => mkEmail(id, { from: [{ name: 'Sender', email:'sender@example.test' }], htmlBody: [{ partId:'1',blobId:null,size:html.length,type:'text/html' }], bodyValues: { '1':{value:html} } });
 let policy: RemotePolicy; let granted: boolean; let signFailed: boolean; let requests: { emailId:string; urls?:string[]; parts?:string[]; files?:string[] }[];
@@ -101,7 +101,10 @@ it('downloads an arbitrary message link only after explicit selection and action
   fireEvent.click(screen.getByRole('button',{name:'Download through the server'}));
   await waitFor(()=>expect(requests).toContainEqual({emailId:'m1',files:['https://files.test/download?id=7']}));
 });
-it('displays server decoded counts separately from HTML tracker markers',async()=>{
+it('folds the server decoded count into the banner, read once, never as a separate line',async()=>{
   await open([message('m1','<img src="https://cdn.test/image.png">')]);
-  expect(await screen.findByText(/2 recently decoded tracking images blocked/)).toBeVisible();
+  await waitFor(()=>expect(screen.getByTestId('remote-content-bar')).toHaveTextContent('Images loaded through the server · 2 trackers removed'),{timeout:5000});
+  const stats=vi.mocked(fetch).mock.calls.filter(([u])=>String(u).includes('/api/rc/stats?'));
+  expect(stats).toHaveLength(1);
+  expect(screen.queryByText(/recently decoded/)).toBeNull();
 });

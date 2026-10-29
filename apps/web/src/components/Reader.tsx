@@ -9,7 +9,6 @@ import {
   createSignal,
   on,
   onMount,
-  onCleanup,
   Show,
   type JSX,
   type Resource,
@@ -72,8 +71,9 @@ import {
 } from '../api/remote-images.ts';
 import { extractHtmlBody } from '../state/slices/mail.ts';
 import { RemoteContentBar } from './RemoteContentBar.tsx';
+import { createRemoteImageLoad } from './remoteImageToast.ts';
 import { DirectReaderFrame } from './DirectReaderFrame.tsx';
-import { remotePolicy, decodedTrackerStats, remoteServerBase, signContent, readerReferences, rewriteReaderContent, signedSource, BLOCKED_POLICY, EMPTY_SIGNED, type RemotePolicy } from '../api/remote-content.ts';
+import { remotePolicy, remoteServerBase, signContent, readerReferences, rewriteReaderContent, signedSource, BLOCKED_POLICY, EMPTY_SIGNED, type RemotePolicy } from '../api/remote-content.ts';
 import { settings } from '../api/settings.ts';
 import { themeCssVars } from '../theme/themeCssVars.ts';
 import { MessageLoading } from './MessageLoading.tsx';
@@ -544,16 +544,6 @@ function AutoTagSection(props: { email: Email }): JSX.Element {
   );
 }
 
-function DecodedTrackerCount(props: { emailId: string; scope: string; loaded: number }): JSX.Element {
-  const [count, { refetch }] = createResource(() => ({ id: props.emailId, scope: props.scope, loaded: props.loaded }), async key => {
-    try { return { scope: key.scope, count: await decodedTrackerStats(key.id) }; } catch { return null; }
-  });
-  // Lazy images can decode after the iframe's load event. Refresh only while the
-  // message is open and the document visible; ownership is enforced server-side.
-  onMount(() => { const timer = setInterval(() => { if (document.visibilityState === 'visible') void refetch(); }, 5000); onCleanup(() => clearInterval(timer)); });
-  return <Show when={count.state === 'ready' && count.latest?.scope === props.scope ? count.latest : null}>{value => <p>{t(value().count.limited ? 'privacy-decoded-trackers-limited' : 'privacy-decoded-trackers', { count: value().count.count, minutes: Math.round(value().count.windowSecs / 60) })}</p>}</Show>;
-}
-
 function RemoteFileDownloads(props: { emailId: string; scope: string; urls: string[]; links: string[] }): JSX.Element {
   const [pending, setPending] = createSignal(false); const [failed, setFailed] = createSignal(false);
   const [selected, setSelected] = createSignal('');
@@ -580,6 +570,8 @@ interface ReaderProps {
   view?: MessageView;
   onClose?: () => void;
   active?: boolean;
+  /** Open Settings at a section (the remote-images banner links to Privacy). */
+  onOpenSettings?: (section: string) => void;
 }
 export function Reader(props: ReaderProps): JSX.Element {
   const app=useApp();
@@ -688,7 +680,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     return coveringGrant(settled(grants) ?? [], { emailId: id, sender: sender() });
   });
 
-  const [frameLoads, setFrameLoads] = createSignal(0);
+  const [bodyDisplays, setBodyDisplays] = createSignal(0);
   const [receiptDisplayed,setReceiptDisplayed]=createSignal<{key:string;html:string}|null>(null);
   const receiptDocumentKey=()=>JSON.stringify([app.accountId(),emailId()]);
   const [listHeaders,setListHeaders]=createSignal<{scope:string;url:string;raw:string}|null>(null);
@@ -700,7 +692,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     if(url===messageHeaderUrl())setListHeaders(raw===null?null:{scope:receiptDocumentKey(),url,raw});
   }
   function receiptDidDisplay(html:string,key:string|undefined):void {
-    if(key===receiptDocumentKey()&&html===bodySrcdoc())setReceiptDisplayed({key,html});
+    if(key===receiptDocumentKey()&&html===bodySrcdoc()){setReceiptDisplayed({key,html});setBodyDisplays(n=>n+1);}
   }
   const [privacy] = createResource(
     () => app.accountId() && emailId() ? { account: app.accountId(), email: emailId(), values: ['privacy.remoteContent', 'privacy.trackers', 'privacy.cleanLinks', 'privacy.remoteImageDownloads'].map(key => settings()[key]?.value) } : null,
@@ -717,7 +709,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       let html = k.decrypted ?? k.fallback ?? ''; let effective = k.policy; let failed = false;
       try { if (k.decrypted === null) html = await getCryptoWorker().sanitizeReader({ html: extractHtmlBody(k.email), blockTrackers: false, cleanLinks: true }); }
       catch { effective = BLOCKED_POLICY; failed = true; }
-      const cancelled = () => ({ emailId: k.email.id, account: k.account, html: '', sanitized: '', refs: { urls: [], cids: [], trackers: 0, files: [], links: [] }, policy: BLOCKED_POLICY, failed: false });
+      const cancelled = () => ({ emailId: k.email.id, account: k.account, html: '', sanitized: '', refs: { urls: [], cids: [], trackers: 0, files: [], links: [] }, policy: BLOCKED_POLICY, failed: false, images: 0 });
       const current = () => app.accountId() === k.account && emailId() === k.email.id && maxsec.effectiveMode(sender()) === k.securityMode;
       if (!current()) return cancelled();
       const refs = readerReferences(html); const cidParts: Record<string,string> = {};
@@ -740,7 +732,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       const parts = k.securityMode === 'full-sanitized' ? [...new Set(refs.cids.map(id => cidParts[id]).filter((id): id is string => Boolean(id)))] : [];
       let signed = EMPTY_SIGNED;
       if (urls.length || parts.length) { try { signed = await signContent(k.email.id, { urls, parts }); } catch { failed = true; } }
-      return { emailId: k.email.id, account: k.account, html: rewriteReaderContent(html, signed, effective, cidParts), sanitized: html, refs, policy: effective, failed };
+      return { emailId: k.email.id, account: k.account, html: rewriteReaderContent(html, signed, effective, cidParts), sanitized: html, refs, policy: effective, failed, images: signed.images.length };
     },
   );
   const currentBody = () => { const body = readerBody.state === 'ready' || readerBody.state === 'refreshing' ? readerBody.latest : undefined; return body?.emailId === emailId() && body.account === app.accountId() ? body : undefined; };
@@ -970,6 +962,26 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     await reloadOpenMessage();
   }
 
+  // Loading-images toast + the one stats read per displayed body (t55). Only the
+  // reader on screen reads or toasts; a message switch drops both.
+  const bodyLoadIds = new WeakMap<object, string>(); let bodyLoadSeq = 0;
+  const bodyLoadId = (body: object): string => { let id = bodyLoadIds.get(body); if (id === undefined) { id = String(++bodyLoadSeq); bodyLoadIds.set(body, id); } return id; };
+  const remoteLoad = createRemoteImageLoad({
+    source: () => {
+      const body = currentBody(); const account = app.accountId();
+      if (props.active === false || !body || account === null || !fullMode()) return null;
+      const p = body.policy;
+      return { scope: `${account}:${body.emailId}`, emailId: body.emailId, load: bodyLoadId(body), total: body.images, stats: p.trackers && (p.mode === 'proxy' || (p.mode === 'ask' && activeGrant() !== null)) };
+    },
+    displayed: bodyDisplays,
+    toastEnabled: () => effectiveSettings()['privacy.remoteImagesToast']?.value !== false,
+    retry: () => void reloadOpenMessage(),
+  });
+  // The banner keeps the last known mode while the policy refetches, so it does
+  // not flash "blocked by your privacy settings" (presentation only: the body
+  // still renders under `policy()`).
+  const bannerMode = () => (privacy.latest ?? policy()).mode;
+
   return (
     <section
       class={`reader ${motion.surface}`}
@@ -1031,12 +1043,13 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                 sender={sender()}
                 report={blockedReport()}
                 activeGrant={activeGrant()}
-                mode={policy().mode}
+                mode={bannerMode()}
+                decodedTrackers={remoteLoad.trackers()}
                 onGrant={onRemoteGrant}
                 onRevoke={onRemoteRevoke}
+                {...(props.onOpenSettings ? { onOpenPrivacySettings: () => props.onOpenSettings?.('privacy') } : {})}
               />
             </Show>
-            <Show when={fullMode() && policy().trackers && (policy().mode === 'proxy' || (policy().mode === 'ask' && activeGrant() !== null))}><DecodedTrackerCount emailId={email().id} scope={`${app.accountId()}:${email().id}`} loaded={frameLoads()} /></Show>
             <Show when={currentBody()?.refs.links.length}><RemoteFileDownloads emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={currentBody()?.refs.files ?? []} links={currentBody()?.refs.links ?? []} /></Show>
             <RemoteImageDownloads emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={policy().remoteImageDownloads===true && armor()===null && decryptedHtml()===null && decryptedText()===null ? currentBody()?.refs.urls??[] : []}/>
             <Show when={currentBody()?.failed}><p role="alert">{t('privacy-content-failed')}</p></Show>
@@ -1054,7 +1067,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                     missed something, scripts cannot run and the frame has an
                     opaque origin with no access to the parent.
                   */}
-                  <Show when={!isNativeAuth() && fullMode()} fallback={<Show when={receiptDocument()} keyed>{doc=><iframe onLoad={() => {setFrameLoads(n => n + 1);if(doc.html!==null)receiptDidDisplay(doc.html,doc.key);}} class="reader__frame" title={t('mail-message-body')} sandbox="" srcdoc={doc.html ?? ''} />}</Show>}>
+                  <Show when={!isNativeAuth() && fullMode()} fallback={<Show when={receiptDocument()} keyed>{doc=><iframe onLoad={() => {if(doc.html!==null)receiptDidDisplay(doc.html,doc.key);}} class="reader__frame" title={t('mail-message-body')} sandbox="" srcdoc={doc.html ?? ''} />}</Show>}>
                     <DirectReaderFrame html={bodySrcdoc() ?? ''} title={t('mail-message-body')} documentKey={receiptDocumentKey()} onDisplayed={receiptDidDisplay}/>
                   </Show>
                 </Show>
