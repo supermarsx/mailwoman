@@ -14,11 +14,17 @@
   content.style.cssText = 'border:0;width:100%;height:100%;display:block';
   document.body.append(content);
   // A detached workspace window is rendered by the app window that opened it,
-  // so the message comes from that window, not from the one holding this frame
-  // (and the popup has no opener to compare with). The sender must still be the
-  // app origin and know this frame's random token from the fragment.
+  // so the message comes from that window (the opener of the window holding
+  // this frame), not from the parent itself. Accept exactly those two windows,
+  // and only from the app origin with this frame's random token: another
+  // same-origin tab, a sibling frame or a cross-origin opener is refused.
+  // `opener` is readable across origins; a closed or severed one is null.
+  const trusted = source => {
+    if (source === parent) return true;
+    try { const opener = parent.opener; return opener !== null && source === opener; } catch { return false; }
+  };
   addEventListener('message', event => {
-    if (event.origin !== origin) return;
+    if (event.origin !== origin || !event.source || !trusted(event.source)) return;
     const data = event.data;
     // The app asks again once it listens on the window holding this frame.
     if (data && data.type === 'mw-reader-ping' && data.token === token) {
