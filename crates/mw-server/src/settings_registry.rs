@@ -1542,6 +1542,16 @@ pub static REGISTRY: &[SettingDef] = &[
         "assistant",
         "below the assist_config deployment ceiling and kill switch"
     ),
+    // t39-e11 (N8): which AI provider profile serves a user. Empty = the
+    // deployment endpoint of PUT /admin/assist. Per-user values are the admin's.
+    def!(
+        "assist.profile",
+        text(Text::Slug, 64),
+        "\"\"",
+        GDA,
+        "assistant",
+        "AI provider profile id; empty = the deployment endpoint (assist_profiles.rs)"
+    ),
     // ── Upstream ─────────────────────────────────────────────────────────────
     SettingDef {
         env: Some(("MW_UPSTREAM_DEFAULT", Precedence::Fallback)),

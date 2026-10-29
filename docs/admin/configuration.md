@@ -430,6 +430,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="offline.retentiondays"></a>`offline.retentionDays` | offline | global+domain+user | 30 | plain |  | yes | web device prefs offlineRetentionDays (client clamps) |
 | <a id="offline.budgetmb"></a>`offline.budgetMb` | offline | global+domain+user | 250 | plain |  | yes | web device prefs offlineBudgetMb (client clamps) |
 | <a id="assistant.enabled"></a>`assistant.enabled` | assistant | global+domain+user | true | plain |  | yes | below the assist_config deployment ceiling and kill switch |
+| <a id="assist.profile"></a>`assist.profile` | assistant | global+domain+admin_user | "" | plain |  | yes | AI provider profile id; empty = the deployment endpoint (assist_profiles.rs) |
 | <a id="upstream.default"></a>`upstream.default` | upstream | global | null | url | `MW_UPSTREAM_DEFAULT` (fallback) | yes | deployment default upstream (domain config wins) |
 | <a id="upstream.proxytimeoutsecs"></a>`upstream.proxyTimeoutSecs` | upstream | global | 300 | plain |  | yes | proxy per-request timeout (lib.rs) |
 | <a id="signin.antibotmode"></a>`signin.antiBotMode` | signin | global | "off" | plain |  | yes | initial sign-in proof-of-work policy |

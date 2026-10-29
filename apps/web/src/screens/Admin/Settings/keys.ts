@@ -184,6 +184,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'offline.retentionDays',
   'offline.budgetMb',
   'assistant.enabled',
+  'assist.profile',
   'upstream.default',
   'upstream.proxyTimeoutSecs',
   'signin.newUsers',

@@ -181,6 +181,11 @@ How many megabytes a device may use for offline mail. 0 means no offline cache.
 
 Whether users see the AI assistant. The deployment switch in AI assistant still applies above this.
 
+<a id="assist.profile"></a>
+### AI provider profile (`assist.profile`)
+
+The id of the provider profile that serves these users (AI assistant > Provider profiles). Empty uses the deployment endpoint. A profile id that does not exist turns the AI assistant off for these users.
+
 <a id="upstream.default"></a>
 ### Default mail server (`upstream.default`)
 
