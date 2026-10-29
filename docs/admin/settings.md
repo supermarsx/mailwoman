@@ -573,11 +573,14 @@ also sign in without a password.
 policy working and asks the user to replace them; `refuse` refuses them with a
 message.
 <a id="twofa.lastFactorRemoval"></a>
-`twofa.lastFactorRemoval`: `allow` (default), `requireRecoveryCodes` or `block`,
-for a removal that would leave no second factor on an account where two-factor
-authentication is not required. See
-[Passkey policy](security-center.md#passkey-policy) for what each value checks
-and for the grandfathering rule.
+`twofa.lastFactorRemoval`: `allow` (default) or `block`, for a removal that
+would leave an account with no passkey and no authenticator app. With `block`
+the user cannot remove the last one and is asked to add another sign-in method
+first; recovery codes do not count. Where two-factor authentication is
+required, the last factor is kept whatever this says. The earlier value
+`requireRecoveryCodes` is read and accepted as `block` (migration 0074
+rewrites stored rows). See
+[Removing the last factor](security-center.md#removing-the-last-factor).
 
 These eleven settings support global, domain, group, profile and
 administrator-set account policy, without user overrides.

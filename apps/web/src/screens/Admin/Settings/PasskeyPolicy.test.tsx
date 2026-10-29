@@ -42,7 +42,7 @@ const KEYS: Array<[string, string[], string, RegExp]> = [
   ['twofa.passkeyUserVerification', ['required', 'preferred', 'discouraged'], 'preferred', /Passkey user verification/],
   ['twofa.passkeyResidentKey', ['required', 'preferred', 'discouraged'], 'discouraged', /Discoverable passkeys/],
   ['twofa.passkeyLegacy', ['allow', 'refuse'], 'allow', /Passkeys added before the current policy/],
-  ['twofa.lastFactorRemoval', ['allow', 'requireRecoveryCodes', 'block'], 'allow', /Removing the last second factor/],
+  ['twofa.lastFactorRemoval', ['allow', 'block'], 'allow', /Removing the last second factor/],
 ];
 
 describe('Admin › Settings › passkey policy', () => {

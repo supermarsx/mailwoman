@@ -886,7 +886,10 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "twofa.lastFactorRemoval",
-        Kind::Enum(&["allow", "requireRecoveryCodes", "block"]),
+        // t77: `block` keeps the last passkey or TOTP until another factor is
+        // added. The t39-e6 value `requireRecoveryCodes` is accepted on write
+        // as `block` (see `validate`) and rewritten by migration 0074.
+        Kind::Enum(&["allow", "block"]),
         "\"allow\"",
         GDA,
         "signin",
@@ -2821,6 +2824,13 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
         };
     }
     let bad = |detail: String| Err(Refusal::invalid(field, detail));
+    // t77: a config written before `requireRecoveryCodes` became `block` (an
+    // import, a backup, a script) keeps working and is stored as `block`.
+    if def.key == "twofa.lastFactorRemoval"
+        && value.as_str() == Some(crate::twofa_routes::passkey_policy::LEGACY_BLOCK_ALIAS)
+    {
+        return Ok(json!("block"));
+    }
     if matches!(def.key, "time.displayZone" | "time.comparisonZone")
         && !value.as_str().is_some_and(|zone| {
             (def.key == "time.displayZone" && zone == "local")
@@ -3708,12 +3718,7 @@ mod tests {
             ),
             ("twofa.passkeyResidentKey", "discouraged", "required", "yes"),
             ("twofa.passkeyLegacy", "allow", "refuse", "lockout"),
-            (
-                "twofa.lastFactorRemoval",
-                "allow",
-                "requireRecoveryCodes",
-                "never",
-            ),
+            ("twofa.lastFactorRemoval", "allow", "block", "never"),
         ] {
             let d = lookup(key).unwrap_or_else(|| panic!("{key} is registered"));
             assert_eq!(d.default_value(), json!(default), "{key}");
@@ -3724,6 +3729,13 @@ mod tests {
             assert_eq!(validate(d, &json!(good), "/value").unwrap(), json!(good));
             assert!(validate(d, &json!(bad), "/value").is_err(), "{key}");
         }
+        // t77: the t39-e6 value is accepted and stored as `block`.
+        let d = lookup("twofa.lastFactorRemoval").unwrap();
+        assert_eq!(
+            validate(d, &json!("requireRecoveryCodes"), "/value").unwrap(),
+            json!("block")
+        );
+        assert_eq!(d.kind.describe()["values"], json!(["allow", "block"]));
     }
 
     /// t39-e7: the quota warning policy reaches the user's settings map, read
