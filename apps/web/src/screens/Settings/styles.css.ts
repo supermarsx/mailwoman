@@ -343,6 +343,11 @@ globalStyle(`${section} > :is(${field}, ${group}) + :is(${field}, ${group})`, {
   borderBlockStart: `${vars.border.hair} solid ${vars.color.border}`,
 });
 globalStyle(`${section} > ${field}:has(> :is(h3, h4, ${subheading}))`, { gap: vars.space[3] });
+// A fieldset row takes that rule too, and a fieldset draws its legend ON its
+// top border, so the legend sat across the line (Settings → Toolbars). A
+// floated legend is not the "rendered legend" (HTML §15.3.13): it becomes an
+// ordinary first item of the fieldset, under the rule like any other label.
+globalStyle(`${section} > fieldset > legend`, { float: 'inline-start', inlineSize: '100%', padding: 0 });
 
 // Column sections stretch content surfaces, but actions retain their natural size.
 globalStyle(`${section} > button, ${section} > form > button`, { alignSelf: 'flex-start', inlineSize: 'fit-content', maxInlineSize: '100%' });
