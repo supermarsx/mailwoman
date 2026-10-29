@@ -82,6 +82,10 @@ export interface RibbonPopoverProps {
   ariaLabel?: string;
   /** Accessible name of the popover; defaults to `label`. */
   popoverLabel?: string;
+  /** Id of a heading inside the popover that names it (replaces `popoverLabel`). */
+  labelledBy?: string;
+  /** Move focus into the popover itself when it holds no field (a read-only detail). */
+  focusDialog?: boolean;
   /** Replaces the button's icon and text (the security status chip). */
   content?: JSX.Element;
   buttonClass?: string;
@@ -112,7 +116,12 @@ export function RibbonPopover(props: RibbonPopoverProps): JSX.Element {
     if (!rect || !buttonEl) return;
     const view = buttonEl.ownerDocument.defaultView ?? window;
     const width = popEl?.offsetWidth ?? 0;
-    const top = rect.bottom + 2;
+    const height = popEl?.offsetHeight ?? 0;
+    // Under the button; above it when it would run off the bottom and there is more room there.
+    const below = view.innerHeight - rect.bottom;
+    const top = height > 0 && rect.bottom + 2 + height > view.innerHeight - 8 && rect.top > below
+      ? Math.max(8, rect.top - 2 - height)
+      : rect.bottom + 2;
     if (getComputedStyle(buttonEl).direction === 'rtl') {
       setPosition({ top, right: Math.max(8, Math.min(view.innerWidth - rect.right, view.innerWidth - 8 - width)) });
     } else {
@@ -129,7 +138,9 @@ export function RibbonPopover(props: RibbonPopoverProps): JSX.Element {
       place();
       queueMicrotask(() => {
         place();
-        popEl?.querySelector<HTMLElement>('input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea')?.focus();
+        const field = popEl?.querySelector<HTMLElement>('input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea');
+        if (field) field.focus();
+        else if (props.focusDialog) popEl?.focus();
       });
     } else {
       release?.();
@@ -142,10 +153,21 @@ export function RibbonPopover(props: RibbonPopoverProps): JSX.Element {
     if (!open() || !(event.target instanceof Node) || rootEl?.contains(event.target)) return;
     setOpen(false);
   };
+  // A fixed popover follows its button when the page around it scrolls or resizes.
+  const onViewportChange = (): void => {
+    if (open()) place();
+  };
   onMount(() => {
     const doc = rootEl?.ownerDocument ?? document;
+    const view = doc.defaultView ?? window;
     doc.addEventListener('pointerdown', onDocumentPointerDown, true);
-    onCleanup(() => doc.removeEventListener('pointerdown', onDocumentPointerDown, true));
+    doc.addEventListener('scroll', onViewportChange, true);
+    view.addEventListener('resize', onViewportChange);
+    onCleanup(() => {
+      doc.removeEventListener('pointerdown', onDocumentPointerDown, true);
+      doc.removeEventListener('scroll', onViewportChange, true);
+      view.removeEventListener('resize', onViewportChange);
+    });
   });
   onCleanup(() => release?.());
 
@@ -201,7 +223,9 @@ export function RibbonPopover(props: RibbonPopoverProps): JSX.Element {
         id={id}
         class={css.popover}
         role="dialog"
-        aria-label={props.popoverLabel ?? props.label}
+        aria-label={props.labelledBy ? undefined : (props.popoverLabel ?? props.label)}
+        aria-labelledby={props.labelledBy}
+        tabIndex={props.focusDialog ? -1 : undefined}
         hidden={!open()}
         data-ribbon-popover=""
         style={{

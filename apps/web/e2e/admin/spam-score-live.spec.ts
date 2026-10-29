@@ -2,7 +2,7 @@ import { test, expect } from '../csrf.ts';
 import { signInManually, messageRow, sidebarInbox, drawerButton } from '../helpers.ts';
 import { sendRawSmtp } from '../crypto-helpers.ts';
 
-test('message spam scores show header results and expandable rules @phone', async ({ page }) => {
+test('message spam scores show header results as chips whose rules open in a popover @phone', async ({ page }) => {
   const subject = `Spam scores ${Date.now()}`;
   await sendRawSmtp({ from: 'sender@example.test', message: [
     'From: sender@example.test', 'To: testuser@example.org',
@@ -21,9 +21,19 @@ test('message spam scores show header results and expandable rules @phone', asyn
   const widget = page.locator('.spam-score');
   await expect(widget).toContainText('SpamAssassin -1.2 / 5');
   await expect(widget).toContainText('Rspamd -0.5 / 15');
-  await widget.locator('summary').filter({ hasText: 'Rspamd' }).click();
-  await expect(widget.getByText('DKIM_ALLOW (-0.20)', { exact: true })).toBeVisible();
-  await expect(widget.getByText(/not independently verified/).last()).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const chip = widget.getByRole('button', { name: /^Rspamd score -0\.5 of 15/ });
+  await chip.focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Rspamd score breakdown' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toBeFocused();
+  await expect(dialog.getByRole('row').nth(1)).toContainText('DKIM_ALLOW');
+  await expect(dialog.getByRole('row').nth(1)).toContainText('−0.2');
+  await expect(dialog.getByText(/not independently verified/)).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(chip).toBeFocused();
   await expect(page.getByRole('heading', { name: subject, exact: true })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('spam-score-widget.png'), fullPage: true });
 });
