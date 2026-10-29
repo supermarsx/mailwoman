@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 const here=path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   testDir:here,testMatch:'*.spec.ts',workers:1,retries:0,timeout:120000,expect:{timeout:15000},reporter:'list',
-  outputDir:path.resolve(here,'../../../../.orchestration/reports/codex-dsn-browser'),
+  outputDir:path.resolve(here,'../../test-results/dsn'),
   use:{serviceWorkers:'block',trace:'retain-on-failure',locale:'en-US'},
   projects:['engine','proxy'].flatMap(mode=>[
     {name:`${mode}-chromium`,use:{...devices['Desktop Chrome'],baseURL:`http://localhost:${mode==='engine'?42209:42210}`}},

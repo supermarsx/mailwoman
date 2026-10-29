@@ -1,18 +1,9 @@
-import {readFile,writeFile} from 'node:fs/promises';
-import path from 'node:path';
+import {writeFile} from 'node:fs/promises';
 import {test,expect} from '../csrf.ts';
 import {adminLogin} from './admin-login.ts';
 
 test('remaining admin screens retain bounded read-only layout @phone',async({page},info)=>{
   test.setTimeout(180_000);
-  const dist=path.resolve(process.env['MW_APPEARANCE_DIST']??'../../.orchestration/reports/codex-admin-integrations-web');
-  await page.route('**/*',async route=>{
-    const url=new URL(route.request().url());
-    if(url.pathname!=='/admin'&&!url.pathname.startsWith('/assets/'))return route.continue();
-    const file=path.resolve(dist,url.pathname==='/admin'?'index.html':url.pathname.slice(1));
-    if(!file.startsWith(dist+path.sep))return route.abort();
-    try{await route.fulfill({status:200,body:await readFile(file),contentType:file.endsWith('.html')?'text/html':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.woff2')?'font/woff2':'application/octet-stream'});}catch{await route.continue();}
-  });
   await adminLogin(page);
   const results:Array<{section:string;width:number;documentWidth:number;pending:number;headings:(string|null)[];tables:number;alerts:number}>=[];
   for(const section of ['ai-assistant','branding','diagnostics','logs','maintenance','oauth-clients','plugins','ui-plugins','privacy','roles','security-policy','server-metadata','settings','config','observability']){

@@ -1,15 +1,7 @@
-import {readFile} from 'node:fs/promises';
-import path from 'node:path';
 import {test,expect} from '../csrf.ts';
 import {adminLogin} from './admin-login.ts';
 
 test('guided advanced domain persists real backend policies with bounded forms @phone',async({page},info)=>{
- const dist=path.resolve('../../.orchestration/reports/codex-guided-advanced-web');
- await page.route('**/*',async route=>{
-  const url=new URL(route.request().url());if(url.pathname!=='/admin'&&!url.pathname.startsWith('/assets/'))return route.continue();
-  const file=path.resolve(dist,url.pathname==='/admin'?'index.html':url.pathname.slice(1));if(!file.startsWith(dist+path.sep))return route.abort();
-  try{const body=await readFile(file);await route.fulfill({status:200,body,contentType:file.endsWith('.html')?'text/html':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.woff2')?'font/woff2':'application/octet-stream'});}catch{await route.continue();}
- });
  await adminLogin(page);const name=`guided-${info.project.name}-${Date.now()}.example.test`;
  try{
   await page.goto('/admin#/domains/new/guided');

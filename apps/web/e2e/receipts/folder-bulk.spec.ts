@@ -1,13 +1,9 @@
-import {readFile} from 'node:fs/promises';
-import path from 'node:path';
 import {test,expect} from '../csrf.ts';
 
 // Controlled mail responses; every Email/set is intercepted, never sent to the
 // shared server. Native Trash role/state guards have separate actual HTTP gates.
-test('folder bulk actions target only its selection and permanent deletion requires confirmation',async({page,context},info)=>{
+test('folder bulk actions target only its selection and permanent deletion requires confirmation',async({page},info)=>{
  page.setDefaultTimeout(15000);
- const dist=path.resolve('../../.orchestration/reports/codex-folder-bulk-web');
- await context.route('**/*',async route=>{const url=new URL(route.request().url());if(url.pathname!=='/'&&!url.pathname.startsWith('/assets/'))return route.continue();const file=path.resolve(dist,url.pathname==='/'?'index.html':url.pathname.slice(1));if(!file.startsWith(dist+path.sep))return route.abort();try{await route.fulfill({body:await readFile(file),contentType:file.endsWith('.html')?'text/html':file.endsWith('.css')?'text/css':file.endsWith('.js')?'text/javascript':'application/octet-stream'});}catch{await route.continue();}});
  await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('testuser');await page.getByLabel('Password',{exact:true}).fill('testpass');await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('toolbar',{name:'Workspace layout'})).toBeVisible();
  const session=await(await page.request.get('/jmap/session')).json();const accountId=session.primaryAccounts['urn:ietf:params:jmap:mail'];
  const source='folder-bulk-source',archive='folder-bulk-archive',trash='folder-bulk-trash';

@@ -1,7 +1,7 @@
 import {test,expect} from '../csrf.ts';
 import {readFile,unlink} from 'node:fs/promises';
 import path from 'node:path';
-const capture=process.env['MW_DSN_SMTP_CAPTURE']??'F:/Projects/mailwoman/.orchestration/reports/codex-outgoing-dsn-smtp';
+const capture=process.env['MW_DSN_SMTP_CAPTURE']??'test-results/receipts-smtp';
 type Accepted={commands:string[];sha256:string;replyDropped:boolean};
 async function accepted():Promise<Accepted[]>{try{return (await readFile(path.join(capture,'accepted.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(line=>JSON.parse(line) as Accepted);}catch{return [];}}
 test('plain compose preserves literal text and sends Cc and Bcc without exposing Bcc headers',async({page},info)=>{

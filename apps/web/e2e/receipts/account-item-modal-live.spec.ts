@@ -1,8 +1,5 @@
-import {readFile} from 'node:fs/promises';
-import path from 'node:path';
 import {test,expect} from '../csrf.ts';
 test('account item picker is a bounded modal and cancellation preserves the draft',async({page},info)=>{
- const dist=path.resolve(process.env['MW_PICKER_DIST']??'../../.orchestration/reports/codex-account-picker-web');
  await page.route('**/*',async route=>{const url=new URL(route.request().url());
   // The shared native fixture predates account-wide Email/query. Control only
   // this picker's synthetic list/export; this is UI proof, not upstream export.
@@ -11,7 +8,7 @@ test('account item picker is a bounded modal and cancellation preserves the draf
    if(call?.[2]==='item'&&(call[0]==='Email/query'||call[0]==='Email/get'))return route.fulfill({json:{methodResponses:[[call[0],call[0]==='Email/query'?{accountId:call[1].accountId,ids:['picker-fixture-message'],total:1}:{accountId:call[1].accountId,list:[{id:'picker-fixture-message',subject:'Picker fixture message'}]},'item']]}});
   }
   if(url.pathname==='/api/export/picker-fixture-message')return route.fulfill({contentType:'message/rfc822',body:'From: fixture@example.test\r\nSubject: Picker fixture message\r\n\r\nFixture attachment.\r\n'});
-  if(url.pathname!=='/'&&!url.pathname.startsWith('/assets/'))return route.continue();const file=path.resolve(dist,url.pathname==='/'?'index.html':url.pathname.slice(1));if(!file.startsWith(dist+path.sep))return route.abort();const body=await readFile(file);const response=await route.fetch();await route.fulfill({response,status:200,body,contentType:file.endsWith('.html')?'text/html':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'application/octet-stream'});});
+  return route.continue();});
  await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('testuser');await page.getByLabel('Password',{exact:true}).fill('testpass');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();await page.locator('#shell-nav').getByRole('button',{name:'Compose',exact:true}).click();
  const compose=page.locator('.workspace-compose').last();await compose.getByLabel('Subject',{exact:true}).fill('Picker cancellation proof');await compose.getByRole('tab',{name:'Insert',exact:true}).click();

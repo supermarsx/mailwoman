@@ -1,10 +1,6 @@
-import {readFile} from 'node:fs/promises';
-import path from 'node:path';
 import {test,expect} from '../csrf.ts';
 
 test('settings section switches retain loaded panels without document navigation and keep discard protection',async({page},info)=>{
- const dist=path.resolve('../../.orchestration/reports/codex-settings-retained-web');
- await page.route('**/*',async route=>{const url=new URL(route.request().url());if(url.pathname!=='/'&&!url.pathname.startsWith('/assets/'))return route.continue();const file=path.resolve(dist,url.pathname==='/'?'index.html':url.pathname.slice(1));if(!file.startsWith(dist+path.sep))return route.abort();try{const body=await readFile(file);await route.fulfill({status:200,body,contentType:file.endsWith('.html')?'text/html':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'application/octet-stream'});}catch{await route.continue();}});
  let navigations=0,signatureReads=0,identityReads=0;
  page.on('framenavigated',frame=>{if(frame===page.mainFrame())navigations++;});
  page.on('request',request=>{if(request.method()!=='GET')return;const pathname=new URL(request.url()).pathname;if(pathname==='/api/account/signatures')signatureReads++;if(pathname==='/api/account/identities')identityReads++;});

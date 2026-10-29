@@ -1,16 +1,6 @@
-import {readFile} from 'node:fs/promises';
-import path from 'node:path';
 import {test,expect} from '../csrf.ts';
 
 test('rapid settings navigation never replaces the workspace with a loading screen',async({page,context},info)=>{
- const dist=path.resolve('../../.orchestration/reports/codex-settings-switch-web');
- await context.route('**/*',async route=>{
-  const url=new URL(route.request().url());
-  if(url.pathname!=='/'&&!url.pathname.startsWith('/assets/'))return route.continue();
-  const file=path.resolve(dist,url.pathname==='/'?'index.html':url.pathname.slice(1));
-  if(!file.startsWith(dist+path.sep))return route.abort();
-  try{await route.fulfill({status:200,body:await readFile(file),contentType:file.endsWith('.html')?'text/html':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'application/octet-stream'});}catch{await route.continue();}
- });
  await page.goto('/');
  await page.getByLabel('Email or username',{exact:true}).fill('testuser');
  await page.getByLabel('Password',{exact:true}).fill('testpass');

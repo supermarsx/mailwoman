@@ -1,9 +1,5 @@
-import {readFile} from 'node:fs/promises';
-import path from 'node:path';
 import {test,expect} from '../csrf.ts';
-test('advanced editor changes real content and keeps view controls out of the draft',async({page,context},info)=>{
- const dist=path.resolve('../../.orchestration/reports/codex-advanced-editor-web');
- await context.route('**/*',async route=>{const url=new URL(route.request().url());if(url.pathname!=='/'&&!url.pathname.startsWith('/assets/'))return route.continue();const file=path.resolve(dist,url.pathname==='/'?'index.html':url.pathname.slice(1));if(!file.startsWith(dist+path.sep))return route.abort();try{await route.fulfill({status:200,body:await readFile(file),contentType:file.endsWith('.html')?'text/html':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'application/octet-stream'});}catch{await route.continue();}});
+test('advanced editor changes real content and keeps view controls out of the draft',async({page},info)=>{
  await new Promise(resolve=>setTimeout(resolve,3100));await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('testuser');await page.getByLabel('Password',{exact:true}).fill('testpass');await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();
  if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();await page.locator('#shell-nav').getByRole('button',{name:'Compose',exact:true}).click();
  await page.getByLabel('Subject',{exact:true}).fill(`Advanced formatting ${info.project.name}`);
@@ -19,9 +15,7 @@ test('advanced editor changes real content and keeps view controls out of the dr
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
 });
 
-test('standalone signature editor persists table and paragraph formatting through the real sanitizer',async({page,context},info)=>{
- const dist=path.resolve('../../.orchestration/reports/codex-advanced-editor-web');
- await context.route('**/*',async route=>{const url=new URL(route.request().url());if(url.pathname!=='/'&&!url.pathname.startsWith('/assets/'))return route.continue();const file=path.resolve(dist,url.pathname==='/'?'index.html':url.pathname.slice(1));if(!file.startsWith(dist+path.sep))return route.abort();try{await route.fulfill({status:200,body:await readFile(file),contentType:file.endsWith('.html')?'text/html':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'application/octet-stream'});}catch{await route.continue();}});
+test('standalone signature editor persists table and paragraph formatting through the real sanitizer',async({page},info)=>{
 
  await new Promise(resolve=>setTimeout(resolve,3100));await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('testuser');await page.getByLabel('Password',{exact:true}).fill('testpass');await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();
  if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByRole('button',{name:'Signatures',exact:true}).click();await page.getByRole('button',{name:'New signature',exact:true}).click();

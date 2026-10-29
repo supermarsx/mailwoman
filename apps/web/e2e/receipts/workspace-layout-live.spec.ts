@@ -1,16 +1,6 @@
-import {readFile} from 'node:fs/promises';
-import path from 'node:path';
 import {test,expect} from '../csrf.ts';
 
-test('five persisted workspace modes retain panes and fit the viewport',async({page,context},info)=>{
-  const dist=path.resolve('../../.orchestration/reports/codex-detached-web');
-  await context.route('**/*',async route=>{
-    const url=new URL(route.request().url());
-    if(url.pathname!=='/'&&!url.pathname.startsWith('/assets/'))return route.continue();
-    const file=path.resolve(dist,url.pathname==='/'?'index.html':url.pathname.slice(1));
-    if(!file.startsWith(dist+path.sep))return route.abort();
-    try{const body=await readFile(file);await route.fulfill({status:200,body,contentType:file.endsWith('.html')?'text/html':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'application/octet-stream'});}catch{await route.continue();}
-  });
+test('five persisted workspace modes retain panes and fit the viewport',async({page},info)=>{
   await page.goto('/');
   await page.getByLabel('Email or username',{exact:true}).fill('testuser');
   await page.getByLabel('Password',{exact:true}).fill('testpass');

@@ -1,16 +1,7 @@
-import {readFile} from 'node:fs/promises';
-import path from 'node:path';
 import {test,expect} from '../csrf.ts';
 import {adminLogin} from './admin-login.ts';
 
 test('integration settings keep long rows, actions and loading bounded @phone',async({page},info)=>{
- const dist=path.resolve('../../.orchestration/reports/codex-admin-integrations-web');
- await page.route('**/*',async route=>{
-  const url=new URL(route.request().url());if(url.pathname!=='/admin'&&!url.pathname.startsWith('/assets/'))return route.continue();
-  const file=path.resolve(dist,url.pathname==='/admin'?'index.html':url.pathname.slice(1));if(!file.startsWith(dist+path.sep))return route.abort();
-  try{const body=await readFile(file);await route.fulfill({status:200,body,contentType:file.endsWith('.html')?'text/html':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.woff2')?'font/woff2':'application/octet-stream'});}catch{await route.continue();}
- });
-
 
  await page.route('**/admin/nextcloud/instances',route=>route.fulfill({json:{instances:[{id:'cloud',name:'Company Nextcloud with a long descriptive instance name',baseUrl:'https://cloud.example.test/'+('long-installation-path-'.repeat(18)),enabled:true,etag:'"one"'}],maxInstances:64,maxFileBytes:8388608}}));
  let release!:()=>void;const hold=new Promise<void>(resolve=>{release=resolve;});

@@ -1,5 +1,4 @@
 import {readFile} from 'node:fs/promises';
-import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {createServer} from 'node:http';
 import type {AddressInfo} from 'node:net';
@@ -8,7 +7,6 @@ let stopExternal:(()=>Promise<void>)|undefined;
 test.afterEach(async()=>{await stopExternal?.();stopExternal=undefined;});
 
 for(const blocked of [false,true])test(`message bridge displays with ${blocked?'a blocked initial frame':'normal frame admission'}`,async({page},info)=>{
- const dist=path.resolve('../../.orchestration/reports/codex-coep-web');
  const attempts:string[]=[];
  let externalRequests=0;
  const image=createServer((_request,response)=>{externalRequests++;response.writeHead(200,{'content-type':'image/gif','cross-origin-resource-policy':'cross-origin'});response.end(Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7','base64'));});
@@ -35,10 +33,6 @@ for(const blocked of [false,true])test(`message bridge displays with ${blocked?'
    const hash=createHash('sha256').update(script).digest('base64');
    headers['content-security-policy']=headers['content-security-policy']!.replace(/'sha256-[^']+'/g,`'sha256-${hash}'`);
    return route.fulfill({response,headers,body:html});
-  }
-  if(url.pathname==='/'||url.pathname.startsWith('/assets/')){
-   const file=path.resolve(dist,url.pathname==='/'?'index.html':url.pathname.slice(1));if(!file.startsWith(dist+path.sep))return route.abort();
-   const response=await route.fetch();return route.fulfill({response,status:200,body:await readFile(file),contentType:file.endsWith('.html')?'text/html':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'application/octet-stream'});
   }
   return route.continue();
  });
