@@ -3,7 +3,9 @@ import solid from 'vite-plugin-solid';
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin';
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
 import { transformWithEsbuild, type Plugin } from 'vite';
 import { bundledPackages } from './scripts/about-bundled-packages.mjs';
 
@@ -46,6 +48,56 @@ function bootScript(): Plugin {
   };
 }
 
+/**
+ * t63 R1: integrity for what the service worker and the page load.
+ *
+ * Cache Storage is writable by any script of this origin, so the worker serves
+ * a cached /assets/ file only when its SHA-256 matches the manifest written here
+ * into dist/sw.js (the worker file itself is never stored in Cache Storage).
+ * The entry and boot scripts in dist/index.html also get Subresource Integrity,
+ * so even a page the worker does not control refuses a substituted entry. The
+ * stylesheet does not: under a deploy prefix the server rewrites its font URLs,
+ * which would change its bytes.
+ */
+export function assetIntegrity(): Plugin {
+  let outDir = '';
+  let build = false;
+  const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = join(dir, entry.name);
+    return entry.isDirectory() ? walk(full) : [full];
+  });
+  return {
+    name: 'mw-asset-integrity',
+    apply: 'build',
+    configResolved(config) { build = config.command === 'build'; outDir = resolve(config.root, config.build.outDir); },
+    closeBundle() {
+      if (!build) return;
+      const assets = join(outDir, 'assets');
+      const digests: Record<string, string> = {};
+      for (const file of walk(assets)) {
+        const rel = `/assets/${relative(assets, file).split(sep).join('/')}`;
+        if (rel.startsWith('/assets/analytics/')) continue;
+        digests[rel] = createHash('sha256').update(readFileSync(file)).digest('hex');
+      }
+      const swPath = join(outDir, 'sw.js');
+      const sw = readFileSync(swPath, 'utf8');
+      const marker = '/* @mw-asset-digests */ null';
+      if (!sw.includes(marker)) throw new Error('mw-asset-integrity: dist/sw.js has no asset-digest placeholder');
+      writeFileSync(swPath, sw.replace(marker, JSON.stringify(digests)));
+      const htmlPath = join(outDir, 'index.html');
+      const html = readFileSync(htmlPath, 'utf8').replace(
+        /<(script|link)\b([^>]*?)\s(src|href)="\.\/(assets\/[^"]+\.js)"([^>]*)>/g,
+        (tag: string, name: string, before: string, attr: string, path: string, after: string) => {
+          if (tag.includes(' integrity=')) return tag;
+          const sri = `sha384-${createHash('sha384').update(readFileSync(join(outDir, path))).digest('base64')}`;
+          return `<${name}${before} ${attr}="./${path}" integrity="${sri}"${after}>`;
+        },
+      );
+      writeFileSync(htmlPath, html);
+    },
+  };
+}
+
 export default defineConfig({
   // Sub-path hosting (t20 B4): a RELATIVE base so every emitted asset URL in
   // `dist/index.html` and every dynamic-import chunk resolves against the document
@@ -70,7 +122,7 @@ export default defineConfig({
   // crypto Web Worker import the wasm-pack `mw-crypto` (+ `mw-sanitize`) bundle
   // that e8 builds into `src/wasm/` via `scripts/build-wasm.*`. Added now so e8's
   // dynamic `import()` of the wasm module resolves; inert until that bundle exists.
-  plugins: [solid(), vanillaExtractPlugin(), wasm(), topLevelAwait(), bundledPackages({ main: true }), bootScript()],
+  plugins: [solid(), vanillaExtractPlugin(), wasm(), topLevelAwait(), bundledPackages({ main: true }), bootScript(), assetIntegrity()],
   // t32-e75: the bundle recorder also sees the worker builds; the main instance writes
   // node_modules/.cache/mailwoman-about/bundled-packages.json for the third-party list.
   worker: { plugins: () => [bundledPackages()] },

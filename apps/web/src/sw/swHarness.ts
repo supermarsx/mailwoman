@@ -3,6 +3,7 @@
 // Nothing here restates the worker's routing: the fakes stand in for the BROWSER
 // (Cache Storage, the network, event dispatch), never for the worker.
 
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -97,7 +98,24 @@ export interface Worker {
   pushState: { endpoint: string | null; visible: boolean; notifications: string[] };
   install(): Promise<void>;
   activate(): Promise<void>;
-  fetch(path: string, init?: { method?: string; mode?: string }): Promise<FetchOutcome>;
+  /** `client` is the page that made the request (default: the mail shell, `/`). */
+  fetch(path: string, init?: { method?: string; mode?: string; client?: string }): Promise<FetchOutcome>;
+}
+
+/** The SHA-256 the build would record for `body` (t63 R1). */
+export function digestOf(body: string): string {
+  return createHash('sha256').update(body).digest('hex');
+}
+
+/**
+ * The asset manifest the build writes into dist/sw.js. By default every
+ * /assets/ path is recorded with the digest of the body the tests' default
+ * network serves (`export{}`), so a stored copy of that body verifies and any
+ * other body does not.
+ */
+export function defaultDigests(): Record<string, string> {
+  const hash = digestOf('export{}');
+  return new Proxy({}, { get: (_t, key) => typeof key === 'string' && key.startsWith('/assets/') ? hash : undefined });
 }
 
 type Listener = (event: Record<string, unknown>) => void;
@@ -107,10 +125,11 @@ type Listener = (event: Record<string, unknown>) => void;
  * `scriptUrl` is where the worker is served from — its directory is the deploy
  * prefix the worker derives for itself.
  */
-export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js'): Worker {
+export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js', options: { digests?: Record<string, string> | null } = {}): Worker {
   const location = new URL(scriptUrl);
   const caches = new FakeCacheStorage(location.href);
   const listeners = new Map<string, Listener>();
+  const clientUrls = new Map<string, string>();
   const network: Worker['network'] = {
     calls: [],
     fetch: async () => new Response('ok', { status: 200 }),
@@ -121,14 +140,17 @@ export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js'): Worker
     location,
     addEventListener: (type: string, fn: Listener) => listeners.set(type, fn),
     skipWaiting: async () => undefined,
-    clients: { claim: async () => undefined, matchAll: async () => pushState.visible ? [{ visibilityState: 'visible', postMessage: () => undefined }] : [] },
+    __assetDigests: options.digests === undefined ? defaultDigests() : options.digests,
+    clients: { claim: async () => undefined, get: async (id: string) => clientUrls.has(id) ? { type: 'window', url: clientUrls.get(id) } : undefined, matchAll: async () => pushState.visible ? [{ visibilityState: 'visible', postMessage: () => undefined }] : [] },
     registration: { pushManager: { getSubscription: async () => pushState.endpoint ? { endpoint: pushState.endpoint } : null }, showNotification: async (title: string) => { pushState.notifications.push(title); } },
   };
   const fetchFromWorker = (req: FakeRequest | string): Promise<Response> => {
     network.calls.push(new URL(typeof req === 'string' ? req : req.url, location.href).href);
     return network.fetch(req);
   };
-  new Function('self', 'caches', 'fetch', SW_SOURCE)(self, caches, fetchFromWorker);
+  const source = SW_SOURCE.replace('/* @mw-asset-digests */ null', 'self.__assetDigests');
+  if (source === SW_SOURCE) throw new Error('sw.js lost its asset-digest placeholder');
+  new Function('self', 'caches', 'fetch', source)(self, caches, fetchFromWorker);
 
   async function lifecycle(type: string): Promise<void> {
     const waits: Promise<unknown>[] = [];
@@ -152,8 +174,11 @@ export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js'): Worker
         method: init.method ?? 'GET',
         mode: init.mode ?? 'cors',
       };
+      const clientId = `client-${clientUrls.size + 1}`;
+      clientUrls.set(clientId, new URL(init.client ?? '/', location.href).href);
       listeners.get('fetch')?.({
         request,
+        clientId: request.mode === 'navigate' ? '' : clientId,
         respondWith: (p: Promise<Response>) => {
           responded = p;
         },

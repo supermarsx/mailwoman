@@ -7,6 +7,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { shellCacheName } from '../contracts/offline.ts';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { bootWorker, type Worker } from './swHarness.ts';
 
 const ORIGIN = 'https://mail.example.com';
@@ -532,3 +534,69 @@ describe('browser analytics tag', () => {
     expect((await sw.fetch(loader, { mode: 'no-cors' })).response).toBeUndefined();
   });
 });
+
+// t63 R1: any script of this origin can write Cache Storage, so nothing the
+// worker serves from it is trusted on sight. Each of these fails on the worker
+// before t63 R1.
+describe('a poisoned cache cannot run in the console or the shell', () => {
+  const EVIL = 'globalThis.__poisoned = true;';
+  const poison = async (sw: Worker, path: string, body: string, headers: Record<string, string> = {}) => {
+    const cache = await sw.caches.open(shellCacheName(1));
+    await cache.put(`${ORIGIN}${path}`, new Response(body, { status: 200, headers: { 'content-type': 'text/javascript', 'x-mw-cached-at': '9000000000000000', ...headers } }));
+  };
+  it('the admin console never gets a cached asset, even a valid one', async () => {
+    const sw = boot();
+    await sw.fetch(ASSET); // stored for the mail shell
+    sw.network.calls.length = 0;
+    await poison(sw, ASSET, EVIL);
+    const out = await sw.fetch(ASSET, { client: '/admin' });
+    expect(await out.response?.text()).toBe('export{}');
+    expect(sw.network.calls).toEqual([`${ORIGIN}${ASSET}`]);
+  });
+  it('the mail shell drops a cached asset that does not match the build manifest', async () => {
+    const sw = boot();
+    await poison(sw, ASSET, EVIL);
+    const out = await sw.fetch(ASSET);
+    expect(await out.response?.text()).toBe('export{}');
+    sw.network.fetch = offline;
+    expect(await (await sw.fetch(ASSET)).response?.text()).toBe('export{}');
+  });
+  it('without a build manifest no /assets/ file is served from the cache', async () => {
+    const sw = bootWorker(undefined, { digests: null });
+    sw.network.fetch = async () => js();
+    await sw.fetch(ASSET);
+    expect(sw.caches.urls()).toEqual([]);
+    await poison(sw, ASSET, 'export{}');
+    sw.network.calls.length = 0;
+    await sw.fetch(ASSET);
+    expect(sw.network.calls).toHaveLength(1);
+  });
+  it('a stamp from the future does not keep a config entry fresh', async () => {
+    const sw = boot();
+    await poison(sw, '/api/push/vapid', '{"key":"attacker"}', { 'content-type': 'application/json' });
+    sw.network.fetch = offline;
+    const out = await sw.fetch('/api/push/vapid');
+    expect(out.response).toBeUndefined();
+    expect(out.error).toBeDefined();
+  });
+  it('the offline shell is served under the fixed shell policy, not the stored headers', async () => {
+    const sw = boot();
+    const cache = await sw.caches.open(shellCacheName(1));
+    await cache.put(`${ORIGIN}/`, new Response('<script>evil()</script>', { status: 200, headers: { 'content-type': 'text/html', 'content-security-policy': "script-src 'unsafe-inline'" } }));
+    sw.network.fetch = offline;
+    const out = await sw.fetch('/', { mode: 'navigate' });
+    expect(out.response?.headers.get('content-security-policy')).toBe(rustShellCsp());
+    expect(out.response?.headers.get('content-type')).toBe('text/html; charset=utf-8');
+  });
+  it('the offline policy is the server shell CSP, byte for byte', () => {
+    const sw = readFileSync(fileURLToPath(new URL('../../public/sw.js', import.meta.url)), 'utf8');
+    expect(sw).toContain(`const OFFLINE_SHELL_CSP = "${rustShellCsp()}";`);
+  });
+});
+
+function rustShellCsp(): string {
+  const lib = readFileSync(fileURLToPath(new URL('../../../../crates/mw-server/src/lib.rs', import.meta.url)), 'utf8');
+  const raw = /const CSP: &str = "([^"]+)";/.exec(lib)?.[1];
+  if (raw === undefined) throw new Error('CSP const not found in lib.rs');
+  return raw.replace(/\\\r?\n\s*/g, '');
+}

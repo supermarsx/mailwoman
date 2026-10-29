@@ -25,6 +25,53 @@
 // Must equal shellCacheName(SHELL_CACHE_VERSION) from src/contracts/offline.ts.
 const CACHE_NAME = 'mw-shell-v1';
 
+// ── Integrity (t63 R1) ─────────────────────────────────────────────────────
+// Cache Storage belongs to the whole origin and CSP does not restrict
+// `caches.*`, so any script running in a page of this origin (a browser
+// analytics tag, for one) can write entries into the cache below. Nothing this
+// worker serves from it may therefore be trusted on sight:
+//   - every cached /assets/ script or wasm file must match the SHA-256 the build recorded for
+//     it here (vite.config.ts `mw-asset-integrity` writes the manifest into
+//     dist/sw.js; this file itself is never stored in Cache Storage). Without a
+//     manifest (an unbuilt checkout) no /assets/ file is served from the cache;
+//   - only the mail shell's own window clients are answered from the cache:
+//     the admin console and every other page always go to the network;
+//   - a stored timestamp from the future is treated as no timestamp;
+//   - the offline shell is served with the fixed shell CSP, whatever headers
+//     the stored copy carries.
+const ASSET_DIGESTS = /* @mw-asset-digests */ null;
+// Must equal `CSP` in crates/mw-server/src/lib.rs (sw.test.ts checks it).
+const OFFLINE_SHELL_CSP = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; manifest-src 'self'; connect-src 'self' blob:; frame-src 'self'; worker-src 'self' blob:; base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'";
+
+async function sha256Hex(res) {
+  const digest = await self.crypto.subtle.digest('SHA-256', await res.clone().arrayBuffer());
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Does `res` hold exactly the bytes the build recorded for this /assets/ path? */
+async function matchesManifest(request, res) {
+  if (ASSET_DIGESTS === null) return false;
+  const want = ASSET_DIGESTS[stripBase(new URL(request.url).pathname)];
+  if (typeof want !== 'string') return false;
+  try { return (await sha256Hex(res)) === want; } catch { return false; }
+}
+
+/** May this request be answered from the cache? Only for the mail shell's own
+ *  window: a navigation to it, or a subresource of a window showing it. */
+async function fromShellClient(event) {
+  if (event.request.mode === 'navigate') return true;
+  const id = event.clientId;
+  if (!id || !self.clients || typeof self.clients.get !== 'function') return false;
+  try {
+    const client = await self.clients.get(id);
+    if (!client || (client.type !== undefined && client.type !== 'window')) return false;
+    const url = new URL(client.url);
+    return url.origin === self.location.origin && isShellNavigation(stripBase(url.pathname));
+  } catch {
+    return false;
+  }
+}
+
 // ── Sub-path hosting (t20 B4) ──────────────────────────────────────────────
 // The deploy prefix is DERIVED, not templated. This file ships copied verbatim
 // into dist/ and is served from wherever the app's base is — `/sw.js` at the
@@ -173,7 +220,9 @@ function isShellKey(request) {
 }
 
 function storedAt(res) {
-  return Number(res.headers.get(STAMP_HEADER)) || 0;
+  const at = Number(res.headers.get(STAMP_HEADER)) || 0;
+  // A stamp from the future was not written by store(): treat it as absent.
+  return at > Date.now() ? 0 : at;
 }
 
 function isFresh(res, strategy) {
@@ -271,10 +320,19 @@ async function matchCache(cache, request) {
 // that is, while online, when a deleted asset can be fetched again.
 async function cacheFirst(request) {
   const cache = await openCache();
+  // Code (scripts, modules, wasm) must match the manifest. A stylesheet or font
+  // cannot run script under the shell and console CSP, and the server rewrites
+  // stylesheet bytes under a deploy prefix.
+  const hashed = /^\/assets\/.+\.(?:m?js|wasm)$/.test(stripBase(new URL(request.url).pathname));
   const cached = await matchCache(cache, request);
-  if (cached && isStorable(request, cached)) return cached;
+  if (cached && isStorable(request, cached)) {
+    // A font cannot run code; a script, stylesheet or wasm module must match
+    // the build manifest, or it is dropped and fetched again.
+    if (!hashed || await matchesManifest(request, cached)) return cached;
+    try { await cache.delete(request); } catch { /* best effort */ }
+  }
   const res = await fetch(request);
-  if (cache && isStorable(request, res)) await store(cache, request, res);
+  if (cache && isStorable(request, res) && (!hashed || await matchesManifest(request, res))) await store(cache, request, res);
   return res;
 }
 
@@ -299,7 +357,18 @@ async function shellFallback(request) {
   } catch (err) {
     const cache = await openCache();
     const shell = await matchCache(cache, SHELL_URL);
-    if (shell) return shell;
+    // The stored copy's headers are not trusted (any page of this origin can
+    // write the cache): it is served as HTML under the fixed shell policy.
+    if (shell) {
+      return new Response(shell.body, {
+        status: 200,
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+          'content-security-policy': OFFLINE_SHELL_CSP,
+          'x-content-type-options': 'nosniff',
+        },
+      });
+    }
     throw err;
   }
 }
@@ -368,7 +437,9 @@ self.addEventListener('fetch', (event) => {
   // chooseStrategy() does not store never pass through this worker's fetch().
   const strategy = chooseStrategy(request);
   if (strategy === 'passthrough') return;
-  event.respondWith(respond(request, strategy));
+  // Any other page of this origin (the admin console above all) gets the
+  // network, never the cache (t63 R1).
+  event.respondWith((async () => (await fromShellClient(event)) ? respond(request, strategy) : fetch(request))());
 });
 
 // ── Web Push wake (V5, plan §2.3) ──────────────────────────────────────────
