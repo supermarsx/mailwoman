@@ -11,7 +11,7 @@ export function clampMenu(x:number,y:number,width:number,height:number,viewportW
 /** The scope is captured at open and rechecked at execution, including identity reuse.
  * `restoreFocus` is given the trigger that is gone: an action that re-renders its row replaces the trigger, and focus would fall to the body. */
 export function createContextMenu(options:{label:Accessor<string>;scope:Accessor<string>;actions:Accessor<ContextAction[]>;onError?:()=>void;restoreFocus?:(trigger?:HTMLElement)=>void}) {
- const [position,setPosition]=createSignal<{x:number;y:number;scope:string;trigger:HTMLElement}>();
+ const [position,setPosition]=createSignal<{x:number;y:number;scope:string;trigger:HTMLElement;above?:boolean}>();
  function close(restore=true):void {const old=position();setPosition(undefined);if(restore){if(old?.trigger.isConnected)old.trigger.focus();else options.restoreFocus?.(old?.trigger);}}
  function open(event:MouseEvent|KeyboardEvent):void {
   const target=event.target;if(target instanceof Element&&target.closest('input,textarea,[contenteditable="true"]'))return;
@@ -19,12 +19,17 @@ export function createContextMenu(options:{label:Accessor<string>;scope:Accessor
   const trigger=(target instanceof Element?target.closest<HTMLElement>('button,[tabindex]'):null)??event.currentTarget as HTMLElement;const rect=trigger.getBoundingClientRect();
   event.preventDefault();event.stopPropagation();document.dispatchEvent(new Event('mailwoman-context-open'));setPosition({x:event instanceof MouseEvent&&event.type==='contextmenu'?event.clientX:rect.left,y:event instanceof MouseEvent&&event.type==='contextmenu'?event.clientY:rect.bottom,scope:options.scope(),trigger});
  }
+ /** Open from a control near the bottom of its pane (the selection bar, t58): the menu opens upward, its bottom edge just above the trigger. */
+ function openAbove(trigger:HTMLElement):void {
+  if(options.actions().length===0)return;const rect=trigger.getBoundingClientRect();
+  document.dispatchEvent(new Event('mailwoman-context-open'));setPosition({x:rect.left,y:rect.top-4,scope:options.scope(),trigger,above:true});
+ }
  function keydown(event:KeyboardEvent):void {if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10'))open(event);}
  createEffect(()=>{const value=position();if(value&&value.scope!==options.scope())close(false);});
  function MenuBody(props:{point:NonNullable<ReturnType<typeof position>>}):JSX.Element {
   let element!:HTMLDivElement;const [coords,setCoords]=createSignal({left:8,top:8});
   const buttons=()=>Array.from(element.querySelectorAll<HTMLButtonElement>('button:not([aria-disabled="true"])'));
-  onMount(()=>{const rect=element.getBoundingClientRect();setCoords(clampMenu(props.point.x,props.point.y,rect.width,rect.height,window.innerWidth,window.innerHeight));buttons()[0]?.focus({preventScroll:true});
+  onMount(()=>{const rect=element.getBoundingClientRect();setCoords(clampMenu(props.point.x,props.point.above?props.point.y-rect.height:props.point.y,rect.width,rect.height,window.innerWidth,window.innerHeight));buttons()[0]?.focus({preventScroll:true});
    const outside=(e:PointerEvent):void=>{if(e.target instanceof Node&&!element.contains(e.target))close(false);};const dismiss=(e:Event):void=>{if(e.target instanceof Node&&element.contains(e.target))return;close(false);};
    document.addEventListener('mailwoman-context-open',dismiss);document.addEventListener('pointerdown',outside,true);window.addEventListener('resize',dismiss);window.addEventListener('scroll',dismiss,true);
    onCleanup(()=>{document.removeEventListener('mailwoman-context-open',dismiss);document.removeEventListener('pointerdown',outside,true);window.removeEventListener('resize',dismiss);window.removeEventListener('scroll',dismiss,true);});
@@ -33,5 +38,5 @@ export function createContextMenu(options:{label:Accessor<string>;scope:Accessor
   return <div ref={element} role="menu" aria-label={options.label()} class={css.menu} style={{left:`${coords().left}px`,top:`${coords().top}px`}} onKeyDown={navigate} onContextMenu={e=>{e.preventDefault();e.stopPropagation();}} onClick={e=>e.stopPropagation()}><For each={options.actions().map(action=>action.id)}>{id=>{const action=()=>options.actions().find(item=>item.id===id)!;return <><Show when={action().separatorBefore}><div role="separator" class={css.separator}/></Show><button type="button" role={action().checked===undefined?'menuitem':'menuitemcheckbox'} aria-checked={action().checked} class={css.item} aria-disabled={action().disabled===true} onClick={()=>{const current=options.actions().find(item=>item.id===id);if(props.point.scope!==options.scope()||!current||current.disabled){close(false);return;}const trigger=props.point.trigger;close();try{void Promise.resolve(current.run()).catch(()=>options.onError?.());}catch{options.onError?.();}queueMicrotask(()=>{if(!trigger.isConnected&&(document.activeElement===null||document.activeElement===document.body))options.restoreFocus?.(trigger);});}}><Icon name={action().icon}/>{action().label}</button></>;}}</For></div>;
  }
  const menu=():JSX.Element=><Show when={position()}>{point=><Portal><MenuBody point={point()}/></Portal>}</Show>;
- return {open,keydown,close,menu,isOpen:()=>position()!==undefined};
+ return {open,openAbove,keydown,close,menu,isOpen:()=>position()!==undefined};
 }

@@ -16,18 +16,20 @@ test('account labels, touch selection, attached forward and one mbox archive wor
     await expect(page.getByRole('table')).toContainText(name);await expect.poll(async()=>(await(await page.request.get('/api/account/preferences')).json()).preferences.tags?.[keyword]?.name).toBe(name);
     await page.reload();await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();await page.getByRole('tab',{name:'Mail',exact:true}).click();
     await page.getByRole('button',{name:'Select messages',exact:true}).click();for(const subject of subjects)await messageRow(page,subject).click();
-    const bar=page.getByRole('toolbar',{name:'Selected messages'});await expect(bar).toContainText('2 selected');
+    const bar=page.getByRole('toolbar',{name:'Selection actions'});await expect(bar).toContainText('2 selected');
+    // The floating selection bar (t58) moves what does not fit into More (phone width).
+    const barAction=async(name:string)=>{const button=bar.getByRole('button',{name,exact:true});if(await button.count())await button.click();else{await bar.getByRole('button',{name:'More selection actions'}).click();await page.getByRole('menu',{name:'More selection actions'}).getByRole('menuitem',{name:new RegExp(`^${name}`)}).click();}};
     const updated=page.waitForRequest(request=>request.url().endsWith('/jmap/api')&&request.method()==='POST'&&request.postDataJSON()?.methodCalls?.some((call:unknown[])=>call[0]==='Email/set'));
-    await bar.getByRole('combobox',{name:'Add label',exact:true}).selectOption(keyword);
+    await barAction('Labels');await page.getByRole('menu',{name:'Labels'}).getByRole('menuitemcheckbox',{name,exact:true}).click();
     const mutation=(await updated).postDataJSON().methodCalls.find((call:unknown[])=>call[0]==='Email/set')[1];const ids=Object.keys(mutation.update);expect(ids).toHaveLength(2);
     await expect.poll(async()=>{
       const response=await page.request.post('/jmap/api',{data:{using:['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'],methodCalls:[['Email/get',{accountId:mutation.accountId,ids,properties:['keywords']},'g']]}});
       const result=await response.json();return result.methodResponses.find((call:unknown[])=>call[2]==='g')?.[1]?.list?.every((email:{keywords:Record<string,boolean>})=>email.keywords[keyword]===true);
     }).toBe(true);
     let submissions=0;page.on('request',request=>{if(request.url().endsWith('/jmap/api')&&request.method()==='POST'&&request.postDataJSON()?.methodCalls?.some((call:unknown[])=>call[0]==='EmailSubmission/set'))submissions++;});
-    await bar.getByRole('button',{name:'Forward selected messages as attachments'}).click();await expect(page.getByTestId('compose-attachments').locator('li')).toHaveCount(2);await expect(page.getByLabel('To',{exact:true})).toHaveValue('');expect(submissions).toBe(0);
+    await barAction('Forward selected messages as attachments');await expect(page.getByTestId('compose-attachments').locator('li')).toHaveCount(2);await expect(page.getByLabel('To',{exact:true})).toHaveValue('');expect(submissions).toBe(0);
     await page.screenshot({path:info.outputPath('bulk-forward.png'),fullPage:true});await page.getByRole('tab',{name:'Mail',exact:true}).click();
-    const download=page.waitForEvent('download');await bar.getByRole('button',{name:'Download selected messages as mbox'}).click();
+    const download=page.waitForEvent('download');await barAction('Download selected messages as mbox');
     const proof=page.getByRole('dialog',{name:'Confirm it is you'});if(await proof.waitFor({state:'visible',timeout:3000}).then(()=>true,()=>false)){await proof.getByLabel('Password',{exact:true}).fill('testpass');await proof.getByRole('button',{name:'Confirm and continue',exact:true}).click();}
     const archive=await download;expect(archive.suggestedFilename()).toBe('messages.mbox');const path=await archive.path();expect(path).toBeTruthy();const text=await readFile(path!,'utf8');for(const subject of subjects)expect(text).toContain(subject);expect(text.match(/^From /gm)).toHaveLength(2);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);

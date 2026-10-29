@@ -1,6 +1,12 @@
 # Selected-message actions
 
-Select messages in the list with Ctrl/Command-click, Shift-click, or the keyboard selection actions. The selection toolbar offers archive, delete, move, spam, read/unread, flag, add/remove labels, forwarding and download.
+Select messages in the list with Ctrl/Command-click, Shift-click, the Select messages button, or the keyboard: Space toggles the focused row, Shift+Up/Down extends the selection, Ctrl/Command+A selects every loaded message, and Esc clears the selection.
+
+While one or more messages are selected, a floating selection bar sits over the bottom centre of the list pane. It does not push the rows down or reflow them, and it has no backdrop or focus trap. Clicking, Ctrl/Command-click, Shift-click, the arrow keys, Space and scrolling all keep working on the list underneath. The list gains bottom padding equal to the bar's height, so the last row can always be scrolled clear of the bar. The bar disappears when the selection is empty.
+
+The bar shows the count (announced politely to screen readers), Select all / Select none, and the actions as icon buttons with tooltips: archive, delete, move to folder, mark read or unread, flag or remove flag, spam, labels, forwarding and download. Actions that do not fit on one line go into the bar's More menu, so the bar never wraps, including at phone width. × clears the selection. Select all selects the messages loaded in the list; there is no "select every message in the folder" action yet. Folder tabs use the same bar with the actions their own list supports: read, unread, archive, delete (in Trash, a permanent delete that asks for confirmation first) and move.
+
+The bar does not take focus when it appears. It is one tab stop after the list. F6 moves focus from the list to the bar, the arrow keys, Home and End move between its buttons, and Esc or F6 returns focus to the list. Without reduced motion, the bar fades in from just below its final position.
 
 Label changes use one JMAP update for the selection. A refused message is restored locally and reported; undo preserves labels that were already present. Labels are JMAP keywords, distinct from mailbox membership and system flags.
 

@@ -23,7 +23,7 @@ test('related searches and selected-message moves use real account-owned message
   if(info.project.name==='phone'){const close=page.getByRole('button',{name:'Close folders and apps'});if(await close.isVisible())await close.click();await page.getByRole('button',{name:'Select messages',exact:true}).click();await row(subjects[0]!).click();await row(subjects[1]!).click();}
   else {await row(subjects[0]!).click({modifiers:['Control']});await row(subjects[1]!).click({modifiers:['Control']});}
   await expect(page.getByTestId('bulk-count')).toContainText('2');
-  if(info.project.name==='phone')await page.getByTestId('bulk-move').selectOption(folderId);
+  if(info.project.name==='phone'){await page.getByTestId('bulk-move').click();await page.getByRole('menu',{name:'Move to folder'}).getByRole('menuitem',{name:`Interaction ${suffix}`,exact:true}).click();}
   else await row(subjects[0]!).dragTo(page.locator('.sidebar__box').filter({hasText:`Interaction ${suffix}`}));
   await expect.poll(async()=>{const result=await call('Email/get',{ids,properties:['id','mailboxIds']});return result.list.filter((message:{mailboxIds:Record<string,boolean>})=>message.mailboxIds[folderId]).length;}).toBe(2);
   await expect(row(subjects[0]!)).toHaveCount(0);await expect(row(subjects[1]!)).toHaveCount(0);

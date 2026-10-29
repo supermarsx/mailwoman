@@ -218,7 +218,7 @@ test('three selected messages are marked read, then moved, each with one request
   // Select: Ctrl+click the first, Shift+click the last (the range covers the middle).
   await messageRow(page, subjects[2]!).click({ modifiers: ['ControlOrMeta'] });
   await messageRow(page, subjects[0]!).click({ modifiers: ['Shift'] });
-  const bar = page.getByRole('toolbar', { name: 'Selected messages' });
+  const bar = page.getByRole('toolbar', { name: 'Selection actions' });
   await expect(bar.getByTestId('bulk-count')).toHaveText('3 selected');
 
   const sets = emailSets(page);
@@ -229,7 +229,9 @@ test('three selected messages are marked read, then moved, each with one request
   expect(sets).toHaveLength(1);
 
   sets.length = 0;
-  await bar.getByRole('combobox', { name: 'Move to folder' }).selectOption({ label: folder });
+  // The floating selection bar (t58): Move opens a menu of folders above the bar.
+  await bar.getByRole('button', { name: 'Move to folder', exact: true }).click();
+  await page.getByRole('menu', { name: 'Move to folder' }).getByRole('menuitem', { name: folder, exact: true }).click();
   await expect.poll(() => countIn(folder, `bulk-${tag}`), { timeout: 15_000 }).toBe(3);
   expect(await countIn('INBOX', `bulk-${tag}`)).toBe(0);
   expect(sets).toHaveLength(1);

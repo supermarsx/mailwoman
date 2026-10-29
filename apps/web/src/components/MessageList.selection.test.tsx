@@ -8,6 +8,7 @@ import { getKeymap } from '../keymap/index.ts';
 import { DEFAULT_PREFS, savePrefs } from '../screens/Settings/prefs.ts';
 import type { Client } from '../api/client.ts';
 import type { Email, JmapRequest } from '../api/jmap-types.ts';
+import * as barCss from './selectionBar.css.ts';
 
 // Selection and the bulk bar in the message list (t28-e16). The harness answers
 // every `Email/get` with the whole list, so which message a click or a shortcut
@@ -88,15 +89,21 @@ describe('MessageList selection', () => {
     expect(selectedSubjects()).toEqual([]);
   });
 
-  it('the bulk bar replaces the toolbar while rows are selected, and Archive is one request for all of them', async () => {
+  it('the floating selection bar appears over the list without replacing the toolbar, and Archive is one request for all of them', async () => {
     const { app, jmap } = await setup();
     expect(screen.queryByTestId('bulk-bar')).toBeNull();
-    expect(screen.getByRole('group', { name: 'View options' })).toBeInTheDocument();
+    const scroller = document.querySelector<HTMLElement>('.list__scroll')!;
+    expect(scroller.className).not.toContain(barCss.listInset);
 
     for (const s of ['Subject a', 'Subject c', 'Subject e']) fireEvent.click(row(s), { ctrlKey: true });
-    const bar = screen.getByRole('toolbar', { name: 'Selected messages' });
+    const bar = screen.getByRole('toolbar', { name: 'Selection actions' });
     expect(within(bar).getByTestId('bulk-count').textContent).toBe('3 selected');
-    expect(screen.queryByRole('group', { name: 'View options' })).toBeNull();
+    // Non-modal overlay: the view toolbar stays, the bar sits after the rows in
+    // the pane, and the list gets bottom padding so the last row clears it.
+    expect(screen.getByRole('group', { name: 'View options' })).toBeInTheDocument();
+    expect(bar.parentElement).toBe(document.querySelector('section.list'));
+    expect(scroller.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(scroller.className).toContain(barCss.listInset);
 
     jmap.mockClear();
     fireEvent.click(within(bar).getByRole('button', { name: 'Archive' }));
@@ -110,19 +117,61 @@ describe('MessageList selection', () => {
       c: { mailboxIds: { archive: true } },
       e: { mailboxIds: { archive: true } },
     });
-    // The selection went with the messages, so the toolbar is back.
+    // The selection went with the messages, so the bar and the padding are gone.
+    expect(screen.queryByTestId('bulk-bar')).toBeNull();
+    expect(scroller.className).not.toContain(barCss.listInset);
+  });
+
+  it('the list stays interactive under the bar: clicks, ranges and keys change the selection, and focus stays on the row', async () => {
+    const { app } = await setup();
+    const first = row('Subject a');
+    first.focus();
+    fireEvent.keyDown(first, { key: ' ' });
+    expect(screen.getByTestId('bulk-count').textContent).toBe('1 selected');
+    // The bar appeared; the row kept focus (t51).
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(first, { key: 'ArrowDown', shiftKey: true });
+    expect(screen.getByTestId('bulk-count').textContent).toBe('2 selected');
+    fireEvent.click(row('Subject e'), { ctrlKey: true });
+    fireEvent.click(row('Subject a'), { ctrlKey: true });
+    expect(selectedSubjects()).toEqual(['Subject b', 'Subject e']);
+    fireEvent.click(row('Subject d'), { shiftKey: true });
+    expect(selectedSubjects()).toEqual(['Subject a', 'Subject b', 'Subject c', 'Subject d']);
+    // Select all / Select none from the bar.
+    fireEvent.click(screen.getByRole('button', { name: 'Select all' }));
+    expect(app.selectedIds().size).toBe(5);
+    fireEvent.click(screen.getByRole('button', { name: 'Select none' }));
+    expect(app.selectedIds().size).toBe(0);
     expect(screen.queryByTestId('bulk-bar')).toBeNull();
   });
 
-  it('Move to folder moves the selection with one request', async () => {
+  it('F6 moves focus from the list to the bar and Esc returns it to the focused row', async () => {
+    await setup();
+    row('Subject a').focus();
+    fireEvent.keyDown(row('Subject a'), { key: 'ArrowDown' });
+    await waitFor(() => expect(document.activeElement).toBe(row('Subject b')));
+    fireEvent.keyDown(row('Subject b'), { key: ' ' });
+    expect(selectedSubjects()).toEqual(['Subject b']);
+    fireEvent.keyDown(document.activeElement!, { key: 'F6' });
+    const bar = screen.getByRole('toolbar', { name: 'Selection actions' });
+    await waitFor(() => expect(bar.contains(document.activeElement)).toBe(true));
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    await waitFor(() => expect(document.activeElement).toBe(row('Subject b')));
+    // Esc in the list (not the bar) clears the selection, as before.
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(screen.queryByTestId('bulk-bar')).toBeNull();
+  });
+
+  it('Move to folder opens a folder menu and moves the selection with one request', async () => {
     const { app, jmap } = await setup();
     fireEvent.click(row('Subject a'), { ctrlKey: true });
     fireEvent.click(row('Subject b'), { ctrlKey: true });
     jmap.mockClear();
-    const select = screen.getByRole('combobox', { name: 'Move to folder' });
+    fireEvent.click(screen.getByRole('button', { name: 'Move to folder' }));
+    const menu = await screen.findByRole('menu', { name: 'Move to folder' });
     // The current folder is not offered as a destination.
-    expect(within(select).queryByRole('option', { name: 'Inbox' })).toBeNull();
-    fireEvent.change(select, { target: { value: 'trash' } });
+    expect(within(menu).queryByRole('menuitem', { name: 'Inbox' })).toBeNull();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Trash' }));
     await waitFor(() => expect(app.messages().map((m) => m.id)).toEqual(['c', 'd', 'e']));
     const sets = jmap.mock.calls.filter((c) => (c[0] as JmapRequest).methodCalls.some((m) => m[0] === 'Email/set'));
     expect(sets).toHaveLength(1);

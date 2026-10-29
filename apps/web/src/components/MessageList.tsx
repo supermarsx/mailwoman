@@ -5,8 +5,8 @@ import {createMessageContextMenu} from './MessageContextMenu.tsx';
 import {PersonAvatar} from './PersonAvatar.tsx';
 import {EmptyTrash} from './EmptyTrash.tsx';
 import { Icon } from './Icon.tsx';
-import {downloadMessages,forwardMessages} from '../api/mailBulk.ts';
-import {preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
+import {MailSelectionBar} from './MailSelectionBar.tsx';
+import * as barCss from './selectionBar.css.ts';
 import type {ComposeInitial} from './compose/reply.ts';
 import { createMemo, createSignal, createEffect, on, For, onCleanup, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
@@ -61,8 +61,8 @@ import type { Email, EmailAddress, Id } from '../api/jmap-types.ts';
 // the selection. From the keyboard: Space toggles the focused row, Shift+Arrow
 // extends the range, Ctrl/Cmd+A selects every row in view, Escape clears. A
 // conversation head stands for all its messages. While anything is selected
-// the toolbar becomes the bulk bar, whose actions each send ONE request for the
-// whole selection. The `next`/`previous` shortcuts are registered here with the
+// the floating selection bar (t58, MailSelectionBar.tsx) sits over the list,
+// whose actions each send ONE request for the whole selection. The `next`/`previous` shortcuts are registered here with the
 // one keymap dispatcher (src/keymap/); the keys above stay element-local.
 
 /** Virtualized row height per density. Cozy is the historical default (72px);
@@ -338,86 +338,6 @@ function ListToolbar(props:{selecting:boolean;toggleSelection:()=>void}): JSX.El
   );
 }
 
-/**
- * The bulk bar (t28-e16): the toolbar while messages are selected. Every action
- * applies to the whole selection in ONE request (see `mail.ts` `updateEmails`)
- * and raises the shared undo. Flag reads "Remove flag" when every selected
- * message is already flagged.
- */
-function BulkBar(props:{onCompose?:((initial:ComposeInitial)=>void)|undefined;onClear:()=>void}): JSX.Element {
-  const app = useApp();
-  const [busy,setBusy]=createSignal(false);const [error,setError]=createSignal('');
-  const controller=new AbortController();onCleanup(()=>controller.abort());
-  const targets = (): Id[] => app.actionTargets();
-  function forward():void {
-    setError('');try {const ids=new Set(targets());props.onCompose?.(forwardMessages(app.messages().filter(message=>ids.has(message.id)),t('mail-bulk-forward-subject',{count:ids.size})));}catch{setError(t('mail-bulk-transfer-failed'));}
-  }
-  async function download():Promise<void>{
-    if(busy())return;const owner=preferenceAccount();if(!owner)return;setBusy(true);setError('');
-    try {const blob=await downloadMessages(targets(),()=>preferenceAccountIsCurrent(owner),controller.signal);if(!preferenceAccountIsCurrent(owner))return;const url=URL.createObjectURL(blob);const anchor=document.createElement('a');anchor.href=url;anchor.download='messages.mbox';document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);}
-    catch {if(!controller.signal.aborted&&preferenceAccountIsCurrent(owner))setError(t('mail-bulk-transfer-failed'));}finally{setBusy(false);}
-  }
-  const allFlagged = (): boolean => {
-    const sel = app.selectedIds();
-    const chosen = app.messages().filter((m) => sel.has(m.id));
-    return chosen.length > 0 && chosen.every((m) => m.keywords?.['$flagged'] === true);
-  };
-  const moveTargets = () => app.mailboxes().filter((b) => b.id !== app.selectedMailboxId());
-  const btn = `${thread.segBtn} ${a11y.focusable}`;
-  return (
-    <div
-      class={`${thread.toolbar} ${bulk.bar}`}
-      role="toolbar"
-      aria-label={t('mail-bulk-label')}
-      data-testid="bulk-bar"
-    >
-      <span class={bulk.count} aria-live="polite" data-testid="bulk-count">
-        {t('mail-bulk-count', { count: app.selectedIds().size })}
-      </span>
-      <button type="button" class={btn} onClick={() => void app.markRead(targets(), true)}>
-        {t('mail-mark-read')}
-      </button>
-      <button type="button" class={btn} onClick={() => void app.markRead(targets(), false)}>
-        {t('mail-mark-unread')}
-      </button>
-      <button type="button" class={btn} onClick={() => void app.flagMessage(targets(), !allFlagged())}>
-        {allFlagged() ? t('mail-unflag-message') : t('mail-flag-message')}
-      </button>
-      <button type="button" class={btn} onClick={() => void app.archiveMessage(targets())}>
-        {t('mail-archive')}
-      </button>
-      <select
-        class={`${bulk.select} ${a11y.focusable}`}
-        aria-label={t('mail-move-to')}
-        data-testid="bulk-move"
-        onChange={(e) => {
-          const box = e.currentTarget.value;
-          e.currentTarget.value = '';
-          if (box !== '') void app.moveMessage(targets(), box);
-        }}
-      >
-        <option value="">{t('mail-move-to-placeholder')}</option>
-        <For each={moveTargets()}>{(box) => <option value={box.id}>{box.name}</option>}</For>
-      </select>
-      <button type="button" class={btn} onClick={() => void app.trashMessage(targets())}>
-        {t('mail-delete')}
-      </button>
-      <button type="button" class={btn} aria-label={t('mail-mark-spam')} onClick={()=>void app.markSpam(targets())}><Icon name="shield"/></button>
-      <select class={`${bulk.select} ${a11y.focusable}`} aria-label={t('mail-bulk-add-label')} onChange={event=>{const keyword=event.currentTarget.value;event.currentTarget.value='';if(keyword)void app.tagMessages(targets(),keyword,true,app.tagByKeyword(keyword)?.name);}}><option value="">{t('mail-bulk-add-label')}</option><For each={app.tags()}>{tag=><option value={tag.id}>{tag.name}</option>}</For></select>
-      <select class={`${bulk.select} ${a11y.focusable}`} aria-label={t('mail-bulk-remove-label')} onChange={event=>{const keyword=event.currentTarget.value;event.currentTarget.value='';if(keyword)void app.tagMessages(targets(),keyword,false,app.tagByKeyword(keyword)?.name);}}><option value="">{t('mail-bulk-remove-label')}</option><For each={app.tags()}>{tag=><option value={tag.id}>{tag.name}</option>}</For></select>
-      <Show when={props.onCompose}><button type="button" class={btn} aria-label={t('mail-bulk-forward')} onClick={forward}><Icon name="forward"/></button></Show>
-      <button type="button" class={btn} disabled={busy()} aria-label={t('mail-bulk-download')} onClick={()=>void download()}><Icon name="download"/></button>
-      <Show when={error()}><span role="alert">{error()}</span></Show>
-      <button type="button" class={btn} onClick={() => app.selectAllInView()}>
-        {t('mail-select-all')}
-      </button>
-      <button type="button" class={btn} aria-label={t('mail-clear-selection')} onClick={props.onClear}>
-        <Icon name="close" />
-      </button>
-    </div>
-  );
-}
-
 // Test seam: a weak handle on the most recently mounted list's row-ref map, so
 // a spec can assert the map stays bounded by the mounted window instead of
 // growing to one entry per row ever scrolled past. Weak so the seam itself
@@ -634,9 +554,12 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
       const h = rowHeight();
       const rowTop = next * h;
       const rowBottom = rowTop + h;
+      // The selection bar covers the scroller's bottom padding (t58): a row is
+      // in view only above it.
+      const visible = scroller.clientHeight - (parseFloat(getComputedStyle(scroller).paddingBottom) || 0);
       if (rowTop < scroller.scrollTop) scroller.scrollTop = rowTop;
-      else if (rowBottom > scroller.scrollTop + scroller.clientHeight) {
-        scroller.scrollTop = rowBottom - scroller.clientHeight;
+      else if (rowBottom > scroller.scrollTop + visible) {
+        scroller.scrollTop = rowBottom - visible;
       }
       onScroll();
     }
@@ -748,9 +671,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
 
   return (
     <section class="list" aria-label={t('mail-list-label')} aria-busy={app.listLoading() || showSkeleton()}>
-      <Show when={app.selectedIds().size > 0} fallback={<ListToolbar selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>}>
-        <BulkBar onCompose={props.onCompose} onClear={()=>{app.clearSelection();setSelecting(false);}}/>
-      </Show>
+      <ListToolbar selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>
       <OfflineQueueNotice />
       <Show when={sync.running() && rows().length > 0}><div class={loadingCss.syncProgress} aria-hidden="true" data-testid="sync-progress" /></Show>
       <Show when={app.listLoading() && rows().length > 0}><div class="list__loading" role="status">{t('mail-loading')}</div></Show>
@@ -765,6 +686,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
         }>
           <div
             class="list__scroll"
+            classList={{ [barCss.listInset]: app.selectedIds().size > 0 }}
             inert={app.listLoading()}
             ref={scroller}
             onScroll={onScroll}
@@ -841,6 +763,9 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onCom
             </ul>
           </div>
         </Show>
+      {/* The floating selection bar (t58): over the list, after it in tab order.
+          It never takes focus itself; Esc/F6 in it come back to the cursor row. */}
+      <MailSelectionBar onCompose={props.onCompose} onClear={()=>{app.clearSelection();setSelecting(false);}} returnFocus={()=>moveCursor(cursor())}/>
       {contextMenu.menu()}
     </section>
   );
