@@ -894,6 +894,9 @@ verify() {
         if curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "$url/healthz" -o /dev/null 2>/dev/null &&
            curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "$url/" -o /dev/null 2>/dev/null; then
             log "Healthy: $url (admin credentials: $STATE/app.env)"
+            if [[ $EXPOSURE == caddy && $CADDY_PROTOCOLS == *h3* ]]; then
+                log "HTTP/3: Caddy also listens on UDP 443. Allow UDP 443 in the host firewall and any cloud security group (for example: ufw allow 443/udp); where it is blocked, clients use HTTP/2 over TCP"
+            fi
             return 0
         fi
         sleep 2
