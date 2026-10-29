@@ -330,6 +330,13 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="privacy.maxbytes"></a>`privacy.maxBytes` | privacy | global | 8388608 | plain |  | yes | Largest fetched remote image in bytes |
 | <a id="privacy.cachebytes"></a>`privacy.cacheBytes` | privacy | global | 33554432 | plain |  | yes | Remote image cache size in bytes |
 | <a id="privacy.ratepermin"></a>`privacy.ratePerMin` | privacy | global | 120 | plain |  | yes | Remote fetches per account per minute |
+| <a id="privacy.fetchconnecttimeoutms"></a>`privacy.fetchConnectTimeoutMs` | privacy | global | 5000 | plain |  | yes | Remote image connect and TLS handshake timeout in milliseconds |
+| <a id="privacy.fetchheaderstimeoutms"></a>`privacy.fetchHeadersTimeoutMs` | privacy | global | 10000 | plain |  | yes | Remote image time to response headers in milliseconds |
+| <a id="privacy.fetchidletimeoutms"></a>`privacy.fetchIdleTimeoutMs` | privacy | global | 10000 | plain |  | yes | Remote image longest pause between body chunks in milliseconds |
+| <a id="privacy.fetchtotaltimeoutms"></a>`privacy.fetchTotalTimeoutMs` | privacy | global | 20000 | plain |  | yes | Remote image total time per image in milliseconds |
+| <a id="privacy.maxredirects"></a>`privacy.maxRedirects` | privacy | global | 3 | plain |  | yes | Redirects followed per remote image |
+| <a id="privacy.maxconcurrentpermessage"></a>`privacy.maxConcurrentPerMessage` | privacy | global | 6 | plain |  | yes | Remote image fetches at a time per message |
+| <a id="privacy.maxconcurrentperaccount"></a>`privacy.maxConcurrentPerAccount` | privacy | global | 12 | plain |  | yes | Remote image fetches at a time per account |
 | <a id="privacy.allowdirect"></a>`privacy.allowDirect` | privacy | global | false | plain |  | yes | Permit direct remote-content mode with the direct-content capability |
 | <a id="cap.remote-content.direct"></a>`cap.remote_content.direct` | privacy | global+domain+admin_user | false | plain |  | yes | Permit this account to load remote images directly |
 | <a id="session.maxconcurrent"></a>`session.maxConcurrent` | signin | global+domain+admin_user | 10 | plain |  | yes | Maximum concurrent mailbox sessions |

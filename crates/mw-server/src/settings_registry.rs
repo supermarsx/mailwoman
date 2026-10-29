@@ -712,6 +712,62 @@ pub static REGISTRY: &[SettingDef] = &[
         "Remote fetches per account per minute"
     ),
     def!(
+        "privacy.fetchConnectTimeoutMs",
+        int(500, 30000),
+        "5000",
+        G,
+        "privacy",
+        "Remote image connect and TLS handshake timeout in milliseconds"
+    ),
+    def!(
+        "privacy.fetchHeadersTimeoutMs",
+        int(500, 60000),
+        "10000",
+        G,
+        "privacy",
+        "Remote image time to response headers in milliseconds"
+    ),
+    def!(
+        "privacy.fetchIdleTimeoutMs",
+        int(500, 60000),
+        "10000",
+        G,
+        "privacy",
+        "Remote image longest pause between body chunks in milliseconds"
+    ),
+    def!(
+        "privacy.fetchTotalTimeoutMs",
+        int(1000, 120000),
+        "20000",
+        G,
+        "privacy",
+        "Remote image total time per image in milliseconds"
+    ),
+    def!(
+        "privacy.maxRedirects",
+        int(0, 10),
+        "3",
+        G,
+        "privacy",
+        "Redirects followed per remote image"
+    ),
+    def!(
+        "privacy.maxConcurrentPerMessage",
+        int(1, 32),
+        "6",
+        G,
+        "privacy",
+        "Remote image fetches at a time per message"
+    ),
+    def!(
+        "privacy.maxConcurrentPerAccount",
+        int(1, 64),
+        "12",
+        G,
+        "privacy",
+        "Remote image fetches at a time per account"
+    ),
+    def!(
         "privacy.allowDirect",
         Kind::Bool,
         "false",
@@ -3543,6 +3599,50 @@ mod tests {
             assert!(d.user_visible(), "{key}");
             assert!(!d.scopes.allows(SettingScope::User), "{key}");
         }
+    }
+
+    /// t56: the remote-image fetch limits are global, admin-only integers with
+    /// the documented defaults and bounds; out-of-range values are refused, and
+    /// the defaults are exactly what the fetch uses when nothing is set.
+    #[test]
+    fn remote_image_fetch_limits_are_bounded_global_integers() {
+        let expected: [(&str, i64, i64, i64); 7] = [
+            ("privacy.fetchConnectTimeoutMs", 500, 30000, 5000),
+            ("privacy.fetchHeadersTimeoutMs", 500, 60000, 10000),
+            ("privacy.fetchIdleTimeoutMs", 500, 60000, 10000),
+            ("privacy.fetchTotalTimeoutMs", 1000, 120000, 20000),
+            ("privacy.maxRedirects", 0, 10, 3),
+            ("privacy.maxConcurrentPerMessage", 1, 32, 6),
+            ("privacy.maxConcurrentPerAccount", 1, 64, 12),
+        ];
+        assert_eq!(
+            expected.map(|(k, ..)| k),
+            crate::remote_policy::FETCH_KEYS,
+            "the fetch reads exactly these keys"
+        );
+        for (key, min, max, default) in expected {
+            let d = lookup(key).unwrap_or_else(|| panic!("{key} registered"));
+            assert_eq!(d.category, "privacy", "{key}");
+            assert_eq!(d.default_value(), json!(default), "{key}");
+            // Global only, like privacy.maxBytes / cacheBytes / ratePerMin.
+            assert!(d.scopes == Scopes::Global, "{key}");
+            for scope in SettingScope::ALL {
+                assert!(!d.scopes.allows(scope), "{key} {scope:?}");
+            }
+            assert!(!d.user_override, "{key}");
+            assert!(!d.user_visible(), "{key}");
+            for ok in [min, max, default] {
+                assert_eq!(validate(d, &json!(ok), "/value").unwrap(), json!(ok), "{key} {ok}");
+            }
+            for bad in [json!(min - 1), json!(max + 1), json!("5000"), json!(1.5), Value::Null] {
+                let r = validate(d, &bad, "/value").unwrap_err();
+                assert_eq!((r.status, r.code), (422, "invalidValue"), "{key} {bad}");
+            }
+        }
+        let defaults = crate::remote_policy::fetch_limits(|key| {
+            lookup(key).and_then(|d| d.default_value().as_u64())
+        });
+        assert_eq!(defaults, crate::image_proxy::remote_content::FetchLimits::default());
     }
 
     /// t55: the loading-images notification is an on/off presentation key,
