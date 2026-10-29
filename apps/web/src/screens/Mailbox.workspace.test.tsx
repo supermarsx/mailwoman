@@ -149,7 +149,7 @@ describe('retained mailbox workspace',()=>{
       const {app,realtime}=mount();await app.login({username:'me@example.org',password:'p'});setReadingPane('off');
       fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}),{detail:1});
       await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:a'));
-      expect(screen.queryByTestId('reading-pane')).not.toBeInTheDocument();
+      expect(screen.getByTestId('reading-pane')).not.toBeVisible();
       fireEvent.click(screen.getByRole('tab',{name:'Mail'}));
       fireEvent.click(screen.getByText('Subject a',{selector:'.list__subject'}),{detail:1});
       await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:a'));

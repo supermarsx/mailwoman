@@ -218,10 +218,13 @@ export function MailboxScreen(): JSX.Element {
   // message opened from the Mail list shows in this one reader beside the list
   // and the next one replaces it; it is not a tab. A double-click or Shift+Enter
   // asks for a tab, which takes this reader's view as it stands (no second fetch).
+  // The pane is on screen (empty until a message is opened) whenever the setting
+  // is on, so the first click does not narrow the list under the pointer and
+  // swallow the second click of a double-click.
   const [preview,setPreview]=createSignal<MessageView|null>(null);
   let previewId:string|null=null;let previewLoading:Promise<void>|undefined;
-  const previewVisible=()=>subTabs.activeId()==='mail'&&preview()!==null&&!narrow()&&readingPane()!=='off'&&!accountUiPreferences().readerCollapsed;
-  const listVisible=()=>!activePane() ? (!previewVisible() || !accountUiPreferences().messageListCollapsed) : (activePane()?.kind==='messages' && (accountUiPreferences().readerCollapsed || (!narrow() && readingPane()!=='off' && !accountUiPreferences().messageListCollapsed)));
+  const previewVisible=()=>subTabs.activeId()==='mail'&&!narrow()&&readingPane()!=='off'&&!accountUiPreferences().readerCollapsed;
+  const listVisible=()=>!activePane() ? (!previewVisible() || preview()===null || !accountUiPreferences().messageListCollapsed) : (activePane()?.kind==='messages' && (accountUiPreferences().readerCollapsed || (!narrow() && readingPane()!=='off' && !accountUiPreferences().messageListCollapsed)));
   const readersVisible=()=>!!activePane() && !(activePane()?.kind==='messages' && accountUiPreferences().readerCollapsed);
   const splitVisible=()=>listVisible() && (readersVisible() || previewVisible());
   let restoreIntent=0;
@@ -838,9 +841,9 @@ export function MailboxScreen(): JSX.Element {
               <For each={[0,1] as const}>{slot=><Show when={views.assignments()[slot]===null}><div class="workspace-view-empty" data-view-slot={slot} data-drop-target={dropView()===slot} role="region" aria-label={t(slot===0?'mail-workspace-view-first':'mail-workspace-view-second')} onDragOver={event=>dragView(event,slot)} onDrop={event=>dragView(event,slot,true)} onDragLeave={()=>setDropView(null)}><Icon name="mail"/><p>{t('mail-workspace-view-empty')}</p></div></Show>}</For>
             </Show>
           </div>
-          <Show when={preview()}>{view=><section class="workspace-pane workspace-reading-pane" aria-label={t('mail-reading-pane')} data-testid="reading-pane" hidden={!previewVisible()} inert={!previewVisible()}>
-            <Reader view={view()} active={previewVisible()} onClose={closePreview} onCompose={openReply} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)} onOpenSettings={section=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section});}}/>
-          </section>}</Show>
+          <section class="workspace-pane workspace-reading-pane" aria-label={t('mail-reading-pane')} data-testid="reading-pane" hidden={!previewVisible()} inert={!previewVisible()}>
+            <Show when={preview()} fallback={<p class="reader__empty">{t('mail-reader-empty')}</p>}>{view=><Reader view={view()} active={previewVisible()} onClose={closePreview} onCompose={openReply} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)} onOpenSettings={section=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section});}}/>}</Show>
+          </section>
         </div>
         <ConfirmDialog open={dirtyClose()!==null} testId="workspace-tabs-close-dirty"
           title={t('workspace-tabs-close-dirty-title',{count:dirtyClose()?.titles.length??0})} body={t('workspace-tabs-close-dirty-body')}
