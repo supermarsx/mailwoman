@@ -439,7 +439,7 @@ export function EventCard(props: EventCardProps): JSX.Element {
             </Show>
 
             <Show when={notice()}>{(n) => <p class={`${css.notice} ${css.noticeTone[n().tone]}`} role="status" data-card="notice">{n().text}</p>}</Show>
-            <Show when={result()}>{(r) => <p class={`${css.notice} ${css.noticeTone.ok}`} role="status" data-card="result" style={{ 'margin-block-start': '0.5rem' }}>{r()}</p>}</Show>
+            <Show when={result()}>{(r) => <p class={`${css.notice} ${css.noticeTone.ok}`} role="status" data-card="result">{r()}</p>}</Show>
 
             <Switch>
               <Match when={answerable()}>

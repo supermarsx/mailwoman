@@ -107,7 +107,7 @@ export function RenewAccessDialog(props: {
             <form onSubmit={(event) => void submit(event)}>
               <p id={`${id}-body`} class={shell.help}>{t('linked-accounts-renew-help')}</p>
               <Show when={renewalReasonText(props.account.renewalReason)}>{(text) => <p class={css.meta} data-renew-reason>{text()}</p>}</Show>
-              <fieldset class={css.stack} disabled={busy()} style={{ border: 'none', padding: 0, margin: 0 }}>
+              <fieldset class={`${css.stack} ${css.bareFieldset}`} disabled={busy()}>
                 <Show
                   when={knownAddress()}
                   fallback={

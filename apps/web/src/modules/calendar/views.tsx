@@ -120,7 +120,6 @@ function EventChip(props: {
         height: `${props.height}px`,
         // Concurrent events share the day column side by side (Outlook-style).
         'inset-inline-start': `calc(${(props.slot.col / props.slot.cols) * 100}% + 2px)`,
-        'inset-inline-end': 'auto',
         width: `calc(${100 / props.slot.cols}% - 4px)`,
       }}
       title={props.inst.event.title}

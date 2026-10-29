@@ -1,4 +1,4 @@
-# Machine translation (t39-e7, 2026-10). Not reviewed by a native speaker.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 # Locale: pt-PT · Module: quota. Source: ../en/quota.ftl
 
 quota-meter-name = Armazenamento da caixa de correio

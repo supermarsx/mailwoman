@@ -219,7 +219,8 @@ export const hourLine = style({ height: '48px', borderBlockEnd: hair, boxSizing:
 export const eventBlock = style({
   position: 'absolute',
   insetInlineStart: '2px',
-  insetInlineEnd: '2px',
+  // The block is placed by its start and width (views.tsx), not stretched to the end.
+  insetInlineEnd: 'auto',
   borderRadius: vars.radius.sm,
   padding: '1px 4px',
   fontSize: '0.72rem',

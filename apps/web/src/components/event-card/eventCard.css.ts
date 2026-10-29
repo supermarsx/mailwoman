@@ -129,6 +129,7 @@ export const notice = style({
   background: vars.color.bgAlt,
   borderInlineStart: `3px solid ${vars.color.textDim}`,
 });
+globalStyle(`${notice}[data-card="result"]`, { marginBlockStart: '0.5rem' });
 export const noticeTone = styleVariants({
   warn: { borderInlineStartColor: vars.color.warning },
   danger: { borderInlineStartColor: vars.color.danger },

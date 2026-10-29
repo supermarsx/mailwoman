@@ -1,4 +1,4 @@
-# Machine translation (t39, 2026-10). Not reviewed by a native speaker.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 # Locale: pt-PT · Module: admin-features. Source: ../en/admin-features.ftl
 
 ## Admin › Perfis de funcionalidades (t39 N9)

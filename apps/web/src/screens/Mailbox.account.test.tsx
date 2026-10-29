@@ -103,15 +103,18 @@ describe('one account indicator',()=>{
     const top=await waitFor(()=>{const node=topBar().querySelector('[data-account-indicator="icon"]');expect(node).not.toBeNull();return node as HTMLElement;});
     expect(top).not.toHaveAttribute('aria-haspopup');
   });
-  it('the picker marks a mailbox as primary on the server', async()=>{
+  // 370b24e5: the picker is a switcher only; primary, rename and reorder live in
+  // Settings > Linked mailboxes (LinkedAccountList.test.tsx).
+  it('the picker is a switcher: no primary or rename actions in it', async()=>{
     stubAccounts(linked);
     const {container}=await mount();
     fireEvent.click(await within(container.querySelector('.sidebar__head') as HTMLElement).findByRole('button',{name:/^Mailbox account/}));
     const menu=await screen.findByRole('menu');
-    fireEvent.click(within(menu).getByRole('menuitem',{name:/child@example\.org.*primary/}));
-    await waitFor(()=>expect(calls).toContainEqual({method:'PUT',path:'/api/accounts/primary',body:JSON.stringify({linkId:'link-1'})}));
+    expect(within(menu).getAllByRole('menuitemradio')).toHaveLength(2);
+    expect(within(menu).queryAllByRole('menuitem')).toEqual([]);
+    expect(calls.some(call=>call.path==='/api/accounts/primary')).toBe(false);
   });
-  it('the saved order and nicknames drive the picker; Rename saves through the layout endpoint', async()=>{
+  it('the saved order and nicknames drive the picker', async()=>{
     stubAccounts({...linked,layout:{revision:'r1',order:['link-1','main'],nicknames:{main:'Personal','link-1':'Work'}}});
     const {container}=await mount();
     const trigger=await within(container.querySelector('.sidebar__head') as HTMLElement).findByRole('button',{name:'Mailbox account: Personal (me@example.org)'});
@@ -119,11 +122,7 @@ describe('one account indicator',()=>{
     fireEvent.click(trigger);
     const menu=await screen.findByRole('menu');
     expect(within(menu).getAllByRole('menuitemradio').map(item=>stripIsolates(item.querySelector('[data-mailbox-label]')!.textContent!))).toEqual(['Work','Personal']);
-    fireEvent.click(within(menu).getByRole('menuitem',{name:/Rename .*me@example\.org/}));
-    const input=await within(menu).findByRole('textbox',{name:/Nickname for .*me@example\.org/});
-    fireEvent.input(input,{target:{value:'Home'}});
-    fireEvent.keyDown(input,{key:'Enter'});
-    await waitFor(()=>expect(calls.find(call=>call.path==='/api/accounts/layout')?.body).toBe(JSON.stringify({revision:'r1',order:['link-1','main'],nicknames:{main:'Home','link-1':'Work'}})));
+    expect(within(menu).queryByRole('textbox')).toBeNull();
   });
   it('sign-in opens the primary mailbox first, through the normal switch', async()=>{
     stubAccounts({...linked,primaryMailbox:'link-1'});

@@ -203,7 +203,8 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
     if (!stale()) setTasksLoading(true);
     try {
       const listRes = await client.jmap(taskListsGet(acct));
-      const cals = responseFor<CalendarGetResponse>(listRes, 'lists').list;
+      // A reply without a list (a stubbed or partial backend) is no task lists, not a crash.
+      const cals = responseFor<CalendarGetResponse>(listRes, 'lists').list ?? [];
       const lists = cals
         .map((c) => taskListFromCalendar(c))
         .filter((l): l is TaskList => l !== null)

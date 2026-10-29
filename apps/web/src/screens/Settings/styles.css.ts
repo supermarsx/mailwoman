@@ -376,3 +376,6 @@ globalStyle(':where([data-settings-section]) :where(button)', { overflowWrap: 'a
 globalStyle(':where([data-settings-section]) :where(fieldset, [role="radiogroup"])', { minInlineSize: 0 });
 // Option rows of radio/checkbox labels need more room than segmented buttons.
 globalStyle(`${options}:has(> label)`, { columnGap: vars.space[5], rowGap: vars.space[2] });
+
+// A fieldset used only to disable a group of fields at once: no frame of its own.
+export const bareFieldset = style({ border: 'none', padding: 0, margin: 0 });

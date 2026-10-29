@@ -3,6 +3,7 @@
   "entries": [
     {"text": "Loading…", "reason": "BOOTSTRAP: App.tsx outer Suspense fallback renders before any catalog has loaded, so t() would show the id."},
     {"text": "https://stats.example.com", "reason": "RFC 2606 example origin used as a placeholder (Admin/AnalyticsTag.tsx origin fields); reserved names are left as they are in every language."},
+    {"text": "https://cloud.example.com", "reason": "RFC 2606 example origin used as a placeholder (Admin/ConfigBackupNextcloud.tsx server URL); reserved names are left as they are in every language."},
     {"text": "https://cdn.example.com/tag.js", "reason": "RFC 2606 example URL used as a placeholder (Admin/AnalyticsTag.tsx script URL); reserved names are left as they are in every language."},
     {"text": "name@example.com", "reason": "RFC 2606 example address used as a placeholder; reserved names are left as they are in every language."},
     {"text": "mwk_", "reason": "Prefix of every API key token (modules/apikeys/ApiKeys.tsx); part of the token format, the same in every language."},
@@ -29,7 +30,7 @@
     {"text": "Matomo", "reason": "Third-party product name shown as the choice of integration; product names are not translated."},
     {"text": "Google Analytics 4", "reason": "Third-party product name shown as the choice of integration; product names are not translated."},
     {"text": "HestiaCP", "reason": "Third-party product name shown as the choice of integration; product names are not translated."},
-    {"text": "Webmin / Virtualmin", "reason": "Third-party product name shown as the choice of integration; product names are not translated."},
+    {"text": "Virtualmin (Webmin module)", "reason": "Third-party product name shown as the choice of integration; product names are not translated."},
     {"text": "Prometheus", "reason": "Third-party product name shown as the choice of integration; product names are not translated."},
     {"text": "Mailwoman", "reason": "This product's name (logo alt text); not translated."},
     {"text": "G-XXXXXXXXXX", "reason": "Shape of a Google Analytics 4 measurement ID (placeholder); the format is fixed by Google, not language text."},

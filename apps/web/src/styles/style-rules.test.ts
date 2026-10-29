@@ -70,6 +70,43 @@ const ALLOWLIST: Allowed[] = [
     text: '#fff',
     reason: 'white avatar initials pair with the contrast-checked identity palette, not the interface theme',
   },
+  // t69: hatching marks tentative and invited events so their status is not shown by colour alone.
+  {
+    file: 'components/event-card/eventCard.css.ts',
+    rule: 'gradient',
+    text: 'repeating-linear-gradient(',
+    reason: 'hatch on a tentative RSVP dot and an invited agenda block: the status is not shown by colour alone',
+  },
+  {
+    file: 'modules/calendar/calendar.css.ts',
+    rule: 'gradient',
+    text: 'repeating-linear-gradient(',
+    reason: 'hatch on a tentative event chip: the status is not shown by colour alone',
+  },
+  {
+    file: 'modules/calendar/calendar.css.ts',
+    rule: 'colour',
+    text: "'repeating-linear-gradient(135deg, rgba(255,255,255,0.38) 0 4px, transparent 4px 8px)'",
+    reason: 'light hatch over a user-chosen event colour; the colour is user data with no theme counterpart',
+  },
+  {
+    file: 'components/event-card/eventCard.css.ts',
+    rule: 'colour',
+    text: '`${vars.border.rule} solid rgba(0,0,0,0.15)`',
+    reason: 'edge on a user-chosen agenda block colour; the colour is user data with no theme counterpart',
+  },
+  {
+    file: 'screens/Settings/linkedAccounts.css.ts',
+    rule: 'gradient',
+    text: 'radial-gradient(',
+    reason: 'the dot grid of a drag handle, drawn in currentColor; a pattern, not a shaded surface',
+  },
+  {
+    file: 'components/selectionBar.css.ts',
+    rule: 'physical',
+    text: 'left: 50%',
+    reason: 'centring: left 50% with translate(-50%) centres the bar in both directions; a logical start would shift it in RTL',
+  },
 ];
 
 const COLOUR_EXEMPT = ['theme/', 'styles/print.css.ts'];

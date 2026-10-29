@@ -1,4 +1,4 @@
-# Machine translation (t58, 2026-10). Not reviewed by a native speaker.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 # Locale: pt-PT · Module: selection-bar. Source: ../en/selection-bar.ftl
 
 selection-bar-label = Ações da seleção

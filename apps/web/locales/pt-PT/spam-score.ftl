@@ -1,3 +1,4 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 # Mailwoman — pontuações de spam indicadas pelos cabeçalhos, no leitor (SpamScore).
 
 spam-score-chip-label = Pontuação { $source } { $score } de { $threshold }, { $band }. Mostrar o detalhe das regras.
