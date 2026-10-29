@@ -1,3 +1,8 @@
+// Manual only; no CI job runs this config (t39 D9). delivery-live.spec.ts needs a
+// "Delivery failure fixture" DSN message already in testuser's INBOX and two
+// stacks, engine mode on :42209 and proxy mode on :42210. Neither the receipts
+// stack nor docker-compose.dev.yml seeds that message or serves those ports.
+// Sending with DSN options is covered by receipts/delivery-live.spec.ts in CI.
 import { defineConfig, devices } from '@playwright/test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
