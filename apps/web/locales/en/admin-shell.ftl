@@ -204,6 +204,7 @@ admin-diag-export = Export troubleshooting report
 admin-diag-copied = Redacted troubleshooting report copied.
 admin-diag-limited = The inventory exceeded the bounded check budget. This run is partial.
 admin-diag-redaction = Checks use saved targets and send no credentials. Reports include runtime security flags, domain names, backend identifiers and results; never passwords, tokens, raw configuration or mail. Authenticated provider actions, arbitrary services and pipes are not tested.
+admin-diag-omit-domains = Replace domain names and backend IDs in the report
 admin-diag-filter = Filter checks, domains or backends
 admin-diag-all = All statuses
 admin-diag-catalogue = Supported checks and limits

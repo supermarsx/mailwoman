@@ -203,6 +203,7 @@ admin-diag-export = Exportar relatório de resolução de problemas
 admin-diag-copied = Relatório de resolução de problemas (com dados ocultados) copiado.
 admin-diag-limited = O inventário excedeu o orçamento limitado de verificações. Esta execução é parcial.
 admin-diag-redaction = As verificações utilizam destinos guardados e não enviam credenciais. Os relatórios incluem indicadores de segurança em execução, nomes de domínio, identificadores de back-end e resultados; nunca palavras-passe, tokens, configuração em bruto nem correio. Não são testadas ações autenticadas junto de fornecedores, serviços arbitrários nem pipes.
+admin-diag-omit-domains = Substituir nomes de domínio e IDs de back-end no relatório
 admin-diag-filter = Filtrar verificações, domínios ou back-ends
 admin-diag-all = Todos os estados
 admin-diag-catalogue = Verificações e limites suportados

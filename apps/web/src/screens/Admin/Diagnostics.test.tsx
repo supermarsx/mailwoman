@@ -15,6 +15,22 @@ describe('diagnostics console', () => {
     await vi.waitFor(()=>expect(writeText).toHaveBeenCalledTimes(1));
     expect(JSON.parse(writeText.mock.calls[0]![0] as string)).toMatchObject({schemaVersion:1,server:{mode:'engine'},selectedRun:{id:'run-1'}});
   });
+  it('asks the server to replace domain names and does not attach an unsaved run with names', async () => {
+    const writeText=vi.fn<(value:string)=>Promise<void>>(async()=>undefined);
+    Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText}});
+    const named={...result,id:'unsaved',results:[{...result.results[0]!,domain:'secret.example',backendId:'primary'}]};
+    const report=vi.fn(async(options?:{omitDomains?:boolean;selected?:string|undefined})=>({schemaVersion:1,redaction:{domainsOmitted:options?.omitDomains===true}}));
+    renderInShell(()=><Diagnostics api={{history:async()=>({kind:'ok',data:{runs:[named],nextCursor:null},etag:null}),run:async()=>({run:named,historySaved:true,auditSaved:true}),report}}/>);
+    await screen.findByText('Database accepts a query');
+    fireEvent.click(screen.getByRole('checkbox',{name:'Replace domain names and backend IDs in the report'}));
+    fireEvent.click(screen.getByRole('button',{name:'Copy troubleshooting report'}));
+    await vi.waitFor(()=>expect(writeText).toHaveBeenCalledTimes(1));
+    expect(report).toHaveBeenCalledWith({omitDomains:true,selected:'unsaved'});
+    const text=writeText.mock.calls[0]![0] as string;
+    expect(text).not.toContain('secret.example');
+    expect(text).not.toContain('primary');
+    expect(JSON.parse(text)).toMatchObject({redaction:{domainsOmitted:true},selectedRunOmitted:true});
+  });
   it('filters backend results and sends cancellation for the running job', async () => {
     const cancel=vi.fn(async()=>undefined);
     const job={run:{...result,id:'bulk',status:'running',results:[{...result.results[0]!,domain:'a.test',backendId:'backup'}]},total:2,completed:1,limited:false,historySaved:false};

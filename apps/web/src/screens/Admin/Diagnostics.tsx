@@ -21,7 +21,7 @@ export interface DiagnosticsApi {
   start?: () => Promise<Job>;
   job?: (id: string) => Promise<Job>;
   cancel?: (id: string) => Promise<unknown>;
-  report?: () => Promise<unknown>;
+  report?: (options?: { omitDomains?: boolean; selected?: string | undefined }) => Promise<unknown>;
   catalogue?: () => Promise<Catalogue>;
 }
 const httpApi: DiagnosticsApi = {
@@ -30,7 +30,7 @@ const httpApi: DiagnosticsApi = {
   start: async () => (await adminRequest<Job>('/diag/jobs', {method:'POST',body:{suite:'backends'}})).data,
   job: async id => (await adminRequest<Job>(`/diag/jobs/${encodeURIComponent(id)}`)).data,
   cancel: async id => adminRequest(`/diag/jobs/${encodeURIComponent(id)}/cancel`,{method:'POST',body:{}}),
-  report: async () => (await adminRequest<unknown>('/diag/report')).data,
+  report: async (options) => { const query = new URLSearchParams(); if (options?.omitDomains) query.set('omitDomains', 'true'); if (options?.selected) query.set('selected', options.selected); const suffix = query.toString(); return (await adminRequest<unknown>(`/diag/report${suffix ? `?${suffix}` : ''}`)).data; },
   catalogue: async () => (await adminRequest<Catalogue>('/diag/catalogue')).data,
 };
 
@@ -51,6 +51,7 @@ function DiagnosticRuns(props: { api?: DiagnosticsApi }): JSX.Element {
   const [status,setStatus]=createSignal('');
   const [query,setQuery]=createSignal('');
   const [catalogue,setCatalogue]=createSignal<Catalogue>();
+  const [omitDomains,setOmitDomains]=createSignal(false);
   let timer:ReturnType<typeof setTimeout>|undefined;
   let disposed=false;
   onCleanup(()=>{disposed=true;clearTimeout(timer);});
@@ -63,7 +64,12 @@ function DiagnosticRuns(props: { api?: DiagnosticsApi }): JSX.Element {
   }
   async function startBackends():Promise<void>{setBusy(true);setError(undefined);setNotice(undefined);try{const value=await api().start?.();if(value)await receive(value);}catch(e){setError(describeAdminError(e));setBusy(false);}}
   async function cancelJob():Promise<void>{const current=job();if(!current)return;try{await api().cancel?.(current.run.id);setNotice(t('admin-diag-cancelling'));}catch(e){setError(describeAdminError(e));}}
-  async function supportReport(copy:boolean):Promise<void>{try{const report=await api().report?.();const text=JSON.stringify({...report as object,selectedRun:selected()},null,2);if(copy){await navigator.clipboard.writeText(text);setNotice(t('admin-diag-copied'));}else{const url=URL.createObjectURL(new Blob([text],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='mailwoman-diagnostics.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}}catch(e){setError(describeAdminError(e));}}
+  async function supportReport(copy:boolean):Promise<void>{try{const report=await api().report?.({omitDomains:omitDomains(),selected:selected()?.id}) as Record<string,unknown>|undefined;
+    // The server attaches the selected run when it is in saved history, already
+    // with placeholders when domains are omitted. A run it does not hold is
+    // attached here only when names may appear.
+    const attached=report&&'selectedRun' in report?{}:omitDomains()?{selectedRunOmitted:true}:{selectedRun:selected()};
+    const text=JSON.stringify({...report,...attached},null,2);if(copy){await navigator.clipboard.writeText(text);setNotice(t('admin-diag-copied'));}else{const url=URL.createObjectURL(new Blob([text],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='mailwoman-diagnostics.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}}catch(e){setError(describeAdminError(e));}}
   async function history(more = false): Promise<void> {
     setBusy(true); setError(undefined); setNotice(undefined);
     try {
@@ -96,7 +102,7 @@ function DiagnosticRuns(props: { api?: DiagnosticsApi }): JSX.Element {
       <button class="btn" type="button" disabled={busy()} onClick={() => void history()}>{t('admin-diag-refresh')}</button>
       <Show when={api().start}><button class="btn" type="button" disabled={busy() || !shell.can.can('diagnostics.run') || (!!api().catalogue && catalogue()?.canRunBackends!==true)} title={t('admin-diag-backends-permission')} onClick={()=>void startBackends()}>{t('admin-diag-backends')}</button></Show>
       <Show when={job()?.run.status==='running'}><button class="btn" type="button" onClick={()=>void cancelJob()}>{t('admin-diag-cancel')}</button><span role="status">{job()?.completed} / {job()?.total}</span></Show>
-      <Show when={api().report}><button class="btn" type="button" onClick={()=>void supportReport(true)}>{t('admin-diag-copy')}</button><button class="btn" type="button" onClick={()=>void supportReport(false)}>{t('admin-diag-export')}</button></Show>
+      <Show when={api().report}><button class="btn" type="button" onClick={()=>void supportReport(true)}>{t('admin-diag-copy')}</button><button class="btn" type="button" onClick={()=>void supportReport(false)}>{t('admin-diag-export')}</button><label><input type="checkbox" checked={omitDomains()} onChange={e=>setOmitDomains(e.currentTarget.checked)}/> {t('admin-diag-omit-domains')}</label></Show>
     </div>
     <Show when={busy()}><AsyncPending variant="status" timeoutMs={70_000} /></Show>
     <p class={css.note}>{t('admin-diag-redaction')}</p>
@@ -104,7 +110,7 @@ function DiagnosticRuns(props: { api?: DiagnosticsApi }): JSX.Element {
     <Feedback kind="error" message={error()} /><Feedback kind="info" message={notice()} />
     <Show when={selected()}>{(current) => <div class={css.card}>
       <h3>{t('admin-diag-result')} — {current().status}</h3>
-      <div class={ux.pageActions}><label>{t('admin-diag-filter')}<input value={query()} onInput={e=>setQuery(e.currentTarget.value)}/></label><label>{t('admin-diag-status')}<select value={status()} onChange={e=>setStatus(e.currentTarget.value)}><option value="">{t('admin-diag-all')}</option><For each={['pass','fail','skipped']}>{value=><option value={value}>{value}</option>}</For></select></label></div>
+      <div class={ux.pageActions}><label>{t('admin-diag-filter')}<input value={query()} onInput={e=>setQuery(e.currentTarget.value)}/></label><label>{t('admin-diag-status')}<select value={status()} onChange={e=>setStatus(e.currentTarget.value)}><option value="">{t('admin-diag-all')}</option><For each={['pass','warn','fail','skipped']}>{value=><option value={value}>{value}</option>}</For></select></label></div>
       <div class={css.tableWrap}><table class={css.table}>
         <caption>{t('admin-diag-checks')}</caption>
         <thead><tr><th scope="col">{t('admin-diag-check')}</th><th scope="col">{t('admin-diag-status')}</th><th scope="col">{t('admin-diag-duration')}</th></tr></thead>
