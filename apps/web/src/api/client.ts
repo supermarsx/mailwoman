@@ -372,7 +372,12 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
       notify(true);
       return out;
     } catch (err) {
+      // A NetworkError means the server was not reached. An ApiError carries
+      // the status the server answered with (401, 403, 500, ...), so the
+      // server WAS reached: report "online", or a "connection lost" notice
+      // raised by an earlier failure stays up after a retry that ends in 401.
       if (err instanceof NetworkError) notify(false);
+      else if (err instanceof ApiError) notify(true);
       throw err;
     }
   }
