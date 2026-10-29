@@ -511,7 +511,8 @@ jobs:
         run: |
           set -eu
           docker compose -f docker-compose.proxy.yml --profile "$PROFILE" up -d
-          docker compose -f docker-compose.proxy.yml --profile "$PROFILE" up -d             --no-deps --wait --wait-timeout 300 mock app "$PROFILE"
+          docker compose -f docker-compose.proxy.yml --profile "$PROFILE" up -d \
+            --no-deps --wait --wait-timeout 300 mock app "$PROFILE"
 
       - name: h2 + h3 through ${{ matrix.profile }}
         env:
@@ -522,13 +523,16 @@ jobs:
       - name: container state + logs
         if: always()
         run: |
-          docker compose -f docker-compose.proxy.yml             --profile "${{ matrix.profile }}" ps -a || true
-          docker compose -f docker-compose.proxy.yml             --profile "${{ matrix.profile }}" logs --no-color --timestamps --tail 200 || true
+          docker compose -f docker-compose.proxy.yml \
+            --profile "${{ matrix.profile }}" ps -a || true
+          docker compose -f docker-compose.proxy.yml \
+            --profile "${{ matrix.profile }}" logs --no-color --timestamps --tail 200 || true
 
       - name: tear down
         if: always()
         run: |
-          docker compose -f docker-compose.proxy.yml             --profile "${{ matrix.profile }}" down -v --remove-orphans
+          docker compose -f docker-compose.proxy.yml \
+            --profile "${{ matrix.profile }}" down -v --remove-orphans
 
   # ===========================================================================
   # Single check to require as a branch protection rule. Because the nonblocking
