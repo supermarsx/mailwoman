@@ -212,5 +212,101 @@ class Destinations(unittest.TestCase):
             self.assertEqual(remote_files["offsite:bucket/path/backup.tar.age"], b"ciphertext")
 
 
+    def nextcloud_row(self, root, **extra):
+        secret = Path(root) / "nextcloud-app-password"
+        secret.write_text("AbCde-FgHij-KlMno-PqRst-UvWxy" + chr(10))
+        secret.chmod(0o600)
+        row = {"id": "cloud", "type": "nextcloud", "url": "https://cloud.example/nc/", "user": "backup user",
+               "appPasswordFile": str(secret), "path": "Backups/mailwoman"}
+        row.update(extra)
+        return row
+
+    def test_nextcloud_is_a_validated_webdav_preset(self):
+        with tempfile.TemporaryDirectory() as root:
+            config = Path(root) / "targets.json"
+            row = self.nextcloud_row(root)
+            config.write_text(json.dumps({"version": 1, "destinations": [row]}))
+            self.assertEqual(module.load_config(config)[0]["type"], "nextcloud")
+            self.assertEqual(module.nextcloud_root(row), "https://cloud.example/nc/remote.php/dav/files/backup%20user/")
+            for bad in [{"url": "http://cloud.example"}, {"url": "https://u:p@cloud.example"}, {"url": "https://cloud.example/?x=1"},
+                        {"url": "https://cloud.example/remote.php/dav/files/x"}, {"user": "a/b"}, {"user": ""},
+                        {"remote": "x"}, {"rcloneConfig": "/etc/rclone.conf"}, {"appPasswordFile": "relative"},
+                        {"chunkSizeMiB": -1}, {"chunkSizeMiB": "10"}, {"path": "../escape"}, {"keep": 0}, {"keepDays": True}]:
+                with self.subTest(bad=bad):
+                    config.write_text(json.dumps({"version": 1, "destinations": [dict(row, **bad)]}))
+                    with self.assertRaises(module.BackupError):
+                        module.load_config(config)
+            config.write_text(json.dumps({"version": 1, "destinations": [
+                {"id": "dav", "type": "webdav", "remote": "dav", "rcloneConfig": "/etc/rclone.conf", "path": "x", "user": "a"}]}))
+            with self.assertRaises(module.BackupError):
+                module.load_config(config)
+
+    @unittest.skipIf(module.os.name == "nt", "POSIX permission bits")
+    def test_nextcloud_app_password_file_must_be_private(self):
+        with tempfile.TemporaryDirectory() as root:
+            row = self.nextcloud_row(root)
+            self.assertEqual(module.read_app_password(row), "AbCde-FgHij-KlMno-PqRst-UvWxy")
+            Path(row["appPasswordFile"]).chmod(0o644)
+            with self.assertRaises(module.BackupError):
+                module.read_app_password(row)
+
+    def test_nextcloud_folder_maps_each_failure_to_a_clear_error(self):
+        with tempfile.TemporaryDirectory() as root:
+            row = self.nextcloud_row(root)
+            calls = []
+            def server(statuses):
+                def dav(method, url, user, password, depth=None, timeout=30):
+                    calls.append((method, url))
+                    return statuses.pop(0)
+                return dav
+            with patch.object(module, "dav", side_effect=server([(207, b""), (404, b""), (201, b""), (404, b""), (201, b"")])):
+                self.assertTrue(module.nextcloud_folder(row, "pw"))
+            self.assertEqual([c[0] for c in calls], ["PROPFIND", "PROPFIND", "MKCOL", "PROPFIND", "MKCOL"])
+            self.assertTrue(calls[-1][1].endswith("/remote.php/dav/files/backup%20user/Backups/mailwoman/"))
+            for statuses, words in [([(401, b"")], "app password"), ([(404, b"")], "username"), ([(302, b"")], "redirected"),
+                                    ([(207, b""), (404, b""), (403, b"")], "could not create"),
+                                    ([(207, b""), (207, b"<d:resourcetype/>")], "is a file")]:
+                with self.subTest(words=words), patch.object(module, "dav", side_effect=server(statuses)):
+                    with self.assertRaises(module.BackupError) as raised:
+                        module.nextcloud_folder(row, "pw")
+                    self.assertIn(words, str(raised.exception))
+                    self.assertNotIn("pw", str(raised.exception).replace("password", ""))
+
+    def test_retention_keeps_newest_complete_sets_and_never_the_current_one(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = Path(root)
+            names = [f"2026{month:02d}01T000000Z-1-1.tar.age" for month in range(1, 7)]
+            for name in names:
+                (folder / name).write_bytes(b"x")
+                (folder / (name + ".complete.json")).write_text("{}")
+                (folder / name.replace(".tar.age", ".release.env")).write_text("IMAGE_ID=x" + chr(10))
+            incomplete = "20250101T000000Z-1-1.tar.age"
+            (folder / incomplete).write_bytes(b"partial")
+            (folder / "unrelated.txt").write_text("keep me")
+            row = {"type": "local", "path": str(folder), "keep": 2}
+            removed = module.retention(row, names[0])
+            self.assertEqual(sorted(removed), sorted(names[1:4]))
+            for name in [names[0], names[4], names[5], incomplete, "unrelated.txt"]:
+                self.assertTrue((folder / name).exists(), name)
+            for name in names[1:4]:
+                self.assertFalse((folder / name).exists())
+                self.assertFalse((folder / (name + ".complete.json")).exists())
+                self.assertFalse((folder / name.replace(".tar.age", ".release.env")).exists())
+            now = module.datetime.datetime(2026, 7, 1, tzinfo=module.datetime.timezone.utc)
+            self.assertEqual(module.retention({"type": "local", "path": str(folder), "keep": 1, "keepDays": 70}, names[0], now), [])
+            self.assertEqual(module.retention({"type": "local", "path": str(folder), "keep": 1, "keepDays": 20}, names[0], now), [names[4]])
+            self.assertEqual(module.retention({"type": "local", "path": str(folder)}, ""), [])
+
+    def test_test_command_writes_and_removes_a_probe(self):
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root) / "target"
+            target.mkdir()
+            config = Path(root) / "targets.json"
+            config.write_text(json.dumps({"version": 1, "destinations": [{"id": "local", "type": "local", "path": str(target)}]}))
+            with patch.object(sys, "argv", ["backup-destinations.py", "test", "--config", str(config)]),                  contextlib.redirect_stdout(io.StringIO()) as stdout:
+                self.assertEqual(module.main(), 0)
+            self.assertIn("local: test complete", stdout.getvalue())
+            self.assertEqual(list(target.iterdir()), [])
+
 if __name__ == "__main__":
     unittest.main()

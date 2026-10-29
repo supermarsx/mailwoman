@@ -137,6 +137,27 @@ exec restic backup --quiet "$1"
 
 `doctor` checks that the hook is an executable file.
 
+## Destinations, including Nextcloud: `BACKUP_TARGETS_FILE`
+
+`BACKUP_TARGETS_FILE` in `deploy.env` names a JSON file of destinations that
+`backup` copies each encrypted archive to and verifies: a local directory, S3,
+SFTP, WebDAV, Nextcloud, SMB or NFS. A Nextcloud destination takes the server
+URL, the username, a `chmod 600` file with an app password (not the login
+password) and a target folder, which is created when missing:
+
+```json
+{"id": "nextcloud-copy", "type": "nextcloud", "url": "https://cloud.example.com",
+ "user": "mailwoman-backup", "appPasswordFile": "/etc/mailwoman/nextcloud-app-password",
+ "path": "Backups/Mailwoman", "keep": 7, "enabled": true}
+```
+
+It uses the same rclone WebDAV route as `webdav` (HTTPS only, chunked uploads
+for large archives, download verification of size and SHA-256), and `keep` /
+`keepDays` give it the retention of `BACKUP_KEEP` / `BACKUP_KEEP_DAYS`. A
+failing destination does not stop the others and keeps the local backup. See
+[configuration transfer and backup destinations](../admin/configuration-transfer.md#nextcloud)
+for every field, `test`, and fetching a backup back.
+
 ## Scheduling: `timers`
 
 ```sh
