@@ -539,6 +539,16 @@ pub(crate) async fn sign(
             }
         }
     }
+    // A new load of these images: the toast's counters start again (t67).
+    fetch_limits::forget_outcomes(
+        &session.account_id,
+        &sid,
+        &body.email_id,
+        images
+            .iter()
+            .filter_map(|image| image["url"].as_str())
+            .collect::<Vec<_>>(),
+    );
     let mut files = Vec::new();
     for url in &body.files {
         if url.len() > MAX_URL_LEN

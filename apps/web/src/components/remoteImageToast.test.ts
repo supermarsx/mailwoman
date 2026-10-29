@@ -7,6 +7,7 @@ import {
   createImageLoadToast,
   createRemoteImageLoad,
   LOAD_CAP_MS,
+  POLL_MS,
   STATS_SETTLE_MS,
   TOAST_DELAY_MS,
   TOAST_DONE_MS,
@@ -142,6 +143,57 @@ describe('createRemoteImageLoad', () => {
     expect(h.s.shown.at(-1)).toMatchObject({ tone: 'warning', message: "2 images couldn't load", action: 'Retry' });
     h.s.run();
     expect(h.retry).toHaveBeenCalledOnce();
+    h.dispose();
+  });
+
+  // t67: the toast stayed on "Loading images…" after the images had failed.
+  it('the frame never reports the body displayed: polling settles on the failure count (t67)', async () => {
+    const answers = [stats({ imagesLoaded: 0, imagesFailed: 1 }), stats({ imagesLoaded: 0, imagesFailed: 5 })];
+    const h = setup(vi.fn(async () => answers.shift() ?? stats({ imagesLoaded: 0, imagesFailed: 5 })));
+    h.setSource(body('L1', { total: 5 }));
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(h.s.shown.map((x) => x.message)).toEqual(['Loading images…']);
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(h.s.shown.at(-1)).toMatchObject({ tone: 'warning', message: "5 images couldn't load", action: 'Retry' });
+    const polls = h.fetch.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(LOAD_CAP_MS);
+    expect(h.fetch).toHaveBeenCalledTimes(polls);
+    h.dispose();
+  });
+
+  it('a re-render of the same body while it loads does not drop its answer (t67)', async () => {
+    const h = setup(vi.fn(async () => stats({ imagesFailed: 2 })));
+    h.setSource(body('L1'));
+    await vi.advanceTimersByTimeAsync(TOAST_DELAY_MS);
+    h.setDisplayed(1);
+    h.setSource(body('L1', { stats: false })); // the grant refetches: same body, other flags
+    h.setSource(body('L1'));
+    await vi.advanceTimersByTimeAsync(STATS_SETTLE_MS);
+    expect(h.s.shown.at(-1)).toMatchObject({ tone: 'warning', message: "2 images couldn't load" });
+    h.dispose();
+  });
+
+  it('no answer by the cap closes the toast instead of claiming the images loaded (t67)', async () => {
+    const h = setup(vi.fn(async () => stats({ imagesLoaded: 1, imagesFailed: 0 })));
+    h.setSource(body('L1', { total: 5 }));
+    await vi.advanceTimersByTimeAsync(LOAD_CAP_MS + POLL_MS);
+    expect(h.s.shown.map((x) => x.message)).toEqual(['Loading images…']);
+    expect(h.s.dismissed).toContain('remote-images');
+    h.dispose();
+  });
+
+  it('Retry asks for a retry signing of this message, then reloads (t67)', async () => {
+    const h = setup(vi.fn(async () => stats({ imagesLoaded: 0, imagesFailed: 3 })));
+    h.setSource(body('L1', { total: 3 }));
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    const mod = await import('../api/remote-content.ts');
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ images: [], parts: [], files: [], refused: [] }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    h.s.run();
+    expect(h.retry).toHaveBeenCalledOnce();
+    await mod.signContent('M1', { urls: ['https://img.example/a.png'] });
+    expect(JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body))).toMatchObject({ retry: true });
+    vi.unstubAllGlobals();
     h.dispose();
   });
 

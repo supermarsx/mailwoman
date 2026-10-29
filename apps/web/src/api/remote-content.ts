@@ -21,8 +21,13 @@ export async function remotePolicy(): Promise<RemotePolicy> {
 /** `retry: true` ("Retry images", t56) makes the server forget this account's
  *  remembered failures (timeouts etc., kept 60 s) for the `urls` signed, so the
  *  fresh links fetch again instead of answering the cached failure. */
+const retryNext = new Set<string>();
+/** The loading toast's Retry (t67): the next image signing for `emailId`, the
+ *  one the reader makes when it reloads the body, is sent with `retry: true`. */
+export function requestImageRetry(emailId: string): void { retryNext.add(emailId); }
 export async function signContent(emailId: string, refs: { urls?: string[]; parts?: string[]; files?: string[];imageDownloads?:string[] }, expectedAccount?:string, opts: { retry?: boolean } = {}): Promise<SignedContent> {
-  const r = await apiFetch(withBase('/api/rc/sign'), { method: 'POST', headers: { 'Content-Type': 'application/json',...(expectedAccount?{'X-Mailwoman-Account':expectedAccount}:{}) }, body: JSON.stringify({ emailId, ...refs, ...(opts.retry ? { retry: true } : {}) }) });
+  const retry = opts.retry ?? ((refs.urls?.length ?? 0) > 0 && retryNext.delete(emailId));
+  const r = await apiFetch(withBase('/api/rc/sign'), { method: 'POST', headers: { 'Content-Type': 'application/json',...(expectedAccount?{'X-Mailwoman-Account':expectedAccount}:{}) }, body: JSON.stringify({ emailId, ...refs, ...(retry ? { retry: true } : {}) }) });
   if (!r.ok) throw new Error('Unable to authorize remote content');
   return await r.json() as SignedContent;
 }

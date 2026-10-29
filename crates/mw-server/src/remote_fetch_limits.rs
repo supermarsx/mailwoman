@@ -312,6 +312,25 @@ pub(crate) fn record_outcome(
     );
 }
 
+/// Forget the recorded outcomes of `urls` for the session's message (t67).
+/// Signing a message's images starts a new load: the reader's loading toast
+/// reads the outcomes of this load only, so a failure remembered from an
+/// earlier open (or before Retry) is not taken for this load's answer.
+pub(crate) fn forget_outcomes<'a>(
+    account: &str,
+    session: &str,
+    message: &str,
+    urls: impl IntoIterator<Item = &'a str>,
+) {
+    let mut all = outcomes().lock().expect("outcome lock");
+    if let Some(m) = all.0.get_mut(&digest(&["o", account, session, message])) {
+        for url in urls {
+            let key: [u8; 32] = Sha256::digest(url.as_bytes()).into();
+            m.urls.remove(&key);
+        }
+    }
+}
+
 /// `(loaded, failed)` distinct images for the session's message.
 pub(crate) fn read_outcomes(account: &str, session: &str, message: &str) -> (usize, usize) {
     outcomes().lock().expect("outcome lock").read(

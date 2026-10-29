@@ -17,10 +17,21 @@
 // "Images loaded" (2 s) or "k images couldn't load" with Retry. The failure
 // count comes from the optional `imagesFailed` counter on /api/rc/stats (t56);
 // without it no failure is claimed. There is no per-image progress: the frame
-// is an opaque sandbox and polling the server per image is what we removed.
+// is an opaque sandbox.
+//
+// t67: the toast used to wait for the frame's load event to read the counters.
+// That event can come very late or not at all for the body on screen (the
+// reader re-posts a re-signed body while the first one loads; Chromium fired
+// load ~20 s after the server had answered every image with a failure), so the
+// toast sat on "Loading images…". Now, only while "Loading images…" is shown
+// for the reader on screen, the counters are read every POLL_MS; once
+// loaded + failed covers every signed image the toast settles. Signing resets
+// the server's counters for those images, so a poll describes this load, not
+// an earlier open. Reaching the cap without an answer closes the toast instead
+// of claiming the images loaded. Retry re-signs with `retry: true`.
 
-import { createEffect, createSignal, on, onCleanup, type Accessor } from 'solid-js';
-import { decodedTrackerStats, type RemoteContentStats } from '../api/remote-content.ts';
+import { createEffect, createSignal, on, onCleanup, untrack, type Accessor } from 'solid-js';
+import { decodedTrackerStats, requestImageRetry, type RemoteContentStats } from '../api/remote-content.ts';
 import { t } from '../i18n/index.ts';
 import { toast as toastStore, type ToastOptions, type ToastTone } from './toast/toast.ts';
 
@@ -32,6 +43,8 @@ export const TOAST_DONE_MS = 2_000;
 export const STATS_SETTLE_MS = 1_500;
 /** Give up waiting for counters this long after start. */
 export const LOAD_CAP_MS = 30_000;
+/** While "Loading images…" is shown, read the counters this often. */
+export const POLL_MS = 1_000;
 
 export interface ToastSink {
   show: (tone: ToastTone, message: string, opts?: ToastOptions) => string;
@@ -41,8 +54,12 @@ export interface ToastSink {
 export interface ImageLoadToast {
   /** A body with `total` proxied images was handed to the frame. Same key again is a no-op. */
   start(key: string, total: number): void;
-  /** The load is over. `failed` undefined = unknown (no failure claimed). */
-  finish(key: string, failed: number | undefined): void;
+  /** The load is over. `failed` undefined = unknown (no failure claimed).
+   *  `settled` false (gave up waiting): with no failure known, close instead of
+   *  saying the images loaded. */
+  finish(key: string, failed: number | undefined, settled?: boolean): void;
+  /** "Loading images…" is on screen for `key`. */
+  showing(key: string): boolean;
   /** The frame displayed the body. Before the delay ran out: no loading toast at all. */
   displayed(key: string): void;
   /** Message switch / unmount / disabled: close whatever this controller shows. */
@@ -78,7 +95,7 @@ export function createImageLoadToast(opts: { id: string; retry: () => void; sink
       key = next;
       timer = setTimeout(() => { timer = undefined; if (key !== next) return; shown = true; render(); }, TOAST_DELAY_MS);
     },
-    finish(at, failed) {
+    finish(at, failed, settled = true) {
       if (at !== key) return;
       clearTimeout(timer); timer = undefined;
       const wasShown = shown;
@@ -89,6 +106,8 @@ export function createImageLoadToast(opts: { id: string; retry: () => void; sink
           id: opts.id, testId: 'remote-images-toast',
           action: { label: t('remote-images-toast-retry'), run: () => { finished = null; opts.retry(); } },
         });
+      } else if (wasShown && !settled) {
+        sink.dismiss(opts.id);
       } else if (wasShown) {
         sink.show('success', t('remote-images-toast-done'), { id: opts.id, duration: TOAST_DONE_MS, testId: 'remote-images-toast' });
       }
@@ -99,6 +118,7 @@ export function createImageLoadToast(opts: { id: string; retry: () => void; sink
     },
     cancel: close,
     running: () => key,
+    showing: (at) => at === key && shown,
   };
 }
 
@@ -133,12 +153,16 @@ export function createRemoteImageLoad(opts: {
   toastId?: string;
 }): { trackers: Accessor<SettledTrackers | null> } {
   const fetchStats = opts.fetchStats ?? decodedTrackerStats;
-  const toast = createImageLoadToast({ id: opts.toastId ?? 'remote-images', retry: opts.retry, ...(opts.sink ? { sink: opts.sink } : {}) });
+  const toast = createImageLoadToast({
+    id: opts.toastId ?? 'remote-images',
+    retry: () => { const src = untrack(opts.source); if (src) requestImageRetry(src.emailId); opts.retry(); },
+    ...(opts.sink ? { sink: opts.sink } : {}),
+  });
   const [trackers, setTrackers] = createSignal<SettledTrackers | null>(null, { equals: (a, b) => a?.count === b?.count && a?.limited === b?.limited });
   let statsTimer: ReturnType<typeof setTimeout> | undefined;
   let capTimer: ReturnType<typeof setTimeout> | undefined;
-  let generation = 0;
-  /** Loads whose stats were already read: one request per load, ever. */
+  let pollTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Loads whose after-display read was made: one such request per load. */
   const read = new Set<string>();
 
   function offer(next: SettledTrackers): void {
@@ -147,30 +171,62 @@ export function createRemoteImageLoad(opts: {
     if (next.count <= 0 || (best !== null && next.count <= best.count)) return;
     setTrackers(next);
   }
-  function stopTimers(): void { clearTimeout(statsTimer); clearTimeout(capTimer); statsTimer = capTimer = undefined; }
+  function stopTimers(): void { clearTimeout(statsTimer); clearTimeout(capTimer); clearTimeout(pollTimer); statsTimer = capTimer = pollTimer = undefined; }
+  /** The load is still the one on screen (an answer for another is dropped). */
+  const current = (src: RemoteImageLoadSource): boolean => { const now = untrack(opts.source); return now !== null && now.scope === src.scope && now.load === src.load; };
+  async function get(src: RemoteImageLoadSource): Promise<RemoteContentStats | null> {
+    try { return await fetchStats(src.emailId); } catch { return null; }
+  }
+  /** Every signed image has an answer. Absent counters never settle. */
+  const covers = (stats: RemoteContentStats | null, total: number): boolean =>
+    stats?.imagesLoaded !== undefined && stats.imagesFailed !== undefined && stats.imagesLoaded + stats.imagesFailed >= total;
 
-  async function readStats(src: RemoteImageLoadSource, gen: number): Promise<void> {
-    if (gen !== generation || read.has(src.load)) return;
+  async function readAfterDisplay(src: RemoteImageLoadSource): Promise<void> {
+    if (!current(src) || read.has(src.load)) return;
     read.add(src.load);
-    let stats: RemoteContentStats | null = null;
-    try { stats = await fetchStats(src.emailId); } catch { stats = null; }
-    if (gen !== generation) return;
+    clearTimeout(pollTimer); pollTimer = undefined;
+    const stats = await get(src);
+    if (!current(src)) return;
     if (stats) offer({ count: stats.count, limited: stats.limited });
     toast.finish(src.load, stats?.imagesFailed);
+  }
+  function poll(src: RemoteImageLoadSource): void {
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(() => {
+      pollTimer = undefined;
+      if (!current(src) || read.has(src.load) || toast.running() !== src.load) return;
+      if (!toast.showing(src.load)) { poll(src); return; }
+      void get(src).then((stats) => {
+        if (!current(src) || read.has(src.load) || toast.running() !== src.load) return;
+        if (stats) offer({ count: stats.count, limited: stats.limited });
+        if (covers(stats, src.total)) { toast.finish(src.load, stats?.imagesFailed); return; }
+        // A server without the counters: wait for the display instead.
+        if (stats !== null && (stats.imagesLoaded === undefined || stats.imagesFailed === undefined)) return;
+        poll(src);
+      });
+    }, POLL_MS);
   }
 
   createEffect(on(opts.source, (src, prev) => {
     if (src?.scope !== prev?.scope || src === null) {
       // Message switch, closed, or no longer on screen: drop everything.
-      generation++; toast.cancel(); stopTimers(); read.clear(); setTrackers(null);
+      toast.cancel(); stopTimers(); read.clear(); setTrackers(null);
     }
     if (src === null) return;
-    if (src.load === prev?.load && src.stats === prev.stats && src.total === prev.total) return;
-    const gen = ++generation;
+    // The same body (another signal the source reads changed): a load in
+    // progress keeps its timers, so its answer is not lost.
+    if (src.load === prev?.load && src.scope === prev.scope && (toast.running() === src.load || (src.stats === prev.stats && src.total === prev.total))) return;
     stopTimers();
     if (src.total > 0 && opts.toastEnabled()) {
       toast.start(src.load, src.total);
-      capTimer = setTimeout(() => { if (gen === generation) toast.finish(src.load, undefined); }, LOAD_CAP_MS);
+      if (src.stats) poll(src);
+      capTimer = setTimeout(() => {
+        capTimer = undefined;
+        if (!current(src) || toast.running() !== src.load) return;
+        clearTimeout(pollTimer); pollTimer = undefined;
+        if (!src.stats) { toast.finish(src.load, undefined, false); return; }
+        void get(src).then((stats) => { if (current(src)) toast.finish(src.load, stats?.imagesFailed, covers(stats, src.total)); });
+      }, LOAD_CAP_MS);
     } else toast.cancel();
   }));
 
@@ -180,14 +236,15 @@ export function createRemoteImageLoad(opts: {
     toast.displayed(src.load);
     if (!src.stats) { toast.finish(src.load, undefined); return; }
     // Read the counters once the images have had time to settle; a second
-    // display of the same load only pushes the read back (debounce).
-    const gen = generation;
+    // display of the same load only pushes the read back (debounce). That read
+    // answers this load, so polling stops.
+    clearTimeout(pollTimer); pollTimer = undefined;
     clearTimeout(statsTimer);
-    statsTimer = setTimeout(() => void readStats(src, gen), STATS_SETTLE_MS);
+    statsTimer = setTimeout(() => void readAfterDisplay(src), STATS_SETTLE_MS);
   }, { defer: true }));
 
-  createEffect(on(opts.toastEnabled, (on) => { if (!on) toast.cancel(); }, { defer: true }));
+  createEffect(on(opts.toastEnabled, (on) => { if (!on) { toast.cancel(); clearTimeout(pollTimer); pollTimer = undefined; } }, { defer: true }));
 
-  onCleanup(() => { generation++; stopTimers(); toast.cancel(); });
+  onCleanup(() => { stopTimers(); toast.cancel(); });
   return { trackers };
 }

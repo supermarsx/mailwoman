@@ -1624,10 +1624,32 @@ async fn a_failed_fetch_is_remembered_briefly_counted_and_retried_on_request() {
         .json()
         .await
         .unwrap();
+    // t67: signing starts a new load, so its counters start from nothing
+    // until that load's own fetch answers.
+    let fresh: Value = f
+        .user
+        .get(format!("{}/api/rc/stats?emailId={}", f.base, f.email_id))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(fresh["imagesFailed"], json!(0), "{fresh}");
     assert_eq!(f.load(&image_src(&retried)).await.status(), 502);
     assert_eq!(
         seen.lock().unwrap().connections,
         2,
         "retry reached the network"
     );
+    let after: Value = f
+        .user
+        .get(format!("{}/api/rc/stats?emailId={}", f.base, f.email_id))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(after["imagesFailed"], json!(1), "{after}");
 }
