@@ -260,8 +260,8 @@ pub const EXTENSIONS: &[Extension] = &[
     ext(
         "QUOTA",
         "RFC 9208",
-        Missing,
-        "Planned: show the upstream mailbox quota.",
+        Used,
+        "GETQUOTAROOT on INBOX feeds Quota/get and the storage meter (RFC 2087 servers answer the same command).",
     ),
     ext(
         "REPLACE",

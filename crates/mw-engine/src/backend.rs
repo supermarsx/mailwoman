@@ -237,6 +237,35 @@ pub trait AccountBackend: Send + Sync {
         let _ = refs;
         Err(EngineError::Unsupported("expunge_messages".into()))
     }
+
+    // ── Upstream quota, added 26.20 (t39-e7) ─────────────────────────────────
+    //
+    // Additive like the blocks above. A backend that cannot report quota (POP3,
+    // plugin/bridge, IMAP without QUOTA) keeps the `Unsupported` default and
+    // `Quota/get` reports only what the administrator configured.
+
+    /// The quota resources that apply to the INBOX (IMAP `GETQUOTAROOT INBOX`,
+    /// RFC 9208 / RFC 2087). `Ok(vec![])` means the server supports quota but
+    /// sets none for this user.
+    async fn quota(&self) -> Result<Vec<QuotaUsage>> {
+        Err(EngineError::Unsupported("quota".into()))
+    }
+}
+
+/// One upstream quota resource (RFC 9208 §5.1). `usage` and `limit` are in the
+/// resource's own unit: for `STORAGE` that is 1024 octets, for `MESSAGE` a
+/// message count. The engine converts units when it builds JMAP `Quota`
+/// objects.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuotaUsage {
+    /// The quota root name (often `""` or `"User quota"`).
+    pub root: String,
+    /// The resource name, uppercased (`STORAGE`, `MESSAGE`, `MAILBOX`, …).
+    pub resource: String,
+    /// Current usage in the resource's unit.
+    pub usage: u64,
+    /// The limit in the resource's unit.
+    pub limit: u64,
 }
 
 /// One ACL grant (RFC 4314): an `identifier` (user/group/`anyone`) paired with

@@ -10,8 +10,8 @@ use imap_proto::{
     StatusAttribute, UidSetMember,
 };
 use mw_engine::backend::{
-    AclEntry, BackendCaps, Flag, MailboxRole, MessageRef, MetadataEntry, MoveOutcome, RawMailbox,
-    RawMailboxRef, RawMessage,
+    AclEntry, BackendCaps, Flag, MailboxRole, MessageRef, MetadataEntry, MoveOutcome, QuotaUsage,
+    RawMailbox, RawMailboxRef, RawMessage,
 };
 
 use crate::caps::CapabilitySet;
@@ -1011,6 +1011,22 @@ impl Session {
         }
     }
 
+    /// `GETQUOTAROOT <mailbox>` (RFC 9208 §6.4, RFC 2087 §4.3): the quota
+    /// resources of every quota root that applies to `mailbox`. A server that
+    /// does not advertise `QUOTA` is refused before anything is sent. A root
+    /// named in `* QUOTAROOT` without a matching `* QUOTA` line contributes
+    /// nothing, and a resource whose limit is absent is dropped.
+    pub async fn get_quota_root(&mut self, mailbox: &str) -> ImapResult<Vec<QuotaUsage>> {
+        if !self.caps.has("QUOTA") {
+            return Err(ImapError::Unsupported(
+                "QUOTA (RFC 9208) not advertised".into(),
+            ));
+        }
+        let cmd = format!("GETQUOTAROOT {}", quote(mailbox));
+        let lines = self.conn.execute_lines(&cmd).await?;
+        Ok(parse_quota_lines(&lines))
+    }
+
     /// `GETACL <mailbox>` (RFC 4314): every `identifier`→`rights` grant on the
     /// mailbox, parsed from the untagged `* ACL <mailbox> <id> <rights> …` reply.
     pub async fn get_acl(&mut self, mailbox: &str) -> ImapResult<Vec<AclEntry>> {
@@ -1796,6 +1812,59 @@ fn read_literal(bytes: &[u8], pos: &mut usize) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes[start..end]).into_owned())
 }
 
+/// Parse the untagged replies of `GETQUOTAROOT`: the roots listed in
+/// `* QUOTAROOT <mailbox> <root>…` and the `* QUOTA <root> (<resource> <usage>
+/// <limit> …)` lines. Only roots the server named for the mailbox are kept,
+/// unless it named none: some servers omit the QUOTAROOT line or leave it
+/// empty and still send `* QUOTA` lines (GreenMail 2.1 answers
+/// `* QUOTAROOT INBOX` then `* QUOTA "INBOX" (…)`), and then every `* QUOTA`
+/// line counts. A bare QUOTAROOT with no QUOTA line is "no quota".
+fn parse_quota_lines(lines: &[String]) -> Vec<QuotaUsage> {
+    let mut roots: Option<Vec<String>> = None;
+    let mut out = Vec::new();
+    for line in lines {
+        if let Some(rest) = untagged_payload(line, "QUOTAROOT") {
+            let named: Vec<String> = tokenize(rest).into_iter().skip(1).map(tok_value).collect();
+            roots.get_or_insert_with(Vec::new).extend(named);
+        } else if let Some(rest) = untagged_payload(line, "QUOTA") {
+            out.extend(parse_quota(rest));
+        }
+    }
+    if let Some(roots) = roots.filter(|r| !r.is_empty()) {
+        out.retain(|q| roots.contains(&q.root));
+    }
+    out
+}
+
+/// Parse one `* QUOTA <root> (<resource> <usage> <limit> …)` payload. A
+/// malformed triple ends the list rather than shifting the rest out of step.
+fn parse_quota(payload: &str) -> Vec<QuotaUsage> {
+    let mut toks = tokenize(payload).into_iter();
+    let Some(root) = toks.next().map(tok_value) else {
+        return Vec::new();
+    };
+    if toks.next() != Some(Tok::Open) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    while let Some(Tok::Atom(resource)) = toks.next() {
+        let number = |t: Option<Tok>| match t {
+            Some(Tok::Atom(a)) => a.parse::<u64>().ok(),
+            _ => None,
+        };
+        let (Some(usage), Some(limit)) = (number(toks.next()), number(toks.next())) else {
+            break;
+        };
+        out.push(QuotaUsage {
+            root: root.clone(),
+            resource: resource.to_ascii_uppercase(),
+            usage,
+            limit,
+        });
+    }
+    out
+}
+
 /// Parse a `* ACL <mailbox> <id> <rights> …` payload into grants. The leading
 /// mailbox token is dropped; the remainder are `(identifier, rights)` pairs.
 fn parse_acl(payload: &str) -> Vec<AclEntry> {
@@ -2301,6 +2370,91 @@ mod acl_metadata_tests {
                 .unwrap()
                 .iter()
                 .any(|l| l.contains("GETACL \"INBOX\""))
+        );
+    }
+
+    #[tokio::test]
+    async fn get_quota_root_reads_the_inbox_roots() {
+        // Dovecot's reply shape: quoted root names, STORAGE in KiB.
+        let reply = "* QUOTAROOT \"INBOX\" \"User quota\"\r\n\
+                     * QUOTA \"User quota\" (STORAGE 2048 10240 MESSAGE 12 1000)\r\n\
+                     * QUOTA \"Other\" (STORAGE 1 2)\r\n\
+                     {tag} OK Getquotaroot completed\r\n"
+            .to_string();
+        let (addr, log) = spawn("* OK [CAPABILITY IMAP4rev1 QUOTA] ready\r\n", vec![reply]).await;
+        let mut session = connect(addr).await;
+        let quota = session.get_quota_root("INBOX").await.unwrap();
+        assert_eq!(
+            quota,
+            vec![
+                QuotaUsage {
+                    root: "User quota".into(),
+                    resource: "STORAGE".into(),
+                    usage: 2048,
+                    limit: 10240,
+                },
+                QuotaUsage {
+                    root: "User quota".into(),
+                    resource: "MESSAGE".into(),
+                    usage: 12,
+                    limit: 1000,
+                },
+            ],
+            "a QUOTA line for a root the server did not name for INBOX is ignored"
+        );
+        assert!(
+            log.lock()
+                .unwrap()
+                .iter()
+                .any(|l| l.contains("GETQUOTAROOT \"INBOX\""))
+        );
+    }
+
+    #[tokio::test]
+    async fn get_quota_root_with_no_root_is_empty() {
+        // RFC 9208 §6.4: a mailbox without a quota root answers with a bare
+        // QUOTAROOT line and no QUOTA lines.
+        let reply = "* QUOTAROOT INBOX\r\n{tag} OK done\r\n".to_string();
+        let (addr, _log) = spawn("* OK [CAPABILITY IMAP4rev1 QUOTA] ready\r\n", vec![reply]).await;
+        let mut session = connect(addr).await;
+        assert!(session.get_quota_root("INBOX").await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_quota_root_without_the_capability_sends_nothing() {
+        let (addr, log) = spawn(CAPS, vec![]).await;
+        let mut session = connect(addr).await;
+        let error = session.get_quota_root("INBOX").await.unwrap_err();
+        assert!(matches!(error, ImapError::Unsupported(_)), "{error:?}");
+        assert!(
+            !log.lock()
+                .unwrap()
+                .iter()
+                .any(|l| l.contains("GETQUOTAROOT")),
+            "no command goes to a server that does not advertise QUOTA"
+        );
+    }
+
+    #[test]
+    fn parse_quota_stops_at_a_malformed_triple() {
+        let parsed = parse_quota("\"\" (STORAGE 5 10 MESSAGE x 3 MAILBOX 1 2)");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].resource, "STORAGE");
+        assert_eq!(
+            parse_quota_lines(&["* QUOTA \"\" (storage 1 4)".into()])[0].resource,
+            "STORAGE"
+        );
+        // GreenMail 2.1.4, captured live: an empty QUOTAROOT, then QUOTA lines
+        // (one with a malformed doubled-quote root, which parses to nothing).
+        let greenmail = parse_quota_lines(&[
+            "* QUOTAROOT INBOX".into(),
+            "* QUOTA \"INBOX\" (STORAGE 0 512)".into(),
+            "* QUOTA \"\"\"\" (STORAGE 0 512)".into(),
+        ]);
+        assert_eq!(greenmail.len(), 1, "{greenmail:?}");
+        assert_eq!(
+            (greenmail[0].root.as_str(), greenmail[0].limit),
+            ("INBOX", 512)
         );
     }
 

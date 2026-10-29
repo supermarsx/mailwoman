@@ -10,8 +10,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use mw_engine::backend::{
     AccountBackend, AclEntry, BackendCaps, ChangeEvent, ChangeSink, EngineError, Flag,
-    MailboxDelta, MessageRef, MetadataEntry, MoveOutcome, RawMailbox, RawMailboxRef, RawMessage,
-    Result, SyncCursor, WatchHandle,
+    MailboxDelta, MessageRef, MetadataEntry, MoveOutcome, QuotaUsage, RawMailbox, RawMailboxRef,
+    RawMessage, Result, SyncCursor, WatchHandle,
 };
 use mw_net::{Dialer, SharedDialer};
 use tokio::sync::{Mutex, watch};
@@ -252,6 +252,11 @@ impl AccountBackend for ImapBackend {
         let mut session = self.session.lock().await;
         session.set_metadata(name, entry, value).await?;
         Ok(())
+    }
+
+    async fn quota(&self) -> Result<Vec<QuotaUsage>> {
+        let mut session = self.session.lock().await;
+        Ok(session.get_quota_root("INBOX").await?)
     }
 
     // --- Folder management + permanent removal (26.20 t28-e17) ---------------

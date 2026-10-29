@@ -4,7 +4,7 @@
 
 Which IMAP extensions Mailwoman's IMAP client supports when it talks to an upstream server. Every extension is used only when the server advertises it; without it the client falls back to plain IMAP4rev1 behaviour.
 
-51 extensions: 14 used, 12 parsed but not used, 25 not implemented.
+51 extensions: 15 used, 12 parsed but not used, 24 not implemented.
 
 | Extension | Defined in | Support | Notes |
 |---|---|---|---|
@@ -43,7 +43,7 @@ Which IMAP extensions Mailwoman's IMAP client supports when it talks to an upstr
 | `PARTIAL` | RFC 9394 | not implemented | Planned: paged search and fetch for large folders. |
 | `PREVIEW` | RFC 8970 | not implemented | Planned: list previews without fetching bodies. |
 | `QRESYNC` | RFC 7162 | parsed, not used | Capability read; the sync path does not reach it yet. |
-| `QUOTA` | RFC 9208 | not implemented | Planned: show the upstream mailbox quota. |
+| `QUOTA` | RFC 9208 | used | GETQUOTAROOT on INBOX feeds Quota/get and the storage meter (RFC 2087 servers answer the same command). |
 | `REPLACE` | RFC 8508 | not implemented | Planned: draft saves in one command. |
 | `SASL-IR` | RFC 4959 | not implemented | Planned: one round trip less at sign-in. |
 | `SAVEDATE` | RFC 8514 | not implemented | Planned. |
