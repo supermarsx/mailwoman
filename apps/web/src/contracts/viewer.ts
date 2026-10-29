@@ -17,12 +17,14 @@ export interface ViewerProps {
 }
 
 /** The viewer variants `<AttachmentViewer>` dispatches to (plan §2.4). */
-export type ViewerKind = 'image' | 'pdf' | 'text' | 'audio' | 'video' | 'message' | 'unsupported';
+export type ViewerKind = 'image' | 'pdf' | 'text' | 'audio' | 'video' | 'message' | 'calendar' | 'unsupported';
 
 /** Frozen mime→viewer routing helper so dispatch is identical everywhere. */
 export function viewerKindFor(mime: string, name = ''): ViewerKind {
   mime = mime.toLowerCase().split(';')[0]!.trim();
   if (['message/rfc822', 'message/global', 'application/ms-tnef', 'application/vnd.ms-tnef'].includes(mime) || ((!mime || mime === 'application/octet-stream') && /(?:\.eml|winmail\.dat)$/i.test(name))) return 'message';
+  // t53: calendar data renders as the event card (with the raw text as its fallback).
+  if (['text/calendar', 'application/ics', 'text/x-vcalendar'].includes(mime) || ((!mime || mime === 'application/octet-stream' || mime === 'text/plain') && /\.(?:ics|ical|ifb)$/i.test(name))) return 'calendar';
   if (mime === 'application/pdf') return 'pdf';
   if (mime.startsWith('image/')) return 'image';
   if (mime.startsWith('audio/')) return 'audio';

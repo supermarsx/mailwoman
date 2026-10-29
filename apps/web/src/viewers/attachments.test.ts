@@ -49,6 +49,10 @@ describe('viewerKindFor — MIME dispatch (frozen §2.4)', () => {
     expect(viewerKindFor('audio/mpeg')).toBe('audio');
     expect(viewerKindFor('video/mp4')).toBe('video');
     expect(viewerKindFor('text/plain')).toBe('text');
+    expect(viewerKindFor('text/calendar; method=REQUEST')).toBe('calendar');
+    expect(viewerKindFor('application/ics')).toBe('calendar');
+    expect(viewerKindFor('application/octet-stream', 'invite.ics')).toBe('calendar');
+    expect(viewerKindFor('image/png', 'x.ics')).toBe('image');
     expect(viewerKindFor('application/octet-stream')).toBe('unsupported');
     expect(viewerKindFor('')).toBe('unsupported');
   });

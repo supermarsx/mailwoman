@@ -123,6 +123,7 @@ common-viewer-no-preview = Não há pré-visualização para este tipo de fichei
 common-viewer-unknown-type = tipo desconhecido
 common-viewer-download = Transferir
 common-viewer-attachments = Anexos
+common-open-event = Abrir evento
 
 common-message-preview-too-large = As pré-visualizações de anexos de mensagem estão limitadas a 4 MiB. Pode ainda transferir o anexo original.
 common-message-preview-failed = Não foi possível pré-visualizar este anexo de mensagem. O ficheiro pode não ser suportado ou estar danificado, ou o serviço de pré-visualização pode estar indisponível. Pode ainda transferir o original.

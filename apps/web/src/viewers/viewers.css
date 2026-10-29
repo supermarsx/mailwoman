@@ -117,6 +117,12 @@
   text-transform: uppercase;
   color: var(--text-dim);
 }
+.mw-thumb__action {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--link, currentColor);
+}
+
 .mw-thumb__name {
   font-size: 0.72rem;
   overflow: hidden;

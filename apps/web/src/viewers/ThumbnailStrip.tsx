@@ -4,6 +4,7 @@ import { categoryOf, type TypeCategory } from './attachments.ts';
 import { blobUrlToDataUrl } from './sandbox.ts';
 import { createObjectUrlOwner } from './objectUrl.ts';
 import { t } from '../i18n/index.ts';
+import { viewerKindFor } from '../contracts/viewer.ts';
 
 /** The preview box `.mw-thumb__preview` reserves (viewers.css). Emitted as the
  *  `<img>`'s intrinsic `width`/`height` so the row has its final height before
@@ -45,6 +46,8 @@ function Thumb(props: {
   resolveThumb: ((item: StripItem) => Promise<string>) | undefined;
 }): JSX.Element {
   const category = (): TypeCategory => categoryOf(props.item.mime);
+  // t53: a calendar file opens as an event card.
+  const isEvent = (): boolean => viewerKindFor(props.item.mime, props.item.name) === 'calendar';
   // One owner per thumb, so a thumb leaving the strip (or the whole strip
   // unmounting) revokes the Blob its preview pinned. A download that lands after
   // the thumb is gone is revoked on arrival by `adopt` (see objectUrl.ts).
@@ -60,11 +63,12 @@ function Thumb(props: {
       classList={{ 'mw-thumb--active': props.selected }}
       role="option"
       aria-selected={props.selected}
-      title={props.item.name}
+      title={isEvent() ? `${t('common-open-event')}: ${props.item.name}` : props.item.name}
+      data-event={isEvent() ? '' : undefined}
       onClick={() => props.onSelect?.(props.item)}
     >
       <span class="mw-thumb__preview" data-category={category()}>
-        <Show when={!preview.loading ? preview() : undefined} fallback={<span class="mw-thumb__icon">{ICON[category()]}</span>}>
+        <Show when={!preview.loading ? preview() : undefined} fallback={<span class="mw-thumb__icon">{isEvent() ? 'ICS' : ICON[category()]}</span>}>
           {(url) => (
             <img
               class="mw-thumb__img"
@@ -79,6 +83,7 @@ function Thumb(props: {
         </Show>
       </span>
       <span class="mw-thumb__name">{props.item.name}</span>
+      <Show when={isEvent()}><span class="mw-thumb__action">{t('common-open-event')}</span></Show>
     </button>
   );
 }

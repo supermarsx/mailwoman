@@ -10,6 +10,7 @@ import { viewerKindFor, type ViewerProps } from '../contracts/viewer.ts';
 import { t } from '../i18n/index.ts';
 
 const MessageAttachmentViewer = lazy(() => import('./MessageAttachmentViewer.tsx'));
+const CalendarAttachmentViewer = lazy(() => import('./CalendarAttachmentViewer.tsx'));
 const ImageViewer = lazy(() => import('./ImageViewer.tsx'));
 const PdfViewer = lazy(() => import('./PdfViewer.tsx'));
 const TextViewer = lazy(() => import('./TextViewer.tsx'));
@@ -24,6 +25,7 @@ export function AttachmentViewer(props: ViewerProps): JSX.Element {
       <Suspense fallback={<p class="mw-viewer__loading">{t('common-viewer-loading')}</p>}>
         <Switch fallback={<UnsupportedViewer {...props} />}>
           <Match when={kind() === 'message'}><MessageAttachmentViewer {...props} /></Match>
+          <Match when={kind() === 'calendar'}><CalendarAttachmentViewer {...props} /></Match>
           <Match when={kind() === 'image'}>
             <ImageViewer {...props} />
           </Match>
