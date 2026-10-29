@@ -30,7 +30,9 @@
 //! ([`Engine::event_respond_to_message`]): it runs the same guards, stores
 //! the answer, and sends the REPLY from the address that was invited.
 
-use mail_parser::{MessageParser, MimeHeaders, PartType};
+use mail_parser::MessageParser;
+
+use crate::calendar_hint::first_calendar_part;
 use serde_json::{Value, json};
 
 use crate::account::AccountRuntime;
@@ -858,29 +860,6 @@ fn single_sender(raw: &[u8]) -> Option<String> {
     }
     let sender = from.first()?.address()?.trim().to_ascii_lowercase();
     (!sender.is_empty()).then_some(sender)
-}
-
-/// The first calendar part of a message: `text/calendar`, `application/ics`,
-/// or an attachment named `*.ics` (often sent as `application/octet-stream`).
-fn first_calendar_part(raw: &[u8]) -> Option<Vec<u8>> {
-    let message = MessageParser::default().parse(raw)?;
-    message.parts.iter().find_map(|part| {
-        let kind = part
-            .content_type()
-            .map(|ct| format!("{}/{}", ct.ctype(), ct.subtype().unwrap_or("")).to_ascii_lowercase())
-            .unwrap_or_default();
-        let named_ics = part
-            .attachment_name()
-            .is_some_and(|n| n.trim().to_ascii_lowercase().ends_with(".ics"));
-        if kind != "text/calendar" && kind != "application/ics" && !named_ics {
-            return None;
-        }
-        match &part.body {
-            PartType::Text(t) => Some(t.as_bytes().to_vec()),
-            PartType::Binary(b) | PartType::InlineBinary(b) => Some(b.to_vec()),
-            _ => None,
-        }
-    })
 }
 
 fn invalid(msg: impl std::fmt::Display) -> Value {

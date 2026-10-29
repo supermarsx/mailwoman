@@ -52,6 +52,12 @@ mod folders;
 #[path = "empty_folder.rs"]
 mod empty_folder;
 
+// t78: the Events view (`Email/query` on `EVENTS_VIEW_ID`, `mailwomanCalendar`).
+// A child of this module so it reaches the private `email_query`/`email_get`.
+#[cfg(test)]
+#[path = "events_view_tests.rs"]
+mod events_view_tests;
+
 /// Build the JMAP [`Session`](mw_jmap::Session) resource for a connected account,
 /// advertising core + mail + submission and pointing every URL back at us.
 pub fn session_json(account_id: &str, username: &str) -> Value {
@@ -682,6 +688,12 @@ impl Engine {
         // `filter` wholesale, so opting a saved-search folder into semantic
         // re-ranking works too. The stored filter's own flag wins if it sets one.
         let semantic = filter.semantic;
+        // t78: the Events view is not a mailbox: it is every message of the
+        // account with calendar content, plus whatever else the caller asked.
+        if filter.in_mailbox.as_deref() == Some(crate::query::EVENTS_VIEW_ID) {
+            filter.in_mailbox = None;
+            filter.has_calendar = Some(true);
+        }
         let comparator = first_comparator(args);
         let sort = search_index::sort_from_comparator(comparator.as_ref());
         let custom_sort = sort != mw_search::Sort::received_desc();
@@ -1277,9 +1289,14 @@ impl Engine {
                     .filter_map(Value::as_str)
                     .any(|p| RAW_DERIVED_PROPERTIES.contains(&p))
             });
+        let wants_calendar = args
+            .get("properties")
+            .and_then(Value::as_array)
+            .is_some_and(|named| named.iter().any(|p| p == CALENDAR_PROPERTY));
         let fill = EmailFill {
             threading: wants_threading,
             raw_derived: wants_raw_derived,
+            calendar: wants_calendar,
         };
         let assembled = match self.build_emails(&requested, fill).await {
             Ok(v) => v,
@@ -1424,6 +1441,19 @@ impl Engine {
                 email["mailwomanMdnReport"] = report;
                 email["mailwomanDsnReport"] = dsn_report_json(&raw);
                 email["mailwomanInlineParts"] = inline_parts_json(&raw, id);
+            }
+            if fill.calendar {
+                // t78: read from the message's index document, where ingest put
+                // it: no body read. `null` for no calendar content, and for an
+                // account whose mail is not indexed (zero-access).
+                email[CALENDAR_PROPERTY] = self
+                    .search()
+                    .fetch_doc(id)
+                    .ok()
+                    .flatten()
+                    .and_then(|doc| doc.calendar)
+                    .and_then(|hint| serde_json::to_value(hint).ok())
+                    .unwrap_or(Value::Null);
             }
             built.push(Some(patch_engine_fields(
                 email,
@@ -5086,6 +5116,11 @@ const RAW_DERIVED_PROPERTIES: [&str; 4] = [
     "mailwomanInlineParts",
 ];
 
+/// The `Email/get` property with a message's calendar summary (t78), read
+/// from its search-index document (`mw_search::CalendarHint`), filled only
+/// when the request names it.
+const CALENDAR_PROPERTY: &str = "mailwomanCalendar";
+
 /// What [`Engine::build_emails`] adds to the stored envelope.
 #[derive(Debug, Clone, Copy)]
 struct EmailFill {
@@ -5093,6 +5128,8 @@ struct EmailFill {
     threading: bool,
     /// Add [`RAW_DERIVED_PROPERTIES`].
     raw_derived: bool,
+    /// Add [`CALENDAR_PROPERTY`].
+    calendar: bool,
 }
 
 /// The sender a message is submitted under: the first address of its `From`,

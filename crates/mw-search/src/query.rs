@@ -201,6 +201,11 @@ pub enum Clause {
     HasAttachment(bool),
     /// `pinned:` / `is:pinned`.
     Pinned(bool),
+    /// `has:calendar` (t78): the message carries calendar content.
+    HasCalendar(bool),
+    /// t78: some event in the message can still be running at or after this
+    /// Unix second (the Events view's "upcoming only").
+    CalendarEndAfter(i64),
     /// `before:`/`after:` — Unix-second bounds (`after` inclusive, `before` exclusive).
     DateRange {
         after: Option<i64>,
@@ -398,6 +403,20 @@ fn is_attachment_word(value: &str) -> bool {
         .any(|w| value.eq_ignore_ascii_case(w))
 }
 
+/// Whether `value` is one of the `has:` spellings for calendar content (t78).
+fn is_calendar_word(value: &str) -> bool {
+    [
+        "calendar",
+        "event",
+        "events",
+        "invite",
+        "invitation",
+        "invitations",
+    ]
+    .iter()
+    .any(|w| value.eq_ignore_ascii_case(w))
+}
+
 /// Build the leaf [`Expr`] for a `field:value` operator (or a literal term when
 /// `field` is not a known operator).
 fn operator_atom(field: &str, value: String, phrase: bool) -> Expr {
@@ -416,6 +435,7 @@ fn operator_atom(field: &str, value: String, phrase: bool) -> Expr {
         // the unknown-operator arm below: `HasAttachment(false)` would answer
         // `has:attachments` with every message that has none.
         "has" if is_attachment_word(&value) => Clause::HasAttachment(true),
+        "has" if is_calendar_word(&value) => Clause::HasCalendar(true),
         "pinned" => Clause::Pinned(!value.eq_ignore_ascii_case("false") && value != "0"),
         "is" => match value.to_ascii_lowercase().as_str() {
             "unread" => Clause::NotKeyword(KW_SEEN.to_string()),

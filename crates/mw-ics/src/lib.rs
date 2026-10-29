@@ -34,7 +34,7 @@ pub use itip::{
     CalendarMessage, ItipMethod, MAX_CALENDAR_BYTES, MAX_CALENDAR_ITEMS, ReplyStatus, build_itip,
     build_itip_reply, parse_itip, read_calendar_message, same_address,
 };
-pub use recur::{Instance, expand_recurrence};
+pub use recur::{Instance, event_span_utc, expand_recurrence};
 pub use vcard::{ParsedVcard, emit_vcard, parse_vcard};
 
 /// A recoverable serialization / expansion failure.

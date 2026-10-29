@@ -75,6 +75,52 @@ pub struct IndexDoc {
     /// `#[serde(default)]` so an index doc written before this field still loads.
     #[serde(default)]
     pub attachment_text: String,
+    /// t78: the message's calendar content (an invitation, reply, cancellation or
+    /// calendar file), read once at ingest. Backs the `hasCalendar` filter, the
+    /// Events view and its row hint. `None` for a message with no calendar part.
+    /// `#[serde(default)]` so an index doc written before this field still loads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar: Option<CalendarHint>,
+}
+
+/// The calendar summary of one message (t78): what an Events row shows and what
+/// the `hasCalendar` / `calendarEndAfter` filters read. Built by the engine from
+/// the first calendar part (`mw_ics::read_calendar_message`), never from text
+/// that merely mentions an `.ics` file.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarHint {
+    /// The iTIP `METHOD`, upper-cased (`REQUEST`, `REPLY`, `CANCEL`, `COUNTER`,
+    /// `PUBLISH`, ...); `None` for a plain calendar file.
+    pub method: Option<String>,
+    /// The first event's `SEQUENCE`; above 0 on a REQUEST means an update.
+    #[serde(default)]
+    pub sequence: i64,
+    /// The first event's `SUMMARY`.
+    #[serde(default)]
+    pub title: String,
+    /// The first event's start, JSCalendar `LocalDateTime` or a date.
+    #[serde(default)]
+    pub start: String,
+    /// The first event's `timeZone` (IANA), when it has one.
+    #[serde(default)]
+    pub time_zone: Option<String>,
+    /// A date-only (all-day) event.
+    #[serde(default)]
+    pub show_without_time: bool,
+    /// The first event's `STATUS`, lower-cased (`confirmed`, `cancelled`, ...).
+    #[serde(default)]
+    pub status: String,
+    /// The first event's start in Unix seconds (UTC), when readable.
+    #[serde(default)]
+    pub start_utc: Option<i64>,
+    /// The last second any occurrence of the events can still be running, in
+    /// Unix seconds; `i64::MAX` for a recurring event. Backs "upcoming only".
+    #[serde(default)]
+    pub end_utc: Option<i64>,
+    /// How many VEVENTs the part holds.
+    #[serde(default)]
+    pub events: usize,
 }
 
 /// A parsed operator query (plan §0.1) plus its result ordering.
@@ -183,6 +229,8 @@ struct Fields {
     has_attachment: Field,
     pinned: Field,
     doc_json: Field,
+    has_calendar: Field,
+    calendar_end: Field,
 }
 
 /// Fast-field names used for sorting (must match the schema below).
@@ -229,6 +277,11 @@ fn build_schema() -> (Schema, Fields) {
     let has_attachment = sb.add_u64_field("has_attachment", INDEXED);
     let pinned = sb.add_u64_field("pinned", INDEXED);
     let doc_json = sb.add_text_field("doc_json", STORED);
+    // t78: calendar content. Added after the fields above, so an index written
+    // before t78 has a different schema; `Index::open` rebuilds such an index
+    // (see `clear_index_files`) and start-up reconciliation refills it.
+    let has_calendar = sb.add_u64_field("has_calendar", INDEXED);
+    let calendar_end = sb.add_i64_field("calendar_end", INDEXED);
     let schema = sb.build();
     let fields = Fields {
         stable_id,
@@ -248,6 +301,8 @@ fn build_schema() -> (Schema, Fields) {
         has_attachment,
         pinned,
         doc_json,
+        has_calendar,
+        calendar_end,
     };
     (schema, fields)
 }
@@ -287,6 +342,27 @@ impl Index {
     pub fn open(data_dir: &Path) -> Result<Self> {
         std::fs::create_dir_all(data_dir)?;
         let (schema, fields) = build_schema();
+        let dir = MmapDirectory::open(data_dir)
+            .map_err(|e| SearchError::Io(format!("open index dir: {e}")))?;
+        // An index written under an older schema (before t78 added the calendar
+        // fields) cannot be opened with this one. It holds nothing the store does
+        // not: clear it, and the engine's start-up reconciliation (document count
+        // against stored messages) rebuilds it from the store.
+        if TantivyIndex::exists(&dir)
+            .map_err(|e| SearchError::Io(format!("read index dir: {e}")))?
+        {
+            let stale = TantivyIndex::open(dir.clone())?.schema() != schema;
+            if stale {
+                drop(dir);
+                clear_index_files(data_dir)?;
+                return Self::open_fresh(data_dir, schema, fields);
+            }
+        }
+        let inner = TantivyIndex::open_or_create(dir, schema)?;
+        Self::from_index(inner, fields)
+    }
+
+    fn open_fresh(data_dir: &Path, schema: Schema, fields: Fields) -> Result<Self> {
         let dir = MmapDirectory::open(data_dir)
             .map_err(|e| SearchError::Io(format!("open index dir: {e}")))?;
         let inner = TantivyIndex::open_or_create(dir, schema)?;
@@ -368,6 +444,10 @@ impl Index {
         td.add_u64(f.size, doc.size);
         td.add_u64(f.has_attachment, u64::from(doc.has_attachment));
         td.add_u64(f.pinned, u64::from(doc.pinned));
+        td.add_u64(f.has_calendar, u64::from(doc.calendar.is_some()));
+        if let Some(end) = doc.calendar.as_ref().and_then(|c| c.end_utc) {
+            td.add_i64(f.calendar_end, end);
+        }
         let json = serde_json::to_string(doc)
             .map_err(|e| SearchError::Io(format!("serialize IndexDoc: {e}")))?;
         td.add_text(f.doc_json, json);
@@ -769,6 +849,11 @@ fn clause_query(c: &Clause, f: &Fields) -> Box<dyn Query> {
         Clause::Mailbox(m) => term_query(f.mailbox, m),
         Clause::HasAttachment(b) => u64_term(f.has_attachment, u64::from(*b)),
         Clause::Pinned(b) => u64_term(f.pinned, u64::from(*b)),
+        Clause::HasCalendar(b) => u64_term(f.has_calendar, u64::from(*b)),
+        Clause::CalendarEndAfter(at) => Box::new(RangeQuery::new(
+            Bound::Included(Term::from_field_i64(f.calendar_end, *at)),
+            Bound::Unbounded,
+        )),
         Clause::DateRange { after, before } => {
             let lower = after
                 .map(|v| Bound::Included(Term::from_field_i64(f.date, v)))
@@ -900,6 +985,32 @@ fn term_query(field: Field, value: &str) -> Box<dyn Query> {
         Term::from_field_text(field, value),
         IndexRecordOption::Basic,
     ))
+}
+
+/// Remove the files of a Tantivy index from `data_dir`, and nothing else: the
+/// two meta files, Tantivy's lock files and segment files (`<32 hex>.<ext>`,
+/// `<32 hex>.<n>.del`). Used when the index on disk has an older schema (t78).
+fn clear_index_files(data_dir: &Path) -> Result<()> {
+    fn is_segment_file(name: &str) -> bool {
+        let (stem, _) = name.split_once('.').unwrap_or((name, ""));
+        stem.len() == 32 && stem.bytes().all(|b| b.is_ascii_hexdigit()) && name.len() > 33
+    }
+    for entry in std::fs::read_dir(data_dir)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let ours = name == "meta.json"
+            || name == ".managed.json"
+            || (name.starts_with(".tantivy-") && name.ends_with(".lock"))
+            || is_segment_file(name);
+        if ours {
+            std::fs::remove_file(entry.path())?;
+        }
+    }
+    Ok(())
 }
 
 fn u64_term(field: Field, value: u64) -> Box<dyn Query> {
@@ -1155,5 +1266,120 @@ mod tests {
         // The legacy signature returns exactly the capped ids and nothing about
         // the cap — which is precisely why V9 was invisible.
         assert_eq!(idx.search(&all, 2).expect("search"), two.ids);
+    }
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "mw-search-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    fn calendar(end_utc: i64) -> Option<CalendarHint> {
+        Some(CalendarHint {
+            method: Some("REQUEST".into()),
+            title: "Review".into(),
+            start: "2026-11-03T10:00:00".into(),
+            end_utc: Some(end_utc),
+            events: 1,
+            ..Default::default()
+        })
+    }
+
+    /// t78: `has:calendar`, `HasCalendar(false)` and the upcoming bound, and
+    /// the hint survives a relocate (rebuilt from `doc_json`).
+    #[test]
+    fn calendar_clauses_select_calendar_documents() {
+        let idx = Index::open_in_ram().unwrap();
+        idx.upsert_batch(&[
+            IndexDoc {
+                calendar: calendar(2_000),
+                ..doc("past", "Old", "a@x")
+            },
+            IndexDoc {
+                calendar: calendar(i64::MAX),
+                ..doc("weekly", "Standup", "a@x")
+            },
+            doc("plain", "invite.ics mentioned", "a@x"),
+        ])
+        .unwrap();
+        assert_eq!(find(&idx, "has:calendar"), vec!["past", "weekly"]);
+        assert_eq!(find(&idx, "has:invitation"), vec!["past", "weekly"]);
+        let run = |expr: Expr| {
+            let mut ids = idx
+                .search(
+                    &SearchQuery {
+                        raw: String::new(),
+                        expr,
+                        sort: Sort::default(),
+                    },
+                    0,
+                )
+                .unwrap();
+            ids.sort();
+            ids
+        };
+        assert_eq!(run(Expr::Clause(Clause::HasCalendar(false))), vec!["plain"]);
+        assert_eq!(
+            run(Expr::Clause(Clause::CalendarEndAfter(3_000))),
+            vec!["weekly"]
+        );
+        assert_eq!(
+            run(Expr::Clause(Clause::CalendarEndAfter(1_000))),
+            vec!["past", "weekly"]
+        );
+        idx.relocate("weekly", "elsewhere").unwrap();
+        assert_eq!(
+            idx.fetch_doc("weekly").unwrap().unwrap().calendar,
+            calendar(i64::MAX)
+        );
+        assert_eq!(
+            run(Expr::Clause(Clause::HasCalendar(true))),
+            vec!["past", "weekly"]
+        );
+    }
+
+    /// t78: an index written under the schema before the calendar fields is
+    /// cleared and reopened under the current one, rather than refusing to
+    /// open (which kept the server's index in RAM on every start). Files that
+    /// are not Tantivy's stay.
+    #[test]
+    fn an_index_with_an_older_schema_is_cleared_and_reopened() {
+        let dir = temp_dir("schema");
+        std::fs::create_dir_all(&dir).unwrap();
+        {
+            let mut sb = Schema::builder();
+            let id = sb.add_text_field("stable_id", STRING | STORED);
+            let old = TantivyIndex::create_in_dir(&dir, sb.build()).unwrap();
+            let mut w: IndexWriter = old.writer(15_000_000).unwrap();
+            let mut td = TantivyDocument::default();
+            td.add_text(id, "old");
+            w.add_document(td).unwrap();
+            w.commit().unwrap();
+        }
+        std::fs::write(dir.join("notes.txt"), b"keep").unwrap();
+        let idx = Index::open(&dir).expect("an older schema reopens");
+        assert_eq!(
+            idx.num_docs(),
+            0,
+            "the old documents are gone; the engine refills it"
+        );
+        idx.upsert(&IndexDoc {
+            calendar: calendar(5),
+            ..doc("new", "Hi", "a@x")
+        })
+        .unwrap();
+        assert_eq!(find(&idx, "has:calendar"), vec!["new"]);
+        drop(idx);
+        assert!(dir.join("notes.txt").exists());
+        // Reopening the current schema keeps what it holds.
+        let again = Index::open(&dir).unwrap();
+        assert_eq!(again.num_docs(), 1);
+        drop(again);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

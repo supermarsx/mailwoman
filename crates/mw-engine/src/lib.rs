@@ -10,6 +10,7 @@
 pub mod account;
 pub mod acl;
 pub mod backend;
+pub mod calendar_hint;
 pub mod change;
 pub mod dispatcher;
 pub mod engine;

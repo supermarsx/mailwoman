@@ -124,6 +124,7 @@ pub(crate) fn build_index_doc(
     filenames: Vec<String>,
     attachment_text: String,
     pinned: bool,
+    calendar: Option<mw_search::CalendarHint>,
 ) -> IndexDoc {
     IndexDoc {
         stable_id: stable_id.to_string(),
@@ -141,6 +142,7 @@ pub(crate) fn build_index_doc(
         filenames,
         attachment_text,
         pinned,
+        calendar,
     }
 }
 
@@ -252,6 +254,16 @@ pub(crate) fn build_search_query(
     }
     if let Some(b) = filter.has_attachment {
         clauses.push(Expr::Clause(Clause::HasAttachment(b)));
+    }
+    if let Some(b) = filter.has_calendar {
+        clauses.push(Expr::Clause(Clause::HasCalendar(b)));
+    }
+    if let Some(at) = filter
+        .calendar_end_after
+        .as_deref()
+        .and_then(parse_date_bound)
+    {
+        clauses.push(Expr::Clause(Clause::CalendarEndAfter(at)));
     }
     if let Some(k) = &filter.has_keyword {
         clauses.push(Expr::Clause(Clause::Keyword(k.clone())));

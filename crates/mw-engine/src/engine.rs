@@ -897,6 +897,7 @@ impl Engine {
                 filenames,
                 attachment_text,
                 false,
+                crate::calendar_hint::calendar_hint(&raw.raw),
             );
             if let Err(e) = self.search.upsert(&doc) {
                 tracing::warn!("search index upsert failed for {sid}: {e}");
@@ -1131,15 +1132,17 @@ impl Engine {
         };
         // Derive attachment filenames + text from the raw bytes once (a single
         // get_body), so re-index matches ingest-time indexing (W19).
-        let (filenames, attachment_text) = match &msg.blob_ref {
+        // t78: and its calendar content, from the same read.
+        let (filenames, attachment_text, calendar) = match &msg.blob_ref {
             Some(blob) => match self.store.get_body(blob).await? {
                 Some(raw) => (
                     search_index::attachment_filenames(&raw),
                     search_index::attachment_text(&raw),
+                    crate::calendar_hint::calendar_hint(&raw),
                 ),
-                None => (Vec::new(), String::new()),
+                None => (Vec::new(), String::new(), None),
             },
-            None => (Vec::new(), String::new()),
+            None => (Vec::new(), String::new(), None),
         };
         let keywords: Vec<String> =
             flags_to_keywords(&crate::mapping::flags_from_json(&msg.flags_json))
@@ -1160,6 +1163,7 @@ impl Engine {
             filenames,
             attachment_text,
             pinned,
+            calendar,
         ))
     }
 

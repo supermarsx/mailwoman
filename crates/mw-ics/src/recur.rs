@@ -61,6 +61,41 @@ fn local_to_utc(local: &str, tz: Option<&str>) -> Result<DateTime<Utc>> {
     }
 }
 
+/// The UTC span of an event projection, in Unix seconds: its start and the
+/// last moment any occurrence can still be running (t78). A recurring event
+/// (any `recurrenceRules` or `recurrenceOverrides`) reports `i64::MAX` as its
+/// end, since a later occurrence may still come; a floating time is read as
+/// UTC. `None` when the event has no readable start.
+pub fn event_span_utc(event_json: &Value) -> Option<(i64, i64)> {
+    let start = event_json
+        .get("start")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())?;
+    let tz = event_json
+        .get("timeZone")
+        .and_then(Value::as_str)
+        .filter(|z| !z.is_empty());
+    let begin = local_to_utc(start, tz).ok()?.timestamp();
+    let recurring = event_json
+        .get("recurrenceRules")
+        .and_then(Value::as_array)
+        .is_some_and(|r| !r.is_empty())
+        || event_json
+            .get("recurrenceOverrides")
+            .and_then(Value::as_object)
+            .is_some_and(|o| !o.is_empty());
+    if recurring {
+        return Some((begin, i64::MAX));
+    }
+    let duration = event_json
+        .get("duration")
+        .and_then(Value::as_str)
+        .and_then(dt::iso_duration_to_secs)
+        .unwrap_or(0)
+        .max(0);
+    Some((begin, begin.saturating_add(duration)))
+}
+
 /// Expand a master event's recurrence set within `[window_start, window_end)`
 /// (RFC3339 UTC). A non-recurring event yields its single instance when it
 /// falls in the window.

@@ -79,6 +79,7 @@ fn synthetic_corpus() -> Vec<IndexDoc> {
             vec![]
         };
         docs.push(IndexDoc {
+            calendar: None,
             stable_id: format!("m{i}"),
             account_id: "acct".to_string(),
             mailbox_id: rng.pick(&mailboxes).to_string(),

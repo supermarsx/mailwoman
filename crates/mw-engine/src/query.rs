@@ -39,7 +39,22 @@ pub struct EmailFilter {
     /// ever re-orders a hit list the lexical index already produced. Absent or
     /// `false` means the query is byte-identical to 26.18.
     pub semantic: Option<bool>,
+    /// t78: the message carries calendar content (an invitation, reply,
+    /// cancellation, counter-proposal or calendar file; see
+    /// `crate::calendar_hint`). Routed to `mw-search`, which keeps the flag per
+    /// document.
+    pub has_calendar: Option<bool>,
+    /// t78: some event in the message can still be running at or after this
+    /// instant (RFC 3339, `YYYY-MM-DD` or Unix seconds): the Events view's
+    /// "upcoming only". A message without calendar content never matches.
+    pub calendar_end_after: Option<String>,
 }
+
+/// The `inMailbox` id of the Events view (t78): every message of the account
+/// with calendar content, as if it were a folder. It is not a stored mailbox
+/// and `Mailbox/get` does not list it; `Email/query` expands it to
+/// `hasCalendar: true` over the account's mailboxes, like a saved search.
+pub const EVENTS_VIEW_ID: &str = "mwViewEvents";
 
 impl EmailFilter {
     /// Validate the supported flat filter before persistence or execution. Unknown
@@ -92,7 +107,10 @@ impl EmailFilter {
                 })
                 .or_else(|| value.parse::<i64>().ok())
         };
-        for value in [&filter.before, &filter.after].into_iter().flatten() {
+        for value in [&filter.before, &filter.after, &filter.calendar_end_after]
+            .into_iter()
+            .flatten()
+        {
             if date(value).is_none() {
                 return Err("invalid search date bound");
             }
@@ -141,6 +159,8 @@ impl EmailFilter {
             || self.after.is_some()
             || self.min_size.is_some()
             || self.max_size.is_some()
+            || self.has_calendar.is_some()
+            || self.calendar_end_after.is_some()
     }
 }
 
