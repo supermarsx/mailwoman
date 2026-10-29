@@ -485,3 +485,22 @@ settings-folders-table = Lista de pastas
 settings-kbd-reference = Ver atribuições do conjunto
 settings-kbd-reference-help = Apenas referência do conjunto. As atribuições personalizadas e a política do administrador podem alterar os atalhos ativos.
 settings-sessions-client-details = Detalhes do cliente
+
+# t39-e6: política de chaves de acesso do administrador
+settings-2fa-passkey-rules = A sua organização só aceita chaves de acesso que:
+settings-2fa-passkey-rule-platform = estejam guardadas neste dispositivo (Windows Hello, Touch ID, bloqueio de ecrã do Android)
+settings-2fa-passkey-rule-cross-platform = estejam numa chave de segurança ou num telemóvel
+settings-2fa-passkey-rule-user-verification = verifiquem o seu PIN, impressão digital ou rosto
+settings-2fa-passkey-rule-resident-key = estejam guardadas no autenticador (detetáveis)
+settings-2fa-passkey-gap-allowed = Adicionada antes da política atual e não a cumpre. Continua a funcionar; adicione uma nova chave de acesso e remova esta.
+settings-2fa-passkey-gap-refused = Não cumpre a política atual e deixou de ser aceite no início de sessão. Adicione uma nova chave de acesso e remova esta.
+settings-2fa-passkey-browser-refused-policy = O navegador não encontrou nenhum autenticador que cumpra a política de chaves de acesso da sua organização, ou o pedido foi cancelado.
+settings-2fa-policy-user-verification = A sua organização exige uma chave de acesso que verifique o seu PIN, impressão digital ou rosto. Este autenticador não o verificou.
+settings-2fa-policy-platform = A sua organização só aceita chaves de acesso guardadas neste dispositivo (como Windows Hello, Touch ID ou bloqueio de ecrã do Android). Chaves de segurança e telemóveis não são aceites.
+settings-2fa-policy-cross-platform = A sua organização só aceita chaves de segurança ou chaves de acesso de telemóvel. Chaves de acesso guardadas neste dispositivo não são aceites.
+settings-2fa-policy-attachment-unknown = O navegador não indicou que tipo de autenticador é este, por isso não é possível verificá-lo face à política de chaves de acesso da sua organização. Experimente outro navegador.
+settings-2fa-policy-resident-key = A sua organização exige uma chave de acesso guardada no autenticador. Este autenticador não guardou nenhuma.
+settings-2fa-policy-legacy = Esta chave de acesso foi adicionada antes da política atual da sua organização e deixou de a cumprir. Inicie sessão com outro fator ou um código de recuperação e depois adicione uma nova chave de acesso.
+settings-2fa-policy-last-factor-recovery = Gere códigos de recuperação antes de remover o seu último segundo fator.
+settings-2fa-policy-last-factor-blocked = A sua organização não permite remover o seu último segundo fator. Adicione outro primeiro.
+settings-2fa-policy-last-factor-required = A sua organização exige autenticação de dois fatores. Adicione outro fator antes de remover este.

@@ -14,6 +14,20 @@ export interface PasskeySummary {
   readonly handle: string;
   readonly label: string;
   readonly createdAt: string;
+  /** False when the passkey was added before a stricter administrator policy. */
+  readonly meetsPolicy?: boolean;
+  /** The policy rules it does not meet (server refusal codes). */
+  readonly policyGaps?: readonly string[];
+}
+
+/** The administrator passkey policy in effect for this account. */
+export interface PasskeyPolicySummary {
+  readonly attachment: 'any' | 'platform' | 'cross-platform';
+  readonly userVerification: 'required' | 'preferred' | 'discouraged';
+  readonly residentKey: 'required' | 'preferred' | 'discouraged';
+  /** `allow`: older passkeys keep working; `refuse`: they are refused. */
+  readonly legacy: 'allow' | 'refuse';
+  readonly lastFactorRemoval: 'allow' | 'requireRecoveryCodes' | 'block';
 }
 
 /** `GET /api/account/2fa` — the caller's second-factor status. */
@@ -27,6 +41,8 @@ export interface TwofaStatus {
   readonly policyRequired: boolean;
   /** Effective mailbox passkey policy; omitted by older servers. */
   readonly passkeysEnabled?: boolean;
+  /** Attachment / verification / resident-key rules; omitted by older servers. */
+  readonly passkeyPolicy?: PasskeyPolicySummary;
 }
 
 /** `POST /api/account/2fa/totp/begin` — an unconfirmed TOTP secret to display. */
@@ -46,6 +62,9 @@ export interface PasskeyRegistrationChallenge {
   readonly userHandle: string;
   readonly userName: string;
   readonly userVerification: string;
+  readonly residentKey?: ResidentKeyRequirement;
+  /** `platform` / `cross-platform` when the administrator restricts it. */
+  readonly authenticatorAttachment?: string | null;
 }
 
 /** The one-shot recovery codes an enrolment/regenerate returns (shown ONCE). */

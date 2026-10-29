@@ -489,3 +489,22 @@ settings-folders-table = Folder list
 settings-kbd-reference = View preset bindings
 settings-kbd-reference-help = Preset reference only. Custom bindings and administrator policy can change the active shortcuts.
 settings-sessions-client-details = Client details
+
+# t39-e6: administrator passkey policy
+settings-2fa-passkey-rules = Your organization accepts only passkeys that:
+settings-2fa-passkey-rule-platform = are stored on this device (Windows Hello, Touch ID, Android screen lock)
+settings-2fa-passkey-rule-cross-platform = are on a security key or a phone
+settings-2fa-passkey-rule-user-verification = check your PIN, fingerprint or face
+settings-2fa-passkey-rule-resident-key = are stored on the authenticator (discoverable)
+settings-2fa-passkey-gap-allowed = Added before the current policy and does not meet it. It still works; add a new passkey and remove this one.
+settings-2fa-passkey-gap-refused = Does not meet the current policy and is no longer accepted for sign-in. Add a new passkey and remove this one.
+settings-2fa-passkey-browser-refused-policy = Your browser found no authenticator that meets your organization's passkey policy, or the request was cancelled.
+settings-2fa-policy-user-verification = Your organization requires a passkey that checks your PIN, fingerprint or face. This authenticator did not verify you.
+settings-2fa-policy-platform = Your organization only accepts passkeys stored on this device (such as Windows Hello, Touch ID or Android screen lock). Security keys and phones are not accepted.
+settings-2fa-policy-cross-platform = Your organization only accepts security keys or phone passkeys. Passkeys stored on this device are not accepted.
+settings-2fa-policy-attachment-unknown = Your browser did not say what kind of authenticator this is, so it cannot be checked against your organization's passkey policy. Try another browser.
+settings-2fa-policy-resident-key = Your organization requires a passkey that is stored on the authenticator. This authenticator did not store one.
+settings-2fa-policy-legacy = This passkey was added before your organization's current passkey policy and no longer meets it. Sign in with another factor or a recovery code, then add a new passkey.
+settings-2fa-policy-last-factor-recovery = Generate recovery codes before you remove your last second factor.
+settings-2fa-policy-last-factor-blocked = Your organization does not allow removing your last second factor. Add another one first.
+settings-2fa-policy-last-factor-required = Your organization requires two-factor authentication. Add another factor before removing this one.

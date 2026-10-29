@@ -43,6 +43,14 @@ export interface RegistrationResult {
   clientDataJson: string;
   attestationObject: string;
   transports: string;
+  /** `PublicKeyCredential.authenticatorAttachment`, when the browser reports it. */
+  authenticatorAttachment?: 'platform' | 'cross-platform';
+  /** `credProps.rk`, when the browser reports it. */
+  residentKey?: boolean;
+}
+
+function toAttachment(v: unknown): AuthenticatorAttachment | undefined {
+  return v === 'platform' || v === 'cross-platform' ? v : undefined;
 }
 
 /** Run `navigator.credentials.create` for a 2FA passkey enrolment challenge. */
@@ -53,6 +61,8 @@ export async function registerPasskey(challenge: {
   userName: string;
   userVerification: string;
   residentKey?: ResidentKeyRequirement;
+  /** The administrator's attachment policy (absent: any authenticator). */
+  authenticatorAttachment?: string | null;
   excludeCredentialIds?: readonly string[];
 }): Promise<RegistrationResult> {
   if (!passkeySupported()) throw new Error('passkeys are not supported in this browser');
@@ -67,19 +77,42 @@ export async function registerPasskey(challenge: {
       },
       pubKeyCredParams: PUB_KEY_CRED_PARAMS,
       excludeCredentials: (challenge.excludeCredentialIds ?? []).map(id => ({ id: b64urlToBytes(id) as BufferSource, type: 'public-key' as const })),
-      authenticatorSelection: { userVerification: toUv(challenge.userVerification), residentKey: challenge.residentKey ?? 'discouraged' },
+      authenticatorSelection: registrationSelection(challenge),
       attestation: 'none',
+      extensions: { credProps: true },
     },
   })) as PublicKeyCredential | null;
   if (cred === null) throw new Error('passkey registration was cancelled');
   const response = cred.response as AuthenticatorAttestationResponse;
   const transports =
     typeof response.getTransports === 'function' ? response.getTransports().join(',') : '';
-  return {
+  const result: RegistrationResult = {
     clientDataJson: bytesToB64url(response.clientDataJSON),
     attestationObject: bytesToB64url(response.attestationObject),
     transports,
   };
+  const attachment = toAttachment((cred as { authenticatorAttachment?: unknown }).authenticatorAttachment);
+  if (attachment !== undefined) result.authenticatorAttachment = attachment;
+  const ext = typeof cred.getClientExtensionResults === 'function' ? cred.getClientExtensionResults() as { credProps?: { rk?: unknown } } : {};
+  if (typeof ext.credProps?.rk === 'boolean') result.residentKey = ext.credProps.rk;
+  return result;
+}
+
+/** The `authenticatorSelection` the server's passkey policy asks for. */
+export function registrationSelection(challenge: {
+  userVerification: string;
+  residentKey?: ResidentKeyRequirement;
+  authenticatorAttachment?: string | null;
+}): AuthenticatorSelectionCriteria {
+  const residentKey = challenge.residentKey ?? 'discouraged';
+  const selection: AuthenticatorSelectionCriteria = {
+    userVerification: toUv(challenge.userVerification),
+    residentKey,
+    requireResidentKey: residentKey === 'required',
+  };
+  const attachment = toAttachment(challenge.authenticatorAttachment);
+  if (attachment !== undefined) selection.authenticatorAttachment = attachment;
+  return selection;
 }
 
 /** The material `POST /api/login/2fa` (method "webauthn") needs after an assertion. */

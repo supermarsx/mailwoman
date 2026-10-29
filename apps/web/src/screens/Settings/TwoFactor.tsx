@@ -10,7 +10,7 @@ import { createResource, createSignal, For, Show, onMount, type JSX } from 'soli
 import { t, loadCatalog } from '../../i18n';
 import { SettingsService } from './service.ts';
 import { passkeySupported, registerPasskey } from './webauthn.ts';
-import type { TwofaStatus } from './types.ts';
+import type { PasskeyPolicySummary, TwofaStatus } from './types.ts';
 import * as css from './styles.css.ts';
 
 export interface TwoFactorProps {
@@ -19,6 +19,22 @@ export interface TwoFactorProps {
 }
 
 type TotpPhase = { kind: 'idle' } | { kind: 'enrolling'; secret: string; otpauthUri: string };
+
+/** t39-e6: one line per administrator rule that narrows which passkeys count. */
+export function passkeyPolicyLines(policy: PasskeyPolicySummary | undefined): string[] {
+  if (policy === undefined) return [];
+  const lines: string[] = [];
+  if (policy.attachment === 'platform') lines.push(t('settings-2fa-passkey-rule-platform'));
+  if (policy.attachment === 'cross-platform') lines.push(t('settings-2fa-passkey-rule-cross-platform'));
+  if (policy.userVerification === 'required') lines.push(t('settings-2fa-passkey-rule-user-verification'));
+  if (policy.residentKey === 'required') lines.push(t('settings-2fa-passkey-rule-resident-key'));
+  return lines;
+}
+
+/** The browser refused the ceremony (no qualifying authenticator, cancelled). */
+function browserRefused(e: unknown): boolean {
+  return e instanceof Error && (e.name === 'NotAllowedError' || e.name === 'NotSupportedError' || e.name === 'ConstraintError');
+}
 
 export function TwoFactor(props: TwoFactorProps): JSX.Element {
   const service = props.service ?? new SettingsService();
@@ -86,12 +102,24 @@ export function TwoFactor(props: TwoFactorProps): JSX.Element {
     setBusy(true);
     try {
       const challenge = await service.passkeyBegin();
-      const ceremony = await registerPasskey(challenge);
+      let ceremony;
+      try {
+        ceremony = await registerPasskey(challenge);
+      } catch (e) {
+        // The browser found no authenticator that meets the requested options
+        // (or the user cancelled): say what the policy asks for.
+        if (browserRefused(e) && passkeyPolicyLines(status()?.passkeyPolicy).length > 0) {
+          throw new Error(t('settings-2fa-passkey-browser-refused-policy'));
+        }
+        throw e;
+      }
       const out = await service.passkeyFinish({
         clientDataJson: ceremony.clientDataJson,
         attestationObject: ceremony.attestationObject,
         transports: ceremony.transports,
         label: label().trim(),
+        ...(ceremony.authenticatorAttachment !== undefined ? { authenticatorAttachment: ceremony.authenticatorAttachment } : {}),
+        ...(ceremony.residentKey !== undefined ? { residentKey: ceremony.residentKey } : {}),
       });
       setLabel('');
       if (out.recoveryCodes.length > 0) setRecovery(out.recoveryCodes);
@@ -231,6 +259,11 @@ export function TwoFactor(props: TwoFactorProps): JSX.Element {
                   <div class={css.itemMain}>
                     <span class={css.itemName}>{pk.label}</span>
                     <span class={css.meta}>{pk.createdAt}</span>
+                    <Show when={pk.meetsPolicy === false}>
+                      <span class={css.warn} data-testid="passkey-policy-gap">
+                        {t(status()?.passkeyPolicy?.legacy === 'refuse' ? 'settings-2fa-passkey-gap-refused' : 'settings-2fa-passkey-gap-allowed')}
+                      </span>
+                    </Show>
                   </div>
                   <button type="button" class={css.danger} disabled={busy()} onClick={() => void removePasskey(pk.handle)}>
                     {t('settings-2fa-passkey-remove')}
@@ -242,6 +275,14 @@ export function TwoFactor(props: TwoFactorProps): JSX.Element {
         </Show>
         <Show when={status()?.passkeysEnabled === false}>
           <p class={css.meta}>{t('settings-2fa-passkey-policy-disabled')}</p>
+        </Show>
+        <Show when={status()?.passkeysEnabled !== false && passkeyPolicyLines(status()?.passkeyPolicy).length > 0}>
+          <div class={css.meta} data-testid="passkey-policy">
+            <span>{t('settings-2fa-passkey-rules')}</span>
+            <ul class={css.list}>
+              <For each={passkeyPolicyLines(status()?.passkeyPolicy)}>{(line) => <li>{line}</li>}</For>
+            </ul>
+          </div>
         </Show>
         <Show
           when={status() && status()?.passkeysEnabled !== false && passkeySupported()}

@@ -56,9 +56,24 @@ export class SettingsError extends Error {
 }
 
 /** The localised text for a refused settings request. */
+/** t39-e6: passkey-policy and last-factor refusal codes the server names. */
+export const PASSKEY_POLICY_CODES: Readonly<Record<string, string>> = {
+  passkeyPolicyUserVerification: 'settings-2fa-policy-user-verification',
+  passkeyPolicyPlatform: 'settings-2fa-policy-platform',
+  passkeyPolicyCrossPlatform: 'settings-2fa-policy-cross-platform',
+  passkeyPolicyAttachmentUnknown: 'settings-2fa-policy-attachment-unknown',
+  passkeyPolicyResidentKey: 'settings-2fa-policy-resident-key',
+  passkeyPolicyLegacy: 'settings-2fa-policy-legacy',
+  lastFactorNeedsRecoveryCodes: 'settings-2fa-policy-last-factor-recovery',
+  lastFactorBlocked: 'settings-2fa-policy-last-factor-blocked',
+  lastFactorRequired: 'settings-2fa-policy-last-factor-required',
+};
+
 export function settingsErrorText(status: number, code: string | null, requestId: string | null): string {
   let id = 'settings-policy-error-generic';
-  if (code === 'setting_locked') id = 'settings-policy-error-locked';
+  const policyId = code !== null ? PASSKEY_POLICY_CODES[code] : undefined;
+  if (policyId !== undefined) id = policyId;
+  else if (code === 'setting_locked') id = 'settings-policy-error-locked';
   else if (status === 401) id = 'settings-policy-error-signed-out';
   else if (status === 400 || status === 422) id = 'settings-policy-error-invalid';
   else if (status === 403) id = 'settings-policy-error-forbidden';
@@ -141,6 +156,8 @@ export class SettingsService {
     attestationObject: string;
     transports: string;
     label: string;
+    authenticatorAttachment?: string;
+    residentKey?: boolean;
   }): Promise<RecoveryCodes> {
     return jsonOrThrow<RecoveryCodes>(await postJson(this.fetcher, withBase('/api/account/2fa/passkey/finish'), body));
   }
