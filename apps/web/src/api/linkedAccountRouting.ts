@@ -10,6 +10,8 @@ const mailbox=new Set([
   '/api/security/step-up/passkey','/api/security/dlp/config','/api/security/watermark',
   '/api/rc/policy','/api/rc/sign','/api/rc/stats','/api/sanitize','/api/policy',
   '/api/mail/delivery-status','/api/attachments/preview',
+  // t82: remote-image grants are per mailbox account, like its privacy settings.
+  '/api/remote-images/grants','/api/remote-images/grant','/api/remote-images/revoke',
 ]);
 function segments(path:string,prefix:string,count:number):boolean {
   if(!path.startsWith(prefix))return false;

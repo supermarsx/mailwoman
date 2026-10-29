@@ -39,6 +39,12 @@ pub(crate) fn allowed(path: &str) -> bool {
             | "/api/rc/sign"
             | "/api/rc/stats"
             | "/api/rc/policy"
+            // t82: remote-image grants belong to the mailbox account (the
+            // handlers apply them to the session account, which is the child
+            // in a linked context), like its privacy settings above.
+            | "/api/remote-images/grants"
+            | "/api/remote-images/grant"
+            | "/api/remote-images/revoke"
     ) || id_path(path, "/api/settings/", 1)
         || id_path(path, "/api/account/signatures/", 1)
         || id_path(path, "/api/account/saved-searches/", 1)
@@ -135,6 +141,9 @@ mod tests {
             "/api/account/identities/x",
             "/jmap/download/a/b/name",
             "/api/settings/mail.folderRole.sent",
+            "/api/remote-images/grants",
+            "/api/remote-images/grant",
+            "/api/remote-images/revoke",
         ] {
             assert!(allowed(path), "{path}");
         }
@@ -149,6 +158,8 @@ mod tests {
             "/jmap/eventsource",
             "/admin/settings",
             "/api/unknown",
+            "/api/image-proxy",
+            "/api/remote-images/grant/x",
             "/api/account/identities/x/more",
         ] {
             assert!(!allowed(path), "{path}");
