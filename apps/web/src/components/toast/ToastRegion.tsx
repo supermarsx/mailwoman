@@ -26,6 +26,7 @@ import {
   setToastPause,
   toast,
   toastTimeLeft,
+  toastObstacles,
   toasts,
   toastsPaused,
   type ToastItem,
@@ -136,6 +137,39 @@ export function ToastRegion(): JSX.Element {
   }
 
   onCleanup(registerToastRegion());
+
+  // Floating bars (the bulk selection bar, t58) the column must not cover: when
+  // a shown toast's horizontal span meets a bar, the column's bottom inset grows
+  // to sit above it (--mw-toast-lift, set through the CSSOM, which the style-src
+  // CSP allows). Re-measured when bars or toasts come and go, when either
+  // resizes, and when the window does.
+  const LIFT_GAP = 12;
+  function measureLift(): void {
+    const region = regionEl; const view = region?.ownerDocument.defaultView;
+    if (!region || !view) return;
+    const shown = Array.from(region.querySelectorAll<HTMLElement>('[data-toast-id]'), (el) => el.getBoundingClientRect()).filter((r) => r.width > 0);
+    const span = shown.length ? { left: Math.min(...shown.map((r) => r.left)), right: Math.max(...shown.map((r) => r.right)) } : region.getBoundingClientRect();
+    let lift = 0;
+    for (const bar of toastObstacles()) {
+      if (!bar.isConnected || bar.ownerDocument !== region.ownerDocument) continue;
+      const box = bar.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0 || box.right <= span.left || box.left >= span.right) continue;
+      lift = Math.max(lift, view.innerHeight - box.top + LIFT_GAP);
+    }
+    if (lift > 0) region.style.setProperty('--mw-toast-lift', `${Math.ceil(lift)}px`);
+    else region.style.removeProperty('--mw-toast-lift');
+  }
+  createEffect(() => {
+    const bars = toastObstacles(); void toasts();
+    queueMicrotask(measureLift);
+    if (bars.length === 0 || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => measureLift());
+    for (const bar of bars) { observer.observe(bar); if (bar.parentElement) observer.observe(bar.parentElement); }
+    if (regionEl) observer.observe(regionEl);
+    const view = regionEl?.ownerDocument.defaultView;
+    view?.addEventListener('resize', measureLift);
+    onCleanup(() => { observer.disconnect(); view?.removeEventListener('resize', measureLift); });
+  });
   onMount(() => {
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('focusin', onFocusIn);

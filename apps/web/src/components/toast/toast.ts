@@ -238,6 +238,19 @@ export function registerToastRegion(): () => void {
   return () => setRegions((n) => n - 1);
 }
 
+// Floating bars the toasts must not cover (t67): the bulk selection bar (t58)
+// floats over the bottom of a list, where a 1440 px folder tab puts its right
+// end under the bottom inline-end toast column. While one is registered, the
+// region lifts its column above any of them it would overlap.
+const [obstacles, setObstacles] = createSignal<readonly HTMLElement[]>([]);
+/** Elements the toast column stays clear of (reactive). */
+export const toastObstacles: Accessor<readonly HTMLElement[]> = obstacles;
+/** Keep the toasts clear of `element` while it is shown; returns the unregister. */
+export function registerToastObstacle(element: HTMLElement): () => void {
+  setObstacles((list) => [...list, element]);
+  return () => setObstacles((list) => list.filter((item) => item !== element));
+}
+
 /** Test reset: no toasts, no pause reasons. */
 export function resetToasts(): void {
   toast.clear();

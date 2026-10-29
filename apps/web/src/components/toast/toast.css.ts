@@ -20,7 +20,8 @@ const REDUCED = '(prefers-reduced-motion: reduce)';
 
 export const region = style({
   position: 'fixed',
-  insetBlockEnd: vars.space[5],
+  // Raised above a floating bar it would cover (ToastRegion sets the lift).
+  insetBlockEnd: `max(${vars.space[5]}, var(--mw-toast-lift, 0px))`,
   insetInlineEnd: vars.space[5],
   zIndex: 1100,
   display: 'flex',

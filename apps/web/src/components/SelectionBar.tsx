@@ -21,6 +21,7 @@ import { Icon, type IconName } from './Icon.tsx';
 import { createContextMenu, type ContextAction } from './ContextMenu.tsx';
 import { loadCatalog, t } from '../i18n/index.ts';
 import * as css from './selectionBar.css.ts';
+import { registerToastObstacle } from './toast/toast.ts';
 
 /** One action on the selection. `menu` makes it open a menu (Move, Labels). */
 export interface SelectionAction {
@@ -201,6 +202,8 @@ function Bar(props: SelectionBarProps): JSX.Element {
     pane.addEventListener('keydown', onPaneKey);
     onCleanup(() => pane.removeEventListener('keydown', onPaneKey));
   });
+  // Toasts sit above the bar while it is shown, not over its end (t67).
+  onMount(() => onCleanup(registerToastObstacle(bar)));
   // The bar going away under focus (the last selected message archived) hands
   // focus back to the list instead of dropping it on <body>.
   onCleanup(() => {
