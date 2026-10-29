@@ -1414,6 +1414,16 @@ impl Store {
         Ok(())
     }
 
+    /// Move a mailbox's `total` by one, never below zero (it is read back as a `u32`).
+    async fn shift_total(&self, mailbox_id: &str, delta: i64) -> Result<(), StoreError> {
+        q("UPDATE mailboxes SET total = CASE WHEN total + ?2 < 0 THEN 0 ELSE total + ?2 END WHERE id = ?1")
+            .bind(mailbox_id)
+            .bind(delta)
+            .execute(&self.backend)
+            .await?;
+        Ok(())
+    }
+
     /// One message joined a mailbox's unread population (marked unread, moved in).
     async fn increment_unread(&self, mailbox_id: &str) -> Result<(), StoreError> {
         q("UPDATE mailboxes SET unread = unread + 1 WHERE id = ?1")
@@ -1466,10 +1476,13 @@ impl Store {
         .fetch_optional(&self.backend)
         .await?;
         // Deleting a message that is not there stays a no-op, not an error.
-        if let Some(row) = deleted
-            && flags_json_is_unread(&row.get_string("flags_json"))
-        {
-            self.decrement_unread(&row.get_string("mailbox_id")).await?;
+        if let Some(row) = deleted {
+            let mailbox = row.get_string("mailbox_id");
+            // It leaves the mailbox's total too (t39), not only its unread count.
+            self.shift_total(&mailbox, -1).await?;
+            if flags_json_is_unread(&row.get_string("flags_json")) {
+                self.decrement_unread(&mailbox).await?;
+            }
         }
         Ok(())
     }
@@ -1497,6 +1510,11 @@ impl Store {
     /// than left leaning, since this method's contract is that a `NotFound`
     /// changed nothing. See [`Store::set_flags`] for why the invariant lives in
     /// the write path.
+    ///
+    /// **Total counter (t39).** The same holds for `total`: every move between
+    /// two mailboxes takes one from the source and adds one to the destination.
+    /// Without it a JMAP move left the message counted in INBOX (and missing
+    /// from the destination) until the next upstream resync recounted both.
     pub async fn relocate_message(
         &self,
         stable_id: &str,
@@ -1517,10 +1535,18 @@ impl Store {
             None => false,
         };
         let from_mailbox = current.map(|row| row.get_string("mailbox_id"));
+        let carries_total = from_mailbox
+            .as_deref()
+            .is_some_and(|from| from != new_mailbox_id);
         if carries_unread {
             let from = from_mailbox.as_deref().expect("set with carries_unread");
             self.decrement_unread(from).await?;
             self.increment_unread(new_mailbox_id).await?;
+        }
+        if carries_total {
+            let from = from_mailbox.as_deref().expect("set with carries_total");
+            self.shift_total(from, -1).await?;
+            self.shift_total(new_mailbox_id, 1).await?;
         }
 
         let n = q(
@@ -1537,6 +1563,11 @@ impl Store {
                 let from = from_mailbox.as_deref().expect("set with carries_unread");
                 self.decrement_unread(new_mailbox_id).await?;
                 self.increment_unread(from).await?;
+            }
+            if carries_total {
+                let from = from_mailbox.as_deref().expect("set with carries_total");
+                self.shift_total(new_mailbox_id, -1).await?;
+                self.shift_total(from, 1).await?;
             }
             return Err(StoreError::NotFound);
         }
@@ -2287,6 +2318,46 @@ mod tests {
     /// Shared with the live-Postgres leg below: the delete path reads the row it
     /// removed with `DELETE … RETURNING`, which is not the same code in the two
     /// engines even though it is the same SQL.
+    /// t39 (found by t39-e1): a JMAP move left the message counted in the
+    /// source's `totalEmails` (and missing from the destination's) until the
+    /// next upstream resync; a delete left it in the total too.
+    #[tokio::test]
+    async fn total_counter_follows_a_move_and_a_delete() {
+        let s = &store().await;
+        let account_id = seed_account(s).await;
+        let inbox = seed_mailbox(s, &account_id, "INBOX", 100).await;
+        let archive = seed_mailbox(s, &account_id, "Archive", 100).await;
+        let mut ids = Vec::new();
+        for (uid, mid) in [(1u32, "<t1@x>"), (2, "<t2@x>")] {
+            let mut m = msg(&account_id, &inbox, uid, 100, mid, "2026-07-01T10:00:00Z");
+            m.flags_json = "[]";
+            ids.push(s.upsert_message(&m).await.unwrap());
+        }
+        s.update_mailbox_counts(&inbox, 3, 0, 2, 2).await.unwrap();
+        let counts = async |id: &str| {
+            let m = s.get_mailbox(id).await.unwrap();
+            (m.unread, m.total)
+        };
+        s.relocate_message(&ids[0], &archive, 7, 100).await.unwrap();
+        assert_eq!(counts(&inbox).await, (1, 1), "the source loses it");
+        assert_eq!(counts(&archive).await, (1, 1), "the destination gains it");
+        // Same mailbox: not a move.
+        s.relocate_message(&ids[0], &archive, 8, 100).await.unwrap();
+        assert_eq!(counts(&archive).await, (1, 1));
+        // A missing message moves nothing.
+        assert!(s.relocate_message("nope", &inbox, 9, 100).await.is_err());
+        assert_eq!(
+            (counts(&inbox).await, counts(&archive).await),
+            ((1, 1), (1, 1))
+        );
+        // A delete takes it out of the total; the total never goes below zero.
+        s.delete_message(&ids[0]).await.unwrap();
+        assert_eq!(counts(&archive).await, (0, 0));
+        s.update_mailbox_counts(&inbox, 3, 0, 0, 0).await.unwrap();
+        s.delete_message(&ids[1]).await.unwrap();
+        assert_eq!(counts(&inbox).await, (0, 0));
+    }
+
     #[tokio::test]
     async fn unread_counter_holds_across_flag_write_move_and_delete() {
         assert_unread_invariant(&store().await).await;
