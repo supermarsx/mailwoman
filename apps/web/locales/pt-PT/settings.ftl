@@ -385,6 +385,10 @@ settings-sig-rich-body = Assinatura formatada
 settings-sig-plain-alternative = Alternativa em texto simples
 settings-sig-plain-help = As mensagens em texto simples utilizam este texto. As edições formatadas atualizam-no até o personalizar; as edições do código HTML preservam a sua alternativa.
 settings-sig-account-changed = A conta com sessão iniciada mudou. Volte a abrir esta assinatura na conta correta.
+settings-sig-image-type = { $name } não é uma imagem PNG, JPEG, GIF ou WebP.
+settings-sig-image-size = { $name } não cabe: o HTML de uma assinatura, incluindo imagens, está limitado a 32 KiB.
+settings-sig-too-large = Esta assinatura tem mais de 32 KiB de HTML. Remova uma imagem ou alguma formatação.
+settings-sig-images-help = As imagens ficam guardadas na assinatura e são enviadas como imagens incorporadas em cada mensagem.
 
 settings-folder-icon-inbox = Caixa de entrada
 settings-folder-icon-sent = Enviados

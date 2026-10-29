@@ -388,6 +388,10 @@ settings-sig-rich-body = Rich signature
 settings-sig-plain-alternative = Plain-text alternative
 settings-sig-plain-help = Plain messages use this text. Rich edits update it until you customize it; HTML source edits preserve your alternative.
 settings-sig-account-changed = Your signed-in account changed. Reopen this signature in the correct account.
+settings-sig-image-type = { $name } is not a PNG, JPEG, GIF or WebP image.
+settings-sig-image-size = { $name } does not fit: a signature's HTML, images included, is limited to 32 KiB.
+settings-sig-too-large = This signature is over 32 KiB of HTML. Remove an image or some formatting.
+settings-sig-images-help = Images are stored in the signature and sent as inline images of each message.
 
 settings-folder-icon-inbox = Inbox
 settings-folder-icon-sent = Sent
