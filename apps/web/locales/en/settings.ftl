@@ -299,6 +299,9 @@ settings-kbd-action-trash = Move to trash
 settings-kbd-action-markRead = Mark read
 settings-kbd-action-markUnread = Mark unread
 settings-kbd-action-spam = Mark as spam
+settings-kbd-action-zoomIn = Zoom message in
+settings-kbd-action-zoomOut = Zoom message out
+settings-kbd-action-zoomReset = Reset message zoom
 
 settings-notif-device-title = Permission on this device
 settings-notif-device-help = Your notification preferences follow your account. Browser permission belongs to this device; Mailwoman asks only when you choose to allow it.

@@ -31,3 +31,16 @@ reader-actionStyle = Friso de ações da mensagem
 reader-actionStyle-help = Os ícones compactos deixam mais espaço para a mensagem. Cada ação mantém o seu nome para o teclado e uma descrição explicativa. Escolha etiquetas visíveis se preferir texto junto aos ícones.
 reader-option-icons = Ícones compactos
 reader-option-labels = Ícones e etiquetas
+
+# t59: zoom do corpo da mensagem na barra de ações do leitor
+reader-zoom-group = Zoom da mensagem
+reader-zoom-in = Ampliar
+reader-zoom-in-help = Aumentar a mensagem. Só a mensagem muda de tamanho.
+reader-zoom-out = Reduzir
+reader-zoom-out-help = Diminuir a mensagem. Só a mensagem muda de tamanho.
+reader-zoom-level = { $level }%
+reader-zoom-reset-label = Zoom da mensagem { $level }%. Repor 100%
+reader-zoom-reset-help = Repor a mensagem a 100%
+reader-zoom-reset-menu = Repor zoom ({ $level }%)
+reader-zoom = Zoom das mensagens (%)
+reader-zoom-help = O tamanho com que as mensagens abrem, de 50% a 200%. Só o corpo da mensagem muda de escala, nunca a aplicação, e a impressão usa sempre 100%. Os botões de zoom junto às ações da mensagem também o alteram.

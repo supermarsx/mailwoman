@@ -4,6 +4,8 @@ export interface ReaderAppearance {
   fontSize: number;
   lineHeight: number;
   contentWidth: 'comfortable' | 'wide' | 'full';
+  /** Body zoom in percent (t59). Absent or 100 adds nothing; bounded to 50-200. */
+  zoom?: number;
 }
 
 /** Only validated primitives enter CSS; message content cannot supply rules. */
@@ -12,6 +14,11 @@ export function readerAppearanceCss(value: ReaderAppearance): string {
   const line = Number.isFinite(value.lineHeight) ? Math.max(1.2, Math.min(2.2, value.lineHeight)) : 1.6;
   const width = value.contentWidth === 'comfortable' ? '76ch' : value.contentWidth === 'wide' ? '110ch' : 'none';
   let css = `html{padding:0}body{box-sizing:border-box;font-size:${font}px;line-height:${line};max-width:${width};margin-inline:auto}pre{font-size:inherit;line-height:inherit}`;
+  // Zoom on the root scales text, images and placeholders together, and shrinks
+  // the frame's layout width in step, so text reflows; a sender's fixed-width
+  // table scrolls sideways inside the frame only. Print always uses 100%.
+  const zoom = value.zoom !== undefined && Number.isFinite(value.zoom) ? Math.round(Math.max(50, Math.min(200, value.zoom))) : 100;
+  if (zoom !== 100) css += `html{zoom:${zoom / 100}}@media print{html{zoom:1!important}}`;
   if (value.colorMode === 'adaptive') {
     css += 'html,body{background:var(--mw-color-bg)!important;color:var(--mw-color-text)!important}' +
       'body *:not(img):not(video):not(svg):not(path){color:inherit!important;background-color:transparent!important;border-color:var(--mw-color-border)!important}' +

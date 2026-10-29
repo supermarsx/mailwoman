@@ -28,3 +28,16 @@ reader-actionStyle = Message action ribbon
 reader-actionStyle-help = Compact icons leave more room for the message. Every action keeps its keyboard name and an explanatory tooltip. Choose visible labels if you prefer text beside the icons.
 reader-option-icons = Compact icons
 reader-option-labels = Icons and labels
+
+# t59: message-body zoom in the reader action row
+reader-zoom-group = Message zoom
+reader-zoom-in = Zoom in
+reader-zoom-in-help = Make the message larger. Only the message changes size.
+reader-zoom-out = Zoom out
+reader-zoom-out-help = Make the message smaller. Only the message changes size.
+reader-zoom-level = { $level }%
+reader-zoom-reset-label = Message zoom { $level }%. Reset to 100%
+reader-zoom-reset-help = Reset the message to 100%
+reader-zoom-reset-menu = Reset zoom ({ $level }%)
+reader-zoom = Message zoom (%)
+reader-zoom-help = The size messages open at, from 50% to 200%. Only the message body scales, never the app, and printing always uses 100%. The zoom buttons beside the message actions change it too.
