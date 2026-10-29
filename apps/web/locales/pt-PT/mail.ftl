@@ -707,9 +707,18 @@ mail-compose-group-paragraph = Parágrafo
 mail-compose-group-editing = Edição
 mail-compose-group-assist = Assistente de escrita
 mail-editor-counts = Estatísticas do editor
-mail-editor-words = { $count } palavras
-mail-editor-paragraphs = { $count } parágrafos
-mail-editor-characters = { $count } carateres
+mail-editor-words = { $count ->
+    [one] { $count } palavra
+   *[other] { $count } palavras
+}
+mail-editor-paragraphs = { $count ->
+    [one] { $count } parágrafo
+   *[other] { $count } parágrafos
+}
+mail-editor-characters = { $count ->
+    [one] { $count } caráter
+   *[other] { $count } carateres
+}
 mail-editor-selection-required = Selecione texto ou células de tabela adequados antes de utilizar esta ação.
 mail-editor-clipboard-unavailable = Não foi possível aceder à área de transferência. Utilize o atalho Copiar, Cortar ou Colar do navegador.
 mail-editor-selection-changed = A seleção mudou. Selecione o texto pretendido e tente novamente.
@@ -789,5 +798,6 @@ mail-editor-action-history = Histórico: { $action }
 mail-editor-history-empty = Nenhuma ação disponível
 mail-editor-redo-groups = Refazer { $count } alterações
 mail-compose-identities-failed = Não foi possível carregar as identidades de envio. Feche e volte a abrir este rascunho para tentar novamente.
+mail-folders-loading = A carregar pastas…
 mail-initial-sync-error = Ainda não foi possível sincronizar as suas mensagens.
 mail-initial-sync-error-help = A ligação ao seu servidor de correio foi interrompida. Tente novamente ou, se isto continuar a acontecer, peça ao administrador que verifique os registos de ligação.

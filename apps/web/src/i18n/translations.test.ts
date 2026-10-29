@@ -78,3 +78,25 @@ describe('shipped catalogs', () => {
     expect(unmarked).toEqual([]);
   });
 });
+
+// t39: the composer's counts read «1 parágrafos» / "1 paragraphs" until the
+// messages got a plural selector.
+describe('composer counts agree in number', () => {
+  const format = (locale: string, id: string, count: number): string => {
+    const source = byLocale(locale).find(([file]) => file === 'mail.ftl')?.[1] ?? '';
+    const bundle = new FluentBundle(locale, { useIsolating: false });
+    bundle.addResource(new FluentResource(source));
+    return bundle.formatPattern(bundle.getMessage(id)!.value!, { count });
+  };
+  it.each([
+    ['en', 'mail-editor-paragraphs', '1 paragraph', '3 paragraphs'],
+    ['en', 'mail-editor-words', '1 word', '3 words'],
+    ['en', 'mail-editor-characters', '1 character', '3 characters'],
+    ['pt-PT', 'mail-editor-paragraphs', '1 parágrafo', '3 parágrafos'],
+    ['pt-PT', 'mail-editor-words', '1 palavra', '3 palavras'],
+    ['pt-PT', 'mail-editor-characters', '1 caráter', '3 carateres'],
+  ])('%s %s', (locale, id, one, three) => {
+    expect(format(locale, id, 1)).toBe(one);
+    expect(format(locale, id, 3)).toBe(three);
+  });
+});

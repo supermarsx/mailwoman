@@ -711,9 +711,18 @@ mail-compose-group-paragraph = Paragraph
 mail-compose-group-editing = Editing
 mail-compose-group-assist = Writing assistant
 mail-editor-counts = Editor statistics
-mail-editor-words = { $count } words
-mail-editor-paragraphs = { $count } paragraphs
-mail-editor-characters = { $count } characters
+mail-editor-words = { $count ->
+    [one] { $count } word
+   *[other] { $count } words
+}
+mail-editor-paragraphs = { $count ->
+    [one] { $count } paragraph
+   *[other] { $count } paragraphs
+}
+mail-editor-characters = { $count ->
+    [one] { $count } character
+   *[other] { $count } characters
+}
 mail-editor-selection-required = Select suitable text or table cells before using this action.
 mail-editor-clipboard-unavailable = Clipboard access was unavailable. Use your browser’s Copy, Cut or Paste shortcut.
 mail-editor-selection-changed = The selection changed. Select the intended text and try again.
