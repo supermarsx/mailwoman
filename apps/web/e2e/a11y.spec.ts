@@ -70,6 +70,12 @@ interface ScanOptions {
  * a per-screen summary either way so the CI log shows the GREEN baseline explicitly.
  */
 async function scanAxe(page: Page, screen: string, opts: ScanOptions = {}): Promise<void> {
+  // A loading indicator fades in over 160 ms after a 120 ms delay
+  // (asyncState.css.ts). Scanned mid-fade, its text is part-transparent and axe
+  // reports colour-contrast for a frame no one reads (calendar-grid on b7549300).
+  // Scan the settled screen: wait for the indicators to finish, and if one is
+  // still showing after that, it is fully opaque and is scanned as it is.
+  await expect(page.getByTestId('async-pending')).toHaveCount(0, { timeout: 10_000 }).catch(() => undefined);
   let builder = new AxeBuilder({ page }).withTags(WCAG_22_AA);
   if (opts.include) builder = builder.include(opts.include);
   for (const ex of opts.exclude ?? []) builder = builder.exclude(ex);
@@ -169,6 +175,49 @@ test.describe('axe WCAG 2.2 AA gate', () => {
     // Exclude the sandboxed message-body iframe: it carries UNTRUSTED email HTML,
     // not Mailwoman's own UI, so scanning into it would be noise/flake, not a gate.
     await scanAxe(page, 'security-panel', { exclude: ['iframe[title="Message body"]'] });
+  });
+
+  // t78: the Events view (calendar mail under the folders), with a row hint.
+  test('Events view (calendar mail rows)', async ({ page }) => {
+    const subject = `A11y event ${Date.now()}`;
+    const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const start = new Date(Date.now() + 3 * 86_400_000);
+    const ics = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Mailwoman a11y//EN', 'METHOD:REQUEST',
+      'BEGIN:VEVENT', `UID:a11y-${Date.now()}@remote-example.net`, 'SEQUENCE:0', `DTSTAMP:${stamp(new Date())}`,
+      `DTSTART:${stamp(start)}`, `DTEND:${stamp(new Date(start.getTime() + 3_600_000))}`, `SUMMARY:${subject}`,
+      'ORGANIZER;CN=Olga Organizer:mailto:olga@remote-example.net',
+      'ATTENDEE;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:testuser@example.org',
+      'END:VEVENT', 'END:VCALENDAR', '',
+    ].join('\r\n');
+    await injectViaSmtp({
+      from: 'Olga Organizer <olga@remote-example.net>',
+      subject,
+      text: 'events view a11y scan body',
+      attachments: [{ filename: 'invite.ics', contentType: 'text/calendar; method=REQUEST', content: ics }],
+    });
+    await engineLogin(page);
+    await waitForInboxMessage(page, subject);
+    await page.getByRole('navigation', { name: 'Mailboxes' }).getByRole('button', { name: 'Events', exact: true }).click();
+    await expect(messageRow(page, subject)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('region', { name: 'Messages', exact: true })).toHaveAttribute('aria-busy', 'false');
+    await scanAxe(page, 'events-view');
+  });
+
+  // t73: the Focused / Other pair, shown only when mail.focusedInbox is on.
+  test('Focused inbox tabs', async ({ page }) => {
+    await engineLogin(page);
+    const me = (await (await page.request.get('/api/me')).json()) as { storageAuthority: string };
+    const headers = { 'x-mailwoman-storage-authority': me.storageAuthority };
+    const put = await page.request.put('/api/settings/mail.focusedInbox', { data: { value: true }, headers });
+    expect(put.ok(), `PUT mail.focusedInbox -> ${put.status()}`).toBe(true);
+    try {
+      await page.reload();
+      await expect(page.getByTestId('inbox-tabs').getByRole('tab')).toHaveCount(2, { timeout: 30_000 });
+      await scanAxe(page, 'focused-inbox');
+    } finally {
+      await page.request.delete('/api/settings/mail.focusedInbox', { headers });
+    }
   });
 });
 
