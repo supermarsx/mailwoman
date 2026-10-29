@@ -11,6 +11,7 @@
 import { createMemo, createResource, createSignal, For, Match, onMount, Show, Switch, type JSX } from 'solid-js';
 import type { Client } from '../../api/client.ts';
 import { createConfiguredClient } from '../../api/transport.ts';
+import { resourceValue } from '../resourceValue.ts';
 import { PimMethodError } from '../../modules/calendar/api.ts';
 import { requestCalendarFocus } from '../../modules/calendar/focusHandoff.ts';
 import { formatDateWith, isolate, loadCatalog, t } from '../../i18n';
@@ -235,11 +236,13 @@ export function EventCard(props: EventCardProps): JSX.Element {
     () => read(false),
   );
   const [calendars] = createResource(
-    () => (view() ? props.accountId : undefined),
+    () => (resourceValue(view) ? props.accountId : undefined),
     async (accountId) => { try { return await ownCalendars(client, accountId); } catch { return [] as PickableCalendar[]; } },
   );
+  // Never `calendars()` / `view()` while loading: that suspends the shell (t60).
+  const ownCalendarList = (): PickableCalendar[] => resourceValue(calendars) ?? [];
   const ready = (): ItipView | null => (view.loading || view.error ? null : view() ?? null);
-  const pickedCalendar = (): string | undefined => calendarId() || calendars()?.find((c) => c.role === 'default')?.id || calendars()?.[0]?.id;
+  const pickedCalendar = (): string | undefined => calendarId() || ownCalendarList().find((c) => c.role === 'default')?.id || ownCalendarList()[0]?.id;
 
   const range = createMemo(() => { const v = ready(); return v ? eventRange(v.event, zone()) : null; });
   const myStatus = (): string | null => ready()?.stored?.participationStatus ?? null;
@@ -373,11 +376,11 @@ export function EventCard(props: EventCardProps): JSX.Element {
     return { month: formatDateWith(r.start, { month: 'short', timeZone: tz }), day: formatDateWith(r.start, { day: 'numeric', timeZone: tz }) };
   };
   const calendarPicker = (): JSX.Element => (
-    <Show when={(calendars() ?? []).length > 1}>
+    <Show when={ownCalendarList().length > 1}>
       <label class={css.optionRow}>
         <span>{t('calendar-card-calendar')}</span>
         <select value={pickedCalendar() ?? ''} onChange={(e) => setCalendarId(e.currentTarget.value)} disabled={busy()}>
-          <For each={calendars() ?? []}>{(c) => <option value={c.id}>{c.name}</option>}</For>
+          <For each={ownCalendarList()}>{(c) => <option value={c.id}>{c.name}</option>}</For>
         </select>
       </label>
     </Show>
@@ -430,7 +433,7 @@ export function EventCard(props: EventCardProps): JSX.Element {
               <div class={css.body}>
                 <Details ev={v().event} zone={zone()} range={range()} participants={(kind() === 'reply' || (kind() === 'invite' && v().outcome === 'current')) && v().stored?.participants ? v().stored!.participants : undefined} />
                 <Show when={range() && kind() !== 'reply'}>
-                  <DayAgenda accountId={props.accountId} client={client} range={range()!} uid={v().event.uid} zone={zone()} calendars={calendars() ?? []} />
+                  <DayAgenda accountId={props.accountId} client={client} range={range()!} uid={v().event.uid} zone={zone()} calendars={ownCalendarList()} />
                 </Show>
               </div>
             </Show>

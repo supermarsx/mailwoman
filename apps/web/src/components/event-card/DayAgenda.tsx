@@ -4,6 +4,7 @@
 // calendar module's column layout and chip ink so it reads like the day view.
 
 import { createResource, For, Show, type JSX } from 'solid-js';
+import { resourceValue } from '../resourceValue.ts';
 import type { Client } from '../../api/client.ts';
 import { formatDateWith, formatList, t } from '../../i18n';
 import { wallTimeCandidates } from '../../i18n/timezones.ts';
@@ -78,10 +79,10 @@ export function DayAgenda(props: {
     while (last - first < 4) { if (first > 0) first -= 1; if (last - first < 4 && last < 24) last += 1; if (first === 0 && last === 24) break; }
     return { first, last };
   };
-  const visible = (): DayInstance[] => (own() ?? []).filter((i) => i.uid !== props.uid && i.status !== 'cancelled');
+  const visible = (): DayInstance[] => (resourceValue(own) ?? []).filter((i) => i.uid !== props.uid && i.status !== 'cancelled');
   const timed = (): DayInstance[] => visible().filter((i) => !i.allDay && i.end.getTime() - i.start.getTime() < 86_400_000);
   const allDay = (): DayInstance[] => visible().filter((i) => i.allDay || i.end.getTime() - i.start.getTime() >= 86_400_000);
-  const conflicts = (): DayInstance[] => conflictsWith(props.range, props.uid, own() ?? []);
+  const conflicts = (): DayInstance[] => conflictsWith(props.range, props.uid, resourceValue(own) ?? []);
   // Minutes from the window start, clamped to the window.
   const pos = (d: Date): number => {
     const fromDay = (d.getTime() - day().from.getTime()) / 60_000;

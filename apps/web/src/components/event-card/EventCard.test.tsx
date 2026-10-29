@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { Suspense } from 'solid-js';
 import { fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import type { JmapRequest, JmapResponse } from '../../api/jmap-types.ts';
 import { EventCard } from './EventCard.tsx';
@@ -248,5 +249,36 @@ describe('the reader event card', () => {
     const inst = (title: string) => ({ eventId: title, uid: title, title, calendarId: 'c', start: new Date(0), end: new Date(1), allDay: false, status: 'confirmed', freeBusy: 'busy' });
     expect(conflictTitles([inst('A'), inst('B')])).toBe('A and B');
     expect(conflictTitles([inst('A'), inst('B'), inst('C'), inst('D')])).toBe('A, B, and 2 more');
+  });
+});
+
+// t60: the mailbox route's <Suspense> wraps the whole shell. A card that reads a
+// loading resource directly suspends it: the shell is swapped for "Loading…"
+// and back, and every open message frame reloads (blank body, images fetched
+// twice). The card must render inside a Suspense without ever triggering it.
+describe('the event card under the mailbox Suspense', () => {
+  it('never shows the Suspense fallback while its invitation and calendars load', async () => {
+    let releaseCalendars: () => void = () => {};
+    const calendarsGate = new Promise<void>((resolve) => { releaseCalendars = resolve; });
+    const s = stub({
+      'CalendarEvent/itip': () => view(),
+      'Calendar/get': () => ({ accountId: 'a', list: [
+        { id: 'c1', name: 'Work', color: '#2563eb', role: 'default', component: 'VEVENT' },
+        { id: 'c2', name: 'Home', color: '#16a34a', role: null, component: 'VEVENT' },
+      ] }),
+    });
+    const slow = { jmap: vi.fn(async (request: JmapRequest): Promise<JmapResponse> => {
+      if (request.methodCalls[0]![0] === 'Calendar/get') await calendarsGate;
+      return s.jmap(request);
+    }) };
+    const fallbacks: number[] = [];
+    const Fallback = () => { fallbacks.push(Date.now()); return <p>Shell loading</p>; };
+    render(() => <Suspense fallback={<Fallback />}><p>Shell</p><EventCard accountId="a" emailId="e" client={slow} zone="UTC" /></Suspense>);
+    await waitFor(() => expect(card()).toBeInTheDocument());
+    expect(screen.getByText('Shell')).toBeInTheDocument();
+    releaseCalendars();
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
+    expect(fallbacks).toEqual([]);
+    expect(screen.queryByText('Shell loading')).toBeNull();
   });
 });
