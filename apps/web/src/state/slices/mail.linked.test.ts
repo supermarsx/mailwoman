@@ -6,7 +6,9 @@ import {CAP_MAIL,type JmapRequest,type JmapResponse,type JmapSession} from '../.
 import {activeLinkedMailbox,installLinkedMailbox,setPrimaryMailboxAuthority} from '../../api/linkedMailboxSession.ts';
 import {preferenceAccount,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
 const {authorize}=vi.hoisted(()=>({authorize:vi.fn(async(id:string)=>({context:{linkId:id,accountId:'same',storageAuthority:'msa1_child_verified'}}))}));
-vi.mock('../../api/linkedAccounts.ts',()=>({createLinkedAccountsApi:()=>({authorize,dispose:()=>undefined})}));
+// `list` is what mail.ts asks at sign-in for the mailbox to open first (t40): no
+// link is marked, so the sign-in mailbox opens and these tests switch by hand.
+vi.mock('../../api/linkedAccounts.ts',()=>({createLinkedAccountsApi:()=>({authorize,list:async()=>({policy:{enabled:true},accounts:[],primaryMailbox:null,primaryFallback:false}),setPrimary:async()=>undefined,dispose:()=>undefined})}));
 afterEach(()=>{installLinkedMailbox(null);setPrimaryMailboxAuthority(undefined);suspendAccountPreferences();vi.clearAllMocks();});
 const identity=(child:boolean):Me=>({accountId:'same',username:child?'child@example.org':'parent@example.org',storageAuthority:child?'msa1_child_verified':'msa1_parent_verified'});
 function discovery(child:boolean):JmapSession{return {accounts:{same:{name:'Mailbox',isPersonal:true,isReadOnly:false,accountCapabilities:{}}},capabilities:{},primaryAccounts:{[CAP_MAIL]:'same'},username:identity(child).username,apiUrl:'/jmap/api',downloadUrl:'/jmap/download/{accountId}/{blobId}/{name}',uploadUrl:'/jmap/upload/same',eventSourceUrl:'/events',state:'s'};}
