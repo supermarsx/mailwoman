@@ -673,7 +673,7 @@ impl Engine {
     /// `calendar_id` already held their UID before this batch (t28-e21: a
     /// re-import adds nothing). Components of one batch that share a UID are
     /// kept as before; only what was stored earlier is compared.
-    async fn persist_new_events(
+    pub(super) async fn persist_new_events(
         &self,
         account_id: &str,
         calendar_id: &str,
@@ -765,12 +765,22 @@ impl Engine {
 
     // ── CalendarEvent/respond (iTIP REPLY / COUNTER) ─────────────────────────
 
+    /// `{eventId, action, comment?, sendResponse?, counter?}` answers a stored
+    /// invitation; `{emailId, ...}` answers the one in a received message (see
+    /// `itip_ingest.rs`). The attendee answering is the participant whose
+    /// address the account may send as (t53): the address that was invited,
+    /// not necessarily the login identity. The attendee's copy keeps the
+    /// organizer's SEQUENCE (RFC 5546 §2.1.4: only the organizer bumps it), so
+    /// the organizer's next update or cancellation is not taken for stale.
     pub(crate) async fn event_respond(
         &self,
         account_id: &str,
         rt: &AccountRuntime,
         args: &Value,
     ) -> Value {
+        if args.get("emailId").is_some() {
+            return self.event_respond_to_message(account_id, rt, args).await;
+        }
         let event_id = args
             .get("eventId")
             .and_then(Value::as_str)
@@ -793,27 +803,25 @@ impl Engine {
             "counter" => "tentative",
             other => return server_fail(format!("unknown respond action {other}")),
         };
-        // Update our own participation status (participants keyed by email).
-        let me = rt.identity.clone();
-        if let Some(parts) = json.get_mut("participants").and_then(Value::as_object_mut)
-            && let Some(p) = parts.get_mut(&me).and_then(Value::as_object_mut)
-        {
-            p.insert("participationStatus".into(), json!(partstat));
-        }
-        // A counter proposes a new start/duration.
+        // Our own participant entry: the invited address we may send as.
+        let me = self
+            .invited_address(account_id, rt, &json)
+            .await
+            .unwrap_or_else(|| rt.identity.clone());
+        set_participation(&mut json, &me, partstat);
+        // A counter proposes a new start/duration to the organizer; the
+        // attendee's own copy is unchanged until the organizer agrees.
+        let mut proposal = json.clone();
         if action == "counter"
             && let Some(counter) = args.get("counter")
         {
             if let Some(start) = counter.get("start").and_then(Value::as_str) {
-                set_str(&mut json, "start", start);
+                set_str(&mut proposal, "start", start);
             }
             if let Some(dur) = counter.get("duration").and_then(Value::as_str) {
-                set_str(&mut json, "duration", dur);
+                set_str(&mut proposal, "duration", dur);
             }
         }
-        // Bump sequence.
-        let seq = json.get("sequence").and_then(Value::as_i64).unwrap_or(0) + 1;
-        set_json(&mut json, "sequence", json!(seq));
 
         // Persist the local change.
         if let Err(e) = self
@@ -839,17 +847,118 @@ impl Engine {
             )
             .await;
 
-        // Send the iMIP REPLY / COUNTER to the organizer.
-        let method = if action == "counter" {
-            mw_ics::ItipMethod::Counter
-        } else {
-            mw_ics::ItipMethod::Reply
-        };
-        if let Some(org) = organizer_email(&json) {
-            self.send_itip(rt, &me, &[org], &json, method).await;
+        // Send the iMIP REPLY / COUNTER to the organizer, unless asked not to.
+        let send = args
+            .get("sendResponse")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let comment = args.get("comment").and_then(Value::as_str);
+        let mut sent = false;
+        if send && let Some(org) = organizer_email(&json) {
+            let ics = if action == "counter" {
+                mw_ics::build_itip(&attendee_view(&proposal, &me), mw_ics::ItipMethod::Counter)
+            } else {
+                mw_ics::build_itip_reply(&json, &me, reply_status(partstat), comment)
+            };
+            sent = match ics {
+                Ok(ics) => {
+                    let method = if action == "counter" {
+                        "COUNTER"
+                    } else {
+                        "REPLY"
+                    };
+                    self.submit_itip(rt, &me, &[org], method, &title_of(&json), &ics)
+                        .await
+                        .is_ok()
+                }
+                Err(e) => {
+                    tracing::warn!("iTIP answer not built: {e}");
+                    false
+                }
+            };
         }
         self.broadcast_state(account_id).await;
-        json!({ "accountId": account_id, "updated": self.reload_event_json(account_id, event_id).await })
+        json!({
+            "accountId": account_id,
+            "updated": self.reload_event_json(account_id, event_id).await,
+            "from": me,
+            "sent": sent,
+        })
+    }
+
+    /// The address the account was invited at: a non-organizer participant of
+    /// `event` that is the login identity or an address the account may send
+    /// as (`sender_address_allowed`: configured identities, server identities,
+    /// enabled masked addresses). `None` when the event lists none of them.
+    pub(super) async fn invited_address(
+        &self,
+        account_id: &str,
+        rt: &AccountRuntime,
+        event: &Value,
+    ) -> Option<String> {
+        let parts = event.get("participants")?.as_object()?;
+        let mut candidates = Vec::new();
+        for (key, p) in parts {
+            if p.get("role").and_then(Value::as_str) == Some("organizer") {
+                continue;
+            }
+            let email = p
+                .get("email")
+                .and_then(Value::as_str)
+                .filter(|e| !e.is_empty())
+                .unwrap_or(key);
+            candidates.push(email.to_string());
+        }
+        if let Some(exact) = candidates
+            .iter()
+            .find(|c| mw_ics::same_address(c, &rt.identity))
+        {
+            return Some(exact.clone());
+        }
+        for c in candidates {
+            if matches!(
+                crate::identity::sender_address_allowed(self.store(), account_id, &rt.identity, &c)
+                    .await,
+                Ok(true)
+            ) {
+                return Some(c);
+            }
+        }
+        None
+    }
+
+    /// Submit a built iTIP payload as a `text/calendar` message from `from` to
+    /// `to`, after the envelope checks every iTIP send passes. `Err` is a
+    /// reason fit for the log; nothing is sent then.
+    pub(super) async fn submit_itip(
+        &self,
+        rt: &AccountRuntime,
+        from: &str,
+        to: &[String],
+        method: &str,
+        title: &str,
+        ics: &str,
+    ) -> std::result::Result<(), String> {
+        let envelope = mw_smtp::validate_reverse_path(from)
+            .and_then(|()| to.iter().try_for_each(|r| mw_smtp::validate_mailbox(r)));
+        if let Err(e) = envelope {
+            // The error text holds the address debug-escaped and truncated.
+            tracing::warn!("iTIP not sent: {e}");
+            return Err(e.to_string());
+        }
+        let raw = build_itip_mime(from, to, method, title, ics);
+        rt.submitter
+            .submit(mw_smtp::Outgoing {
+                mail_from: from.to_string(),
+                rcpt_to: to.to_vec(),
+                raw,
+            })
+            .await
+            .map(|_| ())
+            .map_err(|e| {
+                tracing::warn!("iTIP submit failed: {e}");
+                e.to_string()
+            })
     }
 
     // ── CalendarEvent/quickAdd (P3 — natural-language create) ────────────────
@@ -1039,10 +1148,10 @@ impl Engine {
         event_json: &Value,
         method: mw_ics::ItipMethod,
     ) {
+        // Envelope first: a bad address and nothing is built.
         let envelope = mw_smtp::validate_reverse_path(from)
             .and_then(|()| to.iter().try_for_each(|r| mw_smtp::validate_mailbox(r)));
         if let Err(e) = envelope {
-            // The error text holds the address debug-escaped and truncated.
             tracing::warn!("iTIP not sent: {e}");
             return;
         }
@@ -1053,23 +1162,70 @@ impl Engine {
                 return;
             }
         };
-        let method_name = method_name(method);
-        let title = event_json
-            .get("title")
-            .and_then(Value::as_str)
-            .unwrap_or("Event");
-        let raw = build_itip_mime(from, to, method_name, title, &ics);
-        if let Err(e) = rt
-            .submitter
-            .submit(mw_smtp::Outgoing {
-                mail_from: from.to_string(),
-                rcpt_to: to.to_vec(),
-                raw,
+        let _ = self
+            .submit_itip(
+                rt,
+                from,
+                to,
+                method_name(method),
+                &title_of(event_json),
+                &ics,
+            )
+            .await;
+    }
+}
+
+/// The event's title for a `Subject:` line.
+pub(super) fn title_of(json: &Value) -> String {
+    json.get("title")
+        .and_then(Value::as_str)
+        .filter(|t| !t.is_empty())
+        .unwrap_or("Event")
+        .to_string()
+}
+
+/// Set `address`'s participation status in `json`, matched by key or `email`.
+pub(super) fn set_participation(json: &mut Value, address: &str, partstat: &str) {
+    if let Some(parts) = json.get_mut("participants").and_then(Value::as_object_mut)
+        && let Some(p) = parts
+            .iter_mut()
+            .find(|(k, p)| {
+                mw_ics::same_address(k, address)
+                    || p.get("email")
+                        .and_then(Value::as_str)
+                        .is_some_and(|e| mw_ics::same_address(e, address))
             })
-            .await
-        {
-            tracing::warn!("iTIP submit failed: {e}");
-        }
+            .map(|(_, p)| p)
+            .and_then(Value::as_object_mut)
+    {
+        p.insert("participationStatus".into(), json!(partstat));
+    }
+}
+
+/// `json` as one attendee writes it to the organizer (a COUNTER): the
+/// organizer and that attendee only, no alarms, no overrides.
+pub(super) fn attendee_view(json: &Value, me: &str) -> Value {
+    let mut out = json.clone();
+    if let Some(parts) = out.get_mut("participants").and_then(Value::as_object_mut) {
+        parts.retain(|k, p| {
+            p.get("role").and_then(Value::as_str) == Some("organizer")
+                || mw_ics::same_address(k, me)
+                || p.get("email")
+                    .and_then(Value::as_str)
+                    .is_some_and(|e| mw_ics::same_address(e, me))
+        });
+    }
+    set_json(&mut out, "alerts", json!({}));
+    set_json(&mut out, "recurrenceOverrides", json!({}));
+    out
+}
+
+/// The REPLY answer for a participation status.
+pub(super) fn reply_status(partstat: &str) -> mw_ics::ReplyStatus {
+    match partstat {
+        "accepted" => mw_ics::ReplyStatus::Accepted,
+        "declined" => mw_ics::ReplyStatus::Declined,
+        _ => mw_ics::ReplyStatus::Tentative,
     }
 }
 
@@ -1112,7 +1268,7 @@ pub(super) fn set_json(json: &mut Value, key: &str, val: Value) {
 }
 
 /// The organizer's email from a projection (the participant with `role:organizer`).
-fn organizer_email(json: &Value) -> Option<String> {
+pub(super) fn organizer_email(json: &Value) -> Option<String> {
     let parts = json.get("participants").and_then(Value::as_object)?;
     parts
         .iter()

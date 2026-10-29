@@ -1,11 +1,16 @@
-//! `CalendarEvent/itip` (26.20 t28-e21): read the iTIP part of a received
-//! message, say what applying it would do, and apply it only when asked.
+//! `CalendarEvent/itip` (26.20 t28-e21, t53): read the calendar part of a
+//! received message, say what applying it would do, and apply it only when
+//! asked.
 //!
-//! `{emailId, apply?, calendarId?}` → `{accountId, emailId, method, sender,
-//! organizer, event, eventId, outcome, applied}`. The message is read from the
-//! account's own store (an id of another account does not resolve), and the
-//! sender is its `From` address: the client names the message, never who sent
-//! it.
+//! `{emailId, blobId?, apply?, calendarId?, uids?}` → `{accountId, emailId,
+//! method, sender, organizer, me, event, items, todos, eventId, stored,
+//! outcome, applied}`. The message is read from the account's own store (an id
+//! of another account does not resolve), and the sender is its `From`
+//! address: the client names the message, never who sent it. `blobId` names
+//! one part of that message (`<emailId>.<n>`, an `.ics` attachment); without
+//! it the first calendar part is read (`text/calendar`, `application/ics`, or
+//! a file named `*.ics`). The part is bounded (`mw_ics::MAX_CALENDAR_BYTES`,
+//! `MAX_CALENDAR_ITEMS`) and nothing it names is fetched.
 //!
 //! The guards, in RFC 5546 terms:
 //! - a REQUEST or CANCEL changes a stored event only when its sender is that
@@ -16,10 +21,14 @@
 //!   message);
 //! - a REQUEST for a UID the account does not hold is a new invitation: anyone
 //!   may send one, and it is added only by the user's action;
-//! - COUNTER is shown, not applied.
+//! - COUNTER is shown, not applied;
+//! - PUBLISH, or a calendar file with no METHOD, is a set of events to add:
+//!   outcome `publish` (or `current` when every one is already held), applied
+//!   by the user's action as an import that never overwrites a held UID.
 //!
-//! Nothing here sends mail. Answering an invitation is `CalendarEvent/respond`,
-//! which sends through `send_itip` and its address checks.
+//! Answering an invitation is `CalendarEvent/respond {emailId, action, …}`
+//! ([`Engine::event_respond_to_message`]): it runs the same guards, stores
+//! the answer, and sends the REPLY from the address that was invited.
 
 use mail_parser::{MessageParser, MimeHeaders, PartType};
 use serde_json::{Value, json};
@@ -28,7 +37,10 @@ use crate::account::AccountRuntime;
 use crate::change::{ChangeOp, ChangeType};
 use crate::engine::Engine;
 
-use super::events::{method_name, normalize_event, set_json, set_str};
+use super::events::{
+    attendee_view, method_name, normalize_event, reply_status, set_json, set_participation,
+    set_str, title_of,
+};
 use super::{gen_id, server_fail};
 use mw_ics::ItipMethod;
 use mw_store::EventRow;
@@ -57,6 +69,8 @@ enum Outcome {
     UnknownEvent,
     /// A COUNTER: shown to the user, never applied here.
     Unsupported,
+    /// PUBLISH or a plain calendar file with an event not yet held.
+    Publish,
 }
 
 impl Outcome {
@@ -72,53 +86,118 @@ impl Outcome {
             Outcome::NotAttendee => "notAttendee",
             Outcome::UnknownEvent => "unknownEvent",
             Outcome::Unsupported => "unsupported",
+            Outcome::Publish => "publish",
         }
     }
 
     fn applies(self) -> bool {
         matches!(
             self,
-            Outcome::New | Outcome::Update | Outcome::Cancel | Outcome::Reply
+            Outcome::New | Outcome::Update | Outcome::Cancel | Outcome::Reply | Outcome::Publish
         )
     }
 }
 
-/// The scheduling content of a received message.
-struct Invitation {
+/// The calendar content of a received message.
+struct Received {
     /// The single `From` address, lower-cased.
     sender: String,
-    /// The `text/calendar` (or `application/ics`) part, decoded.
-    ics: String,
+    /// The `METHOD`, upper-cased (`None` for a plain calendar file).
+    method: Option<String>,
+    /// The VEVENT projections, each with `itipDtstamp` when it has one.
+    events: Vec<Value>,
+    /// How many VTODOs the part also holds (shown, not imported).
+    todos: usize,
 }
 
 impl Engine {
+    /// Read the calendar part `args` names (`emailId`, optional `blobId`).
+    async fn received_calendar(
+        &self,
+        account_id: &str,
+        args: &Value,
+    ) -> std::result::Result<Received, Value> {
+        let Some(email_id) = args.get("emailId").and_then(Value::as_str) else {
+            return Err(invalid("CalendarEvent/itip requires emailId"));
+        };
+        // A message id only: not one of its parts, not an upload.
+        if email_id.is_empty() || email_id.contains('.') || email_id.starts_with('U') {
+            return Err(not_found(email_id));
+        }
+        let part_blob = match args.get("blobId").and_then(Value::as_str) {
+            None => None,
+            // A part of this message, by its index: never another message's
+            // part, never an upload.
+            Some(b) => match b.strip_prefix(email_id).and_then(|r| r.strip_prefix('.')) {
+                Some(idx) if !idx.is_empty() && idx.bytes().all(|c| c.is_ascii_digit()) => {
+                    Some(b.to_string())
+                }
+                _ => return Err(not_found(b)),
+            },
+        };
+        let raw = match self.fetch_blob(account_id, email_id).await {
+            Ok(Some(blob)) => blob.bytes,
+            Ok(None) => return Err(not_found(email_id)),
+            Err(e) => return Err(server_fail(e)),
+        };
+        let Some(sender) = single_sender(&raw) else {
+            return Err(invalid("the message has no single sender address"));
+        };
+        let bytes = match part_blob {
+            Some(blob_id) => match self.fetch_blob(account_id, &blob_id).await {
+                Ok(Some(blob)) => blob.bytes,
+                Ok(None) => return Err(not_found(&blob_id)),
+                Err(e) => return Err(server_fail(e)),
+            },
+            None => match first_calendar_part(&raw) {
+                Some(b) => b,
+                None => return Err(invalid("the message has no calendar part")),
+            },
+        };
+        let msg = match mw_ics::read_calendar_message(&bytes) {
+            Ok(m) => m,
+            Err(e) => return Err(invalid(format!("the calendar part cannot be read: {e}"))),
+        };
+        let todos = msg.items.iter().filter(|i| i.component == "VTODO").count();
+        let events: Vec<Value> = msg
+            .items
+            .into_iter()
+            .filter(|i| i.component == "VEVENT")
+            .map(|i| i.json)
+            .collect();
+        if events.is_empty() {
+            return Err(invalid("the calendar part has no event"));
+        }
+        Ok(Received {
+            sender,
+            method: msg.method,
+            events,
+            todos,
+        })
+    }
+
     pub(crate) async fn event_itip(
         &self,
         account_id: &str,
         rt: &AccountRuntime,
         args: &Value,
     ) -> Value {
-        let Some(email_id) = args.get("emailId").and_then(Value::as_str) else {
-            return invalid("CalendarEvent/itip requires emailId");
-        };
         let apply = args.get("apply").and_then(Value::as_bool).unwrap_or(false);
-        // A message id only: not one of its parts, not an upload.
-        if email_id.is_empty() || email_id.contains('.') || email_id.starts_with('U') {
-            return not_found(email_id);
-        }
-        let raw = match self.fetch_blob(account_id, email_id).await {
-            Ok(Some(blob)) => blob.bytes,
-            Ok(None) => return not_found(email_id),
-            Err(e) => return server_fail(e),
+        let email_id = args
+            .get("emailId")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let received = match self.received_calendar(account_id, args).await {
+            Ok(r) => r,
+            Err(e) => return e,
         };
-        let Some(inv) = read_invitation(&raw) else {
-            return invalid("the message has no calendar part or no single sender address");
+        let Some(method) = received.method.as_deref().and_then(ItipMethod::from_name) else {
+            return self
+                .itip_publish(account_id, rt, args, &email_id, received, apply)
+                .await;
         };
-        let (method, parsed) = match mw_ics::parse_itip(inv.ics.as_bytes()) {
-            Ok(v) => v,
-            Err(e) => return invalid(format!("the calendar part is not an iTIP message: {e}")),
-        };
-        let mut incoming = parsed.json;
+        let mut incoming = received.events.into_iter().next().unwrap_or_default();
         let uid = incoming
             .get("uid")
             .and_then(Value::as_str)
@@ -127,9 +206,8 @@ impl Engine {
         if uid.is_empty() {
             return invalid("the calendar part has no UID");
         }
-        let dtstamp = dtstamp_of(&inv.ics);
-        if let Some(d) = &dtstamp {
-            set_str(&mut incoming, "itipDtstamp", d);
+        if incoming.get("itipDtstamp").is_none() {
+            set_json(&mut incoming, "itipDtstamp", Value::Null);
         }
 
         let stored = match self.event_by_uid(account_id, &uid).await {
@@ -137,16 +215,36 @@ impl Engine {
             Err(e) => return server_fail(e),
         };
         let stored_json = stored.as_ref().map(|row| self.event_row_to_json(row));
-        let outcome = decide(method, &inv.sender, &incoming, stored_json.as_ref());
+        let outcome = decide(method, &received.sender, &incoming, stored_json.as_ref());
+        let me = match method {
+            ItipMethod::Request | ItipMethod::Cancel => {
+                self.invited_address(account_id, rt, &incoming).await
+            }
+            _ => None,
+        };
+        // For a REPLY: what its sender answered.
+        let answer = (method == ItipMethod::Reply)
+            .then(|| participant(&incoming, &received.sender))
+            .flatten()
+            .and_then(|p| p.get("participationStatus").cloned());
 
         let mut out = json!({
             "accountId": account_id,
             "emailId": email_id,
             "method": method_name(method),
-            "sender": inv.sender,
+            "sender": received.sender,
             "organizer": organizer_of(&incoming),
+            "me": me,
+            "answer": answer,
             "event": incoming,
+            "items": [{
+                "event": incoming,
+                "eventId": stored.as_ref().map(|r| r.id.clone()),
+                "calendarId": stored.as_ref().map(|r| r.calendar_id.clone()),
+            }],
+            "todos": received.todos,
             "eventId": stored.as_ref().map(|r| r.id.clone()),
+            "stored": stored_json.as_ref().map(|s| stored_summary(s, me.as_deref())),
             "outcome": outcome.wire(),
             "applied": false,
         });
@@ -162,7 +260,7 @@ impl Engine {
                 let next = match o {
                     Outcome::Update => updated(&current, out["event"].clone()),
                     Outcome::Cancel => cancelled(&current, &out["event"]),
-                    _ => replied(&current, &out["event"], &inv.sender),
+                    _ => replied(&current, &out["event"], &received.sender),
                 };
                 self.itip_replace(account_id, rt, &row, next).await
             }
@@ -171,12 +269,315 @@ impl Engine {
         match applied {
             Ok(id) => {
                 out["eventId"] = json!(id);
+                out["items"][0]["eventId"] = json!(id);
                 out["applied"] = json!(true);
+                if let Ok(Some(row)) = self.owned_event(account_id, &id).await {
+                    let json = self.event_row_to_json(&row);
+                    out["items"][0]["calendarId"] = json!(row.calendar_id);
+                    out["stored"] = stored_summary(&json, me.as_deref());
+                }
                 self.broadcast_state(account_id).await;
                 out
             }
             Err(e) => server_fail(e),
         }
+    }
+
+    /// PUBLISH, or a calendar file with no METHOD: events to add, by the
+    /// user's action, never over an event already held (any calendar).
+    async fn itip_publish(
+        &self,
+        account_id: &str,
+        rt: &AccountRuntime,
+        args: &Value,
+        email_id: &str,
+        received: Received,
+        apply: bool,
+    ) -> Value {
+        let mut items = Vec::new();
+        for ev in &received.events {
+            let uid = ev.get("uid").and_then(Value::as_str).unwrap_or_default();
+            let stored = if uid.is_empty() {
+                None
+            } else {
+                match self.event_by_uid(account_id, uid).await {
+                    Ok(v) => v,
+                    Err(e) => return server_fail(e),
+                }
+            };
+            items.push(json!({
+                "event": ev,
+                "eventId": stored.as_ref().map(|r| r.id.clone()),
+                "calendarId": stored.as_ref().map(|r| r.calendar_id.clone()),
+            }));
+        }
+        let all_held = items.iter().all(|i| !i["eventId"].is_null());
+        let outcome = if all_held {
+            Outcome::Current
+        } else {
+            Outcome::Publish
+        };
+        let mut out = json!({
+            "accountId": account_id,
+            "emailId": email_id,
+            "method": received.method,
+            "sender": received.sender,
+            "organizer": organizer_of(&received.events[0]),
+            "me": Value::Null,
+            "answer": Value::Null,
+            "event": received.events[0],
+            "items": items,
+            "todos": received.todos,
+            "eventId": Value::Null,
+            "stored": Value::Null,
+            "outcome": outcome.wire(),
+            "applied": false,
+        });
+        out["eventId"] = out["items"][0]["eventId"].clone();
+        if !apply || outcome != Outcome::Publish {
+            return out;
+        }
+        // Only the UIDs asked for (`uids`), when given; never one already held.
+        let wanted: Option<Vec<String>> = args.get("uids").and_then(Value::as_array).map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(String::from)
+                .collect()
+        });
+        let mut picked = Vec::new();
+        let mut positions = Vec::new();
+        for (n, item) in out["items"].as_array().into_iter().flatten().enumerate() {
+            let uid = item["event"]["uid"].as_str().unwrap_or_default();
+            if !item["eventId"].is_null()
+                || wanted.as_ref().is_some_and(|w| !w.iter().any(|u| u == uid))
+            {
+                continue;
+            }
+            let mut ev = item["event"].clone();
+            if let Some(obj) = ev.as_object_mut() {
+                obj.remove("itipDtstamp");
+            }
+            normalize_event(&mut ev);
+            picked.push(ev);
+            positions.push(n);
+        }
+        let calendar_id = match args.get("calendarId").and_then(Value::as_str) {
+            Some(c) => c.to_string(),
+            None => match self.ensure_default_calendar(account_id, "VEVENT").await {
+                Ok(c) => c,
+                Err(e) => return server_fail(e),
+            },
+        };
+        let (created, _skipped) = self
+            .persist_new_events(account_id, &calendar_id, picked, Some(rt))
+            .await;
+        // `persist_new_events` keeps the batch order and skips only failures,
+        // so the created ids are matched back by UID, not by position.
+        for id in &created {
+            if let Ok(Some(row)) = self.owned_event(account_id, id).await
+                && let Some(n) = positions
+                    .iter()
+                    .copied()
+                    .find(|n| out["items"][*n]["event"]["uid"].as_str() == Some(row.uid.as_str()))
+            {
+                out["items"][n]["eventId"] = json!(row.id);
+                out["items"][n]["calendarId"] = json!(row.calendar_id);
+            }
+        }
+        out["eventId"] = out["items"][0]["eventId"].clone();
+        out["imported"] = json!(created);
+        out["applied"] = json!(!created.is_empty());
+        if !created.is_empty() {
+            self.broadcast_state(account_id).await;
+        }
+        out
+    }
+
+    /// `CalendarEvent/respond {emailId, blobId?, action, calendarId?,
+    /// comment?, sendResponse?, counter?}`: answer the invitation in a
+    /// received message.
+    ///
+    /// The message must be a REQUEST that `CalendarEvent/itip` would apply
+    /// (`new`, `update` or `current`): a stale one is refused (`code:
+    /// "stale"`), and so is one about a stored event its sender does not
+    /// organize (`notOrganizer`). The answering attendee is the address the
+    /// account was invited at ([`Engine::invited_address`]); an invitation
+    /// listing none of the account's addresses is refused (`notInvited`) and
+    /// nothing is sent. Accept and tentative store the event (a new one in
+    /// `calendarId` or the default calendar) with the answer; decline records
+    /// the answer on a stored event and adds nothing; counter proposes
+    /// `counter.start`/`counter.duration` and changes nothing stored. The
+    /// REPLY (or COUNTER) goes to the organizer unless `sendResponse` is
+    /// false.
+    pub(crate) async fn event_respond_to_message(
+        &self,
+        account_id: &str,
+        rt: &AccountRuntime,
+        args: &Value,
+    ) -> Value {
+        let action = args
+            .get("action")
+            .and_then(Value::as_str)
+            .unwrap_or("accept");
+        let partstat = match action {
+            "accept" => "accepted",
+            "decline" => "declined",
+            "tentative" | "counter" => "tentative",
+            other => return invalid(format!("unknown respond action {other}")),
+        };
+        let email_id = args
+            .get("emailId")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let received = match self.received_calendar(account_id, args).await {
+            Ok(r) => r,
+            Err(e) => return e,
+        };
+        if received.method.as_deref() != Some("REQUEST") {
+            return refusal(
+                "notRequest",
+                "only an invitation (METHOD:REQUEST) is answered",
+            );
+        }
+        let incoming = received.events.into_iter().next().unwrap_or_default();
+        let uid = incoming
+            .get("uid")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if uid.is_empty() {
+            return invalid("the calendar part has no UID");
+        }
+        let stored = match self.event_by_uid(account_id, &uid).await {
+            Ok(v) => v,
+            Err(e) => return server_fail(e),
+        };
+        let stored_json = stored.as_ref().map(|row| self.event_row_to_json(row));
+        let outcome = decide(
+            ItipMethod::Request,
+            &received.sender,
+            &incoming,
+            stored_json.as_ref(),
+        );
+        match outcome {
+            Outcome::New | Outcome::Update | Outcome::Current => {}
+            Outcome::Stale => {
+                return refusal(
+                    "stale",
+                    "a newer version of this invitation is in the calendar",
+                );
+            }
+            Outcome::NotOrganizer => {
+                return refusal("notOrganizer", "the sender is not the event's organizer");
+            }
+            _ => return invalid("this invitation cannot be answered"),
+        }
+        let Some(me) = self.invited_address(account_id, rt, &incoming).await else {
+            return refusal(
+                "notInvited",
+                "the invitation does not list an address this account sends as",
+            );
+        };
+        let Some(organizer) = organizer_of(&incoming) else {
+            return refusal("noOrganizer", "the invitation names no organizer");
+        };
+
+        // The event as the answer leaves it: the organizer's version (newer
+        // or current) with this attendee's status.
+        let mut answered = match (outcome, &stored_json) {
+            (Outcome::Update, Some(current)) => updated(current, incoming.clone()),
+            (Outcome::Current, Some(current)) => current.clone(),
+            _ => incoming.clone(),
+        };
+        set_participation(&mut answered, &me, partstat);
+
+        let mut event_id = stored.as_ref().map(|r| r.id.clone());
+        let store_it = match action {
+            "counter" => false,
+            "decline" => stored.is_some(),
+            _ => true,
+        };
+        if store_it {
+            let result = match &stored {
+                None => {
+                    self.itip_add(account_id, rt, args, &uid, answered.clone())
+                        .await
+                }
+                Some(row) => {
+                    self.itip_replace(account_id, rt, row, answered.clone())
+                        .await
+                }
+            };
+            match result {
+                Ok(id) => event_id = Some(id),
+                Err(e) => return server_fail(e),
+            }
+        }
+
+        let send = args
+            .get("sendResponse")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let mut sent = false;
+        if send {
+            let comment = args.get("comment").and_then(Value::as_str);
+            let built = if action == "counter" {
+                let mut proposal = attendee_view(&answered, &me);
+                let counter = args.get("counter").cloned().unwrap_or(Value::Null);
+                if let Some(start) = counter.get("start").and_then(Value::as_str) {
+                    set_str(&mut proposal, "start", start);
+                }
+                if let Some(dur) = counter.get("duration").and_then(Value::as_str) {
+                    set_str(&mut proposal, "duration", dur);
+                }
+                if let Some(c) = comment {
+                    set_str(&mut proposal, "description", c);
+                }
+                mw_ics::build_itip(&proposal, ItipMethod::Counter).map(|ics| ("COUNTER", ics))
+            } else {
+                mw_ics::build_itip_reply(&answered, &me, reply_status(partstat), comment)
+                    .map(|ics| ("REPLY", ics))
+            };
+            match built {
+                Ok((method, ics)) => {
+                    sent = self
+                        .submit_itip(
+                            rt,
+                            &me,
+                            std::slice::from_ref(&organizer),
+                            method,
+                            &title_of(&answered),
+                            &ics,
+                        )
+                        .await
+                        .is_ok();
+                }
+                Err(e) => tracing::warn!("iTIP answer not built: {e}"),
+            }
+        }
+        if store_it {
+            self.broadcast_state(account_id).await;
+        }
+        let calendar_id = match &event_id {
+            Some(id) => match self.owned_event(account_id, id).await {
+                Ok(Some(row)) => Some(row.calendar_id),
+                _ => None,
+            },
+            None => None,
+        };
+        json!({
+            "accountId": account_id,
+            "emailId": email_id,
+            "action": action,
+            "participationStatus": partstat,
+            "eventId": event_id,
+            "calendarId": calendar_id,
+            "from": me,
+            "to": organizer,
+            "sendResponse": send,
+            "sent": sent,
+        })
     }
 
     /// The account's event with `uid` in one of its own event calendars (a
@@ -213,7 +614,14 @@ impl Engine {
         mut json: Value,
     ) -> crate::backend::Result<String> {
         let calendar_id = match args.get("calendarId").and_then(Value::as_str) {
-            Some(c) => c.to_string(),
+            Some(c) => match self.owned_calendar(account_id, c).await? {
+                Some(_) => c.to_string(),
+                None => {
+                    return Err(crate::backend::EngineError::Protocol(format!(
+                        "unknown calendar {c}"
+                    )));
+                }
+            },
             None => self.ensure_default_calendar(account_id, "VEVENT").await?,
         };
         let id = gen_id("ev");
@@ -258,6 +666,22 @@ impl Engine {
         .await?;
         Ok(row.id.clone())
     }
+}
+
+/// What the card shows of a stored event: where it is, its status, and the
+/// account's own answer (when `me` is known).
+fn stored_summary(stored: &Value, me: Option<&str>) -> Value {
+    let mine = me
+        .and_then(|m| participant(stored, m))
+        .and_then(|p| p.get("participationStatus").cloned())
+        .unwrap_or(Value::Null);
+    json!({
+        "calendarId": stored.get("calendarId"),
+        "status": stored.get("status"),
+        "sequence": sequence(stored),
+        "participationStatus": mine,
+        "participants": stored.get("participants"),
+    })
 }
 
 /// The guard: what `method` from `sender` may do, given the stored event.
@@ -424,71 +848,48 @@ fn status_of(ev: &Value) -> &str {
     ev.get("status").and_then(Value::as_str).unwrap_or("")
 }
 
-/// The `From` address and the first calendar part of a message.
-fn read_invitation(raw: &[u8]) -> Option<Invitation> {
+/// The single `From` address of a message, lower-cased. A list in `From`
+/// does not say who sent the message.
+fn single_sender(raw: &[u8]) -> Option<String> {
     let message = MessageParser::default().parse(raw)?;
     let from = message.from()?;
-    // One sender only: a list in `From` does not say who sent the message.
     if from.iter().count() != 1 {
         return None;
     }
     let sender = from.first()?.address()?.trim().to_ascii_lowercase();
-    if sender.is_empty() {
-        return None;
-    }
-    let ics = message.parts.iter().find_map(|part| {
-        let ct = part.content_type()?;
-        let kind = format!("{}/{}", ct.ctype(), ct.subtype().unwrap_or("")).to_ascii_lowercase();
-        if kind != "text/calendar" && kind != "application/ics" {
+    (!sender.is_empty()).then_some(sender)
+}
+
+/// The first calendar part of a message: `text/calendar`, `application/ics`,
+/// or an attachment named `*.ics` (often sent as `application/octet-stream`).
+fn first_calendar_part(raw: &[u8]) -> Option<Vec<u8>> {
+    let message = MessageParser::default().parse(raw)?;
+    message.parts.iter().find_map(|part| {
+        let kind = part
+            .content_type()
+            .map(|ct| format!("{}/{}", ct.ctype(), ct.subtype().unwrap_or("")).to_ascii_lowercase())
+            .unwrap_or_default();
+        let named_ics = part
+            .attachment_name()
+            .is_some_and(|n| n.trim().to_ascii_lowercase().ends_with(".ics"));
+        if kind != "text/calendar" && kind != "application/ics" && !named_ics {
             return None;
         }
         match &part.body {
-            PartType::Text(t) => Some(t.to_string()),
-            PartType::Binary(b) | PartType::InlineBinary(b) => {
-                Some(String::from_utf8_lossy(b).into_owned())
-            }
+            PartType::Text(t) => Some(t.as_bytes().to_vec()),
+            PartType::Binary(b) | PartType::InlineBinary(b) => Some(b.to_vec()),
             _ => None,
         }
-    })?;
-    Some(Invitation { sender, ics })
-}
-
-/// The first VEVENT's DTSTAMP in UTC basic form (`20261020T090000Z`), or `None`
-/// when it is absent or not in that form (then only SEQUENCE is compared).
-fn dtstamp_of(ics: &str) -> Option<String> {
-    // Unfold continuation lines (RFC 5545 §3.1) before reading properties.
-    let unfolded = ics
-        .replace("\r\n ", "")
-        .replace("\r\n\t", "")
-        .replace("\n ", "");
-    let mut in_event = false;
-    for line in unfolded.lines() {
-        let line = line.trim_end_matches('\r');
-        if line.eq_ignore_ascii_case("BEGIN:VEVENT") {
-            in_event = true;
-        } else if line.eq_ignore_ascii_case("END:VEVENT") {
-            return None;
-        } else if in_event {
-            let Some((name, value)) = line.split_once(':') else {
-                continue;
-            };
-            let prop = name.split(';').next().unwrap_or("");
-            if prop.eq_ignore_ascii_case("DTSTAMP") {
-                let v = value.trim();
-                let ok = v.len() == 16
-                    && v.ends_with('Z')
-                    && v.as_bytes()[8] == b'T'
-                    && v[..8].bytes().all(|b| b.is_ascii_digit())
-                    && v[9..15].bytes().all(|b| b.is_ascii_digit());
-                return ok.then(|| v.to_string());
-            }
-        }
-    }
-    None
+    })
 }
 
 fn invalid(msg: impl std::fmt::Display) -> Value {
     json!({ "type": "invalidArguments", "description": msg.to_string() })
+}
+
+/// An `invalidArguments` the card tells apart by its `code`.
+fn refusal(code: &str, msg: &str) -> Value {
+    json!({ "type": "invalidArguments", "code": code, "description": msg })
 }
 
 fn not_found(email_id: &str) -> Value {
@@ -499,16 +900,45 @@ fn not_found(email_id: &str) -> Value {
 mod tests {
     use super::*;
 
+    const MSG: &str = "From: Olga <olga@example.com>
+To: me@example.org
+Subject: x
+        MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary=b
+
+        --b
+Content-Type: text/plain
+
+hi
+        --b
+Content-Type: application/octet-stream; name=invite.ics
+        Content-Disposition: attachment; filename=invite.ics
+
+        BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:a
+END:VEVENT
+END:VCALENDAR
+        --b--
+";
+
     #[test]
-    fn dtstamp_is_read_from_the_event_and_only_in_utc_basic_form() {
-        let ics = "BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:a\r\n\
-                   DTSTAMP:20261020T090000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
-        assert_eq!(dtstamp_of(ics).as_deref(), Some("20261020T090000Z"));
-        let local = ics.replace("20261020T090000Z", "20261020T090000");
-        assert_eq!(dtstamp_of(&local), None);
-        let folded = ics.replace("DTSTAMP:20261020T09", "DTSTAMP:20261020T09\r\n ");
-        assert_eq!(dtstamp_of(&folded).as_deref(), Some("20261020T090000Z"));
-        assert_eq!(dtstamp_of("BEGIN:VEVENT\r\nUID:a\r\nEND:VEVENT\r\n"), None);
+    fn an_ics_attachment_sent_as_octet_stream_is_the_calendar_part() {
+        let part = first_calendar_part(MSG.as_bytes()).unwrap();
+        assert!(String::from_utf8_lossy(&part).contains("UID:a"));
+        assert_eq!(
+            single_sender(MSG.as_bytes()).as_deref(),
+            Some("olga@example.com")
+        );
+    }
+
+    #[test]
+    fn a_message_from_two_senders_has_no_single_sender() {
+        let two = MSG.replace(
+            "From: Olga <olga@example.com>",
+            "From: a@example.com, b@example.com",
+        );
+        assert_eq!(single_sender(two.as_bytes()), None);
     }
 
     #[test]
