@@ -299,8 +299,8 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "linked_layout",
-        select: "SELECT owner_principal_id,order_json,nicknames_json,revision,updated_at FROM linked_layout",
-        insert: "INSERT INTO linked_layout(owner_principal_id,order_json,nicknames_json,revision,updated_at) VALUES(?1,?2,?3,?4,?5)",
+        select: "SELECT owner_principal_id,order_json,nicknames_json,revision,updated_at,avatars_json FROM linked_layout",
+        insert: "INSERT INTO linked_layout(owner_principal_id,order_json,nicknames_json,revision,updated_at,avatars_json) VALUES(?1,?2,?3,?4,?5,?6)",
         map: |r| {
             vec![
                 t(r, "owner_principal_id"),
@@ -308,6 +308,7 @@ const TABLES: &[TableSpec] = &[
                 t(r, "nicknames_json"),
                 t(r, "revision"),
                 i(r, "updated_at"),
+                t(r, "avatars_json"),
             ]
         },
     },

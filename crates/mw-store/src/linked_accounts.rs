@@ -34,6 +34,16 @@ async fn serialize(tx: &mut Tx) -> Result<(), StoreError> {
     Ok(())
 }
 
+/// The owner's stored mailbox arrangement (t40 f/g, t86 avatars), as JSON the
+/// server validates against the current links.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LinkedLayoutRow {
+    pub order_json: String,
+    pub nicknames_json: String,
+    pub revision: String,
+    pub avatars_json: String,
+}
+
 /// t48: the opened credential a link is re-established from. The password is
 /// held in a zeroizing buffer; deliberately no Debug/Serialize/Clone.
 pub struct LinkedCredential {
@@ -354,25 +364,30 @@ impl Store {
     }
 
     /// The owner's stored mailbox arrangement: `(order_json, nicknames_json,
-    /// revision)`. Validation against the current links is the caller's.
-    pub async fn linked_layout(
-        &self,
-        parent: &str,
-    ) -> Result<Option<(String, String, String)>, StoreError> {
-        Ok(q("SELECT ll.order_json,ll.nicknames_json,ll.revision FROM linked_layout ll JOIN session_principal sp ON sp.principal_id=ll.owner_principal_id JOIN sessions s ON s.id=sp.session_id AND s.account_id=sp.primary_account_id JOIN identity_principal p ON p.id=sp.principal_id JOIN identity_binding b ON b.id=sp.binding_id AND b.principal_id=p.id WHERE sp.session_id=?1 AND s.linked_internal=0 AND p.state='active' AND b.retired_at IS NULL")
+    /// revision, avatars_json)`. Validation against the current links is the
+    /// caller's.
+    pub async fn linked_layout(&self, parent: &str) -> Result<Option<LinkedLayoutRow>, StoreError> {
+        Ok(q("SELECT ll.order_json,ll.nicknames_json,ll.revision,ll.avatars_json FROM linked_layout ll JOIN session_principal sp ON sp.principal_id=ll.owner_principal_id JOIN sessions s ON s.id=sp.session_id AND s.account_id=sp.primary_account_id JOIN identity_principal p ON p.id=sp.principal_id JOIN identity_binding b ON b.id=sp.binding_id AND b.principal_id=p.id WHERE sp.session_id=?1 AND s.linked_internal=0 AND p.state='active' AND b.retired_at IS NULL")
             .bind(parent).fetch_optional(&self.backend).await?
-            .map(|r| (r.get_string("order_json"), r.get_string("nicknames_json"), r.get_string("revision"))))
+            .map(|r| LinkedLayoutRow {
+                order_json: r.get_string("order_json"),
+                nicknames_json: r.get_string("nicknames_json"),
+                revision: r.get_string("revision"),
+                avatars_json: r.get_string("avatars_json"),
+            }))
     }
 
     /// Replace the arrangement when `expected` is its current revision (`""`
     /// when none is stored yet). Returns the new revision, or `None` when the
-    /// session has no verified owner or the revision moved on.
+    /// session has no verified owner or the revision moved on. `avatars_json`
+    /// `None` keeps the stored avatars (a client that does not send them).
     pub async fn put_linked_layout(
         &self,
         parent: &str,
         expected: &str,
         order_json: &str,
         nicknames_json: &str,
+        avatars_json: Option<&str>,
         now: i64,
     ) -> Result<Option<String>, StoreError> {
         let mut tx = self.backend.begin().await?;
@@ -393,8 +408,9 @@ impl Store {
             return Ok(None);
         }
         let revision = uuid::Uuid::new_v4().to_string();
-        q("INSERT INTO linked_layout(owner_principal_id,order_json,nicknames_json,revision,updated_at) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(owner_principal_id) DO UPDATE SET order_json=excluded.order_json,nicknames_json=excluded.nicknames_json,revision=excluded.revision,updated_at=excluded.updated_at")
-            .bind(&owner).bind(order_json).bind(nicknames_json).bind(&revision).bind(now).execute_tx(&mut tx).await?;
+        // `?6` NULL = keep: a new row starts with none.
+        q("INSERT INTO linked_layout(owner_principal_id,order_json,nicknames_json,revision,updated_at,avatars_json) VALUES(?1,?2,?3,?4,?5,COALESCE(?6,'{}')) ON CONFLICT(owner_principal_id) DO UPDATE SET order_json=excluded.order_json,nicknames_json=excluded.nicknames_json,revision=excluded.revision,updated_at=excluded.updated_at,avatars_json=COALESCE(?6,linked_layout.avatars_json)")
+            .bind(&owner).bind(order_json).bind(nicknames_json).bind(&revision).bind(now).bind(avatars_json).execute_tx(&mut tx).await?;
         tx.commit().await?;
         Ok(Some(revision))
     }

@@ -784,17 +784,172 @@ pub(crate) fn normalized_order(order: &[String], keys: &[String]) -> Vec<String>
     out
 }
 
-fn layout_view(stored: Option<(String, String, String)>, keys: &[String]) -> Value {
-    let (order, nicknames, revision) = stored.unwrap_or_default();
-    let order: Vec<String> = serde_json::from_str(&order).unwrap_or_default();
+/// t86: the icons a mailbox avatar may show. The web app keeps the same list
+/// (apps/web/src/api/mailboxAvatar.ts, `AVATAR_ICONS`); anything else is refused.
+pub(crate) const AVATAR_ICONS: &[&str] = &[
+    "briefcase",
+    "office",
+    "laptop",
+    "team",
+    "store",
+    "chart",
+    "house",
+    "heartHome",
+    "family",
+    "person",
+    "smile",
+    "star",
+    "lock",
+    "shield",
+    "eyeOff",
+    "key",
+    "gear",
+    "crown",
+    "wrench",
+    "bolt",
+    "inbox",
+    "receipt",
+    "bell",
+    "cart",
+    "plane",
+    "school",
+];
+/// Longest avatar letter, in characters (Unicode scalar values), after trimming.
+pub(crate) const AVATAR_TEXT_MAX: usize = 2;
+
+/// One mailbox avatar as the client sends it (t86).
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct AvatarRequest {
+    pub(crate) kind: String,
+    #[serde(default)]
+    pub(crate) text: Option<String>,
+    #[serde(default)]
+    pub(crate) icon: Option<String>,
+    #[serde(default)]
+    pub(crate) fg: Option<String>,
+    #[serde(default)]
+    pub(crate) bg: Option<String>,
+}
+
+/// A character an avatar letter may not hold: controls, whitespace, and format
+/// characters (zero-width, bidirectional, soft hyphen, tag characters), so a
+/// letter cannot hide or reorder what is shown beside it.
+fn refused_avatar_char(c: char) -> bool {
+    c.is_control()
+        || c.is_whitespace()
+        || matches!(
+            c,
+            '\u{00AD}'
+                | '\u{0600}'..='\u{0605}'
+                | '\u{061C}'
+                | '\u{06DD}'
+                | '\u{070F}'
+                | '\u{08E2}'
+                | '\u{180E}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2060}'..='\u{206F}'
+                | '\u{FEFF}'
+                | '\u{FFF9}'..='\u{FFFB}'
+                | '\u{110BD}'
+                | '\u{1D173}'..='\u{1D17A}'
+                | '\u{E0001}'
+                | '\u{E0020}'..='\u{E007F}'
+        )
+}
+
+/// `#rrggbb` (any case), stored lower case.
+fn avatar_colour(raw: Option<&str>) -> Result<Option<String>, &'static str> {
+    let Some(raw) = raw else { return Ok(None) };
+    let value = raw.trim();
+    if value.len() == 7
+        && value.starts_with('#')
+        && value[1..].bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        Ok(Some(value.to_ascii_lowercase()))
+    } else {
+        Err("avatarColorInvalid")
+    }
+}
+
+/// A validated avatar as stored and sent back, or `None` for the default look
+/// (a letter with no text and no colours: nothing to keep).
+pub(crate) fn avatar(raw: &AvatarRequest) -> Result<Option<Value>, &'static str> {
+    let fg = avatar_colour(raw.fg.as_deref())?;
+    let bg = avatar_colour(raw.bg.as_deref())?;
+    let mut out = serde_json::Map::new();
+    match raw.kind.as_str() {
+        "letter" => {
+            if raw.icon.is_some() {
+                return Err("avatarInvalid");
+            }
+            let text = raw.text.as_deref().unwrap_or("").trim();
+            if text.chars().count() > AVATAR_TEXT_MAX {
+                return Err("avatarTextTooLong");
+            }
+            if text.chars().any(refused_avatar_char) {
+                return Err("avatarTextInvalid");
+            }
+            if text.is_empty() && fg.is_none() && bg.is_none() {
+                return Ok(None);
+            }
+            out.insert("kind".into(), json!("letter"));
+            if !text.is_empty() {
+                out.insert("text".into(), json!(text));
+            }
+        }
+        "icon" => {
+            if raw.text.is_some() {
+                return Err("avatarInvalid");
+            }
+            let icon = raw.icon.as_deref().unwrap_or("");
+            if !AVATAR_ICONS.contains(&icon) {
+                return Err("avatarIconUnknown");
+            }
+            out.insert("kind".into(), json!("icon"));
+            out.insert("icon".into(), json!(icon));
+        }
+        _ => return Err("avatarInvalid"),
+    }
+    if let Some(fg) = fg {
+        out.insert("fg".into(), json!(fg));
+    }
+    if let Some(bg) = bg {
+        out.insert("bg".into(), json!(bg));
+    }
+    Ok(Some(Value::Object(out)))
+}
+
+/// Stored avatars, for the current keys only, each validated again (a row
+/// from an older or edited database cannot reach the page unchecked).
+fn avatars_view(stored: &str, keys: &[String]) -> serde_json::Map<String, Value> {
+    let raw: std::collections::BTreeMap<String, Value> =
+        serde_json::from_str(stored).unwrap_or_default();
+    raw.into_iter()
+        .filter(|(k, _)| keys.contains(k))
+        .filter_map(|(k, v)| {
+            let spec: AvatarRequest = serde_json::from_value(v).ok()?;
+            avatar(&spec).ok().flatten().map(|v| (k, v))
+        })
+        .collect()
+}
+
+fn layout_view(
+    stored: Option<mw_store::linked_accounts::LinkedLayoutRow>,
+    keys: &[String],
+) -> Value {
+    let stored = stored.unwrap_or_default();
+    let order: Vec<String> = serde_json::from_str(&stored.order_json).unwrap_or_default();
     let nicknames: std::collections::BTreeMap<String, String> =
-        serde_json::from_str(&nicknames).unwrap_or_default();
+        serde_json::from_str(&stored.nicknames_json).unwrap_or_default();
     let nicknames: serde_json::Map<String, Value> = nicknames
         .into_iter()
         .filter(|(k, _)| keys.contains(k))
         .filter_map(|(k, v)| nickname(&v).ok().flatten().map(|v| (k, json!(v))))
         .collect();
-    json!({"revision":revision,"order":normalized_order(&order,keys),"nicknames":nicknames})
+    let avatars = avatars_view(&stored.avatars_json, keys);
+    json!({"revision":stored.revision,"order":normalized_order(&order,keys),"nicknames":nicknames,"avatars":avatars})
 }
 
 #[derive(Deserialize)]
@@ -803,9 +958,12 @@ struct LayoutRequest {
     revision: String,
     order: Vec<String>,
     nicknames: std::collections::BTreeMap<String, String>,
+    /// t86: absent = keep the stored avatars (a client that predates them).
+    #[serde(default)]
+    avatars: Option<std::collections::BTreeMap<String, AvatarRequest>>,
 }
 
-/// `PUT /api/accounts/layout` — the owner's order and nicknames for their
+/// `PUT /api/accounts/layout` — the owner's order, nicknames and avatars for their
 /// mailboxes, guarded by the revision they last read (409 when another device
 /// saved first). Display only: nothing here is an identity or reaches upstream.
 async fn set_layout(
@@ -814,7 +972,11 @@ async fn set_layout(
     Json(body): Json<LayoutRequest>,
 ) -> Result<Response, Response> {
     let parent = parent(&state, &headers, true).await?;
-    if body.order.len() > 32 || body.nicknames.len() > 32 || body.revision.len() > 64 {
+    if body.order.len() > 32
+        || body.nicknames.len() > 32
+        || body.avatars.as_ref().is_some_and(|a| a.len() > 32)
+        || body.revision.len() > 64
+    {
         return Err(failure(StatusCode::UNPROCESSABLE_ENTITY, "invalidLayout"));
     }
     let rows = state
@@ -832,8 +994,27 @@ async fn set_layout(
             nicknames.insert(key.clone(), value);
         }
     }
+    let avatars = match &body.avatars {
+        None => None,
+        Some(raw) => {
+            let mut out = serde_json::Map::new();
+            for (key, spec) in raw {
+                let value =
+                    avatar(spec).map_err(|code| failure(StatusCode::UNPROCESSABLE_ENTITY, code))?;
+                if let (true, Some(value)) = (keys.contains(key), value) {
+                    out.insert(key.clone(), value);
+                }
+            }
+            Some(out)
+        }
+    };
     let order_json = serde_json::to_string(&order).map_err(unavailable)?;
     let nicknames_json = serde_json::to_string(&nicknames).map_err(unavailable)?;
+    let avatars_json = avatars
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(unavailable)?;
     let Some(revision) = state
         .store
         .put_linked_layout(
@@ -841,6 +1022,7 @@ async fn set_layout(
             &body.revision,
             &order_json,
             &nicknames_json,
+            avatars_json.as_deref(),
             chrono::Utc::now().timestamp(),
         )
         .await
@@ -848,9 +1030,23 @@ async fn set_layout(
     else {
         return Err(failure(StatusCode::CONFLICT, "layoutConflict"));
     };
+    // Avatars not sent are the stored ones: read them back for the answer.
+    let avatars = match avatars {
+        Some(avatars) => avatars,
+        None => avatars_view(
+            &state
+                .store
+                .linked_layout(&parent.id)
+                .await
+                .map_err(unavailable)?
+                .unwrap_or_default()
+                .avatars_json,
+            &keys,
+        ),
+    };
     Ok((
         [(axum::http::header::CACHE_CONTROL, "private, no-store")],
-        Json(json!({"layout":{"revision":revision,"order":order,"nicknames":nicknames}})),
+        Json(json!({"layout":{"revision":revision,"order":order,"nicknames":nicknames,"avatars":avatars}})),
     )
         .into_response())
 }
@@ -957,5 +1153,159 @@ mod layout_tests {
             normalized_order(&[], &keys),
             order(&["main", "a", "b", "c"])
         );
+    }
+
+    fn spec(
+        kind: &str,
+        text: Option<&str>,
+        icon: Option<&str>,
+        fg: Option<&str>,
+        bg: Option<&str>,
+    ) -> AvatarRequest {
+        AvatarRequest {
+            kind: kind.into(),
+            text: text.map(Into::into),
+            icon: icon.map(Into::into),
+            fg: fg.map(Into::into),
+            bg: bg.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn avatar_icons_come_from_the_allowlist_and_colours_are_hex() {
+        assert_eq!(
+            avatar(&spec(
+                "icon",
+                None,
+                Some("briefcase"),
+                Some("#FFFFFF"),
+                Some("#1D4ED8")
+            )),
+            Ok(Some(
+                serde_json::json!({"kind":"icon","icon":"briefcase","fg":"#ffffff","bg":"#1d4ed8"})
+            ))
+        );
+        assert_eq!(AVATAR_ICONS.len(), 26);
+        for icon in AVATAR_ICONS {
+            assert!(
+                avatar(&spec("icon", None, Some(icon), None, None)).is_ok(),
+                "{icon}"
+            );
+        }
+        for bad in ["", "Briefcase", "rocket", "<svg>", "briefcase "] {
+            assert_eq!(
+                avatar(&spec("icon", None, Some(bad), None, None)),
+                Err("avatarIconUnknown"),
+                "{bad:?}"
+            );
+        }
+        assert_eq!(
+            avatar(&spec("icon", None, None, None, None)),
+            Err("avatarIconUnknown")
+        );
+        for bad in [
+            "#fff",
+            "red",
+            "#12345g",
+            "#1234567",
+            "rgb(0,0,0)",
+            "#ffffff;x",
+            "",
+        ] {
+            assert_eq!(
+                avatar(&spec("letter", Some("A"), None, Some(bad), None)),
+                Err("avatarColorInvalid"),
+                "fg {bad:?}"
+            );
+            assert_eq!(
+                avatar(&spec("letter", Some("A"), None, None, Some(bad))),
+                Err("avatarColorInvalid"),
+                "bg {bad:?}"
+            );
+        }
+        assert_eq!(
+            avatar(&spec("emoji", None, None, None, None)),
+            Err("avatarInvalid")
+        );
+        assert_eq!(
+            avatar(&spec("letter", Some("A"), Some("lock"), None, None)),
+            Err("avatarInvalid")
+        );
+        assert_eq!(
+            avatar(&spec("icon", Some("A"), Some("lock"), None, None)),
+            Err("avatarInvalid")
+        );
+    }
+
+    #[test]
+    fn avatar_letters_are_one_or_two_visible_characters() {
+        assert_eq!(
+            avatar(&spec("letter", Some(" W "), None, None, None)),
+            Ok(Some(serde_json::json!({"kind":"letter","text":"W"})))
+        );
+        assert_eq!(
+            avatar(&spec(
+                "letter",
+                Some("Ação".get(0..3).unwrap()),
+                None,
+                None,
+                Some("#000000")
+            )),
+            Ok(Some(
+                serde_json::json!({"kind":"letter","text":"Aç","bg":"#000000"})
+            ))
+        );
+        assert!(
+            avatar(&spec("letter", Some("日本"), None, None, None))
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            avatar(&spec("letter", Some("\u{1F600}"), None, None, None))
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            avatar(&spec("letter", Some("ABC"), None, None, None)),
+            Err("avatarTextTooLong")
+        );
+        for bad in [
+            "A\u{202E}",
+            "\u{200B}A",
+            "\u{2066}A",
+            "\u{0007}A",
+            "\u{00AD}A",
+            "A\u{E0041}",
+            "\u{FEFF}",
+        ] {
+            assert_eq!(
+                avatar(&spec("letter", Some(bad), None, None, None)),
+                Err("avatarTextInvalid"),
+                "{bad:?}"
+            );
+        }
+        // The default look (no letter, no colours) is not stored.
+        assert_eq!(avatar(&spec("letter", None, None, None, None)), Ok(None));
+        assert_eq!(
+            avatar(&spec("letter", Some("  "), None, None, None)),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn stored_avatars_are_checked_again_and_kept_to_current_keys() {
+        let keys = layout_keys(["a"].into_iter());
+        let stored = serde_json::json!({
+            "main": {"kind":"icon","icon":"house","bg":"#112233"},
+            "a": {"kind":"icon","icon":"rocket"},
+            "gone": {"kind":"letter","text":"G"},
+        })
+        .to_string();
+        let view = avatars_view(&stored, &keys);
+        assert_eq!(
+            serde_json::Value::Object(view),
+            serde_json::json!({"main":{"kind":"icon","icon":"house","bg":"#112233"}})
+        );
+        assert!(avatars_view("not json", &keys).is_empty());
     }
 }
