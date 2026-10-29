@@ -178,6 +178,13 @@ fn builtin(r: &mut Registry) {
         "rethread_all",
         JobSpec::new(|ctx| Box::pin(rethread_all(ctx))).lease(Duration::from_secs(600)),
     );
+    // t39-e5: audit-log retention. Its task is created when an administrator
+    // first saves a retention with a number of days (`auth_logs::retention`).
+    r.register(
+        crate::auth_logs::retention::JOB_KIND,
+        JobSpec::new(|ctx| Box::pin(crate::auth_logs::retention::prune_job(ctx)))
+            .schedule(crate::auth_logs::retention::default_schedule()),
+    );
 }
 
 fn valid_kind(kind: &str) -> bool {

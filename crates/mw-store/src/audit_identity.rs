@@ -64,3 +64,8 @@ impl Store {
         }))
     }
 }
+
+/// Audit-log retention and pruning (in its own file; re-exported here so the
+/// crate root needs no new module line).
+#[path = "audit_retention.rs"]
+pub mod retention;

@@ -92,25 +92,18 @@ impl<'a> Projection<'a> {
         // an actor who happens to belong to the caller's domain.
         Ok(None)
     }
-    pub(crate) async fn decorate(
+    /// Add `actorLabel` (and `actorLink` `{section, id}`) to `value` for the
+    /// `kind` (`admin` or `user`) actor `actor`, as far as the caller may see
+    /// them: the label needs the projection's capability for the actor's
+    /// domain (or `admins.read` for an administrator), the link also needs
+    /// `users.read` for that domain. Nothing is added for an unknown actor.
+    pub(crate) async fn label_actor(
         &mut self,
-        row: &AuditLogEntry,
-        mut value: Value,
-    ) -> Result<Option<Value>, AdminApiError> {
-        if let Some(allowed) = self.ctx.domain_filter(self.cap).cloned() {
-            let Some(domain) = self.target_domain(row).await? else {
-                return Ok(None);
-            };
-            if !allowed.contains(&domain) {
-                return Ok(None);
-            }
-        }
-        let kind = match row.actor_kind {
-            ActorKind::Admin => "admin",
-            ActorKind::User => "user",
-            _ => return Ok(Some(value)),
-        };
-        if let Some(identity) = self.identity(kind, &row.actor).await? {
+        kind: &str,
+        actor: &str,
+        value: &mut Value,
+    ) -> Result<(), AdminApiError> {
+        if let Some(identity) = self.identity(kind, actor).await? {
             let mut can_name = self.ctx.has_unscoped(self.cap);
             let mut can_link = false;
             if kind == "admin" {
@@ -132,6 +125,27 @@ impl<'a> Projection<'a> {
                     json!({"section":if kind=="admin"{"admins"}else{"users"},"id":identity.id});
             }
         }
+        Ok(())
+    }
+    pub(crate) async fn decorate(
+        &mut self,
+        row: &AuditLogEntry,
+        mut value: Value,
+    ) -> Result<Option<Value>, AdminApiError> {
+        if let Some(allowed) = self.ctx.domain_filter(self.cap).cloned() {
+            let Some(domain) = self.target_domain(row).await? else {
+                return Ok(None);
+            };
+            if !allowed.contains(&domain) {
+                return Ok(None);
+            }
+        }
+        let kind = match row.actor_kind {
+            ActorKind::Admin => "admin",
+            ActorKind::User => "user",
+            _ => return Ok(Some(value)),
+        };
+        self.label_actor(kind, &row.actor, &mut value).await?;
         Ok(Some(value))
     }
 }

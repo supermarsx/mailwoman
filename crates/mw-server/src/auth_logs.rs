@@ -14,8 +14,13 @@ use axum::{
 use mw_store::{AuthLogLimits, AuthLogQuery, AuthSurface, SigninEvent};
 use serde::Deserialize;
 use serde_json::json;
+/// Audit-log retention, its routes and the `audit_prune` job (t39 L5).
+#[path = "audit_retention.rs"]
+pub(crate) mod retention;
+
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
     r.admin_endpoint(Method::GET, "/logs/auth", Capability::LogsRead, history);
+    retention::register(r);
 }
 pub(crate) async fn limits(store: &mw_store::Store) -> AuthLogLimits {
     let subject = mw_store::settings_policy::SettingSubject {
@@ -194,9 +199,37 @@ async fn history(
     } else {
         None
     };
+    let events = actor_links(&state.store, &ctx, &events).await?;
     Ok((
         [(axum::http::header::CACHE_CONTROL, "private, no-store")],
         Json(json!({"events":events,"cursor":cursor,"retentionDays":retention.retention_days})),
     )
         .into_response())
+}
+
+/// Each event as JSON with `actorLabel`/`actorLink` for the account it names.
+///
+/// A webmail event links its `accountId`. An administrator event links the
+/// administrator only when the sign-in succeeded: a failed attempt names no
+/// account, so an attempt with an existing name looks exactly like one with an
+/// invented name (the history must not tell which names exist).
+async fn actor_links(
+    store: &mw_store::Store,
+    ctx: &AdminCtx,
+    events: &[mw_store::AuthLogEvent],
+) -> Result<Vec<serde_json::Value>, AdminApiError> {
+    let mut projection = crate::audit_projection::Projection::new(store, ctx, Capability::LogsRead);
+    let mut out = Vec::with_capacity(events.len());
+    for event in events {
+        let mut value = serde_json::to_value(event).map_err(AdminApiError::internal)?;
+        if let Some(account) = event.event.account_id.as_deref() {
+            projection.label_actor("user", account, &mut value).await?;
+        } else if event.surface == "admin" && event.event.result == "success" {
+            projection
+                .label_actor("admin", &event.event.username_attempted, &mut value)
+                .await?;
+        }
+        out.push(value);
+    }
+    Ok(out)
 }
