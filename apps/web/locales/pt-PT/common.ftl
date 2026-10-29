@@ -148,3 +148,10 @@ common-attach-scan-limited = A mostrar os primeiros 1000 ficheiros correspondent
 common-attach-scan-complete = Pesquisa concluída · { $count } ficheiros encontrados em { $pages } páginas de mensagens
 common-attach-browse-pages = Percorrer páginas
 common-attach-cancel-search = Cancelar pesquisa
+multiselect-selected = Selecionados: { $label }
+multiselect-remove = Remover { $label }
+multiselect-no-match = Nenhuma opção corresponde
+multiselect-count = { $count ->
+    [one] 1 selecionado
+   *[other] { $count } selecionados
+}

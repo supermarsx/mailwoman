@@ -1,4 +1,4 @@
-import { globalStyle } from '@vanilla-extract/css';
+import { globalStyle, style } from '@vanilla-extract/css';
 import { vars } from '../theme/contract.css.ts';
 
 // Low-specificity defaults cover native controls without overriding the layout,
@@ -118,3 +118,77 @@ globalStyle(':where(button[role="switch"][aria-checked="true"], button[aria-pres
   borderColor: vars.color.accent,
   '@media': { '(forced-colors: active)': { backgroundColor: 'Highlight', color: 'HighlightText', borderColor: 'Highlight', forcedColorAdjust: 'none' } },
 });
+
+// ── Shared button and field primitive (t39 L15) ─────────────────────────────
+// The class form of the Settings primitive (screens/Settings/styles.css.ts,
+// t47): content-sized buttons that never stretch in a flex column or grid,
+// a 2px rule with 1px less padding, the outline focus ring, a dashed border
+// (not colour alone) when disabled, and a labelled field stack with help text.
+// Screens outside Settings compose these instead of redefining them.
+const focusRing = { outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`, outlineOffset: '2px' };
+const less1 = (base: string): string => `calc(${base} - 1px)`;
+const buttonBase = {
+  appearance: 'none',
+  borderRadius: vars.radius.md,
+  cursor: 'pointer',
+  paddingBlock: less1(vars.space[2]),
+  paddingInline: less1(vars.space[4]),
+  font: 'inherit',
+  minBlockSize: vars.a11y.touchTarget,
+  inlineSize: 'fit-content',
+  maxInlineSize: '100%',
+  transitionProperty: 'box-shadow, background, color',
+  transitionDuration: vars.a11y.motionDuration,
+} as const;
+export const button = style({
+  ...buttonBase,
+  border: `${vars.border.rule} solid ${vars.color.accent}`,
+  background: vars.color.accent,
+  color: vars.color.accentText,
+  selectors: {
+    '&:hover:not(:disabled)': { boxShadow: vars.elevation[1] },
+    '&:active:not(:disabled)': { boxShadow: 'none' },
+    '&:disabled': { opacity: 0.5, cursor: 'not-allowed', borderStyle: 'dashed' },
+    '&:focus-visible': focusRing,
+  },
+});
+export const buttonGhost = style({
+  ...buttonBase,
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
+  background: 'transparent',
+  color: vars.color.text,
+  selectors: {
+    '&:hover:not(:disabled)': { background: vars.color.text, color: vars.color.bg },
+    '&:disabled': { opacity: 0.5, cursor: 'not-allowed', borderStyle: 'dashed' },
+    '&:focus-visible': focusRing,
+  },
+});
+export const buttonDanger = style([buttonGhost, {
+  borderColor: vars.color.danger,
+  background: vars.color.danger,
+  color: vars.color.accentText,
+  selectors: { '&:hover:not(:disabled)': { background: vars.color.danger, color: vars.color.accentText, boxShadow: vars.elevation[1] } },
+}]);
+/** A label, its control and help text, one per row. */
+export const field = style({ display: 'flex', flexDirection: 'column', gap: vars.space[2], minInlineSize: 0 });
+export const fieldLabel = style({ fontSize: '0.8rem', fontWeight: vars.weight.bold, letterSpacing: vars.tracking.label, textTransform: 'uppercase', color: vars.color.textDim });
+export const fieldHelp = style({ fontSize: '0.8rem', color: vars.color.textDim, margin: 0 });
+export const textField = style({
+  paddingBlock: less1(vars.space[2]),
+  paddingInline: less1(vars.space[3]),
+  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
+  borderRadius: vars.radius.md,
+  background: vars.color.bgSink,
+  color: vars.color.text,
+  font: 'inherit',
+  minBlockSize: vars.a11y.touchTarget,
+  minInlineSize: 0,
+  maxInlineSize: '100%',
+  selectors: {
+    ':root[data-appearance="light"] &': { background: vars.color.surface },
+    '&:focus-visible': focusRing,
+  },
+});
+/** A wrapping row of buttons, 8px apart, content-sized. */
+export const actions = style({ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: vars.space[2] });
+export const actionsEnd = style([actions, { justifyContent: 'flex-end' }]);

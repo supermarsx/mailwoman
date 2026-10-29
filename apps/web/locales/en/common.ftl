@@ -161,3 +161,10 @@ common-attach-scan-limited = Showing the first 1,000 matching files. Narrow your
 common-attach-scan-complete = Search complete · { $count } files found across { $pages } message pages
 common-attach-browse-pages = Browse pages
 common-attach-cancel-search = Cancel search
+multiselect-selected = Selected: { $label }
+multiselect-remove = Remove { $label }
+multiselect-no-match = No matching options
+multiselect-count = { $count ->
+    [one] 1 selected
+   *[other] { $count } selected
+}
