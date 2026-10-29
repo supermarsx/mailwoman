@@ -59,7 +59,15 @@ export function TwoFactorChallenge(props: TwoFactorChallengeProps): JSX.Element 
     try {
       const wa = props.challenge.webauthn;
       if (wa === undefined) throw new Error(t('settings-2fa-challenge-failed'));
-      const assertion = await assertPasskey(wa);
+      let assertion;
+      try {
+        assertion = await assertPasskey(wa);
+      } catch (e) {
+        // The browser refused (cancelled, timed out, or no authenticator can do
+        // what the options ask, such as a PIN or biometric check): say so plainly.
+        if (e instanceof Error && e.name === 'NotAllowedError') throw new Error(t('settings-2fa-challenge-passkey-not-used'));
+        throw e;
+      }
       await service.verifyLoginFactor({
         pendingToken: props.challenge.pendingToken,
         method: 'webauthn',

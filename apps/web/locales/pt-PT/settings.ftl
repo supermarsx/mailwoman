@@ -504,3 +504,4 @@ settings-2fa-policy-legacy = Esta chave de acesso foi adicionada antes da polít
 settings-2fa-policy-last-factor-recovery = Gere códigos de recuperação antes de remover o seu último segundo fator.
 settings-2fa-policy-last-factor-blocked = A sua organização não permite remover o seu último segundo fator. Adicione outro primeiro.
 settings-2fa-policy-last-factor-required = A sua organização exige autenticação de dois fatores. Adicione outro fator antes de remover este.
+settings-2fa-challenge-passkey-not-used = A chave de acesso não foi usada: o pedido foi cancelado ou expirou, ou este autenticador não consegue fazer o que a sua organização exige (como verificar um PIN, impressão digital ou rosto). Tente novamente ou use outro método.

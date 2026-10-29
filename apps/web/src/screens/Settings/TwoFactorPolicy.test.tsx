@@ -5,13 +5,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@solidjs/testing-library';
 import { TwoFactor } from './TwoFactor.tsx';
+import { TwoFactorChallenge } from './TwoFactorChallenge.tsx';
 import { SettingsError, settingsErrorText, type SettingsService } from './service.ts';
 import type { PasskeyPolicySummary, TwofaStatus } from './types.ts';
-import { registerPasskey, registrationSelection } from './webauthn.ts';
+import { assertPasskey, registerPasskey, registrationSelection } from './webauthn.ts';
 
 vi.mock('./webauthn.ts', async (orig) => {
   const real = await orig<typeof import('./webauthn.ts')>();
-  return { ...real, passkeySupported: () => true, registerPasskey: vi.fn() };
+  return { ...real, passkeySupported: () => true, registerPasskey: vi.fn(), assertPasskey: vi.fn() };
 });
 
 const STRICT: PasskeyPolicySummary = { attachment: 'platform', userVerification: 'required', residentKey: 'required', legacy: 'allow', lastFactorRemoval: 'allow' };
@@ -101,5 +102,27 @@ describe('passkey policy in Settings', () => {
       .toEqual({ userVerification: 'preferred', residentKey: 'discouraged', requireResidentKey: false });
     expect(registrationSelection({ userVerification: 'discouraged', authenticatorAttachment: 'bogus' }))
       .toEqual({ userVerification: 'discouraged', residentKey: 'discouraged', requireResidentKey: false });
+  });
+});
+
+describe('passkey policy at sign-in', () => {
+  const challenge = { pendingToken: 'p', factors: ['webauthn', 'recovery'], webauthn: { challenge: 'c', credentialIds: ['id'], rpId: 'r', userVerification: 'required' } };
+  beforeEach(() => { vi.mocked(assertPasskey).mockReset(); });
+
+  it('names the policy when the server refuses a verified assertion', async () => {
+    vi.mocked(assertPasskey).mockResolvedValue({ credentialId: 'id', clientDataJson: 'c', authenticatorData: 'a', signature: 's', userHandle: null });
+    const verifyLoginFactor = vi.fn(async () => { throw refusal(403, 'passkeyPolicyLegacy'); });
+    render(() => <TwoFactorChallenge challenge={challenge} onSuccess={() => {}} service={{ verifyLoginFactor } as unknown as SettingsService} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Use a passkey' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent("added before your organization's current passkey policy");
+  });
+
+  it('explains a browser refusal instead of showing the browser text', async () => {
+    vi.mocked(assertPasskey).mockImplementation(async () => { const e = new Error('The operation either timed out or was not allowed.'); e.name = 'NotAllowedError'; throw e; });
+    render(() => <TwoFactorChallenge challenge={challenge} onSuccess={() => {}} service={{} as unknown as SettingsService} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Use a passkey' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('such as a PIN, fingerprint or face check');
+    expect(alert).not.toHaveTextContent('timed out or was not allowed.');
   });
 });

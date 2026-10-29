@@ -508,3 +508,4 @@ settings-2fa-policy-legacy = This passkey was added before your organization's c
 settings-2fa-policy-last-factor-recovery = Generate recovery codes before you remove your last second factor.
 settings-2fa-policy-last-factor-blocked = Your organization does not allow removing your last second factor. Add another one first.
 settings-2fa-policy-last-factor-required = Your organization requires two-factor authentication. Add another factor before removing this one.
+settings-2fa-challenge-passkey-not-used = The passkey was not used: the request was cancelled or timed out, or this authenticator cannot do what your organization requires (such as a PIN, fingerprint or face check). Try again, or use another method.
