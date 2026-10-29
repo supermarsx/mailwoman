@@ -51,6 +51,8 @@ import { Compose } from '../components/Compose.tsx';
 import type { ComposeInitial } from '../components/compose/reply.ts';
 import { Outbox } from '../components/Outbox.tsx';
 import { InboxTabs } from '../components/InboxTabs.tsx';
+import { EventsNavEntry, EventsViewBar } from '../components/EventsView.tsx';
+import { EVENTS_VIEW_ID } from '../api/jmap.ts';
 import { SubTabStrip } from '../components/SubTabStrip.tsx';
 import { ConfirmDialog } from './Admin/shell/ConfirmDialog.tsx';
 import { Ribbon } from '../components/Ribbon.tsx';
@@ -541,6 +543,7 @@ export function MailboxScreen(): JSX.Element {
   const barTitle = createMemo((): string => {
     const s = surface();
     if (s === 'mail') {
+      if (app.selectedMailboxId() === EVENTS_VIEW_ID) return t('mail-nav-events');
       const box = app.mailboxes().find((m) => m.id === app.selectedMailboxId());
       return box?.name ?? t('mail-brand');
     }
@@ -730,6 +733,7 @@ export function MailboxScreen(): JSX.Element {
           >
             <Icon name="attachment"/><span class="sidebar__box-name">{t('mail-nav-attachments')}</span>
           </button>
+          <EventsNavEntry active={surface() === 'mail' && app.selectedMailboxId() === EVENTS_VIEW_ID} onSelect={() => { router.navigate('mail'); subTabs.activate('mail'); void app.selectMailbox(EVENTS_VIEW_ID); }}/>
           <button
             type="button"
             class={`sidebar__box ${a11y.focusable}`}
@@ -818,7 +822,7 @@ export function MailboxScreen(): JSX.Element {
         <div class={a11y.srOnly} role="status" aria-live="polite" aria-atomic="true" data-testid="message-opened-status">{openedNotice()}</div>
         <div class="workspace-body" ref={bodyElement} data-reading-pane={readingPane()} classList={{'workspace-body--split':splitVisible()}}>
           <div class={`mail-pane ${motion.surface}`} hidden={!listVisible()} data-mw-entering={mailEntering()}>
-            <SearchBox /><InboxTabs /><MessageList onOpenMessage={id=>void openFromList(id,'activate')} onOpenMessageTab={id=>void openFromList(id,'tab')} onCompose={openReply}/>
+            <SearchBox /><InboxTabs /><EventsViewBar /><MessageList onOpenMessage={id=>void openFromList(id,'activate')} onOpenMessageTab={id=>void openFromList(id,'tab')} onCompose={openReply}/>
           </div>
           <Show when={splitVisible()}><ResizeHandle label={t('mail-resize-list')} orientation={readingPane()==='bottom'?'horizontal':'vertical'} value={listSize()} min={readingPane()==='bottom'?160:240} max={listMax()} onChange={setListDrag} onCommit={value=>{setAccountUiPreferences(readingPane()==='bottom'?{messageListHeight:value}:{messageListWidth:value});setListDrag(null);}}/></Show>
           <div class="workspace-panes" ref={tilesElement} data-layout={effectiveLayout()} data-pair={isSplitLayout(effectiveLayout())} data-companion={companion()!==null} hidden={!readersVisible()}>

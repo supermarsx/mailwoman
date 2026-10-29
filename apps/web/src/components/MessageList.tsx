@@ -18,6 +18,7 @@ import {modifierSelectionEnabled,dragToFolderEnabled} from './mailInteractions.t
 import {beginMessageDrag,clearMessageDrag} from './messageDrag.ts';
 import { computeWindow, projectedRowCount, sameWindow, splitWindow } from './virtual.ts';
 import { TagChips } from './TagChips.tsx';
+import { EventHint } from './EventHint.tsx';
 import { MessageActions } from './MessageActions.tsx';
 import { OfflineQueueNotice } from './OfflineQueueNotice.tsx';
 import * as a11y from './mailA11y.css.ts';
@@ -202,7 +203,7 @@ function MessageRow(props: {
           <span class={`list__date ${rowCss.date}`}>{formatDate(email().receivedAt)}</span>
         </span>
         <span class="list__subject">{email().subject ?? t('mail-no-subject')}</span>
-        <span class={`list__preview ${rowCss.preview}`}>{email().preview}</span>
+        <span class={`list__preview ${rowCss.preview}`}><EventHint hint={email().mailwomanCalendar} />{email().preview}</span>
         <TagChips email={email()} />
       </button>
       <MessageActions email={email()} onMore={e=>props.contextMenu.open(e,email())} contextOpen={props.contextMenu.isOpen(email().id)}/>
@@ -313,7 +314,7 @@ function ThreadHeadRow(props: {
           <span class={`list__date ${rowCss.date}`}>{formatDate(rep().receivedAt)}</span>
         </span>
         <span class="list__subject">{rep().subject ?? t('mail-no-subject')}</span>
-        <span class={`list__preview ${rowCss.preview}`}>{rep().preview}</span>
+        <span class={`list__preview ${rowCss.preview}`}><EventHint hint={rep().mailwomanCalendar} />{rep().preview}</span>
       </button>
       <MessageActions email={rep()} onMore={e=>props.contextMenu.open(e,rep())} contextOpen={props.contextMenu.isOpen(rep().id)}/>
     </li>

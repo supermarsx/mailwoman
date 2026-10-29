@@ -130,13 +130,28 @@ function windowArgs(limit: number, page: PageWindow): Record<string, unknown> {
  * folder was unreachable however far the list was scrolled. `page` names which
  * slice of the query this call wants.
  */
-export function listMailbox(accountId: Id, mailboxId: Id, limit = 50, page: PageWindow = {}): JmapRequest {
+/**
+ * The Events view (t78): not a stored folder, but an `inMailbox` id the server
+ * expands to every message of the account with calendar content (an invitation,
+ * reply, cancellation, counter-proposal or `.ics` file). Mirrors
+ * `mw_engine::query::EVENTS_VIEW_ID`.
+ */
+export const EVENTS_VIEW_ID = 'mwViewEvents';
+
+/** Extra conditions on a folder listing: the Events view's "upcoming only". */
+export interface ListExtra {
+  calendarEndAfter?: string;
+}
+
+export function listMailbox(accountId: Id, mailboxId: Id, limit = 50, page: PageWindow = {}, extra: ListExtra = {}): JmapRequest {
+  // The Events view's rows carry their event hint (read from the index, not the body).
+  const properties = mailboxId === EVENTS_VIEW_ID ? [...HEADER_PROPERTIES, 'mailwomanCalendar'] : [...HEADER_PROPERTIES];
   return request(MAIL_USING, [
     [
       'Email/query',
       {
         accountId,
-        filter: { inMailbox: mailboxId },
+        filter: { inMailbox: mailboxId, ...extra },
         sort: [{ property: 'receivedAt', isAscending: false }],
         ...windowArgs(limit, page),
       },
@@ -147,10 +162,18 @@ export function listMailbox(accountId: Id, mailboxId: Id, limit = 50, page: Page
       {
         accountId,
         '#ids': { resultOf: 'q', name: 'Email/query', path: '/ids' },
-        properties: [...HEADER_PROPERTIES],
+        properties,
       },
       'g',
     ],
+  ]);
+}
+
+/** The Events view's counts for its sidebar badge (t78): total and unread, no ids. */
+export function eventsViewCounts(accountId: Id): JmapRequest {
+  return request(MAIL_USING, [
+    ['Email/query', { accountId, filter: { inMailbox: EVENTS_VIEW_ID }, limit: 0, calculateTotal: true }, 'all'],
+    ['Email/query', { accountId, filter: { inMailbox: EVENTS_VIEW_ID, notKeyword: '$seen' }, limit: 0, calculateTotal: true }, 'unread'],
   ]);
 }
 

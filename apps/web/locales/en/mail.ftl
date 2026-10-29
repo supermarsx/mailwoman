@@ -12,6 +12,10 @@ mail-nav-settings = Settings
 mail-compose = Compose
 mail-nav-mailboxes = Mailboxes
 mail-nav-attachments = Attachments
+# The sidebar view of every message with calendar content: invitations, replies, cancellations, .ics files (t78).
+mail-nav-events = Events
+mail-events-upcoming = Upcoming only
+mail-events-filter = Event filter
 mail-nav-outbox = Outbox
 mail-nav-sharing = Share folder
 mail-nav-apps = Apps
@@ -33,6 +37,15 @@ mail-unknown-sender = (unknown sender)
 mail-no-subject = (no subject)
 mail-pinned = Pinned
 mail-has-attachment = Has attachment
+# Events view row hint (t78): what the calendar message does.
+mail-event-state-invitation = Invitation
+mail-event-state-updated = Updated
+mail-event-state-cancelled = Cancelled
+mail-event-state-reply = Reply
+mail-event-state-counter = New time proposed
+mail-event-state-event = Event
+# Tooltip of the hint: { $state } is one of the labels above, { $when } the event's start.
+mail-event-hint = { $state }, { $when }
 mail-answered = Answered
 mail-forwarded = Forwarded
 mail-unread = Unread

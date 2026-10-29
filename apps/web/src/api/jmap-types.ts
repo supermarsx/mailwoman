@@ -113,6 +113,28 @@ export interface Email {
   followUpAt?: UtcDate | null;
   hasAttachment?: boolean;
   size?: number;
+  /** t78: the message's calendar summary, from the server's index. Asked for
+   *  only by the Events view's list (`listMailbox` on `EVENTS_VIEW_ID`); `null`
+   *  when the message carries no calendar content. */
+  mailwomanCalendar?: CalendarHint | null;
+}
+
+/** What the server read from a message's first calendar part (t78). */
+export interface CalendarHint {
+  /** iTIP METHOD, upper-cased; `null` for a plain calendar file. */
+  method: string | null;
+  sequence?: number;
+  title?: string;
+  /** JSCalendar LocalDateTime (`2026-11-03T10:00:00`) or a date. */
+  start?: string;
+  timeZone?: string | null;
+  showWithoutTime?: boolean;
+  status?: string;
+  /** The first event's start, Unix seconds (UTC). */
+  startUtc?: number | null;
+  /** The last second an occurrence can still run; huge for a recurring event. */
+  endUtc?: number | null;
+  events?: number;
 }
 
 // ── Method-call argument / response shapes ──────────────────────────────────

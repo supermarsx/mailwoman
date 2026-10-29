@@ -20,6 +20,8 @@ import {
   emailGetFull,
   invalidRecipients,
   listMailbox,
+  eventsViewCounts,
+  EVENTS_VIEW_ID,
   mailboxGet,
   moveEmail,
   parseRecipients,
@@ -89,7 +91,7 @@ const REFRESH_MAX_ROWS = 500;
 
 /** Which query the list is currently showing, so a page N can repeat it. */
 type PageSource =
-  | { readonly kind: 'mailbox'; readonly mailboxId: Id }
+  | { readonly kind: 'mailbox'; readonly mailboxId: Id; readonly upcoming?: boolean }
   | { readonly kind: 'search'; readonly filter: FilterCondition };
 
 /** How long sign-in waits for the linked-mailbox list before opening the sign-in account. */
@@ -173,6 +175,12 @@ export interface MailSlice {
   authChecked: Accessor<boolean>;
   mailboxes: Accessor<Mailbox[]>;
   selectedMailboxId: Accessor<Id | null>;
+  /** t78: the Events view's counts (total, unread), for its sidebar badge; `null` until read. */
+  eventsCounts: Accessor<{ total: number; unread: number } | null>;
+  refreshEventsCounts(): Promise<void>;
+  /** t78: the Events view lists only events that have not ended yet. */
+  eventsUpcoming: Accessor<boolean>;
+  setEventsUpcoming(on: boolean): Promise<void>;
   messages: Accessor<Email[]>;
   listLoading: Accessor<boolean>;
   openEmail: Accessor<Email | null>;
@@ -378,6 +386,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const [accountId, setAccountId] = createSignal<string | null>(null);
   const [mailboxes, setMailboxes] = createSignal<Mailbox[]>([]);
   const [selectedMailboxId, setSelectedMailboxId] = createSignal<Id | null>(null);
+  const [eventsCounts, setEventsCounts] = createSignal<{ total: number; unread: number } | null>(null);
+  const [eventsUpcoming, setEventsUpcomingSignal] = createSignal(false);
   const [messages, setMessages] = createSignal<Email[]>([]);
   const [listLoading, setListLoading] = createSignal(false);
   const [legacyOpenEmail, setOpenEmail] = createSignal<Email | null>(null);
@@ -1263,7 +1273,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const boxes = sortMailboxes(responseFor<MailboxGetResponse>(res, 'c0').list);
     setMailboxes(boxes);
     const selected = selectedMailboxId();
-    if (selected && !boxes.some(box => box.id === selected)) {
+    // The Events view (t78) is not a folder the server lists; it stays selected.
+    if (selected && selected !== EVENTS_VIEW_ID && !boxes.some(box => box.id === selected)) {
       const fallback = boxes.find(box => box.role === 'inbox') ?? boxes[0];
       if (fallback) await selectMailbox(fallback.id);
     } else if (selected) await refreshCurrentMailbox();
@@ -1309,8 +1320,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     calculateTotal: boolean,
   ): JmapRequest {
     const page = { position, calculateTotal };
+    // t78: "upcoming only" is evaluated at each request, so a page fetched later
+    // drops an event that has ended since the first one.
     return src.kind === 'mailbox'
-      ? listMailbox(acct, src.mailboxId, limit, page)
+      ? listMailbox(acct, src.mailboxId, limit, page, src.upcoming === true ? { calendarEndAfter: new Date().toISOString() } : {})
       : searchEmails(acct, src.filter, limit, page);
   }
 
@@ -1432,7 +1445,27 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     setSanitizedHtml(null);
     const acct = accountId();
     if (acct === null) return;
-    await loadFirstPage(acct, { kind: 'mailbox', mailboxId: id });
+    await loadFirstPage(acct, id === EVENTS_VIEW_ID && eventsUpcoming() ? { kind: 'mailbox', mailboxId: id, upcoming: true } : { kind: 'mailbox', mailboxId: id });
+  }
+
+  async function setEventsUpcoming(on: boolean): Promise<void> {
+    setEventsUpcomingSignal(on);
+    if (selectedMailboxId() === EVENTS_VIEW_ID && !searchActive()) await selectMailbox(EVENTS_VIEW_ID);
+  }
+
+  /** Read the Events view's total and unread counts: two `Email/query`s with no ids. */
+  async function refreshEventsCounts(): Promise<void> {
+    const acct = accountId();
+    if (acct === null) return;
+    try {
+      const res = await client.jmap(eventsViewCounts(acct));
+      if (accountId() !== acct) return;
+      const all = responseFor<EmailQueryResponse>(res, 'all').total;
+      const unread = responseFor<EmailQueryResponse>(res, 'unread').total;
+      setEventsCounts(typeof all === 'number' && typeof unread === 'number' ? { total: all, unread } : null);
+    } catch {
+      // A count is decoration: keep the last one rather than fail anything.
+    }
   }
 
   function readFromCache(id: Id): void {
@@ -2001,6 +2034,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     authChecked,
     mailboxes,
     selectedMailboxId,
+    eventsCounts,
+    refreshEventsCounts,
+    eventsUpcoming,
+    setEventsUpcoming,
     messages,
     listLoading,
     openEmail,
