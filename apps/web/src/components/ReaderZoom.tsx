@@ -18,7 +18,7 @@ export function ReaderZoom(): JSX.Element {
   onMount(() => void loadCatalog('reader'));
   const level = (): number => readerZoom();
   return (
-    <span class={css.group} role="group" aria-label={t('reader-zoom-group')} data-testid="reader-zoom">
+    <span class={css.group} role="group" aria-label={t('reader-zoom-group')} data-testid="reader-zoom" data-detached-local="">
       <button type="button" class={button} aria-label={t('reader-zoom-out')} title={t('reader-zoom-out-help')} disabled={readerZoomLocked() || level() <= MIN_ZOOM} data-testid="reader-zoom-out" onClick={zoomOut}><Icon name="minus" /></button>
       <button type="button" class={`${button} ${css.level}`} aria-label={t('reader-zoom-reset-label', { level: level() })} title={t('reader-zoom-reset-help')} disabled={readerZoomLocked()} data-testid="reader-zoom-level" onClick={resetZoom}>
         <span aria-hidden="true">{t('reader-zoom-level', { level: level() })}</span>

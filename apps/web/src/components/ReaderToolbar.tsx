@@ -64,9 +64,9 @@ export function ReaderToolbar(props:{
  const linkReview=createLinkReview({links:()=>props.links,truncated:()=>props.linksTruncated,scope:()=>props.linkScope,active:()=>props.active,...(props.onCompose?{onCompose:props.onCompose}:{})});
 
  /** A plain button action: the same descriptor drives the row and the menu. */
- function plain(spec:{id:string;icon:()=>IconName;label:()=>string;help:()=>string;testId?:string;disabled?:()=>boolean;pressed?:()=>boolean;run:()=>void;groupEnd?:boolean}):RowAction {
+ function plain(spec:{id:string;icon:()=>IconName;label:()=>string;help:()=>string;testId?:string;disabled?:()=>boolean;pressed?:()=>boolean;run:()=>void;groupEnd?:boolean;local?:boolean}):RowAction {
   return {id:spec.id,...(spec.groupEnd?{groupEnd:true}:{}),
-   inline:()=><ReaderAction icon={spec.icon()} label={spec.label()} help={spec.help()} {...(spec.testId?{testId:spec.testId}:{})} disabled={spec.disabled?.()===true} pressed={spec.pressed?.()} onClick={()=>spec.run()}/>,
+   inline:()=><ReaderAction icon={spec.icon()} label={spec.label()} help={spec.help()} {...(spec.testId?{testId:spec.testId}:{})} disabled={spec.disabled?.()===true} pressed={spec.pressed?.()} local={spec.local===true} onClick={()=>spec.run()}/>,
    menu:()=>[{id:spec.id,label:spec.label(),icon:spec.icon(),disabled:spec.disabled?.()===true,...(spec.pressed?{checked:spec.pressed()}:{}),run:spec.run}]};
  }
  const icon=(name:IconName)=>()=>name;
@@ -83,9 +83,9 @@ export function ReaderToolbar(props:{
   links:{id:'links',
    inline:()=><ReaderAction icon="link" label={t('mail-links-review',{count:linkReview.count()})} help={t('mail-links-help')} testId="reader-links" popup="dialog" expanded={linkReview.isOpen()} badge={linkReview.count()} onClick={()=>linkReview.open()}/>,
    menu:()=>[{id:'links',label:t('mail-links-review',{count:linkReview.count()}),icon:'link',run:()=>linkReview.open()}]},
-  pin:plain({id:'pin',icon:icon('pin'),label:()=>pinned()?t('mail-unpin'):t('mail-pin'),help:()=>t('mail-action-help-pin'),pressed:pinned,run:()=>void app.pinMessage(id(),!pinned())}),
-  read:plain({id:'read',icon:()=>unread()?'mailRead':'mail',label:()=>unread()?t('mail-mark-read'):t('mail-mark-unread'),help:()=>t('mail-action-help-read'),testId:'reader-toggle-read',run:()=>void app.markRead(id(),unread())}),
-  flag:plain({id:'flag',icon:icon('flag'),label:()=>flagged()?t('mail-unflag-message'):t('mail-flag-message'),help:()=>t('mail-action-help-flag'),testId:'reader-flag',pressed:flagged,run:()=>void app.flagMessage(id(),!flagged())}),
+  pin:plain({id:'pin',icon:icon('pin'),label:()=>pinned()?t('mail-unpin'):t('mail-pin'),help:()=>t('mail-action-help-pin'),pressed:pinned,run:()=>void app.pinMessage(id(),!pinned()),local:true}),
+  read:plain({id:'read',icon:()=>unread()?'mailRead':'mail',label:()=>unread()?t('mail-mark-read'):t('mail-mark-unread'),help:()=>t('mail-action-help-read'),testId:'reader-toggle-read',run:()=>void app.markRead(id(),unread()),local:true}),
+  flag:plain({id:'flag',icon:icon('flag'),label:()=>flagged()?t('mail-unflag-message'):t('mail-flag-message'),help:()=>t('mail-action-help-flag'),testId:'reader-flag',pressed:flagged,run:()=>void app.flagMessage(id(),!flagged()),local:true}),
   archive:plain({id:'archive',icon:icon('archive'),label:()=>t('mail-archive'),help:()=>t('mail-action-help-archive'),run:()=>void app.archiveMessage(id())}),
   delete:plain({id:'delete',icon:icon('delete'),label:()=>t('mail-delete'),help:()=>t('mail-action-help-delete'),run:()=>void app.trashMessage(id())}),
   spam:plain({id:'spam',icon:icon('spam'),label:()=>t('mail-spam'),help:()=>t('mail-action-help-spam'),run:()=>void app.markSpam(id())}),

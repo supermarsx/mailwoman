@@ -174,12 +174,12 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
         </span>
         <span class={css.actions}>
           <Show when={mode() === 'ask' && !granted()}>
-            <button type="button" class={`${css.btn} ${css.btnPrimary}`} disabled={pending()} data-tooltip={t('remote-banner-show-help')} aria-label={t('remote-banner-show')} onClick={() => void grant('single')}>
+            <button type="button" class={`${css.btn} ${css.btnPrimary}`} disabled={pending()} data-detached-local="" data-tooltip={t('remote-banner-show-help')} aria-label={t('remote-banner-show')} onClick={() => void grant('single')}>
               <Icon name="eye" /><span class={css.label}>{t('remote-banner-show')}</span>
             </button>
           </Show>
           <Show when={mode() === 'ask' && granted()}>
-            <button type="button" class={css.btn} disabled={pending()} data-tooltip={undoHelp()} aria-label={`${t('remote-banner-undo')}: ${undoHelp()}`} onClick={() => void undo()}>
+            <button type="button" class={css.btn} disabled={pending()} data-detached-local="" data-tooltip={undoHelp()} aria-label={`${t('remote-banner-undo')}: ${undoHelp()}`} onClick={() => void undo()}>
               <Icon name="restore" /><span class={css.label}>{t('remote-banner-undo')}</span>
             </button>
           </Show>
