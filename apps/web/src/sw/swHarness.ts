@@ -21,9 +21,17 @@ export interface FakeRequest {
 
 type CacheKey = string | { url: string };
 
+/** What the real Cache API keeps of a response: its bytes, never the stream. */
+interface StoredResponse {
+  status: number;
+  statusText: string;
+  headers: [string, string][];
+  body: ArrayBuffer;
+}
+
 /** One named cache. Mirrors the two `Cache.put` rules the worker depends on. */
 export class FakeCache {
-  readonly entries = new Map<string, Response>();
+  readonly entries = new Map<string, StoredResponse>();
   /** Make every `put` reject, as a full quota or a `Vary: *` response does. */
   failPuts = false;
 
@@ -33,15 +41,31 @@ export class FakeCache {
     return new URL(typeof key === 'string' ? key : key.url, this.base).href;
   }
 
+  // t84: `match` used to return `clone()` of the Response handed to `put`. Under
+  // Node 22 the worker's stored Response is built on the body of a clone that
+  // is then dropped; when that clone is garbage-collected undici cancels the
+  // shared stream, and a later `clone()` throws "Body has already been
+  // consumed". sweep() swallowed it, so eviction silently stopped, depending on
+  // when GC ran (the 512-asset test failed on Linux CI and in full runs only).
+  // Like the real Cache API, `put` now reads the body to the end and `match`
+  // returns a new Response each time.
   async match(key: CacheKey): Promise<Response | undefined> {
-    return this.entries.get(this.key(key))?.clone();
+    const stored = this.entries.get(this.key(key));
+    if (stored === undefined) return undefined;
+    const nullBody = [101, 204, 205, 304].includes(stored.status);
+    return new Response(nullBody ? null : stored.body.slice(0), {
+      status: stored.status,
+      statusText: stored.statusText,
+      headers: stored.headers,
+    });
   }
 
   async put(key: CacheKey, res: Response): Promise<void> {
     if (this.failPuts) throw new TypeError('put rejected');
     // The real Cache API refuses partial content.
     if (res.status === 206) throw new TypeError('Partial response (status code 206) is unsupported');
-    this.entries.set(this.key(key), res);
+    const body = await res.arrayBuffer();
+    this.entries.set(this.key(key), { status: res.status, statusText: res.statusText, headers: [...res.headers], body });
   }
 
   async delete(key: CacheKey): Promise<boolean> {
