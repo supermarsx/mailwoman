@@ -1,17 +1,18 @@
 import { test,expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 test('sign-in country diagnostic reports real source and missing database honestly @phone',async({page})=>{
  // All projects share the fixture source IP; respect its configured 3s pacing.
  await new Promise(resolve=>setTimeout(resolve,3100));
- await page.goto('/admin');await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');await page.getByRole('button',{name:'Sign in',exact:true}).click();
- await expect.poll(async()=> (await page.request.get('/admin/session')).status()).toBe(200);
- const response=page.waitForResponse(r=>r.url().endsWith('/admin/bans/geography')&&r.request().method()==='GET');
- await page.goto('/admin#/observability/geography');
+ await page.goto(ADMIN);await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await expect.poll(async()=> (await page.request.get(`${ADMIN}/session`)).status()).toBe(200);
+ const response=page.waitForResponse(r=>r.url().endsWith(`${ADMIN}/bans/geography`)&&r.request().method()==='GET');
+ await page.goto(`${ADMIN}#/observability/geography`);
  const diagnostic=await response;expect(diagnostic.status()).toBe(200);expect(diagnostic.headers()['cache-control']).toBe('private, no-store');
  const body=await diagnostic.json();expect(body.scope).toBe('off');expect(body.database).toBe('unavailable');
  // The real source is the address the server attributes to this connection: the one it
  // recorded for the sign-in just made. 127.0.0.1 on a host-run server; the bridge
  // gateway on a NAT-published container (Docker, CI), where no proxy is trusted.
- const history=await page.request.get('/admin/logs/auth?surface=admin&result=success&limit=1');expect(history.status()).toBe(200);
+ const history=await page.request.get(`${ADMIN}/logs/auth?surface=admin&result=success&limit=1`);expect(history.status()).toBe(200);
  const recorded=((await history.json()).events as {ip:string}[])[0]?.ip;expect(recorded).toMatch(/^[0-9a-f.:]+$/i);
  expect(body.sourceIp).toBe(recorded);
  await expect(page.getByRole('table',{name:'Sign-in country policy'}).getByText(recorded!,{exact:true})).toBeVisible();
@@ -20,19 +21,19 @@ test('sign-in country diagnostic reports real source and missing database honest
  await page.getByRole('button',{name:'Configure country policy'}).click();
  await expect(page).toHaveURL(/settings\/security\.signin\.geoScope/);
  await expect(page.locator('[data-field-anchor="settings:security.signin.geoScope"]')).toBeVisible();
- await page.goto('/admin#/observability/geography');
+ await page.goto(`${ADMIN}#/observability/geography`);
  await page.getByRole('button',{name:'Configure existing-session checks'}).click();
  await expect(page).toHaveURL(/settings\/security\.signin\.geoEnforceSessions/);
  const enabled=page.getByRole('checkbox',{name:/^Enforce country policy on existing sessions — security\.signin\.geoEnforceSessions$/});
  await expect(enabled).not.toBeChecked();await enabled.check();
- const saved=page.waitForResponse(r=>r.url().endsWith('/admin/settings/security.signin.geoEnforceSessions')&&r.request().method()==='PUT');
+ const saved=page.waitForResponse(r=>r.url().endsWith(`${ADMIN}/settings/security.signin.geoEnforceSessions`)&&r.request().method()==='PUT');
  await page.getByRole('button',{name:'Save',exact:true}).click();expect((await saved).status()).toBe(200);
- await page.goto('/admin#/observability/geography');
+ await page.goto(`${ADMIN}#/observability/geography`);
  await expect(page.getByText('Country checks enabled',{exact:true})).toBeVisible();
  await expect(page.getByText(/does not erase sessions or terminate already-open streams/)).toBeVisible();
  await page.screenshot({path:test.info().outputPath('existing-session-country-policy.png'),fullPage:true});
  await page.getByRole('button',{name:'Configure existing-session checks'}).click();
- await enabled.uncheck();const restored=page.waitForResponse(r=>r.url().endsWith('/admin/settings/security.signin.geoEnforceSessions')&&r.request().method()==='PUT');
+ await enabled.uncheck();const restored=page.waitForResponse(r=>r.url().endsWith(`${ADMIN}/settings/security.signin.geoEnforceSessions`)&&r.request().method()==='PUT');
  await page.getByRole('button',{name:'Save',exact:true}).click();expect((await restored).status()).toBe(200);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });

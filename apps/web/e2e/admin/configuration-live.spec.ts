@@ -1,9 +1,10 @@
 import { test, expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import {adminLogin} from './admin-login.ts';
 test('effective configuration renders the actual endpoint on desktop and phone @phone', async ({ page }) => {
   await adminLogin(page);
   const response = page.waitForResponse(r => r.url().includes('/config/effective') && r.request().method() === 'GET');
-  await page.goto('/admin#/config');
+  await page.goto(`${ADMIN}#/config`);
   const api = await response; expect(api.status()).toBe(200);
   const rows = await api.json() as { id: string; valueStatus: string; value: unknown }[];
   expect(rows.length).toBeGreaterThan(100);

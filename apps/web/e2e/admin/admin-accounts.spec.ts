@@ -1,4 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
+import { ADMIN } from './admin-path.ts';
 
 // Real server and real SPA: no route mocks. The test creates only uniquely named
 // accounts/roles and deletes them again through the same confirmation flow.
@@ -6,14 +7,14 @@ test('admin navigation, role creation, scoped assignments and deletion @phone', 
   const suffix = `${Date.now()}-${test.info().project.name}`;
   const username = `e2e-${suffix}`;
   const role = `Support ${suffix}`;
-  await page.goto('/admin');
+  await page.goto(ADMIN);
   await page.getByLabel('Admin username').fill(process.env['MW_ADMIN_USER'] ?? 'root');
   await page.getByLabel('Password', { exact: true }).fill(process.env['MW_ADMIN_PASSWORD'] ?? 'hunter2');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
   // Roles and admin accounts are edited on dedicated guided pages (2e8ad874); a write
   // may ask for the password again (step-up).
-  await page.goto('/admin#/roles');
+  await page.goto(`${ADMIN}#/roles`);
   await expect(page.getByRole('heading', { name: 'Roles', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'New role' })).toBeEnabled();
   await page.getByRole('button', { name: 'New role' }).click();
@@ -25,7 +26,7 @@ test('admin navigation, role creation, scoped assignments and deletion @phone', 
   await page.getByRole('button', { name: 'Create role', exact: true }).click();
   await proveIfAsked(page, page.getByRole('button', { name: role, exact: true }));
   await expect(page.getByRole('button', { name: role, exact: true })).toBeVisible();
-  await page.goto('/admin#/admins');
+  await page.goto(`${ADMIN}#/admins`);
   await expect(page.getByRole('heading', { name: 'Admin accounts', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Create admin', exact: true }).click();
   await expect(page).toHaveURL(/#\/admins\/new$/);
@@ -48,7 +49,7 @@ test('admin navigation, role creation, scoped assignments and deletion @phone', 
   await proveIfAsked(page, page.getByRole('button', { name: 'Create admin', exact: true }));
   await expect(page).toHaveURL(/#\/admins$/);
   await expect(page.getByRole('button', { name: `${username} (${username})`, exact: true })).toHaveCount(0);
-  await page.goto('/admin#/roles');
+  await page.goto(`${ADMIN}#/roles`);
   await page.getByRole('button', { name: role, exact: true }).click();
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click();

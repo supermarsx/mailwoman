@@ -1,10 +1,11 @@
 import { test,expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 test('deployment assessment reports actual runtime and makes limits visible @phone',async({page})=>{
  await new Promise(resolve=>setTimeout(resolve,3100));
- await page.goto('/admin');await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');await page.getByRole('button',{name:'Sign in',exact:true}).click();
- await expect.poll(async()=>(await page.request.get('/admin/session')).status()).toBe(200);
- await page.goto('/admin#/diagnostics');
- const loaded=page.waitForResponse(r=>r.url().endsWith('/admin/security/deployment')&&r.request().method()==='GET');
+ await page.goto(ADMIN);await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await expect.poll(async()=>(await page.request.get(`${ADMIN}/session`)).status()).toBe(200);
+ await page.goto(`${ADMIN}#/diagnostics`);
+ const loaded=page.waitForResponse(r=>r.url().endsWith(`${ADMIN}/security/deployment`)&&r.request().method()==='GET');
  await page.getByRole('link',{name:'Deployment security assessment',exact:true}).click();
  const response=await loaded;expect(response.status()).toBe(200);expect(response.headers()['cache-control']).toBe('private, no-store');
  const body=await response.json();expect(body.scope).toBe('current-process-and-request');expect(body.checks.length).toBe(13);

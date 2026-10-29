@@ -1,12 +1,13 @@
 import { test, expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 
 test('horizontal form actions align below labels and settings cells use available width @phone', async ({ page }) => {
-  await page.goto('/admin');
+  await page.goto(ADMIN);
   await page.getByLabel('Admin username').fill('root');
   await page.getByLabel('Password', { exact: true }).fill('hunter2');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
-  await page.goto('/admin#/security/bans/new');
+  await page.goto(`${ADMIN}#/security/bans/new`);
   const form = page.getByRole('region', { name: 'Add ban', exact: true }).locator('form');
   const button = form.getByRole('button', { name: 'Save IP ban' });
   await expect(button).toBeVisible();
@@ -14,7 +15,7 @@ test('horizontal form actions align below labels and settings cells use availabl
   const buttonBox = (await button.boundingBox())!;
   if (Math.abs(buttonBox.y - inputBox.y) < 50) expect(Math.abs(buttonBox.y + buttonBox.height - inputBox.y - inputBox.height)).toBeLessThanOrEqual(2);
   else expect(buttonBox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height);
-  await page.goto('/admin#/settings');
+  await page.goto(`${ADMIN}#/settings`);
   const table = page.getByRole('table', { name: 'Settings', exact: true });
   await expect(table).toBeVisible();
   const name = table.locator('tbody td').first().locator('span').first();

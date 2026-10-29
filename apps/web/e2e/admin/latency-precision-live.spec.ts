@@ -1,16 +1,17 @@
 import {expect,test} from '@playwright/test';
+import { ADMIN } from './admin-path.ts';
 import {adminLogin} from './admin-login.ts';
 
 test('durable latency keeps measured milliseconds and labels legacy estimates @phone',async({page},info)=>{
  const start=Number(process.env['MW_LATENCY_FIXTURE_START']);
  test.skip(!Number.isSafeInteger(start)||start<=0,'Requires the isolated precision fixture rows');
  await adminLogin(page);
- const history=await page.request.get(`/admin/metrics/history?from=${start}&to=${start+60}&maxPoints=1`);
+ const history=await page.request.get(`${ADMIN}/metrics/history?from=${start}&to=${start+60}&maxPoints=1`);
  expect(history.status()).toBe(200);
  const data=await history.json() as {series:{p50Ms:number;p95Ms:number;legacyLatencyEstimate:boolean;p95ResolutionMs:number}[]};
  expect(data.series).toHaveLength(1);
  expect(data.series[0]).toMatchObject({p50Ms:37,p95Ms:83,legacyLatencyEstimate:false,p95ResolutionMs:1});
- await page.goto('/admin#/observability/statistics');
+ await page.goto(`${ADMIN}#/observability/statistics`);
  const section=page.getByRole('region',{name:'Request history',exact:true});
  await expect(section).toBeVisible();
  await section.getByLabel('Period',{exact:true}).selectOption('custom');

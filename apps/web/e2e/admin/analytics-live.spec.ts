@@ -1,4 +1,5 @@
 import {test,expect,type Page} from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import {signInManually} from '../helpers.ts';
 
 async function request(page:Page,path:string,method='GET',data?:unknown,etag?:string){
@@ -13,19 +14,19 @@ async function request(page:Page,path:string,method='GET',data?:unknown,etag?:st
 
 test('analytics configuration and account consent persist without enabling collection @phone',async({page},info)=>{
   await page.waitForTimeout(4000);
-  await page.goto('/admin');
+  await page.goto(ADMIN);
   await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');
-  const signedIn=page.waitForResponse(response=>response.url().endsWith('/admin/login')&&response.request().method()==='POST');
+  const signedIn=page.waitForResponse(response=>response.url().endsWith(`${ADMIN}/login`)&&response.request().method()==='POST');
   await page.getByRole('button',{name:'Sign in',exact:true}).click();
   const login=await signedIn;expect(login.status(),await login.text()).toBe(200);
   await expect(page.getByRole('button',{name:'Sign in',exact:true})).toHaveCount(0);
-  const initialResponse=await request(page,'/admin/analytics');
+  const initialResponse=await request(page,`${ADMIN}/analytics`);
   expect(initialResponse.ok,initialResponse.body).toBe(true);
   const initial=initialResponse.json;
   const siteId=initial.config.siteId==='7'?'8':'7';
   let originalPreferences:unknown;
   try {
-    await page.goto('/admin#/analytics');
+    await page.goto(`${ADMIN}#/analytics`);
     await expect(page.getByRole('heading',{name:'Usage analytics',exact:true})).toBeVisible();
     await page.getByRole('combobox',{name:'Provider',exact:true}).selectOption('matomo');
     await page.getByLabel(/^Collector endpoint/).fill('https://stats.example/matomo.php');
@@ -63,16 +64,16 @@ test('analytics configuration and account consent persist without enabling colle
       const restored=await request(page,'/api/account/preferences','PUT',originalPreferences,response.etag!);
       expect(restored.ok,restored.body).toBe(true);
     }
-    const restoredSession=page.waitForResponse(response=>response.url().endsWith('/admin/session'));
-    await page.goto('/admin#/analytics');
+    const restoredSession=page.waitForResponse(response=>response.url().endsWith(`${ADMIN}/session`));
+    await page.goto(`${ADMIN}#/analytics`);
     await restoredSession;
     await expect(page.getByRole('heading',{name:'Usage analytics',exact:true})).toBeVisible();
-    const proof=await request(page,'/admin/step-up','POST',{password:'hunter2'});
+    const proof=await request(page,`${ADMIN}/step-up`,'POST',{password:'hunter2'});
     expect(proof.ok,proof.body).toBe(true);
-    const response=await request(page,'/admin/analytics');
+    const response=await request(page,`${ADMIN}/analytics`);
     // The read model reports apiSecretConfigured; the write model omits it (AnalyticsWrite, 15976cce).
     const write={...initial.config};delete write.apiSecretConfigured;
-    const restored=await request(page,'/admin/analytics','PUT',write,response.etag!);
+    const restored=await request(page,`${ADMIN}/analytics`,'PUT',write,response.etag!);
     expect(restored.ok,restored.body).toBe(true);
   }
 });
@@ -82,17 +83,17 @@ test('analytics configuration and account consent persist without enabling colle
 // a reload, which only says a secret is stored. Collection stays off.
 test('GA4: measurement ID and EU endpoint persist, the API secret is stored but never returned @phone',async({page},info)=>{
   await page.waitForTimeout(4000);
-  await page.goto('/admin');
+  await page.goto(ADMIN);
   await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');
-  const signedIn=page.waitForResponse(response=>response.url().endsWith('/admin/login')&&response.request().method()==='POST');
+  const signedIn=page.waitForResponse(response=>response.url().endsWith(`${ADMIN}/login`)&&response.request().method()==='POST');
   await page.getByRole('button',{name:'Sign in',exact:true}).click();
   expect((await signedIn).status()).toBe(200);
   await expect(page.getByRole('button',{name:'Sign in',exact:true})).toHaveCount(0);
-  const initial=(await request(page,'/admin/analytics')).json;
+  const initial=(await request(page,`${ADMIN}/analytics`)).json;
   const secret=`mw-e2e-ga4-${info.project.name}-${Date.now()}`;
   const measurement=`G-T39E3${info.project.name.toUpperCase().slice(0,3)}`;
   try {
-    await page.goto('/admin#/analytics');
+    await page.goto(`${ADMIN}#/analytics`);
     await expect(page.getByRole('heading',{name:'Usage analytics',exact:true})).toBeVisible();
     await page.getByRole('combobox',{name:'Provider',exact:true}).selectOption('ga4');
     await page.getByRole('combobox',{name:'Collector endpoint',exact:true}).selectOption('https://region1.google-analytics.com/mp/collect');
@@ -100,7 +101,7 @@ test('GA4: measurement ID and EU endpoint persist, the API secret is stored but 
     await page.getByLabel('Measurement Protocol API secret').fill(secret);
     await page.getByLabel('Enable optional analytics collection').uncheck();
     // The first PUT may answer 403 step_up_required; the client asks for the password and repeats it.
-    const saved=page.waitForResponse(response=>response.url().endsWith('/admin/analytics')&&response.request().method()==='PUT'&&response.status()!==403);
+    const saved=page.waitForResponse(response=>response.url().endsWith(`${ADMIN}/analytics`)&&response.request().method()==='PUT'&&response.status()!==403);
     await page.getByRole('button',{name:'Save configuration',exact:true}).click();
     const confirmation=page.getByRole('dialog',{name:'Confirm it is you'});
     if(await confirmation.waitFor({state:'visible',timeout:5000}).then(()=>true,()=>false)){
@@ -111,7 +112,7 @@ test('GA4: measurement ID and EU endpoint persist, the API secret is stored but 
     expect(reply.status()).toBe(200);
     expect(await reply.text()).not.toContain(secret);
     await expect(page.getByText('Analytics configuration saved.',{exact:true})).toBeVisible();
-    const stored=await request(page,'/admin/analytics');
+    const stored=await request(page,`${ADMIN}/analytics`);
     expect(stored.body).not.toContain(secret);
     expect(stored.json.config).toMatchObject({provider:'ga4',endpoint:'https://region1.google-analytics.com/mp/collect',siteId:measurement,enabled:false,apiSecretConfigured:true});
     await page.reload();
@@ -124,12 +125,12 @@ test('GA4: measurement ID and EU endpoint persist, the API secret is stored but 
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
     await page.screenshot({path:info.outputPath('analytics-ga4.png'),fullPage:true});
   } finally {
-    const proof=await request(page,'/admin/step-up','POST',{password:'hunter2'});
+    const proof=await request(page,`${ADMIN}/step-up`,'POST',{password:'hunter2'});
     expect(proof.ok,proof.body).toBe(true);
-    const response=await request(page,'/admin/analytics');
+    const response=await request(page,`${ADMIN}/analytics`);
     // A non-GA4 provider drops the stored secret (analytics_config.rs).
     const write={...initial.config};delete write.apiSecretConfigured;
-    const restored=await request(page,'/admin/analytics','PUT',write.provider==='ga4'?{...write,clearApiSecret:true}:write,response.etag!);
+    const restored=await request(page,`${ADMIN}/analytics`,'PUT',write.provider==='ga4'?{...write,clearApiSecret:true}:write,response.etag!);
     expect(restored.ok,restored.body).toBe(true);
   }
 });

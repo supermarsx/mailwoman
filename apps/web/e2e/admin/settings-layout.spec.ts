@@ -1,9 +1,10 @@
 import { test, expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import {adminLogin} from './admin-login.ts';
 
 test('settings actions are icons and the detail fits the scrolling viewport @phone', async ({ page }) => {
   await adminLogin(page);
-  await page.goto('/admin#/settings');
+  await page.goto(`${ADMIN}#/settings`);
   const open = page.getByRole('link', { name: /^Open / }).first();
   await expect(open).toBeVisible();
   expect((await open.boundingBox())!.width).toBeLessThanOrEqual(48);

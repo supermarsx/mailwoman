@@ -1,12 +1,13 @@
 import { test, expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 
 test('effective configuration has readable source filters and opens the exact editor @phone', async ({ page }) => {
-  await page.goto('/admin');
+  await page.goto(ADMIN);
   await page.getByLabel('Admin username').fill('root');
   await page.getByLabel('Password', { exact: true }).fill('hunter2');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
-  await page.goto('/admin#/config');
+  await page.goto(`${ADMIN}#/config`);
   await page.getByRole('searchbox', { name: 'Search configuration' }).fill('reader.colorMode');
   const table = page.getByRole('table', { name: 'Configuration visible to your administrator role' });
   await expect(table.getByRole('row')).toHaveCount(2);

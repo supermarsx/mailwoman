@@ -1,18 +1,19 @@
 import { request } from 'node:http';
+import { ADMIN } from './admin-path.ts';
 import { test, expect, type Page } from '../csrf.ts';
 function attempt(base:string,username='lock-browser-fixture',password='invalid-fixture-password'):Promise<{status:number,retry:number,code:string}>{
  return new Promise((resolve,reject)=>{
   const body=JSON.stringify({username,password});
-  const req=request(new URL('/admin/login',base),{method:'POST',headers:{'content-type':'application/json','content-length':Buffer.byteLength(body)}},res=>{
+  const req=request(new URL(`${ADMIN}/login`,base),{method:'POST',headers:{'content-type':'application/json','content-length':Buffer.byteLength(body)}},res=>{
    let text='';res.setEncoding('utf8');res.on('data',chunk=>{text+=chunk;});
    res.on('end',()=>{let code='';try{code=String((JSON.parse(text) as {code?:unknown}).code??'');}catch{/* not JSON */}resolve({status:res.statusCode??0,retry:Number(res.headers['retry-after']??1),code});});
   });req.on('error',reject);req.end(body);
  });
 }
 async function signIn(page:Page):Promise<void>{
- await page.goto('/admin');await page.getByLabel('Admin username').fill('root');
+ await page.goto(ADMIN);await page.getByLabel('Admin username').fill('root');
  await page.getByLabel('Password',{exact:true}).fill('hunter2');
- const login=page.waitForResponse(response=>new URL(response.url()).pathname==='/admin/login'&&response.request().method()==='POST');
+ const login=page.waitForResponse(response=>new URL(response.url()).pathname===`${ADMIN}/login`&&response.request().method()==='POST');
  await page.getByRole('button',{name:'Sign in',exact:true}).click();const result=await login;expect(result.status(),await result.text()).toBe(200);
  await expect(page.getByRole('button',{name:'Sign in',exact:true})).toHaveCount(0);
 }
@@ -26,13 +27,13 @@ test('temporary locks list actual rejected credentials and require proof to unlo
  if(!baseURL)throw new Error('Live fixture base URL required');
  await page.waitForTimeout(3100);await signIn(page);
  // The address the server attributes to this host's connections (the diagnostic reports the caller's own source).
- const diagnostic=await page.request.get('/admin/bans/geography');expect(diagnostic.status()).toBe(200);
+ const diagnostic=await page.request.get(`${ADMIN}/bans/geography`);expect(diagnostic.status()).toBe(200);
  const ip=String((await diagnostic.json()).sourceIp);expect(ip).not.toBe('');
  const unlockLeft=async():Promise<void>=>{
-  const listed=await page.request.get('/admin/bans/automatic');if(!listed.ok())return;
+  const listed=await page.request.get(`${ADMIN}/bans/automatic`);if(!listed.ok())return;
   const lock=((await listed.json()).locks as {surface:string,ip:string,revision:string}[]).find(row=>row.surface==='admin'&&row.ip===ip);if(!lock)return;
-  expect((await page.request.post('/admin/step-up',{data:{password:'hunter2'}})).ok()).toBe(true);
-  const cleared=await page.request.delete(`/admin/bans/automatic/admin/${encodeURIComponent(ip)}`,{headers:{'if-match':`"${lock.revision}"`}});
+  expect((await page.request.post(`${ADMIN}/step-up`,{data:{password:'hunter2'}})).ok()).toBe(true);
+  const cleared=await page.request.delete(`${ADMIN}/bans/automatic/admin/${encodeURIComponent(ip)}`,{headers:{'if-match':`"${lock.revision}"`}});
   expect(cleared.ok(),await cleared.text()).toBe(true);
  };
  try{
@@ -46,7 +47,7 @@ test('temporary locks list actual rejected credentials and require proof to unlo
   expect(locked,'five rejected credentials lock the source').toBe(true);
   // A fresh sign-in from the locked source is refused even with the right password.
   await page.waitForTimeout(3100);const refused=await attempt(baseURL,'root','hunter2');expect(refused.status).toBe(429);expect(refused.code).toBe('signinLocked');
-  await page.goto('/admin#/observability/locks');
+  await page.goto(`${ADMIN}#/observability/locks`);
   await page.getByRole('searchbox',{name:'Search temporary sign-in locks'}).fill(ip);
   const table=page.getByRole('table',{name:'Temporary sign-in locks'});
   await expect(table.getByText(ip,{exact:true})).toBeVisible();await expect(table).toContainText('Administrator');

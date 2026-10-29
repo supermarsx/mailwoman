@@ -1,12 +1,13 @@
 import {test,expect} from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 
 test('Nextcloud uses dedicated admin pages and persists approved authority without sending credentials @phone',async({page},info)=>{
   await page.waitForTimeout(4000);
-  await page.goto('/admin');
+  await page.goto(ADMIN);
   await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');
-  const loggedIn=page.waitForResponse(response=>response.url().endsWith('/admin/login')&&response.request().method()==='POST');
+  const loggedIn=page.waitForResponse(response=>response.url().endsWith(`${ADMIN}/login`)&&response.request().method()==='POST');
   await page.getByRole('button',{name:'Sign in',exact:true}).click();expect((await loggedIn).status()).toBe(200);
-  await page.goto('/admin#/nextcloud');
+  await page.goto(`${ADMIN}#/nextcloud`);
   await expect(page.getByRole('heading',{name:'Nextcloud instances',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Add Nextcloud instance',exact:true}).click();
   await expect(page).toHaveURL(/#\/nextcloud\/new$/);

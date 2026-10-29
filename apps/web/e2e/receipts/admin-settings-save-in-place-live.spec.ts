@@ -1,4 +1,5 @@
 import {test,expect} from '../csrf.ts';
+import { ADMIN } from '../admin/admin-path.ts';
 import {mkdirSync} from 'node:fs';
 import type {Browser,Page,TestInfo} from '@playwright/test';
 
@@ -28,14 +29,14 @@ const shot=(info:TestInfo,name:string)=>{
 async function adminPage(browser:Browser,info:TestInfo,size:{width:number;height:number}):Promise<Page>{
   const context=await browser.newContext({baseURL:String(info.project.use.baseURL),viewport:size,serviceWorkers:'block',locale:'en-US'});
   const page=await context.newPage();
-  await page.goto('/admin');
+  await page.goto(ADMIN);
   await page.getByLabel('Admin username').fill('root');
   await page.getByLabel('Password',{exact:true}).fill('hunter2');
   await page.waitForTimeout(3100);
-  const login=page.waitForResponse(r=>new URL(r.url()).pathname==='/admin/login'&&r.request().method()==='POST');
+  const login=page.waitForResponse(r=>new URL(r.url()).pathname===`${ADMIN}/login`&&r.request().method()==='POST');
   await page.getByRole('button',{name:'Sign in',exact:true}).click();
   expect((await login).status()).toBe(200);
-  await page.goto(`/admin#/settings/${KEY}`);
+  await page.goto(`${ADMIN}#/settings/${KEY}`);
   await expect(page.getByTestId('setting-detail')).toBeVisible({timeout:30000});
   await expect(page.getByTestId('setting-detail').getByText(`Key: ${KEY}`,{exact:true})).toBeVisible();
   // The domain and per-user tables have answered (their first load is not under test).
@@ -47,9 +48,9 @@ async function adminPage(browser:Browser,info:TestInfo,size:{width:number;height
 async function resetKey(playwright:{request:{newContext:(o:{baseURL:string})=>Promise<import('@playwright/test').APIRequestContext>}},info:TestInfo):Promise<void>{
   const api=await playwright.request.newContext({baseURL:String(info.project.use.baseURL)});
   try{
-    expect((await api.post('/admin/login',{data:{username:'root',password:'hunter2'}})).status()).toBe(200);
-    const etag=(await api.get(`/admin/settings/${KEY}`)).headers()['etag'];
-    const res=await api.delete(`/admin/settings/${KEY}`,{headers:etag?{'if-match':etag}:{}});
+    expect((await api.post(`${ADMIN}/login`,{data:{username:'root',password:'hunter2'}})).status()).toBe(200);
+    const etag=(await api.get(`${ADMIN}/settings/${KEY}`)).headers()['etag'];
+    const res=await api.delete(`${ADMIN}/settings/${KEY}`,{headers:etag?{'if-match':etag}:{}});
     expect([200,204,404]).toContain(res.status());
   }finally{await api.dispose();}
 }
@@ -102,7 +103,7 @@ for(const size of SIZES){
     const page=await adminPage(browser,info,size);
     try{
       // Hold every reload of the settings list (after a write) for 400 ms.
-      await page.route(url=>url.pathname==='/admin/settings',async route=>{
+      await page.route(url=>url.pathname===`${ADMIN}/settings`,async route=>{
         if(route.request().method()==='GET')await new Promise(r=>setTimeout(r,400));
         await route.continue();
       });
@@ -113,8 +114,8 @@ for(const size of SIZES){
       for(const [round,value] of [[1,true],[2,false]] as const){
         await box.click();
         await startSampler(page);
-        const put=page.waitForResponse(r=>new URL(r.url()).pathname===`/admin/settings/${KEY}`&&r.request().method()==='PUT');
-        const reload=page.waitForResponse(r=>new URL(r.url()).pathname==='/admin/settings'&&r.request().method()==='GET');
+        const put=page.waitForResponse(r=>new URL(r.url()).pathname===`${ADMIN}/settings/${KEY}`&&r.request().method()==='PUT');
+        const reload=page.waitForResponse(r=>new URL(r.url()).pathname===`${ADMIN}/settings`&&r.request().method()==='GET');
         await form.getByRole('button',{name:'Save',exact:true}).click();
         expect((await put).status()).toBe(200);
         // In the middle of the held list reload.

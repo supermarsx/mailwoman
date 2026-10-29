@@ -6,6 +6,7 @@
 // against the receipts stack (Greenmail without sign-in checks, so the new
 // mailbox signs in with any password). No route mocks.
 import { test, expect, type Page } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import { adminLogin } from './admin-login.ts';
 
 interface User { accountId: string; username: string; domain: string | null; status: string; loginAddress?: string | null }
@@ -33,16 +34,16 @@ test('provisioned user: session counted, block revokes it, unblock restores, del
   const username = `life${info.project.name.slice(0, 2)}${Date.now().toString(36)}`;
   const address = `${username}@example.org`;
   await adminLogin(page);
-  const sessions = async (): Promise<number> => ((await (await page.request.get('/admin/dashboard')).json()) as Dashboard).counts.activeSessions;
+  const sessions = async (): Promise<number> => ((await (await page.request.get(`${ADMIN}/dashboard`)).json()) as Dashboard).counts.activeSessions;
 
-  await page.goto('/admin#/users/%2Bnew');
+  await page.goto(`${ADMIN}#/users/%2Bnew`);
   const form = page.getByRole('form', { name: 'Provision user', exact: true });
   await form.getByLabel('Username', { exact: true }).fill(username);
   await form.getByLabel('Domain', { exact: true }).fill('example.org');
-  const provisioned = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/admin/users'));
+  const provisioned = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith(`${ADMIN}/users`));
   await form.getByRole('button', { name: 'Provision user', exact: true }).click();
   expect((await provisioned).status()).toBeLessThan(300);
-  const find = async (): Promise<User | undefined> => ((await (await page.request.get('/admin/users')).json()) as User[]).find((u) => u.username === username || u.loginAddress === address);
+  const find = async (): Promise<User | undefined> => ((await (await page.request.get(`${ADMIN}/users`)).json()) as User[]).find((u) => u.username === username || u.loginAddress === address);
   await expect.poll(async () => (await find()) !== undefined).toBe(true);
 
   const device = await browser.newContext({ baseURL: String(info.project.use.baseURL), locale: 'en-US', serviceWorkers: 'block' });
@@ -54,11 +55,11 @@ test('provisioned user: session counted, block revokes it, unblock restores, del
     expect((await user.request.get('/api/me')).status()).toBe(200);
     await expect.poll(sessions).toBeGreaterThan(before);
     const counted = await sessions();
-    await page.goto('/admin#/dashboard');
+    await page.goto(`${ADMIN}#/dashboard`);
     await expect(page.getByText('Active webmail sessions', { exact: true }).first()).toBeVisible();
 
     const record = (await find())!;
-    await page.goto(`/admin#/users/${encodeURIComponent(record.accountId)}`);
+    await page.goto(`${ADMIN}#/users/${encodeURIComponent(record.accountId)}`);
     const access = page.getByRole('heading', { name: 'Mailwoman access', exact: true }).locator('..');
     await page.getByRole('button', { name: `Block login for ${address}` }).click();
     let dialog = page.getByRole('dialog').or(page.getByRole('alertdialog')).filter({ hasText: 'Block Mailwoman login' });

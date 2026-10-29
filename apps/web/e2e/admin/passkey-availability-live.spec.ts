@@ -1,4 +1,5 @@
 import {test,expect,type Page} from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import {signInManually} from '../helpers.ts';
 async function openSecurity(page:Page):Promise<void>{
  const sections=page.getByRole('navigation',{name:'Settings sections'});
@@ -11,10 +12,10 @@ async function openSecurity(page:Page):Promise<void>{
 }
 test('passkey enrollment is available in personal settings and respects effective policy @phone',async({page,browser,baseURL})=>{
  test.setTimeout(120_000);await new Promise(resolve=>setTimeout(resolve,3200));
- await page.goto('/admin');await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');await page.getByRole('button',{name:'Sign in',exact:true}).click();
- await expect.poll(async()=>(await page.request.get('/admin/session')).status()).toBe(200);
- await page.goto('/admin#/preferences');await expect(page.getByRole('button',{name:'Add administrator passkey'})).toBeEnabled();
- const path='/admin/settings/twofa.passkeysEnabled';const original=await page.request.get(path);expect(original.status()).toBe(200);const previous=(await original.json()).globalValue;
+ await page.goto(ADMIN);await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await expect.poll(async()=>(await page.request.get(`${ADMIN}/session`)).status()).toBe(200);
+ await page.goto(`${ADMIN}#/preferences`);await expect(page.getByRole('button',{name:'Add administrator passkey'})).toBeEnabled();
+ const path=`${ADMIN}/settings/twofa.passkeysEnabled`;const original=await page.request.get(path);expect(original.status()).toBe(200);const previous=(await original.json()).globalValue;
  const set=async(value:unknown):Promise<void>=>{const row=await page.request.get(path);const saved=await page.request.put(path,{headers:{'if-match':row.headers()['etag']!},data:{globalValue:value}});expect(saved.status(),await saved.text()).toBe(200);};
  const user=await browser.newPage({baseURL:baseURL!,viewport:page.viewportSize()!});
  try{

@@ -1,4 +1,5 @@
 import {test,expect,type APIRequestContext} from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 
 // Shared loopback fixture deliberately respects the production issuance bucket.
 test.beforeEach(async()=>{await new Promise(resolve=>setTimeout(resolve,6500));});
@@ -8,8 +9,8 @@ test.beforeEach(async()=>{await new Promise(resolve=>setTimeout(resolve,6500));}
 // signed out) and puts the stored value back afterwards, so later specs sign in without it.
 let restore:(()=>Promise<void>)|undefined;
 async function requireVerification(request:APIRequestContext):Promise<void>{
-  const login=await request.post('/admin/login',{data:{username:'root',password:'hunter2'}});expect(login.status(),await login.text()).toBe(200);
-  const path='/admin/settings/signin.antiBotMode';
+  const login=await request.post(`${ADMIN}/login`,{data:{username:'root',password:'hunter2'}});expect(login.status(),await login.text()).toBe(200);
+  const path=`${ADMIN}/settings/signin.antiBotMode`;
   const current=await request.get(path);expect(current.status()).toBe(200);const previous=(await current.json()).globalValue??null;
   const saved=await request.put(path,{headers:{'if-match':current.headers()['etag']!},data:{globalValue:'all'}});expect(saved.status(),await saved.text()).toBe(200);
   restore=async()=>{const row=await request.get(path);const back=await request.put(path,{headers:{'if-match':row.headers()['etag']!},data:{globalValue:previous}});expect(back.status(),await back.text()).toBe(200);};
@@ -28,9 +29,9 @@ test('self-hosted verification is solved locally, consumed and reset before anot
     const url=request.url();
     if (/^https?:/.test(url)&&new URL(url).origin!==origin)external.push(new URL(url).origin);
     if(url.includes('pbkdf2')&&url.endsWith('.js'))workers.push(url);
-    if(new URL(url).pathname==='/admin/login'&&request.method()==='POST')logins++;
+    if(new URL(url).pathname===`${ADMIN}/login`&&request.method()==='POST')logins++;
   });
-  await page.goto('/admin/');
+  await page.goto(`${ADMIN}/`);
   const form=page.getByRole('form',{name:'Admin sign in',exact:true});
   await expect(form).toBeVisible();
   const submit=form.getByRole('button',{name:'Sign in',exact:true});
@@ -45,7 +46,7 @@ test('self-hosted verification is solved locally, consumed and reset before anot
   expect(await widget.evaluate(element=>(element as HTMLElement & {getConfiguration():{humanInteractionSignature:boolean}}).getConfiguration().humanInteractionSignature)).toBe(false);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
   await page.screenshot({path:testInfo.outputPath('verification-solved.png'),fullPage:true});
-  const first=page.waitForResponse(response=>new URL(response.url()).pathname==='/admin/login'&&response.request().method()==='POST');
+  const first=page.waitForResponse(response=>new URL(response.url()).pathname===`${ADMIN}/login`&&response.request().method()==='POST');
   await submit.click();const rejected=await first;expect(rejected.status()).toBe(401);
   const payload=JSON.parse(Buffer.from(rejected.request().postDataJSON().altcha as string,'base64').toString('utf8')) as object;
   expect(Object.keys(payload).sort()).toEqual(['challenge','solution']);
@@ -59,7 +60,7 @@ test('self-hosted verification is solved locally, consumed and reset before anot
   if(testInfo.project.name==='phone')await widget.getByRole('checkbox').tap();else await widget.getByRole('checkbox').click();
   await expect(submit).toBeEnabled({timeout:30_000});
   await paced;
-  const second=page.waitForResponse(response=>new URL(response.url()).pathname==='/admin/login'&&response.request().method()==='POST');
+  const second=page.waitForResponse(response=>new URL(response.url()).pathname===`${ADMIN}/login`&&response.request().method()==='POST');
   await submit.click();expect((await second).status()).toBe(200);
   if(testInfo.project.name==='phone')await page.getByRole('button',{name:'Menu',exact:true}).click();
   await expect(page.getByRole('navigation',{name:'Admin sections'})).toBeVisible();

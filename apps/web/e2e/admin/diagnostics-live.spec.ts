@@ -1,16 +1,17 @@
 import { test, expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import { readFile } from 'node:fs/promises';
 
 test('server diagnostics execute real checks and retain history @phone', async ({ page }) => {
-  await page.goto('/admin');
+  await page.goto(ADMIN);
   await page.getByLabel('Admin username').fill('root');
   await page.getByLabel('Password', { exact: true }).fill('hunter2');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
-  await page.goto('/admin#/diagnostics');
+  await page.goto(`${ADMIN}#/diagnostics`);
   const run = page.getByRole('button', { name: 'Run server checks', exact: true });
   await expect(run).toBeEnabled();
-  const response = page.waitForResponse(r => r.url().endsWith('/admin/diag/run') && r.request().method() === 'POST');
+  const response = page.waitForResponse(r => r.url().endsWith(`${ADMIN}/diag/run`) && r.request().method() === 'POST');
   await run.click();
   const reply = await response;
   expect(reply.status()).toBe(200);
@@ -42,7 +43,7 @@ test('server diagnostics execute real checks and retain history @phone', async (
   // Copy with domain names replaced: the clipboard text a browser really received.
   await page.evaluate(() => { const original = navigator.clipboard.writeText.bind(navigator.clipboard); navigator.clipboard.writeText = async (text: string) => { (window as unknown as { copied?: string }).copied = text; try { await original(text); } catch { /* clipboard permission is per browser */ } }; });
   await page.getByRole('checkbox', { name: 'Replace domain names and backend IDs in the report' }).check();
-  const reportRequest = page.waitForRequest(r => r.url().includes('/admin/diag/report?'));
+  const reportRequest = page.waitForRequest(r => r.url().includes(`${ADMIN}/diag/report?`));
   await page.getByRole('button', { name: 'Copy troubleshooting report' }).click();
   expect((await reportRequest).url()).toContain('omitDomains=true');
   await expect.poll(() => page.evaluate(() => (window as unknown as { copied?: string }).copied ?? '')).not.toBe('');
@@ -51,13 +52,13 @@ test('server diagnostics execute real checks and retain history @phone', async (
   expect(copied.redaction.domainsOmitted).toBe(true);
   expect(copied.selectedRun.id).toBe(report.run.id);
   expect(copiedText).not.toContain('hunter2');
-  const domains = await (await page.request.get('/admin/domains')).json() as { name: string }[];
+  const domains = await (await page.request.get(`${ADMIN}/domains`)).json() as { name: string }[];
   for (const domain of domains) expect(copiedText).not.toContain(domain.name);
-  const named = JSON.stringify(await (await page.request.get('/admin/diag/report')).json());
+  const named = JSON.stringify(await (await page.request.get(`${ADMIN}/diag/report`)).json());
   for (const [, name] of named.matchAll(/"domain":"([^"]+)"/g)) expect(copiedText).not.toContain(`"${name}"`);
   await page.screenshot({ path: test.info().outputPath('diagnostics-copied.png'), fullPage: true });
   await expect(page.getByRole('button',{name:'Check all saved backends'})).toBeEnabled();
-  const queued=page.waitForResponse(r=>r.url().endsWith('/admin/diag/jobs') && r.request().method()==='POST');
+  const queued=page.waitForResponse(r=>r.url().endsWith(`${ADMIN}/diag/jobs`) && r.request().method()==='POST');
   await page.getByRole('button',{name:'Check all saved backends'}).click();
   expect((await queued).status()).toBe(202);
   await expect(page.getByRole('button',{name:'Run server checks',exact:true})).toBeEnabled({timeout:70_000});

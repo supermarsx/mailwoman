@@ -1,12 +1,13 @@
 import { test, expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 
 test('IP bans use a dedicated guarded editor and searchable expiry table @phone', async ({ page }) => {
-  await page.goto('/admin');
+  await page.goto(ADMIN);
   await page.getByLabel('Admin username').fill('root');
   await page.getByLabel('Password', { exact: true }).fill('hunter2');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
-  await page.goto('/admin#/security/bans');
+  await page.goto(`${ADMIN}#/security/bans`);
   await expect(page.getByLabel('IP address')).toHaveCount(0);
   await page.getByRole('button', { name: 'Add ban', exact: true }).click();
   await expect(page).toHaveURL(/#\/security\/bans\/new$/);
@@ -21,7 +22,7 @@ test('IP bans use a dedicated guarded editor and searchable expiry table @phone'
   await page.getByLabel('Reason', { exact: true }).fill('Browser acceptance fixture');
   await page.getByLabel("Expiry (this device's local time)").fill('2099-01-01T12:00');
   await page.screenshot({ path: test.info().outputPath('ban-editor.png'), fullPage: true });
-  const saved = page.waitForResponse(response => response.url().endsWith('/admin/bans') && response.request().method() === 'POST' && response.ok());
+  const saved = page.waitForResponse(response => response.url().endsWith(`${ADMIN}/bans`) && response.request().method() === 'POST' && response.ok());
   await page.getByRole('button', { name: 'Save IP ban' }).click();
   const proof = page.getByRole('dialog', { name: 'Confirm it is you' });
   await proof.getByRole('textbox', { name: 'Password', exact: true }).fill('hunter2');
@@ -36,7 +37,7 @@ test('IP bans use a dedicated guarded editor and searchable expiry table @phone'
   await expect(page.getByRole('button', { name: `Unban ${ip}` })).toBeVisible();
   await page.getByRole('table', { name: 'IP ban list' }).scrollIntoViewIfNeeded();
   await page.getByRole('heading', { name: 'IP ban list', exact: true }).locator('..').screenshot({ path: test.info().outputPath('ban-table.png') });
-  const removed = page.waitForResponse(response => response.url().endsWith(`/admin/bans/${ip}`) && response.request().method() === 'DELETE' && response.ok());
+  const removed = page.waitForResponse(response => response.url().endsWith(`${ADMIN}/bans/${ip}`) && response.request().method() === 'DELETE' && response.ok());
   await page.getByRole('button', { name: `Unban ${ip}` }).click();
   expect((await removed).status()).toBe(204);
   await expect(page.getByRole('button', { name: `Unban ${ip}` })).toHaveCount(0);

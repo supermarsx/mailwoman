@@ -1,8 +1,9 @@
 import {test,expect} from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import {adminLogin} from './admin-login.ts';
 test('maintenance mode pauses users while admin recovery stays available @phone',async({page},info)=>{
   await adminLogin(page);
-  await page.goto('/admin#/maintenance');
+  await page.goto(`${ADMIN}#/maintenance`);
   const toggle=page.getByLabel('Pause user access',{exact:true});
   await expect(toggle).not.toBeChecked();
   await toggle.check();
@@ -18,7 +19,7 @@ test('maintenance mode pauses users while admin recovery stays available @phone'
   const refused=await page.request.get('/api/me');
   expect(refused.status()).toBe(503);expect(refused.headers()['retry-after']).toBe('60');
   expect((await refused.json()).message).toBe('Planned mailbox upgrade');
-  expect((await page.request.get('/admin/maintenance/mode')).status()).toBe(200);
+  expect((await page.request.get(`${ADMIN}/maintenance/mode`)).status()).toBe(200);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
   await page.screenshot({path:info.outputPath('maintenance-active.png'),fullPage:true});
   await toggle.uncheck();await page.getByRole('button',{name:'Save',exact:true}).click();

@@ -1,15 +1,16 @@
 import {test,expect} from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import {signInManually,drawerButton} from '../helpers.ts';
 
 test('package provider and account opt-in use separate editors without automatic export @phone',async({page,browser},info)=>{
-  await page.goto('/admin');await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');
-  const signedIn=page.waitForResponse(response=>response.url().endsWith('/admin/login')&&response.request().method()==='POST');
+  await page.goto(ADMIN);await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');
+  const signedIn=page.waitForResponse(response=>response.url().endsWith(`${ADMIN}/login`)&&response.request().method()==='POST');
   await page.getByRole('button',{name:'Sign in',exact:true}).click();expect((await signedIn).status()).toBe(200);
-  const original=await(await page.request.get('/admin/package-tracking')).json();
+  const original=await(await page.request.get(`${ADMIN}/package-tracking`)).json();
   let mailbox:Awaited<ReturnType<typeof browser.newContext>>|undefined;
   let account='';let previousEnabled=false;let id='';
   try {
-    await page.goto('/admin#/package-tracking');
+    await page.goto(`${ADMIN}#/package-tracking`);
     const allow=page.getByLabel('Allow opted-in accounts to contact this provider');await expect(allow).toBeVisible();await allow.check();
     await page.getByLabel(/^Minimum refresh interval in seconds/).fill(String((original.provider?.refreshSecs??900)===901?902:901));
     if(!original.provider?.configured)await page.getByLabel(/^Provider API key/).fill('local-acceptance-not-a-real-provider-key');
@@ -31,6 +32,6 @@ test('package provider and account opt-in use separate editors without automatic
     expect(await user.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);expect(await user.getByRole('table').evaluate(table=>table.getBoundingClientRect().width)).toBeGreaterThanOrEqual(600);await user.screenshot({path:info.outputPath('account-packages.png'),fullPage:true});
   }finally{
     if(mailbox&&account){const user=mailbox.pages()[0]!;const csrf=(await mailbox.cookies()).find(cookie=>cookie.name==='mw_csrf')?.value;let current=await(await user.request.get('/api/account/packages')).json();if(id){const removed=await user.request.delete(`/api/account/packages/${encodeURIComponent(id)}`,{headers:{'X-CSRF-Token':csrf??''},data:{accountId:account,revision:current.revision}});expect(removed.ok(),await removed.text()).toBe(true);current=await(await user.request.get('/api/account/packages')).json();}const restored=await user.request.put('/api/account/packages',{headers:{'X-CSRF-Token':csrf??''},data:{accountId:account,revision:current.revision,enabled:previousEnabled}});expect(restored.ok(),await restored.text()).toBe(true);await mailbox.close();}
-    const current=await page.request.get('/admin/package-tracking');const restored=await page.request.put('/admin/package-tracking',{headers:{'If-Match':current.headers()['etag']!},data:{enabled:original.provider?.enabled??false,refreshSecs:original.provider?.refreshSecs??900}});expect(restored.ok(),await restored.text()).toBe(true);
+    const current=await page.request.get(`${ADMIN}/package-tracking`);const restored=await page.request.put(`${ADMIN}/package-tracking`,{headers:{'If-Match':current.headers()['etag']!},data:{enabled:original.provider?.enabled??false,refreshSecs:original.provider?.refreshSecs??900}});expect(restored.ok(),await restored.text()).toBe(true);
   }
 });

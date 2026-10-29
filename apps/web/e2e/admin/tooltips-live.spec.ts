@@ -1,7 +1,8 @@
 import { test, expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 
 test('app tooltips follow keyboard focus, theme, viewport and reduced motion without blocking touch @phone', async ({ page }, testInfo) => {
-  await page.goto('/admin');
+  await page.goto(ADMIN);
   await page.getByLabel('Admin username').fill('root');
   await page.getByLabel('Password', { exact: true }).fill('hunter2');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
@@ -9,7 +10,7 @@ test('app tooltips follow keyboard focus, theme, viewport and reduced motion wit
   // The desktop toggle below persists sidebarCollapsed in the admin's own
   // preferences; every later spec (the next browser project included) shares
   // that account, so the preferences are put back however this test ends.
-  const originalResponse = await page.request.get('/admin/me/preferences');
+  const originalResponse = await page.request.get(`${ADMIN}/me/preferences`);
   expect(originalResponse.ok()).toBe(true);
   const original = await originalResponse.json();
   try {
@@ -47,7 +48,7 @@ test('app tooltips follow keyboard focus, theme, viewport and reduced motion wit
     await expect(button).toHaveAttribute('aria-expanded', expanded === 'true' ? 'false' : 'true');
     await expect(tooltip).toHaveCount(0);
   } finally {
-    const current = await page.request.get('/admin/me/preferences');
-    expect((await page.request.put('/admin/me/preferences', { headers: { 'If-Match': current.headers()['etag']! }, data: original })).ok()).toBe(true);
+    const current = await page.request.get(`${ADMIN}/me/preferences`);
+    expect((await page.request.put(`${ADMIN}/me/preferences`, { headers: { 'If-Match': current.headers()['etag']! }, data: original })).ok()).toBe(true);
   }
 });

@@ -1,12 +1,13 @@
 import { test, expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 
 test('privacy diagnostics use readable contained tables and settings detail groups have room @phone', async ({ page }) => {
-  await page.goto('/admin');
+  await page.goto(ADMIN);
   await page.getByLabel('Admin username').fill('root');
   await page.getByLabel('Password', { exact: true }).fill('hunter2');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
-  await page.goto('/admin#/privacy');
+  await page.goto(`${ADMIN}#/privacy`);
   const cache = page.getByRole('table', { name: 'Cache and tracking protection', exact: true });
   const traffic = page.getByRole('table', { name: 'Outbound traffic processing', exact: true });
   await expect(cache).toBeVisible();
@@ -15,7 +16,7 @@ test('privacy diagnostics use readable contained tables and settings detail grou
   expect(await cache.locator('td').first().evaluate(node => parseFloat(getComputedStyle(node).paddingInlineStart))).toBeGreaterThanOrEqual(12);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: test.info().outputPath('privacy-tables.png'), fullPage: true });
-  await page.goto('/admin#/settings/privacy.remoteContent');
+  await page.goto(`${ADMIN}#/settings/privacy.remoteContent`);
   const detail = page.getByTestId('setting-detail');
   await expect(detail).toBeVisible();
   const switches = detail.locator('#setting-override-help');

@@ -1,11 +1,12 @@
 import {test,expect} from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import {adminLogin} from './admin-login.ts';
 
 test('configuration transfer keyboard and bounded layout @phone',async({page},info)=>{
 
- await page.route('**/admin/config/export',route=>route.fulfill({json:{bundle:{format:'mailwoman-settings',version:1,entries:[]},excluded:['secrets']}}));
- await page.route('**/admin/config/import',route=>route.fulfill({json:{changes:[{key:'mail.trustedRecipientDomains',before:{globalValue:['previous.example']},after:{globalValue:['a-very-long-configured-destination-name.example.test','second.example.test']},impact:{}}],revisions:{'mail.trustedRecipientDomains':'"v1"'}}}));
- await adminLogin(page);await page.goto('/admin#/configuration-transfer');
+ await page.route(`**${ADMIN}/config/export`,route=>route.fulfill({json:{bundle:{format:'mailwoman-settings',version:1,entries:[]},excluded:['secrets']}}));
+ await page.route(`**${ADMIN}/config/import`,route=>route.fulfill({json:{changes:[{key:'mail.trustedRecipientDomains',before:{globalValue:['previous.example']},after:{globalValue:['a-very-long-configured-destination-name.example.test','second.example.test']},impact:{}}],revisions:{'mail.trustedRecipientDomains':'"v1"'}}}));
+ await adminLogin(page);await page.goto(`${ADMIN}#/configuration-transfer`);
  const spacing=await page.getByRole('tablist',{name:'Configuration & backups'}).evaluate(element=>{const parent=element.closest('section')!;const paragraphs=parent.querySelectorAll(':scope > p');const help=paragraphs[0]!.getBoundingClientRect();return element.getBoundingClientRect().top-help.bottom;});expect(spacing).toBeLessThanOrEqual(26);
  const first=page.getByRole('tab',{name:'Export settings'});await first.focus();await page.keyboard.press('ArrowRight');await expect(page.getByRole('tab',{name:'Import settings'})).toBeFocused();await expect(page.getByRole('tabpanel',{name:'Import settings'})).toBeVisible();
  await page.getByLabel('Settings JSON file').setInputFiles({name:'settings.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'mailwoman-settings',version:1,entries:[]}))});

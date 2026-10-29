@@ -1,4 +1,5 @@
 import { test, expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import { adminLogin } from './admin-login.ts';
 
 // Real admin API and SPA. Every browser uses a fresh domain and removes its data.
@@ -6,7 +7,7 @@ test('domain connection editor, policies, mappings and protected deletion @phone
   const domain = `ui-${Date.now()}-${test.info().project.name}.test`;
   const alias = `alias-${domain}`;
   const host = `login-${domain}`;
-  const admin = process.env['MW_E2E_ADMIN_PATH'] ?? '/admin';
+  const admin = ADMIN;
   const tab = (name: string) => page.getByRole('navigation', { name: 'Domain configuration pages' }).getByRole('link', { name, exact: true });
   await adminLogin(page);
   // An unconfigured domain's page is the add form with its name filled in (3d3bf859).
@@ -84,7 +85,7 @@ test('saved upstream probe reports a real unauthenticated IMAP capability check 
   const port = process.env['MW_DOMAIN_PROBE_PORT'] ?? upstream.port;
   // A name under example.com (RFC 2606) gets a real NXDOMAIN; some resolvers never answer for .test.
   const domain = `probe-${Date.now()}-${test.info().project.name}.example.com`;
-  const admin = process.env['MW_E2E_ADMIN_PATH'] ?? '/admin';
+  const admin = ADMIN;
   const tab = (name: string) => page.getByRole('navigation', { name: 'Domain configuration pages' }).getByRole('link', { name, exact: true });
   await adminLogin(page);
   await page.goto(`${admin}#/domains/new`);

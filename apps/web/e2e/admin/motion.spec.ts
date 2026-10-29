@@ -1,13 +1,14 @@
 import { test, expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 
 test('page and dialog entry fade without moving content, and respect reduced motion @phone', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await page.goto('/admin');
+  await page.goto(ADMIN);
   await page.getByLabel('Admin username').fill('root');
   await page.getByLabel('Password', { exact: true }).fill('hunter2');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
-  await page.goto('/admin#/preferences');
+  await page.goto(`${ADMIN}#/preferences`);
   const route = page.getByTestId('admin-route-transition');
   await expect(route).toHaveAttribute('data-mw-entering', 'true');
   const motion = await route.evaluate(node => {
@@ -30,7 +31,7 @@ test('page and dialog entry fade without moving content, and respect reduced mot
   await expect(dialog).toBeVisible();
   expect(await dialog.evaluate(node => getComputedStyle(node).animationName)).toBe('none');
   await page.keyboard.press('Escape');
-  await page.goto('/admin#/settings');
+  await page.goto(`${ADMIN}#/settings`);
   await expect(route).toHaveAttribute('data-mw-entering', 'false');
   expect(await route.evaluate(node => getComputedStyle(node).animationName)).toBe('none');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

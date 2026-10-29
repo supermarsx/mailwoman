@@ -3,18 +3,19 @@
 // with the suite, status and check counts the server stored, and opening an
 // older run shows that run's results. No route mocks.
 import { test, expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import { adminLogin } from './admin-login.ts';
 
 interface Run { id: string; suite: string; status: string; startedAt: number; results: { status: string }[] }
 
 test('saved diagnostic runs are listed after a reload and an older run opens @phone', async ({ page }) => {
   await adminLogin(page);
-  await page.goto('/admin#/diagnostics');
+  await page.goto(`${ADMIN}#/diagnostics`);
   const run = page.getByRole('button', { name: 'Run server checks', exact: true });
   const ids: string[] = [];
   for (let n = 0; n < 2; n++) {
     await expect(run).toBeEnabled();
-    const response = page.waitForResponse((r) => r.url().endsWith('/admin/diag/run') && r.request().method() === 'POST');
+    const response = page.waitForResponse((r) => r.url().endsWith(`${ADMIN}/diag/run`) && r.request().method() === 'POST');
     await run.click();
     const report = (await (await response).json()) as { run: Run; historySaved: boolean };
     expect(report.historySaved).toBe(true);
@@ -23,7 +24,7 @@ test('saved diagnostic runs are listed after a reload and an older run opens @ph
     if (n === 0) await page.waitForTimeout(1100);
   }
 
-  const saved = (await (await page.request.get('/admin/diag/runs')).json()) as { runs: Run[] };
+  const saved = (await (await page.request.get(`${ADMIN}/diag/runs`)).json()) as { runs: Run[] };
   const newest = saved.runs.find((r) => r.id === ids[1])!;
   const older = saved.runs.find((r) => r.id === ids[0])!;
   expect(newest).toBeTruthy();

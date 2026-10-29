@@ -1,12 +1,13 @@
 import { test, expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 
 test('roles use dedicated guided create and edit pages with compact controls @phone', async ({ page }) => {
-  await page.goto('/admin');
+  await page.goto(ADMIN);
   await page.getByLabel('Admin username').fill('root');
   await page.getByLabel('Password', { exact: true }).fill('hunter2');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
-  await page.goto('/admin#/roles');
+  await page.goto(`${ADMIN}#/roles`);
   await expect(page.getByRole('textbox', { name: 'Display name' })).toHaveCount(0);
   await page.getByRole('button', { name: 'New role', exact: true }).click();
   await expect(page).toHaveURL(/#\/roles\/new$/);
@@ -26,7 +27,7 @@ test('roles use dedicated guided create and edit pages with compact controls @ph
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   const create = page.getByRole('button', { name: 'Create role', exact: true });
   expect((await create.boundingBox())!.width).toBeLessThan(300);
-  const created = page.waitForResponse(r => r.url().endsWith('/admin/roles') && r.request().method() === 'POST' && r.ok());
+  const created = page.waitForResponse(r => r.url().endsWith(`${ADMIN}/roles`) && r.request().method() === 'POST' && r.ok());
   await create.click();
   const confirmation = page.getByRole('dialog', { name: 'Confirm it is you' });
   await confirmation.getByRole('textbox', { name: 'Password', exact: true }).fill('hunter2');
@@ -41,7 +42,7 @@ test('roles use dedicated guided create and edit pages with compact controls @ph
   await page.getByRole('textbox', { name: 'Display name' }).fill(`${name} edited`);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
-  const saved = page.waitForResponse(r => r.url().includes('/admin/roles/') && r.request().method() === 'PUT');
+  const saved = page.waitForResponse(r => r.url().includes(`${ADMIN}/roles/`) && r.request().method() === 'PUT');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   expect((await saved).ok()).toBe(true);
   await expect(page.getByRole('button', { name: `${name} edited`, exact: true })).toBeVisible();

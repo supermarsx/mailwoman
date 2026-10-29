@@ -1,4 +1,5 @@
 import {writeFile} from 'node:fs/promises';
+import { ADMIN } from './admin-path.ts';
 import {test,expect} from '../csrf.ts';
 import {adminLogin} from './admin-login.ts';
 
@@ -11,7 +12,7 @@ test('remaining admin screens retain bounded read-only layout @phone',async({pag
     await test.step(section,async()=>{
       // A fresh document prevents a previous route's heading satisfying readiness
       // while the next lazy screen is still replacing it with a skeleton.
-      await page.goto(`/admin?appearance-audit=${section}#/${section}`);
+      await page.goto(`${ADMIN}?appearance-audit=${section}#/${section}`);
       await page.locator('main').first().waitFor();
       await expect(page.locator('main h1, main h2').first(),`${section} finished mounting`).toBeVisible();
       await page.waitForLoadState('networkidle',{timeout:8000}).catch(()=>undefined);

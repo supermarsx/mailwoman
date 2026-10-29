@@ -30,11 +30,13 @@ import { test, expect, type APIRequestContext } from '@playwright/test';
 const BASE = (process.env['MW_DEPLOY_BASE_URL'] ?? '').replace(/\/+$/, '');
 const ADMIN_USER = process.env['MW_ADMIN_USER'] ?? '';
 const ADMIN_PASSWORD = process.env['MW_ADMIN_PASSWORD'] ?? '';
+/** The console path deploy.sh generated (t76), from the installation's app.env. */
+const ADMIN = process.env['MW_E2E_ADMIN_PATH'] ?? '/admin';
 
 /** The addresses the server lists as banned, asked with the browser's own cookies. */
 async function bannedIps(request: APIRequestContext): Promise<string[]> {
-  const res = await request.get(`${BASE}/admin/bans`);
-  expect(res.status(), 'GET /admin/bans').toBe(200);
+  const res = await request.get(`${BASE}${ADMIN}/bans`);
+  expect(res.status(), `GET ${ADMIN}/bans`).toBe(200);
   return ((await res.json()) as Array<{ ip: string }>).map((b) => b.ip);
 }
 
@@ -46,7 +48,7 @@ test.describe('admin panel on a deployed installation', () => {
     expect(ADMIN_PASSWORD, 'MW_ADMIN_PASSWORD must be set').not.toBe('');
 
     // ── sign in through the form ────────────────────────────────────────────
-    await page.goto(`${BASE}/admin`);
+    await page.goto(`${BASE}${ADMIN}`);
     const loginForm = page.getByRole('form', { name: 'Admin sign in' });
     await expect(loginForm).toBeVisible();
     await loginForm.getByLabel('Admin username').fill(ADMIN_USER);
@@ -65,7 +67,7 @@ test.describe('admin panel on a deployed installation', () => {
     // ── 1. precondition: this installation is strict ────────────────────────
     // `page.request` shares the browser's cookies (admin session and mw_csrf) and
     // adds no header of its own: this is the request the web client used to send.
-    const bare = await page.request.post(`${BASE}/admin/bans`, {
+    const bare = await page.request.post(`${BASE}${ADMIN}/bans`, {
       data: { ip, reason: 'deploy guard: must be refused', expiresAt: null },
     });
     expect(bare.status(), 'a write without X-CSRF-Token is refused: strict mode is on').toBe(403);
@@ -75,7 +77,7 @@ test.describe('admin panel on a deployed installation', () => {
     // ── 2. the same write through the UI ────────────────────────────────────
     // IP bans live in the Security centre with their own editor, and saving one
     // is a step-up-gated write (`banManage`): ec8c4154, 7e9af0d0.
-    await page.goto(`${BASE}/admin#/security/bans`);
+    await page.goto(`${BASE}${ADMIN}#/security/bans`);
     await page.getByRole('button', { name: 'Add ban', exact: true }).click();
     await expect(page).toHaveURL(/#\/security\/bans\/new$/);
     await page.getByLabel('IP address').fill(ip);
@@ -83,7 +85,7 @@ test.describe('admin panel on a deployed installation', () => {
     // The first POST answers 403 step_up_required and opens the proof dialog;
     // the client repeats it once the password is confirmed.
     const saved = page.waitForResponse(
-      (r) => r.url().endsWith('/admin/bans') && r.request().method() === 'POST' && r.ok(),
+      (r) => r.url().endsWith(`${ADMIN}/bans`) && r.request().method() === 'POST' && r.ok(),
     );
     await page.getByRole('button', { name: 'Save IP ban' }).click();
     const proof = page.getByRole('dialog', { name: 'Confirm it is you' });
@@ -112,6 +114,6 @@ test.describe('admin panel on a deployed installation', () => {
     // Sign-out is a write too.
     await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page.getByRole('form', { name: 'Admin sign in' })).toBeVisible();
-    expect((await page.request.get(`${BASE}/admin/session`)).status(), 'the session ended on the server').toBe(401);
+    expect((await page.request.get(`${BASE}${ADMIN}/session`)).status(), 'the session ended on the server').toBe(401);
   });
 });

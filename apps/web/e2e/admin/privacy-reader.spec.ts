@@ -1,10 +1,11 @@
 import { test, expect, type Page, type APIRequestContext } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import { deflateSync } from 'node:zlib';
 import { sendRawSmtp } from '../crypto-helpers.ts';
 import { createServer as createHttpServer } from 'node:http';
 import type { Socket } from 'node:net';
 import { signInManually, messageRow, sidebarInbox, drawerButton, storageAuthorityHeaders } from '../helpers.ts';
-const adminPath=process.env['MW_E2E_ADMIN_PATH']??'/admin';
+const adminPath=ADMIN;
 function png(size=8):Buffer {
   const crc=(b:Buffer)=>{let c=0xffffffff;for(const v of b){c^=v;for(let i=0;i<8;i++)c=c&1?(c>>>1)^0xedb88320:c>>>1;}return(c^0xffffffff)>>>0;};
   const chunk=(name:string,data:Buffer)=>{const bytes=Buffer.concat([Buffer.from(name),data]),len=Buffer.alloc(4),sum=Buffer.alloc(4);len.writeUInt32BE(data.length);sum.writeUInt32BE(crc(bytes));return Buffer.concat([len,bytes,sum]);};

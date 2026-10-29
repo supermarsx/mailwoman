@@ -1,13 +1,14 @@
 import { test, expect, type Page, type BrowserContext } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import { signInManually } from '../helpers.ts';
 
 const cooldown = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 3100));
 async function loginAdmin(page: Page): Promise<void> {
-  await cooldown(); await page.goto('/admin');
+  await cooldown(); await page.goto(ADMIN);
   await page.getByLabel('Admin username').fill('root');
   await page.getByLabel('Password', { exact: true }).fill('hunter2');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect.poll(async () => (await page.request.get('/admin/session')).status()).toBe(200);
+  await expect.poll(async () => (await page.request.get(`${ADMIN}/session`)).status()).toBe(200);
 }
 async function confirmBatch(page: Page): Promise<void> {
   await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm selected revocations' }).click();
@@ -29,16 +30,16 @@ test('bulk session selections revoke actual targets and preserve the current aut
     const targets: { page: Page; id: string }[] = [];
     for (const suffix of ['admin-one', 'admin-two']) {
       const target = await (await context(suffix)).newPage(); await loginAdmin(target);
-      const listing = await (await target.request.get('/admin/admin-sessions')).json();
+      const listing = await (await target.request.get(`${ADMIN}/admin-sessions`)).json();
       targets.push({ page: target, id: listing.sessions.find((row: { current: boolean }) => row.current).id });
     }
-    await loginAdmin(page); await page.goto('/admin#/admins');
+    await loginAdmin(page); await page.goto(`${ADMIN}#/admins`);
     const admins = page.getByRole('table', { name: 'Administrator sessions' });
     for (const target of targets) await admins.locator(`[data-row-key="${target.id}"]`).getByRole('checkbox').check();
     await page.getByRole('button', { name: 'Revoke selected sessions (2)', exact: true }).click();
     await expect(page.getByRole('alertdialog')).toContainText('only the selected sessions');
     await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel', exact: true }).click();
-    for (const target of targets) expect((await target.page.request.get('/admin/session')).status()).toBe(200);
+    for (const target of targets) expect((await target.page.request.get(`${ADMIN}/session`)).status()).toBe(200);
     await page.getByRole('button', { name: 'Revoke selected sessions (2)', exact: true }).click();
     // The existing mutation layer obtains fresh proof, then retries that initial
     // refused request; the batch itself never retries a completed mutation.
@@ -49,10 +50,10 @@ test('bulk session selections revoke actual targets and preserve the current aut
         await proof.getByRole('textbox', { name: 'Password', exact: true }).fill('hunter2');
         await proof.getByRole('button', { name: 'Confirm and continue' }).click();
       }
-      return (await targets[0]!.page.request.get('/admin/session')).status();
+      return (await targets[0]!.page.request.get(`${ADMIN}/session`)).status();
     }).toBe(401); await confirmation;
-    for (const target of targets) expect((await target.page.request.get('/admin/session')).status()).toBe(401);
-    expect((await page.request.get('/admin/session')).status()).toBe(200);
+    for (const target of targets) expect((await target.page.request.get(`${ADMIN}/session`)).status()).toBe(401);
+    expect((await page.request.get(`${ADMIN}/session`)).status()).toBe(200);
     await expect(page.getByText(/Revoked:.*2.*Could not confirm:.*0/)).toBeVisible();
     await page.screenshot({ path: test.info().outputPath('bulk-administrator-sessions.png'), fullPage: true });
 
@@ -63,7 +64,7 @@ test('bulk session selections revoke actual targets and preserve the current aut
       await expect.poll(async () => (await target.request.get('/api/me')).status()).toBe(200);
       mailboxTargets.push(target);
     }
-    await page.goto('/admin#/sessions');
+    await page.goto(`${ADMIN}#/sessions`);
     await page.getByRole('searchbox', { name: 'Search account, device or IP' }).fill(marker);
     await expect(page.getByRole('table', { name: 'Mailbox sessions' }).locator('tbody tr')).toHaveCount(2);
     await page.getByRole('checkbox', { name: 'Select all visible sessions', exact: true }).check();
@@ -71,7 +72,7 @@ test('bulk session selections revoke actual targets and preserve the current aut
     await confirmBatch(page);
     await expect(page.getByText(/Revoked:.*2.*Could not confirm:.*0/)).toBeVisible();
     for (const target of mailboxTargets) expect((await target.request.get('/api/me')).status()).toBe(401);
-    expect((await page.request.get('/admin/session')).status()).toBe(200);
+    expect((await page.request.get(`${ADMIN}/session`)).status()).toBe(200);
     await page.screenshot({ path: test.info().outputPath('bulk-mailbox-sessions.png'), fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   } finally { for (const value of contexts) await value.close(); }

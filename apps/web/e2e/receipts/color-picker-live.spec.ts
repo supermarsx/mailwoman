@@ -6,6 +6,7 @@
 import { test, expect } from '../csrf.ts';
 import type { Locator, Page } from '@playwright/test';
 import { colorTrigger } from '../colorPicker.ts';
+import { ADMIN } from '../admin/admin-path.ts';
 
 const SHOTS = process.env['MW_T81_SHOTS'];
 
@@ -184,12 +185,12 @@ for (const width of [1440, 390]) {
 
     test('admin console custom accent: swatches, recents, edges', async ({ page }) => {
       const csp = await cspWatch(page);
-      await page.goto('/admin');
+      await page.goto(ADMIN);
       await page.getByLabel('Admin username').fill('root');
       await page.getByLabel('Password', { exact: true }).fill('hunter2');
       await page.getByRole('button', { name: 'Sign in', exact: true }).click();
       await expect(page.locator('#admin-main')).toBeVisible();
-      await page.goto('/admin#/preferences');
+      await page.goto(`${ADMIN}#/preferences`);
       const trigger = colorTrigger(page, 'Custom accent colour');
       await trigger.scrollIntoViewIfNeeded();
       const before = await trigger.getAttribute('data-color-value');

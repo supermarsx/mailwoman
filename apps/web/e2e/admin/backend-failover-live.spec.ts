@@ -1,4 +1,5 @@
 import { test, expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import { adminLogin } from './admin-login.ts';
 import { createServer } from 'node:net';
 
@@ -26,14 +27,14 @@ test('a dead selected backend fails over and the application log shows it @phone
   await adminLogin(page);
   const name = `failover-${Date.now()}-${test.info().project.name}.test`;
   const socket = (p: number) => ({ host: host!, port: p, tls: 'none', auth: 'password', allowPrivate: true, security: { mode: 'fixed', allowed: ['none'], allowPlaintext: true } });
-  const path = `/admin/domains/${name}`;
+  const path = `${ADMIN}/domains/${name}`;
   const created = await page.request.put(path, { data: { enabled: true, upstream: { version: 2, backends: [
     { id: 'primary', role: 'mail', protocol: 'imap', priority: 1, endpoint: { ...socket(dead), host: '127.0.0.1' } },
     { id: 'replica', role: 'mail', protocol: 'imap', priority: 2, endpoint: socket(Number(port)) },
   ] } } });
   expect(created.ok(), `create fixture: ${created.status()} ${await created.text()}`).toBe(true);
   try {
-    await page.goto(`/admin#/domains/${name}/connections`);
+    await page.goto(`${ADMIN}#/domains/${name}/connections`);
     const toggle = page.getByRole('checkbox', { name: /Fail over to the next mail backend/ });
     await expect(toggle).not.toBeChecked();
     const saved = page.waitForResponse(r => r.url().endsWith(path) && r.request().method() === 'PUT');
@@ -50,7 +51,7 @@ test('a dead selected backend fails over and the application log shows it @phone
       expect(login.status(), await login.text()).toBe(200);
     } finally { await mailbox.close(); }
 
-    await page.goto('/admin#/logs/application');
+    await page.goto(`${ADMIN}#/logs/application`);
     await page.getByLabel('Component', { exact: true }).fill('backend_failover');
     const rows = page.getByRole('table', { name: 'Application logs' }).locator('tbody tr');
     const failover = rows.filter({ hasText: 'event: "failover"' }).filter({ hasText: name });

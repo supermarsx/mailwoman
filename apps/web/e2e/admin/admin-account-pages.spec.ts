@@ -1,8 +1,9 @@
 import { test, expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 test('admin accounts use dedicated create and edit pages with compact grouped controls @phone', async ({ page }) => {
-  await page.goto('/admin'); await page.getByLabel('Admin username').fill('root'); await page.getByLabel('Password', { exact: true }).fill('hunter2'); await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await page.goto(ADMIN); await page.getByLabel('Admin username').fill('root'); await page.getByLabel('Password', { exact: true }).fill('hunter2'); await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
-  await page.goto('/admin#/admins');
+  await page.goto(`${ADMIN}#/admins`);
   await expect(page.getByRole('textbox', { name: 'Username', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Create admin', exact: true }).click();
   await expect(page).toHaveURL(/#\/admins\/new$/);
@@ -14,7 +15,7 @@ test('admin accounts use dedicated create and edit pages with compact grouped co
   const create = page.getByRole('button', { name: 'Create admin', exact: true });
   expect((await create.boundingBox())!.width).toBeLessThan(300);
   await page.screenshot({ path: test.info().outputPath('admin-create.png'), fullPage: true });
-  const created = page.waitForResponse(r => r.url().endsWith('/admin/admins') && r.request().method() === 'POST' && r.ok());
+  const created = page.waitForResponse(r => r.url().endsWith(`${ADMIN}/admins`) && r.request().method() === 'POST' && r.ok());
   await create.click();
   const confirmation = page.getByRole('dialog', { name: 'Confirm it is you' });
   await confirmation.getByRole('textbox', { name: 'Password', exact: true }).fill('hunter2');
@@ -24,7 +25,7 @@ test('admin accounts use dedicated create and edit pages with compact grouped co
   const display = page.getByRole('textbox', { name: 'Display name', exact: true });
   await expect(display).toHaveValue(name);
   await display.fill(`${name} edited`);
-  const saved = page.waitForResponse(r => /\/admin\/admins\/[^/]+$/.test(r.url()) && r.request().method() === 'PUT' && r.ok());
+  const saved = page.waitForResponse(r => new RegExp(`${ADMIN}/admins/[^/]+$`).test(r.url()) && r.request().method() === 'PUT' && r.ok());
   await page.getByRole('button', { name: 'Save', exact: true }).click(); expect((await saved).ok()).toBe(true);
   await page.getByRole('checkbox', { name: 'Auditor', exact: true }).check();
   expect((await page.getByRole('checkbox', { name: 'Auditor', exact: true }).boundingBox())!.width).toBeLessThanOrEqual(26);

@@ -1,10 +1,11 @@
 import { test, expect } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import { signInManually } from '../helpers.ts';
 async function admin(page: import('@playwright/test').Page): Promise<void> {
-  await page.goto('/admin'); await page.getByLabel('Admin username').fill('root'); await page.getByLabel('Password', { exact: true }).fill('hunter2'); await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await page.goto(ADMIN); await page.getByLabel('Admin username').fill('root'); await page.getByLabel('Password', { exact: true }).fill('hunter2'); await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
   // The LDAP editor is the Integrations "directory" tab (a5292a0f).
-  await page.goto('/admin#/integrations/directory');
+  await page.goto(`${ADMIN}#/integrations/directory`);
 }
 // The runtime leg needs what CI's compose stack does not have: an LDAPS server at
 // localhost:42412 (dc=example,dc=com, cn=admin/adminpassword, an alice entry) and a server

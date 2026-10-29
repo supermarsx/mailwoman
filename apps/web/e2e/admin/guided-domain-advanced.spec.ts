@@ -1,10 +1,11 @@
 import {test,expect} from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import {adminLogin} from './admin-login.ts';
 
 test('guided advanced domain persists real backend policies with bounded forms @phone',async({page},info)=>{
  await adminLogin(page);const name=`guided-${info.project.name}-${Date.now()}.example.test`;
  try{
-  await page.goto('/admin#/domains/new/guided');
+  await page.goto(`${ADMIN}#/domains/new/guided`);
   await page.getByLabel('Domain name',{exact:true}).fill(name);await page.getByRole('button',{name:'Next',exact:true}).click();
   await page.getByLabel('Connection',{exact:true}).selectOption('advanced');
   await page.getByRole('button',{name:'Add backend',exact:true}).click();
@@ -21,11 +22,11 @@ test('guided advanced domain persists real backend policies with bounded forms @
   await page.getByLabel(/^Protocol and service/).selectOption('smtp');await page.getByLabel('Hostname or IP address',{exact:true}).fill('smtp.example.test');
   await page.getByRole('button',{name:'Back to backend list',exact:true}).click();await expect(page.getByRole('table',{name:'Backend setup drafts'})).toBeVisible();
   await page.getByRole('button',{name:'Next',exact:true}).click();await page.screenshot({path:info.outputPath('guided-advanced-review.png'),fullPage:true});
-  expect((await page.request.get(`/admin/domains/${name}`)).status()).toBe(404);
+  expect((await page.request.get(`${ADMIN}/domains/${name}`)).status()).toBe(404);
   await page.getByRole('button',{name:'Create domain',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/domains/${name}/connections$`));
-  const saved=await page.request.get(`/admin/domains/${name}`);expect(saved.ok(),await saved.text()).toBe(true);const data=await saved.json();
+  const saved=await page.request.get(`${ADMIN}/domains/${name}`);expect(saved.ok(),await saved.text()).toBe(true);const data=await saved.json();
   expect(data.upstream).toMatchObject({version:2,backends:[{id:'primary',protocol:'imap',priority:10,preferred:true,username:{format:'domainUser',domain:'CORP'},endpoint:{security:{mode:'auto',allowed:['implicit','starttls'],allowPlaintext:false},authentication:{mode:'auto',mechanisms:['plain','login']}}},{protocol:'smtp',role:'submission'}]});
   await page.reload();await expect(page.getByRole('heading',{name:'primary · IMAP',exact:true})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
   await page.screenshot({path:info.outputPath('guided-advanced-persisted.png'),fullPage:true});
- }finally{const read=await page.request.get(`/admin/domains/${name}`);if(read.ok())expect((await page.request.delete(`/admin/domains/${name}`,{headers:{'if-match':read.headers()['etag']!}})).ok()).toBe(true);}
+ }finally{const read=await page.request.get(`${ADMIN}/domains/${name}`);if(read.ok())expect((await page.request.delete(`${ADMIN}/domains/${name}`,{headers:{'if-match':read.headers()['etag']!}})).ok()).toBe(true);}
 });

@@ -8,6 +8,7 @@
 // Runs at 1440 and 390 wide in the chromium and firefox projects (the phone
 // project is the 390 Chromium leg already). Screenshots go to MW_T73_SHOTS.
 import {test,expect} from '../csrf.ts';
+import { ADMIN } from '../admin/admin-path.ts';
 import type {Browser,Page,TestInfo} from '@playwright/test';
 import net from 'node:net';
 import path from 'node:path';
@@ -85,13 +86,13 @@ async function expectCompactTabs(page:Page):Promise<void>{
 async function adminSetting(browser:Browser,info:TestInfo,width:number){
  const context=await browser.newContext({baseURL:String(info.project.use.baseURL),viewport:{width,height:900},serviceWorkers:'block'});
  const page=await context.newPage();
- await page.goto('/admin');
+ await page.goto(ADMIN);
  await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');
  await page.waitForTimeout(3100);
- const login=page.waitForResponse(r=>new URL(r.url()).pathname==='/admin/login'&&r.request().method()==='POST');
+ const login=page.waitForResponse(r=>new URL(r.url()).pathname===`${ADMIN}/login`&&r.request().method()==='POST');
  await page.getByRole('button',{name:'Sign in',exact:true}).click();
  const result=await login;test.skip(result.status()!==200,`no admin sign-in on this stack (${result.status()})`);
- await page.goto(`/admin#/settings/${KEY}`);
+ await page.goto(`${ADMIN}#/settings/${KEY}`);
  const detail=page.getByTestId('setting-detail');
  await expect(detail).toBeVisible({timeout:30000});
  await expect(detail.getByText(`Key: ${KEY}`,{exact:true})).toBeVisible();
@@ -101,9 +102,9 @@ async function adminSetting(browser:Browser,info:TestInfo,width:number){
 async function resetAdmin(playwright:{request:{newContext:(o:{baseURL:string})=>Promise<import('@playwright/test').APIRequestContext>}},info:TestInfo):Promise<void>{
  const api=await playwright.request.newContext({baseURL:String(info.project.use.baseURL)});
  try{
-  expect((await api.post('/admin/login',{data:{username:'root',password:'hunter2'}})).status()).toBe(200);
-  const etag=(await api.get(`/admin/settings/${KEY}`)).headers()['etag'];
-  const res=await api.delete(`/admin/settings/${KEY}`,{headers:etag?{'if-match':etag}:{}});
+  expect((await api.post(`${ADMIN}/login`,{data:{username:'root',password:'hunter2'}})).status()).toBe(200);
+  const etag=(await api.get(`${ADMIN}/settings/${KEY}`)).headers()['etag'];
+  const res=await api.delete(`${ADMIN}/settings/${KEY}`,{headers:etag?{'if-match':etag}:{}});
   expect([200,204,404]).toContain(res.status());
  }finally{await api.dispose();}
 }
@@ -118,7 +119,7 @@ async function adminSave(page:Page,value:boolean,lock:boolean):Promise<void>{
   const confirm=page.getByRole('dialog').getByRole('button',{name:'Lock',exact:true});
   if(await confirm.isVisible({timeout:1500}).catch(()=>false))await confirm.click();
  }
- const saved=page.waitForResponse(r=>new URL(r.url()).pathname===`/admin/settings/${KEY}`&&r.request().method()==='PUT');
+ const saved=page.waitForResponse(r=>new URL(r.url()).pathname===`${ADMIN}/settings/${KEY}`&&r.request().method()==='PUT');
  await form.getByRole('button',{name:'Save',exact:true}).click();
  const confirm=page.getByRole('dialog').getByRole('button',{name:/^(Lock|Save|Apply)/});
  if(await confirm.isVisible({timeout:1500}).catch(()=>false))await confirm.first().click();

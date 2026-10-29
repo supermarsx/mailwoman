@@ -1,4 +1,5 @@
 import {test,expect} from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import {createServer as httpServer} from 'node:http';
 import {request as httpsRequest} from 'node:https';
 import {connect} from 'node:net';
@@ -44,17 +45,17 @@ test('settings backup: configure Nextcloud, test the connection, back up and fin
   const admin=await playwright.request.newContext({...baseURL?{baseURL}:{}});
   const proxy=await connectProxy();const route=`ncbackup-route-${Date.now()}`;let previous:string|undefined;
   try{
-    expect((await admin.post('/admin/login',{data:{username:'root',password:'hunter2'}})).status()).toBe(200);
-    expect((await admin.post('/admin/step-up',{data:{password:'hunter2'}})).status()).toBe(200);
-    const routes=await(await admin.get('/admin/egress/proxies')).json() as {proxies:Array<{id:string;active:boolean}>};
+    expect((await admin.post(`${ADMIN}/login`,{data:{username:'root',password:'hunter2'}})).status()).toBe(200);
+    expect((await admin.post(`${ADMIN}/step-up`,{data:{password:'hunter2'}})).status()).toBe(200);
+    const routes=await(await admin.get(`${ADMIN}/egress/proxies`)).json() as {proxies:Array<{id:string;active:boolean}>};
     previous=routes.proxies.find(item=>item.active)?.id;
-    expect((await admin.post('/admin/egress/proxies',{data:{id:route,scheme:'http',host:fixtureHost,port:proxy.port,scope:'global',trafficClasses:['nextcloud']}})).ok()).toBe(true);
-    expect((await admin.post(`/admin/egress/proxies/${route}/activate`)).ok()).toBe(true);
+    expect((await admin.post(`${ADMIN}/egress/proxies`,{data:{id:route,scheme:'http',host:fixtureHost,port:proxy.port,scope:'global',trafficClasses:['nextcloud']}})).ok()).toBe(true);
+    expect((await admin.post(`${ADMIN}/egress/proxies/${route}/activate`)).ok()).toBe(true);
 
-    await page.goto('/admin');
+    await page.goto(ADMIN);
     await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');
     await page.getByRole('button',{name:'Sign in',exact:true}).click();
-    await page.goto('/admin#/configuration-transfer');
+    await page.goto(`${ADMIN}#/configuration-transfer`);
     await page.getByRole('tab',{name:'Backup destinations',exact:true}).click();
     const card=page.getByRole('region',{name:'Settings backups to Nextcloud'}).or(page.locator('section[aria-labelledby="ncbackup-title"]')).first();
     await expect(card.getByRole('heading',{name:'Settings backups to Nextcloud'})).toBeVisible();
@@ -86,7 +87,7 @@ test('settings backup: configure Nextcloud, test the connection, back up and fin
     await expect(card.getByRole('status')).toContainText(/Connection works: signed in, the folder was created/);
     if(screenshots)await page.screenshot({path:`${screenshots}/ncbackup-test-ok.png`,fullPage:true});
     const body=await page.content();expect(body).not.toContain(password);
-    const view=await(await admin.get('/admin/config/backup/nextcloud')).text();
+    const view=await(await admin.get(`${ADMIN}/config/backup/nextcloud`)).text();
     expect(view).not.toContain(password);expect(view).toContain('"hasAppPassword":true');
 
     // Three backups with keep=2: each is verified, the oldest is pruned.
@@ -107,7 +108,7 @@ test('settings backup: configure Nextcloud, test the connection, back up and fin
     expect(parsed.bundle.format).toBe('mailwoman-settings');
     expect((await cloudGet(base+files[1]!,password)).status).toBe(200);
     expect((await cloudGet(base+files[0]!,password)).status).toBe(404);
-    const audit=JSON.parse((await(await admin.get('/admin/config/backup/nextcloud')).text()) as string) as {lastRun:{sha256:string}};
+    const audit=JSON.parse((await(await admin.get(`${ADMIN}/config/backup/nextcloud`)).text()) as string) as {lastRun:{sha256:string}};
     expect(audit.lastRun.sha256).toBe(createHash('sha256').update(newest.body).digest('hex'));
 
     // A folder the account may not create is reported as such.
@@ -123,8 +124,8 @@ test('settings backup: configure Nextcloud, test the connection, back up and fin
     await card.getByRole('button',{name:'Remove destination'}).click();
     await expect(card.getByText('Nextcloud destination removed.')).toBeVisible();
   }finally{
-    await admin.post(previous?`/admin/egress/proxies/${previous}/activate`:'/admin/egress/proxies/deactivate');
-    await admin.post(`/admin/egress/proxies/${route}/delete`);
+    await admin.post(previous?`${ADMIN}/egress/proxies/${previous}/activate`:`${ADMIN}/egress/proxies/deactivate`);
+    await admin.post(`${ADMIN}/egress/proxies/${route}/delete`);
     await proxy.close();await admin.dispose();
   }
 });

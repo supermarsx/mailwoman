@@ -1,9 +1,10 @@
 import { test, expect, type Page } from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import { signInManually } from '../helpers.ts';
 async function adminLogin(page: Page): Promise<void> {
-  await page.goto('/admin'); await page.getByLabel('Admin username').fill('root');
+  await page.goto(ADMIN); await page.getByLabel('Admin username').fill('root');
   await page.getByLabel('Password', { exact: true }).fill('hunter2');
-  const signedIn = page.waitForResponse((response) => response.url().endsWith('/admin/login') && response.request().method() === 'POST');
+  const signedIn = page.waitForResponse((response) => response.url().endsWith(`${ADMIN}/login`) && response.request().method() === 'POST');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   expect((await signedIn).ok()).toBe(true);
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
@@ -26,7 +27,7 @@ test('mailbox and administrator session tables revoke only selected sessions @ph
     await expect(other.getByText('This session', { exact: true }).first()).toBeVisible();
     await other.screenshot({ path: test.info().outputPath('account-sessions-table.png'), fullPage: true });
     expect(await other.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await adminLogin(page); await page.goto('/admin#/sessions');
+    await adminLogin(page); await page.goto(`${ADMIN}#/sessions`);
     await page.getByRole('searchbox', { name: 'Search account, device or IP' }).fill(marker);
     const mailbox = page.getByRole('table', { name: 'Mailbox sessions' });
     await expect(mailbox.locator('tbody tr')).toHaveCount(1);
@@ -39,10 +40,10 @@ test('mailbox and administrator session tables revoke only selected sessions @ph
     await expect(mailbox.locator('tbody tr')).toHaveCount(0);
     expect((await other.request.get('/api/me')).status()).toBe(401);
     await adminLogin(other);
-    const rows = await (await other.request.get('/admin/admin-sessions')).json();
+    const rows = await (await other.request.get(`${ADMIN}/admin-sessions`)).json();
     const target = rows.sessions.find((row: { current: boolean }) => row.current);
     expect(target).toBeTruthy();
-    await page.goto('/admin#/admins');
+    await page.goto(`${ADMIN}#/admins`);
     const admins = page.getByRole('table', { name: 'Administrator sessions' });
     const row = admins.locator(`[data-row-key="${target.id}"]`);
     await expect(row).toBeVisible();
@@ -52,7 +53,7 @@ test('mailbox and administrator session tables revoke only selected sessions @ph
     await row.getByRole('button', { name: /Revoke session for/ }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm change', exact: true }).click();
     await expect(row).toHaveCount(0);
-    expect((await other.request.get('/admin/me')).status()).toBe(401);
-    expect((await page.request.get('/admin/me')).ok()).toBe(true);
+    expect((await other.request.get(`${ADMIN}/me`)).status()).toBe(401);
+    expect((await page.request.get(`${ADMIN}/me`)).ok()).toBe(true);
   } finally { await context.close(); }
 });

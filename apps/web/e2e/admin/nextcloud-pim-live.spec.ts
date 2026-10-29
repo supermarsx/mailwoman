@@ -1,4 +1,5 @@
 import {test,expect} from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import {signInManually,storageAuthorityHeaders} from '../helpers.ts';
 import {createServer as httpsServer} from 'node:https';
 import {createServer as httpServer} from 'node:http';
@@ -54,17 +55,17 @@ test('Nextcloud collections require discovery and explicit connection before rea
   const cloud=await cloudFixture();const id=`browser-pim-${info.project.name}`;const route=`browser-pim-route-${Date.now()}`;let active:string|undefined;let etag:string|undefined;let priorRefresh:unknown;let havePreferences=false;
   const value={name:`Browser PIM ${info.project.name}`,baseUrl:'https://8.8.8.8/nextcloud/',enabled:true,caPem:cloud.cert};
   try{
-    await page.waitForTimeout(4000);await admin.get('/admin');
-    expect((await admin.post('/admin/login',{data:{username:'root',password:'hunter2'}})).status()).toBe(200);
-    expect((await admin.post('/admin/step-up',{data:{password:'hunter2'}})).status()).toBe(200);
-    const routes=await(await admin.get('/admin/egress/proxies')).json() as {proxies:Array<{id:string;active:boolean}>};
-    for(const stale of routes.proxies.filter(item=>item.id.startsWith('browser-pim-route-'))){if(stale.active)await admin.post('/admin/egress/proxies/deactivate');await admin.post(`/admin/egress/proxies/${stale.id}/delete`);}
+    await page.waitForTimeout(4000);await admin.get(ADMIN);
+    expect((await admin.post(`${ADMIN}/login`,{data:{username:'root',password:'hunter2'}})).status()).toBe(200);
+    expect((await admin.post(`${ADMIN}/step-up`,{data:{password:'hunter2'}})).status()).toBe(200);
+    const routes=await(await admin.get(`${ADMIN}/egress/proxies`)).json() as {proxies:Array<{id:string;active:boolean}>};
+    for(const stale of routes.proxies.filter(item=>item.id.startsWith('browser-pim-route-'))){if(stale.active)await admin.post(`${ADMIN}/egress/proxies/deactivate`);await admin.post(`${ADMIN}/egress/proxies/${stale.id}/delete`);}
     active=routes.proxies.find(item=>item.active&&!item.id.startsWith('browser-pim-route-'))?.id;
-    expect((await admin.post('/admin/egress/proxies',{data:{id:route,scheme:'http',host:fixtureHost,port:cloud.port,scope:'global',trafficClasses:['nextcloud']}})).ok()).toBe(true);
-    expect((await admin.post(`/admin/egress/proxies/${route}/activate`)).ok()).toBe(true);
-    const instances=await(await admin.get('/admin/nextcloud/instances')).json() as {instances:Array<{id:string;etag:string}>};
+    expect((await admin.post(`${ADMIN}/egress/proxies`,{data:{id:route,scheme:'http',host:fixtureHost,port:cloud.port,scope:'global',trafficClasses:['nextcloud']}})).ok()).toBe(true);
+    expect((await admin.post(`${ADMIN}/egress/proxies/${route}/activate`)).ok()).toBe(true);
+    const instances=await(await admin.get(`${ADMIN}/nextcloud/instances`)).json() as {instances:Array<{id:string;etag:string}>};
     const previous=instances.instances.find(item=>item.id===id);
-    const approved=await admin.put(`/admin/nextcloud/instances/${id}`,{data:value,headers:previous?{'if-match':previous.etag}:{'if-none-match':'*'}});
+    const approved=await admin.put(`${ADMIN}/nextcloud/instances/${id}`,{data:value,headers:previous?{'if-match':previous.etag}:{'if-none-match':'*'}});
     expect(approved.ok(),await approved.text()).toBe(true);etag=(await approved.json() as {etag:string}).etag;
     await page.waitForTimeout(4000);await page.goto('/');await signInManually(page,{username:'testuser',password:'testpass'});
     await expect(page.getByRole('button',{name:'Compose',exact:true}).first()).toBeVisible();
@@ -104,12 +105,12 @@ test('Nextcloud collections require discovery and explicit connection before rea
     if(havePreferences){const response=priorRefresh===undefined?await page.request.delete('/api/settings/nextcloud.syncIntervalSecs',{headers:authority}):await page.request.put('/api/settings/nextcloud.syncIntervalSecs',{data:{value:priorRefresh},headers:authority});expect(response.ok(),await response.text()).toBe(true);}
     const accountResponse=await page.request.get('/api/account/nextcloud');
     if(accountResponse.ok()){const account=await accountResponse.json() as {accountId:string;links:Array<{instanceId:string;etag:string}>};const pim=await page.request.get(`/api/account/nextcloud/pim?accountId=${encodeURIComponent(account.accountId)}`);if(pim.ok()){const view=await pim.json() as {collections:Array<{id:string;instanceId:string}>};for(const collection of view.collections.filter(row=>row.instanceId===id))await page.request.delete(`/api/account/nextcloud/pim/collections/${encodeURIComponent(collection.id)}`,{data:{accountId:account.accountId},headers:await storageAuthorityHeaders(page.request)});}const link=account.links.find(item=>item.instanceId===id);if(link)expect((await page.request.delete(`/api/account/nextcloud/links/${id}`,{data:{accountId:account.accountId},headers:{'if-match':link.etag,...await storageAuthorityHeaders(page.request)}})).ok()).toBe(true);}
-    if(etag)expect((await admin.put(`/admin/nextcloud/instances/${id}`,{data:{...value,enabled:false},headers:{'if-match':etag}})).ok()).toBe(true);
-    await admin.post(active?`/admin/egress/proxies/${active}/activate`:'/admin/egress/proxies/deactivate');
-    await admin.post(`/admin/egress/proxies/${route}/delete`);
+    if(etag)expect((await admin.put(`${ADMIN}/nextcloud/instances/${id}`,{data:{...value,enabled:false},headers:{'if-match':etag}})).ok()).toBe(true);
+    await admin.post(active?`${ADMIN}/egress/proxies/${active}/activate`:`${ADMIN}/egress/proxies/deactivate`);
+    await admin.post(`${ADMIN}/egress/proxies/${route}/delete`);
     }finally{try{
-      await admin.post(active?`/admin/egress/proxies/${active}/activate`:'/admin/egress/proxies/deactivate');
-      await admin.post(`/admin/egress/proxies/${route}/delete`);
+      await admin.post(active?`${ADMIN}/egress/proxies/${active}/activate`:`${ADMIN}/egress/proxies/deactivate`);
+      await admin.post(`${ADMIN}/egress/proxies/${route}/delete`);
     }finally{await cloud.close();await admin.dispose();}}
   }
 });

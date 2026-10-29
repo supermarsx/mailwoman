@@ -1,12 +1,13 @@
 import { test, expect } from '@playwright/test';
+import { ADMIN } from './admin-path.ts';
 test('logs show real authentication failures and process diagnostics @phone',async({page,request})=>{
  // A rejected sign-in starts the 3 s per-IP cooldown (signin.retryCooldownSecs, d94472d7): an earlier spec may end with one, webmail and admin sign-ins share it, and this spec makes two rejected attempts before signing in.
  const cooldown=()=>new Promise(resolve=>setTimeout(resolve,3100));await cooldown();
  const username=`failed-${Date.now()}@example.org`;
  const webmail=await request.post('/api/login',{data:{username:'testuser',password:'logs-invalid-password'}});expect(webmail.status()).toBe(401);await cooldown();
- const rejected=await request.post('/admin/login',{data:{username,password:'not-for-the-log'}});expect(rejected.status()).toBe(401);await cooldown();
- await page.goto('/admin');await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('button',{name:'Sign in',exact:true})).toHaveCount(0);
- await page.goto('/admin#/logs');await expect(page.getByRole('heading',{name:'Authentication logs'})).toBeVisible();
+ const rejected=await request.post(`${ADMIN}/login`,{data:{username,password:'not-for-the-log'}});expect(rejected.status()).toBe(401);await cooldown();
+ await page.goto(ADMIN);await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('button',{name:'Sign in',exact:true})).toHaveCount(0);
+ await page.goto(`${ADMIN}#/logs`);await expect(page.getByRole('heading',{name:'Authentication logs'})).toBeVisible();
  await page.getByLabel('Account, attempted username or IP').fill(username);await page.getByLabel('Sign-in area').selectOption('admin');
  const loaded=page.waitForResponse(r=>r.url().includes('/logs/auth?')&&r.url().includes('surface=admin'));await page.getByRole('button',{name:'Apply filters'}).click();expect((await loaded).ok()).toBe(true);await expect(page.getByRole('rowheader',{name:username})).toBeVisible();await expect(page.getByText('not-for-the-log')).toHaveCount(0);
  expect((await page.getByRole('button',{name:'Apply filters'}).boundingBox())!.width).toBeLessThan(300);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:test.info().outputPath('authentication-logs.png'),fullPage:true});

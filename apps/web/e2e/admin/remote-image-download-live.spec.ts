@@ -1,4 +1,5 @@
 import {test,expect,type Page} from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import {createServer,type Socket} from 'node:net';
 import {deflateSync} from 'node:zlib';
 import {sendRawSmtp} from '../crypto-helpers.ts';
@@ -20,13 +21,13 @@ test('manual image download uses owned message membership and the privacy proxy 
  const id=`image-download-${info.project.name}-${Date.now()}`,keys=['privacy.remoteImageDownloads','privacy.remoteContent'];
  let saved:Awaited<ReturnType<typeof request>>[]=[];let active:string|undefined;let configured=false;
  try{
-  await admin.waitForTimeout(3500);await admin.goto('/admin');await admin.getByLabel('Admin username').fill('root');await admin.getByLabel('Password',{exact:true}).fill('hunter2');const signedIn=admin.waitForResponse(r=>r.url().endsWith('/admin/login')&&r.request().method()==='POST');await admin.getByRole('button',{name:'Sign in',exact:true}).click();expect((await signedIn).status()).toBe(200);await admin.waitForFunction(()=>document.cookie.includes('mw_csrf='));
-  const proof=await request(admin,'/admin/step-up','POST',{password:'hunter2'});expect(proof.status,JSON.stringify(proof.body)).toBe(200);
-  saved=await Promise.all(keys.map(key=>request(admin,`/admin/settings/${key}`)));for(const value of saved)expect(value.status).toBe(200);
-  const proxies=await request(admin,'/admin/egress/proxies');active=(proxies.body.proxies as {id:string;active:boolean}[]).find(row=>row.active)?.id;
-  expect((await request(admin,'/admin/egress/proxies','POST',{id,scheme:'http',host:fixtureHost,port:address.port,allowPlaintext:true,trafficClasses:['remote_content'],scope:'global'})).status).toBe(200);configured=true;
-  expect((await request(admin,`/admin/egress/proxies/${id}/activate`,'POST')).status).toBe(200);
-  for(let i=0;i<keys.length;i++)expect((await request(admin,`/admin/settings/${keys[i]}`,'PUT',{globalValue:i===0?true:'block',locked:true},saved[i]!.etag!)).status).toBe(200);
+  await admin.waitForTimeout(3500);await admin.goto(ADMIN);await admin.getByLabel('Admin username').fill('root');await admin.getByLabel('Password',{exact:true}).fill('hunter2');const signedIn=admin.waitForResponse(r=>r.url().endsWith(`${ADMIN}/login`)&&r.request().method()==='POST');await admin.getByRole('button',{name:'Sign in',exact:true}).click();expect((await signedIn).status()).toBe(200);await admin.waitForFunction(()=>document.cookie.includes('mw_csrf='));
+  const proof=await request(admin,`${ADMIN}/step-up`,'POST',{password:'hunter2'});expect(proof.status,JSON.stringify(proof.body)).toBe(200);
+  saved=await Promise.all(keys.map(key=>request(admin,`${ADMIN}/settings/${key}`)));for(const value of saved)expect(value.status).toBe(200);
+  const proxies=await request(admin,`${ADMIN}/egress/proxies`);active=(proxies.body.proxies as {id:string;active:boolean}[]).find(row=>row.active)?.id;
+  expect((await request(admin,`${ADMIN}/egress/proxies`,'POST',{id,scheme:'http',host:fixtureHost,port:address.port,allowPlaintext:true,trafficClasses:['remote_content'],scope:'global'})).status).toBe(200);configured=true;
+  expect((await request(admin,`${ADMIN}/egress/proxies/${id}/activate`,'POST')).status).toBe(200);
+  for(let i=0;i<keys.length;i++)expect((await request(admin,`${ADMIN}/settings/${keys[i]}`,'PUT',{globalValue:i===0?true:'block',locked:true},saved[i]!.etag!)).status).toBe(200);
   const subject=`Manual proxy image ${id}`;
   await sendRawSmtp({from:'sender@example.test',message:`From: sender@example.test\r\nTo: testuser@example.org\r\nDate: ${new Date().toUTCString()}\r\nMessage-ID: <${id}@example.test>\r\nSubject: ${subject}\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>Manual download fixture</p><img alt="manual image" src="http://1.2.3.4/${id}.png">\r\n`});
   await page.waitForTimeout(3500);await signInManually(page,{username:'testuser',password:'testpass'});await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();
@@ -37,8 +38,8 @@ test('manual image download uses owned message membership and the privacy proxy 
   await section.scrollIntoViewIfNeeded();await page.screenshot({path:info.outputPath('manual-image-download.png'),fullPage:true});
  }finally{
   try{
-  if(configured){expect((await request(admin,active?`/admin/egress/proxies/${active}/activate`:'/admin/egress/proxies/deactivate','POST')).status).toBe(200);expect((await request(admin,`/admin/egress/proxies/${id}/delete`,'POST')).status).toBe(200);}
-  for(let i=0;i<saved.length;i++){const before=saved[i]!;if(before.status!==200)continue;const path=`/admin/settings/${keys[i]}`,current=await request(admin,path);expect((await request(admin,path,'PUT',{globalValue:before.body.globalValue,locked:before.body.globalLocked,allowUserOverride:before.body.allowUserOverride},current.etag!)).status).toBe(200);}
+  if(configured){expect((await request(admin,active?`${ADMIN}/egress/proxies/${active}/activate`:`${ADMIN}/egress/proxies/deactivate`,'POST')).status).toBe(200);expect((await request(admin,`${ADMIN}/egress/proxies/${id}/delete`,'POST')).status).toBe(200);}
+  for(let i=0;i<saved.length;i++){const before=saved[i]!;if(before.status!==200)continue;const path=`${ADMIN}/settings/${keys[i]}`,current=await request(admin,path);expect((await request(admin,path,'PUT',{globalValue:before.body.globalValue,locked:before.body.globalLocked,allowUserOverride:before.body.allowUserOverride},current.etag!)).status).toBe(200);}
   }finally{await adminContext.close();for(const socket of sockets)socket.destroy();await new Promise<void>(resolve=>proxy.close(()=>resolve()));}
  }
 });

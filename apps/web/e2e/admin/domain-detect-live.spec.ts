@@ -1,4 +1,5 @@
 import {test,expect} from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import {adminLogin} from './admin-login.ts';
 
 /**
@@ -14,13 +15,13 @@ import {adminLogin} from './admin-login.ts';
  */
 test('guided domain discovery shows the server-detected endpoints @phone',async({page},info)=>{
  await adminLogin(page);
- const status=await (await page.request.get('/admin/domains/status')).json();
+ const status=await (await page.request.get(`${ADMIN}/domains/status`)).json();
  expect(status.mode,'run this on the mail-engine admin stack').toBe('engine');
- await page.goto('/admin#/domains/new/guided');
+ await page.goto(`${ADMIN}#/domains/new/guided`);
  await page.getByLabel('Domain name',{exact:true}).fill('gmail.com');
  await page.getByRole('button',{name:'Next',exact:true}).click();
  await page.getByLabel('Connection',{exact:true}).selectOption('advanced');
- const detected=page.waitForResponse(r=>r.url().endsWith('/admin/domains/gmail.com/detect')&&r.request().method()==='POST',{timeout:45_000});
+ const detected=page.waitForResponse(r=>r.url().endsWith(`${ADMIN}/domains/gmail.com/detect`)&&r.request().method()==='POST',{timeout:45_000});
  await page.getByRole('button',{name:'Discover configuration',exact:true}).click();
  const response=await detected;
  expect(response.status(),await response.text()).toBe(200);
@@ -44,5 +45,5 @@ test('guided domain discovery shows the server-detected endpoints @phone',async(
  await expect(page.getByText(/smtp\.gmail\.com:587/u)).toBeVisible();
  await page.screenshot({path:info.outputPath('domain-detect-review.png'),fullPage:true});
  // Discovery proposes; it never saves.
- expect((await page.request.get('/admin/domains/gmail.com')).status()).toBe(404);
+ expect((await page.request.get(`${ADMIN}/domains/gmail.com`)).status()).toBe(404);
 });

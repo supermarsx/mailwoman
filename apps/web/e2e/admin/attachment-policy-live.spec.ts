@@ -1,4 +1,5 @@
 import {test,expect} from '../csrf.ts';
+import { ADMIN } from './admin-path.ts';
 import {signInManually,messageRow,sidebarInbox,drawerButton} from '../helpers.ts';
 import {sendRawSmtp} from '../crypto-helpers.ts';
 
@@ -10,12 +11,12 @@ test('stored attachment policy blocks renamed downloads and requires warning ack
   const admin=await playwright.request.newContext({...baseURL?{baseURL}:{}});
   const saved:Array<{key:string;body:{globalValue:unknown;globalLocked:boolean}}>=[];
   try{
-    await page.waitForTimeout(3100);await admin.get('/admin');
-    expect((await admin.post('/admin/login',{data:{username:'root',password:'hunter2'}})).status()).toBe(200);
+    await page.waitForTimeout(3100);await admin.get(ADMIN);
+    expect((await admin.post(`${ADMIN}/login`,{data:{username:'root',password:'hunter2'}})).status()).toBe(200);
     for(const [key,value] of Object.entries(rules)){
-      const current=await admin.get(`/admin/settings/${key}`);expect(current.status()).toBe(200);
+      const current=await admin.get(`${ADMIN}/settings/${key}`);expect(current.status()).toBe(200);
       saved.push({key,body:await current.json()});
-      const put=await admin.put(`/admin/settings/${key}`,{data:{globalValue:value},headers:{'if-match':current.headers()['etag']!}});
+      const put=await admin.put(`${ADMIN}/settings/${key}`,{data:{globalValue:value},headers:{'if-match':current.headers()['etag']!}});
       expect(put.ok(),await put.text()).toBe(true);
     }
     const subject=`Attachment policy ${info.project.name} ${Date.now()}`;const boundary=`policy-${Date.now()}`;
@@ -37,19 +38,19 @@ test('stored attachment policy blocks renamed downloads and requires warning ack
     await expect(page.getByRole('link',{name:'Download file'})).toBeVisible();
     await page.screenshot({path:info.outputPath('acknowledged-attachment.png'),fullPage:true});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-    await page.goto('/admin');await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');
+    await page.goto(ADMIN);await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');
     await page.waitForTimeout(3100);
-    const login=page.waitForResponse(response=>new URL(response.url()).pathname==='/admin/login'&&response.request().method()==='POST');
+    const login=page.waitForResponse(response=>new URL(response.url()).pathname===`${ADMIN}/login`&&response.request().method()==='POST');
     await page.getByRole('button',{name:'Sign in',exact:true}).click();expect((await login).status()).toBe(200);
-    await page.goto('/admin#/attachments');
+    await page.goto(`${ADMIN}#/attachments`);
     await expect(page.getByRole('heading',{name:'Delivery and preview rules'})).toBeVisible();
     await expect(page.getByRole('heading',{name:'Blocked filename extensions'})).toBeVisible();
     await page.screenshot({path:info.outputPath('admin-attachment-policy.png'),fullPage:true});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }finally{
     for(const {key,body} of saved){
-      const current=await admin.get(`/admin/settings/${key}`);
-      const put=await admin.put(`/admin/settings/${key}`,{data:{globalValue:body.globalValue??null,locked:body.globalLocked},headers:{'if-match':current.headers()['etag']!}});
+      const current=await admin.get(`${ADMIN}/settings/${key}`);
+      const put=await admin.put(`${ADMIN}/settings/${key}`,{data:{globalValue:body.globalValue??null,locked:body.globalLocked},headers:{'if-match':current.headers()['etag']!}});
       expect(put.ok(),await put.text()).toBe(true);
     }
     await admin.dispose();

@@ -76,7 +76,7 @@ async function hold(page: Page, pattern: string): Promise<() => void> {
 async function signIn(page: Page): Promise<void> {
   await page.getByLabel('Admin username').fill(USER);
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
-  const login = page.waitForResponse((r) => r.url().endsWith('/admin/login') && r.request().method() === 'POST');
+  const login = page.waitForResponse((r) => r.url().endsWith(`${ADMIN}/login`) && r.request().method() === 'POST');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   expect((await login).status()).toBe(200);
 }
@@ -85,7 +85,7 @@ for (const width of WIDTHS) {
   test(`sign-in skeleton has the form's box, first visit and remembered (${width})`, async ({ browser }) => {
     const { context, page, csp } = await open(browser, width);
     try {
-      let release = await hold(page, '**/admin/session');
+      let release = await hold(page, `**${ADMIN}/session`);
       await page.goto(ADMIN);
       expect(await page.evaluate(() => document.documentElement.getAttribute('data-mw-boot'))).toBe('admin');
       const skeleton = page.locator('#mw-boot .mwb-admin-card');
@@ -103,8 +103,8 @@ for (const width of WIDTHS) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
       // Second visit: the height measured on the first one.
-      await page.unroute('**/admin/session');
-      release = await hold(page, '**/admin/session');
+      await page.unroute(`**${ADMIN}/session`);
+      release = await hold(page, `**${ADMIN}/session`);
       await page.reload();
       await expect(skeleton).toBeVisible();
       expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--mwb-admin-card'))).not.toBe('');
@@ -121,7 +121,7 @@ for (const width of WIDTHS) {
   test(`sign-in skeleton under a light pack and with reduced motion (${width})`, async ({ browser }) => {
     const { context, page, csp } = await open(browser, width, { light: true, reducedMotion: 'reduce' });
     try {
-      const release = await hold(page, '**/admin/session');
+      const release = await hold(page, `**${ADMIN}/session`);
       await page.goto(ADMIN);
       const skeleton = page.locator('#mw-boot .mwb-admin-card');
       await expect(skeleton).toBeVisible();
@@ -157,8 +157,8 @@ for (const width of WIDTHS) {
       await page.goto(ADMIN);
       await expect(page.getByTestId('admin-login-card')).toBeVisible();
       await expect(page.locator('#mw-boot')).toHaveCount(0);
-      const releaseMe = await hold(page, '**/admin/me');
-      const releaseDash = await hold(page, '**/admin/dashboard');
+      const releaseMe = await hold(page, `**${ADMIN}/me`);
+      const releaseDash = await hold(page, `**${ADMIN}/dashboard`);
       await signIn(page);
       const frame = page.locator('[data-screen="admin"]');
       await expect(frame).toBeVisible();
@@ -211,7 +211,7 @@ for (const width of WIDTHS) {
       await page.goto(ADMIN);
       await signIn(page);
       await expect(page.getByTestId('tile-users')).toBeVisible();
-      const release = await hold(page, '**/admin/session');
+      const release = await hold(page, `**${ADMIN}/session`);
       await page.reload();
       expect(await page.evaluate(() => document.documentElement.getAttribute('data-mw-boot'))).toBe('admin-console');
       await expect(page.locator('#mw-boot .mwb-console')).toBeVisible();
