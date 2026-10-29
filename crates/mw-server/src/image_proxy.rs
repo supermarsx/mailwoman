@@ -388,8 +388,18 @@ pub(crate) async fn load_plan(store: &mw_store::Store) -> Result<EgressPlan, ()>
 /// [`load_plan`], then install it for this process (`mw_egress::plan::install`), so
 /// crates without a store handle (`mw-crypto`, `mw-autoconfig`, `mw-admin`) send
 /// under the same routes. On `Err` the installed plan is left as it was.
+///
+/// A plan that differs from the installed one also clears the remembered fetch
+/// failures (t56 negative cache): they were measured under the old routes, and
+/// an admin who fixes a route expects the next fetch to try it.
 pub(crate) async fn refresh_plan(store: &mw_store::Store) -> Result<Arc<EgressPlan>, ()> {
-    load_plan(store).await.map(plan::install)
+    let next = load_plan(store).await?;
+    let changed = plan::current().is_none_or(|installed| *installed != next);
+    let installed = plan::install(next);
+    if changed {
+        remote_content::fetch_limits::forget_all();
+    }
+    Ok(installed)
 }
 
 /// How often every process re-reads the egress plan (R-CFG 6: hot settings apply

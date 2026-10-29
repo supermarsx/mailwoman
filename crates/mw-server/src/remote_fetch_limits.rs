@@ -231,6 +231,11 @@ pub(crate) fn remember(account: &str, url: &str, refusal: &Refusal) {
     }
 }
 
+/// Forget every remembered failure (the egress routes changed).
+pub(crate) fn forget_all() {
+    negative().lock().expect("negative cache lock").0.clear();
+}
+
 /// Forget the failures remembered for `urls` of `account` (the retry path).
 pub(crate) fn forget<'a>(account: &str, urls: impl IntoIterator<Item = &'a str>) {
     let mut negative = negative().lock().expect("negative cache lock");

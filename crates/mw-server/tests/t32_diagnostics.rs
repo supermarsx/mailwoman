@@ -29,7 +29,15 @@ async fn server_suite_is_authenticated_redacted_persisted_and_rate_limited() {
     .0;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
-    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    // As main.rs serves it: with the peer address, which the fail2ban check reads.
+    let task = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap()
+    });
     let client = reqwest::Client::builder()
         .cookie_store(true)
         .no_proxy()
@@ -76,8 +84,33 @@ async fn server_suite_is_authenticated_redacted_persisted_and_rate_limited() {
     assert!(!text.contains(secret));
     assert!(!text.contains(&"12".repeat(32)));
     let report: Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(report["run"]["status"], "pass", "{report}");
-    assert_eq!(report["run"]["results"].as_array().unwrap().len(), 5);
+    // t39 L3/L4 added network, posture and fail2ban checks. Over plain HTTP on
+    // loopback the posture checks warn (no HTTPS, no Secure cookies...), so the run
+    // is `warn`; nothing may fail, and the original five store/key/egress checks pass.
+    assert_eq!(report["run"]["status"], "warn", "{report}");
+    let results = report["run"]["results"].as_array().unwrap();
+    assert!(results.iter().all(|r| r["status"] != "fail"), "{report}");
+    for id in [
+        "database-connectivity",
+        "database-write",
+        "database-migrations",
+        "server-key-roundtrip",
+        "egress-private-policy",
+    ] {
+        let row = results
+            .iter()
+            .find(|r| r["id"] == id)
+            .unwrap_or_else(|| panic!("{id}: {report}"));
+        assert_eq!(row["status"], "pass", "{id}: {report}");
+    }
+    let fail2ban = results
+        .iter()
+        .find(|r| r["id"] == "fail2ban-client-address")
+        .unwrap();
+    assert_eq!(
+        fail2ban["status"], "warn",
+        "a loopback peer is named, but warned about"
+    );
     assert_eq!(report["historySaved"], true);
     assert_eq!(report["auditSaved"], true);
     let history: Value = client
