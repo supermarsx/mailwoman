@@ -42,7 +42,11 @@ pub(super) fn register(r: &mut impl AdminRegistrar) {
         Capability::ConfigImport,
         import,
     );
+    nextcloud_backup::register(r);
 }
+// Sends the portable export to an administrator-owned Nextcloud folder (t64).
+#[path = "config_backup_nextcloud.rs"]
+mod nextcloud_backup;
 fn portable(key: &str) -> Result<(), AdminApiError> {
     let def = def_of(key)?;
     registry::refuse_if_dedicated(def).map_err(refusal)?;
@@ -55,9 +59,8 @@ fn portable(key: &str) -> Result<(), AdminApiError> {
     }
     Ok(())
 }
-async fn export(State(state): State<AppState>, ctx: AdminCtx) -> Result<Response, AdminApiError> {
-    ctx.require_unscoped(Capability::ConfigExport)?;
-    ctx.require_unscoped(Capability::SettingsRead)?;
+/// The portable bundle and the dedicated keys it leaves out.
+async fn portable_bundle(state: &AppState) -> Result<(Bundle, Vec<String>), AdminApiError> {
     let rows = state.store.list_setting_policies().await?;
     if rows.len() > MAX_ENTRIES {
         return Err(AdminApiError::invalid(
@@ -89,9 +92,22 @@ async fn export(State(state): State<AppState>, ctx: AdminCtx) -> Result<Response
     }
     entries.sort_by(|a, b| a.key.cmp(&b.key));
     Ok((
+        Bundle {
+            format: FORMAT.into(),
+            version: 1,
+            entries,
+        },
+        excluded,
+    ))
+}
+async fn export(State(state): State<AppState>, ctx: AdminCtx) -> Result<Response, AdminApiError> {
+    ctx.require_unscoped(Capability::ConfigExport)?;
+    ctx.require_unscoped(Capability::SettingsRead)?;
+    let (bundle, excluded) = portable_bundle(&state).await?;
+    Ok((
         [(axum::http::header::CACHE_CONTROL, "private, no-store")],
         Json(json!({
-            "bundle": Bundle { format: FORMAT.into(), version: 1, entries },
+            "bundle": bundle,
             "excluded": excluded,
             "scope": "registered-global-policies",
             "includesSecrets": false,
