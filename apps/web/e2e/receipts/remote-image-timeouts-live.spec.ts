@@ -9,10 +9,10 @@
 //     hang shows a placeholder per image once ~3 s pass, in the image's own
 //     300x120 box, while a fast image in the same message renders inside the
 //     sandboxed frame (no CORP console error, t56's CORP fix);
-//   - the reader stays responsive while images hang: another message opens and
-//     the list scrolls;
-//   - reopening the message answers the failed images from the 60 s negative
-//     cache: placeholders at once, no new upstream requests;
+//   - the reader stays responsive while images hang: the list scrolls, the
+//     search box takes input and the banner menu opens, each promptly;
+//   - another message with the same image URLs answers the failed images from
+//     the 60 s negative cache: placeholders at once, no new upstream request;
 //   - raising the timeout in admin to 6000 delays the placeholders accordingly.
 // Screenshots: MW_T56_SHOTS (default test-results/t56).
 import { test, expect, type Page, type APIRequestContext, type FrameLocator } from '../csrf.ts';
@@ -109,6 +109,13 @@ function body(page: Page): FrameLocator {
 }
 type ImageState = { alt: string; complete: boolean; natural: number; w: number; h: number };
 async function images(page: Page): Promise<ImageState[]> {
+  // The reader may replace the nested frame while a message settles (a re-post
+  // of the same body); read again from the live frame when that happens.
+  for (let attempt = 0; ; attempt++) {
+    try { return await readImages(page); } catch (error) { if (attempt >= 5 || !/detached/i.test(String(error))) throw error; await page.waitForTimeout(200); }
+  }
+}
+async function readImages(page: Page): Promise<ImageState[]> {
   return body(page).locator('img').evaluateAll((nodes) => nodes.map((n) => { const i = n as HTMLImageElement; const r = i.getBoundingClientRect(); return { alt: i.alt, complete: i.complete, natural: i.naturalWidth, w: Math.round(r.width), h: Math.round(r.height) }; }));
 }
 /** ms from `since` until every hanging image is settled as broken. */
@@ -203,10 +210,11 @@ test('t56 hanging remote images become placeholders after the configured timeout
     restore.push(await setGlobal(admin, 'privacy.fetchTotalTimeoutMs', 3000));
 
     const run = `${info.project.name}-${Date.now()}`;
-    const first = `T56 hang 3s ${run}`, other = `T56 plain ${run}`, second = `T56 hang 6s ${run}`;
-    await seed(other, `plain-${run}@example.test`, `<p>Plain text while images hang.</p><p>${'Line. '.repeat(20)}</p>`);
+    const first = `T56 hang 3s ${run}`, second = `T56 hang 6s ${run}`;
     await seed(first, `news3-${run}@example.test`, hangingHtml(`a${run}`));
     await seed(second, `news6-${run}@example.test`, hangingHtml(`b${run}`));
+    const dup = `T56 same images ${run}`;
+    await seed(dup, `news3b-${run}@example.test`, hangingHtml(`a${run}`).replace('Hanging newsletter', 'Same images'));
 
     await page.waitForTimeout(3100); // sign-in cooldown
     await signIn(page);
@@ -223,37 +231,42 @@ test('t56 hanging remote images become placeholders after the configured timeout
     expect(early.find((s) => s.alt === 'Fast logo')?.natural, 'a granted image renders inside the sandboxed frame').toBe(48);
     await page.screenshot({ path: join(shots, `${info.project.name}-1-pending.png`) });
 
-    // Responsive while images hang: the list scrolls and another message opens fast.
+    // Responsive while images hang, without leaving the message (leaving would
+    // abort the frame's requests): the list scrolls, the search box takes input,
+    // and the banner's menu opens and closes, each promptly.
     const list = page.locator('.list__row').first();
-    await list.hover(); await page.mouse.wheel(0, 200); await page.mouse.wheel(0, -200);
-    const switchStart = Date.now();
-    await page.locator('.list__row').filter({ hasText: other }).click();
-    await expect(body(page).getByText('Plain text while images hang.')).toBeVisible({ timeout: 5000 });
-    report.otherMessageOpenMs = Date.now() - switchStart;
-    expect(report.otherMessageOpenMs as number).toBeLessThan(3000);
+    await list.hover(); await page.mouse.wheel(0, 300); await page.mouse.wheel(0, -300);
+    const search = page.getByPlaceholder(/Search mail/);
+    let started = Date.now();
+    await search.fill('t56 responsiveness'); await expect(search).toHaveValue('t56 responsiveness');
+    report.searchInputMs = Date.now() - started;
+    await search.fill('');
+    started = Date.now();
+    await page.getByRole('button', { name: 'More image options' }).filter({ visible: true }).first().click();
+    await expect(page.getByRole('menu').filter({ visible: true }).first()).toBeVisible({ timeout: 3000 });
+    report.menuOpenMs = Date.now() - started;
+    await page.keyboard.press('Escape');
+    expect(report.searchInputMs as number).toBeLessThan(1500);
+    expect(report.menuOpenMs as number).toBeLessThan(1500);
 
-    // Back to the hanging message. Leaving it aborted the frame's image requests
-    // (and with them the server's fetches), so this open fetches afresh and the
-    // placeholders appear once the 3 s deadline passes.
-    const t1 = await open(page, first);
-    const settled = await untilPlaceholders(page, t1, 15000);
+    const settled = await untilPlaceholders(page, t0, 15000);
     report.placeholdersWith3sMs = settled.elapsed;
     expect(settled.elapsed).toBeGreaterThanOrEqual(2500);
     expect(settled.elapsed).toBeLessThan(7000);
     for (const s of settled.states.filter((x) => x.alt.startsWith('Hanging'))) {
       expect([s.w, s.h], `${s.alt} keeps its own box`).toEqual([300, 120]);
     }
+    expect(settled.states.find((x) => x.alt === 'Fast logo')?.natural).toBe(48);
     await page.screenshot({ path: join(shots, `${info.project.name}-2-placeholders-3s.png`) });
     await body(page).locator('img[alt="Hanging banner 0"]').screenshot({ path: join(shots, `${info.project.name}-placeholder-closeup.png`) });
-    void t0;
 
-    // Away and back again: the timed-out fetches are remembered for 60 s, so the
-    // placeholders come at once and the origin sees no new request.
+    // Another message with the same image URLs: the timed-out fetches are
+    // remembered for 60 s, so its placeholders come at once and the origin sees
+    // no new request.
     const hangHits = (): number => [...fixture.hits].filter(([p]) => p.startsWith('/hang')).reduce((a, [, n]) => a + n, 0);
     const before = hangHits();
-    await page.locator('.list__row').filter({ hasText: other }).click();
-    await expect(body(page).getByText('Plain text while images hang.')).toBeVisible({ timeout: 5000 });
-    const t3 = await open(page, first);
+    const t3 = await open(page, dup);
+    await expect(body(page).getByText(`Same images a${run}`)).toBeVisible({ timeout: 20000 });
     const cached = await untilPlaceholders(page, t3, 15000);
     report.negativeCachePlaceholdersMs = cached.elapsed;
     expect(cached.elapsed).toBeLessThan(2500);
@@ -276,6 +289,16 @@ test('t56 hanging remote images become placeholders after the configured timeout
 
     // The failures the frame received: a 504 marked failed, briefly cacheable,
     // and readable by the opaque frame (CORP cross-origin), with no CORP console noise.
+    // Chromium does not report every nested opaque-frame response to Playwright,
+    // so the signed links are also requested again directly (the negative cache
+    // answers them at once, exactly as the frame saw them).
+    const anon = await playwright.request.newContext();
+    for (const { alt, src } of await body(page).locator('img').evaluateAll((nodes) => nodes.map((i) => ({ alt: (i as HTMLImageElement).alt, src: (i as HTMLImageElement).src })))) {
+      if (!alt.startsWith('Hanging')) continue;
+      const r = await anon.get(src); const h = r.headers();
+      failed.push({ status: r.status(), marker: h['x-mw-remote-content'] ?? null, cache: h['cache-control'] ?? null, corp: h['cross-origin-resource-policy'] ?? null });
+    }
+    await anon.dispose();
     expect(failed.length).toBeGreaterThan(0);
     for (const f of failed) {
       expect(f.status).toBe(504);
@@ -294,5 +317,37 @@ test('t56 hanging remote images become placeholders after the configured timeout
     await admin.delete(`${adminPath}/egress/proxies/${id}`).catch(() => undefined);
     await userSetting(page, 'privacy.remoteContent', 'ask').catch(() => undefined);
     await fixture.close();
+  }
+});
+
+test('t56 the admin console shows the fetch limits and saves a new total timeout', async ({ page }, info) => {
+  test.skip(info.project.name === 'phone', 'desktop engines only');
+  // The page's own request context shares its cookies, so this signs the console in.
+  await adminLogin(page.request);
+  let restore: (() => Promise<void>) | undefined;
+  try {
+    restore = await setGlobal(page.request, 'privacy.fetchTotalTimeoutMs', 20000);
+    await page.goto(`${adminPath}#/privacy`);
+    const section = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Remote image fetching' }) }).last();
+    await expect(section).toBeVisible({ timeout: 20000 });
+    for (const label of ['Remote image connect timeout', 'Remote image response timeout', 'Remote image stall timeout', 'Remote image total timeout', 'Remote image redirects', 'Remote image downloads per message', 'Remote image downloads per account']) await expect(section.getByText(label, { exact: true })).toBeVisible();
+    await expect(section).toContainText('20 sec');
+    await page.screenshot({ path: join(SHOTS, `${info.project.name}-admin-privacy.png`), fullPage: true });
+    await section.locator('a[href$="privacy.fetchTotalTimeoutMs"]').click();
+    await expect(page.getByRole('heading', { name: 'Remote image total timeout' })).toBeVisible();
+    const form = page.locator('form[aria-labelledby="setting-global-heading"]');
+    const value = form.getByRole('spinbutton', { name: /Remote image total timeout/ });
+    await value.fill('200000');
+    await form.getByRole('button', { name: 'Save' }).click();
+    await expect(page.getByRole('alert').or(page.locator('[aria-invalid="true"]')).first()).toBeVisible();
+    await value.fill('6000');
+    await form.getByRole('button', { name: 'Save' }).click();
+    await expect.poll(async () => ((await (await page.request.get(`${adminPath}/settings/privacy.fetchTotalTimeoutMs`)).json()) as { globalValue: unknown }).globalValue, { timeout: 10000 }).toBe(6000);
+    await page.screenshot({ path: join(SHOTS, `${info.project.name}-admin-total-timeout-saved.png`), fullPage: true });
+    // The out-of-range value never reached the server.
+    const refused = await page.request.put(`${adminPath}/settings/privacy.fetchTotalTimeoutMs`, { data: { globalValue: 500, locked: false }, headers: { 'if-match': (await page.request.get(`${adminPath}/settings/privacy.fetchTotalTimeoutMs`)).headers()['etag']! } });
+    expect(refused.status()).toBe(422);
+  } finally {
+    await restore?.().catch(() => undefined);
   }
 });
