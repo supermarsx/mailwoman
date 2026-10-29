@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use mw_server::{AppConfig, HardeningConfig, ServerMode, build_app};
 
 mod common;
-use common::test_db;
+use common::{auth, test_db};
 
 /// Engine-mode server whose configured upstream (`MW_UPSTREAM_DEFAULT`) is
 /// `upstream`; a login can no longer name one (t32-h9).
@@ -158,6 +158,10 @@ async fn download_and_export_over_http_engine_mode() {
     );
     let raw = dl.bytes().await.unwrap();
     assert!(!raw.is_empty(), "downloaded message body is empty");
+
+    // Exporting a message is a data export: it needs a fresh password proof
+    // (step-up `dataExport`, required since 7e9af0d0), as in the browser.
+    auth::user_step_up(&c, &server, &pass).await;
 
     // Every mw-export format is reachable and returns a body.
     for (fmt, ctype) in [
