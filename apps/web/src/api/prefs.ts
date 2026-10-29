@@ -52,7 +52,7 @@ import { storageAuthorityHeaders } from './storageAuthority.ts';
 
 import { withBase } from './basePath.ts';
 import { apiFetch } from './http.ts';
-import { defaultAppearance, FONT_STACKS, isBadgeColor, type AppearancePrefs, type BadgeColor, type UiFont } from '../theme/appearance.ts';
+import { defaultAppearance, parseAppearancePrefs, FONT_STACKS, isBadgeColor, type AppearancePrefs, type BadgeColor, type UiFont } from '../theme/appearance.ts';
 import { observePreferenceAccount, preferenceAccount } from './accountPreferenceLifecycle.ts';
 
 /** The subset of the theme slice this module drives (t19-e6's sync seam). */
@@ -197,6 +197,17 @@ function readMark(key = MARK_KEY): SyncMark | null {
     const m = JSON.parse(raw) as Partial<SyncMark>;
     if (typeof m.prefs !== 'string') return null;
     return { updatedAt: typeof m.updatedAt === 'number' ? m.updatedAt : null, prefs: m.prefs };
+  } catch {
+    return null;
+  }
+}
+
+/** The prefs an account last agreed with the server on this device, if any. */
+function markedPrefs(key: string): AppearancePrefs | null {
+  const mark = key ? readMark(key) : null;
+  if (mark === null) return null;
+  try {
+    return parseAppearancePrefs(JSON.parse(mark.prefs));
   } catch {
     return null;
   }
@@ -532,10 +543,20 @@ export function bindAppearanceToAccount(prefs: AppearancePrefsSeam): () => void 
     serverWins: true,
   });
   singleton = sync;
+  // Whether an account has been seen since this page loaded. Before the first
+  // one, `null` only means the session has not been resolved yet: resetting
+  // then painted every reload in the Dark defaults until the server answered
+  // (t52), so the look this device last showed is kept until the account is known.
+  let seen = false;
   const unsubscribe = observePreferenceAccount(account => {
     sync.stop();
-    // A missing preference on another account must not inherit the old account's look.
-    prefs.setAppearancePrefs(defaultAppearance());
+    if (account === null && !seen) return;
+    seen ||= account !== null;
+    // A missing preference on another account must not inherit the old
+    // account's look. An account this device has synced before starts from
+    // what it last agreed with the server; the server still wins in `start()`.
+    const key = account?.storageAuthority ? `${MARK_KEY}:v2:${encodeURIComponent(account.storageAuthority)}` : '';
+    prefs.setAppearancePrefs(markedPrefs(key) ?? defaultAppearance());
     if (account) void sync.start();
   });
   accountBindingDispose = () => { unsubscribe(); sync.stop(); if (singleton === sync) singleton = null; };
