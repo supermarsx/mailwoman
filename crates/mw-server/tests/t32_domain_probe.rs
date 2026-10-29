@@ -137,6 +137,10 @@ async fn probes_only_saved_operator_targets_without_credentials_and_bounds_cost(
     let body: Value = response.json().await.unwrap();
     assert_eq!(body["credentialsSent"], false);
     assert_eq!(body["results"][0]["reachable"], true);
+    // t90: a loopback handshake is often under 1 ms; latencyUs keeps it.
+    let us = body["results"][0]["latencyUs"].as_u64().expect("latencyUs");
+    assert!(us > 0);
+    assert_eq!(body["results"][0]["latencyMs"].as_u64().unwrap(), us / 1000);
     assert!(
         body["results"][0]["capabilities"]
             .as_array()

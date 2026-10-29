@@ -643,15 +643,18 @@ pub struct ClassCounts {
     /// Requests that failed at the far end or on the way: timeouts, non-success
     /// statuses, transport and proxy failures, oversize bodies.
     pub failed: u64,
-    /// Total wall time of all requests, in milliseconds.
+    /// Total wall time of all requests, in milliseconds (`total_us / 1000`).
     pub total_ms: u64,
+    /// Total wall time of all requests, in microseconds. Summing whole ms
+    /// per request would count every sub-millisecond refusal as 0.
+    pub total_us: u64,
 }
 
 struct Counter {
     allowed: AtomicU64,
     refused: AtomicU64,
     failed: AtomicU64,
-    total_ms: AtomicU64,
+    total_us: AtomicU64,
 }
 
 #[allow(clippy::declare_interior_mutable_const)]
@@ -659,7 +662,7 @@ const ZERO: Counter = Counter {
     allowed: AtomicU64::new(0),
     refused: AtomicU64::new(0),
     failed: AtomicU64::new(0),
-    total_ms: AtomicU64::new(0),
+    total_us: AtomicU64::new(0),
 };
 
 static COUNTERS: [Counter; TrafficClass::ALL.len()] = [ZERO; TrafficClass::ALL.len()];
@@ -680,8 +683,8 @@ fn record(class: TrafficClass, outcome: &Result<Vec<u8>, Refusal>, started: Inst
         Err(_) => &c.failed,
     };
     bucket.fetch_add(1, Ordering::Relaxed);
-    let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-    c.total_ms.fetch_add(ms, Ordering::Relaxed);
+    let us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
+    c.total_us.fetch_add(us, Ordering::Relaxed);
 }
 
 /// The counts for every class, in [`TrafficClass::ALL`] order.
@@ -696,7 +699,8 @@ pub fn counts() -> Vec<(TrafficClass, ClassCounts)> {
                     allowed: c.allowed.load(Ordering::Relaxed),
                     refused: c.refused.load(Ordering::Relaxed),
                     failed: c.failed.load(Ordering::Relaxed),
-                    total_ms: c.total_ms.load(Ordering::Relaxed),
+                    total_ms: c.total_us.load(Ordering::Relaxed) / 1000,
+                    total_us: c.total_us.load(Ordering::Relaxed),
                 },
             )
         })
@@ -735,6 +739,20 @@ mod tests {
             .response_limit(usize::MAX);
         assert_eq!(req.response_limit, 1024 * 1024);
         assert_eq!(req.class(), TrafficClass::PackageTracking);
+    }
+    #[test]
+    fn traffic_time_keeps_sub_millisecond_requests() {
+        let class = TrafficClass::ALL[0];
+        let total = |c: TrafficClass| counts().into_iter().find(|(k, _)| *k == c).unwrap().1;
+        let before = total(class);
+        let started = Instant::now()
+            .checked_sub(std::time::Duration::from_micros(400))
+            .unwrap();
+        record(class, &Err(Refusal::Blocked), started);
+        let after = total(class);
+        // Summing whole ms per request counted this as 0; µs keeps it.
+        assert!(after.total_us >= before.total_us + 400);
+        assert_eq!(after.total_ms, after.total_us / 1000);
     }
     #[test]
     fn scope_spellings_round_trip_and_refuse_junk() {

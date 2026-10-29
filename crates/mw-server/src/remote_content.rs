@@ -1352,7 +1352,7 @@ pub(crate) async fn stats(
         .map(|(class, counts)| {
             json!({
                 "class":class.as_str(), "allowed":counts.allowed, "refused":counts.refused,
-                "failed":counts.failed, "totalMs":counts.total_ms,
+                "failed":counts.failed, "totalMs":counts.total_ms, "totalUs":counts.total_us,
             })
         })
         .collect();

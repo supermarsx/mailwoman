@@ -90,6 +90,19 @@ async fn server_suite_is_authenticated_redacted_persisted_and_rate_limited() {
     assert_eq!(report["run"]["status"], "warn", "{report}");
     let results = report["run"]["results"].as_array().unwrap();
     assert!(results.iter().all(|r| r["status"] != "fail"), "{report}");
+    // t90: each check carries its time in µs as well, so a sub-ms check is not "0 ms".
+    for r in results {
+        let us = r["durationUs"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("durationUs: {r}"));
+        assert_eq!(r["durationMs"].as_u64().unwrap(), us / 1000, "{r}");
+    }
+    assert!(
+        results
+            .iter()
+            .any(|r| r["durationUs"].as_u64().unwrap() > 0),
+        "{report}"
+    );
     for id in [
         "database-connectivity",
         "database-write",

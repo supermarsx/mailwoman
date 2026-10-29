@@ -15,13 +15,7 @@ const STEP: Duration = Duration::from_secs(5);
 const MAX_PORTS: usize = 32;
 
 fn row(id: &'static str, status: &'static str, start: Instant, summary: String) -> CheckResult {
-    CheckResult {
-        id,
-        status,
-        duration_ms: start.elapsed().as_millis().min(u64::MAX as u128) as u64,
-        summary: summary.into(),
-        fix_id: id,
-    }
+    CheckResult::timed(id, status, start.elapsed(), summary.into())
 }
 
 /// `(host, port)` of `MW_PUBLIC_URL`, the same variable `ExternalBase` reads.

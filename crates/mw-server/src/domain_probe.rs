@@ -40,7 +40,10 @@ pub struct Probe {
     port: u16,
     tls: String,
     reachable: bool,
+    /// Whole milliseconds, truncated (kept for older clients).
     latency_ms: u64,
+    /// The same time in microseconds; a loopback or LAN handshake is often under 1 ms.
+    latency_us: u64,
     tls_version: Option<String>,
     cert_not_after: Option<String>,
     cert_days_left: Option<i64>,
@@ -48,6 +51,12 @@ pub struct Probe {
     capabilities: Vec<String>,
     error: Option<String>,
     selected_reason: Option<String>,
+}
+impl Probe {
+    fn set_latency(&mut self, elapsed: Duration) {
+        self.latency_ms = elapsed.as_millis().min(u64::MAX as u128) as u64;
+        self.latency_us = elapsed.as_micros().min(u64::MAX as u128) as u64;
+    }
 }
 type Windows = HashMap<(String, &'static str), (Instant, u8)>;
 static LIMITS: OnceLock<Mutex<Windows>> = OnceLock::new();
@@ -450,7 +459,7 @@ async fn probe_mail(
         .take(32)
         .map(|line| line.chars().take(256).collect())
         .collect();
-    result.latency_ms = start.elapsed().as_millis() as u64;
+    result.set_latency(start.elapsed());
     result
 }
 
@@ -548,7 +557,7 @@ async fn probe_http(
         },
         Err(_) => result.error = Some("HTTP check timed out after five seconds".into()),
     }
-    result.latency_ms = start.elapsed().as_millis() as u64;
+    result.set_latency(start.elapsed());
     result
 }
 

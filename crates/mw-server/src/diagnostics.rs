@@ -40,7 +40,10 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
 struct CheckResult {
     id: &'static str,
     status: &'static str,
+    /// Whole milliseconds, truncated (kept for older clients).
     duration_ms: u64,
+    /// The same time in microseconds, so a sub-millisecond check is not shown as 0.
+    duration_us: u64,
     summary: std::borrow::Cow<'static, str>,
     fix_id: &'static str,
 }
@@ -55,12 +58,25 @@ async fn check(
         Ok(true) => "pass",
         _ => "fail",
     };
-    CheckResult {
-        id,
-        status,
-        duration_ms: start.elapsed().as_millis().min(u64::MAX as u128) as u64,
-        summary: summary.into(),
-        fix_id: id,
+    CheckResult::timed(id, status, start.elapsed(), summary.into())
+}
+
+impl CheckResult {
+    /// A result whose duration is `elapsed`, in whole ms and in µs.
+    pub(crate) fn timed(
+        id: &'static str,
+        status: &'static str,
+        elapsed: Duration,
+        summary: std::borrow::Cow<'static, str>,
+    ) -> Self {
+        CheckResult {
+            id,
+            status,
+            duration_ms: elapsed.as_millis().min(u64::MAX as u128) as u64,
+            duration_us: elapsed.as_micros().min(u64::MAX as u128) as u64,
+            summary,
+            fix_id: id,
+        }
     }
 }
 

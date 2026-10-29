@@ -189,8 +189,12 @@ fn configured(row: &mw_store::DomainConfigRow) -> Result<Vec<Target>, String> {
     }
     Ok(targets)
 }
-fn item(target: &Target, status: &str, duration: u64, summary: &str) -> Value {
-    json!({"id":format!("{}:{}",target.domain,target.id),"domain":target.domain,"backendId":target.id,"revision":target.revision,"category":"backend","protocol":target.protocol,"status":status,"durationMs":duration,"summary":summary,"fixId":"saved-backend-connection"})
+/// A backend row. `elapsed` is `None` for a check that never ran: `durationUs`
+/// is then null, so the console shows no time rather than a measured zero.
+fn item(target: &Target, status: &str, elapsed: Option<Duration>, summary: &str) -> Value {
+    let ms = elapsed.map_or(0, |d| d.as_millis().min(u64::MAX as u128) as u64);
+    let us = elapsed.map(|d| d.as_micros().min(u64::MAX as u128) as u64);
+    json!({"id":format!("{}:{}",target.domain,target.id),"domain":target.domain,"backendId":target.id,"revision":target.revision,"category":"backend","protocol":target.protocol,"status":status,"durationMs":ms,"durationUs":us,"summary":summary,"fixId":"saved-backend-connection"})
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -223,8 +227,8 @@ async fn start(
         }
         match configured(&row){
             Ok(items)=>for target in items{if targets.len()+results.len()>=MAX_CHECKS{limited=true;break;}
-if target.enabled{targets.push(target);}else{results.push(item(&target,"skipped",0,"Disabled domain or backend; no connection attempted"));}},
-            Err(_)=>results.push(json!({"id":format!("{}:configuration",row.name),"domain":row.name,"category":"configuration","status":"fail","durationMs":0,"summary":"Saved backend configuration is invalid","fixId":"domain-configuration"})),
+if target.enabled{targets.push(target);}else{results.push(item(&target,"skipped",None,"Disabled domain or backend; no connection attempted"));}},
+            Err(_)=>results.push(json!({"id":format!("{}:configuration",row.name),"domain":row.name,"category":"configuration","status":"fail","durationMs":0,"durationUs":null,"summary":"Saved backend configuration is invalid","fixId":"domain-configuration"})),
         }
     }
     let plan = crate::image_proxy::load_plan(&state.store)
@@ -322,7 +326,7 @@ async fn execute(
                 let detail=if let Some(backend)=&target.backend {crate::domain_probe::diagnostic_backend(&target.domain,backend,&plan).await} else {crate::domain_probe::diagnostic_http_service(&target.domain,&target.protocol,target.http_url.as_deref().unwrap_or_default(),&plan).await};
                 Ok::<_,()>(detail)
             }).await;
-            let duration=start.elapsed().as_millis() as u64;
+            let duration=Some(start.elapsed());
             match result {Ok(Ok(detail))=>{let pass=detail["reachable"]==true;let mut row=item(&target,if pass{"pass"}else{"fail"},duration,if pass{"Saved endpoint handshake completed; authentication not tested"}else{"Connection or security handshake failed; review DNS, route, certificate and saved endpoint"});row["detail"]=detail;row},_=>item(&target,"fail",duration,"Check timed out or capacity was unavailable")}
         });
     }
@@ -338,7 +342,7 @@ async fn execute(
             _=job.wake.notified()=>{terminal="cancelled";break;},
             _=&mut deadline=>{terminal="timed_out";break;},
             result=work.join_next()=>match result{None=>break,Some(result)=>{
-                let row=result.unwrap_or_else(|_|json!({"id":"worker","status":"fail","durationMs":0,"summary":"Diagnostic worker did not complete"}));
+                let row=result.unwrap_or_else(|_|json!({"id":"worker","status":"fail","durationMs":0,"durationUs":null,"summary":"Diagnostic worker did not complete"}));
                 let mut value=job.snapshot.lock().unwrap_or_else(|e|e.into_inner());value["run"]["results"].as_array_mut().unwrap().push(row);value["completed"]=json!(value["run"]["results"].as_array().unwrap().len());
             }}
         }
@@ -543,7 +547,17 @@ mod tests {
         assert_eq!(inventory[1].id, "backup");
         assert!(!inventory[2].enabled);
         assert_eq!(inventory[0].revision, 7);
-        let report = item(&inventory[0], "fail", 1, "Handshake failed");
+        let report = item(
+            &inventory[0],
+            "fail",
+            Some(Duration::from_micros(1_250)),
+            "Handshake failed",
+        );
+        assert_eq!(report["durationMs"], 1);
+        assert_eq!(report["durationUs"], 1_250);
+        let never = item(&inventory[2], "skipped", None, "Disabled");
+        assert_eq!(never["durationMs"], 0);
+        assert!(never["durationUs"].is_null());
         let text = report.to_string();
         assert!(!text.contains("imap.example.test"));
         assert!(!text.contains("username"));

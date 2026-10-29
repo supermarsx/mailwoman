@@ -672,6 +672,7 @@ async fn test(
         Ok(Err(e)) => (false, Some(transport::safe_code(&e))),
         Err(_) => (false, Some("ssh_connect_timeout")),
     };
+    let elapsed = start.elapsed();
     crate::admin_accounts::audit(
         &state,
         &ctx,
@@ -686,6 +687,6 @@ async fn test(
     )
     .await;
     Ok(Json(
-        json!({"ok":ok,"phase":if ok{"channel"}else{"connection"},"code":code,"latencyMs":start.elapsed().as_millis()}),
+        json!({"ok":ok,"phase":if ok{"channel"}else{"connection"},"code":code,"latencyMs":elapsed.as_millis(),"latencyUs":elapsed.as_micros()}),
     ))
 }
