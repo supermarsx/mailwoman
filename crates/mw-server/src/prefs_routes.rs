@@ -58,6 +58,7 @@ use mw_store::{
 
 use crate::AppState;
 
+mod badge_scope;
 mod contact_photo;
 pub(crate) mod personal_storage;
 mod receipt_preferences;
@@ -616,16 +617,29 @@ async fn appearance_get(State(state): State<AppState>, headers: HeaderMap) -> Re
         Ok(d) => d,
         Err(e) => return server_error("get appearance default", e),
     };
+    // The badge colour is account wide (t39): read it from the sign-in mailbox.
+    let parent = match badge_scope::parent_authority(&state, &session, &headers, &owner).await {
+        Ok(parent) => parent,
+        Err(response) => return response,
+    };
+    let shared = match badge_scope::read(&state.store, &parent).await {
+        Ok(shared) => shared,
+        Err(e) => return server_error("get badge colour", e),
+    };
     match do_get_appearance(&state.store, &owner).await {
         Ok(stored) => {
-            let mut appearance = stored.as_ref().and_then(|e| e.prefs.clone());
+            let (mut appearance, updated_at) = badge_scope::overlay(
+                stored.as_ref().and_then(|e| e.prefs.clone()),
+                stored.as_ref().map(|e| e.updated_at),
+                shared,
+            );
             let locked_fields = match appearance.as_mut() {
                 Some(prefs) => apply_appearance_locks(prefs, &locks),
                 None => locked_field_names(&locks),
             };
             Json(AppearanceResponse {
                 appearance,
-                updated_at: stored.as_ref().map(|e| e.updated_at),
+                updated_at,
                 deployment_default,
                 locked_fields,
             })
@@ -662,7 +676,20 @@ async fn appearance_put(
     // Held fields are replaced, not refused: the object is one value and the
     // rest of it is the user's to save (t32-admin §2.4).
     let locked_fields = apply_appearance_locks(&mut prefs, &locks);
-    match do_put_appearance(&state.store, &owner, Some(prefs), now_ms()).await {
+    let now = now_ms();
+    // A held badge colour is the administrator's, not the account's to share.
+    if !locked_fields.contains(&badge_scope::FIELD)
+        && let Some(badge) = badge_scope::from_body(&prefs)
+    {
+        let parent = match badge_scope::parent_authority(&state, &session, &headers, &owner).await {
+            Ok(parent) => parent,
+            Err(response) => return response,
+        };
+        if let Err(e) = badge_scope::write(&state.store, &parent, Some(badge), now).await {
+            return server_error("put badge colour", e);
+        }
+    }
+    match do_put_appearance(&state.store, &owner, Some(prefs), now).await {
         Ok(updated_at) => Json(json!({
             "ok": true,
             "updatedAt": updated_at,
@@ -685,7 +712,14 @@ async fn appearance_delete(State(state): State<AppState>, headers: HeaderMap) ->
         Ok(owner) => owner,
         Err(response) => return response,
     };
-    match do_put_appearance(&state.store, &account, None, now_ms()).await {
+    let now = now_ms();
+    // Only a reset of the sign-in mailbox forgets the account-wide badge colour.
+    if !headers.contains_key(crate::linked_accounts::SELECTOR)
+        && let Err(e) = badge_scope::write(&state.store, &account, None, now).await
+    {
+        return server_error("delete badge colour", e);
+    }
+    match do_put_appearance(&state.store, &account, None, now).await {
         Ok(updated_at) => Json(json!({ "ok": true, "updatedAt": updated_at })).into_response(),
         Err(e) => server_error("delete appearance", e),
     }
@@ -1002,7 +1036,10 @@ fn signature_to_dto(row: &SignatureRow) -> SignatureDto {
 
 fn signature_from_dto(account: &str, dto: &SignatureDto) -> SignatureRow {
     SignatureRow {
-        html: dto.html.as_deref().map(mw_sanitize::sanitize_signature_html),
+        html: dto
+            .html
+            .as_deref()
+            .map(mw_sanitize::sanitize_signature_html),
         text: dto.text.clone(),
         text_edited: dto.text_edited,
         account_id: account.to_string(),
@@ -1337,8 +1374,16 @@ mod tests {
         .unwrap();
         let saved = do_list_signatures(&s, "a1").await.unwrap();
         let saved = saved[0].html.as_deref().unwrap();
-        assert!(saved.contains(&format!(r#"<img src="{png}" alt="logo">"#)), "{saved}");
-        assert!(!saved.contains("<script") && !saved.contains("https://t.example") && !saved.contains("data:text"), "{saved}");
+        assert!(
+            saved.contains(&format!(r#"<img src="{png}" alt="logo">"#)),
+            "{saved}"
+        );
+        assert!(
+            !saved.contains("<script")
+                && !saved.contains("https://t.example")
+                && !saved.contains("data:text"),
+            "{saved}"
+        );
     }
 
     #[tokio::test]
