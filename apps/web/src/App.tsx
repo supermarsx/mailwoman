@@ -20,6 +20,7 @@ import { startAnalytics } from './api/startAnalytics.ts';
 import { observePreferenceAccount, preferenceAccountIsCurrent, type PreferenceAccount } from './api/accountPreferenceLifecycle.ts';
 import { SettingsService } from './screens/Settings/service.ts';
 import { shouldNotify } from './api/notificationPolicy.ts';
+import { releaseBootSplash, rememberBootGeometry, rememberBootSession } from './shell/bootSplash.ts';
 
 // Every route below is a DYNAMIC IMPORT, and each now loads through `LazyRoute`
 // rather than a bare `<Suspense fallback="Loading…">`. A chunk that fails to
@@ -53,7 +54,29 @@ const loadForcedPasswordChange = () => import('./modules/passwd/ForcedPasswordCh
 /** The mailbox itself, now code-split out of the entry chunk: the shell renders
  *  Login without it, so a logged-out visitor never downloads the whole mail UI. */
 const loadMailboxScreen = () =>
-  import('./screens/Mailbox.tsx').then((m) => ({ default: m.MailboxScreen }));
+  import('./screens/Mailbox.tsx').then((m) => ({ default: () => <MailboxMount screen={m.MailboxScreen} /> }));
+
+/**
+ * The mailbox, plus the boot splash hand-over (t52): the splash fades out once
+ * the shell is in the DOM under it, and the shell's geometry is recorded for the
+ * next boot when the page is left (or hidden), when it is laid out as the user
+ * last had it.
+ */
+function MailboxMount(props: { screen: () => JSX.Element }): JSX.Element {
+  onMount(() => {
+    releaseBootSplash();
+    const record = (): void => { if (document.visibilityState === 'hidden') rememberBootGeometry(); };
+    const settle = setTimeout(rememberBootGeometry, 3000);
+    document.addEventListener('visibilitychange', record);
+    window.addEventListener('pagehide', rememberBootGeometry);
+    onCleanup(() => {
+      clearTimeout(settle);
+      document.removeEventListener('visibilitychange', record);
+      window.removeEventListener('pagehide', rememberBootGeometry);
+    });
+  });
+  return <>{props.screen()}</>;
+}
 
 // Both route tests run on the pathname with the deploy prefix REMOVED. Under
 // `MW_BASE_PATH=/mail` the browser is at `/mail/admin`, which matches neither
@@ -75,23 +98,26 @@ function isOAuthAuthorizeRoute(): boolean {
 }
 
 export function App(): JSX.Element {
+  // Pages other than the mailbox and sign-in bring their own loading states;
+  // the boot splash only has to get out of their way.
+  const leaveSplash = (view: JSX.Element): JSX.Element => { releaseBootSplash(); return view; };
   if (isAdminRoute()) {
-    return <LazyRoute load={loadAdminScreen} />;
+    return leaveSplash(<LazyRoute load={loadAdminScreen} />);
   }
 
   if (typeof location !== 'undefined' && stripBase(location.pathname).replace(/\/+$/, '') === '/oidc/consent') {
-    return <LazyRoute load={loadIdentityConsent} />;
+    return leaveSplash(<LazyRoute load={loadIdentityConsent} />);
   }
 
   if (isOAuthAuthorizeRoute()) {
-    return <LazyRoute load={loadConsentScreen} />;
+    return leaveSplash(<LazyRoute load={loadConsentScreen} />);
   }
 
   // A desktop or mobile shell built without a server address, with no
   // provisioning file naming one (t32). There is nothing to sign in to and the
   // user cannot supply an address, so nothing is requested.
   if (isNativeAuth() && nativeServerBase() === null) {
-    return (
+    return leaveSplash(
       <div class="async-state async-state--error" role="alert" data-testid="shell-not-configured">
         <p class="async-state__message">{t('common-shell-not-configured')}</p>
       </div>
@@ -144,6 +170,17 @@ export function App(): JSX.Element {
     // browser this is a no-op returning the browser impl; in a shell it installs
     // the native impl (dynamically importing tauri.ts). e7 relies on this at boot.
     void initPlatform();
+  });
+
+  // Boot splash (t52): it stays up through the session check and the mailbox
+  // chunk, so loading is one placeholder rather than three. Sign-in, a held
+  // account and a boot failure take it down as soon as they render; the mailbox
+  // does in `MailboxMount`. The session hint picks the next boot's placeholder.
+  createEffect(() => {
+    if (!app.authChecked()) return;
+    if (bootError() !== null) { releaseBootSplash(); return; }
+    rememberBootSession(inMail());
+    if (!inMail()) releaseBootSplash();
   });
 
   // Open the realtime push transport once a session exists, and tear it down on

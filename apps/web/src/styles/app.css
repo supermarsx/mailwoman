@@ -1,5 +1,6 @@
 @import './bundledFonts.css';
 @import './typeface.css';
+@import './boot.css';
 
 /* Colours and structural tokens come from theme/themes.css.ts, which binds the
  * Dark pack to :root before any JS runs (t32: dark by default, whatever the OS

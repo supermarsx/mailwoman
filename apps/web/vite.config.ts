@@ -4,11 +4,47 @@ import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin';
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import { readFileSync } from 'node:fs';
+import { transformWithEsbuild, type Plugin } from 'vite';
 import { bundledPackages } from './scripts/about-bundled-packages.mjs';
 
 const UPSTREAM = 'http://localhost:8080';
 // The web client's version, sent as `browser/<version>` in `X-Mailwoman-Client`.
 const VERSION = (JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }).version;
+
+/**
+ * The pre-paint boot script (t52, `src/boot/boot.js`; see `src/shell/bootSplash.ts`).
+ * It must run before the first paint, so it is a CLASSIC script at the top of
+ * `<head>`, which Vite does not bundle. This emits it as a hashed asset under
+ * `assets/` instead of `public/`: `script-src 'self'` covers it, the server gives
+ * it the immutable lifetime of the other hashed files, and the service worker
+ * caches it cache-first with them, so an offline boot still has it.
+ */
+function bootScript(): Plugin {
+  const source = (): string => readFileSync(new URL('./src/boot/boot.js', import.meta.url), 'utf8');
+  let build = false;
+  return {
+    name: 'mw-boot-script',
+    configResolved(config) { build = config.command === 'build'; },
+    async buildStart() {
+      if (!build) return;
+      // It blocks the parser while it loads: ship it minified, comments and all stripped.
+      const { code } = await transformWithEsbuild(source(), 'boot.js', { minify: true, target: 'es2015', legalComments: 'none' });
+      this.emitFile({ type: 'asset', name: 'boot.js', source: code });
+    },
+    transformIndexHtml: {
+      order: 'post',
+      handler(_html, ctx) {
+        let src = '/src/boot/boot.js';
+        if (ctx.bundle !== undefined) {
+          const asset = Object.values(ctx.bundle).find((o) => o.type === 'asset' && (o.names.includes('boot.js') || o.name === 'boot.js'));
+          if (asset === undefined) throw new Error('mw-boot-script: boot.js was not emitted');
+          src = `./${asset.fileName}`;
+        }
+        return [{ tag: 'script', attrs: { src }, injectTo: 'head-prepend' }];
+      },
+    },
+  };
+}
 
 export default defineConfig({
   // Sub-path hosting (t20 B4): a RELATIVE base so every emitted asset URL in
@@ -34,7 +70,7 @@ export default defineConfig({
   // crypto Web Worker import the wasm-pack `mw-crypto` (+ `mw-sanitize`) bundle
   // that e8 builds into `src/wasm/` via `scripts/build-wasm.*`. Added now so e8's
   // dynamic `import()` of the wasm module resolves; inert until that bundle exists.
-  plugins: [solid(), vanillaExtractPlugin(), wasm(), topLevelAwait(), bundledPackages({ main: true })],
+  plugins: [solid(), vanillaExtractPlugin(), wasm(), topLevelAwait(), bundledPackages({ main: true }), bootScript()],
   // t32-e75: the bundle recorder also sees the worker builds; the main instance writes
   // node_modules/.cache/mailwoman-about/bundled-packages.json for the third-party list.
   worker: { plugins: () => [bundledPackages()] },

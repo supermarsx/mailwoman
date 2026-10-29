@@ -10,12 +10,13 @@
 // chunk (`i18n/catalog.ts`), so these render correctly at boot before any lazy
 // catalog has arrived — which matters, because the boot spinner is one of them.
 
-import { createSignal, onCleanup, Show, For, type JSX } from 'solid-js';
+import { createSignal, onCleanup, onMount, Show, For, type JSX } from 'solid-js';
 import { t } from '../i18n/index.ts';
 import { NetworkError } from '../api/client.ts';
 import * as a11y from './mailA11y.css.ts';
 import * as loading from './asyncState.css.ts';
 import {Icon} from './Icon.tsx';
+import { alignPulse, bootSplashActive, releaseBootSplash } from '../shell/bootSplash.ts';
 
 /**
  * How long any single loading state may claim to be loading.
@@ -58,6 +59,8 @@ export function AsyncError(props: {
   detail?: string;
   onReload?: (() => void) | undefined;
 }): JSX.Element {
+  // A failure must never sit unseen under the boot splash (t52).
+  onMount(releaseBootSplash);
   return (
     <div class={`async-state async-state--error ${loading.errorCard}`} role="alert">
       <p class={loading.errorHeading}><svg class={loading.errorMark} viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 6v8m0 3v1" fill="none" stroke="currentColor" stroke-width="2"/></svg>{props.message ?? messageForError(props.error)}</p>
@@ -113,12 +116,18 @@ export function AsyncPending(props: {
 }): JSX.Element {
   const timedOut = createElapsed(props.timeoutMs ?? PENDING_BOUND_MS);
   const elapsed = (): boolean => props.bounded !== false && timedOut();
+  // Mounted under the boot splash (t52): the splash has already waited and is
+  // fading out over this, so this shows at once rather than fading in a second
+  // time, and pulses in step with the splash instead of restarting.
+  const takesOver = bootSplashActive();
+  let panel: HTMLDivElement | undefined;
+  onMount(() => { if (panel !== undefined) alignPulse(panel); });
   return (
     <Show
       when={!elapsed()}
       fallback={<AsyncError onRetry={props.onRetry} />}
     >
-      <div class={`async-state async-state--pending ${loading.pending} ${props.variant==='status'?'':loading.skeletonPanel} ${props.variant==='boot'?loading.boot:''} ${props.variant==='messages'?loading.messagesPanel:''}`} role="status" aria-live="polite" data-testid="async-pending">
+      <div ref={panel} class={`async-state async-state--pending ${loading.pending} ${props.variant==='status'?'':loading.skeletonPanel} ${props.variant==='boot'?loading.boot:''} ${props.variant==='messages'?loading.messagesPanel:''} ${takesOver?loading.takeover:''}`} role="status" aria-live="polite" data-testid="async-pending">
         <span class={props.quiet ? a11y.srOnly : loading.indicator}>{props.message ?? t('common-loading')}</span>
         <Show when={props.variant==='messages'}><div aria-hidden="true" class={loading.messageSkeletons} data-skeleton="messages">
           <For each={Array.from({length:props.rows??8},(_,index)=>index)}>{(index)=> <div class={loading.messageSkeleton} style={{'block-size':`${props.rowHeight??72}px`}}>

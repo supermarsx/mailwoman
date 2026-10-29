@@ -63,6 +63,8 @@ export const boot = style({minBlockSize:'100dvh',maxInlineSize:'38rem',margin:'0
 // virtualized row height, so the skeleton has the same rhythm as the rows that
 // replace it. The shapes pulse slowly between two flat fills (the t32 style
 // has no gradients); with reduced motion they are still.
+// The boot splash (styles/boot.css `mwb-pulse`) uses the same two fills and
+// period, and both are aligned to the document timeline (shell/bootSplash.ts).
 const pulse = keyframes({ '0%, 100%': { backgroundColor: vars.color.border }, '50%': { backgroundColor: `color-mix(in srgb, ${vars.color.border} 45%, ${vars.color.bg})` } });
 const STILL = { selectors: { ':root[data-reduced-motion] &': { animation: 'none' } }, '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none' } } } as const;
 export const messagesPanel = style({margin:0,maxInlineSize:'none',flex:'1 1 auto',minBlockSize:0,overflow:'hidden',gap:0});
@@ -91,3 +93,9 @@ export const syncProgress = style({
   selectors:{':root[data-reduced-motion] &::after':{animation:'none',transform:'none'}},
   '@media':{'(prefers-reduced-motion: reduce)':{selectors:{'&::after':{animation:'none',transform:'none'}}}},
 });
+
+// A placeholder that takes over from the boot splash (t52) is already late:
+// it shows at once, with no fade-in of its own, while the splash fades over it.
+// (Only the appear animations go; the shapes keep their pulse.)
+export const takeover = style({});
+globalStyle(`${takeover} > [data-skeleton], ${takeover} > span`, {animation:'none'});

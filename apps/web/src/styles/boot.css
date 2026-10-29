@@ -1,0 +1,293 @@
+/* Boot splash (t52). The static #mw-boot element in index.html, styled here so
+ * it ships in the entry stylesheet (style-src 'self'; no inline style). See
+ * src/shell/bootSplash.ts for the hand-over and src/boot/boot.js for what sets
+ * the attributes and --mwb-* properties used below.
+ *
+ * Geometry defaults are the mailbox shell at the default layout (measured on
+ * the live shell, t52); boot.js replaces them with the user's own shell as it
+ * was measured on the previous visit. Rows use the list's density variables
+ * (app.css --mail-row-*), so they have the height of the rows that replace them.
+ *
+ * Without data-mw-boot on <html> (boot.js missing or failed) nothing here shows. */
+
+#mw-boot {
+  display: none;
+}
+
+:root[data-mw-boot] {
+  /* A loading fallback underneath may be taller than the page; a scrollbar
+     appearing and going again is a jump of its own. */
+  overflow: hidden;
+  --mwb-bar: 0px;
+  --mwb-side: 226px;
+  --mwb-tabs: 43px;
+  --mwb-top: 70px;
+  --mwb-list: 100%;
+  --mwb-lead: 129px;
+  --mwb-row: calc(2 * var(--mail-row-padding, 7px) + 2 * var(--mail-row-line, 18px) + var(--mail-preview-line, 16px) + 2 * var(--mail-row-gap, 2px) + 2px);
+}
+@media (max-width: 767.98px) {
+  :root[data-mw-boot] {
+    --mwb-bar: 51px;
+    --mwb-side: 0px;
+    --mwb-tabs: 43px;
+    --mwb-top: 84px;
+    --mwb-lead: 134px;
+  }
+}
+
+/* The app's own loading fallbacks (session check, route chunks) still render
+   under the splash, for their live announcement. Out of flow and transparent,
+   so their margins and heights move nothing on the page. */
+:root[data-mw-boot] #root > .async-state--pending {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  margin: 0;
+  opacity: 0;
+}
+
+:root[data-mw-boot] #mw-boot {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  overflow: hidden;
+  background: var(--bg);
+  pointer-events: none;
+  transition: opacity 140ms ease-out;
+}
+:root[data-mw-boot-leaving] #mw-boot {
+  opacity: 0;
+}
+
+/* Shapes show only when loading takes long enough to be noticed: a load that
+   finishes inside 150 ms never draws them. */
+@keyframes mwb-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* The same pulse, colours and period as the in-app message placeholders
+   (components/asyncState.css.ts), aligned to the document timeline on both
+   sides, so the hand-over does not restart it. */
+@keyframes mwb-pulse {
+  0%, 100% { background-color: var(--border); }
+  50% { background-color: color-mix(in srgb, var(--border) 45%, var(--bg)); }
+}
+@keyframes mwb-travel {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+
+.mwb-shape {
+  display: none;
+}
+:root[data-mw-boot='mail'] .mwb-shape {
+  display: block;
+  position: absolute;
+  inset: 0;
+  animation: mwb-in 160ms ease-out 150ms both;
+}
+
+/* Sign-in and consent pages: the themed page, and after a while a thin line
+   that says something is still on its way. No mailbox shapes. */
+.mwb-progress {
+  display: none;
+}
+:root[data-mw-boot='plain'] .mwb-progress {
+  display: block;
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  animation: mwb-in 200ms ease-out 600ms both;
+}
+:root[data-mw-boot='plain'] .mwb-progress::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 40%;
+  background: var(--accent);
+  animation: mwb-travel 1.4s ease-in-out infinite;
+}
+
+.mwb-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: var(--mwb-bar);
+  padding-inline: 0.8rem;
+  overflow: hidden;
+  background: var(--bg-sink);
+  border-block-end: var(--border-hair) solid var(--border);
+  box-sizing: border-box;
+}
+.mwb-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: max(0px, calc(var(--mwb-side) - 6px));
+  padding: 0.9rem;
+  overflow: hidden;
+  background: var(--bg-sink);
+  border-inline-end: var(--border-hair) solid var(--border);
+  box-sizing: border-box;
+}
+.mwb-split {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: max(0px, calc(var(--mwb-side) - 6px));
+  inline-size: min(6px, var(--mwb-side));
+  background: var(--border-strong);
+}
+.mwb-main {
+  position: absolute;
+  inset-block: var(--mwb-bar) 0;
+  inset-inline: var(--mwb-side) 0;
+  overflow: hidden;
+}
+.mwb-tabs,
+.mwb-top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: absolute;
+  inset-inline: 0;
+  padding-inline: 4px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.mwb-tabs {
+  inset-block-start: 0;
+  block-size: var(--mwb-tabs);
+  align-items: end;
+  padding-block-end: 2px;
+}
+.mwb-top {
+  inset-block-start: var(--mwb-tabs);
+  block-size: max(0px, calc(var(--mwb-top) - var(--mwb-tabs)));
+  border-block-end: var(--border-hair) solid var(--border);
+}
+.mwb-list {
+  position: absolute;
+  inset-block: var(--mwb-top) 0;
+  inset-inline-start: 0;
+  inline-size: var(--mwb-list);
+  overflow: hidden;
+  border-inline-end: var(--border-hair) solid var(--border);
+  box-sizing: border-box;
+}
+.mwb-lead {
+  display: flex;
+  align-items: center;
+  block-size: var(--mwb-lead);
+  padding: 8px 10px;
+  box-sizing: border-box;
+}
+
+/* Every placeholder shape. */
+.mwb-block,
+.mwb-line,
+.mwb-avatar,
+.mwb-date {
+  display: block;
+  flex: 0 0 auto;
+  background: var(--border);
+  border-radius: var(--radius-sm);
+  animation: mwb-pulse 1.6s ease-in-out infinite;
+}
+.mwb-block--icon { inline-size: 28px; block-size: 28px; }
+.mwb-block--title { inline-size: 40%; block-size: 0.75rem; }
+.mwb-block--brand { inline-size: 55%; block-size: 1rem; margin-block-end: 1.1rem; }
+.mwb-block--compose { inline-size: 111px; block-size: 35px; margin-block-end: 0.4rem; }
+.mwb-block--nav { inline-size: 75%; block-size: 0.8rem; margin-block: 0.45rem; }
+.mwb-block--nav:nth-child(odd) { inline-size: 60%; }
+.mwb-gap { display: block; block-size: 0.6rem; }
+.mwb-block--tab { inline-size: 64px; block-size: 34px; }
+.mwb-block--tool { inline-size: 24px; block-size: 20px; }
+/* The search field is an outlined box in the shell, not a filled one. */
+.mwb-block--search { flex: 1 1 auto; block-size: 35px; background: transparent; border: var(--border-rule, 2px) solid var(--border); box-sizing: border-box; animation: none; }
+
+.mwb-row {
+  display: grid;
+  grid-template-rows: var(--mail-row-line, 18px) var(--mail-row-line, 18px) var(--mail-preview-line, 16px);
+  row-gap: var(--mail-row-gap, 2px);
+  align-items: center;
+  align-content: start;
+  block-size: var(--mwb-row);
+  padding: var(--mail-row-padding, 7px) 0.8rem;
+  overflow: hidden;
+  border-block-end: var(--border-hair) solid var(--border);
+  box-sizing: border-box;
+}
+.mwb-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}
+.mwb-avatar {
+  inline-size: var(--mail-row-line, 18px);
+  block-size: var(--mail-row-line, 18px);
+  border-radius: 50%;
+}
+.mwb-line {
+  block-size: 0.75rem;
+  flex: 1 1 0;
+  min-inline-size: 0;
+}
+.mwb-date {
+  flex: 0 0 3rem;
+  block-size: 0.6rem;
+  margin-inline-start: auto;
+}
+.mwb-line--dim { opacity: 0.6; }
+.mwb-row:nth-child(4n + 2) .mwb-head .mwb-line { max-inline-size: 42%; }
+.mwb-row:nth-child(4n + 3) .mwb-head .mwb-line { max-inline-size: 30%; }
+.mwb-row:nth-child(4n + 4) .mwb-head .mwb-line { max-inline-size: 48%; }
+.mwb-row:nth-child(4n + 5) .mwb-head .mwb-line { max-inline-size: 36%; }
+.mwb-row:nth-child(4n + 2) > .mwb-line:not(.mwb-line--dim) { max-inline-size: 72%; }
+.mwb-row:nth-child(4n + 3) > .mwb-line:not(.mwb-line--dim) { max-inline-size: 58%; }
+.mwb-row:nth-child(4n + 4) > .mwb-line:not(.mwb-line--dim) { max-inline-size: 80%; }
+.mwb-row:nth-child(4n + 5) > .mwb-line:not(.mwb-line--dim) { max-inline-size: 64%; }
+.mwb-row:nth-child(4n + 2) > .mwb-line--dim { max-inline-size: 90%; }
+.mwb-row:nth-child(4n + 3) > .mwb-line--dim { max-inline-size: 84%; }
+.mwb-row:nth-child(4n + 4) > .mwb-line--dim { max-inline-size: 76%; }
+.mwb-row:nth-child(4n + 5) > .mwb-line--dim { max-inline-size: 88%; }
+
+/* Wide layouts have no phone bar; phones have no sidebar column. */
+@media (min-width: 768px) {
+  .mwb-bar { display: none; }
+}
+@media (max-width: 767.98px) {
+  .mwb-side,
+  .mwb-split { display: none; }
+}
+
+/* Reduced motion: no fade and no pulse. The shapes still wait 150 ms. */
+@media (prefers-reduced-motion: reduce) {
+  #mw-boot { transition: none; }
+  :root[data-mw-boot='mail'] .mwb-shape { animation: mwb-in 1ms step-end 150ms both; }
+  .mwb-block, .mwb-line, .mwb-avatar, .mwb-date { animation: none; }
+  :root[data-mw-boot='plain'] .mwb-progress::after { animation: none; }
+}
+:root[data-reduced-motion] #mw-boot { transition: none; }
+:root[data-reduced-motion][data-mw-boot='mail'] .mwb-shape { animation: mwb-in 1ms step-end 150ms both; }
+:root[data-reduced-motion] .mwb-block,
+:root[data-reduced-motion] .mwb-line,
+:root[data-reduced-motion] .mwb-avatar,
+:root[data-reduced-motion] .mwb-date,
+:root[data-reduced-motion][data-mw-boot='plain'] .mwb-progress::after { animation: none; }
+
+@media (forced-colors: active) {
+  .mwb-block, .mwb-line, .mwb-avatar, .mwb-date { background: CanvasText; animation: none; opacity: 0.25; }
+}

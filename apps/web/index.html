@@ -9,8 +9,47 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- The UI face is requested with the stylesheet, not when the first text renders (t52). -->
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="/src/assets/fonts/jost/jost-latin-wght-normal.woff2" />
   </head>
   <body>
+    <!-- Boot splash (t52, src/shell/bootSplash.ts): hidden unless src/boot/boot.js
+         ran, shaped by what it stored on the last visit, faded out over the app. -->
+    <div id="mw-boot" aria-hidden="true">
+      <div class="mwb-progress"></div>
+      <div class="mwb-shape">
+        <div class="mwb-bar"><span class="mwb-block mwb-block--icon"></span><span class="mwb-block mwb-block--title"></span></div>
+        <div class="mwb-side">
+          <span class="mwb-block mwb-block--brand"></span>
+          <span class="mwb-block mwb-block--compose"></span>
+          <span class="mwb-block mwb-block--nav"></span><span class="mwb-block mwb-block--nav"></span><span class="mwb-block mwb-block--nav"></span>
+          <span class="mwb-gap"></span>
+          <span class="mwb-block mwb-block--nav"></span><span class="mwb-block mwb-block--nav"></span><span class="mwb-block mwb-block--nav"></span><span class="mwb-block mwb-block--nav"></span>
+        </div>
+        <div class="mwb-split"></div>
+        <div class="mwb-main">
+          <div class="mwb-tabs"><span class="mwb-block mwb-block--tab"></span></div>
+          <div class="mwb-top"><span class="mwb-block mwb-block--tool"></span><span class="mwb-block mwb-block--tool"></span><span class="mwb-block mwb-block--tool"></span><span class="mwb-block mwb-block--tool"></span></div>
+          <div class="mwb-list">
+            <div class="mwb-lead"><span class="mwb-block mwb-block--search"></span></div>
+            <div class="mwb-row"><span class="mwb-head"><span class="mwb-avatar"></span><span class="mwb-line"></span><span class="mwb-date"></span></span><span class="mwb-line"></span><span class="mwb-line mwb-line--dim"></span></div>
+            <div class="mwb-row"><span class="mwb-head"><span class="mwb-avatar"></span><span class="mwb-line"></span><span class="mwb-date"></span></span><span class="mwb-line"></span><span class="mwb-line mwb-line--dim"></span></div>
+            <div class="mwb-row"><span class="mwb-head"><span class="mwb-avatar"></span><span class="mwb-line"></span><span class="mwb-date"></span></span><span class="mwb-line"></span><span class="mwb-line mwb-line--dim"></span></div>
+            <div class="mwb-row"><span class="mwb-head"><span class="mwb-avatar"></span><span class="mwb-line"></span><span class="mwb-date"></span></span><span class="mwb-line"></span><span class="mwb-line mwb-line--dim"></span></div>
+            <div class="mwb-row"><span class="mwb-head"><span class="mwb-avatar"></span><span class="mwb-line"></span><span class="mwb-date"></span></span><span class="mwb-line"></span><span class="mwb-line mwb-line--dim"></span></div>
+            <div class="mwb-row"><span class="mwb-head"><span class="mwb-avatar"></span><span class="mwb-line"></span><span class="mwb-date"></span></span><span class="mwb-line"></span><span class="mwb-line mwb-line--dim"></span></div>
+            <div class="mwb-row"><span class="mwb-head"><span class="mwb-avatar"></span><span class="mwb-line"></span><span class="mwb-date"></span></span><span class="mwb-line"></span><span class="mwb-line mwb-line--dim"></span></div>
+            <div class="mwb-row"><span class="mwb-head"><span class="mwb-avatar"></span><span class="mwb-line"></span><span class="mwb-date"></span></span><span class="mwb-line"></span><span class="mwb-line mwb-line--dim"></span></div>
+            <div class="mwb-row"><span class="mwb-head"><span class="mwb-avatar"></span><span class="mwb-line"></span><span class="mwb-date"></span></span><span class="mwb-line"></span><span class="mwb-line mwb-line--dim"></span></div>
+            <div class="mwb-row"><span class="mwb-head"><span class="mwb-avatar"></span><span class="mwb-line"></span><span class="mwb-date"></span></span><span class="mwb-line"></span><span class="mwb-line mwb-line--dim"></span></div>
+            <div class="mwb-row"><span class="mwb-head"><span class="mwb-avatar"></span><span class="mwb-line"></span><span class="mwb-date"></span></span><span class="mwb-line"></span><span class="mwb-line mwb-line--dim"></span></div>
+            <div class="mwb-row"><span class="mwb-head"><span class="mwb-avatar"></span><span class="mwb-line"></span><span class="mwb-date"></span></span><span class="mwb-line"></span><span class="mwb-line mwb-line--dim"></span></div>
+            <div class="mwb-row"><span class="mwb-head"><span class="mwb-avatar"></span><span class="mwb-line"></span><span class="mwb-date"></span></span><span class="mwb-line"></span><span class="mwb-line mwb-line--dim"></span></div>
+            <div class="mwb-row"><span class="mwb-head"><span class="mwb-avatar"></span><span class="mwb-line"></span><span class="mwb-date"></span></span><span class="mwb-line"></span><span class="mwb-line mwb-line--dim"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

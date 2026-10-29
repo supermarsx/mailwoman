@@ -63,6 +63,7 @@ import {
   watchColorScheme,
 } from '../../shell/rootAttributes.ts';
 import type { SliceContext } from './context.ts';
+import { rememberBootTheme } from '../../shell/bootSplash.ts';
 import { noteLegacyRibbonCollapsed } from '../legacyRibbonCollapsed.ts';
 
 // Re-exported so existing importers (`screens/Settings.tsx`) keep their import
@@ -167,6 +168,15 @@ function apply(p: AppearancePrefs, resolved: ThemeName, appearance: Appearance):
   const stack = FONT_STACKS[p.font];
   if (stack !== null) root.style.setProperty('--mw-ui-font', stack);
   else root.style.removeProperty('--mw-ui-font');
+  // What the next boot paints before any module has loaded (t52, bootSplash.ts).
+  const props: Record<string, string> = {};
+  for (const name of Array.from(root.style)) {
+    if (name.startsWith('--') && !name.startsWith('--mwb-') && name !== '--mw-ui-font') props[name] = root.style.getPropertyValue(name);
+  }
+  rememberBootTheme({
+    v: 1, theme: resolved, appearance, mode: p.mode, light: p.lightTheme, dark: p.darkTheme, schedule: p.schedule,
+    density: p.density, accent: p.accentId, badge: p.badgeColor, font: stack ?? '', props,
+  });
 }
 
 export function createThemeSlice(_ctx: SliceContext): ThemeSlice {
