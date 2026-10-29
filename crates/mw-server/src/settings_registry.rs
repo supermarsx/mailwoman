@@ -1252,6 +1252,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "smaller count badges for folders other than Inbox"
     ),
     def!(
+        "mail.focusedInbox",
+        Kind::Bool,
+        "false",
+        GDU,
+        "mail",
+        "split Inbox into Focused and Other tabs (newsletters and automated senders go to Other); off by default"
+    ),
+    def!(
         "mail.accountUnreadBadge",
         Kind::Bool,
         "false",
@@ -4250,6 +4258,30 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod focused_inbox_tests {
+    use super::*;
+
+    /// t73: the Focused inbox is an off-by-default boolean the user can change,
+    /// with a deployment and a domain default and lock, in the mail category.
+    #[test]
+    fn focused_inbox_is_an_off_by_default_lockable_user_boolean() {
+        let d = lookup("mail.focusedInbox").expect("registered");
+        assert!(matches!(d.kind, Kind::Bool));
+        assert_eq!(d.default, "false");
+        assert_eq!(d.default_value(), json!(false));
+        assert_eq!(d.category, "mail");
+        assert!(d.user_visible(), "reaches GET /api/settings");
+        assert!(d.user_override, "a user value is allowed unless locked");
+        assert!(d.scopes.allows(SettingScope::Domain), "domain default and lock");
+        assert!(d.scopes.allows(SettingScope::User), "user value");
+        assert!(d.dedicated_route.is_none());
+        assert!(validate(d, &json!(true), "/value").is_ok());
+        assert!(validate(d, &json!("true"), "/value").is_err());
+        assert!(validate(d, &json!(1), "/value").is_err());
     }
 }
 

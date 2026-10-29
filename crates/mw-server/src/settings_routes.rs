@@ -1383,14 +1383,16 @@ async fn user_list(State(state): State<AppState>, headers: HeaderMap) -> Respons
     }
 }
 
-/// Counter-bubble settings (t39) are one choice for the whole sign-in: a
-/// linked mailbox reads and writes them for its parent, so every mailbox of
-/// the account shows the same bubbles. Defaults and locks are the parent's.
-const ACCOUNT_WIDE: [&str; 4] = [
+/// Counter-bubble settings (t39) and the Focused inbox (t73) are one choice
+/// for the whole sign-in: a linked mailbox reads and writes them for its
+/// parent, so every mailbox of the account shows the same bubbles and the same
+/// Inbox tabs. Defaults and locks are the parent's.
+const ACCOUNT_WIDE: [&str; 5] = [
     "mail.folderCounts",
     "mail.folderCountScope",
     "mail.compactFolderBadges",
     "mail.accountUnreadBadge",
+    "mail.focusedInbox",
 ];
 
 /// The sign-in session behind `session`: itself, or the parent of a linked
@@ -1568,6 +1570,7 @@ mod account_wide_tests {
             ("mail.folderCountScope", "\"all\""),
             ("mail.compactFolderBadges", "true"),
             ("mail.accountUnreadBadge", "false"),
+            ("mail.focusedInbox", "false"),
         ] {
             assert!(ACCOUNT_WIDE.contains(&key), "{key} is account wide");
             let def = registry::lookup(key).unwrap_or_else(|| panic!("{key} is registered"));

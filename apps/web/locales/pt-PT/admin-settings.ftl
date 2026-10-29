@@ -658,6 +658,8 @@ admin-settings-key-mail-folder-count-scope = Pastas com contagens
 admin-settings-help-mail-folder-count-scope = Todas as pastas, ou apenas as pastas principais (Caixa de entrada, Rascunhos, Enviados, Arquivo, Lixo eletrónico, Reciclagem, Caixa de saída e outras pastas de utilização especial). Só com as pastas principais, as pastas personalizadas e as respetivas subpastas não mostram contagem. Aplica-se a todas as caixas de correio associadas de uma conta.
 admin-settings-key-mail-compact-folder-badges = Contadores compactos nas pastas secundárias
 admin-settings-help-mail-compact-folder-badges = Mostrar contadores mais pequenos fora da Caixa de entrada. Os utilizadores podem escolher o seu próprio tamanho, exceto se esta definição estiver bloqueada.
+admin-settings-key-mail-focused-inbox = Caixa de entrada destacada
+admin-settings-help-mail-focused-inbox = Dividir a Caixa de entrada nos separadores Destaques e Outras; as newsletters e os remetentes automáticos vão para Outras. Desativada por predefinição. Os utilizadores podem ativá-la ou desativá-la em Definições > Pastas e barra lateral, exceto se esta definição estiver bloqueada.
 admin-settings-key-mail-account-unread-badge = Contagem de não lidas junto ao nome da caixa de correio
 admin-settings-help-mail-account-unread-badge = Mostrar a contagem de mensagens não lidas da Caixa de entrada junto ao endereço ou alcunha com sessão iniciada na barra lateral. Desativado por predefinição. As contagens das outras caixas de correio no menu de caixas de correio são sempre mostradas. Aplica-se a todas as caixas de correio associadas de uma conta.
 

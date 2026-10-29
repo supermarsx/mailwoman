@@ -658,6 +658,8 @@ admin-settings-key-mail-folder-count-scope = Folders with counts
 admin-settings-help-mail-folder-count-scope = All folders, or only main folders (Inbox, Drafts, Sent, Archive, Junk, Trash, Outbox and other special-use folders). With main folders only, custom folders and their subfolders show no count. Applies to every linked mailbox of an account.
 admin-settings-key-mail-compact-folder-badges = Compact secondary folder badges
 admin-settings-help-mail-compact-folder-badges = Show smaller badges outside Inbox. Users can choose their own size unless this setting is locked.
+admin-settings-key-mail-focused-inbox = Focused inbox
+admin-settings-help-mail-focused-inbox = Split Inbox into Focused and Other tabs; newsletters and automated senders go to Other. Off by default. Users can turn it on or off in Settings > Folders and sidebar unless this setting is locked.
 admin-settings-key-mail-account-unread-badge = Unread count beside the mailbox name
 admin-settings-help-mail-account-unread-badge = Show the Inbox unread count next to the signed-in address or nickname in the sidebar. Off by default. The counts of other mailboxes in the mailbox menu are always shown. Applies to every linked mailbox of an account.
 

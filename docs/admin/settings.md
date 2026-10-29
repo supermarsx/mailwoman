@@ -1159,6 +1159,11 @@ Global/domain/user choice, default `"all"`. `all` keeps a count on every folder;
 
 Global/domain/user boolean, default `true`. Uses smaller badges outside Inbox. Users can inherit or override this in Settings > Folders unless locked by an administrator. Folder names remain left-aligned and long names truncate without displacing the count.
 
+<a id="mail.focusedInbox"></a>
+### Focused inbox (`mail.focusedInbox`)
+
+Global/domain/user boolean, default `false`. When on, Inbox shows two tabs above the message list, Focused and Other; messages from newsletters and automated senders (no-reply, notification, marketing and similar addresses) go to Other. Other folders and search results always list every message. The Inbox header has no switch of its own: users turn it on or off in Settings > Folders and sidebar, and an administrator can set the deployment or domain default and lock it, which disables that control. Resolved for the sign-in account, like `mail.folderCounts`, so every linked mailbox shows the same tabs.
+
 <a id="mail.accountUnreadBadge"></a>
 ### Unread count beside the mailbox name (`mail.accountUnreadBadge`)
 
