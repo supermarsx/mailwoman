@@ -1,4 +1,9 @@
 //! Explicit role-based backend selection; selection never retries credentials.
+//!
+//! With `failover` on, the enabled mail backends of the selected protocol form an
+//! ordered chain that [`failover`] walks on connect or TLS failures only. Each
+//! sign-in or reconnect sends credentials to one backend at most.
+pub(crate) mod failover;
 use crate::{
     domain_config::{DavEndpoints, Endpoint, JmapEndpoint, UpstreamConfig},
     username_format::UsernameFormat,
@@ -60,6 +65,11 @@ pub(crate) struct BackendConfig {
     pub backends: Vec<Backend>,
     #[serde(default)]
     pub dav: Option<DavEndpoints>,
+    /// Try the next enabled mail backend when the selected one cannot be reached
+    /// (DNS, connect, timeout, TLS or certificate failure). Never after an
+    /// authentication answer.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub failover: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -68,6 +78,10 @@ pub(crate) struct Selection {
     pub mail: Option<Backend>,
     pub submission: Option<Backend>,
     pub rules: Option<Backend>,
+    /// Failover chain after `mail`, in order. Omitted when empty so that the
+    /// binding of a configuration without failover is unchanged.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mail_fallbacks: Vec<Backend>,
 }
 
 impl BackendConfig {
@@ -179,7 +193,59 @@ impl BackendConfig {
                     .into(),
             );
         }
+        if self.failover
+            && let Some(primary) = self.selected(ServiceRole::Mail)
+        {
+            if !matches!(primary.protocol, Protocol::Imap | Protocol::Pop3) {
+                return Err("failover applies to IMAP and POP3 mail backends only".into());
+            }
+            let policy = |b: &Backend| {
+                b.endpoint.as_ref().map(|e| {
+                    serde_json::json!([e.tls, e.auth, e.security, e.authentication, b.username])
+                })
+            };
+            for backend in self.same_protocol_chain(primary) {
+                if policy(backend) != policy(primary) {
+                    return Err(
+                        "failover backends must share the selected backend's connection security, authentication and username format"
+                            .into(),
+                    );
+                }
+            }
+        }
         Ok(())
+    }
+
+    fn same_protocol_chain<'a>(&'a self, primary: &'a Backend) -> Vec<&'a Backend> {
+        let mut chain: Vec<&Backend> = self
+            .backends
+            .iter()
+            .filter(|b| {
+                b.role == ServiceRole::Mail
+                    && b.enabled
+                    && b.protocol == primary.protocol
+                    && b.id != primary.id
+            })
+            .collect();
+        chain.sort_by(|a, b| (a.priority, &a.id).cmp(&(b.priority, &b.id)));
+        chain
+    }
+
+    /// The mail backends tried after the selected one, bounded so that one
+    /// connection attempt touches at most [`failover::MAX_BACKENDS`] backends.
+    pub fn mail_fallbacks(&self) -> Vec<&Backend> {
+        if !self.failover {
+            return Vec::new();
+        }
+        let Some(primary) = self.selected(ServiceRole::Mail) else {
+            return Vec::new();
+        };
+        if !matches!(primary.protocol, Protocol::Imap | Protocol::Pop3) {
+            return Vec::new();
+        }
+        let mut chain = self.same_protocol_chain(primary);
+        chain.truncate(failover::MAX_BACKENDS - 1);
+        chain
     }
 
     pub fn selected(&self, role: ServiceRole) -> Option<&Backend> {
@@ -197,6 +263,7 @@ impl BackendConfig {
             mail: self.selected(ServiceRole::Mail).cloned(),
             submission: self.selected(ServiceRole::Submission).cloned(),
             rules: self.selected(ServiceRole::Rules).cloned(),
+            mail_fallbacks: self.mail_fallbacks().into_iter().cloned().collect(),
         };
         let mut result = UpstreamConfig {
             dav: self.dav.clone(),
@@ -220,6 +287,15 @@ impl BackendConfig {
             .as_ref()
             .and_then(|b| b.endpoint.clone());
         result.sieve = selection.rules.as_ref().and_then(|b| b.endpoint.clone());
+        result.mail_chain = selection
+            .mail
+            .iter()
+            .chain(&selection.mail_fallbacks)
+            .filter_map(|b| b.endpoint.clone().map(|e| (b.id.clone(), e)))
+            .collect();
+        if result.mail_chain.len() < 2 {
+            result.mail_chain.clear();
+        }
         result.selection = Some(selection);
         Ok(result)
     }
@@ -301,6 +377,65 @@ mod tests {
                 .validate()
                 .is_err()
         );
+    }
+    #[test]
+    fn failover_chain_is_opt_in_same_protocol_ordered_and_bounded() {
+        let rows = json!([
+            endpoint("primary", 1, true),
+            endpoint("d", 40, false),
+            endpoint("b", 20, false),
+            endpoint("c", 30, false),
+            {"id":"pop","role":"mail","protocol":"pop3","priority":2,"endpoint":{"host":"pop.example.test","port":995,"tls":"implicit"}}
+        ]);
+        let off = config(rows.clone());
+        assert!(off.mail_fallbacks().is_empty(), "failover is opt-in");
+        let plain_binding = off.resolve().unwrap().binding().unwrap();
+        let mut on: BackendConfig =
+            serde_json::from_value(json!({"version":2,"failover":true,"backends":rows})).unwrap();
+        on.validate().unwrap();
+        let ids: Vec<_> = on.mail_fallbacks().iter().map(|b| b.id.as_str()).collect();
+        assert_eq!(ids, ["b", "c"], "same protocol, priority order, bounded");
+        let resolved = on.resolve().unwrap();
+        let chain: Vec<_> = resolved
+            .mail_chain
+            .iter()
+            .map(|(id, _)| id.as_str())
+            .collect();
+        assert_eq!(chain, ["primary", "b", "c"]);
+        assert_ne!(
+            resolved.binding().unwrap(),
+            plain_binding,
+            "the chain is part of the binding"
+        );
+        on.backends.retain(|b| b.id == "primary");
+        assert!(on.resolve().unwrap().mail_chain.is_empty());
+        assert_eq!(on.resolve().unwrap().binding().unwrap(), {
+            let mut single = config(json!([endpoint("primary", 1, true)]));
+            single.failover = false;
+            single.resolve().unwrap().binding().unwrap()
+        });
+    }
+    #[test]
+    fn failover_backends_must_share_security_and_username_policy() {
+        let mut other = endpoint("b", 2, false);
+        other["endpoint"]["tls"] = json!("starttls");
+        let mixed: BackendConfig = serde_json::from_value(
+            json!({"version":2,"failover":true,"backends":[endpoint("a", 1, false), other]}),
+        )
+        .unwrap();
+        assert!(mixed.validate().is_err());
+        let mut named = endpoint("b", 2, false);
+        named["username"] = json!({"format":"localUser"});
+        let mixed: BackendConfig = serde_json::from_value(
+            json!({"version":2,"failover":true,"backends":[endpoint("a", 1, false), named]}),
+        )
+        .unwrap();
+        assert!(mixed.validate().is_err());
+        let jmap: BackendConfig = serde_json::from_value(json!({"version":2,"failover":true,"backends":[
+            {"id":"j","role":"mail","protocol":"jmap","sessionUrl":"https://jmap.example.test/session"}
+        ]}))
+        .unwrap();
+        assert!(jmap.validate().is_err(), "failover is IMAP/POP3 only");
     }
     #[test]
     fn binding_changes_with_auth_identity_and_selected_authority() {

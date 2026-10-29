@@ -137,6 +137,15 @@ pub(crate) struct UpstreamConfig {
     pub dav: Option<DavEndpoints>,
     #[serde(skip)]
     pub selection: Option<crate::domain_selection::Selection>,
+    /// The failover chain (backend ID, endpoint), selected backend first. Empty
+    /// unless failover is on and at least one fallback is enabled.
+    #[serde(skip)]
+    pub mail_chain: Vec<(String, Endpoint)>,
+    /// Set when failover connected to a fallback: the selected backend's
+    /// endpoint, which stays the account's identity. `imap`/`pop3` then hold the
+    /// fallback that is dialled.
+    #[serde(skip)]
+    pub mail_primary: Option<Endpoint>,
 }
 
 impl UpstreamConfig {
@@ -206,6 +215,15 @@ impl UpstreamConfig {
                 .map(|byte| format!("{byte:02x}"))
                 .collect(),
         ))
+    }
+
+    /// Host and port that identify the account: the selected backend's, even
+    /// when failover dialled a fallback.
+    pub fn mail_identity(&self) -> Option<(&str, u16)> {
+        self.mail_primary
+            .as_ref()
+            .map(|e| (e.host.as_str(), e.port))
+            .or_else(|| self.mail().map(|(e, _)| (e.host.as_str(), e.port)))
     }
 
     pub fn mail(&self) -> Option<(&Endpoint, &'static str)> {

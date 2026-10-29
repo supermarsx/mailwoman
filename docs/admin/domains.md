@@ -37,6 +37,46 @@ number, then the backend ID. Only one preferred backend is allowed per service.
 Selection does not retry a password against another backend after authentication
 fails. A configured domain with no enabled mail backend refuses login.
 
+### Mail backend failover
+
+Failover is off by default. Turn it on with **Fail over to the next mail
+backend when the selected one cannot be reached** on the domain's Connections
+page, or `"failover": true` in a version 2 configuration. It applies to IMAP and
+POP3 mail backends only; submission (SMTP), rules (ManageSieve), JMAP and EWS
+are never failed over.
+
+- The chain is the selected mail backend followed by the other enabled mail
+  backends of the same protocol, by priority then ID. One attempt checks at
+  most three backends.
+- Every backend in the chain must use the same connection security, the same
+  password-authentication policy and the same username format as the selected
+  one; only the host, port and private-network permission may differ. Saving a
+  chain that breaks this is refused.
+- Before credentials are sent, each candidate gets the same credential-free
+  check the diagnostics use: DNS, TCP connect, implicit TLS or STARTTLS, and
+  the greeting. Only a DNS, connect, timeout, TLS or certificate failure moves
+  to the next candidate. An address-policy refusal stops the attempt.
+- The first candidate that passes is the only backend that receives the
+  password. If it then rejects the password, or fails for any other reason, the
+  sign-in or reconnect fails; the password is never tried on another backend.
+- A backend that failed its check is moved behind the healthy ones for 30
+  seconds, doubling with each consecutive failure up to 15 minutes. When that
+  time ends it is checked first again, and one success clears its record, so
+  new connections return to it. This state is per process and starts empty
+  after a restart. Connections already open on a fallback stay there until they
+  reconnect.
+- The account keeps the selected backend as its identity (host and port), so
+  failing over does not create a second account or change its ID.
+- Each event is written at WARN level with the component
+  `mailwoman::backend_failover` and appears under **Operations → Logs →
+  Application logs**: `event` is `check-failed`, `failover`,
+  `selected-backend-resting` or `returned-to-selected`, with the domain, the
+  backend IDs and the failure reason. Host names and credentials are not
+  logged.
+- The chain is part of the domain's authentication binding. Turning failover
+  on while a domain has more than one eligible backend, or changing the chain,
+  asks existing accounts of that domain to sign in again.
+
 The process-wide engine/proxy mode still applies; a backend list does not enable
 mixed JMAP proxy and IMAP/POP3 engine operation within one running server.
 

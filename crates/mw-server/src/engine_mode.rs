@@ -543,6 +543,10 @@ fn endpoint_dialer(endpoint: &crate::domain_config::Endpoint) -> mw_net::SharedD
 
 /// Resolve transport choices without credentials. Reconnects pin the method selected
 /// at sign-in; changing it requires a fresh sign-in rather than replaying credentials.
+///
+/// With a failover chain the mail endpoint is the first backend that passes a
+/// credential-free check (see `domain_selection::failover`); `mail_primary` then
+/// keeps the selected backend as the account identity.
 async fn resolve_domain_transports(
     store: &mw_store::Store,
     config: &mut crate::domain_config::UpstreamConfig,
@@ -560,6 +564,8 @@ async fn resolve_domain_transports(
         .map_err(|_| "configured egress route is unavailable")?;
     let mut mail_options = mw_net::TlsOptions::default();
     let mut smtp_options = mw_net::TlsOptions::default();
+    let mut chain = std::mem::take(&mut config.mail_chain);
+    let mut mail_primary = None;
     for (protocol, slot) in [
         ("imap", &mut config.imap),
         ("pop3", &mut config.pop3),
@@ -568,26 +574,43 @@ async fn resolve_domain_transports(
         let Some(endpoint) = slot else {
             continue;
         };
-        let mut candidate = endpoint.clone();
-        if let Some((mail, smtp)) = pinned
-            && let Some(security) = &mut candidate.security
-            && security.mode == crate::domain_security::SecurityMode::Auto
-        {
-            let pinned = if protocol == "smtp" { smtp } else { mail };
-            let method = match pinned {
-                "implicit" => crate::domain_config::TlsMode::Implicit,
-                "starttls" => crate::domain_config::TlsMode::Starttls,
-                "plaintext" => crate::domain_config::TlsMode::None,
-                _ => return Err("invalid persisted transport method".into()),
-            };
-            if !security.allowed.contains(&method) {
-                return Err(
-                    "persisted transport method is no longer allowed; sign in again".into(),
-                );
+        let pinned_method = pinned.map(|(mail, smtp)| if protocol == "smtp" { smtp } else { mail });
+        if protocol != "smtp" && chain.len() > 1 {
+            for (_, candidate) in &mut chain {
+                pin_transport_method(candidate, pinned_method)?;
             }
-            security.mode = crate::domain_security::SecurityMode::Fixed;
-            security.allowed = vec![method];
+            let (domain, plan) = (&domain, &plan);
+            let chosen = crate::domain_selection::failover::choose(
+                domain,
+                &chain,
+                move |candidate| async move {
+                    let resolved = crate::domain_security::resolve_endpoint(
+                        protocol, &candidate, domain, plan,
+                    )
+                    .await?;
+                    // `auto` already ran the same check while choosing a method.
+                    if resolved.selected_reason != "first-supported-in-priority-order" {
+                        crate::domain_probe::check_transport(
+                            protocol,
+                            &resolved.endpoint,
+                            domain,
+                            plan,
+                        )
+                        .await?;
+                    }
+                    Ok(resolved)
+                },
+            )
+            .await?;
+            if chosen.index != 0 {
+                mail_primary = Some(endpoint.clone());
+            }
+            *endpoint = chosen.value.endpoint;
+            mail_options = chosen.value.tls_options;
+            continue;
         }
+        let mut candidate = endpoint.clone();
+        pin_transport_method(&mut candidate, pinned_method)?;
         let resolved =
             crate::domain_security::resolve_endpoint(protocol, &candidate, &domain, &plan)
                 .await
@@ -599,7 +622,34 @@ async fn resolve_domain_transports(
             mail_options = resolved.tls_options;
         }
     }
+    chain.clear();
+    config.mail_chain = chain;
+    config.mail_primary = mail_primary;
     Ok((mail_options, smtp_options))
+}
+
+/// Pin an `auto` endpoint to the method persisted at sign-in.
+fn pin_transport_method(
+    candidate: &mut crate::domain_config::Endpoint,
+    pinned: Option<&str>,
+) -> Result<(), LoginFailure> {
+    if let Some(pinned) = pinned
+        && let Some(security) = &mut candidate.security
+        && security.mode == crate::domain_security::SecurityMode::Auto
+    {
+        let method = match pinned {
+            "implicit" => crate::domain_config::TlsMode::Implicit,
+            "starttls" => crate::domain_config::TlsMode::Starttls,
+            "plaintext" => crate::domain_config::TlsMode::None,
+            _ => return Err("invalid persisted transport method".into()),
+        };
+        if !security.allowed.contains(&method) {
+            return Err("persisted transport method is no longer allowed; sign in again".into());
+        }
+        security.mode = crate::domain_security::SecurityMode::Fixed;
+        security.allowed = vec![method];
+    }
+    Ok(())
 }
 
 type LoginObservation = Arc<Mutex<Option<LoginFailureReason>>>;
@@ -882,21 +932,29 @@ async fn engine_login_inner(
         return Err("no enabled mail backend is configured for this engine".into());
     }
     let domain_mail = configured.as_ref().and_then(|config| config.mail());
+    let normal_host = |host: &str| {
+        host.trim_matches(['[', ']'])
+            .trim_end_matches('.')
+            .to_ascii_lowercase()
+    };
+    // The dialled endpoint differs from the account identity only after failover.
+    let mut connect_to = None;
     if let Some((endpoint, protocol)) = domain_mail {
+        let (identity_host, identity_port) = configured
+            .as_ref()
+            .and_then(|c| c.mail_identity())
+            .unwrap_or((&endpoint.host, endpoint.port));
         url = MailUrl {
             kind: if protocol == "imap" {
                 AccountKind::Imap
             } else {
                 AccountKind::Pop3
             },
-            host: endpoint
-                .host
-                .trim_matches(['[', ']'])
-                .trim_end_matches('.')
-                .to_ascii_lowercase(),
-            port: endpoint.port,
+            host: normal_host(identity_host),
+            port: identity_port,
             tls: endpoint.transport_security().into(),
         };
+        connect_to = Some((normal_host(&endpoint.host), endpoint.port));
     }
     // Deployments fronting a plaintext test server (e.g. Greenmail in CI) can
     // force the transport without changing the configured URL.
@@ -937,10 +995,11 @@ async fn engine_login_inner(
     // already exists. IMAP authenticates inside `connect`; POP3 constructs without
     // dialling, so one authenticated round-trip is what proves the password.
     let observation = Arc::new(Mutex::new(None));
+    let (connect_host, connect_port) = connect_to.unwrap_or_else(|| (url.host.clone(), url.port));
     let backend = connect_backend(
         url.kind,
-        &url.host,
-        url.port,
+        &connect_host,
+        connect_port,
         &url.tls,
         (&wire_username, password),
         &policy,
@@ -1202,10 +1261,25 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
         policy.smtp_security = endpoint.transport_security().into();
     }
 
+    // After failover the dialled fallback differs from the stored identity.
+    let (connect_host, connect_port) = match (
+        configured.as_ref().and_then(|c| c.mail_primary.as_ref()),
+        domain_mail,
+    ) {
+        (Some(_), Some((endpoint, _))) => (
+            endpoint
+                .host
+                .trim_matches(['[', ']'])
+                .trim_end_matches('.')
+                .to_ascii_lowercase(),
+            endpoint.port,
+        ),
+        _ => (account.host.clone(), account.port),
+    };
     let backend = connect_backend(
         account.kind,
-        &account.host,
-        account.port,
+        &connect_host,
+        connect_port,
         &account.tls,
         (&wire_username, &creds.password),
         &policy,
