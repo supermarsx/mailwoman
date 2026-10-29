@@ -42,7 +42,7 @@ export function InboxTabs(): JSX.Element {
       }}
     >
       {label}
-      <Show when={count(messages())}>{(n) => <span class="inbox-tabs__count">{n()}</span>}</Show>
+      <Show when={count(messages())}>{(n) => <span class={`${css.count} inbox-tabs__count`}>{n()}</span>}</Show>
     </button>
   );
 

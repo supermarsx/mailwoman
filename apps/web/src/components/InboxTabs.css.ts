@@ -38,3 +38,10 @@ export const tab = style({
     },
   },
 });
+
+/** The count beside a tab's name: a small gap and tabular digits. With a badge
+ *  colour set (`:root[data-badge]`) app.css turns it into a filled badge. */
+export const count = style({
+  marginInlineStart: '0.35rem',
+  fontVariantNumeric: 'tabular-nums',
+});
