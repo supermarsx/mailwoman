@@ -13,9 +13,18 @@
   content.setAttribute('title', 'Message content');
   content.style.cssText = 'border:0;width:100%;height:100%;display:block';
   document.body.append(content);
+  // A detached workspace window is rendered by the app window that opened it,
+  // so the message comes from that window, not from the one holding this frame
+  // (and the popup has no opener to compare with). The sender must still be the
+  // app origin and know this frame's random token from the fragment.
   addEventListener('message', event => {
-    if (event.source !== parent || event.origin !== origin) return;
+    if (event.origin !== origin) return;
     const data = event.data;
+    // The app asks again once it listens on the window holding this frame.
+    if (data && data.type === 'mw-reader-ping' && data.token === token) {
+      parent.postMessage({ type: 'mw-reader-ready', token }, origin);
+      return;
+    }
     if (!data || data.type !== 'mw-reader-frame' || data.token !== token ||
         typeof data.html !== 'string' || data.html.length > 8 * 1024 * 1024) return;
     // Sender supplies a sanitized document. The nested sandbox independently
