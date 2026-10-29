@@ -13,6 +13,8 @@ export type IconName =
   | 'tableRowBefore' | 'tableRowAfter' | 'tableRowDelete' | 'tableColumnBefore' | 'tableColumnAfter' | 'tableColumnDelete' | 'tableMerge' | 'tableSplit' | 'tableHeader'
   | 'undo' | 'redo'
   | 'cut' | 'paste' | 'table' | 'paragraph' | 'paint' | 'eyedropper'
+  | 'mailboxes' | 'signature' | 'compose' | 'mailCheck' | 'transfer' | 'palette' | 'keyboard' | 'bell' | 'package' | 'key'
+  | 'office' | 'laptop' | 'team' | 'store' | 'chart' | 'heartHome' | 'person' | 'smile' | 'gear' | 'crown' | 'wrench' | 'bolt' | 'receipt' | 'cart' | 'family'
   | 'home' | 'briefcase' | 'heart' | 'shopping' | 'education' | 'travel' | 'coffee' | 'gift' | 'bank' | 'book'
   | 'identityProvider'
   | 'shield'
@@ -117,6 +119,38 @@ const S = { fill: 'none', stroke: 'currentColor', 'stroke-width': '2' } as const
 const F = { fill: 'currentColor' } as const;
 
 const PATHS: Record<IconName, () => JSX.Element> = {
+  // t86: Settings section glyphs (same 16 px grid, 2 px stroke, currentColor).
+  // Two envelopes, one behind the other: the linked mailboxes.
+  mailboxes: () => <path d="M4 1 H15 V10 M1 4 H12 V14 H1 Z M1 4 L6.5 9 L12 4" {...S} />,
+  // A pen over a handwritten stroke.
+  signature: () => <path d="M8 9 L14 3 L12.5 1.5 L6.5 7.5 L6 9.5 Z M1 14 Q2.5 10 4 12.5 T7 13 M10 14 H15" {...S} />,
+  // A pencil writing on a page.
+  compose: () => <path d="M8 2 H2 V14 H14 V8 M6 10 L6.5 7.5 L13 1 L15 3 L8.5 9.5 Z" {...S} />,
+  // An envelope with a check: read and delivery receipts.
+  mailCheck: () => <path d="M15 7 V3 H1 V13 H8 M1 3 L8 8.5 L15 3 M10 12 L12 14 L15.5 10.5" {...S} />,
+  // Arrows in and out: import and export.
+  transfer: () => <path d="M4 1 V12 M1 9 L4 12 L7 9 M12 15 V4 M9 7 L12 4 L15 7" {...S} />,
+  palette: () => <><path d="M8 1 A7 7 0 1 0 8 15 C9.5 15 9.5 13 8.5 12 C7.5 10.5 9 9.5 10.5 10 H12 A3 3 0 0 0 15 7 C15 3.5 12 1 8 1 Z" {...S} /><circle cx="4.5" cy="7.5" r="1.25" {...F} /><circle cx="6.5" cy="4.25" r="1.25" {...F} /><circle cx="10.25" cy="4.5" r="1.25" {...F} /></>,
+  keyboard: () => <><rect x="1" y="3" width="14" height="10" {...S} /><path d="M4 6.5 H5 M7.5 6.5 H8.5 M11 6.5 H12 M5 10 H11" {...S} /></>,
+  bell: () => <path d="M1.5 12 H14.5 M3.5 12 V7 A4.5 4.5 0 0 1 12.5 7 V12 M6.5 14.5 H9.5" {...S} />,
+  package: () => <path d="M8 1 L15 4.5 V11.5 L8 15 L1 11.5 V4.5 Z M1 4.5 L8 8 L15 4.5 M8 8 V15" {...S} />,
+  key: () => <><circle cx="5" cy="11" r="3" {...S} /><path d="M7 9 L14 2 M10.5 5.5 L12.5 7.5 M12.5 3.5 L14.5 5.5" {...S} /></>,
+  // t86: mailbox avatar glyphs (also usable elsewhere).
+  office: () => <path d="M3 15 V1 H13 V15 M1 15 H15 M6 4 H7 M9 4 H10 M6 7.5 H7 M9 7.5 H10 M7 15 V11 H9 V15" {...S} />,
+  laptop: () => <path d="M3 3 H13 V10 H3 Z M1 13 H15" {...S} />,
+  team: () => <><circle cx="8" cy="5" r="2" {...S} /><circle cx="3" cy="5.5" r="1.5" {...F} /><circle cx="13" cy="5.5" r="1.5" {...F} /><path d="M4 14 V13 A4 4 0 0 1 12 13 V14 M1 12 A3 3 0 0 1 3.5 9 M15 12 A3 3 0 0 0 12.5 9" {...S} /></>,
+  store: () => <path d="M1 6 L3 1 H13 L15 6 Z M2 6 V15 H14 V6 M6 15 V10 H10 V15" {...S} />,
+  chart: () => <path d="M1 13 L6 8 L9 11 L15 4 M11 4 H15 V8" {...S} />,
+  heartHome: () => <><path d="M1 7 L8 1 L15 7 M3 5.5 V15 H13 V5.5" {...S} /><path d="M8 13 L5.25 10.25 C4 9 5.5 7 8 8.75 C10.5 7 12 9 10.75 10.25 Z" {...F} /></>,
+  person: () => <><circle cx="8" cy="4.5" r="3" {...S} /><path d="M2 15 A6 6 0 0 1 14 15" {...S} /></>,
+  smile: () => <><circle cx="8" cy="8" r="6.5" {...S} /><circle cx="5.5" cy="6.5" r="1" {...F} /><circle cx="10.5" cy="6.5" r="1" {...F} /><path d="M5 10 Q8 13 11 10" {...S} /></>,
+  gear: () => <><circle cx="8" cy="8" r="4" {...S} /><circle cx="8" cy="8" r="1.25" {...F} /><path d="M8 1 V3.5 M8 12.5 V15 M1 8 H3.5 M12.5 8 H15 M3 3 L4.8 4.8 M11.2 11.2 L13 13 M13 3 L11.2 4.8 M4.8 11.2 L3 13" {...S} /></>,
+  crown: () => <path d="M1 5 L4.5 9 L8 3 L11.5 9 L15 5 L13.5 13 H2.5 Z" {...S} />,
+  wrench: () => <path d="M2 14 L8 8 M8 8 A4 4 0 0 1 13.5 2.5 L11 5 L13 7 L15.5 4.5 A4 4 0 0 1 10 10 Z" {...S} />,
+  bolt: () => <path d="M9 1 L3 9 H8 L7 15 L13 7 H8 Z" {...S} />,
+  receipt: () => <path d="M3 1 H13 V15 L11 13.5 L9 15 L7 13.5 L5 15 L3 13.5 Z M6 5 H10 M6 8.5 H10" {...S} />,
+  cart: () => <><path d="M1 2 H3 L5 11 H13 L14.5 5 H4" {...S} /><circle cx="6" cy="14" r="1.25" {...F} /><circle cx="12" cy="14" r="1.25" {...F} /></>,
+  family: () => <><circle cx="4.5" cy="3.5" r="2" {...S} /><circle cx="11.5" cy="3.5" r="2" {...S} /><circle cx="8" cy="9.5" r="1.5" {...F} /><path d="M1 15 V10.5 A3.5 3.5 0 0 1 5 7 M15 15 V10.5 A3.5 3.5 0 0 0 11 7 M5.5 15 A2.5 2.5 0 0 1 10.5 15" {...S} /></>,
   filter: () => <path d="M2 2 H14 L9 8 V13 L7 14 V8 Z" {...S} />,
   home: () => <><path d="M1 7l7-6 7 6M3 6v9h10V6M6 15v-5h4v5" {...S}/></>,
   briefcase: () => <><rect x="1" y="5" width="14" height="10" {...S}/><path d="M5 5V2h6v3M1 9h14M7 8v3h2V8" {...S}/></>,
