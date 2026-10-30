@@ -26,6 +26,13 @@ function headers(write: boolean): Headers {
   return out;
 }
 
+/** A refused answer: its body is read (so the connection is released) and the
+ *  status thrown. Nothing here retries. */
+async function refuse(response: Response): Promise<never> {
+  await response.text().catch(() => '');
+  throw new FocusedSendersError(response.status);
+}
+
 function isTab(value: unknown): value is FocusTab {return value === 'focused' || value === 'other';}
 
 /** Parse the server's list; anything malformed is an error, not a partial list. */
@@ -41,19 +48,22 @@ export function parseSenders(value: unknown): FocusedSender[] {
 
 export async function loadFocusedSenders(signal?: AbortSignal): Promise<FocusedSender[]> {
   const response = await apiFetch(withBase(PATH), {credentials: 'same-origin', headers: headers(false), ...(signal ? {signal} : {})});
-  if (!response.ok) throw new FocusedSendersError(response.status);
+  // A server without the route (older, or a proxied deployment) has no
+  // overrides: an empty list, not an error.
+  if (response.status === 404) {await response.text().catch(() => ''); return [];}
+  if (!response.ok) return refuse(response);
   return parseSenders(((await response.json()) as {senders?: unknown}).senders);
 }
 
 /** Set (`tab`) or remove (`null`) the override for one sender. */
 export async function saveFocusedSender(email: string, tab: FocusTab | null): Promise<void> {
   const response = await apiFetch(withBase(PATH), {method: 'PUT', credentials: 'same-origin', headers: headers(true), body: JSON.stringify({email, tab})});
-  if (!response.ok) throw new FocusedSendersError(response.status);
+  if (!response.ok) return refuse(response);
 }
 
 /** The one-time move of this browser's old local overrides; server rows win. */
 export async function importFocusedSenders(senders: Record<string, FocusTab>): Promise<FocusedSender[]> {
   const response = await apiFetch(withBase(`${PATH}/import`), {method: 'POST', credentials: 'same-origin', headers: headers(true), body: JSON.stringify({senders})});
-  if (!response.ok) throw new FocusedSendersError(response.status);
+  if (!response.ok) return refuse(response);
   return parseSenders(((await response.json()) as {senders?: unknown}).senders);
 }
