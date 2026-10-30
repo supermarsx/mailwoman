@@ -139,6 +139,11 @@ How much space lists and controls take: compact, cozy or relaxed.
 
 Sets the font for accounts without a saved choice. A lock overrides the account choice and disables the font buttons in user Appearance settings. Available values are `default` (theme font), `system`, `serif` (Newsreader), `mono` (JetBrains Mono), `inter`, `roboto`, `open-sans`, and `jost`. Font assets are bundled and served locally; the app does not contact Google Fonts. Account font choices synchronize through the account appearance endpoint.
 
+<a id="appearance.leetspeak"></a>
+### Leetspeak presentation (`appearance.leetspeak`)
+
+An optional boolean, disabled by default, that changes the presentation of interface text and message reading. Stored messages, editable values, addresses, URLs, exported content and submitted data remain unchanged. Administrators can set a global, domain or per-user default and lock it; users can override an unlocked value. The admin console's own **My Preferences** stores its separate optional `leetspeak` boolean per administrator.
+
 <a id="appearance.brandName"></a>
 ### Product name (`appearance.brandName`)
 
@@ -892,6 +897,11 @@ Global boolean, default `false`. Shows the preferred-domain hint below Email or 
 
 Global boolean, default `true`. Allows this browser to remember successful sign-in addresses for later selection. Only addresses are remembered, never passwords, tokens or other credentials. The public sign-in configuration exposes `rememberSignins`; when it is false, the client clears remembered addresses and stops recording them. This does not change session lifetime or authentication requirements.
 
+<a id="login.showAccountHelpNotice"></a>
+### `login.showAccountHelpNotice`
+
+Global/domain boolean, default `false`. Shows the account-help notice after a refused mailbox sign-in only when enabled by an administrator. The public configuration exposes only `showAccountHelpNotice`; domain policy uses the trusted sign-in host mapping, never an account lookup. A wrong password and a disabled account retain the same generic refusal.
+
 <a id="login.showRememberedHint"></a>
 ### `login.showRememberedHint`
 
@@ -1340,3 +1350,22 @@ Account draft saving supports global, domain and user defaults and administrator
 ### Outgoing mailer header privacy (`privacy.stripMailerHeaders`)
 
 Defaults to true; global, domain and account overrides are supported, with administrator locks. Native SMTP/EWS submissions remove top-level X-Mailer, User-Agent and X-MimeOLE. Bodies, attachments and ARF report payloads are unchanged; upstream JMAP proxy sends are outside this boundary. See [outgoing header privacy](../deploy/outgoing-header-privacy.md) for pre-signed message conflicts and relay limitations.
+
+<a id="security.protection.userAgentMode"></a>
+<a id="security.protection.userAgentCategories"></a>
+<a id="security.protection.userAgentWeakRequests"></a>
+<a id="security.protection.userAgentCrawlerRequests"></a>
+<a id="security.protection.userAgentWindowSecs"></a>
+<a id="security.protection.userAgentMaxAction"></a>
+<a id="security.protection.userAgentScope"></a>
+<a id="security.protection.userAgentAdaptive"></a>
+<a id="security.protection.userAgentPatterns"></a>
+<a id="security.protection.userAgentExceptions"></a>
+
+User-agent protection is independently enabled (`userAgentMode: enforce`) even when the older rate/adaptive modes are off. It classifies self-claimed headers, not verified bot identities; see [crawler identification](crawler-identification.md). A missing or unfamiliar header alone never causes refusal. Known browser and mail-client families have no extra budget. Anonymous requests default to 600 requests per 60 seconds for missing/uncommon/automation/custom claims and 300 for search/AI crawler claims. Authenticated sessions are excluded unless `userAgentScope` is `all`; sign-in requests remain anonymous. Public documents are covered; static resources and narrow recovery controls remain available.
+
+`userAgentCategories` selects missing, uncommon, automation, search, ai-training, ai-search and ai-user. `userAgentWeakRequests`, `userAgentCrawlerRequests` and `userAgentWindowSecs` tune those allowances. `userAgentAdaptive` combines these subjects with existing authoritative anomaly signals and rolling windows; the header itself never counts as an anomaly. `userAgentMaxAction` defaults to throttle, preventing repeated anomaly crossings from escalating to a block. Rate exhaustion always returns temporary HTTP 429. Observe records decisions without refusing; off disables this extra dimension.
+
+`userAgentPatterns` and `userAgentExceptions` accept at most 32 case-insensitive Rust regular expressions, each at most 256 bytes, with bounded compiled size and no backreferences/lookaround. Additional matches use the custom weak class. Exceptions affect only this dimension, never other sign-in, rate or adaptive protections. Source addresses use the existing trusted-proxy rules and keyed identifiers; raw headers are not retained. The editor simulator previews the same classifier and policy without updating counters.
+
+The optional [client interface access gate](client-access.md) has a dedicated redacted, conditional API rather than plaintext settings-registry keys. Access-key and entry-slug restrictions both default to disabled.

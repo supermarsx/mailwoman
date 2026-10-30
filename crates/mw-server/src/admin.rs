@@ -52,6 +52,8 @@ use mw_admin::{
 
 use crate::AppState;
 use crate::admin_ctx::AdminCtx;
+
+mod users_table;
 use crate::admin_router::AdminRegistrar;
 use crate::capabilities::Capability;
 
@@ -60,6 +62,12 @@ use crate::capabilities::Capability;
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
     use Capability as C;
     r.admin_endpoint(Method::GET, "/users", C::UsersRead, list_users);
+    r.admin_endpoint(
+        Method::GET,
+        "/users/table",
+        C::UsersRead,
+        users_table::users_table,
+    );
     r.admin_endpoint(Method::POST, "/users", C::UsersCreate, provision_user);
     r.admin_endpoint(
         Method::PUT,

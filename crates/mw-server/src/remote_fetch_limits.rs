@@ -27,7 +27,7 @@
 //! network and are already immediate. `POST /api/rc/sign` with `"retry": true`
 //! forgets the entries for the URLs it signs.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -146,6 +146,7 @@ pub(crate) async fn acquire(
 pub(crate) enum Failure {
     Timeout,
     Upstream,
+    Status(u16),
     TooLarge,
 }
 
@@ -154,18 +155,19 @@ impl Failure {
     pub(crate) fn of(refusal: &Refusal) -> Option<Failure> {
         match refusal {
             Refusal::Timeout => Some(Failure::Timeout),
-            Refusal::Upstream | Refusal::Status(_) => Some(Failure::Upstream),
+            Refusal::Upstream => Some(Failure::Upstream),
+            Refusal::Status(status) => Some(Failure::Status(*status)),
             Refusal::TooLarge => Some(Failure::TooLarge),
             Refusal::Blocked | Refusal::BadRequest(_) => None,
         }
     }
 
-    /// The refusal this failure is answered as. A status collapses to
-    /// `Upstream`, which `refusal_response` answers identically.
+    /// Preserve upstream status so cached permanent failures never auto-retry.
     pub(crate) fn refusal(self) -> Refusal {
         match self {
             Failure::Timeout => Refusal::Timeout,
             Failure::Upstream => Refusal::Upstream,
+            Failure::Status(status) => Refusal::Status(status),
             Failure::TooLarge => Refusal::TooLarge,
         }
     }
@@ -250,6 +252,7 @@ pub(crate) fn forget<'a>(account: &str, urls: impl IntoIterator<Item = &'a str>)
 struct Message {
     /// URL digest -> (loaded?, expires).
     urls: HashMap<[u8; 32], (bool, i64)>,
+    retryable: HashSet<[u8; 32]>,
 }
 
 #[derive(Default)]
@@ -259,6 +262,7 @@ impl Outcomes {
     fn prune(&mut self, now: i64) {
         self.0.retain(|_, m| {
             m.urls.retain(|_, (_, expires)| *expires > now);
+            m.retryable.retain(|url| m.urls.contains_key(url));
             !m.urls.is_empty()
         });
     }
@@ -281,6 +285,7 @@ impl Outcomes {
         let message = self.0.entry(key).or_default();
         if message.urls.contains_key(&url) || message.urls.len() < OUTCOME_URLS {
             message.urls.insert(url, (loaded, expires));
+            message.retryable.remove(&url);
         }
     }
 
@@ -317,10 +322,70 @@ pub(crate) fn record_outcome(
     );
 }
 
+/// Opaque reference shared with the signed-image list; never retains a clear URL.
+pub(crate) fn image_reference(url: &str) -> String {
+    Sha256::digest(url.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+pub(crate) fn retryable_refusal(refusal: &Refusal) -> bool {
+    matches!(
+        refusal,
+        Refusal::Timeout | Refusal::Upstream | Refusal::Status(408 | 429 | 500..=599)
+    )
+}
+
+pub(crate) fn record_retryable_failure(
+    account: &str,
+    session: &str,
+    message: &str,
+    url: &str,
+    expires: i64,
+) {
+    let key = digest(&["o", account, session, message]);
+    let url = Sha256::digest(url.as_bytes()).into();
+    let mut all = outcomes().lock().expect("outcome lock");
+    all.record(key, url, false, expires, chrono::Utc::now().timestamp());
+    if let Some(m) = all.0.get_mut(&key)
+        && m.urls.contains_key(&url)
+    {
+        m.retryable.insert(url);
+    }
+}
+
+/// Snapshot of distinct outcomes and eligible failed references, scoped as counts are.
+pub(crate) fn outcome_details(
+    account: &str,
+    session: &str,
+    message: &str,
+) -> (usize, usize, Vec<String>, Vec<String>) {
+    let key = digest(&["o", account, session, message]);
+    let mut all = outcomes().lock().expect("outcome lock");
+    let (loaded, failed) = all.read(&key, chrono::Utc::now().timestamp());
+    let mut failures = Vec::new();
+    let mut retryable = Vec::new();
+    if let Some(m) = all.0.get(&key) {
+        for (url, (ok, _)) in &m.urls {
+            if !ok {
+                let reference = url.iter().map(|b| format!("{b:02x}")).collect::<String>();
+                if m.retryable.contains(url) {
+                    retryable.push(reference.clone());
+                }
+                failures.push(reference);
+            }
+        }
+    }
+    failures.sort();
+    retryable.sort();
+    (loaded, failed, failures, retryable)
+}
+
 /// Forget the recorded outcomes of `urls` for the session's message (t67).
-/// Signing a message's images starts a new load: the reader's loading toast
-/// reads the outcomes of this load only, so a failure remembered from an
-/// earlier open (or before Retry) is not taken for this load's answer.
+/// Only explicit retry starts a new load for these accepted targets. Ordinary
+/// signing retains outcomes: a browser may keep the same image URLs without
+/// fetching them again. Existing token expiry and authority scoping still apply.
 pub(crate) fn forget_outcomes<'a>(
     account: &str,
     session: &str,
@@ -332,21 +397,71 @@ pub(crate) fn forget_outcomes<'a>(
         for url in urls {
             let key: [u8; 32] = Sha256::digest(url.as_bytes()).into();
             m.urls.remove(&key);
+            m.retryable.remove(&key);
         }
     }
-}
-
-/// `(loaded, failed)` distinct images for the session's message.
-pub(crate) fn read_outcomes(account: &str, session: &str, message: &str) -> (usize, usize) {
-    outcomes().lock().expect("outcome lock").read(
-        &digest(&["o", account, session, message]),
-        chrono::Utc::now().timestamp(),
-    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retry_references_are_scoped_distinct_and_only_transient_failures_auto_retry() {
+        for status in [400, 401, 403, 404, 413] {
+            assert!(!retryable_refusal(&Refusal::Status(status)));
+        }
+        for status in [408, 429, 500, 502, 503, 504] {
+            assert!(retryable_refusal(&Refusal::Status(status)));
+        }
+        assert!(!retryable_refusal(&Refusal::Blocked));
+        assert!(!retryable_refusal(&Refusal::TooLarge));
+        let expiry = chrono::Utc::now().timestamp() + 60;
+        record_retryable_failure(
+            "retry-test",
+            "session",
+            "message",
+            "https://example.test/transient",
+            expiry,
+        );
+        record_outcome(
+            "retry-test",
+            "session",
+            "message",
+            "https://example.test/permanent",
+            false,
+            expiry,
+        );
+        let (loaded, failed, refs, retryable) = outcome_details("retry-test", "session", "message");
+        assert_eq!((loaded, failed), (0, 2));
+        assert_eq!(refs.len(), 2);
+        assert_eq!(
+            retryable,
+            vec![image_reference("https://example.test/transient")]
+        );
+        assert_eq!(outcome_details("other", "session", "message").1, 0);
+        assert_eq!(outcome_details("retry-test", "other", "message").1, 0);
+        record_outcome(
+            "retry-test",
+            "session",
+            "message",
+            "https://example.test/transient",
+            true,
+            expiry,
+        );
+        let (loaded, failed, refs, retryable) = outcome_details("retry-test", "session", "message");
+        assert_eq!((loaded, failed), (1, 1));
+        assert_eq!(
+            refs,
+            vec![image_reference("https://example.test/permanent")]
+        );
+        assert!(retryable.is_empty());
+        let permanent = Failure::of(&Refusal::Status(403)).unwrap();
+        assert!(
+            !retryable_refusal(&permanent.refusal()),
+            "negative cache must retain a permanent status"
+        );
+    }
 
     fn limits(per_message: usize, per_account: usize) -> FetchLimits {
         FetchLimits {
@@ -427,7 +542,10 @@ mod tests {
     #[test]
     fn only_network_failures_are_remembered_and_they_expire() {
         assert_eq!(Failure::of(&Refusal::Timeout), Some(Failure::Timeout));
-        assert_eq!(Failure::of(&Refusal::Status(404)), Some(Failure::Upstream));
+        assert_eq!(
+            Failure::of(&Refusal::Status(404)),
+            Some(Failure::Status(404))
+        );
         assert_eq!(Failure::of(&Refusal::Upstream), Some(Failure::Upstream));
         assert_eq!(Failure::of(&Refusal::TooLarge), Some(Failure::TooLarge));
         assert_eq!(Failure::of(&Refusal::Blocked), None);

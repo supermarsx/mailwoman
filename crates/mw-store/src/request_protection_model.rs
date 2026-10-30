@@ -54,6 +54,12 @@ pub struct Policy {
     pub throttle_secs: u32,
     pub block_secs: u32,
     pub decay_secs: u32,
+    /// Cap escalation without creating a separate decision engine.
+    #[serde(default = "default_max_stage")]
+    pub max_stage: u8,
+}
+fn default_max_stage() -> u8 {
+    2
 }
 impl Policy {
     pub fn valid(&self) -> bool {
@@ -74,6 +80,7 @@ impl Policy {
             && (1..=300).contains(&self.throttle_secs)
             && (1..=86400).contains(&self.block_secs)
             && (3600..=2_592_000).contains(&self.decay_secs)
+            && (1..=2).contains(&self.max_stage)
     }
     pub fn off(&self) -> bool {
         self.rate_mode == Mode::Off && self.adaptive_mode == Mode::Off
@@ -253,6 +260,12 @@ impl State {
         }
     }
     fn decay(&mut self, policy: &Policy, now: i64) {
+        if self.stage > policy.max_stage {
+            self.stage = policy.max_stage;
+            self.until = self
+                .until
+                .min(now.saturating_add(i64::from(policy.throttle_secs)));
+        }
         if self.until <= now
             && self
                 .last_anomaly
@@ -338,7 +351,7 @@ impl State {
         let Some(reason) = reason else {
             return Decision::default();
         };
-        self.stage = self.stage.saturating_add(1).min(2);
+        self.stage = self.stage.saturating_add(1).min(policy.max_stage);
         self.reason = Some(reason);
         self.until = now.saturating_add(i64::from(if self.stage == 1 {
             policy.throttle_secs
@@ -490,7 +503,7 @@ pub fn simulate(policy: &Policy, input: &SimInput) -> SimOutcome {
         Reason::LongRatio,
     ));
     let adaptive = rules[1..].iter().find(|r| r.fired).map(|r| {
-        let block = input.previously_throttled;
+        let block = input.previously_throttled && policy.max_stage > 1;
         (
             if block {
                 Action::Block
@@ -556,7 +569,27 @@ mod tests {
             throttle_secs: 3,
             block_secs: 300,
             decay_secs: 3600,
+            max_stage: 2,
         }
+    }
+    #[test]
+    fn throttle_cap_prevents_repeat_escalation_and_downgrades_existing_blocks() {
+        let mut policy = policy();
+        policy.max_stage = 1;
+        policy.short.absolute_anomalies = 1;
+        let mut state = State::default();
+        for now in [10, 20, 30, 40] {
+            assert_eq!(
+                state.observe(&policy, now, Signal::Malformed).action,
+                Action::Throttle
+            );
+            assert_eq!(state.admit(&policy, now + 1).action, Action::Throttle);
+        }
+        state.stage = 2;
+        state.until = 10_000;
+        let decision = state.admit(&policy, 50);
+        assert_eq!(decision.action, Action::Throttle);
+        assert!(decision.retry_after_secs <= policy.throttle_secs);
     }
     #[test]
     fn sparse_anomalies_accumulate_over_days_without_short_bursts() {

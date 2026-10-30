@@ -331,4 +331,17 @@ mod tests {
         assert_eq!(&png[..8], &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]);
         assert!(reencode_image(b"not an image").is_err());
     }
+
+    #[test]
+    fn advertised_webp_decodes_inside_the_committed_jail() {
+        // A one-pixel lossless WebP. CDNs may negotiate WebP even for a .png URL.
+        use base64::Engine;
+        let webp = base64::engine::general_purpose::STANDARD
+            .decode("UklGRh4AAABXRUJQVlA4TBEAAAAvAAAAAAfQ//73v/+BiOh/AAA=")
+            .unwrap();
+        let png = reencode_image(&webp).expect("advertised WebP must be decodable");
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert_eq!(&png[16..24], &[0, 0, 0, 1, 0, 0, 0, 1]);
+        assert!(reencode_image(&webp[..20]).is_err());
+    }
 }

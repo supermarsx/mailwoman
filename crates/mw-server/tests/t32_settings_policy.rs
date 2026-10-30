@@ -267,6 +267,83 @@ async fn entry(u: &reqwest::Client, base: &str, key: &str) -> Value {
 // ── 401 ────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
+async fn leetspeak_is_opt_in_and_respects_user_choices_and_admin_locks() {
+    let (s, _pop, u, _) = engine_user("mw-leetspeak-policy").await;
+    let a = admin(&s.base).await;
+    let key = "appearance.leetspeak";
+    assert_eq!(entry(&u, &s.base, key).await["value"], false);
+    assert_eq!(
+        put_global(&a, &s.base, key, json!({"globalValue":true}))
+            .await
+            .0,
+        200
+    );
+    assert_eq!(entry(&u, &s.base, key).await["value"], true);
+    let url = format!("{}/api/settings/{key}", s.base);
+    assert_eq!(send(u.put(&url).json(&json!({"value":false}))).await.0, 200);
+    assert_eq!(entry(&u, &s.base, key).await["value"], false);
+    assert_eq!(
+        send(u.put(&url).json(&json!({"value":"true"}))).await.0,
+        422
+    );
+    assert_eq!(
+        put_global(&a, &s.base, key, json!({"globalValue":"false"}))
+            .await
+            .0,
+        422
+    );
+
+    let domain_url = format!("{}/admin/settings/{key}/domains/example.org", s.base);
+    assert_eq!(
+        send(
+            a.put(&domain_url)
+                .json(&json!({"value":true,"locked":true}))
+        )
+        .await
+        .0,
+        200
+    );
+    let effective = entry(&u, &s.base, key).await;
+    assert_eq!(effective["value"], true);
+    assert_eq!(effective["lockedBy"], "domain");
+    let (status, refused) = send(u.put(&url).json(&json!({"value":false}))).await;
+    assert_eq!(status, 403, "{refused}");
+    assert_eq!(refused["code"], "setting_locked");
+
+    assert_eq!(
+        put_global(&a, &s.base, key, json!({"globalValue":false,"locked":true}))
+            .await
+            .0,
+        200
+    );
+    let effective = entry(&u, &s.base, key).await;
+    assert_eq!(effective["value"], false);
+    assert_eq!(effective["lockedBy"], "global");
+    assert_eq!(
+        effective["userValue"], false,
+        "locked writes preserve the user's earlier choice"
+    );
+}
+
+#[tokio::test]
+async fn leetspeak_admin_preference_is_boolean_and_keeps_other_preferences() {
+    let s = proxy_server("mw-leetspeak-admin").await;
+    let a = admin(&s.base).await;
+    let url = format!("{}/admin/me/preferences", s.base);
+    let preferences = json!({"leetspeak":true,"locale":"en","appearance":{"theme":"dark"}});
+    assert_eq!(send(a.put(&url).json(&preferences)).await.0, 200);
+    assert_eq!(send(a.get(&url)).await.1, preferences);
+    let (status, refused) = send(a.put(&url).json(&json!({"leetspeak":"true"}))).await;
+    assert_eq!(status, 422, "{refused}");
+    assert_eq!(refused["field"], "/leetspeak");
+    assert_eq!(
+        send(a.get(&url)).await.1,
+        preferences,
+        "invalid writes change nothing"
+    );
+}
+
+#[tokio::test]
 async fn requests_without_a_session_are_refused() {
     let s = proxy_server("mw-t32-f01-401").await;
     let anon = client();

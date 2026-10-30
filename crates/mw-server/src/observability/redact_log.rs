@@ -28,6 +28,8 @@ pub const ADMIN_MARK: &str = "[admin-path]";
 
 /// Field-name fragments whose value is a credential (compared lower-case).
 const SECRET_NAMES: &[&str] = &[
+    "psk",
+    "client_access",
     "password",
     "passwd",
     "passphrase",
@@ -69,6 +71,11 @@ const CONTENT_NAMES: &[&str] = &[
 
 /// Key names in `k=v` / `k: v` text whose value is cut.
 const SECRET_KEYS: &[&str] = &[
+    "psk",
+    "psk_hash",
+    "pskhash",
+    "mw_client_access",
+    "mw_client_access_pending",
     "password",
     "passwd",
     "pass",
@@ -400,12 +407,37 @@ mod tests {
             "Authorization",
             "set_cookie",
             "sentry_dsn",
+            "psk",
+            "psk_hash",
+            "pskHash",
+            "mw_client_access",
+            "mw_client_access_pending",
         ] {
             assert_eq!(r.field(name, "hunter2-value"), MARK, "{name}");
         }
         assert_eq!(r.field("status", "200"), "200");
     }
 
+    #[test]
+    fn client_entry_credentials_are_removed_from_text_and_json() {
+        let r = Redactor::default();
+        for text in [
+            "psk=private-entry-key",
+            "psk_hash=argon-private-hash",
+            r#"{"psk":"private-entry-key","pskHash":"argon-private-hash"}"#,
+            "mw_client_access=private-proof; mw_client_access_pending=pending-proof",
+        ] {
+            let clean = r.text(text);
+            for secret in [
+                "private-entry-key",
+                "argon-private-hash",
+                "private-proof",
+                "pending-proof",
+            ] {
+                assert!(!clean.contains(secret), "{clean}");
+            }
+        }
+    }
     #[test]
     fn secret_env_values_are_cut_anywhere() {
         let r = Redactor::default();

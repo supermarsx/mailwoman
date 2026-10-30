@@ -122,6 +122,18 @@ async fn read_head(s: &mut TcpStream) -> String {
 /// A `CONNECT` proxy that answers each tunnelled request with the next reply from
 /// `replies` (the last one repeats), recording the request heads.
 async fn standin_proxy(replies: Vec<(String, Vec<u8>)>) -> (SocketAddr, Arc<Mutex<Seen>>) {
+    standin_status_proxy(
+        replies
+            .into_iter()
+            .map(|(kind, body)| (200, kind, body))
+            .collect(),
+    )
+    .await
+}
+
+async fn standin_status_proxy(
+    replies: Vec<(u16, String, Vec<u8>)>,
+) -> (SocketAddr, Arc<Mutex<Seen>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let seen = Arc::new(Mutex::new(Seen::default()));
@@ -143,9 +155,9 @@ async fn standin_proxy(replies: Vec<(String, Vec<u8>)>) -> (SocketAddr, Arc<Mute
                     .await;
                 let req = read_head(&mut c).await;
                 sink.lock().unwrap().requests.push(req);
-                let (ctype, body) = &replies[n.min(replies.len() - 1)];
+                let (status, ctype, body) = &replies[n.min(replies.len() - 1)];
                 let head = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\n\r\n",
+                    "HTTP/1.1 {status} Fixture\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\n\r\n",
                     body.len()
                 );
                 let _ = c.write_all(head.as_bytes()).await;
@@ -1356,7 +1368,7 @@ async fn message_tracker_stats_require_session_and_owned_message_and_start_at_ze
     assert_eq!(
         stats,
         // t56 adds the per-message load outcomes for the loading toast.
-        json!({"decodedTrackersReplaced":0,"limited":false,"windowSecs":3600,"imagesLoaded":0,"imagesFailed":0})
+        json!({"decodedTrackersReplaced":0,"limited":false,"windowSecs":3600,"imagesLoaded":0,"imagesFailed":0,"failedImageRefs":[],"retryableImageRefs":[]})
     );
 }
 
@@ -1569,6 +1581,77 @@ async fn manual_image_downloads_require_policy_and_real_message_membership_at_ev
 /// connection, counted for the reader's loading toast, and forgotten when the
 /// reader asks to retry.
 #[tokio::test]
+async fn ordinary_resigning_preserves_outcomes_and_retry_clears_only_selected_targets() {
+    let (proxy, seen) = standin_status_proxy(vec![
+        (200, "image/png".into(), png(4, 4)),
+        (500, "text/plain".into(), Vec::new()),
+        (403, "text/plain".into(), Vec::new()),
+        (200, "image/png".into(), png(4, 4)),
+    ])
+    .await;
+    let f = fixture(proxy, "mw-rc-idempotent-outcomes").await;
+    f.grant().await;
+    let urls = [
+        "http://1.2.3.4/good.png",
+        "http://1.2.3.4/transient.png",
+        "http://1.2.3.4/permanent.png",
+    ];
+    let (status, signed) = f.sign(&urls, &[]).await;
+    assert_eq!(status, 200);
+    for (index, image) in signed["images"].as_array().unwrap().iter().enumerate() {
+        let response = f.load(image["src"].as_str().unwrap()).await;
+        assert_eq!(response.status().is_success(), index == 0);
+    }
+    async fn stats(f: &Fixture) -> Value {
+        f.user
+            .get(format!("{}/api/rc/stats?emailId={}", f.base, f.email_id))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
+    }
+    let before = stats(&f).await;
+    assert_eq!(before["imagesLoaded"], 1);
+    assert_eq!(before["imagesFailed"], 2);
+    assert_eq!(
+        before["retryableImageRefs"],
+        json!([signed["images"][1]["ref"]])
+    );
+    // Do not redeem the repeated signatures: an unchanged browser image src
+    // need not produce a second network response to reconstruct its outcome.
+    assert_eq!(f.sign(&urls, &[]).await.0, 200);
+    assert_eq!(stats(&f).await, before);
+    assert_eq!(seen.lock().unwrap().connections, 3);
+    let retry: Value = f
+        .user
+        .post(format!("{}/api/rc/sign", f.base))
+        .json(&json!({"emailId":f.email_id,"urls":[urls[1],"data:image/png,refused"],"retry":true}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(retry["images"].as_array().unwrap().len(), 1);
+    assert_eq!(retry["refused"].as_array().unwrap().len(), 1);
+    let pending = stats(&f).await;
+    assert_eq!(pending["imagesLoaded"], 1);
+    assert_eq!(pending["imagesFailed"], 1);
+    assert_eq!(
+        pending["failedImageRefs"],
+        json!([signed["images"][2]["ref"]])
+    );
+    assert_eq!(pending["retryableImageRefs"], json!([]));
+    assert_eq!(f.load(&image_src(&retry)).await.status(), 200);
+    let recovered = stats(&f).await;
+    assert_eq!(recovered["imagesLoaded"], 2);
+    assert_eq!(recovered["imagesFailed"], 1);
+    assert_eq!(seen.lock().unwrap().connections, 4);
+}
+
+#[tokio::test]
 async fn a_failed_fetch_is_remembered_briefly_counted_and_retried_on_request() {
     // Larger than any `privacy.maxBytes`: refused from Content-Length, after the
     // origin was reached, so it is a network failure worth remembering.
@@ -1612,6 +1695,15 @@ async fn a_failed_fetch_is_remembered_briefly_counted_and_retried_on_request() {
         .unwrap();
     assert_eq!(stats["imagesFailed"], json!(1), "{stats}");
     assert_eq!(stats["imagesLoaded"], json!(0), "{stats}");
+    assert_eq!(
+        stats["failedImageRefs"],
+        json!([signed["images"][0]["ref"]])
+    );
+    assert_eq!(
+        stats["retryableImageRefs"],
+        json!([]),
+        "oversize is not a transient failure"
+    );
 
     // Retry images: signing with retry forgets the failure, so it fetches again.
     let retried: Value = f
@@ -1624,6 +1716,11 @@ async fn a_failed_fetch_is_remembered_briefly_counted_and_retried_on_request() {
         .json()
         .await
         .unwrap();
+    assert_ne!(
+        image_src(&retried),
+        src,
+        "even a same-second Retry must avoid the browser negative cache"
+    );
     // t67: signing starts a new load, so its counters start from nothing
     // until that load's own fetch answers.
     let fresh: Value = f

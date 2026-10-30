@@ -970,6 +970,16 @@ async fn put_prefs(
             "",
         ));
     }
+    if body
+        .get("leetspeak")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        return Err(AdminApiError::invalid(
+            "invalidValue",
+            "Leetspeak must be a boolean.",
+            "/leetspeak",
+        ));
+    }
     let text = body.to_string();
     if text.len() > PREFS_MAX_BYTES {
         return Err(AdminApiError::invalid(

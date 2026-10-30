@@ -34,8 +34,10 @@
     if (!data || data.type !== 'mw-reader-frame' || data.token !== token ||
         typeof data.html !== 'string' || data.html.length > 8 * 1024 * 1024) return;
     // Sender supplies a sanitized document. The nested sandbox independently
-    // forbids scripts, same-origin access, forms, popups and top navigation.
+    // forbids scripts, same-origin access, forms and top navigation. Only an
+    // authenticated, explicit per-message consent permits isolated popups.
     const next = content.cloneNode(false);
+    next.setAttribute('sandbox', data.linksEnabled === true ? 'allow-popups allow-popups-to-escape-sandbox' : '');
     const revision = data.revision;
     next.addEventListener('load', () => {
       if (content === next && Number.isSafeInteger(revision) && revision > 0)

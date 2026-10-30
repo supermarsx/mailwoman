@@ -198,6 +198,7 @@ fn attachment_text_is_full_text_searchable() {
         account_id: "acct".into(),
         mailbox_id: "mb".into(),
         from: "biller@example.com".into(),
+        from_domains: vec!["example.com".into()],
         to: "me@example.com".into(),
         cc: String::new(),
         subject: "Invoice".into(),

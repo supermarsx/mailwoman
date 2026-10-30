@@ -67,6 +67,18 @@ pub const STORED_KEY: &str = "admin.consolePath";
 /// ends every admin session.
 pub const APPLIED_KEY: &str = "admin.consolePath.applied";
 
+async fn store_console_path(
+    store: &Store,
+    path: &str,
+    expected: Option<&str>,
+) -> anyhow::Result<bool> {
+    let client = crate::client_access::check_console_path(store, path).await?;
+    store
+        .compare_entry_setting(STORED_KEY, expected, path, client.as_deref())
+        .await
+        .map_err(Into::into)
+}
+
 /// Where the path in force came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -196,14 +208,20 @@ pub(crate) async fn resolve(store: &Store, overlay: &EnvOverlay) -> anyhow::Resu
         (stored, Source::Stored)
     } else if provision {
         if prior_install(store).await? {
-            store.set_setting(STORED_KEY, DEFAULT_ADMIN_PATH).await?;
+            anyhow::ensure!(
+                store_console_path(store, DEFAULT_ADMIN_PATH, stored.as_deref()).await?,
+                "Entry configuration changed during startup"
+            );
             tracing::info!(
                 "upgraded installation without a configured admin console path: keeping {DEFAULT_ADMIN_PATH}"
             );
             (DEFAULT_ADMIN_PATH.to_string(), Source::Upgrade)
         } else {
             let generated = generate_admin_path().map_err(|e| anyhow!("{e}"))?;
-            store.set_setting(STORED_KEY, &generated).await?;
+            anyhow::ensure!(
+                store_console_path(store, &generated, stored.as_deref()).await?,
+                "Entry configuration changed during startup"
+            );
             // Shown once. On stdout only: the application log store cuts the
             // path out of what it keeps (`observability::redact_log`).
             tracing::warn!(
@@ -223,6 +241,7 @@ pub(crate) async fn resolve(store: &Store, overlay: &EnvOverlay) -> anyhow::Resu
     } else {
         (DEFAULT_ADMIN_PATH.to_string(), Source::Default)
     };
+    crate::client_access::check_console_path(store, &path).await?;
     mw_admin::config::set_admin_path(Some(&path));
     *SOURCE
         .write()
@@ -283,7 +302,7 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
     );
 }
 
-async fn snapshot(state: &AppState) -> Result<Value, AdminApiError> {
+async fn snapshot_with_stored(state: &AppState) -> Result<(Value, Option<String>), AdminApiError> {
     let stored = state
         .store
         .get_setting(STORED_KEY)
@@ -291,15 +310,21 @@ async fn snapshot(state: &AppState) -> Result<Value, AdminApiError> {
         .map_err(AdminApiError::internal)?;
     let path = admin_path();
     let src = source();
-    let pending = stored.filter(|s| src != Source::Env && *s != path);
-    Ok(json!({
-        "path": path,
-        "source": src,
-        "pending": pending,
-        "pinnedBy": (src == Source::Env).then_some(EnvOverlay::ADMIN_PATH_VAR),
-        "legacyDefault": path.eq_ignore_ascii_case(DEFAULT_ADMIN_PATH),
-        "minLength": MIN_CHOSEN_ADMIN_PATH_LEN,
-    }))
+    let pending = stored.clone().filter(|s| src != Source::Env && *s != path);
+    Ok((
+        json!({
+            "path": path,
+            "source": src,
+            "pending": pending,
+            "pinnedBy": (src == Source::Env).then_some(EnvOverlay::ADMIN_PATH_VAR),
+            "legacyDefault": path.eq_ignore_ascii_case(DEFAULT_ADMIN_PATH),
+            "minLength": MIN_CHOSEN_ADMIN_PATH_LEN,
+        }),
+        stored,
+    ))
+}
+async fn snapshot(state: &AppState) -> Result<Value, AdminApiError> {
+    Ok(snapshot_with_stored(state).await?.0)
 }
 
 async fn read(State(state): State<AppState>, ctx: AdminCtx) -> Result<Response, AdminApiError> {
@@ -337,7 +362,7 @@ async fn save(
             "MW_ADMIN_PATH sets the console path. Change or remove it on the server.",
         ));
     }
-    let before = snapshot(&state).await?;
+    let (before, stored_before) = snapshot_with_stored(&state).await?;
     check_if_match(&headers, &etag_of(&before), None, None)?;
     let current = admin_path();
     let next = match (change.path, change.generate) {
@@ -356,11 +381,12 @@ async fn save(
     };
     crate::admin_apply::check_admin_path_against_base(&next, &state.base_path)
         .map_err(|e| AdminApiError::invalid("invalidConsolePath", e.to_string(), "/path"))?;
-    state
-        .store
-        .set_setting(STORED_KEY, &next)
+    if !store_console_path(&state.store, &next, stored_before.as_deref())
         .await
-        .map_err(AdminApiError::internal)?;
+        .map_err(|e| AdminApiError::invalid("invalidConsolePath", e.to_string(), "/path"))?
+    {
+        return Err(AdminApiError::stale(None, None));
+    }
     crate::admin_accounts::audit(
         &state,
         &ctx,
@@ -430,7 +456,10 @@ pub async fn cli(store: &Store, verb: mw_admin::cli::ConsolePathVerb) -> anyhow:
         }
     };
     crate::admin_apply::check_admin_path_against_base(&next, &base)?;
-    store.set_setting(STORED_KEY, &next).await?;
+    anyhow::ensure!(
+        store_console_path(store, &next, stored.as_deref()).await?,
+        "Entry configuration changed; read it again before retrying"
+    );
     audit_system(
         store,
         "cli",
@@ -447,6 +476,31 @@ pub async fn cli(store: &Store, verb: mw_admin::cli::ConsolePathVerb) -> anyhow:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn original_snapshot_value_cannot_overwrite_a_newer_console_path() {
+        let store = Store::open_in_memory(mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        store
+            .set_setting(STORED_KEY, "/first-console-path")
+            .await
+            .unwrap();
+        let original = store.get_setting(STORED_KEY).await.unwrap();
+        store
+            .set_setting(STORED_KEY, "/second-console-path")
+            .await
+            .unwrap();
+        assert!(
+            !store_console_path(&store, "/third-console-path", original.as_deref())
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            store.get_setting(STORED_KEY).await.unwrap().as_deref(),
+            Some("/second-console-path")
+        );
+    }
 
     #[test]
     fn fingerprints_are_short_and_stable() {

@@ -1876,6 +1876,7 @@ mod tests {
         let pre = Store {
             backend: crate::backend::Backend::Sqlite(pool.clone()),
             key: ServerKey::from_bytes(&[5u8; 32]).unwrap(),
+            cache_id: uuid::Uuid::new_v4(),
             uploads: crate::upload::fail_closed_backend(),
         };
         let a = account(&pre).await;

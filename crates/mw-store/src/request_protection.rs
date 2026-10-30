@@ -46,6 +46,7 @@ mod tests {
             throttle_secs: 3,
             block_secs: 60,
             decay_secs: 3600,
+            max_stage: 2,
         }
     }
 
@@ -268,7 +269,8 @@ impl Store {
     ) -> Result<String, StoreError> {
         let canonical;
         let value = match kind {
-            "client" => {
+            "client" | "ua-missing" | "ua-uncommon" | "ua-automation" | "ua-search"
+            | "ua-ai-training" | "ua-ai-search" | "ua-ai-user" | "ua-custom" => {
                 canonical = value
                     .parse::<std::net::IpAddr>()
                     .map_err(|_| corrupt())?

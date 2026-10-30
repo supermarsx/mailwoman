@@ -587,6 +587,15 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
         return next.run(req).await;
     };
     if let Err(response) = check(&state, &session, &needs).await {
+        // Read what the client is still sending before answering (t20 B9): an
+        // upload over limit.attachment_bytes refused with its body unread is a
+        // reset connection, not a 413, for the client and for a proxy in front.
+        crate::drain_refused_body(
+            req.into_body().into_data_stream(),
+            0,
+            crate::MAX_UPLOAD_BYTES + crate::DRAIN_BUDGET_BYTES,
+        )
+        .await;
         return response;
     }
     next.run(req).await

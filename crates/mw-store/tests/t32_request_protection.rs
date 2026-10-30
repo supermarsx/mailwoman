@@ -6,6 +6,116 @@ use mw_store::{
 mod test_db;
 
 #[tokio::test]
+async fn postgres_user_agent_upgrade_and_admission_use_isolated_schema() {
+    let dsn = std::env::var("DATABASE_URL_PG").or_else(|_| std::env::var("MW_TEST_PG"));
+    let Ok(dsn) = dsn else {
+        assert!(
+            std::env::var_os("MW_REQUIRE_LIVE").is_none(),
+            "PostgreSQL is required"
+        );
+        eprintln!("SKIP PostgreSQL user-agent upgrade: no test DSN");
+        return;
+    };
+    let schema = format!("ua_{}", test_db::unique_tag().replace('-', "_"));
+    let admin = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&dsn)
+        .await
+        .unwrap();
+    sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        .execute(&admin)
+        .await
+        .unwrap();
+    let scoped = format!(
+        "{dsn}{}options=-csearch_path%3D{schema}",
+        if dsn.contains('?') { "&" } else { "?" }
+    );
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&scoped)
+        .await
+        .unwrap();
+    sqlx::raw_sql(include_str!("../migrations_pg/0059_request_protection.sql"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO request_protection_subject VALUES('old','account','{}',100,999999,'revision')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO request_protection_event VALUES('event','old','account',100,'short-absolute','block',1,300,'{}')").execute(&pool).await.unwrap();
+    let mut transaction = pool.begin().await.unwrap();
+    sqlx::raw_sql(include_str!(
+        "../migrations_pg/0080_request_protection_user_agent.sql"
+    ))
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    transaction.commit().await.unwrap();
+    let old: (i64, String) = sqlx::query_as(
+        "SELECT expires_at,revision FROM request_protection_subject WHERE subject_key='old'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(old, (999999, "revision".into()));
+    let count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM request_protection_event WHERE id='event'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count.0, 1);
+    sqlx::query(
+        "INSERT INTO request_protection_subject VALUES('ua','ua-custom','{}',100,999999,'r')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(
+        sqlx::query("INSERT INTO request_protection_subject VALUES('bad','invalid','{}',1,2,'r')")
+            .execute(&pool)
+            .await
+            .is_err()
+    );
+    // Only these test-created tables exist in this unique schema. Start a fresh
+    // full store there to exercise the actual persisted admission API too.
+    sqlx::raw_sql("DROP TABLE request_protection_event; DROP TABLE request_protection_subject;")
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    let store = Store::open(&scoped, ServerKey::generate()).await.unwrap();
+    let mut p = policy();
+    p.rate_mode = Mode::Enforce;
+    p.rate_limit = 1;
+    p.max_stage = 1;
+    assert!(
+        !store
+            .request_protection("ua-ai-training", "192.0.2.99", &p, 100, None)
+            .await
+            .unwrap()
+            .decision
+            .enforced
+    );
+    assert!(
+        store
+            .request_protection("ua-ai-training", "192.0.2.99", &p, 100, None)
+            .await
+            .unwrap()
+            .decision
+            .enforced
+    );
+    drop(store);
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await
+        .unwrap();
+    admin.close().await;
+}
+
+#[tokio::test]
 async fn forward_key_repair_preserves_active_state_and_rejects_null_keys() {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
@@ -43,6 +153,34 @@ async fn forward_key_repair_preserves_active_state_and_rejects_null_keys() {
             .is_err()
     );
     assert!(sqlx::query("INSERT INTO request_protection_event VALUES(NULL,'subject','account',100,'long-absolute','block',1,300,'{}')").execute(&pool).await.is_err());
+    sqlx::raw_sql(include_str!(
+        "../migrations/0080_request_protection_user_agent.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let preserved:(String,i64,String)=sqlx::query_as("SELECT state_json,expires_at,revision FROM request_protection_subject WHERE subject_key='subject'").fetch_one(&pool).await.unwrap();
+    assert_eq!(preserved, row);
+    sqlx::query(
+        "INSERT INTO request_protection_subject VALUES('ua','ua-ai-training','{}',1,2,'r')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(
+        sqlx::query(
+            "INSERT INTO request_protection_subject VALUES('bad','arbitrary','{}',1,2,'r')"
+        )
+        .execute(&pool)
+        .await
+        .is_err()
+    );
+    let events: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM request_protection_event WHERE id='event'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(events.0, 1);
 }
 fn policy() -> Policy {
     Policy {
@@ -67,6 +205,7 @@ fn policy() -> Policy {
         throttle_secs: 3,
         block_secs: 300,
         decay_secs: 3600,
+        max_stage: 2,
     }
 }
 async fn exercise(store: Store, replica: Store, key: ServerKey) {

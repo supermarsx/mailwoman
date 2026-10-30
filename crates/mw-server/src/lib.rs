@@ -43,6 +43,7 @@ pub mod arf;
 mod attachment_policy;
 mod attachment_preview;
 mod branding_routes;
+mod client_access;
 mod config_routes;
 mod delivery_status;
 pub mod dlp;
@@ -60,6 +61,7 @@ mod notification_policy;
 pub mod push;
 pub mod push_relay;
 mod request_history;
+pub mod server_key;
 pub mod sharing;
 mod source_bans;
 mod static_resilience;
@@ -320,7 +322,7 @@ struct WebAssets;
 pub struct AppConfig {
     /// SQLite database path (file created if missing).
     pub db_path: String,
-    /// Hex-encoded 32-byte server key; `None` generates an ephemeral one.
+    /// Hex-encoded 32-byte server key; `None` uses the persistent local key file.
     pub server_key_hex: Option<String>,
     /// Serve static assets from this directory instead of the embedded set.
     pub web_dir: Option<PathBuf>,
@@ -1010,10 +1012,7 @@ pub async fn build_admin(
     db_path: &str,
     server_key_hex: Option<&str>,
 ) -> anyhow::Result<mw_admin::Admin> {
-    let key = match server_key_hex {
-        Some(h) => ServerKey::from_hex(h).map_err(|_| anyhow!("MW_SERVER_KEY is not valid hex"))?,
-        None => ServerKey::generate(),
-    };
+    let key = server_key::resolve(db_path, server_key_hex)?;
     let store = Store::open(db_path, key).await?;
     Ok(admin_apply::admin_for(
         store,
@@ -1066,19 +1065,10 @@ async fn build_app_inner(
     // Refuse the `MW_ADMIN_*` variables nothing applies, check the ones the security
     // policy overlay applies, and set the admin cookie name (t29-e6).
     webhooks::reject_legacy_inbound_secret()?;
-    let config_snapshot = config_routes::BootConfigSnapshot::from_config(&config);
+    let config_snapshot = config_routes::BootConfigSnapshot::from_config(&config)?;
     let geoip_dir = geoip::data_dir(&config.db_path);
     let admin_overlay = admin_apply::env_overlay()?;
-    let key = match &config.server_key_hex {
-        Some(h) => ServerKey::from_hex(h).map_err(|_| anyhow!("MW_SERVER_KEY is not valid hex"))?,
-        None => {
-            let k = ServerKey::generate();
-            tracing::warn!(
-                "MW_SERVER_KEY not set; generated an ephemeral key (set it to persist sessions across restarts)"
-            );
-            k
-        }
-    };
+    let key = server_key::resolve(&config.db_path, config.server_key_hex.as_deref())?;
     let store = Store::open(&config.db_path, key.clone()).await?;
     // Attachment upload store (t15): when `MW_UPLOAD_DIR` is configured, seal + write
     // uploaded blobs to that filesystem backend. Unset → the store keeps its default
@@ -1525,6 +1515,7 @@ fn router(
         .route("/api/sanitize", post(sanitize))
         .route("/api/import/oft", post(import_oft))
         .merge(attachment_preview::router())
+        .merge(client_access::router())
         .route("/api/attachments/policy", get(attachment_policy::get))
         .merge(delivery_status::router())
         .merge(branding_routes::router())
@@ -1605,6 +1596,10 @@ fn router(
         .layer(middleware::from_fn_with_state(
             state.clone(),
             linked_accounts::guard,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            client_access::guard,
         ))
         // Innermost: reject cross-origin / missing-CSRF writes before handlers.
         .layer(middleware::from_fn_with_state(
@@ -1850,6 +1845,12 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
         .remove::<appearance_customization::AppearanceSandboxResponse>()
         .is_some();
     let isolated_frame = reader_frame || appearance_frame;
+    // Only our fixed, script-free entry form may submit to this origin. Neither
+    // a request header nor upstream HTML can set this response marker.
+    let client_gate_page = resp
+        .extensions_mut()
+        .remove::<client_access::GatePageResponse>()
+        .is_some();
     // t63: the mail shell of a consenting user with a browser analytics tag. Only
     // `analytics_tag::mail_shell` sets it; it is the whole widened shell policy.
     let analytics_csp = resp
@@ -1861,7 +1862,12 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
     // header next to the shell's. The browser enforces both, so it can only
     // narrow what the shell policy allows.
     let own = h.remove("content-security-policy");
-    if let (true, Some(policy)) = (isolated_frame, own.as_ref()) {
+    if client_gate_page {
+        h.insert(
+            "content-security-policy",
+            HeaderValue::from_static(client_access::PAGE_CSP),
+        );
+    } else if let (true, Some(policy)) = (isolated_frame, own.as_ref()) {
         h.insert("content-security-policy", policy.clone());
     } else {
         h.insert(
@@ -1880,7 +1886,16 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
         "x-content-type-options",
         HeaderValue::from_static("nosniff"),
     );
-    h.insert("referrer-policy", HeaderValue::from_static("no-referrer"));
+    // A no-referrer native HTML form sends Origin:null in browsers. Preserve
+    // its same-origin proof without sending the private entry URL externally.
+    h.insert(
+        "referrer-policy",
+        HeaderValue::from_static(if client_gate_page {
+            "same-origin"
+        } else {
+            "no-referrer"
+        }),
+    );
     h.insert(
         "cross-origin-opener-policy",
         HeaderValue::from_static("same-origin"),
@@ -4117,7 +4132,7 @@ async fn read_body_capped(body: Body, cap: usize) -> Result<Bytes, ()> {
         // and that is the one case where closing immediately is right.
         let Ok(chunk) = chunk else { return Err(()) };
         if buf.len() + chunk.len() > cap {
-            drain_refused_body(stream, chunk.len()).await;
+            drain_refused_body(stream, chunk.len(), DRAIN_BUDGET_BYTES).await;
             return Err(());
         }
         buf.extend_from_slice(&chunk);
@@ -4128,12 +4143,18 @@ async fn read_body_capped(body: Body, cap: usize) -> Result<Bytes, ()> {
 /// Read and discard what is left of a body already refused, within both bounds.
 /// `already` is the size of the chunk that broke the cap, which was discarded
 /// too and so counts against the budget.
-async fn drain_refused_body(mut stream: axum::body::BodyDataStream, already: usize) {
+/// A refusal before reading uses the full upload-plus-drain budget; a refusal
+/// after reading the upload cap uses only the remaining drain budget.
+pub(crate) async fn drain_refused_body(
+    mut stream: axum::body::BodyDataStream,
+    already: usize,
+    budget: usize,
+) {
     use futures_util::StreamExt;
 
     let drained = tokio::time::timeout(DRAIN_DEADLINE, async {
         let mut seen = already;
-        while seen < DRAIN_BUDGET_BYTES {
+        while seen < budget {
             match stream.next().await {
                 Some(Ok(chunk)) => seen += chunk.len(),
                 // Finished, or hung up: either way there is nothing left to read.
@@ -6631,6 +6652,20 @@ mod external_base_tests {
             read <= MAX_UPLOAD_BYTES + DRAIN_BUDGET_BYTES + CHUNK,
             "the total read stays within the cap plus one drain budget, got {read}"
         );
+
+        // A policy refusal happens before any upload bytes are read. It has
+        // the same total ceiling, rather than losing the normal upload cap.
+        let seen = Arc::new(AtomicUsize::new(0));
+        let body = counted(offered, CHUNK, Arc::clone(&seen));
+        let budget = MAX_UPLOAD_BYTES + DRAIN_BUDGET_BYTES;
+        drain_refused_body(body.into_data_stream(), 0, budget).await;
+        let read = seen.load(Ordering::SeqCst);
+        assert!(
+            read >= budget,
+            "an early refusal must allow the full budget"
+        );
+        assert!(read <= budget + CHUNK, "an early refusal must stay bounded");
+        assert!(read < offered * CHUNK, "an endless body is not followed");
     }
 
     /// **t20-e-e2e D4.** With TLS terminated by this process there is no

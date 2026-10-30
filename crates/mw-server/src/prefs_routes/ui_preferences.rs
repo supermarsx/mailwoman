@@ -111,6 +111,10 @@ pub(super) struct Preferences {
     #[serde(skip_serializing_if = "Option::is_none")]
     folder_pinned: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    folder_hidden: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_folders_collapsed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     folder_order: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     folder_icons: Option<BTreeMap<String, String>>,
@@ -186,6 +190,7 @@ fn valid(document: &Document) -> bool {
         && p.offline_budget_mb.is_none_or(|v| v <= 100_000)
         && p.offline_retention_days.is_none_or(|v| v <= 36_500)
         && valid_ids(&p.folder_pinned)
+        && valid_ids(&p.folder_hidden)
         && valid_ids(&p.folder_order)
         && p.folder_labels.as_ref().is_none_or(|folders| {
             folders.len() <= 500

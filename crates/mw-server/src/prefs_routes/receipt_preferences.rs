@@ -122,7 +122,9 @@ async fn decision(
         .await
     {
         Ok(Some(value)) => ([("cache-control", "no-store")], Json(value)).into_response(),
-        Ok(None) => not_found("no available receipt request"),
+        // Most messages do not request a receipt. Absence is a normal result,
+        // not a failed request each time the reader displays a body.
+        Ok(None) => (StatusCode::NO_CONTENT, [("cache-control", "no-store")]).into_response(),
         Err(error) => {
             tracing::warn!("receipt decision unavailable: {error}");
             (

@@ -66,7 +66,7 @@ async fn authenticated_preferences_use_cas_and_reject_foreign_authority_fields()
     assert_eq!(initial.status(), 200);
     assert_eq!(initial.headers()["cache-control"], "private, no-store");
     assert_eq!(initial.headers()["etag"], "\"0\"");
-    let document = json!({"version":1,"preferences":{"markRead":"never","folderPinned":["inbox"],"folderIcons":{"inbox":"star"},"tags":{"work":{"name":"Trabalho","color":"#112233","icon":"tag"}},"folderLabels":{"inbox":["work"]}}});
+    let document = json!({"version":1,"preferences":{"markRead":"never","folderPinned":["inbox"],"folderHidden":["archive"],"userFoldersCollapsed":true,"folderIcons":{"inbox":"star"},"tags":{"work":{"name":"Trabalho","color":"#112233","icon":"tag"}},"folderLabels":{"inbox":["work"]}}});
     assert_eq!(
         client
             .put(&endpoint)
@@ -135,6 +135,9 @@ async fn authenticated_preferences_use_cas_and_reject_foreign_authority_fields()
         .unwrap();
     assert_eq!(latest, document);
     for preferences in [
+        json!({"folderHidden":["archive","archive"]}),
+        json!({"folderHidden":[""]}),
+        json!({"folderHidden":(0..501).map(|n| format!("folder-{n}")).collect::<Vec<_>>()}),
         json!({"folderSidebarWidth":159}),
         json!({"workspaceSplitRatio":0.9}),
         json!({"folderIcons":{"inbox":"https://external.invalid/avatar"}}),

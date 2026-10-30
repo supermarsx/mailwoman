@@ -17,11 +17,14 @@ pub(crate) struct BootConfigSnapshot {
 }
 
 impl BootConfigSnapshot {
-    pub(crate) fn from_config(config: &crate::AppConfig) -> Self {
-        Self {
+    pub(crate) fn from_config(config: &crate::AppConfig) -> anyhow::Result<Self> {
+        Ok(Self {
             database: knobs::redact(knobs::ValueKind::Dsn, Some(&config.db_path)),
-            persistent_key: config.server_key_hex.is_some(),
-        }
+            persistent_key: crate::server_key::is_persistent(
+                &config.db_path,
+                config.server_key_hex.as_deref(),
+            )?,
+        })
     }
 }
 

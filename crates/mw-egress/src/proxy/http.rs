@@ -280,6 +280,14 @@ async fn exchange_inner(
             .get(header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok()),
     );
+    let total = response
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+    if let Some(metadata) = out.response_metadata {
+        metadata.record_progress(0, total);
+    }
     let mut body = response.into_body();
     let mut buf: Vec<u8> = Vec::new();
     loop {
@@ -297,6 +305,9 @@ async fn exchange_inner(
                 return Err(ProxyRefusal::Origin(Refusal::TooLarge));
             }
             buf.extend_from_slice(chunk);
+            if let Some(metadata) = out.response_metadata {
+                metadata.record_progress(buf.len() as u64, total);
+            }
         }
     }
     Ok((Hop::Body(buf), media_type))
@@ -310,12 +321,15 @@ mod tests {
     async fn plugin_error_json_is_bounded_and_cookie_headers_are_not_forwarded() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let (client, mut server) = tokio::io::duplex(4096);
+        let (release, wait) = tokio::sync::oneshot::channel();
         let received = tokio::spawn(async move {
             let mut bytes = Vec::new();
             while !bytes.ends_with(b"\r\n\r\n") {
                 bytes.push(server.read_u8().await.unwrap());
             }
-            server.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 11\r\nSet-Cookie: upstream=secret\r\nConnection: close\r\n\r\n{\"error\":1}").await.unwrap();
+            server.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 11\r\nSet-Cookie: upstream=secret\r\nConnection: close\r\n\r\n{\"err").await.unwrap();
+            wait.await.unwrap();
+            server.write_all(b"or\":1}").await.unwrap();
             String::from_utf8(bytes).unwrap()
         });
         let metadata = crate::ResponseMetadata::default();
@@ -336,11 +350,24 @@ mod tests {
             body: None,
             download: None,
         };
-        let response = exchange_with(client, &url("https://approved.test/token"), &out)
+        let destination = url("https://approved.test/token");
+        let watch = async {
+            tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                while metadata.progress().is_none_or(|p| p.received_bytes != 5) {
+                    tokio::task::yield_now().await;
+                }
+            })
             .await
             .unwrap();
+            assert_eq!(metadata.progress().unwrap().total_bytes, Some(11));
+            release.send(()).unwrap();
+        };
+        let (response, ()) = tokio::join!(exchange_with(client, &destination, &out), watch);
+        let response = response.unwrap();
         assert!(matches!(response, Hop::Body(bytes) if bytes == b"{\"error\":1}"));
         assert_eq!(metadata.snapshot().unwrap().status, 400);
+        assert_eq!(metadata.progress().unwrap().received_bytes, 11);
+        assert_eq!(metadata.progress().unwrap().total_bytes, Some(11));
         let sent = received.await.unwrap().to_ascii_lowercase();
         assert!(sent.contains("authorization: bearer fixture-token\r\n"));
         assert!(!sent.contains("cookie:") && !sent.contains("proxy-authorization:"));

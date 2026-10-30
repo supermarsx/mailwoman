@@ -8,6 +8,7 @@
 //! carries the licence key.
 
 use std::io::Read;
+use std::sync::Arc;
 use std::time::Duration;
 
 use sha2::{Digest, Sha256};
@@ -77,9 +78,14 @@ async fn get(plan: &Plan, url: &reqwest::Url, limit: usize) -> Result<Vec<u8>, F
         redirect_hosts: &hosts,
         additional_roots: &plan.roots,
     };
+    let metadata = Arc::new(mw_egress::ResponseMetadata::default());
+    if limit == MAX_DOWNLOAD_BYTES {
+        super::download_response(metadata.clone());
+    }
     let request = mw_egress::Request::download(mw_egress::TrafficClass::GeoipDatabase, download)
         .map_err(describe)?
         .accept("application/octet-stream, application/gzip, */*")
+        .capture_response(&metadata)
         .response_limit(limit)
         .timeouts(TIMEOUTS);
     mw_egress::plan::send(url.clone(), &request)
@@ -130,6 +136,7 @@ pub(crate) async fn published_checksum(plan: &Plan) -> Result<Option<String>, Fe
 pub(crate) async fn fetch(plan: &Plan) -> Result<Downloaded, FetchError> {
     let expected = published_checksum(plan).await?;
     let bytes = get(plan, &plan.url, MAX_DOWNLOAD_BYTES).await?;
+    super::download_phase("verifying");
     let archive_sha256 = sha256_hex(&bytes);
     if let Some(expected) = &expected
         && *expected != archive_sha256

@@ -231,7 +231,8 @@ mod tests {
 
     async fn request(method: reqwest::Method, path: &str, inm: Option<&str>) -> Answer {
         let base = serve().await;
-        let mut req = reqwest::Client::new().request(method, format!("{base}{path}"));
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut req = client.request(method, format!("{base}{path}"));
         if let Some(v) = inm {
             req = req.header("if-none-match", v);
         }

@@ -30,72 +30,6 @@
 //!
 //! Timestamps are unix seconds and booleans are 0/1 (0033 wire contract).
 
-/// The settings write generation of this process (t87, the linked-mailbox
-/// policy memo): bumped by every statement this store runs against a table the
-/// resolution chain reads, so a cache of resolved values can tell at once that
-/// an admin or user change happened. It is bumped both before and after the
-/// statement (see [`WriteNote`]) so a reader that resolved while the write was
-/// in flight never keeps its result under the newer generation. Another server
-/// process sharing the database does not see it: callers also bound their
-/// caches with a short TTL.
-static SETTINGS_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-/// The current settings write generation (see [`SETTINGS_GENERATION`]).
-pub fn settings_generation() -> u64 {
-    SETTINGS_GENERATION.load(std::sync::atomic::Ordering::Acquire)
-}
-
-/// Tables whose rows can change an effective setting for some subject.
-const RESOLUTION_TABLES: &[&str] = &[
-    "setting_value",
-    "setting_policy",
-    "personal_setting_value",
-    "user_group",
-    "feature_profile",
-    "settings",
-    "domains",
-    "domain_config",
-    "session_principal",
-    "identity_binding",
-    "identity_principal",
-];
-
-/// Whether `sql` writes one of [`RESOLUTION_TABLES`].
-pub(crate) fn writes_resolution_table(sql: &str) -> bool {
-    let lower = sql.trim_start().to_ascii_lowercase();
-    if lower.starts_with("select") {
-        return false;
-    }
-    lower
-        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-        .any(|word| {
-            RESOLUTION_TABLES.contains(&word)
-                || RESOLUTION_TABLES
-                    .iter()
-                    .any(|t| word.starts_with(t) && word[t.len()..].starts_with('_'))
-        })
-}
-
-/// Bumps the generation when created and again when dropped, around one write
-/// statement to a resolution table (a no-op for any other statement).
-pub(crate) struct WriteNote(bool);
-impl WriteNote {
-    pub(crate) fn new(sql: &str) -> Self {
-        let hit = writes_resolution_table(sql);
-        if hit {
-            SETTINGS_GENERATION.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-        }
-        Self(hit)
-    }
-}
-impl Drop for WriteNote {
-    fn drop(&mut self) {
-        if self.0 {
-            SETTINGS_GENERATION.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-        }
-    }
-}
-
 use crate::backend::{Row, Tx, q};
 use crate::{Store, StoreError};
 
@@ -244,6 +178,73 @@ async fn write_policy_tx(tx: &mut Tx, row: &SettingPolicyRow) -> Result<(), Stor
     Ok(())
 }
 
+/// A per-store memo of one settings read (t87/t99): an entry is served only
+/// while `settings_revision` (migration 0078: bumped by triggers in the same
+/// transaction as any write to a table these reads use) still has the value it
+/// was read under, so a change by this process, another process or raw SQL is
+/// seen by the next read. [`READ_TTL`] only bounds memory.
+type MemoEntries<V> = std::collections::HashMap<(uuid::Uuid, String), (V, i64, std::time::Instant)>;
+pub(crate) struct ReadMemo<V>(std::sync::Mutex<Option<MemoEntries<V>>>);
+const READ_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+const READ_CAPACITY: usize = 8192;
+impl<V: Clone> ReadMemo<V> {
+    const fn new() -> Self {
+        Self(std::sync::Mutex::new(None))
+    }
+    fn get(&self, scope: uuid::Uuid, key: &str, revision: i64) -> Option<V> {
+        let mut guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let map = guard.get_or_insert_with(Default::default);
+        let probe = (scope, key.to_owned());
+        match map.get(&probe) {
+            Some((value, at, when)) if *at == revision && when.elapsed() < READ_TTL => {
+                Some(value.clone())
+            }
+            Some(_) => {
+                map.remove(&probe);
+                None
+            }
+            None => None,
+        }
+    }
+    /// `revision` is the one read BEFORE the store read, so a write that raced
+    /// it leaves the entry already stale.
+    fn put(&self, scope: uuid::Uuid, key: String, revision: i64, value: V) {
+        let mut guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let map = guard.get_or_insert_with(Default::default);
+        if map.len() >= READ_CAPACITY {
+            map.clear();
+        }
+        map.insert((scope, key), (value, revision, std::time::Instant::now()));
+    }
+}
+static CANONICAL_MEMO: ReadMemo<CanonicalSettingSubject> = ReadMemo::new();
+static POLICY_MEMO: ReadMemo<Option<SettingPolicyRow>> = ReadMemo::new();
+static VALUES_MEMO: ReadMemo<Vec<SettingValueRow>> = ReadMemo::new();
+fn subject_key(subject: &SettingSubject<'_>) -> String {
+    format!(
+        "{:?}\u{1f}{}\u{1f}{}\u{1f}{}",
+        subject.personal_owner, subject.domain, subject.account_id, subject.address
+    )
+}
+
+impl Store {
+    /// Identifies this store instance (and its clones) within the process, for
+    /// in-memory caches of resolved settings that must not be shared between two
+    /// stores, such as two test servers on different databases (t87).
+    pub fn cache_scope(&self) -> uuid::Uuid {
+        self.cache_id
+    }
+
+    /// The settings revision (migration 0078), or `None` when its row is
+    /// missing, which turns every memo off rather than serving stale values.
+    pub async fn settings_revision(&self) -> Result<Option<i64>, StoreError> {
+        Ok(q("SELECT n FROM settings_revision WHERE id=1")
+            .fetch_optional(&self.backend)
+            .await?
+            .map(|row| row.get_i64("n")))
+    }
+}
+
 impl Store {
     /// Resolve only explicit domain aliases for policy. This deliberately never
     /// consults the preferred domain: an existing bare login has no domain.
@@ -293,7 +294,25 @@ impl Store {
         Ok(domains)
     }
 
+    /// Memoized (t87): see [`ReadMemo`].
     pub async fn canonical_setting_subject(
+        &self,
+        subject: &SettingSubject<'_>,
+    ) -> Result<CanonicalSettingSubject, StoreError> {
+        let scope = self.cache_scope();
+        let key = subject_key(subject);
+        let Some(revision) = self.settings_revision().await? else {
+            return self.canonical_setting_subject_uncached(subject).await;
+        };
+        if let Some(hit) = CANONICAL_MEMO.get(scope, &key, revision) {
+            return Ok(hit);
+        }
+        let value = self.canonical_setting_subject_uncached(subject).await?;
+        CANONICAL_MEMO.put(scope, key, revision, value.clone());
+        Ok(value)
+    }
+
+    async fn canonical_setting_subject_uncached(
         &self,
         subject: &SettingSubject<'_>,
     ) -> Result<CanonicalSettingSubject, StoreError> {
@@ -308,7 +327,25 @@ impl Store {
     }
 
     /// The policy row of `key`, or `None` when nothing was ever stored for it.
+    /// Memoized (t87): see [`ReadMemo`].
     pub async fn get_setting_policy(
+        &self,
+        key: &str,
+    ) -> Result<Option<SettingPolicyRow>, StoreError> {
+        let scope = self.cache_scope();
+        let memo_key = key.to_owned();
+        let Some(revision) = self.settings_revision().await? else {
+            return self.get_setting_policy_uncached(key).await;
+        };
+        if let Some(hit) = POLICY_MEMO.get(scope, &memo_key, revision) {
+            return Ok(hit);
+        }
+        let value = self.get_setting_policy_uncached(key).await?;
+        POLICY_MEMO.put(scope, memo_key, revision, value.clone());
+        Ok(value)
+    }
+
+    async fn get_setting_policy_uncached(
         &self,
         key: &str,
     ) -> Result<Option<SettingPolicyRow>, StoreError> {
@@ -571,7 +608,25 @@ impl Store {
     /// either of its two ids (the account id, and the canonical address that the
     /// `limit.*`/`quota.*` keys use). Pass an empty string for an id the caller
     /// does not have.
+    /// Memoized (t87): see [`ReadMemo`].
     pub async fn setting_values_for_subject(
+        &self,
+        subject: &SettingSubject<'_>,
+    ) -> Result<Vec<SettingValueRow>, StoreError> {
+        let scope = self.cache_scope();
+        let key = subject_key(subject);
+        let Some(revision) = self.settings_revision().await? else {
+            return self.setting_values_for_subject_uncached(subject).await;
+        };
+        if let Some(hit) = VALUES_MEMO.get(scope, &key, revision) {
+            return Ok(hit);
+        }
+        let value = self.setting_values_for_subject_uncached(subject).await?;
+        VALUES_MEMO.put(scope, key, revision, value.clone());
+        Ok(value)
+    }
+
+    async fn setting_values_for_subject_uncached(
         &self,
         subject: &SettingSubject<'_>,
     ) -> Result<Vec<SettingValueRow>, StoreError> {
@@ -1509,43 +1564,189 @@ mod policy_batch_tests {
 }
 
 #[cfg(test)]
-mod t87_generation {
+mod t87_read_memo {
     use super::*;
+    use crate::ServerKey;
 
-    #[test]
-    fn writes_to_resolution_tables_are_recognised_and_reads_are_not() {
-        for sql in [
-            "INSERT INTO setting_policy(key) VALUES(?1)",
-            "DELETE FROM setting_value WHERE key=?1",
-            "UPDATE user_group SET name=?1",
-            "INSERT INTO user_group_member(a) VALUES(?1)",
-            "DELETE FROM feature_profile_assignment WHERE id=?1",
-            "INSERT INTO personal_setting_value(a) VALUES(?1)",
-            "INSERT INTO settings(key,value) VALUES(?1,?2)",
-        ] {
-            assert!(writes_resolution_table(sql), "{sql}");
-        }
-        for sql in [
-            "SELECT * FROM setting_value",
-            "INSERT INTO messages(id) VALUES(?1)",
-            "UPDATE sessions SET last_seen=?1",
-            "DELETE FROM linked_grant WHERE link_id=?1",
-        ] {
-            assert!(!writes_resolution_table(sql), "{sql}");
+    fn row(key: &str, global: &str) -> SettingPolicyRow {
+        SettingPolicyRow {
+            key: key.into(),
+            global_value: Some(global.into()),
+            allow_user_override: true,
+            global_locked: false,
+            updated_by: "t87".into(),
+            updated_at: 1,
         }
     }
 
-    #[test]
-    fn a_write_note_bumps_before_and_after() {
-        let before = settings_generation();
-        {
-            let _note = WriteNote::new("DELETE FROM setting_policy WHERE key=?1");
-            assert!(settings_generation() > before);
+    #[tokio::test]
+    async fn stores_sharing_upload_storage_keep_independent_memos() {
+        let uploads = crate::upload::fail_closed_backend();
+        let first = Store::open_in_memory(ServerKey::generate())
+            .await
+            .unwrap()
+            .with_upload_backend(uploads.clone());
+        let second = Store::open_in_memory(ServerKey::generate())
+            .await
+            .unwrap()
+            .with_upload_backend(uploads);
+        first
+            .put_setting_policy(&row("t87.shared", "true"))
+            .await
+            .unwrap();
+        second
+            .put_setting_policy(&row("t87.shared", "false"))
+            .await
+            .unwrap();
+        assert_eq!(
+            first.settings_revision().await.unwrap(),
+            second.settings_revision().await.unwrap()
+        );
+        assert_eq!(
+            first
+                .get_setting_policy("t87.shared")
+                .await
+                .unwrap()
+                .unwrap()
+                .global_value
+                .as_deref(),
+            Some("true")
+        );
+        assert_eq!(
+            second
+                .get_setting_policy("t87.shared")
+                .await
+                .unwrap()
+                .unwrap()
+                .global_value
+                .as_deref(),
+            Some("false")
+        );
+        assert_eq!(first.cache_scope(), first.clone().cache_scope());
+        let scope = first.cache_scope();
+        let replaced = first.with_upload_backend(crate::upload::fail_closed_backend());
+        assert_eq!(scope, replaced.cache_scope());
+    }
+
+    #[tokio::test]
+    async fn a_write_through_another_connection_shows_on_the_next_read() {
+        // Another process, or a raw SQL write, on the same database: only the
+        // revision row the triggers bump tells this store's memo.
+        let dir = std::env::temp_dir().join(format!("mw-t87-memo-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mw.db").to_string_lossy().into_owned();
+        let key = ServerKey::generate();
+        let reader = Store::open(&path, key.clone()).await.unwrap();
+        let writer = Store::open(&path, key).await.unwrap();
+        writer
+            .put_setting_policy(&row("t87.x", "\"a\""))
+            .await
+            .unwrap();
+        for _ in 0..2 {
+            let got = reader.get_setting_policy("t87.x").await.unwrap().unwrap();
+            assert_eq!(got.global_value.as_deref(), Some("\"a\""));
         }
-        assert!(settings_generation() >= before + 2);
-        let quiet = settings_generation();
-        drop(WriteNote::new("UPDATE sessions SET x=1"));
-        // Other tests may write concurrently; a non-resolution write itself adds nothing.
-        let _ = quiet;
+        writer
+            .put_setting_policy(&row("t87.x", "\"b\""))
+            .await
+            .unwrap();
+        let got = reader.get_setting_policy("t87.x").await.unwrap().unwrap();
+        assert_eq!(got.global_value.as_deref(), Some("\"b\""));
+        assert!(writer.delete_setting_policy("t87.x").await.unwrap());
+        assert!(reader.get_setting_policy("t87.x").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn revision_tracks_identity_changes_and_only_committed_writes() {
+        let s = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let initial = s.settings_revision().await.unwrap().unwrap();
+        let mut tx = s.backend.begin().await.unwrap();
+        q("INSERT INTO identity_principal(id,state,created_at) VALUES('memo-identity','active',1)")
+            .execute_tx(&mut tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        assert!(s.settings_revision().await.unwrap().unwrap() > initial);
+        let committed = s.settings_revision().await.unwrap();
+        let mut tx = s.backend.begin().await.unwrap();
+        q("UPDATE identity_principal SET state='disabled' WHERE id='memo-identity'")
+            .execute_tx(&mut tx)
+            .await
+            .unwrap();
+        drop(tx);
+        assert_eq!(s.settings_revision().await.unwrap(), committed);
+        q("UPDATE identity_principal SET state='disabled' WHERE id='memo-identity'")
+            .execute(&s.backend)
+            .await
+            .unwrap();
+        assert!(s.settings_revision().await.unwrap() > committed);
+    }
+
+    #[tokio::test]
+    async fn every_write_shows_on_the_next_read() {
+        let s = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let other = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let subject = SettingSubject {
+            personal_owner: None,
+            domain: "example.org",
+            account_id: "a1",
+            address: "u@example.org",
+        };
+        s.put_setting_policy(&row("t87.k", "\"one\""))
+            .await
+            .unwrap();
+        // Read twice: the second may be the memo.
+        for _ in 0..2 {
+            let got = s.get_setting_policy("t87.k").await.unwrap().unwrap();
+            assert_eq!(got.global_value.as_deref(), Some("\"one\""));
+        }
+        // Another store in the same process never sees this one's memo.
+        assert!(other.get_setting_policy("t87.k").await.unwrap().is_none());
+        // A plain write.
+        s.put_setting_policy(&row("t87.k", "\"two\""))
+            .await
+            .unwrap();
+        let got = s.get_setting_policy("t87.k").await.unwrap().unwrap();
+        assert_eq!(got.global_value.as_deref(), Some("\"two\""));
+        // A transactional write (compare_setting_policy commits a transaction).
+        let current = s.get_setting_policy("t87.k").await.unwrap();
+        assert!(
+            s.compare_setting_policy("t87.k", current.as_ref(), Some(&row("t87.k", "\"three\"")))
+                .await
+                .unwrap()
+        );
+        let got = s.get_setting_policy("t87.k").await.unwrap().unwrap();
+        assert_eq!(got.global_value.as_deref(), Some("\"three\""));
+        // Subject values: a domain value appears on the next read.
+        assert!(
+            s.setting_values_for_subject(&subject)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        s.put_setting_value(&SettingValueRow {
+            scope: SettingScope::Domain,
+            scope_id: "example.org".into(),
+            key: "t87.k".into(),
+            value: "\"dom\"".into(),
+            locked: false,
+            updated_by: "t87".into(),
+            updated_at: 1,
+        })
+        .await
+        .unwrap();
+        let values = s.setting_values_for_subject(&subject).await.unwrap();
+        assert_eq!(values.len(), 1, "{values:?}");
+        assert!(
+            s.delete_setting_value(SettingScope::Domain, "example.org", "t87.k")
+                .await
+                .unwrap()
+        );
+        assert!(
+            s.setting_values_for_subject(&subject)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 }

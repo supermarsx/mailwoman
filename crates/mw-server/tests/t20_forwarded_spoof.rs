@@ -1319,11 +1319,13 @@ async fn an_oversize_upload_lets_the_client_finish_writing() {
         .unwrap_or_default();
     let json: Value = serde_json::from_str(body.trim())
         .unwrap_or_else(|e| panic!("the 413 body must be JSON ({e}); body was: {body}"));
-    assert_eq!(json["error"], "payload too large");
-    assert_eq!(json["limit"], "maxSizeUpload");
+    // The attachment policy rejects the declared length before the handler
+    // reads any bytes. Its response remains a policy refusal after draining.
+    assert_eq!(json["code"], "limit_exceeded");
+    assert_eq!(json["limit"], "limit.attachment_bytes");
     assert_eq!(
-        json["maxBytes"], MAX_UPLOAD_BYTES,
-        "this test's mirrored cap has drifted from lib.rs's MAX_UPLOAD_BYTES"
+        json["max"], MAX_UPLOAD_BYTES,
+        "this test's mirrored cap has drifted from the default attachment limit"
     );
 }
 

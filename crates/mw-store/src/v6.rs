@@ -1775,6 +1775,7 @@ mod tests {
         let pre = crate::Store {
             backend: crate::backend::Backend::Sqlite(pool.clone()),
             key: ServerKey::from_bytes(&[9u8; 32]).unwrap(),
+            cache_id: uuid::Uuid::new_v4(),
             uploads: crate::upload::fail_closed_backend(),
         };
         let has_column = q(

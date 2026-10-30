@@ -635,7 +635,7 @@ async fn sender_rules_require_authority_current_revision_and_real_account() {
             .await
             .unwrap()
             .status(),
-        404
+        204
     );
 }
 

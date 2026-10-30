@@ -100,6 +100,7 @@ fn endpoints(r: &mut impl AdminRegistrar) {
     crate::geoip::register(r);
     crate::deployment_security::register(r);
     crate::console_path::register(r);
+    crate::client_access::register(r);
     crate::request_budget::register(r);
     crate::oidc_provider::register(r);
     crate::application_logs::register(r);

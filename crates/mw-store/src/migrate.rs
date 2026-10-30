@@ -211,6 +211,12 @@ const TABLES: &[TableSpec] = &[
         map: |r| vec![t(r, "key"), t(r, "value")],
     },
     TableSpec {
+        name: "user_activity",
+        select: "SELECT account_id,last_seen_at FROM user_activity",
+        insert: "INSERT INTO user_activity(account_id,last_seen_at) VALUES(?1,?2)",
+        map: |r| vec![t(r, "account_id"), t(r, "last_seen_at")],
+    },
+    TableSpec {
         name: "sessions",
         // 0033 (26.20): the device columns travel with the session, so "sign out
         // this device" still names the right device after a move.

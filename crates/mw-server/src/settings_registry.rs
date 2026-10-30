@@ -1712,6 +1712,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "self-hosted interface font; account choice or administrator default/lock"
     ),
     def!(
+        "appearance.leetspeak",
+        Kind::Bool,
+        "false",
+        GDU,
+        "appearance",
+        "optional leetspeak presentation for interface and message reading; stored text and submitted values stay unchanged"
+    ),
+    def!(
         "appearance.brandName",
         text(Text::Plain, 64),
         "\"Mailwoman\"",
@@ -1742,6 +1750,14 @@ pub static REGISTRY: &[SettingDef] = &[
         G,
         "appearance",
         "show explanatory text for remembered sign-in addresses"
+    ),
+    def!(
+        "login.showAccountHelpNotice",
+        Kind::Bool,
+        "false",
+        GD,
+        "appearance",
+        "show optional account-help notice after a refused sign-in"
     ),
     nullable(def!(
         "login.notice",
@@ -2095,6 +2111,95 @@ pub static REGISTRY: &[SettingDef] = &[
         G,
         "security",
         "Closed refuses protected work when an enabled enforcement budget cannot be checked. Open temporarily permits it with a bounded operational warning. Observe-only failures never impose an enforcement action."
+    ),
+    def!(
+        "security.protection.userAgentMode",
+        Kind::Enum(&["off", "observe", "enforce"]),
+        "\"enforce\"",
+        G,
+        "security",
+        "Independent, enabled lax protection for self-claimed client classes. No header alone establishes abuse; repeated requests and authoritative anomalies use the existing counter engine."
+    ),
+    def!(
+        "security.protection.userAgentCategories",
+        Kind::StringList {
+            max_len: 7,
+            max_item: 32
+        },
+        "[\"missing\",\"uncommon\",\"automation\",\"search\",\"ai-training\",\"ai-search\",\"ai-user\"]",
+        G,
+        "security",
+        "Enabled header-claim categories. Known browser and mail-client families have no extra user-agent budget; these are not verified crawler identities."
+    ),
+    def!(
+        "security.protection.userAgentWeakRequests",
+        int(1, 1000000),
+        "600",
+        G,
+        "security",
+        "Lax per-source request allowance for missing, uncommon, automation and custom-pattern claims."
+    ),
+    def!(
+        "security.protection.userAgentCrawlerRequests",
+        int(1, 1000000),
+        "300",
+        G,
+        "security",
+        "Per-source request allowance for claimed search, AI training, AI search and user-triggered AI fetchers."
+    ),
+    def!(
+        "security.protection.userAgentWindowSecs",
+        int(1, 3600),
+        "60",
+        G,
+        "security",
+        "User-agent request-budget interval; independent of the legacy rate and adaptive mode switches."
+    ),
+    def!(
+        "security.protection.userAgentMaxAction",
+        Kind::Enum(&["throttle", "block"]),
+        "\"throttle\"",
+        G,
+        "security",
+        "Maximum adaptive escalation for user-agent subjects. Default throttle never escalates to a block. Request-rate exhaustion always uses a temporary 429."
+    ),
+    def!(
+        "security.protection.userAgentScope",
+        Kind::Enum(&["anonymous", "all"]),
+        "\"anonymous\"",
+        G,
+        "security",
+        "By default only anonymous and sign-in requests receive the extra budget. All includes verified sessions; operator recovery remains available."
+    ),
+    def!(
+        "security.protection.userAgentAdaptive",
+        Kind::Bool,
+        "true",
+        G,
+        "security",
+        "Combine the extra budget with the existing selected authoritative signals and rolling-window thresholds. A user-agent claim itself is never counted as an anomaly."
+    ),
+    def!(
+        "security.protection.userAgentPatterns",
+        Kind::StringList {
+            max_len: 32,
+            max_item: 256
+        },
+        "[]",
+        G,
+        "security",
+        "Additional case-insensitive Rust regular expressions for custom weak claims. Compiled with bounded size; no backreferences or lookaround."
+    ),
+    def!(
+        "security.protection.userAgentExceptions",
+        Kind::StringList {
+            max_len: 32,
+            max_item: 256
+        },
+        "[]",
+        G,
+        "security",
+        "Case-insensitive regular expressions exempting only the new user-agent dimension, never existing rate, adaptive or sign-in controls."
     ),
     // ── Admin-probe protection (t100, admin_probe.rs) ────────────────────────
     dedicated(
@@ -3468,6 +3573,8 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                             "security.protection.exemptClients"
                                 | "security.protection.exemptAccounts"
                                 | "security.protection.exemptAdmins"
+                                | "security.protection.userAgentPatterns"
+                                | "security.protection.userAgentExceptions"
                                 | "security.adminProbe.allowlist"
                         ) {
                             !b.is_ascii_control()
@@ -3492,6 +3599,8 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                                 | "admin-unauthenticated"
                         ))
                     || (def.key == "links.trustedDomains" && !link_trust::is_canonical(text))
+                    || (def.key == "security.protection.userAgentCategories"
+                        && !crate::request_protection::user_agent::CATEGORIES.contains(&text))
                     || (def.key == "security.protection.signals"
                         && !matches!(
                             text,
@@ -3509,6 +3618,13 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                         "must be a unique value using the permitted characters",
                     ));
                 }
+            }
+            if matches!(
+                def.key,
+                "security.protection.userAgentPatterns" | "security.protection.userAgentExceptions"
+            ) && !crate::request_protection::user_agent::valid_patterns(value)
+            {
+                return bad("must contain bounded valid Rust regular expressions".into());
             }
             Ok(value.clone())
         }
@@ -4036,6 +4152,16 @@ mod tests {
             assert!(validate(def, &serde_json::json!(true), "/value").is_ok());
             assert!(validate(def, &serde_json::json!("true"), "/value").is_err());
         }
+    }
+
+    #[test]
+    fn account_help_notice_is_admin_scoped_and_hidden_by_default() {
+        let def = lookup("login.showAccountHelpNotice").unwrap();
+        assert_eq!(def.default_value(), json!(false));
+        assert_eq!(def.scopes, Scopes::GlobalDomain);
+        assert!(!def.user_override);
+        assert!(validate(def, &json!(true), "/value").is_ok());
+        assert!(validate(def, &json!("true"), "/value").is_err());
     }
 
     #[test]

@@ -31,12 +31,13 @@ encoding_rs = "=0.8.35"
 cfb = "0.10"
 # Image decode + re-encode. `default-features = false` drops `rayon` (threads —
 # unavailable on `wasm32-unknown-unknown`) and every C/`-sys` codec; only the
-# pure-Rust png/jpeg/gif backends are enabled. Re-encoding to PNG drops every
+# pure-Rust png/jpeg/gif/webp backends are enabled. Re-encoding to PNG drops every
 # ancillary chunk (EXIF/GPS/comments), normalising the image.
 image = { version = "0.25", default-features = false, features = [
     "png",
     "jpeg",
     "gif",
+    "webp",
 ] }
 
 [profile.release]

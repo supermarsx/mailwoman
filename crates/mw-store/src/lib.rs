@@ -147,6 +147,7 @@ mod state_counters;
 // `HTTP_PROXY` that t22-e8 refuses everywhere. The password is sealed at rest and
 // redacted from `Debug`.
 mod egress_config;
+mod entry_settings;
 // 0032 (26.20 t29-e8): opt-in open tracking. Tokens kept as SHA-256 only, subject
 // and recipients sealed, a recorded load is a timestamp and nothing else.
 mod open_tracking;
@@ -280,6 +281,8 @@ pub struct SessionNames {
 
 #[derive(Clone)]
 pub struct Store {
+    /// Stable across clones and independent of replaceable storage backends.
+    cache_id: uuid::Uuid,
     backend: Backend,
     key: ServerKey,
     /// At-rest storage for sealed upload objects (0012). Defaults to a fail-closed
@@ -329,6 +332,7 @@ impl Store {
         let store = Self {
             backend: Backend::Postgres(pool),
             key,
+            cache_id: uuid::Uuid::new_v4(),
             uploads: upload::fail_closed_backend(),
         };
         sqlx::migrate!("./migrations_pg")
@@ -357,6 +361,7 @@ impl Store {
         let store = Self {
             backend: Backend::Sqlite(pool),
             key,
+            cache_id: uuid::Uuid::new_v4(),
             uploads: upload::fail_closed_backend(),
         };
         // 0019 (26.17): seal any pre-existing plaintext Note metadata at rest.
@@ -746,6 +751,7 @@ mod tests {
         let other = Store {
             backend: store.backend().clone(),
             key: ServerKey::generate(),
+            cache_id: uuid::Uuid::new_v4(),
             uploads: store.uploads.clone(),
         };
         assert!(other.get_session(&id).await.is_err());
@@ -757,6 +763,7 @@ mod tests {
         Store {
             backend: store.backend().clone(),
             key: ServerKey::generate(),
+            cache_id: uuid::Uuid::new_v4(),
             uploads: store.uploads.clone(),
         }
     }

@@ -5531,6 +5531,7 @@ version = "26.19.0"
 dependencies = [
  "ammonia",
  "cssparser 0.37.0",
+ "html5ever 0.39.0",
  "wasm-bindgen",
 ]
 
@@ -5609,6 +5610,7 @@ dependencies = [
  "rand 0.10.3",
  "rand 0.8.7",
  "rcgen",
+ "regex",
  "reqwest 0.12.28",
  "russh",
  "rust-embed",
@@ -5627,8 +5629,10 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "url",
  "uuid",
  "webpki-roots 1.0.11",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 

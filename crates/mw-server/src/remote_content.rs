@@ -113,7 +113,8 @@ pub(crate) async fn message_stats(
     // t56 for t55's loading toast: distinct proxied images of this message, for
     // this session, that answered an image / failed (timeout, upstream failure,
     // non-success, too large, remembered failure or no free slot in time).
-    let (loaded, failed) = fetch_limits::read_outcomes(&session.account_id, &tag, &query.email_id);
+    let (loaded, failed, failed_refs, retryable_refs) =
+        fetch_limits::outcome_details(&session.account_id, &tag, &query.email_id);
     (
         [(header::CACHE_CONTROL, "no-store")],
         Json(json!({
@@ -122,6 +123,8 @@ pub(crate) async fn message_stats(
             "windowSecs": IMAGE_TTL_SECS,
             "imagesLoaded": loaded,
             "imagesFailed": failed,
+            "failedImageRefs": failed_refs,
+            "retryableImageRefs": retryable_refs,
         })),
     )
         .into_response()
@@ -332,6 +335,9 @@ pub(crate) struct Claims {
     pub u: String,
     /// Expiry, unix seconds.
     pub x: i64,
+    /// Cache nonce for an explicit retry; the standard signed expiry still applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n: Option<String>,
 }
 
 type HmacSha256 = Hmac<Sha256>;
@@ -511,6 +517,9 @@ pub(crate) async fn sign(
         e: body.email_id.clone(),
         u: u.to_string(),
         x: now + ttl,
+        n: body
+            .retry
+            .then(|| format!("{:032x}", rand::random::<u128>())),
     };
 
     let mut images = Vec::new();
@@ -534,21 +543,27 @@ pub(crate) async fn sign(
                 let token = mint(&key, &claims(Kind::Image, url, IMAGE_TTL_SECS));
                 images.push(json!({
                     "url": url,
+                    "ref": fetch_limits::image_reference(url),
                     "src": format!("{}/api/rc/i/{token}", state.base_path),
                 }));
             }
         }
     }
-    // A new load of these images: the toast's counters start again (t67).
-    fetch_limits::forget_outcomes(
-        &session.account_id,
-        &sid,
-        &body.email_id,
-        images
-            .iter()
-            .filter_map(|image| image["url"].as_str())
-            .collect::<Vec<_>>(),
-    );
+    // Ordinary signing is idempotent: the reader may refresh its message object
+    // while the browser retains the exact same signed image URLs. Erasing those
+    // outcomes would leave no subsequent fetch to restore progress or retries.
+    // Only an explicit retry starts a fresh load for its accepted targets.
+    if body.retry {
+        fetch_limits::forget_outcomes(
+            &session.account_id,
+            &sid,
+            &body.email_id,
+            images
+                .iter()
+                .filter_map(|image| image["url"].as_str())
+                .collect::<Vec<_>>(),
+        );
+    }
     let mut files = Vec::new();
     for url in &body.files {
         if url.len() > MAX_URL_LEN
@@ -842,6 +857,7 @@ async fn fetch_image(
         if tracker {
             tracker_stats::record(&claims.a, &claims.s, &claims.e, &claims.u, claims.x);
         }
+        fetch_limits::record_outcome(&claims.a, &claims.s, &claims.e, &claims.u, true, claims.x);
         if if_none_match(&headers, &etag) {
             let mut response = not_modified(&etag);
             response.headers_mut().insert(
@@ -854,11 +870,6 @@ async fn fetch_image(
             );
             return response;
         }
-        if !tracker {
-            fetch_limits::record_outcome(
-                &claims.a, &claims.s, &claims.e, &claims.u, true, claims.x,
-            );
-        }
         return signed_image(png, etag, tracker);
     }
     let outcome = |loaded: bool| {
@@ -868,6 +879,11 @@ async fn fetch_image(
     // no network, and charging for it would let a dead host drain the budget.
     if let Some(failure) = fetch_limits::remembered(&claims.a, &claims.u) {
         outcome(false);
+        if fetch_limits::retryable_refusal(&failure.refusal()) {
+            fetch_limits::record_retryable_failure(
+                &claims.a, &claims.s, &claims.e, &claims.u, claims.x,
+            );
+        }
         return failed_response(failure.refusal());
     }
     if !rate_limiter()
@@ -879,6 +895,9 @@ async fn fetch_image(
             policy.rate_per_min as f64 / 60.0,
         )
     {
+        fetch_limits::record_retryable_failure(
+            &claims.a, &claims.s, &claims.e, &claims.u, claims.x,
+        );
         return (
             StatusCode::TOO_MANY_REQUESTS,
             "remote content rate limit exceeded",
@@ -907,6 +926,15 @@ async fn fetch_image(
         Ok(fetched) => fetched,
         Err(response) => {
             outcome(false);
+            if response
+                .headers()
+                .get("x-mw-remote-retryable")
+                .is_some_and(|v| v == "1")
+            {
+                fetch_limits::record_retryable_failure(
+                    &claims.a, &claims.s, &claims.e, &claims.u, claims.x,
+                );
+            }
             return response;
         }
     };
@@ -925,6 +953,7 @@ async fn fetch_image(
         .is_some_and(|value| value == "tracker")
     {
         tracker_stats::record(&claims.a, &claims.s, &claims.e, &claims.u, claims.x);
+        outcome(true);
     } else {
         outcome(response.status().is_success());
     }
@@ -1004,9 +1033,13 @@ pub(super) async fn guarded_fetch(
 /// loop either. A new signed link (Retry images) is a new URL.
 pub(super) fn failed_response(refusal: mw_egress::Refusal) -> Response {
     let cacheable = fetch_limits::Failure::of(&refusal).is_some();
+    let retryable = fetch_limits::retryable_refusal(&refusal);
     let mut response = refusal_response(refusal);
     let h = response.headers_mut();
     h.insert("x-mw-remote-content", HeaderValue::from_static("failed"));
+    if retryable {
+        h.insert("x-mw-remote-retryable", HeaderValue::from_static("1"));
+    }
     h.insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static(if cacheable {
@@ -1026,6 +1059,7 @@ fn busy_response() -> Response {
     h.insert("x-mw-remote-content", HeaderValue::from_static("failed"));
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     h.insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
+    h.insert("x-mw-remote-retryable", HeaderValue::from_static("1"));
     response
 }
 
@@ -1493,6 +1527,7 @@ mod tests {
             e: "M1".into(),
             u: "https://cdn.example/a.png".into(),
             x,
+            n: None,
         }
     }
 
@@ -1502,6 +1537,19 @@ mod tests {
         assert_eq!(verify(&KEY, &t, 999), Ok(claims(1_000)));
         assert_eq!(verify(&KEY, &t, 1_000), Ok(claims(1_000)));
         assert_eq!(verify(&KEY, &t, 1_001), Err(()));
+    }
+
+    #[test]
+    fn retry_nonce_changes_cache_key_and_standard_expiry_is_still_enforced() {
+        let original = claims(1000);
+        let mut retry = original.clone();
+        retry.n = Some("retry-1".into());
+        assert_ne!(mint(&KEY, &original), mint(&KEY, &retry));
+        assert_eq!(verify(&KEY, &mint(&KEY, &retry), 999), Ok(retry.clone()));
+        assert!(verify(&KEY, &mint(&KEY, &retry), 1001).is_err());
+        assert_eq!(retry.a, original.a);
+        assert_eq!(retry.s, original.s);
+        assert_eq!(retry.e, original.e);
     }
 
     #[test]

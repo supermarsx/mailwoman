@@ -483,6 +483,29 @@ async fn an_admin_write_needs_the_token() {
 }
 
 #[tokio::test]
+async fn fetch_metadata_refuses_cross_site_writes_even_with_a_valid_session_token() {
+    let base = spawn_server(ServerMode::Proxy, true, None).await;
+    let c = client();
+    let admin = admin_login(&c, &base).await;
+    admin_step_up(&c, &base, &admin).await;
+    let ip = "203.0.113.78";
+    let request = |site| {
+        c.post(format!("{base}/admin/bans"))
+            .header("cookie", admin.cookies())
+            .header("x-csrf-token", &admin.token)
+            .header("sec-fetch-site", site)
+            .json(&json!({"ip":ip,"reason":"fetch metadata regression"}))
+    };
+    let refused = request("cross-site").send().await.unwrap();
+    assert_eq!(refused.status().as_u16(), 403);
+    assert!(refused.text().await.unwrap().contains(ORIGIN_REFUSAL));
+    assert!(!ban_listed(&c, &base, &admin, ip).await);
+    let allowed = request("same-origin").send().await.unwrap();
+    assert!(allowed.status().is_success(), "{}", allowed.status());
+    assert!(ban_listed(&c, &base, &admin, ip).await);
+}
+
+#[tokio::test]
 async fn admin_session_issues_a_token_only_when_the_client_has_none() {
     let base = spawn_server(ServerMode::Proxy, true, None).await;
     let c = client();

@@ -19,6 +19,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 ammonia = { workspace = true }
+html5ever = "0.39"
 
 # CSS rewrite (SPEC §7.2 item 3): parse `<style>` blocks + inline `style=` with a
 # real CSS parser (never regex), then property-allowlist, namespace selectors under

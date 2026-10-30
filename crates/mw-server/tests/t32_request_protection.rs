@@ -488,3 +488,138 @@ async fn real_settings_write_invalidates_off_cache_before_next_request() {
         429
     );
 }
+
+#[tokio::test]
+async fn user_agent_claims_are_lax_independent_and_do_not_trust_spoofed_forwarding() {
+    let (base, _) = fixture(&[
+        ("security.protection.userAgentWeakRequests", json!(2)),
+        ("security.protection.userAgentCrawlerRequests", json!(1)),
+        ("security.protection.userAgentWindowSecs", json!(3600)),
+    ])
+    .await;
+    let weak = client(14);
+    for expected in [404, 404, 429] {
+        assert_eq!(
+            weak.get(format!("{base}/public-document"))
+                .header("user-agent", "novel-reader/1")
+                .header("x-forwarded-for", format!("192.0.2.{expected}"))
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16(),
+            expected
+        );
+    }
+    let crawler = client(15);
+    for expected in [404, 429] {
+        assert_eq!(
+            crawler
+                .get(format!("{base}/public-document"))
+                .header("user-agent", "GPTBot/1.2")
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16(),
+            expected
+        );
+    }
+    // A normal browser is not assigned a UA budget even from the same source.
+    for _ in 0..4 {
+        assert_eq!(
+            weak.get(format!("{base}/api/me"))
+                .header("user-agent", "Mozilla/5.0 Chrome/140.0 Safari/537.36")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            401
+        );
+    }
+}
+
+#[tokio::test]
+async fn user_agent_exception_cannot_disable_legacy_limits_and_observe_never_refuses() {
+    let (base, _) = fixture(&[
+        ("security.protection.rateMode", json!("enforce")),
+        ("security.protection.clientRequests", json!(1)),
+        (
+            "security.protection.userAgentExceptions",
+            json!(["^trusted-client/"]),
+        ),
+    ])
+    .await;
+    let actor = client(16);
+    for expected in [401, 429] {
+        assert_eq!(
+            actor
+                .get(format!("{base}/api/me"))
+                .header("user-agent", "trusted-client/1")
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16(),
+            expected
+        );
+    }
+    let (base, _) = fixture(&[
+        ("security.protection.userAgentMode", json!("observe")),
+        ("security.protection.userAgentWeakRequests", json!(1)),
+    ])
+    .await;
+    for _ in 0..3 {
+        assert_eq!(
+            actor
+                .get(format!("{base}/api/me"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            401
+        );
+    }
+}
+
+#[tokio::test]
+async fn user_agent_scope_excludes_verified_sessions_unless_all_is_selected() {
+    for scope in ["anonymous", "all"] {
+        let (base, _) = fixture(&[
+            ("security.protection.userAgentScope", json!(scope)),
+            ("security.protection.userAgentWeakRequests", json!(2)),
+            ("security.protection.userAgentWindowSecs", json!(3600)),
+        ])
+        .await;
+        let actor = client(17);
+        login(&actor, &base).await;
+        assert_eq!(
+            actor
+                .get(format!("{base}/api/me"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+        assert_eq!(
+            actor
+                .get(format!("{base}/api/me"))
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16(),
+            if scope == "all" { 429 } else { 200 }
+        );
+        assert_ne!(
+            actor
+                .post(format!("{base}/api/logout"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            429
+        );
+    }
+}

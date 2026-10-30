@@ -106,6 +106,7 @@ struct Runtime {
     /// One write operation (download, upload, rollback) at a time.
     op: tokio::sync::Mutex<()>,
     busy: std::sync::atomic::AtomicBool,
+    progress: RwLock<Option<DownloadProgress>>,
 }
 
 fn runtime() -> &'static Runtime {
@@ -116,6 +117,7 @@ fn runtime() -> &'static Runtime {
         loaded_stamp: RwLock::new(None),
         op: tokio::sync::Mutex::new(()),
         busy: std::sync::atomic::AtomicBool::new(false),
+        progress: RwLock::new(None),
     })
 }
 
@@ -307,9 +309,47 @@ fn swap_in(db: CountryDatabase, dir: &Path) {
         .unwrap_or_else(|e| e.into_inner()) = None;
 }
 
+struct DownloadProgress {
+    phase: &'static str,
+    response: Arc<mw_egress::ResponseMetadata>,
+}
+
+pub(crate) fn download_phase(phase: &'static str) {
+    if let Some(progress) = runtime()
+        .progress
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_mut()
+    {
+        progress.phase = phase;
+    }
+}
+
+pub(crate) fn download_response(response: Arc<mw_egress::ResponseMetadata>) {
+    *runtime()
+        .progress
+        .write()
+        .unwrap_or_else(|e| e.into_inner()) = Some(DownloadProgress {
+        phase: "downloading",
+        response,
+    });
+}
+
+fn download_progress() -> Value {
+    let guard = runtime().progress.read().unwrap_or_else(|e| e.into_inner());
+    guard.as_ref().map_or(Value::Null, |progress| {
+        let bytes = progress.response.progress();
+        json!({"phase": progress.phase, "receivedBytes": bytes.map(|p| p.received_bytes), "totalBytes": bytes.and_then(|p| p.total_bytes)})
+    })
+}
+
 struct BusyGuard;
 impl Drop for BusyGuard {
     fn drop(&mut self) {
+        *runtime()
+            .progress
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         runtime().busy.store(false, Ordering::SeqCst);
     }
 }
@@ -360,6 +400,8 @@ pub(crate) async fn update(
     force: bool,
 ) -> Result<UpdateOutcome, OpError> {
     let (dir, _guard, _busy) = begin().await?;
+    download_response(Arc::new(mw_egress::ResponseMetadata::default()));
+    download_phase("checking");
     let config = provider::load(&state.store)
         .await
         .map_err(|_| OpError::Config("the country database configuration is unreadable".into()))?;
@@ -412,6 +454,7 @@ pub(crate) async fn update(
         let d = dir.clone();
         let s = sidecar.clone();
         let bytes = fetched.database;
+        download_phase("installing");
         tokio::task::spawn_blocking(move || install_files(&d, &bytes, &s))
             .await
             .map_err(|_| OpError::Io("install failed".into()))?
@@ -650,6 +693,7 @@ pub(crate) async fn status(state: &AppState) -> Value {
         "previous": previous,
         "policyActive": policy_active(state).await,
         "busy": runtime().busy.load(Ordering::SeqCst),
+        "downloadProgress": download_progress(),
         "config": config.public(),
         "providers": provider::Provider::ALL.iter().map(|p| p.describe()).collect::<Vec<_>>(),
         "schedule": {
@@ -830,6 +874,24 @@ pub(crate) async fn dashboard_warnings(state: &AppState) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn download_progress_is_job_scoped_and_cleared_on_failure_or_cancellation() {
+        let _operation = runtime().op.try_lock().unwrap();
+        runtime().busy.store(true, Ordering::SeqCst);
+        let guard = BusyGuard;
+        download_response(Arc::new(mw_egress::ResponseMetadata::default()));
+        download_phase("checking");
+        assert_eq!(
+            download_progress(),
+            json!({"phase":"checking","receivedBytes":null,"totalBytes":null})
+        );
+        download_phase("verifying");
+        assert_eq!(download_progress()["phase"], "verifying");
+        drop(guard);
+        assert_eq!(download_progress(), Value::Null);
+        assert!(!runtime().busy.load(Ordering::SeqCst));
+    }
 
     #[test]
     fn data_dir_follows_the_database() {

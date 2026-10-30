@@ -34,6 +34,7 @@ pub(crate) async fn public_config(
                 | "login.showDomainHint"
                 | "login.rememberSignins"
                 | "login.showRememberedHint"
+                | "login.showAccountHelpNotice"
                 | "signin.retryCooldownSecs"
         )
     })
@@ -81,6 +82,7 @@ pub(crate) async fn public_config(
         "usernameDomainHint":hint, "showDomainHint":value("login.showDomainHint"),
         "rememberSignins":value("login.rememberSignins"),
         "showRememberedHint":value("login.showRememberedHint"),
+        "showAccountHelpNotice":value("login.showAccountHelpNotice"),
         "logoUrl":branding["assets"]["logoUrl"], "faviconUrl":branding["assets"]["faviconUrl"],
         "loginBackgroundUrl":branding["assets"]["loginBackgroundUrl"],
     }))

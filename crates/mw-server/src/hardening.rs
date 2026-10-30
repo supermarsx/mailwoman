@@ -104,26 +104,61 @@ pub fn is_state_changing(method: &Method) -> bool {
 /// request into a CSRF bypass. HTTP/1.1 makes `Host` mandatory and h2 supplies
 /// `:authority`, so a well-formed request from any real client still passes.
 pub fn origin_ok(headers: &HeaderMap, authority: Option<&str>) -> bool {
-    let host = headers
-        .get(header::HOST)
-        .and_then(|v| v.to_str().ok())
-        .or(authority);
+    // Fetch Metadata is browser-controlled. Reject an explicitly cross-site
+    // write even if a proxy stripped Origin/Referer. Absent metadata remains
+    // compatible with native clients and older browsers using the origin check.
+    let fetch_site = match headers.get("sec-fetch-site") {
+        Some(value) => match value.to_str() {
+            Ok("cross-site") => return false,
+            Ok(value @ ("same-origin" | "same-site" | "none")) => Some(value),
+            _ => return false,
+        },
+        None => None,
+    };
+    for name in ["host", "origin", "referer", "sec-fetch-site"] {
+        if headers.get_all(name).iter().count() > 1 {
+            return false;
+        }
+    }
+    let host = match headers.get(header::HOST) {
+        Some(value) => value.to_str().ok(),
+        None => authority,
+    };
     let Some(host) = host else {
         return false;
     };
-    if let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
-        return authority_of(origin).is_some_and(|a| a.eq_ignore_ascii_case(host));
+    if host.is_empty() || host.bytes().any(|b| b.is_ascii_whitespace()) || host.contains('@') {
+        return false;
     }
-    if let Some(referer) = headers.get(header::REFERER).and_then(|v| v.to_str().ok()) {
-        return authority_of(referer).is_some_and(|a| a.eq_ignore_ascii_case(host));
+    if let Some(origin) = headers.get(header::ORIGIN) {
+        return origin
+            .to_str()
+            .ok()
+            .and_then(authority_of)
+            .is_some_and(|a| a.eq_ignore_ascii_case(host));
     }
-    true
+    if let Some(referer) = headers.get(header::REFERER) {
+        return referer
+            .to_str()
+            .ok()
+            .and_then(authority_of)
+            .is_some_and(|a| a.eq_ignore_ascii_case(host));
+    }
+    // A sibling origin is not the same origin. Require its Origin/Referer proof.
+    fetch_site != Some("same-site")
 }
 
 /// Extract the `host[:port]` authority from a URL-ish string (`scheme://auth/..`).
 fn authority_of(url: &str) -> Option<&str> {
-    let after = url.split("://").nth(1)?;
-    Some(after.split(['/', '?', '#']).next().unwrap_or(after))
+    let (scheme, after) = url.split_once("://")?;
+    if !scheme.eq_ignore_ascii_case("https") && !scheme.eq_ignore_ascii_case("http") {
+        return None;
+    }
+    let authority = after.split(['/', '?', '#']).next()?;
+    (!authority.is_empty()
+        && !authority.contains('@')
+        && !authority.bytes().any(|b| b.is_ascii_whitespace()))
+    .then_some(authority)
 }
 
 /// Double-submit CSRF check: the `X-CSRF-Token` header must equal the `mw_csrf`
@@ -198,6 +233,9 @@ pub fn csrf_token_exempt(path: &str) -> bool {
         || path.starts_with("/api/login/2fa")
         // Mail-server lookup on the sign-in screen: unauthenticated, rate-limited.
         || path == "/api/discover"
+        // Entry-key form has its own signed, expiring cookie/nonce proof. Origin
+        // and Fetch Metadata checks still run, including with old auth cookies.
+        || path == "/api/client-access/unlock"
         // Admin panel sign-in, wherever `MW_ADMIN_PATH` puts it. No admin session
         // exists yet.
         || path == mw_admin::config::admin_route("/login")
@@ -447,6 +485,60 @@ mod tests {
     #[test]
     fn origin_absent_is_allowed() {
         assert!(origin_ok(&h(&[("host", "mail.example.org")]), None));
+    }
+
+    #[test]
+    fn fetch_metadata_and_malformed_origin_fail_closed() {
+        for site in ["cross-site", "same-site", "unexpected"] {
+            assert!(!origin_ok(
+                &h(&[("host", "mail.example.org"), ("sec-fetch-site", site)]),
+                None
+            ));
+        }
+        for site in ["same-origin", "none"] {
+            assert!(origin_ok(
+                &h(&[("host", "mail.example.org"), ("sec-fetch-site", site)]),
+                None
+            ));
+        }
+        assert!(!origin_ok(
+            &h(&[
+                ("host", "mail.example.org"),
+                ("origin", "https://mail.example.org"),
+                ("sec-fetch-site", "cross-site")
+            ]),
+            None
+        ));
+        assert!(origin_ok(
+            &h(&[
+                ("host", "mail.example.org"),
+                ("origin", "https://mail.example.org"),
+                ("sec-fetch-site", "same-site")
+            ]),
+            None
+        ));
+        for origin in [
+            "null",
+            "custom://mail.example.org",
+            "https://user@mail.example.org",
+        ] {
+            assert!(!origin_ok(
+                &h(&[("host", "mail.example.org"), ("origin", origin)]),
+                None
+            ));
+        }
+        let mut invalid = h(&[("host", "mail.example.org")]);
+        invalid.insert(header::ORIGIN, HeaderValue::from_bytes(b"\xff").unwrap());
+        assert!(!origin_ok(&invalid, None));
+        let mut duplicate = h(&[
+            ("host", "mail.example.org"),
+            ("origin", "https://mail.example.org"),
+        ]);
+        duplicate.append(
+            header::ORIGIN,
+            HeaderValue::from_static("https://evil.example"),
+        );
+        assert!(!origin_ok(&duplicate, None));
     }
 
     #[test]

@@ -359,7 +359,7 @@ struct ServeArgs {
     /// SQLite database path (env: MW_DB_PATH).
     #[arg(long, env = "MW_DB_PATH", default_value = "mailwoman.db")]
     db_path: String,
-    /// Hex-encoded 32-byte server key (env: MW_SERVER_KEY). Generated if unset.
+    /// Hex-encoded 32-byte server key (env: MW_SERVER_KEY). Persisted locally if unset.
     #[arg(long, env = "MW_SERVER_KEY")]
     server_key: Option<String>,
     /// Serve static assets from disk instead of the embedded set (env: MW_WEB_DIR).
@@ -582,11 +582,7 @@ async fn maintenance_cmd(args: MaintenanceArgs) -> anyhow::Result<()> {
 /// Open the store for a CLI command (shares the `serve` key so sealed columns
 /// round-trip).
 async fn open_store(db_path: &str, server_key: Option<&str>) -> anyhow::Result<mw_store::Store> {
-    let key = match server_key {
-        Some(h) => mw_store::ServerKey::from_hex(h)
-            .map_err(|_| anyhow::anyhow!("MW_SERVER_KEY is not valid hex"))?,
-        None => mw_store::ServerKey::generate(),
-    };
+    let key = mw_server::server_key::resolve(db_path, server_key)?;
     Ok(mw_store::Store::open(db_path, key).await?)
 }
 

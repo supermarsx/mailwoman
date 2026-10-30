@@ -1,0 +1,24 @@
+# Client interface access
+
+Client access is an optional extra entry step for the mail interface. Both **Access key** and **Entry slug** are disabled by default. Enabling either does not replace mailbox authentication or change existing accounts. With both enabled, a visitor must know the entry address and supply the access key.
+
+An unscoped administrator with `settings.read` can inspect the policy at `GET {console}/client-access`. Saving requires `settings.write`, a fresh administrative step-up and the current strong `If-Match` ETag at `PUT {console}/client-access`. The console and operator recovery remain outside this gate. Keep the console address available before enabling an entry restriction.
+
+The response contains `pskEnabled`, `slugEnabled`, nullable bare `slug`, `pskConfigured`, `grantHours` and the server-derived `clientEntryPath`. It never returns the key or its Argon2id hash. PUT sends those two enable flags, `slug`, `grantHours` and optionally `psk` or `clearPsk`. An absent or empty key preserves the configured key. Spaces in a nonempty key are significant. A key must be 16–256 UTF-8 bytes and cannot be whitespace-only. Explicit clearing requires key protection to be disabled. Choose a long, unique secret and share it through a trusted channel.
+
+An entry slug is one lowercase URL segment, 4–64 letters, digits or hyphens, beginning and ending with a letter or digit. Application/protocol names and the current or pending console/deployment prefixes are reserved. Prefer a long random value: a slug is an entry capability, not an authentication identity. Root navigation without valid entry proof returns 404 when a slug is enabled and never redirects to disclose the slug. The configured private entry URL establishes a signed proof; successful entry redirects only to the fixed deployment root. There is no caller-selected return URL. Console-path and client-entry writes compare both previous values under the same durable transaction lock, so concurrent writes cannot introduce a collision.
+
+The native access-key page loads before the mail SPA and submits the key only in a bounded POST body. It requires the ordinary Origin/Fetch Metadata check plus a signed, ten-minute form nonce. It works when old mailbox/admin cookies remain after the entry grant expires. Verification uses the existing sign-in pacing and durable mailbox-source failure locks, plus at most two concurrent Argon2 jobs; a successful entry refunds its pacing charge but grants no account session. Neither a claimed native origin, a User-Agent nor an arbitrary Bearer header bypasses the gate.
+
+Successful entry sets an HttpOnly, SameSite=Strict cookie scoped under `MW_BASE_PATH`, with Secure under the deployment's effective HTTPS/cookie policy. Its lifetime is configurable from 1–168 hours, default 24. The cookie is bound to the current policy revision and persistent server signing key. Saving/rotating the policy revokes earlier grants. Ordinary server restarts with the same database and server key retain unexpired grants. Existing mailbox sessions are neither removed nor rewritten. Revisiting a bookmarked entry address with a valid grant returns to the mail interface without asking for the key again or extending the grant lifetime.
+
+The gate covers the mail shell, unknown SPA navigation paths, shared `/api/login` and `/jmap/*` routes, and other browser control APIs. A denied API returns `403` with code `clientAccessRequired`, distinct from incorrect mailbox credentials, without revealing the entry slug. A native shell using these shared login/JMAP routes also needs an entry grant; a claimed native Origin alone is not an exemption.
+
+Explicit exemptions retain their own authorization:
+
+- The exact configured console path and its children, health/readiness/metrics, known static asset paths, the public bootstrap configuration and logout/error reporting.
+- Distinct DAV, MCP, OAuth/OIDC and discovery routes; the existing exact SSO callbacks and signed inbound-webhook endpoint.
+- Signed remote-content resources `/api/rc/i/{token}`, `/api/rc/p/{token}`, `/api/rc/f/{token}`, `/api/rc/d/{token}`, and the static `/api/rc/frame` bridge. Opaque sandbox frames need these capability resources without a gate cookie. Signing, stats and policy APIs remain gated.
+- Recipient-facing tracking images `/t/{token}.gif`; their existing token validation remains authoritative. Nextcloud shared links point to the separately authorized upstream service.
+
+This is a client-interface gate, not a universal network firewall. It does not revoke independently signed recipient capabilities. Gated documents carry `X-Mailwoman-Client-Gate: enabled` and `Cache-Control: private, no-store`. The service worker discards previously cached shell documents when it observes that header and does not cache a gated shell. Data or files already downloaded to a disconnected browser cannot be retroactively erased.

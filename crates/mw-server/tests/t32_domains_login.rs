@@ -395,6 +395,7 @@ async fn host_mapping_expands_bare_name_and_untrusted_forwarded_host_is_ignored(
     assert_eq!(public["showDomainHint"], false);
     assert_eq!(public["rememberSignins"], true);
     assert_eq!(public["showRememberedHint"], false);
+    assert_eq!(public["showAccountHelpNotice"], false);
     let allowed = [
         "brandName",
         "theme",
@@ -404,6 +405,7 @@ async fn host_mapping_expands_bare_name_and_untrusted_forwarded_host_is_ignored(
         "showDomainHint",
         "rememberSignins",
         "showRememberedHint",
+        "showAccountHelpNotice",
         "retryCooldownSecs",
         "logoUrl",
         "faviconUrl",
@@ -439,6 +441,7 @@ async fn host_mapping_expands_bare_name_and_untrusted_forwarded_host_is_ignored(
     for (key, value) in [
         ("login.rememberSignins", "false"),
         ("login.showRememberedHint", "true"),
+        ("login.showAccountHelpNotice", "true"),
     ] {
         store
             .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
@@ -465,6 +468,7 @@ async fn host_mapping_expands_bare_name_and_untrusted_forwarded_host_is_ignored(
     assert_eq!(opted_in["showDomainHint"], true);
     assert_eq!(opted_in["rememberSignins"], false);
     assert_eq!(opted_in["showRememberedHint"], true);
+    assert_eq!(opted_in["showAccountHelpNotice"], true);
     assert_eq!(opted_in.as_object().unwrap().len(), allowed.len());
     assert!(
         opted_in
@@ -473,6 +477,29 @@ async fn host_mapping_expands_bare_name_and_untrusted_forwarded_host_is_ignored(
             .keys()
             .all(|key| allowed.contains(&key.as_str()))
     );
+    store
+        .put_setting_value(&mw_store::settings_policy::SettingValueRow {
+            scope: mw_store::settings_policy::SettingScope::Domain,
+            scope_id: "mapped.test".into(),
+            key: "login.showAccountHelpNotice".into(),
+            value: "false".into(),
+            locked: false,
+            updated_by: "test".into(),
+            updated_at: 3,
+        })
+        .await
+        .unwrap();
+    let domain_policy: Value = client
+        .get(format!("{base}/api/public-config"))
+        .header("host", "mail.test")
+        .header("x-forwarded-host", "attacker.test")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(domain_policy["showAccountHelpNotice"], false);
     let response = client
         .post(format!("{base}/api/login"))
         .header("host", "mail.test")

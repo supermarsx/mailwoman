@@ -20,6 +20,7 @@ const CACHE_TTL: Duration = Duration::from_secs(30);
 #[derive(Clone, Debug)]
 pub(super) struct Config {
     base: Policy,
+    pub user_agent: super::user_agent::Rules,
     client_requests: u32,
     account_requests: u32,
     admin_requests: u32,
@@ -38,16 +39,33 @@ impl Config {
             Mode::Observe => "observe",
             Mode::Enforce => "enforce",
         };
-        serde_json::json!({"rateMode":mode(self.base.rate_mode),"adaptiveMode":mode(self.base.adaptive_mode),"clientRequests":self.client_requests,"accountRequests":self.account_requests,"adminRequests":self.admin_requests,"rateWindowSecs":self.base.rate_window_secs,"adaptiveClients":self.adaptive_clients,"adaptiveAccounts":self.adaptive_accounts,"adaptiveAdmins":self.adaptive_admins,"short":self.base.short,"long":self.base.long,"normalCapPerBucket":self.base.normal_cap_per_bucket,"signals":self.base.signals,"throttleSecs":self.base.throttle_secs,"blockSecs":self.base.block_secs,"decaySecs":self.base.decay_secs,"storageFailure":if self.fail_closed {"closed"} else {"open"}})
+        serde_json::json!({"userAgent":self.user_agent.summary(),"rateMode":mode(self.base.rate_mode),"adaptiveMode":mode(self.base.adaptive_mode),"clientRequests":self.client_requests,"accountRequests":self.account_requests,"adminRequests":self.admin_requests,"rateWindowSecs":self.base.rate_window_secs,"adaptiveClients":self.adaptive_clients,"adaptiveAccounts":self.adaptive_accounts,"adaptiveAdmins":self.adaptive_admins,"short":self.base.short,"long":self.base.long,"normalCapPerBucket":self.base.normal_cap_per_bucket,"signals":self.base.signals,"throttleSecs":self.base.throttle_secs,"blockSecs":self.base.block_secs,"decaySecs":self.base.decay_secs,"storageFailure":if self.fail_closed {"closed"} else {"open"}})
     }
     pub fn enabled(&self) -> bool {
+        !self.base.off() || self.user_agent.mode != Mode::Off
+    }
+    pub fn legacy_enabled(&self) -> bool {
         !self.base.off()
+    }
+    pub fn user_agent_policy(&self, category: &str, value: &str) -> Option<Policy> {
+        let ip: IpAddr = value.parse().ok()?;
+        if self
+            .exempt_clients
+            .iter()
+            .any(|network| network.contains(ip))
+        {
+            return None;
+        }
+        self.user_agent.policy(&self.base, category)
     }
     pub fn account_dimension_enforced(&self) -> bool {
         (self.base.rate_mode == Mode::Enforce && self.account_requests > 0)
             || (self.base.adaptive_mode == Mode::Enforce && self.adaptive_accounts)
     }
     pub fn subject(&self, kind: &str, value: &str) -> Option<Policy> {
+        if let Some(category) = kind.strip_prefix("ua-") {
+            return self.user_agent_policy(category, value);
+        }
         let (limit, adaptive) = match kind {
             "client" => {
                 let ip: IpAddr = value.parse().ok()?;
@@ -139,11 +157,13 @@ impl Config {
             throttle_secs: number("throttleSecs")?,
             block_secs: number("blockSecs")?,
             decay_secs: number("decaySecs")?,
+            max_stage: 2,
         };
         if !base.valid() {
             return Err(());
         }
         Ok(Self {
+            user_agent: super::user_agent::Rules::parse(&values)?,
             base,
             client_requests: number("clientRequests")?,
             account_requests: number("accountRequests")?,
@@ -236,10 +256,56 @@ mod tests {
         .unwrap()
     }
     #[tokio::test]
-    async fn defaults_are_off_and_exemptions_do_not_cross_subject_dimensions() {
+    async fn user_agent_defaults_are_independent_lax_and_configurable() {
         let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
         let mut values = rows(&store).await;
-        assert!(!Config::parse(values.clone()).unwrap().enabled());
+        let config = Config::parse(values.clone()).unwrap();
+        assert!(config.enabled());
+        assert!(!config.legacy_enabled());
+        assert_eq!(config.user_agent.classify(None), Some("missing"));
+        let weak = config.user_agent_policy("missing", "192.0.2.1").unwrap();
+        let crawler = config
+            .user_agent_policy("ai-training", "192.0.2.1")
+            .unwrap();
+        assert_eq!(
+            (weak.rate_limit, crawler.rate_limit, weak.rate_window_secs),
+            (600, 300, 60)
+        );
+        assert_eq!(weak.max_stage, 1);
+        assert_eq!(weak.rate_mode, Mode::Enforce);
+        for (key, value) in [
+            ("userAgentPatterns", serde_json::json!(["^AcmeTool/"])),
+            (
+                "userAgentExceptions",
+                serde_json::json!(["^AcmeTool/trusted$"]),
+            ),
+        ] {
+            values
+                .iter_mut()
+                .find(|row| row.key == format!("{PREFIX}{key}"))
+                .unwrap()
+                .value = value;
+        }
+        let custom = Config::parse(values.clone()).unwrap();
+        assert_eq!(
+            custom.user_agent.classify(Some("acmetool/2")),
+            Some("custom")
+        );
+        assert_eq!(custom.user_agent.classify(Some("ACMETOOL/TRUSTED")), None);
+        values
+            .iter_mut()
+            .find(|row| row.key == format!("{PREFIX}userAgentMode"))
+            .unwrap()
+            .value = serde_json::json!("off");
+        let disabled = Config::parse(values).unwrap();
+        assert!(!disabled.enabled());
+        assert!(disabled.user_agent.classify(None).is_none());
+    }
+    #[tokio::test]
+    async fn legacy_defaults_are_off_and_exemptions_do_not_cross_subject_dimensions() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let mut values = rows(&store).await;
+        assert!(!Config::parse(values.clone()).unwrap().legacy_enabled());
         for (key, value) in [
             ("rateMode", serde_json::json!("enforce")),
             ("exemptClients", serde_json::json!(["192.0.2.0/24"])),
@@ -262,7 +328,7 @@ mod tests {
     async fn policy_cache_invalidates_locally_and_expires_for_other_replicas() {
         let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
         let cache = Cache::default();
-        assert!(!cache.get(&store).await.unwrap().enabled());
+        assert!(!cache.get(&store).await.unwrap().legacy_enabled());
         let row = SettingPolicyRow {
             key: format!("{PREFIX}rateMode"),
             global_value: Some(serde_json::json!("enforce").to_string()),
@@ -277,9 +343,9 @@ mod tests {
                 .await
                 .unwrap()
         );
-        assert!(!cache.get(&store).await.unwrap().enabled());
+        assert!(!cache.get(&store).await.unwrap().legacy_enabled());
         cache.invalidate();
-        assert!(cache.get(&store).await.unwrap().enabled());
+        assert!(cache.get(&store).await.unwrap().legacy_enabled());
         assert!(
             store
                 .compare_setting_policy(&row.key, Some(&row), None)
@@ -288,7 +354,7 @@ mod tests {
         );
         cache.value.write().unwrap().as_mut().unwrap().at =
             Instant::now() - Duration::from_secs(31);
-        assert!(!cache.get(&store).await.unwrap().enabled());
+        assert!(!cache.get(&store).await.unwrap().legacy_enabled());
     }
     #[tokio::test]
     async fn missing_proxy_realm_refuses_only_enforcing_account_policies() {

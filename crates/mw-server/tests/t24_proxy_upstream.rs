@@ -755,6 +755,11 @@ const GATED_CONSTRUCTION: (&str, &str) = ("crates/mw-server/src/lib.rs", "upstre
 /// Every production function that reads a session URL field, and why it is safe.
 const SESSION_URL_READERS: &[(&str, &str, &str)] = &[
     (
+        "crates/mw-server/src/linked_accounts/mod.rs",
+        "of",
+        "no request: copies already authenticated session URLs into the linked-policy memo key so endpoint changes invalidate cached policy passes",
+    ),
+    (
         "crates/mw-server/src/lib.rs",
         "login",
         "gated: upstream_session + session_urls_on_origin before the session is stored",
@@ -885,6 +890,11 @@ const SESSION_URL_READERS: &[(&str, &str, &str)] = &[
         "session_account",
         "no request: hashes the stored endpoint (already gated at login) with the account \
          id into a per-service rate-limit key (proxy_account_key)",
+    ),
+    (
+        "crates/mw-server/src/feature_gate.rs",
+        "check",
+        "no request: compares the stored jmap_url with the \"engine\" marker to decide whether access.protocols applies (t98)",
     ),
     (
         "crates/mw-passwd/src/dovecot.rs",

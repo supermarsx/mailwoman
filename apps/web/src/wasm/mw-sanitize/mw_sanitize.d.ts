@@ -18,12 +18,19 @@ export function sanitizeEmailHtml(html: string): string;
  */
 export function sanitizeEmailHtmlReader(html: string, block_trackers: boolean, clean_links: boolean): string;
 
+/**
+ * Reader quarantine with all remote resources stripped, including decrypted
+ * messages whose caller has not supplied a remote-content reader policy.
+ */
+export function sanitizeEmailHtmlReaderStrip(html: string): string;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly sanitizeEmailHtml: (a: number, b: number, c: number) => void;
     readonly sanitizeEmailHtmlReader: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly sanitizeEmailHtmlReaderStrip: (a: number, b: number, c: number) => void;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;

@@ -697,8 +697,16 @@ pub static CATALOGUE: &[Knob] = &[
         Gr::Storage,
         Secret,
         R::Boot,
-        "generated at first start",
+        "persistent SQLite sidecar when unset",
         "32-byte key that seals every stored secret",
+    ),
+    boot(
+        "MW_SERVER_KEY_FILE",
+        Gr::Storage,
+        Path,
+        R::Boot,
+        "SQLite database path plus .server-key",
+        "persistent sealing key file; PostgreSQL requires this or MW_SERVER_KEY",
     ),
     boot(
         "MW_DB_PATH",

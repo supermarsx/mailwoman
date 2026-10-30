@@ -24,6 +24,7 @@ async fn serve(router: axum::Router) -> String {
 fn client(ip: u8) -> reqwest::Client {
     reqwest::Client::builder()
         .no_proxy()
+        .user_agent("Mozilla/5.0 Chrome/140.0 Safari/537.36")
         .cookie_store(true)
         .local_address(IpAddr::V4(Ipv4Addr::new(127, 0, 0, ip)))
         .build()
@@ -395,6 +396,20 @@ async fn simulator_explains_the_decision_without_moving_counters() {
         (off["action"].as_str(), off["off"].as_bool()),
         (Some("allow"), Some(true))
     );
+    // UA classification is independent of those older switches; a lone claim
+    // is allowed, and repeated crawler traffic uses the same simulator engine.
+    for (ua, count, action, class) in [
+        ("novel-client/1", 1, "allow", "uncommon"),
+        ("GPTBot/1.2", 301, "throttle", "ai-training"),
+        ("curl/8", 601, "throttle", "automation"),
+    ] {
+        let outcome:Value=sim(json!({"subjectKind":"client","userAgent":ua,"sample":{"requestsInWindow":count,"short":{"normal":0,"anomalous":0},"long":{"normal":0,"anomalous":0},"signal":"normal"}})).await.unwrap().json().await.unwrap();
+        assert_eq!(outcome["action"], action, "{outcome}");
+        assert_eq!(outcome["userAgent"]["classification"], class);
+        assert_eq!(outcome["userAgent"]["claimedOnly"], true);
+    }
+    let capped:Value=sim(json!({"subjectKind":"client","userAgent":"novel-client/1","sample":{"requestsInWindow":1,"short":{"normal":0,"anomalous":25},"long":{"normal":0,"anomalous":0},"signal":"malformed","previouslyThrottled":true}})).await.unwrap().json().await.unwrap();
+    assert_eq!(capped["action"], "throttle", "{capped}");
     // A draft turns adaptive protection on: the short absolute rule throttles.
     let on: Value = sim(json!({"subjectKind":"client","subjectValue":"198.51.100.7","sample":sample,"draft":{"security.protection.adaptiveMode":"enforce"}}))
         .await

@@ -73,7 +73,8 @@ pub fn preview(format: PreviewFormat, bytes: &[u8]) -> Result<AttachmentPreview,
             return Err("guest attachment size mismatch".into());
         }
     }
-    result.html = mw_sanitize::sanitize_email_html(&result.html);
+    result.html =
+        mw_sanitize::sanitize_email_html_reader(&result.html, &mw_sanitize::SanitizeOptions::STRIP);
     Ok(result)
 }
 
@@ -87,6 +88,7 @@ mod tests {
         assert_eq!(p.subject.as_deref(), Some("Attached message"));
         assert!(!p.html.contains("<script"));
         assert!(!p.html.contains("src=\"https://tracker"));
+        assert!(p.html.contains("data-mw-body-blocked=\"true\""));
         assert!(p.html.contains("Hello"));
     }
     #[test]

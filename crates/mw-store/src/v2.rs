@@ -1962,6 +1962,7 @@ mod tests {
         let before = crate::Store {
             backend: crate::backend::Backend::Sqlite(pool.clone()),
             key: ServerKey::from_bytes(&[9u8; 32]).unwrap(),
+            cache_id: uuid::Uuid::new_v4(),
             uploads: crate::upload::fail_closed_backend(),
         };
         let has_attempts = q("SELECT COUNT(*) AS n FROM pragma_table_info('submissions')
@@ -2021,6 +2022,7 @@ mod tests {
             let before = crate::Store {
                 backend: crate::backend::Backend::Postgres(pool.clone()),
                 key: ServerKey::from_bytes(&[9u8; 32]).unwrap(),
+                cache_id: uuid::Uuid::new_v4(),
                 uploads: crate::upload::fail_closed_backend(),
             };
             let has_attempts = q("SELECT COUNT(*) AS n FROM information_schema.columns

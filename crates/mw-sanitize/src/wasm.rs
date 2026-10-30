@@ -33,7 +33,7 @@ pub fn sanitize_email_html_reader_wasm(
     block_trackers: bool,
     clean_links: bool,
 ) -> String {
-    crate::sanitize_email_html_with(
+    crate::sanitize_email_html_reader(
         html,
         &crate::SanitizeOptions {
             remote_images: crate::RemoteImages::Placeholder,
@@ -41,4 +41,11 @@ pub fn sanitize_email_html_reader_wasm(
             clean_links,
         },
     )
+}
+
+/// Reader quarantine with all remote resources stripped, including decrypted
+/// messages whose caller has not supplied a remote-content reader policy.
+#[wasm_bindgen(js_name = sanitizeEmailHtmlReaderStrip)]
+pub fn sanitize_email_html_reader_strip_wasm(html: &str) -> String {
+    crate::sanitize_email_html_reader(html, &crate::SanitizeOptions::STRIP)
 }

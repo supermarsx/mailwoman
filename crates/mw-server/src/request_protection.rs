@@ -4,6 +4,7 @@ mod api;
 mod config;
 /// The Adaptive protection page's policy editor and simulator (t97).
 mod editor;
+pub(crate) mod user_agent;
 use crate::{AppState, admin_ctx::AdminApiError};
 pub(crate) fn register(r: &mut impl crate::admin_router::AdminRegistrar) {
     api::register(r);
@@ -60,6 +61,7 @@ struct Charged {
 struct Context {
     state: AppState,
     config: Arc<Config>,
+    legacy_route: bool,
     charged: tokio::sync::Mutex<Vec<Charged>>,
     signal: AtomicU8,
 }
@@ -102,6 +104,9 @@ fn warning() {
 }
 impl Context {
     async fn admit(&self, kind: &'static str, value: &str) -> Result<(), AdminApiError> {
+        if !self.legacy_route && !kind.starts_with("ua-") {
+            return Ok(());
+        }
         let Some(policy) = self.config.subject(kind, value) else {
             return Ok(());
         };
@@ -299,9 +304,16 @@ async fn operator_control(
     let capability = if method == axum::http::Method::GET
         && matches!(
             path,
-            "/bans/protection" | "/bans/protection/subjects" | "/bans/protection/events"
+            "/bans/protection"
+                | "/bans/protection/subjects"
+                | "/bans/protection/events"
+                | "/bans/protection/policy"
         ) {
         Capability::BansRead
+    } else if method == axum::http::Method::POST && path == "/bans/protection/simulate" {
+        Capability::BansRead
+    } else if method == axum::http::Method::PUT && path == "/bans/protection/policy" {
+        Capability::SettingsWrite
     } else if (method == axum::http::Method::DELETE
         && path
             .strip_prefix("/bans/protection/subjects/")
@@ -345,8 +357,62 @@ fn protected(path: &str) -> bool {
             .iter()
             .any(|prefix| path.starts_with(prefix))
 }
+fn ua_protected(path: &str) -> bool {
+    let admin = mw_admin::config::admin_path();
+    if path.starts_with("/assets/")
+        || path.starts_with("/static/")
+        || path
+            .strip_prefix(&admin)
+            .is_some_and(|p| p.starts_with("/assets/") || p.starts_with("/static/"))
+    {
+        return false;
+    }
+    if !protected(path)
+        && path.rsplit('.').next().is_some_and(|ext| {
+            matches!(
+                ext,
+                "js" | "css"
+                    | "map"
+                    | "wasm"
+                    | "ico"
+                    | "png"
+                    | "jpg"
+                    | "jpeg"
+                    | "svg"
+                    | "webp"
+                    | "woff"
+                    | "woff2"
+                    | "ttf"
+            )
+        })
+    {
+        return false;
+    }
+    if protected(path) {
+        return true;
+    }
+    // Public documents are crawler targets too. Protocol recovery, static assets,
+    // and liveness checks must remain available without this extra dimension.
+    if path.starts_with("/api/")
+        || path.starts_with("/oidc/")
+        || matches!(path, "/health" | "/healthz" | "/ready" | "/readyz")
+        || path.starts_with("/assets/")
+        || path.starts_with("/static/")
+    {
+        return false;
+    }
+    if path
+        .strip_prefix(&admin)
+        .is_some_and(|p| matches!(p, "/logout" | "/login/2fa" | "/login/recovery"))
+    {
+        return false;
+    }
+    !path.rsplit('/').next().unwrap_or("").contains('.')
+}
 pub(crate) async fn guard(State(state): State<AppState>, request: Request, next: Next) -> Response {
-    if request.method() == axum::http::Method::OPTIONS || !protected(request.uri().path()) {
+    let legacy_route = protected(request.uri().path());
+    let ua_route = ua_protected(request.uri().path());
+    if request.method() == axum::http::Method::OPTIONS || (!legacy_route && !ua_route) {
         return next.run(request).await;
     }
     if operator_control(
@@ -366,10 +432,24 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
     if !config.enabled() {
         return next.run(request).await;
     }
+    let ua_category = ua_route
+        .then(|| {
+            config.user_agent.classify(
+                request
+                    .headers()
+                    .get(header::USER_AGENT)
+                    .and_then(|v| v.to_str().ok()),
+            )
+        })
+        .flatten();
+    if (!legacy_route || !config.legacy_enabled()) && ua_category.is_none() {
+        return next.run(request).await;
+    }
     let source = crate::scope_mw::proxy::client_ip(request.headers(), request.extensions());
     let context = Arc::new(Context {
         state,
         config,
+        legacy_route,
         charged: Default::default(),
         signal: AtomicU8::new(0),
     });
@@ -388,10 +468,20 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
                     Err(limited) => return limited,
                 }
             };
-            if !identified
+            if legacy_route
+                && !identified
                 && let Some(source) = source
                 && let Err(error) = context
                     .admit("client", &source.to_canonical().to_string())
+                    .await
+            {
+                return response(error);
+            }
+            if (!identified || !context.config.user_agent.anonymous_only)
+                && let Some(kind) = ua_category.and_then(user_agent::kind)
+                && let Some(source) = source
+                && let Err(error) = context
+                    .admit(kind, &source.to_canonical().to_string())
                     .await
             {
                 return response(error);
@@ -464,6 +554,15 @@ async fn identify(
 
 #[cfg(test)]
 mod identity_tests {
+    #[test]
+    fn ua_coverage_includes_documents_but_does_not_confuse_api_suffixes_with_assets() {
+        assert!(super::ua_protected("/"));
+        assert!(super::ua_protected("/public-document"));
+        assert!(super::ua_protected("/api/blob/example.png"));
+        assert!(!super::ua_protected("/assets/app.js"));
+        assert!(!super::ua_protected("/api/logout"));
+        assert!(!super::ua_protected("/health"));
+    }
     use super::*;
     #[test]
     fn upstream_local_accounts_require_the_verified_service_realm() {
@@ -512,6 +611,7 @@ mod identity_tests {
             throttle_secs: 3,
             block_secs: 60,
             decay_secs: 3600,
+            max_stage: 2,
         };
         let first = proxy_account_key("https://mail.example/a/session", "1").unwrap();
         let second = proxy_account_key("https://mail.example/b/session", "1").unwrap();

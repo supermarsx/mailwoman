@@ -41,6 +41,8 @@
 //! parameters from links.
 
 pub mod appearance;
+mod reader;
+pub use reader::sanitize_email_html_reader;
 
 use std::borrow::Cow;
 use std::collections::HashSet;

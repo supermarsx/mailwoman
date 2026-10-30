@@ -56,7 +56,7 @@ mod plugin_http;
 pub use api::{ApiMethod, AuthorizedApi};
 pub use plugin_http::PluginHttp;
 mod response_metadata;
-pub use response_metadata::{ResponseHead, ResponseMetadata};
+pub use response_metadata::{ResponseHead, ResponseMetadata, ResponseProgress};
 pub mod proxy;
 
 /// Traffic classes (t32 e31b): what an outbound request is for, which decides the
@@ -1103,8 +1103,8 @@ pub(crate) async fn send_hop_timed(
     );
     let limit = out.body_cap();
     let body = match timed {
-        None => read_capped(resp, limit).await?,
-        Some(t) => read_capped_idle(resp, limit, t).await?,
+        None => read_capped(resp, limit, out.response_metadata).await?,
+        Some(t) => read_capped_idle(resp, limit, t, out.response_metadata).await?,
     };
     Ok((Hop::Body(body), media_type))
 }
@@ -1116,7 +1116,12 @@ async fn read_capped_idle(
     mut resp: reqwest::Response,
     limit: usize,
     t: Timed<'_>,
+    metadata: Option<&ResponseMetadata>,
 ) -> Result<Vec<u8>, Refusal> {
+    let total = resp.content_length();
+    if let Some(metadata) = metadata {
+        metadata.record_progress(0, total);
+    }
     let mut buf = Vec::new();
     loop {
         let chunk = match tokio::time::timeout(t.limits.idle, resp.chunk()).await {
@@ -1130,18 +1135,32 @@ async fn read_capped_idle(
             return Err(Refusal::TooLarge);
         }
         buf.extend_from_slice(&chunk);
+        if let Some(metadata) = metadata {
+            metadata.record_progress(buf.len() as u64, total);
+        }
     }
 }
 
 /// Stream a response body, refusing once it exceeds [`MAX_IMAGE_BYTES`]. Uses
 /// `chunk()` (no `stream` feature needed) so the cap applies to decoded bytes.
-async fn read_capped(mut resp: reqwest::Response, limit: usize) -> Result<Vec<u8>, Refusal> {
+async fn read_capped(
+    mut resp: reqwest::Response,
+    limit: usize,
+    metadata: Option<&ResponseMetadata>,
+) -> Result<Vec<u8>, Refusal> {
+    let total = resp.content_length();
+    if let Some(metadata) = metadata {
+        metadata.record_progress(0, total);
+    }
     let mut buf = Vec::new();
     while let Some(chunk) = resp.chunk().await.map_err(|_| Refusal::Upstream)? {
         if buf.len() + chunk.len() > limit {
             return Err(Refusal::TooLarge);
         }
         buf.extend_from_slice(&chunk);
+        if let Some(metadata) = metadata {
+            metadata.record_progress(buf.len() as u64, total);
+        }
     }
     Ok(buf)
 }
@@ -1870,6 +1889,44 @@ mod tests {
             Hop::Body(b) => assert_eq!(b, b"hello"),
             Hop::Redirect(_) => panic!("unexpected redirect"),
         }
+    }
+
+    #[tokio::test]
+    async fn body_progress_is_visible_before_completion_and_preserves_cap() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (release, wait) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                request.push(stream.read_u8().await.unwrap());
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhe")
+                .await
+                .unwrap();
+            wait.await.unwrap();
+            stream.write_all(b"llo").await.unwrap();
+        });
+        let response = reqwest::get(format!("http://{addr}/")).await.unwrap();
+        let metadata = ResponseMetadata::default();
+        let watch = async {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while metadata.progress().is_none_or(|p| p.received_bytes != 2) {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(metadata.progress().unwrap().total_bytes, Some(5));
+            release.send(()).unwrap();
+        };
+        let (result, ()) = tokio::join!(read_capped(response, 4, Some(&metadata)), watch);
+        assert_eq!(result.unwrap_err(), Refusal::TooLarge);
+        assert_eq!(metadata.progress().unwrap().received_bytes, 2);
+        server.await.unwrap();
     }
 
     #[tokio::test]

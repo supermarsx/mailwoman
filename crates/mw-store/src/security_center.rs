@@ -202,12 +202,26 @@ impl Store {
     /// Only an already-authenticated foreground activity request may call this.
     /// UPDATE never recreates a concurrently revoked or rotated credential.
     pub async fn record_session_activity(&self, id: &str, at: &str) -> Result<bool, StoreError> {
-        Ok(q("UPDATE sessions SET activity_at=?2 WHERE id=?1")
+        // Normalize the historical clock before comparing it, and update it in
+        // the same transaction as the live session: revocation cannot recreate
+        // a credential or record activity for an already-removed credential.
+        let historical_at = chrono::DateTime::parse_from_rfc3339(at)
+            .map_err(|_| StoreError::Corrupt("invalid session activity time".into()))?
+            .with_timezone(&chrono::Utc)
+            .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
+        let mut tx = self.backend.begin().await?;
+        let changed = q("UPDATE sessions SET activity_at=?2 WHERE id=?1")
             .bind(id)
             .bind(at)
-            .execute(&self.backend)
+            .execute_tx(&mut tx)
             .await?
-            == 1)
+            == 1;
+        if changed {
+            q("INSERT INTO user_activity(account_id,last_seen_at) SELECT account_id,?2 FROM sessions WHERE id=?1 ON CONFLICT(account_id) DO UPDATE SET last_seen_at=CASE WHEN excluded.last_seen_at>user_activity.last_seen_at THEN excluded.last_seen_at ELSE user_activity.last_seen_at END")
+                .bind(id).bind(&historical_at).execute_tx(&mut tx).await?;
+        }
+        tx.commit().await?;
+        Ok(changed)
     }
 
     /// Persist device metadata and cap concurrent sessions under an account write

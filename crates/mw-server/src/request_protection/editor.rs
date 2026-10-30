@@ -62,7 +62,7 @@ const EXEMPT: [&str; 3] = [
     "security.protection.exemptAccounts",
     "security.protection.exemptAdmins",
 ];
-const MAX_CHANGES: usize = 32;
+const MAX_CHANGES: usize = 64;
 
 /// The presets. `balanced` is the registry default thresholds with both
 /// protections enforced; in every preset a signed-in mailbox or administrator
@@ -279,6 +279,8 @@ async fn write(
 struct Simulate {
     subject_kind: String,
     #[serde(default)]
+    user_agent: Option<String>,
+    #[serde(default)]
     subject_value: Option<String>,
     sample: SimInput,
     /// Unsaved values to try instead of the stored ones (`key → value`).
@@ -308,6 +310,17 @@ async fn simulate(
     crate::admin_ctx::AdminJson(body): crate::admin_ctx::AdminJson<Simulate>,
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::BansRead)?;
+    if body
+        .user_agent
+        .as_ref()
+        .is_some_and(|ua| ua.len() > super::user_agent::MAX_UA)
+    {
+        return Err(AdminApiError::invalid(
+            "invalidUserAgent",
+            "User agent must be at most 4096 bytes",
+            "/userAgent",
+        ));
+    }
     let (kind, sample_value) = match body.subject_kind.as_str() {
         "client" => ("client", "192.0.2.1"),
         "account" => ("account", "sample-account"),
@@ -346,9 +359,44 @@ async fn simulate(
     let config = parse_or_refuse(candidate(effective(&state).await?, &pairs, |i| {
         format!("/draft/{}", keys[i])
     })?)?;
-    let off = !config.enabled();
-    let Some(policy) = config.subject(kind, value) else {
+    let off = if body.user_agent.is_some() {
+        !config.enabled()
+    } else {
+        !config.legacy_enabled()
+    };
+    let category = body
+        .user_agent
+        .as_deref()
+        .and_then(|ua| config.user_agent.classify(Some(ua)));
+    let ua_policy = category
+        .filter(|_| kind == "client" || !config.user_agent.anonymous_only)
+        .and_then(|category| {
+            config.user_agent_policy(category, if kind == "client" { value } else { "192.0.2.1" })
+        });
+    let ua_summary = body.user_agent.as_ref().map(
+        |_| json!({"classification":category,"claimedOnly":true,"exempt":ua_policy.is_none()}),
+    );
+    let legacy = config.subject(kind, value).map(|p| run(&p, &body.sample));
+    let ua = ua_policy.map(|p| run(&p, &body.sample));
+    // Compare actual decisions; an exception in this dimension never bypasses
+    // the existing account/client protection policy.
+    let rank = |o: &mw_store::request_protection_model::SimOutcome| {
+        (
+            o.enforced,
+            match o.action {
+                Action::Allow => 0,
+                Action::Throttle => 1,
+                Action::Block => 2,
+            },
+        )
+    };
+    let outcome = match (legacy, ua) {
+        (Some(a), Some(b)) => Some(if rank(&b) > rank(&a) { b } else { a }),
+        (a, b) => a.or(b),
+    };
+    let Some(outcome) = outcome else {
         return Ok(private(json!({
+            "userAgent": ua_summary,
             "action": "allow",
             "reason": null,
             "enforced": false,
@@ -359,8 +407,8 @@ async fn simulate(
             "rules": [],
         })));
     };
-    let outcome = run(&policy, &body.sample);
     Ok(private(json!({
+        "userAgent": ua_summary,
         "action": action(outcome.action),
         "reason": outcome.reason.map(reason),
         "enforced": outcome.enforced,

@@ -15,8 +15,16 @@ The load-bearing architectural facts an operator or auditor should know:
 - **Decrypted mail is sanitized in the browser.** End-to-end-encrypted plaintext
   is sanitized by a WASM build of `mw-sanitize` **in the crypto worker** before it
   reaches the sandboxed render iframe — it never round-trips to the server
-  sanitizer (that would defeat the encryption). Cleartext mail keeps the
-  server-side sanitize path unchanged.
+  sanitizer (that would defeat the encryption). The reader also checks cleartext
+  HTML in the worker before displaying it. Reader-specific HTML5 and CSS parsing
+  rejects active bodies (including script/event handlers, embedded documents,
+  executable URLs, forms, and unsafe CSS) as a whole: only escaped text survives,
+  with a blocked-body notice. Ammonia remains the final sanitizer. A worker failure
+  falls back to escaped plain text, never unchecked cached HTML. Quarantined
+  bodies cannot request signed images, enable links, or trigger automatic read
+  receipts. Attached email previews use the same reader policy. Original message
+  bytes remain unchanged for storage and explicit raw download; this display
+  protection does not make the original file safe to open in another application.
 - **Public verdicts are computed server-side.** DKIM/SPF/DMARC/ARC verdicts,
   signature *verification*, cert harvesting, the Received chain, and attachment
   risk are public operations with no secret input, so the engine computes them
