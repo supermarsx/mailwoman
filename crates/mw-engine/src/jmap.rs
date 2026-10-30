@@ -2735,6 +2735,7 @@ impl Engine {
         // message was accepted, whatever happened to the Sent copy afterwards.
         let sent = self.send_submission(&row, rt, None).await;
         drop(claim);
+        crate::sync_health::record_inline_send(&self.sync_health, &sent);
         match sent {
             Ok(filed) => Ok(CreatedSubmission {
                 id: sub_id,

@@ -235,7 +235,11 @@ impl Engine {
             .await
         {
             // Delivered: `send_submission` has recorded `final` and the change.
-            Ok(filed) => Some(filed),
+            Ok(filed) => {
+                self.sync_health
+                    .record_send(crate::sync_health::SendOutcome::Sent, None);
+                Some(filed)
+            }
             Err(not_sent) => {
                 let Some(claim) = &not_sent.claim else {
                     return Ok(None);
@@ -244,6 +248,16 @@ impl Engine {
                 let give_up = not_sent.uncertain()
                     || not_sent.permanent
                     || attempt >= MAX_SUBMISSION_ATTEMPTS;
+                self.sync_health.record_send(
+                    if not_sent.uncertain() {
+                        crate::sync_health::SendOutcome::Uncertain
+                    } else if give_up {
+                        crate::sync_health::SendOutcome::Failed
+                    } else {
+                        crate::sync_health::SendOutcome::Deferred
+                    },
+                    Some(&not_sent.error.to_string()),
+                );
                 let (status, next_at) = if not_sent.uncertain() {
                     ("uncertain", None)
                 } else if give_up {
