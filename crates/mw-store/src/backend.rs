@@ -56,13 +56,74 @@ impl Backend {
     /// WAL readers outside a transaction are not blocked by it.
     pub(crate) async fn begin(&self) -> Result<Tx, sqlx::Error> {
         Ok(match self {
-            Backend::Sqlite(p) => Tx::Sqlite(p.begin_with("BEGIN IMMEDIATE").await?),
+            Backend::Sqlite(p) => {
+                // SQLx 0.8 checks a custom BEGIN with another await after the
+                // worker has acknowledged it. Cancellation there occurs before
+                // Transaction's rollback-on-drop guard exists and returns a
+                // live transaction to the pool. Finish that short transition
+                // in an owned task; dropping its result then rolls back safely.
+                // Acquire first so detached work is bounded by pool capacity.
+                let connection = p.acquire().await?;
+                let transaction = tokio::spawn(async move {
+                    sqlx::Transaction::begin(connection, Some("BEGIN IMMEDIATE".into())).await
+                })
+                .await
+                .map_err(|error| {
+                    sqlx::Error::Protocol(format!("SQLite transaction task failed: {error}"))
+                })??;
+                Tx::Sqlite(transaction)
+            }
             Backend::Postgres(p) => Tx::Postgres(p.begin().await?),
         })
     }
 }
 
 // ── parameters ──────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod cancellation_tests {
+    use super::*;
+    use sqlx::TransactionManager;
+    use std::{
+        future::{Future, poll_fn},
+        task::Poll,
+        time::Duration,
+    };
+
+    #[tokio::test]
+    async fn cancelling_immediate_begin_never_returns_an_open_transaction_to_pool() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let backend = Backend::Sqlite(pool.clone());
+        for polls in 1..=8 {
+            for _ in 0..8 {
+                let mut begin = Box::pin(backend.begin());
+                for _ in 0..polls {
+                    if let Poll::Ready(result) =
+                        poll_fn(|cx| Poll::Ready(begin.as_mut().poll(cx))).await
+                    {
+                        drop(result.unwrap());
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+                drop(begin);
+                let connection = tokio::time::timeout(Duration::from_secs(2), pool.acquire())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    sqlx::sqlite::SqliteTransactionManager::get_transaction_depth(&connection),
+                    0,
+                    "cancelled BEGIN at poll {polls} left a transaction in the pool"
+                );
+            }
+        }
+    }
+}
 
 /// A single bound parameter, backend-agnostic. Kept owned so the built query can
 /// outlive the caller's borrows across the `await`.

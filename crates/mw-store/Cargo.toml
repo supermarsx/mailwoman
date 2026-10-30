@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+tokio = { workspace = true }
 # V6 (t6-e1): enable the Postgres backend + pure-Rust rustls TLS ON TOP of the
 # workspace SQLite defaults. `tls-rustls` resolves to `tls-rustls-ring-webpki`
 # (ring + webpki-roots) — pure Rust, NO openssl / native-tls / aws-lc C code.
@@ -32,7 +33,6 @@ sha2 = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true }
 # The dual-backend parity + migrate-store integration tests open a raw Postgres
 # pool (to TRUNCATE between runs and read ciphertext columns directly) when
 # `DATABASE_URL_PG`/`MW_TEST_PG` is set; they run SQLite-only otherwise.
