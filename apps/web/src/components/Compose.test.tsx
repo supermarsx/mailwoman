@@ -145,6 +145,19 @@ describe('Compose', () => {
     expect(within(select).getByRole('option', { name: /Personal/ })).toBeInTheDocument();
   });
 
+  it('confirms a custom sender with Enter and moves to To without submitting',async()=>{
+    const {app}=renderWithApp(()=><Compose onClose={()=>undefined}/>);
+    await app.login({username:'me@example.org',password:'p'});
+    const send=vi.spyOn(app,'sendMessage').mockResolvedValue(undefined);
+    fireEvent.click(screen.getByRole('button',{name:'From'}));
+    fireEvent.change(screen.getByLabelText('From'),{target:{value:'__custom_from__'}});
+    const from=screen.getByLabelText(/^From address for this message/) as HTMLInputElement;
+    from.focus();fireEvent.input(from,{target:{value:'unfinished@'}});fireEvent.keyDown(from,{key:'Enter'});
+    expect(from).toHaveFocus();
+    fireEvent.input(from,{target:{value:'δοκιμή@παράδειγμα.δοκιμή'}});fireEvent.keyDown(from,{key:'Enter'});
+    expect(screen.getByLabelText('To')).toHaveFocus();expect(send).not.toHaveBeenCalled();
+  });
+
   it('submits internationalized sender and recipients unchanged without browser email validation blocking SMTPUTF8',async()=>{
     const {app}=renderWithApp(()=><Compose onClose={()=>undefined}/>);
     await app.login({username:'me@example.org',password:'p'});

@@ -1037,6 +1037,7 @@ export function Compose(props: {
     const [value, setValue] = recipientFields[field];
     const replacement=replaceRecipientToken(value(),recipientCarets[field]??value().length,address);
     setValue(replacement.value);
+    recipientCarets[field]=replacement.caret;
     contactAc.reset();
     if (field === 'to') setGalToken('');
     setAcField(null);
@@ -1070,7 +1071,21 @@ export function Compose(props: {
       if(event.key==='Escape'&&(acField()===field||galToken())){event.preventDefault();event.stopPropagation();dismissRecipients();return;}
       if(event.key==='Enter'){
         event.preventDefault();event.stopPropagation();
-        if(recipientListOpen(field)){const pick=contactAc.suggestions()[Math.max(0,acIndex())];if(pick)insertRecipient(field,pick.display);}return;
+        const input=event.currentTarget;
+        const caret=input.selectionStart??input.value.length;
+        recipientCarets[field]=caret;
+        const token=recipientToken(input.value,caret);
+        const typed=input.value.slice(token.start,token.end).trim();
+        const addresses=parseRecipients(typed);
+        // An explicitly highlighted suggestion wins; otherwise a complete
+        // typed mailbox must not silently become a different contact match.
+        if(acIndex()<0&&addresses.length===1&&isMailbox(addresses[0]!.email)){
+          insertRecipient(field,typed);
+        }else if(recipientListOpen(field)){
+          const pick=contactAc.suggestions()[Math.max(0,acIndex())];
+          if(pick)insertRecipient(field,pick.display);
+        }
+        return;
       }
       if(event.key==='ArrowDown'||event.key==='ArrowUp'){
         const caret=event.currentTarget.selectionStart??event.currentTarget.value.length;
@@ -1468,7 +1483,13 @@ export function Compose(props: {
             </select>
           </label>
           </Show>
-          <Show when={customFrom()}><label class="field compose__from"><span>{t('mail-compose-from-alias')}</span><input type="text" inputMode="email" required maxlength={320} autocomplete="off" autocapitalize="off" spellcheck={false} value={fromOverride()} onInput={event=>setFromOverride(event.currentTarget.value)} aria-describedby={fromHelpId}/><small id={fromHelpId}>{t('mail-compose-from-alias-help')}</small></label></Show>
+          <Show when={customFrom()}><label class="field compose__from"><span>{t('mail-compose-from-alias')}</span><input type="text" inputMode="email" required maxlength={320} autocomplete="off" autocapitalize="off" spellcheck={false} value={fromOverride()} onInput={event=>setFromOverride(event.currentTarget.value)} onKeyDown={event=>{
+            if(event.key!=='Enter'||event.isComposing||event.keyCode===229)return;
+            event.preventDefault();event.stopPropagation();
+            const address=event.currentTarget.value.trim();
+            if(!isMailbox(address)){setError(t('mail-compose-from-invalid'));return;}
+            setFromOverride(address);setError(previous=>previous===t('mail-compose-from-invalid')?null:previous);toInputEl?.focus();
+          }} aria-describedby={fromHelpId}/><small id={fromHelpId}>{t('mail-compose-from-alias-help')}</small></label></Show>
 
         <label class="field compose__to">
           <span>{t('mail-compose-to')}</span>

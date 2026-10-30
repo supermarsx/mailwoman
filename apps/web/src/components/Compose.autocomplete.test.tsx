@@ -87,6 +87,39 @@ function contactsClient(remoteCards:ContactCard[]=[]): Client {
 }
 
 describe('Compose contacts autocomplete', () => {
+  it('confirms typed mailboxes with Enter and keeps each recipient field ready for the next address',async()=>{
+    const client=contactsClient();const app=createAppState(client);const close=vi.fn();
+    render(()=><AppContext.Provider value={app}><Compose onClose={close}/></AppContext.Provider>);
+    await app.loadContacts();fireEvent.click(screen.getByTestId('compose-show-cc-bcc'));
+    for(const name of ['To','Cc','Bcc']){
+      const input=screen.getByRole('combobox',{name}) as HTMLInputElement;input.focus();
+      fireEvent.input(input,{target:{value:'new@example.org'}});
+      fireEvent.keyDown(input,{key:'Enter'});
+      expect(input.value).toBe('new@example.org, ');expect(input).toHaveFocus();
+      expect(input.selectionStart).toBe(input.value.length);
+      fireEvent.input(input,{target:{value:input.value+'"原,a"@example.org'}});
+      fireEvent.keyDown(input,{key:'Enter'});
+      expect(input.value).toBe('new@example.org, "原,a"@example.org, ');
+      fireEvent.keyDown(input,{key:'Enter'});
+      expect(input.value).toBe('new@example.org, "原,a"@example.org, ');
+    }
+    expect(close).not.toHaveBeenCalled();
+    expect(vi.mocked(client.jmap).mock.calls.some(([request])=>request.methodCalls.some(([method])=>method==='EmailSubmission/set'))).toBe(false);
+  });
+
+  it('preserves a complete typed address over an unselected contact suggestion and leaves invalid tokens editable',async()=>{
+    const app=createAppState(contactsClient());
+    render(()=><AppContext.Provider value={app}><Compose onClose={()=>undefined}/></AppContext.Provider>);
+    await app.loadContacts();const input=screen.getByRole('combobox',{name:'To'}) as HTMLInputElement;
+    fireEvent.input(input,{target:{value:'alice@example.org'}});
+    await screen.findByTestId('contact-suggestion');
+    fireEvent.keyDown(input,{key:'Enter'});
+    expect(input.value).toBe('alice@example.org, ');
+    fireEvent.input(input,{target:{value:'unfinished@'}});
+    fireEvent.keyDown(input,{key:'Enter'});
+    expect(input.value).toBe('unfinished@');
+  });
+
   it('suggests a contact by prefix and inserts it into the To field', async () => {
     const app = createAppState(contactsClient());
     render(() => (
