@@ -319,9 +319,9 @@ describe('zoom shortcuts and wheel are scoped to the reader', () => {
       view!.root.dispatchEvent(e);
       return e;
     };
-    expect(over(-100).defaultPrevented).toBe(true);
+    expect(over(-50).defaultPrevented).toBe(true);
     expect(zoom.readerZoom()).toBe(110);
-    over(100); over(100);
+    over(50); over(50);
     expect(zoom.readerZoom()).toBe(90);
     // A small pinch step accumulates before it zooms.
     over(-20); expect(zoom.readerZoom()).toBe(90);
@@ -330,5 +330,15 @@ describe('zoom shortcuts and wheel are scoped to the reader', () => {
     expect(over(-100, false).defaultPrevented).toBe(false);
     expect(over(-100, true, 50).defaultPrevented).toBe(false);
     expect(zoom.readerZoom()).toBe(100);
+  });
+  it('consumes coalesced wheel distance, retains partial notches and clamps huge events', () => {
+    view = mount();
+    const wheel = (deltaY:number):void => { view!.root.dispatchEvent(new WheelEvent('wheel',{deltaY,ctrlKey:true,clientX:50,clientY:300,bubbles:true,cancelable:true})); };
+    wheel(-175); expect(zoom.readerZoom()).toBe(150); // Three full notches, -25 remaining.
+    wheel(-25); expect(zoom.readerZoom()).toBe(175);
+    wheel(-720); expect(zoom.readerZoom()).toBe(200);
+    wheel(720); expect(zoom.readerZoom()).toBe(50);
+    wheel(-1e12); expect(zoom.readerZoom()).toBe(200);
+    wheel(1e12); expect(zoom.readerZoom()).toBe(50);
   });
 });

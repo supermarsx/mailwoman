@@ -304,9 +304,15 @@ export function useReaderZoom(opts: { root: () => HTMLElement | undefined; activ
       distance += e.deltaY * scale;
       clearTimeout(idle);
       idle = setTimeout(() => { distance = 0; }, 400);
-      if (Math.abs(distance) < WHEEL_STEP) return;
-      if (distance < 0) zoomIn(); else zoomOut();
-      distance = 0;
+      if (!Number.isFinite(distance)) { distance = 0; return; }
+      const steps = Math.trunc(distance / WHEEL_STEP);
+      if (steps === 0) return;
+      distance -= steps * WHEEL_STEP;
+      // Browsers may combine several physical notches into one trusted event.
+      // Consume their full distance in one bounded update, retaining the pinch
+      // remainder rather than discarding every notch after the first.
+      const at = ZOOM_STEPS.findIndex(level => level === readerZoom());
+      setReaderZoom(ZOOM_STEPS[Math.max(0, Math.min(ZOOM_STEPS.length - 1, at - steps))]!);
     };
 
     doc.addEventListener('keydown', keys, true);
